@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { hourLabel, slotTimes } from './slot'
+import { freeHalves, freeKind, hourLabel, slotTimes } from './slot'
+import type { Occupies } from './move'
 
 /* Времена пустого часа. Проверка отвечает на ОДИН вопрос — что двигает
    переключатель получаса, — и ответ у неё тот же, что у сервера: время записи
@@ -40,5 +41,37 @@ describe('C26.5.3-c: получас двигает ОДНО время из дв
 
   it('час ячейки канвы называется так же, как его печатал сервер', () => {
     expect([hourLabel(9), hourLabel(13)]).toEqual(['09:00', '13:00'])
+  })
+})
+
+/* Свободные старты часа по блокам колонки (17.10). ⛔ Половина занята, если
+   её задевает ЛЮБОЙ занятый блок: визит 09:00–09:45 забирает обе — слот в
+   09:45 канва не предлагает, и подсказка «+ Programare» там не нужна. */
+describe('свободные старты часа — подсказка по канве', () => {
+  const b = (min: number, dur: number, busy = true, id = 1): Occupies => ({ id, min, dur, busy })
+
+  it('пустой час — оба старта свободны', () => {
+    expect(freeHalves([], 9)).toEqual({ h0: true, h30: true })
+    expect(freeKind(freeHalves([], 9))).toBe('both')
+  })
+
+  it('визит на 45 минут с :00 забирает ОБЕ половины — у ячейки нет старта', () => {
+    expect(freeHalves([b(540, 45)], 9)).toEqual({ h0: false, h30: false })
+    expect(freeKind(freeHalves([b(540, 45)], 9))).toBe('none')
+  })
+
+  it('получас с :30 оставляет верхнюю половину, визит с прошлого часа — нижнюю', () => {
+    expect(freeKind(freeHalves([b(570, 30)], 9))).toBe('top')
+    /* 08:30 на час кончается в 09:30: занята только первая половина девятого */
+    expect(freeKind(freeHalves([b(510, 60)], 9))).toBe('bottom')
+  })
+
+  it('незанятый блок (отменённый, не пришёл) старт не отнимает; соседний час — тоже', () => {
+    expect(freeKind(freeHalves([b(540, 60, false)], 9))).toBe('both')
+    expect(freeKind(freeHalves([b(600, 60)], 9))).toBe('both')
+  })
+
+  it('заметка стойки считается как визит — блокировка это и есть занятый час', () => {
+    expect(freeKind(freeHalves([b(540, 60, true, 44)], 9))).toBe('none')
   })
 })

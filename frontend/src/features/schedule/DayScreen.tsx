@@ -21,7 +21,7 @@ import { SlotDialog } from './SlotDialog'
 import { canvasBlocks, canvasColName, canvasNote, type DashNote } from './dash'
 import { useClockTick } from './dashFx'
 import { day, type DayModel } from './day'
-import type { Slot } from './slot'
+import { freeHalves, type Slot } from './slot'
 import { clashAmong, hhmm, sameSlot, type Drag, type Target } from './move'
 
 /* День журнала — раздел «Programări»: «Toți medicii» и день одного врача —
@@ -139,7 +139,8 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
   /* Одно действие на все формы и диалоги: удача подменяет день и показывает
      плашку сервера, отказ — только плашку. Возвращает «получилось ли», чтобы
      диалог закрывался лишь на удаче. */
-  const act = useCallback(async (run: () => Promise<ApiResult<DayModel>>): Promise<boolean> => {
+  const act = useCallback(async (run: () => Promise<ApiResult<DayModel>>,
+    fail?: (text: string) => void): Promise<boolean> => {
     setBusy(true)
     try {
       const r = await run()
@@ -148,7 +149,13 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
       return true
     } catch (e) {
       const err = asApiError(e)
-      if (!leaveIfSignedOut(err)) setToast({ tone: 'err', text: err.text || T.offline })
+      /* `fail` — окно, которое остаётся открытым: плашка экрана под
+         модальным окном не видна (top layer), слово отказа печатает оно само */
+      if (!leaveIfSignedOut(err)) {
+        const text = err.text || T.offline
+        if (fail) fail(text)
+        else setToast({ tone: 'err', text })
+      }
       return false
     } finally {
       setBusy(false)
@@ -305,9 +312,11 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
         ? <SlotDialog key={`${slot.dk}|${slot.hour}`} open slot={slot}
                       date={m.date} form={m.form}
                       noteEnds={m.note_ends} busy={busy}
+                      free={freeHalves(canvasBlocks(m.canvas, slot.dk),
+                        Number(slot.hour.split(':')[0]))}
                       onClose={() => setSlot(null)}
-                      onAdd={(b) => act(() => day.add(at, doctor, tile, b))}
-                      onNote={(b) => act(() => day.note(at, doctor, tile, b))} />
+                      onAdd={(b, fail) => act(() => day.add(at, doctor, tile, b), fail)}
+                      onNote={(b, fail) => act(() => day.note(at, doctor, tile, b), fail)} />
         : null}
 
       {menu !== null && menuCard

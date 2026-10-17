@@ -1,3 +1,5 @@
+import { clashAmong, type Occupies } from './move'
+
 /**
  * Пустой час: слот, его времена и то, что нужно его диалогу.
  *
@@ -63,4 +65,37 @@ export function slotTimes(hour: string, half: 0 | 30, noteEnds: number[]): SlotT
 /** Час ячейки канвы в тот же вид, что печатал сервер (`f"{h:02d}:00"`). */
 export function hourLabel(h: number): string {
   return `${String(h).padStart(2, '0')}:00`
+}
+
+/**
+ * Какие из двух стартов часа (`:00`, `:30`) свободны у врача — по блокам его
+ * колонки канвы, тем же `clashAmong`, что считает помеху переносу (17.10).
+ *
+ * ⭐ Это ПОДСКАЗКА, как у диалога переноса: правду говорит сервер под своим
+ * замком, пока окно открыто, час мог занять второй администратор. Подсказка
+ * лишь не даёт нажать то, что по канве заведомо занято: до неё ячейка под
+ * 45-минутным визитом звала «+ Programare», окно предлагало оба занятых
+ * старта, а отказ «ocupat» уходил в плашку ПОД модальным окном.
+ * ⚠️ Половина занята, если ЛЮБОЙ занятый блок её задевает: визит 09:00–09:45
+ * занимает обе — 30-минутный слот в 09:45 канва не предлагает (шаг сетки).
+ */
+export interface FreeHalves {
+  h0: boolean
+  h30: boolean
+}
+
+export function freeHalves(items: Occupies[], hour: number): FreeHalves {
+  const m = hour * 60
+  return {
+    h0: clashAmong(items, m, 30, -1) < 0,
+    h30: clashAmong(items, m + 30, 30, -1) < 0,
+  }
+}
+
+/** Значение `data-free` ячейки канвы: где рисовать «+ Programare». */
+export function freeKind(f: FreeHalves): 'both' | 'top' | 'bottom' | 'none' {
+  if (f.h0 && f.h30) return 'both'
+  if (f.h0) return 'top'
+  if (f.h30) return 'bottom'
+  return 'none'
 }

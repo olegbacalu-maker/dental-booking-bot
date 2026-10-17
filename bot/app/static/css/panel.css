@@ -598,17 +598,25 @@
     вида — рамки, фона, шрифта. */
  .gcell{display:block;width:100%;height:var(--cell);border:0;border-bottom:1px solid var(--line2);
    padding:0;background:transparent;cursor:pointer;position:relative;font:inherit;color:inherit;text-align:left}
- .gcell:hover,.gcell:focus-visible,.gcell.dropzone{background:var(--teal-soft)}
+ .gcell:focus-visible,.gcell.dropzone{background:var(--teal-soft)}
  .gcell:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--teal)}
  /* Наведение на свободный час: «+ Programare» пунктирной рамкой — слово
     Олега 08.10 («оставил бы как раньше»; макет предлагал «+ HH:00», час и так
     стоит слева). Одно правило на ячейку (data-hh).
     ⛔ Цвет фирменный (--teal), не хекс: у клиники с синей темой подсказка
-    обязана стать синей. */
+    обязана стать синей.
+    ⚠️ Заливка наведения — НА РАМКЕ, а не на ячейке (17.10): подсказка стоит
+    только на свободной половине часа (`data-free`, DashCanvas), и ячейка под
+    визитом не подсвечивается сквозь полупрозрачную карточку стиля Sticlă.
+    Час без свободного старта — кнопка выключена, наведение молчит. */
  .gcell:hover::after,.gcell:focus-visible::after{content:'+\00a0 Programare';position:absolute;inset:3px 4px;
-   display:flex;align-items:center;justify-content:center;
+   display:flex;align-items:center;justify-content:center;background:var(--teal-soft);
    border:1.5px dashed var(--teal);border-radius:var(--r-chip);color:var(--teal-d);
    font-size:var(--fs-s);font-weight:600}
+ .gcell[data-free="top"]:hover::after,.gcell[data-free="top"]:focus-visible::after{bottom:calc(50% + 2px)}
+ .gcell[data-free="bottom"]:hover::after,.gcell[data-free="bottom"]:focus-visible::after{top:calc(50% + 2px)}
+ .gcell:disabled{cursor:default}
+ .gcell:disabled:hover::after{content:none}
  /* нерабочее — серым, без штриховки (макет), с подписью на первой ячейке ряда */
  .gcell.off{cursor:default;background:var(--line2)}
  .gcell.off:hover{background:var(--line2)}
@@ -829,6 +837,9 @@
    background:var(--panel);color:var(--text2);font-size:var(--fs-m);font-weight:600;
    cursor:pointer;font-variant-numeric:tabular-nums}
  .halfpick .hp.on{background:var(--teal);border-color:var(--teal);color:var(--on-teal)}
+ /* занятый по канве старт (17.10): не нажать, слово «ocupat» рядом с часом */
+ .halfpick .hp.taken,.halfpick .hp:disabled{cursor:default;color:var(--text3);background:var(--fill);border-style:dashed}
+ .halfpick .hp small{font-size:var(--fs-xs);font-weight:500}
  a.plink{color:var(--teal-d);text-decoration:none;border-bottom:1px dashed var(--teal-line)}
  a.plink:hover{border-bottom-style:solid}
  .pcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-card);

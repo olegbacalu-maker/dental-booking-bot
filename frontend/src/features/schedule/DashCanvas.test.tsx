@@ -179,6 +179,36 @@ describe('C26.5.2: канва панели — колонки, часы и ге�
     expect(onSlot).not.toHaveBeenCalled()
   })
 
+  it('«+ Programare» — только на свободной половине часа; час без старта выключен (17.10)', () => {
+    /* Колонка d2: 09:00 на час + 09:30 (кластер) — старта нет; 10 — пуст;
+       11:00 на час — нет; 12 — заметка стойки, тоже нет. Подсказку рисует
+       CSS по `data-free`, здесь проверяется признак и что выключенная ячейка
+       не открывает окно слота с двумя занятыми временами. */
+    show()
+    const cells = Array.from(cols()[0]!.querySelectorAll('.gcell'))
+    expect(cells.map((c) => c.getAttribute('data-free')))
+      .toEqual(['none', 'both', null, 'none'])
+    expect(cells.map((c) => c.hasAttribute('disabled')))
+      .toEqual([true, false, false, true])
+    fireEvent.click(cells[0] as HTMLElement)
+    expect(onSlot).not.toHaveBeenCalled()
+  })
+
+  it('45 минут с :00 — старта нет; получас с :30 — верх; визит с прошлого часа — низ', () => {
+    const m: DashCanvasModel = {
+      ...MODEL,
+      columns: [column({ blocks: [
+        appt({ id: 1, time: '09:00', min: 540, dur: 45, height: 0.75 }),
+        appt({ id: 2, time: '10:30', min: 630, dur: 30, top: 1.5, height: 0.5 }),
+        appt({ id: 3, time: '11:30', min: 690, dur: 60, top: 2.5, height: 1 }),
+      ] })],
+    }
+    show(m)
+    const cells = Array.from(cols()[0]!.querySelectorAll('.gcell'))
+    expect(cells.map((c) => c.getAttribute('data-free')))
+      .toEqual(['none', 'top', null, 'bottom'])
+  })
+
   it('геометрия блока — множители модели, а пиксель часа остаётся за CSS', () => {
     /* ⚠️ Сравнивается СМЫСЛ, а не строка: jsdom нормализует `calc()`
        («calc(1*(100% - 8px)/2 + 4px)» → «calc(4px + 0.5 * (100% - 8px))»),

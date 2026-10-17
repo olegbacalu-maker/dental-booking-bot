@@ -832,7 +832,10 @@ describe('C26.5.3-c: диалог пустого часа', () => {
     expect(document.querySelector('dialog[open]')).toBeTruthy()
     expect((document.querySelector('dialog input[placeholder="Nume pacient"]') as HTMLInputElement)
       .value).toBe('Ana Munteanu')
-    expect(document.querySelector('.toastbox')?.textContent)
+    /* ⛔ Слово отказа — В ОКНЕ (17.10): плашка экрана под модальным окном
+       не видна (top layer), и Олег читал «ничего не произошло». */
+    expect(document.querySelector('.toastbox')).toBeNull()
+    expect(document.querySelector('dialog .banner.err')?.textContent)
       .toContain('Intervalul este deja ocupat')
     expect(String(f.mock.calls[f.mock.calls.length - 1]![0])).toContain('/schedule/live')
   })

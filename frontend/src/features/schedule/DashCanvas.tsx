@@ -3,7 +3,7 @@ import { AppLink } from '../../components/AppLink'
 import { Icon, iconName } from '../../components/Icon'
 import { clinicNow, clinicTz, nowlineRows, useCardView, useFitAppts, useFitGrid, waitLabel } from './dashFx'
 import type { DashAppt, DashBlock, DashCanvasModel, DashColumn } from './dash'
-import { hourLabel } from './slot'
+import { freeHalves, freeKind, hourLabel } from './slot'
 import { cellAtY, dragOf, endOf, type CellRect, type Drag, type Target } from './move'
 
 /* Канва панели дня: колонки врачей, ряды часов, блоки с геометрией.
@@ -155,10 +155,18 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
                 )
               }
               const hh = hourLabel(h)
+              /* «+ Programare» — только на свободной половине часа (17.10):
+                 ячейка под визитом не зовёт записать туда, где старта нет, а
+                 полупрозрачная карточка стиля Sticlă не показывает подсказку
+                 сквозь себя. Час без свободного старта — кнопка выключена:
+                 окно слота предложило бы два занятых времени. ⚠️ Мишень
+                 переноса от этого не меняется — она ищется по координате. */
+              const free = freeKind(freeHalves(col.blocks, h))
               return (
-                <button key={h} type="button" data-h={h} data-hh={hh}
+                <button key={h} type="button" data-h={h} data-hh={hh} data-free={free}
                   className={hover === dk + '|' + h ? 'gcell dropzone' : 'gcell'}
                   aria-label={`${T.book} ${col.name} ${T.at} ${hh}`}
+                  disabled={free === 'none'}
                   onClick={() => onSlot(dk, col.name, hh)} />
               )
             })}

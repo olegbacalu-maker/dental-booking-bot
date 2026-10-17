@@ -21,7 +21,7 @@ import {
   canvasAppt, canvasBlocks, canvasColName, canvasNote, dash, livePath,
   type DashAppt, type DashModel, type DashNote,
 } from './dash'
-import type { Slot } from './slot'
+import { freeHalves, type Slot } from './slot'
 import { freshOf, readSeen, writeSeen, FRESH_MS } from './fresh'
 import { clashAmong, hhmm, sameSlot, type Drag, type Target } from './move'
 
@@ -282,7 +282,8 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
      значит, что каноническое состояние уже изменилось под тобой, а отказ
      приходит без данных — человек прочтёт отказ и будет смотреть на
      несуществующую запись. */
-  const act = useCallback(async (run: () => Promise<ApiResult<void>>) => {
+  const act = useCallback(async (run: () => Promise<ApiResult<void>>,
+    fail?: (text: string) => void) => {
     flying.current = true
     setBusy(true)
     try {
@@ -291,7 +292,11 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
       return true
     } catch (e) {
       const err = asApiError(e)
-      setToast({ tone: 'err', text: err.text || T.offline })
+      /* `fail` — окно, которое остаётся открытым: плашка экрана под
+         модальным окном не видна (top layer), слово отказа печатает оно само */
+      const text = err.text || T.offline
+      if (fail) fail(text)
+      else setToast({ tone: 'err', text })
       return false
     } finally {
       flying.current = false
@@ -479,14 +484,14 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
            состоянию не появляется. */
         <SlotDialog key={`${slot.dk}|${slot.hour}`} open slot={slot}
           date={d.date} form={d.slotform} noteEnds={d.note_ends} busy={busy}
+          /* Занятость стартов — ПОДСКАЗКА по канве, как `busyAt` у переноса
+             (17.10): сериализует сервер (`_slot_lock`, один критический
+             участок на «проверка + вставка»), и его отказ приходит словом
+             в само окно (`fail`), диалог остаётся открытым с набранным. */
+          free={freeHalves(blocksOf(d, slot.dk), Number(slot.hour.split(':')[0]))}
           onClose={() => setSlot(null)}
-          /* ⛔ Своей проверки занятости здесь НЕТ и быть не должно:
-             сериализует сервер (`_slot_lock`, один критический участок на
-             «проверка + вставка»), а клиентская подсказка не имеет права не
-             пустить команду. Отказ приходит словом сервера, и после него
-             диалог остаётся открытым с набранным. */
-          onAdd={(b) => act(() => dash.add(d.date, b))}
-          onNote={(b) => act(() => dash.note(d.date, b))} />
+          onAdd={(b, fail) => act(() => dash.add(d.date, b), fail)}
+          onNote={(b, fail) => act(() => dash.note(d.date, b), fail)} />
       )}
       {move && (
         /* ⛔ Подсказку о помехе считает ЭКРАН по своей канве, а не диалог по
