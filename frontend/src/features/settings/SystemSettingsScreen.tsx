@@ -26,6 +26,10 @@ const T = t('system', {
   access: 'Acces jurnal',
   feedback: 'Feedback / suport',
   bitlocker: 'Criptare disc (BitLocker)',
+  backup: 'Copii de rezervă',
+  backupLocal: 'zilnică, pe acest calculator:',
+  backupExt: 'externă:',
+  backupSet: 'Setări › Copie de rezervă',
   run: 'Actualizează acum',
   /* кнопка после клика: маршрут до ответа качает ~40 МБ и проверяет
      подпись — 20–60 секунд, в которые на экране иначе «ничего не происходит»
@@ -257,6 +261,22 @@ export function SystemSettingsScreen({ navigate = defaultNavigate, pollMs = 1500
                   </td>
                 </tr>
               )}
+              <tr>
+                <th>{T.backup}</th>
+                <td className={data.backup.tone === 'warn' ? 'dp-tone-amber' : undefined}>
+                  {/* ФАКТЫ сервера: когда была копия и куда — не описание расписания */}
+                  {T.backupLocal} {data.backup.local}
+                  <br />
+                  {T.backupExt} {data.backup.external}
+                  {data.backup.alert && (
+                    <>
+                      <br />
+                      <Icon name="excl" /> {data.backup.alert} —{' '}
+                      <AppLink href={data.backup.href}>{T.backupSet}</AppLink>
+                    </>
+                  )}
+                </td>
+              </tr>
               <tr>
                 <th>{T.feedback}</th>
                 <td><AppLink href={`mailto:${data.feedback}`}>{data.feedback}</AppLink></td>

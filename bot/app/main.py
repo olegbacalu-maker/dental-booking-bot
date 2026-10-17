@@ -26,6 +26,7 @@ from . import paths
 from . import update as upd
 from .core import dbkey, demo
 from .core import license as lic
+from .core import backup_loop
 from .core import sms_loop as sms
 from .core.auth import (chat_session, current_user, host_allowed, request_user,
                         set_request_user)
@@ -236,6 +237,11 @@ async def startup() -> None:
     # читается до первого тика, чтобы страницы знали, есть ли пакет.
     await sms.startup()
     sms.sms_async()
+    # Копии картотеки по расписанию (17.10): локальная и внешняя раз в сутки,
+    # пока программа запущена, — тот же приём; отчёт лаунчера о выполненном
+    # восстановлении уходит в ленту здесь, при старте.
+    await backup_loop.startup()
+    backup_loop.start_async()
     await _backfill_ids()
     if paths.is_frozen():
         _sweep_previous_version()

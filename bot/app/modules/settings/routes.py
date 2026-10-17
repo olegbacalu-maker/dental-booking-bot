@@ -39,7 +39,7 @@ from ...core import license as lic
 from ...core import sms_loop
 from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
-from . import backup as bkp
+from ...core import backup as bkp
 from . import crypt
 from . import system
 from . import lan

@@ -26,6 +26,7 @@ import test_admin  # noqa: E402
 import test_admin_canvas  # noqa: E402
 import test_anamneza  # noqa: E402
 import test_api  # noqa: E402
+import test_backup  # noqa: E402
 import test_booking  # noqa: E402
 import test_chair  # noqa: E402
 import test_dbcrypt  # noqa: E402
@@ -471,6 +472,11 @@ SUITES = [
     ("P3-min: комментарии Pascal", test_installer.suite_pascal_comments),
     ("P3-min: установщик компилируется", test_installer.suite_compiles),
     ("Зашифрованный бэкап клиники",test_privacy.suite_backup),
+    ("Копии: архив → пустая папка → те же пациенты", test_backup.suite_roundtrip),
+    ("Копии: восстановление кнопкой и старая база в стороне", test_backup.suite_restore_button),
+    ("Копии: под шифрованием и чужие архивы", test_backup.suite_restore_edges),
+    ("Копии: расписание под поддельными часами", test_backup.suite_schedule),
+    ("Копии: неудача — лента и баннер директора", test_backup.suite_failure),
     ("Закон 195: уведомление в боте", test_privacy.suite_bot_notice),
 ]
 

@@ -83,6 +83,11 @@ _PRELOAD = ("app/paths.py", "app/dpapi.py", "app/envfile.py",
 # остальное: db, engine, core, модули — любой из них тянет за собой FastAPI.
 _PRELOAD_MOD = {p.rsplit("/", 1)[-1][:-3] for p in _PRELOAD}
 
+# Модули копий картотеки, которые лаунчер зовёт в `_prepare` до сборки
+# приложения (17.10): им можно знать друг друга и предзагрузочный слой.
+_LAUNCHER_COPY = ("app/core/autobackup.py", "app/core/restore.py", "app/core/dbkey.py")
+_LAUNCHER_COPY_OK = _PRELOAD_MOD | {p.rsplit("/", 1)[-1][:-3] for p in _LAUNCHER_COPY}
+
 # `__file__` законен ровно там, где кто-то обязан знать, где лежит он сам:
 # paths.py — единственный, кто знает раскладку; desktop.py — лаунчер, который
 # зовут раньше paths. Везде ещё «путь рядом с собой» переживёт переезд файла
@@ -557,6 +562,30 @@ def suite(res: Result) -> None:
                 bad.append(f"{rel}:{n.lineno} → {', '.join(outside)}")
     res.ok("paths/dpapi/envfile в корне app/ и без импортов проекта", not bad,
            "лаунчер зовёт их до сборки приложения: " + "; ".join(bad))
+
+    # Модули копий, которые зовёт лаунчер ДО сборки приложения (17.10):
+    # автокопия, восстановление, ключ. Импорт `db`/`engine`/`storage`/
+    # модулей в ШАПКЕ утянул бы FastAPI в `_prepare` и уронил бы старт у
+    # клиники — а прогон этого не видит: harness лаунчер не исполняет.
+    # Отложенный импорт внутри функции (dbkey → storage) законен.
+    bad = []
+    for rel in _LAUNCHER_COPY:
+        tree = by_path.get(rel)
+        if tree is None:
+            bad.append(f"{rel} — нет по этому пути")
+            continue
+        for n in tree.body:
+            if not isinstance(n, (ast.Import, ast.ImportFrom)):
+                continue
+            targets = [m for m in _imported(n) if m]
+            own = getattr(n, "level", 0) or any(m.split(".")[0] == "app" for m in targets)
+            if not own:
+                continue
+            outside = [m for m in targets if m.split(".")[-1] not in _LAUNCHER_COPY_OK]
+            if outside:
+                bad.append(f"{rel}:{n.lineno} → {', '.join(outside)}")
+    res.ok("модули копий импортируемы лаунчером", not bad,
+           "в шапке — то, что тянет приложение: " + "; ".join(bad))
 
     # main.py подключает роутеры модулей; обратный импорт замкнул бы круг.
     # Сегодня это упало бы и так, громко, — правило стоит здесь ради того, чтобы

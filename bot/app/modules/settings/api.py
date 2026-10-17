@@ -19,23 +19,28 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import os
+import pathlib
+from datetime import datetime
 
 from fastapi import APIRouter, File, Request, UploadFile
 
+from ... import db, paths
 from ... import engine as eng
 from ... import privileged
 from ... import update as upd
-from ...core import sms_loop, theme
+from ...core import backup_loop, dbkey, restore, sms_loop, theme
 from ...core import sms_plan as splan
 from ...core.api import api_body, api_guard, api_require
 from ...core.auth import (PERM_SETTINGS, PERM_USERS, PIN_MAX, PIN_MIN, ROLE_LABEL,
                           _pin_rec, _set_auth_cookie, all_users, can, change_pin,
                           current_user, request_user)
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, SETUP_HINT, SUPPORT_PHONE,
-                            _DOW_FULL, _DOW_ORDER, msg_json, tg_refresh_meta)
+                            _DOW_FULL, _DOW_ORDER, msg_json, msg_text, tg_refresh_meta)
 from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
-from . import backup as bkp
+from ...core import backup as bkp
 from . import crypt, faq, lan, system
 from .routes import (RESTART_NOTE, _PALETTE_RO, _apply_user, _drop_user,
                      _finish_cfg, _hub_tiles, HUB_GROUPS, _lan_available, _last_logins,
@@ -582,17 +587,200 @@ async def api_pin_change(request: Request):
 
 
 # ---------- копия ----------
+#
+# Три части одного экрана (17.10): ручной экспорт (как был), внешняя копия по
+# расписанию (`core/backup_loop`) и восстановление (`core/restore`). Каждый
+# ответ несёт ОДНУ модель `_backup_data()` — экран рисует её целиком, второго
+# состояния в клиенте нет.
+
+ARCHIVES_SHOWN = 30
+
+
+def _archives_in(folder: str) -> list[dict]:
+    """Архивы в папке назначения, новейшими вперёд: свои (`dentpilot-auto-*`)
+    и ручные экспорты, положенные туда рукой."""
+    out = []
+    if not folder:
+        return out
+    try:
+        d = pathlib.Path(folder)
+        files = [p for p in d.glob("*.zip") if p.is_file()] if d.is_dir() else []
+        files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        for p in files[:ARCHIVES_SHOWN]:
+            stt = p.stat()
+            out.append({"name": p.name, "size": stt.st_size,
+                        "made": datetime.fromtimestamp(stt.st_mtime, eng.TZ).strftime("%d.%m.%Y %H:%M")})
+    except OSError:
+        return out
+    return out
+
+
+def _backup_data() -> dict:
+    d = _data_dir()
+    st = backup_loop.state()
+    return {"min_pass": bkp.MIN_PASS, "filename": bkp.archive_name(),
+            "auto": st,
+            "restore": {"local": restore.local_copies(d) if d else [],
+                        "archives": _archives_in(st["folder"]),
+                        "staged": restore.summary(d) if d else None,
+                        "pending": bool(d and restore.pending(d)),
+                        "schema": db.SCHEMA_VERSION}}
+
 
 @router.get("/api/settings/backup")
 async def api_backup(request: Request):
-    """Порог пароля и имя архива. Сама выгрузка остаётся за
+    """Модель экрана: порог пароля и имя архива (сама выгрузка остаётся за
     `POST /admin/backup/export`: файл идёт обычной формой, браузер скачивает
-    ответ потоком, а отказ возвращается на страницу с ?msg=."""
+    ответ потоком), состояние внешней копии, кандидаты на восстановление."""
     if (deny := api_require(request, PERM_SETTINGS)) is not None:
         return deny
     if not bkp.available():
         return msg_json(False, status=404)
-    return msg_json(True, data={"min_pass": bkp.MIN_PASS, "filename": bkp.archive_name()})
+    return msg_json(True, data=_backup_data())
+
+
+def _folder_check(folder: str) -> str | None:
+    """Папка назначения: абсолютная, существует, пишется, НЕ внутри папки
+    данных (копия на том же месте, что и база, — не копия). Код отказа или None."""
+    try:
+        p = pathlib.Path(folder)
+        if not p.is_absolute() or not p.is_dir():
+            return "bad_bkp_folder"
+        d = _data_dir()
+        for inside in (d, paths.data_root()):
+            if inside is not None and (p.resolve() == inside.resolve()
+                                       or inside.resolve() in p.resolve().parents):
+                return "bad_bkp_inside"
+        probe = p / f".dentpilot-write-test-{os.getpid()}"
+        probe.write_text("", encoding="utf-8")
+        probe.unlink()
+    except OSError:
+        return "bad_bkp_folder"
+    return None
+
+
+@router.post("/api/settings/backup/auto")
+async def api_backup_auto(request: Request):
+    """{folder, password}: пустая папка — выключить; пустой пароль — оставить
+    сохранённый. Папка — в clinic.json › backup (как остальные настройки),
+    пароль — в dental.env под DPAPI (как токен бота)."""
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    body = await api_body(request)
+    if body is None:
+        return msg_json(False, "bad_set", status=422)
+    folder = str(body.get("folder") or "").strip().strip("\"'")
+    pw = str(body.get("password") or "")
+    if folder and (err := _folder_check(folder)) is not None:
+        return msg_json(False, err, status=422, field="folder")
+    if pw and len(pw) < bkp.MIN_PASS:
+        return msg_json(False, "bad_bkp_pass", status=422, field="password")
+    if folder and not pw and not backup_loop.password():
+        return msg_json(False, "bad_bkp_pass", status=422, field="password")
+    try:
+        cfg = _finish_cfg(backup={"folder": folder})
+    except (ValueError, KeyError, TypeError):
+        return msg_json(False, "bad_set", status=422)
+    if pw:
+        try:
+            backup_loop.set_password(pw)
+        except OSError as ex:
+            logging.getLogger("settings").warning("backup pass: %r", ex)
+            return msg_json(False, "bad_env", status=500)
+    if eng.save_config(cfg) is not None:
+        return msg_json(False, "save_err", status=500)
+    backup_loop.wake()
+    return msg_json(True, "ok_bkp_auto" if folder else "ok_bkp_off", data=_backup_data())
+
+
+@router.post("/api/settings/backup/auto/run")
+async def api_backup_auto_run(request: Request):
+    """«Fă o copie acum»: внешняя копия сейчас, ответ — свежая модель; отказ
+    приходит словами цикла (тот же текст, что в ленте и баннере)."""
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    if not backup_loop.folder():
+        return msg_json(False, "bad_bkp_unset", status=409)
+    err = await backup_loop.run_external()
+    if err:
+        return msg_json(False, "bad_bkp_auto", status=500, data=_backup_data(),
+                        text=f"{msg_text('bad_bkp_auto')}: {err}")
+    return msg_json(True, "ok_bkp_run", data=_backup_data())
+
+
+@router.post("/api/settings/backup/restore/stage")
+async def api_restore_stage(request: Request):
+    """Принять копию и показать, что внутри, ДО подтверждения.
+    {kind: local|archive|path, name|path, password}. `local` — копия из
+    data\\backups (под ключом картотеки), `archive` — архив из папки
+    назначения по имени, `path` — архив по полному пути (флешка)."""
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    d = _data_dir()
+    body = await api_body(request)
+    if body is None or d is None:
+        return msg_json(False, "bad_rst_src", status=422)
+    kind = str(body.get("kind") or "")
+    pw = str(body.get("password") or "")
+    try:
+        if kind == "local":
+            key = dbkey.load() if dbkey.enabled() else None
+            if dbkey.enabled() and key is None:
+                raise restore.RestoreError("bad_rst_file", "cheia bazei nu poate fi citită")
+            s = await asyncio.to_thread(restore.stage_local, d, str(body.get("name") or ""), key)
+        elif kind in ("archive", "path"):
+            if kind == "archive":
+                name = str(body.get("name") or "")
+                if not backup_loop.folder() or "/" in name or "\\" in name or not name:
+                    raise restore.RestoreError("bad_rst_src", f"nume nepermis: {name!r}")
+                src = pathlib.Path(backup_loop.folder()) / name
+            else:
+                src = pathlib.Path(str(body.get("path") or "").strip().strip("\"'"))
+                if not src.is_absolute():
+                    raise restore.RestoreError("bad_rst_src", f"cale relativă: {src}")
+            s = await asyncio.to_thread(restore.stage_archive, d, src, pw)
+        else:
+            raise restore.RestoreError("bad_rst_src", f"kind={kind!r}")
+    except restore.RestoreError as ex:
+        logging.getLogger("settings").warning("restore stage: %s (%s)", ex.code, ex.detail)
+        return msg_json(False, ex.code, status=422, data=_backup_data())
+    except OSError as ex:
+        logging.getLogger("settings").warning("restore stage: %r", ex)
+        return msg_json(False, "bad_rst_file", status=500, data=_backup_data())
+    if int(s.get("schema") or 0) > db.SCHEMA_VERSION:
+        restore.cancel(d)
+        return msg_json(False, "bad_rst_newer", status=409, data=_backup_data())
+    return msg_json(True, "ok_rst_staged", data=_backup_data())
+
+
+@router.post("/api/settings/backup/restore/confirm")
+async def api_restore_confirm(request: Request):
+    """Заказать восстановление принятой копии лаунчеру и перезапустить
+    программу — как выключение шифрования (`api_crypt_off`): подмену базы
+    делает только лаунчер до старта приложения."""
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    d = _data_dir()
+    if d is None or not restore.request(d):
+        return msg_json(False, "bad_rst_none", status=409, data=_backup_data())
+    logging.getLogger("settings").warning("restore ordered: %s", restore.summary(d))
+    auto = upd.restart_app() is None
+    desktop = upd.is_desktop()
+    return msg_json(True, "ok_rst_ordered", data={
+        **_backup_data(), "restart": auto,
+        "text": f"{msg_text('ok_rst_ordered')} — {restart_text(auto)}" if desktop else "",
+        "note": RESTART_NOTE if desktop else "",
+    })
+
+
+@router.post("/api/settings/backup/restore/cancel")
+async def api_restore_cancel(request: Request):
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    d = _data_dir()
+    if d is not None:
+        restore.cancel(d)
+    return msg_json(True, "ok_rst_cancel", data=_backup_data())
 
 
 # ---------- SMS-пакет (S6): Setări › SMS ----------

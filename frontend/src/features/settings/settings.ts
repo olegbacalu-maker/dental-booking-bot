@@ -227,6 +227,9 @@ export interface SystemData {
   access: { icon: string; text: string }
   /** null вне настольного издания: у облака диск не наш. */
   bitlocker: { tone: string; icon: string; text: string } | null
+  /** Копии картотеки (17.10): последняя локальная, последняя внешняя и куда;
+   *  `tone` warn ровно при тексте баннера директора (`alert`). */
+  backup: { tone: string; local: string; external: string; alert: string; href: string }
   feedback: string
   /** Два абзаца о том, что программа работает локально (RO и RU). */
   privacy: string
@@ -239,9 +242,73 @@ export interface SystemData {
   uninstall: { found: boolean; version: string; stale: boolean; hive: string }
 }
 
+/* ---- копии картотеки (17.10): core/backup_loop, core/restore ---- */
+
+/** Состояние внешней копии по расписанию — ФАКТЫ сервера (даты, отказы),
+ *  как строка «Folderul cu date»: второе описание здесь протухло бы. */
+export interface BackupAuto {
+  folder: string
+  has_pass: boolean
+  /** Пароль сохранён, но не читается на этой машине (другая учётка Windows). */
+  pass_unreadable: boolean
+  local_at: string
+  local_error: string
+  ext_at: string
+  ext_error: string
+  ext_stale: boolean
+  stale_days: number
+  keep: number
+  /** Текст янтарной строки директора; пусто — всё в порядке. */
+  alert: string
+}
+
+export interface BackupCopy {
+  name: string
+  made: string
+  size: number
+}
+
+/** Принятая копия: что внутри — показывается ДО подтверждения. */
+export interface RestoreSummary {
+  kind: 'archive' | 'local'
+  source: string
+  name: string
+  made: string
+  files: number
+  encrypted: boolean
+  clinic: string
+  patients: number
+  appointments: number
+  documents: number
+  schema: number
+}
+
 export interface BackupData {
   min_pass: number
   filename: string
+  auto: BackupAuto
+  restore: {
+    local: BackupCopy[]
+    archives: BackupCopy[]
+    staged: RestoreSummary | null
+    /** Заказ лаунчеру уже лежит: восстановление — при следующем старте. */
+    pending: boolean
+    schema: number
+  }
+}
+
+export interface RestoreStageForm {
+  kind: 'local' | 'archive' | 'path'
+  name?: string
+  path?: string
+  password?: string
+}
+
+export interface RestoreOrdered extends BackupData {
+  restart: boolean
+  /** Что сказать про перезапуск; пусто вне настольного издания. */
+  text: string
+  note: string
 }
 
 /* ---- SMS-пакет (S6): Setări › SMS — bot/app/modules/settings/api.py ---- */
@@ -337,6 +404,16 @@ export const settings = {
     api.post<undefined>('/settings/pin', { old_pin, new1, new2 }),
   backup: (signal?: AbortSignal): Promise<ApiResult<BackupData>> =>
     api.get<BackupData>('/settings/backup', signal ? { signal } : {}),
+  backupAuto: (folder: string, password: string): Promise<ApiResult<BackupData>> =>
+    api.post<BackupData>('/settings/backup/auto', { folder, password }),
+  backupRun: (): Promise<ApiResult<BackupData>> =>
+    api.post<BackupData>('/settings/backup/auto/run', {}),
+  restoreStage: (form: RestoreStageForm): Promise<ApiResult<BackupData>> =>
+    api.post<BackupData>('/settings/backup/restore/stage', form),
+  restoreConfirm: (): Promise<ApiResult<RestoreOrdered>> =>
+    api.post<RestoreOrdered>('/settings/backup/restore/confirm', {}),
+  restoreCancel: (): Promise<ApiResult<BackupData>> =>
+    api.post<BackupData>('/settings/backup/restore/cancel', {}),
   services: (signal?: AbortSignal): Promise<ApiResult<ServicesData>> =>
     api.get<ServicesData>('/settings/services', signal ? { signal } : {}),
   servicesSave: (services: ServiceEntry[]): Promise<ApiResult<ServicesData>> =>

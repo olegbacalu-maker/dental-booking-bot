@@ -24,6 +24,8 @@ const FRESH: SystemData = {
   feedback: 'suport@dentpilot.md',
   privacy: '<p>Programul funcționează local.</p>',
   uninstall: { found: true, version: '1.28.0', stale: false, hive: 'HKLM' },
+  backup: { tone: 'ok', local: '17.10.2026 09:00', external: 'neconfigurată (Setări › Copie de rezervă)',
+    alert: '', href: '/admin/settings/backup' },
 }
 
 const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, text, tone: 'ok' })

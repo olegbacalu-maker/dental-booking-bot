@@ -486,7 +486,7 @@ def suite_export_err(res: Result) -> None:
     базы, забытого в %TEMP% (находка волны 2). Заодно: обе инструкции
     восстановления обязаны называть db.key — плоская база из архива на машине
     с включённым шифрованием иначе открывается ключом и выглядит битой."""
-    from app.modules.settings import backup as bkp_mod
+    from app.core import backup as bkp_mod
 
     res.ok("CITESTE-MA.txt называет db.key", "db.key" in bkp_mod._readme(),
            "восстановление из архива при включённом шифровании даст "

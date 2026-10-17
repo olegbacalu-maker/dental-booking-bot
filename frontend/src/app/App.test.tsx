@@ -50,6 +50,7 @@ const SHELL: ShellModel = {
     slot: { shown: false, html: '' },
     setup: { shown: false, html: '' },
     demo: { shown: false, html: '' },
+    backup: { shown: false, html: '' },
   },
   frame: {
     title: 'Setări', sub: 'setări', crumbs: [], rail: false, update: '', msg: '',

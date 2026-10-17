@@ -98,6 +98,8 @@ MUTATIONS = [
      "\nasync def _mut_attr(uid):\n    auth.save_user(uid, name='x', role='medic')\n"),
     ("paths/dpapi/envfile", "app/paths.py",
      "\nfrom . import db  # noqa\n"),
+    ("модули копий импортируемы лаунчером", "app/core/restore.py",
+     "\nfrom .. import db  # noqa\n"),
     ("не импортирует main", "app/core/visits.py",
      "\nfrom app import main  # noqa\n"),
     # ---- переприсваиваемое имя по значению (14.10) ----
@@ -484,6 +486,10 @@ MUTATIONS = [
 # и отключают такое правило целиком, вместе с настоящей проверкой. Формат тот
 # же, что у MUTATIONS, только ожидание обратное.
 LEGAL = [
+    # отложенный импорт ВНУТРИ функции — так dbkey берёт storage; правило
+    # смотрит только шапку, иначе краснело бы на том, что уже работает
+    ("модули копий импортируемы лаунчером", "app/core/restore.py",
+     "\ndef _mut():\n    from .storage import _data_dir  # noqa\n    return _data_dir\n"),
     # ⭐ Законная работа экрана раздвоения: он зовёт ОТДЕЛЬНЫЙ оракул
     # (`verify_source_pin`) и заводит счётчик в назначении. Правило про вход
     # обязано на это молчать — иначе первым же красным «на ровном месте» оно

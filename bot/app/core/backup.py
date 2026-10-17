@@ -8,13 +8,23 @@
 продукта соло-вендора: копия, которую может открыть только программа, которая
 может не запуститься, — не копия, а обязательство.
 
-Пароль вводится при каждом экспорте и НИГДЕ не хранится. Хранить его — значит
-привязать копию к этой машине (DPAPI) и потерять весь смысл выездного архива.
+Пароль РУЧНОГО экспорта вводится при каждом экспорте и НИГДЕ не хранится.
 Забытый пароль убивает один архив, живая база остаётся читаемой — этим экспорт
 безопаснее шифрования самой базы, где забытый ключ = потерянная картотека.
+⚠️ У АВТОМАТИЧЕСКОЙ внешней копии (`backup_loop`, с 17.10) пароль хранится —
+в `dental.env` под DPAPI, как токен бота: без него суточная копия невозможна.
+Это НЕ привязывает архив к машине: архив по-прежнему открывается 7-Zip'ом
+паролем, который клиника выбрала и знает; к машине привязана только
+возможность программы писать новые архивы, и на другом ПК пароль просят
+ввести заново (`backup_loop.password()` отличает «не задан» от «не читается»).
+
+Формат один на оба пути: `write_encrypted` зовут и кнопка «Exportă arhiva», и
+суточная копия, и то, что восстанавливает `core/restore.py`.
 
 ⚠️ pyzipper есть только в настольном издании (requirements-desktop). Облако
 живёт без него, поэтому импорт ленивый, а `available()` — часть договора.
+⭐ Лежит в `core/`, а не в `modules/settings/` (переехал 17.10): писателя
+зовёт фоновый цикл `core/backup_loop`, а `core` модулей не импортирует.
 """
 from __future__ import annotations
 
@@ -22,7 +32,7 @@ import pathlib
 import sqlite3
 from datetime import datetime
 
-from ... import paths
+from .. import paths
 
 MIN_PASS = 10   # 4–8 цифр PIN здесь не годятся: архив уезжает с машины,
                 # то есть попадает ровно туда, где офлайн-перебор возможен
@@ -51,7 +61,7 @@ def _db_snapshot(src: pathlib.Path, dst: pathlib.Path) -> None:
     Требование «не короче 10 знаков» после шифрования базы стало важнее, а не
     наоборот.
     """
-    from ...core import dbkey
+    from . import dbkey
 
     if not dbkey.enabled():
         a = sqlite3.connect(str(src))
@@ -104,7 +114,7 @@ def _logo_files() -> list[tuple[pathlib.Path, str]]:
     смене формата удаляет второй), так что список выходит из одного имени, а
     расхождение профиля с диском копию больше не обкрадывает.
     """
-    from ...core import theme
+    from . import theme
 
     d = theme.logo_dir()
     out = []
@@ -187,7 +197,7 @@ def _manifest(snap: pathlib.Path, files: list[tuple[pathlib.Path, str]]) -> str:
     никого не блокирует. Любая ошибка описи не должна валить сам бэкап —
     опись украшает архив, а спасает его содержимое.
     """
-    from ...core import theme
+    from . import theme
 
     logo_arcs = set(theme.LOGO_NAMES.values())
     arc_by_name = {src.name: arc for src, arc in files}
@@ -290,7 +300,14 @@ def _readme() -> str:
         "Parola NU este salvata nicaieri - fara ea datele nu pot fi citite.\r\n\r\n"
         "Ce este inauntru - vezi CONTINUT.txt dupa dezarhivare: cati pacienti,\r\n"
         "cate programari si care fisier tehnic este care document real.\r\n\r\n"
-        "Restaurare pe un calculator nou:\r\n\r\n"
+        "CEL MAI SIMPLU - din program: instalati DentPilot, porniti-l o data,\r\n"
+        "apoi Setari > Copie de rezerva > Restaureaza din copie: alegeti\r\n"
+        "aceasta arhiva (calea ei) si parola. Programul arata cati pacienti\r\n"
+        "contine copia, iar la urmatoarea pornire pune totul la loc - inclusiv\r\n"
+        "legaturile catre documentele pacientilor si criptarea evidentei, daca\r\n"
+        "este activata. Pasii de mai jos sunt pentru cazul in care programul\r\n"
+        "nu poate fi instalat si arhiva se desface cu 7-Zip.\r\n\r\n"
+        "Restaurare manuala pe un calculator nou:\r\n\r\n"
         "  FOLDERUL CU DATE - acolo se restaureaza totul.\r\n"
         "  ATENTIE: NU este folderul in care se instaleaza DentPilot.exe.\r\n"
         "  Datele clinicii stau separat de program:\r\n"
@@ -322,7 +339,12 @@ def _readme() -> str:
         "     (\"file is not a database\"). Dupa restaurare criptarea se\r\n"
         "     activeaza din nou din Setari - Criptarea evidentei. Este singura\r\n"
         "     situatie in care acest fisier se sterge.\r\n"
-        "  6. Porniti programul - pacientii, programarile si documentele sunt la loc.\r\n"
+        "  6. Porniti programul - pacientii si programarile sunt la loc.\r\n"
+        "     ATENTIE: documentele pacientilor sunt legate in baza de date prin\r\n"
+        "     calea de pe calculatorul vechi. Daca folderul cu date de aici este\r\n"
+        "     altul, fisele vor arata \"lipseste pe disc\" desi fisierele sunt in\r\n"
+        "     data\\files - calea se reface doar prin restaurarea din program\r\n"
+        "     (butonul de mai sus), nu prin dezarhivare.\r\n"
         "  7. Reintroduceti tokenul botului Telegram in Setari (tokenul nu se\r\n"
         "     copiaza intre calculatoare, din motive de securitate).\r\n\r\n"
         "ACELASI PAS 3 se aplica si cand copiati o singura copie zilnica din\r\n"

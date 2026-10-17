@@ -23,7 +23,7 @@ from .. import engine as eng
 from .. import update as upd
 from . import demo
 from . import license as lic
-from . import sms_loop
+from . import backup_loop, sms_loop
 from . import theme
 from .auth import (PERM_DOCTORS, PERM_MONEY, PERM_SETTINGS, PIN_MAX, PIN_MIN,
                    ROLE_LABEL, _pin_rec, can,
@@ -307,6 +307,29 @@ MSG_BANNER = {
                       "medicale rămân sub numărul fișei"),
     "bad_erase": ("err", "Pentru ștergere scrieți STERG în câmpul de confirmare"),
     "bad_bkp_pass": ("err", "Parola arhivei trebuie să aibă cel puțin 10 caractere"),
+    # Внешняя копия по расписанию и восстановление (17.10, core/backup_loop,
+    # core/restore): один код на страницу и на JSON, как у всех
+    "ok_bkp_auto": ("ok", "Copia de rezervă automată a fost setată — prima arhivă se "
+                          "face în câteva minute"),
+    "ok_bkp_off": ("ok", "Copia de rezervă automată a fost oprită"),
+    "bad_bkp_folder": ("err", "Folderul nu există sau nu se poate scrie în el — alegeți un "
+                              "folder de pe alt disc, de pe un stick USB sau din folderul "
+                              "cloud al clinicii"),
+    "bad_bkp_inside": ("err", "Folderul este în interiorul folderului cu date al programului "
+                              "— o copie păstrată lângă original dispare împreună cu el"),
+    "bad_bkp_unset": ("err", "Setați întâi folderul și parola copiei automate"),
+    "ok_bkp_run": ("ok", "Copia de rezervă externă a fost făcută"),
+    "bad_bkp_auto": ("err", "Copia de rezervă externă nu s-a făcut"),
+    "ok_rst_staged": ("ok", "Copia a fost verificată — confirmați restaurarea"),
+    "bad_rst_pass": ("err", "Parola arhivei nu este corectă"),
+    "bad_rst_file": ("err", "Fișierul nu este o copie de rezervă DentPilot sau este "
+                            "deteriorat"),
+    "bad_rst_src": ("err", "Fișierul nu a fost găsit — verificați calea"),
+    "bad_rst_newer": ("err", "Copia provine dintr-o versiune mai nouă a programului — "
+                             "actualizați programul, apoi restaurați"),
+    "bad_rst_none": ("err", "Nu există o copie verificată — alegeți întâi copia"),
+    "ok_rst_ordered": ("ok", "Restaurarea se face la următoarea pornire a programului"),
+    "ok_rst_cancel": ("ok", "Restaurarea a fost anulată"),
     "bad_bkp": ("err", "Nu am putut crea arhiva de rezervă — verificați spațiul "
                        "pe disc; detalii în data\\dentpilot.log"),
     "bad_card": ("err", "Date invalide — verificați câmpurile fișei"),
@@ -816,6 +839,23 @@ def _tamper_banner() -> str:
             "<button style='background:none;border:1px solid currentColor;"
             "border-radius:8px;padding:4px 12px;cursor:pointer;color:inherit;"
             "font-size:13px'>Am luat la cunoștință</button></form></div>")
+
+
+def _backup_banner() -> str:
+    """Копии картотеки (17.10): локальная не удалась, внешняя не удалась или
+    старше `backup_loop.STALE_DAYS` — янтарная строка ДИРЕКТОРУ на каждом
+    экране, ведёт к настройке. Регистратуре не показывается: папку и пароль
+    меняет тот, у кого есть права на настройки. Текст — `backup_loop.alert()`,
+    тот же, что видит Stare sistem; условие сторож сверяет значением."""
+    txt = backup_loop.alert()
+    if not txt or demo.on():
+        return ""
+    me = request_user()
+    if me is not None and not can(me, PERM_SETTINGS):
+        return ""
+    return (f"<div class='banner warn' style='margin-bottom:14px'>{_ic('save')} "
+            f"{html.escape(txt)}. <a href='/admin/settings/backup'><b>Copie de "
+            f"rezervă</b></a></div>")
 
 
 def _lic_date(d) -> str:
@@ -1390,7 +1430,7 @@ def shell_model(active: str, sub: str, rail: bool = False,
         "signals": {"license": _sig(_license_banner()),
                     "tamper": _sig(_tamper_banner()), "split": _sig(_split_banner()),
                     "slot": _sig(_slot_banner()), "setup": _sig(_setup_hint()),
-                    "demo": _sig(_demo_banner())},
+                    "demo": _sig(_demo_banner()), "backup": _sig(_backup_banner())},
         # `title` — страница с собственным именем (фиша: имя пациента, 09.10 по
         # разбору: H1 «Pacienți» дублировал крошку); пустой — имя раздела
         "frame": {"title": title or section_title(active), "sub": sub, "rail": rail,
@@ -1489,7 +1529,7 @@ def _shell(body: str, sub: str, active: str = "dash", rail: bool = False) -> str
 <div class="content">
 <h1>{section_title(active)}</h1>
 {sub_html}
-{_demo_banner()}{_license_banner()}{_tamper_banner()}{_split_banner()}{_slot_banner()}{_setup_hint()}
+{_demo_banner()}{_license_banner()}{_tamper_banner()}{_split_banner()}{_slot_banner()}{_setup_hint()}{_backup_banner()}
 {body}
 </div></div>
 <script src="/static/js/panel.js?v={_asset_ver('js', 'panel.js')}"></script>

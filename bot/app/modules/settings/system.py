@@ -19,7 +19,7 @@ import os
 
 from ... import engine as eng
 from ... import update as upd
-from ...core import bitlocker
+from ...core import backup_loop, bitlocker
 from ...core.auth import ADMIN_KEY, _pin_rec
 from ...core.layout import (FEEDBACK_EMAIL, _ic, data_folder, tg_configured,
                             tg_status)
@@ -111,6 +111,23 @@ def access_state() -> dict:
     return {"icon": "lock", "text": "parolă (ADMIN_KEY)" if ADMIN_KEY else "deschis"}
 
 
+def backup_state() -> dict:
+    """Копии картотеки — ФАКТАМИ (17.10): когда была последняя локальная,
+    когда последняя внешняя и куда, что не удалось. Тон `warn` ровно при
+    тексте баннера директора (`backup_loop.alert`) — одно условие на оба."""
+    st = backup_loop.state()
+    local = st["local_at"] or "încă nu s-a făcut"
+    if not st["folder"]:
+        ext = "neconfigurată (Setări › Copie de rezervă)"
+    elif st["ext_at"]:
+        ext = f"{st['ext_at']} în {st['folder']}"
+    else:
+        ext = f"încă nu s-a făcut, în {st['folder']}"
+    return {"tone": "warn" if st["alert"] else "ok",
+            "local": local, "external": ext, "alert": st["alert"],
+            "href": "/admin/settings/backup"}
+
+
 def db_label() -> str:
     return "SQLite (local, data/dental.db)"
 
@@ -147,6 +164,7 @@ def data() -> dict:
         "channel": channel_state(),
         "access": access_state(),
         "bitlocker": bitlocker_state(),
+        "backup": backup_state(),
         "feedback": FEEDBACK_EMAIL,
         "privacy": privacy_html(),
         # P4.1. ⚠️ Состояние, а не действие: правка записи требует прав

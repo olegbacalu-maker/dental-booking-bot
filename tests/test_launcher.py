@@ -535,6 +535,19 @@ def suite_autobackup(res: Result) -> None:
         desk = (BOT / "desktop.py").read_text(encoding="utf-8")
         res.ok("лаунчер делает копию через autobackup", "autobackup" in desk,
                "desktop.py копирует сам — логика раздвоится и уйдёт из-под тестов")
+        # восстановление из копии (17.10): заказ со страницы исполняет ТОЛЬКО
+        # лаунчер, до старта приложения — иначе подмена базы под открытым
+        # соединением; порядок — до ключа и до автокопии
+        # ⚠️ Ищем внутри `_prepare`, не по всему файлу: `def _auto_backup()`
+        # объявлен выше и как текст содержит тот же вызов
+        start = desk.find("def _prepare(")
+        body = desk[start:] if start >= 0 else ""
+        i_r, i_k, i_b = (body.find("restore.apply_pending"), body.find("dbkey.apply_pending"),
+                         body.find("    _auto_backup()"))
+        res.ok("лаунчер исполняет заказ восстановления до ключа и до автокопии",
+               start >= 0 and 0 <= i_r < i_k < i_b,
+               f"prepare={start}, restore={i_r}, dbkey={i_k}, autobackup={i_b}: "
+               f"восстановление не зовётся или идёт не первым")
     finally:
         import shutil
         _rmtree_settled(tmp)
