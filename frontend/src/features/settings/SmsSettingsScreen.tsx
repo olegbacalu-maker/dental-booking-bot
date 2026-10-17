@@ -61,7 +61,7 @@ const T = {
   orderedPay: 'Plătește cu cardul',
   senderTitle: 'Numele expeditorului',
   senderNone: 'SMS-urile pleacă de la numele „DentPilot" cu denumirea clinicii în text. Puteți cere numele propriu (până la 11 caractere latine).',
-  senderRequested: 'cerere trimisă — semnați cererea pentru operatori și trimiteți-o la DentPilot',
+  senderRequested: 'cerere trimisă — descărcați cererea completată în contul clinicii (cloud.dentpilot.md/cont), semnați-o și încărcați-o acolo',
   senderSubmitted: 'la operatori: 1–2 zile lucrătoare',
   senderActive: 'activ',
   senderRejected: 'respins',
