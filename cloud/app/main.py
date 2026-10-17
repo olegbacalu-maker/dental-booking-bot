@@ -21,8 +21,8 @@ from fastapi import BackgroundTasks, FastAPI, Form, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import (account, auth, config, db, download, fleet, jobs, license, logmask, maib, mail, payments, paylink, robots,
-               sms, sms_rule, smsmd, smsreport, trial, updates, views)
+from . import (account, auth, config, db, download, fleet, jobs, license, logmask, maib, mail, payments, paylink,
+               receipts, robots, sms, sms_rule, smsmd, smsreport, trial, updates, views)
 from . import login as elogin  # ⚠️ не `login`: так зовётся маршрут входа админки ниже, он затенил бы модуль
 
 APP_VERSION = "0.1.0"
@@ -1092,6 +1092,26 @@ def _payment(con, pid: int):
     return con.execute("SELECT * FROM payments WHERE id=?", (pid,)).fetchone()
 
 
+def _pdf(row) -> Response:
+    """Cont de plată из снимка — в окно браузера, с именем файла для «Сохранить»."""
+    return Response(receipts.render(row), media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="{receipts.filename(row["number"])}"'})
+
+
+@app.get("/admin/payments/{pid}/cont.pdf")
+def payment_receipt(request: Request, pid: int) -> Response:
+    """Cont de plată оплаченного платежа (receipts.py, 17.10); не оплачен — 404.
+    Оплаченный до таблицы receipts получает снимок при первом запросе."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    with db.connect() as con:
+        p = _payment(con, pid)
+        row = receipts.ensure(con, p, auth.current_user(request)) if p is not None else None
+    if row is None:
+        return Response(status_code=404)
+    return _pdf(row)
+
+
 def _back(request: Request, p) -> str:
     """Откуда пришли: со страницы ожидающих — туда же, иначе в карточку."""
     ref = request.headers.get("referer", "")
@@ -1599,6 +1619,21 @@ def cont_note(request: Request, months: str = Form("1"), method: str = Form(paym
         log.error("maib: нота из кабинета не создана: %s", e)
         return RedirectResponse("/cont?msg=maib_failed", status_code=303)
     return RedirectResponse("/cont?msg=note_created", status_code=303)
+
+
+@app.get("/cont/plati/{number}.pdf")
+def cont_receipt(request: Request, number: str) -> Response:
+    """Cont de plată из кабинета — только документ СВОЕЙ клиники; чужой номер или
+    неоплаченная нота — 404, без входа — на вход."""
+    with db.connect() as con:
+        acc, c = _cont_clinic(request, con)
+        if c is None:
+            return _cont_login_redirect()
+        p = con.execute("SELECT * FROM payments WHERE reference=? AND clinic_id=?", (number, c["id"])).fetchone()
+        row = receipts.ensure(con, p, acc["email"]) if p is not None else None
+    if row is None:
+        return Response(status_code=404)
+    return _pdf(row)
 
 
 # ---------- скачивание с сайта (L15): /descarca ----------

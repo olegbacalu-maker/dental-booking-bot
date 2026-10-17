@@ -22,7 +22,7 @@ DP_ADMIN_HASH=$(python -m app.tools hash-password) DP_LICENSE_KEY=../tests/fixtu
 | `DP_SECRET` | подпись куки сессии; пусто — случайная на процесс (сессии не переживут рестарт) |
 | `DP_SECURE_COOKIES` | `1` за TLS (Caddy) |
 | `DP_SMTP_HOST/PORT/USER/PASS`, `DP_MAIL_FROM` | почта; без хоста письма ложатся файлами в `DP_MAIL_OUTBOX` |
-| `DP_BANK_BENEFICIARY`, `DP_BANK_IBAN`, `DP_BANK_NAME`, `DP_BANK_CODE` | реквизиты в письме о переводе; без них платёж создаётся, письмо не уходит |
+| `DP_BANK_BENEFICIARY`, `DP_BANK_IBAN`, `DP_BANK_NAME`, `DP_BANK_CODE` | реквизиты в письме о переводе; без них платёж создаётся, письмо не уходит. Те же — продавец на cont de plată (17.10), плюс `DP_SELLER_ADDRESS` — его адрес |
 | `DP_MAIB_PROJECT_ID`, `DP_MAIB_PROJECT_SECRET`, `DP_MAIB_SIGNATURE_KEY` | проект maib ecommerce (L12): оплата картой по ссылке; пусто — только переводом. `DP_MAIB_BASE_URL` — адрес API, меняют только тесты |
 | `DP_TRIAL_MODE`, `DP_TRIAL_NOTIFY` | заявка на пробный (`/proba` и из программы): `auto` — файл сразу, программа включается в момент заявки (боевой режим с 26.09, `cloud.env.example`); `approve` (умолчание кода) — заявка ждёт кнопки в админке; письмо о каждой заявке на `DP_TRIAL_NOTIFY` (пусто = ящик поддержки) |
 | `DP_DECLARATION` | подписанный PDF декларации поставщика (закон 195, текст — `docs/site/declaratie-195.html`): вложением в каждое письмо с файлом лицензии; пусто или не PDF — письма без него, `check` предупреждает |
@@ -99,6 +99,17 @@ python -m app.jobs daily --at 2026-10-17T06:00:00Z     # разбор: что у
 старую запись отвязать — новый вход привяжется по ящику). Подпись id_token
 не проверяется намеренно: токен приходит прямым HTTPS-запросом сервера к
 Google с client_secret (`app/account.py`). Паролей клиник на сервере нет.
+
+**Cont de plată после оплаты (17.10)** — на каждый оплаченный платёж (абонемент,
+пакет SMS, имя отправителя) `payments.confirm` делает снимок в `receipts`
+(номер = reference, продавец из `DP_BANK_*` + `DP_SELLER_ADDRESS`, покупатель
+из строки клиники, предмет, сумма, чем оплачено), а `receipts.py` рисует из него
+PDF «Cont de plată nr. … ACHITAT» без библиотек (`pdf.py`): вложением в письмо об
+оплате, по ссылке «cont PDF» в админке (`/admin/payments/{id}/cont.pdf`) и в
+кабинете (`/cont/plati/{reference}.pdf`, только своя клиника). Румынские буквы —
+только с Inter в `app/assets` (см. README там); без него Helvetica и ă→a, о чём
+говорит `check`. Поставщик — antreprenor independent: без TVA и без factura
+fiscală, документ так и говорит. Разбор — `docs/dentpilot-2/cloud.md` › «Оплата › Шаг 3».
 
 **SMS-пакет (S3–S4, 16.10)** — `/v1/sms/account|send|status|sender|order` для
 программы (Bearer — токен клиники), `/v1/smsmd/dlr/<секрет>` для уведомлений

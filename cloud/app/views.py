@@ -433,6 +433,14 @@ def _term(p) -> str:
     return f"{p['months']} мес."
 
 
+def _receipt_link(p) -> str:
+    """Cont de plată оплаченного платежа (17.10): ссылка в новое окно; у неоплаченного ничего."""
+    if p["status"] != "paid":
+        return ""
+    return (f" · <a href='/admin/payments/{p['id']}/cont.pdf' target='_blank' rel='noopener' "
+            f"title='Cont de plată с отметкой achitat — то, что ушло клинике вложением'>cont PDF</a>")
+
+
 def _payment_rows(rows: list, with_clinic: bool = False) -> str:
     out = []
     for p in rows:
@@ -467,7 +475,7 @@ def _payment_rows(rows: list, with_clinic: bool = False) -> str:
                    f"{(' · ' + esc(p['paid_at'][:10])) if p['paid_at'] else ''}"
                    f"{(' · ' + esc(p['confirmed_by'])) if p['confirmed_by'] and p['status'] == 'paid' else ''}"
                    f"{(' · ' + ('картой' if p['paid_via'] == 'card' else 'переводом')) if p['status'] == 'paid' and p['paid_via'] else ''}"
-                   f"{_card_cell(p)}</td><td>{actions}</td></tr>")
+                   f"{_receipt_link(p)}{_card_cell(p)}</td><td>{actions}</td></tr>")
     return "".join(out)
 
 
@@ -1421,6 +1429,14 @@ _STEPS = ("<ol class='steps'>"
           "singur noul termen — o dată pe zi sau cu «Verifică acum».</li></ol>")
 
 
+def _receipt_link_ro(p) -> str:
+    """Cont de plată (PDF) оплаченной ноты в кабинете; у неоплаченной — тире."""
+    if p["status"] != "paid":
+        return "<span class='muted'>—</span>"
+    return (f"<a href='/cont/plati/{esc(p['reference'])}.pdf' target='_blank' rel='noopener'>"
+            f"cont de plată (PDF)</a>")
+
+
 def _cont_payments(c, sub, payments: list) -> str:
     price = sub["price"] if sub else config.PRICE_MONTH
     pending = [p for p in payments if p["status"] == "pending"]
@@ -1455,9 +1471,10 @@ def _cont_payments(c, sub, payments: list) -> str:
         f"<tr><td class='mono'>{esc(p['reference'])}</td><td>{p['amount']} MDL</td>"
         f"<td>{esc(mail.luni(p['months']))}</td><td>{_ro(p['created_at'])}</td>"
         f"<td>{_pay_tag_ro(p['status'])}{(' · ' + _ro(p['paid_at'])) if p['paid_at'] else ''}{_card_link_ro(p)}"
-        f"</td></tr>" for p in payments)
-    table = (f"<table><tr><th>Referința</th><th>Suma</th><th>Termen</th><th>Data</th><th>Stare</th></tr>"
-             f"{rows or '<tr><td colspan=5 class=muted>Nu sunt note de plată</td></tr>'}</table>") if payments else ""
+        f"</td><td>{_receipt_link_ro(p)}</td></tr>" for p in payments)
+    table = (f"<table><tr><th>Referința</th><th>Suma</th><th>Termen</th><th>Data</th><th>Stare</th>"
+             f"<th>Document</th></tr>"
+             f"{rows or '<tr><td colspan=6 class=muted>Nu sunt note de plată</td></tr>'}</table>") if payments else ""
     return top + table
 
 

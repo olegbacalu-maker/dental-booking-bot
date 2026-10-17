@@ -32,7 +32,7 @@ import calendar
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
-from . import db, license, maib, sms
+from . import db, license, maib, receipts, sms
 
 PENDING, PAID, REJECTED = "pending", "paid", "rejected"
 TRANSFER, CARD = "transfer", "card"
@@ -138,10 +138,12 @@ def notify_paid(con: sqlite3.Connection, payment: sqlite3.Row, who: str) -> str:
     """Письмо после оплаты — по виду: пакет SMS → «pachetul a fost activat»,
     абонемент → письмо о лицензии (license.mail_latest). Код для ?msg= или ''."""
     clinic = con.execute("SELECT * FROM clinics WHERE id=?", (payment["clinic_id"],)).fetchone()
+    fresh = con.execute("SELECT * FROM payments WHERE id=?", (payment["id"],)).fetchone()
+    # cont de plată (17.10) — вложением в то же письмо, что говорит об оплате
+    receipt = receipts.attachment(con, fresh, who)
     if payment["kind"] in (SMS, SMS_NAME):
-        fresh = con.execute("SELECT * FROM payments WHERE id=?", (payment["id"],)).fetchone()
-        return (sms.mail_pack if payment["kind"] == SMS else sms.mail_name)(con, clinic, fresh, who)
-    return license.mail_latest(con, clinic, who)
+        return (sms.mail_pack if payment["kind"] == SMS else sms.mail_name)(con, clinic, fresh, who, receipt=receipt)
+    return license.mail_latest(con, clinic, who, receipt=receipt)
 
 
 def attach_card(con: sqlite3.Connection, payment: sqlite3.Row, clinic: sqlite3.Row, who: str,
@@ -206,6 +208,7 @@ def confirm(con: sqlite3.Connection, payment: sqlite3.Row, who: str,
         what = f"пакет {payment['sms_units']} SMS" if payment["kind"] == SMS else "год имени отправителя"
         db.audit(con, who, "payment_paid", clinic["id"], f"{payment['reference']}: {payment['amount']} MDL, {what}")
         (sms.credit_pack if payment["kind"] == SMS else sms.credit_name)(con, payment, who)
+        receipts.create(con, payment["id"], who)
         return 0, ""
     sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (clinic["id"],)).fetchone()
     now = datetime.now(timezone.utc).replace(microsecond=0)
@@ -221,6 +224,9 @@ def confirm(con: sqlite3.Connection, payment: sqlite3.Row, who: str,
                            f"платёж {payment['reference']}", who)
     # якорь — после выдачи: она заводит строку подписки, если её ещё не было
     con.execute("UPDATE subscriptions SET anchor_day=? WHERE clinic_id=?", (day, clinic["id"]))
+    # cont de plată (17.10): снимок оплаты с оплаченным сроком — от начала периода до нового конца
+    start = now if current is None or current < now else current
+    receipts.create(con, payment["id"], who, period=(start, valid))
     return issued
 
 

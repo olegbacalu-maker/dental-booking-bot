@@ -247,6 +247,19 @@ RENEW_NOTE = ("Programul DentPilot preia singur noul termen când are acces la i
 
 CONT_URL = config.BASE_URL.rstrip("/") + "/cont"
 
+# cont de plată (17.10): фраза в письме об оплате, когда документ приложен (receipts.py)
+RECEIPT_NOTE = ("Contul de plată nr. {number}, cu mențiunea „achitat”, este în atașament (PDF) — pentru "
+                "contabilitatea clinicii; îl găsiți oricând și în contul clinicii, {cont}.")
+
+
+def with_receipt(body: str, number: str) -> str:
+    """Письмо с фразой о приложенном cont de plată — перед подписью."""
+    note = RECEIPT_NOTE.format(number=number, cont=CONT_URL)
+    tail = "\n\n" + FOOTER
+    if body.endswith(tail):
+        return body[:-len(tail)] + "\n\n" + note + tail
+    return body + "\n\n" + note
+
 
 def trial_received(clinic: str, days: int, origin: str = "form") -> tuple[str, str]:
     """Клинике: заявка принята (режим approve). С формы — файл придёт письмом; из

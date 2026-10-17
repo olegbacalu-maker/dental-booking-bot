@@ -25,6 +25,7 @@ import test_payments  # noqa: E402
 import test_paylink  # noqa: E402
 import test_update  # noqa: E402
 import test_pure  # noqa: E402
+import test_receipts  # noqa: E402
 import test_renew  # noqa: E402
 import test_robots  # noqa: E402
 import test_sms  # noqa: E402
@@ -49,6 +50,9 @@ SUITES = [
     ("Сервер: правило продления на неудобных датах", test_payments.suite_rules),
     ("Сервер: платёж переводом — ожидание, подтверждение, отказ", test_payments.suite_flow),
     ("Сервер: якорь продления и зачёт повторного перевода", test_payments.suite_anchor_repeat),
+    ("Сервер: cont de plată — генератор PDF без библиотек, деньги, имя, режим шрифта", test_receipts.suite_pdf),
+    ("Сервер: cont de plată — снимок при оплате, PDF админки и кабинета, вложение, чужой документ",
+     test_receipts.suite_flow),
     ("Сервер: окна напоминаний — подставная дата на каждую строку", test_jobs.suite_windows),
     ("Сервер: ежедневная задача — письма, повтор, новый период", test_jobs.suite_daily),
     ("Сервер: задача — пробный, без e-mail, без реквизитов, кнопка, журнал", test_jobs.suite_edges),

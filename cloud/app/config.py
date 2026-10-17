@@ -33,6 +33,9 @@ SITE_URL = "https://dentpilot.md"           # сайт: условия и пол
 # отправляется (платёж при этом создаётся), пока Олег не заполнит окружение.
 BANK = {"beneficiary": env("DP_BANK_BENEFICIARY"), "iban": env("DP_BANK_IBAN"),
         "bank": env("DP_BANK_NAME"), "code": env("DP_BANK_CODE")}
+# Адрес продавца на cont de plată (receipts.py, 17.10); имя, IDNO и IBAN — те же DP_BANK_*.
+# Пусто = строки адреса в документе нет.
+SELLER_ADDRESS = env("DP_SELLER_ADDRESS")
 # Оплата картой через maib (L12): проект из кабинета maibmerchants. Все три
 # пусты = карт нет, платежи только переводом; адрес меняют только тесты.
 MAIB_BASE_URL = env("DP_MAIB_BASE_URL", "https://api.maibmerchants.md/v1")

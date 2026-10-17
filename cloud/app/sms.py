@@ -698,15 +698,19 @@ def credit_name(con: sqlite3.Connection, payment: sqlite3.Row, who: str) -> str 
     return None
 
 
-def mail_name(con: sqlite3.Connection, clinic: sqlite3.Row, payment: sqlite3.Row, who: str) -> str:
-    """Письмо об оплаченном имени; код для ?msg= ('' — ушло)."""
+def mail_name(con: sqlite3.Connection, clinic: sqlite3.Row, payment: sqlite3.Row, who: str,
+              receipt: tuple[str, bytes] | None = None) -> str:
+    """Письмо об оплаченном имени; код для ?msg= ('' — ушло). `receipt` — cont de
+    plată (имя, PDF) вложением, как у письма о лицензии."""
     if not clinic["email"]:
         return "bad_email"
     acc = account(con, clinic["id"])
     until = acc["sender_until"] if acc is not None and acc["sender_state"] == S_ACTIVE else None
     subject, body = mail.sms_name_letter(clinic["name"], acc["sender"] if acc else "", until, payment["reference"])
+    if receipt:
+        body = mail.with_receipt(body, payment["reference"])
     try:
-        where = mail.send(clinic["email"], subject, body)
+        where = mail.send(clinic["email"], subject, body, *([receipt] if receipt else []))
     except (RuntimeError, OSError) as e:
         log.error("письмо об имени %s не отправлено: %r", payment["reference"], e)
         return "mail_failed"
@@ -754,14 +758,18 @@ def set_cap(con: sqlite3.Connection, clinic_id: str, cap: int, who: str) -> str:
     return ""
 
 
-def mail_pack(con: sqlite3.Connection, clinic: sqlite3.Row, payment: sqlite3.Row, who: str) -> str:
-    """Письмо «Pachetul SMS a fost activat»; код для ?msg= ('' — ушло)."""
+def mail_pack(con: sqlite3.Connection, clinic: sqlite3.Row, payment: sqlite3.Row, who: str,
+              receipt: tuple[str, bytes] | None = None) -> str:
+    """Письмо «Pachetul SMS a fost activat»; код для ?msg= ('' — ушло). `receipt` —
+    cont de plată вложением."""
     if not clinic["email"]:
         return "bad_email"
     subject, body = mail.sms_pack_letter(clinic["name"], int(payment["sms_units"] or 0),
                                          balance(con, clinic["id"]), payment["reference"])
+    if receipt:
+        body = mail.with_receipt(body, payment["reference"])
     try:
-        where = mail.send(clinic["email"], subject, body)
+        where = mail.send(clinic["email"], subject, body, *([receipt] if receipt else []))
     except (RuntimeError, OSError) as e:
         log.error("письмо о пакете SMS %s не отправлено: %r", payment["reference"], e)
         return "mail_failed"

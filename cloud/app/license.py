@@ -150,9 +150,11 @@ def issue_text(row: sqlite3.Row) -> str:
                       ensure_ascii=False, indent=2) + "\n"
 
 
-def mail_latest(con: sqlite3.Connection, clinic: sqlite3.Row, who: str) -> str:
+def mail_latest(con: sqlite3.Connection, clinic: sqlite3.Row, who: str,
+                receipt: tuple[str, bytes] | None = None) -> str:
     """Последний выданный файл письмом: админка, callback maib и ежедневная задача —
-    одной функцией. Возвращает код для ?msg= или '' — ушло."""
+    одной функцией. Возвращает код для ?msg= или '' — ушло. `receipt` — (имя файла,
+    PDF) cont de plată после оплаты (receipts.py): вложением и фразой в письме."""
     row = con.execute("SELECT * FROM issues WHERE clinic_id=? ORDER BY seq DESC LIMIT 1",
                       (clinic["id"],)).fetchone()
     if row is None:
@@ -169,13 +171,17 @@ def mail_latest(con: sqlite3.Connection, clinic: sqlite3.Row, who: str) -> str:
     # Файла в письме нет (02.10): клиник без интернета нет, программа забирает его
     # сама (L13/L16/L17); письмо — про срок, вложение — только декларация
     files = [decl] if decl else []
+    if receipt:
+        files.append(receipt)
+        body = mail.with_receipt(body, receipt[0][len("Cont-de-plata-"):-len(".pdf")])
     try:
         where = mail.send(clinic["email"], subject, body, *files)
     except (RuntimeError, OSError, ValueError) as e:
         log.error("письмо клинике %s не отправлено: %r", clinic["id"], e)
         return "mail_failed"
     db.audit(con, who, "mail", clinic["id"],
-             f"письмо о сроке seq {row['seq']}{' + декларация' if decl else ''} на {clinic['email']} ({where})")
+             f"письмо о сроке seq {row['seq']}{' + декларация' if decl else ''}"
+             f"{' + cont de plată' if receipt else ''} на {clinic['email']} ({where})")
     return ""
 
 

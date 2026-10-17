@@ -44,7 +44,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-from . import account, auth, config, db, keys, license, mail, maib, smsmd, trial
+from . import account, auth, config, db, keys, license, mail, maib, pdf, smsmd, trial
 
 OK, WARN, BAD = "ok", "⚠", "✗"
 PULL_MAX_DAYS = 3        # отметка вывоза копий старше — предупреждение (ПК выключен)
@@ -326,6 +326,11 @@ def check() -> list[tuple[str, str]]:
                           "письма с файлом лицензии уйдут без декларации"))
     else:
         out.append((OK, f"декларация поставщика {config.DECLARATION} едет в каждое письмо с файлом"))
+    # cont de plată (17.10): без шрифта документ уходит без диакритики — молча, потому здесь
+    embedded, line = pdf.font_status()
+    out.append((OK if embedded else WARN, line))
+    if not config.SELLER_ADDRESS:
+        out.append((WARN, "DP_SELLER_ADDRESS пуст: cont de plată без адреса продавца"))
     return out
 
 

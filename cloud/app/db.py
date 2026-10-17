@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 TS = "%Y-%m-%dT%H:%M:%SZ"
 
 MIGRATIONS = {
@@ -180,6 +180,16 @@ MIGRATIONS = {
         "ALTER TABLE sms_accounts ADD COLUMN custom_ro TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE sms_accounts ADD COLUMN custom_ru TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE sms_accounts ADD COLUMN custom_on INTEGER NOT NULL DEFAULT 0",
+    ],
+    # 13 (17.10): cont de plată после оплаты (receipts.py) — снимок оплаченного платежа:
+    # реквизиты обеих сторон, предмет, сумма, чем оплачено (JSON в `data`); PDF
+    # рисуется из снимка при запросе. Номер = reference платежа; одна строка на платёж.
+    13: [
+        """CREATE TABLE IF NOT EXISTS receipts(
+            payment_id INTEGER PRIMARY KEY REFERENCES payments(id),
+            clinic_id TEXT NOT NULL REFERENCES clinics(id),
+            number TEXT NOT NULL UNIQUE, issued_at TEXT NOT NULL, data TEXT NOT NULL)""",
+        "CREATE INDEX IF NOT EXISTS ix_receipts_clinic ON receipts(clinic_id, issued_at)",
     ],
 }
 
