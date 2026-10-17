@@ -232,7 +232,7 @@ export interface SystemData {
   bitlocker: { tone: string; icon: string; text: string } | null
   /** Копии картотеки (17.10): последняя локальная, последняя внешняя и куда;
    *  `tone` warn ровно при тексте баннера директора (`alert`). */
-  backup: { tone: string; local: string; external: string; alert: string; href: string }
+  backup: { tone: string; daily: string; local: string; external: string; alert: string; href: string }
   feedback: string
   /** Два абзаца о том, что программа работает локально (RO и RU). */
   privacy: string
@@ -250,7 +250,11 @@ export interface SystemData {
 /** Состояние внешней копии по расписанию — ФАКТЫ сервера (даты, отказы),
  *  как строка «Folderul cu date»: второе описание здесь протухло бы. */
 export interface BackupAuto {
+  /** Выключатель «Copie zilnică automată» (clinic.json › backup.enabled; нет ключа — включено). */
+  enabled: boolean
   folder: string
+  /** «Ultima copie: at → where»: новейшая из двух; `where` пусто — на этом компьютере. */
+  last: { at: string; where: string }
   has_pass: boolean
   /** Пароль сохранён, но не читается на этой машине (другая учётка Windows). */
   pass_unreadable: boolean
@@ -267,7 +271,10 @@ export interface BackupAuto {
 
 export interface BackupCopy {
   name: string
+  /** «17.10.2026 09:30» — часы клиники. */
   made: string
+  /** «17.10.2026» — день для группировки истории (17.10 вечером). */
+  day: string
   size: number
 }
 
@@ -299,6 +306,8 @@ export interface BackupData {
     schema: number
   }
 }
+
+export type BackupAutoForm = { enabled: boolean } | { folder: string; password: string }
 
 export interface RestoreStageForm {
   kind: 'local' | 'archive' | 'path'
@@ -407,8 +416,10 @@ export const settings = {
     api.post<undefined>('/settings/pin', { old_pin, new1, new2 }),
   backup: (signal?: AbortSignal): Promise<ApiResult<BackupData>> =>
     api.get<BackupData>('/settings/backup', signal ? { signal } : {}),
-  backupAuto: (folder: string, password: string): Promise<ApiResult<BackupData>> =>
-    api.post<BackupData>('/settings/backup/auto', { folder, password }),
+  /** Экран шлёт то, что тронул: выключатель — {enabled}, форма — {folder, password};
+   *  отсутствующий ключ сервер не трогает (прайор 08-16: нет поля ≠ стереть). */
+  backupAuto: (form: BackupAutoForm): Promise<ApiResult<BackupData>> =>
+    api.post<BackupData>('/settings/backup/auto', form),
   backupRun: (): Promise<ApiResult<BackupData>> =>
     api.post<BackupData>('/settings/backup/auto/run', {}),
   restoreStage: (form: RestoreStageForm): Promise<ApiResult<BackupData>> =>

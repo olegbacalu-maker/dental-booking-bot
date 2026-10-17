@@ -36,7 +36,7 @@ from ...core.layout import (_DOW_ORDER, _ic,
                             tg_configured, tg_status)
 from ...core import bitlocker, dbkey, demo, theme
 from ...core import license as lic
-from ...core import sms_loop
+from ...core import backup_loop, sms_loop
 from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
 from ...core import backup as bkp
@@ -237,8 +237,18 @@ def _hub_tiles() -> list[dict]:
                        dbkey.UNREADABLE: [{"icon": "ban", "t": "cheia nu se citește",
                                            "tone": "red"}]}.get(_cs, [{"t": "oprită"}])))
     if bkp.available():
-        tiles.append(tile("/admin/settings/backup", "save", "b", "Copie de rezervă",
-                          [{"t": "arhivă criptată AES-256"}]))
+        # строка плитки — ФАКТ (17.10 вечером): когда была копия, а не
+        # «arhivă criptată AES-256» — слово из IT, не из регистратуры
+        bst = backup_loop.state()
+        if not bst["enabled"]:
+            bkp_short = [{"t": "copia zilnică oprită", "tone": "amber"}]
+        elif bst["alert"]:
+            bkp_short = [{"icon": "excl", "t": "de verificat", "tone": "amber"}]
+        elif bst["last"]["at"]:
+            bkp_short = [{"t": f"ultima copie {bst['last']['at']}"}]
+        else:
+            bkp_short = [{"t": "încă nu s-a făcut o copie"}]
+        tiles.append(tile("/admin/settings/backup", "save", "b", "Copie de rezervă", bkp_short))
     if _pin_rec():
         tiles.append(tile("/admin/settings/security", "users", "g",
                           "Securitate și utilizatori",
@@ -320,12 +330,13 @@ async def settings_lan(request: Request, msg: str = ""):
 def _set_lan(mode: str) -> str | None:
     """Переключить доступ из сети в dental.env. Код отказа (`bad_env`,
     `lan_pins`) или None; зовёт JSON API (`api.py`). Применение — перезапуск
-    программы. ⛔ Включение держат учётки (17.10): PIN короче
-    `auth.PIN_MIN_LAN` или неизвестной длины — список на странице
-    (`lan.pins_html`), без обходного «включить всё равно»."""
+    программы. ⛔ Включение держат учётки с PIN короче `auth.PIN_MIN_LAN`
+    (17.10): список на странице (`lan.pins_html`), без обходного «включить
+    всё равно». Неизвестная длина НЕ держит (разбор — `auth.pin_readiness`):
+    она показывается подсказкой."""
     env_file = os.environ.get("DENTART_ENV_FILE", "")
     val = "1" if mode == "on" else ""
-    if val and any(pin_readiness()):
+    if val and pin_readiness()[0]:
         return "lan_pins"
     try:
         envfile.set_value(pathlib.Path(env_file), "DENTART_LAN", val)

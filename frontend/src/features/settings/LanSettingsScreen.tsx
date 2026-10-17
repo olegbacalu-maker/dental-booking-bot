@@ -17,6 +17,10 @@ const T = {
   off: 'Dezactivează accesul',
   confirm: 'Programul se va reporni pentru aplicare. Continuați?',
   firewall: 'Creează regula de firewall',
+  /* Кнопка закрыта короткими PIN (17.10): причина — словами ПОД кнопкой, не
+     только серым цветом; список людей — проза сервера выше (`blocks.pins`). */
+  blocked: 'Butonul se deschide după ce PIN-urile de mai sus au cel puțin {n} cifre — ' +
+    'Setări › Securitate și utilizatori.',
   unavailable: 'Secțiunea există doar în ediția instalată pe calculatorul clinicii.',
   offline: 'Programul nu răspunde. Reîncercați.',
 } as const
@@ -122,6 +126,9 @@ export function LanSettingsScreen({ navigate = defaultNavigate }: Props) {
           >
             {data.enabled ? T.off : T.on}
           </button>
+          {data.pins.blocked && (
+            <p className="hint" role="note">{T.blocked.replace('{n}', String(data.pins.min))}</p>
+          )}
         </>
       )}
       {toast && <Toast tone={toast.tone} text={toast.text} onClose={closeToast} />}

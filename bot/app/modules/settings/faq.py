@@ -22,6 +22,7 @@ from __future__ import annotations
 import html
 
 from ...core.layout import FEEDBACK_EMAIL, _ic, data_folder, tg_configured
+from ...core import autobackup, backup_loop
 from ...core import backup as bkp
 
 def _q(icon: str, question: str, answer: str) -> dict:
@@ -61,26 +62,35 @@ def entries() -> list[dict]:
                f"furat nu dezvăluie evidența clinicii.{end}")
     items = [
         _q("save", "Cât de des fac copii de rezervă și unde le păstrez?",
-           f"{p}Programul face singur două feluri de copii, <b>o dată pe zi</b>, "
-           f"cât timp este pornit: o copie zilnică pe acest calculator "
-           f"(<b>data\\backups</b>, ultimele 14) și — dacă ați setat-o — o arhivă "
-           f"criptată <b>în afara calculatorului</b>: în <b>Setări › Copie de "
-           f"rezervă › Copie automată</b> alegeți un folder de pe alt disc, un "
-           f"stick USB lăsat în calculator sau folderul cloud al clinicii și o "
-           f"parolă (minim {bkp.MIN_PASS} caractere). Data ultimei copii o "
-           f"vedeți acolo și în <b>Stare sistem</b>; dacă copia nu s-a făcut sau "
-           f"are mai mult de trei zile, directorul vede un avertisment pe fiecare "
-           f"ecran.{end}"
+           f"{p}Cu <b>Setări › Copie de rezervă › Copie zilnică automată</b> "
+           f"pornită, programul face singur, <b>o dată pe zi</b>, cât timp este "
+           f"pornit, o copie pe acest calculator și — dacă ați ales un folder — o "
+           f"arhivă criptată <b>în afara calculatorului</b>: un folder de pe alt "
+           f"disc, un stick USB lăsat în calculator sau folderul cloud al "
+           f"clinicii, cu o parolă de minim {bkp.MIN_PASS} caractere. Pe ecran "
+           f"vedeți <b>Ultima copie</b> (când și unde) și copiile făcute, pe zile; "
+           f"dacă o copie nu s-a făcut sau cea din folder are mai mult de trei "
+           f"zile, directorul vede un avertisment pe fiecare ecran.{end}"
+           f"{p}Întrerupătorul îl decide directorul. <b>Oprit</b>, programul face "
+           f"doar copia de la pornire, pe acest calculator, și nu mai avertizează "
+           f"nimic — folderul și parola rămân salvate pentru când îl porniți din "
+           f"nou.{end}"
            f"{p}O copie păstrată lângă original dispare împreună cu el "
            f"(defectarea discului, furt, viruși) — de aceea contează cea din "
            f"afara calculatorului. Înainte de o mutare sau după o zi cu multe "
-           f"modificări puteți face oricând și o arhivă manuală cu butonul "
-           f"<b>Exportă arhiva</b>.{end}"
+           f"modificări puteți face oricând și o arhivă manuală: <b>Copie manuală "
+           f"pe stick USB › Exportă arhiva</b>.{end}"
            f"{p}{_ic('sos')} Parola arhivei manuale <b>nu se salvează nicăieri</b>; "
-           f"parola copiei automate este păstrată pe acest calculator (criptată), "
+           f"parola copiei din folder este păstrată pe acest calculator (criptată), "
            f"dar arhivele se deschid pe orice calculator cu parola aleasă — "
            f"notați-o într-un loc sigur. Fără ea, arhiva nu poate fi deschisă de "
            f"nimeni, nici de noi.{end}"
+           f"{p}Pentru cine vrea detaliile: copiile de pe acest calculator stau în "
+           f"<b>data\\backups</b> (se păstrează ultimele {autobackup.KEEP}, criptate "
+           f"ca și evidența), arhivele din folder se numesc "
+           f"<b>{backup_loop.AUTO_PREFIX}…zip</b> (se păstrează ultimele "
+           f"{backup_loop.KEEP_EXT}; arhivele exportate manual în același folder "
+           f"nu sunt șterse).{end}"
            f"{p}Arhiva este <b>de sine stătătoare</b>: chiar dacă evidența de "
            f"pe calculator este criptată, baza dinăuntru nu este — o apără "
            f"parola arhivei. Așa o restaurați oriunde, fără foaia de "
@@ -89,9 +99,9 @@ def entries() -> list[dict]:
            f"{end}"),
 
         _q("refresh", "Cum restaurez evidența dintr-o copie?",
-           f"{p}Din program, cu butonul <b>Setări › Copie de rezervă › "
-           f"Restaurează din copie</b>: alegeți o copie zilnică de pe acest "
-           f"calculator, o arhivă din folderul copiei automate sau calea unei "
+           f"{p}Din program, în <b>Setări › Copie de rezervă › Restaurare din "
+           f"copie</b> (secțiunea pliată de jos): alegeți după dată o copie de pe "
+           f"acest calculator sau din folderul ales, ori scrieți calea unei "
            f"arhive de pe stick (cu parola ei). Programul verifică mai întâi ce "
            f"este înăuntru și vă arată <b>câți pacienți, programări și "
            f"documente</b> conține copia — abia apoi confirmați.{end}"
@@ -118,7 +128,7 @@ def entries() -> list[dict]:
            f"{p}Înăuntru găsiți <b>CITESTE-MA.txt</b> (se deschide fără "
            f"parolă) cu pașii de restaurare manuală — pentru cazul în care "
            f"programul nu poate fi instalat; altfel folosiți butonul "
-           f"<b>Restaurează din copie</b> (întrebarea de mai sus) — și "
+           f"<b>Restaurare din copie</b> (întrebarea de mai sus) — și "
            f"<b>CONTINUT.txt</b> — lista a tot ce conține arhiva: câți "
            f"pacienți, câte programări, care fișier este care document.{end}"
            f"{p}{_ic('ban')} La restaurarea <b>manuală</b> (dezarhivare peste "
@@ -129,7 +139,7 @@ def entries() -> list[dict]:
            f"criptarea evidenței, și <b>data\\db.key</b>: baza din arhivă nu "
            f"este criptată, iar cu cheia rămasă pe loc programul ar da eroare "
            f"la pornire (după restaurare criptarea se activează din nou din "
-           f"Setări). Butonul <b>Restaurează din copie</b> face toate acestea "
+           f"Setări). Butonul <b>Restaurare din copie</b> face toate acestea "
            f"singur și păstrează legăturile către documentele pacienților — de "
            f"aceea este calea recomandată.{end}"),
 
@@ -138,7 +148,7 @@ def entries() -> list[dict]:
            f"{p}Datele clinicii stau <b>separat de program</b>, în folderul "
            f"lor: {loc}. Pe calculatorul nou instalați DentPilot, porniți-l o "
            f"dată (ca să se creeze folderul) și restaurați arhiva de rezervă "
-           f"cu butonul <b>Setări › Copie de rezervă › Restaurează din copie</b> "
+           f"cu butonul <b>Setări › Copie de rezervă › Restaurare din copie</b> "
            f"— sau, cu programul închis, copiați conținutul folderului vechi "
            f"peste cel nou. Pacienții, programările, documentele și PIN-urile "
            f"de intrare rămân.{end}"

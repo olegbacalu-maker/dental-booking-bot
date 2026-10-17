@@ -730,6 +730,19 @@ def suite_backup(res: Result) -> None:
         d = _j(c.get("/api/settings/backup"))["data"]
         res.check("порог пароля", d["min_pass"], 10)
         res.ok("имя архива", d["filename"].endswith(".zip"), d["filename"])
+        # экран регистратуры (17.10 вечером): выключатель и факт — в модели
+        res.ok("модель: выключатель включён по умолчанию, факт «last» есть",
+               d["auto"]["enabled"] is True and set(d["auto"]["last"]) == {"at", "where"},
+               repr(d["auto"]))
+        r = c.post_json("/api/settings/backup/auto", {"enabled": False})
+        res.check("выключатель — ok_bkp_stop", r.msg, "ok_bkp_stop")
+        res.check("выключатель — тон warn (регистратура видит, что это шаг назад)",
+                  json.loads(r.body)["tone"], "warn")
+        r = c.post_json("/api/settings/backup/auto", {"enabled": True})
+        res.check("включатель — ok_bkp_on", r.msg, "ok_bkp_on")
+        res.ok("тексты экрана без слов из IT",
+               all(w not in msg for w in ("AES", "DPAPI", "zip") for msg in (
+                   json.loads(r.body)["text"],)), json.loads(r.body)["text"])
         r = c.post("/admin/backup/export", parola="scurt")
         res.ok("старый маршрут: короткая парола — назад с bad_bkp_pass",
                r.status == 303 and r.msg == "bad_bkp_pass", f"{r!r}")

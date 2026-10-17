@@ -27,8 +27,9 @@ const T = t('system', {
   feedback: 'Feedback / suport',
   bitlocker: 'Criptare disc (BitLocker)',
   backup: 'Copii de rezervă',
-  backupLocal: 'zilnică, pe acest calculator:',
-  backupExt: 'externă:',
+  backupDaily: 'copia zilnică automată:',
+  backupLocal: 'ultima pe acest calculator:',
+  backupExt: 'ultima în afara calculatorului:',
   backupSet: 'Setări › Copie de rezervă',
   run: 'Actualizează acum',
   /* кнопка после клика: маршрут до ответа качает ~40 МБ и проверяет
@@ -265,6 +266,8 @@ export function SystemSettingsScreen({ navigate = defaultNavigate, pollMs = 1500
                 <th>{T.backup}</th>
                 <td className={data.backup.tone === 'warn' ? 'dp-tone-amber' : undefined}>
                   {/* ФАКТЫ сервера: когда была копия и куда — не описание расписания */}
+                  {T.backupDaily} {data.backup.daily}
+                  <br />
                   {T.backupLocal} {data.backup.local}
                   <br />
                   {T.backupExt} {data.backup.external}

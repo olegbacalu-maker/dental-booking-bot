@@ -100,19 +100,42 @@ describe('LanSettingsScreen', () => {
     expect(post).toHaveBeenCalledWith('/settings/lan/firewall', {})
   })
 
-  it('короткие PIN: список сервера виден, кнопка включения закрыта (17.10)', async () => {
+  it('короткие PIN: список сервера виден, кнопка закрыта И говорит словами, что мешает (17.10)', async () => {
     // причина закрытой кнопки — проза сервера; сервер и сам ответил бы lan_pins
     get.mockResolvedValueOnce(ok({
       ...OFF,
       pins: { min: 6, short: ['Ana R'], unknown: [], blocked: true },
-      blocks: { ...OFF.blocks, pins: '<p>Înainte de pornire: Ana R — PIN sub 6 cifre</p>' },
+      blocks: { ...OFF.blocks, pins: '<p>Butonul se deschide: Ana R — PIN sub 6 cifre</p>' },
     }))
     open()
     expect(await screen.findByText(/Ana R — PIN sub 6 cifre/)).toBeTruthy()
     const btn = screen.getByRole('button', { name: 'Activează accesul' }) as HTMLButtonElement
     expect(btn.disabled).toBe(true)
+    /* Серая кнопка без слов и была «Activează не работает» (Олег 17.10):
+       под кнопкой — что именно мешает и где чинить, с минимумом от сервера. */
+    expect(screen.getByRole('note').textContent).toMatch(/cel puțin 6 cifre/)
     fireEvent.click(btn)
     expect(post).not.toHaveBeenCalled()
+  })
+
+  it('неизвестная длина PIN не держит кнопку: подсказка сервера, включить можно (17.10)', async () => {
+    get.mockResolvedValueOnce(ok({
+      ...OFF,
+      pins: { min: 6, short: [], unknown: ['Diana Pavel'], blocked: false },
+      blocks: { ...OFF.blocks, pins: '<p>Lungimea PIN-ului nu e verificată la: Diana Pavel</p>' },
+    }))
+    post.mockResolvedValueOnce(ok({ enabled: true, restart: true,
+      text: 'Programul se închide acum și pornește din nou — setarea se aplică la pornire.',
+      note: 'Datele clinicii nu sunt afectate.' }, 'ok_set', 'Setări salvate'))
+    vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
+    open()
+    expect(await screen.findByText(/nu e verificată la: Diana Pavel/)).toBeTruthy()
+    const btn = screen.getByRole('button', { name: 'Activează accesul' }) as HTMLButtonElement
+    expect(btn.disabled).toBe(false)
+    expect(screen.queryByRole('note')).toBeNull()
+    fireEvent.click(btn)
+    expect(await screen.findByText(/Programul se închide acum/)).toBeTruthy()
+    expect(post).toHaveBeenCalledWith('/settings/lan', { mode: 'on' })
   })
 
   it('включено с коротким PIN (флаг пережил обновление): предупреждение, выключить можно', async () => {

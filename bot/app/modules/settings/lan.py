@@ -264,32 +264,42 @@ def status_html(on: bool, ip: str, url: str, st: dict | None = None) -> str:
 
 
 def pins_html(short: list[dict], unknown: list[dict], on: bool) -> str:
-    """Учётки, с которыми сеть не включается (17.10): PIN короче
-    `auth.PIN_MIN_LAN` и записи, чью длину программа ещё не знает (человек не
-    входил после обновления). Выключено — это причина, по которой кнопка
-    закрыта; включено (флаг пережил обновление) — предупреждение. Пусто, когда
-    все готовы. Без ссылок: страница раздела называется словами."""
+    """Учётки и сеть (17.10). Два разных дела в одном янтарном блоке:
+    PIN короче `auth.PIN_MIN_LAN` — ДЕРЖИТ кнопку (выключено: причина, по
+    которой кнопка закрыта; включено, флаг пережил обновление —
+    предупреждение); длина неизвестна (человек не входил после обновления) —
+    только подсказка, включению не мешает (почему — `auth.pin_readiness`).
+    Пусто, когда все готовы. Без ссылок: страница раздела называется словами."""
     if not (short or unknown):
         return ""
     n = auth.PIN_MIN_LAN
-    rows = ""
-    for u in short:
-        rows += (f"<br>· <b>{html.escape(u['name'])}</b> — PIN sub {n} cifre: "
-                 f"setați-i unul nou în Setări › Securitate și utilizatori")
-    for u in unknown:
-        rows += (f"<br>· <b>{html.escape(u['name'])}</b> — lungimea PIN-ului nu e "
-                 f"cunoscută: persoana să intre o dată în program (pe acest "
-                 f"calculator) sau setați-i un PIN nou")
-    if on:
-        head = (f"<b>{_ic('sos')} PIN-uri prea scurte pentru rețea.</b> În rețea "
-                f"PIN-ul poate fi încercat de pe orice telefon din Wi-Fi; de aceea, "
-                f"cu accesul pornit, PIN-urile au cel puțin {n} cifre.")
-    else:
-        head = (f"<b>{_ic('sos')} Înainte de pornire: PIN-uri de cel puțin {n} "
-                f"cifre.</b> În rețea PIN-ul poate fi încercat de pe orice telefon "
-                f"din Wi-Fi, iar 4 cifre înseamnă doar 10 000 de variante. Accesul "
-                f"se pornește după ce toți utilizatorii de mai jos au un PIN potrivit:")
-    return f"<div {_WARN}>{head}{rows}</div>"
+    parts = []
+    if short:
+        rows = ""
+        for u in short:
+            rows += (f"<br>· <b>{html.escape(u['name'])}</b> — PIN sub {n} cifre: "
+                     f"setați-i unul nou în Setări › Securitate și utilizatori")
+        if on:
+            head = (f"<b>{_ic('sos')} PIN-uri prea scurte pentru rețea.</b> În rețea "
+                    f"PIN-ul poate fi încercat de pe orice telefon din Wi-Fi; de aceea, "
+                    f"cu accesul pornit, PIN-urile au cel puțin {n} cifre.")
+        else:
+            head = (f"<b>{_ic('sos')} Butonul «Activează accesul» se deschide după ce "
+                    f"PIN-urile de mai jos au cel puțin {n} cifre.</b> În rețea PIN-ul "
+                    f"poate fi încercat de pe orice telefon din Wi-Fi, iar 4 cifre "
+                    f"înseamnă doar 10 000 de variante.")
+        parts.append(head + rows)
+    if unknown:
+        who = ", ".join(f"<b>{html.escape(u['name'])}</b>" for u in unknown)
+        parts.append(
+            f"{_ic('info')} <b>Lungimea PIN-ului nu e verificată</b> la: {who}. "
+            f"Persoana să intre o dată în program sau setați-i un PIN nou în "
+            f"Setări › Securitate și utilizatori. "
+            # «можно включить и так» — только когда кнопку не держат короткие:
+            # рядом с блоком «se deschide după…» это читалось бы противоречием
+            + ("Dacă PIN-ul are sub {n} cifre, în rețea e prea scurt.".format(n=n) if on
+               else "" if short else "Accesul se poate porni și așa."))
+    return f"<div {_WARN}>" + "<div style='margin-top:8px'></div>".join(parts) + "</div>"
 
 
 def firewall_html(st: dict | None = None) -> str:

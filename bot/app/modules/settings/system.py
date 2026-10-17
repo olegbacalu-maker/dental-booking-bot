@@ -118,13 +118,16 @@ def backup_state() -> dict:
     st = backup_loop.state()
     local = st["local_at"] or "încă nu s-a făcut"
     if not st["folder"]:
-        ext = "neconfigurată (Setări › Copie de rezervă)"
+        ext = "nealeasă (Setări › Copie de rezervă)"
     elif st["ext_at"]:
         ext = f"{st['ext_at']} în {st['folder']}"
     else:
         ext = f"încă nu s-a făcut, în {st['folder']}"
-    return {"tone": "warn" if st["alert"] else "ok",
-            "local": local, "external": ext, "alert": st["alert"],
+    # выключатель директора (17.10 вечером): выключено — тон warn без текста
+    # баннера (баннера нет намеренно), но факт на экране состояния назван
+    daily = "pornită" if st["enabled"] else "oprită — rămâne copia de la pornirea programului"
+    return {"tone": "warn" if (st["alert"] or not st["enabled"]) else "ok",
+            "daily": daily, "local": local, "external": ext, "alert": st["alert"],
             "href": "/admin/settings/backup"}
 
 

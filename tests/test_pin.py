@@ -840,7 +840,9 @@ def suite_lan_pin(res: Result) -> None:
         res.check("и API учёток называет минимум 4",
                   json.loads(c.get(sec).body)["data"]["pin"]["min"], 4)
 
-    # включение сети держат учётки: короткий PIN и неизвестная длина
+    # включение сети держат ТОЛЬКО короткие PIN; неизвестная длина — подсказка
+    # (17.10 вечером, канарейка: вторая учётка не входила после обновления, и
+    # кнопка «Activează» была закрыта без слов — Олег: «не работает»)
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_lanpin_"))
     env_path = tmp / "dental.env"
     env_path.write_text("TELEGRAM_TOKEN=\n", encoding="utf-8")
@@ -859,13 +861,17 @@ def suite_lan_pin(res: Result) -> None:
             d = json.loads(c.get("/api/settings/lan").body)["data"]
             res.check("короткий PIN назван", d["pins"]["short"], ["Director"])
             res.check("неизвестная длина названа отдельно", d["pins"]["unknown"], ["Ana R"])
-            res.ok("кнопка включения закрыта, причина — прозой с именами",
+            res.ok("кнопка включения закрыта коротким PIN, причина — прозой с именами",
                    d["pins"]["blocked"] is True and "Director" in d["blocks"]["pins"]
-                   and "Ana R" in d["blocks"]["pins"] and "6 cifre" in d["blocks"]["pins"],
-                   f"{d['pins']!r} {d['blocks']['pins'][:160]}")
+                   and "Ana R" in d["blocks"]["pins"] and "6 cifre" in d["blocks"]["pins"]
+                   and "Activează accesul" in d["blocks"]["pins"],
+                   f"{d['pins']!r} {d['blocks']['pins'][:200]}")
             r = c.post_json("/api/settings/lan", {"mode": "on"})
             res.ok("включение — 409 lan_pins", r.status == 409 and r.msg == "lan_pins",
                    f"{r!r}")
+            res.ok("отказ называет короткий PIN, а не «неизвестную длину»",
+                   "sub 6 cifre" in json.loads(r.body).get("text", "")
+                   and "cunoscut" not in json.loads(r.body).get("text", ""), r.body[:200])
             res.ok("dental.env не тронут",
                    "DENTART_LAN=1" not in env_path.read_text(encoding="utf-8"),
                    "сеть включилась вопреки отказу")
@@ -873,31 +879,49 @@ def suite_lan_pin(res: Result) -> None:
                    c.post_json("/api/settings/lan", {"mode": "off"}).msg == "ok_set",
                    "mode=off отказан")
 
-            # директор чинит за минуту: себе — смена, коллеге — новый PIN
+            # директор чинит себе за минуту: смена на 6 цифр
             r = c.post_json("/api/settings/pin", {"old_pin": "4321", "new1": "654321",
                                                   "new2": "654321"})
             res.check("свой PIN сменён на 6", r.msg, "ok_pin")
             res.check("длина нового PIN записана",
                       next(u for u in _rec(s)["users"] if u["id"] == "clinic").get("plen"), 6)
-            res.ok("ещё держит: коллега неизвестной длины",
-                   c.post_json("/api/settings/lan", {"mode": "on"}).msg == "lan_pins",
-                   "включилось с учёткой неизвестной длины")
-            r = c.post_json("/api/settings/users", {"uid": "ana", "name": "Ana R",
-                                                    "role": "receptie", "pin": "777777"})
-            res.check("коллеге задан новый PIN", r.msg, "ok_user")
             d = json.loads(c.get("/api/settings/lan").body)["data"]
-            res.ok("все готовы — блока нет, кнопка открыта",
-                   d["pins"]["blocked"] is False and d["blocks"]["pins"] == ""
-                   and not d["pins"]["short"] and not d["pins"]["unknown"], f"{d['pins']!r}")
+            res.ok("коллега неизвестной длины НЕ держит кнопку — подсказка остаётся",
+                   d["pins"]["blocked"] is False and not d["pins"]["short"]
+                   and d["pins"]["unknown"] == ["Ana R"] and "Ana R" in d["blocks"]["pins"]
+                   and "nu e verificată" in d["blocks"]["pins"]
+                   and "se poate porni" in d["blocks"]["pins"], f"{d['pins']!r} {d['blocks']['pins'][:200]}")
             r = c.post_json("/api/settings/lan", {"mode": "on"})
-            res.ok("теперь включается", r.status == 200 and r.msg == "ok_set", f"{r!r}")
+            res.ok("включается с учёткой неизвестной длины", r.status == 200 and r.msg == "ok_set",
+                   f"{r!r}")
             res.ok("dental.env получил флаг",
                    "DENTART_LAN=1" in env_path.read_text(encoding="utf-8"), "флага нет")
             res.check("минимум поднялся сразу, без перезапуска",
                       json.loads(c.get(sec).body)["data"]["pin"]["min"], 6)
             d = json.loads(c.get("/api/settings/lan").body)["data"]
-            res.ok("включённая сеть без коротких PIN — предупреждения нет",
-                   d["enabled"] is True and d["blocks"]["pins"] == "", f"{d['pins']!r}")
+            res.ok("при включённой сети подсказка о непроверенной длине остаётся",
+                   d["enabled"] is True and "Ana R" in d["blocks"]["pins"]
+                   and "nu e verificată" in d["blocks"]["pins"], f"{d['pins']!r}")
+            # коллега входит один раз — длина узнана, подсказка гаснет
+            ana = Client(s.url)
+            r = ana.post("/admin/login", password="777777", next="/admin")
+            res.ok("коллега входит своим 6-значным PIN", r.status == 303 and r.location.endswith("/admin"),
+                   f"{r!r}")
+            res.check("её длина долита при входе",
+                      next(u for u in _rec(s)["users"] if u["id"] == "ana").get("plen"), 6)
+            d = json.loads(c.get("/api/settings/lan").body)["data"]
+            res.ok("все готовы — блока нет",
+                   d["blocks"]["pins"] == "" and not d["pins"]["short"] and not d["pins"]["unknown"],
+                   f"{d['pins']!r}")
+            # включённая сеть с коротким PIN (флаг пережил обновление) — предупреждение
+            rec = _rec(s)
+            rec["users"].append(_hash_user("ion", "Ion P", "medic", "1234"))
+            rec["users"][-1]["plen"] = 4
+            (s.dir / "auth.json").write_text(json.dumps(rec), encoding="utf-8")
+            d = json.loads(c.get("/api/settings/lan").body)["data"]
+            res.ok("включённая сеть и короткий PIN — предупреждение с именем, кнопка выключения открыта",
+                   d["pins"]["short"] == ["Ion P"] and d["pins"]["blocked"] is False
+                   and "prea scurte" in d["blocks"]["pins"], f"{d['pins']!r}")
     finally:
         _rmtree_settled(tmp)
 

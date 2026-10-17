@@ -129,13 +129,13 @@ describe('BackupSettingsScreen', () => {
   it('форма выгрузки бьёт в старый маршрут обычным POST, порог пароли с сервера', async () => {
     get.mockResolvedValueOnce(ok<BackupData>({
       min_pass: 10, filename: 'dentpilot-backup.zip',
-      auto: { folder: '', has_pass: false, pass_unreadable: false, local_at: '', local_error: '',
+      auto: { enabled: true, folder: '', last: { at: '', where: '' }, has_pass: false, pass_unreadable: false, local_at: '', local_error: '',
         ext_at: '', ext_error: '', ext_stale: false, stale_days: 3, keep: 7, alert: '' },
       restore: { local: [], archives: [], staged: null, pending: false, schema: 1 },
     }))
     openScreen('/admin/settings/backup', '/admin/settings/backup', <BackupSettingsScreen />, loadBackupSettings)
     expect(await screen.findByRole('button', { name: /Exportă arhiva/ })).toBeTruthy()
-    const form = document.querySelector('form') as HTMLFormElement
+    const form = document.querySelector('form[action]') as HTMLFormElement
     expect(form.getAttribute('action')).toBe('/admin/backup/export')
     expect(form.getAttribute('method')).toBe('post')
     const pw = await screen.findByLabelText('parolă (min. 10 caractere)') as HTMLInputElement

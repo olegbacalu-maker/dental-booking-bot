@@ -94,10 +94,26 @@ def _parse(raw: str | None) -> datetime | None:
 # ---------- настройки ----------
 
 
+def _section() -> dict:
+    sec = (eng.CONFIG or {}).get("backup")
+    return sec if isinstance(sec, dict) else {}
+
+
 def folder() -> str:
     """Папка назначения из clinic.json › backup.folder; пусто — не задана."""
-    sec = (eng.CONFIG or {}).get("backup")
-    return str((sec or {}).get("folder") or "").strip() if isinstance(sec, dict) else ""
+    return str(_section().get("folder") or "").strip()
+
+
+def enabled() -> bool:
+    """Выключатель «Copie zilnică automată» (17.10 вечером, слово Олега:
+    «каждый день копию делать нужно с желания администратора — включить или
+    выключить»). `clinic.json › backup.enabled`; ключа нет — ВКЛЮЧЕНО: у
+    клиник с 1.45.x цикл уже шёл, и умолчание «выключено» вернуло бы их молча
+    к копии только при старте (риск №1 постороннего разбора). Выключено —
+    цикл стоит целиком (ни локальной, ни внешней), баннера и янтарных строк
+    нет: остаётся копия лаунчера при запуске, как было до 17.10."""
+    v = _section().get("enabled")
+    return True if v is None else bool(v)
 
 
 def _env_file() -> pathlib.Path | None:
@@ -272,6 +288,8 @@ async def tick() -> None:
     if _lock is None:
         _lock = asyncio.Lock()
     async with _lock:
+        if not enabled():
+            return
         now = _now()
         if _due(_local_last(), LOCAL_EVERY, _s["local_try_at"], now):
             await run_local()
@@ -331,7 +349,10 @@ def ext_stale(now: datetime | None = None) -> bool:
 
 
 def alert() -> str:
-    """Текст янтарной строки директору; пусто — всё в порядке."""
+    """Текст янтарной строки директору; пусто — всё в порядке. Выключенная
+    суточная копия молчит: директор выключил её сам (`enabled`)."""
+    if not enabled():
+        return ""
     if _s["local_err"]:
         return f"Copia de rezervă zilnică nu s-a făcut: {_s['local_err']}"
     if not folder():
@@ -351,8 +372,15 @@ def state() -> dict:
     """Что показать: папка, пароль, даты, отказы — ФАКТЫ, не описание."""
     pw = password()
     local_last = _local_last()
+    # «Ultima copie: <дата>, în <куда>» — одна строка-факт для регистратуры
+    # (17.10 вечером): новейшая из двух; `where` пусто = на этом компьютере
+    last_at, where = local_last, ""
+    if _s["ext_ok_at"] and (last_at is None or _s["ext_ok_at"] > last_at):
+        last_at, where = _s["ext_ok_at"], folder()
     return {
+        "enabled": enabled(),
         "folder": folder(),
+        "last": {"at": _fmt(last_at), "where": where},
         "has_pass": bool(pw),
         "pass_unreadable": pw is None,
         "local_at": _fmt(local_last),

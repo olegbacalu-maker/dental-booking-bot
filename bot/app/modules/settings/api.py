@@ -135,11 +135,12 @@ def _lan_data(st: dict | None) -> dict:
         "fw": ({"verdict": st["verdict"], "category": st["category"],
                 "network": st["network"]} if st is not None else None),
         # учётки, с которыми сеть не включится (17.10): имена для клиента,
-        # `blocked` — кнопка включения закрыта (сервер отказал бы `lan_pins`)
+        # `blocked` — кнопка включения закрыта (сервер отказал бы `lan_pins`);
+        # держат ТОЛЬКО короткие, неизвестная длина — подсказка (`auth.pin_readiness`)
         "pins": {"min": PIN_MIN_LAN,
                  "short": [u["name"] for u in short],
                  "unknown": [u["name"] for u in unknown],
-                 "blocked": not on and bool(short or unknown)},
+                 "blocked": not on and bool(short)},
         "blocks": {
             "intro": lan.intro_html(),
             "status": lan.status_html(on, ip, url, st),
@@ -620,8 +621,8 @@ def _archives_in(folder: str) -> list[dict]:
         files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
         for p in files[:ARCHIVES_SHOWN]:
             stt = p.stat()
-            out.append({"name": p.name, "size": stt.st_size,
-                        "made": datetime.fromtimestamp(stt.st_mtime, eng.TZ).strftime("%d.%m.%Y %H:%M")})
+            made = datetime.fromtimestamp(stt.st_mtime, eng.TZ).strftime("%d.%m.%Y %H:%M")
+            out.append({"name": p.name, "size": stt.st_size, "made": made, "day": made[:10]})
     except OSError:
         return out
     return out
@@ -673,24 +674,32 @@ def _folder_check(folder: str) -> str | None:
 
 @router.post("/api/settings/backup/auto")
 async def api_backup_auto(request: Request):
-    """{folder, password}: пустая папка — выключить; пустой пароль — оставить
-    сохранённый. Папка — в clinic.json › backup (как остальные настройки),
-    пароль — в dental.env под DPAPI (как токен бота)."""
+    """{enabled?, folder?, password?} — экран шлёт то, что тронул (17.10
+    вечером: выключатель и форма папки — два разных жеста). ⭐ Отсутствие
+    ключа = «не сообщали», не «стереть» (прайор 08-16): выключатель без
+    `folder` папку не трогает. `folder: ""` — выключить внешнюю копию;
+    пустой пароль — оставить сохранённый. Папка и выключатель — в
+    clinic.json › backup, пароль — в dental.env под DPAPI (как токен бота).
+    Коды: выключатель — ok_bkp_on / ok_bkp_stop, папка — ok_bkp_auto /
+    ok_bkp_off."""
     if (deny := api_require(request, PERM_SETTINGS)) is not None:
         return deny
     body = await api_body(request)
     if body is None:
         return msg_json(False, "bad_set", status=422)
-    folder = str(body.get("folder") or "").strip().strip("\"'")
+    enabled = bool(body["enabled"]) if "enabled" in body else backup_loop.enabled()
+    touched_folder = "folder" in body
+    folder = (str(body.get("folder") or "").strip().strip("\"'") if touched_folder
+              else backup_loop.folder())
     pw = str(body.get("password") or "")
-    if folder and (err := _folder_check(folder)) is not None:
+    if touched_folder and folder and (err := _folder_check(folder)) is not None:
         return msg_json(False, err, status=422, field="folder")
     if pw and len(pw) < bkp.MIN_PASS:
         return msg_json(False, "bad_bkp_pass", status=422, field="password")
-    if folder and not pw and not backup_loop.password():
+    if touched_folder and folder and not pw and not backup_loop.password():
         return msg_json(False, "bad_bkp_pass", status=422, field="password")
     try:
-        cfg = _finish_cfg(backup={"folder": folder})
+        cfg = _finish_cfg(backup={"folder": folder, "enabled": enabled})
     except (ValueError, KeyError, TypeError):
         return msg_json(False, "bad_set", status=422)
     if pw:
@@ -702,7 +711,13 @@ async def api_backup_auto(request: Request):
     if eng.save_config(cfg) is not None:
         return msg_json(False, "save_err", status=500)
     backup_loop.wake()
-    return msg_json(True, "ok_bkp_auto" if folder else "ok_bkp_off", data=_backup_data())
+    if touched_folder:
+        code = "ok_bkp_auto" if folder else "ok_bkp_off"
+    else:
+        code = "ok_bkp_on" if enabled else "ok_bkp_stop"
+    logging.getLogger("settings").warning("backup settings: daily %s, folder %r",
+                                          "on" if enabled else "OFF", folder)
+    return msg_json(True, code, data=_backup_data())
 
 
 @router.post("/api/settings/backup/auto/run")

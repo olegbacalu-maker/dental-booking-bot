@@ -366,14 +366,20 @@ LAN it would break login outright, and the clinic's Wi-Fi encrypts one layer bel
   read is a hostage, not a backup. The instruction on how to open it is stored *unencrypted*
   inside the archive, after the first version locked that note behind the very door it
   explains.
-- **Daily copy outside the computer** (`Setări › Copie de rezervă › Copie automată`) — the
+- **One switch for the daily copy** (`Setări › Copie de rezervă › Copie zilnică automată`,
+  the director's call, on by default). Off means only the launcher's copy at start, as before
+  17.10, and no amber lines anywhere: the director chose it. The page is written for the
+  front desk, not for IT: the switch, a folder and a password in one short form, one line of
+  fact (*Ultima copie: date → where*), the history grouped by day, restore folded below;
+  file names, rotation and DPAPI live in the FAQ.
+- **Daily copy outside the computer** (the folder under that switch) — the
   same archive, once a day while the program runs, into a folder the clinic names: a second
   disk, a USB stick left in the machine, the clinic's cloud folder. The last seven are kept,
   the password lives in `dental.env` under DPAPI, and the program remembers the date of the
   last successful copy and shows it as a fact on the page and in *Stare sistem*. A failed
   copy is a line in the clinic's activity feed and an amber banner for the director on every
   screen, until a copy succeeds.
-- **Restore from a copy** (`Restaurează din copie`) — a daily copy, an archive from that
+- **Restore from a copy** (`Restaurare din copie`, folded) — a copy picked by date, an archive from that
   folder or an archive by path (a USB stick) is unpacked into a staging folder, checked by
   opening it (patients, appointments, documents are shown *before* the confirmation) and
   ordered for the launcher: the swap happens on the next start, never under an open

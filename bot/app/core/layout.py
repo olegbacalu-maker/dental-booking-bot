@@ -251,8 +251,8 @@ MSG_BANNER = {
     "lock_pin": ("warn", "Prea multe încercări greșite — așteptați câteva minute"),
     # Включение сети задержано учётками (17.10): список — на самой странице
     "lan_pins": ("err", f"Accesul din rețea nu se poate porni: unele PIN-uri au "
-                        f"sub {PIN_MIN_LAN} cifre sau lungimea lor nu e cunoscută "
-                        f"— vezi lista de pe această pagină"),
+                        f"sub {PIN_MIN_LAN} cifre — setați-le unul nou (lista e pe "
+                        f"această pagină)"),
     "bad_tok": ("err", "Token invalid — copiați exact tokenul de la @BotFather"),
     # ⚠️ dental.env не удалось ПРОЧИТАТЬ (придержан антивирусом/OneDrive или
     # сохранён в нечитаемой кодировке) — запись отменена, файл не тронут.
@@ -314,15 +314,21 @@ MSG_BANNER = {
     "bad_bkp_pass": ("err", "Parola arhivei trebuie să aibă cel puțin 10 caractere"),
     # Внешняя копия по расписанию и восстановление (17.10, core/backup_loop,
     # core/restore): один код на страницу и на JSON, как у всех
-    "ok_bkp_auto": ("ok", "Copia de rezervă automată a fost setată — prima arhivă se "
-                          "face în câteva minute"),
-    "ok_bkp_off": ("ok", "Copia de rezervă automată a fost oprită"),
+    "ok_bkp_auto": ("ok", "Folderul copiei a fost salvat — prima copie în afara "
+                          "calculatorului se face în câteva minute"),
+    "ok_bkp_off": ("ok", "Copia în afara calculatorului a fost oprită — rămâne "
+                         "copia zilnică de pe acest calculator"),
+    # выключатель «Copie zilnică automată» (17.10 вечером, слово Олега)
+    "ok_bkp_on": ("ok", "Copia zilnică automată este pornită"),
+    "ok_bkp_stop": ("warn", "Copia zilnică automată este oprită — rămâne doar copia "
+                            "făcută la pornirea programului"),
     "bad_bkp_folder": ("err", "Folderul nu există sau nu se poate scrie în el — alegeți un "
                               "folder de pe alt disc, de pe un stick USB sau din folderul "
                               "cloud al clinicii"),
     "bad_bkp_inside": ("err", "Folderul este în interiorul folderului cu date al programului "
                               "— o copie păstrată lângă original dispare împreună cu el"),
-    "bad_bkp_unset": ("err", "Setați întâi folderul și parola copiei automate"),
+    "bad_bkp_unset": ("err", "Alegeți întâi folderul și parola copiei în afara "
+                             "calculatorului"),
     "ok_bkp_run": ("ok", "Copia de rezervă externă a fost făcută"),
     "bad_bkp_auto": ("err", "Copia de rezervă externă nu s-a făcut"),
     "ok_rst_staged": ("ok", "Copia a fost verificată — confirmați restaurarea"),

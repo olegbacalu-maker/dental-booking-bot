@@ -214,18 +214,21 @@ def local_copies(data_dir: pathlib.Path) -> list[dict]:
             stt = p.stat()
         except OSError:
             continue
-        out.append({"name": p.name, "made": _made_of(p.name, stt.st_mtime),
+        made = _made_of(p.name, stt.st_mtime)
+        out.append({"name": p.name, "made": made, "day": made[:10],
                     "size": stt.st_size})
     return out
 
 
 def _made_of(name: str, mtime: float) -> str:
-    """`dental_20261017_093000_1234.db` → «2026-10-17 09:30»; иначе mtime."""
+    """`dental_20261017_093000_1234.db` → «17.10.2026 09:30»; иначе mtime.
+    Формат — как у дат клиники везде; `day` экрана — первые 10 знаков
+    (история копий группируется по дням, 17.10 вечером)."""
     try:
         stamp = name.split("_", 2)[1] + name.split("_", 3)[2]
-        return datetime.strptime(stamp, "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M")
+        return datetime.strptime(stamp, "%Y%m%d%H%M%S").strftime("%d.%m.%Y %H:%M")
     except (IndexError, ValueError):
-        return datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+        return datetime.fromtimestamp(mtime).strftime("%d.%m.%Y %H:%M")
 
 
 def stage_local(data_dir: pathlib.Path, name: str, key: bytes | None) -> dict:

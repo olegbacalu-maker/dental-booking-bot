@@ -142,6 +142,37 @@
   color: #fff;
 }
 
+/* Закрытая кнопка (короткие PIN, 17.10) видна как закрытая — до этого она
+   выглядела как рабочая и просто не отвечала на щелчок. */
+.dp-lan-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* «Copie de rezervă» для регистратуры (17.10 вечером): выключатель наверху,
+   строка-факт, история по дням, сложенные секции. */
+.dp-react-root .dp-bk-top { max-width: var(--measure-form); margin-bottom: 14px; }
+.dp-react-root .dp-bk-sw { justify-content: space-between; }
+.dp-react-root .dp-bk-sw > span { max-width: var(--measure); }
+.dp-react-root .dp-bk-last { margin: 8px 0 0; font-size: var(--fs-body); }
+.dp-react-root .dp-bk-top .hint { margin-top: 12px; }
+.dp-react-root .dp-bk-hists { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
+.dp-react-root .dp-bk-hist { flex: 1 1 260px; max-width: 420px; }
+.dp-react-root .dp-bk-hist table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: var(--fs-s); }
+.dp-react-root .dp-bk-hist td { padding: 4px 0; border-top: 1px solid var(--line); color: var(--text2); }
+.dp-react-root .dp-bk-hist td:first-child { color: var(--text); font-weight: 600; }
+.dp-react-root .dp-bk-size { text-align: right; }
+.dp-react-root .dp-bk-fold { max-width: var(--measure-form); margin-bottom: 12px; }
+.dp-react-root .dp-bk-fold > summary { display: flex; align-items: center; gap: 8px; font-size: var(--fs-body); }
+.dp-react-root .dp-bk-fold > summary .dp-fold-c { margin-left: auto; }
+.dp-react-root .dp-bk-fold .hint { margin-top: 10px; }
+/* Форма внутри карточки — без второй рамки (form.add сама рисует панель). */
+.dp-react-root .dp-bk-top form.add,
+.dp-react-root .dp-bk-fold form.add { background: none; border: none; box-shadow: none; padding: 0; margin: 12px 0 0; }
+/* «Fă o copie acum» и «Oprește…» — контурные: главное действие формы одно, «Salvează». */
+.dp-react-root form.add button.dp-bk-q { background: var(--panel); color: var(--text2); border: 1px solid var(--line); font-weight: 500; }
+.dp-react-root form.add button.dp-bk-q:hover { background: var(--panel); color: var(--teal-d); border-color: var(--teal); box-shadow: var(--sh-hover); }
+
 /* Справка: карточка вопроса — те же размеры, что инлайном на старой странице. */
 .dp-faq {
   border: 1px solid var(--glass-edge);

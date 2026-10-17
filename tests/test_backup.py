@@ -447,6 +447,93 @@ def suite_schedule(res: Result) -> None:
         _rmtree_settled(dest)
 
 
+# ---------- 4b. выключатель директора ----------
+
+def suite_switch(res: Result) -> None:
+    """«Copie zilnică automată» вкл/выкл (17.10 вечером, слово Олега: «каждый
+    день копию делать нужно с желания администратора — включить или выключить»).
+    Умолчание — включено (ключа в clinic.json нет). Выключено: цикл стоит, ни
+    локальной, ни внешней копии, баннера и янтарной строки НЕТ даже при
+    отказе внешней — директор выключил сам; папка и пароль при этом целы
+    (нет поля ≠ стереть). Включено снова — цикл догоняет."""
+    d = pathlib.Path(tempfile.mkdtemp(prefix="dp_bk_sw_"))
+    dest = pathlib.Path(tempfile.mkdtemp(prefix="dp_bk_swdest_"))
+    shutil.copy(FIXTURES / "clinic_test.json", d / "clinic.json")
+    try:
+        start = clinic_now().replace(microsecond=0)
+        with Clock(start) as clock:
+            with _env_server(d) as s:
+                c = Client(s.url).login()
+                _seed(c)
+                data = _j(c.get("/api/settings/backup"))["data"]
+                res.ok("без ключа в clinic.json — включено", data["auto"]["enabled"] is True, repr(data["auto"]))
+                res.ok("модель несёт строку-факт «ultima copie» и день у копий",
+                       "last" in data["auto"] and all("day" in x for x in data["restore"]["local"]),
+                       repr(data["auto"].get("last")))
+                res.ok("локальная копия появилась", _wait(lambda: _local(d)))
+                r = c.post_json("/api/settings/backup/auto", {"folder": str(dest), "password": PW})
+                res.check("папка задана", r.msg, "ok_bkp_auto")
+                res.ok("первый архив сделан", _wait(lambda: _ext(dest)))
+                data = _j(c.get("/api/settings/backup"))["data"]
+                res.ok("факт: последняя копия → папка",
+                       data["auto"]["last"]["where"] == str(dest) and data["auto"]["last"]["at"],
+                       repr(data["auto"]["last"]))
+                hub = _j(c.get("/api/settings/hub"))["data"]["tiles"]
+                tile = next(t for t in hub if t["href"] == "/admin/settings/backup")
+                res.ok("плитка хаба — факт «ultima copie», не AES",
+                       "ultima copie" in tile["hint"][0]["t"] and "AES" not in tile["hint"][0]["t"], repr(tile["hint"]))
+                n_local, n_ext = len(_local(d)), len(_ext(dest))
+
+                # -- выключить: только {enabled} --
+                r = c.post_json("/api/settings/backup/auto", {"enabled": False})
+                res.check("выключено — ok_bkp_stop", r.msg, "ok_bkp_stop")
+                data = _j(r)["data"]
+                res.ok("папка и пароль НЕ тронуты выключателем",
+                       data["auto"]["folder"] == str(dest) and data["auto"]["has_pass"]
+                       and data["auto"]["enabled"] is False, repr(data["auto"]))
+                res.check("в clinic.json — backup.enabled false",
+                          json.loads((d / "clinic.json").read_text(encoding="utf-8"))["backup"]["enabled"], False)
+                shutil.rmtree(dest)                # флешку вынули — выключенному всё равно
+                clock.set(start + timedelta(hours=25))
+                time.sleep(1.5)
+                res.ok("через сутки выключенный цикл копий не делает",
+                       len(_local(d)) == n_local and not dest.exists(), f"{len(_local(d))}/{n_local}")
+                data = _j(c.get("/api/settings/backup"))["data"]
+                res.ok("выключенное молчит: ни alert, ни ошибки внешней",
+                       data["auto"]["alert"] == "" and data["auto"]["ext_error"] == "", repr(data["auto"]))
+                res.ok("баннера директору нет",
+                       not shell_signal(c.get("/admin").body, "backup")["shown"])
+                sysd = _j(c.get("/api/settings/system"))["data"]["backup"]
+                res.ok("Stare sistem называет выключенное словами, тон warn",
+                       sysd["daily"].startswith("oprită") and sysd["tone"] == "warn" and not sysd["alert"], repr(sysd))
+                hub = _j(c.get("/api/settings/hub"))["data"]["tiles"]
+                tile = next(t for t in hub if t["href"] == "/admin/settings/backup")
+                res.check("плитка хаба — «copia zilnică oprită»", tile["hint"][0]["t"], "copia zilnică oprită")
+                res.check("ручной экспорт работает и выключенным",
+                          c.post("/admin/backup/export", parola=PW).status, 200)
+
+                # -- включить снова: догоняет --
+                dest.mkdir()
+                r = c.post_json("/api/settings/backup/auto", {"enabled": True})
+                res.check("включено — ok_bkp_on", r.msg, "ok_bkp_on")
+                res.ok("цикл проснулся: локальная копия", _wait(lambda: len(_local(d)) > n_local))
+                res.ok("и внешняя — в прежнюю папку с прежним паролем", _wait(lambda: _ext(dest)))
+
+            # выключенное переживает перезапуск
+            with _env_server(d) as s:
+                c = Client(s.url).login()
+                c.post_json("/api/settings/backup/auto", {"enabled": False})
+            with _env_server(d) as s:
+                c = Client(s.url).login()
+                data = _j(c.get("/api/settings/backup"))["data"]
+                res.ok("после перезапуска — всё ещё выключено, папка помнится",
+                       data["auto"]["enabled"] is False and data["auto"]["folder"] == str(dest), repr(data["auto"]))
+    finally:
+        _rmtree_settled(d)
+        if dest.exists():
+            _rmtree_settled(dest)
+
+
 # ---------- 5. неудача: лента и баннер ----------
 
 def suite_failure(res: Result) -> None:
