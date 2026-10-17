@@ -25,7 +25,7 @@ from . import demo
 from . import license as lic
 from . import backup_loop, sms_loop
 from . import theme
-from .auth import (PERM_DOCTORS, PERM_MONEY, PERM_SETTINGS, PIN_MAX, PIN_MIN,
+from .auth import (PERM_DOCTORS, PERM_MONEY, PERM_SETTINGS, PIN_MAX, PIN_MIN_LAN,
                    ROLE_LABEL, _pin_rec, can,
                    request_user, tamper_alert)
 
@@ -243,11 +243,16 @@ MSG_BANNER = {
     "auth_broken": ("err", "Fișierul de acces e deteriorat — restaurați "
                            "data\\auth.json din copia de rezervă."),
     "ok_pin": ("ok", "PIN schimbat"),
-    # ⚠️ границы — из констант, не числами: «4–6» пережило подъём потолка до 8
-    # (08-13) и отговаривало от разрешённых 7–8 цифр
-    "bad_pin": ("err", f"PIN-ul vechi e greșit sau cel nou nu are "
-                       f"{PIN_MIN}–{PIN_MAX} cifre identice"),
+    # ⚠️ границы НЕ называются: «4–6» пережило подъём потолка до 8 (08-13), а
+    # с 17.10 минимум зависит от сети (`auth.pin_min`) — словарь импортом
+    # заморозил бы старое. Диапазон показывает само поле формы.
+    "bad_pin": ("err", "PIN-ul vechi e greșit sau cel nou nu are numărul de "
+                       "cifre cerut (vezi câmpul) ori cele două nu coincid"),
     "lock_pin": ("warn", "Prea multe încercări greșite — așteptați câteva minute"),
+    # Включение сети задержано учётками (17.10): список — на самой странице
+    "lan_pins": ("err", f"Accesul din rețea nu se poate porni: unele PIN-uri au "
+                        f"sub {PIN_MIN_LAN} cifre sau lungimea lor nu e cunoscută "
+                        f"— vezi lista de pe această pagină"),
     "bad_tok": ("err", "Token invalid — copiați exact tokenul de la @BotFather"),
     # ⚠️ dental.env не удалось ПРОЧИТАТЬ (придержан антивирусом/OneDrive или
     # сохранён в нечитаемой кодировке) — запись отменена, файл не тронут.
@@ -372,8 +377,10 @@ MSG_BANNER = {
                          "Dacă aveți nevoie de acces, cereți-i să vă schimbe rolul "
                          "în Setări › Utilizatori"),
     "ok_user": ("ok", "Utilizator salvat"),
-    "bad_user": ("err", f"Date invalide — verificați numele, rolul și parola "
-                        f"({PIN_MIN}–{PIN_MAX} cifre)"),
+    # ⚠️ без диапазона числами: минимум зависит от сети (`auth.pin_min`), а
+    # словарь — импорт; числа показывает поле формы
+    "bad_user": ("err", "Date invalide — verificați numele, rolul și parola "
+                        "(numărul de cifre cerut e scris în câmp)"),
     "dup_user": ("err", "Parola este deja folosită de alt utilizator — alegeți alta. "
                         "Intrarea se face doar cu parola, deci ea trebuie să fie unică"),
     "last_dir": ("err", "Trebuie să rămână cel puțin un director — altfel nimeni nu mai "

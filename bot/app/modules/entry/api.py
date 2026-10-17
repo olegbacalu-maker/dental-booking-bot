@@ -16,7 +16,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 
 from ...core.api import api_body, api_guard
-from ...core.auth import _as_user, _set_auth_cookie, same_origin_post
+from ...core.auth import _as_user, same_origin_post, _set_auth_cookie
 from ...core.layout import msg_json
 from .routes import LOGIN_BROKEN, LOGIN_OK, try_login
 

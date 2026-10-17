@@ -53,6 +53,7 @@ import sys
 import time
 import urllib.parse
 
+from ...core import auth
 from ...core.layout import _ic
 from . import netcheck
 
@@ -91,8 +92,9 @@ def note_peer(request) -> None:
 def enabled() -> bool:
     """Текущий ПРОЦЕСС запущен с сетевым доступом? (env приезжает из
     dental.env при старте; после переключения программа перезапускается,
-    поэтому файл и окружение расходятся только в dev-режиме)."""
-    return os.environ.get("DENTART_LAN", "").strip() == "1"
+    поэтому файл и окружение расходятся только в dev-режиме).
+    Читает `auth.lan_on` — одно место: от флага зависит и минимум PIN."""
+    return auth.lan_on()
 
 
 def port() -> int:
@@ -259,6 +261,35 @@ def status_html(on: bool, ip: str, url: str, st: dict | None = None) -> str:
             f"Android rămâne o scurtătură către browser.</div>"
             f"<img src='/qr?data={q}' "
             f"style='width:180px;height:180px'></div>" + seen_html(st))
+
+
+def pins_html(short: list[dict], unknown: list[dict], on: bool) -> str:
+    """Учётки, с которыми сеть не включается (17.10): PIN короче
+    `auth.PIN_MIN_LAN` и записи, чью длину программа ещё не знает (человек не
+    входил после обновления). Выключено — это причина, по которой кнопка
+    закрыта; включено (флаг пережил обновление) — предупреждение. Пусто, когда
+    все готовы. Без ссылок: страница раздела называется словами."""
+    if not (short or unknown):
+        return ""
+    n = auth.PIN_MIN_LAN
+    rows = ""
+    for u in short:
+        rows += (f"<br>· <b>{html.escape(u['name'])}</b> — PIN sub {n} cifre: "
+                 f"setați-i unul nou în Setări › Securitate și utilizatori")
+    for u in unknown:
+        rows += (f"<br>· <b>{html.escape(u['name'])}</b> — lungimea PIN-ului nu e "
+                 f"cunoscută: persoana să intre o dată în program (pe acest "
+                 f"calculator) sau setați-i un PIN nou")
+    if on:
+        head = (f"<b>{_ic('sos')} PIN-uri prea scurte pentru rețea.</b> În rețea "
+                f"PIN-ul poate fi încercat de pe orice telefon din Wi-Fi; de aceea, "
+                f"cu accesul pornit, PIN-urile au cel puțin {n} cifre.")
+    else:
+        head = (f"<b>{_ic('sos')} Înainte de pornire: PIN-uri de cel puțin {n} "
+                f"cifre.</b> În rețea PIN-ul poate fi încercat de pe orice telefon "
+                f"din Wi-Fi, iar 4 cifre înseamnă doar 10 000 de variante. Accesul "
+                f"se pornește după ce toți utilizatorii de mai jos au un PIN potrivit:")
+    return f"<div {_WARN}>{head}{rows}</div>"
 
 
 def firewall_html(st: dict | None = None) -> str:

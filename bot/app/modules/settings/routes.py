@@ -28,7 +28,7 @@ from ... import engine as eng
 from ... import update as upd
 from ...core.auth import (PERM_SETTINGS, ROLE_DIRECTOR, ROLE_LABEL, _guard, _pin_rec,
                           all_users, can, delete_user, find_user,
-                          n_directors, pin_free, pin_len_ok,
+                          n_directors, pin_free, pin_len_ok, pin_readiness,
                           remember_auth_file, request_user, require, save_user)
 from ...core.layout import (_DOW_ORDER, _ic,
                             msg_banner,
@@ -318,10 +318,15 @@ async def settings_lan(request: Request, msg: str = ""):
 
 
 def _set_lan(mode: str) -> str | None:
-    """Переключить доступ из сети в dental.env. Код отказа (`bad_env`) или
-    None; зовёт JSON API (`api.py`). Применение — перезапуск программы."""
+    """Переключить доступ из сети в dental.env. Код отказа (`bad_env`,
+    `lan_pins`) или None; зовёт JSON API (`api.py`). Применение — перезапуск
+    программы. ⛔ Включение держат учётки (17.10): PIN короче
+    `auth.PIN_MIN_LAN` или неизвестной длины — список на странице
+    (`lan.pins_html`), без обходного «включить всё равно»."""
     env_file = os.environ.get("DENTART_ENV_FILE", "")
     val = "1" if mode == "on" else ""
+    if val and any(pin_readiness()):
+        return "lan_pins"
     try:
         envfile.set_value(pathlib.Path(env_file), "DENTART_LAN", val)
     except OSError as ex:

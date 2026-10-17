@@ -22,13 +22,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from ... import db
 from ... import engine as eng
-from ...core.auth import (ADMIN_KEY, FAIL_DELAY, LOCK_STEP_COUNTS, PIN_MAX,
-                          PIN_MIN, PERM_SETTINGS, _as_user, _pin_rec, _secret,
-                          _set_auth_cookie, _setup_allowed, _write_pin,
-                          auth_blocked, auth_file_fp, client_is_local,
-                          fail_count, find_user, lock_left, note_fail, note_ok,
-                          pin_len_ok, remember_auth_file, require,
-                          same_origin_post, set_tamper_alert, verify_pin)
+from ...core.auth import (ADMIN_KEY, _as_user, auth_blocked, auth_file_fp,
+                          client_is_local, fail_count, FAIL_DELAY, find_user, lock_left,
+                          LOCK_STEP_COUNTS, note_fail, note_ok, PERM_SETTINGS,
+                          pin_len_ok, pin_range_text, _pin_rec, remember_auth_file,
+                          require, same_origin_post, _secret, _set_auth_cookie,
+                          set_tamper_alert, _setup_allowed, verify_pin, _write_pin)
 from ...core.layout import msg_text, standalone
 from .pages import LOGIN_TMPL, PASS_INPUT, PIN_INPUT, SETUP_LOCAL_TMPL, SETUP_TMPL
 
@@ -181,11 +180,13 @@ async def admin_setup_page(request: Request, err: str = ""):
         # не редирект на /admin: _guard без PIN вернул бы сюда же, и сетевой
         # клиент кружил бы в 303 — вместо этого внятная страница с причиной
         return HTMLResponse(standalone(SETUP_LOCAL_TMPL), status_code=403)
-    # границы из констант: «4–6» здесь пережило подъём потолка до 8 (08-13),
-    # и экран установки противоречил собственному «4–8 cifre» строкой ниже
+    # границы — одной функцией, по состоянию сети: «4–6» здесь пережило
+    # подъём потолка до 8 (08-13), а с 17.10 минимум ещё и зависит от сети
+    # (6 при включённом «Acces din rețea» — флаг переживает переустановку)
     err_html = (f"<div class='err'>PIN-urile nu coincid sau nu au "
-                f"{PIN_MIN}–{PIN_MAX} cifre</div>" if err else "")
-    return standalone(SETUP_TMPL).replace("__ERR__", err_html)
+                f"{pin_range_text()}</div>" if err else "")
+    return (standalone(SETUP_TMPL).replace("__ERR__", err_html)
+            .replace("__PIN_RANGE__", pin_range_text()))
 
 
 @router.post("/admin/setup")

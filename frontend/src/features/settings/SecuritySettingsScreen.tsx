@@ -11,7 +11,8 @@ import { settings, type SecurityData, type UserForm, type UserRow } from './sett
 const T = {
   pinTitle: 'Schimbă PIN',
   oldPin: 'PIN actual',
-  newPin: 'PIN nou',
+  /* диапазон — с сервера: минимум 6 при включённом доступе из сети */
+  newPin: 'PIN nou ({min}–{max} cifre)',
   repeat: 'repetați',
   change: 'Schimbă',
   usersTitle: 'Utilizatori',
@@ -121,6 +122,8 @@ export function SecuritySettingsScreen({ navigate = defaultNavigate }: Props) {
   }
   const data: SecurityData | null = state.status === 'ready' ? state.data : null
   const max = data?.pin.max ?? 8
+  const range = (t: string) => t.replace('{min}', String(data?.pin.min ?? '')).replace('{max}', String(max))
+  const newPin = range(T.newPin)
 
   return (
     <section className="dp-react-root" aria-busy={data === null}>
@@ -129,7 +132,7 @@ export function SecuritySettingsScreen({ navigate = defaultNavigate }: Props) {
         <input type="password" value={pins.old_pin} placeholder={T.oldPin} aria-label={T.oldPin}
           inputMode="numeric" maxLength={max} required style={{ width: 140 }} disabled={busy || !data}
           onChange={(e) => setPins({ ...pins, old_pin: e.target.value })} />
-        <input type="password" value={pins.new1} placeholder={T.newPin} aria-label={T.newPin}
+        <input type="password" value={pins.new1} placeholder={newPin} aria-label={newPin}
           inputMode="numeric" maxLength={max} required style={{ width: 140 }} disabled={busy || !data}
           onChange={(e) => setPins({ ...pins, new1: e.target.value })} />
         <input type="password" value={pins.new2} placeholder={T.repeat} aria-label={T.repeat}
@@ -163,8 +166,8 @@ export function SecuritySettingsScreen({ navigate = defaultNavigate }: Props) {
           {data?.doctors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
         <input type="password" value={fresh.pin} inputMode="numeric" maxLength={max} required
-          placeholder={T.addPin.replace('{min}', String(data?.pin.min ?? '')).replace('{max}', String(max))}
-          aria-label={T.addPin.replace('{min}', String(data?.pin.min ?? '')).replace('{max}', String(max))}
+          placeholder={range(T.addPin)}
+          aria-label={range(T.addPin)}
           style={{ width: 150 }} disabled={busy || !data} onChange={(e) => setFresh({ ...fresh, pin: e.target.value })} />
         <button disabled={busy || !data}>{T.add}</button>
       </form>

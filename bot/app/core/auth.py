@@ -68,10 +68,36 @@ KDF_LEGACY = "sha256-1"
 # работали. Проверка длины — ТОЛЬКО отсюда: три формы (setup, смена, учётки)
 # с собственными числами разъехались бы при первой правке.
 PIN_MIN, PIN_MAX = 4, 8
+# Минимум ПРИ ВКЛЮЧЁННОЙ СЕТИ (17.10, посторонний разбор): форма входа открыта
+# всему Wi-Fi клиники, а 4 цифры — это 10 000 вариантов, которые даже с
+# лестницей блокировок на устройство перебираются с десятка телефонов за
+# вечер. Шесть — миллион, и подбор перестаёт быть вечерним занятием.
+# Существующие короткие PIN не ломаются: правило проверяется при УСТАНОВКЕ
+# пароля, а сеть не включается, пока у всех не ≥ 6 (`pin_readiness`).
+PIN_MIN_LAN = 6
+
+
+def lan_on() -> bool:
+    """Процесс запущен с доступом из сети (DENTART_LAN=1 из dental.env).
+    ⭐ Единственное чтение флага: `settings/lan.enabled()` берёт его отсюда,
+    а переключатель ставит переменную тут же, не дожидаясь перезапуска."""
+    return os.environ.get("DENTART_LAN", "").strip() == "1"
+
+
+def pin_min() -> int:
+    """Нижняя граница длины PIN — ПО СОСТОЯНИЮ СЕТИ, функцией, а не константой:
+    переключатель сети меняет её на лету, и импорт заморозил бы старое."""
+    return PIN_MIN_LAN if lan_on() else PIN_MIN
+
+
+def pin_range_text() -> str:
+    """«4–8 cifre» / «6–8 cifre» — для экранов. ⛔ Диапазон числами в тексте
+    больше не пишется нигде (держит `test_structure`): он зависит от сети."""
+    return f"{pin_min()}–{PIN_MAX} cifre"
 
 
 def pin_len_ok(pin: str) -> bool:
-    return pin.isdigit() and PIN_MIN <= len(pin) <= PIN_MAX
+    return pin.isdigit() and pin_min() <= len(pin) <= PIN_MAX
 
 # --- роли (08-06, по просьбе первой клиники) ---
 # Роль — это НАБОР РАЗРЕШЕНИЙ, а не строка, которую сравнивают по месту:
@@ -352,10 +378,48 @@ def require(request: Request, perm: str) -> RedirectResponse | None:
 
 def _secret_fields(pin: str) -> dict:
     """Хеш пароля + новая метка сессий: смена пароля обязана закрывать открытые
-    вкладки ИМЕННО этого человека."""
+    вкладки ИМЕННО этого человека.
+
+    `plen` — длина PIN (17.10). Нужна включению сети: «у кого PIN короче 6»
+    по хешу не узнать, а перебирать 4–5-значные против PBKDF2 — часы. Унёсшему
+    файл она почти ничего не даёт: он и так начинает с коротких, а 8-значных
+    в 10 раз больше, чем всех остальных вместе. У записей до 17.10 поля нет —
+    `verify_pin` доливает его при первом удачном входе (без вращения ключа).
+    """
     salt = secrets.token_hex(16)
     return {"kdf": KDF, "iter": KDF_ITER, "salt": salt,
-            "hash": _derive(pin, salt), "sid": secrets.token_hex(8)}
+            "hash": _derive(pin, salt), "sid": secrets.token_hex(8),
+            "plen": len(pin)}
+
+
+def pin_readiness() -> tuple[list[dict], list[dict]]:
+    """Готовы ли учётки к сети: (PIN короче `PIN_MIN_LAN`, длина неизвестна).
+
+    Неизвестна — запись до 17.10, человек ещё не входил после обновления: ни
+    пустить сеть вслепую, ни назвать его PIN коротким нельзя. Обе группы
+    держат переключатель (`settings/routes._set_lan`) и перечислены на
+    странице «Acces din rețea»; без явного «принимаю»: разрешить включить сеть
+    с 4-значным PIN значило бы, что правило декоративное. Директор решает за
+    минуту — ставит человеку новый PIN в учётках или просит войти один раз.
+    """
+    short, unknown = [], []
+    for u in _users(_pin_rec()):
+        n = u.get("plen")
+        if n is None:
+            unknown.append(_as_user(u))
+        elif int(n) < PIN_MIN_LAN:
+            short.append(_as_user(u))
+    return short, unknown
+
+
+def _note_plen(uid: str, n: int) -> None:
+    """Долить длину PIN в запись (первый вход после обновления 17.10). Без
+    вращения ключа: это не смена пароля, и выкидывать всех из журнала нельзя."""
+    users = _users(_pin_rec())
+    for u in users:
+        if u.get("id") == uid:
+            u["plen"] = n
+    _save_users(users, rotate=False)
 
 
 def _save_users(users: list[dict], *, rotate: bool) -> None:
@@ -468,6 +532,11 @@ def verify_pin(pin: str, uid: str = "") -> dict | None:
                            uid=u.get("id", "clinic"))
                 return next((x for x in _users(_pin_rec())
                              if x.get("id") == u.get("id", "clinic")), u)
+            if u.get("plen") != len(pin):
+                # запись до 17.10: длина нужна включению сети (pin_readiness);
+                # единственный момент, когда PIN в руках, — вот он
+                _note_plen(u.get("id", "clinic"), len(pin))
+                return {**u, "plen": len(pin)}
             return u
     return None
 

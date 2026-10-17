@@ -13,14 +13,16 @@ vi.mock('../../services/api', async (importOriginal) => {
   return { ...real, api: { get, post, postForm }, loginUrl: () => '/admin/login?next=x' }
 })
 
+const READY = { min: 6, short: [], unknown: [], blocked: false }
 const OFF: LanData = {
-  enabled: false, ip: '', port: 8088, url: '', firewall: null,
-  blocks: { intro: '<p>Un program, o singură evidență.</p>', status: '<p>Accesul este oprit</p>', firewall: '', tips: '' },
+  enabled: false, ip: '', port: 8088, url: '', firewall: null, pins: READY,
+  blocks: { intro: '<p>Un program, o singură evidență.</p>', status: '<p>Accesul este oprit</p>', pins: '', firewall: '', tips: '' },
 }
 const ON: LanData = {
-  enabled: true, ip: '192.168.1.5', port: 8088, url: 'http://192.168.1.5:8088/admin', firewall: false,
+  enabled: true, ip: '192.168.1.5', port: 8088, url: 'http://192.168.1.5:8088/admin', firewall: false, pins: READY,
   blocks: {
     intro: OFF.blocks.intro,
+    pins: '',
     status: '<p>Activ. http://192.168.1.5:8088/admin</p>',
     firewall: '<p>Regula de firewall lipsește</p>',
     tips: '<p>De știut</p>',
@@ -96,6 +98,33 @@ describe('LanSettingsScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: /Creează regula de firewall/ }))
     await waitFor(() => expect(screen.queryByText('Regula de firewall lipsește')).toBeNull())
     expect(post).toHaveBeenCalledWith('/settings/lan/firewall', {})
+  })
+
+  it('короткие PIN: список сервера виден, кнопка включения закрыта (17.10)', async () => {
+    // причина закрытой кнопки — проза сервера; сервер и сам ответил бы lan_pins
+    get.mockResolvedValueOnce(ok({
+      ...OFF,
+      pins: { min: 6, short: ['Ana R'], unknown: [], blocked: true },
+      blocks: { ...OFF.blocks, pins: '<p>Înainte de pornire: Ana R — PIN sub 6 cifre</p>' },
+    }))
+    open()
+    expect(await screen.findByText(/Ana R — PIN sub 6 cifre/)).toBeTruthy()
+    const btn = screen.getByRole('button', { name: 'Activează accesul' }) as HTMLButtonElement
+    expect(btn.disabled).toBe(true)
+    fireEvent.click(btn)
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('включено с коротким PIN (флаг пережил обновление): предупреждение, выключить можно', async () => {
+    get.mockResolvedValueOnce(ok({
+      ...ON,
+      pins: { min: 6, short: ['Ana R'], unknown: [], blocked: false },
+      blocks: { ...ON.blocks, pins: '<p>PIN-uri prea scurte pentru rețea</p>' },
+    }))
+    open()
+    expect(await screen.findByText('PIN-uri prea scurte pentru rețea')).toBeTruthy()
+    const btn = screen.getByRole('button', { name: 'Dezactivează accesul' }) as HTMLButtonElement
+    expect(btn.disabled).toBe(false)
   })
 
   it('секции нет в этом издании (404) — своя фраза', async () => {

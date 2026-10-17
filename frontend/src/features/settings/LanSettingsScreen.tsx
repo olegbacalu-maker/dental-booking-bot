@@ -104,6 +104,7 @@ export function LanSettingsScreen({ navigate = defaultNavigate }: Props) {
         <>
           <div dangerouslySetInnerHTML={{ __html: data.blocks.intro }} />
           <div dangerouslySetInnerHTML={{ __html: data.blocks.status }} />
+          {data.blocks.pins && <div dangerouslySetInnerHTML={{ __html: data.blocks.pins }} />}
           {data.blocks.firewall && (
             <>
               <div dangerouslySetInnerHTML={{ __html: data.blocks.firewall }} />
@@ -117,7 +118,7 @@ export function LanSettingsScreen({ navigate = defaultNavigate }: Props) {
             type="button"
             className={data.enabled ? 'dp-lan-btn off' : 'dp-lan-btn on'}
             onClick={() => toggle(data.enabled ? 'off' : 'on')}
-            disabled={busy}
+            disabled={busy || data.pins.blocked}
           >
             {data.enabled ? T.off : T.on}
           </button>

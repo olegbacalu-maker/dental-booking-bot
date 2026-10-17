@@ -34,7 +34,10 @@ export interface LanData {
   url: string
   /** null — проверить нечем (нет netsh). */
   firewall: boolean | null
-  blocks: { intro: string; status: string; firewall: string; tips: string }
+  /** Учётки, с которыми сеть не включится (PIN короче `min` или длина
+      неизвестна); `blocked` — кнопка включения закрыта. Список — в `blocks.pins`. */
+  pins: { min: number; short: string[]; unknown: string[]; blocked: boolean }
+  blocks: { intro: string; status: string; pins: string; firewall: string; tips: string }
 }
 
 export interface LanSaved {

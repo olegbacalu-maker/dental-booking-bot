@@ -774,3 +774,130 @@ def suite_env_token(res: Result) -> None:
             else:
                 os.environ[k] = v
         _rmtree_settled(tmp)
+
+
+# ---------- 17.10: сетевой режим — длина PIN, срок и отзыв сессии ----------
+
+def _hash_user(uid: str, name: str, role: str, pin: str) -> dict:
+    """Запись учётки в формате файла — как её писала программа ДО 17.10
+    (без `plen`); pbkdf2 считается так же, как в `auth._derive`."""
+    salt = "a" * 32
+    return {"id": uid, "name": name, "role": role, "kdf": "pbkdf2-sha256",
+            "iter": 600_000, "salt": salt, "sid": "0" * 16,
+            "hash": hashlib.pbkdf2_hmac("sha256", pin.encode(), salt.encode(),
+                                        600_000).hex()}
+
+
+def suite_lan_pin(res: Result) -> None:
+    """PIN не короче 6 цифр при включённом «Acces din rețea» (17.10).
+
+    Правило — одно (`auth.pin_len_ok` через `pin_min()`), и его видят все три
+    формы и экран установки. Существующие короткие PIN не ломаются: сеть не
+    включается, пока у всех не ≥ 6 (`pin_readiness`), а длину записей до
+    17.10 программа узнаёт при первом входе (`plen`).
+    """
+    LAN = {**NO_KEY, "DENTART_LAN": "1"}
+    sec = "/api/settings/security"
+    with Server(env=LAN) as s:
+        c = Client(s.url)
+        page = c.get("/admin/setup").body
+        res.ok("экран установки при включённой сети просит 6–8 цифр",
+               "6–8 cifre" in page and "4–8" not in page,
+               "текст экрана не следует за состоянием сети")
+        r = c.post("/admin/setup", pin1="4321", pin2="4321")
+        res.ok("4 цифры при сети — отказ, файла нет",
+               "err=1" in r.location and not (s.dir / "auth.json").exists(),
+               f"location {r.location!r}")
+        res.ok("отказ называет 6–8", "6–8 cifre" in c.get("/admin/setup?err=1").body,
+               "в тексте отказа старый диапазон")
+        r = c.post("/admin/setup", pin1="654321", pin2="654321")
+        res.ok("6 цифр — принято", r.status == 303 and r.location.endswith("/admin"),
+               f"{r!r}")
+        res.check("длина PIN записана в учётку", _rec(s)["users"][0].get("plen"), 6)
+        d = json.loads(c.get(sec).body)["data"]
+        res.check("API учёток называет минимум 6", d["pin"]["min"], 6)
+        r = c.post_json("/api/settings/users", {"uid": "ana", "name": "Ana R",
+                                                "role": "receptie", "pin": "3333"})
+        res.check("учётка с 4 цифрами при сети — bad_user", r.msg, "bad_user")
+        r = c.post_json("/api/settings/pin", {"old_pin": "654321", "new1": "4321",
+                                              "new2": "4321"})
+        res.check("свой PIN на 4 цифры при сети — bad_pin", r.msg, "bad_pin")
+        r = c.post_json("/api/settings/users", {"uid": "ana", "name": "Ana R",
+                                                "role": "receptie", "pin": "333333"})
+        res.check("6 цифр у учётки проходят", r.msg, "ok_user")
+        bad = c.post_json("/api/settings/users", {"uid": "x", "name": "X",
+                                                  "role": "medic", "pin": "1"})
+        res.ok("отказы не называют диапазон числами (минимум зависит от сети)",
+               "4–8" not in json.loads(bad.body).get("text", ""), bad.body[:160])
+
+    with Server(env=NO_KEY) as s:
+        c = Client(s.url)
+        res.ok("без сети экран установки просит 4–8, как раньше",
+               "4–8 cifre" in c.get("/admin/setup").body, "диапазон изменился без сети")
+        c.post("/admin/setup", pin1="4321", pin2="4321")
+        res.check("без сети 4 цифры принимаются", c.get("/admin").status, 200)
+        res.check("и API учёток называет минимум 4",
+                  json.loads(c.get(sec).body)["data"]["pin"]["min"], 4)
+
+    # включение сети держат учётки: короткий PIN и неизвестная длина
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_lanpin_"))
+    env_path = tmp / "dental.env"
+    env_path.write_text("TELEGRAM_TOKEN=\n", encoding="utf-8")
+    try:
+        s = Server(env={**NO_KEY, "DENTART_ENV_FILE": str(env_path)})
+        _v1_file(s, "4321")
+        with s:
+            c = Client(s.url)
+            c.post("/admin/login", password="4321", next="/admin")
+            rec = _rec(s)
+            res.check("вход доливает длину PIN в запись прошлой версии",
+                      rec["users"][0].get("plen"), 4)
+            # коллега, не входившая после обновления: длина неизвестна
+            rec["users"].append(_hash_user("ana", "Ana R", "receptie", "777777"))
+            (s.dir / "auth.json").write_text(json.dumps(rec), encoding="utf-8")
+            d = json.loads(c.get("/api/settings/lan").body)["data"]
+            res.check("короткий PIN назван", d["pins"]["short"], ["Director"])
+            res.check("неизвестная длина названа отдельно", d["pins"]["unknown"], ["Ana R"])
+            res.ok("кнопка включения закрыта, причина — прозой с именами",
+                   d["pins"]["blocked"] is True and "Director" in d["blocks"]["pins"]
+                   and "Ana R" in d["blocks"]["pins"] and "6 cifre" in d["blocks"]["pins"],
+                   f"{d['pins']!r} {d['blocks']['pins'][:160]}")
+            r = c.post_json("/api/settings/lan", {"mode": "on"})
+            res.ok("включение — 409 lan_pins", r.status == 409 and r.msg == "lan_pins",
+                   f"{r!r}")
+            res.ok("dental.env не тронут",
+                   "DENTART_LAN=1" not in env_path.read_text(encoding="utf-8"),
+                   "сеть включилась вопреки отказу")
+            res.ok("выключение не держится учётками",
+                   c.post_json("/api/settings/lan", {"mode": "off"}).msg == "ok_set",
+                   "mode=off отказан")
+
+            # директор чинит за минуту: себе — смена, коллеге — новый PIN
+            r = c.post_json("/api/settings/pin", {"old_pin": "4321", "new1": "654321",
+                                                  "new2": "654321"})
+            res.check("свой PIN сменён на 6", r.msg, "ok_pin")
+            res.check("длина нового PIN записана",
+                      next(u for u in _rec(s)["users"] if u["id"] == "clinic").get("plen"), 6)
+            res.ok("ещё держит: коллега неизвестной длины",
+                   c.post_json("/api/settings/lan", {"mode": "on"}).msg == "lan_pins",
+                   "включилось с учёткой неизвестной длины")
+            r = c.post_json("/api/settings/users", {"uid": "ana", "name": "Ana R",
+                                                    "role": "receptie", "pin": "777777"})
+            res.check("коллеге задан новый PIN", r.msg, "ok_user")
+            d = json.loads(c.get("/api/settings/lan").body)["data"]
+            res.ok("все готовы — блока нет, кнопка открыта",
+                   d["pins"]["blocked"] is False and d["blocks"]["pins"] == ""
+                   and not d["pins"]["short"] and not d["pins"]["unknown"], f"{d['pins']!r}")
+            r = c.post_json("/api/settings/lan", {"mode": "on"})
+            res.ok("теперь включается", r.status == 200 and r.msg == "ok_set", f"{r!r}")
+            res.ok("dental.env получил флаг",
+                   "DENTART_LAN=1" in env_path.read_text(encoding="utf-8"), "флага нет")
+            res.check("минимум поднялся сразу, без перезапуска",
+                      json.loads(c.get(sec).body)["data"]["pin"]["min"], 6)
+            d = json.loads(c.get("/api/settings/lan").body)["data"]
+            res.ok("включённая сеть без коротких PIN — предупреждения нет",
+                   d["enabled"] is True and d["blocks"]["pins"] == "", f"{d['pins']!r}")
+    finally:
+        _rmtree_settled(tmp)
+
+

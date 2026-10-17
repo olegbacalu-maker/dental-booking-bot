@@ -33,9 +33,9 @@ from ... import update as upd
 from ...core import backup_loop, dbkey, restore, sms_loop, theme
 from ...core import sms_plan as splan
 from ...core.api import api_body, api_guard, api_require
-from ...core.auth import (PERM_SETTINGS, PERM_USERS, PIN_MAX, PIN_MIN, ROLE_LABEL,
-                          _pin_rec, _set_auth_cookie, all_users, can, change_pin,
-                          current_user, request_user)
+from ...core.auth import (all_users, can, change_pin, current_user, PERM_SETTINGS,
+                          PERM_USERS, PIN_MAX, pin_min, PIN_MIN_LAN, pin_readiness,
+                          _pin_rec, request_user, ROLE_LABEL, _set_auth_cookie)
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, SETUP_HINT, SUPPORT_PHONE,
                             _DOW_FULL, _DOW_ORDER, msg_json, msg_text, tg_refresh_meta)
 from ...core.storage import _data_dir
@@ -127,14 +127,22 @@ def _lan_data(st: dict | None) -> dict:
     on = lan.enabled()
     ip, url = lan.address(on)
     st = st if on else None
+    short, unknown = pin_readiness()
     return {
         "enabled": on, "ip": ip, "port": lan.port(), "url": url,
         "firewall": lan.firewall_ok(st),
         "fw": ({"verdict": st["verdict"], "category": st["category"],
                 "network": st["network"]} if st is not None else None),
+        # учётки, с которыми сеть не включится (17.10): имена для клиента,
+        # `blocked` — кнопка включения закрыта (сервер отказал бы `lan_pins`)
+        "pins": {"min": PIN_MIN_LAN,
+                 "short": [u["name"] for u in short],
+                 "unknown": [u["name"] for u in unknown],
+                 "blocked": not on and bool(short or unknown)},
         "blocks": {
             "intro": lan.intro_html(),
             "status": lan.status_html(on, ip, url, st),
+            "pins": lan.pins_html(short, unknown, on),
             "firewall": lan.firewall_html(st) if lan.firewall_fixable(st) else "",
             "tips": lan.tips_html(st) if on else "",
         },
@@ -166,7 +174,8 @@ async def api_lan_save(request: Request):
     if mode not in ("on", "off"):
         return msg_json(False, "bad_set", status=422, field="mode")
     if (err := _set_lan(mode)) is not None:
-        return msg_json(False, err, status=500)
+        # lan_pins — спор с состоянием учёток (409), bad_env — сбой файла (500)
+        return msg_json(False, err, status=409 if err == "lan_pins" else 500)
     auto = upd.restart_app() is None
     desktop = upd.is_desktop()
     return msg_json(True, "ok_set", data={
@@ -524,7 +533,8 @@ async def _security_data(me_id: str) -> dict:
         "roles": dict(ROLE_LABEL),
         "doctors": [{"id": k, "name": v} for k, v in eng.DOCTORS.items()],
         "me": me_id,
-        "pin": {"min": PIN_MIN, "max": PIN_MAX},
+        # минимум — по состоянию сети (6 при включённом доступе), функцией
+        "pin": {"min": pin_min(), "max": PIN_MAX},
     }
 
 

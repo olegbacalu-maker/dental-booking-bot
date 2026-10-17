@@ -895,43 +895,32 @@ def suite(res: Result) -> None:
            "_BOOK_LOCK взят напрямую — путь брони мимо общей точки входа: "
            + "; ".join(bad))
 
-    # ---- границы PIN в текстах — из констант (08-15) ----
+    # ---- диапазон PIN в текстах — только функцией (08-15, 17.10) ----
     # PIN_MIN/PIN_MAX живут в core/auth.py и уже поднимались (4–6 → 4–8,
     # 08-13). Текст, назвавший диапазон числами, при этом отстаёт МОЛЧА:
     # баннер «nu are 4–6 cifre» отговаривал от разрешённых 7–8 цифр, а экран
-    # первой установки противоречил сам себе. Правило: строковый литерал с
-    # «N–M cifre» обязан называть ровно PIN_MIN–PIN_MAX (докстринги и
-    # комментарии до экрана не доезжают — их правило пропускает).
-    # ⚠️ Полярность опасная в обе стороны: константы обязаны НАЙТИСЬ (иначе
-    # сверять не с чем), и хотя бы один текст с диапазоном обязан существовать
-    # (экран первой установки «… (4–8 cifre)»; React-экран учёток берёт
-    # границы из API) — иначе правило сторожит пустоту.
-    auth_tree = by_path.get("app/core/auth.py")
-    pin_rng = None
-    for n in ast.walk(auth_tree or ast.Module(body=[], type_ignores=[])):
-        if (isinstance(n, ast.Assign) and len(n.targets) == 1
-                and isinstance(n.targets[0], ast.Tuple)
-                and [getattr(t, "id", None) for t in n.targets[0].elts]
-                == ["PIN_MIN", "PIN_MAX"]
-                and isinstance(n.value, ast.Tuple)):
-            vals = [v.value for v in n.value.elts if isinstance(v, ast.Constant)]
-            if len(vals) == 2:
-                pin_rng = tuple(vals)
+    # первой установки противоречил сам себе. С 17.10 минимум ещё и ЗАВИСИТ
+    # ОТ СЕТИ (`auth.pin_min`: 6 при включённом «Acces din rețea»), поэтому
+    # числами диапазон не пишется нигде: ни литералом, ни f-строкой с
+    # константами (словарь MSG_BANNER — импорт, он заморозил бы старое).
+    # Правило: в UI-текстах нет «N–M cifre» (докстринги и комментарии до
+    # экрана не доезжают — их правило пропускает); единственный владелец
+    # диапазона — `auth.pin_range_text`, и экран первой установки зовёт её.
+    # ⚠️ Полярность: правило «нарушителей нет» зеленеет на пустоте, поэтому
+    # якорь — вызов `pin_range_text(` в entry/routes.py обязан найтись.
     rng_re = re.compile(r"(\d+)\s*[–—-]\s*(\d+)\s+cifre")
-    bad = [] if pin_rng else ["app/core/auth.py: PIN_MIN/PIN_MAX не найдены"]
-    hits = 0
-    if pin_rng:
-        for rel, tree in src:
-            for ln, text in _ui_texts(tree):
-                for m in rng_re.finditer(text):
-                    hits += 1
-                    if (int(m.group(1)), int(m.group(2))) != pin_rng:
-                        bad.append(f"{rel}:{ln} «{m.group(0)}»")
-        if not hits:
-            bad.append("ни один текст не называет диапазон — якорь правила "
-                       "пропал (экран первой установки «… (4–8 cifre)»)")
-    res.ok("тексты называют диапазон PIN из констант", not bad,
-           f"текст расходится с PIN_MIN/PIN_MAX={pin_rng}: " + "; ".join(bad))
+    bad = []
+    for rel, tree in src:
+        for ln, text in _ui_texts(tree):
+            for m in rng_re.finditer(text):
+                bad.append(f"{rel}:{ln} «{m.group(0)}»")
+    entry_tree = by_path.get("app/modules/entry/routes.py")
+    anchored = any(isinstance(n, ast.Call) and getattr(n.func, "id", "") == "pin_range_text"
+                   for n in ast.walk(entry_tree or ast.Module(body=[], type_ignores=[])))
+    if not anchored:
+        bad.append("entry/routes.py не зовёт pin_range_text — якорь правила пропал")
+    res.ok("диапазон PIN в текстах — только auth.pin_range_text (зависит от сети)",
+           not bad, "диапазон числами застынет при смене минимума: " + "; ".join(bad))
 
     # В schema_meta безусловно пишут _set_schema_version, set_meta и backfill —
     # таблица обязана создаваться схемой. Из схемы Postgres-издания её однажды
