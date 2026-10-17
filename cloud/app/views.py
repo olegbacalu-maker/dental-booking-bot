@@ -714,7 +714,8 @@ def sms_block(c, det: dict | None) -> str:
           f"<div style='grid-column:1/-1'><label>За месяц {esc(det['month'])}</label><div class='v'>отправлено {det['sent']}, доставлено {det['delivered']}, "
           f"не доставлено {det['undelivered']}, отказ {det['refused']}; потрачено {det['spent']} сегм.</div></div></div>")
     toggle = (f"<form method='post' action='{act}'><input type='hidden' name='action' value='{'off' if det['enabled'] else 'on'}'>"
-              f"<button>{'Выключить' if det['enabled'] else 'Включить'}</button></form>"
+              f"<button title='{'Клиника отказалась: программа покажет «Serviciul SMS este oprit la cererea clinicii» и наши контакты для возобновления' if det['enabled'] else 'Клиника снова хочет SMS: отправка возобновится'}'>"
+              f"{'Выключить' if det['enabled'] else 'Включить'}</button></form>"
               f"<form method='post' action='{act}'><input type='hidden' name='action' value='{'pilot_off' if det['pilot'] else 'pilot_on'}'>"
               f"<button title='Пакет предложен этой клинике, пока DP_SMS_OFFERED пуст'>{'Снять пилот' if det['pilot'] else 'Пилот'}</button></form>"
               f"<form method='post' action='{act}'><input type='hidden' name='action' value='cap'>"

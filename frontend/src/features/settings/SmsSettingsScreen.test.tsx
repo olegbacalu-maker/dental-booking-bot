@@ -20,7 +20,7 @@ const PV = (word: string) => ({
 })
 
 const BASE: SmsData = {
-  available: true, offered: true, enabled: true, active: true, why: '',
+  available: true, offered: true, enabled: true, active: true, why: '', blocked: '',
   account: {
     balance: 42, from: 'DentPilot', sender: '', sender_state: 'none', sender_note: '', sender_until: '',
     packs: [{ units: 100, price: 150 }, { units: 300, price: 400 }], name_price: 200, name_days: 365,
@@ -45,6 +45,7 @@ const BASE: SmsData = {
   last: { at: '2026-10-16T09:00:00Z', outcome: 'sent', error_text: '' },
   can_order: true,
   clinic: { name: 'Clinica Test', phone: '+373 60 000 000' },
+  support: { phone: '+373 60 508 048', email: 'contact@dentpilot.md' },
 }
 
 const open = () => openScreen('/admin/settings/sms', '/admin/settings/sms', <SmsSettingsScreen />, loadSmsSettings)
@@ -154,6 +155,24 @@ describe('SmsSettingsScreen', () => {
     expect(await screen.findByText(/nu este încă disponibil pentru clinica dvs/)).toBeTruthy()
     expect(screen.queryByText('SMS rămase')).toBeNull()
     expect(screen.getByLabelText('Cu o zi înainte')).toBeTruthy()
+  })
+
+  it('выключено в облаке по желанию клиники: спокойная строка с контактами, не ошибка', async () => {
+    get.mockResolvedValueOnce(ok({ ...BASE, enabled: false, active: false, blocked: 'sms_off',
+      why: 'pachetul SMS este oprit la cererea clinicii' }))
+    open()
+    const line = await screen.findByText('Serviciul SMS este oprit la cererea clinicii.')
+    const banner = line.closest('.banner') as HTMLElement
+    expect(banner.className).toContain('warn')
+    expect(banner.getAttribute('role')).toBe('status')
+    expect(banner.textContent).toContain('Pentru reluare, contactați-ne: +373 60 508 048 · contact@dentpilot.md')
+    expect(screen.queryByRole('alert')).toBeNull()
+    cleanup()
+    get.mockResolvedValueOnce(ok({ ...BASE, enabled: false, active: false, blocked: 'sms_plan',
+      why: 'abonamentul nu este activ' }))
+    open()
+    expect((await screen.findByRole('alert')).textContent).toBe('abonamentul nu este activ')
+    expect(screen.queryByText(/la cererea clinicii/)).toBeNull()
   })
 
   it('без лицензии с renew: одна фраза, ни счёта, ни событий', async () => {

@@ -22,6 +22,8 @@ const T = {
   offline: 'Programul nu răspunde. Reîncercați.',
   unavailable: 'Memento-urile SMS sunt disponibile doar în programul activat cu licență.',
   notOffered: 'Pachetul SMS nu este încă disponibil pentru clinica dvs. — scrieți-ne și îl pornim.',
+  offByClinic: 'Serviciul SMS este oprit la cererea clinicii.',
+  resume: 'Pentru reluare, contactați-ne:',
   stateTitle: 'Starea pachetului',
   balance: 'SMS rămase',
   from: 'expeditor',
@@ -183,7 +185,13 @@ export function SmsSettingsScreen({ navigate = defaultNavigate }: Props) {
       {data && data.available && !data.offered && (
         <div className="banner warn" role="status">{T.notOffered}{data.why ? ` (${data.why})` : ''}</div>
       )}
-      {data && data.offered && !data.enabled && data.why && (
+      {/* «Выключить» в облаке = клиника отказалась (Олег 17.10): не ошибка, а состояние с путём назад */}
+      {data && data.offered && data.blocked === 'sms_off' && (
+        <div className="banner warn" role="status">
+          <b>{T.offByClinic}</b> {T.resume} {data.support.phone} · {data.support.email}
+        </div>
+      )}
+      {data && data.offered && !data.enabled && data.why && data.blocked !== 'sms_off' && (
         <div className="banner err" role="alert">{data.why}</div>
       )}
       {data?.low && (

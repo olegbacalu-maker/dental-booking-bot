@@ -76,7 +76,9 @@ WHY = {
     "refused": "licența nu a fost recunoscută de server",
     "sms_balance": "pachetul SMS s-a terminat",
     "sms_cap": "limita zilnică de SMS a fost atinsă",
-    "sms_off": "pachetul SMS este oprit",
+    # «Выключить» в карточке клиники облака = клиника отказалась (слово Олега 17.10);
+    # экран показывает к этому контакты для возобновления (SmsSettingsScreen, blocked).
+    "sms_off": "pachetul SMS este oprit la cererea clinicii",
     "sms_not_offered": "pachetul SMS nu este disponibil",
     "sms_unconfigured": "pachetul SMS nu este disponibil pe server",
     "sms_plan": "abonamentul nu este activ",
@@ -520,6 +522,8 @@ def screen() -> dict:
     return {
         "available": available(), "offered": offered(), "enabled": enabled(), "active": active(),
         "why": "" if not available() else why,
+        # код сервера — экран различает «выключено по желанию клиники» и прочие отказы
+        "blocked": blocked if available() else "",
         "account": ({k: acc.get(k) for k in ("balance", "from", "sender", "sender_state", "sender_note",
                                             "sender_until", "packs", "name_price", "name_days", "daily_cap",
                                             "used_today")} if acc and offered() else None),

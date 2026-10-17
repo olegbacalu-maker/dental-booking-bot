@@ -135,7 +135,7 @@ SENDER_RE = re.compile(r"^(?=.*[A-Za-z])[A-Za-z0-9 .\-]{1,11}$")
 CODES = {
     "sms_unconfigured": (503, "Pachetul SMS nu este disponibil încă pe server."),
     "sms_not_offered": (503, "Pachetul SMS nu este disponibil încă pentru clinica dvs."),
-    "sms_off": (423, "Pachetul SMS este oprit pentru această clinică — scrieți-ne."),
+    "sms_off": (423, "Serviciul SMS este oprit la cererea clinicii. Pentru reluare, contactați-ne."),
     "sms_plan": (423, "SMS-urile se trimit doar cu abonament activ."),
     "sms_sender": (423, "Numele expeditorului nu este încă aprobat de operatori."),
     "sms_quiet": (423, "SMS-urile nu se trimit între 21:00 și 08:00."),

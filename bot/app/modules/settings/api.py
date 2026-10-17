@@ -31,7 +31,7 @@ from ...core.api import api_body, api_guard, api_require
 from ...core.auth import (PERM_SETTINGS, PERM_USERS, PIN_MAX, PIN_MIN, ROLE_LABEL,
                           _pin_rec, _set_auth_cookie, all_users, can, change_pin,
                           current_user, request_user)
-from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, SETUP_HINT,
+from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, SETUP_HINT, SUPPORT_PHONE,
                             _DOW_FULL, _DOW_ORDER, msg_json, tg_refresh_meta)
 from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
@@ -608,7 +608,8 @@ _SMS_OUTCOME = {sms_loop.wire.OFFLINE: ("sms_offline", 503), sms_loop.wire.REFUS
 
 def _sms_data() -> dict:
     me = request_user()
-    return {**sms_loop.screen(), "can_order": me is None or can(me, PERM_SETTINGS)}
+    return {**sms_loop.screen(), "can_order": me is None or can(me, PERM_SETTINGS),
+            "support": {"phone": SUPPORT_PHONE, "email": FEEDBACK_EMAIL}}
 
 
 def _sms_fail(outcome: str, body: dict, *, field: str = ""):

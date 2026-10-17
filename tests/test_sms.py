@@ -811,6 +811,21 @@ def suite_screen(res: Result) -> None:
                        and "circa 2 zile" in item.get("alert", "")
                        and "sms" not in shell_model(c.get("/admin").body)["signals"], repr(item))
 
+                # выключено в облаке по желанию клиники (Олег 17.10): код и контакты для экрана
+                stand.account.update(enabled=False, blocked="sms_off")
+                c.post_json("/api/settings/sms/refresh", {})
+                data = _wait(lambda: (lambda x: x if x.get("blocked") == "sms_off" else None)(
+                    _j(c.get("/api/settings/sms"))["data"])) or _j(c.get("/api/settings/sms"))["data"]
+                res.ok("выключено по желанию клиники: offered, не enabled, код sms_off, причина «la cererea clinicii»",
+                       data["offered"] and not data["enabled"] and data["blocked"] == "sms_off"
+                       and "la cererea clinicii" in data["why"], repr(data)[:400])
+                src = (BOT / "app" / "core" / "layout.py").read_text(encoding="utf-8")
+                want = {k: re.search(rf'^{n} = "([^"]+)"', src, re.M).group(1)
+                        for k, n in (("phone", "SUPPORT_PHONE"), ("email", "FEEDBACK_EMAIL"))}
+                res.check("контакты для возобновления — те же, что на странице активации", data.get("support"), want)
+                stand.account.update(enabled=True, blocked="")
+                c.post_json("/api/settings/sms/refresh", {})
+
                 # не предлагается: плитка молчит, пункта нет, экран объясняет
                 stand.account_reply = (503, {"ok": False, "code": "sms_not_offered", "text": "nu"})
                 c.post_json("/api/settings/sms/refresh", {})
