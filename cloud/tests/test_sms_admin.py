@@ -104,7 +104,7 @@ def suite_admin(res: Result) -> None:
             page = admin.get("/admin/sms?period=week").body
             res.ok("страница: обе клиники, итоги, долг против баланса, период 7 дней подсвечен",
                    "Clinica Unu" in page and "Clinica Doi" in page and "Итого" in page and "<b>22</b> сегм." in page
-                   and "class='btn' href='/admin/sms?period=week'" in page, page[-3000:])
+                   and "class='on' href='/admin/sms?period=week'" in page, page[-3000:])
             card = admin.get(f"/admin/clinics/{cid}").body
             res.ok("карточка › SMS: остаток, имя одобрено, расход по дням, журнал с причиной",
                    "<b>18</b> сегм." in card and "одобрено" in card and "Расход по дням" in card and "demo" in card, card[-6000:])

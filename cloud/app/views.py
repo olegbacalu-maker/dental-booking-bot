@@ -175,7 +175,7 @@ details[open] summary:before{transform:rotate(90deg)}
 .tag.ok{background:#ECFDF5;color:#065F46}.tag.warn{background:#FFFBEB;color:#B45309}
 .tag.bad{background:#FEF2F2;color:#B91C1C}.tag.mute{background:#EEF2F1;color:#5B6B72}
 .mono{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}.muted{color:#7C8B91;font-size:13px}
-.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:0 0 18px;overflow-x:auto}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:0 0 18px;overflow-x:auto;overflow-y:hidden}
 .tabs a{display:inline-flex;align-items:center;gap:7px;padding:10px 14px;margin-bottom:-1px;border-bottom:2px solid transparent;color:var(--muted);text-decoration:none;font-weight:600;font-size:14px;white-space:nowrap}
 .tabs a:hover{color:var(--ink)}.tabs a.on{color:var(--teal-d);border-bottom-color:var(--teal)}
 .tabs .n{min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:#FFF3D6;color:#B45309;font-size:12px;display:inline-flex;align-items:center;justify-content:center}
@@ -186,12 +186,35 @@ details[open] summary:before{transform:rotate(90deg)}
 .todo .actions a{font-weight:600;font-size:13.5px;text-decoration:none}
 .calm{padding:11px 14px;border-radius:11px;margin:0 0 16px;font-size:14px;background:#ECFDF5;color:#065F46}
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin:0 0 16px}
-a.tile{display:flex;flex-direction:column;gap:6px;background:#fff;border:1px solid var(--line);border-radius:16px;padding:16px 18px;box-shadow:var(--shadow);color:var(--ink);text-decoration:none}
+a.tile,div.tile{display:flex;flex-direction:column;gap:6px;background:#fff;border:1px solid var(--line);border-radius:16px;padding:16px 18px;box-shadow:var(--shadow);color:var(--ink);text-decoration:none}
 a.tile:hover{border-color:var(--teal)}
 .tile .k{display:flex;align-items:center;gap:8px;font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
 .tile .ico{width:26px;height:26px;border-radius:8px;background:var(--teal-soft);color:var(--teal-d);display:inline-flex;align-items:center;justify-content:center}
 .tile .big{font-size:19px;font-weight:700;letter-spacing:-.01em;line-height:1.25;overflow-wrap:anywhere}
 .tile .s{font-size:13px;color:var(--muted);line-height:1.5}
+.tabs .c{color:var(--muted);font-weight:500}
+.acts{display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;margin:0 0 16px}
+.acts>form{margin:0}
+details.drop{display:block}details.drop[open]{flex-basis:100%}
+details.drop>summary{display:inline-flex;align-items:center;gap:8px;margin:0;padding:9px 16px;border:1px solid #D8E2DF;border-radius:9px;background:#fff;color:var(--ink);font-size:14px;font-weight:600;white-space:nowrap}
+details.drop>summary:before{content:none}
+details.drop>summary:after{content:'';border:4px solid transparent;border-top-color:currentColor;margin-top:4px}
+details.drop.p>summary{background:var(--teal);border-color:var(--teal);color:#fff}
+details.drop>summary:hover{border-color:var(--teal)}details.drop.p>summary:hover{background:var(--teal-d)}
+.drop .open{margin:10px 0 0;padding:14px 16px;border:1px dashed var(--teal);background:var(--teal-soft);border-radius:12px}
+.drop .open .muted{margin:0 0 6px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:0 0 14px}
+.chips a{padding:5px 12px;border-radius:999px;border:1px solid #D8E2DF;background:#fff;font-size:13px;font-weight:600;color:var(--muted);text-decoration:none;white-space:nowrap}
+.chips a:hover{border-color:var(--teal);color:var(--teal-d)}.chips a.on{background:var(--teal);border-color:var(--teal);color:#fff}
+.flow{display:flex;align-items:center;flex-wrap:wrap;gap:8px 0;margin:2px 0 14px;padding:0;list-style:none}
+.flow li{display:flex;align-items:center;gap:7px;font-weight:600;font-size:13.5px;color:var(--muted)}
+.flow li+li:before{content:'';width:28px;height:2px;background:#D5E0DD;margin:0 10px}
+.flow i{width:16px;height:16px;border-radius:50%;border:2px solid #C9D6D2;flex:none}
+.flow .done{color:var(--teal-d)}.flow .done i{background:var(--teal);border-color:var(--teal)}
+.flow .cur{color:#B45309}.flow .cur i{border-color:#E0A33B;background:#FFF3D6}
+table.set td{vertical-align:middle}table.set td:first-child{font-weight:600;width:24%;white-space:nowrap}
+table.set .actions{gap:8px}
+.tot{margin:0 0 12px}
 .login{max-width:400px;margin:40px auto 0}
 .login .mark{width:46px;height:46px;display:inline-flex;margin-bottom:12px}.login .mark svg{display:block}
 .login h1{font-size:22px;margin:0 0 4px}
@@ -297,26 +320,31 @@ def _requests_block(requests: list) -> str:
             f"<th>Подана</th><th></th></tr>{trs}</table></div>")
 
 
-def clinics_page(rows: list, user: str, msg: str = "", requests: list = ()) -> str:
+def clinics_page(rows: list, user: str, msg: str = "", requests: list = (), state: str = "",
+                 pending: int = 0, names: int = 0) -> str:
+    """Клиники (17.10 — вкладки): «Клиники» со счётчиками-фильтрами состояний и «+ Новая клиника»
+    за кнопкой; «Заявки на пробный» со счётчиком «ждёт»."""
     now = datetime.now(timezone.utc)
+    requests = list(requests)
+    states = {r["id"]: license.state(_ts(r["valid_until"]), r["grace_days"] or 0, now) for r in rows}
+    counts = {k: 0 for k in STATE_RU}
+    for st in states.values():
+        counts[st] += 1
+    state = state if state in STATE_RU else ""
+    shown = [r for r in rows if not state or states[r["id"]] == state]
     trs = "".join(
         f"<tr><td><a href='/admin/clinics/{esc(r['id'])}'>{esc(r['name'])}</a></td>"
         f"<td class='mono'>{esc(r['idno'] or '—')}</td><td>{esc(r['plan'] or '—')}</td>"
-        f"<td>{_d(r['valid_until'])}</td>"
-        f"<td>{_tag(license.state(_ts(r['valid_until']), r['grace_days'] or 0, now))}</td>"
+        f"<td>{_d(r['valid_until'])}</td><td>{_tag(states[r['id']])}</td>"
         f"<td>{r['seq'] or 0}{_renew_short(r)}</td></tr>"
-        for r in rows) or "<tr><td colspan='6' class='muted'>Пока ни одной клиники</td></tr>"
-    counts = {k: 0 for k in STATE_RU}
-    for r in rows:
-        counts[license.state(_ts(r["valid_until"]), r["grace_days"] or 0, now)] += 1
-    summary = " · ".join(f"<span class='tag {STATE_RU[k][0]}'>{STATE_RU[k][1]} {n}</span>" for k, n in counts.items())
+        for r in shown) or (f"<tr><td colspan='6' class='muted'>{'Пока ни одной клиники' if not rows else 'Клиник в этом состоянии нет'}</td></tr>")
+    chips = _chips([("", f"Все {len(rows)}", "/admin")]
+                   + [(k, f"{STATE_RU[k][1]} {n}", f"/admin?state={k}") for k, n in counts.items()], state)
+    chips = chips.replace("<div class='chips'>", "<div class='chips'><span class='muted'>Состояния:</span>", 1)
     daily = ("<form method='post' action='/admin/jobs/daily' style='margin:0'>"
              "<button title='Напоминания по таблице cloud.md за сегодня; cron делает то же раз в сутки'>"
              "Запустить ежедневную задачу</button></form>")
-    table = (f"<div class='card'>{_chead('list', f'Все клиники ({len(rows)})', f'Состояния: {summary}', daily)}"
-             "<table><tr><th>Клиника</th><th>IDNO</th><th>Тариф</th>"
-             f"<th>Срок до</th><th>Состояние</th><th>Файлов</th></tr>{trs}</table></div>")
-    form = (f"<div class='card'>{_chead('plus', 'Новая клиника', 'заводится вручную — файл выдаётся из карточки')}"
+    form = ("<p class='muted'>Заводится вручную — файл выдаётся из карточки клиники.</p>"
             "<form method='post' action='/admin/clinics'>"
             "<div class='grid'><div><label>Название *</label><input name='name' required maxlength='120'></div>"
             "<div><label>IDNO (13 цифр)</label><input name='idno' maxlength='13' pattern='[0-9]{13}'></div>"
@@ -324,8 +352,15 @@ def clinics_page(rows: list, user: str, msg: str = "", requests: list = ()) -> s
             "<div><label>E-mail</label><input name='email' type='email'></div>"
             "<div><label>Телефон</label><input name='phone'></div>"
             "<div><label>Адрес</label><input name='address'></div></div>"
-            "<p style='margin:14px 0 0'><button class='primary'>Завести</button></p></form></div>")
-    return page("Клиники", _requests_block(list(requests)) + table + form, user, msg, active="clinics",
+            "<p style='margin:14px 0 0'><button class='primary'>Завести</button></p></form>")
+    table = (f"<div class='acts'>{_drop('+ Новая клиника', form, primary=True)}</div>{chips}"
+             f"<div class='card'>{_chead('list', f'Все клиники ({len(rows)})', 'нажмите на состояние выше, чтобы оставить только такие', daily)}"
+             "<table><tr><th>Клиника</th><th>IDNO</th><th>Тариф</th>"
+             f"<th>Срок до</th><th>Состояние</th><th>Файлов</th></tr>{trs}</table></div>")
+    reqs = _requests_block(requests) or "<div class='calm'>Новых заявок на пробный период нет</div>"
+    body = _tabbed([("list", f"Клиники <span class='c'>{len(rows)}</span>", table, 0),
+                    ("requests", "Заявки на пробный", reqs, len(requests))])
+    return page("Клиники", body, user, msg, pending=pending, active="clinics", names=names,
                 lead="Клиники, их файлы лицензии и заявки на пробный период.")
 
 
@@ -450,9 +485,6 @@ def _payment_rows(rows: list, with_clinic: bool = False) -> str:
         if p["status"] == "pending":
             actions = (f"<form method='post' action='/admin/payments/{p['id']}/confirm'>"
                        f"<button class='primary'>Подтвердить</button></form>"
-                       f"<form method='post' action='/admin/payments/{p['id']}/reject'>"
-                       f"<input name='reason' placeholder='причина'>"
-                       f"<button>Отклонить</button></form>"
                        f"<form method='post' action='/admin/payments/{p['id']}/mail'>"
                        f"<button title='Письмо с нотой и реквизитами ещё раз — та же нота, тот же reference'>Письмо</button></form>")
             if p["provider_id"]:
@@ -462,13 +494,20 @@ def _payment_rows(rows: list, with_clinic: bool = False) -> str:
                 actions += (f"<form method='post' action='/admin/payments/{p['id']}/link'>"
                             f"<button title='Ссылка на оплату картой к этому же reference'>"
                             f"{'Новая ссылка' if p['provider_id'] else 'Ссылка на карту'}</button></form>")
+            # отказ — с причиной, за кнопкой и последним: раскрывшись, он не сдвигает соседние кнопки
+            actions += _drop("Отклонить", f"<form method='post' action='/admin/payments/{p['id']}/reject' class='actions'>"
+                                          f"<input name='reason' placeholder='причина'>"
+                                          f"<button>Отклонить ноту</button></form>")
             actions = f"<div class='actions'>{actions}</div>"
         elif p["status"] in ("paid", "rejected"):
             # второй платёж по этой же ноте (02.10): не теряем — следующий период
-            actions = (f"<div class='actions'><form method='post' action='/admin/payments/{p['id']}/repeat'>"
-                       f"<label title='По этой ноте пришёл ещё один перевод: зачесть его следующим периодом, "
-                       f"с новым reference, файлом и письмом'><input type='checkbox' name='sure' value='1' required> "
-                       f"перевод пришёл</label> <button>Зачесть повторный перевод</button></form></div>")
+            # редкое действие — за кнопкой (17.10): строка истории не держит открытую форму
+            actions = _drop("Пришёл ещё перевод",
+                            f"<p class='muted'>По этой ноте пришёл ещё один перевод: зачесть его следующим периодом, "
+                            f"с новым reference, файлом и письмом.</p>"
+                            f"<form method='post' action='/admin/payments/{p['id']}/repeat' class='actions'>"
+                            f"<label class='chk' style='margin:0'><input type='checkbox' name='sure' value='1' required> "
+                            f"перевод пришёл</label> <button>Зачесть повторный перевод</button></form>")
         clinic_td = (f"<td><a href='/admin/clinics/{esc(p['clinic_id'])}'>{esc(p['clinic'])}</a></td>"
                      if with_clinic else "")
         out.append(f"<tr><td class='mono'>{esc(p['reference'])}</td>{clinic_td}"
@@ -501,13 +540,63 @@ def pay_page(ok: bool) -> str:
             f"</div></div></body></html>")
 
 
-def payments_page(rows: list, user: str, msg: str = "") -> str:
+_MONTHS_RU = ("январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь",
+              "октябрь", "ноябрь", "декабрь")
+_MONTHS_IN = ("январе", "феврале", "марте", "апреле", "мае", "июне", "июле", "августе", "сентябре",
+              "октябре", "ноябре", "декабре")
+
+
+def _month_ru(ym: str, where: bool = False) -> str:
+    """'2026-10' → «Октябрь 2026», с where — «октябре 2026» (после «в»)."""
+    y, m = ym.split("-")
+    return f"{_MONTHS_IN[int(m) - 1]} {y}" if where else f"{_MONTHS_RU[int(m) - 1].capitalize()} {y}"
+
+
+def _plural(n: int, one: str, few: str, many: str) -> str:
+    if n % 10 == 1 and n % 100 != 11:
+        return one
+    return few if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else many
+
+
+def payments_page(rows: list, user: str, msg: str = "", paid: list = (), month: str = "", months: list = (),
+                  rejected: list = (), names: int = 0) -> str:
+    """Платежи (17.10 — вкладки): «Ждут подтверждения» — сверить с выпиской и подтвердить;
+    «Оплачены» — по месяцам с суммой (учёт доходов); «Отклонены» — с причиной из журнала."""
+    rows, paid, rejected = list(rows), list(paid), list(rejected)
     trs = _payment_rows(rows, with_clinic=True) or "<tr><td colspan='7' class='muted'>Ожидающих платежей нет</td></tr>"
-    body = (f"<div class='card'>{_chead('card', f'В ожидании: {len(rows)}', 'подтверждение продлевает срок и выдаёт файл; письмо клинике уходит само')}"
+    wait = (f"<div class='card'>{_chead('card', f'В ожидании: {len(rows)}', 'подтверждение продлевает срок и выдаёт файл; письмо клинике уходит само')}"
             f"<table><tr><th>Reference</th><th>Клиника</th><th>Сумма</th><th>Срок</th>"
             f"<th>Создан</th><th>Состояние</th><th></th></tr>{trs}</table></div>")
-    return page("Платежи в ожидании", body, user, msg, pending=len(rows), active="payments",
-                lead="Переводы, которых ждём: сверить с выпиской и подтвердить.")
+    sums: dict[str, int] = {}
+    for p in paid:
+        sums[p["currency"]] = sums.get(p["currency"], 0) + p["amount"]
+    total = " + ".join(f"{v} {esc(k)}" for k, v in sums.items()) or "0 MDL"
+    prows = "".join(
+        f"<tr><td class='mono'>{esc(p['reference'])}</td>"
+        f"<td><a href='/admin/clinics/{esc(p['clinic_id'])}'>{esc(p['clinic'])}</a></td>"
+        f"<td>{_term(p)}</td><td>{p['amount']} {esc(p['currency'])}</td><td>{_d(p['paid_at'])}</td>"
+        f"<td>{'картой' if p['paid_via'] == 'card' else 'переводом'}</td>"
+        f"<td>{_receipt_link(p).removeprefix(' · ')}</td></tr>" for p in paid)
+    paid_html = ""
+    if month:
+        chips = _chips([(m, _month_ru(m), f"/admin/payments?month={m}#paid") for m in months], month)
+        paid_html = (f"{chips}<p class='tot'>Пришло в {_month_ru(month, where=True)}: <b>{total}</b> · "
+                     f"{len(paid)} {_plural(len(paid), 'платёж', 'платежа', 'платежей')}</p>"
+                     f"<div class='card'><table><tr><th>Reference</th><th>Клиника</th><th>За что</th><th>Сумма</th>"
+                     f"<th>Оплачено</th><th>Как</th><th>Документ</th></tr>"
+                     f"{prows or '<tr><td colspan=7 class=muted>В этом месяце оплат не было</td></tr>'}</table></div>")
+    rrows = "".join(
+        f"<tr><td class='mono'>{esc(p['reference'])}</td>"
+        f"<td><a href='/admin/clinics/{esc(p['clinic_id'])}'>{esc(p['clinic'])}</a></td>"
+        f"<td>{_term(p)}</td><td>{p['amount']} {esc(p['currency'])}</td><td>{_d(p['created_at'])}</td>"
+        f"<td>{esc((p['why'] or '').split(': ', 1)[-1] or '—')}</td></tr>" for p in rejected)
+    rej_html = (f"<div class='card'><table><tr><th>Reference</th><th>Клиника</th><th>За что</th><th>Сумма</th>"
+                f"<th>Выставлена</th><th>Причина</th></tr>"
+                f"{rrows or '<tr><td colspan=6 class=muted>Отклонённых нот нет</td></tr>'}</table></div>")
+    body = _tabbed([("wait", "Ждут подтверждения", wait, len(rows)), ("paid", "Оплачены", paid_html, 0),
+                    ("rejected", f"Отклонены <span class='c'>{len(rejected)}</span>", rej_html, 0)])
+    return page("Платежи", body, user, msg, pending=len(rows), active="payments", names=names,
+                lead="Ноты, которые ждут перевода, и всё, что уже оплачено.")
 
 
 def _reminder_rows(rows: list) -> str:
@@ -515,18 +604,21 @@ def _reminder_rows(rows: list) -> str:
                    f"<td>{esc(r['sent_at'][:16].replace('T', ' '))}</td></tr>" for r in rows)
 
 
-def audit_page(rows: list, user: str, msg: str = "", pending: int = 0) -> str:
+def audit_page(rows: list, user: str, msg: str = "", pending: int = 0, kind: str = "",
+               by_what: dict | None = None, names: int = 0) -> str:
+    """Журнал (17.10): события словами, фильтры по разделам (?kind=pay) с числами по всему журналу."""
     out = []
     for a in rows:
         who = (f"<a href='/admin/clinics/{esc(a['clinic_id'])}'>{esc(a['clinic'] or a['clinic_id'])}</a>"
                if a["clinic_id"] else "—")
         out.append(f"<tr><td class='mono'>{esc(a['at'][:16].replace('T', ' '))}</td><td>{esc(a['who'])}</td>"
-                   f"<td><span class='tag mute'>{esc(a['what'])}</span></td><td>{who}</td><td>{esc(a['detail'])}</td></tr>")
+                   f"<td>{_what(a['what'])}</td><td style='min-width:150px'>{who}</td><td>{esc(a['detail'])}</td></tr>")
     trs = "".join(out)
-    body = (f"<div class='card'>{_chead('clock', 'Последние события', 'кто что сделал — выдачи, платежи, входы, коды')}"
+    chips = _journal_chips(by_what or {}, kind, lambda k: f"/admin/audit?kind={k}" if k else "/admin/audit")
+    body = (f"{chips}<div class='card'>{_chead('clock', 'Последние события', 'кто что сделал — выдачи, платежи, входы, коды; последние 200')}"
             f"<table><tr><th>Когда (UTC)</th><th>Кто</th><th>Что</th><th>Клиника</th>"
             f"<th>Подробности</th></tr>{trs or '<tr><td colspan=5 class=muted>пусто</td></tr>'}</table></div>")
-    return page("Журнал", body, user, msg, pending=pending, active="audit")
+    return page("Журнал", body, user, msg, pending=pending, active="audit", names=names)
 
 
 def _device_rows(devices: list, latest: str = "") -> str:
@@ -545,31 +637,38 @@ def _device_rows(devices: list, latest: str = "") -> str:
 
 
 def fleet_page(rep: dict, user: str, msg: str = "", pending: int = 0, names: int = 0) -> str:
-    """Флот (02.10): компьютеры клиник, версии, кто отстал от выпуска, кто молчит."""
+    """Флот (02.10; 17.10 — вкладки): все компьютеры, кто отстал от выпуска, кто молчит неделю."""
     c = rep["counts"]
     latest = rep["latest"]
-    head = (f"<div class='card'>{_chead('monitor', 'Компьютеры клиник', 'как программы назвались серверу при последней связи')}"
-            f"<p style='margin:0 0 8px'>Последний выпуск: <b>{esc(latest) or 'API GitHub не ответил'}</b>"
+    head = (f"<p style='margin:0 0 4px'>Последний выпуск: <b>{esc(latest) or 'API GitHub не ответил'}</b>"
             f" · компьютеров {c['devices']} у {c['clinics']} клиник · отстают {c['behind']}"
             f" · молчат дольше недели {c['silent']}</p>"
-            f"<p class='muted' style='margin:0'>Программа называет себя при каждом запросе файла (раз в сутки) и при активации: "
-            f"версия, канал, Windows, личность машины (device.json). Сервер только слушает — обновиться "
-            f"программе никто не велит. JSON того же: <a href='/admin/api/fleet'>/admin/api/fleet</a>.</p></div>")
-    rows = []
-    for d in rep["devices"]:
-        tags = (" <span class='tag warn'>отстаёт</span>" if d["behind"] else "") + \
-               (" <span class='tag bad'>молчит</span>" if d["silent"] else "")
-        rows.append(f"<tr><td><a href='/admin/clinics/{esc(d['clinic_id'])}'>{esc(d['clinic'])}</a> {_tag(d['state'])}</td>"
-                    f"<td class='mono'>{esc(d['device'])}</td><td>{esc(d['version'] or '—')}{tags}</td>"
-                    f"<td>{esc(d['channel'] or '—')}</td><td>{esc(d['os'] or '—')}</td>"
-                    f"<td>{esc((d['last_seen_at'] or '')[:16].replace('T', ' '))}"
-                    f"{(' <span class=muted>(' + str(d['silent_days']) + ' дн.)</span>') if d['silent_days'] else ''}</td>"
-                    f"<td>{d['last_seq'] if d['last_seq'] is not None else '—'}</td></tr>")
-    table = (f"<div class='card'><table><tr><th>Клиника</th><th>Компьютер</th><th>Версия</th><th>Канал</th>"
-             f"<th>Windows</th><th>Последняя связь (UTC)</th><th>Файл у программы</th></tr>"
-             f"{''.join(rows) or '<tr><td colspan=7 class=muted>Ни один компьютер ещё не выходил на связь</td></tr>'}"
-             f"</table></div>")
-    return page("Флот", head + table, user, msg, pending=pending, active="fleet", names=names,
+            f"<p class='muted' style='margin:0 0 16px'>Программа называет себя при каждом запросе файла (раз в сутки) "
+            f"и при активации; сервер только слушает. JSON того же: <a href='/admin/api/fleet'>/admin/api/fleet</a>.</p>")
+
+    def table(devices: list, empty: str) -> str:
+        rows = []
+        for d in devices:
+            tags = (" <span class='tag warn'>отстаёт</span>" if d["behind"] else "") + \
+                   (" <span class='tag bad'>молчит</span>" if d["silent"] else "")
+            rows.append(f"<tr><td><a href='/admin/clinics/{esc(d['clinic_id'])}'>{esc(d['clinic'])}</a> {_tag(d['state'])}</td>"
+                        f"<td class='mono'>{esc(d['device'])}</td><td>{esc(d['version'] or '—')}{tags}</td>"
+                        f"<td>{esc(d['channel'] or '—')}</td><td>{esc(d['os'] or '—')}</td>"
+                        f"<td>{esc((d['last_seen_at'] or '')[:16].replace('T', ' '))}"
+                        f"{(' <span class=muted>(' + str(d['silent_days']) + ' дн.)</span>') if d['silent_days'] else ''}</td>"
+                        f"<td>{d['last_seq'] if d['last_seq'] is not None else '—'}</td></tr>")
+        return (f"<div class='card'><table><tr><th>Клиника</th><th>Компьютер</th><th>Версия</th><th>Канал</th>"
+                f"<th>Windows</th><th>Последняя связь (UTC)</th><th>Файл у программы</th></tr>"
+                f"{''.join(rows) or '<tr><td colspan=7 class=muted>' + empty + '</td></tr>'}</table></div>")
+    devs = rep["devices"]
+    behind = [d for d in devs if d["behind"]]
+    silent = [d for d in devs if d["silent"]]
+    body = head + _tabbed([
+        ("all", f"Все компьютеры <span class='c'>{len(devs)}</span>",
+         table(devs, "Ни один компьютер ещё не выходил на связь"), 0),
+        ("behind", "Отстают от выпуска", table(behind, "Все на последнем выпуске"), len(behind)),
+        ("silent", "Молчат больше недели", table(silent, "Все выходили на связь за последнюю неделю"), len(silent))])
+    return page("Флот", body, user, msg, pending=pending, active="fleet", names=names,
                 lead="Кто на какой версии и когда программа выходила на связь в последний раз.")
 
 
@@ -587,20 +686,20 @@ def _sender_tag(state: str) -> str:
 
 
 def _period_links(rep: dict) -> str:
-    """Кнопки периода: сегодня / 7 дней / месяц / свой (форма GET)."""
+    """Период — кнопки одного вида: сегодня / 7 дней / месяц; свой — за кнопкой (форма GET)."""
     p = rep["period"]
-    links = "".join(f"<a class='{'btn' if p['kind'] == k else 'tag mute'}' href='/admin/sms?period={k}'>{t}</a> "
-                    for k, t in (("today", "сегодня"), ("week", "7 дней"), ("month", "месяц")))
-    form = (f"<form method='get' action='/admin/sms' style='display:inline-flex;gap:6px;align-items:center;margin:0'>"
+    form = (f"<form method='get' action='/admin/sms' class='actions'>"
             f"<input type='hidden' name='period' value='custom'>"
-            f"<input type='date' name='from' value='{esc(p['from'])}' style='width:150px;padding:6px 8px'>"
-            f"<input type='date' name='to' value='{esc(p['to'])}' style='width:150px;padding:6px 8px'>"
+            f"<input type='date' name='from' value='{esc(p['from'])}' style='width:160px'>"
+            f"<input type='date' name='to' value='{esc(p['to'])}' style='width:160px'>"
             f"<button>Показать</button></form>")
-    return f"<div class='actions' style='margin:0 0 12px'>{links}{form}</div>"
+    chips = _chips([(k, t, f"/admin/sms?period={k}") for k, t in
+                    (("today", "Сегодня"), ("week", "7 дней"), ("month", "Месяц"))], p["kind"])
+    return chips[:-len("</div>")] + _drop("Свой период", form, primary=p["kind"] == "custom") + "</div>"
 
 
 def _sender_actions(i: dict) -> str:
-    """Шаги Олега по имени: заявление → подано → отказ; новая заявка."""
+    """Шаги Олега по имени (очередь раздела SMS): заявление → подано → отказ."""
     cid = esc(i["clinic_id"])
     out = []
     if i.get("sender_paper_file"):
@@ -614,72 +713,79 @@ def _sender_actions(i: dict) -> str:
             out.append(f"<form method='post' action='/admin/clinics/{cid}/sms'><input type='hidden' name='action' value='submitted'>"
                        f"<button class='primary' title='Имя подано в кабинете sms.md'>Подано в sms.md</button></form>")
     if i["sender_state"] in ("requested", "submitted", "active"):
-        out.append(f"<form method='post' action='/admin/clinics/{cid}/sms'><input type='hidden' name='action' value='rejected'>"
-                   f"<input name='note' placeholder='причина отказа' required><button>Отказ</button></form>")
+        out.append(_drop("Отказ", f"<form method='post' action='/admin/clinics/{cid}/sms' class='actions'>"
+                                  f"<input type='hidden' name='action' value='rejected'>"
+                                  f"<input name='note' placeholder='причина отказа' required><button>Записать отказ</button></form>"))
     return f"<div class='actions'>{''.join(out)}</div>" if out else ""
 
 
 def sms_page(rep: dict, user: str, msg: str = "", pending: int = 0) -> str:
-    """Модуль «SMS» (S4): сводка по клиникам за период, итоги против баланса sms.md,
-    очередь имён, сбои по причинам, выгрузка за месяц, тестовая SMS, сверка имён."""
+    """Модуль «SMS» (S4; 17.10 — вкладки): сводка за период, имена на подачу, сбои,
+    выгрузка и тестовая SMS."""
     t, c = rep["totals"], rep["counts"]
     p = rep["period"]
     bal = (f"<b>{esc(rep['smsmd_balance'])} MDL</b>" if rep["smsmd_balance"] is not None else
            ("<span class='tag bad'>баланс не получен</span>" if rep["configured"] else "<span class='tag mute'>DP_SMSMD_TOKEN пуст</span>"))
     offered = ("всем клиникам (DP_SMS_OFFERED=1)" if rep["offered_all"] else
                f"только пилотам ({sum(1 for i in rep['clinics'] if i['pilot'])}) — DP_SMS_OFFERED пуст")
-    head = (f"<div class='card'>{_chead('message', 'SMS по клиникам', f'период {esc(p[chr(102) + chr(114) + chr(111) + chr(109)])} — {esc(p[chr(116) + chr(111)])}, сутки по Кишинёву; сортировка по расходу')}"
-            f"{_period_links(rep)}"
-            f"<p style='margin:0 0 8px'>Отправлено <b>{t['sent']}</b> · доставлено {t['delivered']} · не доставлено {t['undelivered']}"
-            f" · отказ {t['refused']} · в пути {t['pending']} · потрачено <b>{t['spent']}</b> сегм."
-            f" · куплено {t['packs']} пакетов на {t['pack_units']} SMS</p>"
-            f"<p style='margin:0 0 8px'>Продано и не потрачено (долг клиникам): <b>{rep['owed']}</b> сегм. ≈ {esc(rep['owed_mdl'])} MDL"
-            f" по {esc(rep['segment_cost'])} · баланс sms.md: {bal}</p>"
-            f"<p class='muted' style='margin:0'>Счетов {c['clinics']}, включено {c['enabled']}; пакет предложен {esc(offered)}. "
-            f"Номеров пациентов и текстов SMS на сервере нет — видно, сколько, а не кому. "
-            f"JSON того же: <a href='/admin/api/sms?period={esc(p['kind'])}&from={esc(p['from'])}&to={esc(p['to'])}'>/admin/api/sms</a>.</p></div>")
-    queue = ""
-    if rep["queue"]:
-        qrows = "".join(
-            f"<tr><td><a href='/admin/clinics/{esc(i['clinic_id'])}'>{esc(i['clinic'])}</a></td>"
-            f"<td><b>{esc(i['sender'])}</b> {_sender_tag(i['sender_state'])}"
-            f"{' <span class=tag>заявление есть</span>' if i['sender_paper'] else ' <span class=\"tag mute\">без заявления</span>'}"
-            f"{(' · оплачено лет: ' + str(i['sender_prepaid'])) if i['sender_prepaid'] else ' · <span class=muted>год имени не оплачен</span>'}</td>"
-            f"<td>{_sender_actions(i)}</td></tr>" for i in rep["queue"])
-        queue = (f"<div class='card alert'>{_chead('inbox', f'Имена на подачу ({len(rep[chr(113) + chr(117) + chr(101) + chr(117) + chr(101)])})', 'заявка → заявление получено → подано в кабинете sms.md → одобрение читает сервер сам (ежедневная задача или кнопка «Сверить»)', _sync_btn(rep))}"
-                 f"<table><tr><th>Клиника</th><th>Имя</th><th></th></tr>{qrows}</table></div>")
+    tiles = ("<div class='tiles'>"
+             + _stat("Отправлено", str(t["sent"]),
+                     f"доставлено {t['delivered']} · не доставлено {t['undelivered']} · отказ {t['refused']} · в пути {t['pending']}")
+             + _stat("Потрачено", f"<b>{t['spent']}</b> сегм.", f"куплено {t['packs']} пакетов на {t['pack_units']} SMS")
+             + _stat("Должны клиникам", f"<b>{rep['owed']}</b> сегм.",
+                     f"продано и не потрачено ≈ {esc(rep['owed_mdl'])} MDL по {esc(rep['segment_cost'])}")
+             + _stat("Баланс sms.md", bal, "сколько у нас осталось в sms.md")
+             + "</div>")
     rows = []
     for i in rep["clinics"]:
-        last = esc(i["last_sent_at"][:16].replace("T", " ")) if i["last_sent_at"] else "—"
         flags = ("" if i["enabled"] else " <span class='tag bad'>выкл.</span>") + \
                 (" <span class='tag ok'>пилот</span>" if i["pilot"] and not rep["offered_all"] else "")
         rows.append(f"<tr><td><a href='/admin/clinics/{esc(i['clinic_id'])}'>{esc(i['clinic'])}</a> {_tag(i['state'])}{flags}</td>"
                     f"<td>{esc(i['from'] or '—')}{(' ' + _sender_tag(i['sender_state'])) if i['sender'] else ''}</td>"
-                    f"<td><b>{i['balance']}</b></td><td>{i['sent']}</td><td>{i['delivered']}</td><td>{i['undelivered']}</td>"
-                    f"<td>{i['refused']}</td><td>{i['pending']}</td><td>{i['spent']}</td>"
-                    f"<td>{i['packs']}{(' (' + str(i['pack_units']) + ')') if i['packs'] else ''}</td>"
-                    f"<td>{last}</td><td>{i['used_today']} / {i['daily_cap']}</td></tr>")
+                    f"<td><b>{i['balance']}</b></td><td>{i['sent']}</td><td>{i['delivered']}</td>"
+                    f"<td>{i['undelivered'] + i['refused']}</td><td>{i['spent']}</td>"
+                    f"<td>{i['used_today']} / {i['daily_cap']}</td></tr>")
     total = (f"<tr><td><b>Итого</b></td><td></td><td><b>{t['balance']}</b></td><td><b>{t['sent']}</b></td><td>{t['delivered']}</td>"
-             f"<td>{t['undelivered']}</td><td>{t['refused']}</td><td>{t['pending']}</td><td><b>{t['spent']}</b></td>"
-             f"<td>{t['packs']} ({t['pack_units']})</td><td></td><td></td></tr>") if rows else ""
-    table = (f"<div class='card'><table><tr><th>Клиника</th><th>От имени</th><th>Остаток</th><th>Отправлено</th>"
-             f"<th>Доставлено</th><th>Не доставлено</th><th>Отказ</th><th>В пути</th><th>Сегментов</th><th>Пакетов</th>"
-             f"<th>Последняя (UTC)</th><th>Сегодня / потолок</th></tr>"
-             f"{''.join(rows) or '<tr><td colspan=12 class=muted>Ни одна клиника ещё не спрашивала про SMS</td></tr>'}{total}</table></div>")
+             f"<td>{t['undelivered'] + t['refused']}</td><td><b>{t['spent']}</b></td><td></td></tr>") if rows else ""
+    period = f"период {esc(p['from'])} — {esc(p['to'])}, сутки по Кишинёву; сортировка по расходу; пакеты, «в пути» и последняя отправка — в Excel"
+    table = (f"<div class='card'>{_chead('message', 'По клиникам', period)}"
+             f"<table><tr><th>Клиника</th><th>От имени</th><th>Остаток</th><th>Отправлено</th>"
+             f"<th>Доставлено</th><th>Сбои</th><th>Потрачено, сегм.</th><th>Сегодня / потолок</th></tr>"
+             f"{''.join(rows) or '<tr><td colspan=8 class=muted>Ни одна клиника ещё не спрашивала про SMS</td></tr>'}{total}</table></div>")
+    note = (f"<p class='muted' style='margin:0'>Счетов {c['clinics']}, включено {c['enabled']}; пакет предложен {esc(offered)}. "
+            f"Номеров пациентов и текстов SMS на сервере нет — видно, сколько, а не кому. "
+            f"JSON того же: <a href='/admin/api/sms?period={esc(p['kind'])}&from={esc(p['from'])}&to={esc(p['to'])}'>/admin/api/sms</a>.</p>")
+    summary = _period_links(rep) + tiles + table + note
+    if rep["queue"]:
+        qrows = "".join(
+            f"<tr><td><a href='/admin/clinics/{esc(i['clinic_id'])}'>{esc(i['clinic'])}</a></td>"
+            f"<td><b>{esc(i['sender'])}</b> {_sender_tag(i['sender_state'])}"
+            + (" <span class='tag'>заявление есть</span>" if i["sender_paper"] else " <span class='tag mute'>без заявления</span>")
+            + (f" · оплачено лет: {i['sender_prepaid']}" if i["sender_prepaid"] else " · <span class='muted'>год имени не оплачен</span>")
+            + f"</td><td>{_sender_actions(i)}</td></tr>" for i in rep["queue"])
+        queue = (f"<div class='card alert'>{_chead('inbox', f'Имена на подачу ({len(rep[chr(113) + chr(117) + chr(101) + chr(117) + chr(101)])})', 'заявка → заявление получено → подано в кабинете sms.md → одобрение читает сервер сам (ежедневная задача или кнопка «Сверить»)', _sync_btn(rep))}"
+                 f"<table><tr><th>Клиника</th><th>Имя</th><th></th></tr>{qrows}</table></div>")
+    else:
+        sync = _sync_btn(rep)
+        queue = "<div class='calm'>Имён на подачу нет</div>" + (f"<div class='acts'>{sync}</div>" if sync else "")
     frows = "".join(f"<tr><td>{esc(SMS_STATE_RU.get(f['reason'].split(':')[0], f['reason'].split(':')[0]))}"
                     f"{esc(f['reason'][len(f['reason'].split(':')[0]):])}</td><td>{f['count']}</td><td>{f['clinics']}</td></tr>"
                     for f in rep["failures"])
-    fail = (f"<div class='card'>{_chead('bell', 'Сбои за период', 'по причинам: статус оператора или код отказа sms.md')}"
+    fail = (f"<div class='card'>{_chead('bell', 'Сбои за период', f'по причинам: статус оператора или код отказа sms.md; период {esc(p[chr(102) + chr(114) + chr(111) + chr(109)])} — {esc(p[chr(116) + chr(111)])} (выбирается на «Сводке»)')}"
             f"<table><tr><th>Причина</th><th>SMS</th><th>Клиник</th></tr>"
             f"{frows or '<tr><td colspan=3 class=muted>Сбоев нет</td></tr>'}</table></div>")
     month = p["from"][:7]
-    tools = (f"<div class='card'>{_chead('file', 'Выгрузка и проверка', 'Excel за месяц — для сверки с фактурой sms.md; тестовая SMS — от общего имени, мимо пакетов клиник')}"
-             f"<div class='actions'><form method='get' action='/admin/sms/export.xlsx'>"
-             f"<input type='month' name='month' value='{esc(month)}' style='width:160px'><button>Скачать Excel</button></form>"
-             f"<form method='post' action='/admin/sms/test'><input name='to' placeholder='069 123 456' required>"
-             f"<button title='Одна SMS от DentPilot на этот номер; номер на диск не пишется'>Тестовая SMS себе</button></form>"
-             f"{_sync_btn(rep) if not rep['queue'] else ''}</div></div>")
-    return page("SMS", head + queue + table + fail + tools, user, msg, pending=pending, active="sms",
+    tools = (f"<div class='card'>{_chead('file', 'Excel за месяц', 'для сверки с фактурой sms.md: по клиникам, без номеров и текстов')}"
+             f"<form method='get' action='/admin/sms/export.xlsx' class='actions'>"
+             f"<input type='month' name='month' value='{esc(month)}' style='width:170px'><button>Скачать Excel</button></form></div>"
+             f"<div class='card'>{_chead('message', 'Тестовая SMS себе', 'одна SMS от общего имени DentPilot, мимо пакетов клиник; номер на диск не пишется')}"
+             f"<form method='post' action='/admin/sms/test' class='actions'><input name='to' placeholder='069 123 456' required>"
+             f"<button>Тестовая SMS себе</button></form></div>")
+    nfail = sum(f["count"] for f in rep["failures"])
+    body = _tabbed([("summary", "Сводка", summary, 0), ("names", "Имена на подачу", queue, c["queue"]),
+                    ("failures", f"Сбои <span class='c'>{nfail}</span>", fail, 0),
+                    ("tools", "Выгрузка и тест", tools, 0)])
+    return page("SMS", body, user, msg, pending=pending, active="sms",
                 names=c["queue"], lead="Кто сколько отправил, остатки, имена отправителей и сбои — по всем клиникам.")
 
 
@@ -689,48 +795,111 @@ def _sync_btn(rep: dict) -> str:
             if rep["configured"] else "")
 
 
+def _sender_card(c, det: dict) -> str:
+    """SMS › имя отправителя шагами (17.10): заявка → заявление → подано → одобрено; где стоим
+    и одна кнопка следующего шага. Отказ и другое имя — за кнопками."""
+    cid = esc(c["id"])
+    act = f"/admin/clinics/{cid}/sms"
+    state, name = det["sender_state"], det["sender"]
+    other = _drop("Другое имя" if name else "Заявка на имя",
+                  f"<p class='muted'>Латиница и цифры, до 11 знаков; заявка ставит имя в очередь на подачу.</p>"
+                  f"<form method='post' action='{act}' class='actions'><input type='hidden' name='action' value='request'>"
+                  f"<input name='name' value='{esc(name or det['suggest'])}' maxlength='11'><button>Заявка на имя</button></form>",
+                  primary=state in ("none", "rejected"))
+    if state in ("none", "rejected") or not name:
+        why = (f"«{esc(name)}» — {_sender_tag(state)}{(' · ' + esc(det['sender_note'])) if det['sender_note'] else ''}. "
+               if state == "rejected" else "")
+        sender_now = esc(det["from"] or "—")
+        return (f"<div class='card'>{_chead('message', 'Имя отправителя', why + 'Своего имени нет: SMS идут от «' + sender_now + '»')}"
+                f"<div class='acts' style='margin:0'>{other}</div></div>")
+    paper, sub_ok, active = det["sender_paper"], state in ("submitted", "active"), state == "active"
+    steps = (("Заявка", "done"), ("Заявление клиники", "done" if paper or sub_ok else "cur"),
+             ("Подано в sms.md", "done" if sub_ok else ("cur" if paper else "")),
+             ("Одобрено", "done" if active else ("cur" if state == "submitted" else "")))
+    flow = "<ol class='flow'>" + "".join(f"<li class='{k}'><i></i>{t}</li>" for t, k in steps) + "</ol>"
+    info = []
+    if det["sender_paper_file"]:
+        info.append("заявление загружено клиникой")
+    elif paper:
+        info.append("заявление получено")
+    if det["sender_until"]:
+        info.append(f"одобрено до {esc(det['sender_until'][:10])}")
+    if det["sender_prepaid"]:
+        info.append(f"оплачено вперёд лет: {det['sender_prepaid']}")
+    if det["sender_note"]:
+        info.append(esc(det["sender_note"]))
+    nxt = ""
+    if state == "requested" and not paper:
+        nxt = (f"<form method='post' action='{act}'><input type='hidden' name='action' value='paper'>"
+               f"<button class='primary' title='Подписанное заявление клиники у меня'>Заявление получено</button></form>")
+    elif state == "requested":
+        nxt = (f"<form method='post' action='{act}'><input type='hidden' name='action' value='submitted'>"
+               f"<button class='primary' title='Имя подано в кабинете sms.md'>Подано в sms.md</button></form>")
+    pdf = (f"<a class='btn' href='/admin/clinics/{cid}/sms/cerere.pdf' "
+           f"title='Подписанное заявление, загруженное клиникой в кабинете'>Заявление клиники (PDF)</a>"
+           if det["sender_paper_file"] else "")
+    refuse = _drop("Отказ", f"<form method='post' action='{act}' class='actions'><input type='hidden' name='action' value='rejected'>"
+                            f"<input name='note' placeholder='причина отказа' required><button>Записать отказ</button></form>")
+    waiting = state in ("requested", "submitted")
+    sub = (f"{_sender_tag(state)}{(' · ' + ' · '.join(info)) if info else ''}"
+           + (" · одобрение читает сервер сам (ежедневная задача или «Сверить» в разделе SMS)" if state == "submitted" else ""))
+    return (f"<div class='card{' alert' if waiting else ''}'>{_chead('message', f'Имя отправителя «{esc(name)}»', sub)}"
+            f"{flow}<div class='acts' style='margin:0'>{nxt}{pdf}{refuse}{other}</div></div>")
+
+
 def sms_block(c, det: dict | None) -> str:
-    """Карточка клиники › SMS (S4): счёт, кнопки Олега, расход по дням за месяц, журнал."""
+    """Карточка клиники › SMS (S4, разложено 17.10): плитки, имя отправителя шагами, настройки
+    с подписями; свой текст, расход по дням и журнал — свёрнуты."""
     cid = esc(c["id"])
     act = f"/admin/clinics/{cid}/sms"
     if det is None:
         return (f"<div class='card'>{_chead('message', 'SMS', 'счёта ещё нет: программа не спрашивала, пакет не трогали')}"
-                f"<div class='actions'><form method='post' action='{act}'><input type='hidden' name='action' value='pilot_on'>"
-                f"<button>Предложить пакет (пилот)</button></form>"
+                f"<table class='set'>"
+                f"<tr><td>Пакет SMS</td><td><div class='actions'><span class='muted'>не предложен</span>"
+                f"<form method='post' action='{act}'><input type='hidden' name='action' value='pilot_on'>"
+                f"<button>Предложить пакет (пилот)</button></form></div></td></tr>"
+                f"<tr><td>Имя отправителя</td><td><div class='actions'>"
                 f"<form method='post' action='{act}'><input type='hidden' name='action' value='request'>"
-                f"<input name='name' value='{esc(sms_suggest(c['name']))}' maxlength='11'><button>Заявка на имя</button></form></div></div>")
-    until = f" до {esc(det['sender_until'][:10])}" if det["sender_until"] else ""
-    prepaid = f" · оплачено вперёд лет: {det['sender_prepaid']}" if det["sender_prepaid"] else ""
-    paper = ((" · заявление загружено клиникой" if det["sender_paper_file"] else " · заявление получено")
-             if det["sender_paper"] else " · <span class='muted'>без заявления</span>") if det["sender_state"] == "requested" else ""
-    kv = (f"<div class='kv'>"
-          f"<div><label>Остаток</label><div class='v'><b>{det['balance']}</b> сегм.</div></div>"
-          f"<div><label>Сегодня / потолок</label><div class='v'>{det['used_today']} / {det['daily_cap']}</div></div>"
-          f"<div><label>От имени</label><div class='v'>{esc(det['from'] or '—')}</div></div>"
-          f"<div><label>Имя клиники</label><div class='v'>{esc(det['sender'] or '—')} {_sender_tag(det['sender_state'])}{until}{prepaid}{paper}"
-          f"{(' · ' + esc(det['sender_note'])) if det['sender_note'] else ''}</div></div>"
-          f"<div><label>Состояние</label><div class='v'>{'включено' if det['enabled'] else '<span class=\"tag bad\">выключено</span>'}"
-          f"{' · <span class=tag>пилот</span>' if det['pilot'] else ''}{'' if det['offered'] else ' · <span class=\"tag mute\">программе не предложено</span>'}</div></div>"
-          f"<div style='grid-column:1/-1'><label>За месяц {esc(det['month'])}</label><div class='v'>отправлено {det['sent']}, доставлено {det['delivered']}, "
-          f"не доставлено {det['undelivered']}, отказ {det['refused']}; потрачено {det['spent']} сегм.</div></div></div>")
-    toggle = (f"<form method='post' action='{act}'><input type='hidden' name='action' value='{'off' if det['enabled'] else 'on'}'>"
-              f"<button title='{'Клиника отказалась: программа покажет «Serviciul SMS este oprit la cererea clinicii» и наши контакты для возобновления' if det['enabled'] else 'Клиника снова хочет SMS: отправка возобновится'}'>"
-              f"{'Выключить' if det['enabled'] else 'Включить'}</button></form>"
-              f"<form method='post' action='{act}'><input type='hidden' name='action' value='{'pilot_off' if det['pilot'] else 'pilot_on'}'>"
-              f"<button title='Пакет предложен этой клинике, пока DP_SMS_OFFERED пуст'>{'Снять пилот' if det['pilot'] else 'Пилот'}</button></form>"
-              f"<form method='post' action='{act}'><input type='hidden' name='action' value='cap'>"
-              f"<input name='value' type='number' value='{det['daily_cap']}' min='0' max='100000' style='width:100px'><button>Потолок</button></form>"
-              f"<form method='post' action='{act}'><input type='hidden' name='action' value='credit'>"
-              f"<select name='reason' style='width:auto;padding:7px'><option value='bonus'>bonus</option><option value='fix'>fix</option></select>"
-              f"<input name='value' type='number' placeholder='±сегм.' style='width:90px' required>"
-              f"<input name='note' placeholder='причина (обязательно)' required><button>Начислить</button></form>")
-    name_form = (f"<form method='post' action='{act}'><input type='hidden' name='action' value='request'>"
-                 f"<input name='name' value='{esc(det['sender'] or det['suggest'])}' maxlength='11'><button>Заявка на имя</button></form>")
-    actions = f"<div class='actions' style='margin:12px 0'>{toggle}{name_form}</div>{_sender_actions(det)}"
+                f"<input name='name' value='{esc(sms_suggest(c['name']))}' maxlength='11'><button>Заявка на имя</button></form>"
+                f"</div></td></tr></table></div>")
+    state_txt = "включено" if det["enabled"] else "выключено"
+    state_sub = " · ".join(x for x in (
+        "пилот" if det["pilot"] else "", "" if det["offered"] else "программе не предложено",
+        f"в {esc(det['month'])} отправлено {det['sent']}") if x)
+    tiles = (f"<div class='tiles'>"
+             f"{_stat('Остаток', '<b>' + str(det['balance']) + '</b> сегм.', 'потрачено за месяц: ' + str(det['spent']) + ' сегм.')}"
+             f"{_stat('Сегодня', str(det['used_today']) + ' из ' + str(det['daily_cap']), 'потолок в сутки')}"
+             f"{_stat('Имя отправителя', esc(det['sender'] or '—'), _sender_tag(det['sender_state']) + ' · SMS идут от ' + esc(det['from'] or '—'))}"
+             f"{_stat('Состояние', state_txt, state_sub)}</div>")
+    on = det["enabled"]
+    on_txt = "включена" if on else "<span class='tag bad'>выключена</span>"
+    settings = (
+        f"<div class='card'>{_chead('message', 'Настройки пакета', 'остаток — сумма журнала; номеров и текстов на сервере нет')}"
+        f"<table class='set'>"
+        f"<tr><td>Отправка SMS</td><td><div class='actions'>"
+        f"{on_txt}"
+        f"<form method='post' action='{act}'><input type='hidden' name='action' value='{'off' if on else 'on'}'>"
+        f"<button title='{'Клиника отказалась: программа покажет «Serviciul SMS este oprit la cererea clinicii» и наши контакты для возобновления' if on else 'Клиника снова хочет SMS: отправка возобновится'}'>"
+        f"{'Выключить' if on else 'Включить'}</button></form></div></td></tr>"
+        f"<tr><td>Пилот</td><td><div class='actions'>"
+        f"{'пакет предложен этой клинике' if det['pilot'] else ('предложен всем клиникам' if det['offered'] else 'программе не предложено')}"
+        f"<form method='post' action='{act}'><input type='hidden' name='action' value='{'pilot_off' if det['pilot'] else 'pilot_on'}'>"
+        f"<button title='Пакет предложен этой клинике, пока DP_SMS_OFFERED пуст'>{'Снять пилот' if det['pilot'] else 'Пилот'}</button></form>"
+        f"</div></td></tr>"
+        f"<tr><td>Потолок в сутки</td><td><div class='actions'>"
+        f"<form method='post' action='{act}'><input type='hidden' name='action' value='cap'>"
+        f"<input name='value' type='number' value='{det['daily_cap']}' min='0' max='100000' style='width:100px'>"
+        f"<span class='muted'>сегм.</span><button>Сохранить</button></form></div></td></tr>"
+        f"<tr><td>Начислить или списать</td><td><div class='actions'>"
+        f"<form method='post' action='{act}'><input type='hidden' name='action' value='credit'>"
+        f"<input name='value' type='number' placeholder='± сегм.' style='width:100px' required>"
+        f"<select name='reason' style='width:auto;padding:7px'><option value='bonus'>бонус</option><option value='fix'>правка</option></select>"
+        f"<input name='note' placeholder='причина (обязательно)' style='width:220px' required><button>Начислить</button></form>"
+        f"</div></td></tr></table>")
     # Личный текст клиники (S6, «Свой текст — по заявке»): программа предложит
     # вариант «Textul clinicii». Подстановки — белый список sms_rule; тексты
     # клиники — не данные пациентов, их показывать можно.
-    custom = (f"<details{' open' if det['custom_on'] else ''}><summary>Личный текст клиники (по заявке)"
+    custom = (f"<details{' open' if det['custom_on'] else ''} style='margin:16px 0 0'><summary>Свой текст клиники (по заявке)"
               f"{' · включён' if det['custom_on'] else ''}</summary>"
               f"<form method='post' action='{act}'><input type='hidden' name='action' value='custom'>"
               f"<p class='muted'>Подстановки только {{clinica}} {{ziua}} {{data}} {{ora}} {{telefon}}; обязательны "
@@ -745,7 +914,10 @@ def sms_block(c, det: dict | None) -> str:
               f"<button>Сохранить текст</button></form></details>")
     drows = "".join(f"<tr><td>{esc(d['day'])}</td><td>{d['sent']}</td><td>{d['delivered']}</td><td>{d['undelivered']}</td>"
                     f"<td>{d['refused']}</td><td>{d['pending']}</td><td>{d['segments']}</td></tr>" for d in det["by_day"])
-    days = (f"<details><summary>Расход по дням за {esc(det['month'])}</summary><table><tr><th>День</th><th>Отправлено</th><th>Доставлено</th>"
+    days = (f"<details><summary>Расход по дням за {esc(det['month'])}</summary>"
+            f"<p class='muted' style='margin:0 0 8px'>за месяц: отправлено {det['sent']}, доставлено {det['delivered']}, "
+            f"не доставлено {det['undelivered']}, отказ {det['refused']}; потрачено {det['spent']} сегм.</p>"
+            f"<table><tr><th>День</th><th>Отправлено</th><th>Доставлено</th>"
             f"<th>Не доставлено</th><th>Отказ</th><th>В пути</th><th>Сегментов</th></tr>"
             f"{drows or '<tr><td colspan=7 class=muted>В этом месяце SMS не было</td></tr>'}</table></details>")
     lrows = "".join(f"<tr><td class='mono'>{esc(l['at'][:16].replace('T', ' '))}</td><td>{l['delta']:+d}</td>"
@@ -754,8 +926,7 @@ def sms_block(c, det: dict | None) -> str:
                     f"{(' · SMS #' + str(l['message_id'])) if l.get('message_id') else ''}</td></tr>" for l in det["ledger"])
     ledger = (f"<details><summary>Журнал SMS (последние {len(det['ledger'])})</summary><table><tr><th>Когда (UTC)</th><th>±</th><th>Что</th>"
               f"<th>Кто</th><th>Примечание</th></tr>{lrows or '<tr><td colspan=5 class=muted>пусто</td></tr>'}</table></details>")
-    return (f"<div class='card'>{_chead('message', 'SMS', 'пакет клиники: остаток — сумма журнала; номеров и текстов на сервере нет')}"
-            f"{kv}{actions}{custom}{days}{ledger}</div>")
+    return f"{tiles}{_sender_card(c, det)}{settings}{custom}{days}{ledger}</div>"
 
 
 def sms_suggest(name: str) -> str:
@@ -772,12 +943,18 @@ def sms_suggest(name: str) -> str:
 # Форма уходит с меткой своей вкладки (скрипт дописывает её в action), а 303 без метки
 # наследует метку запроса — после действия Олег остаётся на той же вкладке. Без скрипта
 # видны все разделы подряд, как до 16.10. ⛔ Тексты карточки держат cloud/tests.
-CLINIC_TABS = (("overview", "Обзор"), ("pay", "Лицензия и оплата"), ("sms", "SMS"),
+# 17.10 (Олег: «дальше … полный хаос, сделать красиво и организованно с вкладками»):
+# «Лицензия и оплата» разделена — деньги и файл лицензии две разные работы. Каждая
+# вкладка устроена как обзор: сверху плитки «что сейчас», под ними кнопки (редкие
+# формы раскрываются по нажатию, `_drop`), внизу история. Тот же механизм вкладок —
+# у разделов меню (`_tabbed`); первая вкладка — та, что открыта без метки.
+CLINIC_TABS = (("overview", "Обзор"), ("pay", "Оплата"), ("lic", "Лицензия"), ("sms", "SMS"),
                ("access", "Компьютеры и кабинет"), ("profile", "Реквизиты"), ("log", "Журнал"))
 _TABS_JS = ("(function(){var r=document.querySelector('.tabbed');if(!r)return;"
             "var tabs=r.querySelectorAll('[data-tab]'),panes=r.querySelectorAll('[data-pane]');"
             "function show(){var k=location.hash.slice(1),ok=false;"
-            "panes.forEach(function(p){if(p.getAttribute('data-pane')===k)ok=true});if(!ok)k='overview';"
+            "panes.forEach(function(p){if(p.getAttribute('data-pane')===k)ok=true});"
+            "if(!ok)k=panes[0].getAttribute('data-pane');"
             "panes.forEach(function(p){p.classList.toggle('on',p.getAttribute('data-pane')===k)});"
             "tabs.forEach(function(t){var on=t.getAttribute('data-tab')===k;t.classList.toggle('on',on);"
             "t.setAttribute('aria-selected',on?'true':'false')})}"
@@ -785,6 +962,90 @@ _TABS_JS = ("(function(){var r=document.querySelector('.tabbed');if(!r)return;"
             "r.addEventListener('submit',function(e){var p=e.target.closest('[data-pane]');if(!p)return;"
             "var a=e.target.getAttribute('action')||'';"
             "e.target.setAttribute('action',a.split('#')[0]+'#'+p.getAttribute('data-pane'))});show()})();")
+
+
+def _n(n: int) -> str:
+    """Счётчик «ждёт вас» у вкладки (янтарный); ноль не рисуется."""
+    return f"<span class='n'>{n}</span>" if n else ""
+
+
+def _tabbed(panes: list) -> str:
+    """Вкладки в одной странице: [(ключ, подпись, разметка, счётчик «ждёт»)]. ⛔ Ключ не
+    равен ни одному id страницы — иначе метка адреса прокрутит к элементу."""
+    tabs = "".join(f"<a href='#{k}' data-tab='{k}' role='tab'>{t}{_n(n)}</a>" for k, t, _, n in panes)
+    return (f"<div class='tabbed'><nav class='tabs' role='tablist'>{tabs}</nav>"
+            + "".join(f"<section class='pane' data-pane='{k}'>{h}</section>" for k, _, h, _ in panes)
+            + f"</div><script>{_TABS_JS}</script>")
+
+
+def _drop(label: str, inner: str, primary: bool = False) -> str:
+    """Кнопка, под которой раскрывается форма: пока не нужна, места не занимает."""
+    return (f"<details class='drop{' p' if primary else ''}'><summary>{label}</summary>"
+            f"<div class='open'>{inner}</div></details>")
+
+
+def _stat(label: str, big: str, sub: str = "") -> str:
+    """Плитка «что сейчас» внутри вкладки (не ссылка — в отличие от плиток обзора)."""
+    return f"<div class='tile'><span class='k'>{label}</span><span class='big'>{big}</span><span class='s'>{sub}</span></div>"
+
+
+def _chips(items: list, on: str) -> str:
+    """Кнопки-фильтры: [(ключ, подпись, ссылка)]; ключ `on` подсвечен."""
+    return "<div class='chips'>" + "".join(
+        f"<a class='on' href='{href}'>{text}</a>" if k == on else f"<a href='{href}'>{text}</a>"
+        for k, text, href in items) + "</div>"
+
+
+# Журнал словами (17.10): в базе остаётся код (`audit.what` читают тесты, ежедневная
+# задача и SQL Олега), страница показывает слово и раздел, код — во всплывающей
+# подсказке. Код без строки здесь показан как есть и виден только во «Все».
+AUDIT_RU = {
+    "payment_new": ("нота выставлена", "pay"), "payment_paid": ("оплата подтверждена", "pay"),
+    "payment_rejected": ("нота отклонена", "pay"), "payment_repeat": ("повторный перевод", "pay"),
+    "card_link": ("ссылка на карту", "pay"), "card_failed": ("карта: отказ", "pay"),
+    "paylink_new": ("ссылка оплаты из программы", "pay"), "reminder": ("напоминание о сроке", "pay"),
+    "issue": ("файл выдан", "lic"), "trial_request": ("заявка на пробный", "lic"),
+    "trial_declined": ("заявка скрыта", "lic"), "trial_duplicate": ("повторная заявка", "lic"),
+    "trial_no_key": ("пробный не выдан", "lic"),
+    "sms_sender": ("имя SMS", "sms"), "sms_toggle": ("SMS вкл./выкл.", "sms"), "sms_cap": ("потолок SMS", "sms"),
+    "sms_credit": ("SMS начислены", "sms"), "sms_custom": ("свой текст SMS", "sms"), "sms_pack": ("пакет SMS", "sms"),
+    "sms_name": ("год имени SMS", "sms"), "sms_test": ("тестовая SMS", "sms"), "sms_export": ("выгрузка SMS", "sms"),
+    "mail": ("письмо", "mail"), "mail_failed": ("письмо не ушло", "mail"),
+    "renew": ("программа забрала файл", "prog"), "code_sent": ("код активации отправлен", "prog"),
+    "code_ok": ("код активации принят", "prog"), "code_bad": ("код активации неверный", "prog"),
+    "code_limit": ("коды активации: лимит", "prog"), "download": ("скачивание программы", "prog"),
+    "account_new": ("кабинет: новая запись", "cab"), "account_login": ("вход в кабинет", "cab"),
+    "account_link": ("кабинет привязан", "cab"), "account_detach": ("кабинет отвязан", "cab"),
+    "login_code_sent": ("код входа отправлен", "cab"), "login_code_ok": ("вход по коду", "cab"),
+    "login_code_bad": ("код входа неверный", "cab"), "login_code_limit": ("коды входа: лимит", "cab"),
+    "login_ok": ("вход в админку", "adm"), "login_fail": ("неудачный вход в админку", "adm"),
+    "clinic_new": ("клиника заведена", "adm"), "clinic_edit": ("реквизиты изменены", "adm"),
+    "daily": ("ежедневная задача", "adm"),
+}
+AUDIT_CATS = (("pay", "Оплата"), ("lic", "Лицензия"), ("sms", "SMS"), ("mail", "Письма"),
+              ("prog", "Программа"), ("cab", "Кабинет"), ("adm", "Админка"))
+
+
+def audit_codes(cat: str) -> list[str]:
+    """Коды раздела журнала — для отбора в SQL; неизвестный раздел — пусто (значит «все»)."""
+    return [w for w, (_, c) in AUDIT_RU.items() if c == cat]
+
+
+def _what(code: str) -> str:
+    cls = {"payment_paid": "ok", "payment_rejected": "bad", "card_failed": "bad", "mail_failed": "bad",
+           "login_fail": "bad", "trial_no_key": "bad"}.get(code, "mute")
+    return f"<span class='tag {cls}' title='{esc(code)}'>{esc(AUDIT_RU.get(code, (code, ''))[0])}</span>"
+
+
+def _journal_chips(by_what: dict, on: str, href) -> str:
+    """Фильтры журнала с числами: «Все» и разделы, где что-то есть. `href(раздел)` — ссылка."""
+    cats: dict[str, int] = {}
+    for w, n in by_what.items():
+        k = AUDIT_RU.get(w, ("", ""))[1]
+        cats[k] = cats.get(k, 0) + n
+    items = [("", f"Все {sum(by_what.values())}", href(""))]
+    items += [(k, f"{t} {cats[k]}", href(k)) for k, t in AUDIT_CATS if cats.get(k)]
+    return _chips(items, on if on in dict(AUDIT_CATS) else "")
 
 
 def _todo_li(what: str, act: str = "") -> str:
@@ -805,7 +1066,7 @@ def _clinic_todo(c, sub, st: str, issues: list, payments: list, smsinfo: dict | 
     vu = _ts(sub["valid_until"]) if sub else None
     note = "" if pending else "<a href='#pay'>Выставить ноту</a>"
     if st == "none":
-        out.append(_todo_li("Файл лицензии не выдан: программа клиники не активирована", "<a href='#pay'>Выдать</a>"))
+        out.append(_todo_li("Файл лицензии не выдан: программа клиники не активирована", "<a href='#lic'>Выдать</a>"))
     elif st == "grace":
         out.append(_todo_li(f"Срок кончился {_d(sub['valid_until'])}, идёт льгота до "
                             f"{(vu + timedelta(days=sub['grace_days'])):%Y-%m-%d}", note))
@@ -844,7 +1105,7 @@ def _clinic_tiles(c, sub, st: str, issues: list, devices: list, accounts: list, 
     """Обзор › четыре плитки: лицензия, программа, SMS, кабинет; каждая ведёт в свою вкладку."""
     vu = _ts(sub["valid_until"]) if sub else None
     left = f" · осталось {(vu - now).days} дн." if st == "active" and vu else ""
-    lic = _tile("pay", "key", "Лицензия", f"до {_d(sub['valid_until'])}" if sub else "файла нет",
+    lic = _tile("lic", "key", "Лицензия", f"до {_d(sub['valid_until'])}" if sub else "файла нет",
                 f"{_tag(st)} {esc(sub['plan']) if sub else ''}"
                 f"{(' · льгота ' + str(sub['grace_days']) + ' дн.') if sub else ''}{left}")
     vers = sorted({d["version"] for d in devices if d["version"]}, key=_ver_key, reverse=True)
@@ -866,11 +1127,117 @@ def _clinic_tiles(c, sub, st: str, issues: list, devices: list, accounts: list, 
     return f"<div class='tiles'>{lic}{prog}{sms_t}{cab}</div>"
 
 
+def _pay_pane(c, sub, st: str, payments: list, reminders: list, now: datetime) -> str:
+    """Вкладка «Оплата»: срок, что ждёт оплаты, тариф; «Выставить ноту» за кнопкой; ноты; напоминания."""
+    cid = esc(c["id"])
+    price = sub["price"] if sub else config.PRICE_MONTH
+    vu = _ts(sub["valid_until"]) if sub else None
+    if vu is None:
+        term = _stat("Срок", "файла нет", "лицензия не выдана: вкладка «Лицензия»")
+    else:
+        gu = vu + timedelta(days=sub["grace_days"])
+        left = {"active": f" · осталось {(vu - now).days} дн., льгота {sub['grace_days']} дн.",
+                "grace": f" · льгота до {gu:%Y-%m-%d}", "readonly": f" · только чтение с {gu:%Y-%m-%d}"}.get(st, "")
+        term = _stat("Срок", f"до {_d(sub['valid_until'])}", f"{_tag(st)} {esc(sub['plan'] or '')}{left}")
+    pending = [p for p in payments if p["status"] == "pending"]
+    if pending:
+        p = pending[0]
+        wait = _stat("Ждёт оплаты", f"{p['amount']} {esc(p['currency'])}",
+                     f"нота <span class='mono'>{esc(p['reference'])}</span> от {esc(p['created_at'][:10])}, {_term(p)}")
+    else:
+        wait = _stat("Ждёт оплаты", "ничего", "ожидающих нот нет")
+    tariff = _stat("Тариф", f"{price} MDL / мес.", f"{pay.amount(12, price)} MDL за год")
+    opts = "".join(f"<option value='{m}'>{'месяц' if m == 1 else 'год'} — {pay.amount(m, price)} MDL</option>"
+                   for m in pay.MONTHS)
+    if maib.enabled():
+        method = ("<div><label>Как платит клиника</label><select name='method'>"
+                  "<option value='transfer'>Переводом — реквизиты и reference в письме</option>"
+                  "<option value='card'>Картой — ссылка maib в письме (и reference для перевода)</option>"
+                  "</select></div>")
+    else:
+        method = ("<div><label>Как платит клиника</label><div class='muted' style='padding:9px 0'>только переводом: "
+                  "DP_MAIB_* не заданы, ссылки на карту нет</div></div>")
+    form = (f"<p class='muted'>Нота — счёт клинике с reference. «Подтвердить» у ноты = перевод пришёл: "
+            f"срок продлится, файл выдастся сам.</p>"
+            f"<form method='post' action='/admin/clinics/{cid}/payments'>"
+            f"<div class='grid'><div><label>Срок</label><select name='months'>{opts}</select></div>"
+            f"<div><label>Сумма, MDL (пусто = по тарифу)</label><input name='amount' inputmode='numeric'></div>"
+            f"{method}</div>"
+            f"<label class='chk'><input type='checkbox' name='send' value='1' checked> отправить письмо с нотой "
+            f"на {esc(c['email'] or '— e-mail не указан')}</label>"
+            f"<p style='margin:12px 0 0'><button class='primary'>Выставить</button></p></form>")
+    rems = list(reminders)
+    table = (f"<div class='card'>{_chead('card', 'Ноты и платежи', 'ожидающую ноту можно подтвердить, отклонить или отправить ещё раз')}"
+             f"<table><tr><th>Reference</th><th>Сумма</th><th>Срок</th><th>Создан</th><th>Состояние</th><th></th></tr>"
+             f"{_payment_rows(payments) or '<tr><td colspan=6 class=muted>Платежей ещё нет</td></tr>'}</table>"
+             f"<details style='margin:16px 0 0'><summary>Напоминания о сроке ({len(rems)})</summary>"
+             f"<p class='muted' style='margin:0 0 8px'>письма ежедневной задачи этой клинике</p>"
+             f"<table><tr><th>Письмо</th><th>Период до</th><th>Отправлено</th></tr>"
+             f"{_reminder_rows(rems) or '<tr><td colspan=3 class=muted>Напоминаний ещё не было</td></tr>'}"
+             f"</table></details></div>")
+    return (f"<div class='tiles'>{term}{wait}{tariff}</div>"
+            f"<div class='acts'>{_drop('Выставить ноту', form, primary=True)}</div>{table}")
+
+
+def _lic_pane(c, issues: list, devices: list) -> str:
+    """Вкладка «Лицензия»: какой файл действует и какой у программы; письмо; выдача вручную; файлы."""
+    cid = esc(c["id"])
+    latest = max((i["seq"] for i in issues), default=0)
+    cur = max(issues, key=lambda i: i["seq"], default=None)
+    if cur is not None:
+        now_file = _stat("Действующий файл", f"№ {cur['seq']} · до {_d(cur['valid_until'])}",
+                         f"льгота до {_d(cur['grace_until'])} · {esc(cur['reason'] or '—')}")
+    else:
+        now_file = _stat("Действующий файл", "файла нет", "программа клиники не активирована")
+    many = f" · компьютеров: {len(devices)}" if devices else ""
+    if c["renew_at"]:
+        prog = _stat("У программы", f"№ {c['renew_seq'] or 0}", f"спрашивала {_renew_info(c, latest)}{many}")
+    else:
+        prog = _stat("У программы", "не спрашивала", "программа ещё не обращалась за файлом")
+    mail_btn = (f"<form method='post' action='/admin/clinics/{cid}/email'>"
+                f"<button class='primary' title='Письмо о сроке лицензии; файла в письме нет (02.10) — программа "
+                f"забирает его сама'>Отправить письмо о лицензии</button></form>" if issues else "")
+    form = (f"<h2>Лицензия вручную (без оплаты)</h2>"
+            f"<p class='muted'>пробный, демонстрация, договорённость; оплаченный срок выдаётся САМ при подтверждении "
+            f"платежа — программа клиники заберёт файл сама</p>"
+            f"<form method='post' action='/admin/clinics/{cid}/issue'>"
+            f"<div class='grid'><div><label>Что выдать</label><select name='kind'>"
+            f"<option value='trial'>Пробный: {license.TRIAL_DAYS} дней + {license.TRIAL_GRACE_DAYS} льготы</option>"
+            f"<option value='dates'>Абонемент до даты</option></select></div>"
+            f"<div><label>Срок до (для абонемента)</label><input name='valid_until' type='date'></div>"
+            f"<div><label>Льгота, дней</label><input name='grace_days' type='number' value='{license.GRACE_DAYS}' min='0' max='60'></div>"
+            f"<div><label>Основание</label><input name='reason' placeholder='платёж DP-2026-000001, демонстрация…'></div></div>"
+            f"<label class='chk'><input type='checkbox' name='send' value='1'> сразу отправить письмом на {esc(c['email'] or '— e-mail не указан')}</label>"
+            f"<p style='margin:12px 0 0'><button class='primary'>Выдать</button></p></form>")
+    trs = "".join(
+        f"<tr><td>{i['seq']}</td><td class='mono'>{esc(i['issued_at'][:16].replace('T', ' '))}</td>"
+        f"<td>{_d(i['valid_until'])}</td><td>{_d(i['grace_until'])}</td><td>{esc(i['reason'])}</td>"
+        f"<td><a href='/admin/clinics/{cid}/issues/{i['seq']}/license.json'>license.json</a></td></tr>"
+        for i in issues) or "<tr><td colspan='6' class='muted'>Файлов ещё не выдавали</td></tr>"
+    files = (f"<div class='card'>{_chead('file', 'Выданные файлы', 'каждый следующий — с номером выше; программа берёт только новее принятого')}"
+             f"<table><tr><th>№</th><th>Выдан (UTC)</th>"
+             f"<th>Срок до</th><th>Льгота до</th><th>Основание</th><th>Файл</th></tr>{trs}</table></div>")
+    return (f"<div class='tiles'>{now_file}{prog}</div>"
+            f"<div class='acts'>{mail_btn}{_drop('Выдать вручную', form, primary=not issues)}</div>{files}")
+
+
+def _log_pane(cid: str, audit: list, log: str, by_what: dict) -> str:
+    """Вкладка «Журнал»: события клиники словами, фильтры по разделам (ссылкой, страница отбирает сама)."""
+    href = (lambda k: f"/admin/clinics/{cid}?log={k}#log" if k else f"/admin/clinics/{cid}#log")
+    rows = "".join(f"<tr><td class='mono'>{esc(a['at'][:16].replace('T', ' '))}</td><td>{esc(a['who'])}</td>"
+                   f"<td>{_what(a['what'])}</td><td>{esc(a['detail'])}</td></tr>" for a in audit)
+    return (f"{_journal_chips(by_what, log, href)}"
+            f"<div class='card'>{_chead('clock', 'Журнал', 'события этой клиники, последние 50')}"
+            f"<table><tr><th>Когда (UTC)</th><th>Кто</th><th>Что</th>"
+            f"<th>Подробности</th></tr>{rows or '<tr><td colspan=4 class=muted>пусто</td></tr>'}</table></div>")
+
+
 def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
                 payments: list = (), pending: int = 0, reminders: list = (), accounts: list = (),
-                devices: list = (), smsinfo: dict | None = None, names: int = 0) -> str:
+                devices: list = (), smsinfo: dict | None = None, names: int = 0,
+                log: str = "", log_counts: dict | None = None) -> str:
     now = datetime.now(timezone.utc)
-    issues, payments, accounts, devices = list(issues), list(payments), list(accounts), list(devices)
+    issues, payments, accounts, devices, audit = list(issues), list(payments), list(accounts), list(devices), list(audit)
     st = license.state(_ts(sub["valid_until"]) if sub else None, sub["grace_days"] if sub else 0, now)
     cid = esc(c["id"])
     todo = _clinic_todo(c, sub, st, issues, payments, smsinfo, now)
@@ -896,57 +1263,6 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
             f"<div><label>Телефон</label><input name='phone' value='{esc(c['phone'])}'></div>"
             f"<div><label>Адрес</label><input name='address' value='{esc(c['address'])}'></div></div>"
             f"<p style='margin:14px 0 0'><button class='primary'>Сохранить</button></p></form></div>")
-    issue_form = (f"<div class='card'>{_chead('key', 'Лицензия вручную (без оплаты)', 'пробный, демонстрация, договорённость; оплаченный срок выдаётся САМ при подтверждении платежа — программа клиники заберёт файл сама')}"
-                  f"<form method='post' action='/admin/clinics/{cid}/issue'>"
-                  f"<div class='grid'><div><label>Что выдать</label><select name='kind'>"
-                  f"<option value='trial'>Пробный: {license.TRIAL_DAYS} дней + {license.TRIAL_GRACE_DAYS} льготы</option>"
-                  f"<option value='dates'>Абонемент до даты</option></select></div>"
-                  f"<div><label>Срок до (для абонемента)</label><input name='valid_until' type='date'></div>"
-                  f"<div><label>Льгота, дней</label><input name='grace_days' type='number' value='{license.GRACE_DAYS}' min='0' max='60'></div>"
-                  f"<div><label>Основание</label><input name='reason' placeholder='платёж DP-2026-000001, демонстрация…'></div></div>"
-                  f"<label class='chk'><input type='checkbox' name='send' value='1'> сразу отправить письмом на {esc(c['email'] or '— e-mail не указан')}</label>"
-                  f"<p style='margin:12px 0 0'><button class='primary'>Выдать</button></p></form></div>")
-    price = sub["price"] if sub else config.PRICE_MONTH
-    opts = "".join(f"<option value='{m}'>{'месяц' if m == 1 else 'год'} — {pay.amount(m, price)} MDL</option>"
-                   for m in pay.MONTHS)
-    if maib.enabled():
-        method = ("<div><label>Как платит клиника</label><select name='method'>"
-                  "<option value='transfer'>Переводом — реквизиты и reference в письме</option>"
-                  "<option value='card'>Картой — ссылка maib в письме (и reference для перевода)</option>"
-                  "</select></div>")
-    else:
-        method = ("<div><label>Как платит клиника</label><div class='muted' style='padding:9px 0'>только переводом: "
-                  "DP_MAIB_* не заданы, ссылки на карту нет</div></div>")
-    pay_form = (f"<div class='card'>{_chead('card', 'Ноты и платежи', f'нота = счёт клинике с reference; «Подтвердить» = перевод пришёл → срок продлён, файл выдан сам · {price} MDL в месяц · {pay.amount(12, price)} MDL в год')}"
-                f"<form method='post' action='/admin/clinics/{cid}/payments'>"
-                f"<div class='grid'><div><label>Срок</label><select name='months'>{opts}</select></div>"
-                f"<div><label>Сумма, MDL (пусто = по тарифу)</label><input name='amount' inputmode='numeric'></div>"
-                f"{method}</div>"
-                f"<label class='chk'><input type='checkbox' name='send' value='1' checked> отправить письмо с нотой "
-                f"на {esc(c['email'] or '— e-mail не указан')}</label>"
-                f"<p style='margin:12px 0 16px'><button class='primary'>Выставить ноту</button></p></form>"
-                f"<table><tr><th>Reference</th><th>Сумма</th><th>Срок</th><th>Создан</th><th>Состояние</th><th></th></tr>"
-                f"{_payment_rows(payments) or '<tr><td colspan=6 class=muted>Платежей ещё нет</td></tr>'}</table></div>")
-    trs = "".join(
-        f"<tr><td>{i['seq']}</td><td class='mono'>{esc(i['issued_at'][:16].replace('T', ' '))}</td>"
-        f"<td>{_d(i['valid_until'])}</td><td>{_d(i['grace_until'])}</td><td>{esc(i['reason'])}</td>"
-        f"<td><a href='/admin/clinics/{cid}/issues/{i['seq']}/license.json'>license.json</a></td></tr>"
-        for i in issues) or "<tr><td colspan='6' class='muted'>Файлов ещё не выдавали</td></tr>"
-    mail_btn = (f"<form method='post' action='/admin/clinics/{cid}/email' style='margin:12px 0 0'>"
-                f"<button class='primary' title='Письмо о сроке лицензии; файла в письме нет (02.10) — программа "
-                f"забирает его сама'>Отправить письмо о лицензии</button></form>" if issues else "")
-    issues_html = (f"<div class='card'>{_chead('file', 'Выданные файлы', 'каждый следующий — с номером выше; программа берёт только новее принятого')}"
-                   f"<table><tr><th>№</th><th>Выдан (UTC)</th>"
-                   f"<th>Срок до</th><th>Льгота до</th><th>Основание</th><th>Файл</th></tr>{trs}</table>{mail_btn}</div>")
-    rem_html = (f"<div class='card'>{_chead('bell', 'Напоминания', 'письма ежедневной задачи этой клинике')}"
-                f"<table><tr><th>Письмо</th><th>Период до</th>"
-                f"<th>Отправлено</th></tr>{_reminder_rows(list(reminders)) or '<tr><td colspan=3 class=muted>Напоминаний ещё не было</td></tr>'}"
-                f"</table></div>")
-    ars = "".join(f"<tr><td class='mono'>{esc(a['at'][:16].replace('T', ' '))}</td><td>{esc(a['who'])}</td>"
-                  f"<td><span class='tag mute'>{esc(a['what'])}</span></td><td>{esc(a['detail'])}</td></tr>" for a in audit)
-    audit_html = (f"<div class='card'>{_chead('clock', 'Журнал', 'события этой клиники')}"
-                  f"<table><tr><th>Когда (UTC)</th><th>Кто</th><th>Что</th>"
-                  f"<th>Подробности</th></tr>{ars or '<tr><td colspan=4 class=muted>пусто</td></tr>'}</table></div>")
     acc_rows = "".join(
         f"<tr><td>{esc(a['email'])}</td><td>{esc(a['provider'] if 'provider' in a.keys() else 'google')}</td>"
         f"<td>{esc(a['name'] or '—')}</td><td>{esc((a['created_at'] or '')[:10])}</td>"
@@ -955,8 +1271,8 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
         f"<button title='Запись удаляется; следующий вход этого аккаунта начнётся с регистрации'>"
         f"Отвязать</button></form></td></tr>" for a in accounts)
     acc_html = (f"<div class='card'>{_chead('user', 'Кабинет клиники', f'кто входит в кабинет {esc(config.BASE_URL.rstrip(chr(47)))}/cont — через Google или кодом на e-mail')}"
-                f"<p class='muted' style='margin:0 0 10px'>Смена директора: впишите клинике новый "
-                f"e-mail во вкладке «Реквизиты» и отвяжите старую запись — новый вход привяжется к клинике по ящику.</p>"
+                f"<p class='muted' style='margin:0 0 10px'>Сменился директор: новый e-mail — во вкладке «Реквизиты», "
+                f"старую запись — «Отвязать»; новый вход привяжется к клинике по ящику.</p>"
                 f"<table><tr><th>E-mail</th><th>Вход</th><th>Имя</th><th>С</th><th>Последний вход</th><th></th></tr>"
                 f"{acc_rows or '<tr><td colspan=6 class=muted>В кабинет ещё никто не входил</td></tr>'}</table></div>")
     dev_html = (f"<div class='card'>{_chead('monitor', 'Компьютеры', 'как программа этой клиники назвалась серверу')}"
@@ -964,16 +1280,16 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
                 f"<th>Windows</th><th>С</th><th>Последняя связь (UTC)</th><th>Файл у программы</th></tr>"
                 f"{_device_rows(devices) or '<tr><td colspan=7 class=muted>Программа этой клиники ещё не выходила на связь</td></tr>'}"
                 f"</table></div>")
+    if log_counts is None:
+        log_counts = {}
+        for a in audit:
+            log_counts[a["what"]] = log_counts.get(a["what"], 0) + 1
     count = {"overview": len(todo), "pay": sum(1 for p in payments if p["status"] == "pending"),
              "sms": 1 if smsinfo and smsinfo["sender_state"] in ("requested", "submitted") else 0}
-    panes = {"overview": overview, "pay": pay_form + issues_html + issue_form + rem_html,
-             "sms": sms_block(c, smsinfo), "access": dev_html + acc_html, "profile": edit, "log": audit_html}
-    tabs = "".join(f"<a href='#{k}' data-tab='{k}' role='tab'>{t}"
-                   f"{(chr(60) + 'span class=' + chr(39) + 'n' + chr(39) + '>' + str(count[k]) + '</span>') if count.get(k) else ''}</a>"
-                   for k, t in CLINIC_TABS)
-    body = (f"<div class='tabbed'><nav class='tabs' role='tablist'>{tabs}</nav>"
-            + "".join(f"<section class='pane' data-pane='{k}'>{panes[k]}</section>" for k, _ in CLINIC_TABS)
-            + f"</div><script>{_TABS_JS}</script>")
+    panes = {"overview": overview, "pay": _pay_pane(c, sub, st, payments, list(reminders), now),
+             "lic": _lic_pane(c, issues, devices), "sms": sms_block(c, smsinfo), "access": dev_html + acc_html,
+             "profile": edit, "log": _log_pane(cid, audit, log, log_counts)}
+    body = _tabbed([(k, t, panes[k], count.get(k, 0)) for k, t in CLINIC_TABS])
     lead = f"{_tag(st)} <span class='muted'>{esc(sub['plan']) if sub else 'без файла'} · срок до {_d(sub['valid_until']) if sub else '—'} · IDNO {esc(c['idno'] or '—')}</span>"
     return page(c["name"], body, user, msg, pending=pending, active="clinics", lead=lead, names=names)
 

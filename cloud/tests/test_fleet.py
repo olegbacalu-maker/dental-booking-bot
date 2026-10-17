@@ -97,10 +97,14 @@ def suite_devices(res: Result) -> None:
         res.ok("чужой токен: 401 и строки не трогаются", r.status == 401 and len(_devices(s)) == 2)
         # страница флота: последний выпуск от стенда GitHub (1.35.3), отстаёт только 1.35.2
         page = admin.get("/admin/fleet").body
+        everyone = page[page.index("data-pane='all'"):page.index("data-pane='behind'")]
+        behind = page[page.index("data-pane='behind'"):page.index("data-pane='silent'")]
         res.ok("страница «Флот»: последний выпуск, оба компьютера, отстаёт ровно один, клиника со ссылкой",
-               "Последний выпуск: <b>1.35.3</b>" in page and DEV1 in page and DEV2 in page
-               and page.count(">отстаёт<") == 1 and f"/admin/clinics/{cid}" in page
+               "Последний выпуск: <b>1.35.3</b>" in page and DEV1 in everyone and DEV2 in everyone
+               and everyone.count(">отстаёт<") == 1 and f"/admin/clinics/{cid}" in page
                and "компьютеров 2 у 1 клиник · отстают 1 · молчат дольше недели 0" in page, page[-2500:])
+        res.ok("вкладка «Отстают от выпуска» (17.10): ровно отставший, со счётчиком у вкладки",
+               DEV2 in behind and DEV1 not in behind and "Отстают от выпуска<span class='n'>1</span>" in page)
         res.ok("шапка админки ведёт на флот", "href='/admin/fleet'>Флот</a>" in admin.get("/admin").body)
         card = admin.get(f"/admin/clinics/{cid}").body
         res.ok("карточка клиники: раздел «Компьютеры» с обоими", "Компьютеры" in card and DEV1 in card and DEV2 in card)

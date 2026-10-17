@@ -443,13 +443,15 @@ _REQUESTS_SQL = """SELECT c.* FROM clinics c WHERE c.origin IN ('form', 'program
 
 
 @app.get("/admin", response_class=HTMLResponse)
-def clinics(request: Request, msg: str = "") -> Response:
+def clinics(request: Request, msg: str = "", state: str = "") -> Response:
     if (deny := _guard(request)) is not None:
         return deny
     with db.connect() as con:
         rows = con.execute(_CLINICS_SQL).fetchall()
         requests = con.execute(_REQUESTS_SQL).fetchall()
-    return HTMLResponse(views.clinics_page(rows, auth.current_user(request), msg, requests=requests))
+        pending, names = _pending_count(con), _names_count(con)
+    return HTMLResponse(views.clinics_page(rows, auth.current_user(request), msg, requests=requests, state=state,
+                                           pending=pending, names=names))
 
 
 # ---------- форма пробного периода (L14): публичная, без куки ----------
@@ -658,7 +660,7 @@ def _clinic(con, cid: str):
 
 
 @app.get("/admin/clinics/{cid}", response_class=HTMLResponse)
-def clinic_card(request: Request, cid: str, msg: str = "") -> Response:
+def clinic_card(request: Request, cid: str, msg: str = "", log: str = "") -> Response:
     if (deny := _guard(request)) is not None:
         return deny
     with db.connect() as con:
@@ -667,7 +669,13 @@ def clinic_card(request: Request, cid: str, msg: str = "") -> Response:
             return Response("нет такой клиники", status_code=404)
         sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (cid,)).fetchone()
         issues = con.execute("SELECT * FROM issues WHERE clinic_id=? ORDER BY seq DESC", (cid,)).fetchall()
-        audit = con.execute("SELECT * FROM audit WHERE clinic_id=? ORDER BY id DESC LIMIT 50", (cid,)).fetchall()
+        # вкладка «Журнал»: фильтр по разделу (?log=pay#log), числа у фильтров — по всем событиям клиники
+        codes = views.audit_codes(log)
+        only = f" AND what IN ({','.join('?' * len(codes))})" if codes else ""
+        audit = con.execute(f"SELECT * FROM audit WHERE clinic_id=?{only} ORDER BY id DESC LIMIT 50",
+                            (cid, *codes)).fetchall()
+        log_counts = dict(con.execute("SELECT what, count(*) FROM audit WHERE clinic_id=? GROUP BY what",
+                                      (cid,)).fetchall())
         pays = con.execute("SELECT * FROM payments WHERE clinic_id=? ORDER BY id DESC", (cid,)).fetchall()
         rems = con.execute("SELECT * FROM reminders WHERE subscription_id=? ORDER BY sent_at DESC, rowid DESC",
                            (cid,)).fetchall()
@@ -678,7 +686,8 @@ def clinic_card(request: Request, cid: str, msg: str = "") -> Response:
         names = _names_count(con)
     return HTMLResponse(views.clinic_page(c, sub, issues, audit, auth.current_user(request), msg,
                                           payments=pays, pending=pending, reminders=rems, accounts=accounts,
-                                          devices=devices, smsinfo=smsinfo, names=names))
+                                          devices=devices, smsinfo=smsinfo, names=names,
+                                          log=log if codes else "", log_counts=log_counts))
 
 
 # ---------- флот (шаг 3, 02.10): компьютеры клиник и их версии ----------
@@ -885,13 +894,17 @@ _AUDIT_SQL = """SELECT a.*, c.name AS clinic FROM audit a LEFT JOIN clinics c ON
 
 
 @app.get("/admin/audit", response_class=HTMLResponse)
-def audit_log(request: Request, msg: str = "") -> Response:
+def audit_log(request: Request, msg: str = "", kind: str = "") -> Response:
     if (deny := _guard(request)) is not None:
         return deny
+    codes = views.audit_codes(kind)  # раздел журнала (?kind=pay); неизвестный — «все»
+    only = f"WHERE a.what IN ({','.join('?' * len(codes))}) " if codes else ""
     with db.connect() as con:
-        rows = con.execute(_AUDIT_SQL).fetchall()
-        pending = _pending_count(con)
-    return HTMLResponse(views.audit_page(rows, auth.current_user(request), msg, pending))
+        rows = con.execute(_AUDIT_SQL.replace("ORDER BY", only + "ORDER BY", 1), codes).fetchall()
+        by_what = dict(con.execute("SELECT what, count(*) FROM audit GROUP BY what").fetchall())
+        pending, names = _pending_count(con), _names_count(con)
+    return HTMLResponse(views.audit_page(rows, auth.current_user(request), msg, pending,
+                                         kind=kind if codes else "", by_what=by_what, names=names))
 
 
 # ---------- платежи (L8) ----------
@@ -901,13 +914,35 @@ _PENDING_SQL = """SELECT p.*, c.name AS clinic FROM payments p JOIN clinics c ON
                   WHERE p.status = 'pending' ORDER BY p.id"""
 
 
+_PAID_SQL = """SELECT p.*, c.name AS clinic FROM payments p JOIN clinics c ON c.id = p.clinic_id
+               WHERE p.status = 'paid' ORDER BY p.paid_at DESC, p.id DESC"""
+# причина отказа живёт только в журнале («REF: причина», payments.reject)
+_REJECTED_SQL = """SELECT p.*, c.name AS clinic,
+                          (SELECT a.detail FROM audit a WHERE a.what = 'payment_rejected' AND a.clinic_id = p.clinic_id
+                           AND a.detail LIKE p.reference || ':%' ORDER BY a.id DESC LIMIT 1) AS why
+                   FROM payments p JOIN clinics c ON c.id = p.clinic_id
+                   WHERE p.status = 'rejected' ORDER BY p.id DESC LIMIT 100"""
+
+
 @app.get("/admin/payments", response_class=HTMLResponse)
-def payments_pending(request: Request, msg: str = "") -> Response:
+def payments_pending(request: Request, msg: str = "", month: str = "") -> Response:
+    """Платежи (17.10 — вкладки): ждут подтверждения, оплачены (по месяцам, с суммой), отклонены."""
     if (deny := _guard(request)) is not None:
         return deny
     with db.connect() as con:
         rows = con.execute(_PENDING_SQL).fetchall()
-    return HTMLResponse(views.payments_page(rows, auth.current_user(request), msg))
+        paid = con.execute(_PAID_SQL).fetchall()
+        rejected = con.execute(_REJECTED_SQL).fetchall()
+        names = _names_count(con)
+    # месяц оплаты — по Кишинёву, как сутки SMS: деньги 31-го в 23:30 — доход того месяца
+    now = datetime.now(timezone.utc)
+    by_month: dict[str, list] = {sms.local(now).strftime("%Y-%m"): []}
+    for p in paid:
+        by_month.setdefault(sms.local(db.parse_ts(p["paid_at"]) or now).strftime("%Y-%m"), []).append(p)
+    months = sorted(by_month, reverse=True)
+    month = month if month in by_month else months[0]
+    return HTMLResponse(views.payments_page(rows, auth.current_user(request), msg, paid=by_month[month],
+                                            month=month, months=months[:12], rejected=rejected, names=names))
 
 
 @app.post("/admin/clinics/{cid}/payments")
@@ -1130,7 +1165,8 @@ def payment_receipt(request: Request, pid: int) -> Response:
 
 def _back(request: Request, p) -> str:
     """Откуда пришли: со страницы ожидающих — туда же, иначе в карточку."""
-    ref = request.headers.get("referer", "")
+    # путь без ?…: страница платежей бывает и /admin/payments?msg=… после прошлого действия (17.10)
+    ref = request.headers.get("referer", "").split("#")[0].split("?")[0]
     return "/admin/payments" if ref.endswith("/admin/payments") else f"/admin/clinics/{p['clinic_id']}"
 
 
