@@ -361,7 +361,9 @@ def wait_health(lab: Lab, sh: "Shell", timeout: float) -> tuple[dict | None, str
         if sh.proc.poll() is not None:
             return None, f"оболочка вышла с кодом {sh.proc.returncode}"
         try:
-            log = lab.shell_log.read_text("utf-8", "replace")
+            # журнал ПРОШЛОГО запуска (до ротации новой оболочкой) — не наш
+            fresh = lab.shell_log.stat().st_mtime >= sh.t0 - 1.0
+            log = lab.shell_log.read_text("utf-8", "replace") if fresh else ""
         except OSError:
             log = ""
         for word in ("fatal", "busy"):
