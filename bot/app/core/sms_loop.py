@@ -58,7 +58,13 @@ HORIZON = timedelta(days=plan.SEND_DAY_BACK + 1)   # визиты, у котор
 QUEUE_BATCH = 50                             # строк очереди за проход
 META_ACCOUNT = "sms_account"                 # schema_meta: последний принятый счёт (JSON)
 FORECAST_DAYS = 30                           # прогноз расхода — по визитам последних 30 дней
-LOW_DAYS = 4                                 # баннер остатка: меньше чем на столько дней расхода
+# «Мало SMS» — по ШТУКАМ (Олег 18.10, контракт Tauri § 4): платный остаток 30
+# и меньше, в пробном периоде 10 и меньше (пробных всего 30 — порог платного
+# сработал бы с первой SMS). Читает их ТОЛЬКО `low_limit`; прежний порог по
+# дням расхода снят — два порога одного состояния расходятся молча.
+LOW_PAID = 30
+LOW_TRIAL = 10
+META_LOW = "sms_low"                         # schema_meta: с какого времени остаток у порога
 
 # Отказы сервера, после которых строка больше не уйдёт никогда (своя вина:
 # номер, текст, ключ) — `failed`. Остальные коды — уровня клиники или сервера:
@@ -110,6 +116,10 @@ _forecast: dict = {"visits": 0, "month": 0, "daily": 0.0}
 _counts: dict = {"queued": 0, "today": 0, "delivered": 0, "failed": 0}   # цифры экрана, с тика
 # последний проход: когда, чем кончился, последний отказ (код) — экрану и логу
 _last: dict = {"at": None, "outcome": "", "error": "", "sent": 0}
+# Эпизод «мало SMS»: когда остаток впервые опустился до порога ('' — выше).
+# Ключ уведомления у часов (`core/notices`): после пополнения сбрасывается,
+# и следующее падение до порога — новое уведомление, а не забытое старое.
+_low_since: str = ""
 
 
 def _now() -> datetime:
@@ -177,11 +187,77 @@ def forecast() -> dict:
     return dict(_forecast)
 
 
-def low_balance() -> bool:
-    """Остатка меньше чем на LOW_DAYS дней расхода — баннер и регистратуре."""
-    if not enabled() or _forecast["daily"] <= 0:
+def trial() -> bool:
+    """Пробный период — по плану принятой лицензии: ровно при нём облако
+    начисляет пробные SMS (cloud/app/sms.py › trial_bonus). Счёт сервера
+    пробного остатка от платного не отличает."""
+    s = lic.current()
+    return bool(s is not None and s.claim is not None and s.claim.plan == "trial")
+
+
+def low_limit(balance: int, is_trial: bool) -> int:
+    """⛔ ЕДИНСТВЕННОЕ сравнение «мало SMS»: порог, до которого опустился
+    остаток, или 0 — остаток выше. Держит `test_structure` (пороги читает
+    только она)."""
+    limit = LOW_TRIAL if is_trial else LOW_PAID
+    return limit if balance <= limit else 0
+
+
+LOW_TITLE = "Pachetul SMS se termină"
+
+
+def low_text(left: int, is_trial: bool) -> str:
+    """Что сказать человеку — одни слова на подсказку меню, экран Setări › SMS
+    и уведомление у часов. ⚠️ Без «дней»: порог — штуки, и прогноз расхода
+    здесь не обещается."""
+    if left <= 0:
+        return ("Pachetul SMS s-a terminat — memento-urile nu mai pleacă. "
+                "Comandați un pachet nou în Setări › SMS.")
+    what = "din perioada de probă" if is_trial else "în pachet"
+    return (f"Au rămas {left} SMS {what}; când se termină, memento-urile nu mai "
+            f"pleacă. Comandați un pachet nou în Setări › SMS.")
+
+
+def low() -> dict | None:
+    """«Мало SMS» — ОДНО состояние на три места: подсказка у пункта меню
+    (`layout._sms_alert`), баннер экрана Setări › SMS (`screen`) и уведомление
+    у часов (`core/notices`). None — пакет не работает или остатка хватает.
+    `since` — ключ эпизода (пусто, пока цикл его не записал)."""
+    if not active():
+        return None
+    is_trial = trial()
+    left = int(_account.get("balance") or 0)
+    limit = low_limit(left, is_trial)
+    if not limit:
+        return None
+    return {"left": max(0, left), "limit": limit, "trial": is_trial, "since": _low_since,
+            "title": LOW_TITLE, "text": low_text(left, is_trial)}
+
+
+def _track_low() -> bool:
+    """Отметить начало или конец эпизода «мало SMS» по принятому счёту. True —
+    отметка сменилась (её надо записать). Пакет не пускает — эпизод не
+    трогаем: остаток 0 у отказа «не предлагается» — не падение."""
+    global _low_since
+    if not enabled():
         return False
-    return int(_account.get("balance") or 0) < LOW_DAYS * _forecast["daily"]
+    hit = low_limit(int(_account.get("balance") or 0), trial())
+    if hit and not _low_since:
+        _low_since = _now().strftime("%Y%m%dT%H%M%SZ")
+        return True
+    if not hit and _low_since:
+        _low_since = ""                      # пополнили: следующее падение — новый эпизод
+        return True
+    return False
+
+
+async def _save_low() -> None:
+    if not _track_low():
+        return
+    try:
+        await db.set_meta(META_LOW, _low_since)
+    except Exception as e:  # noqa: BLE001 — память эпизода не роняет цикл
+        log.warning("sms: low mark not saved: %r", e)
 
 
 def last() -> dict:
@@ -200,7 +276,7 @@ def wake() -> None:
 async def startup() -> None:
     """До первого тика: счёт из прошлого запуска, чтобы страницы знали, есть
     ли пакет, пока сервер ещё не отвечал (или не ответит вовсе)."""
-    global _account
+    global _account, _low_since
     raw = await db.get_meta(META_ACCOUNT)
     if raw:
         try:
@@ -208,6 +284,7 @@ async def startup() -> None:
             _account = data if isinstance(data, dict) else None
         except ValueError:
             _account = None
+    _low_since = (await db.get_meta(META_LOW) or "")[:20]
 
 
 async def _remember(acc: dict | None) -> None:
@@ -217,6 +294,7 @@ async def _remember(acc: dict | None) -> None:
         await db.set_meta(META_ACCOUNT, json.dumps(acc, ensure_ascii=False) if acc else "")
     except Exception as e:  # noqa: BLE001 — память счёта не роняет цикл
         log.warning("sms: account not saved: %r", e)
+    await _save_low()
 
 
 async def refresh_account(force: bool = False) -> str:
@@ -402,6 +480,7 @@ async def tick() -> str:
         base, token = t
         s = settings()
         await refresh_account()
+        await _save_low()                    # план лицензии мог смениться без нового счёта
         for ev in plan.EVENTS:
             if not s[ev]["on"]:
                 await db.sms_drop_kind(ev)
@@ -509,6 +588,12 @@ def _previews(s: dict) -> dict:
     return out
 
 
+def _low_view() -> dict | None:
+    """`low()` для экрана и проверок: без ключа эпизода — он нужен только часам."""
+    lo = low()
+    return {k: lo[k] for k in ("left", "limit", "trial", "title", "text")} if lo else None
+
+
 def screen() -> dict:
     """Данные экрана Setări › SMS (modules/settings/api.py добавляет `can_order`)."""
     s = settings()
@@ -534,7 +619,8 @@ def screen() -> dict:
         "previews": _previews(s) if available() else {},
         "forecast": {**fc, "days_left": (int(int((acc or {}).get("balance") or 0) // daily)
                                          if acc and daily > 0 else None)},
-        "low": low_balance(), "counts": _counts, "last": status()["last"],
+        # «мало SMS» — то же состояние, что у пункта меню и у часов (`low`)
+        "low": _low_view(), "counts": _counts, "last": status()["last"],
         "clinic": {"name": eng.CLINIC_NAME, "phone": eng.CLINIC_PHONE},
     }
 
@@ -543,7 +629,7 @@ def status() -> dict:
     """Состояние для экрана Setări › SMS и проверок (без номеров и текстов)."""
     return {"available": available(), "offered": offered(), "enabled": enabled(),
             "active": active(), "account": account(), "settings": settings(),
-            "forecast": forecast(), "low": low_balance(), "last": {
+            "forecast": forecast(), "low": _low_view(), "last": {
                 "at": _last["at"].strftime("%Y-%m-%dT%H:%M:%SZ") if _last["at"] else None,
                 "outcome": _last["outcome"], "error": _last["error"],
                 "error_text": WHY.get(_last["error"], _last["error"])}}

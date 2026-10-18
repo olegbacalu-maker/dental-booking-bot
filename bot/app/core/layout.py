@@ -770,24 +770,14 @@ def _update_banner() -> str:
     return ""
 
 
-# Остаток SMS на считанные дни — подсказка треугольника у пункта меню «SMS
-# pacienți» (слово Олега 16.10 по кадру 1.43.0: баннер на каждом экране —
-# нет, «может человек не хочет продлевать»); полный текст — на экране SMS.
-SMS_LOW_HINT = ("Pachetul SMS se termină: au rămas __N__ SMS — la consumul actual ajung "
-                "pentru circa __D__ zile, apoi memento-urile nu mai pleacă. "
-                "Comandați un pachet nou în Setări › SMS.")
-
-
 def _sms_alert() -> str:
-    """Текст подсказки у пункта меню, когда остатка меньше чем на несколько
-    дней расхода (`sms_loop.low_balance`); пусто — всё в порядке. Видит и
+    """Подсказка треугольника у пункта меню «SMS pacienți», когда SMS мало
+    (`sms_loop.low` — одно правило по штукам с экраном SMS и уведомлением у
+    часов); пусто — всё в порядке. Баннера на каждом экране нет (слово Олега
+    16.10 по кадру 1.43.0: «может человек не хочет продлевать»). Видит и
     регистратура — ей звонить пациентам, когда напоминания перестанут уходить."""
-    if not sms_loop.low_balance():
-        return ""
-    acc, fc = sms_loop.account() or {}, sms_loop.forecast()
-    left = int(acc.get("balance") or 0)
-    days = int(left // fc["daily"]) if fc["daily"] else 0
-    return SMS_LOW_HINT.replace("__N__", str(left)).replace("__D__", str(days))
+    lo = sms_loop.low()
+    return f"{lo['title']}. {lo['text']}" if lo else ""
 
 
 def _demo_banner() -> str:

@@ -33,8 +33,6 @@ const T = {
   failed: 'nereușite azi',
   lastAt: 'ultima verificare',
   check: 'Verifică acum',
-  lowTitle: 'Pachetul SMS se termină',
-  low: 'La consumul actual restul ajunge pentru circa {days} zile. Comandați un pachet nou — directorul, mai jos.',
   eventsTitle: 'Ce memento-uri se trimit',
   dayBefore: 'Cu o zi înainte',
   dayBeforeHint: 'în ultima zi lucrătoare dinaintea vizitei, de la ora',
@@ -194,9 +192,11 @@ export function SmsSettingsScreen({ navigate = defaultNavigate }: Props) {
       {data && data.offered && !data.enabled && data.why && data.blocked !== 'sms_off' && (
         <div className="banner err" role="alert">{data.why}</div>
       )}
+      {/* «мало SMS» — слова сервера (`sms_loop.low`): одно правило по штукам на
+          этот баннер, пункт меню и уведомление у часов, без «дней» */}
       {data?.low && (
         <div className="banner warn" role="status">
-          <b>{T.lowTitle}.</b> {T.low.replace('{days}', String(data.forecast.days_left ?? 0))}
+          <b>{data.low.title}.</b> {data.low.text}
         </div>
       )}
 

@@ -1805,3 +1805,68 @@ def suite(res: Result) -> None:
     hit = sorted(allowed & forbidden)
     res.ok("белый список SMS без врача, услуги и имени", bool(allowed) and not hit,
            "PLACEHOLDERS легализует данные о здоровье: " + ", ".join(hit))
+
+    # ---- «мало SMS» — одно правило по штукам (Tauri, Т8, 18.10) ----
+    # Олег 18.10: SMS мало — 30 у платного остатка, 10 в пробном; одно правило
+    # для подсказки у пункта меню, баннера экрана SMS и уведомления у часов.
+    # До того баннер жил «меньше чем на 4 дня расхода», а уведомление шло бы по
+    # штукам: два порога одного состояния расходятся молча — меню молчит, часы
+    # кричат. Поэтому: пороги читает ТОЛЬКО `sms_loop.low_limit`; три места
+    # берут состояние у `sms_loop.low`; ни одно сравнение остатка с числом
+    # мимо `low_limit` не живёт.
+    # ⚠️ Полярность: список потребителей ВКЛЮЧАЮЩИЙ — каждый обязан найтись.
+    low_users = {("app/core/layout.py", "_sms_alert"), ("app/core/sms_loop.py", "_low_view"),
+                 ("app/core/notices.py", "sms_item")}
+    bad, found, reads = [], set(), 0
+    for rel, tree in src:
+        for fn in ast.walk(tree):
+            if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) and (rel, fn.name) in low_users:
+                found.add((rel, fn.name))
+                if "low" not in _calls(fn):
+                    bad.append(f"{rel}:{fn.lineno} {fn.name}() не берёт состояние у sms_loop.low()")
+        for n in ast.walk(tree):
+            name = (n.id if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
+                    else n.attr if isinstance(n, ast.Attribute) else "")
+            if name in ("LOW_PAID", "LOW_TRIAL"):
+                if rel == "app/core/sms_loop.py" and "low_limit" in _enclosing(tree, n.lineno):
+                    reads += 1
+                else:
+                    bad.append(f"{rel}:{n.lineno} порог {name} мимо low_limit")
+            if name == "LOW_DAYS" or (isinstance(n, ast.Name) and n.id == "LOW_DAYS"):
+                bad.append(f"{rel}:{n.lineno} LOW_DAYS — порог по дням снят 18.10")
+            if isinstance(n, ast.Compare) and "low_limit" not in _enclosing(tree, n.lineno):
+                consts = [c.value for c in ast.walk(n) if isinstance(c, ast.Constant)]
+                if "balance" in consts and any(isinstance(v, (int, float)) and not isinstance(v, bool)
+                                               for v in consts):
+                    bad.append(f"{rel}:{n.lineno} остаток SMS сравнивается с числом мимо low_limit")
+    bad += [f"{rel}: {name}() не найден — список потребителей протух"
+            for rel, name in sorted(low_users - found)]
+    if reads < 2:
+        bad.append("sms_loop.low_limit не читает LOW_PAID и LOW_TRIAL — якорь правила пропал")
+    res.ok("«мало SMS» — одно правило по штукам", not bad,
+           "меню, экран SMS и уведомление у часов разойдутся молча: " + "; ".join(bad))
+
+    # ---- /shell/* — только оболочке этого ПК (Tauri, контракт § 4) ----
+    # Уведомления у часов спрашивает оболочка без сессии: охрана — токен её
+    # запуска, loopback и заголовок (`notices.shell_request_ok`). Маршрут
+    # `/shell/…` без неё отдал бы срок лицензии и остаток SMS любому
+    # телефону в сети клиники. Якорь — хотя бы один такой маршрут есть.
+    bad, n_shell = [], 0
+    for rel, tree in src:
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            paths_ = [d.args[0].value for d in fn.decorator_list
+                      if isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute)
+                      and d.func.attr in ("get", "post", "put", "delete", "patch")
+                      and d.args and isinstance(d.args[0], ast.Constant)
+                      and isinstance(d.args[0].value, str)]
+            if not any(p.startswith("/shell/") for p in paths_):
+                continue
+            n_shell += 1
+            if "shell_request_ok" not in _calls(fn):
+                bad.append(f"{rel}:{fn.lineno} {fn.name}() без shell_request_ok")
+    if not n_shell:
+        bad.append("ни одного маршрута /shell/ — якорь правила пропал")
+    res.ok("маршруты /shell/ охраняет токен оболочки", not bad,
+           "срок лицензии и остаток SMS ушли бы в сеть клиники: " + "; ".join(bad))

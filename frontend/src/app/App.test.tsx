@@ -135,7 +135,7 @@ describe('App', () => {
 
   it('пункт меню с предупреждением: треугольник с подсказкой вместо точки, баннера нет (SMS, 16.10)', () => {
     get.mockReturnValueOnce(new Promise(() => {}))
-    const alert = 'Pachetul SMS se termină: au rămas 1 SMS — la consumul actual ajung pentru circa 2 zile.'
+    const alert = 'Pachetul SMS se termină. Au rămas 1 SMS în pachet; când se termină, memento-urile nu mai pleacă.'
     const sync = [{ key: 'sms', href: '/admin/settings/sms', icon: 'chat', label: 'SMS pacienți', dot: 'ok' as const, alert }]
     open('/admin/settings', node('settings_hub', {}, { ...SHELL, nav: { ...SHELL.nav, sync } }))
     const mark = screen.getByLabelText(alert)

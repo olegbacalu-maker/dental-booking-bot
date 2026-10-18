@@ -23,6 +23,7 @@ from ...core import backup_loop, bitlocker
 from ...core.auth import ADMIN_KEY, _pin_rec
 from ...core.layout import (FEEDBACK_EMAIL, _ic, data_folder, tg_configured,
                             tg_status)
+from . import autostart
 
 # Строка «Folderul cu date». ⚠️ Путь, а не «да/нет»: его сверяют глазами с
 # адресной строкой Проводника, и сокращение вроде «%ProgramData%» сверить
@@ -180,4 +181,7 @@ def data() -> dict:
         # администратора, и запрашивать их программа сама не вправе — окно UAC
         # на каждом старте перестают читать. Кнопку нажимает человек.
         "uninstall": upd.uninstall_entry(),
+        # Запуск вместе с Windows (Tauri, Т8): ФАКТ из реестра учётки; None —
+        # строки нет (не режим движка: окно pywebview, браузер, исходники)
+        "autostart": autostart.state(),
     }

@@ -726,7 +726,7 @@ def suite_screen(res: Result) -> None:
                        any(t["href"] == "/admin/settings/sms" and "100 SMS" in t["hint"][0]["t"]
                            for t in _j(c.get("/api/settings/hub"))["data"]["tiles"])
                        and any(i["key"] == "sms" and i["dot"] == "ok" for i in shell_model(c.get("/admin").body)["nav"]["sync"]))
-                res.ok("предупреждения у пункта меню нет: расхода ещё нет",
+                res.ok("предупреждения у пункта меню нет: 100 SMS — выше порога 30",
                        not any(i.get("alert") for i in shell_model(c.get("/admin").body)["nav"]["sync"]))
 
                 # переключатели — сохраняются сразу, цикл просыпается
@@ -793,7 +793,8 @@ def suite_screen(res: Result) -> None:
                        and any(i["key"] == "sms" and i["dot"] == "off" for i in shell_model(c.get("/admin").body)["nav"]["sync"]))
                 c.post_json("/api/settings/sms", {"day_before": {"on": True}})
 
-                # баннер остатка: расход есть, остатка на считанные дни
+                # «мало SMS» по штукам (Tauri, 18.10): прогноз расхода — справка экрана,
+                # порогом он больше не служит; пороги на границах — test_notices
                 for i in range(12):
                     r = add_appt(c, "2026-10-30", f"{8 + i % 6:02d}:00", f"Sms Vechi {i}", f"0690001{i:02d}",
                                  doctor="d2" if i < 6 else "d3")
@@ -802,13 +803,14 @@ def suite_screen(res: Result) -> None:
                 clock.set(_at(2026, 11, 6, 9, 30))
                 r = c.post_json("/api/settings/sms/refresh", {})
                 data = _wait(lambda: (lambda x: x if x["forecast"]["visits"] >= 12 else None)(_j(c.get("/api/settings/sms"))["data"]))
-                res.ok("прогноз: 12 визитов за 30 дней, остаток 1 — low",
-                       data and data["forecast"]["month"] == 12 and data["low"] and data["forecast"]["days_left"] == 2,
+                res.ok("прогноз: 12 визитов за 30 дней, остаток 1 — мало (порог 30)",
+                       data and data["forecast"]["month"] == 12 and data["forecast"]["days_left"] == 2
+                       and data["low"] and data["low"]["left"] == 1 and data["low"]["limit"] == 30,
                        repr(data and data["forecast"]) + repr(data and data["low"]))
                 item = next((i for i in shell_model(c.get("/admin").body)["nav"]["sync"] if i["key"] == "sms"), {})
-                res.ok("у пункта меню — предупреждение с остатком и днями, баннера в оболочке нет",
-                       item.get("alert", "").startswith("Pachetul SMS se termină: au rămas 1 SMS")
-                       and "circa 2 zile" in item.get("alert", "")
+                res.ok("у пункта меню — предупреждение с остатком, без дней; баннера в оболочке нет",
+                       item.get("alert", "").startswith("Pachetul SMS se termină. Au rămas 1 SMS în pachet")
+                       and "zile" not in item.get("alert", "")
                        and "sms" not in shell_model(c.get("/admin").body)["signals"], repr(item))
 
                 # выключено в облаке по желанию клиники (Олег 17.10): код и контакты для экрана

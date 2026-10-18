@@ -78,6 +78,7 @@ import test_patients_api  # noqa: E402
 import test_paylink  # noqa: E402
 import test_schedule_api  # noqa: E402
 import test_settings_api  # noqa: E402
+import test_notices  # noqa: E402
 import test_sms  # noqa: E402
 import test_sms_rule  # noqa: E402
 import test_stats_api  # noqa: E402
@@ -139,6 +140,11 @@ SUITES = [
     ("SMS: живой цикл — накануне, в день визита, кому нет, без дубля", test_sms.suite_live),
     ("SMS: пакет не предлагается, файл без renew", test_sms.suite_not_offered),
     ("SMS: экран Setări › SMS, фиша, acord, баннер остатка", test_sms.suite_screen),
+    ("Tauri: пороги уведомлений и дверь /shell/notices", test_notices.suite_rules),
+    ("Tauri: /shell/notices — 404 без токена, обновление", test_notices.suite_route),
+    ("Tauri: уведомление «лицензия кончается» — 7 и 1 день", test_notices.suite_license),
+    ("Tauri: «мало SMS» по штукам — меню, экран и часы одним правилом", test_notices.suite_sms),
+    ("Tauri: запуск вместе с Windows — галочка из реестра", test_notices.suite_autostart),
     # Сервера нет, доли секунды: фикстуры лицензии держатся схемы (L1).
     ("Лицензия: формат файла и фикстуры", test_license_format.suite),
     ("Лицензия: подпись RSA через pow", test_license_verify.suite_math),

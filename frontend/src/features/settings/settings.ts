@@ -243,6 +243,13 @@ export interface SystemData {
    * то, что программа поправит сама.
    */
   uninstall: { found: boolean; version: string; stale: boolean; hive: string }
+  /**
+   * Запуск вместе с Windows (Tauri, контракт § 2): `on` — ФАКТ из реестра учётки,
+   * а не запись в настройках. null — строки нет: не режим движка (окно pywebview,
+   * браузер второго ПК). `other` — наше значение ведёт к другому exe; `hint` —
+   * подсказка включить на ПК с «Acces din rețea».
+   */
+  autostart: { on: boolean; other: string; hint: string } | null
 }
 
 /* ---- копии картотеки (17.10): core/backup_loop, core/restore ---- */
@@ -353,6 +360,15 @@ export interface SmsAccount {
   used_today: number
 }
 
+export interface SmsLow {
+  left: number
+  /** Порог, до которого опустился остаток: 30 у платного, 10 в пробном периоде. */
+  limit: number
+  trial: boolean
+  title: string
+  text: string
+}
+
 export interface SmsData {
   /** Есть кого спрашивать: файл лицензии с `renew`. Нет — SMS взять неоткуда. */
   available: boolean
@@ -372,7 +388,9 @@ export interface SmsData {
   /** Предпросмотр: событие → вариант → язык → текст с данными клиники. */
   previews: Record<string, Record<string, Record<string, SmsPreview>>>
   forecast: { visits: number; month: number; daily: number; days_left: number | null }
-  low: boolean
+  /** «Мало SMS» по штукам (`sms_loop.low`): то же правило и те же слова, что у
+   *  пункта меню и уведомления у часов; null — остатка хватает. */
+  low: SmsLow | null
   counts: { queued: number; today: number; delivered: number; failed: number }
   last: { at: string | null; outcome: string; error_text: string }
   /** Директор: «Comandă» (пополнение, имя), тестовая SMS. */
@@ -463,6 +481,9 @@ export const settings = {
       ⚠️ Ответ — свежая модель, а НЕ «сделано»: итог окна серверу не виден. */
   uninstallSync: (): Promise<ApiResult<SystemData>> =>
     api.post<SystemData>('/settings/system/uninstall-sync', {}),
+  /** «Pornește odată cu Windows»: ответ — свежая модель, галочка из реестра. */
+  autostart: (on: boolean): Promise<ApiResult<SystemData>> =>
+    api.post<SystemData>('/settings/autostart', { on }),
   crypt: (signal?: AbortSignal): Promise<ApiResult<CryptData>> =>
     api.get<CryptData>('/settings/crypt', signal ? { signal } : {}),
   cryptPrepare: (): Promise<ApiResult<CryptPrepared>> =>

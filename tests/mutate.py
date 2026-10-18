@@ -477,6 +477,18 @@ MUTATIONS = [
     ("белый список SMS без врача", "app/core/sms_plan.py",
      ('PLACEHOLDERS = ("clinica", "ziua", "data", "ora", "telefon")',
       'PLACEHOLDERS = ("clinica", "ziua", "data", "ora", "telefon", "medic")')),
+    # Подсказка меню решает «мало SMS» сама, своим порогом — ровно то, что
+    # было до 18.10 (дни расхода у меню, штуки у часов).
+    ("«мало SMS» — одно правило", "app/core/layout.py",
+     ("    lo = sms_loop.low()\n",
+      "    acc = sms_loop.account() or {}\n"
+      "    lo = acc if int(acc.get(\"balance\") or 0) <= 50 else None\n")),
+    # Порог прочитан мимо low_limit — второе место, где живёт число.
+    ("«мало SMS» — одно правило", "app/core/notices.py",
+     "\n_mut = sms_loop.LOW_PAID + 1\n"),
+    # Дверь оболочки снята: уведомления отдаются любому в сети клиники.
+    ("маршруты /shell/ охраняет", "app/modules/settings/api.py",
+     ("    if not notices.shell_request_ok(request):\n", "    if False:\n")),
 ]
 
 # Правки ЗАКОННЫЕ: нарушения в них нет, и правило обязано остаться
@@ -592,6 +604,13 @@ LEGAL = [
     ("файл сборки клиента", "_build/frontend/vite.config.ts",
      "\n// до 2.0 бандл звался 'js/main.js', а стиль — 'css/app.css'\n"
      "/* копия моделей: writeFileSync(resolve(THREE_OUT_DIR, 'old-teeth.js')) */\n"),
+    # ⭐ Законно: ещё один потребитель берёт состояние у `low()`, а остаток
+    # показывает числом без сравнения (как плитка хаба «N SMS rămase»).
+    ("«мало SMS» — одно правило", "app/core/notices.py",
+     "\ndef _mut_hint():\n"
+     "    lo = sms_loop.low()\n"
+     "    left = int((sms_loop.account() or {}).get(\"balance\") or 0)\n"
+     "    return f\"{left} SMS\" if lo else \"\"\n"),
 ]
 
 

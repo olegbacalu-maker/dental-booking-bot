@@ -210,7 +210,7 @@ READONLY_ALLOW = (
     "/api/settings/pin", "/api/settings/users", "/api/settings/users/{uid}/delete",
     "/api/settings/crypt/prepare", "/api/settings/crypt/off",
     "/api/settings/system/check", "/api/settings/system/uninstall-sync",
-    "/api/settings/lan", "/api/settings/lan/firewall",
+    "/api/settings/lan", "/api/settings/lan/firewall", "/api/settings/autostart",
     "/api/patients/{pid}/archive", "/api/patients/{pid}/erase",
     "/api/documents/{doc_id}/open",
 )

@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
+import { ApiError } from '../../types/api'
 import type { SystemData } from './settings'
 import { openScreen } from '../../test/openScreen'
 import { loadSystemSettings, SystemSettingsScreen } from './SystemSettingsScreen'
@@ -26,7 +27,12 @@ const FRESH: SystemData = {
   uninstall: { found: true, version: '1.28.0', stale: false, hive: 'HKLM' },
   backup: { tone: 'ok', daily: 'pornită', local: '17.10.2026 09:00', external: 'nealeasă (Setări › Copie de rezervă)',
     alert: '', href: '/admin/settings/backup' },
+  autostart: null,
 }
+
+const AUTO_LABEL = 'Pornește DentPilot odată cu Windows'
+const LAN_HINT = 'Accesul din rețea este pornit: fără această bifă, după repornirea calculatorului '
+  + 'telefoanele și celelalte calculatoare nu deschid jurnalul până nu pornește cineva programul.'
 
 const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, text, tone: 'ok' })
 
@@ -186,6 +192,46 @@ describe('SystemSettingsScreen', () => {
        модели: строка ушла — значит запись действительно поправлена. */
     await vi.waitFor(() =>
       expect(screen.queryByRole('button', { name: /Corectează/ })).toBeNull())
+  })
+
+  it('пуск с Windows: без оболочки строки нет вовсе (окно pywebview, браузер)', async () => {
+    get.mockResolvedValueOnce(ok(FRESH))
+    open(vi.fn())
+    await screen.findByText('v1.28.0')
+    expect(screen.queryByText('Pornire')).toBeNull()
+    expect(screen.queryByLabelText(AUTO_LABEL)).toBeNull()
+  })
+
+  it('пуск с Windows: галочка стоит по ОТВЕТУ сервера (реестр), подсказка сети уходит со включением', async () => {
+    get.mockResolvedValueOnce(ok({ ...FRESH, autostart: { on: false, other: '', hint: LAN_HINT } }))
+    post.mockResolvedValueOnce(ok({ ...FRESH, autostart: { on: true, other: '', hint: '' } }, 'ok_set'))
+    open(vi.fn())
+    const box = await screen.findByLabelText(AUTO_LABEL) as HTMLInputElement
+    expect(box.checked).toBe(false)
+    expect(screen.getByText(LAN_HINT)).toBeTruthy()
+    fireEvent.click(box)
+    expect(post).toHaveBeenCalledWith('/settings/autostart', { on: true })
+    await vi.waitFor(() => expect((screen.getByLabelText(AUTO_LABEL) as HTMLInputElement).checked).toBe(true))
+    expect(screen.queryByText(LAN_HINT)).toBeNull()
+  })
+
+  it('пуск с Windows: значение ведёт к другому exe — названо, галочка снята', async () => {
+    const other = 'Acum Windows pornește alt DentPilot: "D:\\Vechi\\DentPilot.exe" --tray'
+    get.mockResolvedValueOnce(ok({ ...FRESH, autostart: { on: false, other, hint: '' } }))
+    open(vi.fn())
+    expect(((await screen.findByLabelText(AUTO_LABEL)) as HTMLInputElement).checked).toBe(false)
+    expect(screen.getByText(other)).toBeTruthy()
+  })
+
+  it('пуск с Windows: отказ Windows — плашка словами сервера, галочка на месте', async () => {
+    get.mockResolvedValueOnce(ok({ ...FRESH, autostart: { on: true, other: '', hint: '' } }))
+    post.mockRejectedValueOnce(new ApiError({ kind: 'server', status: 500, code: 'autostart_fail',
+      text: 'Windows nu a permis schimbarea pornirii automate — reîncercați.' }, 's500'))
+    open(vi.fn())
+    const box = await screen.findByLabelText(AUTO_LABEL) as HTMLInputElement
+    fireEvent.click(box)
+    expect(await screen.findByText(/Windows nu a permis/)).toBeTruthy()
+    expect((screen.getByLabelText(AUTO_LABEL) as HTMLInputElement).checked).toBe(true)
   })
 
   it('ответ пришёл ДО подтверждения UAC — экран перечитывает состояние, пока запись не поправлена', async () => {

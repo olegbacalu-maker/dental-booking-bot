@@ -24,13 +24,14 @@ import os
 import pathlib
 from datetime import datetime
 
-from fastapi import APIRouter, File, Request, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse
 
 from ... import db, paths
 from ... import engine as eng
 from ... import privileged
 from ... import update as upd
-from ...core import backup_loop, dbkey, restore, sms_loop, theme
+from ...core import backup_loop, dbkey, notices, restore, sms_loop, theme
 from ...core import sms_plan as splan
 from ...core.api import api_body, api_guard, api_require
 from ...core.auth import (PERM_SETTINGS, PERM_USERS, PIN_MAX, PIN_MIN_LAN, ROLE_LABEL,
@@ -42,7 +43,7 @@ from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, SETUP_HINT, SUPP
 from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
 from ...core import backup as bkp
-from . import crypt, faq, lan, system
+from . import autostart, crypt, faq, lan, system
 from .routes import (RESTART_NOTE, _PALETTE_RO, _apply_user, _drop_user,
                      _finish_cfg, _hub_tiles, HUB_GROUPS, _lan_available, _last_logins,
                      _logo_action, _set_lan, _val_clinic, _val_hours,
@@ -247,6 +248,39 @@ def api_uninstall_sync(request: Request):
         # а не действие человека, и молчать о нём нельзя.
         return msg_json(False, "bad_set", data=system.data())
     return msg_json(True, data=system.data())
+
+
+@router.post("/api/settings/autostart")
+async def api_autostart(request: Request):
+    """Галочка «Pornește odată cu Windows» (Tauri, контракт § 2): значение Run
+    в HKCU учётки, под которой работает движок. Ответ — СВЕЖАЯ модель экрана:
+    галочка показывает то, что записано в реестре, а не то, что нажали.
+    Строки нет (окно pywebview, браузер, исходники) — маршрута тоже нет."""
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    if autostart.state() is None:
+        return msg_json(False, status=404)
+    body = await api_body(request)
+    on = (body or {}).get("on")
+    if not isinstance(on, bool):
+        return msg_json(False, "bad_set", status=422, field="on")
+    if not await asyncio.to_thread(autostart.apply, on):
+        return msg_json(False, "autostart_fail", text=autostart.FAIL, status=500,
+                        data=system.data())
+    return msg_json(True, "ok_set", data=system.data())
+
+
+# ---------- уведомления у часов (Tauri, контракт § 4) ----------
+
+@router.get("/shell/notices")
+async def shell_notices(request: Request):
+    """Что сказать у часов — оболочке ЭТОГО ПК, не человеку: без сессии и без
+    данных пациентов (`core/notices`). Не `/api/`: охрана здесь не кука, а
+    токен запуска оболочки. Чужому — 404 тем же телом, что у несуществующего
+    адреса."""
+    if not notices.shell_request_ok(request):
+        raise HTTPException(status_code=404)
+    return JSONResponse(notices.items(), headers={"Cache-Control": "no-store"})
 
 
 # ---------- шифрование картотеки ----------

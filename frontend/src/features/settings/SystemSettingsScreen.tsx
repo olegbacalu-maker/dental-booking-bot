@@ -45,6 +45,12 @@ const T = t('system', {
   uninstallWait: 'Se așteaptă confirmarea Windows…',
   uninstallWhy: 'Windows cere confirmare: intrarea aparține instalării, '
     + 'nu programului. Datele clinicii nu sunt atinse.',
+  /* Запуск вместе с Windows (Tauri, 18.10): строка есть только у программы под
+     оболочкой; состояние галочки — из реестра учётки (сервер), не из клика */
+  start: 'Pornire',
+  autostart: 'Pornește DentPilot odată cu Windows',
+  autostartNote: 'Pentru acest cont Windows: după pornirea calculatorului programul '
+    + 'așteaptă lângă ceas, fără fereastră.',
   offline: 'Programul nu răspunde. Reîncercați.',
 } as const)
 
@@ -108,6 +114,22 @@ export function SystemSettingsScreen({ navigate = defaultNavigate, pollMs = 1500
     setBusy(true)
     try {
       const r = await settings.systemCheck()
+      replace(r.data)
+    } catch (e) {
+      const err = asApiError(e)
+      if (leaveIfSignedOut(err)) return
+      setToast({ tone: 'err', text: err.text || T.offline })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /* ⭐ Ответ — свежая МОДЕЛЬ: галочка встаёт так, как записано в реестре
+     учётки, а не так, как её нажали; отказ Windows оставляет её на месте. */
+  async function toggleAutostart(on: boolean) {
+    setBusy(true)
+    try {
+      const r = await settings.autostart(on)
       replace(r.data)
     } catch (e) {
       const err = asApiError(e)
@@ -249,6 +271,26 @@ export function SystemSettingsScreen({ navigate = defaultNavigate, pollMs = 1500
                   <td>
                     <b className="dp-tone-amber">{data.channel.name}</b> — {data.channel.warn}
                     {data.channel.note}
+                  </td>
+                </tr>
+              )}
+              {data.autostart && (
+                <tr>
+                  <th>{T.start}</th>
+                  <td>
+                    <label>
+                      <input type="checkbox" checked={data.autostart.on} disabled={busy}
+                        onChange={(e) => void toggleAutostart(e.target.checked)} />
+                      {' '}{T.autostart}
+                    </label>
+                    <br />
+                    <span className="dp-hs-sub">{T.autostartNote}</span>
+                    {data.autostart.other && (
+                      <><br /><span className="dp-hs-sub">{data.autostart.other}</span></>
+                    )}
+                    {data.autostart.hint && (
+                      <><br /><span className="dp-tone-amber"><Icon name="excl" /> {data.autostart.hint}</span></>
+                    )}
                   </td>
                 </tr>
               )}

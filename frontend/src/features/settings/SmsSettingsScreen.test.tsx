@@ -40,7 +40,7 @@ const BASE: SmsData = {
     same_day: { standard: PV('astazi'), scurt: PV('astazi') },
   },
   forecast: { visits: 120, month: 120, daily: 4, days_left: 10 },
-  low: false,
+  low: null,
   counts: { queued: 2, today: 3, delivered: 1, failed: 0 },
   last: { at: '2026-10-16T09:00:00Z', outcome: 'sent', error_text: '' },
   can_order: true,
@@ -144,10 +144,15 @@ describe('SmsSettingsScreen', () => {
     expect(screen.queryByText('SMS de test')).toBeNull()
   })
 
-  it('остаток на дни: баннер; сервер не предлагает пакет: объяснение без счёта', async () => {
-    get.mockResolvedValueOnce(ok({ ...BASE, low: true, forecast: { ...BASE.forecast, days_left: 3 } }))
+  it('мало SMS: баннер словами сервера, без дней; сервер не предлагает пакет: объяснение без счёта', async () => {
+    const text = 'Au rămas 30 SMS în pachet; când se termină, memento-urile nu mai pleacă. '
+      + 'Comandați un pachet nou în Setări › SMS.'
+    get.mockResolvedValueOnce(ok({ ...BASE, low: { left: 30, limit: 30, trial: false,
+      title: 'Pachetul SMS se termină', text }, forecast: { ...BASE.forecast, days_left: 3 } }))
     open()
-    expect(await screen.findByText(/restul ajunge pentru circa 3 zile/)).toBeTruthy()
+    const banner = (await screen.findByText(/Au rămas 30 SMS în pachet/)).closest('.banner')
+    expect(banner?.textContent).toBe(`Pachetul SMS se termină. ${text}`)
+    expect(banner?.textContent).not.toMatch(/zile/)
     cleanup()
     get.mockResolvedValueOnce(ok({ ...BASE, offered: false, enabled: false, active: false, account: null,
       why: 'Pachetul SMS nu este disponibil încă pentru clinica dvs.' }))
