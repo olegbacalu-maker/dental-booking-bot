@@ -123,11 +123,18 @@ print(json.dumps(out))
 
 
 def _signed_setup() -> pathlib.Path | None:
+    """Подписанный НАШИМ сертификатом мастер — тот же отбор, что у
+    test_privileged (пробный мастер Т9 без подписи в dist\\ пропускается)."""
+    import sys
+    if str(BOT) not in sys.path:
+        sys.path.insert(0, str(BOT))
+    from app import authenticode, privileged
+
     root = pathlib.Path(__file__).resolve().parents[1]
     for d in (root / "dist", root.parent / "releases"):
-        found = sorted(d.glob("DentPilot-Setup-*.exe"))
-        if found:
-            return found[-1]
+        for f in sorted(d.glob("DentPilot-Setup-*.exe"), reverse=True):
+            if authenticode.signer_thumbprint(f) in privileged.SIGNERS:
+                return f
     return None
 
 

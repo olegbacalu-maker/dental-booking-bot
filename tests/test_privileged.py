@@ -481,12 +481,18 @@ def suite_install_signed(res: Result) -> None:
 
 def _signed_setup() -> pathlib.Path | None:
     """Настоящий подписанный установщик с этой машины: dist после сборки или
-    releases рядом с репозиторием. Нет — набор говорит пропуск вслух."""
+    releases рядом с репозиторием. Нет — набор говорит пропуск вслух.
+    ⚠️ Только с НАШЕЙ подписью (`SIGNERS`): с Т9 в dist\\ лежит и пробный
+    мастер без подписи (`Build-Installer.ps1 -NoSign`), и взятый первым он
+    красил двенадцать проверок «нет действительной подписи» — набор обвинял
+    программу в свойстве учебного файла (18.10, найдено Т9)."""
+    from app import authenticode
+
     root = pathlib.Path(__file__).resolve().parents[1]
     for d in (root / "dist", root.parent / "releases"):
-        found = sorted(d.glob("DentPilot-Setup-*.exe"))
-        if found:
-            return found[-1]
+        for f in sorted(d.glob("DentPilot-Setup-*.exe"), reverse=True):
+            if authenticode.signer_thumbprint(f) in privileged.SIGNERS:
+                return f
     return None
 
 
