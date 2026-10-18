@@ -194,6 +194,43 @@ def suite_argv(res: Result) -> None:
               privileged.handle_argv(["--privileged", "nope"]), 2)
 
 
+# HKCU Run автозапуска (Tauri, контракт § 2): своя запись учётки, не
+# повышенная; запись установщика по-прежнему только privileged.py. Разрешён
+# ровно этот файл и ровно эта запись — HKEY_CURRENT_USER, RUN_KEY, `DentPilot`.
+RUN_OWNER = "app/modules/settings/autostart.py"
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+_REG_OPEN = ("OpenKey", "OpenKeyEx", "CreateKey", "CreateKeyEx", "DeleteKey", "DeleteKeyEx")
+
+
+def _run_writer_bad(src: str) -> list[str]:
+    """Чем файл автозапуска вышел за свою запись. Пусто — только HKCU Run."""
+    bad = []
+    tree = ast.parse(src)
+    consts = {n.targets[0].id: n.value.value for n in tree.body
+              if isinstance(n, ast.Assign) and len(n.targets) == 1
+              and isinstance(n.targets[0], ast.Name) and isinstance(n.value, ast.Constant)}
+    if consts.get("RUN_KEY") != RUN_KEY:
+        bad.append(f"RUN_KEY = {consts.get('RUN_KEY')!r}, а не ключ Run")
+    if consts.get("VALUE") != "DentPilot":
+        bad.append(f"VALUE = {consts.get('VALUE')!r}, а не DentPilot")
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Attribute) and n.attr.startswith("HKEY_") and n.attr != "HKEY_CURRENT_USER":
+            bad.append(f"строка {n.lineno}: {n.attr}")
+        if (isinstance(n, ast.Constant) and isinstance(n.value, str)
+                and n.value.lower().startswith("software\\") and n.value != RUN_KEY):
+            bad.append(f"строка {n.lineno}: путь {n.value!r}")
+        if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)):
+            continue
+        name, args = n.func.attr, n.args
+        if name in _REG_OPEN and not (args and isinstance(args[0], ast.Attribute)
+                                      and args[0].attr == "HKEY_CURRENT_USER"):
+            bad.append(f"строка {n.lineno}: {name} не в HKEY_CURRENT_USER")
+        if name in ("SetValueEx", "DeleteValue") and not (
+                len(args) > 1 and isinstance(args[1], ast.Name) and args[1].id == "VALUE"):
+            bad.append(f"строка {n.lineno}: {name} не значения VALUE")
+    return bad
+
+
 def suite_no_direct_write(res: Result) -> None:
     """⛔ Приложение больше НЕ пишет в реестр — ни одной строкой.
 
@@ -213,6 +250,8 @@ def suite_no_direct_write(res: Result) -> None:
         seen_files += 1
         if f.name == "privileged.py":
             continue                    # владелец: ему и писать
+        if f.relative_to(root).as_posix() == RUN_OWNER:
+            continue                    # автозапуск: своя запись, проверка ниже
         src = f.read_text(encoding="utf-8", errors="replace")
         for w in writers:
             if f"winreg.{w}(" in src or f"{w}(" in src and "winreg" in src:
@@ -220,6 +259,19 @@ def suite_no_direct_write(res: Result) -> None:
     res.ok("исходники нашлись", seen_files > 20, f"разобрано файлов: {seen_files}")
     res.ok("в реестр пишет только privileged.py", not bad,
            "второй путь записи: " + ", ".join(sorted(set(bad))))
+
+    run_src = (root / RUN_OWNER).read_text(encoding="utf-8")
+    res.check("автозапуск пишет только HKCU Run, значение DentPilot", _run_writer_bad(run_src), [])
+    # пара «красное на сломанном»: сторож обязан видеть HKLM, чужой путь и чужое имя
+    for label, a, b in (
+            ("HKLM вместо HKCU", "winreg.HKEY_CURRENT_USER, key, 0,", "winreg.HKEY_LOCAL_MACHINE, key, 0,"),
+            ("другой ключ", 'CurrentVersion\\Run"', 'CurrentVersion\\RunOnce"'),
+            ("другое имя значения", "winreg.SetValueEx(k, VALUE,", 'winreg.SetValueEx(k, "X",'),
+            ("второй путь в HKCU", "    return f'\"{exe}\" {TRAY_ARG}'",
+             "    _x = r'Software\\Policies\\X'\n    return f'\"{exe}\" {TRAY_ARG}'")):
+        res.ok(f"сторож автозапуска краснеет: {label}",
+               a in run_src and bool(_run_writer_bad(run_src.replace(a, b, 1))),
+               f"образец {a!r} не найден" if a not in run_src else "молчит")
 
     upd = (root / "app" / "update.py").read_text(encoding="utf-8")
     res.ok("update.py больше не просит право записи",
