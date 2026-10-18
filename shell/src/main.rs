@@ -27,7 +27,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent, WebviewBuilder};
+use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent, Webview, WebviewBuilder};
 use tauri::window::Color;
 use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, RunEvent, Url, WebviewUrl, WindowEvent};
 
@@ -327,6 +327,154 @@ fn dev_identifier(paths: &Paths) -> Option<String> {
     })
 }
 
+/// WebView2 прошлого запуска ещё держит профиль окна — ждать не дольше.
+const WEBVIEW_WAIT: Duration = Duration::from_secs(20);
+const WEBVIEW_STEP: Duration = Duration::from_millis(500);
+
+/// Окно, полоса меню, программа, значок у часов. Возвращает окно, WebView
+/// программы и «показать развёрнутым».
+fn open_window(
+    app: &tauri::App,
+    color: Option<&str>,
+    place: Option<state::Place>,
+) -> tauri::Result<(tauri::Window, Webview, bool)> {
+    let h = app.handle();
+    let c = color.unwrap_or(TEAL);
+    let bg = tint(c, 0.06);
+    let window = tauri::window::WindowBuilder::new(app, "main")
+        .title(TITLE)
+        .inner_size(W, H)
+        .min_inner_size(960.0, 640.0)
+        .background_color(bg)
+        .visible(false)
+        .build()?;
+    let maximized = state::restore(&window, place);
+
+    let profile = shell(h).paths.profile.clone();
+    let bar_url = format!("menubar.html?c=%23{}", &c[1..]);
+    let bar = add_webview(
+        &window,
+        "bar",
+        || {
+            WebviewBuilder::new("bar", WebviewUrl::App(bar_url.clone().into()))
+                .data_directory(profile.clone())
+                .background_color(tint(c, 0.07))
+                .devtools(false)
+                .on_navigation(|u| u.as_str().starts_with(SHELL_PAGES))
+        },
+        LogicalPosition::new(0.0, 0.0),
+        LogicalSize::new(W, win::BAR),
+    )?;
+    webview::attach(&bar, webview::Who::Bar);
+
+    let page = add_webview(
+        &window,
+        "app",
+        || page_builder(h, color, bg, profile.clone()),
+        LogicalPosition::new(0.0, win::BAR),
+        LogicalSize::new(W, H - win::BAR),
+    )?;
+    webview::attach(&page, webview::Who::Page);
+    let z = *shell(h).zoom.lock().unwrap();
+    if (z - 1.0).abs() > 0.01 {
+        let _ = page.set_zoom(z);
+    }
+    win::layout(h);
+    win::tray(app)?;
+    Ok((window, page, maximized))
+}
+
+/// WebView программы: сначала заставка оболочки, потом адрес движка.
+fn page_builder(h: &AppHandle, color: Option<&str>, bg: Color, profile: std::path::PathBuf) -> WebviewBuilder<tauri::Wry> {
+    let (h1, h2, h3, h4) = (h.clone(), h.clone(), h.clone(), h.clone());
+    let script = include_str!("page.js").replace("__DP_SHELL_VERSION__", VERSION);
+    WebviewBuilder::new("app", WebviewUrl::App(splash_url(color).into()))
+        .data_directory(profile)
+        .background_color(bg)
+        .devtools(cfg!(debug_assertions))
+        .initialization_script(script)
+        .on_navigation(move |u| allow_navigation(&h1, u))
+        .on_new_window(move |u, _| {
+            // target=_blank: своё — в этом же окне, чужое — в браузер
+            if is_engine_url(&h2, u.as_str()) {
+                if let Some(p) = page(&h2) {
+                    let _ = p.navigate(u);
+                }
+            } else {
+                win::open_external(u.as_str());
+            }
+            NewWindowResponse::Deny
+        })
+        .on_download(move |_wv, ev| match ev {
+            DownloadEvent::Requested { url, destination } => {
+                let ok = win::save_as(&h3, destination);
+                log(&format!("download {url}: {}", if ok { destination.display().to_string() } else { "cancelled".into() }));
+                ok
+            }
+            DownloadEvent::Finished { url, path, success } => {
+                log(&format!("download done {url}: {success} {path:?}"));
+                true
+            }
+            _ => true,
+        })
+        .on_page_load(move |wv, p| {
+            if p.event() != PageLoadEvent::Finished {
+                return;
+            }
+            if p.url().as_str().starts_with(SHELL_PAGES) {
+                {
+                    let st = shell(&h4);
+                    let mut b = st.boot.lock().unwrap();
+                    b.splash_at.get_or_insert_with(Instant::now);
+                }
+                push_splash(&h4);
+            } else if is_engine_url(&h4, p.url().as_str()) {
+                menus::read_ctx(&h4, &wv);
+            }
+        })
+}
+
+/// Свой WebView в окне — с повтором. ⭐ «Выход → сразу запуск» (и перезапуск
+/// сторожем) застаёт WebView2 прошлого запуска на том же профиле ещё живым:
+/// создание отвечает 0x800700AA ERROR_BUSY «ресурс занят» (дамп стенда Т9,
+/// 18.10), а через секунду-другую тот уходит сам. Окно пока спрятано.
+fn add_webview(
+    window: &tauri::Window,
+    what: &str,
+    make: impl Fn() -> WebviewBuilder<tauri::Wry>,
+    pos: LogicalPosition<f64>,
+    size: LogicalSize<f64>,
+) -> tauri::Result<Webview> {
+    let t0 = Instant::now();
+    let mut tries = 1u32;
+    loop {
+        match window.add_child(make(), pos, size) {
+            Ok(w) => {
+                if tries > 1 {
+                    log(&format!("WebView2 {what}: created on try {tries}, {:.1} s", t0.elapsed().as_secs_f64()));
+                }
+                return Ok(w);
+            }
+            Err(e) => {
+                log(&format!("WebView2 {what}: not created (try {tries}): {e}"));
+                if t0.elapsed() >= WEBVIEW_WAIT {
+                    return Err(e);
+                }
+                std::thread::sleep(WEBVIEW_STEP);
+                tries += 1;
+            }
+        }
+    }
+}
+
+/// Запуск не удался до движка (его ещё нет): человеку — окно Windows с
+/// текстом, в журнал — то же, и выход. Не паника: та исчезла бы молча.
+fn cannot_start(text: &str) -> ! {
+    paths::log_always(&format!("cannot start: {}", text.replace('\n', " ")));
+    win::message(text, win::ERROR);
+    std::process::exit(1);
+}
+
 fn main() {
     // Паника = аварийная остановка (panic="abort"): строка в журнал — до всего,
     // и у сторожа тоже (paths.rs › авария).
@@ -401,86 +549,17 @@ fn main() {
             if let Err(e) = std::fs::create_dir_all(&st.paths.profile) {
                 log(&format!("WebView2 profile not created: {e}"));
             }
-            let bg = tint(color.as_deref().unwrap_or(TEAL), 0.06);
-
-            let window = tauri::window::WindowBuilder::new(app, "main")
-                .title(TITLE)
-                .inner_size(W, H)
-                .min_inner_size(960.0, 640.0)
-                .background_color(bg)
-                .visible(false)
-                .build()?;
-            let maximized = state::restore(&window, saved.window);
-
-            let bar_url = format!("menubar.html?c=%23{}", &color.as_deref().unwrap_or(TEAL)[1..]);
-            let bar = window.add_child(
-                WebviewBuilder::new("bar", WebviewUrl::App(bar_url.into()))
-                    .data_directory(st.paths.profile.clone())
-                    .background_color(tint(color.as_deref().unwrap_or(TEAL), 0.07))
-                    .devtools(false)
-                    .on_navigation(|u| u.as_str().starts_with(SHELL_PAGES)),
-                LogicalPosition::new(0.0, 0.0),
-                LogicalSize::new(W, win::BAR),
-            )?;
-            webview::attach(&bar, webview::Who::Bar);
-
-            let (h1, h2, h3, h4) = (h.clone(), h.clone(), h.clone(), h.clone());
-            let script = include_str!("page.js").replace("__DP_SHELL_VERSION__", VERSION);
-            let page = window.add_child(
-                WebviewBuilder::new("app", WebviewUrl::App(splash_url(color.as_deref()).into()))
-                    .data_directory(st.paths.profile.clone())
-                    .background_color(bg)
-                    .devtools(cfg!(debug_assertions))
-                    .initialization_script(script)
-                    .on_navigation(move |u| allow_navigation(&h1, u))
-                    .on_new_window(move |u, _| {
-                        // target=_blank: своё — в этом же окне, чужое — в браузер
-                        if is_engine_url(&h2, u.as_str()) {
-                            if let Some(p) = page(&h2) {
-                                let _ = p.navigate(u);
-                            }
-                        } else {
-                            win::open_external(u.as_str());
-                        }
-                        NewWindowResponse::Deny
-                    })
-                    .on_download(move |_wv, ev| match ev {
-                        DownloadEvent::Requested { url, destination } => {
-                            let ok = win::save_as(&h3, destination);
-                            log(&format!("download {url}: {}", if ok { destination.display().to_string() } else { "cancelled".into() }));
-                            ok
-                        }
-                        DownloadEvent::Finished { url, path, success } => {
-                            log(&format!("download done {url}: {success} {path:?}"));
-                            true
-                        }
-                        _ => true,
-                    })
-                    .on_page_load(move |wv, p| {
-                        if p.event() != PageLoadEvent::Finished {
-                            return;
-                        }
-                        if p.url().as_str().starts_with(SHELL_PAGES) {
-                            {
-                                let st = shell(&h4);
-                                let mut b = st.boot.lock().unwrap();
-                                b.splash_at.get_or_insert_with(Instant::now);
-                            }
-                            push_splash(&h4);
-                        } else if is_engine_url(&h4, p.url().as_str()) {
-                            menus::read_ctx(&h4, &wv);
-                        }
-                    }),
-                LogicalPosition::new(0.0, win::BAR),
-                LogicalSize::new(W, H - win::BAR),
-            )?;
-            webview::attach(&page, webview::Who::Page);
-            let z = *st.zoom.lock().unwrap();
-            if (z - 1.0).abs() > 0.01 {
-                let _ = page.set_zoom(z);
-            }
-            win::layout(&h);
-            win::tray(app)?;
+            // ⛔ Ни одного `?` в setup: его ошибку Tauri делает паникой («Failed
+            // to setup app», tauri app.rs), а паника при panic="abort" — молча
+            // исчезнувшая программа (дамп стенда Т9, 18.10). Только текстом.
+            let (window, page, maximized) = match open_window(app, color.as_deref(), saved.window) {
+                Ok(w) => w,
+                Err(e) => cannot_start(&format!(
+                    "DentPilot nu a putut deschide fereastra programului.\n\n\
+                     Porniți DentPilot din nou peste câteva secunde. Dacă se repetă, \
+                     reporniți calculatorul.\n\nDetalii: {e}"
+                )),
+            };
             if tray_start {
                 // к часам: развернуть — при первом показе (win::show_main)
                 st.boot.lock().unwrap().maximize = maximized;
@@ -517,8 +596,13 @@ fn main() {
             });
             Ok(())
         })
-        .build(context)
-        .expect("Tauri nu a pornit");
+        .build(context);
+    let app = match app {
+        Ok(app) => app,
+        Err(e) => cannot_start(&format!(
+            "DentPilot nu a putut porni.\n\nReporniți calculatorul și porniți DentPilot din nou.\n\nDetalii: {e}"
+        )),
+    };
 
     app.run(|handle, event| {
         if let RunEvent::Exit = event {
@@ -529,7 +613,7 @@ fn main() {
 
 /// Выход: окно и значок — сразу, движок — честно (не дольше 10 с).
 fn shutdown(app: &AppHandle) {
-    let st = shell(app);
+    let Some(st) = app.try_state::<Shell>() else { return };
     st.quitting.store(true, Ordering::SeqCst);
     if let Some(w) = app.get_window("main") {
         state::track(&w);

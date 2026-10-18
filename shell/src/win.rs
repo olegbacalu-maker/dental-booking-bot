@@ -23,7 +23,7 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    MessageBoxW, IDYES, MB_ICONINFORMATION, MB_ICONQUESTION, MB_ICONWARNING, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO,
+    MessageBoxW, IDYES, MB_ICONERROR, MB_ICONINFORMATION, MB_ICONQUESTION, MB_ICONWARNING, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO,
     SW_SHOWNORMAL,
 };
 
@@ -68,6 +68,11 @@ pub fn tray(app: &App) -> tauri::Result<()> {
 }
 
 pub fn show_main(app: &AppHandle) {
+    // второй запуск может постучаться, пока первый ещё до `manage` (setup):
+    // `shell()` тогда паниковала бы — показывать ещё нечего
+    if app.try_state::<crate::Shell>().is_none() {
+        return;
+    }
     if let Some(w) = app.get_window("main") {
         if std::mem::take(&mut shell(app).boot.lock().unwrap().maximize) {
             let _ = w.maximize();
@@ -355,3 +360,4 @@ fn message_owned(owner: HWND, text: &str, style: u32) -> i32 {
 }
 
 pub const INFO: u32 = MB_ICONINFORMATION;
+pub const ERROR: u32 = MB_ICONERROR;

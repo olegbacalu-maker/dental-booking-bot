@@ -359,7 +359,9 @@ pub fn main(args: &[OsString], context: tauri::Context<tauri::Wry>) -> i32 {
             let (p2, v2) = (plan.clone(), v1.clone());
             // ⛔ Свой профиль WebView2: профиль программы занят ею самой (она
             // ещё закрывается), второе окно на нём не открылось бы.
-            WebviewWindowBuilder::new(app, "watch", WebviewUrl::App(url.into()))
+            // ⛔ Окно не открылось — сторож работает без экрана, а не `?`: ошибку
+            // setup Tauri делает паникой, и программу больше некому запустить.
+            let window = WebviewWindowBuilder::new(app, "watch", WebviewUrl::App(url.into()))
                 .title("DentPilot")
                 .inner_size(1280.0, 860.0)
                 .min_inner_size(960.0, 640.0)
@@ -376,7 +378,10 @@ pub fn main(args: &[OsString], context: tauri::Context<tauri::Wry>) -> i32 {
                     v.loaded = true;
                     push(&win, &p2, &v);
                 })
-                .build()?;
+                .build();
+            if let Err(e) = window {
+                log(&format!("watch: no window ({e}) - watching without a screen"));
+            }
             let h = app.handle().clone();
             let (p3, v3) = (plan.clone(), v1.clone());
             std::thread::spawn(move || {
