@@ -31,6 +31,8 @@ PRIV = "bot/app/privileged.py"
 UPD = "bot/app/update.py"
 DESK = "bot/desktop.py"
 QR = "bot/app/modules/qr/routes.py"
+ENGINE_RS = "shell/src/engine.rs"
+WATCH_RS = "shell/src/watch.rs"
 
 # (что сломано, файл, что заменить, чем, какая проверка обязана покраснеть)
 BREAKS = [
@@ -152,6 +154,37 @@ BREAKS = [
      "    return os.getppid() if _shell() else os.getpid()",
      "    return os.getpid()",
      "сторож ждёт выхода ОБОЛОЧКИ"),
+
+    # ---- 18.10 (2.0.2): мастер переживает задание оболочки — стенд без UAC ----
+    # Живой проход 2.0.0 → 2.0.1 встал: процесс за UAC наследует задание
+    # оболочки, и по «started» Windows гасила его до запуска мастера.
+    ("оболочка не разрешает выход из задания", ENGINE_RS,
+     "pub const JOB_LIMITS: u32 = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK;",
+     "pub const JOB_LIMITS: u32 = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;",
+     "мастер пережил закрытие оболочки"),
+
+    ("мастер не просит выхода из задания", PRIV,
+     "                     creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP\n"
+     "                     | CREATE_BREAKAWAY_FROM_JOB,",
+     "                     creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,",
+     "мастер пережил закрытие оболочки"),
+
+    # порядок 2.0.0/2.0.1 — «started», сон, запуск — при исправных задании и флаге
+    ("«started» раньше запуска мастера и сон перед ним (2.0.1)", PRIV,
+     "    try:\n        _spawn_setup(dst, result, work / SETUP_LOG)",
+     "    done(STARTED)\n    time.sleep(3.0)\n"
+     "    try:\n        _spawn_setup(dst, result, work / SETUP_LOG)",
+     "мастер пережил закрытие оболочки"),
+
+    ("мастер не запустился — «fail» при живой программе", PRIV,
+     '        return done(f"установщик не запустился: {e}")',
+     '        return done(f"fail\\nустановщик не запустился: {e}")',
+     "отказ словами до «started»"),
+
+    ("сторож оболочки ищет мастер не под тем именем", WATCH_RS,
+     'const SETUP_NAMES: [&str; 2] = ["DentPilot-Setup.exe", "DentPilot-Setup.tmp"];',
+     'const SETUP_NAMES: [&str; 2] = ["DentPilot-Setup-new.exe", "DentPilot-Setup.tmp"];',
+     "сторож оболочки узнаёт мастер", "Перезапуск: у оболочки"),
 
     # ---- P4.3 ----
     ("привилегированный процесс НЕ выходит", PRIV,

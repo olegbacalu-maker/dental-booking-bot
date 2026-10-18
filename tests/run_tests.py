@@ -189,6 +189,7 @@ SUITES = [
     ("P4: движок Tauri за UAC — корень программы над engine\\", test_privileged.suite_engine_layout),
     ("P4: обновление у оболочки Tauri — только установщиком, уход словом quit",
      test_update_setup.suite_shell),
+    ("P4: мастер переживает задание оболочки (стенд без UAC)", test_privileged.suite_setup_outlives_shell),
     ("P4.2: рядом с exe ничего не пишется", test_privileged.suite_update_paths),
     ("P4.3: контракт исполнителя", test_privileged.suite_contract),
     ("P4: auth-reset — разрешение на новый PIN за UAC", test_privileged.suite_auth_reset),

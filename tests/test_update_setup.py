@@ -111,7 +111,8 @@ if signed is not None:
 from app import restartwatch as rw
 cases = {"ok": "ok", "ok+crlf": "ok\r\n", "fail": "fail", "cancelled": "cancelled",
          "cancelled+crlf": "cancelled\r\n", "okay": "okay", "empty": "", "missing": None,
-         # исполнитель не запустил установщик после «started»: причина второй строкой
+         # «fail» с причиной второй строкой — так исполнители 1.37.3–2.0.1 говорили
+         # «не запустился после started»; сторож обязан узнавать и это
          "fail+reason": "fail\r\nустановщик не запустился: [WinError 5]",
          "started": "started"}
 out["match"] = {case: rw.decide(text) for case, text in cases.items()}

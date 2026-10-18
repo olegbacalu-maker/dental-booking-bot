@@ -585,16 +585,23 @@ def suite_install_setup(res: Result) -> None:
     from app import authenticode
 
     real = (privileged._self_exe, privileged._current_version, privileged._spawn_setup,
-            privileged.START_DELAY, authenticode.signer_thumbprint)
+            authenticode.signer_thumbprint)
     spawned: list = []
-    privileged._spawn_setup = lambda setup, result, log: spawned.append((setup, result, log))
-    privileged.START_DELAY = 0
+    # что лежало в файле итога в миг запуска мастера: «started» ДО запуска —
+    # это 2.0.0/2.0.1, погибшие в задании оболочки (18.10)
+    result_at_spawn: list = []
+
+    def fake_spawn(setup, result, log):
+        spawned.append((setup, result, log))
+        result_at_spawn.append(result.read_text(encoding="utf-8") if result.exists() else None)
+    privileged._spawn_setup = fake_spawn
     signed = _signed_setup()
 
     def run(tmp, exe, cur=(1, 0, 0, 0)):
         privileged._self_exe = lambda: exe
         privileged._current_version = lambda e: cur
         del spawned[:]
+        del result_at_spawn[:]
         return privileged.run_op("install-setup", [], lambda: tmp / "data")
 
     try:
@@ -632,8 +639,22 @@ def suite_install_setup(res: Result) -> None:
             res.ok("запущена КОПИЯ из папки программы, итог и журнал — в папку клиники",
                    spawned == [(copy, work / privileged.RESULT_NAME, work / privileged.SETUP_LOG)]
                    and copy.exists(), repr(spawned))
-            res.check("итог «started» записан до запуска",
-                      (work / privileged.RESULT_NAME).read_text(encoding="utf-8"), privileged.STARTED)
+            res.check("итог «started» записан", (work / privileged.RESULT_NAME).read_text(encoding="utf-8"),
+                      privileged.STARTED)
+            res.check("«started» — ПОСЛЕ запуска мастера (по нему оболочка гасит задание)",
+                      result_at_spawn, [None])
+            # мастер успел написать итог раньше «started» (упал сразу) — его слово главнее
+            with tempfile.TemporaryDirectory(prefix="dp_setup_fast_") as td2:
+                tmp2 = pathlib.Path(td2)
+                exe2, work2 = _setup_lab(tmp2, signed)
+                privileged._spawn_setup = lambda setup, result, log: result.write_bytes(b"fail\r\n")
+                try:
+                    out2 = run(tmp2, exe2)
+                finally:
+                    privileged._spawn_setup = fake_spawn
+                res.ok("итог мастера, написанный раньше «started», не затирается",
+                       out2.startswith("fail")
+                       and (work2 / privileged.RESULT_NAME).read_bytes() == b"fail\r\n", repr(out2))
             res.check("программа не тронута (ставит её установщик, не операция)",
                       exe.read_bytes(), b"STARAYA PROGRAMMA")
             # канарейка 03.10: после «started» программа гасится и прибрать не может —
@@ -648,9 +669,11 @@ def suite_install_setup(res: Result) -> None:
                    and not (work / privileged.SETUP_LOG).exists(),
                    f"prev={prev.exists()} log={(work / privileged.SETUP_LOG).exists()}")
 
-        # ⚠️ Установщик не запустился уже ПОСЛЕ «started» (антивирус): программа
-        # закрылась, итог читает только сторож — первой строкой обязано быть «fail»,
-        # иначе он ждал бы потолка ~9 минут, чтобы поднять ту же программу
+        # ⚠️ Установщик не запустился (антивирус; задание, не дающее выйти, —
+        # WinError 5). С 18.10 это случается ДО «started»: программа жива, ждёт
+        # итога и сама скажет сторожу «cancelled». Поэтому отказ словами, как у
+        # проверок, а НЕ «fail» — «fail» сторож понял бы как «запускай» при
+        # живой программе.
         def refuse(setup, result, log):
             raise PermissionError(5, "Acces refuzat")
         privileged._spawn_setup = refuse
@@ -659,13 +682,14 @@ def suite_install_setup(res: Result) -> None:
                 tmp = pathlib.Path(td)
                 exe, work = _setup_lab(tmp, signed)
                 out = run(tmp, exe)
-                raw = (work / privileged.RESULT_NAME).read_bytes()
-                res.ok("установщик не запустился после «started»: итог «fail» первой строкой, причина второй",
-                       out.startswith("fail\n") and raw.startswith(b"fail\r\n") and "Acces refuzat" in out,
-                       f"{out!r} {raw[:60]!r}")
+                raw = (work / privileged.RESULT_NAME).read_text(encoding="utf-8")
+                from app import restartwatch as rw
+                res.ok("установщик не запустился: отказ словами до «started», сторож ждёт «cancelled»",
+                       out == raw and "не запустился" in out and "Acces refuzat" in out
+                       and rw.decide(raw) == "wait", f"{out!r} {raw[:60]!r}")
                 res.check("и программа цела", exe.read_bytes(), b"STARAYA PROGRAMMA")
         finally:
-            privileged._spawn_setup = lambda setup, result, log: spawned.append((setup, result, log))
+            privileged._spawn_setup = fake_spawn
 
         cases = (
             ("подпись не сходится (байт изменён)", dict(flip=True), {}, "нет действительной подписи"),
@@ -691,12 +715,12 @@ def suite_install_setup(res: Result) -> None:
                 try:
                     out = run(tmp, exe, cur)
                 finally:
-                    authenticode.signer_thumbprint = real[4]
+                    authenticode.signer_thumbprint = real[3]
                 res.ok(f"отказ: {name} — установщик НЕ запущен", want in out and not spawned,
                        f"{out!r} spawned={spawned}")
     finally:
         (privileged._self_exe, privileged._current_version, privileged._spawn_setup,
-         privileged.START_DELAY, authenticode.signer_thumbprint) = real
+         authenticode.signer_thumbprint) = real
 
     # ⛔ Сторож формы: запуск ровно один, без оболочки, и только ПОСЛЕ проверок
     src = (pathlib.Path(__file__).resolve().parents[1] / "bot" / "app" / "privileged.py").read_text(encoding="utf-8")
@@ -708,6 +732,10 @@ def suite_install_setup(res: Result) -> None:
            body.index("signer_thumbprint(dst)") < body.index("_spawn_setup(")
            and body.index("_current_version(exe)") < body.index("_spawn_setup("),
            "запуск стоит раньше проверок")
+    # 18.10: всё, что стоит после «started», может не исполниться — оболочка
+    # закрывается по нему и гасит задание вместе с этим процессом
+    res.ok("после запуска мастера не спят",
+           "sleep" not in body[body.index("_spawn_setup("):], "между запуском и итогом снова пауза")
     res.ok("операция больше ничего не запускает",
            all(t_ not in body for t_ in ("subprocess", "Popen", "os.system", "ShellExecute", "startfile")),
            "в теле операции появился свой запуск")
@@ -727,7 +755,7 @@ def suite_engine_layout(res: Result) -> None:
     from app import authenticode, sidecar
 
     real = (privileged._self_exe, privileged._current_version, privileged._spawn_setup,
-            privileged.START_DELAY, authenticode.signer_thumbprint, authenticode.file_version)
+            authenticode.signer_thumbprint, authenticode.file_version)
     spawned: list = []
     asked_version: list = []
     with tempfile.TemporaryDirectory(prefix="dp_engine_") as td:
@@ -766,7 +794,6 @@ def suite_engine_layout(res: Result) -> None:
             (work / privileged.REQUEST_NAME).write_text(json.dumps(
                 {"size": len(body), "sha256": hashlib.sha256(body).hexdigest()}), encoding="utf-8")
             privileged._spawn_setup = lambda setup, result, log: spawned.append(setup)
-            privileged.START_DELAY = 0
             # учебный файл не подписан: подпись и версию отвечают швы — здесь
             # проверяется КУДА и У КОГО, а не Authenticode (suite_install_setup)
             authenticode.signer_thumbprint = lambda p: next(iter(privileged.SIGNERS))
@@ -782,13 +809,82 @@ def suite_engine_layout(res: Result) -> None:
                    asked_version == [app_dir / "DentPilot.exe"], repr(asked_version))
         finally:
             (privileged._self_exe, privileged._current_version, privileged._spawn_setup,
-             privileged.START_DELAY, authenticode.signer_thumbprint, authenticode.file_version) = real
+             authenticode.signer_thumbprint, authenticode.file_version) = real
 
     # лаунчер отдаёт корень своим BASE: у собранного движка это папка оболочки
     desk = (pathlib.Path(__file__).resolve().parents[1] / "bot" / "desktop.py").read_text(encoding="utf-8")
     res.ok("лаунчер передаёт исполнителю свой корень (BASE)",
            "privileged.handle_argv(sys.argv[1:], data_root, BASE)" in desk,
            "за UAC корень считался бы вторым способом — копия мастера уехала бы в engine\\")
+
+
+def suite_setup_outlives_shell(res: Result) -> None:
+    """Стенд без UAC (18.10, 2.0.2): мастер обновления переживает закрытие оболочки.
+
+    Живой проход 2.0.0 → 2.0.1 встал: итог «started», журнала мастера нет,
+    мастера нет. Процесс за UAC служба создаёт «от имени» движка и он наследует
+    задание оболочки (KILL_ON_JOB_CLOSE); по «started» оболочка закрылась, и
+    Windows погасила его во сне перед запуском мастера. Здесь та же цепочка без
+    окна UAC (`jobstand`): задание с пределами из `engine.rs`, «движок» в нём,
+    процесс «за UAC» атрибутом родителя, настоящий `install-setup` с настоящим
+    запуском (`_spawn_setup`) подставного мастера — и задание закрывается в тот
+    же миг, как появился «started». ⛔ Красное, если оболочка не разрешает выход,
+    если мастер его не просит или если «started» пишется раньше запуска
+    (`scripts/check_privileged_red.py`)."""
+    import tempfile
+
+    import jobstand
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    engine_rs = root / "shell" / "src" / "engine.rs"
+    try:
+        limits = jobstand.shell_limits(engine_rs)
+    except (OSError, ValueError) as e:
+        res.ok("пределы задания оболочки читаются из engine.rs", False, str(e))
+        return
+    res.ok("пределы задания оболочки читаются из engine.rs", bool(limits & 0x2000),
+           f"{hex(limits)}: без KILL_ON_JOB_CLOSE задание ничего не гасит, и стенд ничего не докажет")
+    python = getattr(sys, "_base_executable", sys.executable)
+    with tempfile.TemporaryDirectory(prefix="dp_jobstand_") as td:
+        lab = pathlib.Path(td)
+        work, child = jobstand.make_lab(lab, python)
+        res.ok("лаборатория — по условленным именам исполнителя",
+               work.name == privileged.WORK_SUBDIR and (work / privileged.SETUP_NEW).exists()
+               and (work / privileged.REQUEST_NAME).exists(), "имена в privileged сменились")
+        result, log = work / privileged.RESULT_NAME, work / privileged.SETUP_LOG
+
+        job = jobstand.Job(limits)
+        engine = uac = None
+        launcher = 0
+        try:
+            # «движок»: в задании до первой инструкции, как у `Engine::start`
+            engine = jobstand.start([python, "-c", "import time; time.sleep(60)"], suspended=True)
+            job.add(engine)
+            engine.resume()
+            # «окно UAC»: процесс создаётся от имени движка — так делает служба
+            uac = jobstand.start([python, str(child), str(root / "bot"), str(lab)], parent=engine)
+            res.ok("процесс «за UAC» наследует задание движка (атрибут родителя, как у службы UAC)",
+                   job.holds(uac), "не наследует — стенд не повторяет живой проход")
+            said = jobstand.wait_text(result, lambda t: t.strip() != "", 30).strip()
+            job.close()                                   # «started» → оболочка вышла
+            res.ok("движок погашен вместе с заданием", engine.wait(5), "задание не гасит — стенд ничего не доказал")
+            res.check("операция за UAC: started", said, privileged.STARTED)
+            final = jobstand.wait_text(result, lambda t: t.strip() == "ok", 15).strip()
+            if log.exists():
+                head = log.read_text(encoding="utf-8", errors="replace")
+                launcher = int(head.split("pid=", 1)[1].split()[0]) if "pid=" in head else 0
+            res.ok("мастер пережил закрытие оболочки и написал «ok»", final == "ok",
+                   f"итог {final!r}, журнал мастера: {'есть' if log.exists() else 'НЕТ'} "
+                   f"(2.0.0/2.0.1: «started» без журнала — мастер не стартовал)")
+        finally:
+            job.close()
+            for p in (engine, uac):
+                if p is not None:
+                    p.kill()
+                    p.close()
+            # подставной мастер уходит сам за полторы секунды — дождаться до уборки
+            if launcher and not jobstand.wait_pid(launcher, 10):
+                jobstand.kill_pid(launcher)
 
 
 def suite_update_paths(res: Result) -> None:
@@ -919,6 +1015,14 @@ def suite_contract(res: Result) -> None:
                isinstance(first, ast.Call) and isinstance(first.func, ast.Name) and first.func.id == "str"
                and first.args and isinstance(first.args[0], ast.Name) and first.args[0].id == "setup",
                "запускается не копия из папки программы или строкой")
+        # 18.10: процесс за UAC живёт в задании оболочки — мастер обязан из него выйти
+        kw = next((k.value for k in (popen.keywords if popen is not None else ())
+                   if k.arg == "creationflags"), None)
+        res.ok("мастер просит выход из задания оболочки (CREATE_BREAKAWAY_FROM_JOB)",
+               kw is not None and "CREATE_BREAKAWAY_FROM_JOB" in {n.id for n in ast.walk(kw)
+                                                                 if isinstance(n, ast.Name)}
+               and privileged.CREATE_BREAKAWAY_FROM_JOB == 0x01000000,
+               "без просьбы мастер остаётся в задании и гибнет с оболочкой")
 
     # ---- 2. произвольный ПУТЬ ----
     # Ни одна операция не берёт путь снаружи: `run_op` получает только имя и

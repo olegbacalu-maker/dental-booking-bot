@@ -266,8 +266,12 @@ SETUP_DIR = "updates"                     # в папке программы: п
 SETUP_NAME = "DentPilot-Setup.exe"
 SETUP_LOG = "setup.log"
 SETUP_LOG_PREV = "setup.prev.log"         # журнал прошлой попытки: /LOG= перезаписывает
-STARTED = "started"                       # итог «начал»: программа гасит себя сама
-START_DELAY = 3.0                         # секунд дать программе уйти до установщика
+STARTED = "started"                       # итог «мастер УЖЕ запущен»: программа гасит себя сама
+# Как запускается мастер: отдельно, без консоли — и ВНЕ «задания» оболочки
+# (`_spawn_setup`). Числа из WinBase.h: в `subprocess` их нет.
+DETACHED_PROCESS = 0x00000008
+CREATE_NEW_PROCESS_GROUP = 0x00000200
+CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 # Чьей подписи верить. ⛔ Закрытый список ОТПЕЧАТКОВ: действительную подпись
 # Authenticode купит кто угодно, и «подписан» значило бы «подписан кем-то».
 # Сертификат Certum на Oleg Bacalu действует до 29.09.2027 (code-signing-wired).
@@ -291,11 +295,21 @@ def _current_version(exe) -> tuple | None:
 def _spawn_setup(setup, result, log) -> None:
     """Запустить установщик ОТДЕЛЬНО и не ждать. Шов для проверок: настоящий
     установщик в прогоне не запустить. ⛔ Без оболочки: список аргументов, и
-    первый — наша проверенная копия. Итог пишет сам установщик в `result`."""
+    первый — наша проверенная копия. Итог пишет сам установщик в `result`.
+
+    ⛔ `CREATE_BREAKAWAY_FROM_JOB` (18.10, живой проход 2.0.0 → 2.0.1 встал):
+    этот процесс служба UAC создаёт «от имени» движка, и он наследует его
+    «задание» — у оболочки Tauri это KILL_ON_JOB_CLOSE. Всё, что запущено
+    отсюда без просьбы о выходе, остаётся внутри и гибнет, когда оболочка
+    закрывается по «started». Оболочка выход разрешает (`engine.rs::JOB_LIMITS`,
+    BREAKAWAY_OK); задание, которое не разрешает, отвечает отказом (`OSError`),
+    и это правильно — мастер внутри него погиб бы на середине. Вне задания
+    (окно pywebview) флаг ничего не меняет."""
     import subprocess
-    detached = 0x00000008 | 0x00000200        # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
     subprocess.Popen([str(setup), *SETUP_FLAGS, f"/LOG={log}", f"/RESULT={result}"],
-                     creationflags=detached, close_fds=True)
+                     creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+                     | CREATE_BREAKAWAY_FROM_JOB,
+                     close_fds=True)
 
 
 def _install_setup(args: list[str], data_root=None, base=None) -> str:
@@ -303,10 +317,15 @@ def _install_setup(args: list[str], data_root=None, base=None) -> str:
 
     Источник — условленное имя в папке клиники, назначение копии — папка
     программы (`SETUP_DIR` в её корне); оба исполнитель вычисляет сам.
-    Порядок: копия (исходник убран) → проверки копии → итог «started» → пауза,
-    чтобы программа успела закрыться сама → установщик отдельно. Дальше итог («ok»/«fail») пишет
+    Порядок: копия (исходник убран) → проверки копии → установщик отдельно,
+    вне задания оболочки → итог «started». Дальше итог («ok»/«fail») пишет
     установщик, а перезапуск делает задача планировщика от обычного пользователя,
     заведённая программой ДО запроса прав.
+    ⛔ «started» — ПОСЛЕДНЕЕ действие (18.10): по нему оболочка закрывается, а
+    этот процесс живёт в её задании, и всё, что стоит после записи, может не
+    исполниться никогда. 2.0.0/2.0.1 писали «started» и спали 3 с до запуска —
+    и гибли во сне. Ждать выхода программы — дело мастера: тихое обновление
+    ждёт оба exe по пути до 30 с (Т9, `WaitAppExit` в DentPilot.iss).
     ⚠️ У движка Tauri (Т10) корень — папка оболочки, а не `engine\\`
     (`_layout`): копия мастера в `engine\\updates` лежала бы в папке, которую
     сам мастер переписывает, и стоящую версию надо спрашивать у `DentPilot.exe`
@@ -384,19 +403,27 @@ def _install_setup(args: list[str], data_root=None, base=None) -> str:
     try:
         if (work / SETUP_LOG).exists():
             (work / SETUP_LOG).replace(work / SETUP_LOG_PREV)
+        result.unlink(missing_ok=True)
     except OSError:
         pass
-    done(STARTED)
-    time.sleep(START_DELAY)
     try:
         _spawn_setup(dst, result, work / SETUP_LOG)
     except OSError as e:
-        # ⚠️ «fail» ПЕРВОЙ строкой: по «started» программа уже закрылась, итог
-        # читает только задача-сторож, и любой другой текст она не узнаёт —
-        # ждала бы потолка, ~9 минут, чтобы поднять ту же нетронутую программу
-        # (антивирус, не давший запустить установщик). Причина — второй строкой;
-        # перевод строки «\n», файл текстовый — на диске он станет CRLF.
-        return done(f"fail\nустановщик не запустился: {e}")
+        # Программа ещё жива — она ждёт «started» — и уберёт за собой сама
+        # («cancelled» сторожу). Поэтому отказ словами, как у проверок выше, а
+        # НЕ «fail»: «fail» сторож понял бы как «запускай» при живой программе.
+        return done(f"установщик не запустился: {e}")
+    try:
+        # «x»: мастер мог успеть написать свой итог раньше — его слово главнее
+        with open(result, "x", encoding="utf-8") as f:
+            f.write(STARTED)
+    except FileExistsError:
+        try:
+            return result.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            pass
+    except OSError:
+        pass
     return STARTED
 
 
