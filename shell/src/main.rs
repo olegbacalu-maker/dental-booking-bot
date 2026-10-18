@@ -328,6 +328,9 @@ fn dev_identifier(paths: &Paths) -> Option<String> {
 }
 
 fn main() {
+    // Паника = аварийная остановка (panic="abort"): строка в журнал — до всего,
+    // и у сторожа тоже (paths.rs › авария).
+    paths::panic_hook();
     // ⭐ Один `generate_context!` на exe: страницы оболочки вшиваются им, и второй
     // вызов (у сторожа) вшил бы их второй раз.
     let mut context = tauri::generate_context!();
@@ -341,6 +344,7 @@ fn main() {
     notices::set_process_aumid();
     let tray_start = std::env::args().any(|a| a == "--tray");
     let paths = Paths::find();
+    paths::panic_fallback(paths.log_file());
     let store = Store::load(&paths.state);
     let saved = store.get();
     let token = engine::new_token();

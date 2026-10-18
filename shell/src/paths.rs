@@ -68,6 +68,8 @@ impl Paths {
 // `shell.log.1`; больше двух файлов не держим.
 
 static LOG: OnceLock<Mutex<Option<File>>> = OnceLock::new();
+/// Куда дописать аварию, пока журнал не открыт (паника до `setup`).
+static PANIC_TO: OnceLock<PathBuf> = OnceLock::new();
 
 pub fn open_log(path: &Path) {
     if let Some(dir) = path.parent() {
@@ -89,6 +91,100 @@ pub fn log(msg: &str) {
     }
 }
 
+// ---- авария -----------------------------------------------------------------
+// panic="abort": после хука процесс уходит сразу (c0000409, данные 7), движок
+// гасит задание, а окна с текстом нет — без этой строки от паники не осталось
+// бы ничего, кроме записи Windows со смещением в exe без символов.
+// ⛔ Сам хук не паникует и не ждёт: ни unwrap, ни `thread::current()` (она
+// паникует после разрушения TLS потока), замок журнала — только `try_lock`;
+// не вышло записать — молча дальше.
+
+/// `PANIC <сообщение> at <файл:строка> thread=<имя> tid=<n>` — в журнал
+/// оболочки (у сторожа — его `watch.log`). Ставится первым делом в `main()`.
+pub fn panic_hook() {
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let msg = info.payload_as_str().unwrap_or("(no message)");
+        let at = match info.location() {
+            Some(l) => format!("{}:{}", l.file(), l.line()),
+            None => "?".into(),
+        };
+        log_always(&panic_line(msg, &at, &thread_name()));
+        prev(info); // в сборке разработки — ещё и в консоль
+    }));
+}
+
+/// Журнал ещё не открыт — авария дописывается в этот файл.
+pub fn panic_fallback(path: PathBuf) {
+    let _ = PANIC_TO.set(path);
+}
+
+fn panic_line(msg: &str, at: &str, thread: &str) -> String {
+    // одна строка журнала: переводы строк сообщения (Debug ошибки) — в « | »
+    let flat: String = msg
+        .split(['\r', '\n'])
+        .filter(|s| !s.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join(" | ")
+        .chars()
+        .take(2000)
+        .collect();
+    format!("PANIC {flat} at {at} thread={thread}")
+}
+
+/// Имя потока — у Windows (`GetThreadDescription`: std называет им свои
+/// потоки), не у `thread::current()`.
+fn thread_name() -> String {
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::System::Threading::{GetCurrentThread, GetCurrentThreadId, GetThreadDescription};
+    let mut name = String::new();
+    unsafe {
+        let mut p: *mut u16 = std::ptr::null_mut();
+        if GetThreadDescription(GetCurrentThread(), &mut p) >= 0 && !p.is_null() {
+            let mut n = 0;
+            while n < 256 && *p.add(n) != 0 {
+                n += 1;
+            }
+            name = String::from_utf16_lossy(std::slice::from_raw_parts(p, n));
+            LocalFree(p as _);
+        }
+    }
+    let name = if name.is_empty() { "<unnamed>" } else { name.as_str() };
+    format!("{name} tid={}", unsafe { GetCurrentThreadId() })
+}
+
+/// В журнал, даже когда он ещё не открыт (тогда — дописью в `panic_fallback`);
+/// замок — только `try_lock`: так пишут хук паники и «запуск не удался».
+pub fn log_always(line: &str) {
+    let text = format!("{} {}\n", now(), line);
+    if let Some(slot) = LOG.get() {
+        // замок может держать другой поток посреди записи — подождать чуть-чуть
+        for _ in 0..50 {
+            let guard = match slot.try_lock() {
+                Ok(g) => Some(g),
+                Err(std::sync::TryLockError::Poisoned(p)) => Some(p.into_inner()),
+                Err(std::sync::TryLockError::WouldBlock) => None,
+            };
+            match guard {
+                Some(mut g) => {
+                    if let Some(f) = g.as_mut() {
+                        let _ = f.write_all(text.as_bytes());
+                        let _ = f.flush();
+                        return;
+                    }
+                    break; // журнал не открылся — дописью ниже
+                }
+                None => std::thread::sleep(std::time::Duration::from_millis(2)),
+            }
+        }
+    }
+    if let Some(path) = PANIC_TO.get() {
+        if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(path) {
+            let _ = f.write_all(text.as_bytes());
+        }
+    }
+}
+
 fn now() -> String {
     use windows_sys::Win32::System::SystemInformation::GetLocalTime;
     let t = unsafe {
@@ -100,4 +196,37 @@ fn now() -> String {
         "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
         t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond, t.wMilliseconds
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn panic_line_is_one_line() {
+        let l = panic_line("called `Result::unwrap()` on an `Err` value: x\r\n  y\n", r"src\main.rs:42", "main tid=7");
+        assert_eq!(l, r"PANIC called `Result::unwrap()` on an `Err` value: x |   y at src\main.rs:42 thread=main tid=7");
+        assert_eq!(panic_line(&"z".repeat(5000), "?", "t").len(), "PANIC  at ? thread=t".len() + 2000);
+    }
+
+    #[test]
+    fn panic_goes_to_the_log() {
+        // журнал процесса прогона — свой файл; хук ставится как в main()
+        let dir = std::env::temp_dir().join(format!("dp-shell-panic-{}", std::process::id()));
+        let file = dir.join("shell.log");
+        open_log(&file);
+        panic_hook();
+        let r = std::thread::Builder::new()
+            .name("dp-panic-probe".into())
+            .spawn(|| panic!("probe {}\nsecond", 1 + 1))
+            .unwrap()
+            .join();
+        assert!(r.is_err());
+        let _ = std::panic::take_hook();
+        let text = std::fs::read_to_string(&file).unwrap();
+        let _ = fs::remove_dir_all(&dir);
+        let line = text.lines().find(|l| l.contains(" PANIC ")).unwrap_or_else(|| panic!("{text:?}"));
+        assert!(line.contains(" PANIC probe 2 | second at src") && line.contains("paths.rs:"), "{line}");
+        assert!(line.contains(" thread=dp-panic-probe tid="), "{line}");
+    }
 }
