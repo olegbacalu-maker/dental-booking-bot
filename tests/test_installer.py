@@ -215,12 +215,23 @@ def suite_pascal_comments(res: Result) -> None:
            + " | ".join(dots))
 
 
+def section(s: str, name: str) -> str:
+    """Секция `.iss` от СТРОКИ-заголовка `[name]` до следующего заголовка.
+    ⚠️ Не `s.index("[Run]")`: имя секции стоит и в комментариях (7ec26d7
+    упомянул «[Run]» выше `[Icons]`, и срез ярлыков стал пустым)."""
+    m = re.search(rf"^\[{re.escape(name)}\][ \t]*$", s, flags=re.M)
+    if not m:
+        return ""
+    nxt = re.search(r"^\[[A-Za-z]+\][ \t]*$", s[m.end():], flags=re.M)
+    return s[m.start():m.end() + nxt.start()] if nxt else s[m.start():]
+
+
 def tauri_layout_problems(s: str, aumid: str) -> list[str]:
     """Нарушения раскладки Tauri в тексте `.iss` (Т9, контракт § 1) словами.
 
     Текст, а не файл: та же функция проверяется на испорченных копиях."""
     bad = []
-    files = s[s.index("[Files]"):s.index("[Icons]")] if "[Files]" in s and "[Icons]" in s else ""
+    files = section(s, "Files")
     if 'Source: "..\\dist\\DentPilot\\{#AppExeName}"; DestDir: "{app}"' not in files:
         bad.append("оболочка DentPilot.exe не кладётся в корень программы из dist\\DentPilot")
     eng = next((ln for ln in files.splitlines()
@@ -231,19 +242,18 @@ def tauri_layout_problems(s: str, aumid: str) -> list[str]:
     if not re.search(r'#define EngineDir\s+"engine"', s) or \
             not re.search(r'#define EngineExe\s+"DentPilot-Engine.exe"', s):
         bad.append("имя папки или exe движка не то, что ищет оболочка (engine\\DentPilot-Engine.exe)")
-    icons = [ln for ln in s[s.index("[Icons]"):s.index("[Run]")].splitlines()
-             if ln.lstrip().startswith("Name:")] if "[Icons]" in s and "[Run]" in s else []
-    block = s[s.index("[Icons]"):s.index("[Run]")] if icons else ""
+    block = section(s, "Icons")
+    icons = [ln for ln in block.splitlines() if ln.lstrip().startswith("Name:")]
     if not icons or block.count('AppUserModelID: "{#AppUserModelID}"') != len(icons):
         bad.append("не у каждого ярлыка паспорт AppUserModelID — Windows не покажет уведомления")
     m = re.search(r'#define AppUserModelID\s+"([^"]+)"', s)
     if not m or m.group(1) != aumid:
         bad.append(f"паспорт ярлыка {m.group(1) if m else None!r} не равен identifier оболочки "
                    f"{aumid!r} (shell/tauri.conf.json) — уведомления не свяжутся с ярлыком")
-    inst = s[s.index("[InstallDelete]"):s.index("[Files]")] if "[InstallDelete]" in s else ""
+    inst = section(s, "InstallDelete")
     if 'Type: filesandordirs; Name: "{app}\\{#EngineDir}"' not in inst:
         bad.append("старый движок не убирается перед установкой — лишние файлы прошлой версии останутся в _internal\\")
-    uninst = s[s.index("[UninstallDelete]"):] if "[UninstallDelete]" in s else ""
+    uninst = section(s, "UninstallDelete")
     if 'Type: filesandordirs; Name: "{app}\\{#EngineDir}"' not in uninst:
         bad.append("удаление программы не убирает папку движка")
     count = s[s.find("function AppProcessCount"):]
