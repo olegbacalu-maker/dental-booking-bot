@@ -440,6 +440,16 @@ def suite_watch_shell(res: Result) -> None:
                        ("потолок ожидания итога", f"Duration::from_secs({rw.WAIT_S // 60} * 60)"),
                        ("потолок ожидания выхода", f"Duration::from_secs({int(rw.EXIT_WAIT_S)})")):
         res.ok(f"сторожа согласны: {what}", line in rs, f"в watch.rs нет `{line}`")
+    # 18.10 (2.0.2): «started» без живого мастера — сторож оболочки не ждёт 9 минут.
+    # Мастер он узнаёт по имени копии, которую запускает операция за UAC: другое
+    # имя — и сторож поднимал бы прежнюю программу посреди идущей установки.
+    from app import privileged
+    stem = privileged.SETUP_NAME.rsplit(".", 1)[0]
+    for what, line in (("имя мастера — копия за UAC и распаковка Inno",
+                        f'const SETUP_NAMES: [&str; 2] = ["{privileged.SETUP_NAME}", "{stem}.tmp"];'),
+                       ("слово «started»", f'const STARTED: &str = "{privileged.STARTED}";'),
+                       ("журнал мастера", f'const SETUP_LOG: &str = "{privileged.SETUP_LOG}";')):
+        res.ok(f"сторож оболочки узнаёт мастер: {what}", line in rs, f"в watch.rs нет `{line}`")
     main_rs = src.with_name("main.rs").read_text(encoding="utf-8") if src.exists() else ""
     res.ok("оболочка уходит в сторожа раньше замка «один экземпляр»",
            0 < main_rs.find("watch::is_watch(&args)") < main_rs.find("tauri_plugin_single_instance::init"),

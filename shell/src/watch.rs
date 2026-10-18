@@ -49,6 +49,16 @@ const WAIT: Duration = Duration::from_secs(9 * 60);
 const EXIT_WAIT: Duration = Duration::from_secs(60);
 const STEP: Duration = Duration::from_millis(500);
 const NO_RESULT: &str = "-";
+const STARTED: &str = "started";
+
+/// Мастер — процессы с этими именами: копия `privileged.SETUP_NAME`, которую
+/// запускает операция за UAC, и её распаковка Inno
+/// (`%TEMP%\is-XXXXX.tmp\DentPilot-Setup.tmp`). Сверяет `test_restart`.
+const SETUP_NAMES: [&str; 2] = ["DentPilot-Setup.exe", "DentPilot-Setup.tmp"];
+/// Журнал мастера (`privileged.SETUP_LOG`) — рядом с файлом итога; только для строки журнала.
+const SETUP_LOG: &str = "setup.log";
+/// «started» стоит, а мастера нет столько подряд — итог писать некому.
+const SETUP_GONE: Duration = Duration::from_secs(20);
 
 // Тексты заставки — те же константы, что `restartwatch.TEXT_*`.
 const TEXT_INSTALL: &str = "Se instalează actualizarea…";
@@ -208,17 +218,74 @@ fn same_exe_alive(exe: &Path) -> Option<u32> {
     }
 }
 
+/// Мастер после «started» (18.10, 2.0.2). Операция за UAC пишет «started»
+/// ПОСЛЕДНИМ, когда мастер уже запущен, а он жив непрерывно до своего итога
+/// (загрузчик ждёт распаковку). Нет его `SETUP_GONE` подряд — итога не будет:
+/// он не пошёл или погиб (живой проход 2.0.0 → 2.0.1: задание оболочки
+/// погасило операцию до запуска мастера, и заставка висела бы 9 минут).
+/// ⭐ До «started» не считается ничего: человек думает над окном UAC сколько хочет.
+#[derive(Default)]
+struct SetupWatch {
+    since: Option<Instant>,
+}
+
+impl SetupWatch {
+    /// `true` — мастера нет и не будет. `running` спрашивается только при «started».
+    fn gone(&mut self, text: Option<&str>, running: impl FnOnce() -> bool, now: Instant) -> bool {
+        if text.map(str::trim) != Some(STARTED) || running() {
+            self.since = None;
+            return false;
+        }
+        now.duration_since(*self.since.get_or_insert(now)) >= SETUP_GONE
+    }
+}
+
+/// Жив ли в системе (в любом сеансе) процесс с одним из имён. Снимок не
+/// снялся — «жив»: не знаем, значит ждём, как раньше.
+fn any_process_named(names: &[&str]) -> bool {
+    unsafe {
+        let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snap == INVALID_HANDLE_VALUE {
+            return true;
+        }
+        let mut pe: PROCESSENTRY32W = std::mem::zeroed();
+        pe.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let mut found = false;
+        let mut more = Process32FirstW(snap, &mut pe) != 0;
+        while more && !found {
+            let len = pe.szExeFile.iter().position(|&c| c == 0).unwrap_or(pe.szExeFile.len());
+            let name = String::from_utf16_lossy(&pe.szExeFile[..len]);
+            found = names.iter().any(|n| name.eq_ignore_ascii_case(n));
+            more = Process32NextW(snap, &mut pe) != 0;
+        }
+        CloseHandle(snap);
+        found
+    }
+}
+
 /// Дождаться итога и выхода старой оболочки (`restartwatch.wait_for`).
 /// ⚠️ Итога нет за 9 минут — всё равно «запускать»: лучше программа, чем
-/// пустой экран (так вёл себя и bat).
+/// пустой экран (так вёл себя и bat). Мастер пропал при «started» — то же,
+/// но сразу и со словами «не установилось» (`SetupWatch`).
 fn wait(plan: &Plan, say: &dyn Fn(&str, f64, f64)) -> (Verdict, Option<String>) {
     say(if plan.result.is_some() { TEXT_INSTALL } else { TEXT_RESTART }, 12.0, 70.0);
     let t0 = Instant::now();
     let mut text = read_result(plan);
     let mut verdict = decide(text.as_deref());
+    let mut setup = SetupWatch::default();
     while verdict == Verdict::Wait {
         if t0.elapsed() >= WAIT {
             log("watch: no installer result in time - starting the program anyway");
+            verdict = Verdict::Start;
+            break;
+        }
+        if setup.gone(text.as_deref(), || any_process_named(&SETUP_NAMES), Instant::now()) {
+            let journal = plan.result.as_deref().and_then(Path::parent).map(|d| d.join(SETUP_LOG).exists());
+            log(&format!(
+                "watch: \"started\", but no installer process for {} s (setup.log: {journal:?}) - starting the current program",
+                SETUP_GONE.as_secs()
+            ));
+            text = Some("fail\ninstaller not running".into()); // → TEXT_ROLLBACK
             verdict = Verdict::Start;
             break;
         }
@@ -475,6 +542,41 @@ mod tests {
         }
         assert_eq!(outcome_text(Some("fail motiv")), TEXT_ROLLBACK);
         assert_eq!(outcome_text(Some("ok")), TEXT_NEW);
+    }
+
+    #[test]
+    fn gives_up_only_when_installer_is_gone_after_started() {
+        let t = Instant::now();
+        let at = |s: u64| t + Duration::from_secs(s);
+        let mut w = SetupWatch::default();
+        // ждём ответа в окне UAC — сколько угодно, процессы не спрашиваются
+        assert!(!w.gone(None, || panic!("спросили до «started»"), at(0)));
+        assert!(!w.gone(Some(""), || panic!("спросили до «started»"), at(300)));
+        // мастер идёт — ждём итога
+        assert!(!w.gone(Some("started"), || true, at(301)));
+        assert!(!w.gone(Some("started"), || true, at(500)));
+        // мастера нет: отсчёт с первого «нет», и только подряд
+        assert!(!w.gone(Some("started\r\n"), || false, at(501)));
+        assert!(!w.gone(Some("started"), || false, at(520)));
+        assert!(w.gone(Some("started"), || false, at(521)));
+        let mut w = SetupWatch::default();
+        assert!(!w.gone(Some("started"), || false, at(0)));
+        assert!(!w.gone(Some("started"), || true, at(19)));
+        assert!(!w.gone(Some("started"), || false, at(30)));
+        assert!(!w.gone(Some("started"), || false, at(49)));
+        assert!(w.gone(Some("started"), || false, at(50)));
+        // итог пришёл — решает он, а не процессы
+        let mut w = SetupWatch::default();
+        assert!(!w.gone(Some("started"), || false, at(0)));
+        assert!(!w.gone(Some("ok"), || false, at(60)));
+    }
+
+    #[test]
+    fn finds_processes_by_name() {
+        let me = std::env::current_exe().unwrap();
+        let name = me.file_name().unwrap().to_string_lossy().to_uppercase();
+        assert!(any_process_named(&[&name]), "свой процесс не нашёлся: {name}");
+        assert!(!any_process_named(&["net-takogo-dentpilot-processa.exe"]));
     }
 
     #[test]
