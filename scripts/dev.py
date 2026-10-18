@@ -212,8 +212,11 @@ def cmd_up(argv: list) -> int:
 # bot/app/static/js/bundle.js (сам бандл в git не лежит), так что правка
 # экрана React — такое же содержание выпуска, как правка bot/. Таблицы своих
 # моделей зубов (frontend/models/teeth.js, 07.10) сборка копирует рядом с бандлом
-# — новое запекание моделей тоже повод для выпуска.
-SHIPPED = ("bot/", "frontend/src/", "frontend/models/", "frontend/package.json", "frontend/vite.config.ts")
+# — новое запекание моделей тоже повод для выпуска. С 2.0.0 (Tauri, 18.10)
+# клинике едут и оболочка `DentPilot.exe` (shell/, cargo), и мастер установки
+# (installer/: DentPilot.iss, установщик WebView2).
+SHIPPED = ("bot/", "frontend/src/", "frontend/models/", "frontend/package.json", "frontend/vite.config.ts",
+           "shell/", "installer/")
 
 # …кроме тестов клиента: они лежат В frontend/src (*.test.ts(x) рядом с
 # экраном, помощники — в src/test/), но в бандл не едет ни один — вход сборки
@@ -224,15 +227,24 @@ SHIPPED = ("bot/", "frontend/src/", "frontend/models/", "frontend/package.json",
 # папка», и тест прямо в src/ (main.test.tsx) ушёл бы в счёт — молча: сегодня
 # такого файла нет, и без магии счёт совпадает.
 CLIENT_TESTS = ("frontend/src/**/*.test.*", "frontend/src/test/**")
+# …и кроме стендов оболочки: shell/dev/ — подставной движок, запуск из
+# исходников, стенд сторожа; cargo их не собирает, в выпуск они не едут.
+SHELL_STANDS = ("shell/dev/**",)
+
+
+def shipped_areas() -> str:
+    """Папки содержания выпуска — для строки проверки, из SHIPPED (не описанием)."""
+    return ", ".join(dict.fromkeys(p.split("/")[0] + "/" for p in SHIPPED))
 
 
 def shipped_since(base: str, head: str = "HEAD") -> tuple[list[str], int]:
     """Строки `numstat` того, что едет в exe, между base и head — и сколько
-    файлов тестов клиента изменилось там же мимо счёта."""
+    файлов тестов клиента и стендов оболочки изменилось там же мимо счёта."""
+    skip = (*CLIENT_TESTS, *SHELL_STANDS)
     stat = git("diff", "--numstat", f"{base}..{head}", "--", *SHIPPED,
-               *(f":(exclude,glob){p}" for p in CLIENT_TESTS))
+               *(f":(exclude,glob){p}" for p in skip))
     tests = git("diff", "--name-only", f"{base}..{head}", "--",
-                *(f":(glob){p}" for p in CLIENT_TESTS))
+                *(f":(glob){p}" for p in skip))
     return [l for l in stat.splitlines() if l.strip()], len(tests.splitlines())
 
 
@@ -318,6 +330,8 @@ def cmd_check(argv: list) -> int:
     # которого нет. Вычтенные тесты печатаются числом: голое «изменений нет»
     # сразу после правки тестов читалось бы как слепота проверки, а не как
     # её решение.
+    # ⛔ 18.10 — третий раз: с Tauri клинике едут shell/ и installer/, а
+    # проверка их не видела и на правку одной оболочки сказала бы «нечего».
     # ⚠️ Информационно, не [!!]: сразу после релиза «пусто» — норма, и красная
     # строка тут горела бы постоянно (та же ловушка, что с тегом выше).
     # ⚠️ Только теги версий: 12.10 появился архивный тег `archive/pg-edition`, и
@@ -333,10 +347,12 @@ def cmd_check(argv: list) -> int:
             l.split("\t")[2].replace("\\", "/") in bump_files and l.split("\t")[:2] == ["1", "1"]
             for l in stat)
         empty = not stat or only_bump
-        skipped = f" (тесты клиента не в счёт: {tests})" if tests else ""
-        say(True, (f"в bot/ и frontend/src с {base} изменений нет" if not stat else
+        skipped = f" (тесты клиента и стенды оболочки не в счёт: {tests})" if tests else ""
+        areas = shipped_areas()
+        say(True, (f"в содержании выпуска ({areas}) с {base} изменений нет" if not stat else
                    f"с {base} только подъём версии" if only_bump else
-                   f"в bot/ и frontend/src с {base} изменено файлов: {len(stat)}") + skipped)
+                   f"в содержании выпуска ({areas}) с {base} изменено файлов: {len(stat)}")
+            + skipped)
 
     print()
     if not ok:

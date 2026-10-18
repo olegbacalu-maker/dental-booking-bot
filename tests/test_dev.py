@@ -56,7 +56,10 @@ def suite_release_content(res: Result) -> None:
                 "frontend/src/features/Day.tsx": "1\n",
                 "frontend/src/features/Day.test.tsx": "1\n",
                 "frontend/src/test/setup.ts": "1\n",
-                "frontend/src/utils/latest.ts": "1\n"})
+                "frontend/src/utils/latest.ts": "1\n",
+                "shell/src/main.rs": "1\n",
+                "shell/dev/run.ps1": "1\n",
+                "installer/DentPilot.iss": "1\n"})
         git("tag", "v1.0.0")
         # тест рядом с экраном, помощник и тест прямо в src: `**/` — это и
         # ноль папок
@@ -66,6 +69,9 @@ def suite_release_content(res: Result) -> None:
         # правка экрана — и файл с «test» в имени, который не тест
         client = commit({"frontend/src/features/Day.tsx": "2\n",
                          "frontend/src/utils/latest.ts": "2\n"})
+        # ⛔ 18.10: с Tauri клинике едут оболочка и мастер — а стенды оболочки нет
+        stands = commit({"shell/dev/run.ps1": "2\n"})
+        native = commit({"shell/src/main.rs": "2\n", "installer/DentPilot.iss": "2\n"})
 
         real = dev.ROOT
         dev.ROOT = repo
@@ -88,8 +94,29 @@ def suite_release_content(res: Result) -> None:
                       [l.split("\t")[2] for l in stat],
                       ["frontend/src/features/Day.tsx", "frontend/src/utils/latest.ts"])
             res.check("в правке экрана тестов нет", tests, 0)
+
+            stat, tests = dev.shipped_since(client, stands)
+            res.check("правка стенда оболочки (shell/dev) — не содержание выпуска", stat, [])
+            res.check("вычтенный стенд назван числом", tests, 1)
+            keep = dev.SHELL_STANDS
+            dev.SHELL_STANDS = ()
+            try:
+                bare = dev.shipped_since(client, stands)[0]
+            finally:
+                dev.SHELL_STANDS = keep
+            res.check("без вычета стенд посчитался бы", len(bare), 1)
+            stat, _ = dev.shipped_since(stands, native)
+            res.check("правка оболочки и мастера установки — содержание выпуска",
+                      [l.split("\t")[2] for l in stat],
+                      ["installer/DentPilot.iss", "shell/src/main.rs"])
         finally:
             dev.ROOT = real
+        # список ВКЛЮЧАЕТ требование — гниёт молча: переедет папка, и счёт
+        # станет нулём навсегда (CLAUDE.md, тесты)
+        missing = [p for p in dev.SHIPPED if not (ROOT / p).exists()]
+        res.check("пути содержания выпуска есть в дереве", missing, [])
+        res.check("строка проверки называет папки из SHIPPED", dev.shipped_areas(),
+                  "bot/, frontend/, shell/, installer/")
 
 
 def suite_child_temp(res: Result) -> None:

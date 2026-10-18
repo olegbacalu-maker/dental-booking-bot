@@ -126,7 +126,8 @@ SUITES = [
     ("Выпуск: версия одна у движка, клиента и exe", test_guards.suite_version_source),
     ("Выпуск: подпись — оба exe до дымового теста, мастер и деинсталлятор", test_guards.suite_signing),
     ("Выпуск: release.py не льёт мастер, который отвергнет клиника", test_guards.suite_release_setup),
-    ("Выпуск: тесты клиента — не повод для релиза (dev check)", test_dev.suite_release_content),
+    ("Выпуск: содержание выпуска — оболочка и мастер да, тесты клиента и стенды нет (dev check)",
+     test_dev.suite_release_content),
     ("Рутина: временное запусков dev — на диске проекта", test_dev.suite_child_temp),
     ("Рутина: песочница dev up — на диске проекта, не в AppData", test_dev.suite_sandbox_dir),
     # Сервера нет, доли секунды: правило SMS по вектору, общему с прогоном
