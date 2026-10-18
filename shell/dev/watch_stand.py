@@ -344,6 +344,11 @@ def scenario_engine(root: pathlib.Path, shell: pathlib.Path, engine: pathlib.Pat
     except Exception as e:  # noqa: BLE001 — оболочка могла уйти раньше ответа
         body = repr(e)
     print(f"     ответ маршрута: {body[:160]}")
+    # ⚠️ Сторож перезапуска — ТОТ ЖЕ файл DentPilot.exe и тоже с окном: заведён
+    # до ответа маршрута, поэтому всё, что живо сейчас, кроме первой, — он
+    watchers = set(pids_of(prog)) - {first.pid}
+    print(f"     сторож: {sorted(watchers)}")
+    rep.ok("engine: сторож заведён до ответа маршрута — это сама оболочка", bool(watchers), "")
     gone = wait_until(lambda: not alive(first.pid), 20)
     rep.ok("engine: оболочка закрылась по просьбе движка (quit)", gone is not None, "жива")
     if gone is not None:
@@ -355,7 +360,7 @@ def scenario_engine(root: pathlib.Path, shell: pathlib.Path, engine: pathlib.Pat
     new: list = []
 
     def fresh() -> bool:
-        new[:] = [p for p in pids_of(prog) if p != first.pid and windows_of(p)]
+        new[:] = [p for p in pids_of(prog) if p != first.pid and p not in watchers and windows_of(p)]
         return bool(new)
 
     got = wait_until(fresh, 40, 0.3)
@@ -373,10 +378,14 @@ def scenario_engine(root: pathlib.Path, shell: pathlib.Path, engine: pathlib.Pat
     q = subprocess.run(["schtasks", "/query", "/tn", "DentPilotRestart"], capture_output=True,
                        creationflags=NO_WIN)
     rep.ok("engine: задача перезапуска снята", q.returncode != 0, "осталась")
+    rep.ok("engine: сторож вышел сам", wait_until(lambda: not any(alive(p) for p in watchers), 10)
+           is not None, repr(watchers))
     # уборка: новую оболочку — её же выходом из меню нечем, гасим по PID (движок — заданием)
     for p in new:
         kill(p)
-    wait_until(lambda: _get(base + "/health")[0] == 0, 15)
+    rep.ok("engine: уборка — новая оболочка и движок погашены",
+           wait_until(lambda: not pids_of(prog) and _get(base + "/health")[0] == 0, 15) is not None,
+           repr(pids_of(prog)))
     time.sleep(1)
     for n, was in had.items():
         if not was:
