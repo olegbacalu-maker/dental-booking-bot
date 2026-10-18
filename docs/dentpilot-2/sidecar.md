@@ -120,10 +120,21 @@ else:
   (`engine.rs::JOB_LIMITS`, `BREAKAWAY_OK`, не SILENT): что должно пережить
   оболочку — `CREATE_BREAKAWAY_FROM_JOB` (так мастер обновления,
   `privileged._spawn_setup`) или задача планировщика.
-  ⚠️ Документ, открытый движком (`os.startfile`, `patients/routes.py`), —
-  ребёнок движка в задании: Word или Acrobat, запущенные так, гаснут вместе
-  с DentPilot (опыт 18.10: обработчик `.vbs` погиб при закрытии задания).
-  Не исправлено — отдельная задача.
+  ⛔ Файл программой Windows — только `core/shellopen.open_file`, не
+  `os.startfile`: ShellExecute в процессе движка рождает Word или Acrobat
+  ребёнком в задании, и они гаснут вместе с DentPilot с несохранённой правкой
+  (до 2.0.3 так открывались документы фиши). `open_file` зовёт
+  `explorer.exe "путь"` с `CREATE_BREAKAWAY_FROM_JOB`; задание без права
+  выхода отвечает WinError 5 — тогда без флага. Обработчик вне задания в
+  обоих случаях: explorer отдаёт открытие COM-серверу
+  `explorer.exe /factory,… -Embedding`, а того запускает DCOM, не движок.
+  ⛔ Путь — строкой в кавычках: без пробелов `list2cmdline` его не
+  кавычит, а explorer режет аргумент по запятой. Опыт 18.10 (Windows 11,
+  задание с пределами оболочки): `os.startfile` и rundll32 без флага гибнут,
+  explorer с флагом и без него выживает, rundll32 — только с флагом.
+  Стенд — `test_patient_card.suite_doc_outlives_shell` (`.\dev test "стенд
+  задания"`), правило — `test_structure` «файл открывает только
+  core/shellopen».
 
 ---
 
