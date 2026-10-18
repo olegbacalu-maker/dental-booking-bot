@@ -6,7 +6,7 @@ import { openScreen } from '../../test/openScreen'
 import { ApiError } from '../../types/api'
 import { DayScreen, loadDay } from './DayScreen'
 import type { DashBlock, DashCanvasModel } from './dash'
-import type { DayModel } from './day'
+import type { DayForm, DayModel } from './day'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
 const { get, post } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
@@ -488,6 +488,110 @@ describe('окно записи «Programare nouă»', () => {
     get.mockResolvedValue(ok({ ...MODEL, form: null }))
     await open('/admin/doctor/d3#addform')
     expect(addForm()).toBeNull()
+  })
+
+  /* ⭐ (19.10, Олег: «из Programare nouă наверху нельзя выбрать время»)
+     Часы — ДАТЫ ОКНА. Шапка вне дня журнала ведёт на
+     `/admin/all?date=<сегодня>#addform` (`newApptHref`), и в воскресенье это
+     закрытый день: у формы нет часов ни у одного врача. До 19.10 смена даты
+     в окне список не трогала — «Ora» оставался пустым и на вторнике, а
+     кнопка серой. День врача — тот же экран и то же окно. */
+  describe('часы — даты окна, а не дня экрана', () => {
+    const SUNDAY = '2026-10-18', TUESDAY = '2026-10-20'
+    const FORM = MODEL.form as DayForm
+    const CLOSED: DayForm = { ...FORM, times: { d2: [], d4: [] }, hours: [] }
+    const dayByDate = (url: string) => {
+      const date = /date=([\d-]+)/.exec(url)?.[1] ?? MODEL.date
+      return Promise.resolve(ok({ ...MODEL, date, form: date === SUNDAY ? CLOSED : FORM }))
+    }
+    const setDate = (v: string) => fireEvent.change(
+      addForm()?.querySelector('input[type="date"]') as HTMLInputElement, { target: { value: v } })
+    const hours = () => Array.from(sel(0).options).map((o) => o.value)
+    const goBtn = () => addForm()?.querySelector('button:not([type])') as HTMLButtonElement
+    const closedHint = () => addForm()?.querySelector('p.hint')?.textContent ?? ''
+
+    beforeEach(() => { get.mockImplementation(dayByDate) })
+
+    it('окно шапки на закрытом дне: «Zi liberă», смена даты строит часы новой даты', async () => {
+      await openAdd(SUNDAY)
+      expect(hours()).toEqual([])
+      expect(closedHint()).toBe('Zi liberă — clinica este închisă')
+      expect(goBtn().disabled).toBe(true)
+      setDate(TUESDAY)
+      await waitFor(() => expect(hours()).toEqual(['09:00', '09:30', '10:00']))
+      expect(get).toHaveBeenLastCalledWith(`/schedule/day?date=${TUESDAY}`, expect.anything())
+      expect(closedHint()).toBe('')
+      expect(goBtn().disabled).toBe(false)
+      post.mockResolvedValue(ok({ ...MODEL, date: SUNDAY, form: CLOSED }))
+      fireEvent.change(field('Nume pacient'), { target: { value: 'Igor S' } })
+      fireEvent.click(addForm()?.querySelector('.nophone input') as HTMLElement)
+      fireEvent.submit(addForm() as HTMLFormElement)
+      await waitFor(() => expect(post).toHaveBeenCalledWith(
+        `/schedule/appointments?date=${SUNDAY}`, expect.objectContaining({
+          date: TUESDAY, time: '09:00', doctor: 'd2', nophone: true })))
+    })
+
+    it('день врача: форма другой даты спрашивается у этого врача', async () => {
+      await open(`/admin/doctor/d2?date=${SUNDAY}#addform`)
+      expect(hours()).toEqual([])
+      setDate(TUESDAY)
+      await waitFor(() => expect(hours()).toEqual(['09:00', '09:30', '10:00']))
+      expect(get).toHaveBeenLastCalledWith(`/schedule/day?date=${TUESDAY}&doctor=d2`,
+        expect.anything())
+    })
+
+    it('и обратно: рабочий день → закрытый гасит кнопку; день экрана — без запроса', async () => {
+      await openAdd(TUESDAY)
+      fireEvent.change(sel(1), { target: { value: 'd4' } })
+      expect(hours()).toEqual(['14:00', '14:30'])
+      setDate(SUNDAY)
+      await waitFor(() => expect(closedHint()).toBe('Zi liberă — clinica este închisă'))
+      expect(hours()).toEqual([])
+      expect(goBtn().disabled).toBe(true)
+      const asked = get.mock.calls.length
+      setDate(TUESDAY)
+      /* выбранный врач пережил обе смены даты */
+      expect(hours()).toEqual(['14:00', '14:30'])
+      expect(get).toHaveBeenCalledTimes(asked)
+    })
+
+    it('пока ответ в пути — кнопка ждёт; ответ на прежнюю дату не перебивает последнюю', async () => {
+      let release = () => {}
+      get.mockImplementation((url: string) => url.includes('date=2026-10-21')
+        ? new Promise((res) => {
+          release = () => res(ok({ ...MODEL, date: '2026-10-21',
+            form: { ...FORM, times: { d2: ['11:00'], d4: ['11:00'] } } }))
+        })
+        : dayByDate(url))
+      await openAdd(TUESDAY)
+      setDate('2026-10-21')
+      expect(goBtn().disabled).toBe(true)
+      setDate(SUNDAY)
+      await waitFor(() => expect(closedHint()).not.toBe(''))
+      await act(async () => { release() })
+      expect(hours()).toEqual([])
+    })
+
+    it('форма не пришла — список дня экрана, и запись решает сервер', async () => {
+      get.mockImplementation((url: string) => url.includes(`date=${TUESDAY}`)
+        ? Promise.reject(new ApiError({ kind: 'network', detail: 'x' }, 'x'))
+        : dayByDate(url))
+      await openAdd()
+      setDate(TUESDAY)
+      await waitFor(() => expect(goBtn().disabled).toBe(false))
+      expect(hours()).toEqual(['09:00', '09:30', '10:00'])
+    })
+
+    it('сервер ответил другим днём (кривая дата — «сегодня») — ответ не принят', async () => {
+      get.mockImplementation((url: string) => url.includes(`date=${TUESDAY}`)
+        ? Promise.resolve(ok({ ...MODEL, date: '2026-10-19', form: CLOSED }))
+        : dayByDate(url))
+      await openAdd()
+      setDate(TUESDAY)
+      await waitFor(() => expect(goBtn().disabled).toBe(false))
+      expect(hours()).toEqual(['09:00', '09:30', '10:00'])
+      expect(closedHint()).toBe('')
+    })
   })
 })
 

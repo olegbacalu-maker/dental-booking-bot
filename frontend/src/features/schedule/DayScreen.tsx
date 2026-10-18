@@ -310,7 +310,7 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
           начинает запись заново, как перезагрузка старой страницы (Олег
           24.09). */}
       {adding && m.form
-        ? <AddDialog key={m.date} open form={m.form} date={m.date} busy={busy}
+        ? <AddDialog key={m.date} open form={m.form} date={m.date} of={doctor} busy={busy}
                      onClose={closeAdd}
                      onAdd={(b) => act(() => day.add(at, doctor, tile, b))} />
         : null}
