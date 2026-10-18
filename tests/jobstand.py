@@ -365,3 +365,63 @@ def wait_text(path: pathlib.Path, want, seconds: float, step: float = 0.02) -> s
         if want(text) or time.monotonic() >= end:
             return text
         time.sleep(step)
+
+
+# ---- документ фиши: обработчик вне задания (18.10, 2.0.3) ----
+
+# Подставной «Word»: `.vbs` открывается wscript.exe — классической программой,
+# как Word или Acrobat (приложения Store запускает брокер, и болезнь на них не
+# видна). Стучит файлом на каждом такте — счёт растёт, пока он жив; по `stop`
+# выходит сам и пишет `done`. Потолок ~15 с: стенд, упавший до `stop`, не
+# оставляет вечного процесса. ⛔ `On Error Resume Next` — не украшение:
+# ошибка скрипта у wscript — окно на экране, и обработчик висел бы на нём, не
+# стуча и не уходя (первый прогон стенда: `"\b"` без r — забой в имени).
+DOC_VBS = r'''On Error Resume Next
+Set fs = CreateObject("Scripting.FileSystemObject")
+d = "{dir}"
+For i = 1 To 150
+  If fs.FileExists(d & "\stop") Then Exit For
+  fs.CreateTextFile(d & "\b" & i, True).Close
+  WScript.Sleep 100
+Next
+fs.CreateTextFile(d & "\done", True).Close
+'''
+
+# «Движок» стенда: открывает документ из исходников (`argv[1]` — папка bot)
+# настоящим `core.shellopen.open_file` или прежним `os.startfile` и спит, как
+# движок, пока задание его не погасит. Итог открытия — в файл `argv[4]`.
+OPEN_ENGINE = r'''
+import os, pathlib, sys, time
+bot, how, doc, said = sys.argv[1:5]
+sys.path.insert(0, bot)
+try:
+    if how == "startfile":
+        opener = os.startfile               # прежний путь — контроль стенда
+    else:
+        from app.core import shellopen
+        opener = shellopen.open_file
+    opener(doc)
+    pathlib.Path(said).write_text("opened", encoding="utf-8")
+except OSError as e:
+    pathlib.Path(said).write_text("ERR %r" % (e,), encoding="utf-8")
+time.sleep(60)
+'''
+
+
+def doc_stand_missing() -> str:
+    """Пусто — стенду документа есть на чём стоять; иначе причина пропуска.
+    ⛔ Без рабочего стола explorer.exe, запущенный с файлом, сам становится
+    оболочкой сеанса (раннер CI) — туда его не пускать."""
+    if not ctypes.windll.user32.FindWindowW("Shell_TrayWnd", None):
+        return "нет рабочего стола Explorer (сеанс без панели задач)"
+    buf = ctypes.create_unicode_buffer(520)
+    n = W.DWORD(len(buf))
+    hr = ctypes.windll.shlwapi.AssocQueryStringW(0, 2, ".vbs", None, buf, ctypes.byref(n))  # EXECUTABLE
+    if hr != 0 or not buf.value.lower().endswith("wscript.exe"):
+        return f".vbs открывает не wscript.exe ({buf.value or hex(hr & 0xFFFFFFFF)}) — VBScript выключен?"
+    return ""
+
+
+def beats(d: pathlib.Path) -> int:
+    """Сколько раз подставной обработчик стукнул."""
+    return sum(1 for p in d.iterdir() if p.name[:1] == "b" and p.name[1:].isdigit())

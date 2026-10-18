@@ -33,6 +33,7 @@ DESK = "bot/desktop.py"
 QR = "bot/app/modules/qr/routes.py"
 ENGINE_RS = "shell/src/engine.rs"
 WATCH_RS = "shell/src/watch.rs"
+OPEN = "bot/app/core/shellopen.py"
 
 # (что сломано, файл, что заменить, чем, какая проверка обязана покраснеть)
 BREAKS = [
@@ -185,6 +186,20 @@ BREAKS = [
      'const SETUP_NAMES: [&str; 2] = ["DentPilot-Setup.exe", "DentPilot-Setup.tmp"];',
      'const SETUP_NAMES: [&str; 2] = ["DentPilot-Setup-new.exe", "DentPilot-Setup.tmp"];',
      "сторож оболочки узнаёт мастер", "Перезапуск: у оболочки"),
+
+    # ---- 18.10 (2.0.3): документ фиши переживает задание оболочки ----
+    # Word, открытый ребёнком движка, гас вместе с DentPilot. ⚠️ Поломку
+    # «путь списком» сюда не класть: explorer открывает на экране окна папок.
+    ("документ открывается os.startfile — в задании оболочки", OPEN,
+     "    try:\n        subprocess.Popen(line, creationflags=BREAKAWAY, **kw)\n"
+     "    except PermissionError:\n        subprocess.Popen(line, **kw)\n",
+     "    os.startfile(path)\n",
+     "документ пережил закрытие DentPilot", "стенд задания"),
+
+    ("задание без права выхода — документ не открывается", OPEN,
+     "    except PermissionError:\n        subprocess.Popen(line, **kw)\n",
+     "    except ZeroDivisionError:\n        pass\n",
+     "задание без права выхода: документ открылся", "стенд задания"),
 
     # ---- P4.3 ----
     ("привилегированный процесс НЕ выходит", PRIV,

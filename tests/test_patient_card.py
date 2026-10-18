@@ -768,3 +768,104 @@ def suite_switch(res: Result) -> None:
         rec.post("/admin/login", password="2222", next="/admin")
         res.ok("регистратуре фиша открыта и по PIN",
                'data-screen="patient_card"' in rec.get(f"/admin/patient/{pid}").body, "закрыта")
+
+
+def suite_doc_outlives_shell(res: Result) -> None:
+    """Стенд без оболочки (18.10, 2.0.3): документ, открытый из фиши, переживает
+    закрытие DentPilot.
+
+    Оболочка Tauri держит движок в «задании» Windows с KILL_ON_JOB_CLOSE, и
+    прежний `os.startfile` рождал Word ребёнком движка в задании: закрыл
+    DentPilot — Windows погасила Word с несохранённой правкой. Здесь то же без
+    оболочки (`jobstand`): задание с пределами из `engine.rs`, «движок» в нём
+    открывает документ НАСТОЯЩИМ `core.shellopen.open_file` из исходников,
+    задание закрывается — и обработчик обязан стучать дальше. Обработчик —
+    `.vbs` (wscript.exe, классическая программа, как Word). Имя с запятой и без
+    пробелов — ловушка explorer (`shellopen`: путь только в кавычках).
+
+    Три прохода: пределы оболочки; задание без права выхода (оболочка до
+    2.0.2, задание харнесса) — флаг отвергнут, explorer без него; и контроль —
+    прежний `os.startfile` в том же задании обязан ПОГИБНУТЬ: иначе стенд
+    болезни не видит, и зелёное двух первых ничего не значит."""
+    import os
+    import sys
+    import tempfile
+    import time
+    from pathlib import Path
+
+    import jobstand
+    from harness import _rmtree_settled
+
+    if sys.platform != "win32":
+        res.ok("не Windows — задания оболочки нет", True, "")
+        return
+    if (why := jobstand.doc_stand_missing()):
+        # ⚠️ ВСЛУХ: зелёная строка без стенда читалась бы как «проверено»
+        res.ok(f"ПРОПУЩЕНО: стенд документа — {why}", True, "")
+        return
+    root = Path(__file__).resolve().parents[1]
+    try:
+        limits = jobstand.shell_limits(root / "shell" / "src" / "engine.rs")
+    except (OSError, ValueError) as e:
+        res.ok("пределы задания оболочки читаются из engine.rs", False, str(e))
+        return
+    breakaway = jobstand.LIMITS["JOB_OBJECT_LIMIT_BREAKAWAY_OK"]
+    python = getattr(sys, "_base_executable", sys.executable)
+    passes = (
+        ("пределы оболочки", limits, "shellopen", True),
+        ("задание без права выхода", limits & ~breakaway, "shellopen", True),
+        ("контроль: прежний os.startfile", limits, "startfile", False),
+    )
+    td = Path(tempfile.mkdtemp(prefix="dp_docjob_"))
+    try:
+        engine_py = td / "engine.py"
+        engine_py.write_text(jobstand.OPEN_ENGINE, encoding="utf-8")
+        for i, (name, flags, how, survives) in enumerate(passes):
+            lab = td / str(i)
+            lab.mkdir()
+            doc = lab / "Radiografie,12.10.vbs"
+            doc.write_text(jobstand.DOC_VBS.format(dir=lab), encoding="utf-16")
+            said = lab / "said.txt"
+            job = jobstand.Job(flags)
+            engine = None
+            try:
+                engine = jobstand.start([python, str(engine_py), str(root / "bot"), how,
+                                         str(doc), str(said)], suspended=True)
+                job.add(engine)            # в задании до первой инструкции, как у `Engine::start`
+                engine.resume()
+                end = time.monotonic() + 20
+                while not jobstand.beats(lab) and time.monotonic() < end:
+                    time.sleep(0.05)
+                text = said.read_text(encoding="utf-8") if said.exists() else "—"
+                if not res.ok(f"{name}: документ открылся", jobstand.beats(lab) > 0,
+                              f"обработчик не стучит 20 с; движок: {text}"):
+                    continue
+                if how != "startfile":
+                    res.check(f"{name}: открытие без ошибки", text, "opened")
+                job.close()                # оболочка закрылась
+                res.ok(f"{name}: движок погашен вместе с заданием", engine.wait(5),
+                       "задание не гасит — стенд ничего не доказал")
+                time.sleep(0.6)
+                before = jobstand.beats(lab)
+                time.sleep(1.0)
+                alive = jobstand.beats(lab) > before
+                if survives:
+                    res.ok(f"{name}: документ пережил закрытие DentPilot", alive,
+                           "обработчик замолчал вместе с заданием — Word погиб бы "
+                           "с несохранённой правкой")
+                else:
+                    res.ok("контроль: os.startfile гибнет вместе с заданием — стенд видит болезнь",
+                           not alive, "обработчик os.startfile пережил задание: стенд "
+                           "не отличает исправное от сломанного")
+            finally:
+                job.close()
+                if engine is not None:
+                    engine.kill()
+                    engine.close()
+                (lab / "stop").write_text("", encoding="ascii")
+                # выживший уходит сам по `stop`; его папку не снести, пока он жив
+                end = time.monotonic() + 5
+                while jobstand.beats(lab) and not (lab / "done").exists() and time.monotonic() < end:
+                    time.sleep(0.05)
+    finally:
+        _rmtree_settled(td, budget=10.0)

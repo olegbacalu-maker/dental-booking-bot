@@ -1870,3 +1870,15 @@ def suite(res: Result) -> None:
         bad.append("ни одного маршрута /shell/ — якорь правила пропал")
     res.ok("маршруты /shell/ охраняет токен оболочки", not bad,
            "срок лицензии и остаток SMS ушли бы в сеть клиники: " + "; ".join(bad))
+
+    # ⛔ Файл открывает только `core/shellopen` (18.10, 2.0.3). `os.startfile` —
+    # ShellExecute в процессе движка: Word рождается его ребёнком в «задании»
+    # оболочки Tauri (KILL_ON_JOB_CLOSE) и гаснет вместе с DentPilot — с
+    # несохранённой правкой врача. Поведение держит стенд
+    # `test_patient_card.suite_doc_outlives_shell`; здесь — чтобы новое
+    # открытие не завело болезнь заново в другом месте.
+    bad = [f"{rel}:{n.lineno}" for rel, tree in src for n in ast.walk(tree)
+           if isinstance(n, ast.Call) and isinstance(n.func, (ast.Name, ast.Attribute))
+           and (n.func.id if isinstance(n.func, ast.Name) else n.func.attr) == "startfile"]
+    res.ok("файл открывает только core/shellopen, не os.startfile", not bad,
+           "программа, открытая так, гаснет вместе с оболочкой: " + "; ".join(bad))

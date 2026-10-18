@@ -44,7 +44,7 @@ from . import odontogram as podo
 from . import perio as pperio
 from . import plan_acord as pplan
 from . import visit as pvisit
-from ...core import xlsx
+from ...core import shellopen, xlsx
 from ...core.auth import _guard
 from ...core.layout import (ALERT_KINDS, LIVE_STATUSES, _ic, _initials, react_shell,
                             shell_model)
@@ -789,11 +789,12 @@ async def _open_doc(request: Request, doc_id: int) -> str:
     await db.log_event(d["patient_id"], "doc_view",
                        f"Document deschis: {d['filename']}")
     try:
-        # startfile не блокирует: ShellExecute возвращает управление сразу,
-        # не дожидаясь, пока Word нарисует окно
-        os.startfile(_open_copy(src, d["filename"]))
-    except OSError as ex:                     # нет ассоциации у расширения и т.п.
-        log.warning("startfile doc=%s: %r", doc_id, ex)
+        # ⛔ Не os.startfile: Word, открытый ребёнком движка, живёт в задании
+        # оболочки Tauri и гаснет вместе с DentPilot (core/shellopen.py).
+        # Не ждёт, пока Word нарисует окно.
+        shellopen.open_file(_open_copy(src, d["filename"]))
+    except OSError as ex:                     # explorer не запустился
+        log.warning("open doc=%s: %r", doc_id, ex)
         return "os"
     return ""
 

@@ -489,6 +489,9 @@ MUTATIONS = [
     # Дверь оболочки снята: уведомления отдаются любому в сети клиники.
     ("маршруты /shell/ охраняет", "app/modules/settings/api.py",
      ("    if not notices.shell_request_ok(request):\n", "    if False:\n")),
+    # Новое открытие файла мимо shellopen: Word снова в задании оболочки.
+    ("файл открывает только core/shellopen", "app/modules/settings/routes.py",
+     "\ndef _mut(p):\n    os.startfile(p)\n"),
 ]
 
 # Правки ЗАКОННЫЕ: нарушения в них нет, и правило обязано остаться

@@ -311,6 +311,8 @@ SUITES = [
     ("Пациенты: узел React экрана", test_patients_api.suite_switch),
     ("Фиша: JSON API — цифры и слова фиши", test_patient_card.suite_api),
     ("Фиша: действия через JSON", test_patient_card.suite_actions),
+    ("Фиша: документ переживает закрытие оболочки (стенд задания)",
+     test_patient_card.suite_doc_outlives_shell),
     ("Фиша: узел React экрана", test_patient_card.suite_switch),
     ("Фиша: сканер — листы в один PDF", test_scan.suite_scan),
     ("Фиша: сканер — разрешение и размер листа", test_scan.suite_scan_dpi),

@@ -277,7 +277,7 @@ def rec_diag(rec: dict | None) -> str:
 
 def doc_view(mime: str | None) -> str:
     """Чем открывать файл: свой просмотрщик (растр, PDF) или программа
-    Windows; всё чужое — «ext», и клик уводит в скачивание/startfile."""
+    Windows; всё чужое — «ext», и клик уводит в скачивание/программу Windows."""
     m = mime or ""
     return "img" if m in INLINE_MIME else "pdf" if m in PDF_MIME else "ext"
 
