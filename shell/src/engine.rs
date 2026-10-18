@@ -12,6 +12,9 @@
 // задание ДО первой своей инструкции — иначе ребёнок успел бы родиться вне.
 // ⭐ Честная остановка — словом `stop` и закрытым stdin (движок закрывает
 // базу); задание снимается, только если за 10 с он не вышел.
+// ⛔ В задании оказывается и процесс ЗА UAC: служба создаёт его «от имени»
+// движка, и он наследует задание родителя. Что должно пережить оболочку
+// (мастер обновления), выходит из задания по просьбе — `JOB_LIMITS`.
 
 use std::ffi::{c_void, OsString};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -33,7 +36,7 @@ use windows_sys::Win32::System::Diagnostics::ToolHelp::{
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
     SetInformationJobObject, TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
 use windows_sys::Win32::System::Threading::{
     GetExitCodeProcess, OpenProcess, OpenThread, ResumeThread, WaitForSingleObject,
@@ -44,6 +47,43 @@ use windows_sys::Win32::System::Threading::{
 use crate::paths::log;
 
 pub const STOP_WAIT: Duration = Duration::from_secs(10);
+
+/// Пределы «задания» движка.
+/// ⛔ KILL_ON_JOB_CLOSE: оболочка вышла или упала — Windows гасит всё дерево.
+/// ⭐ BREAKAWAY_OK (18.10, 2.0.2): выйти может только тот, кто ПОПРОСИЛ
+/// (`CREATE_BREAKAWAY_FROM_JOB`), — мастер обновления
+/// (`privileged._spawn_setup`). Без права выхода живой проход 2.0.0 → 2.0.1
+/// встал: процесс за UAC наследует это задание, по «started» оболочка
+/// закрылась, и Windows погасила его до запуска мастера.
+/// ⛔ Не SILENT_BREAKAWAY_OK: тогда выходили бы ВСЕ дети молча — первым
+/// интерпретатор venv в разработке (ребёнок пускача), и движок пережил бы
+/// оболочку с портом и базой. Держат `cargo test` и стенд
+/// `test_privileged.suite_setup_outlives_shell` (читает эту строку).
+pub const JOB_LIMITS: u32 = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK;
+
+/// Пустое задание с `JOB_LIMITS`.
+fn new_job() -> std::io::Result<HANDLE> {
+    unsafe {
+        let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+        if job.is_null() {
+            return Err(std::io::Error::last_os_error());
+        }
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = zeroed();
+        info.BasicLimitInformation.LimitFlags = JOB_LIMITS;
+        let ok = SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            &info as *const _ as *const c_void,
+            size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        );
+        if ok == 0 {
+            let e = std::io::Error::last_os_error();
+            CloseHandle(job);
+            return Err(e);
+        }
+        Ok(job)
+    }
+}
 
 /// Слова движка (контракт § 2, версия 1) и его выход.
 #[derive(Debug, Clone)]
@@ -145,24 +185,18 @@ impl Engine {
         let mut child = cmd.spawn()?;
         let pid = child.id();
 
-        let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
-        if job.is_null() {
-            let e = std::io::Error::last_os_error();
-            let _ = child.kill();
-            return Err(e);
-        }
+        let job = match new_job() {
+            Ok(job) => job,
+            Err(e) => {
+                let _ = child.kill();
+                return Err(e);
+            }
+        };
         unsafe {
-            let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = zeroed();
-            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-            let ok = SetInformationJobObject(
-                job,
-                JobObjectExtendedLimitInformation,
-                &info as *const _ as *const c_void,
-                size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
-            );
-            if ok == 0 || AssignProcessToJobObject(job, child.as_raw_handle() as HANDLE) == 0 {
+            if AssignProcessToJobObject(job, child.as_raw_handle() as HANDLE) == 0 {
                 let e = std::io::Error::last_os_error();
-                TerminateJobObject(job, 1);
+                // приостановленный движок вне задания — снять самим
+                let _ = child.kill();
                 CloseHandle(job);
                 return Err(e);
             }
@@ -376,5 +410,30 @@ mod tests {
         assert!(parse("INFO: uvicorn running").is_none());
         assert!(parse(r#"DP1 {"v":1,"event":"ready","url":"x","port":70000}"#).is_none());
         assert!(matches!(parse(r#"DP1 {"v":1,"event":"quit","reason":"update"}"#), Some(Event::Quit { .. })));
+    }
+
+    #[test]
+    fn job_lets_out_only_who_asks() {
+        use windows_sys::Win32::System::JobObjects::{
+            QueryInformationJobObject, JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK,
+        };
+        let job = new_job().expect("job");
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { zeroed() };
+        let ok = unsafe {
+            QueryInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                &mut info as *mut _ as *mut c_void,
+                size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                std::ptr::null_mut(),
+            )
+        };
+        unsafe { CloseHandle(job) };
+        assert!(ok != 0);
+        let f = info.BasicLimitInformation.LimitFlags;
+        assert_eq!(f, JOB_LIMITS);
+        assert!(f & JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE != 0, "движок пережил бы оболочку");
+        assert!(f & JOB_OBJECT_LIMIT_BREAKAWAY_OK != 0, "мастер обновления погиб бы с оболочкой");
+        assert!(f & JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK == 0, "дети выходили бы молча");
     }
 }
