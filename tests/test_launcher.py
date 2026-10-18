@@ -290,7 +290,9 @@ def suite_port(res: Result) -> None:
     # дважды за один день — сперва на `envfile.read_all` строкой выше, потом
     # на этом же правиле. Текстовый сторож обязан искать то, что СЛОМАЕТСЯ
     # при удалении кода, а не то, что объясняет код.
-    BENCHES = {"Build-Installer.ps1": "$env:DENTART_DATA_DIR = $lab",
+    # ⚠️ Build-Installer.ps1 сам больше ничего не запускает (Т9, 18.10): собранную
+    # пару «оболочка + движок» гоняет его стенд scripts/shell_check.py.
+    BENCHES = {"scripts/shell_check.py": '"DENTART_DATA_DIR": str(self.data)',
                "scripts/check_slot_guard.py": '"DENTART_DATA_DIR": str(lab)',
                "scripts/smoke_build.py": '"DENTART_DATA_DIR": str(lab)',
                # ⚠️ У этого стенда назначение и есть изолируемая папка: он
@@ -321,7 +323,7 @@ def suite_port(res: Result) -> None:
     # только при штатном выходе: каждая сборка оставляла в %TEMP% три такие
     # папки, 25.09 — 1.2 ГБ за день на диске C в 100 ГБ. Список ОБЯЗАН совпадать
     # с BENCHES: новый стенд без этой строки снова течёт молча.
-    TEMP_IN_LAB = {"Build-Installer.ps1": "$env:TEMP = $tmp",
+    TEMP_IN_LAB = {"scripts/shell_check.py": '"TEMP": str(self.tmp)',
                    "scripts/check_slot_guard.py": '"TEMP": str(tmp)',
                    "scripts/smoke_build.py": '"TEMP": str(tmp)',
                    "scripts/check_relocate_live.py": '"TEMP": str(tmp)',
@@ -406,6 +408,23 @@ def suite_port(res: Result) -> None:
                    i >= 0 and "$LASTEXITCODE -ne 0" in txt[i:i + 400],
                    "вызов есть, а проверки нет — красный стенд не остановит "
                    "сборку, и она объявит OK")
+
+    # То же для сборки выпуска (Т9, 18.10): Build-Installer.ps1 обязан запустить
+    # СОБРАННУЮ пару — оболочку, поднимающую движок из engine\ (shell_check.py),
+    # и прочитать код. ⚠️ Якорь — строка ВЫЗОВА (имя в кавычках): то же имя
+    # стоит в комментарии раздела выше, и окно от него смотрело бы в комментарий.
+    build = root / "Build-Installer.ps1"
+    if res.ok("Build-Installer.ps1 на месте", build.exists(),
+              "сборки выпуска нет — правило ниже проверяет несуществующий файл"):
+        txt = build.read_text(encoding="utf-8", errors="replace")
+        res.ok("стенд scripts/shell_check.py существует", (root / "scripts" / "shell_check.py").exists(),
+               "стенд переехал — строка ниже ищет несуществующее имя")
+        i = txt.find('"scripts\\shell_check.py"')
+        res.ok("сборка выпуска зовёт стенд оболочки и движка", i >= 0,
+               "shell_check.py выпал из Build-Installer.ps1 — мастер упакует непроверенную пару")
+        res.ok("и читает код возврата стенда",
+               i >= 0 and "$LASTEXITCODE -ne 0" in txt[i:i + 400],
+               "вызов есть, а проверки нет — красный стенд не остановит выпуск")
 
     # ⛔ Канал засевается при ПЕРВОМ создании dental.env, а не сверяется на
     # каждом старте. Разница не косметическая: сверка на каждом старте отняла

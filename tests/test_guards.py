@@ -198,7 +198,7 @@ def suite_release_arg(res: Result) -> None:
     with contextlib.redirect_stdout(buf):
         mod = importlib.import_module("check_release")
         rel = {"tag_name": "v1.19.31", "html_url": "https://example/rel",
-               "assets": [{"name": "dentpilot.exe", "size": 31_000_000,
+               "assets": [{"name": "DentPilot-Setup-1.19.31.zip", "size": 31_000_000,
                            "state": "uploaded", "digest": "sha256:0"}]}
         mod.api = lambda path: rel if path == "/latest" else [
             {"tag_name": "v1.19.31", "draft": False, "prerelease": False}]
@@ -211,6 +211,67 @@ def suite_release_arg(res: Result) -> None:
     for arg, (code, problems) in got.items():
         res.ok(f"«{arg}» — исправный релиз признан исправным", code == 0,
                "; ".join(problems) or f"код возврата {code}")
+
+    # С Tauri (Т9) ассет один — zip мастера. Каждая порча — своя находка, иначе
+    # зелёное выше ничего не доказывает.
+    def verdict(assets: list[dict]) -> list[str]:
+        rel["assets"] = assets
+        with contextlib.redirect_stdout(io.StringIO()):
+            mod.problems.clear()
+            mod.notes.clear()
+            mod.main("1.19.31")
+        return list(mod.problems)
+
+    zip_ok = {"name": "DentPilot-Setup-1.19.31.zip", "size": 31_000_000,
+              "state": "uploaded", "digest": "sha256:0"}
+    exe = {"name": "DentPilot.exe", "size": 3_000_000, "state": "uploaded", "digest": "sha256:1"}
+    res.ok("отдельный DentPilot.exe рядом с zip — находка",
+           any(".exe" in p for p in verdict([exe, zip_ok])), "check_release промолчал")
+    res.ok("релиз без zip мастера — находка",
+           bool(verdict([exe])), "check_release промолчал")
+    res.ok("zip чужой версии — находка",
+           any("тег" in p for p in verdict([dict(zip_ok, name="DentPilot-Setup-1.19.30.zip")])),
+           "обновление сверяет имя с тегом — такой архив клиника не возьмёт")
+
+
+def suite_release_setup(res: Result) -> None:
+    """`release.py` не льёт мастер, который отвергнет программа клиники.
+
+    ⛔ Пробная сборка (`Build-Installer.ps1 -NoSign`) называется так же, как
+    выпускная, и лежит там же. Отличает её только подпись — поэтому `release.py
+    prerelease` проверяет мастер на диске тем же, чем проверит программа
+    (`update._update_by_setup`): в zip ровно один exe с именем версии, подпись
+    НАШИМ сертификатом, версия файла = версия выпуска.
+    Настоящей подписи здесь нет (сертификата в прогоне нет): проверяется, что
+    неподписанный мастер и кривой архив дают находку, а не «можно лить».
+    """
+    sys.path.insert(0, str(ROOT / "scripts"))
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        mod = importlib.import_module("release")
+    res.ok("импорт release.py не ищет токен", mod.TOKEN == "",
+           "токен ищется при импорте — прогон пошёл бы в git credential")
+    import zipfile
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_release_"))
+    try:
+        exe = shutil.copy(sys.executable, tmp / "probe.exe")   # настоящий PE с версией, но не наш
+        z = tmp / mod.setup_zip("1.2.3")
+        with zipfile.ZipFile(z, "w") as zf:
+            zf.write(exe, mod.setup_exe("1.2.3"))
+        bad = mod.setup_problems("1.2.3", tmp)
+        res.ok("мастер без нашей подписи — находка",
+               any("подпис" in b for b in bad), f"находки: {bad}")
+        res.ok("и чужая версия файла — находка", any("версия файла" in b for b in bad),
+               f"находки: {bad}")
+        with zipfile.ZipFile(z, "w") as zf:
+            zf.write(exe, mod.setup_exe("1.2.3"))
+            zf.write(exe, "DentPilot.exe")
+        bad = mod.setup_problems("1.2.3", tmp)
+        res.ok("второй exe в архиве — находка", any("ровно один" in b for b in bad),
+               f"находки: {bad}")
+        res.ok("нет архива — находка", bool(mod.setup_problems("9.9.9", tmp)), "")
+    finally:
+        _rmtree_settled(tmp)
 
 
 def suite_version_source(res: Result) -> None:
@@ -286,15 +347,29 @@ def signing_problems(build: str, iss: str, signer: str) -> list[str]:
     """Нарушения порядка подписи словами; пустой список — порядок верен.
 
     Тексты, а не файлы: так та же функция проверяется и на испорченных копиях.
+    С Tauri (Т9, 18.10) exe ДВА — оболочка и движок, и подписываются оба:
+    оболочку видит Windows (ярлык, UAC сторожа), движок — брандмауэр (сеть
+    слушает он) и запуск за UAC (`privileged`: «только наш sys.executable»).
+    ⚠️ Якоря — строки ВЫЗОВОВ, не имена: имя стоит и в комментариях сборки.
     """
     bad = []
-    at_sign = build.find('Sign-File.ps1" -Path "dist\\DentPilot.exe"')
-    at_build = build.find("Build-Desktop.ps1")
-    at_smoke = build.find("smoke_exe.py")
-    if at_sign < 0:
-        bad.append("Build-Installer.ps1 не подписывает dist\\DentPilot.exe")
-    elif not (0 <= at_build < at_sign < at_smoke):
-        bad.append("подпись exe не между сборкой (Build-Desktop) и дымовым тестом")
+    at_engine = build.find('& "$PSScriptRoot\\Build-Engine.ps1"')
+    at_cargo = build.find("build --release --locked --manifest-path")
+    at_shell_sig = build.find('Sign-File.ps1" -Path $shellExe')
+    at_engine_sig = build.find('Sign-File.ps1" -Path $engineExe')
+    at_smoke = build.find('"scripts\\shell_check.py"')
+    if at_shell_sig < 0 or at_engine_sig < 0:
+        bad.append("Build-Installer.ps1 подписывает не оба exe (оболочку и движок)")
+    elif not (0 <= at_engine < at_cargo < min(at_shell_sig, at_engine_sig)
+              and max(at_shell_sig, at_engine_sig) < at_smoke):
+        bad.append("подпись exe не между сборкой (движок, оболочка) и дымовым тестом")
+    # ⛔ Выпускная сборка без отпечатка — стоп, а не жёлтая строка: до Т9 она
+    # шла дальше «BEZ PODPISI», и такой выпуск мог уехать клиникам.
+    if not re.search(r"if \(\$signOn -and -not \$env:DENTPILOT_SIGN_THUMBPRINT\) \{\s*Fail ", build):
+        bad.append("выпускная сборка без отпечатка не останавливается — уйдёт без подписи")
+    # пробная сборка не кладётся в папку выдачи клиникам
+    if "if ($SetupDir -and $signOn)" not in build:
+        bad.append("неподписанный мастер кладётся в папку выдачи клиникам (releases)")
     if "/DSignTool" not in build or "/Sdpsign=" not in build:
         bad.append("Build-Installer.ps1 не передаёт Inno команду подписи (/DSignTool, /Sdpsign)")
     block = re.search(r"#ifdef SignTool(.*?)#endif", iss, flags=re.S)
@@ -311,7 +386,7 @@ def signing_problems(build: str, iss: str, signer: str) -> list[str]:
 
 
 def suite_signing(res: Result) -> None:
-    """Подпись кода: exe — до дымового теста, мастер и деинсталлятор — через Inno.
+    """Подпись кода: оба exe — до дымового теста, мастер и деинсталлятор — через Inno.
 
     ⚠️ Все три нарушения тихие. Подписать только мастер — худший вариант:
     обновление в один клик скачивает `DentPilot.exe` напрямую, и первая же
@@ -332,11 +407,24 @@ def suite_signing(res: Result) -> None:
     signer = (ROOT / "Sign-File.ps1").read_text(encoding="utf-8")
     res.check("сегодня порядок подписи верен", signing_problems(build, iss, signer), [])
     # Сторож обязан краснеть: каждая порча — своей находкой.
-    at = build.find("# --- 1b.")
-    smoke = build.find("# --- 2. dymovoi test")
-    moved = build[:at] + build[smoke:] + build[at:smoke] if 0 <= at < smoke else build
+    at = build.find("# --- 2. podpis")
+    smoke = build.find("# --- 3. dymovoi test")
+    end = build.find("# --- 4. master")
+    res.ok("якоря разделов сборки нашлись", 0 <= at < smoke < end,
+           "порча ниже переставляла бы пустое и зеленела бы")
+    moved = build[:at] + build[smoke:end] + build[at:smoke] + build[end:] if 0 <= at < smoke < end else build
     res.ok("подпись exe после дымового теста — находка",
            any("дымовым тестом" in b for b in signing_problems(moved, iss, signer)))
+    res.ok("подписан только один exe — находка",
+           any("не оба exe" in b for b in signing_problems(
+               build.replace('Sign-File.ps1" -Path $engineExe', 'Sign-File.ps1" -Path $shellExe'),
+               iss, signer)))
+    soft = build.replace('Fail "net DENTPILOT_SIGN_THUMBPRINT', 'Write-Host "net DENTPILOT_SIGN_THUMBPRINT')
+    res.ok("выпускная сборка без отпечатка идёт дальше — находка",
+           any("без отпечатка" in b for b in signing_problems(soft, iss, signer)))
+    res.ok("пробная сборка в папке выдачи — находка",
+           any("папку выдачи" in b for b in signing_problems(
+               build.replace("if ($SetupDir -and $signOn)", "if ($SetupDir)"), iss, signer)))
     res.ok("мастер без подписи деинсталлятора — находка",
            any("SignedUninstaller" in b for b in
                signing_problems(build, iss.replace("SignedUninstaller=yes", ""), signer)))

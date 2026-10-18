@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import re
@@ -19,6 +20,10 @@ import tempfile
 from harness import BOT, Result, _rmtree_settled  # noqa: E402
 
 ISS = BOT.parent / "installer" / "DentPilot.iss"
+SHELL_CONF = BOT.parent / "shell" / "tauri.conf.json"
+# Папка программы так, как её собирает Build-Installer.ps1 и кладёт мастер
+# (контракт Tauri § 1): оболочка + движок папкой.
+PROG = BOT.parent / "dist" / "DentPilot"
 
 
 def _src() -> str:
@@ -210,12 +215,84 @@ def suite_pascal_comments(res: Result) -> None:
            + " | ".join(dots))
 
 
+def tauri_layout_problems(s: str, aumid: str) -> list[str]:
+    """Нарушения раскладки Tauri в тексте `.iss` (Т9, контракт § 1) словами.
+
+    Текст, а не файл: та же функция проверяется на испорченных копиях."""
+    bad = []
+    files = s[s.index("[Files]"):s.index("[Icons]")] if "[Files]" in s and "[Icons]" in s else ""
+    if 'Source: "..\\dist\\DentPilot\\{#AppExeName}"; DestDir: "{app}"' not in files:
+        bad.append("оболочка DentPilot.exe не кладётся в корень программы из dist\\DentPilot")
+    eng = next((ln for ln in files.splitlines()
+                if 'Source: "..\\dist\\DentPilot\\{#EngineDir}\\*"' in ln), "")
+    tail = files[files.find(eng):files.find(eng) + 300] if eng else ""
+    if not eng or 'DestDir: "{app}\\{#EngineDir}"' not in tail or "recursesubdirs" not in tail:
+        bad.append("движок не кладётся папкой engine\\ целиком (recursesubdirs)")
+    if not re.search(r'#define EngineDir\s+"engine"', s) or \
+            not re.search(r'#define EngineExe\s+"DentPilot-Engine.exe"', s):
+        bad.append("имя папки или exe движка не то, что ищет оболочка (engine\\DentPilot-Engine.exe)")
+    icons = [ln for ln in s[s.index("[Icons]"):s.index("[Run]")].splitlines()
+             if ln.lstrip().startswith("Name:")] if "[Icons]" in s and "[Run]" in s else []
+    block = s[s.index("[Icons]"):s.index("[Run]")] if icons else ""
+    if not icons or block.count('AppUserModelID: "{#AppUserModelID}"') != len(icons):
+        bad.append("не у каждого ярлыка паспорт AppUserModelID — Windows не покажет уведомления")
+    m = re.search(r'#define AppUserModelID\s+"([^"]+)"', s)
+    if not m or m.group(1) != aumid:
+        bad.append(f"паспорт ярлыка {m.group(1) if m else None!r} не равен identifier оболочки "
+                   f"{aumid!r} (shell/tauri.conf.json) — уведомления не свяжутся с ярлыком")
+    inst = s[s.index("[InstallDelete]"):s.index("[Files]")] if "[InstallDelete]" in s else ""
+    if 'Type: filesandordirs; Name: "{app}\\{#EngineDir}"' not in inst:
+        bad.append("старый движок не убирается перед установкой — лишние файлы прошлой версии останутся в _internal\\")
+    uninst = s[s.index("[UninstallDelete]"):] if "[UninstallDelete]" in s else ""
+    if 'Type: filesandordirs; Name: "{app}\\{#EngineDir}"' not in uninst:
+        bad.append("удаление программы не убирает папку движка")
+    count = s[s.find("function AppProcessCount"):]
+    count = count[:count.find("\nend;")]
+    if "{#EngineDir}\\{#EngineExe}" not in count or " OR ExecutablePath = " not in count:
+        bad.append("тихое обновление ждёт только оболочку — движок держит файлы engine\\ дольше")
+    if "WebView2Missing()" not in s[s.find("procedure CurStepChanged"):]:
+        bad.append("после [Run] нет проверки WebView2 — без него окно оболочки не создаётся, а клиника не узнает")
+    return bad
+
+
+def suite_tauri_layout(res: Result) -> None:
+    """Мастер ставит раскладку Tauri (Т9, 18.10): `{app}\\DentPilot.exe` — оболочка,
+    `{app}\\engine\\` — движок; ярлыки несут паспорт `md.dentpilot.app`.
+
+    ⚠️ Все нарушения тихие: мастер собирается, ставится, ярлык открывает окно —
+    просто уведомлений нет (паспорт), или у клиники копится мусор прошлых
+    движков, или тихое обновление проигрывает гонку движку, ещё держащему
+    файлы. Поэтому правило здесь, а его порчи — рядом."""
+    if not res.ok("tauri.conf.json оболочки на месте", SHELL_CONF.exists(),
+                  "сверять паспорт ярлыка не с чем"):
+        return
+    aumid = json.loads(SHELL_CONF.read_text(encoding="utf-8"))["identifier"]
+    s = _src()
+    res.check("сегодня раскладка Tauri в мастере верна", tauri_layout_problems(s, aumid), [])
+    for label, broken, want in (
+        ("ярлык рабочего стола без паспорта",
+         s.replace('AppUserModelID: "{#AppUserModelID}"; Tasks: desktopicon', "Tasks: desktopicon"),
+         "паспорт"),
+        ("паспорт разошёлся с оболочкой", s.replace('"md.dentpilot.app"', '"md.dentpilot"'), "identifier"),
+        ("движок без подпапок", s.replace("recursesubdirs createallsubdirs", "createallsubdirs"),
+         "recursesubdirs"),
+        ("старый движок не убирается",
+         s.replace('Type: filesandordirs; Name: "{app}\\{#EngineDir}"\n\n[Files]', '\n[Files]'),
+         "перед установкой"),
+        ("ждём только оболочку", s.replace(" OR ExecutablePath = ", " AND ExecutablePath = "),
+         "ждёт только оболочку"),
+    ):
+        got = tauri_layout_problems(broken, aumid)
+        res.ok(f"порча «{label}» — находка", broken != s and any(want in b for b in got),
+               f"находки: {got}" if broken != s else "порча не применилась — якорь устарел")
+
+
 def suite_compiles(res: Result) -> None:
     """Компилируется ли скрипт. ⚠️ Пропуск печатается ВСЛУХ.
 
-    Нужны `ISCC.exe` и собранный `dist\\DentPilot.exe` (его требует [Files]).
-    Молчаливый пропуск был бы ложным зелёным: «проверок нет» выглядело бы как
-    «всё хорошо».
+    Нужны `ISCC.exe` и собранная папка программы `dist\\DentPilot` (оболочка +
+    `engine\\`, её требует [Files]; собирает Build-Installer.ps1). Молчаливый
+    пропуск был бы ложным зелёным: «проверок нет» выглядело бы как «всё хорошо».
     """
     iscc = next((p for p in (
         pathlib.Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Inno Setup 6" / "ISCC.exe",
@@ -225,8 +302,9 @@ def suite_compiles(res: Result) -> None:
     if iscc is None:
         res.ok("ISCC.exe не установлен — компиляция пропущена", True, "")
         return
-    if not (BOT.parent / "dist" / "DentPilot.exe").exists():
-        res.ok("dist\\DentPilot.exe не собран — компиляция пропущена", True, "")
+    if not ((PROG / "DentPilot.exe").exists()
+            and (PROG / "engine" / "DentPilot-Engine.exe").exists()):
+        res.ok("dist\\DentPilot (оболочка + engine\\) не собрана — компиляция пропущена", True, "")
         return
     out = tempfile.mkdtemp(prefix="dp_iss_")
     try:
