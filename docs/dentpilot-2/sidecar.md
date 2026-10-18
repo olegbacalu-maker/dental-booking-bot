@@ -84,9 +84,11 @@ CREATE_NO_WINDOW — строки доходят у обоих, но оконн�
 - Задание Windows и снятие его через 10 с — оболочка (Т6).
 - Правило брандмауэра: `lan.py` и `netcheck` смотрят `sys.executable`, у
   движка это `engine\DentPilot-Engine.exe` (Т9, проверять на Windows).
-- Обновление и сторож перезапуска: `update.py`, `privileged.py`,
-  `restartwatch.py` считают exe программы от `sys.executable` (Т10);
-  `_sweep_previous_version` в движке смотрит `engine\`.
+- Обновление и сторож перезапуска — Т10, сделано 18.10 (ветка
+  `tauri/update`): программа — оболочка (`sidecar.shell_exe`), за UAC корень —
+  `BASE` лаунчера, сторож — копия оболочки `--watch`; [updates.md](updates.md)
+  › «Оболочка Tauri». `_sweep_previous_version` в движке смотрит `engine\` —
+  `.old.exe` там не бывает (подмены у оболочки нет), копию сторожа убирает.
 - Свойства файла: сборка движка берёт ресурс версии программы
   (`OriginalFilename` = `DentPilot.exe`) — Т9 решит, нужен ли свой.
 - Подпись движка — Т9.
