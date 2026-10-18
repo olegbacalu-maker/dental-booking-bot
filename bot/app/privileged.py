@@ -73,7 +73,7 @@ class Refused(Exception):
     не прошёл проверку. Отдельный тип, чтобы отказ не путался со сбоем."""
 
 
-def _set_uninstall_version(args: list[str], data_root=None) -> str:
+def _set_uninstall_version(args: list[str], data_root=None, base=None) -> str:
     """`DisplayVersion` (и версия внутри `DisplayName`) в записи установщика.
 
     ⚠️ Ключ не создаётся никогда: нет записи — нечего и править, это установка
@@ -130,7 +130,35 @@ def _self_exe() -> "pathlib.Path":
     return pathlib.Path(sys.executable).resolve()
 
 
-def _install_update(args: list[str], data_root=None) -> str:
+def _layout(base=None) -> tuple:
+    """(корень программы, файл программы, это ли движок Tauri) — Т10, 18.10.
+
+    ⭐ За UAC с 18.10 бывает движок оболочки: `engine\\DentPilot-Engine.exe`.
+    Программа у него — папка, корень — папка оболочки `DentPilot.exe` (родитель
+    `engine\\`, контракт § 1), и всё «рядом с программой» (копия установщика,
+    версия стоящей программы) живёт там, а не в `engine\\`: папку движка
+    мастер переписывает целиком. Корень передаёт ЛАУНЧЕР (`desktop.BASE`) — он
+    один знает раскладку; без него (прогон) — то же правило по имени exe.
+    ⛔ Опознаётся ПО ИМЕНИ своего файла, а не окружением: повышенный процесс
+    окружения оболочки не получает."""
+    import pathlib
+
+    from .sidecar import ENGINE_EXE            # константа предзагрузочного слоя
+    exe = _self_exe()
+    engine = exe.name.lower() == ENGINE_EXE.lower()
+    if base is not None:
+        root = pathlib.Path(base)
+    else:
+        root = exe.parent.parent if engine else exe.parent
+    return root, (root / "DentPilot.exe" if engine else exe), engine
+
+
+# Подмена одного файла в раскладке оболочки (Т10): программа — папка
+# (`DentPilot.exe` + `engine\\…`), и подменить её одним файлом нельзя ничем.
+ENGINE_NO_SWAP = "программа — папка оболочки Tauri: подмена одного файла невозможна"
+
+
+def _install_update(args: list[str], data_root=None, base=None) -> str:
     """Подменить файл программы новым. ⛔ Ни одного аргумента, ни одного пути.
 
     Источник и назначение исполнитель вычисляет САМ: назначение — это он сам
@@ -175,6 +203,12 @@ def _install_update(args: list[str], data_root=None) -> str:
             pass
         return text
 
+    # ⛔ Движок Tauri (Т10): подмена увела бы `engine\\DentPilot-Engine.exe` в
+    # `.old.exe` и положила на его место один файл без `_internal\\` — мёртвая
+    # программа у всех учёток машины. Просящий сюда не ходит (update.py
+    # отказывает до окна UAC); это — проверка ТОГО, КТО исполняет.
+    if _layout(base)[2]:
+        return done(ENGINE_NO_SWAP)
     if not new.exists():
         return done("нет файла обновления")
     size = new.stat().st_size
@@ -264,15 +298,19 @@ def _spawn_setup(setup, result, log) -> None:
                      creationflags=detached, close_fds=True)
 
 
-def _install_setup(args: list[str], data_root=None) -> str:
+def _install_setup(args: list[str], data_root=None, base=None) -> str:
     """Поставить новую версию подписанным установщиком. ⛔ Ни одного аргумента.
 
     Источник — условленное имя в папке клиники, назначение копии — папка
-    программы (`SETUP_DIR` рядом с этим exe); оба исполнитель вычисляет сам.
+    программы (`SETUP_DIR` в её корне); оба исполнитель вычисляет сам.
     Порядок: копия (исходник убран) → проверки копии → итог «started» → пауза,
     чтобы программа успела закрыться сама → установщик отдельно. Дальше итог («ok»/«fail») пишет
     установщик, а перезапуск делает задача планировщика от обычного пользователя,
     заведённая программой ДО запроса прав.
+    ⚠️ У движка Tauri (Т10) корень — папка оболочки, а не `engine\\`
+    (`_layout`): копия мастера в `engine\\updates` лежала бы в папке, которую
+    сам мастер переписывает, и стоящую версию надо спрашивать у `DentPilot.exe`
+    — это и есть программа, которую видит клиника.
     """
     if args:
         raise Refused(f"операция не принимает аргументов, получено {args!r}")
@@ -281,7 +319,7 @@ def _install_setup(args: list[str], data_root=None) -> str:
     import pathlib
     from . import authenticode
 
-    exe = _self_exe()
+    prog_root, exe, _engine = _layout(base)
     root = data_root() if callable(data_root) else data_root
     if root is None:
         raise Refused("папка клиники не найдена — источник обновления неизвестен")
@@ -303,7 +341,7 @@ def _install_setup(args: list[str], data_root=None) -> str:
     except (OSError, ValueError):
         return done("нет описания обновления")
     # ⛔ Дальше — только КОПИЯ: исходник в папке клиники мог смениться после проверки
-    dst = exe.parent / SETUP_DIR / SETUP_NAME
+    dst = prog_root / SETUP_DIR / SETUP_NAME
     try:
         dst.parent.mkdir(exist_ok=True)
         dst.unlink(missing_ok=True)
@@ -386,7 +424,7 @@ def _reset_hive():
             else winreg.HKEY_CURRENT_USER)
 
 
-def _auth_reset(args: list[str], data_root=None) -> str:
+def _auth_reset(args: list[str], data_root=None, base=None) -> str:
     if args:
         raise Refused(f"у операции нет аргументов, получено {args!r}")
     import getpass
@@ -423,12 +461,14 @@ OPS = {"uninstall-version": _set_uninstall_version,
        "auth-reset": _auth_reset}
 
 
-def run_op(name: str, args: list[str], data_root=None) -> str:
+def run_op(name: str, args: list[str], data_root=None, base=None) -> str:
     """Исполнить операцию. Зовётся УЖЕ в привилегированном процессе.
 
     ⚠️ `data_root` передаёт ЛАУНЧЕР своей же функцией. Считать раскладку здесь
     вторым способом нельзя: у неё три ветки (`$DENTART_DATA_DIR`, портативный
     флаг, `%ProgramData%`), и второй вычислитель разошёлся бы с первым молча.
+    `base` — корень программы от него же (`desktop.BASE`; у движка Tauri —
+    папка оболочки над `engine\\`, `_layout`).
     ⛔ Это НЕ путь из аргументов: значение приходит из кода, а не из argv.
     """
     op = OPS.get(name)
@@ -438,10 +478,10 @@ def run_op(name: str, args: list[str], data_root=None) -> str:
     # Запасной вызов по `TypeError` ловил бы и ошибку ВНУТРИ операции и звал бы
     # её второй раз с другими аргументами: за UAC это худшее, что можно
     # придумать, и выглядело бы как случайный сбой.
-    return op(list(args), data_root)
+    return op(list(args), data_root, base)
 
 
-def handle_argv(argv: list[str], data_root=None) -> int | None:
+def handle_argv(argv: list[str], data_root=None, base=None) -> int | None:
     """`None` — обычный запуск; число — код возврата привилегированного.
 
     ⚠️ Зовётся ПЕРВОЙ строкой лаунчера. Привилегированный процесс обязан
@@ -452,7 +492,7 @@ def handle_argv(argv: list[str], data_root=None) -> int | None:
     if len(argv) < 2 or argv[0] != FLAG:
         return None
     try:
-        print(run_op(argv[1], argv[2:], data_root))
+        print(run_op(argv[1], argv[2:], data_root, base))
         return 0
     except Refused as e:
         print(f"отклонено: {e}", file=sys.stderr)

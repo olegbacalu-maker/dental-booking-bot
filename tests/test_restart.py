@@ -305,3 +305,136 @@ def suite_watch(res: Result) -> None:
         res.check("сторож получил профиль лаунчера", m["plan_profile"], m["watch_own"])
         res.ok("старый профиль в папке данных снесён при запуске сторожа",
                m["old_gone"], "остался — icacls установщика снова обойдёт чужой кэш")
+
+
+# ---------- оболочка Tauri (Т10, 18.10) ----------
+
+_SHELL_CODE = r'''
+import json, os, pathlib, sys
+sys.path.insert(0, r"%s")
+os.environ.pop("DENTART_NO_RESTART", None)
+from app import update as upd
+from app import paths, restartwatch as rw, sidecar
+
+tmp = pathlib.Path(os.environ["DP_TEST_DIR"])
+app_dir = tmp / "Program Files" / "DentPilot"
+app_dir.mkdir(parents=True)
+shell = app_dir / "DentPilot.exe"
+shell.write_bytes(b"OBOLOCHKA")
+sidecar.linked = lambda: True
+where = {"shell": shell}
+sidecar.shell_exe = lambda: where["shell"]
+quits, exits, runs = [], [], []
+answer = {"quit": True}
+sidecar.request_quit = lambda reason: (quits.append(reason), answer["quit"])[1]
+upd._exit_soon = lambda: exits.append(1)
+upd.is_desktop = lambda: True
+paths.is_frozen = lambda: True               # собранный движок: сторож — копия
+
+def fake_schtasks(task, command, arguments, proof, wait):
+    runs.append({"task": task, "command": command, "plan": rw.parse(arguments)})
+    return None
+upd._schtasks_run = fake_schtasks
+out = {}
+
+def plan_of(r):
+    p = r["plan"]
+    return {"task": r["task"], "command": r["command"], "launch": p.launch, "pid": p.pid,
+            "result": str(p.result) if p.result else None}
+
+# --- перезапуск: сторож — сама оболочка, уход — просьба оболочке ---
+out["restart"] = upd.restart_app()
+out["restart_runs"] = [plan_of(r) for r in runs]
+out["restart_quits"], out["restart_exits"] = list(quits), len(exits)
+del runs[:], quits[:], exits[:]
+answer["quit"] = False
+out["restart_nopipe"] = upd.restart_app()
+out["restart_nopipe_quits"], out["restart_nopipe_exits"] = list(quits), len(exits)
+answer["quit"] = True
+del runs[:], quits[:], exits[:]
+
+# --- обновление: сторож — КОПИЯ оболочки в папке клиники ---
+upd.STATE["latest"] = "v99.0.0"
+res_file = upd.work_dir() / "install.result"
+out["update_watch"] = upd._arm_restart_watch(res_file)
+out["update_runs"] = [plan_of(r) for r in runs]
+copy = upd.work_dir() / upd._WATCH_EXE
+out["copy_is_shell"] = copy.exists() and copy.read_bytes() == b"OBOLOCHKA"
+out["copy_path"] = str(copy)
+del runs[:]
+
+# --- оболочку не знаем (движок из исходников) — сторожа нет, программа жива ---
+where["shell"] = None
+out["no_shell"] = upd.restart_app()
+out["no_shell_runs"], out["no_shell_quits"], out["no_shell_exits"] = len(runs), list(quits), len(exits)
+
+# --- движок папкой сам себе не сторож: без _internal\ его копия не запустится ---
+where["shell"] = app_dir / "engine" / "DentPilot-Engine.exe"
+out["engine_copy"] = upd._watch_command(True)
+out["parent"] = os.getppid()
+out["shell_path"] = str(shell)
+print(json.dumps(out))
+''' % str(BOT)
+
+
+def suite_watch_shell(res: Result) -> None:
+    r"""Т10: у оболочки Tauri сторож — сама оболочка `DentPilot.exe --watch`.
+
+    Перезапуск — `{app}\DentPilot.exe --watch`, обновление — её КОПИЯ в папке
+    клиники (мастер закрыл бы сторожа из `{app}`); ждёт сторож выхода
+    ОБОЛОЧКИ (родителя движка), поднимает оболочку. Движок не гасит себя сам —
+    просит оболочку (`quit`). ⛔ Тексты заставки живут дважды (Python-сторож
+    окна pywebview и `shell/src/watch.rs`) — сверяются здесь."""
+    import pathlib
+
+    from app import restartwatch as rw
+
+    with tempfile.TemporaryDirectory(prefix="dp_watchshell_") as td:
+        data = pathlib.Path(td) / "data"
+        data.mkdir()
+        p = subprocess.run([str(PYTHON), "-c", _SHELL_CODE], cwd=str(BOT), text=True,
+                           capture_output=True, encoding="utf-8",
+                           env={**os.environ, "DP_TEST_DIR": td, "DENTART_DATA_DIR": str(data)})
+    if p.returncode != 0:
+        res.failed.append(("сторож у оболочки: запуск", p.stderr[-900:]))
+    else:
+        o = json.loads(p.stdout.strip().splitlines()[-1])
+        shell = o["shell_path"]
+        res.check("перезапуск у оболочки: пошёл", o["restart"], None)
+        res.check("сторож перезапуска — сама оболочка, поднимает оболочку, ждёт оболочку",
+                  o["restart_runs"], [{"task": "DentPilotRestart", "command": shell, "launch": [shell],
+                                       "pid": o["parent"], "result": None}])
+        res.ok("уход — просьбой к оболочке, не os._exit",
+               o["restart_quits"] == ["restart"] and o["restart_exits"] == 0, repr(o))
+        res.ok("трубы к оболочке нет — прежний выход через секунду",
+               o["restart_nopipe"] is None and o["restart_nopipe_quits"] == ["restart"]
+               and o["restart_nopipe_exits"] == 1, repr(o))
+        u = o["update_runs"]
+        res.ok("сторож обновления — КОПИЯ оболочки в папке клиники, ждёт итог мастера",
+               o["update_watch"] is None and o["copy_is_shell"] and len(u) == 1
+               and u[0]["command"] == o["copy_path"] and u[0]["launch"] == [shell]
+               and u[0]["pid"] == o["parent"] and u[0]["result"].endswith("install.result")
+               and "Program Files" not in o["copy_path"], repr((u, o["copy_path"])))
+        res.ok("оболочка не найдена — отказ словами, программа жива, оболочку не просят",
+               o["no_shell"] and "DentPilot.exe" in o["no_shell"] and o["no_shell_runs"] == 0
+               and o["no_shell_quits"] == [] and o["no_shell_exits"] == 0, repr(o))
+        res.ok("движок папкой себе не сторож (без _internal копия мертва)",
+               isinstance(o["engine_copy"], str), repr(o["engine_copy"]))
+
+    # ---- два сторожа — одни слова (до снятия окна pywebview, Т11) ----
+    src = (pathlib.Path(__file__).resolve().parents[1] / "shell" / "src" / "watch.rs")
+    rs = src.read_text(encoding="utf-8") if src.exists() else ""
+    res.ok("сторож оболочки на месте", "fn decide" in rs, f"{src} не найден или переписан")
+    for name in ("TEXT_INSTALL", "TEXT_RESTART", "TEXT_CLOSING", "TEXT_NEW", "TEXT_ROLLBACK"):
+        text = getattr(rw, name)
+        res.ok(f"текст заставки у обоих сторожей: {name}",
+               f'const {name}: &str = "{text}";' in rs, f"в watch.rs нет «{text}»")
+    for what, line in (("метка режима", f'pub const FLAG: &str = "{rw.FLAG}";'),
+                       ("«без итога»", f'const NO_RESULT: &str = "{rw.NO_RESULT}";'),
+                       ("потолок ожидания итога", f"Duration::from_secs({rw.WAIT_S // 60} * 60)"),
+                       ("потолок ожидания выхода", f"Duration::from_secs({int(rw.EXIT_WAIT_S)})")):
+        res.ok(f"сторожа согласны: {what}", line in rs, f"в watch.rs нет `{line}`")
+    main_rs = src.with_name("main.rs").read_text(encoding="utf-8") if src.exists() else ""
+    res.ok("оболочка уходит в сторожа раньше замка «один экземпляр»",
+           0 < main_rs.find("watch::is_watch(&args)") < main_rs.find("tauri_plugin_single_instance::init"),
+           "запущенная сторожем программа нашла бы «первый экземпляр» в нём и закрылась")

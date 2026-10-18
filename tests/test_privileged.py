@@ -655,6 +655,84 @@ def suite_install_setup(res: Result) -> None:
            "в теле операции появился свой запуск")
 
 
+def suite_engine_layout(res: Result) -> None:
+    """Т10 (18.10): за UAC бывает движок оболочки Tauri — `engine\\DentPilot-Engine.exe`.
+
+    Программа у него — папка, корень — папка оболочки над `engine\\` (контракт
+    § 1). ⛔ Две молчаливые поломки, которые здесь держатся: копия мастера в
+    `engine\\updates` легла бы в папку, которую мастер переписывает, а подмена
+    одного файла увела бы движок без его `_internal\\` — мёртвая программа у
+    всех учёток машины."""
+    import hashlib
+    import tempfile
+
+    from app import authenticode, sidecar
+
+    real = (privileged._self_exe, privileged._current_version, privileged._spawn_setup,
+            privileged.START_DELAY, authenticode.signer_thumbprint, authenticode.file_version)
+    spawned: list = []
+    asked_version: list = []
+    with tempfile.TemporaryDirectory(prefix="dp_engine_") as td:
+        tmp = pathlib.Path(td)
+        app_dir = tmp / "Program Files" / "DentPilot"
+        engine = app_dir / "engine" / sidecar.ENGINE_EXE
+        engine.parent.mkdir(parents=True)
+        engine.write_bytes(b"MOTOR")
+        (app_dir / "DentPilot.exe").write_bytes(b"OBOLOCHKA")
+        work = tmp / "data" / privileged.WORK_SUBDIR
+        work.mkdir(parents=True)
+        privileged._self_exe = lambda: engine
+        try:
+            root, prog, is_engine = privileged._layout()
+            res.ok("движок опознан по имени своего файла, корень — над engine\\",
+                   is_engine and root == app_dir and prog == app_dir / "DentPilot.exe",
+                   f"{root} {prog} {is_engine}")
+            res.ok("корень от лаунчера важнее вычисления по месту",
+                   privileged._layout(tmp / "kornen")[0] == tmp / "kornen", "")
+
+            # ---- подмена одного файла: отказ, ничего не тронуто ----
+            new = work / (engine.stem + privileged.NEW_SUFFIX)
+            new.write_bytes(b"MZ" + b"\0" * 5_200_000)
+            out = privileged.run_op("install-update", [], lambda: tmp / "data", app_dir)
+            res.check("подмена у движка отказывает словами", out, privileged.ENGINE_NO_SWAP)
+            res.ok("движок и папка не тронуты, итог записан файлом",
+                   engine.read_bytes() == b"MOTOR"
+                   and not engine.with_name(engine.stem + privileged.OLD_SUFFIX).exists()
+                   and (work / privileged.RESULT_NAME).read_text(encoding="utf-8")
+                   == privileged.ENGINE_NO_SWAP, "подмена началась")
+            new.unlink()
+
+            # ---- мастер: копия в КОРНЕ программы, версия — у DentPilot.exe ----
+            body = b"MZ" + b"\0" * 5_300_000
+            (work / privileged.SETUP_NEW).write_bytes(body)
+            (work / privileged.REQUEST_NAME).write_text(json.dumps(
+                {"size": len(body), "sha256": hashlib.sha256(body).hexdigest()}), encoding="utf-8")
+            privileged._spawn_setup = lambda setup, result, log: spawned.append(setup)
+            privileged.START_DELAY = 0
+            # учебный файл не подписан: подпись и версию отвечают швы — здесь
+            # проверяется КУДА и У КОГО, а не Authenticode (suite_install_setup)
+            authenticode.signer_thumbprint = lambda p: next(iter(privileged.SIGNERS))
+            authenticode.file_version = lambda p: (99, 0, 0, 0)
+            privileged._current_version = lambda e: (asked_version.append(e), (1, 0, 0, 0))[1]
+            out = privileged.run_op("install-setup", [], lambda: tmp / "data", app_dir)
+            copy = app_dir / privileged.SETUP_DIR / privileged.SETUP_NAME
+            res.check("мастер у движка пошёл", out, privileged.STARTED)
+            res.ok("копия мастера — в корне программы, не в engine\\",
+                   spawned == [copy] and copy.exists()
+                   and not (engine.parent / privileged.SETUP_DIR).exists(), repr(spawned))
+            res.ok("стоящая версия — у оболочки DentPilot.exe, а не у движка",
+                   asked_version == [app_dir / "DentPilot.exe"], repr(asked_version))
+        finally:
+            (privileged._self_exe, privileged._current_version, privileged._spawn_setup,
+             privileged.START_DELAY, authenticode.signer_thumbprint, authenticode.file_version) = real
+
+    # лаунчер отдаёт корень своим BASE: у собранного движка это папка оболочки
+    desk = (pathlib.Path(__file__).resolve().parents[1] / "bot" / "desktop.py").read_text(encoding="utf-8")
+    res.ok("лаунчер передаёт исполнителю свой корень (BASE)",
+           "privileged.handle_argv(sys.argv[1:], data_root, BASE)" in desk,
+           "за UAC корень считался бы вторым способом — копия мастера уехала бы в engine\\")
+
+
 def suite_update_paths(res: Result) -> None:
     """⛔ Рядом с exe больше НЕ ПИШЕТСЯ ничего.
 

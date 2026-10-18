@@ -61,10 +61,10 @@ BREAKS = [
      "в реестр пишет только privileged.py"),
 
     ("лаунчер зовёт привилегированное ПОСЛЕ корня", DESK,
-     [("if (_code := privileged.handle_argv(sys.argv[1:], data_root)) is not None:\n"
+     [("if (_code := privileged.handle_argv(sys.argv[1:], data_root, BASE)) is not None:\n"
        "    raise SystemExit(_code)\n", ""),
       ("ROOT, _verdict = relocate.root_for(ROOT)",
-       "if (_code := privileged.handle_argv(sys.argv[1:], data_root)) is not None:\n"
+       "if (_code := privileged.handle_argv(sys.argv[1:], data_root, BASE)) is not None:\n"
        "    raise SystemExit(_code)\n"
        "ROOT, _verdict = relocate.root_for(ROOT)")],
      None, "и спрашивает ДО вычисления корня", "лаунчер"),
@@ -77,9 +77,14 @@ BREAKS = [
      "    old = exe.with_name(exe.stem + OLD_SUFFIX)",
      "в исполнителе нет: запуск процесса"),
 
+    # ⚠️ Кусок — с телом именно `install-update`: начало «if args: raise
+    # Refused(» с 03.10 есть у трёх операций, и поломка не вносилась вовсе
+    # («ПРОМАХ»), пока сторож считался исправным (найдено 18.10, Т10).
     ("операция берёт путь аргументом", PRIV,
-     "    if args:\n        raise Refused(",
-     "    if False:\n        raise Refused(",
+     '    if args:\n        raise Refused(f"операция не принимает аргументов, получено {args!r}")\n'
+     "    import hashlib\n    import json\n    import pathlib\n\n    exe = _self_exe()",
+     '    if False:\n        raise Refused(f"операция не принимает аргументов, получено {args!r}")\n'
+     "    import hashlib\n    import json\n    import pathlib\n\n    exe = _self_exe()",
      "путь снаружи отвергнут"),
 
     ("прежняя программа удаляется", PRIV,
@@ -101,6 +106,52 @@ BREAKS = [
      "    if not exe_dir_writable():\n        return _install_privileged(new_path, exe)",
      "    if True:\n        return _install_privileged(new_path, exe)",
      "портативной раскладке окно UAC не показывается"),
+
+    # ---- Т10: движок оболочки Tauri за UAC и путь обновления у оболочки (18.10) ----
+    ("движок за UAC подменяет себя одним файлом", PRIV,
+     "    if _layout(base)[2]:\n        return done(ENGINE_NO_SWAP)\n",
+     "",
+     "подмена у движка отказывает словами"),
+
+    ("копия мастера у движка ложится в engine", PRIV,
+     "    dst = prog_root / SETUP_DIR / SETUP_NAME",
+     "    dst = _self_exe().parent / SETUP_DIR / SETUP_NAME",
+     "копия мастера — в корне программы"),
+
+    ("стоящую версию спрашивают у движка, а не у оболочки", PRIV,
+     "    prog_root, exe, _engine = _layout(base)",
+     "    prog_root, _prog, _engine = _layout(base)\n    exe = _self_exe()",
+     "стоящая версия — у оболочки"),
+
+    ("лаунчер не отдаёт исполнителю свой корень", DESK,
+     "privileged.handle_argv(sys.argv[1:], data_root, BASE)",
+     "privileged.handle_argv(sys.argv[1:], data_root)",
+     "лаунчер передаёт исполнителю свой корень"),
+
+    ("рычаг DENTART_UPDATE_VIA=exe снова отнимает обновление у оболочки", UPD,
+     "        if not _shell():\n            return False\n",
+     "        return False\n",
+     "рычаг DENTART_UPDATE_VIA=exe у оболочки не действует"),
+
+    ("у оболочки переносимая папка молчит «обновляться нечем»", UPD,
+     "    if _shell() and newer_available() and not installer_mode():",
+     "    if False:",
+     "переносимая: отказ словами"),
+
+    ("у оболочки подмена exe снова идёт за UAC", UPD,
+     "    if _shell():\n        # ⛔ Т10: подмена увела бы движок",
+     "    if False:\n        # ⛔ Т10: подмена увела бы движок",
+     "подмена за UAC у оболочки отказывает"),
+
+    ("движок гасит себя сам при живой оболочке", UPD,
+     "    if sidecar.request_quit(reason):",
+     "    if sidecar.request_quit(reason) and False:",
+     "без os._exit"),
+
+    ("сторож у оболочки ждёт движок, а не оболочку", UPD,
+     "    return os.getppid() if _shell() else os.getpid()",
+     "    return os.getpid()",
+     "сторож ждёт выхода ОБОЛОЧКИ"),
 
     # ---- P4.3 ----
     ("привилегированный процесс НЕ выходит", PRIV,

@@ -9,6 +9,11 @@
   где программа станет папкой (updates.md › «Порядок с 03.10», шаг 2).
 - self_update(): скачивает exe-ассет релиза, подменяет себя через bat-скрипт
   и перезапускается — «обновление в один клик» для desktop-издания.
+- ⭐ Движок оболочки Tauri (Т10, 18.10, `docs/dentpilot-2/updates.md` › «Оболочка
+  Tauri»): программа — папка (`DentPilot.exe` + `engine\\`), поэтому ТОЛЬКО
+  установщиком; подмена одного файла (рычаг `DENTART_UPDATE_VIA=exe`, флешка)
+  отказывает словами. Сторож — копия оболочки `--watch`, а не этот exe; закрыть
+  программу — `sidecar.request_quit`, а не `os._exit` (`_leave`).
 Для теста механики без релиза: env DENTART_FAKE_UPDATE_URL=<url exe>."""
 from __future__ import annotations
 
@@ -32,6 +37,7 @@ from . import privileged
 from . import repo
 from . import restartwatch
 from . import brand
+from . import sidecar
 from . import update_server as us
 
 log = logging.getLogger("update")
@@ -124,6 +130,20 @@ def is_desktop() -> bool:
     return bool(getattr(sys, "frozen", False))
 
 
+def _shell() -> bool:
+    """Процесс — движок оболочки Tauri (Т10). ⛔ Спрашивать связь, а не
+    окружение (`sidecar.linked`, sidecar.md › «Для Т10»)."""
+    return sidecar.linked()
+
+
+# Подмена одного exe в режиме оболочки (Т10). Программа — папка, и рычаг
+# `DENTART_UPDATE_VIA=exe`, и флешка (`portable.flag`, папка пишется) упираются
+# в одно: подменить её одним файлом нельзя. Человеку — что делать вместо.
+SHELL_NO_SWAP = ("această instalare DentPilot nu se poate actualiza automat: programul "
+                 "este un dosar întreg, nu un singur fișier — instalați versiunea nouă "
+                 "cu programul de instalare de pe dentpilot.md")
+
+
 def work_dir() -> pathlib.Path:
     """Куда обновление пишет СВОИ файлы: скачанный exe, скрипт, метку задачи.
 
@@ -143,6 +163,13 @@ def work_dir() -> pathlib.Path:
     return d
 
 
+def _program_dir() -> pathlib.Path:
+    """Папка программы. У движка оболочки — папка `DentPilot.exe` (корень
+    считает лаунчер, `sidecar.shell_exe`), а не `engine\\`; иначе — своего exe."""
+    shell = sidecar.shell_exe() if _shell() else None
+    return shell.parent if shell is not None else pathlib.Path(sys.executable).resolve().parent
+
+
 def exe_dir_writable() -> bool:
     """Можно ли подменить программу без прав администратора.
 
@@ -152,7 +179,7 @@ def exe_dir_writable() -> bool:
     может быть размечен как угодно, а у Windows есть перенаправление папок.
     """
     try:
-        d = pathlib.Path(sys.executable).resolve().parent
+        d = _program_dir()
         probe = d / f".dp-write-{os.getpid()}"
         probe.write_bytes(b"")
         probe.unlink()
@@ -226,18 +253,36 @@ def installer_mode() -> bool:
     ⚠️ Решает СТОЯЩАЯ версия, поэтому клиники приезжают на 1.37.3 ещё подменой
     exe, а установщиком — начиная со следующего выпуска.
     ⚠️ `DENTART_UPDATE_VIA=exe` в dental.env — аварийный рычаг назад на подмену
-    exe; читает его ОБЫЧНЫЙ процесс, привилегированная сторона окружения не видит."""
+    exe; читает его ОБЫЧНЫЙ процесс, привилегированная сторона окружения не видит.
+    ⛔ У движка оболочки (Т10) рычаг НЕ действует: назад идти некуда — подмена
+    одного файла папку не обновит, а строка, оставшаяся в dental.env с прежних
+    времён, молча отняла бы у клиники единственный путь обновления."""
     if (os.environ.get("DENTART_UPDATE_VIA") or "").strip().lower() == "exe":
-        return False
+        if not _shell():
+            return False
+        if not _VIA_IGNORED:                # зовётся на каждой странице — в лог один раз
+            _VIA_IGNORED.append(1)
+            log.warning("DENTART_UPDATE_VIA=exe не действует у оболочки Tauri — обновление установщиком")
     return bool(STATE["setup_url"]) and not exe_dir_writable() and uninstall_entry()["found"]
 
 
+_VIA_IGNORED: list = []
+
+
 def can_self_update() -> bool:
+    if _shell():
+        # программа — папка: обновляет её только установщик (Т10)
+        return is_desktop() and newer_available() and installer_mode()
     return is_desktop() and newer_available() and (bool(STATE["asset_url"]) or installer_mode())
 
 
 def asset_pending() -> bool:
-    """Новая версия видна, но обновиться нечем: ни файла программы, ни установщика."""
+    """Новая версия видна, но обновиться нечем: ни файла программы, ни установщика.
+    У оболочки «ещё не приложен» — только установщик: файл программы ей не нужен,
+    а переносимая папка без установщика ждать нечего не будет (её путь — ручной,
+    «link»), и пятиминутная перепроверка там выедала бы квоту GitHub вечно."""
+    if _shell():
+        return newer_available() and not STATE["setup_url"]
     return newer_available() and not STATE["asset_url"] and not installer_mode()
 
 
@@ -746,6 +791,22 @@ def _exit_soon() -> None:
     threading.Thread(target=_die, daemon=True).start()
 
 
+def _leave(reason: str) -> None:
+    """Уйти, когда сторож уже заведён (а для обновления — установщик пошёл).
+
+    ⭐ С оболочкой Tauri (Т10) движок себя НЕ гасит: он просит оболочку
+    закрыться (`quit`, контракт § 2), та прячет окно и останавливает движок
+    словом `stop` — честно, с закрытой базой и сброшенным `-wal`. `os._exit`
+    оставил бы оболочку с экраном «s-a oprit neașteptat» поверх заставки
+    сторожа, а сторож ждал бы её выхода до потолка.
+    ⛔ Ответ «нет» (оболочки нет — окно pywebview, сервер; или труба порвана)
+    — прежний путь: погасить себя через секунду."""
+    if sidecar.request_quit(reason):
+        log.warning("оболочка попрошена закрыться (%s)", reason)
+        return
+    _exit_soon()
+
+
 def restart_app() -> str | None:
     """Перезапуск программы (без замены exe) — для применения токена и т.п."""
     if not is_desktop():
@@ -755,11 +816,13 @@ def restart_app() -> str | None:
     # ⭐ С 11.10 — сторож с заставкой (`_spawn_watch`), а не bat с чёрным окном
     # cmd. Файла итога нет: сторож ждёт только выхода ЭТОГО процесса и запускает
     # программу снова. Копия exe не нужна — файлы программы не меняются.
+    # У оболочки (Т10) сторож — сама `DentPilot.exe --watch`, ждёт выхода
+    # оболочки и поднимает её снова.
     if err := _spawn_watch(None, "DentPilotRestart", eng.APP_VERSION, copy=False):
         # планировщик не отработал: гасить процесс нельзя — вернуть его будет
         # некому, а экран уже умеет сказать «закройте и откройте сами»
         return err
-    _exit_soon()
+    _leave("restart")
     return None
 
 
@@ -775,6 +838,9 @@ def _install_privileged(new_path: pathlib.Path, exe: pathlib.Path) -> str | None
     ⛔ Отказ человека в UAC — нормальный исход, а не сбой: программа остаётся
     жива и продолжает приём, а экран честно говорит, что обновление не встало.
     """
+    if _shell():
+        # ⛔ Т10: подмена увела бы движок `engine\` без его `_internal\` — до окна UAC
+        return SHELL_NO_SWAP
     work = work_dir()
     result = work / privileged.RESULT_NAME
     result.unlink(missing_ok=True)
@@ -872,7 +938,12 @@ def _verify_file(path: pathlib.Path, want_size: int, digest: str) -> str | None:
 
 def _program_cmd() -> list[str]:
     """Команда запуска программы: сам exe; из исходников — лаунчер интерпретатором
-    (стенд `launcher_accept`, прогон)."""
+    (стенд `launcher_accept`, прогон). У движка оболочки (Т10) программа — это
+    ОБОЛОЧКА `DentPilot.exe` (контракт § 1: «другого exe ярлык и сторож не
+    знают»): движок без неё — сервер без окна."""
+    shell = sidecar.shell_exe() if _shell() else None
+    if shell is not None:
+        return [str(shell)]
     exe = str(pathlib.Path(sys.executable).resolve())
     if paths.is_frozen():
         return [exe]
@@ -884,16 +955,31 @@ def _watch_command(copy: bool) -> list[str] | str:
     установщик закрывает всё, что держит заменяемые файлы (`/CLOSEAPPLICATIONS`),
     а запущенный exe держит собственный образ — сторож из `Program Files`
     погиб бы вместе с программой (разбор в `restartwatch`). Без установки —
-    сам exe. Из исходников — интерпретатор + лаунчер. str = копия не записалась."""
+    сам exe. Из исходников — интерпретатор + лаунчер. str = копия не записалась.
+    ⭐ У движка оболочки (Т10) сторож — копия ОБОЛОЧКИ (`_program_cmd`): она
+    одна, 3–4 МБ, страницы заставки вшиты, а режим `--watch` у неё свой
+    (`shell/src/watch.rs`). ⛔ Копировать сам движок нельзя: собранный папкой,
+    он без `_internal\\` рядом не запустится."""
     cmd = _program_cmd()
     if not copy or not paths.is_frozen():
         return cmd
+    if pathlib.Path(cmd[0]).name.lower() == sidecar.ENGINE_EXE.lower():
+        return "motorul DentPilot nu poate porni singur supravegherea actualizării"
     dst = work_dir() / _WATCH_EXE
     try:
         shutil.copy2(cmd[0], dst)
     except OSError as e:
         return f"copia programului pentru repornire nu s-a putut scrie ({e})"
     return [str(dst)]
+
+
+def _watch_pid() -> int:
+    """Чей выход сторож ждёт перед запуском программы. Обычно — этого процесса.
+    ⭐ У движка оболочки (Т10) — ОБОЛОЧКИ, родителя движка: она гасит движок
+    сама и выходит последней, а новая оболочка при живой старой отдала бы
+    запуск ей (один экземпляр) и закрылась. Сторож вдобавок ждёт любой
+    `DentPilot.exe` той же папки в своём сеансе (`watch.rs`)."""
+    return os.getppid() if _shell() else os.getpid()
 
 
 def _primary() -> str:
@@ -926,7 +1012,13 @@ def _spawn_watch(result: pathlib.Path | None, task: str, label: str, copy: bool)
     перезапуск), `label` — слово на заставке. None = пошёл, str = не вышло.
     ⭐ Заводится ДО запроса прав — те же причины, что и у прежнего bat: тихий
     установщик закроет программу сам, а запуск из-под установщика шёл бы от
-    повышенного токена, и `db.key` завернулся бы под чужой DPAPI."""
+    повышенного токена, и `db.key` завернулся бы под чужой DPAPI.
+    ⛔ Оболочку из исходников (`cargo run`) сторож поднять не может — её
+    окружения разработки у задачи планировщика нет; собранному движку
+    оболочку называет лаунчер (`sidecar.shell_exe`)."""
+    if _shell() and sidecar.shell_exe() is None:
+        return ("fereastra DentPilot (DentPilot.exe) nu a fost găsită — "
+                "închideți programul și porniți-l din nou")
     cmd = _watch_command(copy)
     if isinstance(cmd, str):
         return cmd
@@ -940,7 +1032,7 @@ def _spawn_watch(result: pathlib.Path | None, task: str, label: str, copy: bool)
     old = work / _OLD_WATCH_PROFILE
     if old != profile and old.exists():
         shutil.rmtree(old, ignore_errors=True)
-    plan = restartwatch.Plan(proof=proof, task=task, result=result, pid=os.getpid(),
+    plan = restartwatch.Plan(proof=proof, task=task, result=result, pid=_watch_pid(),
                              label=label, primary=_primary(), profile=profile,
                              launch=_program_cmd())
     return _schtasks_run(task, cmd[0], [*cmd[1:], *restartwatch.argv_for(plan)], proof,
@@ -1037,7 +1129,9 @@ def _update_by_setup() -> str | None:
             out = ""
         if out == privileged.STARTED:
             log.warning("обновление установщиком пошло: %s", STATE["latest"])
-            _exit_soon()
+            # оболочка закроется сама и остановит движок до запуска мастера
+            # (`START_DELAY` за UAC), без оболочки — выход через секунду
+            _leave("update")
             return None
         if out:
             _give_up(result, new)
@@ -1083,6 +1177,11 @@ def _self_update() -> str | None:
     # ставила бы ту же версию — то есть закрывала журнал всей клинике посреди
     # приёма ради ничего (а на машине, обогнавшей канал, ещё и откатывала бы
     # программу назад поверх уже мигрированной базы).
+    if _shell() and newer_available() and not installer_mode():
+        # ⛔ Т10: всё, кроме установщика, ниже — подмена одного exe, а у оболочки
+        # программа — папка (флешка, установка копированием). Слово — до гейта:
+        # «обновляться нечем» соврало бы, файл-то в выпуске есть
+        return SHELL_NO_SWAP
     if not can_self_update():
         return "обновляться нечем: в релизе нет файла программы новее текущего"
     if installer_mode():

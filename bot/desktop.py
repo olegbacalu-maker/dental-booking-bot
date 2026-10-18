@@ -138,7 +138,9 @@ from app import privileged  # noqa: E402 — предзагрузочный сл
 # portable.flag, %ProgramData%), и второй вычислитель разошёлся бы с этим
 # молча. ⛔ Окружение сюда не доезжает: повышенный процесс запускает Windows,
 # а не мы, и `$DENTART_DATA_DIR`, выставленный лаунчером, в нём не виден.
-if (_code := privileged.handle_argv(sys.argv[1:], data_root)) is not None:
+# Корень программы — тоже наш (BASE): у движка Tauri это папка оболочки над
+# `engine\`, туда операция кладёт копию мастера (Т10).
+if (_code := privileged.handle_argv(sys.argv[1:], data_root, BASE)) is not None:
     raise SystemExit(_code)
 
 # ⭐ Сторож перезапуска (11.10): планировщик зовёт этот же exe (копию — см.
@@ -179,7 +181,7 @@ def _watch_mode(argv: list[str]) -> int | None:
     verdict: dict = {"v": "", "text": None}
 
     def work(stage) -> None:
-        stage("Se instalează actualizarea…" if plan.result else "Se repornește DentPilot…", 12, 70)
+        stage(restartwatch.TEXT_INSTALL if plan.result else restartwatch.TEXT_RESTART, 12, 70)
         verdict["v"] = restartwatch.wait_for(plan, stage)
         verdict["text"] = restartwatch.read_result(plan.result)
         if verdict["v"] == "start":

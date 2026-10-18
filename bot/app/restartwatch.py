@@ -27,6 +27,14 @@ bat-файл, который планировщик Windows запускал в 
 (`/RESULT=`), «cancelled» — программа, когда отказалась от обновления сама.
 Слова те же, что узнавал bat (`"%r%"=="ok"` и т.д., канарейка 03.10: «ok» без
 перевода строки — тоже «ok»).
+
+⭐ С оболочкой Tauri (Т10, 18.10) сторож — НЕ этот модуль: в движке нет
+pywebview, поэтому сторожем идёт копия оболочки `DentPilot.exe --watch …`
+(`shell/src/watch.rs`) с теми же аргументами (`argv_for`), словами итога и
+текстами заставки. ⛔ Тексты ниже — в константах, и `test_restart` сверяет их
+с `watch.rs`: сторожей два до снятия окна pywebview (Т11), и разошедшийся
+текст не краснеет ничем другим. В режиме оболочки `pid` — оболочка (родитель
+движка): она гасит движок сама и выходит последней.
 """
 from __future__ import annotations
 
@@ -42,6 +50,13 @@ WAIT_S = 9 * 60
 # застанет мьютекс занятым и уйдёт «фокусировать первое окно», которого нет
 EXIT_WAIT_S = 60.0
 NO_RESULT = "-"
+
+# Слова заставки сторожа — те же в `shell/src/watch.rs` (сверяет test_restart)
+TEXT_INSTALL = "Se instalează actualizarea…"
+TEXT_RESTART = "Se repornește DentPilot…"
+TEXT_CLOSING = "Se închide versiunea curentă…"
+TEXT_NEW = "Se pornește versiunea nouă…"
+TEXT_ROLLBACK = "Actualizarea nu s-a instalat — se pornește versiunea curentă…"
 
 
 @dataclass
@@ -143,7 +158,7 @@ def wait_for(plan: Plan, stage=None, step: float = 0.5, timeout: float = WAIT_S,
         return "done"
     t1 = clock()
     while plan.pid and pid_alive(plan.pid) and clock() - t1 < exit_wait:
-        say("Se închide versiunea curentă…", 80, 92)
+        say(TEXT_CLOSING, 80, 92)
         sleep(step)
     return "start"
 
@@ -153,5 +168,5 @@ def outcome_text(result_text: str | None) -> str:
     nouă», откатилось — честно сказать, что осталась прежняя."""
     t = (result_text or "").strip()
     if t.startswith("fail"):
-        return "Actualizarea nu s-a instalat — se pornește versiunea curentă…"
-    return "Se pornește versiunea nouă…"
+        return TEXT_ROLLBACK
+    return TEXT_NEW
