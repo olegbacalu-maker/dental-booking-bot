@@ -80,6 +80,19 @@ Name: "ro"; MessagesFile: "compiler:Default.isl"
 [Messages]
 SetupAppTitle=Instalare
 SetupWindowTitle=Instalare — %1
+; Заголовки деинсталлятора: его окно и окна-сообщения, начиная с
+; подтверждения удаления.
+UninstallAppTitle=Dezinstalare
+UninstallAppFullTitle=Dezinstalare — %1
+InformationTitle=Informație
+ConfirmTitle=Confirmare
+ErrorTitle=Eroare
+SetupAlreadyRunning=Instalarea este deja pornită.
+; ArchitecturesAllowed=x64compatible: на 32-битной Windows клиника видит это
+OnlyOnTheseArchitectures=DentPilot se instalează doar pe Windows pe 64 de biți. Arhitecturi acceptate:%n%n%1
+AdminPrivilegesRequired=Instalarea trebuie pornită de un cont de administrator al calculatorului.
+; ⚠️ Точку в конце НЕ ставить там, где её нет в Default.isl: Inno допишет сам.
+ErrorCreatingDir=Instalarea nu a putut crea folderul «%1»
 ExitSetupTitle=Ieșire din instalare
 ExitSetupMessage=Instalarea nu este terminată. Dacă ieșiți acum, programul nu va fi instalat.%n%nSigur doriți să ieșiți?
 ButtonBack=< Îna&poi
@@ -92,13 +105,35 @@ ButtonWizardBrowse=Răs&foiește...
 ButtonYes=&Da
 ButtonNo=&Nu
 ButtonOK=OK
+ButtonNewFolder=Folder &nou
 ClickNext=Apăsați «Înainte» pentru a continua sau «Anulează» pentru a ieși.
+; окно «Răsfoiește» со страницы выбора папки
+BrowseDialogTitle=Alegeți folderul
+BrowseDialogLabel=Alegeți un folder din listă, apoi apăsați «OK».
+NewFolderName=Folder nou
+WelcomeLabel1=Bun venit la instalarea DentPilot
+; WelcomeLabel2 здесь НЕ задаётся: текст под приветствием собирает
+; InitializeWizard из ro.WelcomeText — с настоящим путём к данным.
+; ⚠️ Имя секции кода в комментариях выше неё не писать: test_installer режет
+; файл по ПЕРВОМУ его вхождению.
 WizardSelectDir=Alegeți folderul de instalare
 SelectDirDesc=Unde să fie instalat DentPilot?
 SelectDirLabel3=Programul va fi instalat în folderul de mai jos.
 SelectDirBrowseLabel=Apăsați «Înainte» pentru a continua. Pentru alt folder apăsați «Răsfoiește».
 DiskSpaceGBLabel=Este nevoie de cel puțin [gb] GB spațiu liber.
 DiskSpaceMBLabel=Este nevoie de cel puțin [mb] MB spațiu liber.
+; отказы той же страницы, когда папку вводят руками
+InvalidPath=Introduceți calea completă, cu litera discului, de exemplu:%n%nC:\Program Files\DentPilot
+InvalidDrive=Discul sau calea de rețea aleasă nu există sau nu este accesibilă. Alegeți alt folder.
+DiskSpaceWarningTitle=Spațiu insuficient pe disc
+DiskSpaceWarning=Pentru instalare este nevoie de cel puțin %1 KB liberi, dar pe discul ales sunt disponibili doar %2 KB.%n%nContinuați totuși?
+DirNameTooLong=Numele folderului sau calea este prea lungă.
+InvalidDirName=Numele folderului nu este valid.
+BadDirName32=Numele folderului nu poate conține caracterele:%n%n%1
+DirExistsTitle=Folderul există
+DirExists=Folderul:%n%n%1%n%nexistă deja. Instalați totuși în el?
+DirDoesntExistTitle=Folderul nu există
+DirDoesntExist=Folderul:%n%n%1%n%nnu există. Să fie creat?
 WizardSelectTasks=Acțiuni suplimentare
 SelectTasksDesc=Ce trebuie făcut în plus?
 SelectTasksLabel2=Alegeți ce doriți, apoi apăsați «Înainte».
@@ -110,10 +145,44 @@ ReadyMemoDir=Folder:
 ReadyMemoTasks=Acțiuni suplimentare:
 WizardPreparing=Se pregătește
 PreparingDesc=Se pregătește instalarea...
+PreviousInstallNotCompleted=Instalarea sau ștergerea unui program anterior nu a fost terminată: calculatorul trebuie repornit.%n%nDupă repornire porniți din nou instalarea DentPilot.
+; CloseApplications=yes: ручная установка поверх открытой программы встаёт на
+; этой странице — Restart Manager предлагает закрыть DentPilot.
+; ApplicationsFound2 — вариант для RestartApplications=yes (сейчас no).
+ApplicationsFound=Următoarele programe folosesc fișiere pe care instalarea trebuie să le actualizeze. Se recomandă ca instalarea să le închidă singură.
+ApplicationsFound2=Următoarele programe folosesc fișiere pe care instalarea trebuie să le actualizeze. Se recomandă ca instalarea să le închidă singură; după instalare ele vor fi pornite din nou.
+CloseApplications=Închide &automat programele
+DontCloseApplications=&Nu închide programele
+ErrorCloseApplications=Instalarea nu a putut închide automat toate programele. Înainte de a continua, închideți programele care folosesc fișierele de actualizat.
 WizardInstalling=Se instalează
 InstallingLabel=Vă rugăm să așteptați...
+StatusClosingApplications=Se închid programele...
+StatusCreateDirs=Se creează folderele...
 StatusExtractFiles=Se copiază fișierele...
 StatusCreateIcons=Se creează scurtăturile...
+StatusCreateRegistryEntries=Se înregistrează programul în Windows...
+StatusSavingUninstall=Se salvează informațiile pentru dezinstalare...
+StatusRunProgram=Se finalizează instalarea...
+StatusRollback=Se anulează modificările...
+; Отказ копирования: exe так и остался занят (Restart Manager не смог закрыть
+; программу, например открытую под другой учёткой Windows) — эти окна.
+SetupAborted=Instalarea nu a fost terminată.%n%nRezolvați problema și porniți instalarea din nou.
+AbortRetryIgnoreSelectAction=Alegeți ce faceți
+AbortRetryIgnoreRetry=Încearcă din &nou
+AbortRetryIgnoreIgnore=&Ignoră eroarea și continuă
+AbortRetryIgnoreCancel=Anulează instalarea
+RetryCancelSelectAction=Alegeți ce faceți
+RetryCancelRetry=Încearcă din &nou
+RetryCancelCancel=Anulează
+ErrorFunctionFailedNoCode=%1 a eșuat
+ErrorFunctionFailed=%1 a eșuat; cod %2
+ErrorFunctionFailedWithMessage=%1 a eșuat; cod %2.%n%3
+ErrorExecutingProgram=Fișierul nu a putut fi pornit:%n%1
+FileAbortRetryIgnoreSkipNotRecommended=&Sari peste acest fișier (nerecomandat)
+FileAbortRetryIgnoreIgnoreNotRecommended=&Ignoră eroarea și continuă (nerecomandat)
+ErrorCreatingTemp=A apărut o eroare la crearea unui fișier în folderul de instalare:
+ErrorRenamingTemp=A apărut o eroare la redenumirea unui fișier în folderul de instalare:
+ErrorReplacingExistingFile=A apărut o eroare la înlocuirea fișierului existent:
 StatusUninstalling=Se dezinstalează...
 FinishedHeadingLabel=Instalare terminată
 FinishedLabel=DentPilot a fost instalat. La prima pornire veți seta un PIN pentru registru.
@@ -121,8 +190,14 @@ FinishedLabelNoIcons=DentPilot a fost instalat.
 ClickFinish=Apăsați «Gata» pentru a închide.
 RunEntryExec=Pornește %1
 ConfirmUninstall=Sigur doriți să ștergeți DentPilot?
+OnlyAdminCanUninstall=DentPilot poate fi dezinstalat doar de un cont de administrator al calculatorului.
+WizardUninstalling=Dezinstalare în curs
 UninstallStatusLabel=Vă rugăm să așteptați, se șterge programul...
 UninstalledAll=DentPilot a fost șters.
+UninstalledMost=Dezinstalarea DentPilot s-a încheiat.%n%nUnele elemente nu au putut fi șterse; le puteți șterge manual.
+; на экране выключения Windows, если его нажали посреди тихого обновления
+ShutdownBlockReasonInstallingApp=Se instalează %1.
+ShutdownBlockReasonUninstallingApp=Se dezinstalează %1.
 ; ⛔ Встроенное сообщение Inno, БЕЗ префикса языка: в этом файле один язык.
 ; Показывается СРАЗУ ПОСЛЕ нашего отказа из PrepareToInstall, и без перевода
 ; клиника видела английскую строку в румынской программе — поймано живым
@@ -135,6 +210,11 @@ CannotContinue=Instalarea nu poate continua. Apăsați «Anulează» pentru a ie
 ; здесь (в [Messages] компилятор их не признаёт)
 ro.CreateDesktopIcon=Scurtătură pe desktop
 ro.AdditionalIcons=Scurtături:
+; LaunchProgram — тоже встроенное: флажок запуска на последней странице
+; ([Run], postinstall). Слово то же, что RunEntryExec в [Messages].
+ro.LaunchProgram=Pornește %1
+; %1 — версия, %2 — папка данных (DataRoot); собирает InitializeWizard
+ro.WelcomeText=Se va instala DentPilot %1 — registrul clinicii — pe acest calculator.%n%nDatele clinicii (baza de date, setările, copiile de rezervă) stau separat de program, în folderul:%n%2%n%nLa actualizare și la dezinstalare ele rămân pe loc.
 ro.DemoDataTask=Umple registrul cu programări demonstrative (DOAR pentru prezentare, nu pentru lucru)
 ro.InstallingWebView2=Se instalează componenta Microsoft pentru afișare (WebView2)…
 ro.NoWriteTitle=Nu se poate pregăti dosarul cu date
@@ -333,6 +413,20 @@ end;
 function DataRoot(): String;
 begin
   Result := ExpandConstant('{commonappdata}\{#AppName}');
+end;
+
+// Текст страницы приветствия — с НАСТОЯЩИМ путём к данным, а не с его
+// описанием: описание протухает молча (21.09 семь текстов уехали клиникам
+// с «рядом с exe»), а значение из того же места, куда пишет установщик, — нет.
+// ClickNext дописываем сами: Inno приклеивает его к WelcomeLabel2, когда
+// строит страницу, а здесь подпись заменяется целиком.
+// ⛔ Строка кода не может НАЧИНАТЬСЯ с «#13»: препроцессор примет её за свою
+// директиву и уронит компиляцию («Unknown preprocessor directive»).
+procedure InitializeWizard();
+begin
+  WizardForm.WelcomeLabel2.Caption :=
+    FmtMessage(CustomMessage('WelcomeText'), ['{#AppVersion}', DataRoot()])
+    + #13#10#13#10 + SetupMessage(msgClickNext);
 end;
 
 { Есть ли на машине СТАРАЯ установка — та, где данные лежат рядом с exe.
