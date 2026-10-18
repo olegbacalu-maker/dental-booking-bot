@@ -365,12 +365,10 @@ async def shutdown() -> None:
         _done, left = await asyncio.wait(bg, timeout=STOP_TASKS_S)
         if left:
             log.warning("остановка: %d фоновых задач не снялись за %.0f с", len(left), STOP_TASKS_S)
-    conn = db._CONN
-    if conn is not None:
-        try:
-            await conn.close()
-        except Exception as e:  # noqa: BLE001 — остановка обязана дойти до конца
-            log.warning("остановка: база не закрылась: %r", e)
+    try:
+        await db.close()
+    except Exception as e:  # noqa: BLE001 — остановка обязана дойти до конца
+        log.warning("остановка: база не закрылась: %r", e)
 
 
 @app.get("/health")

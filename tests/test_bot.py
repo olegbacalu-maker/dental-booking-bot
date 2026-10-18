@@ -42,7 +42,7 @@ async def main():
         "tg:900001", "Din Telegram", "069900111", "ro",
         "Consultatie", "Dr. Activ Doi", datetime.fromisoformat(%r),
         source="bot", doctor_id="d2", service_id="consult"))
-    await db._CONN.close()   # иначе поток aiosqlite не даёт процессу выйти
+    await db.close()   # иначе поток aiosqlite не даёт процессу выйти
 
 asyncio.run(main())
 """

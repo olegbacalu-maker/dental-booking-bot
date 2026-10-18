@@ -693,11 +693,12 @@ def suite_engine_text(res: Result) -> None:
     main_src = (BOT / "app" / "main.py").read_text(encoding="utf-8")
     k = main_src.find('@app.on_event("shutdown")')
     stop_src = main_src[k:main_src.find("@app.get", k)] if k > 0 else ""
-    res.ok("гашение приложения закрывает базу", "await conn.close()" in stop_src
-           and "conn = db._CONN" in stop_src,
-           "поток aiosqlite не фоновый: без закрытия процесс не выйдет")
+    res.ok("гашение приложения закрывает базу через модуль db (db.close)",
+           "await db.close()" in stop_src and "_CONN" not in stop_src,
+           "поток aiosqlite не фоновый: без закрытия процесс не выйдет; "
+           "соединение — только через db (драйвер может быть sqlcipher3)")
     res.ok("и снимает фоновые задачи РАНЬШЕ базы",
-           0 < stop_src.find("t.cancel()") < stop_src.find("await conn.close()"), "")
+           0 < stop_src.find("t.cancel()") < stop_src.find("await db.close()"), "")
 
     # сборка движка папкой
     build = BOT.parent / "Build-Engine.ps1"

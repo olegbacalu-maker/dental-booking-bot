@@ -1157,6 +1157,18 @@ async def init(seed_rows: list | None = None) -> None:
     await seed(seed_rows)
 
 
+async def close() -> None:
+    """Закрыть картотеку (гашение приложения, `main.shutdown`; Т5, 18.10).
+    ⛔ Без этого процесс не выходит: поток соединения aiosqlite НЕ фоновый, и
+    после остановки uvicorn интерпретатор ждёт его вечно. Закрытие последнего
+    соединения сбрасывает `-wal` в базу. Повторный вызов и вызов до `init`
+    (восстановление, битый профиль) — ничего не делают."""
+    global _CONN
+    conn, _CONN = _CONN, None
+    if conn is not None:
+        await conn.close()
+
+
 async def backfill_ids(doc_map: dict, svc_map: dict) -> None:
     """Проставляет doctor_id/service_id старым записям по ТЕКУЩЕМУ конфигу
     (имя→id, подпись ro/ru→id). Идемпотентно: трогает только NULL. Записи

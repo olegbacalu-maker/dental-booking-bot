@@ -125,8 +125,7 @@ def _worker_setup(tmpdir: str) -> None:
             st, _loc, _b = await call("GET", "/admin/setup", "127.0.0.1")
             print("broken_local_get", st)
         finally:
-            if db._CONN is not None:
-                await db._CONN.close()   # иначе поток aiosqlite держит процесс
+            await db.close()   # иначе поток aiosqlite держит процесс
 
     asyncio.run(main())
 
@@ -447,8 +446,7 @@ def _worker_stale(tmpdir: str) -> None:
             texts, _rows = await eng.handle(s, "web:alive", "confirm")
             print("alive_booked", "Gata!" in " ".join(texts))
         finally:
-            if db._CONN is not None:
-                await db._CONN.close()
+            await db.close()
 
     asyncio.run(main())
 
@@ -538,8 +536,7 @@ def _worker_delete(tmpdir: str) -> None:
             await db.delete_patient_fully(pid)
             print("all_deleted", sum((await counts(pid)).values()) == 0)
         finally:
-            if db._CONN is not None:
-                await db._CONN.close()
+            await db.close()
 
     asyncio.run(main())
 
@@ -650,8 +647,7 @@ def _worker_session(tmpdir: str) -> None:
             print("stale_not_alive", not eng.session_alive("web:stale2"))
             print("alive_alive", eng.session_alive("web:fresh"))
         finally:
-            if db._CONN is not None:
-                await db._CONN.close()
+            await db.close()
 
     asyncio.run(main())
 
@@ -951,8 +947,7 @@ def _worker_peers(tmpdir: str) -> None:
             try:
                 await _probes()
             finally:
-                if db._CONN is not None:
-                    await db._CONN.close()
+                await db.close()
 
     asyncio.run(main())
 

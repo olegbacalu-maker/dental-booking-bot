@@ -223,7 +223,7 @@ async def main():
         aid, "d3", "Dr. Activ Trei", start + timedelta(hours=26), when="test")
     out["after_doctor"] = await flags(aid)
     print(json.dumps(out))
-    await db._CONN.close()   # иначе поток aiosqlite не даёт процессу выйти
+    await db.close()   # иначе поток aiosqlite не даёт процессу выйти
 
 asyncio.run(main())
 """

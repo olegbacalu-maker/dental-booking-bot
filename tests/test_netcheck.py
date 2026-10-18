@@ -203,8 +203,7 @@ def _worker_peers(tmpdir: str) -> None:
                 seen = netcheck.lines(lan._PEERS)
                 print("line", seen[0].split(",")[0] if seen else "-")
             finally:
-                if db._CONN is not None:
-                    await db._CONN.close()
+                await db.close()
 
     asyncio.run(main())
 
