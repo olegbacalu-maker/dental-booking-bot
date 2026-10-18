@@ -80,10 +80,12 @@ def _fatal_dir(path: pathlib.Path, err: Exception) -> None:
 def _box(msg: str) -> None:
     """Сказать клинике вслух. ⛔ Единственный способ на этом этапе: сборка идёт
     `--noconsole`, лога может ещё не быть, а `sys.excepthook` ставится позже.
-    ⛔ У движка Tauri окон нет вовсе (контракт § 2): предупреждение — в лог,
-    беда — событием `fatal` у того, кто её обнаружил."""
+    ⛔ У движка Tauri окон нет вовсе (контракт § 2): предупреждение уходит
+    оболочке событием `warn` (окно рисует она), беда — событием `fatal` у
+    того, кто её обнаружил."""
     if SHELL is not None:
-        logging.warning("(fără fereastră, motor Tauri) %s", msg)
+        logging.warning("(motor Tauri: warn) %s", msg)
+        SHELL.warn(msg)
         return
     try:
         import ctypes
@@ -278,7 +280,7 @@ def _engine_crash(kind, value, tb) -> None:
 # в трубу оболочки).
 _SHELL_TOKEN = os.environ.get(sidecar.TOKEN_ENV, "")
 if sidecar.active():
-    SHELL = sidecar.take()
+    SHELL = sidecar.take(BASE)
 if SHELL is not None:
     sys.excepthook = _engine_crash
     # ⛔ Движок из ИСХОДНИКОВ без явной папки данных ушёл бы в
@@ -530,7 +532,9 @@ if _port_raw and envfile.parse_port(_port_raw) is None:
                   f"(un număr între 1 și 65535).")
     if os.environ.get("DENTART_BROWSER_MODE") == "1":
         print(_port_warn)
-    elif SHELL is None:             # у движка окон нет: строка в логе выше
+    elif SHELL is not None:         # у движка окон нет: покажет оболочка
+        SHELL.warn(_port_warn)
+    else:
         try:
             import ctypes
             ctypes.windll.user32.MessageBoxW(None, _port_warn, "DentPilot", 0x30)

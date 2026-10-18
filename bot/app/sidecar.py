@@ -6,7 +6,7 @@
 
 Оболочка запускает движок с `DENTART_SHELL=tauri` и трубами на stdin/stdout:
 - движок → оболочка: строки `DP1 <json>` (`hello`, `stage`, `ready`, `busy`,
-  `fatal`, `quit`) — и больше в эту трубу НИЧЕГО;
+  `warn`, `fatal`, `quit`) — и больше в эту трубу НИЧЕГО;
 - оболочка → движок: строка `{"v":1,"cmd":"stop"}` или закрытый stdin —
   честно остановиться (это же и «оболочка исчезла»).
 
@@ -42,6 +42,7 @@ QUIT_REASONS = ("update", "restart")
 # Труба этого процесса к оболочке; None — оболочки нет (окно pywebview,
 # браузерный режим, сервер). Ставит `take`, читают функции ниже.
 _LINK: "Link | None" = None
+_BASE = None                   # корень программы от лаунчера (`shell_exe`)
 
 # STD_INPUT/OUTPUT/ERROR_HANDLE — (DWORD)-10/-11/-12
 _STD = {0: 0xFFFFFFF6, 1: 0xFFFFFFF5, 2: 0xFFFFFFF4}
@@ -64,6 +65,8 @@ class Link:
         self._lock = threading.Lock()
         # путь лога для `fatal`: лаунчер ставит, когда папка данных известна
         self.log = ""
+        self._hello = False
+        self._warns: list[str] = []
 
     def send(self, event: str, **fields) -> bool:
         # ASCII: диакритика уезжает экранами \\uXXXX — строке всё равно, в
@@ -74,9 +77,25 @@ class Link:
             try:
                 self._out.write(line + "\n")
                 self._out.flush()
-                return True
+                ok = True
             except (OSError, ValueError):
-                return False
+                ok = False
+            if event == "hello":
+                self._hello = True
+        if event == "hello":
+            for text in self._warns:
+                self.send("warn", text=text)
+            self._warns.clear()
+        return ok
+
+    def warn(self, text: str) -> None:
+        """`warn` (§ 2): запуск идёт, но человеку надо знать. ⚠️ Беды этого
+        рода находятся на верху модуля, раньше `hello`, — копятся до него:
+        первым словом движка остаётся `hello`, по нему оболочка красит окно."""
+        if self._hello:
+            self.send("warn", text=text)
+        else:
+            self._warns.append(text)
 
     def listen(self, on_stop) -> threading.Thread | None:
         """Читать stdin в фоне: `stop` или конец трубы — `on_stop(причина)`
@@ -113,12 +132,14 @@ def command(line: str) -> str:
     return cmd if isinstance(cmd, str) else ""
 
 
-def take() -> Link | None:
+def take(base=None) -> Link | None:
     """Забрать у процесса настоящие stdin и stdout — для оболочки, — а на их
     место положить пустое устройство (почему — в шапке модуля). Ручки трубы
     остаются только у нас: `os.dup` отдаёт ненаследуемый дескриптор.
+    `base` — корень программы, как его посчитал лаунчер (`shell_exe`).
     Нет stdout (нечем говорить) — None, и лаунчер пойдёт без протокола."""
-    global _LINK
+    global _LINK, _BASE
+    _BASE = base
     out = _reopen(1, "w")
     if out is None:
         return None
@@ -159,6 +180,18 @@ def linked() -> bool:
     """Говорит ли этот процесс с оболочкой. ⛔ Спрашивать ЭТО, а не окружение:
     `DENTART_SHELL` в окружении может оказаться и без оболочки."""
     return _LINK is not None
+
+
+def shell_exe():
+    """Путь оболочки `DentPilot.exe` установленной программы — для того, кто
+    ссылается на неё снаружи (запуск вместе с Windows, § 2: значение Run).
+    ⭐ Корень знает ОДИН лаунчер (`desktop.exe_dir`) и отдаёт его сюда при
+    `take`: второй вычислитель того же места разошёлся бы с ним молча.
+    None — оболочки нет или движок не собранный (из исходников оболочка —
+    `cargo run`, ярлыка у неё нет)."""
+    if _LINK is None or _BASE is None or not getattr(sys, "frozen", False):
+        return None
+    return _BASE / "DentPilot.exe"
 
 
 def _reopen(fd: int, mode: str):

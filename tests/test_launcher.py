@@ -556,7 +556,22 @@ def suite_sidecar(res: Result) -> None:
         t.join(5)
         res.check(f"слушатель: {label}", got, [want])
 
+    # warn (§ 2): беды верха модуля находятся раньше hello — копятся до него
+    out = io.StringIO()
+    lk = sidecar.Link(out)
+    lk.warn("install.json: stricat")
+    res.check("warn до hello не пишется", out.getvalue(), "")
+    lk.send("hello", version="1", color="#000000", pid=1)
+    lk.warn("DENTART_PORT invalid")
+    got = [_json.loads(ln[4:]) for ln in out.getvalue().splitlines()]
+    res.check("hello первым, затем накопленный warn, затем новый",
+              [(g["event"], g.get("text")) for g in got],
+              [("hello", None), ("warn", "install.json: stricat"),
+               ("warn", "DENTART_PORT invalid")])
+
     res.check("quit без оболочки — False, прежний путь", sidecar.request_quit("update"), False)
+    res.check("путь оболочки без оболочки — None (галочки «вместе с Windows» нет)",
+              sidecar.shell_exe(), None)
     try:
         sidecar.request_quit("bye")
         raised = False
@@ -636,7 +651,7 @@ def suite_engine_text(res: Result) -> None:
     живой прогон не увидит: порядок шагов модуля, ветки без окон, сборка."""
     from app import sidecar
     desk = (BOT / "desktop.py").read_text(encoding="utf-8")
-    take = desk.find("SHELL = sidecar.take()")
+    take = desk.find("SHELL = sidecar.take(BASE)")
     res.ok("трубы забираются у процесса", take > 0, "вызова take нет — протокола нет")
     res.ok("и ПОСЛЕ привилегированного запуска и сторожа",
            0 < desk.find("privileged.handle_argv(") < take
@@ -662,6 +677,10 @@ def suite_engine_text(res: Result) -> None:
            "контракт § 2: беда уходит событием fatal")
     for ev in ("hello", "stage", "ready", "busy", "fatal"):
         res.ok(f"движок говорит {ev}", f'"{ev}"' in body, "")
+    res.ok("предупреждения верха модуля уходят оболочке (warn), а не в окно",
+           desk.count("SHELL.warn(") == 2 and "SHELL.warn(msg)" in desk
+           and "SHELL.warn(_port_warn)" in desk,
+           "install.json или DENTART_PORT снова молчат у движка или рисуют окно")
     res.ok("коды выхода — из sidecar (0/2/3)",
            (sidecar.EXIT_STOP, sidecar.EXIT_FATAL, sidecar.EXIT_BUSY) == (0, 2, 3)
            and "sidecar.EXIT_BUSY" in body and "sidecar.EXIT_FATAL" in body, "")

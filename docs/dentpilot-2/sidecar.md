@@ -21,9 +21,10 @@
   `stage` — те же четыре этапа, что у заставки окна; `ready` — после `/health`
   с отпечатком; `busy` — мьютекс или `/health` чужого экземпляра на порту;
   `fatal` — папка данных, чужой порт, сервер не поднялся или упал, исключение
-  до верха модуля (`sys.excepthook` движка), затем код 2. Окон нет ни в одной
-  ветке; предупреждения (нечитаемый `install.json`, битый `DENTART_PORT`) —
-  только в лог: события «предупреждение» в контракте нет.
+  до верха модуля (`sys.excepthook` движка), затем код 2; `warn` —
+  нечитаемый `install.json`, битый `DENTART_PORT` (в окне это было окно
+  Windows): находятся на верху модуля раньше `hello` и копятся до него
+  (`Link.warn`), первым словом остаётся `hello`. Окон нет ни в одной ветке.
 - **Остановка:** строка `{"cmd":"stop"}` (версия не сверяется — остановка
   безопасна при любой) или закрытый stdin → `server.should_exit`, запросам 4 с
   (`timeout_graceful_shutdown`), всему — 8 с, затем `os._exit` с кодом
@@ -41,7 +42,9 @@
   `DENTART_SHELL_TOKEN` ставятся или снимаются жёстко (строкой в файле
   клиники не включить режим и не подбросить токен `/shell/notices`). Код
   приложения спрашивает оболочку только `sidecar.linked()`; для Т10 —
-  `sidecar.request_quit("update" | "restart")`.
+  `sidecar.request_quit("update" | "restart")`; для галочки «вместе с
+  Windows» (§ 2) — `sidecar.shell_exe()`: `<BASE>\DentPilot.exe` от того же
+  вычисления корня, что у лаунчера, `None` без оболочки и из исходников.
 - **Движок из исходников без `DENTART_DATA_DIR` — `fatal`:** иначе он открыл
   бы `%ProgramData%\DentPilot`, живую картотеку машины разработчика.
 - **Ротация лога** (`bot/app/logrotate.py`): `dentpilot.log` 2 МБ × 3. Файл
@@ -61,8 +64,13 @@
 `scripts/engine_check.py` — оболочка-харнесс на Python: трубы,
 CREATE_NO_WINDOW, своё задание Windows, лаборатория с `DENTART_DATA_DIR`.
 Сценарии: строка stop, закрытый stdin, второй экземпляр, чужой порт, слово
-под заставкой; у собранного ещё корень над `engine\` (по `demo.flag`) и обход
-страниц `tests/smoke_exe.py`. Из исходников его гоняет прогон
+под заставкой; у собранного ещё корень над `engine\` (по `demo.flag`, битый
+`install.json` оттуда даёт `warn`) и обход страниц `tests/smoke_exe.py`.
+Подсистема выбрана опытом 18.10: два крошечных onedir-exe с трубами и
+CREATE_NO_WINDOW — строки доходят у обоих, но оконный на необработанной
+ошибке открыл «Unhandled exception in script» и висел (> 8 с), консольный
+вышел с кодом 1 и строкой в stderr. Окно pywebview после правок — стенд
+`launcher_accept` (`.\dev bench launcher`) 30/30. Из исходников его гоняет прогон
 (`test_launcher.suite_engine`), собранный — `Build-Engine.ps1`. Рядом —
 `suite_sidecar`, `suite_logrotate`, `suite_engine_text` (порядок шагов модуля,
 ветка без окон, флаги сборки).

@@ -22,7 +22,8 @@ stdin и stdout, БЕЗ консоли (CREATE_NO_WINDOW), в своём зад�
   early  stdin закрыт сразу после hello → код 0, ready не было: сервер не
          поднимали
   base   (--exe) корень программы — родитель `engine\\`: `demo.flag` оттуда
-         дал демо-профиль клиники
+         дал демо-профиль клиники, битый `install.json` оттуда — `warn`
+         после `hello`, запуск идёт
 Из исходников тот же список гоняет прогон (`test_launcher.suite_engine`);
 собранный — сборка движка (`Build-Engine.ps1`).
 ⛔ Лаборатория называет себя корнем данных и TEMP (правило стендов
@@ -87,6 +88,8 @@ class Lab:
             shutil.copytree(exe.parent, prog / "engine")
             if not smoke:
                 (prog / "demo.flag").write_text("", encoding="ascii")
+                # битый install.json: при первом старте — warn, запуск идёт
+                (prog / "install.json").write_text("{stricat", encoding="ascii")
             self.exe = prog / "engine" / exe.name
         if smoke:
             self.data.mkdir()
@@ -279,6 +282,11 @@ def scenario_stop(res: Result, lab: Lab, timing: dict) -> None:
             res.check("hello: pid процесса движка", first.get("pid"), e.proc.pid)
         else:
             res.ok("hello: pid — число", isinstance(first.get("pid"), int), repr(first))
+        if lab.exe is not None:
+            warns = [ev for ev in e.events if ev.get("event") == "warn"]
+            res.ok("битый install.json: warn после hello, запуск идёт",
+                   len(warns) == 1 and "install.json" in warns[0].get("text", "")
+                   and e.kinds().index("warn") == 1, repr(e.kinds()) + repr(warns))
         stages = [ev for ev in e.events if ev.get("event") == "stage"]
         res.check("stage: те же этапы, что у заставки окна",
                   [s.get("text") for s in stages], STAGES)
