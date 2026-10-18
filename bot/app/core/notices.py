@@ -24,6 +24,7 @@ import os
 from datetime import timedelta
 
 from .. import engine as eng
+from .. import sidecar
 from .. import update as upd
 from . import license as lic
 from . import sms_loop
@@ -102,7 +103,7 @@ def items() -> dict:
 
 # ---------- кто спрашивает ----------
 
-TOKEN_ENV = "DENTART_SHELL_TOKEN"         # 32 hex на каждый запуск оболочки (контракт § 2)
+TOKEN_ENV = sidecar.TOKEN_ENV             # 32 hex на каждый запуск оболочки (контракт § 2)
 HEADER = "X-DentPilot-Shell"
 TOKEN_MIN = 32
 

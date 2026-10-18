@@ -12,11 +12,13 @@ HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run =
 
 ⭐ Состояние — ФАКТ из реестра, а не запись в настройках: галочку снимают и в
 «Диспетчере задач › Автозагрузка», и экран обязан это увидеть.
-⛔ Только в режиме движка (`DENTART_SHELL=tauri`) у собранной программы: у
-окна pywebview и в браузере оболочки, которую запускать, нет.
+⛔ Только у собранного движка под оболочкой: путь даёт `sidecar.shell_exe()`
+(корень программы считает ОДИН лаунчер — `desktop.exe_dir`), None — галочки
+нет (окно pywebview, сервер, исходники).
 ⛔ Прогон настоящую автозагрузку разработчика не трогает: из исходников
-галочка есть только с подставным ключом и exe (`KEY_ENV`, `EXE_ENV`), а у
-собранной программы эти переменные не читаются вовсе.
+строка есть только у стенда прогона — `DENTART_SHELL=tauri` и ОБЕ его
+переменные (`KEY_ENV` — свой подключ HKCU, `EXE_ENV` — «оболочка»); у
+собранной программы они не читаются вовсе.
 """
 from __future__ import annotations
 
@@ -24,14 +26,14 @@ import os
 import pathlib
 import sys
 
-from ... import paths
+from ... import paths, sidecar
 from . import lan
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 VALUE = "DentPilot"
 TRAY_ARG = "--tray"
-KEY_ENV = "DENTART_AUTOSTART_KEY"        # прогон: подключ HKCU вместо Run
-EXE_ENV = "DENTART_AUTOSTART_EXE"        # прогон: путь «оболочки» вместо BASE
+KEY_ENV = "DENTART_AUTOSTART_KEY"        # стенд прогона: подключ HKCU вместо Run
+EXE_ENV = "DENTART_AUTOSTART_EXE"        # стенд прогона: путь «оболочки»
 
 LAN_HINT = ("Accesul din rețea este pornit: fără această bifă, după repornirea "
             "calculatorului telefoanele și celelalte calculatoare nu deschid jurnalul "
@@ -40,36 +42,38 @@ OTHER = "Acum Windows pornește alt DentPilot:"
 FAIL = "Windows nu a permis schimbarea pornirii automate — reîncercați."
 
 
-def shell_mode() -> bool:
-    """Движок под оболочкой Tauri (контракт § 2)."""
-    return os.environ.get("DENTART_SHELL", "").strip().lower() == "tauri"
-
-
 def shell_exe() -> pathlib.Path | None:
-    """`<BASE>\\DentPilot.exe` — что записать в Run; None — галочке не место.
-
-    ⚠️ ВРЕМЕННАЯ: BASE режима движка вводит Т5 (контракт § 1 — родитель папки
-    `engine\\`, где лежит движок). Тело заменяется его функцией, имя остаётся."""
-    if not paths.is_frozen():
-        raw = os.environ.get(EXE_ENV, "").strip()
-        return pathlib.Path(raw) if raw and os.environ.get(KEY_ENV, "").strip() else None
-    return pathlib.Path(sys.executable).resolve().parent.parent / "DentPilot.exe"
+    """`<BASE>\\DentPilot.exe` — что записать в Run; None — галочки нет."""
+    return sidecar.shell_exe()
 
 
-def _key() -> str:
-    alt = "" if paths.is_frozen() else os.environ.get(KEY_ENV, "").strip()
-    return alt or RUN_KEY
+def _stand() -> tuple[str, pathlib.Path] | None:
+    """Стенд прогона (только исходники): свой подключ и своя «оболочка»."""
+    if paths.is_frozen() or not sidecar.active():
+        return None
+    key = os.environ.get(KEY_ENV, "").strip()
+    exe = os.environ.get(EXE_ENV, "").strip()
+    return (key, pathlib.Path(exe)) if key and exe else None
+
+
+def _target() -> tuple[str, pathlib.Path] | None:
+    """(подключ HKCU, exe оболочки) — куда и что писать; None — строки нет."""
+    stand = _stand()
+    if stand is not None:
+        return stand
+    exe = shell_exe()
+    return (RUN_KEY, exe) if exe is not None else None
 
 
 def command(exe: pathlib.Path) -> str:
     return f'"{exe}" {TRAY_ARG}'
 
 
-def _read() -> str | None:
+def _read(key: str) -> str | None:
     """Значение в реестре как записано; None — значения нет."""
     import winreg
     try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _key()) as k:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key) as k:
             return str(winreg.QueryValueEx(k, VALUE)[0])
     except OSError:
         return None
@@ -84,10 +88,11 @@ def state() -> dict | None:
     """Модель строки «Pornire» экрана Stare sistem; None — строки нет.
     `other` — наше значение указывает на ДРУГОЙ exe (старая папка, флешка):
     галочка снята, а включение перепишет его на этот."""
-    exe = shell_exe()
-    if sys.platform != "win32" or not shell_mode() or exe is None or not exe.is_file():
+    t = _target()
+    if sys.platform != "win32" or t is None or not t[1].is_file():
         return None
-    cur = _read()
+    key, exe = t
+    cur = _read(key)
     on = cur is not None and _same(cur, command(exe))
     return {"on": on, "other": f"{OTHER} {cur}" if cur and not on else "",
             "hint": LAN_HINT if lan.enabled() and not on else ""}
@@ -97,16 +102,17 @@ def apply(on: bool) -> bool:
     """Включить или снять. False — Windows не дал (права на ключ, политика).
     Снятие убирает только НАШЕ имя значения: чужие записи Run не наши."""
     import winreg
-    exe = shell_exe()
-    if exe is None:
+    t = _target()
+    if t is None:
         return False
+    key, exe = t
     try:
         if on:
-            with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, _key(), 0,
+            with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, key, 0,
                                     winreg.KEY_SET_VALUE) as k:
                 winreg.SetValueEx(k, VALUE, 0, winreg.REG_SZ, command(exe))
-        elif _read() is not None:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _key(), 0,
+        elif _read(key) is not None:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key, 0,
                                 winreg.KEY_SET_VALUE) as k:
                 winreg.DeleteValue(k, VALUE)
     except OSError:
