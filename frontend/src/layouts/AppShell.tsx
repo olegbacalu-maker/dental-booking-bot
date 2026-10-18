@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Form, useLocation } from 'react-router'
+import { useCommand } from '../app/bridge'
+import { newApptHref } from '../app/commands'
 import { useLock } from '../app/lock'
 import { AppLink, useProseLinks } from '../components/AppLink'
 import { Icon, iconName } from '../components/Icon'
@@ -110,6 +112,8 @@ function Sidebar({ m }: { m: ShellModel }) {
     setFolded(on)
     rememberFold(on)
   }
+  /* пункт «Vizualizare» окна Tauri — эта же кнопка и её же слова */
+  useCommand('act:fold', !frame.rail && flip, folded ? T.unfold : T.fold)
   return (
     <aside className={frame.rail || folded ? 'side side-rail' : 'side'}>
       <div className="brand">
@@ -169,14 +173,8 @@ function Sidebar({ m }: { m: ShellModel }) {
 function LeaveButton({ m }: { m: ShellModel }) {
   const lock = useLock()
   const [leaving, setLeaving] = useState(false)
-  if (!m.entry.pin || !lock) {
-    return (
-      <AppLink className="who-out" href="/admin/logout" title={T.logout}>
-        <Icon name="power" />
-      </AppLink>
-    )
-  }
   const leave = async () => {
+    if (!lock) return
     setLeaving(true)
     try {
       await auth.logout()
@@ -187,6 +185,15 @@ function LeaveButton({ m }: { m: ShellModel }) {
       }
     }
     lock(m)
+  }
+  /* «Schimbă persoana…» (Ctrl+L) меню окна Tauri — эта же кнопка */
+  useCommand('act:switchUser', m.entry.pin && lock !== null && !leaving && (() => { void leave() }))
+  if (!m.entry.pin || !lock) {
+    return (
+      <AppLink className="who-out" href="/admin/logout" title={T.logout}>
+        <Icon name="power" />
+      </AppLink>
+    )
   }
   return (
     <button type="button" className="who-out" title={T.logout} aria-label={T.logout}
@@ -202,10 +209,9 @@ function Topbar({ m, prose }: { m: ShellModel; prose: (e: React.MouseEvent<HTMLE
   /* «Programare nouă» открывает окно записи дня журнала (`#addform`, 06.10).
      ⭐ Уже стоишь на дне журнала (общем или врача) — окно открывается на ЭТОМ
      дне и у этого врача, а не уводит на сегодня: регистратура смотрит четверг
-     и записывает на четверг. С любой другой страницы — сегодня, как и было. */
-  const onDay = loc.pathname === '/admin/all' || loc.pathname.startsWith('/admin/doctor/')
-  const addHref = onDay ? `${loc.pathname}${loc.search}#addform`
-    : `/admin/all?date=${frame.today}#addform`
+     и записывает на четверг. С любой другой страницы — сегодня, как и было.
+     Правило одно на кнопку и на пункт меню окна Tauri (`newApptHref`). */
+  const addHref = newApptHref(loc.pathname, loc.search, frame.today)
   return (
     <div className="top">
       {/* ⭐ Поиск из шапки — переход роутером (B4.2): `Form` с методом GET

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCommand } from '../../app/bridge'
 import { isPlainClick } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import { asApiError } from '../../services/api'
@@ -61,6 +62,8 @@ export function QuickFind({ navigate = defaultNavigate, debounceMs = 200 }: Prop
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [])
+  /* «Caută pacient…» (Ctrl+F) меню окна Tauri — эта же накладка */
+  useCommand('act:quickfind', () => setOpen(true))
 
   /* Закрыли — забываем ввод: следующий вызов начинается с чистого листа, а не
      с чужого запроса получасовой давности. Забывает РАЗМОНТИРОВАНИЕ накладки,

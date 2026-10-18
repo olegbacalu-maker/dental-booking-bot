@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
+import { useCommand } from '../../app/bridge'
 import { AppLink } from '../../components/AppLink'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { Icon } from '../../components/Icon'
@@ -172,6 +173,12 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
     setMove({ drag: d, target: t })
   }, [drag])
 
+  /* «Excel» дня — у общего журнала; день врача выгрузки не имеет. Ссылка одна
+     на кнопку и на «Exportă în Excel…» меню окна Tauri. */
+  const shown = state.status === 'ready' ? state.data.date : ''
+  const excelUrl = !doctor && shown ? `/admin/export.xlsx?from=${shown}&to=${shown}` : ''
+  useCommand('act:export', excelUrl !== '' && (() => navigate(excelUrl)))
+
   if (state.status === 'leaving') return null
   if (state.status === 'failed') {
     return (
@@ -265,8 +272,8 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
              onClick={(e) => { e.preventDefault(); go(m.date) }}>{T.day}</AppLink>
           <AppLink href={`/admin/week?date=${m.date}`}>{T.week}</AppLink>
         </span>
-        {doctor ? null : (
-          <AppLink href={`/admin/export.xlsx?from=${m.date}&to=${m.date}`}>
+        {excelUrl && (
+          <AppLink href={excelUrl}>
             <Icon name="download" /> {T.excel}
           </AppLink>
         )}

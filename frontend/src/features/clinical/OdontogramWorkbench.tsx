@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useCommand } from '../../app/bridge'
 import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import type { ToastState } from '../../components/Toast'
@@ -137,6 +138,8 @@ export function OdontogramWorkbench({
   const pickLegend = (k: string) => setFilter((f) => (f === k ? null : k))
   const onDouble = (n: number) => { if (!brMode) { c.select(n); setZoom(true) } }
   const closePlan = useCallback(() => setPlan(null), [])
+  /* «Tipărește…» меню окна Tauri — кнопка печати шапки ниже */
+  useCommand('act:print', () => window.print())
   /* «Salvat pentru dintele N» — зуб последней удачной записи; живёт до
      следующей правки (dirty) и показывается только на нём */
   const [savedN, setSavedN] = useState<number | null>(null)

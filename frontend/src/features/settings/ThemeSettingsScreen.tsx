@@ -1,4 +1,5 @@
 import { useCallback, useState, type FormEvent } from 'react'
+import { shellCtxChanged } from '../../app/bridge'
 import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
@@ -136,6 +137,9 @@ export function ThemeSettingsScreen({ navigate = defaultNavigate }: Props) {
          обновил бы только следующий документ, а сетки этой вкладки должны
          открыться уже в новом виде (перемер подписан на атрибут — dashFx) */
       document.documentElement.dataset.card = r.data.card
+      /* полоса меню окна Tauri — в новый цвет клиники сразу, не со следующего
+         документа (без оболочки — ничего) */
+      shellCtxChanged()
       setToast({ tone: r.tone, text: r.text })
     } catch (e) {
       fail(e)

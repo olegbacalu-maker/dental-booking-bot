@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { useCommand } from '../../app/bridge'
 import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
@@ -174,6 +175,12 @@ export function BackupSettingsScreen({ navigate = defaultNavigate }: Props) {
       setBusy(false)
     }
   }
+
+  /* «Fă o copie de rezervă acum» меню окна Tauri — кнопка «Fă o copie acum»
+     ниже: есть, пока ежедневная копия включена и папка задана */
+  const now = state.status === 'ready' ? state.data.auto : null
+  useCommand('act:backupNow', Boolean(now?.enabled && now.folder) && !busy
+    && (() => void call(() => settings.backupRun())))
 
   if (state.status === 'leaving') return null
   const head = <h2><Icon name="save" /> {T.title}</h2>

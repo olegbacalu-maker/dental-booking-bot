@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCommand } from '../../app/bridge'
 import { AppLink } from '../../components/AppLink'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { Icon } from '../../components/Icon'
@@ -197,6 +198,14 @@ export function PatientsSearchScreen({ navigate = defaultNavigate, debounceMs = 
     commit({ ...filters, ...next, page: next.page ?? 1 })
   }
 
+  /* Что видит человек: отбор адреса плюс набранное в поле — его и выгружает
+     «Exportă» (кнопка и пункт меню окна Tauri — одна ссылка). */
+  const cur = typed === null ? filters : { ...filters, q: typed }
+  const exportUrl = `/admin/patients.xlsx${filtersToQuery(cur, false)}`
+  /* Меню окна Tauri: «Exportă în Excel…» и «Pacient nou…» — эти же кнопки */
+  useCommand('act:export', data !== null && (() => navigate(exportUrl)))
+  useCommand('act:newPatient', data !== null && (() => setAdding(true)))
+
   /* Enter в поле — сразу, не дожидаясь паузы (кнопки «Caută» больше нет). */
   function onSearch(e: FormEvent) {
     e.preventDefault()
@@ -213,10 +222,7 @@ export function PatientsSearchScreen({ navigate = defaultNavigate, debounceMs = 
     )
   }
 
-  // Что видит человек: отбор адреса плюс набранное в поле
-  const cur = typed === null ? filters : { ...filters, q: typed }
   const dirty = isDirty(cur) || cur.sort !== 'last' || cur.per !== 20
-  const exportUrl = `/admin/patients.xlsx${filtersToQuery(cur, false)}`
   /* «12 afișați din 19 · +9 luna aceasta»: на экране — строки этой страницы,
      всего — первая карточка сводки (та же, что «Total pacienți»), рост за
      месяц — её подпись словами сервера. */

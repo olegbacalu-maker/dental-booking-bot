@@ -1342,6 +1342,17 @@ dialog.dp-ask { width: 400px; }
 /* цвет смысла, не темы: на --red текст всегда белый, как у бейджа .urg в panel.css */
 .dp-ask-danger, .dp-ask-danger:hover { background: var(--red); color: #fff; box-shadow: none; }
 .dp-ask-danger:focus-visible { box-shadow: 0 0 0 3px var(--red-soft); }
+
+/* «Despre DentPilot» (Т7, только в окне Tauri): подписи слева, факты справа;
+   путь папки данных переносится где угодно — он длиннее окна. */
+dialog.dp-about { width: 460px; }
+.dp-about-dl {
+  display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px;
+  margin: 0; padding: 18px 18px 6px; font-size: var(--fs-m);
+}
+.dp-about-dl dt { color: var(--text3); }
+.dp-about-dl dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.dp-about-dl a { color: var(--teal-d); }
 .stx-pct { display: flex; align-items: center; gap: 8px; min-width: 110px; }
 .stx-pct em {
   min-width: 36px;

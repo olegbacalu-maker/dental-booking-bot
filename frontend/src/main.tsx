@@ -14,6 +14,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createBrowserRouter } from 'react-router'
 import { App, appHydration, appRoutes } from './app/App'
+import { installShellBridge } from './app/bridge'
 import { readNode } from './app/doc'
 import './app/app.css'
 
@@ -38,6 +39,9 @@ if (!host) {
   // рисуется сразу. Загрузчики экранов ждут данные под своим первым кадром
   // (`hydrateFallbackElement`, B2.2).
   const router = createBrowserRouter(appRoutes(), { hydrationData: appHydration(node) })
+  // Окно оболочки Tauri (Т7): меню, клавиши и «Despre» — только при
+  // `window.dpShell`; в браузере и в окне pywebview эта строка ничего не делает.
+  installShellBridge(router, node.shell)
   createRoot(host).render(
     <StrictMode>
       <App router={router} />

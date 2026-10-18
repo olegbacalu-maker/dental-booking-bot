@@ -39,6 +39,8 @@ import { screenRoute, type ScreenData } from '../hooks/useRouteLoad'
 import type { ShellModel } from '../layouts/shell'
 import { auth } from '../services/auth'
 import { fetchDoc } from '../services/doc'
+import { AboutHost } from './AboutDialog'
+import { shellArrived, shellLocked, shellModel, shellOn } from './bridge'
 import { applyHead, type MountNode } from './doc'
 import { LockContext } from './lock'
 import { ROUTES, type ScreenName } from './routes'
@@ -251,9 +253,19 @@ function Screen({ name }: { name: ScreenName }) {
  */
 function Frame() {
   const node = useLoaderData() as MountNode
+  const { pathname } = useLocation()
   /* Голова нового адреса — в момент показа его кадра, а не раньше: переход
      могут перебить, и тема чужого адреса не должна лечь на прежний экран. */
   useLayoutEffect(() => { if (node.head) applyHead(node.head) }, [node.head])
+  /* Окно оболочки Tauri (Т7): меню строится по модели ЭТОГО документа, и
+     сменился человек или тема — оболочке «перечитай dpCtx». После головы:
+     цвет полосы — уже новой темы. Без оболочки — ничего. */
+  useLayoutEffect(() => { shellModel(node.shell) }, [node.shell])
+  /* ⚠️ Пассивный эффект, и это несущее: экран, на который ушёл пункт меню
+     («Pacient nou» с другого экрана), исполняет его в СВОЁМ эффекте, а
+     эффекты детей идут раньше родителя — к этой строке заказ уже исполнен
+     или исполнить его некому. */
+  useEffect(() => { shellArrived() }, [pathname])
   const body = <><ScrollRestoration getKey={scrollKey} /><ScrollTop /><Outlet /></>
   return node.shell ? <AppShell m={node.shell}>{body}</AppShell> : body
 }
@@ -305,7 +317,12 @@ export function App({ router }: { router: DataRouter }) {
     await router.navigate(HOME_URL, { replace: true })
     setLocked(null)
   }, [router])
-  if (locked) return <PinScreen m={locked} enter={enter} />
+  /* Замок — и для меню окна оболочки: за экраном PIN вошедшего нет. */
+  useEffect(() => { shellLocked(locked !== null) }, [locked])
+  /* «Despre DentPilot» — только в окне оболочки Tauri и при замке тоже
+     (меню «Ajutor» есть и до входа). */
+  const about = shellOn() ? <AboutHost /> : null
+  if (locked) return <><PinScreen m={locked} enter={enter} />{about}</>
   /* ⭐ Окно подтверждения — тоже РЯДОМ с роутером, одно на все экраны:
      вопрос «Ștergeți…?» задаёт `ask()` из любого места (`components/confirm`). */
   return (
@@ -313,6 +330,7 @@ export function App({ router }: { router: DataRouter }) {
       <RouterProvider router={router} />
       <QuickFind navigate={go} />
       <ConfirmHost />
+      {about}
     </LockContext.Provider>
   )
 }

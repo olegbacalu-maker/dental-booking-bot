@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useCommand } from '../../app/bridge'
 import { AppLink } from '../../components/AppLink'
 import { Icon, iconName } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
@@ -138,6 +139,9 @@ export function SystemSettingsScreen({ navigate = defaultNavigate, pollMs = 1500
       setBusy(false)
     }
   }
+
+  /* «Verifică actualizări» меню окна Tauri — кнопка «Verifică acum» ниже */
+  useCommand('act:checkUpdate', state.status === 'ready' && !busy && (() => { void check() }))
 
   if (state.status === 'leaving') return null
   const head = <h2><Icon name="info" /> {T.title}</h2>

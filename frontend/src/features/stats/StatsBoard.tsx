@@ -1,8 +1,10 @@
 import { useState } from 'react'
+import { useCommand } from '../../app/bridge'
 import { AppLink } from '../../components/AppLink'
 import { Count } from '../../components/Count'
 import { Icon, iconName } from '../../components/Icon'
 import { Spark } from '../../components/Spark'
+import { defaultNavigate } from '../../hooks/useLoad'
 import { t } from '../../utils/i18n'
 import { CategoryBar, Columns, Meter } from './StatsCharts'
 import type { Badge, Kpi, StatsData, Trend } from './stats'
@@ -131,6 +133,8 @@ export function StatsBoard({ d, live, pick, onPick, onPreset, onApply, periodUrl
   const [metric, setMetric] = useState<'appts' | 'income'>('appts')
   const preset = d.presets.find((p) => p.from === d.period.from && p.to === d.period.to)
   const [open, setOpen] = useState(false)
+  /* «Exportă în Excel…» меню окна Tauri — эта же ссылка периода */
+  useCommand('act:export', () => defaultNavigate(d.export_url))
   const s = board.series
   const sum = metric === 'appts' ? board.summary.appts : board.summary.income
   const m = board.money

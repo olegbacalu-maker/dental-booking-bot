@@ -1,4 +1,5 @@
 import { startTransition, useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
+import { useCommand } from '../../../app/bridge'
 import { AppLink } from '../../../components/AppLink'
 import { useBlocker, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { ask } from '../../../components/confirm'
@@ -344,6 +345,10 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
 
   /* панель вкладок: прежняя высота, пока новая вкладка (или осмотр, визит) грузит своё */
   const panel = useHoldPanel(`${tab}:${sub ?? ''}`, ready)
+
+  /* «Tipărește…» меню окна Tauri — кнопка «Rezumat» (одонтограмму вкладки
+     «Odontogramă» заявляет её собственная кнопка печати) */
+  useCommand('act:print', ready && tab === 'rezumat' && (() => window.print()))
 
   if (state.status === 'leaving') return null
 
