@@ -18,6 +18,7 @@ mod menus;
 mod notices;
 mod paths;
 mod state;
+mod watch;
 mod webview;
 mod win;
 
@@ -327,6 +328,16 @@ fn dev_identifier(paths: &Paths) -> Option<String> {
 }
 
 fn main() {
+    // ⭐ Один `generate_context!` на exe: страницы оболочки вшиваются им, и второй
+    // вызов (у сторожа) вшил бы их второй раз.
+    let mut context = tauri::generate_context!();
+    // Сторож обновления и перезапуска (Т10, watch.rs): копия этого exe с
+    // `--watch …` — раньше всего: ни замка «один экземпляр» (запускаемая им
+    // программа нашла бы «первый экземпляр» в нём), ни журнала, ни движка.
+    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    if watch::is_watch(&args) {
+        std::process::exit(watch::main(&args, context));
+    }
     notices::set_process_aumid();
     let tray_start = std::env::args().any(|a| a == "--tray");
     let paths = Paths::find();
@@ -334,7 +345,6 @@ fn main() {
     let saved = store.get();
     let token = engine::new_token();
 
-    let mut context = tauri::generate_context!();
     if let Some(id) = dev_identifier(&paths) {
         context.config_mut().identifier = id;
     }

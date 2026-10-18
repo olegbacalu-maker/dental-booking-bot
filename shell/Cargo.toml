@@ -38,7 +38,8 @@ windows = { version = "=0.62.2", features = [
 ] }
 windows-core = "=0.62.2"
 # «Задание» Windows для движка, окна сообщений, диалог «Сохранить как»,
-# нажатия клавиш для «Editare», паспорт программы, реестр, случайный токен.
+# нажатия клавиш для «Editare», паспорт программы, реестр, случайный токен,
+# сеанс процесса (сторож обновления, watch.rs).
 windows-sys = { version = "=0.61.2", features = [
   "Win32_Foundation",
   "Win32_Security",
@@ -47,6 +48,7 @@ windows-sys = { version = "=0.61.2", features = [
   "Win32_System_Threading",
   "Win32_System_Diagnostics_ToolHelp",
   "Win32_System_Registry",
+  "Win32_System_RemoteDesktop",
   "Win32_System_SystemInformation",
   "Win32_UI_Controls_Dialogs",
   "Win32_UI_Input_KeyboardAndMouse",
