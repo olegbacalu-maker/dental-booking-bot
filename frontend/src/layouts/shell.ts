@@ -44,6 +44,14 @@ export interface ShellModel {
   clinic: { name: string; mark: string; logo_topbar: string; logo: string }
   runtime: { version: string; tz: string }
   /**
+   * Окно «Despre DentPilot» (Т7, только в окне оболочки Tauri): `data` —
+   * настоящая папка клиники (`layout.data_folder()`, ФАКТ, а не пересказ
+   * раскладки; пусто у облака и исходников), `license_until` — «Valabil până
+   * la» файла лицензии, как на её странице (пусто: файла нет или лицензия в
+   * этой сборке не проверяется).
+   */
+  about: { data: string; license_until: string }
+  /**
    * Дверь (B4.4): `pin` — вход по PIN-файлу, и смена человека идёт без
    * перезагрузки (экран PIN клиента); иначе «Ieșire din cont» остаётся
    * ссылкой на `/admin/logout` — в демо тот адрес отдаёт слот посетителя.

@@ -15,7 +15,7 @@ import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
 
-from harness import BOT, ROOT, Client, Result, Server, _rmtree_settled, shell_signal
+from harness import BOT, ROOT, Client, Result, Server, _rmtree_settled, shell_model, shell_signal
 
 FIX = ROOT / "tests" / "fixtures" / "license"
 KEY_ENV = {"DENTART_LICENSE_KEYS": str(FIX / "test-key.json")}
@@ -210,6 +210,10 @@ def suite_banner(res: Result) -> None:
             c = Client(s.url).login()
             res.ok("active: баннера лицензии нет",
                    not shell_signal(c.get("/admin").body, "license")["shown"])
+            # «Despre DentPilot» окна Tauri (Т7) — та же дата, что «Valabil până
+            # la» страницы лицензии: срок ФАЙЛА, в поясе клиники
+            res.check("active: срок файла в модели оболочки (Despre)",
+                      shell_model(c.get("/admin").body)["about"]["license_until"], "01.01.2099")
             res.check("/api/license без входа: 401", Client(s.url).get("/api/license").status, 401)
     finally:
         _rmtree_settled(d)
@@ -230,5 +234,7 @@ def suite_no_keys(res: Result) -> None:
                    "nu verifică licența" in page, page[:200])
             res.ok("без ключей баннера нет",
                    not shell_signal(c.get("/admin").body, "license")["shown"])
+            res.check("без ключей срока в «Despre» нет",
+                      shell_model(c.get("/admin").body)["about"]["license_until"], "")
     finally:
         _rmtree_settled(d)

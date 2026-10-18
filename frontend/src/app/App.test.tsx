@@ -36,6 +36,7 @@ const SHELL: ShellModel = {
   identity: null,
   clinic: { name: 'Clinica Test', mark: '', logo_topbar: '', logo: '' },
   runtime: { version: '9.9.9', tz: 'Europe/Chisinau' },
+  about: { data: 'C:\\ProgramData\\DentPilot', license_until: '31.12.2026' },
   entry: { pin: false, pin_max: 8, backdrop: '' },
   nav: {
     active: 'set',

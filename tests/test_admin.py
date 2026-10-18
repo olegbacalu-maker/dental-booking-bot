@@ -1123,6 +1123,10 @@ def suite_settings(res: Result) -> None:
             res.ok(f"из секции {path} есть путь назад",
                    any(cr.get("href") == "/admin/settings" for cr in crumbs),
                    f"нет крошки на хаб: {crumbs}")
+        # «Despre DentPilot» окна Tauri (Т7): папка — ФАКТ из того же места,
+        # куда программа пишет; папку клиники здесь увели в сторону нарочно
+        res.check("модель оболочки называет настоящую папку клиники (Despre)",
+                  shell_model(c.get("/admin").body)["about"]["data"], str(root))
         faq_items = json.loads(c.get("/api/settings/faq").body)["data"]["items"]
         # FAQ обязан называть 7-Zip: бэкап открывается им, и это единственное
         # место, где клиника об этом узнаёт

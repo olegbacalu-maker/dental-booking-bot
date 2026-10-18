@@ -875,6 +875,16 @@ def _lic_date(d) -> str:
     return d.astimezone(eng.TZ).strftime("%d.%m.%Y")
 
 
+def _license_until() -> str:
+    """Срок файла лицензии для «Despre» — та же дата, что «Valabil până la»
+    страницы лицензии (`claim.valid_until`). Пусто, когда файла нет или
+    лицензия в этой сборке не проверяется (`lic.applies()`)."""
+    s = lic.current()
+    if s is None or not lic.applies() or s.claim is None:
+        return ""
+    return _lic_date(s.claim.valid_until)
+
+
 _RENEW_RO = {lic.RENEWED: "termen nou primit", lic.RENEW_SAME: "nu există termen mai nou",
              lic.RENEW_OFFLINE: "serverul nu a răspuns",
              lic.RENEW_REFUSED: "serverul nu a recunoscut licența",
@@ -1423,6 +1433,10 @@ def shell_model(active: str, sub: str, rail: bool = False,
                    # страницы входа: если клиника его загрузила, без галочки
                    "logo": theme.logo_url() or ""},
         "runtime": {"version": eng.APP_VERSION, "tz": eng.TZ.key},
+        # Окно «Despre DentPilot» (Tauri, Т7) — ФАКТЫ, а не пересказ: папка из
+        # того же места, куда программа пишет (`data_folder`), срок — «Valabil
+        # până la» файла, как на странице лицензии. Пусто — не рисуется.
+        "about": {"data": data_folder(), "license_until": _license_until()},
         # Дверь (B4.4): клиент меняет человека без перезагрузки ТОЛЬКО там, где
         # вход по PIN-файлу. Без него (облако, демо, ADMIN_KEY) «Ieșire din
         # cont» остаётся ссылкой на `/admin/logout`: шлюз демо на этом адресе
