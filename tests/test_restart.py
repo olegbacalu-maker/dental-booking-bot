@@ -429,6 +429,12 @@ def suite_watch_shell(res: Result) -> None:
         text = getattr(rw, name)
         res.ok(f"текст заставки у обоих сторожей: {name}",
                f'const {name}: &str = "{text}";' in rs, f"в watch.rs нет «{text}»")
+    # слова итога: те же, что у `rw.decide` (их пишут операция за UAC и мастер)
+    for word, line in (("ok", 't == "ok"'), ("fail…", 't.starts_with("fail")'),
+                       ("cancelled", 't == "cancelled"')):
+        res.ok(f"сторожа узнают одно слово итога: {word}",
+               line in rs and rw.decide({"fail…": "fail x"}.get(word, word)) != "wait",
+               f"в watch.rs нет `{line}` или rw.decide его не узнаёт")
     for what, line in (("метка режима", f'pub const FLAG: &str = "{rw.FLAG}";'),
                        ("«без итога»", f'const NO_RESULT: &str = "{rw.NO_RESULT}";'),
                        ("потолок ожидания итога", f"Duration::from_secs({rw.WAIT_S // 60} * 60)"),

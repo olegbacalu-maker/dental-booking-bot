@@ -152,7 +152,15 @@ pywebview — окна нет вовсе; копия папки движка —
 что при запуске), WebView2 и так обязателен. Цена: логика ожидания живёт дважды
 — `bot/app/restartwatch.py` (окно pywebview, до его снятия в Т11) и
 `shell/src/watch.rs`; тексты, слова итога, метку, потолки сверяет
-`test_restart.suite_watch_shell`.
+`test_restart.suite_watch_shell`. Механизм одобрен главной сессией перехода
+18.10.
+⚠️ **Т11, вместе с окном pywebview**: снять Python-сторожа —
+`desktop._watch_mode`, окно в нём, `_child_env`, `restartwatch.wait_for`/
+`outcome_text`/`TEXT_*` (у движка `--watch` не бывает) и их сверку в
+`test_restart`; `argv_for`/`Plan` остаются — ими движок зовёт `watch.rs`.
+Заодно — ветки подмены exe в `update.py` (`_install_privileged`, bat
+`dentpilot_update.bat`, `.old.exe` в `_sweep_previous_version`) и операция
+`install-update`: без окна pywebview подменять один файл некому.
 
 ⛔ Правила (каждое держит проверка, мутации — `scripts/check_privileged_red.py`):
 - **Ничего, что должно пережить оболочку, — обычным Popen**: движок живёт в
