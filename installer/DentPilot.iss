@@ -586,23 +586,36 @@ begin
   end;
 end;
 
+// ⚠️ Потолок — по ЧАСАМ, а не по числу пауз: запрос WMI идёт ~0,1 с, и 120
+// пауз по 250 мс тянулись 40+ с, а журнал называл время одних пауз (опыт
+// 18.10: «1750 ms» при трёх секундах по часам журнала). Встроенного
+// GetTickCount в Pascal Script Inno нет — берём у kernel32.
+function GetTickCount: DWord; external 'GetTickCount@kernel32.dll stdcall';
+
 procedure WaitAppExit();
 var
-  I, N: Integer;
+  Start: DWord;
+  N, Ms: Integer;
+  Said: Boolean;
 begin
-  for I := 1 to 120 do
-  begin
+  Start := GetTickCount;
+  Said := False;
+  repeat
     N := AppProcessCount();
+    Ms := GetTickCount - Start;
     if N <= 0 then
     begin
-      if I > 1 then
-        Log(Format('DentPilot.exe i dvizhok otpushcheny cherez %d ms', [(I - 1) * 250]));
+      if Said then
+        Log(Format('DentPilot.exe i dvizhok otpushcheny cherez %d ms', [Ms]));
       Exit;
     end;
-    if I = 1 then
+    if not Said then
+    begin
       Log(Format('Zhdem vyhoda programmy (obolochka + dvizhok): processov %d', [N]));
+      Said := True;
+    end;
     Sleep(250);
-  end;
+  until Ms >= 30000;
   Log('Programma ne otpushchena za 30 s - zakryvaet Restart Manager');
 end;
 

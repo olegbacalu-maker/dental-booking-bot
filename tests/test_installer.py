@@ -226,11 +226,13 @@ def section(s: str, name: str) -> str:
     return s[m.start():m.end() + nxt.start()] if nxt else s[m.start():]
 
 
-def tauri_layout_problems(s: str, aumid: str) -> list[str]:
+def tauri_layout_problems(s: str, conf: dict) -> list[str]:
     """Нарушения раскладки Tauri в тексте `.iss` (Т9, контракт § 1) словами.
+    `conf` — `shell/tauri.conf.json` оболочки.
 
     Текст, а не файл: та же функция проверяется на испорченных копиях."""
     bad = []
+    aumid = conf.get("identifier", "")
     files = section(s, "Files")
     if 'Source: "..\\dist\\DentPilot\\{#AppExeName}"; DestDir: "{app}"' not in files:
         bad.append("оболочка DentPilot.exe не кладётся в корень программы из dist\\DentPilot")
@@ -262,6 +264,26 @@ def tauri_layout_problems(s: str, aumid: str) -> list[str]:
         bad.append("тихое обновление ждёт только оболочку — движок держит файлы engine\\ дольше")
     if "WebView2Missing()" not in s[s.find("procedure CurStepChanged"):]:
         bad.append("после [Run] нет проверки WebView2 — без него окно оболочки не создаётся, а клиника не узнает")
+    # Требования Т10 (обновление, 18.10). AppMutex: в тихом режиме найденный
+    # мьютекс = отказ установки, а старая оболочка гаснет ~1 с после «started».
+    if re.search(r"^\s*AppMutex\s*=", s, flags=re.M):
+        bad.append("AppMutex в [Setup] — тихое обновление откажет, пока старая оболочка гаснет")
+    # [InstallDelete] — только engine\: в {app}\updates лежит копия РАБОТАЮЩЕГО
+    # мастера (privileged install-setup), а {app} целиком — чужие файлы человека.
+    extra = [ln.strip() for ln in inst.splitlines() if ln.strip().startswith("Type:")
+             and ln.strip() != 'Type: filesandordirs; Name: "{app}\\{#EngineDir}"']
+    if extra:
+        bad.append("[InstallDelete] трогает не только engine\\: " + " | ".join(extra))
+    # удаление от администратора не лезет в профили учёток и в данные клиники
+    if re.search(r"\{(localappdata|userappdata|commonappdata|userprofile)\}", uninst):
+        bad.append("[UninstallDelete] трогает профиль учётки или данные клиники")
+    # издатель оболочки — тот же, что у мастера (а он сверен с exe движка
+    # `sync_version --check`): иначе «Свойства» DentPilot.exe и «Установленные
+    # приложения» назовут поставщика по-разному
+    pub = re.search(r'#define AppPublisher\s+"([^"]+)"', s)
+    if not pub or (conf.get("bundle") or {}).get("publisher") != pub.group(1):
+        bad.append(f"издатель оболочки {(conf.get('bundle') or {}).get('publisher')!r} не равен "
+                   f"издателю мастера {pub.group(1) if pub else None!r} (shell/tauri.conf.json)")
     return bad
 
 
@@ -276,9 +298,9 @@ def suite_tauri_layout(res: Result) -> None:
     if not res.ok("tauri.conf.json оболочки на месте", SHELL_CONF.exists(),
                   "сверять паспорт ярлыка не с чем"):
         return
-    aumid = json.loads(SHELL_CONF.read_text(encoding="utf-8"))["identifier"]
+    conf = json.loads(SHELL_CONF.read_text(encoding="utf-8"))
     s = _src()
-    res.check("сегодня раскладка Tauri в мастере верна", tauri_layout_problems(s, aumid), [])
+    res.check("сегодня раскладка Tauri в мастере верна", tauri_layout_problems(s, conf), [])
     for label, broken, want in (
         ("ярлык рабочего стола без паспорта",
          s.replace('AppUserModelID: "{#AppUserModelID}"; Tasks: desktopicon', "Tasks: desktopicon"),
@@ -291,8 +313,19 @@ def suite_tauri_layout(res: Result) -> None:
          "перед установкой"),
         ("ждём только оболочку", s.replace(" OR ExecutablePath = ", " AND ExecutablePath = "),
          "ждёт только оболочку"),
+        ("AppMutex", s.replace("CloseApplications=yes", "CloseApplications=yes\nAppMutex=DentPilotShell"),
+         "AppMutex"),
+        ("[InstallDelete] чистит updates\\",
+         s.replace('Type: filesandordirs; Name: "{app}\\{#EngineDir}"\n\n[Files]',
+                   'Type: filesandordirs; Name: "{app}\\{#EngineDir}"\n'
+                   'Type: filesandordirs; Name: "{app}\\updates"\n\n[Files]'), "не только engine"),
+        ("удаление чистит профиль учётки",
+         s.replace("[UninstallDelete]\n", '[UninstallDelete]\nType: filesandordirs; Name: "{localappdata}\\DentPilot"\n'),
+         "профиль учётки"),
+        ("издатель оболочки другой", s.replace('#define AppPublisher "A.I. Oleg Bacalu"',
+                                               '#define AppPublisher "Oleg Bacalu"'), "издатель оболочки"),
     ):
-        got = tauri_layout_problems(broken, aumid)
+        got = tauri_layout_problems(broken, conf)
         res.ok(f"порча «{label}» — находка", broken != s and any(want in b for b in got),
                f"находки: {got}" if broken != s else "порча не применилась — якорь устарел")
 
