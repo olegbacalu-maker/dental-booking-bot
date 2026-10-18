@@ -186,19 +186,33 @@ def suite_port(res: Result) -> None:
     # неудавшейся миграции индексов.
     # ⚠️ На машине разработчика дефект НЕВИДИМ: здесь ANSI это cp1251.
     # ⚠️ Скобку ищем СЧЁТОМ, а не первым `)`: внутри вызова стоит
-    # `str(data_dir / "dentpilot.log")`, и наивная нарезка обрывала бы вызов
-    # раньше аргумента, который проверяем. Первая версия этого правила так и
-    # сделала — покраснела на ПРАВИЛЬНОМ коде.
+    # `data_dir / "dentpilot.log"` в скобках, и наивная нарезка обрывала бы
+    # вызов раньше аргумента, который проверяем. Первая версия этого правила
+    # так и сделала — покраснела на ПРАВИЛЬНОМ коде.
+    # ⭐ С 18.10 (Т5, ротация) файл открывает не basicConfig, а обработчик
+    # `logrotate.handler`: правило смотрит, что лаунчер отдаёт лог ИМЕННО ему,
+    # а кодировку — у самого обработчика, живым объектом, а не текстом.
     head = desk.find("logging.basicConfig(")
     i, depth = head + len("logging.basicConfig("), 1
     while i < len(desk) and depth:
         depth += {"(": 1, ")": -1}.get(desk[i], 0)
         i += 1
     cfg = desk[head:i]
-    res.ok("лог пишется в utf-8, а не в ANSI машины",
-           'encoding="utf-8"' in cfg,
-           "без encoding= русские строки лога у румынской клиники пропадают "
-           "молча — а читают их ровно тогда, когда что-то сломалось")
+    res.ok("лог открывает обработчик с ротацией (logrotate.handler)",
+           head > 0 and 'handlers=[logrotate.handler(data_dir / "dentpilot.log")]' in cfg
+           and "filename=" not in cfg,
+           "basicConfig снова открывает файл сам — без ротации и мимо utf-8 обработчика")
+    from app import logrotate
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_logenc_"))
+    try:
+        h = logrotate.handler(tmp / "dentpilot.log")
+        try:
+            res.check("лог пишется в utf-8, а не в ANSI машины",
+                      (h.encoding or "").lower().replace("-", ""), "utf8")
+        finally:
+            h.close()
+    finally:
+        _rmtree_settled(tmp)
 
     # ⛔ P2, шаги 1–3. Находка корня обязана случиться ДО того, как лаунчер
     # объявит корень приложению и создаст в нём папку данных: спросишь позже —
@@ -287,7 +301,9 @@ def suite_port(res: Result) -> None:
                "scripts/check_split_live.py": '"DENTART_DATA_DIR": str(anchor)',
                # лаунчер из исходников, с окном (08.10): данные, профиль окна и
                # TEMP — в лаборатории, порт свой
-               "scripts/launcher_accept.py": '"DENTART_DATA_DIR": str(lab)'}
+               "scripts/launcher_accept.py": '"DENTART_DATA_DIR": str(lab)',
+               # движок Tauri под оболочкой-харнессом (18.10): и собранный тоже
+               "scripts/engine_check.py": '"DENTART_DATA_DIR": str(lab)'}
     for rel, want in BENCHES.items():
         f = BOT.parent / rel
         # сторож за сторожом: переименуют файл — правило обязано упасть, а не
@@ -310,7 +326,8 @@ def suite_port(res: Result) -> None:
                    "scripts/smoke_build.py": '"TEMP": str(tmp)',
                    "scripts/check_relocate_live.py": '"TEMP": str(tmp)',
                    "scripts/check_split_live.py": '"TEMP": str(tmp)',
-                   "scripts/launcher_accept.py": '"TEMP": str(tmp)'}
+                   "scripts/launcher_accept.py": '"TEMP": str(tmp)',
+                   "scripts/engine_check.py": '"TEMP": str(tmp)'}
     res.ok("у каждого стенда есть правило про TEMP", set(TEMP_IN_LAB) == set(BENCHES),
            f"списки разошлись: {sorted(set(TEMP_IN_LAB) ^ set(BENCHES))}")
     for rel, want in TEMP_IN_LAB.items():
@@ -337,11 +354,14 @@ def suite_port(res: Result) -> None:
             + list((root / "tests").glob("*.py"))
             if str(p.relative_to(root)).replace("\\", "/") not in skip]
     rogue = []
+    # ⚠️ И собранный движок Tauri (18.10): тот же exe программы, только папкой.
+    # Запуск — и через задание харнесса, а не только голым Popen.
     for p in cand:
         txt = p.read_text(encoding="utf-8", errors="replace")
-        if "DentPilot.exe" not in txt:
+        if "DentPilot.exe" not in txt and "DentPilot-Engine" not in txt:
             continue
-        if any(s in txt for s in ("Start-Process", "subprocess.Popen(", "os.startfile(")):
+        if any(s in txt for s in ("Start-Process", "subprocess.Popen(", "os.startfile(",
+                                  "_start_in_own_job(")):
             rogue.append(str(p.relative_to(root)).replace("\\", "/"))
     res.ok("собранный exe запускают только известные стенды", not rogue,
            "стенд вне списка — изолируй ему DENTART_DATA_DIR или впиши "
@@ -496,6 +516,211 @@ def suite_window(res: Result) -> None:
                   (False, False, "c"))
     finally:
         sys.path.remove(str(BOT))
+
+
+# ---------- 4. движок оболочки Tauri (Т5, 18.10.2026) ----------
+
+def suite_sidecar(res: Result) -> None:
+    """Протокол движка (`app/sidecar.py`): строка `DP1`, слово оболочки,
+    трубы, `quit` для обновления (Т10). Контракт — tauri-contract.md § 2."""
+    from app import sidecar
+    import io
+    import json as _json
+
+    out = io.StringIO()
+    link = sidecar.Link(out)
+    link.send("stage", text="Se pornește registrul…", pct=55, upto=92)
+    line = out.getvalue()
+    res.ok("строка протокола: «DP1 » + JSON одной строкой", line.startswith("DP1 ")
+           and line.endswith("\n") and line.count("\n") == 1, repr(line))
+    res.check("JSON несёт версию контракта и событие",
+              _json.loads(line[4:]), {"v": 1, "event": "stage",
+                                      "text": "Se pornește registrul…", "pct": 55, "upto": 92})
+    res.ok("строка ASCII: диакритика экранами, кодировка трубы не важна",
+           line.isascii(), repr(line))
+    res.check("слово stop опознаётся", sidecar.command('{"v":1,"cmd":"stop"}'), "stop")
+    res.check("stop без сверки версии (остановка безопасна при любой)",
+              sidecar.command('{"v":7,"cmd":"stop"}\r\n'), "stop")
+    for junk in ("", "stop", "[1,2]", '{"cmd":5}', "{не json"):
+        res.check(f"мусор не команда: {junk!r}", sidecar.command(junk), "")
+
+    # слушатель: строка stop и конец трубы
+    for label, feed, want in (("строка stop", '{"x":1}\n{"v":1,"cmd":"stop"}\n', "stop"),
+                              ("закрытый stdin", '{"v":1,"cmd":"zoom"}\n', "eof")):
+        r, w = os.pipe()
+        got: list = []
+        lk = sidecar.Link(io.StringIO(), os.fdopen(r, "r", encoding="utf-8"))
+        with os.fdopen(w, "w", encoding="utf-8") as wf:
+            t = lk.listen(got.append)
+            wf.write(feed)
+        t.join(5)
+        res.check(f"слушатель: {label}", got, [want])
+
+    res.check("quit без оболочки — False, прежний путь", sidecar.request_quit("update"), False)
+    try:
+        sidecar.request_quit("bye")
+        raised = False
+    except ValueError:
+        raised = True
+    res.ok("quit знает только update и restart", raised, "чужая причина ушла бы оболочке")
+    res.ok("режим решает только DENTART_SHELL=tauri",
+           sidecar.active({"DENTART_SHELL": "tauri"}) and not sidecar.active({})
+           and not sidecar.active({"DENTART_SHELL": "1"}), "")
+
+
+def suite_logrotate(res: Result) -> None:
+    """Ротация `dentpilot.log` (sidecar.md › «Лог»): по размеру и без потери
+    записей, когда файл держит другой процесс — Windows такой не переименует."""
+    import logging as _logging
+
+    from app import logrotate
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_logrot_"))
+    try:
+        path = tmp / "dentpilot.log"
+        h = logrotate.Handler(str(path), limit=400, keep=2)
+        h.setFormatter(_logging.Formatter("%(message)s"))
+        lg = _logging.getLogger("dp_test_logrotate")
+        lg.propagate = False
+        lg.addHandler(h)
+        try:
+            for i in range(30):
+                lg.warning("строка %02d — кириллица и diacritice ăîșț", i)
+            names = sorted(p.name for p in tmp.iterdir())
+            res.check("ротация: лог и два прежних, не больше",
+                      names, ["dentpilot.log", "dentpilot.log.1", "dentpilot.log.2"])
+            res.ok("текущий лог не больше предела с записью",
+                   path.stat().st_size < 400 + 120, f"{path.stat().st_size} байт")
+            last = path.read_text(encoding="utf-8").splitlines()[-1]
+            res.check("последняя запись — в текущем логе, в utf-8",
+                      last, "строка 29 — кириллица и diacritice ăîșț")
+
+            # файл держит «второй запуск»: читать и писать даёт, удалять — нет
+            hold = ctypes.windll.kernel32.CreateFileW(
+                str(path), _GENERIC_READ, 0x1 | _FILE_SHARE_WRITE, None, _OPEN_EXISTING, 0, None)
+            if not res.ok("лог удалось придержать чужим хэндлом", hold not in (0, -1), ""):
+                return
+            try:
+                before = path.stat().st_size
+                h.retry_s = 3600.0
+                for i in range(30, 45):
+                    lg.warning("занято %02d", i)
+                text = path.read_text(encoding="utf-8")
+                res.ok("лог занят: ни одна запись не потеряна",
+                       all(f"занято {i:02d}" in text for i in range(30, 45)),
+                       text[-300:])
+                res.ok("и ротация не повторяется на каждой записи",
+                       path.stat().st_size > before and not (tmp / "dentpilot.log.rolling").exists(),
+                       f"{before} → {path.stat().st_size}")
+            finally:
+                ctypes.windll.kernel32.CloseHandle(hold)
+            h._next_try = 0.0              # срок вышел: файл свободен — сдвиг идёт
+            lg.warning("после освобождения")
+            res.ok("освобождённый лог снова сдвигается",
+                   path.read_text(encoding="utf-8").strip() == "после освобождения",
+                   path.read_text(encoding="utf-8")[-200:])
+        finally:
+            lg.removeHandler(h)
+            h.close()
+        big = tmp / "dentpilot.err.log"
+        big.write_bytes(b"x" * 64)
+        res.check("err.log меньше предела не трогается", logrotate.roll_if_big(big, 100), False)
+        res.ok("err.log больше предела сдвигается", logrotate.roll_if_big(big, 10)
+               and not big.exists() and (tmp / "dentpilot.err.log.1").exists(), "")
+    finally:
+        _rmtree_settled(tmp)
+
+
+def suite_engine_text(res: Result) -> None:
+    """Режим движка в тексте desktop.py и сборка папкой. ⚠️ Живое поведение
+    держит `suite_engine` (стенд `scripts/engine_check.py`); здесь — то, что
+    живой прогон не увидит: порядок шагов модуля, ветки без окон, сборка."""
+    from app import sidecar
+    desk = (BOT / "desktop.py").read_text(encoding="utf-8")
+    take = desk.find("SHELL = sidecar.take()")
+    res.ok("трубы забираются у процесса", take > 0, "вызова take нет — протокола нет")
+    res.ok("и ПОСЛЕ привилегированного запуска и сторожа",
+           0 < desk.find("privileged.handle_argv(") < take
+           and 0 < desk.find("_watch_mode(sys.argv[1:])) is not None") < take,
+           "запуск за UAC или сторож заговорили бы протоколом без оболочки")
+    res.ok("и ДО первого вычисления корня и подмены stdout",
+           0 < take < desk.find("ROOT = data_root()") < desk.find("if sys.stdout is None:"),
+           "строки до take ушли бы в трубу оболочки или потерялись")
+    merge = desk.find("envfile.read_all(env_path)")
+    pops = [desk.find("os.environ.pop(sidecar.ENV, None)"),
+            desk.find("os.environ.pop(sidecar.TOKEN_ENV, None)")]
+    res.ok("режим и токен оболочки ставятся/снимаются ПОСЛЕ слияния dental.env",
+           0 < merge < min(pops) and desk.find("os.environ[sidecar.TOKEN_ENV] = _SHELL_TOKEN") > merge,
+           "строка в dental.env включала бы /shell/notices известным токеном без оболочки")
+    res.ok("режим решается до слияния dental.env",
+           0 < desk.find("if sidecar.active():") < merge, "файл клиники снял бы окно")
+    i, j = desk.find("def _engine_main("), desk.find("def main(")
+    body = desk[i:j] if 0 < i < j else ""
+    res.ok("ветка движка нашлась", bool(body), "имена поменялись — правила ниже слепы")
+    res.ok("у движка нет окон: ни webview, ни MessageBox, ни браузера",
+           body and "webview" not in body and "MessageBox" not in body
+           and "webbrowser" not in body and "_box(" not in body,
+           "контракт § 2: беда уходит событием fatal")
+    for ev in ("hello", "stage", "ready", "busy", "fatal"):
+        res.ok(f"движок говорит {ev}", f'"{ev}"' in body, "")
+    res.ok("коды выхода — из sidecar (0/2/3)",
+           (sidecar.EXIT_STOP, sidecar.EXIT_FATAL, sidecar.EXIT_BUSY) == (0, 2, 3)
+           and "sidecar.EXIT_BUSY" in body and "sidecar.EXIT_FATAL" in body, "")
+    res.ok("main уводит в движок до окна", 0 < desk.find("_engine_main(SHELL, APP_VERSION)")
+           < desk.find("first = _claim_instance()", j), "")
+    res.ok("корень собранного движка — папка над engine\\ (по имени exe)",
+           "exe.name.lower() == sidecar.ENGINE_EXE.lower()" in desk
+           and "return exe.parent.parent" in desk,
+           "install.json, portable.flag, demo.flag искались бы в engine\\")
+    main_src = (BOT / "app" / "main.py").read_text(encoding="utf-8")
+    k = main_src.find('@app.on_event("shutdown")')
+    stop_src = main_src[k:main_src.find("@app.get", k)] if k > 0 else ""
+    res.ok("гашение приложения закрывает базу", "await conn.close()" in stop_src
+           and "conn = db._CONN" in stop_src,
+           "поток aiosqlite не фоновый: без закрытия процесс не выйдет")
+    res.ok("и снимает фоновые задачи РАНЬШЕ базы",
+           0 < stop_src.find("t.cancel()") < stop_src.find("await conn.close()"), "")
+
+    # сборка движка папкой
+    build = BOT.parent / "Build-Engine.ps1"
+    if not res.ok("Build-Engine.ps1 на месте", build.exists(), "сборки движка нет"):
+        return
+    txt = build.read_text(encoding="utf-8", errors="replace")
+    # ⚠️ Флаги — из САМОЙ команды PyInstaller (строки с переносом «`»), а не
+    # из файла: в комментариях сборки эти же слова стоят объяснением.
+    lines = txt.splitlines()
+    at = next((n for n, ln in enumerate(lines) if "-m PyInstaller" in ln), -1)
+    cmd = []
+    for ln in lines[at:] if at >= 0 else []:
+        cmd.append(ln)
+        if not ln.rstrip().endswith("`"):
+            break
+    cmd = " ".join(cmd)
+    name = sidecar.ENGINE_EXE.removesuffix(".exe")
+    res.ok("команда PyInstaller нашлась", bool(cmd), "правила ниже проверяли бы пустое")
+    res.ok("сборка называет движок так, как его ищут лаунчер и оболочка",
+           f"--name {name}" in cmd, f"нет --name {name}")
+    res.ok("onedir и консольная подсистема",
+           "--onedir" in cmd and "--console" in cmd
+           and "--onefile" not in cmd and "--noconsole" not in cmd and "--windowed" not in cmd,
+           "onefile порождает внука (sidecar.md), а оконный загрузчик рисует окно ошибки")
+    res.ok("pywebview в движок не едет", "--exclude-module webview" in cmd, "")
+    i = txt.find("engine_check.py")
+    res.ok("сборка гоняет стенд протокола на собранном и читает код",
+           i >= 0 and "$LASTEXITCODE -ne 0" in txt[i:i + 400],
+           "«сборка зелёная» снова означала бы «файл существует»")
+
+
+def suite_engine(res: Result) -> None:
+    """Живой движок из исходников под оболочкой-харнессом (`scripts/
+    engine_check.py`): hello/stage/ready, stop и закрытый stdin → код 0 не
+    дольше 10 с, второй экземпляр → busy и код 3, чужой порт → fatal и код 2."""
+    sys.path.insert(0, str(BOT.parent / "scripts"))
+    try:
+        import engine_check
+    finally:
+        sys.path.remove(str(BOT.parent / "scripts"))
+    timing = engine_check.run(res)
+    print("    замеры: " + ", ".join(f"{k} {v:.1f} с" for k, v in timing.items()))
 
 
 def suite_autobackup(res: Result) -> None:

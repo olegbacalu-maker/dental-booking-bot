@@ -566,9 +566,11 @@ def _end_children(budget: float = 5.0) -> None:
         return
 
 
-def _start_in_own_job(args: list, **popen) -> tuple[subprocess.Popen, object]:
+def _start_in_own_job(args: list, flags: int = 0, **popen) -> tuple[subprocess.Popen, object]:
     """Запустить процесс в СВОЁМ задании Windows — вложенном в задание прогона
     и без права выхода. Возвращает (процесс, задание или None).
+    `flags` — флаги создания сверх CREATE_SUSPENDED (стенд движка Tauri
+    запускает его с CREATE_NO_WINDOW, как оболочка).
 
     ⛔ `Server.__exit__` гасил ЛАУНЧЕР venv; сервер умирал вместе с заданием
     лаунчера, а потомок, которого сервер успел завести, — нет: задание
@@ -646,9 +648,9 @@ def _start_in_own_job(args: list, **popen) -> tuple[subprocess.Popen, object]:
         k32.CloseHandle(job)
         job = None
     if not job:
-        return subprocess.Popen(args, **popen), None
+        return subprocess.Popen(args, creationflags=flags, **popen), None
     try:
-        proc = subprocess.Popen(args, creationflags=0x4, **popen)   # CREATE_SUSPENDED
+        proc = subprocess.Popen(args, creationflags=0x4 | flags, **popen)   # CREATE_SUSPENDED
     except BaseException:
         k32.CloseHandle(job)
         raise

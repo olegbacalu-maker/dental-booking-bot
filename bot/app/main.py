@@ -198,6 +198,8 @@ async def startup() -> None:
     """Старт по шагам. Порядок значим: два ранних выхода (битый профиль,
     нечитаемый ключ) оставляют базу НЕОТКРЫТОЙ, и всё, что ниже них, без базы
     не живёт."""
+    _BEFORE_START.clear()               # что жило до старта — не наше (гашение ниже)
+    _BEFORE_START.update(asyncio.all_tasks())
     # летопись подписывается ИМЕНЕМ вошедшего. Хук, а не импорт: db лежит ниже
     # слоя доступа, и прямой импорт замкнул бы круг db → core.auth → db
     db.ACTOR_HOOK = lambda: (request_user() or {}).get("name")
@@ -335,6 +337,40 @@ def _start_telegram() -> None:
         print("Telegram adapter: starting (token present)")
     else:
         print("TELEGRAM_TOKEN not set — Telegram adapter disabled (web chat only)")
+
+
+# ---------- остановка ----------
+# Задачи цикла, жившие ДО старта (сам uvicorn и его lifespan): их не трогаем.
+_BEFORE_START: set = set()
+STOP_TASKS_S = 3.0
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    """Честная остановка (движок оболочки Tauri, Т5, 18.10.2026): uvicorn
+    закончил с запросами — снять всё, что старт завёл в фоне (копии по
+    расписанию, SMS, лицензия, Telegram), и только потом закрыть базу.
+    ⛔ Закрыть базу ОБЯЗАТЕЛЬНО: соединение aiosqlite — НЕ фоновый поток, и
+    процесс с открытой базой после остановки сервера не выходит вовсе.
+    Закрытие последнего соединения сбрасывает `-wal` в базу.
+    ⚠️ Порядок: сперва задачи, потом база — тик цикла между ними получил бы
+    закрытое соединение. Окно pywebview сюда не доходит (`os._exit` на
+    закрытии), прогон тоже (сервер гасится заданием) — ветка живёт у движка и
+    у браузерного режима по Ctrl+C."""
+    mine = asyncio.current_task()
+    bg = [t for t in asyncio.all_tasks() if t is not mine and t not in _BEFORE_START]
+    for t in bg:
+        t.cancel()
+    if bg:
+        _done, left = await asyncio.wait(bg, timeout=STOP_TASKS_S)
+        if left:
+            log.warning("остановка: %d фоновых задач не снялись за %.0f с", len(left), STOP_TASKS_S)
+    conn = db._CONN
+    if conn is not None:
+        try:
+            await conn.close()
+        except Exception as e:  # noqa: BLE001 — остановка обязана дойти до конца
+            log.warning("остановка: база не закрылась: %r", e)
 
 
 @app.get("/health")

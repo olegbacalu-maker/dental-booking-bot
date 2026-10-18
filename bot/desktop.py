@@ -14,6 +14,9 @@ Windows (`profile_dir()`), а вход переживает перезапуск
 экземпляра на передний план и выходит — второго окна нет (`_claim_instance`,
 `_focus_existing`).
 DENTART_BROWSER_MODE=1 — старый режим: консоль + системный браузер.
+DENTART_SHELL=tauri — движок оболочки Tauri (Т5, 18.10.2026): ни окна, ни
+браузера, события строками `DP1` в stdout, остановка по stdin
+(`docs/dentpilot-2/tauri-contract.md` § 2, `app/sidecar.py`).
 (env-переменные исторически с префиксом DENTART_ — не трогаем ради
 совместимости с dental.env уже установленных клиник.)"""
 from __future__ import annotations
@@ -30,10 +33,20 @@ import time
 import urllib.request
 import webbrowser
 
+from app import logrotate, sidecar  # предзагрузочный слой: без проекта и без побочных действий
+
 
 def exe_dir() -> pathlib.Path:
     if getattr(sys, "frozen", False):  # PyInstaller
-        return pathlib.Path(sys.executable).resolve().parent
+        exe = pathlib.Path(sys.executable).resolve()
+        # ⭐ Движок Tauri (`engine\DentPilot-Engine.exe`, контракт § 1): корень
+        # программы — папка оболочки DentPilot.exe, родитель `engine\`; там
+        # лежат install.json, portable.flag и demo.flag. ⚠️ Узнаём по ИМЕНИ
+        # собранного файла, а не по DENTART_SHELL: привилегированный запуск
+        # (UAC) окружения оболочки не получает, а корень ему нужен тот же.
+        if exe.name.lower() == sidecar.ENGINE_EXE.lower():
+            return exe.parent.parent
+        return exe.parent
     return pathlib.Path(__file__).resolve().parent
 
 
@@ -52,16 +65,26 @@ def _fatal_dir(path: pathlib.Path, err: Exception) -> None:
     не то.
     ⚠️ Текст клинике по-румынски и с ПУТЁМ: без пути поддержка по телефону
     не сможет спросить ничего полезного.
+    Движок Tauri говорит то же событием `fatal` — окно рисует оболочка.
     """
-    _box(f"DentPilot nu poate folosi dosarul cu datele clinicii:\n\n{path}\n\n"
-         f"{err.__class__.__name__}: {err}\n\n"
-         "Verificați drepturile pe acest dosar sau porniți instalarea din nou.")
-    raise SystemExit(2)
+    text = (f"DentPilot nu poate folosi dosarul cu datele clinicii:\n\n{path}\n\n"
+            f"{err.__class__.__name__}: {err}\n\n"
+            "Verificați drepturile pe acest dosar sau porniți instalarea din nou.")
+    if SHELL is not None:
+        SHELL.send("fatal", text=text, log="")      # лога ещё нет: папки нет
+    else:
+        _box(text)
+    raise SystemExit(sidecar.EXIT_FATAL)
 
 
 def _box(msg: str) -> None:
     """Сказать клинике вслух. ⛔ Единственный способ на этом этапе: сборка идёт
-    `--noconsole`, лога может ещё не быть, а `sys.excepthook` ставится позже."""
+    `--noconsole`, лога может ещё не быть, а `sys.excepthook` ставится позже.
+    ⛔ У движка Tauri окон нет вовсе (контракт § 2): предупреждение — в лог,
+    беда — событием `fatal` у того, кто её обнаружил."""
+    if SHELL is not None:
+        logging.warning("(fără fereastră, motor Tauri) %s", msg)
+        return
     try:
         import ctypes
         ctypes.windll.user32.MessageBoxW(0, msg, "DentPilot", 0x10)
@@ -99,6 +122,7 @@ def data_root() -> pathlib.Path:
 
 
 BASE = exe_dir()
+SHELL: sidecar.Link | None = None     # труба к оболочке Tauri; ставится ниже
 
 # ⛔ ПЕРВОЕ, что делает лаунчер, и раньше всего остального: привилегированный
 # запуск обязан сделать ровно одно дело и выйти. Строкой ниже начинаются
@@ -219,6 +243,56 @@ def _watch_mode(argv: list[str]) -> int | None:
 if (_code := _watch_mode(sys.argv[1:])) is not None:
     raise SystemExit(_code)
 
+
+def _internal_text() -> str:
+    return ("DentPilot nu a putut porni din cauza unei erori interne.\n"
+            "Detalii: data\\dentpilot.log (ultimele linii).\n"
+            "Trimiteti fisierul la contact@dentpilot.md — va ajutam.")
+
+
+def _port_text() -> str:
+    return (f"DentPilot nu a putut porni: portul {PORT} este ocupat de alt program.\n"
+            f"Inchideti programul care ocupa portul sau setati DENTART_PORT in dental.env.")
+
+
+def _engine_crash(kind, value, tb) -> None:
+    """Исключение, долетевшее до верха модуля у движка: трейсбек — в stderr
+    (файл после подмены ниже), оболочке — `fatal`, выход с кодом 2, а не 1 —
+    кодов у контракта три: 0, 2, 3."""
+    import traceback
+    try:
+        traceback.print_exception(kind, value, tb)
+        sys.stderr.flush()
+        logging.error("UNCAUGHT", exc_info=(kind, value, tb))
+    except Exception:  # noqa: BLE001 — сказать оболочке важнее
+        pass
+    SHELL.send("fatal", text=_internal_text(), log=SHELL.log)
+    os._exit(sidecar.EXIT_FATAL)
+
+
+# ⭐ Движок Tauri (Т5). Режим решает окружение ПРОЦЕССА и здесь — до слияния
+# `dental.env`: строка `DENTART_SHELL=tauri` в файле клиники окно не снимет.
+# После привилегированного запуска и сторожа: у них свой разговор и свой выход.
+# ⚠️ Трубы забираются у процесса ЗДЕСЬ, до первого `print` и до подмены
+# stdout ниже (`sidecar.take`: почему ни одна чужая строка не должна попасть
+# в трубу оболочки).
+_SHELL_TOKEN = os.environ.get(sidecar.TOKEN_ENV, "")
+if sidecar.active():
+    SHELL = sidecar.take()
+if SHELL is not None:
+    sys.excepthook = _engine_crash
+    # ⛔ Движок из ИСХОДНИКОВ без явной папки данных ушёл бы в
+    # %ProgramData%\DentPilot — в настоящую картотеку этой машины (у Олега там
+    # живая установка). Окно лаунчера из исходников так же опасно, но им
+    # пользуются стенды, которые папку называют; оболочку в разработке
+    # запускает человек, и забыть переменную — одно движение.
+    if not getattr(sys, "frozen", False) and not os.environ.get("DENTART_DATA_DIR", "").strip():
+        SHELL.send("fatal", log="", text=(
+            "Motorul DentPilot pornit din surse fără DENTART_DATA_DIR: ar folosi "
+            "datele reale ale acestui calculator (%ProgramData%\\DentPilot).\n"
+            "Setați DENTART_DATA_DIR spre un dosar de test."))
+        raise SystemExit(sidecar.EXIT_FATAL)
+
 ROOT = data_root()
 
 # ⭐ P2, шаги 1–3. Спрашиваем ДО всего: до mkdir, до создания профиля, до
@@ -304,10 +378,16 @@ except OSError as e:
 # ⚠️ Стоит ВЫШЕ первого чтения файлов намеренно: dental.env правит сама
 # клиника, и падение на его разборе иначе гибло бы молча — stderr ещё None,
 # лога ещё нет, двойной клик по ярлыку «не делает ничего».
+# Движок Tauri: stdout уже отдан оболочке (`sidecar.take` выше), stderr — в
+# тот же файл, что у noconsole-сборки, и дескриптором тоже (`stderr_to`).
+_err_log = data_dir / "dentpilot.err.log"
+logrotate.roll_if_big(_err_log)         # открывается раз на запуск — и сдвигается тогда же
 if sys.stdout is None:
     sys.stdout = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
-if sys.stderr is None:
-    sys.stderr = open(data_dir / "dentpilot.err.log", "a", encoding="utf-8")  # noqa: SIM115
+if SHELL is not None:
+    sidecar.stderr_to(_err_log)
+elif sys.stderr is None:
+    sys.stderr = open(_err_log, "a", encoding="utf-8")  # noqa: SIM115
 
 # ⛔ `encoding="utf-8"` ОБЯЗАТЕЛЕН, и это не косметика. Без него `FileHandler`
 # открывает файл в ANSI-кодировке МАШИНЫ (`locale.getpreferredencoding`), а у
@@ -320,11 +400,15 @@ if sys.stderr is None:
 # неудавшейся миграции индексов в `db.py`: ровно то, что поддержка читает,
 # когда у клиники «после обновления не открывается». На машине разработчика
 # дефекта НЕ ВИДНО — здесь ANSI это cp1251, и кириллица ложится штатно.
+# ⭐ С 18.10 (Т5) файл ротируется: `logrotate.handler` — тот же FileHandler с
+# `encoding="utf-8"`, плюс сдвиг по размеру, который не теряет записей, когда
+# лог держит второй запуск программы (Windows не переименует открытый файл).
 logging.basicConfig(
-    filename=str(data_dir / "dentpilot.log"), level=logging.WARNING,
+    handlers=[logrotate.handler(data_dir / "dentpilot.log")], level=logging.WARNING,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    encoding="utf-8",
 )
+if SHELL is not None:
+    SHELL.log = str(data_dir / "dentpilot.log")
 
 # ⚠️ Вердикт пишется ЗДЕСЬ, а не там, где получен: там ещё нет ни лога, ни
 # stderr — сборка идёт `--noconsole`. Уровень WARNING намеренно: всё, кроме
@@ -398,6 +482,23 @@ os.environ["DENTART_ENV_FILE"] = str(env_path)
 # слияния dental.env: строка в файле клиники его не перебьёт.
 os.environ["DENTART_WATCH_PROFILE"] = str(PROFILE_DIR.with_name(PROFILE_DIR.name + "-watch"))
 
+# ⛔ Режим движка и токен оболочки (§ 4, `/shell/notices`) — ЖЁСТКО, обеими
+# ветками и после слияния `dental.env`, тем же приёмом, что вердикт раздвоения
+# выше: строка `DENTART_SHELL_TOKEN=…` в файле клиники открыла бы адрес
+# оболочки известным токеном у программы без оболочки, а `DENTART_SHELL=tauri`
+# сказала бы коду приложения «оболочка есть», когда её нет. Приложение
+# спрашивает оболочку только `sidecar.linked()`; окружение здесь — для тех,
+# кто читает его по старинке.
+if SHELL is not None:
+    os.environ[sidecar.ENV] = sidecar.MODE
+    if _SHELL_TOKEN:
+        os.environ[sidecar.TOKEN_ENV] = _SHELL_TOKEN
+    else:
+        os.environ.pop(sidecar.TOKEN_ENV, None)
+else:
+    os.environ.pop(sidecar.ENV, None)
+    os.environ.pop(sidecar.TOKEN_ENV, None)
+
 
 def _auto_backup() -> None:
     """Копия базы при каждом старте. Сама логика (шифрованные копии, ротация,
@@ -429,7 +530,7 @@ if _port_raw and envfile.parse_port(_port_raw) is None:
                   f"(un număr între 1 și 65535).")
     if os.environ.get("DENTART_BROWSER_MODE") == "1":
         print(_port_warn)
-    else:
+    elif SHELL is None:             # у движка окон нет: строка в логе выше
         try:
             import ctypes
             ctypes.windll.user32.MessageBoxW(None, _port_warn, "DentPilot", 0x30)
@@ -585,19 +686,26 @@ def _port_free_probe() -> bool:
         s.close()
 
 
-def _run_server() -> None:
+def _make_server(**extra):
     import uvicorn
 
     from app.main import app  # noqa: E402 — env уже настроен
 
     config = uvicorn.Config(app, host=HOST, port=PORT,
-                            log_level="warning", log_config=None)
-    uvicorn.Server(config).run()
+                            log_level="warning", log_config=None, **extra)
+    return uvicorn.Server(config)
 
 
-def _wait_ready(timeout: float = 25.0) -> bool:
+def _run_server() -> None:
+    _make_server().run()
+
+
+def _wait_ready(timeout: float = 25.0, alive=None) -> bool:
+    """`alive` — жив ли ещё поток сервера: упавший сервер не ждём до срока."""
     deadline = time.time() + timeout
     while time.time() < deadline:
+        if alive is not None and not alive():
+            return False
         try:
             with urllib.request.urlopen(
                     f"http://127.0.0.1:{PORT}/health", timeout=1):
@@ -644,6 +752,15 @@ def _prepare(stage=lambda *a: None) -> None:
         logging.error("DB crypt FAILED: %r", e)
     stage("Se face copia de rezervă…", 38)
     _auto_backup()
+
+
+def _start_failed() -> str:
+    """Сервер не поднялся: что сказать клинике. Различаем ДВЕ разные беды:
+    порт перехватили после нашей пробы ИЛИ сервер упал сам (раньше во втором
+    случае врали про порт)."""
+    port_taken = not _port_free_probe() and not _already_running()
+    logging.error("Server did not start on port %s (port_taken=%s)", PORT, port_taken)
+    return _port_text() if port_taken else _internal_text()
 
 
 SPLASH_MIN_S = 0.9               # заставка видна не меньше — иначе это вспышка
@@ -710,17 +827,7 @@ class _Boot:
             logging.warning("запуск: журнал готов за %.1f с (база и копия %.1f, сервер %.1f)",
                             time.monotonic() - t0, t1 - t0, time.monotonic() - t1)
             return True
-        # различаем ДВЕ разные беды: порт перехватили после нашей пробы ИЛИ
-        # сервер упал сам (раньше во втором случае врали про порт)
-        port_taken = not _port_free_probe() and not _already_running()
-        logging.error("Server did not start on port %s (port_taken=%s)", PORT, port_taken)
-        if port_taken:
-            warn = (f"DentPilot nu a putut porni: portul {PORT} este ocupat de alt program.\n"
-                    f"Inchideti programul care ocupa portul sau setati DENTART_PORT in dental.env.")
-        else:
-            warn = ("DentPilot nu a putut porni din cauza unei erori interne.\n"
-                    "Detalii: data\\dentpilot.log (ultimele linii).\n"
-                    "Trimiteti fisierul la contact@dentpilot.md — va ajutam.")
+        warn = _start_failed()
         try:
             import ctypes
             ctypes.windll.user32.MessageBoxW(None, warn, "DentPilot", 0x10)
@@ -762,13 +869,125 @@ class _Boot:
             logging.warning("cookie-urile nu s-au sters: %r", e)
 
 
+# Остановка движка (контракт § 2: выход не дольше 10 с после слова оболочки,
+# потом она снимает задание). Запросам на лету — STOP_GRACE_S, всей остановке
+# — STOP_BUDGET_S; остаток — на закрытие базы и выход.
+STOP_GRACE_S = 4
+STOP_BUDGET_S = 8.0
+
+
+def _engine_main(link: sidecar.Link, version: str) -> None:
+    """Движок оболочки Tauri: тот же запуск, что под заставкой окна, — но
+    разговор строками `DP1` и честная остановка вместо `os._exit` на закрытии
+    окна. Код выхода — контракт: 0 остановлен, 2 `fatal`, 3 `busy`."""
+    try:
+        code = _engine(link, version)
+    except Exception:  # noqa: BLE001 — что угодно = `fatal`, а не код 1 без слова
+        logging.error("motor: UNCAUGHT", exc_info=True)
+        link.send("fatal", text=_internal_text(), log=link.log)
+        code = sidecar.EXIT_FATAL
+    logging.warning("DentPilot exit code=%s pid=%s", code, os.getpid())
+    logging.shutdown()
+    # ⭐ Выход ограничен по времени: к этой строке сервер остановлен, фоновые
+    # циклы сняты и база закрыта (гашение в app.main). Поток, которого лаунчер
+    # не знает (`to_thread` внешней копии, не-фоновый поток библиотеки), здесь
+    # уже не держит процесс сверх срока контракта.
+    os._exit(code)
+
+
+def _engine(link: sidecar.Link, version: str) -> int:
+    from app import brand
+    try:
+        from app.core import theme
+        primary = theme.current()["primary"]
+    except Exception as e:  # noqa: BLE001 — тема украшает, запуск важнее
+        logging.warning("тема для заставки не прочиталась: %r", e)
+        primary = brand.hexc(brand.TEAL)
+    link.send("hello", version=version, color=primary, pid=os.getpid())
+
+    # Слово оболочки слушаем СРАЗУ: окно закрыли под заставкой — сервер не
+    # поднимаем вовсе. ⛔ Но подготовку базы (восстановление, перевод ключа,
+    # копия) не обрываем: её прерывать нельзя, проверка — после неё.
+    stop = threading.Event()
+    why = {"v": ""}
+
+    def on_stop(reason: str) -> None:
+        why["v"] = reason
+        stop.set()
+    link.listen(on_stop)
+
+    # Второй экземпляр (вторая учётка Windows, стенд): первой отвечает
+    # оболочка, мьютекс — страховка (§ 2 «Второй запуск»). Своего сервера нет —
+    # `busy` с адресом первого, оболочка покажет его.
+    first = _claim_instance()
+    if not first or _already_running():
+        if _already_running() or (_wait_ready(10.0) and _already_running()):
+            logging.warning("Already running on port %s - busy for the shell", PORT)
+            link.send("busy", url=URL)
+            return sidecar.EXIT_BUSY
+        logging.warning("instance mutex held but no server - starting anyway")
+    if not _port_free_probe():
+        logging.error("Port %s is occupied by a foreign program - not starting", PORT)
+        link.send("fatal", text=_port_text(), log=link.log)
+        return sidecar.EXIT_FATAL
+
+    def stage(text: str, pct: int, upto: int = 0) -> None:
+        link.send("stage", text=text, pct=pct, upto=upto)
+
+    t0 = time.monotonic()
+    stage("Se pornește DentPilot…", 6)        # те же этапы, что у заставки окна
+    stage("Se pregătește baza de date…", 16)
+    _prepare(stage)
+    t1 = time.monotonic()
+    if stop.is_set():
+        logging.warning("остановка до старта сервера (%s)", why["v"])
+        return sidecar.EXIT_STOP
+    stage("Se pornește registrul…", 55, 92)
+    server = _make_server(timeout_graceful_shutdown=STOP_GRACE_S)
+    # ⚠️ Не фоновый поток и не основной: остановка — `should_exit` из этого
+    # потока, и потом его честно дождаться; сигналов uvicorn вне основного
+    # потока не ставит.
+    th = threading.Thread(target=server.run, name="uvicorn")
+    th.start()
+    if not (_wait_ready(alive=th.is_alive) and _already_running()):
+        link.send("fatal", text=_start_failed(), log=link.log)
+        server.should_exit = True
+        th.join(STOP_BUDGET_S)
+        return sidecar.EXIT_FATAL
+    logging.warning("запуск: журнал готов за %.1f с (база и копия %.1f, сервер %.1f)",
+                    time.monotonic() - t0, t1 - t0, time.monotonic() - t1)
+    mode = _install_mode()
+    link.send("ready", url=URL, port=PORT, session=_session_policy(mode),
+              data=str(ROOT), lan=HOST == "0.0.0.0")
+
+    while th.is_alive() and not stop.wait(0.5):
+        pass
+    if not stop.is_set():
+        logging.error("сервер остановился сам, без слова оболочки")
+        link.send("fatal", text=_internal_text(), log=link.log)
+        return sidecar.EXIT_FATAL
+    t2 = time.monotonic()
+    logging.warning("остановка по слову оболочки (%s)", why["v"])
+    server.should_exit = True
+    th.join(STOP_BUDGET_S)
+    if th.is_alive():
+        logging.error("сервер не остановился за %.0f с — выходим", STOP_BUDGET_S)
+    else:
+        logging.warning("сервер остановлен за %.1f с", time.monotonic() - t2)
+    return sidecar.EXIT_STOP
+
+
 def main() -> None:
     import atexit
 
     from app.engine import APP_VERSION
     logging.warning("DentPilot start v%s port=%s mode=%s pid=%s", APP_VERSION, PORT,
+                    "tauri" if SHELL is not None else
                     "browser" if os.environ.get("DENTART_BROWSER_MODE") == "1" else "window",
                     os.getpid())
+    if SHELL is not None:
+        _engine_main(SHELL, APP_VERSION)    # выходит сам, с кодом контракта
+        return
     atexit.register(lambda: logging.warning("DentPilot clean exit pid=%s", os.getpid()))
     sys.excepthook = lambda *a: logging.error("UNCAUGHT", exc_info=a)
 
@@ -802,8 +1021,7 @@ def main() -> None:
     if not _port_free_probe():
         # порт занят, но /health не наш → чужая программа, честно говорим и выходим
         logging.error("Port %s is occupied by a foreign program - not starting", PORT)
-        warn = (f"DentPilot nu a putut porni: portul {PORT} este ocupat de alt program.\n"
-                f"Inchideti programul care ocupa portul sau setati DENTART_PORT in dental.env.")
+        warn = _port_text()
         if os.environ.get("DENTART_BROWSER_MODE") == "1":
             print(warn)
         else:
