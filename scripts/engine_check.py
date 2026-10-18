@@ -408,8 +408,12 @@ def scenario_pages(res: Result, exe: pathlib.Path, timing: dict) -> None:
              SMOKE_KEY, "wall", str(lab.data)],
             capture_output=True, text=True, encoding="utf-8", errors="replace")
         timing["pages"] = time.time() - t0
-        res.ok("страницы собранного движка открываются (smoke_exe, фаза wall)",
-               out.returncode == 0, ((out.stdout or "") + (out.stderr or ""))[-1500:])
+        said = out.stdout or ""
+        oks = said.count("   OK  ")
+        # ⚠️ И код, и сами проверки: обход, не нашедший что проверять, тоже 0
+        res.ok(f"страницы собранного движка открываются (smoke_exe wall, {oks} проверок)",
+               out.returncode == 0 and "дымовой тест собранной программы [wall]: OK" in said
+               and oks >= 10, (said + (out.stderr or ""))[-1500:])
         _stopped(res, e, "pages", e.send_stop(), timing)
     finally:
         e.close()
