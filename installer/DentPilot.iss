@@ -11,7 +11,19 @@
 ; обновлятора (P4) это означало бы, что любой пользователь машины подменяет
 ; бинарник, который исполняется от LocalSystem.
 ;
-; Сборка: .\Build-Installer.ps1  (или ISCC.exe /DAppVersion=1.10.0 installer\DentPilot.iss)
+; ПРОГРАММА — ДВА ПРОЦЕССА (Tauri, Т9, 18.10.2026; контракт частей —
+; docs/dentpilot-2/tauri-contract.md § 1):
+;   {app}\DentPilot.exe                  оболочка Tauri: окно, значок у часов,
+;                                        уведомления; её знают ярлык и сторож
+;   {app}\engine\DentPilot-Engine.exe    движок (PyInstaller папкой): сервер,
+;                                        база, копии; запускает его оболочка
+;   {app}\install.json, demo.flag        корень программы (BASE) — папка
+;                                        DentPilot.exe, а не engine\
+; Папку программы целиком собирает Build-Installer.ps1 в dist\DentPilot и
+; гоняет её стендом (scripts/shell_check.py) до упаковки.
+;
+; Сборка: .\Build-Installer.ps1  (или ISCC.exe /DAppVersion=1.10.0 installer\DentPilot.iss
+; при собранной dist\DentPilot)
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
@@ -19,6 +31,13 @@
 
 #define AppName    "DentPilot"
 #define AppExeName "DentPilot.exe"
+#define EngineDir  "engine"
+#define EngineExe  "DentPilot-Engine.exe"
+; Паспорт программы для Windows (AppUserModelID) — ТОТ ЖЕ, что identifier
+; оболочки (shell/tauri.conf.json; сверяет test_installer). По нему Windows
+; связывает уведомления оболочки с ярлыком «Пуска»: без ярлыка с этим
+; паспортом баннеров у часов нет вовсе, только история (опыт Т6, 18.10).
+#define AppUserModelID "md.dentpilot.app"
 ; Издатель — ТОТ ЖЕ, что CompanyName в свойствах DentPilot.exe (scripts/sync_version.py,
 ; COMPANY): разойдутся — `sync_version --check` и прогон красные. ⚠️ Окно UAC и
 ; SmartScreen берут издателя ТОЛЬКО из цифровой подписи — эта строка его не меняет,
@@ -225,6 +244,7 @@ ro.LegacyTitle=Există deja o instalare mai veche
 ro.LegacyText=Pe acest calculator există o instalare mai veche a DentPilot, cu datele clinicii lângă program:%n%n%1%n%nMutarea datelor în noua așezare nu este încă disponibilă în această versiune. Instalarea a fost oprită ca să nu rămână două evidențe separate.
 ro.AclTitle=Drepturile pe dosarul cu date
 ro.AclText=Programul este instalat, dar nu am putut acorda drepturi de scriere pe «%1».%n%nFără ele, un alt cont Windows de pe acest calculator (a doua tură) nu va putea lucra în program. Porniți instalarea încă o dată.
+ro.NoWebView2Text=Programul este instalat, dar componenta Microsoft pentru afișare (WebView2) nu s-a putut instala. Fără ea fereastra DentPilot nu se deschide.%n%nConectați calculatorul la internet și porniți instalarea încă o dată (sau porniți-o de pe stick-ul USB DentPilot).
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
@@ -248,10 +268,22 @@ Name: "{commonappdata}\{#AppName}\data";          Permissions: users-modify
 Name: "{commonappdata}\{#AppName}\data\backups";  Permissions: users-modify
 Name: "{commonappdata}\{#AppName}\data\files";    Permissions: users-modify
 
+[InstallDelete]
+; Движок — папка PyInstaller: у новой версии другой набор файлов в _internal\,
+; а Inno только добавляет и заменяет — лишний файл прошлой версии остался бы
+; лежать рядом навсегда. Папка — только программа, данных в ней нет никогда
+; (данные — в {commonappdata}, см. шапку).
+Type: filesandordirs; Name: "{app}\{#EngineDir}"
+
 [Files]
-Source: "..\dist\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+; Раскладка Tauri (контракт § 1): оболочка — в корне программы, движок —
+; папкой engine\ рядом. Других exe ярлык и сторож перезапуска не знают.
+Source: "..\dist\DentPilot\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\DentPilot\{#EngineDir}\*"; DestDir: "{app}\{#EngineDir}"; \
+    Flags: ignoreversion recursesubdirs createallsubdirs
 ; Метка для программы: заполнять ли журнал демо-записями при первом запуске.
-; Файла нет = чистый старт у реальной клиники.
+; Файла нет = чистый старт у реальной клиники. Лежит в корне программы (BASE),
+; а не в engine\: движок ищет её в папке DentPilot.exe.
 Source: "demo.flag"; DestDir: "{app}"; Tasks: demodata; Flags: ignoreversion
 ; Runtime, на котором рисуется окно программы. Кладём ТОЛЬКО если его нет:
 ; на обновляемой Windows он есть всегда, и лишние 1.6 МБ возить незачем.
@@ -259,17 +291,25 @@ Source: "MicrosoftEdgeWebView2Setup.exe"; DestDir: "{tmp}"; \
     Flags: deleteafterinstall; Check: WebView2Missing
 
 [Icons]
-Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"
-Name: "{autodesktop}\{#AppName}";  Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
+; ⛔ AppUserModelID — на ОБОИХ ярлыках: уведомления оболочки Windows показывает
+; только при ярлыке в «Пуске» с её паспортом (проверено опытом: Inno пишет
+; System.AppUserModel.ID в ярлык; без него баннеров нет).
+Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; \
+    AppUserModelID: "{#AppUserModelID}"
+Name: "{autodesktop}\{#AppName}";  Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; \
+    AppUserModelID: "{#AppUserModelID}"; Tasks: desktopicon
 
 [Run]
-; ⛔ ДО запуска программы: без WebView2 окно не открывается, и до этой правки
-; клиника видела ровно ничего — сборка --noconsole, исключение уходило в пустоту.
-; Программа с 1.19.12 умеет уйти в браузер, но это утешение, а не решение;
-; решение — поставить Runtime здесь. Молча и без перезагрузки.
+; ⛔ ДО запуска программы: без WebView2 окно оболочки Tauri НЕ СОЗДАЁТСЯ вовсе —
+; запасного пути «в браузер», как у прежнего окна pywebview (1.19.12), у неё
+; нет. Поэтому Runtime ставится здесь, молча и без перезагрузки, а после
+; [Run] (порядок проверен опытом 18.10: эти строки идут до ssPostInstall)
+; установка сама проверяет, встал ли он, и говорит словами, если нет
+; (NoWebView2Text в CurStepChanged).
 ; ⚠️ Отказ НЕ валит установку (`runasoriginaluser` не ставим, код возврата не
-; проверяем): нет интернета — программа всё равно поставится и откроется в
-; браузере. Установщик, падающий из-за необязательного компонента, хуже.
+; проверяем): файлы уже на месте, и повторный запуск мастера с интернетом
+; (или с флешки) доставит Runtime — проверка WebView2Missing стоит у обеих
+; строк. Отказ установки целиком ничего бы клинике не дал.
 ; Сначала автономный установщик с флешки, если он там лежит (OfflineWv2Ready) —
 ; он работает без интернета. Разбор и почему условие бутстрэппера ниже НЕ
 ; тронуто — в комментарии к OfflineWv2Ready.
@@ -285,9 +325,18 @@ Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; \
     WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
 ; Данные клиники деинсталлятор НЕ трогает: clinic.json, dental.env и data\
-; (база + бэкапы) остаются. А вот обломки самообновления — это файлы программы,
-; и по 30 МБ каждый; их убираем поимённо, чтобы случайно не задеть данные.
+; (база + бэкапы) лежат в {commonappdata} и остаются. А вот обломки
+; самообновления — это файлы программы; их убираем поимённо, чтобы случайно не
+; задеть данные. Папку {app} целиком НЕ сносим: её выбирает человек, и
+; «C:\Program Files» в поле папки стоил бы всей папки программ.
+; ⚠️ Своё состояние оболочки — %LOCALAPPDATA%\DentPilot (shell.json, shell.log,
+; профиль окна webview\) — по учётке Windows, у каждого человека своё:
+; деинсталлятор от администратора чужие профили не видит, и так было и у окна
+; pywebview (тот же webview\). Остаётся намеренно — килобайты и кука входа на
+; 127.0.0.1, без данных пациентов.
 [UninstallDelete]
+; движок целиком, что бы в нём ни появилось за время работы
+Type: filesandordirs; Name: "{app}\{#EngineDir}"
 Type: files; Name: "{app}\*.new.exe"
 ; Копия установщика, которой программа обновлялась (03.10, привилегированная
 ; операция install-setup кладёт её сюда) — тоже файл программы, не данные.
@@ -498,26 +547,39 @@ end;
 // PrepareToInstall (12.10, канарейка 1.41.2: обновление встало со второго раза).
 // Программу гасит она сама, а привилегированная часть — тот же DentPilot.exe —
 // выходит сразу за запуском установщика; загрузчик onefile после выхода ещё
-// ~0,5 с чистит свою временную папку и держит exe (замер: 0,42–0,58 с).
+// ~0,5 с чистит свою временную папку и держит exe (замер: 0,42–0,58 с; это про
+// прежнюю сборку одним файлом — у Tauri загрузчика onefile нет, а гонка с
+// выходящим процессом осталась: см. ниже).
 // Restart Manager, заставший такой процесс, закрывает его принудительно — и
 // проигрывает гонку, когда процесс уходит сам: «could not be shut down»
 // (событие 10006 в журнале Application), тихий установщик отвечает Abort,
 // итог «fail», и сторож поднимает прежнюю версию. Не отпустили за 30 с
 // (программа открыта под другой учёткой Windows) — дальше, как раньше,
 // закрывает Restart Manager. -1 — WMI не ответил: не ждём, решает он же.
+// ⭐ С Tauri (Т9) процессов программы ДВА — оболочка и движок, и считаются
+// оба по пути: оболочка ждёт честной остановки движка до 10 с, а файлы engine\
+// держит именно он. Ждать одну оболочку — снова отдать Restart Manager'у гонку
+// с выходящим процессом, только другим.
+function WqlPath(Path: String): String;
+begin
+  Result := Path;
+  StringChangeEx(Result, '\', '\\', True);
+  StringChangeEx(Result, '''', '\''', True);
+end;
+
 function AppProcessCount(): Integer;
 var
   Locator, Service, Procs: Variant;
-  Path: String;
+  Shell, Engine: String;
 begin
   Result := -1;
-  Path := ExpandConstant('{app}\{#AppExeName}');
-  StringChangeEx(Path, '\', '\\', True);
-  StringChangeEx(Path, '''', '\''', True);
+  Shell := WqlPath(ExpandConstant('{app}\{#AppExeName}'));
+  Engine := WqlPath(ExpandConstant('{app}\{#EngineDir}\{#EngineExe}'));
   try
     Locator := CreateOleObject('WbemScripting.SWbemLocator');
     Service := Locator.ConnectServer('.', 'root\CIMV2');
-    Procs := Service.ExecQuery('SELECT ProcessId FROM Win32_Process WHERE ExecutablePath = ''' + Path + '''');
+    Procs := Service.ExecQuery('SELECT ProcessId FROM Win32_Process WHERE ExecutablePath = ''' +
+                               Shell + ''' OR ExecutablePath = ''' + Engine + '''');
     Result := Procs.Count;
   except
     Log('WMI: ' + GetExceptionMessage);
@@ -534,14 +596,14 @@ begin
     if N <= 0 then
     begin
       if I > 1 then
-        Log(Format('DentPilot.exe otpushchen cherez %d ms', [(I - 1) * 250]));
+        Log(Format('DentPilot.exe i dvizhok otpushcheny cherez %d ms', [(I - 1) * 250]));
       Exit;
     end;
     if I = 1 then
-      Log(Format('Zhdem vyhoda DentPilot.exe: processov %d', [N]));
+      Log(Format('Zhdem vyhoda programmy (obolochka + dvizhok): processov %d', [N]));
     Sleep(250);
   end;
-  Log('DentPilot.exe ne otpushchen za 30 s - zakryvaet Restart Manager');
+  Log('Programma ne otpushchena za 30 s - zakryvaet Restart Manager');
 end;
 
 // ⛔ Блокировка, а не предупреждение. Пока переезд данных (P2) не написан,
@@ -674,6 +736,14 @@ begin
   if not AclOk then
     SuppressibleMsgBox(FmtMessage(CustomMessage('AclText'), [DataRoot()]),
                        mbError, MB_OK, IDOK);
+  // WebView2 ставят строки [Run] — они уже отработали (идут до ssPostInstall).
+  // Не встал — окно оболочки не создастся, и клиника увидела бы НИЧЕГО по
+  // клику на ярлык; поэтому здесь, словами, пока человек у мастера.
+  if WebView2Missing() then
+  begin
+    Log('WebView2 Runtime ne ustanovlen posle [Run]');
+    SuppressibleMsgBox(CustomMessage('NoWebView2Text'), mbError, MB_OK, IDOK);
+  end;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
