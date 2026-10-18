@@ -356,7 +356,7 @@ def suite_schedule(res: Result) -> None:
     dest = pathlib.Path(tempfile.mkdtemp(prefix="dp_bk_dest_"))
     shutil.copy(FIXTURES / "clinic_test.json", d / "clinic.json")
     try:
-        start = clinic_now().replace(microsecond=0)
+        start = clinic_now()               # не позади настоящих: см. suite_switch
         with Clock(start) as clock:
             with _env_server(d) as s:
                 c = Client(s.url).login()
@@ -460,7 +460,14 @@ def suite_switch(res: Result) -> None:
     dest = pathlib.Path(tempfile.mkdtemp(prefix="dp_bk_swdest_"))
     shutil.copy(FIXTURES / "clinic_test.json", d / "clinic.json")
     try:
-        start = clinic_now().replace(microsecond=0)
+        # ⛔ Без `replace(microsecond=0)` (18.10): «факт: последняя копия →
+        # папка» краснел 5 прогонов из 20. Локальную копию `_local_last`
+        # датирует mtime файла — настоящими часами, внешнюю — часами
+        # программы, а часы, отставшие на долю секунды, делали локальную
+        # копию, снятую за 0,4–1,3 с до внешней, «новее» (`Clock`, ⚠️ про
+        # время файлов). Старт с настоящего «сейчас» — отставание в
+        # микросекунды; прыжок `clock.set` вперёд законен.
+        start = clinic_now()
         with Clock(start) as clock:
             with _env_server(d) as s:
                 c = Client(s.url).login()
@@ -541,7 +548,7 @@ def suite_failure(res: Result) -> None:
     dest = pathlib.Path(tempfile.mkdtemp(prefix="dp_bk_fdest_"))
     shutil.copy(FIXTURES / "clinic_test.json", d / "clinic.json")
     try:
-        start = clinic_now().replace(microsecond=0)
+        start = clinic_now()               # не позади настоящих: см. suite_switch
         with Clock(start) as clock:
             with _env_server(d) as s:
                 c = Client(s.url).login()
