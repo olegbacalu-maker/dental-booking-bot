@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ro">
+<meta charset="utf-8">
+<title>meniu</title>
+<!-- Полоса меню окна DentPilot (оболочка Tauri). Заголовки статичны — решение
+     Олега 18.10: меню видно всегда, в цвете программы, без Alt и без
+     подчёркнутых букв (как Блокнот Windows 11). Списки под заголовками —
+     родные меню Windows; что в них, решает программа (`dpMenu` страницы),
+     оболочка лишь показывает. Цвет — цвет темы клиники: dpColor() зовёт
+     оболочка (слово движка `hello`, потом `dpCtx` страницы). -->
+<style>
+  :root { --c: #0E9F8A; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body {
+    box-sizing: border-box; display: flex; align-items: center; gap: 2px; padding: 0 6px;
+    font: 13px "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; color: #13201e;
+    background: color-mix(in srgb, var(--c) 7%, #fff);
+    border-bottom: 1px solid color-mix(in srgb, var(--c) 22%, #fff);
+    user-select: none; -webkit-user-select: none; cursor: default;
+  }
+  button {
+    font: inherit; color: inherit; background: transparent; border: 0; border-radius: 5px;
+    padding: 4px 10px; cursor: default;
+  }
+  button:hover { background: color-mix(in srgb, var(--c) 14%, #fff); }
+  button.on { background: color-mix(in srgb, var(--c) 20%, #fff); color: color-mix(in srgb, var(--c) 65%, #000); }
+  button:focus-visible { outline: 2px solid var(--c); outline-offset: 1px; }
+</style>
+<button type="button" data-id="file">Fișier</button>
+<button type="button" data-id="edit">Editare</button>
+<button type="button" data-id="view">Vizualizare</button>
+<button type="button" data-id="go">Mergi la</button>
+<button type="button" data-id="help">Ajutor</button>
+<script>
+  // Нажатие на заголовок — слово оболочке через канал WebView2, перехода нет
+  // вовсе. Форма — запрос IPC Tauri с чужим ключом: Tauri его молча
+  // отбрасывает, оболочка узнаёт по ключу (src/webview.rs).
+  (function () {
+    var m = /[?&]c=(%23|#)([0-9A-Fa-f]{6})/.exec(location.search);
+    if (m) document.documentElement.style.setProperty('--c', '#' + m[2]);
+  })();
+  function send(payload) {
+    if (!window.chrome || !chrome.webview) return;
+    chrome.webview.postMessage(JSON.stringify({ cmd: 'dpShell', callback: 0, error: 0, payload: payload,
+                                                __TAURI_INVOKE_KEY__: 'dpShell' }));
+  }
+  document.addEventListener('mousedown', function (e) {
+    var b = e.target.closest('button');
+    if (!b || e.button !== 0) return;
+    e.preventDefault();
+    document.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+    var r = b.getBoundingClientRect();
+    send({ menu: b.dataset.id, x: Math.round(r.left), y: Math.round(r.bottom + 1) });
+  });
+  document.addEventListener('keydown', function (e) {
+    var b = e.target.closest && e.target.closest('button');
+    if (!b || (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'ArrowDown')) return;
+    e.preventDefault();
+    var r = b.getBoundingClientRect();
+    send({ menu: b.dataset.id, x: Math.round(r.left), y: Math.round(r.bottom + 1) });
+  });
+  document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  window.dpClear = function () {
+    document.querySelectorAll('button.on').forEach(function (x) { x.classList.remove('on'); });
+  };
+  window.dpColor = function (c) {
+    if (/^#[0-9A-Fa-f]{6}$/.test(c || '')) document.documentElement.style.setProperty('--c', c);
+  };
+</script>
+</html>

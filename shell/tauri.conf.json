@@ -1,0 +1,21 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "DentPilot",
+  "identifier": "md.dentpilot.app",
+  "build": {
+    "frontendDist": "gen/ui"
+  },
+  "app": {
+    "windows": [],
+    "withGlobalTauri": false,
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "publisher": "A.I. Oleg Bacalu",
+    "copyright": "© A.I. Oleg Bacalu",
+    "icon": ["gen/icon.ico"]
+  }
+}

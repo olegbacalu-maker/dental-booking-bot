@@ -32,8 +32,9 @@ bot/app/static/js/bundle.js.map
 bot/app/static/js/three.js
 bot/app/static/js/three-core.js
 bot/app/static/js/teeth.js
-# rust (PHASE 7)
-src-tauri/target/
+# оболочка Tauri (shell/): сборка Rust и то, что build.rs рисует из bot/app/brand.py
+shell/target/
+shell/gen/
 
 # cloud (сервер лицензий): база, письма сухого прогона, своё окружение
 cloud/cloud.db*
