@@ -255,7 +255,7 @@ def _hub_tiles() -> list[dict]:
                           [{"t": f"{len(all_users())} utilizatori"}]))
     # FAQ безусловно и последней: справка в конце списка — привычное место
     tiles.append(tile("/admin/settings/faq", "help", "v", "Întrebări frecvente",
-                      [{"t": "copii de rezervă, mutare, Legea 195"}]))
+                      [{"t": "copii de rezervă, mutare, BitLocker, Legea 195"}]))
     # Демо с сайта (core/demo.py): плитка раздела, который шлюз отклонит,
     # обещала бы экран, которого нет. Тот же список, что у отказа в main.py, —
     # не второй.
@@ -474,7 +474,7 @@ există doar pe această foaie.</div>
 pe alt calculator, la schimbarea contului Windows sau a discului.<br>
 <b>Când NU este nevoie:</b> niciodată în lucrul obișnuit — nici la pornire, nici
 la actualizare. Programul îl cere doar în situațiile de mai sus.<br><br>
-<b>Unde se păstrează:</b> în mapa „Legea 195”, lângă actul BitLocker — adică nu
+<b>Unde se păstrează:</b> în mapa „Legea 195” a clinicii, lângă cheia de recuperare BitLocker — adică nu
 în calculator. O copie poate fi ținută în alt loc (seif, altă adresă).
 </div>
 <div class="box">Litera „O” din cod este întotdeauna literă: cifrele 0, 1, 8 și 9

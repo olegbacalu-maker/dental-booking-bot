@@ -96,7 +96,7 @@ def cost_html() -> str:
 def limit_html() -> str:
     return ("<p class='hint'><b>Ce NU face.</b> Nu vă apără de cineva care "
             "lucrează la acest calculator sub acest cont Windows. Acolo "
-            "lucrează parola de intrare și blocarea ecranului (Win+L).</p>")
+            "lucrează PIN-ul de intrare și blocarea ecranului (Win+L).</p>")
 
 
 def blocks(st: str) -> dict[str, str]:

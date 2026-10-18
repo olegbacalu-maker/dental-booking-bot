@@ -138,19 +138,25 @@ def db_label() -> str:
 def privacy_html() -> str:
     """Два абзаца о том, что программа работает локально — румынский для
     клиники и русский для Олега. ⚠️ Оба ссылаются на «folderul cu date выше»,
-    то есть на ФАКТ из этой же таблицы, а не на описание раскладки."""
+    то есть на ФАКТ из этой же таблицы, а не на описание раскладки.
+    С 17.10 копия бывает и ВНЕ компьютера (папка клиники: второй диск, флешка,
+    облако) — «копии остаются на этом компьютере» стало неправдой у каждой
+    клиники, выбравшей папку (сверка FAQ 18.10)."""
     return (
         "<p style='margin:0 0 8px;font-size:13px;line-height:1.55;color:var(--text2)'>"
         "<b style='color:var(--text)'>Programul funcționează local.</b> Datele "
         "personale ale pacienților nu sunt transmise dezvoltatorului și nu sunt "
         "stocate pe serverele acestuia. Actualizările descarcă doar fișierele "
         "programului. Baza de date, jurnalele și copiile de rezervă rămân pe "
-        "acest calculator, în folderul cu date de mai sus.</p>"
+        "acest calculator, în folderul cu date de mai sus; copia din afara "
+        "calculatorului, dacă ați ales un folder, pleacă acolo doar criptată, "
+        "cu parola clinicii.</p>"
         "<p style='margin:0;font-size:12.5px;line-height:1.55;color:var(--text3)'>"
         "Программа работает локально. Персональные данные пациентов не "
         "передаются разработчику и не хранятся на его серверах. Обновления "
         "загружают только файлы программы. База данных, журналы и резервные "
-        "копии остаются на этом компьютере.</p>")
+        "копии остаются на этом компьютере; внешняя копия, если выбрана папка, "
+        "уходит туда только зашифрованной, с паролем клиники.</p>")
 
 
 def data() -> dict:

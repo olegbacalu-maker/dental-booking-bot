@@ -384,6 +384,52 @@ def suite_faq(res: Result) -> None:
                any("7-Zip" in it["answer"] for it in d["items"]), "нет")
         res.ok("без бота абзац про токен не отдаётся",
                not any("tokenul botului" in it["answer"] for it in d["items"]), "есть")
+
+        # BitLocker (сверка 18.10): справка называет КАЖДУЮ строку, которую
+        # «Stare sistem» может показать (`bitlocker._CODES` + «не проверено»),
+        # и совет к ней. ⚠️ Список советов в faq.py ВКЛЮЧАЕТ коды: новый код
+        # без строки там справка молча не назовёт — поэтому сверка от
+        # программы, а не от списка справки. Диск — любой: проверка в фоне
+        # могла ещё не вернуться, тогда справка подставляет «C:».
+        bl = next((it["answer"] for it in d["items"] if "BitLocker" in it["question"]), "")
+        res.ok("есть вопрос про BitLocker", bool(bl), "нет")
+        res.ok("BitLocker: первой строкой — этот компьютер",
+               "Pe acest calculator, acum:" in bl, bl[:80])
+        res.ok("BitLocker: Windows Home — предупреждение во вкладке",
+               "Home" in bl and "necriptat" in bl, "про Home ни слова")
+        import sys
+        bot = str(pathlib.Path(__file__).resolve().parents[1] / "bot")
+        if bot not in sys.path:
+            sys.path.insert(0, bot)
+        from app.core import bitlocker         # без импортов проекта — как лаунчер
+        missing = []
+        for code, (tone, tpl) in [*bitlocker._CODES.items(),
+                                  (None, ("unknown", bitlocker.describe(None)[1]))]:
+            said = tpl if tone == "ok" else tpl.split(" — ")[0]
+            rx = re.escape(said).replace(re.escape("{d}"), "[A-Z?]:")
+            if not re.search(rf"<li><b>{rx}</b> — ", bl):
+                missing.append(str(code))
+        res.ok("BitLocker: каждая строка «Stare sistem» названа с советом",
+               not missing, "без совета: " + ", ".join(missing))
+
+        # Числа правил — из программы, а не литералами в справке
+        src = (pathlib.Path(__file__).resolve().parents[1] / "bot" / "app" / "core"
+               / "auth.py").read_text(encoding="utf-8")
+        pin_lan = re.search(r"^PIN_MIN_LAN = (\d+)", src, re.M)
+        ttl_lan = re.search(r"^COOKIE_TTL_LAN = 60 \* 60 \* (\d+)", src, re.M)
+        lan = next((it["answer"] for it in d["items"]
+                    if "două calculatoare" in it["question"]), "")
+        res.ok("правила сети нашлись в auth.py", bool(pin_lan and ttl_lan), "нет")
+        if pin_lan and ttl_lan:
+            res.ok("про сеть: минимум PIN, с которым откроется кнопка",
+                   f"cel puțin {pin_lan.group(1)} cifre" in lan, "не назван")
+            res.ok("про сеть: PIN спрашивается снова через срок куки",
+                   f"după {ttl_lan.group(1)} ore" in lan, "не назван")
+        res.ok("вход называется PIN, как на экране входа",
+               any("PIN-ul de intrare" in it["question"] for it in d["items"])
+               and not any("parola de intrare" in it["question"] + it["answer"]
+                           for it in d["items"]),
+               "в справке снова «parola de intrare»")
     with Server(env=TG_ON) as s:
         c = Client(s.url).login()
         d = _j(c.get("/api/settings/faq"))["data"]

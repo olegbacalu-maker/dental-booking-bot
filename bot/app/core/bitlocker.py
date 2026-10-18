@@ -33,12 +33,17 @@ _OK, _WARN, _ALARM = "ok", "warn", "alarm"
 _CODES = {
     1: (_OK, "activ — discul {d} este criptat și protejat"),
     3: (_OK, "criptarea discului {d} este în curs"),
+    # ⚠️ Совет ведёт в справку, а не в папку бумаг: «instrucțiunea din mapa
+    # Legea 195» была у клиник, которым ставили программу руками; поставившая
+    # сама этой папки не видела (сверка FAQ 18.10). Строку до « — » справка
+    # показывает в своём списке (`settings/faq._bl_said`).
     2: (_WARN, "discul {d} NU este criptat — porniți BitLocker "
-               "(instrucțiunea din mapa Legea 195)"),
-    5: (_WARN, "protecția discului {d} este SUSPENDATĂ — reporniți-o"),
+               "(pașii: Setări › Întrebări frecvente)"),
+    5: (_WARN, "protecția discului {d} este SUSPENDATĂ — reporniți-o "
+               "(pașii: Setări › Întrebări frecvente)"),
     8: (_ALARM, "discul {d} pare criptat, dar protecția este OPRITĂ și cheia "
-                "stă lângă date — activați BitLocker în Panoul de control "
-                "(capcana calculatoarelor noi)"),
+                "stă lângă date — activați BitLocker (capcana calculatoarelor "
+                "noi; pașii: Setări › Întrebări frecvente)"),
 }
 
 

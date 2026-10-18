@@ -34,7 +34,7 @@ PASS_INPUT = "<input type='password' name='password' placeholder='Parola' autofo
 # если директор один — напишите нам», а удаление файла сносит ВСЕ учётки и роли
 # разом и вдобавок поднимает сигнализацию подмены auth.json — директор получает
 # баннер о взломе за то, что выполнил инструкцию с нашего же экрана. Ответ
-# живёт в одном месте: Setări → FAQ, «Am uitat parola de intrare».
+# живёт в одном месте: Setări → FAQ, «Am uitat PIN-ul de intrare».
 #
 # Заголовок входа — имя клиники и больше ничего. «— registrul clinicii» было
 # третьим повтором одного и того же: то же слово стоит в заголовке окна, а над
@@ -194,7 +194,7 @@ RECOVER_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
   poate fi citită. Se întâmplă după reinstalarea Windows, la schimbarea
   calculatorului sau când programul este pornit de pe alt cont Windows.</p>
   <p><b>Introduceți codul de pe foaia de recuperare</b> — cea tipărită la
-  activarea criptării (o găsiți în mapa „Legea 195”, lângă actul BitLocker).</p>
+  activarea criptării (o găsiți în mapa „Legea 195” a clinicii, lângă cheia de recuperare BitLocker).</p>
   __ERR__
   <input name="code" placeholder="XXXXXX-XXXXXX-XXXXXX-…" autofocus required
          autocomplete="off" spellcheck="false">
