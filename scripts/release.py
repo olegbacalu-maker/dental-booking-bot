@@ -1,7 +1,7 @@
 r"""Публикация релиза БЕЗ веб-формы — у неё нашлись три ловушки за два дня.
 
     python scripts/release.py status              # все релизы с флагами
-    python scripts/release.py prerelease 1.14.1   # pre-release с двумя ассетами
+    python scripts/release.py prerelease 1.14.1   # pre-release с ОДНИМ ассетом (zip мастера)
     python scripts/release.py check 1.14.1        # смотрит глазами клиники
     python scripts/release.py publish 1.14.1      # снять метку → latest
 
@@ -25,21 +25,33 @@ r"""Публикация релиза БЕЗ веб-формы — у неё н�
 
 ⚠️ Тег создаёт git, НЕ этот скрипт: `prerelease` требует уже запушенный
 vX.Y.Z — иначе релиз описал бы не тот код, из которого собран бинарник.
-⚠️ Ассетов ровно два: dist\DentPilot.exe + dist\DentPilot-Setup-X.Y.Z.zip.
-Второй .exe (мастер установки) не заливается НАМЕРЕННО: клиника выбирает
-ассет по имени и скачала бы установщик вместо программы, затерев себя.
+⚠️ Ассет ОДИН (Tauri, Т9, 18.10.2026): dist\DentPilot-Setup-X.Y.Z.zip, внутри
+ровно один подписанный DentPilot-Setup-X.Y.Z.exe. Программа теперь — две
+части (оболочка DentPilot.exe + папка движка engine\), подменой одного файла
+её не обновить: клиника обновляется мастером из этого zip (update.py, режим
+установщика). Отдельный DentPilot.exe больше не выкладывается — это оболочка
+без движка. ⛔ Ни одного .exe в релизе: клиника старой сборки выбирала ассет
+по имени и скачала бы не то, затерев себя (сторож — здесь и в check_release).
+⛔ Мастер на диске проверяется ДО заливки тем же, чем его проверит программа
+клиники (`setup_problems`): ровно один exe с именем версии в zip, подпись
+НАШИМ сертификатом (`privileged.SIGNERS`), версия файла = версия выпуска.
+Пробная сборка `Build-Installer.ps1 -NoSign` здесь останавливается.
 """
 from __future__ import annotations
 
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
+import zipfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+from bot.app import authenticode, privileged  # noqa: E402 — те же проверки, что у клиники
 from bot.app.repo import REPO  # noqa: E402 — один адрес на весь проект
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -48,7 +60,15 @@ if hasattr(sys.stdout, "reconfigure"):
 API = f"https://api.github.com/repos/{REPO}"
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DIST = ROOT / "dist"
-APP_ASSET = "DentPilot.exe"          # ровно это имя ищет обновлятор клиники
+
+
+def setup_zip(ver: str) -> str:
+    """Имя единственного ассета выпуска — его ищет обновлятор (update._SETUP_ZIP)."""
+    return f"DentPilot-Setup-{ver}.zip"
+
+
+def setup_exe(ver: str) -> str:
+    return f"DentPilot-Setup-{ver}.exe"
 
 _ENV_DIRS = [
     pathlib.Path(r"C:\Users\Public\DentPilot"),
@@ -85,7 +105,50 @@ def find_token() -> str:
     return ""
 
 
-TOKEN = find_token()
+# Ищется в main(), а не при импорте: прогон берёт отсюда `setup_problems`, и
+# импорт не должен ходить в git credential.
+TOKEN = ""
+
+
+def setup_problems(ver: str, dist: pathlib.Path = DIST) -> list[str]:
+    """Что не так с мастером выпуска на диске — словами; пусто = можно лить.
+
+    Ровно то, что проверит перед обновлением программа клиники
+    (`update._update_by_setup` → `privileged` install-setup): в zip один .exe
+    с именем версии, подпись Authenticode НАШИМ сертификатом. Плюс версия
+    файла: мастер, собранный не из того кода, назвался бы чужим номером.
+    Неподписанный мастер (пробная сборка `-NoSign`) клиника отвергнет —
+    значит, и выпуск тоже."""
+    zpath = dist / setup_zip(ver)
+    if not zpath.exists():
+        return [f"нет файла {zpath} — сначала соберите: .\\Build-Installer.ps1"]
+    want = setup_exe(ver)
+    try:
+        with zipfile.ZipFile(zpath) as z:
+            names = [i.filename for i in z.infolist()]
+            if names != [want]:
+                return [f"в {zpath.name} лежит {names}, а должен ровно один {want} — "
+                        "обновление клиники такой архив отвергнет"]
+            with tempfile.TemporaryDirectory(prefix="dp_release_") as tmp:
+                exe = pathlib.Path(tmp) / want
+                with z.open(want) as src, open(exe, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                thumb = authenticode.signer_thumbprint(exe)
+                fver = authenticode.file_version(exe)
+    except (zipfile.BadZipFile, OSError) as e:
+        return [f"{zpath.name} не открывается: {e}"]
+    bad = []
+    if thumb is None:
+        bad.append("мастер НЕ подписан (или подпись недействительна) — пробная сборка "
+                   "-NoSign? В выпуск идёт только подписанная: войти в SimplySign Desktop "
+                   "и .\\Build-Installer.ps1 без ключей")
+    elif thumb not in privileged.SIGNERS:
+        bad.append(f"мастер подписан чужим сертификатом {thumb} — программа клиники его "
+                   "отвергнет (privileged.SIGNERS)")
+    got = ".".join(str(n) for n in fver[:3]) if fver else ""
+    if got != ver:
+        bad.append(f"версия файла мастера {got or 'не читается'}, а выпуск {ver}")
+    return bad
 
 
 def scrub(text: str) -> str:
@@ -138,11 +201,13 @@ def cmd_status() -> int:
 
 def cmd_prerelease(ver: str) -> int:
     tag = f"v{ver}"
-    assets = [DIST / APP_ASSET, DIST / f"DentPilot-Setup-{ver}.zip"]
-    for f in assets:
-        if not f.exists():
-            print(f"✗ нет файла {f}\n  Сначала соберите: .\\Build-Installer.ps1")
-            return 1
+    bad = setup_problems(ver)
+    if bad:
+        print("✗ мастер выпуска не годится:")
+        for b in bad:
+            print(f"  - {b}")
+        return 1
+    assets = [DIST / setup_zip(ver)]
     try:
         call(f"{API}/git/ref/tags/{tag}")
     except urllib.error.HTTPError as e:
@@ -172,6 +237,14 @@ def cmd_prerelease(ver: str) -> int:
         print(f"  создан, id {rel['id']}")
 
     have = {a["name"].lower(): a for a in rel.get("assets", [])}
+    # Лишнее у pre-release (DentPilot.exe прежней лестницы, чужой файл) —
+    # убрать: клиникам pre-release не виден, а publish такой узел не пропустит.
+    keep = {f.name.lower() for f in assets}
+    for name, a in list(have.items()):
+        if name not in keep:
+            print(f"  убираю лишний ассет {a['name']} — в выпуске только {assets[0].name}")
+            call(f"{API}/releases/assets/{a['id']}", "DELETE")
+            del have[name]
     for f in assets:
         a = have.get(f.name.lower())
         if a:
@@ -187,9 +260,8 @@ def cmd_prerelease(ver: str) -> int:
 
     got = call(f"{API}/releases/{rel['id']}")
     names = [(a["name"], a.get("size"), a.get("state")) for a in got["assets"]]
-    exes = [n for n, _s, _st in names if n.lower().endswith(".exe")]
-    ok = (got["prerelease"] and not got["draft"] and len(names) == 2
-          and exes == [APP_ASSET]
+    ok = (got["prerelease"] and not got["draft"]
+          and [n for n, _s, _st in names] == [setup_zip(ver)]
           and all(st == "uploaded" for _n, _s, st in names))
     print(f"\n{'✓' if ok else '✗'} {tag}: prerelease={got['prerelease']} "
           f"draft={got['draft']}, файлы:")
@@ -272,11 +344,11 @@ def cmd_publish(ver: str, allow_red: bool = False) -> int:
         print(f"✓ {tag} уже опубликован — ничего не делаю.")
         return 0
     names = [(a["name"], a.get("state")) for a in rel.get("assets", [])]
-    exes = [n for n, _st in names if n.lower().endswith(".exe")]
-    if (len(names) != 2 or exes != [APP_ASSET]
+    if ([n for n, _st in names] != [setup_zip(ver)]
             or any(st != "uploaded" for _n, st in names)):
-        print(f"✗ не публикую: у {tag} файлы {names} — а нужно ровно два, "
-              f"один .exe и он {APP_ASSET}. Почините pre-release сначала.")
+        print(f"✗ не публикую: у {tag} файлы {names} — а нужен ровно один "
+              f"{setup_zip(ver)} и ни одного .exe. Почините pre-release сначала: "
+              f"python scripts/release.py prerelease {ver}")
         return 1
     rel = call(f"{API}/releases/{real['databaseId']}", "PATCH", json.dumps({
         "prerelease": False, "make_latest": "true",
@@ -299,6 +371,8 @@ def cmd_check(ver: str) -> int:
 
 
 def main() -> int:
+    global TOKEN
+    TOKEN = find_token()
     if not TOKEN:
         print("✗ Токен не найден (env / git credential / dental.env).")
         return 1

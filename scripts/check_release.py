@@ -25,7 +25,9 @@ from bot.app.repo import REPO  # noqa: E402 — один адрес на вес�
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-APP_ASSET = "dentpilot.exe"          # имя обязано быть ровно таким (см. update.py)
+# Единственный ассет выпуска с Tauri (Т9, 18.10.2026) — zip мастера; имя ровно
+# такое, как ищет обновлятор (`update._SETUP_ZIP`), и версия в нём = тег.
+SETUP_ZIP = re.compile(r"^DentPilot-Setup-(\d+\.\d+\.\d+)\.zip$")
 API = f"https://api.github.com/repos/{REPO}/releases"
 
 # ⚠️ Черновики GitHub отдаёт ТОЛЬКО тому, у кого есть push-доступ. Без токена
@@ -140,25 +142,34 @@ def main(expect: str | None) -> int:
     for a in assets:
         print(f"   {a.get('name')}  {a.get('size')} б  state={a.get('state')}")
 
+    # С Tauri (Т9) программа — оболочка и папка движка; подменой одного exe её не
+    # обновить, и обновление идёт мастером из zip. Поэтому ассет ОДИН, и это zip.
+    # ⛔ Ни одного .exe: клиника старой сборки выбирала ассет по имени и могла
+    # скачать не программу, а инсталлятор, затерев им себя.
     exes = [a for a in assets if str(a.get("name", "")).lower().endswith(".exe")]
-    if len(exes) != 1:
-        bad(f"в релизе {len(exes)} файлов .exe, а должен быть РОВНО ОДИН. "
-            "Уже установленные клиники выбирают ассет из списка и могут скачать "
-            "не программу, а инсталлятор, затерев им себя. Инсталлятор кладите .zip")
-    elif str(exes[0].get("name", "")).lower() != APP_ASSET:
-        bad(f"единственный .exe называется {exes[0].get('name')!r}, а должен быть "
-            f"ровно {APP_ASSET!r} — иначе обновление не найдёт файл и клиника "
-            "застрянет на «версия объявлена, файла нет»")
-    else:
-        app = exes[0]
-        if str(app.get("state", "")) != "uploaded":
-            bad(f"ассет в состоянии {app.get('state')!r} — заливка не завершена")
-        if int(app.get("size") or 0) < 20_000_000:
-            bad(f"ассет всего {app.get('size')} байт — похоже, залился не целиком")
-        if not app.get("digest"):
+    if exes:
+        bad(f"в релизе файлы .exe ({', '.join(str(a.get('name')) for a in exes)}), а их "
+            "не должно быть ни одного: программа обновляется мастером из zip, а "
+            "клиника старой сборки выбирает .exe по имени и может затереть им себя")
+    zips = [a for a in assets if SETUP_ZIP.match(str(a.get("name", "")))]
+    if len(assets) != 1 or len(zips) != 1:
+        bad(f"в релизе {len(assets)} файл(ов), а должен быть ровно один "
+            "DentPilot-Setup-X.Y.Z.zip — его и только его берёт обновление")
+    if len(zips) == 1:
+        z = zips[0]
+        zver = SETUP_ZIP.match(str(z.get("name"))).group(1)
+        if zver != tag.lstrip("vV"):
+            bad(f"{z.get('name')} — мастер версии {zver}, а тег {tag}: обновление "
+                "сверяет имя с тегом и такой архив не возьмёт")
+        if str(z.get("state", "")) != "uploaded":
+            bad(f"ассет в состоянии {z.get('state')!r} — заливка не завершена")
+        # программа сама не берёт установщик меньше 5 МБ (update._update_by_setup)
+        if int(z.get("size") or 0) < 5_000_000:
+            bad(f"ассет всего {z.get('size')} байт — похоже, залился не целиком")
+        if not z.get("digest"):
             notes.append("у ассета нет digest — клиент не сможет сверить контрольную сумму")
         else:
-            print(f"digest: {app['digest']}")
+            print(f"digest: {z['digest']}")
 
     if not problems:
         print("\nOK — релиз выглядит так, как его ждёт установленная клиника.")
