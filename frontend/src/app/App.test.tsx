@@ -383,11 +383,15 @@ describe('B4.2: оболочка — сайдбар, крошки, шапка, �
     await expectTransition(router, '/admin')
   })
 
-  it('«+ Programare nouă» — переход, якорь формы остаётся в адресе', async () => {
+  it('«+ Programare nouă» вне дня журнала — окно на месте, без перехода и без документа (22.10)', async () => {
     const { router } = openClinic()
+    /* форма окна — день без даты («сегодня» сервера); отказ сети — плашка */
     await act(async () => { nativeClick(screen.getByText('Programare nouă')) })
-    await expectTransition(router, '/admin/all?date=2026-09-24')
-    expect(router.state.location.hash).toBe('#addform')
+    await waitFor(() => expect(document.querySelector('.toastbox[data-kind=err]')).not.toBeNull())
+    expect(get).toHaveBeenCalledWith('/schedule/day', expect.anything())
+    expect(router.state.location.pathname + router.state.location.search + router.state.location.hash).toBe(CLINIC_URL)
+    expect(fetchDoc).not.toHaveBeenCalled()
+    expect(leave).not.toHaveBeenCalled()
   })
 
   it('поиск из шапки: Enter в поле ведёт на экран поиска с ?q=, без перезагрузки', async () => {

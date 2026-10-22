@@ -133,7 +133,7 @@ afterEach(() => {
 })
 
 describe('без окна оболочки — ничего', () => {
-  it('браузер, телефон, pywebview: ни функций, ни клавиш, ни «Despre»', () => {
+  it('браузер второго ПК, телефон: ни функций, ни клавиш, ни «Despre»', () => {
     serve()
     open('/admin/settings', node('settings_hub'), { shell: false })
     expect(window.dpMenu).toBeUndefined()
@@ -246,14 +246,23 @@ describe('пункт уходит на свой экран и исполняет
 })
 
 describe('клавиши окна', () => {
-  it('Ctrl+N — окно записи, как кнопка шапки; при русской раскладке тоже', async () => {
+  it('Ctrl+N — окно записи, как кнопка шапки: на месте, без перехода (22.10); при русской раскладке тоже', async () => {
     serve()
+    const base = get.getMockImplementation()
+    get.mockImplementation((path: string) => (path === '/schedule/day'
+      ? Promise.resolve(ok({ date: '2026-10-18', form: {
+        doctors: [{ id: 'd2', name: 'Dr. Unu', spec: '' }], times: { d2: ['09:00'] }, hours: ['09:00'],
+        services: [{ id: 'consult', label: 'Consultație' }], doctor: 'd2', time: '09:00', birth_max: '2026-10-18' } }))
+      : base?.(path)))
     docs()
     const { router } = open('/admin/settings', node('settings_hub'))
     await act(async () => { expect(press('KeyN', { key: 'т', ctrlKey: true })).toBe(false) })
-    await waitFor(() => expect(router.state.location.pathname).toBe('/admin/all'))
-    expect(router.state.location.search + router.state.location.hash).toBe('?date=2026-10-18#addform')
-    expect(screen.getByText('Programare nouă').closest('a')?.getAttribute('href')).toBe('/admin/all?date=2026-10-18#addform')
+    await waitFor(() => expect(document.querySelector('dialog.dp-adddlg')?.hasAttribute('open')).toBe(true))
+    expect(router.state.location.pathname + router.state.location.hash).toBe('/admin/settings')
+    expect(fetchDoc).not.toHaveBeenCalled()
+    /* ссылка кнопки — прежняя: Ctrl+щелчок по ней ведёт в журнал */
+    expect(screen.getByText('Programare nouă', { selector: '.nb-t' }).closest('a')?.getAttribute('href'))
+      .toBe('/admin/all?date=2026-10-18#addform')
   })
 
   it('Ctrl+F — «Căutare rapidă», та же накладка, что Ctrl+K; Ctrl+K жив', () => {

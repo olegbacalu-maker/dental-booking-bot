@@ -286,6 +286,12 @@ export const day = {
   add: (at: string, doctor: string, f: string, body: NewAppt) =>
     api.post<DayModel>(`/schedule/appointments${screen(at, doctor, f)}`, body),
 
+  /** Запись из окна шапки вне дня журнала (`NewApptHost`, 22.10): дня экрана
+   *  у окна нет, и состояние ему не нужно — `screen=new_appt` (`_NO_STATE`
+   *  сервера), ответ — код и слово. Тело — то же `NewAppt`: правило одно. */
+  record: (body: NewAppt) =>
+    api.post<void>('/schedule/appointments?screen=new_appt', body),
+
   note: (at: string, doctor: string, f: string, body: NewNote) =>
     api.post<DayModel>(`/schedule/notes${screen(at, doctor, f)}`, body),
 

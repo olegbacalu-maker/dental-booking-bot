@@ -58,7 +58,10 @@ interface Props {
   of: string
   busy: boolean
   onClose: () => void
-  onAdd: (body: NewAppt) => Promise<boolean>
+  /** `fail` — слово отказа В ОКНО (как у `SlotDialog`): плашка под открытым
+   *  `<dialog>` не видна. Окну шапки (`NewApptHost`) другой плашки нет вовсе;
+   *  день журнала пока отдаёт отказ своей плашкой и `fail` не зовёт. */
+  onAdd: (body: NewAppt, fail: (text: string) => void) => Promise<boolean>
 }
 
 /** Форма записи на дату окна; `form: null` — не пришла. */
@@ -78,6 +81,7 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd }: Props)
   const [phone, setPhone] = useState('')
   const [noPhone, setNoPhone] = useState(false)
   const [birth, setBirth] = useState('')
+  const [fail, setFail] = useState('')
 
   const other = at !== date && ISO_DAY.test(at)
   /* пока ответ в пути — последний пришедший список, а кнопка ждёт */
@@ -111,8 +115,9 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd }: Props)
 
   async function submit(e: FormEvent) {
     e.preventDefault()
+    setFail('')
     const ok = await onAdd({ date: at, time, doctor, service, name,
-      phone: noPhone ? '' : phone, nophone: noPhone, birth })
+      phone: noPhone ? '' : phone, nophone: noPhone, birth }, setFail)
     if (ok) onClose()
   }
 
@@ -160,6 +165,7 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd }: Props)
           <input type="date" value={birth} max={form.birth_max}
                  onChange={(e) => setBirth(e.target.value)} />
         </label>
+        {fail ? <div className="banner err" role="alert">{fail}</div> : null}
         <button disabled={busy || pending || !times.length}>{T.go}</button>
       </form>
     </dialog>

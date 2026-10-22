@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
-import { Form, useLocation } from 'react-router'
+import { useCallback, useEffect, useState } from 'react'
+import { Form, useLocation, useNavigate } from 'react-router'
 import { useCommand } from '../app/bridge'
-import { newApptHref } from '../app/commands'
+import { isJournalDay, newApptHref } from '../app/commands'
 import { useLock } from '../app/lock'
-import { AppLink, useProseLinks } from '../components/AppLink'
+import { AppLink, isPlainClick, useProseLinks } from '../components/AppLink'
 import { Icon, iconName } from '../components/Icon'
+import { NewApptHost } from '../features/schedule/NewApptHost'
 import { defaultNavigate } from '../hooks/useLoad'
 import { asApiError } from '../services/api'
 import { auth } from '../services/auth'
@@ -203,15 +204,33 @@ function LeaveButton({ m }: { m: ShellModel }) {
   )
 }
 
-function Topbar({ m, prose }: { m: ShellModel; prose: (e: React.MouseEvent<HTMLElement>) => void }) {
+interface TopbarProps {
+  m: ShellModel
+  prose: (e: React.MouseEvent<HTMLElement>) => void
+  /** Открыть окно записи оболочки (вне дня журнала). */
+  onNew: () => void
+}
+
+function Topbar({ m, prose, onNew }: TopbarProps) {
   const { identity, clinic, frame } = m
   const loc = useLocation()
-  /* «Programare nouă» открывает окно записи дня журнала (`#addform`, 06.10).
-     ⭐ Уже стоишь на дне журнала (общем или врача) — окно открывается на ЭТОМ
-     дне и у этого врача, а не уводит на сегодня: регистратура смотрит четверг
-     и записывает на четверг. С любой другой страницы — сегодня, как и было.
-     Правило одно на кнопку и на пункт меню окна Tauri (`newApptHref`). */
+  const to = useNavigate()
+  /* «Programare nouă». ⭐ На дне журнала (общем или врача) — окно записи ЭТОГО
+     дня и врача (`#addform`, 06.10): регистратура смотрит четверг и
+     записывает на четверг. ⭐ С любой другой страницы — окно оболочки поверх
+     неё (`NewApptHost`, 22.10): человек остаётся, где был, и начатая фиша не
+     теряется. Ссылка остаётся ссылкой на журнал (`newApptHref`): тот же узел
+     и вид, Ctrl+щелчок — как у ссылки; простой щелчок открывает окно.
+     Действие одно на кнопку, Ctrl+N и пункт меню окна Tauri (`useCommand`). */
+  const onDay = isJournalDay(loc.pathname)
   const addHref = newApptHref(loc.pathname, loc.search, frame.today)
+  const add = onDay ? () => { void to(addHref) } : onNew
+  useCommand('act:newAppt', add)
+  const click = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (onDay || !isPlainClick(e, null)) return
+    e.preventDefault()
+    onNew()
+  }
   return (
     <div className="top">
       {/* ⭐ Поиск из шапки — переход роутером (B4.2): `Form` с методом GET
@@ -227,7 +246,7 @@ function Topbar({ m, prose }: { m: ShellModel; prose: (e: React.MouseEvent<HTMLE
       )}
       <div style={{ flex: 1 }} />
       <span className="dp-upd" onClick={prose} dangerouslySetInnerHTML={{ __html: frame.update }} />
-      <AppLink className="newbtn" href={addHref}>
+      <AppLink className="newbtn" href={addHref} onClick={click}>
         <span className="plus">+</span><span className="nb-t">{T.newAppt}</span>
       </AppLink>
       {identity && (
@@ -254,11 +273,16 @@ export function AppShell({ m, children }: { m: ShellModel; children: React.React
   /* Ссылки в серверной прозе (баннеры, плашка, строка обновления) — тем же
      переходом, что и `AppLink`: обработчик на контейнере прозы. */
   const prose = useProseLinks()
+  /* Окно «Programare nouă» вне дня журнала — СОСТОЯНИЕ оболочки, не адрес
+     (`NewApptHost`): экран под окном не перерисовывается и не перечитывается. */
+  const [adding, setAdding] = useState(false)
+  const openAdd = useCallback(() => setAdding(true), [])
+  const closeAdd = useCallback(() => setAdding(false), [])
   return (
     <>
       <Sidebar m={m} />
       <div className="main">
-        <Topbar m={m} prose={prose} />
+        <Topbar m={m} prose={prose} onNew={openAdd} />
         <div className="content">
           {/* заголовок — имя раздела из модели (B5): текст меняется, узел тот же */}
           <h1>{m.frame.title}</h1>
@@ -284,6 +308,7 @@ export function AppShell({ m, children }: { m: ShellModel; children: React.React
           {children}
         </div>
       </div>
+      <NewApptHost open={adding} onClose={closeAdd} />
     </>
   )
 }

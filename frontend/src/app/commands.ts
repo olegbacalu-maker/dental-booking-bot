@@ -47,10 +47,12 @@ export interface CmdState {
  * Пункты, которые без экрана не исполнить: печать и выгрузку заявляет экран,
  * где они есть (на остальных пункт серый), поиск — накладка `QuickFind`,
  * смену человека — кнопка выхода шапки, «Despre» — его окно, сворачивание
- * меню — кнопка сайдбара.
+ * меню — кнопка сайдбара, «Programare nouă» — кнопка шапки (22.10: вне дня
+ * журнала она открывает окно оболочки, а не переход, и знает это только она).
  */
 export const DECLARED: ReadonlySet<string> = new Set([
   'act:print', 'act:export', 'act:quickfind', 'act:switchUser', 'act:about', 'act:fold',
+  'act:newAppt',
 ])
 
 /**
@@ -235,14 +237,20 @@ function keyName(e: KeyboardEvent): string | null {
   return null
 }
 
+/** День журнала — общий или врача: там у «Programare nouă» своё окно (`#addform`). */
+export function isJournalDay(pathname: string): boolean {
+  return pathname === '/admin/all' || pathname.startsWith('/admin/doctor/')
+}
+
 /**
- * Куда ведёт «Programare nouă» — ОДНО правило на кнопку шапки и на пункт меню
- * (06.10): уже стоишь на дне журнала (общем или врача) — окно записи на ЭТОМ
- * дне и у этого врача; с любой другой страницы — сегодня.
+ * Адрес ссылки «Programare nouă» (06.10): на дне журнала (общем или врача) —
+ * окно записи на ЭТОМ дне и у этого врача; с любой другой страницы — сегодня.
+ * ⚠️ С 22.10 вне дня журнала по этому адресу НЕ ходят: простой щелчок, Ctrl+N
+ * и пункт меню открывают окно оболочки на месте (`AppShell` › `Topbar`), а
+ * адрес остаётся ссылкой для Ctrl+щелчка.
  */
 export function newApptHref(pathname: string, search: string, today: string): string {
-  const onDay = pathname === '/admin/all' || pathname.startsWith('/admin/doctor/')
-  return onDay ? `${pathname}${search}#addform` : `/admin/all?date=${today}#addform`
+  return isJournalDay(pathname) ? `${pathname}${search}#addform` : `/admin/all?date=${today}#addform`
 }
 
 /**

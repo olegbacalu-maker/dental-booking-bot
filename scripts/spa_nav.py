@@ -334,12 +334,15 @@ def main() -> int:
                             "afișa")
             if s5["rows"] < 1:
                 bad.append("поиск из шапки: список пациентов пуст")
+            # (22.10) вне дня журнала «+ Programare nouă» открывает окно ОБОЛОЧКИ
+            # поверх экрана, где стоишь: адрес прежний, документ не меняется
             s6 = shell_step("«+ Programare nouă»",
                             lambda: click_el(page, "document.querySelector('.top .newbtn')"),
-                            lambda st: st["href"].startswith("/admin/all?date=") and st["addform"] is not None,
-                            "ocupare")
+                            lambda st: st["href"] == "/admin/search?q=Proba" and st["addform"] is not None,
+                            "afișa")
             if s6["addform"] is not True:
-                bad.append(f"«+ Programare nouă»: окно записи не открылось (якорь #addform): {s6['addform']}")
+                bad.append(f"«+ Programare nouă»: окно записи не открылось на месте: {s6['addform']}")
+            page.key("Escape")
 
             errs = cdp.errors()
             if errs:

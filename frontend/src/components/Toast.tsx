@@ -1,10 +1,15 @@
 import { useEffect } from 'react'
 import type { Tone } from '../types/api'
+import { AppLink } from './AppLink'
 import { Icon } from './Icon'
 
 export interface ToastState {
   tone: Tone
   text: string
+  /** Куда смотреть результат (22.10: запись из окна шапки — «Vezi în jurnal ›»).
+   *  Переход — `AppLink`, без перезагрузки; щелчок по ссылке закрывает плашку:
+   *  она живёт в оболочке и иначе приехала бы на новый экран. */
+  link?: { href: string; label: string }
 }
 
 interface ToastProps extends ToastState {
@@ -19,7 +24,7 @@ interface ToastProps extends ToastState {
  * ⚠️ Без id="dp_toast": так зовётся серверная плашка (?msg= после 303), и
  * panel.js вешает обработчики только на неё. Две плашки с одним id спорили бы.
  */
-export function Toast({ tone, text, onClose }: ToastProps) {
+export function Toast({ tone, text, link, onClose }: ToastProps) {
   useEffect(() => {
     if (tone !== 'ok') return
     const timer = window.setTimeout(onClose, 6000)
@@ -34,6 +39,11 @@ export function Toast({ tone, text, onClose }: ToastProps) {
       <div className={`banner ${tone}`}>
         {tone === 'ok' && <Icon name="check" />}
         {text}
+        {/* плашка — flex с зазором: ссылка отдельным элементом и одной
+            строкой, сжимается текст, а не «Vezi în / jurnal ›» */}
+        {link
+          ? <AppLink href={link.href} onClick={onClose} style={{ whiteSpace: 'nowrap' }}>{link.label}</AppLink>
+          : null}
         <button className="t-x" type="button" aria-label="Închide" onClick={onClose}>
           <Icon name="close" />
         </button>

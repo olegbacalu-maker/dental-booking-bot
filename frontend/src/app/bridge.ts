@@ -5,7 +5,7 @@ import { defaultNavigate } from '../hooks/useLoad'
 import { defaultReload } from '../hooks/useLive'
 import type { ShellModel } from '../layouts/shell'
 import {
-  accelOf, allItems, HOMES, itemForAccel, loggedIn, MENU_IDS, menuOf, newApptHref, safePath,
+  accelOf, allItems, HOMES, itemForAccel, loggedIn, MENU_IDS, menuOf, safePath,
   type CmdState, type MenuEntry, type MenuId,
 } from './commands'
 
@@ -14,10 +14,10 @@ import {
  * docs/dentpilot-2/tauri-contract.md § 3).
  *
  * ⛔ Только при `window.dpShell`: его вставляет оболочка в страницы своего
- * окна. Браузер второго ПК, телефон и окно pywebview его не имеют — и у них
- * нет ни `dpMenu`/`dpRun`/`dpCtx`, ни новых клавиш, ни окна «Despre» (Олег
- * 18.10: в браузере меню не нужно). До сборки Tauri (Т9) программа клиники
- * выпускается прежним окном, и весь этот файл у неё спит.
+ * окна. Браузер второго ПК и телефон его не имеют — и у них нет ни
+ * `dpMenu`/`dpRun`/`dpCtx`, ни новых клавиш, ни окна «Despre» (Олег 18.10: в
+ * браузере меню не нужно). С 2.0.0 (18.10) программа клиники — окно Tauri, и
+ * мост стоит в каждом её окне.
  *
  * Что исполняет пункт — решает список (`commands.ts`); здесь только то, как
  * он доходит: клавиша, `dpRun` из меню, реестр заявленных экранами действий.
@@ -208,10 +208,9 @@ function go(b: Bridge, path: string): void {
 
 function act(b: Bridge, id: string): void {
   const loc = b.router.state.location
+  /* «Programare nouă» здесь не разбирается: её исполняет кнопка шапки
+     (`useCommand` в `Topbar`) — окно оболочки на месте или окно дня журнала */
   switch (id) {
-    case 'act:newAppt':
-      go(b, newApptHref(loc.pathname, loc.search, b.model?.frame.today ?? ''))
-      return
     case 'act:reload':
       defaultReload()
       return
