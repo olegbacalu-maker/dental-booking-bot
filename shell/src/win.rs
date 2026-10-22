@@ -305,8 +305,8 @@ pub fn open_external(url: &str) {
 
 /// Скачивание: родное окно «Сохранить как». `dest` — куда положил бы сам
 /// WebView2 (папка «Загрузки» + имя от сервера); выбор человека пишется туда же.
-/// ⚠️ Модально внутри события WebView2 — так же, как это годами делает
-/// pywebview нынешней программы (`ALLOW_DOWNLOADS`).
+/// ⚠️ Модально внутри события WebView2 — так же, как это годами делало
+/// окно pywebview (`ALLOW_DOWNLOADS`, снято 22.10.2026).
 pub fn save_as(app: &AppHandle, dest: &mut PathBuf) -> bool {
     let name = dest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let dir = dest.parent().map(|d| d.display().to_string()).unwrap_or_default();

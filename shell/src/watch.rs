@@ -116,8 +116,10 @@ pub fn parse(args: &[OsString]) -> Result<Plan, String> {
     })
 }
 
-/// Что говорит файл итога (`restartwatch.decide`). ⚠️ «ok» без перевода
-/// строки и с ним — одно (канарейка 03.10); «fail» с причиной второй строкой.
+/// Что говорит файл итога мастера (`/RESULT=`): «ok» и «fail…» — запускать
+/// программу, «cancelled» — она жива сама, остальное (файла нет, «started») —
+/// ждать. ⚠️ «ok» без перевода строки и с ним — одно (канарейка 03.10); «fail»
+/// с причиной второй строкой.
 pub fn decide(text: Option<&str>) -> Verdict {
     let Some(t) = text else { return Verdict::Wait };
     let t = t.trim();
@@ -262,7 +264,8 @@ fn any_process_named(names: &[&str]) -> bool {
     }
 }
 
-/// Дождаться итога и выхода старой оболочки (`restartwatch.wait_for`).
+/// Дождаться итога и выхода старой оболочки; потолки `WAIT` и `EXIT_WAIT` —
+/// договор с движком (`restartwatch.WAIT_S`, `EXIT_WAIT_S`).
 /// ⚠️ Итога нет за 9 минут — всё равно «запускать»: лучше программа, чем
 /// пустой экран (так вёл себя и bat). Мастер пропал при «started» — то же,
 /// но сразу и со словами «не установилось» (`SetupWatch`).
@@ -526,8 +529,8 @@ mod tests {
     }
 
     #[test]
-    fn decides_like_restartwatch() {
-        // те же случаи, что test_update_setup (`rw.decide`)
+    fn decides_by_result_words() {
+        // слова файла итога, как их пишут операция за UAC и мастер (`/RESULT=`)
         let cases = [
             (Some("ok"), Verdict::Start),
             (Some("ok\r\n"), Verdict::Start),
