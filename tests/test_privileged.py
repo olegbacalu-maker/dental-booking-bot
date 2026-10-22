@@ -542,10 +542,14 @@ def suite_install_setup(res: Result) -> None:
                 exe, work = _setup_lab(tmp, signed)
                 out = run(tmp, exe)
                 raw = (work / privileged.RESULT_NAME).read_text(encoding="utf-8")
-                from app import restartwatch as rw
+                # слова итога у сторожа (`watch.rs::decide`, сверяет
+                # test_restart): «ok» и «fail…» — запускать, «cancelled» —
+                # программа жива сама; всё прочее — ждать дальше
+                t = raw.strip()
+                waits = t not in ("ok", "cancelled") and not t.startswith("fail")
                 res.ok("установщик не запустился: отказ словами до «started», сторож ждёт «cancelled»",
                        out == raw and "не запустился" in out and "Acces refuzat" in out
-                       and rw.decide(raw) == "wait", f"{out!r} {raw[:60]!r}")
+                       and waits, f"{out!r} {raw[:60]!r}")
                 res.check("и программа цела", exe.read_bytes(), b"STARAYA PROGRAMMA")
         finally:
             privileged._spawn_setup = fake_spawn
