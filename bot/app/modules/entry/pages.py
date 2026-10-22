@@ -16,14 +16,11 @@ from __future__ import annotations
 from ...core.auth import PIN_MAX
 from ...core.layout import _ic
 
-# Логин НЕОБЯЗАТЕЛЕН: пароль у каждого свой (это стережёт pin_free), и
-# заставлять регистратуру набирать ещё и id — трение десятки раз в день. Поле
-# всё же есть: врачу с телефона вход по одному паролю неочевиден, а в клинике
-# с одинаковыми привычками кто-нибудь однажды захочет войти именно «как я».
-PIN_INPUT = ("<input type='text' name='uid' placeholder='ID (opțional)' "
-             "autocomplete='username' maxlength='20' "
-             "style='text-align:center;font-size:15px'>"
-             "<input type='password' name='password' placeholder='PIN' autofocus required "
+# Вход — ОДНИМ PIN: пароль у каждого свой (это стережёт pin_free), и сервер
+# находит человека по нему (`verify_pin`). Поле «ID (opțional)» снято 22.10.2026
+# (Олег) — наследие времён до уникальности PIN; форма `uid` по-прежнему
+# ПРИНИМАЕТ (`routes.try_login`): старые вкладки и наборы его шлют.
+PIN_INPUT = ("<input type='password' name='password' placeholder='PIN' autofocus required "
              f"inputmode='numeric' pattern='[0-9]*' maxlength='{PIN_MAX}' "
              "style='text-align:center;font-size:28px;letter-spacing:12px'>")
 PASS_INPUT = "<input type='password' name='password' placeholder='Parola' autofocus required>"

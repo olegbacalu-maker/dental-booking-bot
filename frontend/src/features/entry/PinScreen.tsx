@@ -7,16 +7,18 @@ import { t } from '../../utils/i18n'
  * Экран PIN внутри программы (B4.4, 16.10.2026): смена человека у стойки.
  *
  * Та же карточка, что у страницы входа сервера (`modules/entry/pages.py ›
- * LOGIN_TMPL`): логотип клиники, её имя, id (необязателен), PIN, «Intră», на
- * том же фоне (`entry.backdrop` — строка сервера). Рисуется ВМЕСТО журнала
- * (`App`): прошлого человека в окне нет ни узлом, ни запросом.
+ * LOGIN_TMPL`): логотип клиники, её имя, PIN, «Intră», на том же фоне
+ * (`entry.backdrop` — строка сервера). Рисуется ВМЕСТО журнала (`App`):
+ * прошлого человека в окне нет ни узлом, ни запросом.
+ * Поля «ID (opțional)» нет с 22.10.2026 (Олег): PIN уникален на всю клинику
+ * (`auth.pin_free`), и сервер находит человека по одному PIN; `uid` в дверь
+ * уходит пустым — `POST /api/auth/login` его по-прежнему принимает.
  * ⛔ Решает сервер: верность PIN, счётчик неудач, блокировка, битый файл —
  * `POST /api/auth/login` тем же оракулом, что и форма; здесь только ввод и
  * текст отказа из конверта. Ни одного слова про PIN клиент не выдумывает.
  */
 
 const T = t('pin', {
-  id: 'ID (opțional)',
   pin: 'PIN',
   enter: 'Intră',
   checking: 'Se verifică…',
@@ -28,12 +30,12 @@ const T = t('pin', {
 interface Props {
   /** Модель оболочки на момент выхода: имя и логотип клиники, дверь, фон. */
   m: ShellModel
-  /** Вход: бросает `ApiError` при отказе; удача — экран уберёт `App`. */
+  /** Вход: бросает `ApiError` при отказе; удача — экран уберёт `App`.
+   *  `uid` всегда пустой: поля на экране нет, подпись — договор `App`/`auth.login`. */
   enter: (pin: string, uid: string) => Promise<void>
 }
 
 export function PinScreen({ m, enter }: Props) {
-  const [uid, setUid] = useState('')
   const [pin, setPin] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<{ text: string; locked: boolean } | null>(null)
@@ -48,7 +50,7 @@ export function PinScreen({ m, enter }: Props) {
     setBusy(true)
     setErr(null)
     try {
-      await enter(pin, uid)
+      await enter(pin, '')
       /* удача: `App` снимает замок, экран размонтирован — состояния нет */
     } catch (ex) {
       const er = asApiError(ex)
@@ -74,8 +76,6 @@ export function PinScreen({ m, enter }: Props) {
             {err.locked && <><br /><small>{T.forgot}</small></>}
           </div>
         )}
-        <input type="text" name="uid" placeholder={T.id} aria-label={T.id} autoComplete="username"
-          maxLength={20} value={uid} onChange={(e) => setUid(e.target.value)} />
         <input ref={field} type="password" name="password" placeholder={T.pin} aria-label={T.pin}
           required inputMode="numeric" pattern="[0-9]*" maxLength={m.entry.pin_max}
           className="dp-lock-pin" value={pin} onChange={(e) => setPin(e.target.value)} />

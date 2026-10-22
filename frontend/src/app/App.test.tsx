@@ -536,6 +536,11 @@ describe('B4.4: смена человека без перезагрузки', ()
     expect(post).toHaveBeenCalledWith('/auth/logout')
     /* ⭐ Прошлого человека в окне нет: ни оболочки, ни экрана — только карточка PIN */
     expect(await screen.findByLabelText('PIN')).toBeTruthy()
+    /* 22.10: поля «ID (opțional)» нет — вход одним PIN (он уникален на клинику);
+       в карточке одно поле */
+    expect(screen.queryByLabelText('ID (opțional)')).toBeNull()
+    expect(document.querySelector('.dp-lock-card input[name="uid"]')).toBeNull()
+    expect(document.querySelectorAll('.dp-lock-card input')).toHaveLength(1)
     expect(document.querySelector('aside.side')).toBeNull()
     expect(screen.queryByLabelText('Nume')).toBeNull()
     expect(screen.queryByText('Ion Director')).toBeNull()
@@ -552,6 +557,7 @@ describe('B4.4: смена человека без перезагрузки', ()
     const { router } = openAsIon()
     await leaveClick()
     await enterPin('3333')
+    /* uid пустой: поля нет с 22.10, дверь его принимает как и раньше */
     expect(post).toHaveBeenCalledWith('/auth/login', { pin: '3333', uid: '' })
     await waitFor(() => expect(screen.getByText('Ana Recepție')).toBeTruthy())
     expect(router.state.location.pathname).toBe('/admin')

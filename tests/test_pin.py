@@ -69,6 +69,13 @@ def suite_store(res: Result) -> None:
                and "__FONTS__" not in login_page.body,
                f"код {login_page.status}, @font-face нет — вход уедет на "
                f"системный шрифт")
+        # 22.10: поле «ID (opțional)» снято (Олег) — вход ОДНИМ PIN, он уникален
+        # на клинику (pin_free), verify_pin находит человека по нему. Форма
+        # `uid` по-прежнему ПРИНИМАЕТ (suite_roles шлёт его): старые вкладки.
+        res.ok("страница входа без поля id — только PIN",
+               "name='uid'" not in login_page.body
+               and "name='password'" in login_page.body,
+               "на входе снова поле uid — снято 22.10, вход одним PIN")
         rec = _rec(s)
         u = (rec.get("users") or [{}])[0]
         res.check("PIN пишется в формате v2", rec.get("v"), 2)
@@ -326,6 +333,8 @@ def suite_roles(res: Result) -> None:
         res.ok("удалённая учётка перестаёт пускать НЕМЕДЛЕННО",
                med2.get("/admin").status == 303, "уволенный остался внутри")
 
+        # ⭐ uid формой: поля на странице входа нет с 22.10, но сервер его
+        # ПРИНИМАЕТ — старая вкладка, открытая до обновления, шлёт его
         a = Client(s.url)
         a.post("/admin/login", password="3333", uid="ana", next="/admin")
         res.ok("вход с указанием своего id", a.get("/admin").status == 200,
