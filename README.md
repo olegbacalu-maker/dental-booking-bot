@@ -453,10 +453,15 @@ a lost `--add-data` or a broken path to `static`; those break only in the exe, a
 
 ## Desktop edition
 
-A single code-signed `DentPilot.exe` (PyInstaller, ~35 MB): native app window (WebView2)
-with a persistent profile, SQLite in the clinic's data folder (see *Installer* below), no
-ports open to the outside. A second launch brings the open window forward instead of
-starting a second copy over the same database. Build with `Build-Desktop.ps1`.
+Since 2.0.0 the program is a folder: the code-signed shell `DentPilot.exe` (Tauri, Rust:
+window with WebView2, menu, tray icon, update watcher) and the engine
+`engine\DentPilot-Engine.exe` (PyInstaller onedir, the server without a window, talking to
+the shell over `DP1` lines on stdin/stdout). Persistent WebView2 profile, SQLite in the
+clinic's data folder (see *Installer* below), no ports open to the outside. A second launch
+brings the open window forward instead of starting a second copy over the same database.
+The engine does not start without the shell (the old pywebview window, its browser fallback
+and the `portable.flag` USB mode were removed on 22.10.2026). Build with
+`Build-Installer.ps1` (shell + engine + installer); `Build-Engine.ps1` builds the engine alone.
 
 - **First launch writes an empty clinic** — one placeholder doctor, six generic services,
   Mon–Fri 07:00–18:00, Sat 07:00–14:00, no prices borrowed from someone else's list. The demo

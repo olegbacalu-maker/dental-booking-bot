@@ -1,37 +1,30 @@
-"""DentPilot Desktop — лаунчер .exe-издания (без Docker и VPS).
+"""DentPilot — лаунчер движка оболочки Tauri.
+
+С 2.0.0 (18.10.2026) программа — оболочка `DentPilot.exe` (окно, меню, значок
+у часов, сторож обновления) и этот движок в `engine\\DentPilot-Engine.exe`:
+сервер журнала без окна. Оболочка запускает движок с `DENTART_SHELL=tauri` и
+говорит с ним строками `DP1` по stdin/stdout (`docs/dentpilot-2/tauri-contract.md`
+§ 2, `app/sidecar.py`). Без оболочки движок не запускается: окна у него нет
+(прежнее окно pywebview снято 22.10.2026), и сервер без окна нечем закрыть.
 
 Данные КЛИНИКИ живут в отдельной папке (`data_root()` ниже), а не рядом с exe:
 clinic.json (профиль, правится в Setări), dental.env (TELEGRAM_TOKEN и
 ADMIN_KEY), data/dental.db (SQLite), data/dentpilot.log (лог).
 ⛔ Разделение намеренное: программа уезжает в `Program Files`, доступный только
-на чтение. Рядом с exe остаётся лишь то, что кладёт СБОРКА (`demo.flag`,
-`portable.flag`). Обычный режим — собственное окно приложения
-(WebView2); закрытие окна останавливает программу.
-Профиль окна (куки, кэш, localStorage) ПОСТОЯННЫЙ и свой у каждой учётки
-Windows (`profile_dir()`), а вход переживает перезапуск по РЕЖИМУ установки
-(`_session_policy`): постоянный профиль ≠ постоянный вход. Второй запуск
-(двойной клик по ярлыку при открытой программе) выводит окно первого
-экземпляра на передний план и выходит — второго окна нет (`_claim_instance`,
-`_focus_existing`).
-DENTART_BROWSER_MODE=1 — старый режим: консоль + системный браузер.
-DENTART_SHELL=tauri — движок оболочки Tauri (Т5, 18.10.2026): ни окна, ни
-браузера, события строками `DP1` в stdout, остановка по stdin
-(`docs/dentpilot-2/tauri-contract.md` § 2, `app/sidecar.py`).
+на чтение. Рядом с exe остаётся лишь то, что кладёт СБОРКА или установщик
+(`demo.flag`, `install.json`).
 (env-переменные исторически с префиксом DENTART_ — не трогаем ради
 совместимости с dental.env уже установленных клиник.)"""
 from __future__ import annotations
 
-import json
 import logging
 import os
 import pathlib
 import shutil
-import subprocess
 import sys
 import threading
 import time
 import urllib.request
-import webbrowser
 
 from app import logrotate, sidecar  # предзагрузочный слой: без проекта и без побочных действий
 
@@ -41,7 +34,7 @@ def exe_dir() -> pathlib.Path:
         exe = pathlib.Path(sys.executable).resolve()
         # ⭐ Движок Tauri (`engine\DentPilot-Engine.exe`, контракт § 1): корень
         # программы — папка оболочки DentPilot.exe, родитель `engine\`; там
-        # лежат install.json, portable.flag и demo.flag. ⚠️ Узнаём по ИМЕНИ
+        # лежат install.json и demo.flag. ⚠️ Узнаём по ИМЕНИ
         # собранного файла, а не по DENTART_SHELL: привилегированный запуск
         # (UAC) окружения оболочки не получает, а корень ему нужен тот же.
         if exe.name.lower() == sidecar.ENGINE_EXE.lower():
@@ -58,55 +51,51 @@ def bundle_dir() -> pathlib.Path:
 def _fatal_dir(path: pathlib.Path, err: Exception) -> None:
     """Папка клиники недоступна — сказать это ВСЛУХ и выйти.
 
-    ⛔ Единственный способ сообщить здесь — окно: сборка идёт `--noconsole`
-    (stdout/stderr ещё None), лога ещё нет, и до `sys.excepthook` дело не
-    дойдёт — этот код исполняется на уровне модуля. Без этого окна отказ прав
-    на `ProgramData` выглядит как «ярлык не работает», и чинить клиника пойдёт
-    не то.
+    ⛔ Единственный способ сообщить здесь — событие `fatal` оболочке (окно
+    рисует она): лога ещё нет, и до `sys.excepthook` дело не дойдёт — этот код
+    исполняется на уровне модуля. Без этого отказ прав на `ProgramData`
+    выглядит как «ярлык не работает», и чинить клиника пойдёт не то.
     ⚠️ Текст клинике по-румынски и с ПУТЁМ: без пути поддержка по телефону
     не сможет спросить ничего полезного.
-    Движок Tauri говорит то же событием `fatal` — окно рисует оболочка.
     """
     text = (f"DentPilot nu poate folosi dosarul cu datele clinicii:\n\n{path}\n\n"
             f"{err.__class__.__name__}: {err}\n\n"
             "Verificați drepturile pe acest dosar sau porniți instalarea din nou.")
-    if SHELL is not None:
-        SHELL.send("fatal", text=text, log="")      # лога ещё нет: папки нет
-    else:
-        _box(text)
+    SHELL.send("fatal", text=text, log="")      # лога ещё нет: папки нет
     raise SystemExit(sidecar.EXIT_FATAL)
 
 
 def _box(msg: str) -> None:
-    """Сказать клинике вслух. ⛔ Единственный способ на этом этапе: сборка идёт
-    `--noconsole`, лога может ещё не быть, а `sys.excepthook` ставится позже.
-    ⛔ У движка Tauri окон нет вовсе (контракт § 2): предупреждение уходит
-    оболочке событием `warn` (окно рисует она), беда — событием `fatal` у
-    того, кто её обнаружил."""
+    """Сказать клинике вслух. ⛔ У движка окон нет (контракт § 2):
+    предупреждение уходит оболочке событием `warn` (окно рисует она), беда —
+    событием `fatal` у того, кто её обнаружил. Окно Windows — только у
+    собранного движка, запущенного БЕЗ оболочки (двойной клик по
+    `DentPilot-Engine.exe`): сказать ему больше некому. Из исходников —
+    stderr: модальное окно повесило бы стенд, забывший `DENTART_SHELL`."""
     if SHELL is not None:
         logging.warning("(motor Tauri: warn) %s", msg)
         SHELL.warn(msg)
         return
-    try:
-        import ctypes
-        ctypes.windll.user32.MessageBoxW(0, msg, "DentPilot", 0x10)
-    except Exception:                      # noqa: BLE001 — не на Windows / нет user32
-        print(msg, file=sys.__stderr__ or sys.stdout)
+    if getattr(sys, "frozen", False):
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(0, msg, "DentPilot", 0x10)
+            return
+        except Exception:                  # noqa: BLE001 — не на Windows / нет user32
+            pass
+    print(msg, file=sys.__stderr__ or sys.stdout)
 
 
 def data_root() -> pathlib.Path:
     """Папка КЛИНИКИ. Решает ОДИН лаунчер — он один знает раскладку машины.
 
     ⛔ Порядок именно такой, и каждая ветка тут за своё:
-      1. `$DENTART_DATA_DIR` из окружения ПРОЦЕССА — им пользуются установщик,
-         будущий сайдкар Tauri и стенд. ⚠️ Из `dental.env` этот ключ НЕ берётся
+      1. `$DENTART_DATA_DIR` из окружения ПРОЦЕССА — им пользуются установщик
+         и стенды. ⚠️ Из `dental.env` этот ключ НЕ берётся
          и взяться не может: сам файл лежит ВНУТРИ искомой папки, и ключ в нём
          замкнул бы круг — второй запуск разрешился бы в другое место. Поэтому
          переменная выставляется ЖЁСТКО и ДО чтения `dental.env` (ниже).
-      2. `portable.flag` рядом с exe — флешка и выезд: раскладка «всё в одной
-         папке», как было до переезда. Флаг БУЛЕВ и пути не несёт: путь в
-         текстовом файле можно испортить, а флаг — нет.
-      3. Иначе — `%ProgramData%\\DentPilot`, общая для всех учёток машины.
+      2. Иначе — `%ProgramData%\\DentPilot`, общая для всех учёток машины.
     ⚠️ Ветки «старая установка рядом с exe» здесь НЕТ и не будет: эта функция
     отвечает на вопрос «куда положено», и выводить ответ из положения exe
     нельзя — программа, переставленная в `Program Files`, завела бы пустую базу
@@ -114,12 +103,13 @@ def data_root() -> pathlib.Path:
     отвечает следующий шаг (`relocate.root_for`, P2), и отвечает не положением
     exe самим по себе, а положением, ПОДТВЕРЖДЁННЫМ маркерами данных.
     ⭐ Разница принципиальная: здесь — раскладка, там — находка.
+    Режима флешки (`portable.flag`: «всё в одной папке рядом с exe») нет с
+    22.10.2026: никакая сборка его не ставила, а программа-папка оболочки в
+    нём не могла обновиться.
     """
     raw = os.environ.get("DENTART_DATA_DIR", "").strip().strip("\"'")
     if raw and pathlib.Path(raw).is_absolute():
         return pathlib.Path(raw)
-    if (BASE / "portable.flag").exists():
-        return BASE
     return pathlib.Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "DentPilot"
 
 
@@ -134,117 +124,13 @@ SHELL: sidecar.Link | None = None     # труба к оболочке Tauri; с
 # ⚠️ Список того, что вообще может случиться за UAC, — `app/privileged.py`.
 from app import privileged  # noqa: E402 — предзагрузочный слой, без проекта
 
-# ⚠️ Раскладку передаём СВОЕЙ функцией: у неё три ветки ($DENTART_DATA_DIR,
-# portable.flag, %ProgramData%), и второй вычислитель разошёлся бы с этим
-# молча. ⛔ Окружение сюда не доезжает: повышенный процесс запускает Windows,
-# а не мы, и `$DENTART_DATA_DIR`, выставленный лаунчером, в нём не виден.
+# ⚠️ Раскладку передаём СВОЕЙ функцией: у неё две ветки ($DENTART_DATA_DIR,
+# %ProgramData%), и второй вычислитель разошёлся бы с этим молча.
+# ⛔ Окружение сюда не доезжает: повышенный процесс запускает Windows, а не
+# мы, и `$DENTART_DATA_DIR`, выставленный лаунчером, в нём не виден.
 # Корень программы — тоже наш (BASE): у движка Tauri это папка оболочки над
 # `engine\`, туда операция кладёт копию мастера (Т10).
 if (_code := privileged.handle_argv(sys.argv[1:], data_root, BASE)) is not None:
-    raise SystemExit(_code)
-
-# ⭐ Сторож перезапуска (11.10): планировщик зовёт этот же exe (копию — см.
-# `app/restartwatch.py`) с `--watch …`, и вместо чёрного окна cmd на экране
-# заставка «Se instalează actualizarea…». Так же рано, как привилегированный
-# запуск: ни корня, ни лога, ни сервера — одно дело и выход.
-from app import brand, restartwatch, splash  # noqa: E402 — предзагрузочный слой
-
-
-def _child_env() -> dict:
-    """Окружение для программы, которую запускает СТОРОЖ (17.10, канарейка
-    1.45.0). ⛔ Без `_MEIPASS2` и `_PYI_*`: сторож — тот же onefile-exe, и его
-    загрузчик держит в окружении адрес СВОЕЙ временной распаковки. Ребёнок с
-    этой переменной не распаковывается сам, а живёт в папке сторожа — и когда
-    сторож, сделав дело, выходит, он убирает «свою» папку из-под работающей
-    программы («Failed to remove temporary directory _MEI…»). Всё, что
-    программа импортирует лениво ПОСЛЕ этого (pyzipper у плитки «Copie de
-    rezervă»), падает «Not found _SHA1.pyd», и хаб настроек отвечает 500 —
-    так выглядело «Setări не отвечает» у Олега после выключения сети."""
-    return {k: v for k, v in os.environ.items()
-            if k != "_MEIPASS2" and not k.startswith("_PYI_")}
-
-
-def _watch_mode(argv: list[str]) -> int | None:
-    """`None` — обычный запуск; число — код возврата сторожа."""
-    try:
-        plan = restartwatch.parse(argv)
-    except ValueError as e:
-        print(f"supraveghetorul nu a pornit: {e}", file=sys.stderr)
-        return 2
-    if plan is None:
-        return None
-    try:
-        plan.proof.write_text(".", encoding="ascii")   # «пошёл» — это ждёт update._schtasks_run
-    except OSError:
-        pass
-    no_win = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    verdict: dict = {"v": "", "text": None}
-
-    def work(stage) -> None:
-        stage(restartwatch.TEXT_INSTALL if plan.result else restartwatch.TEXT_RESTART, 12, 70)
-        verdict["v"] = restartwatch.wait_for(plan, stage)
-        verdict["text"] = restartwatch.read_result(plan.result)
-        if verdict["v"] == "start":
-            stage(restartwatch.outcome_text(verdict["text"]), 96)
-
-    def launch() -> None:
-        if verdict["v"] != "start" or not plan.launch:
-            return
-        try:
-            flags = (getattr(subprocess, "DETACHED_PROCESS", 0)
-                     | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
-            subprocess.Popen(plan.launch, cwd=str(pathlib.Path(plan.launch[0]).parent),
-                             creationflags=flags, close_fds=True, env=_child_env())
-        except OSError as e:
-            print(f"programul nu a pornit: {e}", file=sys.stderr)
-
-    def finish() -> None:
-        # задачу планировщика снимаем за собой — так делал и bat
-        try:
-            subprocess.run(["schtasks", "/delete", "/tn", plan.task, "/f"],
-                           creationflags=no_win, capture_output=True, check=False)
-        except OSError:
-            pass
-
-    try:
-        import webview
-        plan.profile.mkdir(parents=True, exist_ok=True)
-        window = webview.create_window(
-            "DentPilot", html=splash.page(plan.label, plan.primary),
-            width=1280, height=860, min_size=(960, 640),
-            background_color=brand.tint(plan.primary, .06))
-    except Exception as e:  # noqa: BLE001 — без окна сторож всё равно обязан перезапустить
-        print(f"fara fereastra ({e!r}) - supraveghere fara ecran", file=sys.stderr)
-        work(lambda *a: None)
-        launch()
-        finish()
-        return 0
-
-    def in_window(win) -> None:
-        def stage(text: str, pct: int, upto: int = 0) -> None:
-            try:
-                win.evaluate_js(f"dpStage({json.dumps(text)},{pct},{upto})")
-            except Exception:  # noqa: BLE001 — заставка украшает, перезапуск важнее
-                pass
-        work(stage)
-        launch()
-        if verdict["v"] == "start":
-            time.sleep(1.5)             # новое окно успело появиться — без пустого экрана
-        try:
-            win.evaluate_js("dpDone()")
-            time.sleep(0.4)
-        except Exception:  # noqa: BLE001
-            pass
-        win.destroy()
-
-    # ⛔ Свой профиль WebView2 (`plan.profile`): профиль программы занят ею самой
-    # (она ещё закрывается), и второе окно на нём не открылось бы.
-    webview.start(in_window, window, private_mode=False, storage_path=str(plan.profile))
-    finish()
-    return 0
-
-
-if (_code := _watch_mode(sys.argv[1:])) is not None:
     raise SystemExit(_code)
 
 
@@ -275,27 +161,34 @@ def _engine_crash(kind, value, tb) -> None:
 
 
 # ⭐ Движок Tauri (Т5). Режим решает окружение ПРОЦЕССА и здесь — до слияния
-# `dental.env`: строка `DENTART_SHELL=tauri` в файле клиники окно не снимет.
-# После привилегированного запуска и сторожа: у них свой разговор и свой выход.
+# `dental.env`: строка `DENTART_SHELL=tauri` в файле клиники его не включит.
+# После привилегированного запуска: у него свой разговор и свой выход.
 # ⚠️ Трубы забираются у процесса ЗДЕСЬ, до первого `print` и до подмены
 # stdout ниже (`sidecar.take`: почему ни одна чужая строка не должна попасть
 # в трубу оболочки).
 _SHELL_TOKEN = os.environ.get(sidecar.TOKEN_ENV, "")
 if sidecar.active():
     SHELL = sidecar.take(BASE)
-if SHELL is not None:
-    sys.excepthook = _engine_crash
-    # ⛔ Движок из ИСХОДНИКОВ без явной папки данных ушёл бы в
-    # %ProgramData%\DentPilot — в настоящую картотеку этой машины (у Олега там
-    # живая установка). Окно лаунчера из исходников так же опасно, но им
-    # пользуются стенды, которые папку называют; оболочку в разработке
-    # запускает человек, и забыть переменную — одно движение.
-    if not getattr(sys, "frozen", False) and not os.environ.get("DENTART_DATA_DIR", "").strip():
-        SHELL.send("fatal", log="", text=(
-            "Motorul DentPilot pornit din surse fără DENTART_DATA_DIR: ar folosi "
-            "datele reale ale acestui calculator (%ProgramData%\\DentPilot).\n"
-            "Setați DENTART_DATA_DIR spre un dosar de test."))
-        raise SystemExit(sidecar.EXIT_FATAL)
+# ⛔ Без оболочки движок НЕ запускается (22.10.2026, окно pywebview снято):
+# окна у него нет, и сервер, поднятый двойным щелчком по
+# `engine\DentPilot-Engine.exe`, нечем было бы ни увидеть, ни закрыть. Отказ —
+# ДО вычисления корня: такой запуск не должен ни заводить папку клиники, ни
+# трогать картотеку.
+if SHELL is None:
+    _box("DentPilot-Engine.exe este motorul programului și nu pornește singur.\n"
+         "Porniți DentPilot din meniul Start sau cu DentPilot.exe.")
+    raise SystemExit(sidecar.EXIT_FATAL)
+sys.excepthook = _engine_crash
+# ⛔ Движок из ИСХОДНИКОВ без явной папки данных ушёл бы в
+# %ProgramData%\DentPilot — в настоящую картотеку этой машины (у Олега там
+# живая установка). Оболочку в разработке запускает человек, и забыть
+# переменную — одно движение; стенды папку называют сами.
+if not getattr(sys, "frozen", False) and not os.environ.get("DENTART_DATA_DIR", "").strip():
+    SHELL.send("fatal", log="", text=(
+        "Motorul DentPilot pornit din surse fără DENTART_DATA_DIR: ar folosi "
+        "datele reale ale acestui calculator (%ProgramData%\\DentPilot).\n"
+        "Setați DENTART_DATA_DIR spre un dosar de test."))
+    raise SystemExit(sidecar.EXIT_FATAL)
 
 ROOT = data_root()
 
@@ -327,25 +220,21 @@ os.environ["DENTART_DATA_DIR"] = str(ROOT)
 
 
 def profile_dir() -> pathlib.Path:
-    """Папка профиля WebView2 (куки входа, кэш, localStorage) — ПОСТОЯННАЯ.
+    """Папка профиля WebView2 окна (куки входа, кэш, localStorage) — ПОСТОЯННАЯ.
 
-    ⭐ С 08.10.2026. До того окно шло в приватном режиме: pywebview заводил
-    временный профиль на каждый запуск и не убирал его (`os._exit` минует
-    уборку) — ~15 МБ мусора в %TEMP% за запуск у любой клиники, и кука входа
-    лежала в этом профиле, поэтому PIN спрашивался при КАЖДОМ старте — не по
-    замыслу, а побочно.
+    Профиль заводит и держит ОКНО — оболочка (`shell/src/paths.rs`, то же
+    правило); движку путь нужен ровно для одного: профиль заставки сторожа
+    перезапуска лежит РЯДОМ (`DENTART_WATCH_PROFILE` ниже).
     ⛔ Своя у каждой учётки Windows (`%LOCALAPPDATA%\\DentPilot\\webview`), а не в
     папке клиники: `ProgramData` общая на всех учёток, и кука входа одного
     человека досталась бы другому. И не рядом с exe: `Program Files` только на
-    чтение. `portable.flag` (флешка, выезд) — всё в одной папке: `ROOT\\webview`.
+    чтение.
     ⚠️ Читается из окружения ПРОЦЕССА (`DENTART_PROFILE_DIR` — стенд), ДО слияния
     `dental.env`: строка в файле клиники не должна уводить профиль в другое место.
     """
     raw = os.environ.get("DENTART_PROFILE_DIR", "").strip().strip("\"'")
     if raw and pathlib.Path(raw).is_absolute():
         return pathlib.Path(raw)
-    if (BASE / "portable.flag").exists():
-        return ROOT / "webview"
     local = os.environ.get("LOCALAPPDATA") or str(pathlib.Path.home() / "AppData" / "Local")
     return pathlib.Path(local) / "DentPilot" / "webview"
 
@@ -377,21 +266,14 @@ try:
 except OSError as e:
     _fatal_dir(data_dir, e)
 
-# noconsole-сборка: sys.stdout/stderr = None → uvicorn падает на isatty().
-# Подкладываем безопасные потоки; stderr пишем в файл (видны краши).
+# stdout уже отдан оболочке (`sidecar.take` выше), stderr — в файл (видны
+# краши), и дескриптором тоже (`stderr_to`): трейсбек нативного кода и
+# дочерний процесс без `stderr=` не уходят в трубу, которую никто не читает.
 # ⚠️ Стоит ВЫШЕ первого чтения файлов намеренно: dental.env правит сама
-# клиника, и падение на его разборе иначе гибло бы молча — stderr ещё None,
-# лога ещё нет, двойной клик по ярлыку «не делает ничего».
-# Движок Tauri: stdout уже отдан оболочке (`sidecar.take` выше), stderr — в
-# тот же файл, что у noconsole-сборки, и дескриптором тоже (`stderr_to`).
+# клиника, и падение на его разборе иначе гибло бы молча — лога ещё нет.
 _err_log = data_dir / "dentpilot.err.log"
 logrotate.roll_if_big(_err_log)         # открывается раз на запуск — и сдвигается тогда же
-if sys.stdout is None:
-    sys.stdout = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
-if SHELL is not None:
-    sidecar.stderr_to(_err_log)
-elif sys.stderr is None:
-    sys.stderr = open(_err_log, "a", encoding="utf-8")  # noqa: SIM115
+sidecar.stderr_to(_err_log)
 
 # ⛔ `encoding="utf-8"` ОБЯЗАТЕЛЕН, и это не косметика. Без него `FileHandler`
 # открывает файл в ANSI-кодировке МАШИНЫ (`locale.getpreferredencoding`), а у
@@ -411,11 +293,10 @@ logging.basicConfig(
     handlers=[logrotate.handler(data_dir / "dentpilot.log")], level=logging.WARNING,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
-if SHELL is not None:
-    SHELL.log = str(data_dir / "dentpilot.log")
+SHELL.log = str(data_dir / "dentpilot.log")
 
 # ⚠️ Вердикт пишется ЗДЕСЬ, а не там, где получен: там ещё нет ни лога, ни
-# stderr — сборка идёт `--noconsole`. Уровень WARNING намеренно: всё, кроме
+# stderr. Уровень WARNING намеренно: всё, кроме
 # «источников нет», это состояние, о котором поддержка обязана узнать из лога,
 # не выспрашивая. ⛔ Окна не показываем ни на одной ветке: `unconfirmed` —
 # норма здоровой установки, а окно на каждом запуске перестают читать.
@@ -489,18 +370,13 @@ os.environ["DENTART_WATCH_PROFILE"] = str(PROFILE_DIR.with_name(PROFILE_DIR.name
 # ⛔ Режим движка и токен оболочки (§ 4, `/shell/notices`) — ЖЁСТКО, обеими
 # ветками и после слияния `dental.env`, тем же приёмом, что вердикт раздвоения
 # выше: строка `DENTART_SHELL_TOKEN=…` в файле клиники открыла бы адрес
-# оболочки известным токеном у программы без оболочки, а `DENTART_SHELL=tauri`
-# сказала бы коду приложения «оболочка есть», когда её нет. Приложение
+# оболочки известным токеном, которого оболочка не давала. Приложение
 # спрашивает оболочку только `sidecar.linked()`; окружение здесь — для тех,
 # кто читает его по старинке.
-if SHELL is not None:
-    os.environ[sidecar.ENV] = sidecar.MODE
-    if _SHELL_TOKEN:
-        os.environ[sidecar.TOKEN_ENV] = _SHELL_TOKEN
-    else:
-        os.environ.pop(sidecar.TOKEN_ENV, None)
+os.environ[sidecar.ENV] = sidecar.MODE
+if _SHELL_TOKEN:
+    os.environ[sidecar.TOKEN_ENV] = _SHELL_TOKEN
 else:
-    os.environ.pop(sidecar.ENV, None)
     os.environ.pop(sidecar.TOKEN_ENV, None)
 
 
@@ -521,9 +397,9 @@ def _auto_backup() -> None:
         logging.warning("Auto-backup FAILED: %r", e)
 
 
-# DENTART_PORT правит сама клиника — диалог «портул e ocupat» это прямо
+# DENTART_PORT правит сама клиника — сообщение «portul este ocupat» это прямо
 # советует, — поэтому мусор в нём ожидаем. Раньше голый int() падал ЗДЕСЬ, на
-# верхнем уровне модуля, до excepthook и до любого MessageBox: двойной клик по
+# верхнем уровне модуля, до excepthook и до любого окна: двойной клик по
 # ярлыку «не делал ничего», а клинику только что попросили править этот ключ.
 _port_raw = os.environ.get("DENTART_PORT", "").strip()
 PORT = envfile.parse_port(_port_raw) or 8088
@@ -532,25 +408,12 @@ if _port_raw and envfile.parse_port(_port_raw) is None:
     _port_warn = (f'DENTART_PORT invalid: "{_port_raw}" — se folosește portul '
                   f"8088.\nCorectați valoarea în dental.env "
                   f"(un număr între 1 și 65535).")
-    if os.environ.get("DENTART_BROWSER_MODE") == "1":
-        print(_port_warn)
-    elif SHELL is not None:         # у движка окон нет: покажет оболочка
-        SHELL.warn(_port_warn)
-    else:
-        try:
-            import ctypes
-            ctypes.windll.user32.MessageBoxW(None, _port_warn, "DentPilot", 0x30)
-        except Exception:  # noqa: BLE001 — не-Windows/без user32
-            pass
+    SHELL.warn(_port_warn)          # у движка окон нет: покажет оболочка
 # Доступ с телефона (Setări → Acces de pe telefon): 0.0.0.0 ТОЛЬКО по явному
 # DENTART_LAN=1 из dental.env. По умолчанию — 127.0.0.1, сетевого доступа НЕТ.
-# Окно программы и single-instance guard ходят через loopback в обоих режимах.
+# Окно оболочки и проверка второго экземпляра ходят через loopback в обоих режимах.
 HOST = "0.0.0.0" if os.environ.get("DENTART_LAN", "").strip() == "1" else "127.0.0.1"
 URL = f"http://127.0.0.1:{PORT}/admin"
-# Заголовок окна — по нему второй запуск находит первое окно; у нестандартного
-# порта (DENTART_PORT, стенд) — с портом, иначе две программы на одной машине
-# (клиника и стенд) путали бы окна друг друга
-TITLE = "DentPilot — registrul clinicii" + (f" · :{PORT}" if PORT != 8088 else "")
 
 
 def _install_mode() -> str:
@@ -570,7 +433,8 @@ def _install_mode() -> str:
 
 
 def _session_policy(mode: str) -> str:
-    """Переживает ли ВХОД перезапуск окна. `keep` — standalone, clinic_server,
+    """Переживает ли ВХОД перезапуск окна (поле `session` события `ready`;
+    куки снимает окно — оболочка). `keep` — standalone, clinic_server,
     clinic_client: открыл DentPilot — сразу работаешь. `clear` — shared_pc (одна
     учётка Windows на нескольких людей): куки входа снимаются при каждом старте и
     при закрытии окна, следующий запуск — экран входа; профиль (кэш, настройки
@@ -588,7 +452,7 @@ _MUTEX = None
 def _claim_instance() -> bool:
     """Первый ли это экземпляр на этом порту: именованный мьютекс Windows, живёт
     ровно столько, сколько процесс. Второй запуск узнаёт о первом за миллисекунду
-    и ДО того, как тот поднял сервер (заставка). Не Windows — считаем первым,
+    и ДО того, как тот поднял сервер. Не Windows — считаем первым,
     порт проверит `/health`, как раньше."""
     global _MUTEX
     try:
@@ -598,69 +462,6 @@ def _claim_instance() -> bool:
         return k32.GetLastError() != 183          # ERROR_ALREADY_EXISTS
     except Exception:  # noqa: BLE001 — не Windows / нет kernel32
         return True
-
-
-def _focus_existing(timeout: float = 8.0) -> bool:
-    """Вывести окно ПЕРВОГО экземпляра на передний план: верхнее видимое окно
-    другого процесса с заголовком программы (`TITLE`, ровно таким); свёрнутое — развернуть. Первый
-    может ещё подниматься (заставка) — ждём до `timeout`.
-    ⚠️ Windows отдаёт передний план не всякому: процесс, не получавший ввода,
-    может лишь мигнуть кнопкой в панели задач. Присоединение к очереди ввода
-    переднего окна (`AttachThreadInput`) снимает замок без побочных нажатий;
-    не вышло — мигаем кнопкой в панели задач (`FlashWindowEx`)."""
-    try:
-        import ctypes
-        from ctypes import wintypes
-        u32 = ctypes.windll.user32
-    except Exception:  # noqa: BLE001 — не Windows
-        return False
-    me = os.getpid()
-    proto = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
-
-    def find() -> int:
-        found: list = []
-
-        def cb(hwnd, _):
-            if not u32.IsWindowVisible(hwnd):
-                return True
-            n = u32.GetWindowTextLengthW(hwnd)
-            if n <= 0:
-                return True
-            buf = ctypes.create_unicode_buffer(n + 1)
-            u32.GetWindowTextW(hwnd, buf, n + 1)
-            if buf.value == TITLE:
-                pid = wintypes.DWORD()
-                u32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-                if pid.value != me:
-                    found.append(hwnd)
-            return True
-        u32.EnumWindows(proto(cb), 0)
-        return found[0] if found else 0
-
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if (hwnd := find()):
-            if u32.IsIconic(hwnd):
-                u32.ShowWindow(hwnd, 9)                      # SW_RESTORE
-            k32 = ctypes.windll.kernel32
-            fg = u32.GetForegroundWindow()
-            tid_fg = u32.GetWindowThreadProcessId(fg, None) if fg else 0
-            tid_me = k32.GetCurrentThreadId()
-            joined = bool(tid_fg) and tid_fg != tid_me and bool(u32.AttachThreadInput(tid_fg, tid_me, True))
-            u32.BringWindowToTop(hwnd)
-            ok = bool(u32.SetForegroundWindow(hwnd))
-            if joined:
-                u32.AttachThreadInput(tid_fg, tid_me, False)
-            if not ok:
-                class FLASH(ctypes.Structure):
-                    _fields_ = [("cbSize", wintypes.UINT), ("hwnd", wintypes.HWND),
-                                ("dwFlags", wintypes.DWORD), ("uCount", wintypes.UINT),
-                                ("dwTimeout", wintypes.DWORD)]
-                f = FLASH(ctypes.sizeof(FLASH), hwnd, 3, 5, 0)   # FLASHW_ALL
-                u32.FlashWindowEx(ctypes.byref(f))
-            return True
-        time.sleep(0.3)
-    return False
 
 
 def _already_running() -> bool:
@@ -702,10 +503,6 @@ def _make_server(**extra):
     return uvicorn.Server(config)
 
 
-def _run_server() -> None:
-    _make_server().run()
-
-
 def _wait_ready(timeout: float = 25.0, alive=None) -> bool:
     """`alive` — жив ли ещё поток сервера: упавший сервер не ждём до срока."""
     deadline = time.time() + timeout
@@ -719,19 +516,6 @@ def _wait_ready(timeout: float = 25.0, alive=None) -> bool:
         except Exception:  # noqa: BLE001
             time.sleep(0.4)
     return False
-
-
-def _browser_mode() -> None:
-    print("=" * 62)
-    print("  DentPilot Desktop - registrul clinicii")
-    print(f"  Jurnal:  {URL}")
-    print("  NU inchideti aceasta fereastra cat timp lucrati.")
-    print("=" * 62)
-    if os.environ.get("DENTART_NO_BROWSER") != "1":
-        threading.Thread(
-            target=lambda: (time.sleep(2.5), webbrowser.open(URL)),
-            daemon=True).start()
-    _run_server()
 
 
 def _prepare(stage=lambda *a: None) -> None:
@@ -769,112 +553,6 @@ def _start_failed() -> str:
     return _port_text() if port_taken else _internal_text()
 
 
-SPLASH_MIN_S = 0.9               # заставка видна не меньше — иначе это вспышка
-
-
-class _Boot:
-    """Запуск под заставкой: перевод базы, копия, сервер — ровно ОДИН раз.
-
-    ⭐ С 05.10.2026 окно открывается СРАЗУ, с заставкой (`app/splash.py`), а
-    этот запуск идёт в потоке pywebview (`webview.start(func)`) и двигает её
-    полоску по настоящим этапам; готов журнал — окно уходит на его адрес, и
-    экран входа встаёт на том же фоне. Раньше окно появлялось только после
-    подъёма сервера: несколько секунд после двойного клика не было видно ничего.
-    ⭐ Запуск идёт ПАРАЛЛЕЛЬНО открытию окна, а не после: WebView2 сам
-    поднимается секунды три-четыре (лог 05.10: «DentPilot start» → начало
-    запуска 3.9 с), и в очередь эти две паузы складывались бы. Этапы, пришедшие
-    до готовности страницы, не теряются: последний ждёт в `_last` и уходит в
-    заставку, как только та загрузилась (`in_window`).
-    ⚠️ Замок — потому что запуск может понадобиться и без окна: WebView2 нет,
-    `webview.start` упал — тогда тот же запуск зовёт основной поток, и если
-    фон уже начал его, run() дождётся первого: второго сервера не будет.
-    """
-
-    def __init__(self, policy: str = "keep") -> None:
-        self._lock = threading.Lock()
-        self._ok: bool | None = None
-        self._window = None
-        self.policy = policy
-        self._last: tuple = ("Se pornește DentPilot…", 6, 0)
-        self._t0 = time.monotonic()
-
-    def stage(self, text: str, pct: int, upto: int = 0) -> None:
-        """Этап запуска — в заставку, если она уже готова, иначе — до готовности."""
-        self._last = (text, pct, upto)
-        if self._window is not None:
-            self._push()
-
-    def _push(self) -> None:
-        text, pct, upto = self._last
-        try:
-            self._window.evaluate_js(f"dpStage({json.dumps(text)},{pct},{upto})")
-        except Exception:  # noqa: BLE001 — заставка украшает, запуск важнее
-            pass
-
-    def start(self) -> None:
-        """Запуск в фоне — сразу, не дожидаясь окна."""
-        threading.Thread(target=self.run, args=(self.stage,), daemon=True).start()
-
-    def run(self, stage=None) -> bool:
-        with self._lock:
-            if self._ok is None:
-                self._ok = self._go(stage or (lambda *a: None))
-            return self._ok
-
-    def _go(self, stage) -> bool:
-        t0 = time.monotonic()
-        stage("Se pregătește baza de date…", 16)
-        _prepare(stage)
-        t1 = time.monotonic()
-        stage("Se pornește registrul…", 55, 92)
-        threading.Thread(target=_run_server, daemon=True).start()
-        if _wait_ready() and _already_running():
-            # сколько клиника смотрит на заставку — и из чего это складывается
-            logging.warning("запуск: журнал готов за %.1f с (база и копия %.1f, сервер %.1f)",
-                            time.monotonic() - t0, t1 - t0, time.monotonic() - t1)
-            return True
-        warn = _start_failed()
-        try:
-            import ctypes
-            ctypes.windll.user32.MessageBoxW(None, warn, "DentPilot", 0x10)
-        except Exception:  # noqa: BLE001 — не-Windows/без user32
-            pass
-        return False
-
-    def in_window(self, window) -> None:
-        """Поток pywebview: заставка готова — догнать её этапом и дождаться
-        запуска, потом — журнал в том же окне."""
-        self._window = window
-        shown = time.monotonic()
-        logging.warning("заставка на экране через %.1f с", shown - self._t0)
-        self._push()                    # этап, пришедший раньше страницы
-        if not self.run():              # дождаться фонового запуска
-            window.destroy()            # сообщение уже показано — окно закрываем
-            return
-        # ⚠️ Запуск нередко готов РАНЬШЕ, чем WebView2 покажет страницу (05.10:
-        # журнал за 3.8 с, окно — за 3.9): заставка тогда мелькнула бы долей
-        # секунды, и это читалось бы сбоем. Минимум показа — только в этом
-        # случае; на медленной машине он ничего не добавляет.
-        time.sleep(max(0.0, SPLASH_MIN_S - (time.monotonic() - shown)))
-        try:
-            window.evaluate_js("dpDone()")
-            time.sleep(0.45)            # полоска дошла и погасла — без рывка
-        except Exception:  # noqa: BLE001
-            pass
-        if self.policy == "clear":
-            self.forget_session()       # общий ПК: каждый запуск — с экрана входа
-        window.load_url(URL)
-
-    def forget_session(self) -> None:
-        """Снять куки входа из постоянного профиля (режим `clear`): кэш и
-        настройки интерфейса остаются, учётка — нет."""
-        try:
-            if self._window is not None:
-                self._window.clear_cookies()
-        except Exception as e:  # noqa: BLE001 — профиль важнее, чем уборка в нём
-            logging.warning("cookie-urile nu s-au sters: %r", e)
-
-
 # Остановка движка (контракт § 2: выход не дольше 10 с после слова оболочки,
 # потом она снимает задание). Запросам на лету — STOP_GRACE_S, всей остановке
 # — STOP_BUDGET_S; остаток — на закрытие базы и выход.
@@ -883,9 +561,9 @@ STOP_BUDGET_S = 8.0
 
 
 def _engine_main(link: sidecar.Link, version: str) -> None:
-    """Движок оболочки Tauri: тот же запуск, что под заставкой окна, — но
-    разговор строками `DP1` и честная остановка вместо `os._exit` на закрытии
-    окна. Код выхода — контракт: 0 остановлен, 2 `fatal`, 3 `busy`."""
+    """Движок оболочки Tauri: запуск под заставкой оболочки, разговор строками
+    `DP1` и честная остановка по её слову. Код выхода — контракт: 0
+    остановлен, 2 `fatal`, 3 `busy`."""
     try:
         code = _engine(link, version)
     except Exception:  # noqa: BLE001 — что угодно = `fatal`, а не код 1 без слова
@@ -941,7 +619,7 @@ def _engine(link: sidecar.Link, version: str) -> int:
         link.send("stage", text=text, pct=pct, upto=upto)
 
     t0 = time.monotonic()
-    stage("Se pornește DentPilot…", 6)        # те же этапы, что у заставки окна
+    stage("Se pornește DentPilot…", 6)        # этапы — на заставку оболочки
     stage("Se pregătește baza de date…", 16)
     _prepare(stage)
     t1 = time.monotonic()
@@ -984,163 +662,10 @@ def _engine(link: sidecar.Link, version: str) -> int:
 
 
 def main() -> None:
-    import atexit
-
     from app.engine import APP_VERSION
-    logging.warning("DentPilot start v%s port=%s mode=%s pid=%s", APP_VERSION, PORT,
-                    "tauri" if SHELL is not None else
-                    "browser" if os.environ.get("DENTART_BROWSER_MODE") == "1" else "window",
+    logging.warning("DentPilot start v%s port=%s mode=tauri pid=%s", APP_VERSION, PORT,
                     os.getpid())
-    if SHELL is not None:
-        _engine_main(SHELL, APP_VERSION)    # выходит сам, с кодом контракта
-        return
-    atexit.register(lambda: logging.warning("DentPilot clean exit pid=%s", os.getpid()))
-    sys.excepthook = lambda *a: logging.error("UNCAUGHT", exc_info=a)
-
-    first = _claim_instance()
-    if not first or _already_running():
-        # ⭐ Второй запуск (08.10): свой сервер не поднимаем и ВТОРОГО ОКНА НЕ
-        # открываем — выводим окно первого экземпляра на передний план и выходим.
-        # До того второе окно шло во временном профиле (снова PIN), а закрытие
-        # первого гасило сервер под вторым — окно-зомби.
-        logging.warning("Already running on port %s - focusing the first window", PORT)
-        if os.environ.get("DENTART_BROWSER_MODE") != "1" and _focus_existing():
-            return
-        if _already_running():
-            # окна нет (браузерный режим, окно не открылось) — вкладка, как раньше
-            if os.environ.get("DENTART_BROWSER_MODE") == "1":
-                print("DentPilot este deja pornit - deschid jurnalul in browser.")
-            if os.environ.get("DENTART_NO_BROWSER") != "1":
-                webbrowser.open(URL)
-            return
-        # мьютекс чей-то есть, а ни окна, ни сервера нет: первый ещё не поднялся
-        # или застрял — ждём сервер ещё раз, иначе идём обычным путём (порт
-        # проверит _port_free_probe)
-        if _wait_ready(10.0) and _already_running():
-            if _focus_existing(2.0):
-                return
-            if os.environ.get("DENTART_NO_BROWSER") != "1":
-                webbrowser.open(URL)
-            return
-        logging.warning("instance mutex held but no window and no server - starting anyway")
-
-    if not _port_free_probe():
-        # порт занят, но /health не наш → чужая программа, честно говорим и выходим
-        logging.error("Port %s is occupied by a foreign program - not starting", PORT)
-        warn = _port_text()
-        if os.environ.get("DENTART_BROWSER_MODE") == "1":
-            print(warn)
-        else:
-            try:
-                import ctypes
-                ctypes.windll.user32.MessageBoxW(None, warn, "DentPilot", 0x10)
-            except Exception:  # noqa: BLE001 — не-Windows/без user32
-                pass
-        return
-
-    if os.environ.get("DENTART_BROWSER_MODE") == "1":
-        _prepare()
-        _browser_mode()
-        return
-    try:
-        import webview  # pywebview: собственное окно приложения
-    except Exception:  # noqa: BLE001 — нет WebView2? откат на браузер
-        logging.warning("pywebview indisponibil - browser mode")
-        _prepare()
-        _browser_mode()
-        return
-
-    # pywebview по умолчанию ставит ALLOW_DOWNLOADS=False и ОТМЕНЯЕТ любое
-    # скачивание молча: ни диалога сохранения, ни ошибки, ни следа в окне.
-    # Из-за этого «Salvează pe disc» в фише и «📥 Export CSV» в журнале были
-    # мёртвыми кнопками — в браузерном режиме работали, в окне программы нет.
-    webview.settings["ALLOW_DOWNLOADS"] = True
-    # Закрытие ЭТОГО окна гасит всю программу (os._exit ниже) — вместе с
-    # доступом с телефона и с ботом у тех, у кого он настроен. Привычное
-    # «закрыть все окна в конце смены» делало это молча, поэтому окно
-    # переспрашивает. Текст НЕЙТРАЛЬНЫЙ намеренно: Telegram заморожен 08-08
-    # (фидбек клиник) и в текстах продукта не упоминается. Кнопки диалога
-    # рисует сама Windows на языке системы, наш только текст.
-    # ⛔ Окно может не открыться ВООВСЕ: WebView2 Runtime есть не на каждой
-    # Windows 10 (обновления выключены, LTSC, свежая машина без Edge). Раньше
-    # исключение отсюда улетало в никуда: сборка --noconsole, значит ни окна,
-    # ни консоли, ни сообщения — клиника кликала по ярлыку, и НЕ ПРОИСХОДИЛО
-    # НИЧЕГО. Неотличимо от «программа сломана», и позвонить с этим нельзя.
-    # ⭐ Сервер к этому моменту поднят (или поднимается под заставкой — тогда
-    # его дожидается `boot.run()`), то есть программа работает целиком — не
-    # хватает только окна. Поэтому отказ окна переводит в браузер, а не гасит: клиника работает сегодня, а WebView2 ставится
-    # потом. Модальное окно Windows тут и присутствие обозначает, и даёт
-    # единственный способ остановить программу — своей кнопкой (иначе процесс
-    # без окна нечем закрыть, кроме диспетчера задач).
-    # Цвет фона заставки — цвет темы клиники: экран входа после неё окрашен им
-    # же (layout.standalone), и на синей клинике иначе мелькнула бы бирюза.
-    # ⚠️ Тема не прочиталась — не повод не открыть окно: остаётся бирюза.
-    from app import brand, splash
-    try:
-        from app.core import theme
-        primary = theme.current()["primary"]
-    except Exception as e:  # noqa: BLE001
-        logging.warning("тема для заставки не прочиталась: %r", e)
-        primary = brand.hexc(brand.TEAL)
-    mode = _install_mode()
-    policy = _session_policy(mode)
-    logging.warning("fereastra: profil %s, mod %s, sesiune %s", PROFILE_DIR, mode, policy)
-    # ⛔ Профиль создаётся ЗДЕСЬ: WebView2 не создаёт родителей, и без папки окно
-    # не открылось бы вовсе — программа ушла бы в браузер при здоровой машине.
-    storage: str | None = str(PROFILE_DIR)
-    try:
-        PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-    except OSError as e:
-        logging.error("profilul ferestrei nu se poate crea (%r) - profil temporar", e)
-        storage = None
-    boot = _Boot(policy)
-    try:
-        window = webview.create_window(
-            TITLE, html=splash.page(APP_VERSION, primary),
-            width=1280, height=860, min_size=(960, 640),
-            background_color=brand.tint(primary, .06),
-            confirm_close=True,
-            localization={
-                "global.quitConfirmation":
-                    "Închideți DentPilot? Programul se oprește complet până la "
-                    "următoarea pornire.",
-            },
-        )
-        if policy == "clear":
-            # общий ПК: закрыл окно — вышел из учётки, даже если следующий
-            # запуск не наш (куки снимаются и на старте, см. in_window)
-            window.events.closing += boot.forget_session
-        boot.start()                    # параллельно окну, а не после него
-        # ⭐ private_mode=False + storage_path: один профиль на все запуски —
-        # ни мусора в TEMP, ни PIN при каждом старте (profile_dir выше)
-        webview.start(boot.in_window, window, private_mode=storage is None,
-                      storage_path=storage)
-    except Exception as e:  # noqa: BLE001 — что угодно вместо окна = браузер
-        logging.error("Окно не открылось (%r) — переходим в браузер", e)
-        # окно могло упасть раньше, чем запуск успел начаться под заставкой:
-        # тогда он делается здесь, без неё; не поднялся сервер — сказано вслух
-        if not boot.run():
-            os._exit(0)
-        try:
-            webbrowser.open(URL)
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            import ctypes
-            ctypes.windll.user32.MessageBoxW(
-                None,
-                "DentPilot funcționează, dar fereastra programului nu a putut "
-                "fi deschisă pe acest calculator.\n\n"
-                f"Registrul s-a deschis în browser: {URL}\n"
-                "Dacă nu s-a deschis, copiați adresa în Chrome sau Edge.\n\n"
-                "NU închideți această fereastră cât timp lucrați — programul "
-                "se oprește odată cu ea.\n\n"
-                "Pentru fereastra proprie instalați «Microsoft Edge WebView2 "
-                "Runtime» (gratuit, de la Microsoft) și porniți din nou.",
-                "DentPilot", 0x40)
-        except Exception:  # noqa: BLE001 — не-Windows/без user32
-            pass
-    os._exit(0)  # окно закрыто = программа остановлена
+    _engine_main(SHELL, APP_VERSION)    # выходит сам, с кодом контракта
 
 
 if __name__ == "__main__":

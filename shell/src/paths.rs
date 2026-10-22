@@ -1,6 +1,6 @@
 // Где что лежит у оболочки (контракт § 1).
 //
-// ⭐ BASE — папка DentPilot.exe: там `engine\`, `install.json`, `portable.flag`.
+// ⭐ BASE — папка DentPilot.exe: там `engine\`, `install.json`, `demo.flag`.
 // Папку ДАННЫХ клиники оболочка не знает и не угадывает: её считает движок и
 // сообщает словом `ready` (поле `data`).
 
@@ -39,16 +39,16 @@ impl Paths {
         let base = exe.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
         let mine = local_app_data().join("DentPilot");
         // Те же пути, что `desktop.profile_dir()`: стенд (`DENTART_PROFILE_DIR`),
-        // флешка (`portable.flag` — всё в одной папке), иначе профиль учётки.
+        // иначе профиль учётки. (Режим флешки `portable.flag` снят 22.10.2026:
+        // никакая сборка его не ставила, а программа-папка в нём не обновлялась.)
         // ⛔ Не папка клиники: `ProgramData` общая на всех учёток, и кука
         // входа одного человека досталась бы другому.
         let (profile, stand) = match env_abs("DENTART_PROFILE_DIR") {
             Some(p) => (p, true),
-            None if base.join("portable.flag").exists() => (base.join("webview"), false),
             None => (mine.join("webview"), false),
         };
-        // shell.json — по учётке Windows всегда (и с флешки: место окна у
-        // каждого ПК своё); у стенда — рядом с его профилем, а не у Олега.
+        // shell.json — по учётке Windows всегда; у стенда — рядом с его
+        // профилем, а не у Олега.
         let state = if stand {
             profile.parent().map(Path::to_path_buf).unwrap_or_else(|| profile.clone())
         } else {

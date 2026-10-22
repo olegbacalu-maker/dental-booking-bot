@@ -17,7 +17,8 @@
 (`is_desktop()` = собранный exe), а харнесс поднимает уvicorn из исходников и в
 неё не попадает никогда. Поэтому маршруты зовутся напрямую в ОТДЕЛЬНОМ процессе
 (как suite_update в test_review3_auth): подмены `is_desktop`, планировщика и
-`_exit_soon` не переживают проверку и не задевают соседние наборы.
+просьбы к оболочке (`sidecar.request_quit`) не переживают проверку и не задевают
+соседние наборы.
 """
 import json
 import os
@@ -38,19 +39,20 @@ os.environ["DENTART_ENV_FILE"] = str(tmp / "dental.env")
 os.environ["DATABASE_URL"] = "sqlite:///" + str(tmp / "dental.db")
 os.environ.pop("DENTART_NO_RESTART", None)   # иначе restart_app выйдет раньше
 
+from app import sidecar
 from app import update as upd
 from app.modules.settings import routes as st
 from app.modules.settings import api as sapi
 _real_spawn = upd._spawn_watch               # набор 4 зовёт настоящий
 
-# exe, рядом с которым restart_app пишет свой bat
+# оболочка, которую сторож поднимет обратно
 exe = tmp / "DentPilot.exe"
 exe.write_bytes(b"x")
-sys.executable = str(exe)
 
 spawns, exits, fail = [], [], [None]
 upd.is_desktop = lambda: True                # настольное издание
-upd._exit_soon = lambda: exits.append(1)     # гасить свой же процесс не будем
+# движок себя не гасит — просит оболочку закрыться; здесь просьбу считаем
+sidecar.request_quit = lambda reason: (exits.append(reason), True)[1]
 upd._spawn_watch = lambda result, task, label, copy: (spawns.append(task), fail[0])[1]
 st.require = lambda *a, **kw: None           # права проверяет свой набор
 sapi.api_require = lambda *a, **kw: None
@@ -146,12 +148,14 @@ def fake_schtasks(task, command, arguments, proof, wait):
     return None
 
 
+sidecar.shell_exe = lambda: exe
 upd._watch_command = lambda copy: [str(exe)]
 upd._schtasks_run = fake_schtasks
 out["spawn"] = _real_spawn(None, "DentPilotRestart", "x", False)
 out["old_gone"] = not old.exists()
-plan = rw.parse(seen.get("args", []))
-out["plan_profile"] = str(plan.profile) if plan else ""
+# [метка, proof, task, итог, pid, label, цвет, профиль, команда…] — rw.argv_for
+args = seen.get("args", [])
+out["plan_profile"] = args[7] if len(args) > 7 and args[0] == rw.FLAG else ""
 
 print(json.dumps(out))
 ''' % (str(BOT), _TOKEN)
@@ -187,7 +191,7 @@ def suite_once(res: Result) -> None:
     for key, what in (("lan", "доступ из сети"), ("tok", "токен бота")):
         res.check(f"{what}: задача планировщика заводится один раз",
                   v[key + "_spawns"], 1)
-        res.check(f"{what}: программа гасится один раз", v[key + "_exits"], 1)
+        res.check(f"{what}: оболочку просят закрыться один раз", v[key + "_exits"], 1)
         res.check(f"{what}: человек получает экран перезапуска",
                   v[key + "_status"], 200)
         res.ok(f"{what}: и экран обещает автоматический перезапуск",
@@ -209,7 +213,7 @@ def suite_failed(res: Result) -> None:
     for key, what in (("lan_bad", "доступ из сети"), ("tok_bad", "токен бота")):
         res.check(f"{what}: отказ не добавляет второй попытки",
                   v[key + "_spawns"], 1)
-        res.check(f"{what}: программа не гасится", v[key + "_exits"], 0)
+        res.check(f"{what}: оболочку закрыться не просят", v[key + "_exits"], 0)
         res.check(f"{what}: отвечает экран, а не баннер «сохранено»",
                   v[key + "_status"], 200)
         res.ok(f"{what}: и он просит закрыть и открыть программу вручную",
@@ -238,8 +242,11 @@ def suite_dev_banner(res: Result) -> None:
 
 
 def suite_watch(res: Result) -> None:
-    """Сторож перезапуска (11.10, `app/restartwatch.py`): аргументы туда и
-    обратно, вердикт по файлу итога, ожидание с поддельными часами."""
+    """Сторож перезапуска — договор движка с оболочкой (`app/restartwatch.py`):
+    план и его аргументы `--watch`. Ждёт итога и поднимает программу сторож
+    `shell/src/watch.rs` (сверка слов — `suite_watch_shell`, поведение —
+    `cargo test` › `watch::tests`). Python-сторож снят 22.10.2026 с окном
+    pywebview."""
     import pathlib
     import tempfile
     from app import restartwatch as rw
@@ -250,45 +257,20 @@ def suite_watch(res: Result) -> None:
                        result=tmp / "install.result", pid=0, label="1.40.2 › 1.40.3",
                        primary="#0E9F8A", profile=tmp / "watch-profile",
                        launch=[str(tmp / "DentPilot.exe")])
-        back = rw.parse(rw.argv_for(plan))
-        res.check("аргументы --watch разбираются обратно в тот же план", back, plan)
-        res.check("обычный запуск — не сторож", rw.parse(["C:/x.pdf"]), None)
+        # ⚠️ Порядок полей — тот, что разбирает `watch.rs::parse` (его
+        # `parses_python_argv` строит строку тем же порядком)
+        res.check("аргументы --watch: метка, семь полей плана, команда запуска",
+                  rw.argv_for(plan),
+                  [rw.FLAG, str(plan.proof), "DentPilotUpdate", str(plan.result), "0",
+                   "1.40.2 › 1.40.3", "#0E9F8A", str(plan.profile), str(tmp / "DentPilot.exe")])
         res.check("без итога (простой перезапуск) — `-`",
                   rw.argv_for(rw.Plan(plan.proof, plan.task, None, 7, "x", "#000000", plan.profile, ["a"]))[3],
                   rw.NO_RESULT)
-        try:
-            rw.parse([rw.FLAG, "only"])
-            res.ok("усечённые аргументы — отказ", False, "принято")
-        except ValueError:
-            res.ok("усечённые аргументы — отказ", True, "")
+        res.ok("Python-сторожа нет: разбора и ожидания в restartwatch не осталось",
+               not any(hasattr(rw, n) for n in ("parse", "decide", "wait_for", "read_result",
+                                                "pid_alive", "outcome_text")),
+               "вернулась половина второго сторожа — она разойдётся с watch.rs молча")
 
-        # ожидание: часы и сон поддельные — итог приходит на третьем шаге
-        ticks = {"t": 0.0}
-        stages: list = []
-
-        def clock():
-            return ticks["t"]
-
-        def sleep(_s):
-            ticks["t"] += 0.5
-            if ticks["t"] >= 1.5 and not plan.result.exists():
-                plan.result.write_text("ok", encoding="utf-8")
-
-        v = rw.wait_for(plan, stage=lambda *a: stages.append(a), clock=clock, sleep=sleep)
-        res.check("итог «ok» дождались — «start»", v, "start")
-        res.ok("ждали, а не стартовали сразу", ticks["t"] >= 1.5, f"t={ticks['t']}")
-        plan.result.write_text("cancelled", encoding="utf-8")
-        ticks["t"] = 0.0
-        res.check("«cancelled» — программа жива сама, «done»",
-                  rw.wait_for(plan, clock=clock, sleep=sleep), "done")
-        plan.result.unlink()
-        ticks["t"] = 0.0
-        res.check("итога нет за весь срок — всё равно «start» (лучше программа, чем пустой экран)",
-                  rw.wait_for(plan, clock=clock, sleep=lambda _s: ticks.__setitem__("t", ticks["t"] + 100),
-                              timeout=300), "start")
-        res.check("слово для заставки по откату", rw.outcome_text("fail motiv")[:17], "Actualizarea nu s")
-        res.check("слово для заставки при успехе", rw.outcome_text("ok"), "Se pornește versiunea nouă…")
-        res.check("простой перезапуск: файла итога нет — читается как «ok»", rw.read_result(None), "ok")
 
     # Профиль заставки (12.10, 1.41.1): установщик выдаёт права `icacls /T` на
     # всю папку данных, и WebView2 заставки, писавший в ней же, ронял этот шаг
@@ -321,37 +303,36 @@ app_dir = tmp / "Program Files" / "DentPilot"
 app_dir.mkdir(parents=True)
 shell = app_dir / "DentPilot.exe"
 shell.write_bytes(b"OBOLOCHKA")
-sidecar.linked = lambda: True
 where = {"shell": shell}
 sidecar.shell_exe = lambda: where["shell"]
-quits, exits, runs = [], [], []
+quits, runs = [], []
 answer = {"quit": True}
 sidecar.request_quit = lambda reason: (quits.append(reason), answer["quit"])[1]
-upd._exit_soon = lambda: exits.append(1)
 upd.is_desktop = lambda: True
 paths.is_frozen = lambda: True               # собранный движок: сторож — копия
 
 def fake_schtasks(task, command, arguments, proof, wait):
-    runs.append({"task": task, "command": command, "plan": rw.parse(arguments)})
+    runs.append({"task": task, "command": command, "args": list(arguments)})
     return None
 upd._schtasks_run = fake_schtasks
 out = {}
 
 def plan_of(r):
-    p = r["plan"]
-    return {"task": r["task"], "command": r["command"], "launch": p.launch, "pid": p.pid,
-            "result": str(p.result) if p.result else None}
+    # [метка, proof, task, итог, pid, label, цвет, профиль, команда…] — rw.argv_for
+    a = r["args"]
+    return {"task": r["task"], "command": r["command"], "flag": a[0], "launch": a[8:],
+            "pid": int(a[4]), "result": None if a[3] == rw.NO_RESULT else a[3]}
 
 # --- перезапуск: сторож — сама оболочка, уход — просьба оболочке ---
 out["restart"] = upd.restart_app()
 out["restart_runs"] = [plan_of(r) for r in runs]
-out["restart_quits"], out["restart_exits"] = list(quits), len(exits)
-del runs[:], quits[:], exits[:]
+out["restart_quits"] = list(quits)
+del runs[:], quits[:]
 answer["quit"] = False
 out["restart_nopipe"] = upd.restart_app()
-out["restart_nopipe_quits"], out["restart_nopipe_exits"] = list(quits), len(exits)
+out["restart_nopipe_quits"] = list(quits)
 answer["quit"] = True
-del runs[:], quits[:], exits[:]
+del runs[:], quits[:]
 
 # --- обновление: сторож — КОПИЯ оболочки в папке клиники ---
 upd.STATE["latest"] = "v99.0.0"
@@ -366,11 +347,7 @@ del runs[:]
 # --- оболочку не знаем (движок из исходников) — сторожа нет, программа жива ---
 where["shell"] = None
 out["no_shell"] = upd.restart_app()
-out["no_shell_runs"], out["no_shell_quits"], out["no_shell_exits"] = len(runs), list(quits), len(exits)
-
-# --- движок папкой сам себе не сторож: без _internal\ его копия не запустится ---
-where["shell"] = app_dir / "engine" / "DentPilot-Engine.exe"
-out["engine_copy"] = upd._watch_command(True)
+out["no_shell_runs"], out["no_shell_quits"] = len(runs), list(quits)
 out["parent"] = os.getppid()
 out["shell_path"] = str(shell)
 print(json.dumps(out))
@@ -378,13 +355,13 @@ print(json.dumps(out))
 
 
 def suite_watch_shell(res: Result) -> None:
-    r"""Т10: у оболочки Tauri сторож — сама оболочка `DentPilot.exe --watch`.
+    r"""Т10: сторож — сама оболочка `DentPilot.exe --watch`.
 
     Перезапуск — `{app}\DentPilot.exe --watch`, обновление — её КОПИЯ в папке
     клиники (мастер закрыл бы сторожа из `{app}`); ждёт сторож выхода
     ОБОЛОЧКИ (родителя движка), поднимает оболочку. Движок не гасит себя сам —
-    просит оболочку (`quit`). ⛔ Тексты заставки живут дважды (Python-сторож
-    окна pywebview и `shell/src/watch.rs`) — сверяются здесь."""
+    просит оболочку (`quit`). ⛔ Слова заставки, итога и потолки — договор
+    движка (`restartwatch`) и сторожа (`shell/src/watch.rs`): сверяются здесь."""
     import pathlib
 
     from app import restartwatch as rw
@@ -402,13 +379,11 @@ def suite_watch_shell(res: Result) -> None:
         shell = o["shell_path"]
         res.check("перезапуск у оболочки: пошёл", o["restart"], None)
         res.check("сторож перезапуска — сама оболочка, поднимает оболочку, ждёт оболочку",
-                  o["restart_runs"], [{"task": "DentPilotRestart", "command": shell, "launch": [shell],
-                                       "pid": o["parent"], "result": None}])
-        res.ok("уход — просьбой к оболочке, не os._exit",
-               o["restart_quits"] == ["restart"] and o["restart_exits"] == 0, repr(o))
-        res.ok("трубы к оболочке нет — прежний выход через секунду",
-               o["restart_nopipe"] is None and o["restart_nopipe_quits"] == ["restart"]
-               and o["restart_nopipe_exits"] == 1, repr(o))
+                  o["restart_runs"], [{"task": "DentPilotRestart", "command": shell, "flag": rw.FLAG,
+                                       "launch": [shell], "pid": o["parent"], "result": None}])
+        res.check("уход — просьбой к оболочке, не os._exit", o["restart_quits"], ["restart"])
+        res.ok("трубы к оболочке нет — движок себя не гасит (остановку принесёт закрытый stdin)",
+               o["restart_nopipe"] is None and o["restart_nopipe_quits"] == ["restart"], repr(o))
         u = o["update_runs"]
         res.ok("сторож обновления — КОПИЯ оболочки в папке клиники, ждёт итог мастера",
                o["update_watch"] is None and o["copy_is_shell"] and len(u) == 1
@@ -417,29 +392,25 @@ def suite_watch_shell(res: Result) -> None:
                and "Program Files" not in o["copy_path"], repr((u, o["copy_path"])))
         res.ok("оболочка не найдена — отказ словами, программа жива, оболочку не просят",
                o["no_shell"] and "DentPilot.exe" in o["no_shell"] and o["no_shell_runs"] == 0
-               and o["no_shell_quits"] == [] and o["no_shell_exits"] == 0, repr(o))
-        res.ok("движок папкой себе не сторож (без _internal копия мертва)",
-               isinstance(o["engine_copy"], str), repr(o["engine_copy"]))
+               and o["no_shell_quits"] == [], repr(o))
 
-    # ---- два сторожа — одни слова (до снятия окна pywebview, Т11) ----
+    # ---- договор движка и сторожа: одни слова ----
     src = (pathlib.Path(__file__).resolve().parents[1] / "shell" / "src" / "watch.rs")
     rs = src.read_text(encoding="utf-8") if src.exists() else ""
     res.ok("сторож оболочки на месте", "fn decide" in rs, f"{src} не найден или переписан")
     for name in ("TEXT_INSTALL", "TEXT_RESTART", "TEXT_CLOSING", "TEXT_NEW", "TEXT_ROLLBACK"):
         text = getattr(rw, name)
-        res.ok(f"текст заставки у обоих сторожей: {name}",
+        res.ok(f"текст заставки — тот же у движка и сторожа: {name}",
                f'const {name}: &str = "{text}";' in rs, f"в watch.rs нет «{text}»")
-    # слова итога: те же, что у `rw.decide` (их пишут операция за UAC и мастер)
+    # слова итога пишут операция за UAC и мастер; сторож их узнаёт
     for word, line in (("ok", 't == "ok"'), ("fail…", 't.starts_with("fail")'),
                        ("cancelled", 't == "cancelled"')):
-        res.ok(f"сторожа узнают одно слово итога: {word}",
-               line in rs and rw.decide({"fail…": "fail x"}.get(word, word)) != "wait",
-               f"в watch.rs нет `{line}` или rw.decide его не узнаёт")
+        res.ok(f"сторож узнаёт слово итога: {word}", line in rs, f"в watch.rs нет `{line}`")
     for what, line in (("метка режима", f'pub const FLAG: &str = "{rw.FLAG}";'),
                        ("«без итога»", f'const NO_RESULT: &str = "{rw.NO_RESULT}";'),
                        ("потолок ожидания итога", f"Duration::from_secs({rw.WAIT_S // 60} * 60)"),
                        ("потолок ожидания выхода", f"Duration::from_secs({int(rw.EXIT_WAIT_S)})")):
-        res.ok(f"сторожа согласны: {what}", line in rs, f"в watch.rs нет `{line}`")
+        res.ok(f"движок и сторож согласны: {what}", line in rs, f"в watch.rs нет `{line}`")
     # 18.10 (2.0.2): «started» без живого мастера — сторож оболочки не ждёт 9 минут.
     # Мастер он узнаёт по имени копии, которую запускает операция за UAC: другое
     # имя — и сторож поднимал бы прежнюю программу посреди идущей установки.

@@ -146,7 +146,7 @@ def suite_route(res: Result) -> None:
         res.ok("ни слова о пациентах: только три вида", all(i["id"].split(":")[0] in ("update", "license", "sms")
                                                             for i in data["items"]), repr(data))
     with Server() as s:
-        res.check("без токена запуска (окно pywebview, браузер) — 404 и с заголовком",
+        res.check("без токена запуска (сервер, браузер) — 404 и с заголовком",
                   Client(s.url).get("/shell/notices", headers=HDR).status, 404)
 
 
@@ -356,7 +356,7 @@ def suite_autostart(res: Result) -> None:
         env_no = {autostart.KEY_ENV: key, autostart.EXE_ENV: str(exe), "DENTART_SHELL": ""}
         with Server(env=env_no) as s:
             c = Client(s.url).login()
-            res.check("не режим движка (окно pywebview, браузер) — строки нет",
+            res.check("не режим движка (сервер, исходники) — строки нет",
                       ts._j(c.get("/api/settings/system"))["data"]["autostart"], None)
             res.check("и маршрута нет — 404", c.post_json("/api/settings/autostart", {"on": False}).status, 404)
         with Server(env={"DENTART_SHELL": "tauri", autostart.EXE_ENV: str(exe), autostart.KEY_ENV: ""}) as s:

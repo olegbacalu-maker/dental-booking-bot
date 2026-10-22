@@ -206,14 +206,16 @@ upd._newest_tag_atom = lambda: ""
 upd._releases_graphql = lambda: []
 rel = {"tag": "v9.9.9", "version": "9.9.9", "prerelease": True, "page": "https://github.com/p",
        "exe": {"name": "DentPilot.exe", "url": "https://github.com/e", "size": 35000000, "sha256": "a" * 64},
-       "setup": None}
+       "setup": {"name": "DentPilot-Setup-9.9.9.zip", "url": "https://github.com/s", "size": 41000000,
+                 "sha256": "b" * 64}}
 
 def run(name):
     del asked[:], api[:]
-    upd.STATE.update(latest="", asset_url="", asset_size=0, asset_digest="", error="")
+    upd.STATE.update(latest="", setup_url="", setup_size=0, setup_digest="", error="")
     upd._check()
-    out[name] = {"latest": upd.STATE["latest"], "asset_url": upd.STATE["asset_url"],
-                 "size": upd.STATE["asset_size"], "digest": upd.STATE["asset_digest"],
+    out[name] = {"latest": upd.STATE["latest"], "setup_url": upd.STATE["setup_url"],
+                 "size": upd.STATE["setup_size"], "digest": upd.STATE["setup_digest"],
+                 "asset_keys": [k for k in upd.STATE if k.startswith("asset_")],
                  "pre": upd.STATE["prerelease"], "channel": upd.STATE["channel"],
                  "newer": upd.newer_available(), "asked": list(asked), "api": list(api)}
 
@@ -243,16 +245,19 @@ def suite_decision(res: Result) -> None:
     o = json.loads(p.stdout.strip().splitlines()[-1])
     v = o["app_version"]
     n = o["newer"]
-    res.ok("сервер назвал новее: версия, ссылка, размер, sha256 — без единого вопроса GitHub",
-           n["latest"] == "v9.9.9" and n["asset_url"] == "https://github.com/e" and n["size"] == 35000000
-           and n["digest"] == "sha256:" + "a" * 64 and n["pre"] is True and n["newer"] and n["api"] == [], repr(n))
+    res.ok("сервер назвал новее: версия, установщик, размер, sha256 — без единого вопроса GitHub",
+           n["latest"] == "v9.9.9" and n["setup_url"] == "https://github.com/s" and n["size"] == 41000000
+           and n["digest"] == "sha256:" + "b" * 64 and n["pre"] is True and n["newer"] and n["api"] == [], repr(n))
+    # 22.10.2026: файл программы (exe) сервер ещё называет — для программ 1.x,
+    # а движок его не берёт: обновляет только установщик
+    res.check("файла программы (asset_*) в состоянии нет", n["asset_keys"], [])
     a = n["asked"][0] if n["asked"] else {}
     res.ok("спросили: канал stable, стоящая версия, наш репозиторий, программа назвала себя",
            a.get("ch") == "stable" and a.get("current") == v and a.get("repo") == REPO
            and a.get("agent") == f"DentPilot/{v}" and a.get("device", "").startswith("d_"), repr(a))
     s = o["same"]
     res.ok("сервер: новее нет — «la zi», GitHub не спрашивали",
-           s["latest"] == f"v{v}" and not s["newer"] and s["asset_url"] == "" and s["api"] == [], repr(s))
+           s["latest"] == f"v{v}" and not s["newer"] and s["setup_url"] == "" and s["api"] == [], repr(s))
     f = o["offline"]
     res.ok("сервер молчит — прежний путь к GitHub", f["api"] == ["/releases/latest"] and f["latest"] == "v8.8.8",
            repr(f))

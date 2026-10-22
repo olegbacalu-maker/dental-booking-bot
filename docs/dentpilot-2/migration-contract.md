@@ -45,7 +45,7 @@
   котором спрашивал Олег, **не существует**.
 
 Где лежит: `<ANCHOR>\migration.json`, где ANCHOR — корень, который лаунчер
-вычисляет и так (`$DENTART_DATA_DIR` → `portable.flag` → `%ProgramData%`).
+вычисляет и так (`$DENTART_DATA_DIR` → `%ProgramData%`; ветка `portable.flag` снята 22.10.2026).
 ⛔ Не в `schema_meta`: круговая зависимость (чтобы узнать, какую базу открыть,
 надо открыть базу), плюс база может быть под SQLCipher, а открытие проигрывает
 WAL. ⛔ Не в `install.json`: он в `INSTALL_ROOT`, писать туда без прав нельзя,

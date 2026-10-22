@@ -27,6 +27,9 @@ DentPilot.exe  (оболочка Tauri 2, Rust)        ← ярлык, стор�
   сборкой (onefile + pywebview). Всё новое спит без оболочки: режим движка
   включает переменная, слой команд React — только при `window.dpShell`.
   Окно pywebview снимается отдельным шагом после приёмки (Т11), не раньше.
+  ✅ Снято 22.10.2026 (ветка `fix/no-pywebview`): с 2.0.0 программа — только
+  оболочка + движок; движок без `DENTART_SHELL=tauri` не запускается, флешки
+  (`portable.flag`) и запасного браузера нет.
 - Тексты оболочки — румынские, без эмодзи и знаков вне Inter (правило
   CLAUDE.md «ничего графического от Windows»).
 - Версии Tauri и плагинов закреплены `=` (сегодня `tauri =2.12.1`,
@@ -41,21 +44,21 @@ DentPilot.exe  (оболочка Tauri 2, Rust)        ← ярлык, стор�
 ```
 C:\Program Files\DentPilot\
   DentPilot.exe                  оболочка; другого exe ярлык и сторож не знают
-  install.json, portable.flag    корень программы (BASE) — папка DentPilot.exe
+  install.json, demo.flag        корень программы (BASE) — папка DentPilot.exe
   engine\DentPilot-Engine.exe    движок
   engine\_internal\…             PyInstaller onedir
 ```
 
 - ⭐ В режиме движка **BASE — папка DentPilot.exe** (родитель `engine\`), а не
-  папка движка: `install.json`, `portable.flag` лежат там. Папка данных
-  считается как сегодня (`DENTART_DATA_DIR` → `portable.flag` → `ProgramData`).
+  папка движка: `install.json`, `demo.flag` лежат там. Папка данных
+  считается как сегодня (`DENTART_DATA_DIR` → `ProgramData`).
 - Разработка: собранного движка нет — оболочка берёт `DENTPILOT_DEV_APP`
   (путь к `app\`) и запускает `<app>\.venv-desktop\Scripts\python.exe
   <app>\bot\desktop.py` с рабочей папкой `<app>\bot`. Собранный движок рядом
   важнее переменной.
 - Профиль WebView2 (вход переживает перезапуск) решает **оболочка**:
-  `%LOCALAPPDATA%\DentPilot\webview`, при `BASE\portable.flag` — `BASE\webview`
-  (те же пути, что `desktop.profile_dir()` сегодня). Он нужен ей до первого
+  `%LOCALAPPDATA%\DentPilot\webview` (тот же путь, что `desktop.profile_dir()`;
+  стенд — `DENTART_PROFILE_DIR`). Он нужен ей до первого
   слова движка — окно с заставкой создаётся сразу.
 - Своё состояние оболочки (окно, показанные уведомления) —
   `%LOCALAPPDATA%\DentPilot\shell.json`, по учётке Windows.
@@ -79,7 +82,9 @@ C:\Program Files\DentPilot\
 
 Движок в режиме `DENTART_SHELL=tauri`:
 - не импортирует pywebview, не открывает браузер, не рисует окон
-  (`MessageBoxW` — тоже нет: беда уходит событием `fatal`);
+  (`MessageBoxW` — тоже нет: беда уходит событием `fatal`); с 22.10.2026
+  другого режима у движка нет — без оболочки он отказывает до вычисления
+  корня (собранный — окном Windows, из исходников — в stderr) и выходит с 2;
 - порядок шагов запуска — прежний (`sidecar.md` › «Порядок шагов»);
 - живёт в «задании» Windows оболочки (Job Object, KILL_ON_JOB_CLOSE, старт
   приостановленным — как в песочнице `engine.rs`). Задание разрешает выход
@@ -125,8 +130,8 @@ C:\Program Files\DentPilot\
 с доступом с телефонов — подсказка включить). Пишет её **движок** (он работает
 под той же учёткой): значение `DentPilot` в
 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` =
-`"<BASE>\DentPilot.exe" --tray`; только в режиме движка (в разработке и в
-окне pywebview галочки нет). Оболочка с `--tray` стартует сразу у часов: окно
+`"<BASE>\DentPilot.exe" --tray`; только у собранного движка (в разработке
+галочки нет). Оболочка с `--tray` стартует сразу у часов: окно
 не показывает, подсказку «я у часов» не показывает, движок запускает как
 обычно.
 
@@ -149,7 +154,7 @@ window.dpShell = { v: 1, version: '<версия оболочки>', send(path) 
 (отменённый переход на `http://dpcmd.localhost/…`, свой протокол и т. п.) —
 дело оболочки. ⛔ Удалённой странице не выдаются права IPC Tauri: экраны
 ничего, кроме `send`, у оболочки не зовут. Нет `window.dpShell` (браузер
-второго ПК, телефон, окно pywebview) — нет меню, нет слоя команд и клавиш
+второго ПК, телефон) — нет меню, нет слоя команд и клавиш
 (решение Олега 18.10: в браузере меню не нужно).
 
 ### Что даёт страница (только при `window.dpShell`)

@@ -110,22 +110,21 @@ def _set_uninstall_version(args: list[str], data_root=None, base=None) -> str:
 # ним же их и ищет. Путь в аргументах был бы ровно той дырой, ради которой
 # список операций и закрыт.
 WORK_SUBDIR = "updates"
-NEW_SUFFIX = ".new.exe"
-OLD_SUFFIX = ".old.exe"
 REQUEST_NAME = "install.request"
 RESULT_NAME = "install.result"
 
-# Сколько может весить программа. Нижняя граница — от оборванной закачки
-# (urllib не считает обрыв ошибкой), верхняя — чтобы не двигать в Program Files
+# Сколько может весить установщик. Нижняя граница — от оборванной закачки
+# (urllib не считает обрыв ошибкой), верхняя — чтобы не класть в Program Files
 # что попало.
 MIN_EXE, MAX_EXE = 5_000_000, 300_000_000
 
 
 def _self_exe() -> "pathlib.Path":
-    """Что именно подменяем. ⭐ Своя функция, а не выражение по месту: это ШОВ
-    для проверок — иначе набор подменял бы python.exe, которым сам и запущен.
-    ⛔ Значение по-прежнему берётся у процесса, а НЕ из аргументов: снаружи
-    назвать цель нельзя ничем."""
+    """Свой файл — по нему `_layout` узнаёт раскладку программы. ⭐ Своя
+    функция, а не выражение по месту: это ШОВ для проверок — иначе набор
+    рассуждал бы о python.exe, которым сам и запущен.
+    ⛔ Значение берётся у процесса, а НЕ из аргументов: снаружи назвать
+    программу нельзя ничем."""
     import pathlib
     return pathlib.Path(sys.executable).resolve()
 
@@ -153,114 +152,9 @@ def _layout(base=None) -> tuple:
     return root, (root / "DentPilot.exe" if engine else exe), engine
 
 
-# Подмена одного файла в раскладке оболочки (Т10): программа — папка
-# (`DentPilot.exe` + `engine\\…`), и подменить её одним файлом нельзя ничем.
-ENGINE_NO_SWAP = "программа — папка оболочки Tauri: подмена одного файла невозможна"
-
-
-def _install_update(args: list[str], data_root=None, base=None) -> str:
-    """Подменить файл программы новым. ⛔ Ни одного аргумента, ни одного пути.
-
-    Источник и назначение исполнитель вычисляет САМ: назначение — это он сам
-    (`sys.executable`), источник — условленное имя в папке клиники, которую он
-    находит тем же способом, что лаунчер.
-
-    ⛔ **Здесь ничего не ИСПОЛНЯЕТСЯ.** Это и есть главный инвариант: файл
-    только перемещается. Запусти мы новую программу отсюда — она пошла бы от
-    администратора, а всё, что она пишет, стало бы недоступно клинике при
-    следующем обычном запуске; и подменённый кем-то файл получил бы права,
-    которых у него нет. Перезапуск делает обычный процесс, обычным пользователем.
-
-    ⚠️ Проверка повторяется ЗДЕСЬ, хотя обычный процесс уже проверял: между его
-    проверкой и этим моментом файл могли подменить. Она ловит гонку и порчу.
-    ⛔ Отпечаток и размер НЕ ловят подмену тем, кто уже пишет в папку клиники:
-    и файл, и описание рядом лежат там же, и описание он перепишет под свой
-    файл. Это ловит ТОЛЬКО подпись Authenticode нашим сертификатом (17.10,
-    посторонний разбор; до того была названа «закалкой» и ждала): файл,
-    который ляжет в Program Files и будет запущен каждым пользователем, обязан
-    быть подписан DentPilot — как установщик в `_install_setup`.
-    """
-    if args:
-        raise Refused(f"операция не принимает аргументов, получено {args!r}")
-    import hashlib
-    import json
-    import pathlib
-
-    exe = _self_exe()
-    root = data_root() if callable(data_root) else data_root
-    if root is None:
-        raise Refused("папка клиники не найдена — источник обновления неизвестен")
-    work = pathlib.Path(root) / WORK_SUBDIR
-    new = work / (exe.stem + NEW_SUFFIX)
-    result = work / RESULT_NAME
-
-    def done(text: str) -> str:
-        # ⭐ Итог пишем ФАЙЛОМ: обычный процесс не видит ни кода возврата за
-        # UAC, ни вывода, и без этого ему осталось бы гадать.
-        try:
-            result.write_text(text, encoding="utf-8")
-        except OSError:
-            pass
-        return text
-
-    # ⛔ Движок Tauri (Т10): подмена увела бы `engine\\DentPilot-Engine.exe` в
-    # `.old.exe` и положила на его место один файл без `_internal\\` — мёртвая
-    # программа у всех учёток машины. Просящий сюда не ходит (update.py
-    # отказывает до окна UAC); это — проверка ТОГО, КТО исполняет.
-    if _layout(base)[2]:
-        return done(ENGINE_NO_SWAP)
-    if not new.exists():
-        return done("нет файла обновления")
-    size = new.stat().st_size
-    if not MIN_EXE <= size <= MAX_EXE:
-        return done(f"размер не годится: {size}")
-    with open(new, "rb") as f:
-        if f.read(2) != b"MZ":
-            # ⛔ Опознаём по СИГНАТУРЕ, а не по расширению — тот же прайор, что
-            # у логотипа клиники.
-            return done("это не программа Windows")
-    try:
-        want = json.loads((work / REQUEST_NAME).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return done("нет описания обновления")
-    if str(want.get("size")) != str(size):
-        return done("размер разошёлся с описанием")
-    h = hashlib.sha256()
-    with open(new, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    if h.hexdigest() != str(want.get("sha256", "")).lower():
-        return done("отпечаток разошёлся с описанием")
-    from . import authenticode
-    signer = authenticode.signer_thumbprint(new)
-    if signer not in SIGNERS:
-        return done("файл подписан не DentPilot" if signer
-                    else "у файла нет действительной подписи")
-
-    old = exe.with_name(exe.stem + OLD_SUFFIX)
-    # ⛔ Порядок тот же, что у скрипта переносимой раскладки, и по той же
-    # причине (08-10): сперва увести рабочий файл, потом класть новый. При
-    # прямой замене любой сбой ПОСЛЕ неё не оставлял на диске ни одной копии
-    # программы, и все ярлыки вели в никуда.
-    try:
-        old.unlink(missing_ok=True)
-        exe.rename(old)
-    except OSError as e:
-        return done(f"не удалось убрать рабочий файл: {e}")
-    try:
-        shutil.move(str(new), str(exe))
-    except OSError as e:
-        try:
-            old.rename(exe)          # неудачное обновление ≠ удаление программы
-        except OSError:
-            pass
-        return done(f"не удалось положить новый файл: {e}")
-    return done("ok")
-
-
 # ---------- обновление установщиком (03.10) ----------
 
-# Имена, как и у install-update: обе стороны их знают, путей никто не передаёт.
+# Имена (как у описания и итога выше): обе стороны их знают, путей никто не передаёт.
 SETUP_NEW = "DentPilot-Setup.new.exe"     # в папке клиники: кладёт обычный процесс
 SETUP_DIR = "updates"                     # в папке программы: пишет только администратор
 SETUP_NAME = "DentPilot-Setup.exe"
@@ -277,7 +171,7 @@ CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 # Сертификат Certum на Oleg Bacalu действует до 29.09.2027 (code-signing-wired).
 # ⚠️ ПЕРЕД продлением — выпуск с ДВУМЯ отпечатками, старым и новым: программа,
 # знающая только старый, отвергнет установщик с новым, и обновить её можно будет
-# лишь подменой exe или выездом.
+# лишь установкой руками или выездом.
 SIGNERS = frozenset({"07D3BC7B7B63F6F0A54553034A2E27019D3A9C2C"})
 # Тихая установка поверх: без окон и вопросов, без перезагрузки; программу
 # установщик закроет сам (Restart Manager), если она ещё открыта.
@@ -483,7 +377,6 @@ def auth_reset_mark() -> tuple[str, str]:
 # Закрытый список. Имя → обработчик. ⛔ Ни `getattr`, ни импорта по имени:
 # словарь и есть граница того, что вообще может случиться за UAC.
 OPS = {"uninstall-version": _set_uninstall_version,
-       "install-update": _install_update,
        "install-setup": _install_setup,
        "auth-reset": _auth_reset}
 
@@ -492,8 +385,8 @@ def run_op(name: str, args: list[str], data_root=None, base=None) -> str:
     """Исполнить операцию. Зовётся УЖЕ в привилегированном процессе.
 
     ⚠️ `data_root` передаёт ЛАУНЧЕР своей же функцией. Считать раскладку здесь
-    вторым способом нельзя: у неё три ветки (`$DENTART_DATA_DIR`, портативный
-    флаг, `%ProgramData%`), и второй вычислитель разошёлся бы с первым молча.
+    вторым способом нельзя: у неё две ветки (`$DENTART_DATA_DIR`,
+    `%ProgramData%`), и второй вычислитель разошёлся бы с первым молча.
     `base` — корень программы от него же (`desktop.BASE`; у движка Tauri —
     папка оболочки над `engine\\`, `_layout`).
     ⛔ Это НЕ путь из аргументов: значение приходит из кода, а не из argv.

@@ -1,6 +1,6 @@
 # Образ демо = настольное издание программы (SQLite) + шлюз.
-# Версии программы — те же, что в bot/requirements-desktop.txt; без pywebview
-# (окна в контейнере нет) и без sqlcipher3 (шифрование в демо закрыто).
+# Версии программы — те же, что в bot/requirements-desktop.txt, без sqlcipher3
+# (шифрование в демо закрыто).
 fastapi==0.141.0
 uvicorn[standard]==0.52.0
 aiosqlite==0.20.0

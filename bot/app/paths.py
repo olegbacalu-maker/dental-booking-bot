@@ -21,9 +21,9 @@ import os
 import pathlib
 import sys
 
-# Корень пакета. В обычном запуске — папка `app/`. В onefile-сборке PyInstaller
-# распаковывает вшитые файлы во временный каталог `sys._MEIPASS`, а
-# Build-Desktop.ps1 кладёт их туда с префиксом `app` (--add-data "…;app"), —
+# Корень пакета. В обычном запуске — папка `app/`. В сборке PyInstaller вшитые
+# файлы лежат в `sys._MEIPASS` (у движка папкой — `_internal`), а
+# Build-Engine.ps1 кладёт их туда с префиксом `app` (--add-data "…;app"), —
 # поэтому в exe корень ресурсов это _MEIPASS/app.
 if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
     PKG_ROOT = pathlib.Path(sys._MEIPASS) / "app"       # noqa: SLF001

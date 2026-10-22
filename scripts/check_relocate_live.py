@@ -1,29 +1,37 @@
-"""Живая проверка ветки `unique` (P2, шаги 1–3 + лаунчер).
+"""Живая проверка ветки `unique` (P2, шаги 1–3 + лаунчер) на СОБРАННОМ движке.
 
-    python scripts/check_relocate_live.py
-    python scripts/check_relocate_live.py --exe dist\\DentPilot.exe
+    .venv-desktop\\Scripts\\python.exe scripts\\check_relocate_live.py
+    .venv-desktop\\Scripts\\python.exe scripts\\check_relocate_live.py --exe dist\\DentPilot-Engine\\DentPilot-Engine.exe
 
 Отвечает на вопрос, который зелёный прогон НЕ проверяет и проверить не может:
-исполняет ли СОБРАННЫЙ лаунчер ветку `unique`. Харнесс поднимает `app.main`
+исполняет ли СОБРАННЫЙ движок ветку `unique`. Харнесс поднимает `app.main`
 напрямую и `desktop.py` не исполняет ни строкой — прайор карты, — а правило
 `relocate.root_for` проверено как чистая функция. Между правилом и поведением
-стоят PyInstaller, планировщик и файловая система, и ровно в этом промежутке
-21.09 нашлись три дефекта подряд.
+стоят PyInstaller и файловая система, и ровно в этом промежутке 21.09 нашлись
+три дефекта подряд.
+
+Движок запускается так, как его запускает оболочка (с 22.10.2026 другого
+запуска нет — окно pywebview снято): `DENTART_SHELL=tauri`, трубы `DP1`,
+своё задание Windows, остановка словом `stop` — `engine_check.Engine`.
 
 ⛔ **Не «exe запустился — зелено».** Стенд отвечает «ожидался старый корень →
 открылся старый корень», и зелёным считается выполнение ВСЕХ трёх утверждений:
 
   1. программа работает из СТАРОГО корня — журнал открылся, и на странице видно
-     имя клиники из `Old\\clinic.json`, а не из вшитого профиля;
+     имя клиники из старого `clinic.json`, а не из вшитого профиля;
   2. НАЗНАЧЕНИЕ осталось пустым: ни `data\\`, ни `clinic.json`, ни `dental.env`;
-  3. в `Old\\data\\dentpilot.log` лежит строка вердикта с исходом `unique`.
+  3. в `data\\dentpilot.log` старого корня лежит строка вердикта с исходом `unique`.
 
 Раскладка лаборатории (всё во временной папке, удаляется в конце):
 
-    <lab>\\Old\\      DentPilot.exe + clinic.json + dental.env  ← «старая установка»
-    <lab>\\Anchor\\   пусто                                      ← назначение
-    <lab>\\tmp\\      TEMP программы: распаковка onefile (_MEI*)
+    <lab>\\Old\\engine\\   движок папкой + clinic.json + dental.env  ← «старая установка»
+    <lab>\\Anchor\\        пусто                                     ← назначение
+    <lab>\\tmp\\           TEMP движка
     $DENTART_DATA_DIR = <lab>\\Anchor
+
+⚠️ Маркеры данных лежат в `engine\\`, а не над ним: источник `self` — папка
+САМОГО процесса (`legacy.running_root`), у движка это `engine\\`. Раскладка не
+про клинику, а про то, что собранный движок ИСПОЛНЯЕТ ветку `unique`.
 
 ⛔ **Настоящая `%ProgramData%\\DentPilot` не участвует ни одной стороной.**
 Это инвариант стендов: всякий, кто запускает собранный exe, обязан получить
@@ -41,12 +49,10 @@ import http.cookiejar
 import json
 import os
 import pathlib
+import secrets
 import shutil
-import socket
-import subprocess
 import sys
 import tempfile
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -60,18 +66,42 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+from engine_check import READY_LIMIT, STOP_LIMIT, Engine  # noqa: E402 — тот же разговор, что у оболочки
+from harness import RUN_TMP, _rmtree_settled, free_port  # noqa: E402
+
 KEY = "lab-relocate-key"
 CLINIC_MARK = "LABORATOR RADACINA VECHE"
 
 
-def free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+class Lab:
+    """Что нужно `engine_check.Engine`: exe, папка для stderr, корень данных
+    (для хвоста лога) и окружение запуска."""
+
+    def __init__(self, lab: pathlib.Path, exe: pathlib.Path, old: pathlib.Path,
+                 anchor: pathlib.Path) -> None:
+        self.dir, self.exe, self.data, self.anchor = lab, exe, old, anchor
+
+    def env(self, port: int) -> dict:
+        anchor = self.anchor
+        # ⛔ (09-26) TEMP — внутри лаборатории, но вне Old и Anchor.
+        tmp = self.dir / "tmp"
+        tmp.mkdir(exist_ok=True)
+        env = {k: v for k, v in os.environ.items() if not k.startswith("DENTART_")}
+        # ⛔ Назначение объявляем ЯВНО. Без этого движок ушёл бы в
+        # %ProgramData%\DentPilot — то есть проверял бы не лабораторию, а живую
+        # картотеку машины, и не упал бы при этом.
+        env.update({"DENTART_SHELL": "tauri", "DENTART_SHELL_TOKEN": secrets.token_hex(16),
+                    "DENTART_PORT": str(port), "ADMIN_KEY": KEY,
+                    "DENTART_DATA_DIR": str(anchor), "TEMP": str(tmp), "TMP": str(tmp),
+                    "DENTART_PROFILE_DIR": str(self.dir / "webview"),
+                    "DENTART_UPDATE_CHECK": "off"})
+        return env
 
 
-def build_lab(lab: pathlib.Path, exe: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
-    """Старый корень с профилем и пустое назначение.
+def build_lab(lab: pathlib.Path, exe: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, pathlib.Path]:
+    """Старый корень с профилем и пустое назначение. Возвращает (exe в
+    лаборатории, старый корень, назначение).
 
     ⭐ Базу НЕ кладём намеренно: `clinic.json` — такой же маркер данных, как и
     она, а отсутствие базы делает проверку строже. Если ветка `unique`
@@ -79,9 +109,9 @@ def build_lab(lab: pathlib.Path, exe: pathlib.Path) -> tuple[pathlib.Path, pathl
     заведёт его в назначении, и второе утверждение стенда покраснеет. Разница
     видна на файловой системе, а не в интерпретации.
     """
-    old = lab / "Old"
+    old = lab / "Old" / "engine"
     anchor = lab / "Anchor"
-    old.mkdir(parents=True)
+    shutil.copytree(exe.parent, old)
     anchor.mkdir(parents=True)
 
     profile = json.loads((ROOT / "bot" / "app" / "clinic_new.json")
@@ -93,62 +123,7 @@ def build_lab(lab: pathlib.Path, exe: pathlib.Path) -> tuple[pathlib.Path, pathl
     # засев — предмет другого стенда, и лишняя ветка здесь только мешала бы.
     (old / "dental.env").write_text("TELEGRAM_TOKEN=\nADMIN_KEY=\n",
                                     encoding="utf-8")
-    shutil.copy(exe, old / "DentPilot.exe")
-    return old, anchor
-
-
-def run_lab(old: pathlib.Path, anchor: pathlib.Path, port: int, seconds: int = 90):
-    env = dict(os.environ)
-    # ⛔ (09-26) TEMP — внутри лаборатории, но вне Old и Anchor: stop() гасит
-    # загрузчик onefile через taskkill /F, и свою распаковку (_MEI*, 52 МБ) он
-    # уже не убирает — она оставалась в %TEMP% после каждой сборки.
-    tmp = old.parent / "tmp"
-    tmp.mkdir(exist_ok=True)
-    # ⛔ Назначение объявляем ЯВНО. Без этого лаунчер ушёл бы в
-    # %ProgramData%\DentPilot — то есть проверял бы не лабораторию, а живую
-    # картотеку машины, и не упал бы при этом.
-    env.update({"DENTART_BROWSER_MODE": "1", "DENTART_NO_BROWSER": "1",
-                "DENTART_PORT": str(port), "ADMIN_KEY": KEY,
-                "DENTART_DATA_DIR": str(anchor), "TEMP": str(tmp), "TMP": str(tmp)})
-    proc = subprocess.Popen([str(old / "DentPilot.exe")], cwd=str(old), env=env,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    base = f"http://127.0.0.1:{port}"
-    deadline = time.time() + seconds
-    while time.time() < deadline:
-        if proc.poll() is not None:
-            return proc, base, False
-        try:
-            with urllib.request.urlopen(base + "/health", timeout=3) as r:
-                if json.loads(r.read()).get("app") == "dentpilot":
-                    return proc, base, True
-        except Exception:  # noqa: BLE001 — сервер ещё не поднялся
-            time.sleep(1)
-    return proc, base, False
-
-
-def stop(proc) -> None:
-    """Погасить ДЕРЕВО процессов, а не один pid.
-
-    ⛔ `proc.terminate()` здесь недостаточно, и это не теория: onefile-сборка
-    PyInstaller — это загрузчик, который распаковывает себя и запускает
-    ДОЧЕРНИЙ процесс с тем же именем. Убив загрузчика, получаешь живого
-    ребёнка: он держит порт и файл exe, `shutil.rmtree` молча не удаляет
-    лабораторию (`ignore_errors`), и в темпе остаётся папка с работающей
-    программой внутри. Так и вышло 21.09 — процесс прожил лишний час, и
-    заметила его соседняя сессия, а не стенд.
-    ⚠️ `taskkill /T` (дерево) и `/F` (без вежливых просьб): у программы нет
-    окна, которое можно закрыть, а обработчик выхода здесь не нужен — данные
-    лабораторные.
-    """
-    if proc is None or proc.poll() is not None:
-        return
-    subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                   check=False)
-    try:
-        proc.wait(timeout=15)
-    except subprocess.TimeoutExpired:
-        proc.kill()
+    return old / exe.name, old, anchor
 
 
 def admin_page(base: str) -> tuple[str, str]:
@@ -210,7 +185,7 @@ def read_log(path: pathlib.Path) -> tuple[str, str]:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--exe", default=str(ROOT / "dist" / "DentPilot.exe"))
+    ap.add_argument("--exe", default=str(ROOT / "dist" / "DentPilot-Engine" / "DentPilot-Engine.exe"))
     ap.add_argument("--keep", action="store_true",
                     help="не удалять лабораторию (разбор после красноты)")
     args = ap.parse_args()
@@ -220,20 +195,24 @@ def main() -> int:
         # ⚠️ ВСЛУХ и отдельным кодом возврата. Молчаливый пропуск — это ложное
         # зелёное: обёртка приняла бы «нечего проверять» за «проверено».
         print(f"ПРОПУЩЕНО: {exe} не собран — проверять нечего.")
-        print("Соберите: powershell -File Build-Desktop.ps1")
+        print("Соберите: powershell -File Build-Engine.ps1")
         return 2
 
-    lab = pathlib.Path(tempfile.mkdtemp(prefix="dp_relocate_"))
-    old, anchor = build_lab(lab, exe)
-    port = free_port()
-    proc = None
+    # ⚠️ Лаборатория — в папке прогона харнесса (её сносит выход), а с --keep —
+    # рядом, в обычном TEMP: иначе «оставлена» значило бы «снесена на выходе».
+    lab = pathlib.Path(tempfile.mkdtemp(prefix="dp_relocate_",
+                                        dir=str(RUN_TMP.parent if args.keep else RUN_TMP)))
+    run_exe, old, anchor = build_lab(lab, exe)
+    e = Engine(Lab(lab, run_exe, old, anchor), free_port())
     bad = []
     try:
-        proc, base, alive = run_lab(old, anchor, port)
-        if not alive:
-            print("КРАСНО: программа не поднялась за отведённое время.")
+        e.start()
+        ev = e.wait_event({"ready", "busy", "fatal"}, READY_LIMIT)
+        if ev is None or ev.get("event") != "ready":
+            print(f"КРАСНО: движок не сказал ready (пришло {ev!r}).{e.tail()}")
             print(f"  лаборатория: {lab}")
             return 1
+        base = f"http://127.0.0.1:{e.port}"
 
         # 1. работаем из СТАРОГО корня — это видно по профилю на странице
         page, trouble = admin_page(base)
@@ -244,6 +223,8 @@ def main() -> int:
         elif CLINIC_MARK not in page:
             bad.append("на странице нет имени клиники из старого корня: "
                        "программа открыла ЧУЖОЙ профиль")
+        if pathlib.Path(ev.get("data") or ".").resolve() != old.resolve():
+            bad.append(f"движок назвал оболочке папку данных {ev.get('data')!r}, а не {old}")
 
         # 2. назначение осталось пустым
         left = sorted(p.name for p in anchor.iterdir())
@@ -262,32 +243,29 @@ def main() -> int:
         if not (old / "data" / "dental.db").exists():
             bad.append("в старом корне не появилась база — журнал открылся не там")
     finally:
-        stop(proc)
+        if e.proc is not None and e.proc.poll() is None:
+            try:
+                code, _secs = e.wait_exit(e.send_stop(), STOP_LIMIT + 5)
+            except OSError:
+                code = None
+            if code != 0:
+                bad.append(f"движок не остановился словом stop (код {code})")
+        e.close()
         if args.keep:
             print(f"лаборатория оставлена: {lab}")
         else:
-            # ⚠️ С повтором: Windows отпускает хэндлы убитого процесса не
-            # мгновенно, и первая попытка сразу после taskkill проваливается на
-            # ровном месте — папка остаётся в темпе, хотя держать её уже некому.
-            for _ in range(5):
-                shutil.rmtree(lab, ignore_errors=True)
-                if not lab.exists():
-                    break
-                time.sleep(1)
-            # ⛔ ВСЛУХ. `ignore_errors` глотает ровно тот случай, ради которого
-            # проверка и нужна: файлы держит живой процесс, и папка остаётся с
-            # exe внутри. Молчание здесь = мусор в темпе и занятый порт, о
-            # которых узнает кто-то другой.
+            # ⛔ ВСЛУХ. Файлы может держать недобитый процесс — молчание здесь =
+            # мусор в темпе и занятый порт, о которых узнает кто-то другой.
+            _rmtree_settled(lab)
             if lab.exists():
                 print(f"⚠️  лаборатория НЕ удалена: {lab}")
-                print("    что-то держит файлы — проверьте процессы DentPilot.exe")
 
     if bad:
         print("КРАСНО:")
         for b in bad:
             print(f"  · {b}")
         return 1
-    print("ЗЕЛЕНО: ветка unique исполнена собранным лаунчером.")
+    print("ЗЕЛЕНО: ветка unique исполнена собранным движком.")
     print("  · журнал открыт в СТАРОМ корне (имя клиники оттуда)")
     print("  · назначение осталось пустым")
     print("  · вердикт unique записан в лог")

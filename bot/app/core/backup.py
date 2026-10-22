@@ -276,9 +276,9 @@ def _readme() -> str:
     """Инструкция восстановления — единственный файл архива БЕЗ шифра.
 
     ⭐ Папку называем НАСТОЯЩИМ путём, а не «рядом с exe»: с переезда в
-    `Program Files` раскладок две (обычная `%ProgramData%\\DentPilot` и
-    портативная — рядом с exe, по `portable.flag`), и словесное описание
-    устареет на следующем же переезде. ⚠️ Подставляется путь ИСХОДНОЙ машины,
+    `Program Files` данные живут отдельно (`%ProgramData%\\DentPilot`, стенд
+    — где назовут), и словесное описание устареет на следующем же переезде.
+    (Портативной раскладки — `portable.flag` рядом с exe — нет с 22.10.2026.) ⚠️ Подставляется путь ИСХОДНОЙ машины,
     поэтому он и подписан как «откуда снята копия»: на новом компьютере папка
     может быть другой, и авторитетом назван экран «Stare sistem» ТОЙ машины,
     куда восстанавливают.
@@ -327,10 +327,8 @@ def _readme() -> str:
         "Restaurare manuala pe un calculator nou:\r\n\r\n"
         "  FOLDERUL CU DATE - acolo se restaureaza totul.\r\n"
         "  ATENTIE: NU este folderul in care se instaleaza DentPilot.exe.\r\n"
-        "  Datele clinicii stau separat de program:\r\n"
-        "    * instalare obisnuita:  C:\\ProgramData\\DentPilot\r\n"
-        "    * varianta portabila (pe stick, cu fisierul portable.flag langa\r\n"
-        "      DentPilot.exe): chiar folderul in care sta DentPilot.exe\r\n"
+        "  Datele clinicii stau separat de program, de obicei in\r\n"
+        "  C:\\ProgramData\\DentPilot.\r\n"
         "  Calea exacta o arata programul DE PE CALCULATORUL NOU:\r\n"
         "  Setari > Stare sistem, randul \"Folderul cu date\". Verificati\r\n"
         "  acolo, nu ghiciti: dezarhivata in alt folder, arhiva nu ajunge la\r\n"

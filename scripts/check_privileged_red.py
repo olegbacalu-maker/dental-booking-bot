@@ -72,50 +72,23 @@ BREAKS = [
        "ROOT, _verdict = relocate.root_for(ROOT)")],
      None, "и спрашивает ДО вычисления корня", "лаунчер"),
 
-    # ---- P4.2 ----
-    ("подмена ЗАПУСКАЕТ новый файл", PRIV,
-     '    old = exe.with_name(exe.stem + OLD_SUFFIX)',
-     "    import subprocess\n"
-     "    subprocess.Popen([str(new)])\n"
-     "    old = exe.with_name(exe.stem + OLD_SUFFIX)",
-     "в исполнителе нет: запуск процесса"),
-
-    # ⚠️ Кусок — с телом именно `install-update`: начало «if args: raise
-    # Refused(» с 03.10 есть у трёх операций, и поломка не вносилась вовсе
-    # («ПРОМАХ»), пока сторож считался исправным (найдено 18.10, Т10).
+    # ---- P4.2 (с 22.10.2026 подмены одного exe нет; путь — установщик) ----
+    # ⚠️ Кусок — с телом именно `install-setup`: начало «if args: raise
+    # Refused(» есть у трёх операций, и поломка без хвоста не вносилась бы
+    # вовсе («ПРОМАХ»), пока сторож считался исправным (найдено 18.10, Т10).
     ("операция берёт путь аргументом", PRIV,
      '    if args:\n        raise Refused(f"операция не принимает аргументов, получено {args!r}")\n'
-     "    import hashlib\n    import json\n    import pathlib\n\n    exe = _self_exe()",
+     "    import hashlib\n    import json\n    import pathlib\n    from . import authenticode\n",
      '    if False:\n        raise Refused(f"операция не принимает аргументов, получено {args!r}")\n'
-     "    import hashlib\n    import json\n    import pathlib\n\n    exe = _self_exe()",
+     "    import hashlib\n    import json\n    import pathlib\n    from . import authenticode\n",
      "путь снаружи отвергнут"),
 
-    ("прежняя программа удаляется", PRIV,
-     "        old.unlink(missing_ok=True)\n        exe.rename(old)",
-     "        old.unlink(missing_ok=True)\n        exe.unlink()",
-     "прежняя программа лежит рядом"),
-
     ("скачивание снова рядом с exe", UPD,
-     '    new_path = work_dir() / (exe.stem + ".new.exe")',
-     '    new_path = exe.with_name(exe.stem + ".new.exe")',
-     "скачанный файл — в папке клиники"),
-
-    ("скрипт обновления снова рядом с exe", UPD,
-     '    bat = work_dir() / "dentpilot_update.bat"',
-     '    bat = exe.with_name("dentpilot_update.bat")',
-     "скрипт обновления — в папке клиники"),
-
-    ("портативной раскладке показывают UAC", UPD,
-     "    if not exe_dir_writable():\n        return _install_privileged(new_path, exe)",
-     "    if True:\n        return _install_privileged(new_path, exe)",
-     "портативной раскладке окно UAC не показывается"),
+     '    zpath = work / "DentPilot-Setup.zip"',
+     '    zpath = pathlib.Path(sys.executable).resolve().parent / "DentPilot-Setup.zip"',
+     "скачанный архив установщика — в папке клиники"),
 
     # ---- Т10: движок оболочки Tauri за UAC и путь обновления у оболочки (18.10) ----
-    ("движок за UAC подменяет себя одним файлом", PRIV,
-     "    if _layout(base)[2]:\n        return done(ENGINE_NO_SWAP)\n",
-     "",
-     "подмена у движка отказывает словами"),
-
     ("копия мастера у движка ложится в engine", PRIV,
      "    dst = prog_root / SETUP_DIR / SETUP_NAME",
      "    dst = _self_exe().parent / SETUP_DIR / SETUP_NAME",
@@ -131,28 +104,21 @@ BREAKS = [
      "privileged.handle_argv(sys.argv[1:], data_root)",
      "лаунчер передаёт исполнителю свой корень"),
 
-    ("рычаг DENTART_UPDATE_VIA=exe снова отнимает обновление у оболочки", UPD,
-     "        if not _shell():\n            return False\n",
-     "        return False\n",
-     "рычаг DENTART_UPDATE_VIA=exe у оболочки не действует"),
+    # 22.10.2026: рычаг назад на подмену exe снят — строка в dental.env не
+    # должна отнимать у клиники единственный путь обновления
+    ("рычаг DENTART_UPDATE_VIA=exe снова отнимает путь установщика", UPD,
+     '    return bool(STATE["setup_url"]) and uninstall_entry()["found"]',
+     '    if os.environ.get("DENTART_UPDATE_VIA") == "exe":\n        return False\n'
+     '    return bool(STATE["setup_url"]) and uninstall_entry()["found"]',
+     "путь установщика"),
 
-    ("у оболочки переносимая папка молчит «обновляться нечем»", UPD,
-     "    if _shell() and newer_available() and not installer_mode():",
-     "    if False:",
-     "переносимая: отказ словами"),
-
-    ("у оболочки подмена exe снова идёт за UAC", UPD,
-     "    if _shell():\n        # ⛔ Т10: подмена увела бы движок",
-     "    if False:\n        # ⛔ Т10: подмена увела бы движок",
-     "подмена за UAC у оболочки отказывает"),
-
-    ("движок гасит себя сам при живой оболочке", UPD,
+    ("движок не просит оболочку закрыться", UPD,
      "    if sidecar.request_quit(reason):",
-     "    if sidecar.request_quit(reason) and False:",
-     "без os._exit"),
+     "    if True:",
+     "просьба оболочке"),
 
     ("сторож у оболочки ждёт движок, а не оболочку", UPD,
-     "    return os.getppid() if _shell() else os.getpid()",
+     "    return os.getppid()",
      "    return os.getpid()",
      "сторож ждёт выхода ОБОЛОЧКИ"),
 

@@ -73,10 +73,12 @@ def _raw_anchors(text: str) -> list[int]:
 # из исходников — то есть ни один прогон этого не заметит.
 _PRELOAD = ("app/paths.py", "app/dpapi.py", "app/envfile.py",
             "app/install_info.py", "app/legacy.py",
-            # заставка окна (05.10): лаунчер рисует её ДО сборки приложения
-            "app/brand.py", "app/splash.py",
-            # сторож перезапуска (11.10): тот же exe в режиме --watch, до сборки
-            "app/restartwatch.py")
+            # знак и шрифт заставки (05.10): их берёт сборка оболочки Tauri
+            # (`shell/assets.py`) без приложения, а знак — и сам движок до
+            # сборки приложения (цвет заставки в `hello`). (`restartwatch.py`
+            # ушёл из слоя 22.10.2026: Python-сторожа `--watch` больше нет, план
+            # сторожа строит приложение — `update._spawn_watch`.)
+            "app/brand.py", "app/splash.py")
 
 # Друг друга им знать можно — это один слой, живущий до сборки приложения
 # (dpapi правит токен в dental.env, то есть зовёт envfile). Нельзя всё

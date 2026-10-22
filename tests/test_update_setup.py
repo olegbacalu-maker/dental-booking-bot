@@ -7,8 +7,8 @@
 выход программы в прогоне настоящими быть не могут.
 
 ⭐ Главное, что держится: ни один отказ не показывает окно UAC ради заведомо
-негодного файла, и программа гасит себя ТОЛЬКО увидев «started» от исполнителя
-— иначе она закрылась бы, а вернуть её было бы некому.
+негодного файла, и программа просит оболочку закрыться ТОЛЬКО увидев «started»
+от исполнителя — иначе она закрылась бы, а вернуть её было бы некому.
 """
 import json
 import os
@@ -24,7 +24,7 @@ sys.path.insert(0, r"%s")
 for k in ("DENTART_UPDATE_VIA", "DENTART_FAKE_UPDATE_URL", "DENTART_UPDATE_TOKEN"):
     os.environ.pop(k, None)
 from app import update as upd
-from app import privileged
+from app import privileged, sidecar
 
 os.environ["DENTART_CHANNEL"] = ""              # клиника (stable): с 1.37.3 тоже установщиком
 tmp = pathlib.Path(os.environ["DP_TEST_DIR"])
@@ -34,11 +34,10 @@ work = upd.work_dir()
 result = work / privileged.RESULT_NAME
 watch, asked, exits = [], [], []
 upd.is_desktop = lambda: True
-upd.exe_dir_writable = lambda: False
 installed = {"found": True}
 upd.uninstall_entry = lambda: {"found": installed["found"], "version": "1.0.0", "stale": False, "hive": "HKLM"}
 upd._spawn_watch = lambda result, task, label, copy: (watch.append({"name": task, "result": str(result), "label": label, "copy": copy}), None)[1]
-upd._exit_soon = lambda: exits.append(1)
+sidecar.request_quit = lambda reason: (exits.append(reason), True)[1]
 uac = {"answer": "started", "shown": True}
 def fake_request(name):
     asked.append(name)
@@ -58,7 +57,7 @@ def zipped(entries):
 
 def attempt(name, entries, *, digest=None, size=None):
     url, sz, dg = zipped(entries)
-    upd.STATE.update(latest="v99.0.0", asset_url="", setup_url=url,
+    upd.STATE.update(latest="v99.0.0", setup_url=url,
                      setup_size=sz if size is None else size, setup_digest=dg if digest is None else digest)
     del watch[:], asked[:], exits[:]
     result.unlink(missing_ok=True)
@@ -76,12 +75,11 @@ def attempt(name, entries, *, digest=None, size=None):
 
 # --- когда путь установщика вообще выбирается ---
 upd.STATE.update(latest="v99.0.0", setup_url="https://x/DentPilot-Setup-99.0.0.zip")
-m = {"установлен установщиком, Program Files": upd.installer_mode()}
-os.environ["DENTART_UPDATE_VIA"] = "exe"; m["рычаг DENTART_UPDATE_VIA=exe"] = upd.installer_mode()
+m = {"установлен установщиком": upd.installer_mode()}
+# рычаг назад на подмену exe снят 22.10.2026: строка в dental.env ничего не значит
+os.environ["DENTART_UPDATE_VIA"] = "exe"; m["рычаг DENTART_UPDATE_VIA=exe — без значения"] = upd.installer_mode()
 os.environ.pop("DENTART_UPDATE_VIA")
-upd.exe_dir_writable = lambda: True; m["папка программы пишется (переносимая)"] = upd.installer_mode()
-upd.exe_dir_writable = lambda: False
-installed["found"] = False; m["в реестре не числится (копия exe)"] = upd.installer_mode()
+installed["found"] = False; m["в реестре не числится (копия папки)"] = upd.installer_mode()
 installed["found"] = True
 upd.STATE["setup_url"] = ""; m["у выпуска нет установщика"] = upd.installer_mode()
 upd.STATE["setup_url"] = "https://x/DentPilot-Setup-99.0.0.zip"
@@ -105,17 +103,6 @@ if signed is not None:
     attempt("uac_hidden", {want: good})
     uac.update(shown=True, answer="установщик не новее стоящей программы")
     attempt("refused", {want: good})
-
-# --- сторож узнаёт итог (11.10 — `restartwatch.decide`, прежде bat с живым cmd):
-# с переводом строки и без (канарейка 03.10: установщик пишет «ok» без перевода) ---
-from app import restartwatch as rw
-cases = {"ok": "ok", "ok+crlf": "ok\r\n", "fail": "fail", "cancelled": "cancelled",
-         "cancelled+crlf": "cancelled\r\n", "okay": "okay", "empty": "", "missing": None,
-         # «fail» с причиной второй строкой — так исполнители 1.37.3–2.0.1 говорили
-         # «не запустился после started»; сторож обязан узнавать и это
-         "fail+reason": "fail\r\nустановщик не запустился: [WinError 5]",
-         "started": "started"}
-out["match"] = {case: rw.decide(text) for case, text in cases.items()}
 
 out["signed"] = signed is not None
 out["result_path"] = str(result)
@@ -153,9 +140,9 @@ def suite_flow(res: Result) -> None:
     o = json.loads(p.stdout.strip().splitlines()[-1])
 
     m = o["mode"]
-    res.check("путь установщика: установлена установщиком в Program Files, установщик в выпуске — канал не важен",
-              m, {"установлен установщиком, Program Files": True, "рычаг DENTART_UPDATE_VIA=exe": False,
-                  "папка программы пишется (переносимая)": False, "в реестре не числится (копия exe)": False,
+    res.check("путь установщика: установлена установщиком, установщик в выпуске — канал не важен",
+              m, {"установлен установщиком": True, "рычаг DENTART_UPDATE_VIA=exe — без значения": True,
+                  "в реестре не числится (копия папки)": False,
                   "у выпуска нет установщика": False, "канарейка (beta) — тот же путь": True})
 
     for key, want, name in (("sha", "corupt", "sha256 архива не сошёлся"),
@@ -168,21 +155,14 @@ def suite_flow(res: Result) -> None:
                r["err"] and want in r["err"] and r["asked"] == [] and r["watch"] == [] and r["exits"] == 0
                and not r["zip_left"] and not r["new"], repr(r))
 
-    # ⭐ Сторож перезапуска (11.10 — `restartwatch.decide` вместо bat): «ok» без
-    # перевода строки — тоже «ok» (канарейка 03.10), чужое слово — ждать дальше.
-    res.check("сторож узнаёт итог — и без перевода строки (канарейка 03.10)",
-              o["match"], {"ok": "start", "ok+crlf": "start", "fail": "start", "cancelled": "done",
-                           "cancelled+crlf": "done", "okay": "wait", "empty": "wait",
-                           "missing": "wait", "fail+reason": "start", "started": "wait"})
-
     if not o["signed"]:
         res.ok("подписанного установщика на машине нет (dist\\, releases\\) — путь до «started» пропущен",
                True, "")
         return
     ok = o["ok"]
-    res.ok("подписанный установщик: окно UAC на install-setup, программа гасит себя по «started»",
+    res.ok("подписанный установщик: окно UAC на install-setup, по «started» — просьба оболочке закрыться",
            ok["err"] is None and ok["asked"] == ["install-setup"] and ok["exits"] == 1, repr(ok))
-    res.ok("задача-сторож заведена ДО окна UAC и ждёт итога в файле — копией exe, с номером версии на заставке",
+    res.ok("задача-сторож заведена ДО окна UAC и ждёт итога в файле — копией оболочки, с номером версии на заставке",
            len(ok["watch"]) == 1 and ok["watch"][0]["name"] == "DentPilotUpdate"
            and ok["watch"][0]["result"] == o["result_path"] and ok["watch"][0]["copy"] is True
            and ok["watch"][0]["label"].endswith("› 99.0.0"), repr(ok["watch"]))
@@ -216,23 +196,20 @@ out = {}
 work = upd.work_dir()
 result = work / privileged.RESULT_NAME
 
-out["before"] = {"shell": upd._shell(), "program_cmd_is_shell": upd._program_cmd() == [str(shell)]}
-# движок оболочки: связь есть, путь оболочки даёт лаунчер (sidecar.shell_exe)
-sidecar.linked = lambda: True
+# оболочку не знаем (движок из исходников) — запускать нечего
+out["no_shell_cmd"] = upd._program_cmd()
+# движок оболочки: путь оболочки даёт лаунчер (sidecar.shell_exe)
 sidecar.shell_exe = lambda: shell
-quits, exits, asked, watch = [], [], [], []
+quits, asked, watch = [], [], []
 answer = {"quit": True}
 sidecar.request_quit = lambda reason: (quits.append(reason), answer["quit"])[1]
-upd._exit_soon = lambda: exits.append(1)
 upd.is_desktop = lambda: True
 upd.uninstall_entry = lambda: {"found": True, "version": "1.0.0", "stale": False, "hive": "HKLM"}
-out["program_dir"] = str(upd._program_dir())
 out["program_cmd"] = upd._program_cmd()
 out["watch_pid_is_parent"] = upd._watch_pid() == os.getppid()
 
 def state(**kw):
-    base = dict(latest="v99.0.0", asset_url="", asset_size=0, asset_digest="",
-                setup_url="", setup_size=0, setup_digest="")
+    base = dict(latest="v99.0.0", setup_url="", setup_size=0, setup_digest="")
     base.update(kw)
     upd.STATE.update(base)
 
@@ -240,27 +217,16 @@ def modes():
     return {"installer": upd.installer_mode(), "can": upd.can_self_update(),
             "pending": upd.asset_pending()}
 
-upd.exe_dir_writable = lambda: False
 state(setup_url="https://x/DentPilot-Setup-99.0.0.zip")
 out["installed"] = modes()
-os.environ["DENTART_UPDATE_VIA"] = "exe"
-out["lever"] = modes()
-os.environ.pop("DENTART_UPDATE_VIA")
-# в выпуске только DentPilot.exe (как у прежних): оболочке им не обновиться
-state(asset_url="https://x/DentPilot.exe")
-out["exe_only"] = modes()
-# переносимая папка (флешка): пишется — установщиком не обновляется
-upd.exe_dir_writable = lambda: True
-junk = tmp / "DentPilot.exe.src"
-junk.write_bytes(b"MZ" + b"\0" * 6_000_000)
-state(asset_url=junk.as_uri(), setup_url="https://x/DentPilot-Setup-99.0.0.zip")
-out["portable"] = modes()
-out["portable_run"] = upd.self_update()
+# в выпуске нет установщика (заливается): обновляться нечем, ждём
+state()
+out["no_setup"] = modes()
+out["no_setup_run"] = upd.self_update()
 if upd._RUN_LOCK.locked():
     upd._RUN_LOCK.release()
-out["portable_left"] = sorted(p.name for p in work.iterdir())
-out["privileged_swap"] = upd._install_privileged(junk, shell)
-upd.exe_dir_writable = lambda: False
+out["no_setup_left"] = sorted(p.name for p in work.iterdir())
+out["state_keys"] = sorted(upd.STATE)
 
 # установщиком: сторож заведён, окно UAC, «started» — и ОБОЛОЧКУ просят закрыться
 upd._spawn_watch = lambda result, task, label, copy: (watch.append({"task": task, "copy": copy}), None)[1]
@@ -276,14 +242,13 @@ with zipfile.ZipFile(z, "w", zipfile.ZIP_STORED) as f:
 body = z.read_bytes()
 for key, q in (("setup", True), ("setup_no_shell_pipe", False)):
     answer["quit"] = q
-    del quits[:], exits[:], asked[:], watch[:]
+    del quits[:], asked[:], watch[:]
     state(setup_url=z.as_uri(), setup_size=len(body),
           setup_digest="sha256:" + hashlib.sha256(body).hexdigest())
     if upd._RUN_LOCK.locked():
         upd._RUN_LOCK.release()
     err = upd.self_update()
-    out[key] = {"err": err, "quits": list(quits), "exits": len(exits), "asked": list(asked),
-                "watch": list(watch)}
+    out[key] = {"err": err, "quits": list(quits), "asked": list(asked), "watch": list(watch)}
 print(json.dumps(out))
 ''' % str(BOT)
 
@@ -291,11 +256,10 @@ print(json.dumps(out))
 def suite_shell(res: Result) -> None:
     r"""Т10: у движка оболочки Tauri программа — ПАПКА (`DentPilot.exe` + `engine\`).
 
-    Обновляется только установщиком; подмена одного exe (рычаг
-    `DENTART_UPDATE_VIA=exe`, переносимая папка) отказывает словами ДО
-    скачивания; уходит движок не `os._exit`, а просьбой к оболочке (`quit`) —
-    она прячет окно и останавливает движок честно. Нет связи с оболочкой —
-    прежний выход через секунду."""
+    Обновляется только установщиком (подмена одного exe снята 22.10.2026);
+    уходит движок не `os._exit`, а просьбой к оболочке (`quit`) — она прячет
+    окно и останавливает движок честно. Труба к оболочке порвана — движок себя
+    не гасит: остановку принесёт закрытый stdin."""
     with tempfile.TemporaryDirectory(prefix="dp_updshell_") as td:
         data = pathlib.Path(td) / "data"
         data.mkdir()
@@ -306,30 +270,23 @@ def suite_shell(res: Result) -> None:
         res.failed.append(("update у оболочки: запуск", p.stderr[-900:]))
         return
     o = json.loads(p.stdout.strip().splitlines()[-1])
-    res.check("без оболочки — прежняя программа (свой exe)", o["before"],
-              {"shell": False, "program_cmd_is_shell": False})
-    res.ok("программа у движка — оболочка DentPilot.exe, её папка — корень",
-           o["program_cmd"] == [str(pathlib.Path(td) / "Program Files" / "DentPilot" / "DentPilot.exe")]
-           and o["program_dir"].endswith("DentPilot") and "engine" not in o["program_dir"],
-           repr((o["program_cmd"], o["program_dir"])))
+    res.check("оболочки не знаем — запускать нечего (не свой exe)", o["no_shell_cmd"], [])
+    res.check("программа у движка — оболочка DentPilot.exe",
+              o["program_cmd"], [str(pathlib.Path(td) / "Program Files" / "DentPilot" / "DentPilot.exe")])
     res.ok("сторож ждёт выхода ОБОЛОЧКИ (родителя движка)", o["watch_pid_is_parent"], "")
     res.check("установлена мастером — путь установщика", o["installed"],
               {"installer": True, "can": True, "pending": False})
-    res.check("рычаг DENTART_UPDATE_VIA=exe у оболочки не действует (назад некуда)", o["lever"],
-              {"installer": True, "can": True, "pending": False})
-    res.check("в выпуске только DentPilot.exe — обновляться нечем, ждём установщик", o["exe_only"],
+    res.check("в выпуске нет установщика — обновляться нечем, ждём его", o["no_setup"],
               {"installer": False, "can": False, "pending": True})
-    res.check("переносимая папка — ни кнопки, ни вечной перепроверки", o["portable"],
-              {"installer": False, "can": False, "pending": False})
-    res.ok("переносимая: отказ словами, ничего не скачано",
-           o["portable_run"] and "dosar întreg" in o["portable_run"] and o["portable_left"] == [],
-           repr((o["portable_run"], o["portable_left"])))
-    res.ok("подмена за UAC у оболочки отказывает до окна UAC",
-           o["privileged_swap"] and "dosar întreg" in o["privileged_swap"], repr(o["privileged_swap"]))
+    res.ok("без установщика: отказ словами, ничего не скачано",
+           o["no_setup_run"] and "обновляться нечем" in o["no_setup_run"] and o["no_setup_left"] == [],
+           repr((o["no_setup_run"], o["no_setup_left"])))
+    res.ok("в состоянии нет полей файла программы (asset_*)",
+           not [k for k in o["state_keys"] if k.startswith("asset_")], repr(o["state_keys"]))
     s = o["setup"]
     res.ok("установщиком: сторож (копия) до окна UAC, по «started» — просьба оболочке, без os._exit",
            s["err"] is None and s["asked"] == ["install-setup"] and s["quits"] == ["update"]
-           and s["exits"] == 0 and s["watch"] == [{"task": "DentPilotUpdate", "copy": True}], repr(s))
+           and s["watch"] == [{"task": "DentPilotUpdate", "copy": True}], repr(s))
     s = o["setup_no_shell_pipe"]
-    res.ok("труба к оболочке порвана — прежний выход через секунду",
-           s["err"] is None and s["quits"] == ["update"] and s["exits"] == 1, repr(s))
+    res.ok("труба к оболочке порвана — движок себя не гасит, обновление пошло",
+           s["err"] is None and s["quits"] == ["update"], repr(s))

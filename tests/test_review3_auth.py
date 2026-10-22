@@ -146,6 +146,7 @@ sys.path.insert(0, r"%s")
 os.environ.pop("DENTART_FAKE_UPDATE_URL", None)   # иначе _check уходит тест-веткой
 os.environ.pop("DENTART_NO_RESTART", None)        # иначе restart_app выйдет раньше
 from app import engine as eng
+from app import sidecar
 from app import update as upd
 
 out = {}
@@ -182,7 +183,9 @@ exe.write_bytes(b"x")
 real_exec, real_run, real_open = sys.executable, subprocess.run, urllib.request.urlopen
 exits = []
 upd.is_desktop = lambda: True
-upd._exit_soon = lambda: exits.append(1)
+# движок себя не гасит — просит оболочку закрыться; оболочка — учебный файл
+sidecar.request_quit = lambda reason: (exits.append(reason), True)[1]
+sidecar.shell_exe = lambda: exe
 
 class Failed:
     returncode, stdout, stderr = 1, b"", b"ERROR: Access is denied."
@@ -193,12 +196,11 @@ try:
     out["restart_err"] = upd.restart_app()
     out["restart_exits"] = len(exits)
 
-    upd.STATE.update(latest="v99.9.9", asset_url="https://example/DentPilot.exe",
-                     asset_size=0, asset_digest="")
-    urllib.request.urlopen = lambda *a, **kw: io.BytesIO(b"0" * 32)
-    upd._verify_download = lambda p: None
-    out["update_err"] = upd.self_update()
+    # обновление заводит того же сторожа (копией оболочки) ДО окна UAC
+    upd.STATE.update(latest="v99.9.9")
+    out["update_err"] = upd._arm_restart_watch(tmp / "install.result")
     out["update_exits"] = len(exits)
+    urllib.request.urlopen = lambda *a, **kw: io.BytesIO(b"0" * 32)
 
     # --- 3. обновляться некуда: версия в релизе не новее текущей ---
     got = []
@@ -243,7 +245,7 @@ try:
         upd._api = fake_api
         upd._newest_tag_atom = lambda: "v9.9.9"
         upd._beta = lambda: True           # канал канарейки
-        upd.STATE.update(latest="", asset_url="")
+        upd.STATE.update(latest="")
         upd._check()
         out["blind_latest"] = upd.STATE["latest"]
         out["blind_asked_tag"] = any(c.startswith("/releases/tags/") for c in calls)
@@ -271,27 +273,18 @@ try:
             calls.append(list(args))
             return _Zero()
         return real_run2(args, *a, **kw)
-    exits2 = []
-    real_exit2 = os._exit
-    tmp = pathlib.Path(tempfile.mkdtemp())
-    real_exe2 = sys.executable
+    del exits[:]
+    real_wait = upd._SPAWN_PROOF_WAIT
     try:
         _sp.run = fake_run
         upd.subprocess.run = fake_run
-        os._exit = lambda code=0: exits2.append(code)
-        upd.os._exit = os._exit
-        sys.executable = str(tmp / "DentPilot.exe")
-        upd._SPAWN_PROOF_WAIT = 1.0          # ждать десять секунд в тесте незачем
+        upd._SPAWN_PROOF_WAIT = 1.0          # ждать полминуты в тесте незачем
         out["spawn_err"] = upd.restart_app()
-        out["spawn_exits"] = len(exits2)
+        out["spawn_exits"] = len(exits)
         out["spawn_asked_run"] = any("/run" in c for c in calls)
-        out["spawn_left_files"] = sorted(x.name for x in tmp.iterdir())
     finally:
         _sp.run = upd.subprocess.run = real_run2
-        os._exit = upd.os._exit = real_exit2
-        sys.executable = real_exe2
-        upd._SPAWN_PROOF_WAIT = 10.0
-        shutil.rmtree(tmp, ignore_errors=True)
+        upd._SPAWN_PROOF_WAIT = real_wait
 
 finally:
     sys.executable, subprocess.run = real_exec, real_run
@@ -327,12 +320,12 @@ def suite_update(res: Result) -> None:
            isinstance(v["restart_err"], str) and v["restart_err"],
            f"restart_app() вернул {v['restart_err']!r} — экран пообещает "
            f"перезапуск, которого не будет")
-    res.check("и программа не гасится", v["restart_exits"], 0)
+    res.check("и оболочку закрыться не просят", v["restart_exits"], 0)
     res.ok("провал планировщика при обновлении — тоже ошибка",
            isinstance(v["update_err"], str) and v["update_err"],
-           f"self_update() вернул {v['update_err']!r} — программа закрылась бы "
+           f"сторож обновления вернул {v['update_err']!r} — программа закрылась бы "
            f"навсегда, а экран обещает, что она вернётся")
-    res.check("и обновление не гасит программу", v["update_exits"], 0)
+    res.check("и обновление не закрывает программу", v["update_exits"], 0)
 
     res.ok("та же версия не качается заново",
            isinstance(v["same_err"], str) and v["same_err"],
@@ -352,12 +345,12 @@ def suite_update(res: Result) -> None:
     res.check("и это не считается ошибкой связи", v["blind_err"], "")
 
     # ⛔ Сторож на «ноль не доказывает, что работа пошла». Ломается снятием
-    # ожидания метки в update._spawn_via_scheduler: программа снова гаснет.
-    res.ok("ноль от schtasks без запуска скрипта — это ОШИБКА",
+    # ожидания метки в update._schtasks_run: программа снова закрывается.
+    res.ok("ноль от schtasks без запуска сторожа — это ОШИБКА",
            isinstance(v["spawn_err"], str) and v["spawn_err"],
-           f"_spawn_via_scheduler вернул {v['spawn_err']!r}: планировщик принял "
+           f"restart_app вернул {v['spawn_err']!r}: планировщик принял "
            f"задачу и не запустил её, а программа считает это успехом")
-    res.check("и программа НЕ гасится", v["spawn_exits"], 0)
+    res.check("и оболочку закрыться НЕ просят", v["spawn_exits"], 0)
     res.ok("запуск задачи всё же запрашивался", v["spawn_asked_run"],
            "до schtasks /run дело не дошло — проверка мерит не тот путь")
 

@@ -5,11 +5,11 @@ dental.env клиника правит Блокнотом — это норма,
 ANSI с диакритикой, UTF-16, BOM, файл, придержанный антивирусом.
 
 ⚠️ Сам bot/desktop.py тестами НЕ импортируется: его тело — это запуск
-программы (webview, копирование clinic.json рядом с собой). Проверяемая логика
+движка (трубы оболочки, копирование clinic.json в папку данных). Проверяемая логика
 вынесена в импортируемые модули: envfile.py (разбор файла и порт) и
 app/core/autobackup.py (копия базы). Что лаунчер их действительно зовёт,
 проверяется ТЕКСТОМ desktop.py — тем же приёмом, каким test_dbcrypt смотрит в
-Build-Desktop.ps1.
+Build-Engine.ps1; живой движок — `suite_engine` (стенд `scripts/engine_check.py`).
 """
 import ast
 import codecs
@@ -134,7 +134,7 @@ def suite_envfile(res: Result) -> None:
         res.check("новый файл создаётся", envfile.read_all(f), {"A": "1"})
 
         # ⭐ Обрыв питания посреди записи не проверить убийством процесса —
-        # смотрим в сам приём, как test_dbcrypt смотрит в Build-Desktop.ps1:
+        # смотрим в сам приём, как test_dbcrypt смотрит в Build-Engine.ps1:
         # запись обязана идти во временный файл с fsync и вставать на место
         # атомарным os.replace (тот же приём, что в dbkey.store).
         src = (BOT / "app" / "envfile.py").read_text(encoding="utf-8")
@@ -294,16 +294,12 @@ def suite_port(res: Result) -> None:
     # пару «оболочка + движок» гоняет его стенд scripts/shell_check.py.
     BENCHES = {"scripts/shell_check.py": '"DENTART_DATA_DIR": str(self.data)',
                "scripts/check_slot_guard.py": '"DENTART_DATA_DIR": str(lab)',
-               "scripts/smoke_build.py": '"DENTART_DATA_DIR": str(lab)',
                # ⚠️ У этого стенда назначение и есть изолируемая папка: он
                # проверяет, что программа туда НЕ пошла. Поэтому имя другое.
                "scripts/check_relocate_live.py": '"DENTART_DATA_DIR": str(anchor)',
                # ⚠️ И у этого назначение — изолируемая папка: он проверяет, что
                # подтверждение в неё почти ничего не пишет.
                "scripts/check_split_live.py": '"DENTART_DATA_DIR": str(anchor)',
-               # лаунчер из исходников, с окном (08.10): данные, профиль окна и
-               # TEMP — в лаборатории, порт свой
-               "scripts/launcher_accept.py": '"DENTART_DATA_DIR": str(lab)',
                # движок Tauri под оболочкой-харнессом (18.10): и собранный тоже
                "scripts/engine_check.py": '"DENTART_DATA_DIR": str(lab)'}
     for rel, want in BENCHES.items():
@@ -325,10 +321,8 @@ def suite_port(res: Result) -> None:
     # с BENCHES: новый стенд без этой строки снова течёт молча.
     TEMP_IN_LAB = {"scripts/shell_check.py": '"TEMP": str(self.tmp)',
                    "scripts/check_slot_guard.py": '"TEMP": str(tmp)',
-                   "scripts/smoke_build.py": '"TEMP": str(tmp)',
                    "scripts/check_relocate_live.py": '"TEMP": str(tmp)',
                    "scripts/check_split_live.py": '"TEMP": str(tmp)',
-                   "scripts/launcher_accept.py": '"TEMP": str(tmp)',
                    "scripts/engine_check.py": '"TEMP": str(tmp)'}
     res.ok("у каждого стенда есть правило про TEMP", set(TEMP_IN_LAB) == set(BENCHES),
            f"списки разошлись: {sorted(set(TEMP_IN_LAB) ^ set(BENCHES))}")
@@ -369,45 +363,24 @@ def suite_port(res: Result) -> None:
            "стенд вне списка — изолируй ему DENTART_DATA_DIR или впиши "
            "в BENCHES с причиной: " + ", ".join(rogue))
 
-    # ⛔ Сборка обязана ЗАПУСКАТЬ то, что собрала. До 21.09 `Build-Desktop.ps1`
-    # кончалась строкой «OK: dist\DentPilot.exe (33.3 MB)», и означала она ровно
-    # одно: файл существует. Правка лаунчера, верная в исходниках, в бинарнике
-    # может не исполниться — между правилом и поведением стоят PyInstaller,
-    # планировщик и файловая система, и за один день там нашлись три дефекта
-    # подряд. ⚠️ Прогон этого не заменяет НИКОГДА: харнесс поднимает app.main
-    # напрямую и desktop.py не исполняет ни строкой (прайор карты).
-    # ⚠️ Сторож за сторожом: проверяем и то, что оба стенда на месте. Иначе
-    # переименование файла оставит правило искать несуществующее имя, оно
-    # найдёт ноль нарушителей и позеленеет навсегда — та самая полярность
-    # списка-включателя из прайора карты.
-    build = root / "Build-Desktop.ps1"
-    if res.ok("Build-Desktop.ps1 на месте", build.exists(),
-              "сборки нет — правило ниже проверяет несуществующий файл"):
-        txt = build.read_text(encoding="utf-8", errors="replace")
-        for rel in ("scripts/smoke_build.py", "scripts/check_relocate_live.py"):
-            name = rel.split("/")[1]
-            res.ok(f"стенд {rel} существует", (root / rel).exists(),
-                   "стенд переехал — строка ниже ищет несуществующее имя")
-            res.ok(f"сборка зовёт {rel}", name in txt,
-                   f"{name} выпал из Build-Desktop.ps1 — «сборка зелёная» "
-                   "снова означает только «файл существует»")
-        # ⛔ И код возврата обязан быть ПРОЧИТАН. Вызов без проверки хуже, чем
-        # отсутствие вызова: красный стенд напечатает жалобу в середину вывода,
-        # сборка объявит OK, и человек поверит второму.
-        # ⚠️ Окно — 400 символов ПОСЛЕ вызова, и это не придирка к форматированию.
-        # В файле уже несколько таких проверок (npm, sync_version, PyInstaller):
-        # поиск «где-нибудь в файле» зеленел бы на любой чужой, то есть не
-        # проверял бы ничего. ⛔ Поэтому окно не расширять, чтобы «не мешало»:
-        # расширенное до размера файла, оно делает правило зелёным навсегда.
-        # Мешает оно ровно тогда, когда между вызовом и проверкой вклинилось
-        # что-то, чего там быть не должно.
-        for rel in ("scripts/smoke_build.py", "scripts/check_relocate_live.py"):
-            name = rel.split("/")[1]
-            i = txt.find(name)
-            res.ok(f"и читает код возврата {rel}",
-                   i >= 0 and "$LASTEXITCODE -ne 0" in txt[i:i + 400],
-                   "вызов есть, а проверки нет — красный стенд не остановит "
-                   "сборку, и она объявит OK")
+    # ⛔ Сборка обязана ЗАПУСКАТЬ то, что собрала. До 21.09 сборка кончалась
+    # строкой «OK: dist\DentPilot.exe (33.3 MB)», и означала она ровно одно:
+    # файл существует. Правка лаунчера, верная в исходниках, в бинарнике может
+    # не исполниться — между правилом и поведением стоят PyInstaller и файловая
+    # система. ⚠️ Прогон этого не заменяет НИКОГДА: харнесс поднимает app.main
+    # напрямую и desktop.py не исполняет ни строкой (прайор карты). Сборку
+    # движка держит `suite_engine_text` (Build-Engine.ps1 → engine_check.py).
+    # ⚠️ Окно — 400 символов ПОСЛЕ вызова: в файле несколько проверок
+    # `$LASTEXITCODE`, и поиск «где-нибудь в файле» зеленел бы на любой чужой.
+    # ⛔ Поэтому окно не расширять, чтобы «не мешало».
+    # ⚠️ Стенды переезда и раздвоения (`check_relocate_live`, `check_split_live`)
+    # до 22.10 гоняла прежняя сборка окна (Build-Desktop.ps1, снята вместе с
+    # окном); на собранном движке их запускают руками.
+    root = BOT.parent
+    res.ok("сборки окна pywebview больше нет (Build-Desktop.ps1)",
+           not (root / "Build-Desktop.ps1").exists(),
+           "сборка одним файлом с окном вернулась — у неё нет оболочки, а движок без "
+           "оболочки не запускается")
 
     # То же для сборки выпуска (Т9, 18.10): Build-Installer.ps1 обязан запустить
     # СОБРАННУЮ пару — оболочку, поднимающую движок из engine\ (shell_check.py),
@@ -462,23 +435,20 @@ def suite_port(res: Result) -> None:
 
 # ---------- 3. автокопия базы при старте ----------
 
-def suite_window(res: Result) -> None:
-    """Окно программы (08.10): постоянный профиль WebView2, вход по режиму,
-    один экземпляр без второго окна. ⚠️ Поведение живёт только в desktop.py и
-    прогоном недостижимо — правила текстом; живое поведение доказывает стенд
-    `scripts/launcher_accept.py` (`.\\dev bench launcher`)."""
+def suite_profile(res: Result) -> None:
+    """Только движок (22.10.2026: окно pywebview, сторож `--watch`, браузерный
+    режим и флешка `portable.flag` сняты). Профиль WebView2 и вход по режиму
+    держит окно — оболочка; движку остаются путь профиля (рядом — профиль
+    заставки сторожа), политика входа для `ready` и замок «один экземпляр».
+    ⚠️ Поведение живёт только в desktop.py и прогоном недостижимо — правила
+    текстом; живой движок — `suite_engine`."""
     desk = (BOT / "desktop.py").read_text(encoding="utf-8")
-    # ⭐ Ищем САМ вызов с аргументами, а не имя параметра в комментарии.
-    res.ok("окно идёт с постоянным профилем (storage_path в webview.start)",
-           "storage_path=storage)" in desk and "private_mode=storage is None" in desk,
-           "webview.start без storage_path — профиль снова временный: мусор в TEMP "
-           "и PIN при каждом запуске")
     res.ok("профиль — своя папка учётки Windows, не папка клиники",
            '/ "DentPilot" / "webview"' in desk and 'LOCALAPPDATA' in desk,
            "профиль ушёл из %LOCALAPPDATA%: в ProgramData кука входа одного "
-           "человека досталась бы другому")
+           "человека досталась бы другому, и сторож писал бы заставку не туда")
     res.ok("профиль читается ДО слияния dental.env",
-           desk.index("PROFILE_DIR = profile_dir()") < desk.index("envfile.read_all(env_path)"),
+           0 < desk.index("PROFILE_DIR = profile_dir()") < desk.index("envfile.read_all(env_path)"),
            "строка DENTART_PROFILE_DIR в dental.env уводила бы профиль")
     # 12.10, канарейка 1.41.0: профиль заставки сторожа в папке данных ронял
     # выдачу прав установщиком. Путь даёт лаунчер, ПОСЛЕ слияния dental.env.
@@ -487,54 +457,50 @@ def suite_window(res: Result) -> None:
            watch in desk
            and desk.index(watch) > desk.index("envfile.read_all(env_path)"),
            "приложение вернётся к папке данных, или строка в dental.env перебьёт путь")
-    res.ok("общий ПК — вход не переживает перезапуск (clear_cookies по политике)",
+    res.ok("общий ПК — вход не переживает перезапуск (политика уходит оболочке в ready)",
            '"clear" if mode == "shared_pc" else "keep"' in desk
-           and "self._window.clear_cookies()" in desk,
-           "политика режима или снятие куки пропали — на общем ПК учётка "
-           "останется открытой следующему человеку")
-    res.ok("второй запуск: мьютекс + фокус первого окна",
-           "CreateMutexW(None, False" in desk and "SetForegroundWindow(hwnd)" in desk,
-           "второй экземпляр снова откроет окно или сервер")
-    # ⛔ Второго окна у ПРОГРАММЫ нет: один create_window — заставка в main();
-    # второй — окно сторожа перезапуска (`_watch_mode`, 11.10): другой процесс,
-    # живёт только пока ставится обновление
-    res.check("create_window ровно два — заставка программы и заставка сторожа",
-              desk.count("webview.create_window("), 2)
-    res.ok("окно сторожа — внутри _watch_mode, не в main()",
-           desk.index("def _watch_mode(") < desk.index("webview.create_window(")
-           < desk.index("def main(") < desk.rindex("webview.create_window("),
-           "второе окно уехало в main() — второй экземпляр снова откроет окно")
-    res.ok("окно первого экземпляра ищется ровно по заголовку (с портом)",
-           "buf.value == TITLE" in desk and 'f" · :{PORT}" if PORT != 8088' in desk,
-           "по префиксу «DentPilot» второй запуск фокусировал бы чужое окно "
-           "(установка клиники рядом со стендом)")
-    # 17.10, канарейка 1.45.0: сторож (onefile) запускал программу со СВОИМ
-    # `_MEIPASS2` в окружении — та жила в его распаковке, и выход сторожа
-    # убирал папку из-под неё («Not found _SHA1.pyd», хаб настроек 500).
-    launch_call = desk[desk.index("subprocess.Popen(plan.launch"):]
-    launch_call = launch_call[:launch_call.index(")\n")]
-    res.ok("сторож запускает программу БЕЗ своего _MEIPASS2 (env=_child_env())",
-           "env=_child_env()" in launch_call
-           and 'k != "_MEIPASS2"' in desk and 'k.startswith("_PYI_")' in desk,
-           "программа унаследует распаковку сторожа и потеряет её при его выходе")
-    sys.path.insert(0, str(BOT))
-    try:
-        import importlib
-        src = desk[desk.index("def _child_env()"):desk.index("def _watch_mode(")]
-        ns: dict = {"os": importlib.import_module("os")}
-        exec(src, ns)  # noqa: S102 — тело лаунчера прогоном не исполняется, функция — да
-        os_env = ns["os"].environ
-        os_env["_MEIPASS2"], os_env["_PYI_ARCHIVE_FILE"], os_env["DENTART_X"] = "a", "b", "c"
-        try:
-            env = ns["_child_env"]()
-        finally:
-            for k in ("_MEIPASS2", "_PYI_ARCHIVE_FILE", "DENTART_X"):
-                os_env.pop(k, None)
-        res.check("_child_env снимает только переменные загрузчика",
-                  ("_MEIPASS2" in env, "_PYI_ARCHIVE_FILE" in env, env.get("DENTART_X")),
-                  (False, False, "c"))
-    finally:
-        sys.path.remove(str(BOT))
+           and "session=_session_policy(mode)" in desk,
+           "политика режима пропала — на общем ПК учётка останется открытой "
+           "следующему человеку")
+    res.ok("второй экземпляр: мьютекс на порт",
+           'CreateMutexW(None, False, f"Local\\\\DentPilot-{PORT}")' in desk,
+           "второй движок на том же порту поднял бы второй сервер")
+    # ⛔ Ни окна, ни браузера, ни сторожа у движка: всё это — оболочка. Ищем
+    # ВЫЗОВЫ и импорты, а не слова: в комментариях история названа по имени.
+    for what, needle in (("окна pywebview", "import webview"),
+                         ("окна pywebview", "create_window("),
+                         ("системного браузера", "import webbrowser"),
+                         ("браузерного режима", 'os.environ.get("DENTART_BROWSER_MODE")'),
+                         ("сторожа --watch", "_watch_mode("),
+                         ("флешки portable.flag", '"portable.flag").exists()')):
+        res.ok(f"у движка нет {what}", needle not in desk, f"в desktop.py снова {needle!r}")
+    rs = (BOT.parent / "shell" / "src" / "paths.rs").read_text(encoding="utf-8")
+    res.ok("у оболочки нет флешки portable.flag (профиль окна — тот же, что у движка)",
+           'join("portable.flag")' not in rs and 'join("webview")' in rs,
+           "профиль окна оболочки и профиль заставки сторожа разошлись бы")
+    # ⛔ Без оболочки — отказ, и ДО вычисления корня: такой запуск не должен ни
+    # заводить папку клиники, ни трогать картотеку.
+    take = desk.find("SHELL = sidecar.take(BASE)")
+    refuse = desk.find("if SHELL is None:")
+    res.ok("движок без оболочки отказывает — после take и до вычисления корня",
+           0 < take < refuse < desk.find("ROOT = data_root()")
+           and "raise SystemExit(sidecar.EXIT_FATAL)" in desk[refuse:refuse + 400],
+           "двойной клик по engine\\DentPilot-Engine.exe поднял бы сервер без окна, "
+           "который нечем закрыть")
+    # ⛔ Процесс за UAC (`--privileged install-setup`, `auth-reset`) создаёт
+    # служба UAC, и окружения оболочки у него нет: отказ раньше исполнителя
+    # убил бы обновление и сброс PIN. Опыт 22.10: собранный движок
+    # `--privileged nope` без DENTART_SHELL — отказ исполнителя, код 2, окна нет.
+    res.ok("привилегированный запуск исполняется ДО отказа без оболочки",
+           0 < desk.find("privileged.handle_argv(") < refuse,
+           "операция за UAC упрётся в «движок не запускается сам» — обновление и "
+           "сброс PIN встанут")
+    i = desk.find("def main(")
+    main_body = desk[i:]
+    res.ok("main — только движок",
+           i > 0 and "_engine_main(SHELL, APP_VERSION)" in main_body
+           and "webview" not in main_body and "_claim_instance" not in main_body,
+           "в main снова ветка окна")
 
 
 # ---------- 4. движок оболочки Tauri (Т5, 18.10.2026) ----------
@@ -672,21 +638,21 @@ def suite_engine_text(res: Result) -> None:
     desk = (BOT / "desktop.py").read_text(encoding="utf-8")
     take = desk.find("SHELL = sidecar.take(BASE)")
     res.ok("трубы забираются у процесса", take > 0, "вызова take нет — протокола нет")
-    res.ok("и ПОСЛЕ привилегированного запуска и сторожа",
-           0 < desk.find("privileged.handle_argv(") < take
-           and 0 < desk.find("_watch_mode(sys.argv[1:])) is not None") < take,
-           "запуск за UAC или сторож заговорили бы протоколом без оболочки")
-    res.ok("и ДО первого вычисления корня и подмены stdout",
-           0 < take < desk.find("ROOT = data_root()") < desk.find("if sys.stdout is None:"),
+    res.ok("и ПОСЛЕ привилегированного запуска",
+           0 < desk.find("privileged.handle_argv(") < take,
+           "запуск за UAC заговорил бы протоколом без оболочки")
+    res.ok("и ДО первого вычисления корня и подмены stderr",
+           0 < take < desk.find("ROOT = data_root()") < desk.find("sidecar.stderr_to(_err_log)"),
            "строки до take ушли бы в трубу оболочки или потерялись")
     merge = desk.find("envfile.read_all(env_path)")
-    pops = [desk.find("os.environ.pop(sidecar.ENV, None)"),
+    sets = [desk.find("os.environ[sidecar.ENV] = sidecar.MODE"),
+            desk.find("os.environ[sidecar.TOKEN_ENV] = _SHELL_TOKEN"),
             desk.find("os.environ.pop(sidecar.TOKEN_ENV, None)")]
     res.ok("режим и токен оболочки ставятся/снимаются ПОСЛЕ слияния dental.env",
-           0 < merge < min(pops) and desk.find("os.environ[sidecar.TOKEN_ENV] = _SHELL_TOKEN") > merge,
-           "строка в dental.env включала бы /shell/notices известным токеном без оболочки")
+           0 < merge < min(sets),
+           "строка в dental.env включала бы /shell/notices токеном, которого оболочка не давала")
     res.ok("режим решается до слияния dental.env",
-           0 < desk.find("if sidecar.active():") < merge, "файл клиники снял бы окно")
+           0 < desk.find("if sidecar.active():") < merge, "файл клиники включал бы режим движка")
     i, j = desk.find("def _engine_main("), desk.find("def main(")
     body = desk[i:j] if 0 < i < j else ""
     res.ok("ветка движка нашлась", bool(body), "имена поменялись — правила ниже слепы")
@@ -703,12 +669,10 @@ def suite_engine_text(res: Result) -> None:
     res.ok("коды выхода — из sidecar (0/2/3)",
            (sidecar.EXIT_STOP, sidecar.EXIT_FATAL, sidecar.EXIT_BUSY) == (0, 2, 3)
            and "sidecar.EXIT_BUSY" in body and "sidecar.EXIT_FATAL" in body, "")
-    res.ok("main уводит в движок до окна", 0 < desk.find("_engine_main(SHELL, APP_VERSION)")
-           < desk.find("first = _claim_instance()", j), "")
     res.ok("корень собранного движка — папка над engine\\ (по имени exe)",
            "exe.name.lower() == sidecar.ENGINE_EXE.lower()" in desk
            and "return exe.parent.parent" in desk,
-           "install.json, portable.flag, demo.flag искались бы в engine\\")
+           "install.json и demo.flag искались бы в engine\\")
     main_src = (BOT / "app" / "main.py").read_text(encoding="utf-8")
     k = main_src.find('@app.on_event("shutdown")')
     stop_src = main_src[k:main_src.find("@app.get", k)] if k > 0 else ""

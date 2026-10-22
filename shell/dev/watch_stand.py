@@ -19,8 +19,9 @@
   прямо (с окружением стенда, чтобы новая оболочка тоже была стендом, а не
   программой учётки) и поднимает её только после выхода старой.
 - `engine` (с `--engine <dist\\DentPilot-Engine>`): настоящий собранный движок под
-  настоящей оболочкой, перезапуск маршрутом программы — `quit`, честная
-  остановка движка, сторож задачей планировщика, новая оболочка и движок.
+  настоящей оболочкой, перезапуск маршрутом программы. ⛔ С 22.10.2026 —
+  ОТКАЗ до запуска: без флешки `portable.flag` новую оболочку сторож поднял бы
+  на настоящем `C:\\ProgramData\\DentPilot` (разбор — в `scenario_engine`).
 ⛔ Процессы снимаются только по PID.
 """
 from __future__ import annotations
@@ -283,114 +284,30 @@ def scenario_restart(root: pathlib.Path, shell: pathlib.Path, rep: Report) -> No
         log.read_text(encoding="utf-8", errors="replace").splitlines() if log.exists() else ["(нет)"]))
 
 
-def _get(url: str, opener=None, timeout: float = 2.0):
-    import urllib.request
-    try:
-        with (opener or urllib.request.build_opener()).open(url, timeout=timeout) as r:
-            return r.status, r.read().decode("utf-8", "replace")
-    except Exception as e:  # noqa: BLE001
-        return 0, repr(e)
-
-
 def scenario_engine(root: pathlib.Path, shell: pathlib.Path, engine: pathlib.Path,
                     rep: Report, port: int = 8197) -> None:
-    """engine: НАСТОЯЩИЙ движок (сборка папкой) под настоящей оболочкой, переносимая
-    папка в песочнице. Перезапуск маршрутом программы (`/api/settings/lan` off —
-    `restart_app`): движок заводит сторожа задачей планировщика, просит оболочку
-    закрыться (`quit`), оболочка останавливает движок, сторож поднимает новую.
-    ⚠️ Оболочка, поднятая планировщиком, — НЕ стенд (окружения у задачи нет):
-    её `shell.json`/`shell.log` ложатся в %LOCALAPPDATA%\\DentPilot — стенд их
-    убирает, если их там не было."""
-    import secrets
-    import urllib.request
-    from http.cookiejar import CookieJar
+    """engine: НАСТОЯЩИЙ движок под настоящей оболочкой, перезапуск маршрутом
+    программы (`restart_app` → сторож задачей планировщика → новая оболочка).
 
-    inst = root / "inst-engine"
-    if inst.exists():
-        shutil.rmtree(inst)
-    (inst / "engine").parent.mkdir(parents=True, exist_ok=True)
-    prog = inst / "DentPilot.exe"
-    shutil.copy2(shell, prog)
-    shutil.copytree(engine, inst / "engine")
-    (inst / "portable.flag").write_text("", encoding="ascii")
-    key = secrets.token_hex(16)
-    (inst / "dental.env").write_text(f"DENTART_PORT={port}\nDENTART_UPDATE_CHECK=off\n"
-                                     f"ADMIN_KEY={key}\n", encoding="utf-8")
-    local = pathlib.Path(os.environ["LOCALAPPDATA"]) / "DentPilot"
-    had = {n: (local / n).exists() for n in ("shell.json", "shell.log", "shell.log.1")}
-    env = {k: v for k, v in os.environ.items()
-           if not k.startswith(("DENTART_", "DENTPILOT_", "DP_"))}
-    base = f"http://127.0.0.1:{port}"
-    print(f"\n== engine: {prog} + engine\\ (порт {port}, данные — в папке программы)")
-    first = subprocess.Popen([str(prog)], cwd=str(inst), env=env)
-    t0 = time.monotonic()
-    up = wait_until(lambda: _get(base + "/health")[0] == 200, 60, 0.3)
-    rep.ok("engine: оболочка подняла собранный движок", up is not None, "/health молчит")
-    if up is None:
-        kill(first.pid)
-        return
-    print(f"     /health через {up:.1f} с")
-    engines = pids_of(inst / "engine" / "DentPilot-Engine.exe")
-    jar = CookieJar()
-    op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-    op.open(urllib.request.Request(base + "/admin/login", method="POST",
-                                   data=f"password={key}&next=/admin".encode()), timeout=10)
-    req = urllib.request.Request(base + "/api/settings/lan", method="POST",
-                                 data=b'{"mode":"off"}',
-                                 headers={"Content-Type": "application/json", "Origin": base})
-    t_req = time.monotonic()
-    try:
-        body = op.open(req, timeout=20).read().decode("utf-8", "replace")
-    except Exception as e:  # noqa: BLE001 — оболочка могла уйти раньше ответа
-        body = repr(e)
-    print(f"     ответ маршрута: {body[:160]}")
-    # ⚠️ Сторож перезапуска — ТОТ ЖЕ файл DentPilot.exe и тоже с окном: заведён
-    # до ответа маршрута, поэтому всё, что живо сейчас, кроме первой, — он
-    watchers = set(pids_of(prog)) - {first.pid}
-    print(f"     сторож: {sorted(watchers)}")
-    rep.ok("engine: сторож заведён до ответа маршрута — это сама оболочка", bool(watchers), "")
-    gone = wait_until(lambda: not alive(first.pid), 20)
-    rep.ok("engine: оболочка закрылась по просьбе движка (quit)", gone is not None, "жива")
-    if gone is not None:
-        print(f"     оболочка вышла через {gone:.2f} с после запроса; код {first.wait(1)}")
-    rep.ok("engine: прежний движок остановлен", all(not alive(p) for p in engines), repr(engines))
-    log = (inst / "data" / "dentpilot.log").read_text(encoding="utf-8", errors="replace")
-    rep.ok("engine: движок остановился словом оболочки, а не os._exit",
-           "остановка по слову оболочки" in log, "в dentpilot.log нет строки остановки")
-    new: list = []
-
-    def fresh() -> bool:
-        new[:] = [p for p in pids_of(prog) if p != first.pid and p not in watchers and windows_of(p)]
-        return bool(new)
-
-    got = wait_until(fresh, 40, 0.3)
-    rep.ok("engine: сторож поднял новую оболочку с окном", got is not None, "новой нет")
-    back = wait_until(lambda: _get(base + "/health")[0] == 200, 60, 0.3)
-    rep.ok("engine: новая оболочка подняла движок — программа снова отвечает", back is not None, "")
-    if back is not None:
-        print(f"     программа снова на ногах через {time.monotonic() - t_req:.1f} с после запроса")
-        time.sleep(2)
-        print(f"     снимок: {shot(root, 'engine-after-restart')}")
-    work = inst / "updates"
-    wlog = work / "watch.log"
-    print("     watch.log:\n       " + "\n       ".join(
-        wlog.read_text(encoding="utf-8", errors="replace").splitlines() if wlog.exists() else ["(нет)"]))
-    q = subprocess.run(["schtasks", "/query", "/tn", "DentPilotRestart"], capture_output=True,
-                       creationflags=NO_WIN)
-    rep.ok("engine: задача перезапуска снята", q.returncode != 0, "осталась")
-    rep.ok("engine: сторож вышел сам", wait_until(lambda: not any(alive(p) for p in watchers), 10)
-           is not None, repr(watchers))
-    # уборка: новую оболочку — её же выходом из меню нечем, гасим по PID (движок — заданием)
-    for p in new:
-        kill(p)
-    rep.ok("engine: уборка — новая оболочка и движок погашены",
-           wait_until(lambda: not pids_of(prog) and _get(base + "/health")[0] == 0, 15) is not None,
-           repr(pids_of(prog)))
-    time.sleep(1)
-    for n, was in had.items():
-        if not was:
-            (local / n).unlink(missing_ok=True)
-    print(f"     всего {time.monotonic() - t0:.1f} с; %LOCALAPPDATA%\\DentPilot убран до прежнего")
+    ⛔ ОТКАЗ с 22.10.2026 — ДО любого запуска. Сценарий держал данные песочницы
+    флешкой `portable.flag` в папке программы; флешку сняли вместе с окном
+    pywebview. Первый запуск стенд ещё мог бы изолировать окружением
+    (`DENTART_DATA_DIR`), но новую оболочку поднимает СТОРОЖ из задачи
+    планировщика, а окружения у задачи нет: движок новой оболочки ушёл бы в
+    НАСТОЯЩИЙ `C:\\ProgramData\\DentPilot` (у Олега — живая картотека, порт 8088).
+    Обойти без крючка в продукте нечем: сценарий проверяет именно боевой путь
+    (`update._spawn_watch` строит план и команду сам), а обёртка вокруг
+    `DentPilot.exe` проверяла бы уже не его.
+    Чем закрыто вместо: `test_restart.suite_watch_shell` (план, команда, pid,
+    копия оболочки), `cargo test` › `watch::tests`, сценарии `update`,
+    `cancelled`, `restart` этого стенда (сторож вживую, без движка) и живой
+    перезапуск у Олега — «Acces din rețea» вкл/выкл на установленной версии.
+    Последний живой проход этого сценария — 18.10 (`tauri/update`, 39/39)."""
+    print("\n== engine: ОТКАЗ — без флешки portable.flag перезапуск сторожем увёл бы "
+          "движок в настоящий C:\\ProgramData\\DentPilot (окружения у задачи "
+          "планировщика нет). Ничего не запущено. Разбор — в докстринге сценария.")
+    rep.ok("engine: сценарий изолировать нечем — отказ до запуска", False,
+           "перезапуск 2.0.4 проверяется вживую на установленной программе")
 
 
 def main() -> int:

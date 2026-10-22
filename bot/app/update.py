@@ -3,18 +3,16 @@
   свежий выпуск канала и не упирается в лимит API GitHub. Молчит или ответил не
   то — прежние пути к GitHub ниже, без изменений.
 - Проверка при старте и каждые 6 часов (баннер в шапке + блок в настройках).
-- Установленная установщиком программа (Program Files) с 03.10 обновляется
-  ПОДПИСАННЫМ УСТАНОВЩИКОМ из того же выпуска (`_update_by_setup`, операция
-  `install-setup`), а не подменой одного exe: так переживёт переход на Tauri,
-  где программа станет папкой (updates.md › «Порядок с 03.10», шаг 2).
-- self_update(): скачивает exe-ассет релиза, подменяет себя через bat-скрипт
-  и перезапускается — «обновление в один клик» для desktop-издания.
-- ⭐ Движок оболочки Tauri (Т10, 18.10, `docs/dentpilot-2/updates.md` › «Оболочка
-  Tauri»): программа — папка (`DentPilot.exe` + `engine\\`), поэтому ТОЛЬКО
-  установщиком; подмена одного файла (рычаг `DENTART_UPDATE_VIA=exe`, флешка)
-  отказывает словами. Сторож — копия оболочки `--watch`, а не этот exe; закрыть
-  программу — `sidecar.request_quit`, а не `os._exit` (`_leave`).
-Для теста механики без релиза: env DENTART_FAKE_UPDATE_URL=<url exe>."""
+- Программа — папка (оболочка `DentPilot.exe` + движок `engine`), и с 03.10
+  её обновляет ПОДПИСАННЫЙ УСТАНОВЩИК из того же выпуска (`_update_by_setup`,
+  операция `install-setup` за UAC). Подмена одного exe (`.new.exe`/`.old.exe`,
+  bat, рычаг `DENTART_UPDATE_VIA=exe`, флешка `portable.flag`) снята
+  22.10.2026 вместе с окном pywebview: папку одним файлом не обновить.
+- Сторож перезапуска — копия оболочки `--watch` (`shell/src/watch.rs`);
+  закрыть программу — `sidecar.request_quit`: движок себя не гасит
+  (`docs/dentpilot-2/updates.md` › «Оболочка Tauri»).
+Для теста механики без релиза (только из исходников): env
+DENTART_FAKE_UPDATE_URL=<url архива установщика>."""
 from __future__ import annotations
 
 import hashlib
@@ -44,18 +42,7 @@ log = logging.getLogger("update")
 
 REPO = repo.REPO
 
-# Имена ассетов, которые ЯВЛЯЮТСЯ самой программой. Рядом в релизе может лежать
-# инсталлятор для новых клиник — его качать нельзя: bat подменил бы им работающую
-# программу. Прежний отбор «первый .exe в списке» для этого и опасен: порядок
-# assets в ответе GitHub ничем не гарантирован, а замеры на живых репозиториях
-# дают сортировку по имени — то есть "DentPilot-Setup-*.exe" встаёт РАНЬШЕ
-# "DentPilot.exe" ('-' = 0x2D < '.' = 0x2E) и выбрался бы именно инсталлятор.
-# Поэтому имя фиксированное и сравнивается точно.
-# (dentart.exe — историческое имя, релизы под ним могли выходить.)
-APP_ASSETS = ("dentpilot.exe", "dentart.exe")
-
-STATE = {"latest": "", "url": "", "asset_url": "", "asset_size": 0,
-         "asset_digest": "", "checked": False, "error": "",
+STATE = {"latest": "", "url": "", "checked": False, "error": "",
          "channel": "stable", "draft": False, "prerelease": False,
          # установщик выпуска (zip): им обновляется программа из Program Files
          "setup_url": "", "setup_size": 0, "setup_digest": ""}
@@ -130,29 +117,16 @@ def is_desktop() -> bool:
     return bool(getattr(sys, "frozen", False))
 
 
-def _shell() -> bool:
-    """Процесс — движок оболочки Tauri (Т10). ⛔ Спрашивать связь, а не
-    окружение (`sidecar.linked`, sidecar.md › «Для Т10»)."""
-    return sidecar.linked()
-
-
-# Подмена одного exe в режиме оболочки (Т10). Программа — папка, и рычаг
-# `DENTART_UPDATE_VIA=exe`, и флешка (`portable.flag`, папка пишется) упираются
-# в одно: подменить её одним файлом нельзя. Человеку — что делать вместо.
-SHELL_NO_SWAP = ("această instalare DentPilot nu se poate actualiza automat: programul "
-                 "este un dosar întreg, nu un singur fișier — instalați versiunea nouă "
-                 "cu programul de instalare de pe dentpilot.md")
-
-
 def work_dir() -> pathlib.Path:
-    """Куда обновление пишет СВОИ файлы: скачанный exe, скрипт, метку задачи.
+    """Куда обновление пишет СВОИ файлы: скачанный установщик, метку задачи,
+    копию оболочки для сторожа.
 
     ⛔ Больше НЕ «рядом с exe». С переездом в `Program Files` папка программы
     доступна только на чтение, и прежний путь отказывал на ПЕРВОМ же шаге — на
     скачивании, — то есть обновление у клиники не начиналось вовсе.
     ⚠️ Сюда пишет ОБЫЧНЫЙ процесс, и это осознанно: скачивать, проверять и
     готовить можно без прав администратора. Права нужны ровно на одно действие
-    — подменить файл программы, — и живёт оно в `privileged`.
+    — запустить проверенный установщик, — и живёт оно в `privileged`.
     ⭐ Папка та же, что у картотеки: её клиника уже носит с собой при переезде,
     и обрывок закачки в ней виден человеку, а не спрятан в чужом временном
     каталоге.
@@ -162,30 +136,6 @@ def work_dir() -> pathlib.Path:
     d.mkdir(parents=True, exist_ok=True)
     return d
 
-
-def _program_dir() -> pathlib.Path:
-    """Папка программы. У движка оболочки — папка `DentPilot.exe` (корень
-    считает лаунчер, `sidecar.shell_exe`), а не `engine\\`; иначе — своего exe."""
-    shell = sidecar.shell_exe() if _shell() else None
-    return shell.parent if shell is not None else pathlib.Path(sys.executable).resolve().parent
-
-
-def exe_dir_writable() -> bool:
-    """Можно ли подменить программу без прав администратора.
-
-    ⭐ Проба, а не догадка по пути: `portable.flag` рядом с exe — законная
-    раскладка, и показывать там окно UAC не за что. Решать по строке
-    «начинается ли путь с Program Files» значило бы угадывать: у клиники диск
-    может быть размечен как угодно, а у Windows есть перенаправление папок.
-    """
-    try:
-        d = _program_dir()
-        probe = d / f".dp-write-{os.getpid()}"
-        probe.write_bytes(b"")
-        probe.unlink()
-        return True
-    except OSError:
-        return False
 
 # Где лежит запись установщика — знает `privileged`: правит её только он.
 # ⛔ Здесь НЕТ ни одной записи в реестр, и это не стиль, а следствие P1:
@@ -246,44 +196,26 @@ def sync_uninstall_version() -> str:
 
 def installer_mode() -> bool:
     """Обновлять установщиком: программа стоит установщиком (запись в «Программах
-    и компонентах» есть), её папка не пишется (Program Files), у выпуска есть
-    установщик. Переносимая раскладка и копия exe остаются на подмене файла.
+    и компонентах» есть) и у выпуска есть установщик. Другого пути нет: программа
+    — папка, и одним файлом её не обновить; установка копированием папки (в
+    реестре не числится) получает ссылку на выпуск и ставит его руками.
     Канал не спрашивается: с 1.37.3 так обновляются и клиники (stable) — после
     двух живых проходов канарейки (1.37.0 → 1.37.1 → 1.37.2, updates.md › шаг 2).
-    ⚠️ Решает СТОЯЩАЯ версия, поэтому клиники приезжают на 1.37.3 ещё подменой
-    exe, а установщиком — начиная со следующего выпуска.
-    ⚠️ `DENTART_UPDATE_VIA=exe` в dental.env — аварийный рычаг назад на подмену
-    exe; читает его ОБЫЧНЫЙ процесс, привилегированная сторона окружения не видит.
-    ⛔ У движка оболочки (Т10) рычаг НЕ действует: назад идти некуда — подмена
-    одного файла папку не обновит, а строка, оставшаяся в dental.env с прежних
-    времён, молча отняла бы у клиники единственный путь обновления."""
-    if (os.environ.get("DENTART_UPDATE_VIA") or "").strip().lower() == "exe":
-        if not _shell():
-            return False
-        if not _VIA_IGNORED:                # зовётся на каждой странице — в лог один раз
-            _VIA_IGNORED.append(1)
-            log.warning("DENTART_UPDATE_VIA=exe не действует у оболочки Tauri — обновление установщиком")
-    return bool(STATE["setup_url"]) and not exe_dir_writable() and uninstall_entry()["found"]
-
-
-_VIA_IGNORED: list = []
+    ⚠️ Рычаг `DENTART_UPDATE_VIA=exe` (назад на подмену exe) снят 22.10.2026:
+    строка, оставшаяся в dental.env с прежних времён, ничего не значит."""
+    return bool(STATE["setup_url"]) and uninstall_entry()["found"]
 
 
 def can_self_update() -> bool:
-    if _shell():
-        # программа — папка: обновляет её только установщик (Т10)
-        return is_desktop() and newer_available() and installer_mode()
-    return is_desktop() and newer_available() and (bool(STATE["asset_url"]) or installer_mode())
+    return is_desktop() and newer_available() and installer_mode()
 
 
 def asset_pending() -> bool:
-    """Новая версия видна, но обновиться нечем: ни файла программы, ни установщика.
-    У оболочки «ещё не приложен» — только установщик: файл программы ей не нужен,
-    а переносимая папка без установщика ждать нечего не будет (её путь — ручной,
-    «link»), и пятиминутная перепроверка там выедала бы квоту GitHub вечно."""
-    if _shell():
-        return newer_available() and not STATE["setup_url"]
-    return newer_available() and not STATE["asset_url"] and not installer_mode()
+    """Новая версия видна, но установщик к выпуску ещё не приложен (заливается):
+    перепроверка через 5 минут, а не через 6 часов. Установка копированием
+    папки без записи в реестре сюда не попадает: её путь — ручной («link»), и
+    пятиминутная перепроверка там выедала бы квоту GitHub вечно."""
+    return newer_available() and not STATE["setup_url"]
 
 
 def _api(path: str) -> object:
@@ -335,22 +267,6 @@ def _releases_graphql() -> list[dict]:
     return out
 
 
-def _pick_asset(rel: dict) -> tuple[str, int, str]:
-    """URL/размер/хеш программы в релизе. У ЧЕРНОВИКА публичной ссылки нет —
-    качать можно только через API самого ассета, поэтому для него отдаём
-    api-url, а не browser_download_url (иначе скачается страница 404)."""
-    for a in rel.get("assets", []):
-        if str(a.get("name", "")).strip().lower() not in APP_ASSETS:
-            continue
-        # ассет ещё заливается (или залился с ошибкой) — он нам не годится
-        if str(a.get("state", "uploaded")) != "uploaded":
-            continue
-        url = (a.get("url", "") if rel.get("draft")
-               else a.get("browser_download_url", ""))
-        return url, int(a.get("size") or 0), str(a.get("digest") or "")
-    return "", 0, ""
-
-
 def _pick_setup(rel: dict) -> tuple[str, int, str]:
     """Установщик выпуска (zip): URL/размер/хеш. Только той же версии, что тег, и
     только залитый; у черновика установщиком не обновляемся — нет публичной ссылки."""
@@ -373,9 +289,8 @@ def _pick_setup(rel: dict) -> tuple[str, int, str]:
 # машине разработчика 08-06). Веб-адреса лимитом не связаны и отдают то же:
 # редирект /releases/latest называет тег (ровно то, что видит stable), атом-фид
 # перечисляет ВСЕ опубликованные релизы вместе с пре- (ровно то, что видит
-# beta), а HEAD на /releases/download/… говорит, приложен ли файл, и его размер.
-# Чего веб-путь НЕ знает: sha256 ассета (проверка суммы при обновлении честно
-# пропускается — остаются размер и минимальный порог) и флаг prerelease у тега.
+# beta). Чего веб-путь НЕ знает: sha256 установщика — без него установщиком
+# не обновляемся (показываем версию и ссылку) — и флаг prerelease у тега.
 
 def _tags_from_atom(xml: str) -> list[str]:
     """Теги релизов из releases.atom — по ссылкам /releases/tag/…"""
@@ -421,20 +336,7 @@ def _web_fallback(ch: str) -> dict | None:
         tag = _newest_tag_atom()
     if not tag:
         return None
-    asset_url, size = "", 0
-    # имена точные, как в APP_ASSETS, но с настоящим регистром файла в релизе
-    for name in ("DentPilot.exe", "DentArt.exe"):
-        u = (f"https://github.com/{REPO}/releases/download/"
-             f"{urllib.parse.quote(tag)}/{name}")
-        try:
-            with _http(u, method="HEAD") as r:
-                asset_url = u
-                size = int(r.headers.get("Content-Length") or 0)
-            break
-        except Exception:  # noqa: BLE001 — 404 = файла нет, пробуем следующее имя
-            continue
-    return {"tag": tag, "url": f"https://github.com/{REPO}/releases/tag/{tag}",
-            "asset_url": asset_url, "asset_size": size}
+    return {"tag": tag, "url": f"https://github.com/{REPO}/releases/tag/{tag}"}
 
 
 def _from_server(ch: str) -> dict | None:
@@ -455,16 +357,11 @@ def _from_server(ch: str) -> dict | None:
         return None
     if outcome == us.SAME:
         return {"tag": f"v{eng.APP_VERSION}", "url": f"https://github.com/{REPO}/releases",
-                "asset_url": "", "asset_size": 0, "asset_digest": "", "prerelease": False,
-                "setup_url": "", "setup_size": 0, "setup_digest": ""}
+                "prerelease": False, "setup_url": "", "setup_size": 0, "setup_digest": ""}
     if outcome != us.NEWER:
         return None
-    exe = rel["exe"] or {}
     setup = rel["setup"] or {}
-    return {"tag": rel["tag"], "url": rel["page"], "asset_url": exe.get("url", ""),
-            "asset_size": exe.get("size", 0),
-            "asset_digest": f"sha256:{exe['sha256']}" if exe else "",
-            "prerelease": rel["prerelease"],
+    return {"tag": rel["tag"], "url": rel["page"], "prerelease": rel["prerelease"],
             "setup_url": setup.get("url", ""), "setup_size": setup.get("size", 0),
             "setup_digest": f"sha256:{setup['sha256']}" if setup else ""}
 
@@ -498,8 +395,8 @@ def _check() -> None:
     # адрес, в том числе http. Подпись файла проверяется ниже по пути, но
     # дверь, которая ведёт к этой проверке, у клиники закрыта вовсе.
     if fake and not paths.is_frozen():
-        # тест-хук: размера и контрольной суммы нет — проверка их пропускает
-        STATE.update(latest="v9.9.9", asset_url=fake, asset_size=0, asset_digest="",
+        # тест-хук: размера и контрольной суммы нет — обновление ими откажет
+        STATE.update(latest="v9.9.9", setup_url=fake, setup_size=0, setup_digest="",
                      url=f"https://github.com/{REPO}/releases", checked=True, error="",
                      channel=channel(), draft=False, prerelease=False)
         return
@@ -508,9 +405,7 @@ def _check() -> None:
         # Сервер DentPilot — первым (03.10); черновики видит только GitHub с токеном
         srv = _from_server(ch) if ch in ("stable", "beta") else None
         if srv is not None:
-            STATE.update(latest=srv["tag"], url=srv["url"], asset_url=srv["asset_url"],
-                         asset_size=srv["asset_size"], asset_digest=srv["asset_digest"],
-                         checked=True, error="", channel=ch, draft=False,
+            STATE.update(latest=srv["tag"], url=srv["url"], checked=True, error="", channel=ch, draft=False,
                          prerelease=srv["prerelease"], setup_url=srv["setup_url"],
                          setup_size=srv["setup_size"], setup_digest=srv["setup_digest"])
             return
@@ -567,16 +462,14 @@ def _check() -> None:
             cand = [r for r in cand if r.get("tag_name")]
             if not cand:
                 raise RuntimeError("релизов нет")
-            # при равной версии предпочитаем запись С ФАЙЛОМ: один и тот же
-            # релиз приходит из двух источников, и у списка ассеты бывают
+            # при равной версии предпочитаем запись С УСТАНОВЩИКОМ: один и тот
+            # же релиз приходит из двух источников, и у списка ассеты бывают
             # свежее (или наоборот) — берём ту, которой можно обновиться
             data = max(cand, key=lambda r: (_ver(str(r.get("tag_name", ""))),
-                                            1 if _pick_asset(r)[0] else 0))
-        asset_url, asset_size, asset_digest = _pick_asset(data)
+                                            1 if _pick_setup(r)[0] else 0))
         setup_url, setup_size, setup_digest = _pick_setup(data)
         STATE.update(latest=data.get("tag_name", ""), url=data.get("html_url", ""),
-                     asset_url=asset_url, asset_size=asset_size,
-                     asset_digest=asset_digest, checked=True, error="",
+                     checked=True, error="",
                      channel=ch, draft=bool(data.get("draft")),
                      prerelease=bool(data.get("prerelease")), setup_url=setup_url,
                      setup_size=setup_size, setup_digest=setup_digest)
@@ -590,22 +483,19 @@ def _check() -> None:
             log.warning("web-фолбэк тоже недоступен: %s", _scrub(repr(e2)))
         if fb:
             # API отказал (обычно лимит 60/час на адрес), веб-путь ответил:
-            # сведения полны настолько, чтобы и показать версию, и обновиться —
-            # без sha256 (его знает только API), проверка суммы пропускается
+            # версия и ссылка на выпуск есть, sha256 установщика — нет
             log.warning("API GitHub недоступен (%s) — релиз найден веб-путём: %s",
                         err, fb["tag"])
             # ⚠️ Установщиком веб-путь не обновляет: sha256 он не знает, а
             # подпись проверила бы лишь сторона за UAC — уже после окна UAC
-            STATE.update(latest=fb["tag"], url=fb["url"],
-                         asset_url=fb["asset_url"], asset_size=fb["asset_size"],
-                         asset_digest="", checked=True, error="",
+            STATE.update(latest=fb["tag"], url=fb["url"], checked=True, error="",
                          channel=channel(), draft=False, prerelease=False,
                          setup_url="", setup_size=0, setup_digest="")
         else:
             STATE.update(checked=True, error=err, channel=channel())
     finally:
-        # Релиз опубликован, но exe ещё не приложен (или как раз заливается,
-        # 28 МБ) — перепроверяем через 5 минут, а не через 6 часов, иначе
+        # Релиз опубликован, но установщик ещё не приложен (или как раз
+        # заливается, 40 МБ) — перепроверяем через 5 минут, а не через 6 часов, иначе
         # клиника полдня видит «новая версия», которую нельзя поставить.
         _schedule(300 if asset_pending() else 6 * 3600)
 
@@ -650,68 +540,11 @@ _TASK_XML = """<?xml version="1.0" encoding="UTF-16"?>
   <Actions Context="Author"><Exec><Command>{cmd}</Command>{args}</Exec></Actions>
 </Task>"""
 
-# Сколько ждать доказательства, что скрипт ПОШЁЛ. Планировщик отвечает раньше,
-# чем запускает, поэтому пары секунд мало; десять — потолок, за который ждать
-# уже неприлично: человек смотрит на экран «сейчас перезапустимся».
-_SPAWN_PROOF_WAIT = 10.0
-
-
-def _spawn_via_scheduler(bat: pathlib.Path, task_name: str) -> str | None:
-    """Запускает bat сервисом планировщика — вне нашего Job-объекта.
-    None = скрипт ТОЧНО пошёл, str = не вышло.
-
-    ⚠️ С 11.10 так идёт только подмена exe в ПЕРЕНОСИМОЙ раскладке
-    (`dentpilot_update.bat`, папка программы пишется). Сторожа перезапуска
-    запускает `_spawn_watch` — сам exe в режиме `--watch`, с заставкой вместо
-    чёрного окна cmd. Доводы ниже общие для обоих.
-
-    ⛔ Код возврата обязателен. Вызывающие сразу после этого гасят процесс
-    (`_exit_soon`), и проглоченный отказ schtasks (политика домена, урезанные
-    права, отключённая служба) значил бы, что программа закрылась НАВСЕГДА, а
-    экран пообещал, что она сейчас вернётся. Отказ должен остаться отказом:
-    программа не гасится, а человек читает, что запустить её надо руками.
-
-    ⭐ И главное: НОЛЬ ОТ schtasks НЕ ДОКАЗЫВАЕТ, что скрипт исполняется. Он
-    означает «просьба принята». Поэтому скрипт первым делом создаёт файл-метку,
-    а мы ждём её появления — гасимся только увидев, что работа реально пошла.
-    ⚠️ Состояние задачи для этого не годится: `schtasks /query` печатает его
-    СЛОВАМИ на языке системы («Поставлена в очередь»), и разбор такого текста
-    отмер бы молча на любой другой локали (грабля карты про формулировку
-    движка). Файл на диске одинаков на всех языках.
-    """
-    no_win = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    proof = bat.with_name(bat.stem + ".run")
-    proof.unlink(missing_ok=True)
-    # метку ставит САМ скрипт, первой же строкой после «@echo off»: так «пошёл»
-    # значит именно «cmd дошёл до нашего кода», а не «процесс создан»
-    # ⚠️ Уборка метки дописывается к строке, которой скрипт удаляет САМ СЕБЯ, —
-    # у неё один вид в обоих скриптах и она стоит на всех путях выхода. Иначе
-    # в папке клиники навсегда оставался бы файл-огрызок.
-    # ⛔ Путь метки — АБСОЛЮТНЫЙ. Строка встаёт первой, ДО `cd /d "%~dp0"`, и
-    # относительное имя ушло бы в рабочий каталог задачи (у планировщика это
-    # system32), а не в папку программы. Метка тогда не находится никогда:
-    # скрипт честно работает, а программа сообщает, что он не пошёл, и остаётся
-    # висеть. Поймано пробой на живом планировщике 08-17.
-    # ⛔ Правка идёт ПОБАЙТНО, и это не педантизм. Скрипты пишутся `write_text`,
-    # а он переводит перевод строки: заданное `\r\n` ложится на диск как
-    # `\r\r\n`, обратное чтение отдаёт `\n\n` — и поиск `\r\n` не находит НИЧЕГО.
-    # Первая попытка так и промахнулась: метка дописывалась в самый конец, ПОСЛЕ
-    # строки, которой скрипт удаляет сам себя, и не появлялась никогда. Снаружи
-    # это выглядело как «планировщик не запустил задачу», хотя он запускал.
-    # Байты одинаковы при любом переводе строк (08-17, поймано пробой).
-    try:
-        raw = bat.read_bytes()
-        cut = raw.find(b"\n")
-        if cut < 0:
-            return "scriptul de repornire este gol"
-        mark = f'> "{proof}" echo .\r\n'.encode("ascii")
-        tail = raw[cut + 1:].replace(
-            b'del "%~f0"', f'del "{proof}" 2>nul\r\ndel "%~f0"'.encode("ascii"))
-        bat.write_bytes(raw[:cut + 1] + mark + tail)
-    except OSError as e:
-        return f"nu s-a putut pregăti scriptul ({e})"
-
-    return _schtasks_run(task_name, str(bat), [], proof, _SPAWN_PROOF_WAIT)
+# Сколько ждать доказательства, что сторож ПОШЁЛ (метку `proof` он пишет первым
+# делом). Планировщик отвечает раньше, чем запускает, а свежую копию оболочки
+# Windows при первом запуске ещё проверяет антивирусом; 30 с — потолок, за
+# который ждать уже неприлично: человек смотрит на экран «сейчас перезапустимся».
+_SPAWN_PROOF_WAIT = 30.0
 
 
 def _xml_text(s: str) -> str:
@@ -720,10 +553,17 @@ def _xml_text(s: str) -> str:
 
 def _schtasks_run(task_name: str, command: str, arguments: list[str], proof: pathlib.Path,
                   wait_s: float) -> str | None:
-    """Задача планировщика «прямо сейчас»: описание XML (батарея — см. `_TASK_XML`),
-    запасной `/create /tr`, `/run` и ожидание метки `proof`, которую первым делом
-    пишет САМ запущенный (bat — строкой, сторож — `restartwatch`). None = пошёл,
-    str = не вышло (задача снята, процесс гасить нельзя).
+    """Задача планировщика «прямо сейчас» — вне задания оболочки по построению:
+    описание XML (батарея — см. `_TASK_XML`), запасной `/create /tr`, `/run` и
+    ожидание метки `proof`, которую первым делом пишет САМ запущенный сторож
+    (`watch.rs`). None = пошёл, str = не вышло (задача снята, программу
+    закрывать нельзя — вернуть её будет некому, а экран скажет «закройте и
+    откройте сами»).
+    ⭐ НОЛЬ ОТ schtasks НЕ ДОКАЗЫВАЕТ, что запущенный исполняется: он означает
+    «просьба принята» (на батарее задача встаёт в очередь и не идёт, 08-17).
+    ⚠️ Состояние задачи для этого не годится: `schtasks /query` печатает его
+    СЛОВАМИ на языке системы, и разбор такого текста отмер бы молча на любой
+    другой локали. Файл на диске одинаков на всех языках.
     ⚠️ `/tr` запасного пути вмещает 261 знак: команда сторожа с восемью путями в
     него не влезает — на старой Windows без описаний XML сторож не заведётся, и
     отказ дойдёт до экрана словами, а программа останется открытой."""
@@ -783,94 +623,40 @@ def _schtasks_run(task_name: str, command: str, arguments: list[str], proof: pat
             "(programul rămâne deschis; reporniți-l manual)")
 
 
-def _exit_soon() -> None:
-    def _die() -> None:
-        time.sleep(1.2)
-        os._exit(0)
-
-    threading.Thread(target=_die, daemon=True).start()
-
-
 def _leave(reason: str) -> None:
     """Уйти, когда сторож уже заведён (а для обновления — установщик пошёл).
 
-    ⭐ С оболочкой Tauri (Т10) движок себя НЕ гасит: он просит оболочку
-    закрыться (`quit`, контракт § 2), та прячет окно и останавливает движок
-    словом `stop` — честно, с закрытой базой и сброшенным `-wal`. `os._exit`
-    оставил бы оболочку с экраном «s-a oprit neașteptat» поверх заставки
-    сторожа, а сторож ждал бы её выхода до потолка.
-    ⛔ Ответ «нет» (оболочки нет — окно pywebview, сервер; или труба порвана)
-    — прежний путь: погасить себя через секунду."""
+    ⭐ Движок себя НЕ гасит (Т10): он просит оболочку закрыться (`quit`,
+    контракт § 2), та прячет окно и останавливает движок словом `stop` —
+    честно, с закрытой базой и сброшенным `-wal`. `os._exit` оставил бы
+    оболочку с экраном «s-a oprit neașteptat» поверх заставки сторожа, а
+    сторож ждал бы её выхода до потолка.
+    ⚠️ Труба к оболочке порвана — оболочки уже нет: остановку движку принесёт
+    закрытый stdin (`sidecar.Link.listen`), гасить себя здесь незачем. Сторож
+    дождётся выхода и поднимет программу."""
     if sidecar.request_quit(reason):
         log.warning("оболочка попрошена закрыться (%s)", reason)
         return
-    _exit_soon()
+    log.warning("оболочка не ответила на «quit» (%s) — ждём закрытой трубы", reason)
 
 
 def restart_app() -> str | None:
-    """Перезапуск программы (без замены exe) — для применения токена и т.п."""
+    """Перезапуск программы — для настроек, которые читает лаунчер (токен бота,
+    сеть, шифрование). None = сторож заведён и оболочку попросили закрыться."""
     if not is_desktop():
         return "restart доступен только в desktop-версии"
     if os.environ.get("DENTART_NO_RESTART") == "1":  # тест-хук
         return None
     # ⭐ С 11.10 — сторож с заставкой (`_spawn_watch`), а не bat с чёрным окном
-    # cmd. Файла итога нет: сторож ждёт только выхода ЭТОГО процесса и запускает
-    # программу снова. Копия exe не нужна — файлы программы не меняются.
-    # У оболочки (Т10) сторож — сама `DentPilot.exe --watch`, ждёт выхода
-    # оболочки и поднимает её снова.
+    # cmd. Файла итога нет: сторож — сама `DentPilot.exe --watch` — ждёт только
+    # выхода оболочки и поднимает её снова. Копия не нужна — файлы программы
+    # не меняются.
     if err := _spawn_watch(None, "DentPilotRestart", eng.APP_VERSION, copy=False):
         # планировщик не отработал: гасить процесс нельзя — вернуть его будет
         # некому, а экран уже умеет сказать «закройте и откройте сами»
         return err
     _leave("restart")
     return None
-
-
-def _install_privileged(new_path: pathlib.Path, exe: pathlib.Path) -> str | None:
-    """Подмена файла программы за UAC (P4.2). None = пошло, str = человеку.
-
-    ⭐ Разделение труда здесь и есть смысл шага: скачивание, проверка и
-    перезапуск идут БЕЗ повышения, а прав просим ровно на одно действие —
-    переместить файл в папку, куда обычному процессу писать нельзя.
-
-    ⚠️ `request` отвечает «окно показано», а не «сделано»: итог UAC вызывающему
-    не виден. Поэтому исполнитель оставляет ФАЙЛ с итогом, а мы его ждём.
-    ⛔ Отказ человека в UAC — нормальный исход, а не сбой: программа остаётся
-    жива и продолжает приём, а экран честно говорит, что обновление не встало.
-    """
-    if _shell():
-        # ⛔ Т10: подмена увела бы движок `engine\` без его `_internal\` — до окна UAC
-        return SHELL_NO_SWAP
-    work = work_dir()
-    result = work / privileged.RESULT_NAME
-    result.unlink(missing_ok=True)
-    # Описание для перепроверки ЗА UAC: между проверкой здесь и подменой там
-    # файл могли подменить.
-    (work / privileged.REQUEST_NAME).write_text(
-        json.dumps({"size": new_path.stat().st_size,
-                    "sha256": _sha256(new_path),
-                    "version": STATE["latest"]}),
-        encoding="utf-8")
-    try:
-        shown = privileged.request("install-update")
-    except privileged.Refused as e:
-        return f"actualizarea nu a pornit: {e}"
-    if not shown:
-        return ("Windows nu a afișat cererea de drepturi de administrator — "
-                "actualizarea nu a fost instalată")
-    # ⚠️ Ждём ИТОГ, а не окно: человек может думать сколько угодно, а гасить
-    # программу до подмены нельзя — вернуть её будет некому.
-    deadline = time.time() + 300
-    while time.time() < deadline and not result.exists():
-        time.sleep(0.5)
-    if not result.exists():
-        return ("actualizarea nu a fost confirmată — programul continuă să "
-                "funcționeze cu versiunea curentă")
-    out = result.read_text(encoding="utf-8", errors="replace").strip()
-    if out != "ok":
-        return f"actualizarea nu a reușit: {out}"
-    # Файл подменён — теперь обычный перезапуск, обычным пользователем.
-    return restart_app()
 
 
 def _sha256(path: pathlib.Path) -> str:
@@ -881,43 +667,10 @@ def _sha256(path: pathlib.Path) -> str:
     return h.hexdigest()
 
 
-def _verify_download(path: pathlib.Path) -> str | None:
-    """Скачанный файл — точно тот, что описан в релизе? None = да, str = ошибка.
-
-    Прежней проверки «больше 5 МБ» не хватало: оборванная на середине закачка
-    (30 МБ по слабому каналу) не вызывает исключения в urllib — обрубок молча
-    проходил в `move` и затирал рабочую программу неработающим файлом.
-    """
-    got = path.stat().st_size
-    if got < 5_000_000:
-        return "fișier descărcat invalid (prea mic)"
-    want_size = STATE["asset_size"]
-    if want_size and got != want_size:
-        return f"descărcare incompletă ({got} din {want_size} baiți)"
-    want = STATE["asset_digest"].split(":")[-1].strip().lower()
-    if want:
-        h = hashlib.sha256()
-        with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(1 << 20), b""):
-                h.update(chunk)
-        if h.hexdigest() != want:
-            return "fișier descărcat corupt (sumă de control greșită)"
-    # ⭐ Подпись — ЗДЕСЬ тоже, а не только за UAC (17.10): окно прав ради
-    # заведомого отказа показывать незачем, и веб-путь без sha256 получает
-    # проверку, которой у него не было. Только у собранной программы: из
-    # исходников скачанный файл — учебный, подписи у него нет по построению.
-    if is_desktop():
-        from . import authenticode
-        if authenticode.signer_thumbprint(path) not in privileged.SIGNERS:
-            return "fișierul descărcat nu este semnat de DentPilot — actualizarea nu a fost pornită"
-    return None
-
-
 # ---------- обновление установщиком (03.10) ----------
 
 _WATCH_TASK = "DentPilotUpdate"
-_WATCH_EXE = "DentPilot-watch.exe"   # копия программы в папке клиники — сторож с заставкой
-_SPAWN_PROOF_WAIT_EXE = 30.0         # копия распаковывается (onefile) дольше, чем стартует cmd
+_WATCH_EXE = "DentPilot-watch.exe"   # копия оболочки в папке клиники — сторож с заставкой
 _ZIP_MAX = 300_000_000
 
 
@@ -937,34 +690,24 @@ def _verify_file(path: pathlib.Path, want_size: int, digest: str) -> str | None:
 
 
 def _program_cmd() -> list[str]:
-    """Команда запуска программы: сам exe; из исходников — лаунчер интерпретатором
-    (стенд `launcher_accept`, прогон). У движка оболочки (Т10) программа — это
-    ОБОЛОЧКА `DentPilot.exe` (контракт § 1: «другого exe ярлык и сторож не
-    знают»): движок без неё — сервер без окна."""
-    shell = sidecar.shell_exe() if _shell() else None
-    if shell is not None:
-        return [str(shell)]
-    exe = str(pathlib.Path(sys.executable).resolve())
-    if paths.is_frozen():
-        return [exe]
-    return [exe, str(paths.resource().parent / "desktop.py")]
+    """Команда запуска программы — ОБОЛОЧКА `DentPilot.exe` (контракт § 1:
+    «другого exe ярлык и сторож не знают»): движок без неё — сервер без окна.
+    Путь называет лаунчер (`sidecar.shell_exe`); пусто — оболочки не знаем
+    (движок из исходников: `cargo run` ярлыка не имеет)."""
+    shell = sidecar.shell_exe()
+    return [str(shell)] if shell is not None else []
 
 
 def _watch_command(copy: bool) -> list[str] | str:
-    """Чем запускать сторожа. С установщиком — КОПИЯ exe в папке клиники:
-    установщик закрывает всё, что держит заменяемые файлы (`/CLOSEAPPLICATIONS`),
-    а запущенный exe держит собственный образ — сторож из `Program Files`
-    погиб бы вместе с программой (разбор в `restartwatch`). Без установки —
-    сам exe. Из исходников — интерпретатор + лаунчер. str = копия не записалась.
-    ⭐ У движка оболочки (Т10) сторож — копия ОБОЛОЧКИ (`_program_cmd`): она
-    одна, 3–4 МБ, страницы заставки вшиты, а режим `--watch` у неё свой
-    (`shell/src/watch.rs`). ⛔ Копировать сам движок нельзя: собранный папкой,
-    он без `_internal\\` рядом не запустится."""
+    """Чем запускать сторожа: оболочкой в режиме `--watch` (`shell/src/watch.rs`;
+    она одна, 3–4 МБ, страницы заставки вшиты). С установщиком — её КОПИЕЙ в
+    папке клиники: установщик закрывает всё, что держит заменяемые файлы
+    (`/CLOSEAPPLICATIONS`), а запущенный exe держит собственный образ — сторож
+    из `Program Files` погиб бы вместе с программой (разбор в `restartwatch`).
+    Из исходников копии нет. str = копия не записалась."""
     cmd = _program_cmd()
     if not copy or not paths.is_frozen():
         return cmd
-    if pathlib.Path(cmd[0]).name.lower() == sidecar.ENGINE_EXE.lower():
-        return "motorul DentPilot nu poate porni singur supravegherea actualizării"
     dst = work_dir() / _WATCH_EXE
     try:
         shutil.copy2(cmd[0], dst)
@@ -974,12 +717,11 @@ def _watch_command(copy: bool) -> list[str] | str:
 
 
 def _watch_pid() -> int:
-    """Чей выход сторож ждёт перед запуском программы. Обычно — этого процесса.
-    ⭐ У движка оболочки (Т10) — ОБОЛОЧКИ, родителя движка: она гасит движок
-    сама и выходит последней, а новая оболочка при живой старой отдала бы
-    запуск ей (один экземпляр) и закрылась. Сторож вдобавок ждёт любой
-    `DentPilot.exe` той же папки в своём сеансе (`watch.rs`)."""
-    return os.getppid() if _shell() else os.getpid()
+    """Чей выход сторож ждёт перед запуском программы — ОБОЛОЧКИ, родителя
+    движка: она гасит движок сама и выходит последней, а новая оболочка при
+    живой старой отдала бы запуск ей (один экземпляр) и закрылась. Сторож
+    вдобавок ждёт любой `DentPilot.exe` той же папки в своём сеансе (`watch.rs`)."""
+    return os.getppid()
 
 
 def _primary() -> str:
@@ -1007,7 +749,7 @@ def watch_profile() -> pathlib.Path:
 
 def _spawn_watch(result: pathlib.Path | None, task: str, label: str, copy: bool) -> str | None:
     """Сторож перезапуска задачей планировщика ОТ ОБЫЧНОГО ПОЛЬЗОВАТЕЛЯ (11.10):
-    сам exe в режиме `--watch` с заставкой (`desktop._watch_mode`) вместо bat
+    оболочка в режиме `--watch` с заставкой (`shell/src/watch.rs`) вместо bat
     с чёрным окном cmd. `result` — файл итога установщика (None — простой
     перезапуск), `label` — слово на заставке. None = пошёл, str = не вышло.
     ⭐ Заводится ДО запроса прав — те же причины, что и у прежнего bat: тихий
@@ -1016,7 +758,7 @@ def _spawn_watch(result: pathlib.Path | None, task: str, label: str, copy: bool)
     ⛔ Оболочку из исходников (`cargo run`) сторож поднять не может — её
     окружения разработки у задачи планировщика нет; собранному движку
     оболочку называет лаунчер (`sidecar.shell_exe`)."""
-    if _shell() and sidecar.shell_exe() is None:
+    if sidecar.shell_exe() is None:
         return ("fereastra DentPilot (DentPilot.exe) nu a fost găsită — "
                 "închideți programul și porniți-l din nou")
     cmd = _watch_command(copy)
@@ -1036,7 +778,7 @@ def _spawn_watch(result: pathlib.Path | None, task: str, label: str, copy: bool)
                              label=label, primary=_primary(), profile=profile,
                              launch=_program_cmd())
     return _schtasks_run(task, cmd[0], [*cmd[1:], *restartwatch.argv_for(plan)], proof,
-                         _SPAWN_PROOF_WAIT_EXE if paths.is_frozen() else _SPAWN_PROOF_WAIT)
+                         _SPAWN_PROOF_WAIT)
 
 
 def _arm_restart_watch(result: pathlib.Path) -> str | None:
@@ -1130,8 +872,7 @@ def _update_by_setup() -> str | None:
         if out == privileged.STARTED:
             log.warning("обновление установщиком пошло: %s", STATE["latest"])
             # мастер УЖЕ запущен вне задания оболочки и сам ждёт выхода обоих
-            # exe (Т9, до 30 с): оболочка закроется и остановит движок словом,
-            # без оболочки — выход через секунду
+            # exe (Т9, до 30 с): оболочка закроется и остановит движок словом
             _leave("update")
             return None
         if out:
@@ -1154,7 +895,8 @@ BUSY = "actualizarea este deja în curs"
 
 
 def self_update() -> str | None:
-    """Скачивает новый exe и перезапускает программу. None = пошло, str = ошибка.
+    """Ставит новую версию установщиком выпуска (`_update_by_setup`). None =
+    пошло (программа закроется сама), str = ошибка, программа жива.
     Второй вызов, пока первый идёт, — BUSY без единого действия."""
     if not _RUN_LOCK.acquire(blocking=False):
         return BUSY
@@ -1178,94 +920,6 @@ def _self_update() -> str | None:
     # ставила бы ту же версию — то есть закрывала журнал всей клинике посреди
     # приёма ради ничего (а на машине, обогнавшей канал, ещё и откатывала бы
     # программу назад поверх уже мигрированной базы).
-    if _shell() and newer_available() and not installer_mode():
-        # ⛔ Т10: всё, кроме установщика, ниже — подмена одного exe, а у оболочки
-        # программа — папка (флешка, установка копированием). Слово — до гейта:
-        # «обновляться нечем» соврало бы, файл-то в выпуске есть
-        return SHELL_NO_SWAP
     if not can_self_update():
-        return "обновляться нечем: в релизе нет файла программы новее текущего"
-    if installer_mode():
-        return _update_by_setup()
-    exe = pathlib.Path(sys.executable).resolve()
-    # имя производное от текущего exe: у старых установок он DentArt.exe,
-    # у новых DentPilot.exe — bat в обоих случаях кладёт новый файл на место
-    # ⛔ Скачиваем в папку КЛИНИКИ, а не рядом с exe. В `Program Files` первая
-    # же запись — «Отказано в доступе», то есть обновление не начиналось вовсе.
-    # ⭐ И это не только про права: проверять скачанное можно (и нужно) без
-    # повышения, а права запрашивать ровно на одно действие — подмену файла.
-    new_path = work_dir() / (exe.stem + ".new.exe")
-    try:
-        headers = {"User-Agent": "dentpilot-desktop"}
-        tok = _token()
-        if tok and STATE["asset_url"].startswith("https://api.github.com/"):
-            # ассет черновика отдаётся только по API и только как поток байт
-            headers["Accept"] = "application/octet-stream"
-            headers["Authorization"] = f"Bearer {tok}"
-        req = urllib.request.Request(STATE["asset_url"], headers=headers)
-        with urllib.request.urlopen(req, timeout=120) as r, open(new_path, "wb") as f:
-            shutil.copyfileobj(r, f)
-    except Exception as e:  # noqa: BLE001
-        return f"descărcarea a eșuat: {e}"
-    if err := _verify_download(new_path):
-        new_path.unlink(missing_ok=True)
-        return err
-    old_path = exe.with_name(exe.stem + ".old.exe")
-    # ⛔ P4.2. Папка программы недоступна на запись (`Program Files`) — подмену
-    # делает не скрипт, а привилегированная операция. Скрипт ниже остаётся
-    # только для переносимой раскладки (`portable.flag`), где показывать окно
-    # UAC не за что.
-    if not exe_dir_writable():
-        return _install_privileged(new_path, exe)
-    bat = work_dir() / "dentpilot_update.bat"
-    # ping вместо timeout (timeout требует консоль), CREATE_NO_WINDOW даёт cmd
-    # скрытую консоль — start/ping работают, окна не мелькают.
-    #
-    # Порядок «сначала увести рабочий exe в .old, только потом класть новый»
-    # обязателен: при прежнем прямом `move new -> exe` любой сбой ПОСЛЕ него
-    # (антивирус съел новый файл) не оставлял на диске ни одной копии программы,
-    # и все ярлыки вели в никуда. Теперь любая неудача возвращает старый exe и
-    # запускает его: неудачное обновление должно быть отличимо от удаления.
-    # Число попыток ограничено (~60 с): без предела bat крутился вечно и
-    # программа просто не запускалась, пока клиника не перезагрузит компьютер.
-    # ⚠️ Пути АБСОЛЮТНЫЕ: скрипт лежит теперь в папке клиники, а работает с
-    # файлами в папке программы, и `%~dp0` указывает уже не туда. ⭐ `move`
-    # переносит и между томами (копия + удаление) — папка клиники и программа
-    # вполне могут оказаться на разных дисках.
-    bat.write_text(
-        "@echo off\r\n"
-        "set n=0\r\n"
-        ":try\r\n"
-        "ping -n 2 127.0.0.1 >nul\r\n"
-        "set /a n+=1\r\n"
-        f'move /y "{exe}" "{old_path}" >nul 2>&1\r\n'
-        f'if not exist "{exe}" goto swap\r\n'
-        "if %n% lss 30 goto try\r\n"
-        "goto fail\r\n"
-        ":swap\r\n"
-        f'move /y "{new_path}" "{exe}" >nul 2>&1\r\n'
-        f'if not exist "{exe}" goto restore\r\n'
-        # ⛔ Старую версию тут НЕ удаляем (08-10). Существование нового файла
-        # ничего не доказывает: он может быть битым, съеденным антивирусом или
-        # несовместимым, и тогда `del` оставлял клинику вообще без рабочей
-        # программы. `.old.exe` убирает ЛАУНЧЕР — но только после того, как
-        # новая сборка поднялась и /health ответил ею. Не поднялась — файл
-        # лежит рядом, и его достаточно переименовать обратно.
-        f'start "" /D "{exe.parent}" "{exe}"\r\n'
-        "goto done\r\n"
-        ":restore\r\n"
-        f'move /y "{old_path}" "{exe}" >nul 2>&1\r\n'
-        ":fail\r\n"
-        f'if exist "{exe}" start "" /D "{exe.parent}" "{exe}"\r\n'
-        ":done\r\n"
-        "schtasks /delete /tn DentPilotUpdate /f >nul 2>&1\r\n"
-        'del "%~f0"\r\n',
-        encoding="ascii",
-    )
-    if err := _spawn_via_scheduler(bat, "DentPilotUpdate"):
-        # exe скачан и bat написан, но запустить их некому: программа обязана
-        # остаться живой. Новый файл не трогаем — следующая попытка перезапишет
-        # его, а рабочая программа на месте и продолжает приём.
-        return err
-    _exit_soon()
-    return None
+        return "обновляться нечем: у выпуска нет установщика новее текущей версии"
+    return _update_by_setup()

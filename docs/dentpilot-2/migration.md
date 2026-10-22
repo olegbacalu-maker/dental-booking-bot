@@ -49,7 +49,7 @@
 - **Сторожа:** `test_api.py` (69 проверок на данных), два правила в
   `test_structure` (маршруты `/api/` только через `api_guard`; `icons.ts`
   свежий) с мутациями; `smoke_exe` проверяет бандл; `Build-Desktop.ps1`
-  зовёт `npm run build` до PyInstaller; в CI отдельная работа клиента.
+  (с 22.10.2026 — `Build-Engine.ps1`) зовёт `npm run build` до PyInstaller; в CI отдельная работа клиента.
 
 ⚠️ Первый прогон CI на GitHub (до этих правок) упал дважды одинаково: наборы,
 которые читают `dental.db` stdlib-ом сразу после `with Server(dir_=…)`, дали

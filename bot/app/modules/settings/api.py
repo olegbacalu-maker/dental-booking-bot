@@ -255,7 +255,7 @@ async def api_autostart(request: Request):
     """Галочка «Pornește odată cu Windows» (Tauri, контракт § 2): значение Run
     в HKCU учётки, под которой работает движок. Ответ — СВЕЖАЯ модель экрана:
     галочка показывает то, что записано в реестре, а не то, что нажали.
-    Строки нет (окно pywebview, браузер, исходники) — маршрута тоже нет."""
+    Строки нет (сервер, исходники) — маршрута тоже нет."""
     if (deny := api_require(request, PERM_SETTINGS)) is not None:
         return deny
     if autostart.state() is None:

@@ -40,7 +40,7 @@ if (!host) {
   // (`hydrateFallbackElement`, B2.2).
   const router = createBrowserRouter(appRoutes(), { hydrationData: appHydration(node) })
   // Окно оболочки Tauri (Т7): меню, клавиши и «Despre» — только при
-  // `window.dpShell`; в браузере и в окне pywebview эта строка ничего не делает.
+  // `window.dpShell`; в браузере (второй ПК, телефон) эта строка ничего не делает.
   installShellBridge(router, node.shell)
   createRoot(host).render(
     <StrictMode>

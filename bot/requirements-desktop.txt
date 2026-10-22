@@ -5,7 +5,6 @@ aiogram==3.30.0
 tzdata==2026.3
 python-multipart==0.0.20
 qrcode[pil]==8.2
-pywebview>=5.3,<6
 pyzipper==0.4.0
 # Шифрование картотеки (1.19.4). Второе и последнее исключение из «ничего
 # лишнего в .venv-desktop» после pyzipper: модуль нативный, +2.3 МБ в exe.

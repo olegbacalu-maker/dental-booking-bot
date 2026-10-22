@@ -390,147 +390,6 @@ def suite_route_quiet(res: Result) -> None:
     finally:
         _rmtree_settled(work)
 
-def _lab(tmp: pathlib.Path, *, size: int = 5_200_000, head: bytes = b"MZ",
-         request: dict | None = None) -> tuple:
-    """Лаборатория обновления: папка программы, папка клиники, файл и описание."""
-    import hashlib
-    import json
-
-    prog = tmp / "Program Files" / "DentPilot"
-    prog.mkdir(parents=True)
-    exe = prog / "DentPilot.exe"
-    exe.write_bytes(b"STARAYA PROGRAMMA")
-    work = tmp / "data" / privileged.WORK_SUBDIR
-    work.mkdir(parents=True)
-    new = work / ("DentPilot" + privileged.NEW_SUFFIX)
-    body = head + b"\0" * max(0, size - len(head))
-    new.write_bytes(body)
-    if request is None:
-        request = {"size": len(body), "sha256": hashlib.sha256(body).hexdigest()}
-    (work / privileged.REQUEST_NAME).write_text(json.dumps(request),
-                                                encoding="utf-8")
-    return exe, work, new
-
-
-def suite_install(res: Result) -> None:
-    """P4.2: подмена программы за UAC — только перемещение, и по проверке."""
-    import tempfile
-
-    from app import authenticode
-
-    real = privileged._self_exe
-    # ⚠️ С 17.10 подмена требует подписи DentPilot (suite_install_signed);
-    # учебный файл лаборатории не подписан — здесь подпись отвечает «наша»,
-    # чтобы проверять механику перемещения, а не Authenticode
-    real_signer = authenticode.signer_thumbprint
-    authenticode.signer_thumbprint = lambda p: next(iter(privileged.SIGNERS))
-    with tempfile.TemporaryDirectory(prefix="dp_inst_") as td:
-        tmp = pathlib.Path(td)
-        exe, work, new = _lab(tmp)
-        privileged._self_exe = lambda: exe
-        try:
-            out = privileged.run_op("install-update", [], lambda: tmp / "data")
-            res.check("операция довольна", out, "ok")
-            res.ok("новый файл занял место программы",
-                   exe.read_bytes()[:2] == b"MZ", "подмена не состоялась")
-            old = exe.with_name("DentPilot" + privileged.OLD_SUFFIX)
-            # ⛔ Старую версию НЕ удаляем (прайор 08-10): существование нового
-            # файла ничего не доказывает — он может быть битым или съеденным
-            # антивирусом, и тогда клиника осталась бы вообще без программы.
-            res.ok("прежняя программа лежит рядом", old.exists(),
-                   "откатывать нечем — неудачное обновление станет удалением")
-            res.check("и это именно она", old.read_bytes(), b"STARAYA PROGRAMMA")
-            res.ok("исходник из папки клиники убран", not new.exists(),
-                   "копия осталась — следующий запуск поставит её заново")
-            res.check("итог записан файлом",
-                      (work / privileged.RESULT_NAME).read_text(encoding="utf-8"),
-                      "ok")
-        finally:
-            privileged._self_exe = real
-
-    # ⛔ Отрицательные: каждый отказ обязан ОСТАВИТЬ программу на месте.
-    cases = [
-        ("файла нет", dict(size=0), "нет файла"),
-        ("обрывок закачки", dict(size=1000), "размер"),
-        ("не программа Windows", dict(head=b"PK"), "не программа"),
-        ("отпечаток не сошёлся",
-         dict(request={"size": 5_200_000, "sha256": "0" * 64}), "отпечаток"),
-        ("размер не сошёлся",
-         dict(request={"size": 42, "sha256": "0" * 64}), "размер"),
-    ]
-    for name, kw, want in cases:
-        with tempfile.TemporaryDirectory(prefix="dp_inst_bad_") as td:
-            tmp = pathlib.Path(td)
-            exe, work, new = _lab(tmp, **kw)
-            if kw.get("size") == 0:
-                new.unlink()
-            privileged._self_exe = lambda e=exe: e
-            try:
-                out = privileged.run_op("install-update", [], lambda: tmp / "data")
-                res.ok(f"отказ: {name}", want in out, f"ответ: {out!r}")
-                res.check(f"программа цела: {name}", exe.read_bytes(),
-                          b"STARAYA PROGRAMMA")
-            finally:
-                privileged._self_exe = real
-    authenticode.signer_thumbprint = real_signer
-
-    # ⛔ И самое важное: операция НИЧЕГО не запускает. Запусти она новый файл —
-    # тот пошёл бы от администратора, и подменённый кем-то exe получил бы
-    # права, которых у него нет.
-    src = (pathlib.Path(__file__).resolve().parents[1]
-           / "bot" / "app" / "privileged.py").read_text(encoding="utf-8")
-    # ⚠️ Ровно тело `_install_update`: ниже по файлу живёт `install-setup`, который
-    # установщик ЗАПУСКАЕТ намеренно (03.10) — его держит свой сторож ниже
-    body = src[src.index("def _install_update"):src.index("# ---------- обновление установщиком")]
-    for token in ("subprocess", "os.system", "os.startfile", "Popen",
-                  "ShellExecute", "exec(", "eval("):
-        res.ok(f"подмена ничего не исполняет: нет {token}", token not in body,
-               f"в операции появился запуск: {token}")
-
-
-def suite_install_signed(res: Result) -> None:
-    """17.10 (посторонний разбор): подмена exe за UAC — только файлом с подписью
-    DentPilot. Отпечаток и размер сверялись с описанием из ТОЙ ЖЕ папки
-    клиники, куда пишет любая учётка Windows (installer: users-modify), то есть
-    подменивший файл переписывал и описание — и директор своим UAC ставил
-    чужую программу в Program Files для всех. Подпись он подделать не может."""
-    import tempfile
-    from app import authenticode
-
-    real = privileged._self_exe
-    real_signer = authenticode.signer_thumbprint
-    cases = [
-        ("без подписи (учебный файл, настоящая проверка Windows)", real_signer,
-         "нет действительной подписи"),
-        ("подписан чужим сертификатом", lambda p: "9BA3C2E210C7E8296C5056515BFC0B0BBA78AC48",
-         "подписан не DentPilot"),
-    ]
-    for name, signer, want in cases:
-        with tempfile.TemporaryDirectory(prefix="dp_inst_sig_") as td:
-            tmp = pathlib.Path(td)
-            exe, work, new = _lab(tmp)
-            privileged._self_exe = lambda e=exe: e
-            authenticode.signer_thumbprint = signer
-            try:
-                out = privileged.run_op("install-update", [], lambda: tmp / "data")
-                res.ok(f"отказ: {name}", want in out, f"ответ: {out!r}")
-                res.check(f"программа цела: {name}", exe.read_bytes(), b"STARAYA PROGRAMMA")
-                res.ok(f"файл не тронул программу: {name}",
-                       not exe.with_name("DentPilot" + privileged.OLD_SUFFIX).exists(),
-                       "подмена началась до проверки подписи")
-            finally:
-                privileged._self_exe = real
-                authenticode.signer_thumbprint = real_signer
-    # проверка подписи стоит ДО перемещения — в теле операции, а не рядом
-    src = (pathlib.Path(__file__).resolve().parents[1]
-           / "bot" / "app" / "privileged.py").read_text(encoding="utf-8")
-    body = src[src.index("def _install_update"):src.index("# ---------- обновление установщиком")]
-    res.ok("подпись проверяется в самой операции, до подмены",
-           "signer_thumbprint(new)" in body
-           and body.index("signer_thumbprint(new)") < body.index("OLD_SUFFIX"),
-           "в _install_update нет проверки подписи перед перемещением")
-
-
 def _signed_setup() -> pathlib.Path | None:
     """Настоящий подписанный установщик с этой машины: dist после сборки или
     releases рядом с репозиторием. Нет — набор говорит пропуск вслух.
@@ -745,10 +604,9 @@ def suite_engine_layout(res: Result) -> None:
     """Т10 (18.10): за UAC бывает движок оболочки Tauri — `engine\\DentPilot-Engine.exe`.
 
     Программа у него — папка, корень — папка оболочки над `engine\\` (контракт
-    § 1). ⛔ Две молчаливые поломки, которые здесь держатся: копия мастера в
-    `engine\\updates` легла бы в папку, которую мастер переписывает, а подмена
-    одного файла увела бы движок без его `_internal\\` — мёртвая программа у
-    всех учёток машины."""
+    § 1). ⛔ Молчаливая поломка, которая здесь держится: копия мастера в
+    `engine\\updates` легла бы в папку, которую мастер переписывает. (Подмены
+    одного файла — `install-update` — нет с 22.10.2026: её нет в `OPS`.)"""
     import hashlib
     import tempfile
 
@@ -776,17 +634,8 @@ def suite_engine_layout(res: Result) -> None:
             res.ok("корень от лаунчера важнее вычисления по месту",
                    privileged._layout(tmp / "kornen")[0] == tmp / "kornen", "")
 
-            # ---- подмена одного файла: отказ, ничего не тронуто ----
-            new = work / (engine.stem + privileged.NEW_SUFFIX)
-            new.write_bytes(b"MZ" + b"\0" * 5_200_000)
-            out = privileged.run_op("install-update", [], lambda: tmp / "data", app_dir)
-            res.check("подмена у движка отказывает словами", out, privileged.ENGINE_NO_SWAP)
-            res.ok("движок и папка не тронуты, итог записан файлом",
-                   engine.read_bytes() == b"MOTOR"
-                   and not engine.with_name(engine.stem + privileged.OLD_SUFFIX).exists()
-                   and (work / privileged.RESULT_NAME).read_text(encoding="utf-8")
-                   == privileged.ENGINE_NO_SWAP, "подмена началась")
-            new.unlink()
+            res.ok("подмены одного файла за UAC нет (install-update снят)",
+                   "install-update" not in privileged.OPS, repr(sorted(privileged.OPS)))
 
             # ---- мастер: копия в КОРНЕ программы, версия — у DentPilot.exe ----
             body = b"MZ" + b"\0" * 5_300_000
@@ -897,25 +746,24 @@ def suite_update_paths(res: Result) -> None:
            / "bot" / "app" / "update.py").read_text(encoding="utf-8")
     res.ok("исходник на месте", len(src) > 5000, "файл переехал")
     for need, why in (
-            ('work_dir() / "dentpilot_update.bat"', "скрипт обновления"),
-            # 11.10: перезапуск — сторожем-exe, его метка и копия тоже в папке клиники
+            # 11.10: перезапуск — сторожем, его метка и копия оболочки в папке клиники
             ('work / f"{task}.run"', "метка сторожа перезапуска"),
-            ('work_dir() / _WATCH_EXE', "копия exe для сторожа"),
-            ('work_dir() / (exe.stem + ".new.exe")', "скачанный файл")):
+            ('work_dir() / _WATCH_EXE', "копия оболочки для сторожа"),
+            ('work / "DentPilot-Setup.zip"', "скачанный архив установщика"),
+            ('work / privileged.SETUP_NEW', "извлечённый установщик")):
         res.ok(f"{why} — в папке клиники", need in src,
                f"{why} снова пишется рядом с exe")
-    # Якорь обратной полярности: ни одного скрипта рядом с программой.
-    res.ok("bat рядом с exe не создаётся",
-           'exe.with_name("dentpilot' not in src,
-           "скрипт снова кладётся в папку программы")
-    res.ok("подмена уходит привилегированной ветке",
-           "_install_privileged(new_path, exe)" in src
-           and "exe_dir_writable()" in src,
-           "ветка без прав исчезла — обновление в Program Files снова невозможно")
-    # ⚠️ Переносимая раскладка обязана обойтись БЕЗ UAC: там папка своя.
-    res.ok("портативной раскладке окно UAC не показывается",
-           "if not exe_dir_writable():" in src,
-           "проба записи исчезла — портативная установка получит лишний UAC")
+    # Якорь обратной полярности: ни одного файла рядом с программой.
+    res.ok("рядом с exe ничего не создаётся",
+           'exe.with_name(' not in src and "sys.executable).resolve().parent /" not in src,
+           "файл снова кладётся в папку программы")
+    # 22.10.2026: подмены одного exe (bat, `.new.exe`/`.old.exe`, UAC
+    # `install-update`) больше нет — программа-папка обновляется установщиком.
+    res.ok("подмены одного exe нет",
+           '".new.exe"' not in src and '".old.exe"' not in src
+           and '"install-update"' not in src and "_install_privileged(" not in src,
+           "путь подмены exe вернулся — папку оболочки он не обновит")
+
 
 def suite_contract(res: Result) -> None:
     """P4.3: исполнитель как целое — чем он НЕ является.

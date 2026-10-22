@@ -1,12 +1,16 @@
-"""Живые стенды 5 и 6: экран раздвоения в СОБРАННОЙ программе.
+"""Живые стенды 5 и 6: экран раздвоения в СОБРАННОМ движке.
 
-    python scripts/check_split_live.py
-    python scripts/check_split_live.py --exe dist\\DentPilot.exe --keep
+    .venv-desktop\\Scripts\\python.exe scripts\\check_split_live.py
+    .venv-desktop\\Scripts\\python.exe scripts\\check_split_live.py --exe dist\\DentPilot-Engine\\DentPilot-Engine.exe --keep
 
 Отвечает на вопрос, которого зелёный прогон не касается: доводит ли до
 подтверждения цепочка «лаунчер → вердикт → окружение → экран → оракул», собранная
 PyInstaller. Харнесс поднимает `app.main` напрямую и `desktop.py` не исполняет ни
 строкой — а вердикт рождается именно там.
+
+Движок запускается так, как его запускает оболочка (с 22.10.2026 другого
+запуска нет — окно pywebview снято): `DENTART_SHELL=tauri`, трубы `DP1`,
+своё задание Windows, остановка словом `stop` — `engine_check.Engine`.
 
 ⛔ **Стенд 6 НЕ проверяет миграцию.** Он проверяет ровно одно: человек доведён
 до `confirmed`, и данных источника при этом никто не касался. Copy-only не
@@ -14,13 +18,14 @@ PyInstaller. Харнесс поднимает `app.main` напрямую и `d
 
 Раскладка лаборатории (временная папка, удаляется в конце):
 
-    <lab>\\Old\\      DentPilot.exe + профиль + data\\{dental.db, auth.json, метка}
-    <lab>\\Anchor\\   профиль + data\\dental.db          ← назначение, картотека есть
-    <lab>\\tmp\\      TEMP программы: распаковка onefile (_MEI*)
+    <lab>\\Old\\engine\\   движок папкой + профиль + data\\{dental.db, auth.json, метка}
+    <lab>\\Anchor\\        профиль + data\\dental.db     ← назначение, картотека есть
+    <lab>\\tmp\\           TEMP движка
     $DENTART_DATA_DIR = <lab>\\Anchor
 
-⭐ Источник опознаётся признаком `self`: exe лежит В ПАПКЕ с маркерами данных,
-то есть ровно так, как выглядит установка до P1. Ярлыки машины не участвуют.
+⭐ Источник опознаётся признаком `self`: движок лежит В ПАПКЕ с маркерами
+данных (`legacy.running_root` — папка самого процесса, у движка это `engine\\`),
+как выглядела установка до P1. Ярлыки машины не участвуют.
 
 ⛔ **Настоящая `%ProgramData%\\DentPilot` не участвует ни одной стороной** —
 инвариант всех стендов, держит `test_launcher`.
@@ -35,13 +40,11 @@ import http.cookiejar
 import json
 import os
 import pathlib
+import secrets
 import shutil
-import socket
 import sqlite3
-import subprocess
 import sys
 import tempfile
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -52,8 +55,11 @@ sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bot"))
 sys.path.insert(0, str(ROOT / "tests"))
+sys.path.insert(0, str(ROOT / "scripts"))
 
 from app.core import auth  # noqa: E402
+from engine_check import READY_LIMIT, STOP_LIMIT, Engine  # noqa: E402 — тот же разговор, что у оболочки
+from harness import RUN_TMP, _rmtree_settled, free_port  # noqa: E402
 from test_srcpin import _diff, _snapshot  # noqa: E402
 
 KEY = "lab-split-key"
@@ -73,12 +79,6 @@ ALLOWED = {
 ALLOWED_OK = ALLOWED | {"file:migration.json"}   # запись ответа — только на удаче
 
 
-def free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 def _db(p: pathlib.Path) -> None:
     """Настоящий файл SQLite, а не пустышка: у нулевого файла нет заголовка, и
     `fingerprint` объявил бы его ЗАШИФРОВАННЫМ — экран соврал бы на ровном месте."""
@@ -89,13 +89,22 @@ def _db(p: pathlib.Path) -> None:
     con.close()
 
 
-def build_lab(lab: pathlib.Path, exe: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
-    old, anchor = lab / "Old", lab / "Anchor"
+def build_lab(lab: pathlib.Path, exe: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, pathlib.Path]:
+    """(exe в лаборатории, источник, назначение). Движок — папкой в
+    `Old\\engine\\`, и источник — она же: `self` это папка самого процесса."""
+    old, anchor = lab / "Old" / "engine", lab / "Anchor"
+    shutil.copytree(exe.parent, old)
     profile = json.loads((ROOT / "bot" / "app" / "clinic_new.json")
                          .read_text(encoding="utf-8"))
     for root, name in ((old, CLINIC_MARK), (anchor, "LABORATOR DESTINATIE")):
-        root.mkdir(parents=True)
+        root.mkdir(parents=True, exist_ok=True)
         profile["name"] = name
+        # ⚠️ Назначение — НЕ пустая картотека: у собранной программы есть ключ
+        # лицензии, и пустая картотека без файла лицензии — стена активации
+        # (`license.walled`, с 02.10): экран раздвоения уезжал бы на
+        # /admin/license. Демо-записи программа засеет сама при старте, до
+        # снимка назначения.
+        profile["seed_demo"] = root == anchor
         (root / "clinic.json").write_text(
             json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
         (root / "dental.env").write_text("TELEGRAM_TOKEN=\nADMIN_KEY=\n",
@@ -113,53 +122,34 @@ def build_lab(lab: pathlib.Path, exe: pathlib.Path) -> tuple[pathlib.Path, pathl
     # ⭐ Именная метка: если что-нибудь СКОПИРУЕТ источник в назначение, она
     # приедет вместе со всем остальным и будет видна поимённо.
     (old / "data" / SRC_MARK).write_text("sursa", encoding="utf-8")
-
-    shutil.copy(exe, old / "DentPilot.exe")
-    return old, anchor
+    return old / exe.name, old, anchor
 
 
-def run_lab(old: pathlib.Path, anchor: pathlib.Path, port: int, seconds: int = 90):
-    env = dict(os.environ)
-    # ⛔ (09-26) TEMP — внутри лаборатории, но вне Old и Anchor (их сверяют
-    # снимками): stop() гасит загрузчик onefile через taskkill /F, и свою
-    # распаковку (_MEI*, 52 МБ) он уже не убирает — она оставалась в %TEMP%.
-    tmp = old.parent / "tmp"
-    tmp.mkdir(exist_ok=True)
-    # ⛔ Назначение объявляем ЯВНО: без этого лаунчер ушёл бы в
-    # %ProgramData%\DentPilot, то есть в живую картотеку машины, и не упал бы.
-    env.update({"DENTART_BROWSER_MODE": "1", "DENTART_NO_BROWSER": "1",
-                "DENTART_PORT": str(port), "ADMIN_KEY": KEY,
-                "DENTART_DATA_DIR": str(anchor), "TEMP": str(tmp), "TMP": str(tmp)})
-    # ⚠️ Переменную вердикта в окружение НЕ кладём: её обязан поставить сам
-    # лаунчер. Положили бы — стенд проверял бы собственную подсказку.
-    env.pop("DENTART_SPLIT_SOURCE", None)
-    proc = subprocess.Popen([str(old / "DentPilot.exe")], cwd=str(old), env=env,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    base = f"http://127.0.0.1:{port}"
-    deadline = time.time() + seconds
-    while time.time() < deadline:
-        if proc.poll() is not None:
-            return proc, base, False
-        try:
-            with urllib.request.urlopen(base + "/health", timeout=3) as r:
-                if json.loads(r.read()).get("app") == "dentpilot":
-                    return proc, base, True
-        except Exception:  # noqa: BLE001 — сервер ещё не поднялся
-            time.sleep(1)
-    return proc, base, False
+class Lab:
+    """Что нужно `engine_check.Engine`: exe, папка для stderr, корень данных
+    (для хвоста лога) и окружение запуска."""
 
+    def __init__(self, lab: pathlib.Path, exe: pathlib.Path, anchor: pathlib.Path) -> None:
+        self.dir, self.exe, self.data, self.anchor = lab, exe, anchor, anchor
 
-def stop(proc) -> None:
-    """Погасить ДЕРЕВО: onefile-сборка это загрузчик плюс дочерний процесс, и
-    убитый загрузчик оставляет живого ребёнка с портом и файлом exe в руках."""
-    if proc is None or proc.poll() is not None:
-        return
-    subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-    try:
-        proc.wait(timeout=15)
-    except subprocess.TimeoutExpired:
-        proc.kill()
+    def env(self, port: int) -> dict:
+        anchor = self.anchor
+        # ⛔ (09-26) TEMP — внутри лаборатории, но вне Old и Anchor (их сверяют
+        # снимками).
+        tmp = self.dir / "tmp"
+        tmp.mkdir(exist_ok=True)
+        env = {k: v for k, v in os.environ.items() if not k.startswith("DENTART_")}
+        # ⛔ Назначение объявляем ЯВНО: без этого движок ушёл бы в
+        # %ProgramData%, то есть в живую картотеку машины, и не упал бы.
+        # ⚠️ Переменную вердикта в окружение НЕ кладём (снята вместе со всеми
+        # DENTART_ выше): её обязан поставить сам лаунчер. Положили бы — стенд
+        # проверял бы собственную подсказку.
+        env.update({"DENTART_SHELL": "tauri", "DENTART_SHELL_TOKEN": secrets.token_hex(16),
+                    "DENTART_PORT": str(port), "ADMIN_KEY": KEY,
+                    "DENTART_DATA_DIR": str(anchor), "TEMP": str(tmp), "TMP": str(tmp),
+                    "DENTART_PROFILE_DIR": str(self.dir / "webview"),
+                    "DENTART_UPDATE_CHECK": "off"})
+        return env
 
 
 class Http:
@@ -209,7 +199,7 @@ def changed(before: dict, after: dict) -> set:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--exe", default=str(ROOT / "dist" / "DentPilot.exe"))
+    ap.add_argument("--exe", default=str(ROOT / "dist" / "DentPilot-Engine" / "DentPilot-Engine.exe"))
     ap.add_argument("--keep", action="store_true")
     args = ap.parse_args()
 
@@ -217,19 +207,24 @@ def main() -> int:
     if not exe.exists():
         # ⚠️ ВСЛУХ и своим кодом возврата: молчаливый пропуск — ложное зелёное.
         print(f"ПРОПУЩЕНО: {exe} не собран — проверять нечего.")
-        print("Соберите: powershell -File Build-Desktop.ps1")
+        print("Соберите: powershell -File Build-Engine.ps1")
         return 2
 
-    lab = pathlib.Path(tempfile.mkdtemp(prefix="dp_splitlive_"))
-    old, anchor = build_lab(lab, exe)
+    # ⚠️ Лаборатория — в папке прогона харнесса (её сносит выход), а с --keep —
+    # рядом, в обычном TEMP: иначе «оставлена» значило бы «снесена на выходе».
+    lab = pathlib.Path(tempfile.mkdtemp(prefix="dp_splitlive_",
+                                        dir=str(RUN_TMP.parent if args.keep else RUN_TMP)))
+    run_exe, old, anchor = build_lab(lab, exe)
     src0 = _snapshot(old)
-    port, proc, bad5, bad6 = free_port(), None, [], []
+    e, bad5, bad6 = Engine(Lab(lab, run_exe, anchor), free_port()), [], []
     try:
-        proc, base, alive = run_lab(old, anchor, port)
-        if not alive:
-            print(f"КРАСНО: программа не поднялась.\n  лаборатория: {lab}")
+        e.start()
+        ev = e.wait_event({"ready", "busy", "fatal"}, READY_LIMIT)
+        if ev is None or ev.get("event") != "ready":
+            print(f"КРАСНО: движок не сказал ready (пришло {ev!r}).{e.tail()}")
+            print(f"  лаборатория: {lab}")
             return 1
-        c = Http(base)
+        c = Http(f"http://127.0.0.1:{e.port}")
 
         # --- предусловие: раздвоение НАЙДЕНО собранным лаунчером -----------
         st, _loc, page = c.get("/admin/migration")
@@ -300,18 +295,20 @@ def main() -> int:
         if "раскладка: split" not in text:
             bad6.append(f"в {log} нет строки вердикта с исходом split")
     finally:
-        stop(proc)
+        if e.proc is not None and e.proc.poll() is None:
+            try:
+                code, _secs = e.wait_exit(e.send_stop(), STOP_LIMIT + 5)
+            except OSError:
+                code = None
+            if code != 0:
+                bad6.append(f"движок не остановился словом stop (код {code})")
+        e.close()
         if args.keep:
             print(f"лаборатория оставлена: {lab}")
         else:
-            for _ in range(5):
-                shutil.rmtree(lab, ignore_errors=True)
-                if not lab.exists():
-                    break
-                time.sleep(1)
+            _rmtree_settled(lab)
             if lab.exists():
                 print(f"⚠️  лаборатория НЕ удалена: {lab}")
-                print("    что-то держит файлы — проверьте процессы DentPilot.exe")
 
     for name, bad, good in (("СТЕНД 5 (неверный PIN)", bad5,
                              ["отказ показан, источник побайтно тот же",

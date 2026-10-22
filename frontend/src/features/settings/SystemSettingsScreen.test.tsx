@@ -194,7 +194,7 @@ describe('SystemSettingsScreen', () => {
       expect(screen.queryByRole('button', { name: /Corectează/ })).toBeNull())
   })
 
-  it('пуск с Windows: без оболочки строки нет вовсе (окно pywebview, браузер)', async () => {
+  it('пуск с Windows: без оболочки строки нет вовсе (сервер, исходники, браузер)', async () => {
     get.mockResolvedValueOnce(ok(FRESH))
     open(vi.fn())
     await screen.findByText('v1.28.0')

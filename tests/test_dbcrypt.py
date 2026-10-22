@@ -86,11 +86,11 @@ def suite_key(res: Result) -> None:
     # шифрованием), и PyInstaller такое замечает не всегда. Без явного
     # --hidden-import exe соберётся, дымовой тест пройдёт, а шифрование
     # откажет ровно у той клиники, которая его включит.
-    build = (pathlib.Path(__file__).resolve().parents[1] / "Build-Desktop.ps1"
+    build = (pathlib.Path(__file__).resolve().parents[1] / "Build-Engine.ps1"
              ).read_text(encoding="utf-8", errors="replace")
     res.ok("sqlcipher3 явно назван сборке hidden-import'ом",
            "--hidden-import sqlcipher3" in build,
-           "PyInstaller может не положить модуль в exe")
+           "PyInstaller может не положить модуль в движок")
     # ⛔ И его обязан СТАВИТЬ файл зависимостей. Найдено ревью 08-09: модуль
     # стоял в окружении руками, а `--hidden-import` отсутствующего модуля
     # PyInstaller ошибкой не считает. Чистая машина собрала бы программу без

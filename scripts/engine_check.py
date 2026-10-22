@@ -396,7 +396,7 @@ def scenario_base(res: Result, lab: Lab, timing: dict) -> None:
     got = json.loads((lab.data / "clinic.json").read_text(encoding="utf-8"))
     demo = json.loads((BOT / "app" / "clinic.json").read_text(encoding="utf-8"))
     res.ok("корень программы — папка над engine\\ (demo.flag оттуда)", got == demo,
-           "профиль клиники — не демо: лаунчер искал demo.flag/install.json/portable.flag "
+           "профиль клиники — не демо: лаунчер искал demo.flag/install.json "
            "в engine\\, а не в папке DentPilot.exe")
 
 

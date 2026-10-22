@@ -99,10 +99,10 @@ export function AnamnezaCard({ card, a, draft, onDraft, focusTick }: Props) {
       <small className="hint dp-m0">
         {an.filled ? `${T.filled} ${an.when} · ${an.author || '—'}` : T.notFilled}
       </small>
-      {/* ⛔ Без target="_blank" — как 043/e и acord. Окно программы (pywebview,
-          OPEN_EXTERNAL_LINKS_IN_BROWSER) отдаёт «новое окно» СИСТЕМНОМУ
-          браузеру: там нет куки входа, бланк просит PIN, а ссылка «назад» с
-          него уводит весь журнал в браузер. Бланк печатается кнопкой и
+      {/* ⛔ Без target="_blank" — как 043/e и acord. Окно программы (оболочка
+          Tauri) отдаёт «новое окно» СИСТЕМНОМУ браузеру: там нет куки входа,
+          бланк просит PIN, а ссылка «назад» с него уводит весь журнал в
+          браузер. Бланк печатается кнопкой и
           возвращает ссылкой — новая вкладка ему не нужна. */}
       <AppLink className="anprint" href={printHref(card.id, 'anamneza/print', a.back)}>
         <Icon name="print" /> {T.print}

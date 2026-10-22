@@ -10,9 +10,10 @@
   demo    (по умолчанию) свой маленький сервер: страница с выгрузками
           (attachment), печатью, `beforeunload`, `dpMenu/dpRun/dpCtx` как у
           слоя команд, кука входа, `/shell/notices` с токеном оболочки
-  bridge  НАСТОЯЩИЙ сервер программы: `bot/desktop.py` в браузерном режиме
-          ребёнком; DP1 говорит этот файл за него (экраны React, вход,
-          «Exportă», копия базы — всё настоящее)
+  bridge  НАСТОЯЩИЙ движок программы ребёнком: `bot/desktop.py` в режиме
+          `DENTART_SHELL=tauri`; его строки DP1 — оболочке как есть (и в свой
+          журнал), слово оболочки — ему (экраны React, вход, «Exportă», копия
+          базы — всё настоящее)
   fatal   этапы, затем `fatal` и выход 2
   busy    `busy` на адрес порта и выход 3 (порт должен обслуживать DentPilot)
   quit    как demo, через DP_FAKE_AFTER секунд — `quit` (как перед установщиком)
@@ -34,7 +35,6 @@ import subprocess
 import sys
 import threading
 import time
-import urllib.request
 
 MODE = os.environ.get("DP_FAKE", "demo")
 PORT = int(os.environ.get("DENTART_PORT", "8094") or 8094)
@@ -193,14 +193,6 @@ def ready() -> None:
         lan=os.environ.get("DP_FAKE_LAN") == "1")
 
 
-def health(port: int) -> bool:
-    try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=1) as r:
-            return b'"dentpilot"' in r.read(300)
-    except Exception:  # noqa: BLE001
-        return False
-
-
 def main() -> int:
     log(f"start mode={MODE} port={PORT} token={'yes' if TOKEN else 'no'} shell={os.environ.get('DENTART_SHELL')}")
     threading.Thread(target=watch_stdin, daemon=True).start()
@@ -232,44 +224,48 @@ def main() -> int:
 
 
 def bridge() -> int:
-    """Настоящий сервер программы ребёнком; слова DP1 — за него."""
+    """Настоящий движок программы ребёнком: его DP1 — оболочке, её `stop` — ему.
+    До 22.10.2026 ребёнок шёл браузерным режимом окна pywebview, и слова DP1
+    говорил этот файл за него; браузерного режима больше нет."""
     app = pathlib.Path(__file__).resolve().parents[2]
-    say("hello", version="bridge", color=COLOR, pid=os.getpid())
-    say("stage", text="Se pornește registrul…", pct=30, upto=92)
-    env = dict(os.environ, DENTART_BROWSER_MODE="1", DENTART_NO_BROWSER="1",
-               DENTART_DATA_DIR=str(DATA), DENTART_PORT=str(PORT), PYTHONUTF8="1")
-    env.pop("DENTART_SHELL", None)
+    env = dict(os.environ, DENTART_SHELL="tauri", DENTART_DATA_DIR=str(DATA),
+               DENTART_PORT=str(PORT), PYTHONUTF8="1")
     # ⚠️ демо-профиль клиники — копией, как у `.\\dev up`: лаунчер копирует
     # профиль, только если файла нет
     cfg = DATA / "clinic.json"
     if not cfg.exists():
         cfg.write_bytes((app / "bot" / "app" / "clinic.json").read_bytes())
     child = subprocess.Popen([sys.executable, str(app / "bot" / "desktop.py")], cwd=str(app / "bot"),
-                             env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                              stderr=open(DATA / "bridge-server.log", "a", encoding="utf-8"),  # noqa: SIM115
+                             text=True, encoding="utf-8",
                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    t = time.monotonic()
-    while time.monotonic() - t < 90 and child.poll() is None and not stopping.is_set():
-        if health(PORT):
-            ready()
-            break
-        time.sleep(0.3)
-    else:
-        if not stopping.is_set():
-            say("fatal", text="Serverul de probă nu a pornit.", log=str(DATA / "bridge-server.log"))
-            child.kill()
-            return 2
+
+    def relay() -> None:
+        for line in child.stdout:
+            line = line.rstrip("\n")
+            if line.startswith("DP1 "):
+                sys.stdout.write(line + "\n")
+                sys.stdout.flush()
+                log(f"bridge: {line[:200]}")
+
+    threading.Thread(target=relay, daemon=True).start()
     while not stopping.wait(0.3):
         if child.poll() is not None:
-            log(f"bridge: server exited {child.returncode}")
-            return 1
-    child.terminate()
+            log(f"bridge: engine exited {child.returncode}")
+            return child.returncode
     try:
-        child.wait(5)
+        child.stdin.write('{"v":1,"cmd":"stop"}\n')
+        child.stdin.flush()
+    except OSError:
+        pass
+    try:
+        code = child.wait(10)
     except subprocess.TimeoutExpired:
         child.kill()
-    log("bridge stopped: exit 0")
-    return 0
+        code = 1
+    log(f"bridge stopped: engine exit {code}")
+    return code
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@
   python scripts/check_slot_guard.py
   python scripts/check_slot_guard.py --db "D:\\другая\\копия\\data\\dental.db"
 
-⛔ Живая база только ЧИТАЕТСЯ. Всё происходит в песочнице (копия exe + копия
+⛔ Живая база только ЧИТАЕТСЯ. Всё происходит в песочнице (копия движка + копия
 базы во временной папке), боевая установка на 8088 не запускается и не
 трогается ни одной записью.
 
@@ -30,12 +30,11 @@
 """
 import argparse
 import http.cookiejar
-import json
 import os
 import pathlib
+import secrets
 import shutil
 import sqlite3
-import subprocess
 import sys
 import tempfile
 import time
@@ -59,7 +58,11 @@ UQ = ("uq_doctor_slot", "uq_patient_slot", "uq_doctor_slot_id")
 # новом шаге миграции — и канарейка краснела бы ровно на той правке, ради
 # которой её и зовут (RELEASE.md шаг 3a). Так она отстала на шаге 5, 08-17.
 sys.path.insert(0, str(ROOT / "bot"))
+sys.path.insert(0, str(ROOT / "tests"))
+sys.path.insert(0, str(ROOT / "scripts"))
 from app.db import SCHEMA_VERSION  # noqa: E402 — только константа, не соединение
+from engine_check import READY_LIMIT, STOP_LIMIT, Engine  # noqa: E402 — тот же разговор, что у оболочки
+from harness import RUN_TMP  # noqa: E402
 
 SCHEMA_TARGET = str(SCHEMA_VERSION)
 OK, BAD = "  [ок] ", "  [!!] "
@@ -85,10 +88,14 @@ def free_port(start: int = 8110) -> int:
 
 
 def prepare_lab(db_src: pathlib.Path, exe: pathlib.Path) -> pathlib.Path:
-    lab = pathlib.Path(tempfile.mkdtemp(prefix="dp_slotguard_"))
+    """Песочница — она же папка программы и папка данных: движок папкой в
+    `engine\\` (корень программы — над ним, там `demo.flag`), данные рядом.
+    ⚠️ В папке прогона харнесса: её сносит выход; красная песочница
+    оставляется для разбора — поэтому она в обычном TEMP рядом."""
+    lab = pathlib.Path(tempfile.mkdtemp(prefix="dp_slotguard_", dir=str(RUN_TMP.parent)))
     (lab / "data").mkdir()
     shutil.copy2(db_src, lab / "data" / "dental.db")     # ⛔ только копия
-    shutil.copy2(exe, lab / exe.name)
+    shutil.copytree(exe.parent, lab / "engine")
     # ADMIN_KEY — чтобы песочница пускала без экрана установки PIN (auth.json
     # с канарейки НЕ копируем: чужие пароли в лаборатории не нужны)
     (lab / "dental.env").write_text(f"ADMIN_KEY={KEY}\n", encoding="utf-8")
@@ -217,33 +224,39 @@ def inject_renamed(db: pathlib.Path):
     return renamed, starts_at, spare[0], spare[1]
 
 
-def run_lab(lab: pathlib.Path, exe_name: str, port: int, seconds: int = 90):
-    env = dict(os.environ)
-    # ⛔ (09-26) TEMP — внутри песочницы: stop() гасит загрузчик onefile через
-    # taskkill /F, и свою распаковку (_MEI*, 52 МБ) он уже не убирает — три
-    # запуска этой проверки оставляли в %TEMP% три такие папки.
-    tmp = lab / "tmp"
-    tmp.mkdir(exist_ok=True)
-    # ⛔ DENTART_DATA_DIR обязателен с P1: лаунчер больше не считает папку
-    # данных от места exe. Без него лаборатория запустила бы exe поверх
-    # НАСТОЯЩЕЙ картотеки в %ProgramData%, а проверяла бы подготовленную копию.
-    env.update({"DENTART_BROWSER_MODE": "1", "DENTART_NO_BROWSER": "1",
-                "DENTART_PORT": str(port), "ADMIN_KEY": KEY,
-                "DENTART_DATA_DIR": str(lab), "TEMP": str(tmp), "TMP": str(tmp)})
-    proc = subprocess.Popen([str(lab / exe_name)], cwd=str(lab), env=env,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    base = f"http://127.0.0.1:{port}"
-    deadline = time.time() + seconds
-    while time.time() < deadline:
-        if proc.poll() is not None:
-            return proc, base, False          # процесс умер, не дождавшись
-        try:
-            with urllib.request.urlopen(base + "/health", timeout=3) as r:
-                json.loads(r.read())
-                return proc, base, True
-        except Exception:
-            time.sleep(1)
-    return proc, base, False
+class Lab:
+    """Что нужно `engine_check.Engine`: exe, папка для stderr, корень данных
+    (для хвоста лога) и окружение запуска."""
+
+    def __init__(self, lab: pathlib.Path, exe_name: str) -> None:
+        self.dir, self.data, self.exe = lab, lab, lab / "engine" / exe_name
+
+    def env(self, port: int) -> dict:
+        lab = self.dir
+        # ⛔ (09-26) TEMP — внутри песочницы, а не в общем %TEMP%.
+        tmp = lab / "tmp"
+        tmp.mkdir(exist_ok=True)
+        env = {k: v for k, v in os.environ.items() if not k.startswith("DENTART_")}
+        # ⛔ DENTART_DATA_DIR обязателен с P1: лаунчер не считает папку данных
+        # от места exe. Без него песочница запустила бы движок поверх
+        # НАСТОЯЩЕЙ картотеки в %ProgramData%, а проверяла бы подготовленную копию.
+        env.update({"DENTART_SHELL": "tauri", "DENTART_SHELL_TOKEN": secrets.token_hex(16),
+                    "DENTART_PORT": str(port), "ADMIN_KEY": KEY,
+                    "DENTART_DATA_DIR": str(lab), "TEMP": str(tmp), "TMP": str(tmp),
+                    "DENTART_PROFILE_DIR": str(lab / "webview"),
+                    "DENTART_UPDATE_CHECK": "off"})
+        return env
+
+
+def run_lab(lab: pathlib.Path, exe_name: str, port: int):
+    """Движок так, как его запускает оболочка: `DENTART_SHELL=tauri`, трубы
+    `DP1`, своё задание Windows (`engine_check.Engine`)."""
+    e = Engine(Lab(lab, exe_name), port).start()
+    ev = e.wait_event({"ready", "busy", "fatal"}, READY_LIMIT)
+    alive = ev is not None and ev.get("event") == "ready"
+    if not alive:
+        print(f"      (движок не сказал ready: {ev!r}){e.tail()}")
+    return e, f"http://127.0.0.1:{port}", alive
 
 
 def admin_page(base: str) -> str:
@@ -289,23 +302,23 @@ def blocked(db: pathlib.Path, pid, doctor, starts_at, status, did) -> bool:
         con.close()
 
 
-def stop(proc, port: int) -> None:
-    """Погасить ВСЁ дерево и дождаться, пока порт освободится.
+def stop(e, port: int) -> None:
+    """Остановить движок СЛОВОМ (база закрыта, `-wal` сброшен — следующий шаг
+    читает базу обычным sqlite3), погасить его задание и дождаться, пока порт
+    освободится.
 
-    ⛔ terminate() родителя недостаточно: exe собран PyInstaller onefile, и
-    работающее приложение — это ДОЧЕРНИЙ процесс распаковщика. Убитый родитель
-    оставляет его жить и держать порт, а следующий запуск в этой же лаборатории
-    молча разговаривает со СТАРЫМ процессом: база не перечитывается, и шаг про
-    «после разведения записей защита встаёт сама» проваливается на ровном месте,
-    хотя программа исправна. Ровно так эта проверка и соврала 08-16.
+    ⛔ Порт ждём не для красоты: процесс, оставшийся жить, держит порт, а
+    следующий запуск в этой же лаборатории молча разговаривал бы со СТАРЫМ:
+    база не перечитывается, и шаг про «после разведения записей защита встаёт
+    сама» проваливается на ровном месте, хотя программа исправна. Ровно так
+    эта проверка и соврала 08-16 (тогда — onefile-загрузчик и его ребёнок).
     """
-    if proc.poll() is None:
-        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
-                       capture_output=True)
+    if e.proc is not None and e.proc.poll() is None:
         try:
-            proc.wait(timeout=20)
-        except Exception:
-            proc.kill()
+            e.wait_exit(e.send_stop(), STOP_LIMIT + 5)
+        except OSError:
+            pass
+    e.close()
     import socket
     for _ in range(40):                      # порт освобождается не мгновенно
         with socket.socket() as s:
@@ -318,14 +331,14 @@ def stop(proc, port: int) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=str(LIVE_DB), help="боевая база (только чтение)")
-    ap.add_argument("--exe", default=str(ROOT / "dist" / "DentPilot.exe"))
+    ap.add_argument("--exe", default=str(ROOT / "dist" / "DentPilot-Engine" / "DentPilot-Engine.exe"))
     args = ap.parse_args()
 
     db_src, exe = pathlib.Path(args.db), pathlib.Path(args.exe)
     if not db_src.exists():
         sys.exit(f"базы нет: {db_src}")
     if not exe.exists():
-        sys.exit(f"exe нет: {exe} — соберите Build-Installer.ps1 или укажите --exe")
+        sys.exit(f"движка нет: {exe} — соберите Build-Engine.ps1 или укажите --exe")
     try:
         sqlite3.connect(str(db_src)).execute("SELECT 1 FROM schema_meta LIMIT 1")
     except sqlite3.DatabaseError:
@@ -343,7 +356,7 @@ def main() -> int:
     print(f"конфликт заведён: {doctor} · {when} — две живые записи\n")
 
     print("ШАГ 1. Запуск на базе с конфликтом")
-    proc, base, alive = run_lab(lab, exe.name, port)
+    e, base, alive = run_lab(lab, exe.name, port)
     say(alive, "программа запустилась", "не ответила на /health — это ТОТ САМЫЙ дефект")
     if alive:
         meta = dict(rows(db, "SELECT key, value FROM schema_meta"))
@@ -358,11 +371,11 @@ def main() -> int:
             "страховка осталась узкой, а не расширилась мимо данных",
             f"индексы: {sorted(idx)}")
         say(banner_visible(base), "директор видит баннер про неразведённые часы")
-    stop(proc, port)
+    stop(e, port)
 
     print("\nШАГ 2. Конфликт разведён, запуск снова")
     sql(db, f"DELETE FROM appointments WHERE comment = '{MARK}'")
-    proc, base, alive = run_lab(lab, exe.name, port)
+    e, base, alive = run_lab(lab, exe.name, port)
     say(alive, "программа запустилась")
     if alive:
         meta = dict(rows(db, "SELECT key, value FROM schema_meta"))
@@ -371,7 +384,7 @@ def main() -> int:
         say(all("waiting" in idx.get(n, "") for n in UQ),
             "широкие индексы легли сами", f"индексы: {sorted(idx)}")
         say(not banner_visible(base), "баннер исчез")
-    stop(proc, port)
+    stop(e, port)
 
     # ---- ШАГ 3: база, пришедшая от опубликованной 1.20.0 ----
     # ⛔ Обновление не имеет права уменьшить защиту, которая у клиники РАБОТАЛА.
@@ -397,7 +410,7 @@ def main() -> int:
         say(blocked(db, *pat_dup),
             "до обновления: широкая защита пациента работает",
             "фикстура не воспроизводит состояние после 1.20.0")
-        proc, base, alive = run_lab(lab, exe.name, port)
+        e, base, alive = run_lab(lab, exe.name, port)
         say(alive, "программа запустилась")
         if alive:
             say(blocked(db, *doc_dup), "обновление НЕ сузило защиту врача",
@@ -411,7 +424,7 @@ def main() -> int:
             say("uq_doctor_slot_id" in idx,
                 "недостающая проверка положена (пусть и узкой)",
                 f"индексы: {sorted(idx)}")
-        stop(proc, port)
+        stop(e, port)
 
     print()
     if fails:
@@ -420,8 +433,8 @@ def main() -> int:
         return 1
     print("ИТОГ: всё сошлось. Клиника с двойной бронью запустится и узнает,")
     print("      какие часы развести; после этого страховка встанет сама.")
-    # в песочнице теперь и распаковки exe (_MEI*, 52 МБ на запуск), а Windows
-    # отпускает файлы убитого процесса с задержкой: повтор, и вслух, если нет
+    # Windows отпускает файлы погашенного процесса с задержкой: повтор, и
+    # вслух, если нет
     for _ in range(10):
         shutil.rmtree(lab, ignore_errors=True)
         if not lab.exists():

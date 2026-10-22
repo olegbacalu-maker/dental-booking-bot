@@ -104,7 +104,7 @@
   `bundle.js`. Имя обязано пройти шаблон маршрута `[a-z0-9_-]+\.js`.
 - `.gitignore`: `bot/app/static/js/three.js` — артефакт сборки, как
   `bundle.js`.
-- `Build-Desktop.ps1`: проверка `Test-Path bot\app\static\js\three.js` рядом
+- `Build-Engine.ps1`: проверка `Test-Path bot\app\static\js\three.js` рядом
   с `BUNDLE MISSING` — иначе exe с чистого клона уедет без 3D, и увидит это
   только клиника. И `tests/smoke_exe.py`: `/static/js/three.js` отдаётся из
   СОБРАННОЙ программы (рядом с проверкой `bundle.js`) — сборка проверяет
@@ -123,7 +123,7 @@
 - Vitest: `loadThree` мокается (jsdom без WebGL).
 - Сделано 26.09: плагин `copyThree` в `vite.config.ts` (`closeBundle` →
   `bot/app/static/js/three.js`, 339 КБ ESM-минификат), файл в `.gitignore`,
-  `Build-Desktop.ps1` → «THREE MISSING», `tests/smoke_exe.py` проверяет файл в
+  `Build-Engine.ps1` → «MISSING static\js\three.js», `tests/smoke_exe.py` проверяет файл в
   собранном exe; `clinical/three/loadThree.ts` — `assetVer()` из адреса бандла,
   `threeUrl()`, `loadThree(importer)` (один промис, отказ не залипает) с тремя
   проверками Vitest. Орбита — своя (ступень 4), `addons` не нужны.
@@ -434,7 +434,7 @@ GLB-модели). Ответ — план без смены инструмен�
 - **Доставка — файлом по требованию**, как three.js: `models/teeth.js` (~0,5 МБ)
   копирует сборка в `bot/app/static/js/teeth.js`, `loadTeeth()` грузит его
   после three при открытии 3D. Нет файла — сцена строит коронки-формулы
-  `crown.ts` (поэтому копию ловят `Build-Desktop.ps1` и `smoke_exe.py`).
+  `crown.ts` (поэтому копию ловят `Build-Engine.ps1` и `smoke_exe.py`).
   Молочные зубы — пока формулы.
 - **Размеры — сервера**: таблица масштабируется к `md`, `bl`, `crown`; ширина
   ×1,03 (`CONTACT` в `sculpt.ts`) — контакт на выпуклой стенке иначе читается
@@ -523,7 +523,7 @@ GLB-модели). Ответ — план без смены инструмен�
 | `bot/app/teeth_svg.py` | `MM_PER_UNIT`, `tooth_geom()`, таблицы высот коронок и длин корней |
 | `bot/app/modules/patients/odontogram.py` › `model()` | `teeth[n].geom`, `palette` |
 | `tests/test_teeth.py`, `tests/test_odontogram_api.py` | пины размеров и формы ответа |
-| `frontend/vite.config.ts`, `.gitignore`, `Build-Desktop.ps1`, `tests/smoke_exe.py` | копия three.js, игнор, проверка сборки и дымовой тест exe |
+| `frontend/vite.config.ts`, `.gitignore`, `Build-Engine.ps1`, `tests/smoke_exe.py` | копия three.js, игнор, проверка сборки и дымовой тест exe |
 | `scripts/teeth/*`, `frontend/models/teeth.js` (+ `teeth.d.ts`), `three/sculpt.ts`, `three/loadTeeth.ts` | 07.10: свои модели — генератор, таблицы, коронка по таблице, загрузка по требованию (копия `teeth.js` — те же vite, .gitignore, сборка, дымовой тест) |
 | `frontend/src/features/clinical/chart.ts` | `View` с `'3d'`, типы `geom`, `palette` |
 | `frontend/src/features/clinical/three/*` | новое: `loadThree`, `toothGeometry`, `arch`, `look`, `tween`, `scene`, `Odontogram3D`; с 01.10 `focus` (камера у зуба) |

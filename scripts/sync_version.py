@@ -110,7 +110,7 @@ def check() -> list[str]:
         bad.append(f"installer/DentPilot.iss: издатель {installer_publisher()!r}, "
                    f"а в свойствах exe {COMPANY!r}")
     # ⚠️ Отсутствие ресурса — НЕ расхождение: `build\` в .gitignore, и на
-    # чистом клоне его нет по замыслу. Его делает сборка (Build-Desktop.ps1
+    # чистом клоне его нет по замыслу. Его делает сборка (Build-Engine.ps1
     # зовёт этот же скрипт первым шагом). Красным здесь он был бы красным
     # ВСЕГДА в CI — а сторож, краснеющий на ровном месте, перестают читать.
     if VERSION_FILE.exists() and VERSION_FILE.read_text(encoding="utf-8") != version_info(v):

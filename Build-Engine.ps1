@@ -3,8 +3,9 @@
 # Ustanovshchik (T9) kladet etu papku kak engine\ ryadom s DentPilot.exe obolochki.
 # Kontrakt chastei: docs\dentpilot-2\tauri-contract.md; pochemu papkoi - sidecar.md.
 #
-# WARNING: Build-Desktop.ps1 i Build-Installer.ps1 etim NE zameneny i ne tronuty:
-# do punkta T9 main vypuskaetsya prezhnei sborkoi odnim failom s oknom pywebview.
+# S 2.0.0 eto edinstvennaya sborka dvizhka: Build-Installer.ps1 zovet ee i kladet
+# papku ryadom s obolochkoi. Prezhnyaya sborka odnim failom s oknom pywebview
+# (Build-Desktop.ps1) snyata 22.10.2026.
 #
 # Pochemu tak (proveryeno opytom 18.10, sm. sidecar.md):
 #  - papkoi (onedir): u odnogo faila zagruzchik porozhdaet NASTOYASHCHII process-vnuk,
@@ -13,8 +14,9 @@
 #    truby stdin/stdout rabotayut navernyaka, a okonnyi zagruzchik PyInstaller na
 #    neperehvachennoi oshibke risuet SVOE okno s trassoi - dvizhok visit na nem, a
 #    kontrakt zapreshchaet dvizhku okna. Privilegirovannyi zapusk (UAC) idet s SW_HIDE.
-#  - pywebview v dvizhok ne edet: okno risuet obolochka, a storozh perezapuska bez
-#    okna i tak umeet (vetka "fara fereastra" v desktop.py).
+#  - pywebview v dvizhok ne edet: okno i storozha perezapuska risuet obolochka.
+#    --exclude-module webview ostaetsya strahovkoi: poka pywebview stoit v obshchem
+#    .venv-desktop, PyInstaller mog by ego podobrat.
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
@@ -30,7 +32,7 @@ if (-not (Test-Path "build")) { New-Item -ItemType Directory "build" | Out-Null 
 & "$venv\Scripts\python.exe" scripts\make_icon.py build\icon.ico
 if ($LASTEXITCODE -ne 0) { Write-Host "make_icon exit $LASTEXITCODE"; exit 1 }
 
-# React-klient - do PyInstaller, kak v Build-Desktop.ps1 (pochemu cmd /c - tam zhe).
+# React-klient - do PyInstaller. cmd /c i 2>&1: v PS 5.1 lyuboi stderr npm stal by oshibkoi.
 if (-not (Test-Path "frontend\node_modules")) {
     cmd /c "cd /d ""$PSScriptRoot\frontend"" && npm ci 2>&1"
     if ($LASTEXITCODE -ne 0) { Write-Host "npm ci exit $LASTEXITCODE"; exit 1 }
