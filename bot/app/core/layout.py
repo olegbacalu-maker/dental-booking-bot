@@ -392,6 +392,7 @@ MSG_BANNER = {
     "last_dir": ("err", "Trebuie să rămână cel puțin un director — altfel nimeni nu mai "
                         "poate deschide Setările și nu are cine să dea drepturi înapoi"),
     "self_user": ("err", "Nu vă puteți șterge propriul cont — cereți altui director"),
+    "uid_taken": ("err", "Există deja un utilizator cu acest id — contul lui a rămas neschimbat"),
     "ok_doc": ("ok", "Document încărcat — rămâne local, pe acest calculator"),
     "bad_doc": ("err", "Fișier gol sau prea mare (max 25 MB)"),
     # сканер (01.10): лист со сканера сразу в фишу, PDF-ом

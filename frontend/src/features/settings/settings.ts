@@ -180,6 +180,16 @@ export interface UserForm {
   pin: string
 }
 
+/** Новая учётка: id выбирает сервер по имени, у врача имя — из каталога
+ *  врачей (`_apply_user`); занятый id чужую учётку не правит. */
+export interface NewUserForm {
+  new: true
+  name: string
+  role: string
+  doctor_id: string
+  pin: string
+}
+
 /** Что показывает раздел шифрования. Четвёртого состояния («ключ не читается»)
  *  здесь не бывает — оно уводит программу в режим восстановления при старте. */
 export type CryptState = 'off' | 'pending' | 'on'
@@ -245,8 +255,8 @@ export interface SystemData {
   uninstall: { found: boolean; version: string; stale: boolean; hive: string }
   /**
    * Запуск вместе с Windows (Tauri, контракт § 2): `on` — ФАКТ из реестра учётки,
-   * а не запись в настройках. null — строки нет: не режим движка (окно pywebview,
-   * браузер второго ПК). `other` — наше значение ведёт к другому exe; `hint` —
+   * а не запись в настройках. null — строки нет: движок запущен не собранной
+   * оболочкой Tauri (сервер, исходники). `other` — наше значение ведёт к другому exe; `hint` —
    * подсказка включить на ПК с «Acces din rețea».
    */
   autostart: { on: boolean; other: string; hint: string } | null
@@ -426,7 +436,7 @@ export const settings = {
     api.post<undefined>('/settings/sms/test', { phone }),
   security: (signal?: AbortSignal): Promise<ApiResult<SecurityData>> =>
     api.get<SecurityData>('/settings/security', signal ? { signal } : {}),
-  userSave: (form: UserForm): Promise<ApiResult<SecurityData>> =>
+  userSave: (form: UserForm | NewUserForm): Promise<ApiResult<SecurityData>> =>
     api.post<SecurityData>('/settings/users', form),
   userDelete: (uid: string): Promise<ApiResult<SecurityData>> =>
     api.post<SecurityData>(`/settings/users/${encodeURIComponent(uid)}/delete`, {}),

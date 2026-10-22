@@ -777,14 +777,51 @@ Această pagină se va reîncărca automat în ~18 secunde.</p>
 </body></html>""")
 
 
+def _new_uid(name: str) -> str:
+    """id новой учётки из имени (22.10: поле id из формы убрано). Латиница и
+    цифры через «-», диакритику сворачивает `db.fold` — таблица одна на
+    программу; занятый — с «-2», «-3»…; кириллица и пустое — u1, u2…
+    Набирать его не нужно: вход идёт по одному PIN (`pin_free`)."""
+    taken = {u["id"] for u in all_users()}
+    base = "-".join(re.findall(r"[a-z0-9]+", db.fold(name)))[:20].rstrip("-")
+    if len(base) < 2:
+        n = 1
+        while f"u{n}" in taken:
+            n += 1
+        return f"u{n}"
+    uid, n = base, 1
+    while uid in taken:
+        n += 1
+        uid = f"{base[:19 - len(str(n))].rstrip('-')}-{n}"
+    return uid
+
+
 async def _apply_user(uid: str, *, name: str, role: str, doctor_id: str,
-                      pin: str) -> str:
+                      pin: str, new: bool = False) -> str:
     """Правила учётки (зовёт JSON API, `api.py`). Код ответа:
-    bad_user / dup_user / last_dir / ok_user."""
+    bad_user / uid_taken / dup_user / last_dir / ok_user.
+
+    Заведение (`new` или пустой `uid`) чужую учётку не трогает НИКОГДА: id —
+    свободный из имени (`_new_uid`), присланный занятый — отказ uid_taken.
+    До 22.10 занятый id в форме добавления молча правил того, чей он был:
+    имя, роль, врача и PIN. `uid` без `new` — правка или заведение под этим
+    id, как раньше."""
     uid, name, pin = uid.strip().lower()[:20], name.strip()[:60], pin.strip()
+    doctor_id = doctor_id if doctor_id in eng.DOCTORS else ""
+    if new or not uid:
+        if doctor_id:
+            # человек = врач: под другим именем летопись подписала бы записи
+            # врача не тем, кого видит журнал (Олег 19.10)
+            name = str(eng.DOCTORS[doctor_id])[:60]
+        if not name:
+            return "bad_user"
+        if uid and find_user(uid):
+            return "uid_taken"
+        uid, existing = uid or _new_uid(name), None
+    else:
+        existing = find_user(uid)
     if not _UID_RE.fullmatch(uid) or role not in ROLE_LABEL:
         return "bad_user"
-    existing = find_user(uid)
     if not existing and not pin:
         return "bad_user"                       # новому нужен пароль
     if pin and not pin_len_ok(pin):
@@ -799,8 +836,7 @@ async def _apply_user(uid: str, *, name: str, role: str, doctor_id: str,
             and role != ROLE_DIRECTOR and n_directors(excluding=uid) == 0):
         return "last_dir"
     save_user(uid, name=name or (existing or {}).get("name") or uid, role=role,
-              doctor_id=doctor_id if doctor_id in eng.DOCTORS else "",
-              pin=pin or None)
+              doctor_id=doctor_id, pin=pin or None)
     await remember_auth_file()      # своя запись — не «взлом» при след. старте
     return "ok_user"
 

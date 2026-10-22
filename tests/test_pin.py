@@ -212,6 +212,31 @@ def suite_roles(res: Result) -> None:
         res.check("и не удаляет сам себя",
                   boss.post_json("/api/settings/users/clinic/delete", {}).msg, "self_user")
 
+        # 22.10: в форме добавления нет id — его выбирает сервер по имени, а
+        # вход id не спрашивает: человека находит один PIN (pin_free)
+        res.check("новая учётка без id заводится",
+                  boss.post_json("/api/settings/users", {"new": True, "name": "Ștefan Țurcanu",
+                                                        "role": "receptie", "pin": "6262"}).msg,
+                  "ok_user")
+        r = Client(s.url).post_json("/api/auth/login", {"pin": "6262"})
+        res.ok("новичок входит одним PIN, без id; id — из имени",
+               r.status == 200 and json.loads(r.body)["data"]
+               == {"uid": "stefan-turcanu", "name": "Ștefan Țurcanu"}, f"{r!r} {r.body[:160]}")
+        res.check("и с этим id в необязательном поле входа",
+                  Client(s.url).post_json("/api/auth/login",
+                                          {"pin": "6262", "uid": "stefan-turcanu"}).status, 200)
+        # ⭐ до 22.10 занятый id в форме добавления молча переписывал чужую
+        # учётку: имя, роль, врача и PIN — здесь директором с новым паролем
+        before = next(u for u in _rec(s)["users"] if u["id"] == "ana")
+        res.check("занятый id при заведении — uid_taken",
+                  boss.post_json("/api/settings/users", {"new": True, "uid": "ana",
+                                                        "name": "Impostor", "role": "director",
+                                                        "pin": "6363"}).msg, "uid_taken")
+        res.ok("и чужая учётка цела до байта",
+               next(u for u in _rec(s)["users"] if u["id"] == "ana") == before,
+               "заведение под занятым id переписало чужую учётку")
+        boss.post_json("/api/settings/users/stefan-turcanu/delete", {})
+
         med = Client(s.url)
         med.post("/admin/login", password="2222", next="/admin")
         res.ok("врач входит своим паролем", med.get("/admin").status == 200,

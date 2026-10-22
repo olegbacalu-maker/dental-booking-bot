@@ -6,7 +6,7 @@ import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
 import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError, type ApiResult } from '../../services/api'
-import { settings, type SecurityData, type UserForm, type UserRow } from './settings'
+import { settings, type NewUserForm, type SecurityData, type UserForm, type UserRow } from './settings'
 
 const T = {
   pinTitle: 'Schimbă PIN',
@@ -25,7 +25,6 @@ const T = {
   remove: 'Șterge',
   confirm: 'Ștergeți contul {name}?',
   addName: 'Nume și prenume',
-  addUid: 'id (ex. d2, ana)',
   addPin: 'PIN {min}–{max} cifre',
   add: '+ Adaugă utilizator',
   hint:
@@ -40,7 +39,8 @@ const T = {
   offline: 'Programul nu răspunde. Reîncercați.',
 } as const
 
-const NEW_USER: UserForm = { uid: '', name: '', role: 'medic', doctor_id: '', pin: '' }
+/* id новой учётки выбирает сервер по имени (22.10): при входе его не спрашивают */
+const NEW_USER: NewUserForm = { new: true, name: '', role: 'medic', doctor_id: '', pin: '' }
 
 interface Props {
   navigate?: (url: string) => void
@@ -58,7 +58,7 @@ export function SecuritySettingsScreen({ navigate = defaultNavigate }: Props) {
   const [toast, setToast] = useState<ToastState | null>(null)
   const [busy, setBusy] = useState(false)
   const [pins, setPins] = useState({ old_pin: '', new1: '', new2: '' })
-  const [fresh, setFresh] = useState<UserForm>(NEW_USER)
+  const [fresh, setFresh] = useState<NewUserForm>(NEW_USER)
   const closeToast = useCallback(() => setToast(null), [])
 
   function fail(e: unknown) {
@@ -82,7 +82,7 @@ export function SecuritySettingsScreen({ navigate = defaultNavigate }: Props) {
     }
   }
 
-  async function saveUser(form: UserForm, after?: () => void) {
+  async function saveUser(form: UserForm | NewUserForm, after?: () => void) {
     setBusy(true)
     try {
       const r = await settings.userSave(form)
@@ -124,6 +124,10 @@ export function SecuritySettingsScreen({ navigate = defaultNavigate }: Props) {
   const max = data?.pin.max ?? 8
   const range = (t: string) => t.replace('{min}', String(data?.pin.min ?? '')).replace('{max}', String(max))
   const newPin = range(T.newPin)
+  // человек = врач (Олег 19.10): выбран врач — имя его и не правится; набранное
+  // вручную ждёт в `fresh.name`, если выбор вернут на «— nu e medic —»
+  const doctor = data?.doctors.find((d) => d.id === fresh.doctor_id)
+  const freshName = doctor ? doctor.name : fresh.name
 
   return (
     <section className="dp-react-root" aria-busy={data === null}>
@@ -151,19 +155,18 @@ export function SecuritySettingsScreen({ navigate = defaultNavigate }: Props) {
           ))}
         </tbody>
       </table>
-      <form className="add" onSubmit={(e) => { e.preventDefault(); void saveUser(fresh, () => setFresh(NEW_USER)) }}>
-        <input value={fresh.name} placeholder={T.addName} aria-label={T.addName} maxLength={60} required
-          style={{ width: 200 }} disabled={busy || !data} onChange={(e) => setFresh({ ...fresh, name: e.target.value })} />
-        <input value={fresh.uid} placeholder={T.addUid} aria-label={T.addUid} maxLength={20} required
-          style={{ width: 130 }} disabled={busy || !data} onChange={(e) => setFresh({ ...fresh, uid: e.target.value })} />
-        <select value={fresh.role} aria-label="rol" disabled={busy || !data}
-          onChange={(e) => setFresh({ ...fresh, role: e.target.value })}>
-          {Object.entries(data?.roles ?? {}).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
+      <form className="add" onSubmit={(e) => { e.preventDefault(); void saveUser({ ...fresh, name: freshName }, () => setFresh(NEW_USER)) }}>
         <select value={fresh.doctor_id} aria-label="medic" disabled={busy || !data}
           onChange={(e) => setFresh({ ...fresh, doctor_id: e.target.value })}>
           <option value="">{T.noDoctor}</option>
           {data?.doctors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </select>
+        <input value={freshName} placeholder={T.addName} aria-label={T.addName} maxLength={60} required
+          style={{ width: 200 }} disabled={busy || !data || doctor !== undefined}
+          onChange={(e) => setFresh({ ...fresh, name: e.target.value })} />
+        <select value={fresh.role} aria-label="rol" disabled={busy || !data}
+          onChange={(e) => setFresh({ ...fresh, role: e.target.value })}>
+          {Object.entries(data?.roles ?? {}).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
         <input type="password" value={fresh.pin} inputMode="numeric" maxLength={max} required
           placeholder={range(T.addPin)}

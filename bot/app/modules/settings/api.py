@@ -557,7 +557,7 @@ async def api_theme_logo_delete(request: Request):
 # Отказ проверки — 422; спор с состоянием клиники (чужой PIN, последний
 # директор, своя учётка, блокировка) — 409.
 _USER_HTTP = {"bad_user": 422, "bad_pin": 422, "dup_user": 409, "last_dir": 409,
-              "self_user": 409, "lock_pin": 409}
+              "self_user": 409, "lock_pin": 409, "uid_taken": 409}
 
 
 async def _security_data(me_id: str) -> dict:
@@ -590,8 +590,9 @@ async def api_security(request: Request):
 
 @router.post("/api/settings/users")
 async def api_user_save(request: Request):
-    """Завести или поправить сотрудника — те же правила, что у формы
-    (`_apply_user`): уникальный PIN, последний директор, длина PIN."""
+    """Завести или поправить сотрудника — правила `_apply_user`: уникальный
+    PIN, последний директор, длина PIN. Форма добавления шлёт `new: true` без
+    `uid` — id выбирает сервер; строка сотрудника — его `uid`."""
     if (deny := api_require(request, PERM_USERS)) is not None:
         return deny
     body = await api_body(request)
@@ -599,7 +600,8 @@ async def api_user_save(request: Request):
         return msg_json(False, "bad_user", status=422)
     s = lambda k: str(body.get(k) or "")  # noqa: E731 — три вызова, не функция
     code = await _apply_user(s("uid"), name=s("name"), role=s("role"),
-                             doctor_id=s("doctor_id"), pin=s("pin"))
+                             doctor_id=s("doctor_id"), pin=s("pin"),
+                             new=body.get("new") is True)
     if code != "ok_user":
         return msg_json(False, code, status=_USER_HTTP.get(code, 422))
     return msg_json(True, code, data=await _security_data(_me(request)))

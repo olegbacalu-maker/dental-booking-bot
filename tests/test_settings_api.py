@@ -736,6 +736,46 @@ def suite_security(res: Result) -> None:
         res.ok("удаление — ok_user, r8 исчез", _j(r)["code"] == "ok_user"
                and "r8" not in [u["id"] for u in _j(r)["data"]["users"]], r.body[:160])
 
+        # 22.10: форма добавления шлёт new без uid — id выбирает сервер по
+        # имени (`_new_uid`); занятый присланный id — отказ, а не правка чужой
+        def new(**kw):
+            return boss.post_json(users_api, {"new": True, "role": "receptie", **kw})
+
+        def ids(r) -> list:
+            return [u["id"] for u in _j(r)["data"]["users"]]
+        r = new(name="Ștefan Țurcanu", pin="5151")
+        res.ok("id из имени: диакритика свёрнута (db.fold)",
+               _j(r)["code"] == "ok_user" and "stefan-turcanu" in ids(r), r.body[:200])
+        res.ok("тёзка — свободный id с -2", "stefan-turcanu-2" in ids(new(name="Stefan Turcanu",
+                                                                          pin="5252")), "")
+        res.ok("кириллица — запасной u1", "u1" in ids(new(name="Анна Петрова", pin="5353")), "")
+        res.ok("и следующий — u2", "u2" in ids(new(name="Ирина", pin="5454")), "")
+        long_ = "Alexandru-Constantin Popescu"
+        a, b = ids(new(name=long_, pin="5656"))[-1], ids(new(name=long_, pin="5757"))[-1]
+        res.check("длинное имя — 20 знаков, тёзка — тоже с -2",
+                  (a, b), ("alexandru-constantin", "alexandru-constant-2"))
+        r = new(name="Hack", doctor_id="d1", role="medic", pin="5858")
+        doc = next(u for u in _j(r)["data"]["users"] if u["doctor_id"] == "d1")
+        res.check("у врача имя из каталога, id — из него, без точки",
+                  (doc["id"], doc["name"]),
+                  ("dr-arhivat-unu", next(x["name"] for x in d["doctors"] if x["id"] == "d1")))
+        res.check("свободный id можно прислать и при заведении",
+                  ids(new(uid="mx", name="M X", pin="5959"))[-1], "mx")
+        res.ok("все id проходят правило куки",
+               all(re.fullmatch(r"[a-z0-9_-]{2,20}", i) for i in ids(boss.get(api))), "")
+        before = next(u for u in _j(boss.get(api))["data"]["users"] if u["id"] == "ana")
+        r = new(uid="ana", name="Impostor", role="director", pin="6060")
+        res.ok("занятый id при заведении — 409 uid_taken со словами",
+               r.status == 409 and _j(r)["code"] == "uid_taken" and _j(r)["text"], r.body)
+        res.check("и чужая учётка цела",
+                  next(u for u in _j(boss.get(api))["data"]["users"] if u["id"] == "ana"), before)
+        res.check("без имени заведения нет — 422", new(name=" ", pin="6161").status, 422)
+        for uid in ("stefan-turcanu", "stefan-turcanu-2", "u1", "u2", "alexandru-constantin",
+                    "alexandru-constant-2", "dr-arhivat-unu", "mx"):
+            boss.post_json(f"/api/settings/users/{uid}/delete", {})
+        res.check("заведённые для проверки убраны",
+                  [u["id"] for u in _j(boss.get(api))["data"]["users"]], ["clinic", "ana", "d2"])
+
         ana = Client(s.url)
         ana.post("/admin/login", password="3333", next="/admin")
         res.check("регистратуре раздел закрыт — 403", ana.get(api).status, 403)
