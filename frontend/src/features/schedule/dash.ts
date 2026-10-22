@@ -209,6 +209,8 @@ export interface DashSlotForm {
   services: { id: string; label: string }[]
   /** Потолок поля «дата рождения» — сегодня В ЧАСАХ КЛИНИКИ. */
   birth_max: string
+  /** Галочка «SMS reminder»: пакет работает и у вошедшего право SMS. */
+  sms: boolean
 }
 
 /** Живое состояние панели целиком — то, что везёт `GET /api/schedule/live`. */

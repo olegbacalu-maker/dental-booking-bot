@@ -385,8 +385,11 @@ async def admin_doctor(request: Request, dk: str,
 
 async def _add_appt(adate: str, atime: str, adoctor: str, aservice: str,
                     aname: str, aphone: str = "", anophone: str = "",
-                    abirth: str = "") -> str:
+                    abirth: str = "", asms: bool | None = None) -> str:
     """Ручная запись (окно «Programare nouă»): код ответа — из `MSG_BANNER`.
+
+    `asms` — галочка «SMS reminder»: True/False — что сказал пациент, None —
+    галочки в окне не было (разбор у `_apply_sms`).
 
     Правило живёт здесь, а не в маршруте `api.py`: его зовут и окно записи
     «Programări», и диалог часа на панели, и проверок у маршрута своих нет —
@@ -461,6 +464,8 @@ async def _add_appt(adate: str, atime: str, adoctor: str, aservice: str,
                            doctor_id=adoctor, service_id=aservice,
                            duration_min=eng.svc_duration(aservice))
     msg = "ok" if isinstance(r, int) else ("dup" if r == "dup" else "conflict")
+    if isinstance(r, int) and not anophone:
+        await _apply_sms(r, asms)
     # ⛔ Визит лёг в ЧУЖУЮ карточку — по номеру нашёлся пациент с другим именем
     # (08-10). Чаще всего это ребёнок на телефоне родителя, и это норма; но
     # молча приклеивать к родителю нельзя: дальше туда пойдут одонтограмма,
@@ -482,6 +487,32 @@ async def _add_appt(adate: str, atime: str, adoctor: str, aservice: str,
     if msg == "ok" and eng.is_past_day(dt.date()):
         msg = "ok_past"
     return msg
+
+
+async def _apply_sms(appt_id: int, want: bool | None) -> None:
+    """Галочка «SMS reminder» окна записи → `patients.sms_off` того, кому
+    досталась запись (Олег 19.10: регистратор спросил — сразу отметил).
+
+    ⛔ Нет поля — нет записи (прайор 08-16, «отсутствие поля — не сообщали»):
+    галочки не было в окне (SMS не работают, нет права, старый клиент) —
+    `sms_off` пациента не трогается вовсе. ⛔ Поле принимается ровно там, где
+    форма его рисует, — тем же `day.sms_box()`, а не доверием браузеру: врач
+    без `PERM_SMS` присланным полем согласие не тронет. Цена названа: пакет
+    выключили, пока окно было открыто, — отметка этого окна не запишется
+    (SMS в этот момент и так не уходят, фиша остаётся).
+    ⚠️ Пишется только на успехе и только перемена: строка летописи — та же,
+    что у фиши, и на каждой записи постоянного пациента она бы множилась.
+    Безтелефонному (`fără telefon`) нечего напоминать — окно галочку
+    выключает, сервер её не читает.
+    """
+    if want is None or not pday.sms_box():
+        return
+    pid = await db.appt_patient_id(appt_id)
+    if pid is None:
+        return
+    off = not want
+    if await db.set_sms_off(pid, off):
+        await db.log_event(pid, "sms_off", db.SMS_OFF_EVENT[off])
 
 
 async def _add_note(ndate: str, ntime: str, ndoctor: str, ntext: str,

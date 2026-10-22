@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Icon } from '../../components/Icon'
 import { hideDialog, showDialog } from '../patients/card/dialog'
 import { day, type DayForm, type NewAppt } from './day'
+import { SmsCheck, useSmsBox } from './SmsBox'
 
 /* «Programare nouă» окном (06.10, Олег: форма внизу страницы — старый облик,
    на панели новая запись открывается окном). Ручная запись по телефону и у
@@ -27,7 +28,10 @@ import { day, type DayForm, type NewAppt } from './day'
    ⚠️ Ответ принимается только для той даты, которую спрашивали, и только
    если сервер ответил ЕЮ: набор года по цифрам — четыре даты подряд, а
    кривую дату сервер молча читает как сегодня. Не пришло — список дня
-   экрана, как до 19.10: запись всё равно проверит сервер. */
+   экрана, как до 19.10: запись всё равно проверит сервер.
+
+   ⭐ «SMS reminder» рядом с «fără telefon» (Олег 19.10) — `SmsBox`; видна
+   по `form.sms` дня ЭКРАНА: право и пакет от даты окна не зависят. */
 const T = {
   title: 'Programare nouă',
   date: 'Data',
@@ -58,9 +62,9 @@ interface Props {
   of: string
   busy: boolean
   onClose: () => void
-  /** `fail` — слово отказа В ОКНО (как у `SlotDialog`): плашка под открытым
-   *  `<dialog>` не видна. Окну шапки (`NewApptHost`) другой плашки нет вовсе;
-   *  день журнала пока отдаёт отказ своей плашкой и `fail` не зовёт. */
+  /** `fail` — слово отказа В ОКНО (как у `SlotDialog`): плашка экрана под
+   *  открытым `<dialog>` не видна (top layer). Так у обоих хозяев окна — дня
+   *  журнала и окна шапки (`NewApptHost`). */
   onAdd: (body: NewAppt, fail: (text: string) => void) => Promise<boolean>
 }
 
@@ -82,6 +86,7 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd }: Props)
   const [noPhone, setNoPhone] = useState(false)
   const [birth, setBirth] = useState('')
   const [fail, setFail] = useState('')
+  const sms = useSmsBox(form.sms, phone, noPhone)
 
   const other = at !== date && ISO_DAY.test(at)
   /* пока ответ в пути — последний пришедший список, а кнопка ждёт */
@@ -117,7 +122,7 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd }: Props)
     e.preventDefault()
     setFail('')
     const ok = await onAdd({ date: at, time, doctor, service, name,
-      phone: noPhone ? '' : phone, nophone: noPhone, birth }, setFail)
+      phone: noPhone ? '' : phone, nophone: noPhone, birth, ...sms.field }, setFail)
     if (ok) onClose()
   }
 
@@ -157,10 +162,13 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd }: Props)
                placeholder={T.name} required />
         <input value={noPhone ? '' : phone} onChange={(e) => setPhone(e.target.value)}
                placeholder={T.phone} required={!noPhone} disabled={noPhone} />
-        <label className="nophone">
-          <input type="checkbox" checked={noPhone}
-                 onChange={(e) => setNoPhone(e.target.checked)} /> {T.noPhone}
-        </label>
+        <div className="dp-addrow">
+          <label className="nophone">
+            <input type="checkbox" checked={noPhone}
+                   onChange={(e) => setNoPhone(e.target.checked)} /> {T.noPhone}
+          </label>
+          <SmsCheck box={sms} />
+        </div>
         <label className="dlab">{T.birth}
           <input type="date" value={birth} max={form.birth_max}
                  onChange={(e) => setBirth(e.target.value)} />

@@ -62,7 +62,8 @@ function model(over: Partial<DashModel> = {}): DashModel {
       collect: null,
       free: [{ dk: 'd2', name: 'Dr. Ion', when: 'azi 11:00', today: true, href: `/admin?date=${TODAY}` }],
     },
-    slotform: { services: [{ id: 'consult', label: 'Consultație' }], birth_max: TODAY },
+    slotform: { services: [{ id: 'consult', label: 'Consultație' }], birth_max: TODAY,
+      sms: false },
     minical: {
       title: 'Septembrie 2026', weekdays: ['Lu', 'Ma', 'Mi', 'Jo', 'Vi', 'Sâ', 'Du'],
       weeks: [[
@@ -813,6 +814,39 @@ describe('C26.5.3-c: диалог пустого часа', () => {
     const body = bodyOf(f.mock.calls.find(
       (c) => String(c[0]).includes('/schedule/appointments')))
     expect([body.nophone, body.phone, body.time]).toEqual([true, '', '10:00'])
+  })
+
+  /* ⭐ Галочка «SMS reminder» рядом с «fără telefon» (Олег 19.10): видна по
+     `slotform.sms` КОНВЕРТА (пакет работает и у вошедшего право), номер
+     справляется телом запроса, а не адресом; снятая уходит `sms: false`. */
+  it('«SMS reminder»: нет `slotform.sms` — галочки нет', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, model())))
+    await openSlot()
+    expect(document.querySelectorAll('dialog label.nophone').length).toBe(1)
+  })
+
+  it('«SMS reminder»: по `slotform.sms`, стоит у нового номера, снятая уходит `sms: false`', async () => {
+    const f = vi.fn(async (url: string) => (String(url).includes('/schedule/appointments')
+      ? cmdReply('ok', 'Programare adăugată')
+      : String(url).includes('/schedule/sms-of') ? reply(200, { sms: true })
+        : reply(200, model({ slotform: { ...model().slotform, sms: true } }))))
+    vi.stubGlobal('fetch', f as unknown as typeof fetch)
+    await openSlot()
+    const box = () => Array.from(document.querySelectorAll('dialog label.nophone'))
+      .find((l) => l.textContent?.includes('SMS reminder'))?.querySelector('input') as HTMLInputElement
+    expect(box().checked).toBe(true)
+    fill('Ana Munteanu', '069111222')
+    await waitFor(() => expect(f.mock.calls.some((c) => String(c[0]).includes('/schedule/sms-of')))
+      .toBe(true))
+    expect(bodyOf(f.mock.calls.find((c) => String(c[0]).includes('/schedule/sms-of'))))
+      .toEqual({ phone: '069111222' })
+    fireEvent.click(box())
+    fireEvent.submit(document.querySelector('dialog .dlg-form') as HTMLFormElement)
+
+    await waitFor(() => expect(document.querySelector('dialog[open]')).toBeNull())
+    const body = bodyOf(f.mock.calls.find(
+      (c) => String(c[0]).includes('/schedule/appointments')))
+    expect(body.sms).toBe(false)
   })
 
   it('⛔ на 409 диалог НЕ закрывается, набранное на месте, и канал всё равно спрошен', async () => {

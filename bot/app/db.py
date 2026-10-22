@@ -1741,10 +1741,46 @@ async def sms_visits_month(start: datetime, end: datetime) -> int:
     return int(v or 0)
 
 
-async def set_sms_off(pid: int, on: bool) -> None:
+# Строка летописи об отказе пациента от SMS — ОДНА на оба места, где его
+# отмечают: фишу («Fără remindere SMS») и галочку окна записи («SMS reminder»).
+SMS_OFF_EVENT = {True: "Remindere SMS oprite — la cererea pacientului",
+                 False: "Remindere SMS pornite din nou"}
+
+
+async def set_sms_off(pid: int, on: bool) -> bool:
     """«Fără remindere SMS» в фише. Летопись — вызывающий маршрут (он знает,
-    кто поставил)."""
-    await _execute("UPDATE patients SET sms_off = ? WHERE id = ?", int(bool(on)), pid)
+    кто поставил). Ответ — изменилось ли значение: окно записи пишет строку
+    летописи только на перемене, а не на каждой записи."""
+    return await _execute(
+        "UPDATE patients SET sms_off = ? WHERE id = ? AND COALESCE(sms_off, 0) <> ?",
+        int(bool(on)), pid, int(bool(on))) > 0
+
+
+async def manual_patient_sms_off(phone: str) -> bool | None:
+    """`sms_off` пациента, в чью карточку ЛЯЖЕТ ручная запись с этим номером;
+    None — карточки ещё нет (запись заведёт новую).
+
+    ⚠️ Правило выбора — то же, что у `admin_add`: ровно одно совпадение по
+    цифрам — он; иначе склейка по ключу `manual:<цифры>`. Галочка окна
+    показывает ЭТОГО пациента: ребёнок на номере родителя — значит родителя,
+    туда же уйдёт и визит. Пишет галочку не этот ответ, а сама запись по id
+    созданного визита (`appt_patient_id`), так что разойтись здесь может
+    только показ."""
+    digits = "".join(ch for ch in phone if ch.isdigit())
+    if not digits:
+        return None
+    ids = await _patient_ids_by_digits(digits)
+    pid = ids[0] if len(ids) == 1 else await patient_id_by_key(manual_key(digits))
+    if pid is None:
+        return None
+    return bool(await _fetchval(
+        "SELECT COALESCE(sms_off, 0) FROM patients WHERE id = ?", pid))
+
+
+async def appt_patient_id(appt_id: int) -> int | None:
+    """Пациент записи — по её id (окно записи узнаёт, кому досталась запись)."""
+    v = await _fetchval("SELECT patient_id FROM appointments WHERE id = ?", appt_id)
+    return int(v) if v is not None else None
 
 
 # ---------- журнал/поиск/статусы ----------

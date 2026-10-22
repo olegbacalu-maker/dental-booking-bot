@@ -290,6 +290,18 @@ def suite_actions(res: Result) -> None:
                   ([x["id"] for x in j["data"]["doctors"]],
                    [x["id"] for x in j["data"]["canvas"]["columns"]]), (["d3"], ["d3"]))
 
+        # --- галочка «SMS reminder» (п.7, 22.10) — у клиники БЕЗ пакета ---
+        # С пакетом и по ролям — test_sms.suite_box.
+        res.check("без пакета SMS галочки нет в форме дня",
+                  j["data"]["form"]["sms"], False)
+        r = c.post_json(f"/api/schedule/appointments{q}",
+                        {**ok, "time": "15:00", "doctor": "d3", "name": "Fara Sms",
+                         "phone": "069161888", "sms": False})
+        pid = next(x["pid"] for x in _items(_j(r)["data"]) if x.get("name") == "Fara Sms")
+        res.check("присланная галочка без пакета — sms_off пациента не тронут",
+                  (_j(r)["code"], _j(c.get(f"/api/patients/{pid}"))["data"]["profile"]["sms_off"]),
+                  ("ok", False))
+
 
 # ------------------------------------------------------- таблица отказов
 

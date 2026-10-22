@@ -13,6 +13,8 @@ from datetime import date, datetime
 
 from ... import db
 from ... import engine as eng
+from ...core import sms_loop
+from ...core.auth import PERM_SMS, can, request_user
 from ...core.layout import _DOW_FULL, _DOW_ORDER, STATUS_LABEL, tg_configured
 from ...core.visits import _age, all_status_actions, call_fields, list_rows
 
@@ -126,6 +128,7 @@ def form_spec(d: date, items: list, sel_doctor: str = "",
         "doctor": cur,
         "time": sel_time if sel_time in times.get(cur, hours) else "",
         "birth_max": birth_max(),
+        "sms": sms_box(),
     }
 
 
@@ -142,6 +145,20 @@ def birth_max() -> str:
     return datetime.now(eng.TZ).date().isoformat()
 
 
+def sms_box() -> bool:
+    """Показывать ли в окне записи галочку «SMS reminder» (Олег 19.10).
+
+    Два условия, оба нужны: пакет РАБОТАЕТ (`sms_loop.active()` — то же
+    состояние, что решает лист acord и отправку: без него галочка обещала бы
+    напоминание, которого не будет) и у вошедшего есть право `PERM_SMS` (врач
+    SMS не видит вовсе, Олег 22.10). ⚠️ Ответ зависит от вошедшего — как и
+    касса «La recepție» (`desk.collect` по `PERM_MONEY`) в том же живом
+    конверте: конверт строится на каждый запрос, отпечаток — от отправленного,
+    и у одного человека он детерминирован, как и было.
+    """
+    return sms_loop.active() and can(request_user(), PERM_SMS)
+
+
 def slot_form(d: date) -> dict:
     """Что нужно диалогу пустого часа на ПАНЕЛИ — и только это.
 
@@ -152,7 +169,7 @@ def slot_form(d: date) -> dict:
     """
     del d  # день приходит параметром ради симметрии с `form_spec`
     return {"services": [{"id": k, "label": v["ro"]} for k, v in eng.SERVICES.items()],
-            "birth_max": birth_max()}
+            "birth_max": birth_max(), "sms": sms_box()}
 
 # --------------------------------------------------------------- модель 2.0
 # ⚠️ Здесь НЕ появляется ни одного нового правила: всё, что ниже, собирает уже

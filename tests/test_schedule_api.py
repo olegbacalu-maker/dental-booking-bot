@@ -492,7 +492,7 @@ def suite_live_envelope(res: Result) -> None:
                   (sorted(env["actions"]), "cancelled" in env["note_actions"],
                    sorted(env["slotform"]),
                    all(isinstance(x, int) for x in env["note_ends"])),
-                  (sorted(env["actions"]), True, ["birth_max", "services"], True))
+                  (sorted(env["actions"]), True, ["birth_max", "services", "sms"], True))
         # ⛔ Потолок даты рождения — СЕГОДНЯ В ЧАСАХ КЛИНИКИ. Считанный от
         # `date.today()`, он переворачивал бы отпечаток в полночь по часам
         # машины и расходился бы под `TZ=UTC0` с остальной моделью.

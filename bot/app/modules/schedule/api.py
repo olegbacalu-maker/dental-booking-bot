@@ -31,8 +31,8 @@ from fastapi import APIRouter, Query, Request
 
 from ... import db
 from ... import engine as eng
-from ...core.api import api_body, api_guard, live_envelope, live_reply
-from ...core.auth import request_user
+from ...core.api import api_body, api_guard, api_require, live_envelope, live_reply
+from ...core.auth import PERM_SMS, request_user
 from ...core.layout import msg_json
 from ...core.visits import _collect_cards, _parse_date, all_status_actions
 from . import chair as pchair
@@ -237,10 +237,12 @@ async def api_canvas(request: Request, date_q: str = Query("", alias="date")):
 async def api_add(request: Request, date_q: str = Query("", alias="date"),
                   doctor: str = Query(""), f: str = Query(""),
                   screen: str = Query("")):
-    """Ручная запись: {date, time, doctor, service, name, phone, nophone, birth}.
+    """Ручная запись: {date, time, doctor, service, name, phone, nophone, birth, sms?}.
 
     ⚠️ `nophone` — намерение ИЗ ФОРМЫ, а не «телефон пустой» (прайор 08-16):
     пустой номер без галочки остаётся отказом `bad_phone`.
+    ⚠️ `sms` — галочка «SMS reminder»: только `true`/`false` считается ответом
+    пациента; нет ключа или не bool — «не сообщали», `sms_off` не тронут.
     ⚠️ `screen` — «я поверхность со своей моделью, состояния мне не давай»
     (`panel`, `med`, `new_appt`; разбор в `_done`). ⛔ Параметр обязан быть ОБЪЯВЛЕН, а не
     просто послан: неизвестный параметр строки запроса FastAPI молча
@@ -252,10 +254,31 @@ async def api_add(request: Request, date_q: str = Query("", alias="date"),
     body = await api_body(request)
     if body is None:
         return msg_json(False, "bad", status=422)
+    sms = body.get("sms")
     code = await _add_appt(_s(body, "date"), _s(body, "time"), _s(body, "doctor"),
                            _s(body, "service"), _s(body, "name"), _s(body, "phone"),
-                           "1" if body.get("nophone") else "", _s(body, "birth"))
+                           "1" if body.get("nophone") else "", _s(body, "birth"),
+                           sms if isinstance(sms, bool) else None)
     return await _done(code, _screen(date_q), doctor, f=f, screen=screen)
+
+
+@router.post("/api/schedule/sms-of")
+async def api_sms_of(request: Request):
+    """{phone} → `{sms}`: с чем стоит галочка «SMS reminder» окна записи для
+    этого номера. Пациент есть — его нынешнее согласие (НЕ `sms_off`), нет —
+    `true`: новый пациент напоминания получает (Олег 22.10).
+
+    ⚠️ POST, а не `?phone=` в адресе: номер пациента не едет строкой запроса.
+    Только читает. Под `PERM_SMS` — тому, кому галочку не рисуют, и ответ
+    про чужое согласие не нужен.
+    """
+    if (deny := api_require(request, PERM_SMS)) is not None:
+        return deny
+    body = await api_body(request)
+    if body is None:
+        return msg_json(False, "bad", status=422)
+    off = await db.manual_patient_sms_off(_s(body, "phone"))
+    return msg_json(True, data={"sms": not off})
 
 
 @router.post("/api/schedule/notes")

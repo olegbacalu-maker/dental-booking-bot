@@ -37,6 +37,8 @@ export interface SlotFormView {
   services: { id: string; label: string }[]
   /** Потолок поля «дата рождения» — сегодня В ЧАСАХ КЛИНИКИ. */
   birth_max: string
+  /** Галочка «SMS reminder» (`day.sms_box`); нет поля — галочки нет. */
+  sms?: boolean
 }
 
 export interface SlotTimes {

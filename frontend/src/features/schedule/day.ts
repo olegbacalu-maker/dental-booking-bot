@@ -179,6 +179,9 @@ export interface DayForm {
   doctor: string
   time: string
   birth_max: string
+  /** Рисовать ли галочку «SMS reminder» (`day.sms_box`: пакет работает и у
+   *  вошедшего право SMS). Нет поля — галочки нет. */
+  sms?: boolean
 }
 
 /** Строка «Lista zilei». ⚠️ Комментарий здесь УЖЕ обрезан до 80 знаков:
@@ -268,6 +271,9 @@ export interface NewAppt {
   phone: string
   nophone: boolean
   birth: string
+  /** Галочка «SMS reminder» — только ТРОНУТАЯ (`SmsBox`); нет поля —
+   *  `sms_off` пациента сервер не трогает. */
+  sms?: boolean
 }
 
 export interface NewNote {
@@ -291,6 +297,11 @@ export const day = {
    *  сервера), ответ — код и слово. Тело — то же `NewAppt`: правило одно. */
   record: (body: NewAppt) =>
     api.post<void>('/schedule/appointments?screen=new_appt', body),
+
+  /** С чем стоит галочка «SMS reminder» для этого номера: согласие того, в
+   *  чью карточку ляжет запись, у нового — `true`. Номер — телом, не адресом. */
+  smsOf: (phone: string, signal?: AbortSignal) =>
+    api.post<{ sms: boolean }>('/schedule/sms-of', { phone }, signal ? { signal } : {}),
 
   note: (at: string, doctor: string, f: string, body: NewNote) =>
     api.post<DayModel>(`/schedule/notes${screen(at, doctor, f)}`, body),

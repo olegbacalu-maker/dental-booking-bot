@@ -3,6 +3,7 @@ import { Icon } from '../../components/Icon'
 import { hideDialog, showDialog } from '../patients/card/dialog'
 import type { NewAppt, NewNote } from './day'
 import { slotTimes, type FreeHalves, type Slot, type SlotFormView } from './slot'
+import { SmsCheck, useSmsBox } from './SmsBox'
 
 /* Диалог свободной ячейки «+» (C25.5b): записать пациента ИЛИ заблокировать
    часы заметкой стойки. Разметка — те же классы, что печатает `_slot_modal`.
@@ -35,7 +36,9 @@ import { slotTimes, type FreeHalves, type Slot, type SlotFormView } from './slot
    ⭐ Занятость стартов — подсказка по канве (`free`, как `busyAt` у переноса):
    занятый получас не нажать, оба заняты — кнопка выключена и сказано почему.
    Правду по-прежнему говорит сервер под своим замком: пока окно открыто, час
-   мог занять второй администратор, и его отказ придёт тем же `fail`. */
+   мог занять второй администратор, и его отказ придёт тем же `fail`.
+   ⭐ «SMS reminder» рядом с «fără telefon» (Олег 19.10) — `SmsBox`, та же,
+   что у `AddDialog`; видна по `form.sms`. */
 const T = {
   appt: 'Programare',
   note: 'Notiță / blocare',
@@ -87,6 +90,7 @@ export function SlotDialog({ open, slot, date, form, noteEnds, free, busy,
   const [phone, setPhone] = useState('')
   const [noPhone, setNoPhone] = useState(false)
   const [birth, setBirth] = useState('')
+  const sms = useSmsBox(form.sms, phone, noPhone)
   const [text, setText] = useState('')
   const [until, setUntil] = useState(0)
 
@@ -102,7 +106,7 @@ export function SlotDialog({ open, slot, date, form, noteEnds, free, busy,
     e.preventDefault()
     setFail('')
     const ok = await onAdd({ date, time: atime, doctor: slot.dk, service, name,
-      phone: noPhone ? '' : phone, nophone: noPhone, birth }, setFail)
+      phone: noPhone ? '' : phone, nophone: noPhone, birth, ...sms.field }, setFail)
     if (ok) onClose()
   }
 
@@ -152,10 +156,13 @@ export function SlotDialog({ open, slot, date, form, noteEnds, free, busy,
                  placeholder={T.name} required />
           <input value={noPhone ? '' : phone} onChange={(e) => setPhone(e.target.value)}
                  placeholder={T.phone} required={!noPhone} disabled={noPhone} />
-          <label className="nophone">
-            <input type="checkbox" checked={noPhone}
-                   onChange={(e) => setNoPhone(e.target.checked)} /> {T.noPhone}
-          </label>
+          <div className="dp-addrow">
+            <label className="nophone">
+              <input type="checkbox" checked={noPhone}
+                     onChange={(e) => setNoPhone(e.target.checked)} /> {T.noPhone}
+            </label>
+            <SmsCheck box={sms} />
+          </div>
           <label className="dlab">{T.birth}
             <input type="date" value={birth} max={form.birth_max}
                    onChange={(e) => setBirth(e.target.value)} />

@@ -32,7 +32,8 @@ import time
 from datetime import date, datetime, timedelta
 
 from harness import (BOT, FIXTURES, ROOT, Client, Clock, Result, Server, TZ, _rmtree_settled,
-                     add_appt, appt_id, day_model, new_patient, pid_by_phone, shell_model)
+                     add_appt, appt_id, day_model, new_patient, panel_live, pid_by_phone,
+                     shell_model)
 import test_license_renew as lr
 
 FIX = ROOT / "tests" / "fixtures" / "license"
@@ -851,6 +852,118 @@ def suite_screen(res: Result) -> None:
                 res.check("заказ — 409 sms_unavailable", c.post_json("/api/settings/sms/order", {"pack": 100}).msg, "sms_unavailable")
         finally:
             _rmtree_settled(d2)
+    finally:
+        stand.close()
+        _rmtree_settled(d)
+
+
+def _off(d: pathlib.Path, pid: int) -> int:
+    return _rows(d, "SELECT COALESCE(sms_off, 0) AS v FROM patients WHERE id = ?", pid)[0]["v"]
+
+
+def suite_box(res: Result) -> None:
+    """Галочка «SMS reminder» окна записи (Олег 19.10, п.7 четверга 22.10).
+
+    Видна по `sms_loop.active()` И праву `PERM_SMS` (врач — нет); пишет
+    `patients.sms_off` — то же поле, что фиша, — только присланная и только
+    переменой, строкой летописи фиши. Без поля, на отказе записи, без телефона,
+    у врача и при выключенном пакете `sms_off` не трогается.
+    ⚠️ Ветка PIN-файла, а не ADMIN_KEY: роль у ADMIN_KEY одна — директор."""
+    stand = Stand()
+    renew = {"url": stand.url, "token": TOKEN}
+    d = pathlib.Path(tempfile.mkdtemp(prefix="dp_sms6_"))
+    env = {**KEY_ENV, **TICK, "ADMIN_KEY": ""}
+    mon, tue = "2026-11-09", "2026-11-10"
+    oprite, pornite = ("Remindere SMS oprite — la cererea pacientului",
+                       "Remindere SMS pornite din nou")
+    try:
+        _clinic_weekdays(d)
+        (d / "license.json").write_text(lr._file(5, renew), encoding="utf-8")
+        with Clock(_at(2026, 11, 6, 9, 0)):
+            with Server(dir_=d, env=env) as s:
+                boss = Client(s.url)
+                boss.post("/admin/setup", pin1="1111", pin2="1111")
+                for uid, role, pin, extra in (("ana", "receptie", "3333", {}),
+                                              ("d2", "medic", "2222", {"doctor_id": "d2"})):
+                    res.check(f"учётка {role} заведена", boss.post_json(
+                        "/api/settings/users", {"uid": uid, "name": uid.title(), "role": role,
+                                                "pin": pin, **extra}).msg, "ok_user")
+                rec, med = Client(s.url), Client(s.url)
+                rec.post("/admin/login", password="3333", next="/admin")
+                med.post("/admin/login", password="2222", next="/admin")
+
+                # видимость: пакет и право
+                res.ok("пакет заработал — директору галочка в форме дня",
+                       _wait(lambda: day_model(boss, mon)["form"]["sms"]) is True)
+                res.ok("регистратуре — в форме дня и в форме пустого часа панели",
+                       day_model(rec, mon)["form"]["sms"] is True
+                       and panel_live(rec, mon)["slotform"]["sms"] is True)
+                res.ok("врачу — ни там, ни там (Олег 22.10)",
+                       day_model(med, mon)["form"]["sms"] is False
+                       and panel_live(med, mon)["slotform"]["sms"] is False)
+
+                # справка окна по номеру
+                r = rec.post_json("/api/schedule/sms-of", {"phone": "069000801"})
+                res.ok("новый номер — галочка стоит", r.status == 200 and _j(r)["data"] == {"sms": True},
+                       r.body[:200])
+                r = med.post_json("/api/schedule/sms-of", {"phone": "069000801"})
+                res.check("врачу справка закрыта", (r.status, r.msg), (403, "no_access"))
+
+                # новый без поля — SMS включены, летопись молчит
+                res.check("A: запись без поля", add_appt(rec, mon, "12:00", "Box Alfa", "069000801").msg, "ok")
+                a = pid_by_phone(boss, "069000801")
+                res.ok("A: новый пациент — SMS включены, строк SMS в летописи нет",
+                       _off(d, a) == 0 and _events(d, a) == [], repr(_events(d, a)))
+                # новый со снятой галочкой
+                res.check("B: запись со снятой галочкой",
+                          add_appt(rec, mon, "13:00", "Box Beta", "069000802", sms=False).msg, "ok")
+                b = pid_by_phone(boss, "069000802")
+                res.ok("B: sms_off=1 и строка летописи фиши, подписанная вошедшим",
+                       _off(d, b) == 1 and _events(d, b) == [oprite]
+                       and _rows(d, "SELECT actor FROM activity WHERE patient_id = ? AND kind = 'sms_off'",
+                                 b)[0]["actor"] == "Ana", repr(_events(d, b)))
+                card = _j(boss.get(f"/api/patients/{b}"))["data"]["profile"]
+                res.check("фиша B показывает тот же отказ", card["sms_off"], True)
+                r = rec.post_json("/api/schedule/sms-of", {"phone": "069 000-802"})
+                res.check("справка по номеру B (те же цифры с пробелами) — не стоит", _j(r)["data"], {"sms": False})
+
+                # без поля — не тронут; то же значение — без второй строки
+                res.check("B: вторая запись без поля",
+                          add_appt(rec, tue, "12:00", "Box Beta", "069000802").msg, "ok")
+                res.ok("B: без поля sms_off не тронут", _off(d, b) == 1 and len(_events(d, b)) == 1)
+                res.check("B: третья запись с той же снятой галочкой",
+                          add_appt(rec, tue, "13:00", "Box Beta", "069000802", sms=False).msg, "ok")
+                res.ok("B: значение не сменилось — второй строки нет", _events(d, b) == [oprite],
+                       repr(_events(d, b)))
+                res.check("B: запись с поставленной галочкой",
+                          add_appt(rec, tue, "14:00", "Box Beta", "069000802", sms=True).msg, "ok")
+                res.ok("B: SMS снова включены, строка «pornite din nou»",
+                       _off(d, b) == 0 and _events(d, b) == [oprite, pornite], repr(_events(d, b)))
+
+                # не ответ пациента — не запись
+                r = add_appt(rec, mon, "12:00", "Box Alfa", "069000801", sms=False)
+                res.ok("A: отказ записи (тот же час) — sms_off не тронут",
+                       r.msg != "ok" and _off(d, a) == 0, f"{r.msg} {_off(d, a)}")
+                res.check("A: поле не bool (0) — «не сообщали»",
+                          (add_appt(rec, tue, "15:00", "Box Alfa", "069000801", sms=0).msg, _off(d, a)),
+                          ("ok", 0))
+                res.check("без телефона: запись со снятой галочкой",
+                          add_appt(rec, tue, "16:00", "Box Fara", "", nophone=True, sms=False).msg, "ok")
+                res.check("без телефона: sms_off не тронут",
+                          _rows(d, "SELECT COALESCE(sms_off, 0) AS v FROM patients WHERE name = 'Box Fara'")[0]["v"], 0)
+                res.check("C: врач прислал снятую галочку — запись идёт",
+                          add_appt(med, mon, "14:00", "Box Gama", "069000803", sms=False).msg, "ok")
+                cc = pid_by_phone(boss, "069000803")
+                res.ok("C: у врача права нет — sms_off не тронут", _off(d, cc) == 0 and _events(d, cc) == [])
+
+                # пакет выключен — галочки нет, присланное не пишется
+                boss.post_json("/api/settings/sms", {"day_before": {"on": False}, "same_day": {"on": False}})
+                res.ok("события выключены — галочки нет ни в форме дня, ни у панели",
+                       day_model(rec, mon)["form"]["sms"] is False
+                       and panel_live(rec, mon)["slotform"]["sms"] is False)
+                res.check("A: запись со снятой галочкой при выключенном пакете",
+                          add_appt(rec, mon, "15:00", "Box Alfa", "069000801", sms=False).msg, "ok")
+                res.ok("A: sms_off не тронут", _off(d, a) == 0 and _events(d, a) == [])
     finally:
         stand.close()
         _rmtree_settled(d)

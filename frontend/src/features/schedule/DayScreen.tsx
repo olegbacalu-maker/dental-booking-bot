@@ -312,7 +312,7 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
       {adding && m.form
         ? <AddDialog key={m.date} open form={m.form} date={m.date} of={doctor} busy={busy}
                      onClose={closeAdd}
-                     onAdd={(b) => act(() => day.add(at, doctor, tile, b))} />
+                     onAdd={(b, fail) => act(() => day.add(at, doctor, tile, b), fail)} />
         : null}
 
       {slot && m.form

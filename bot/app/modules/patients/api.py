@@ -501,8 +501,7 @@ async def api_patient_sms_off(request: Request, pid: int):
     body = await api_body(request)
     on = bool((body or {}).get("on", True))
     await db.set_sms_off(pid, on)
-    await db.log_event(pid, "sms_off", "Remindere SMS oprite — la cererea pacientului" if on
-                       else "Remindere SMS pornite din nou")
+    await db.log_event(pid, "sms_off", db.SMS_OFF_EVENT[on])
     return await _card_reply(request, pid, "ok_card")
 
 

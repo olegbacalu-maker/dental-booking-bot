@@ -456,16 +456,86 @@ describe('окно записи «Programare nouă»', () => {
   })
 
   /* ⛔ Окно закрывается ТОЛЬКО на удаче: закрыть форму, из которой ничего не
-     записалось, значит потерять ввод и не сказать почему. */
-  it('отказ: окно остаётся открытым с набранным', async () => {
-    post.mockRejectedValue(new Error('interval ocupat'))
+     записалось, значит потерять ввод и не сказать почему.
+     ⛔ И слово отказа — В САМОМ окне (22.10): плашка экрана живёт под
+     модальным `<dialog>` (top layer), и до 22.10 отказ на дне журнала было не
+     видно вовсе. */
+  it('отказ: окно остаётся открытым с набранным, слово отказа — в окне', async () => {
+    post.mockRejectedValue(new ApiError(
+      { kind: 'conflict', code: 'conflict', text: 'Intervalul este ocupat' }, 'c'))
     const { router } = await openAdd()
     fireEvent.change(field('Nume pacient'), { target: { value: 'Vasile Lupu' } })
     fireEvent.change(field('Telefon'), { target: { value: '069112233' } })
     fireEvent.submit(addForm() as HTMLFormElement)
-    await waitFor(() => expect(document.querySelector('.toastbox')).toBeTruthy())
+    await waitFor(() => expect(addForm()?.querySelector('.banner.err')?.textContent)
+      .toBe('Intervalul este ocupat'))
+    expect(document.querySelector('.toastbox')).toBeNull()
     expect(router.state.location.hash).toBe('#addform')
     expect(field('Nume pacient').value).toBe('Vasile Lupu')
+  })
+
+  /* ⭐ Галочка «SMS reminder» (Олег 19.10) рядом с «fără telefon»: видна по
+     `form.sms` сервера, в тело уходит только тронутая (`SmsBox`). */
+  describe('галочка «SMS reminder»', () => {
+    const box = () => {
+      const label = Array.from(addForm()?.querySelectorAll('label.nophone') ?? [])
+        .find((l) => l.textContent?.includes('SMS reminder'))
+      return (label?.querySelector('input') as HTMLInputElement | undefined) ?? null
+    }
+    const withSms = (on: boolean) => get.mockResolvedValue(ok({ ...MODEL,
+      form: { ...(MODEL.form as DayForm), sms: on } }))
+
+    it('сервер не сказал `sms` — галочки нет, рядом одна «fără telefon»', async () => {
+      withSms(false)
+      await openAdd()
+      expect(addForm()?.querySelectorAll('label.nophone').length).toBe(1)
+      expect(box()).toBeNull()
+    })
+
+    it('у нового номера стоит; нетронутая — в теле поля нет', async () => {
+      withSms(true)
+      post.mockImplementation((path: string) => Promise.resolve(path === '/schedule/sms-of'
+        ? ok({ sms: true }) : ok(MODEL)))
+      await openAdd()
+      expect(box()?.checked).toBe(true)
+      fireEvent.change(field('Nume pacient'), { target: { value: 'Vasile Lupu' } })
+      fireEvent.change(field('Telefon'), { target: { value: '069112233' } })
+      await waitFor(() => expect(post).toHaveBeenCalledWith('/schedule/sms-of',
+        { phone: '069112233' }, expect.anything()))
+      fireEvent.submit(addForm() as HTMLFormElement)
+      await waitFor(() => expect(post).toHaveBeenCalledWith(
+        '/schedule/appointments?date=2026-09-23', expect.not.objectContaining({ sms: expect.anything() })))
+    })
+
+    it('номер пациента, отказавшегося от SMS, — галочка снята; поставленная руками уходит `sms: true`', async () => {
+      withSms(true)
+      post.mockImplementation((path: string) => Promise.resolve(path === '/schedule/sms-of'
+        ? ok({ sms: false }) : ok(MODEL)))
+      await openAdd()
+      fireEvent.change(field('Nume pacient'), { target: { value: 'Vasile Lupu' } })
+      fireEvent.change(field('Telefon'), { target: { value: '069 112 233' } })
+      await waitFor(() => expect(box()?.checked).toBe(false))
+      fireEvent.click(box() as HTMLInputElement)
+      expect(box()?.checked).toBe(true)
+      fireEvent.submit(addForm() as HTMLFormElement)
+      await waitFor(() => expect(post).toHaveBeenCalledWith(
+        '/schedule/appointments?date=2026-09-23', expect.objectContaining({ sms: true })))
+    })
+
+    it('«fără telefon» выключает галочку, и поля в теле нет даже у тронутой', async () => {
+      withSms(true)
+      post.mockResolvedValue(ok(MODEL))
+      await openAdd()
+      fireEvent.click(box() as HTMLInputElement)
+      expect(box()?.checked).toBe(false)
+      fireEvent.click(addForm()?.querySelector('label.nophone input') as HTMLElement)
+      expect(box()?.disabled).toBe(true)
+      fireEvent.change(field('Nume pacient'), { target: { value: 'Vasile Lupu' } })
+      fireEvent.submit(addForm() as HTMLFormElement)
+      await waitFor(() => expect(post).toHaveBeenCalledWith(
+        '/schedule/appointments?date=2026-09-23', expect.objectContaining({ nophone: true })))
+      expect(post.mock.calls.at(-1)?.[1]).not.toHaveProperty('sms')
+    })
   })
 
   /* ⛔ Смена дня — это новая запись, как перезагрузка старой страницы (Олег
