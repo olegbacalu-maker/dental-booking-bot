@@ -235,8 +235,9 @@ def seed(c: Client, day: str) -> None:
 
 def seed_facts(c: Client, day: str, canvas: dict) -> None:
     """Факты 90-минутного визита дня врача: восемь рисков (atenționări и
-    анамнез без пересечений — сервер их не сведёт), четыре процедуры плана,
-    долг и прошлый визит. Пять строк колонки на полу часа — им не влезть."""
+    анамнез без пересечений — сервер их не сведёт), четыре процедуры плана
+    и прошлый визит. Пять строк колонки на полу часа — им не влезть.
+    Денег на карточке нет (Олег 22.10), засев их и не кладёт."""
     pid = next(b["pid"] for col in canvas["columns"] for b in col["blocks"]
                if b["kind"] == "appt" and b["name"] == RISKY)
     for kind, text in (("allergy", "Alergie: penicilină"), ("medication", "Anticoagulant: Xarelto"),
@@ -248,7 +249,6 @@ def seed_facts(c: Client, day: str, canvas: dict) -> None:
                         ("11", "Coroană ceramică"), ("36", "Tratament endodontic")):
         c.post_json(f"/api/patients/{pid}/plan", {"tooth": tooth, "procedure": proc,
                                                  "doctor": "", "price": "900", "due_date": ""})
-    c.post_json(f"/api/patients/{pid}/payments", {"amount": "500", "method": "card", "note": ""})
     # прошлый визит — тем же телефоном, то есть тем же пациентом
     phone = f"069{[r[3] for r in ROWS].index(RISKY):06d}"
     prev = (date.fromisoformat(day) - timedelta(days=40)).isoformat()

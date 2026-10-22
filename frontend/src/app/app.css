@@ -1594,8 +1594,9 @@ dialog.dp-about { width: 460px; }
 .gappt.slim:not(.duo) .vf-col > .vf-more.on { position: static; flex: none; }
 .gappt.slim .vf-what { display: none; }
 /* Тоны — как на макете, который выбрал Олег: atenționări фиши (тон сервера
-   `orange` — аллергия и лекарство) красной заливкой, особое (`red`) и долг —
-   ещё и рамкой; анамнез — янтарём; «не собран» — серым. */
+   `orange` — аллергия и лекарство) красной заливкой, особое (`red`) — ещё и
+   рамкой; анамнез — янтарём; «не собран» — серым. Денег на карточке нет
+   (Олег 22.10). */
 .vf-chip {
   display: block; height: 15px; margin-bottom: 1px; padding: 0 6px; border-radius: var(--r-xs);
   font-size: var(--fs-xs); font-weight: 600; line-height: 15px;
@@ -1612,8 +1613,6 @@ dialog.dp-about { width: 460px; }
 .vf-chip.grey {
   background: color-mix(in srgb, var(--panel) 70%, transparent); color: var(--text3); font-weight: 500;
 }
-.vf-row { display: flex; align-items: center; gap: 5px; height: 16px; min-width: 0; overflow: hidden; }
-.vf-row .vf-chip { margin-bottom: 0; }
 .vf-pl { display: flex; align-items: center; gap: 3px; height: 16px; min-width: 0; }
 .vf-tn {
   flex: none; min-width: 20px; height: 15px; padding: 0 3px; border-radius: var(--r-xs);

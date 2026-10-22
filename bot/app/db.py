@@ -1837,19 +1837,21 @@ async def appointment_days(start: datetime, end: datetime) -> list:
 async def day_patient_facts(pids: list, before: datetime) -> dict:
     """Что карточка визита дня ОДНОГО врача знает о его пациентах (22.10,
     вариант A Олега): прошлые визиты с графой «Tratament» дневника,
-    предупреждения фиши, анамнез, активный план, начислено и оплачено.
+    предупреждения фиши, анамнез, активный план.
 
-    ⭐ ШЕСТЬ выборок на весь день по списку пациентов, а не запрос на визит:
-    день врача с двенадцатью визитами стоил бы восемьдесят запросов на каждое
+    ⭐ ЧЕТЫРЕ выборки на весь день по списку пациентов, а не запрос на визит:
+    день врача с двенадцатью визитами стоил бы полсотни запросов на каждое
     открытие и на каждый ответ действия (`_done` отдаёт свежий день).
     Визиты — только до `before` (конец дня экрана): прошлое ЭТОГО дня, а не
     сегодняшнего, поэтому ответ зависит от данных, а не от часов.
     Отменённые и неявки визитом не считаются; заметок здесь нет (у них нет
-    пациента). Активный план — перечислением (`PLAN_ACTIVE`), долг — та же
-    формула, что `patients_debt`: финализированный план − платежи.
+    пациента). Активный план — перечислением (`PLAN_ACTIVE`).
+    ⛔ Денег здесь нет (Олег 22.10: «не думаю что врачу эта информация
+    нужна»): долг живёт в фише и у статистики, на дне врача его не видит и
+    директор.
     """
     if not pids:
-        return {"visits": {}, "alerts": {}, "anam": {}, "plan": {}, "debt": {}}
+        return {"visits": {}, "alerts": {}, "anam": {}, "plan": {}}
     lite = ",".join("?" for _ in pids)
     act = ",".join("?" for _ in PLAN_ACTIVE)
     visits: dict[int, list] = {}
@@ -1874,17 +1876,7 @@ async def day_patient_facts(pids: list, before: datetime) -> dict:
                 WHERE patient_id IN ({lite}) AND status IN ({act}) ORDER BY id""",
             *pids, *PLAN_ACTIVE):
         plan.setdefault(r["patient_id"], []).append(r)
-    debt: dict[int, int] = {}
-    for r in await _fetch(
-            f"""SELECT patient_id, COALESCE(SUM(price_mdl), 0) AS n FROM plan_items
-                WHERE patient_id IN ({lite}) AND status = 'finalizat'
-                GROUP BY patient_id""", *pids):
-        debt[r["patient_id"]] = int(r["n"] or 0)
-    for r in await _fetch(
-            f"""SELECT patient_id, COALESCE(SUM(amount_mdl), 0) AS n FROM payments
-                WHERE patient_id IN ({lite}) GROUP BY patient_id""", *pids):
-        debt[r["patient_id"]] = debt.get(r["patient_id"], 0) - int(r["n"] or 0)
-    return {"visits": visits, "alerts": alerts, "anam": anam, "plan": plan, "debt": debt}
+    return {"visits": visits, "alerts": alerts, "anam": anam, "plan": plan}
 
 
 _PLIST_COLS = ("id, name, phone, email, session_key, birth_year, birth_date, "

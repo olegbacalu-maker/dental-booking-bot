@@ -1,13 +1,14 @@
 import { Icon, iconName } from '../../components/Icon'
 import { dm } from '../../utils/date'
-import { mdl } from '../patients/card/card'
 import type { VisitFacts } from './day'
 
 /* Карточка визита дня ОДНОГО врача: три колонки справа от имени (22.10,
    вариант A Олега; макет и кадры — design/doctor-day). Риски фиши и
-   анамнеза; план с номерами зубов; история — какой визит, долг или аванс,
-   прошлый визит. Колонки одинаковые у всех визитов дня: день читается
-   таблицей сверху вниз, аллергия у всех в одном и том же месте.
+   анамнеза; план с номерами зубов; история — какой визит и прошлый визит.
+   Колонки одинаковые у всех визитов дня: день читается таблицей сверху
+   вниз, аллергия у всех в одном и том же месте.
+   ⛔ Денег здесь нет (Олег 22.10: «не думаю что врачу эта информация
+   нужна») — сервер их и не присылает; долг — в фише и у статистики.
 
    ⛔ Колонки стоят АБСОЛЮТНО в своей полосе блока (app.css › `.vf`) и высоту
    блока не растят: ступени сжатия `useFitAppts` те же, что без них. Не
@@ -25,10 +26,6 @@ const T = {
   noAnam: 'Anamneză necompletată',
   noRisk: 'fără riscuri',
   noPlan: 'fără plan activ',
-  owes: 'De achitat',
-  debt: 'Datorie',
-  adv: 'Avans',
-  mdl: 'MDL',
   inWork: 'în lucru',
   risks: 'Atenționări',
   plan: 'Plan de tratament',
@@ -101,21 +98,9 @@ export function FactCols({ x, date }: { x: VisitFacts; date: string }) {
         <span className="vf-more" />
       </span>
       <span className="vf-col vf-hist" aria-label={T.hist}>
-        <span className="vf-row">
-          {x.nth <= 1
-            ? <span className="vf-chip green"><Icon name="user" />{T.newP}</span>
-            : <span className="vf-nth">{T.nth(x.nth)}</span>}
-          {x.debt > 0 && (
-            <span className="vf-chip red" title={`${T.owes} ${mdl(x.debt)} ${T.mdl}`}>
-              <Icon name="money" />{T.debt} {mdl(x.debt)}
-            </span>
-          )}
-          {x.debt < 0 && (
-            <span className="vf-chip green" title={`${T.adv} ${mdl(x.debt)} ${T.mdl}`}>
-              <Icon name="money" />{T.adv} {mdl(x.debt)}
-            </span>
-          )}
-        </span>
+        {x.nth <= 1
+          ? <span className="vf-chip green"><Icon name="user" />{T.newP}</span>
+          : <span className="vf-nth">{T.nth(x.nth)}</span>}
         {x.last && (
           <span className="vf-last">
             {T.last} {lastDay(x.last.date, date)} <i>· {ago(daysBetween(x.last.date, date))}</i>

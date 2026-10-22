@@ -281,12 +281,12 @@ async def _busy_days(d: date, doctor: str = "") -> set:
 async def _visit_facts(d: date, rows: list) -> dict:
     """Факты карточки визита дня врача по id визита (22.10, вариант A):
     риски (`core.risks.merge` — atenționări и анамнез без дублей), состояние
-    анамнеза, активный план, долг, какой это визит пациента и прошлый визит.
+    анамнеза, активный план, какой это визит пациента и прошлый визит.
 
     ⛔ Ни одного «сейчас»: прошлый визит — последний ДО этого визита, счёт —
     по визитам до него, давность считает браузер от дня экрана по дате
     `last.date`. Ответ меняется только с данными. Выборки — `db.day_patient_facts`,
-    шесть на день, а не по запросу на визит.
+    четыре на день, а не по запросу на визит. ⛔ Денег нет (Олег 22.10).
     """
     own = [r for r in rows if r.get("patient_id") and r["source"] != "note"
            and r["status"] != "cancelled"]
@@ -313,7 +313,6 @@ async def _visit_facts(d: date, rows: list) -> dict:
             "plan": [{"tooth": it["tooth"], "proc": it["procedure"],
                       "work": it["status"] == "in_lucru"}
                      for it in f["plan"].get(pid, [])],
-            "debt": f["debt"].get(pid, 0),
         }
     return out
 

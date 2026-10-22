@@ -362,7 +362,7 @@ describe('день врача: колонки фактов и календарь
     ...MODEL,
     doctors: [MODEL.doctors[0]!],
     extras: {
-      1: { nth: 2, last: { date: '2026-09-09', what: 'Detartraj' }, anam: true, debt: 0,
+      1: { nth: 2, last: { date: '2026-09-09', what: 'Detartraj' }, anam: true,
         risks: [{ tone: 'orange', icon: 'sos', text: 'Alergie: latex', title: 'Alergie: latex' }],
         plan: [{ tooth: 36, proc: 'Obturație', work: false }] },
     },

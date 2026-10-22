@@ -42,10 +42,10 @@ const MODEL: DashCanvasModel = {
   }],
 }
 
-/* Pavel: пять рисков (сервер уже свёл дубли), план с «în lucru», долг,
-   третий визит. Ana: новая, анамнез не собран, плана нет. */
+/* Pavel: пять рисков (сервер уже свёл дубли), план с «în lucru», третий
+   визит. Ana: новая, анамнез не собран, плана нет. */
 const PAVEL: VisitFacts = {
-  nth: 3, last: { date: '2026-08-12', what: 'Extracție 46' }, anam: true, debt: 1100,
+  nth: 3, last: { date: '2026-08-12', what: 'Extracție 46' }, anam: true,
   risks: [
     { tone: 'orange', icon: 'sos', text: 'Alergie: penicilină', title: 'Alergie: penicilină' },
     { tone: 'orange', icon: 'pill', text: 'Anticoagulant: Xarelto 20 mg', title: 'Anticoagulant: Xarelto 20 mg' },
@@ -56,7 +56,7 @@ const PAVEL: VisitFacts = {
   plan: [{ tooth: 46, proc: 'Implant', work: true }, { tooth: 45, proc: 'Obturație compozit', work: false },
     { tooth: 44, proc: 'Obturație compozit', work: false }],
 }
-const ANA: VisitFacts = { nth: 1, last: null, anam: false, debt: -3000, risks: [], plan: [] }
+const ANA: VisitFacts = { nth: 1, last: null, anam: false, risks: [], plan: [] }
 
 const rail = createRef<HTMLDivElement>()
 const show = (facts?: Record<string, VisitFacts>) =>
@@ -107,21 +107,22 @@ describe('день врача: колонки фактов карточки (22.
     expect(Array.from(plan.querySelectorAll('.vf-tn.work')).map((e) => e.textContent)).toEqual(['46'])
   })
 
-  it('история: какой визит, долг, прошлый визит с давностью от ДНЯ ЭКРАНА', () => {
+  it('история: какой визит и прошлый визит с давностью от ДНЯ ЭКРАНА — три строки, денег нет', () => {
     show({ 1: PAVEL })
     const hist = colsOf(1)[2]!
-    expect(hist.querySelector('.vf-nth')?.textContent).toBe('vizita a 3-a')
-    expect(hist.querySelector('.vf-chip.red')?.textContent).toBe('Datorie 1 100')
     /* 12.08 → 23.09: 42 дня, шесть недель — от дня экрана, не от часов */
-    expect(texts(hist, '.vf-last')).toEqual(['ultima 12.08 · acum 6 săpt.', 'Extracție 46'])
+    expect(Array.from(hist.children).filter((c) => !c.classList.contains('vf-more'))
+      .map((c) => c.textContent)).toEqual(['vizita a 3-a', 'ultima 12.08 · acum 6 săpt.', 'Extracție 46'])
+    /* Олег 22.10: деньги врачу на этом экране не нужны */
+    expect(blk(1).querySelector('.vf')!.textContent).not.toMatch(/Datorie|Avans|MDL/)
   })
 
-  it('новый пациент без анамнеза: «Pacient nou», аванс, серое «Anamneză necompletată»', () => {
+  it('новый пациент без анамнеза: «Pacient nou», серое «Anamneză necompletată»', () => {
     show({ 2: ANA })
     const [risk, plan, hist] = colsOf(2)
     expect(texts(risk!, '.vf-chip.grey')).toEqual(['Anamneză necompletată'])
     expect(texts(plan!, '.vf-muted')).toEqual(['fără plan activ'])
-    expect(texts(hist!, '.vf-chip')).toEqual(['Pacient nou', 'Avans 3 000'])
+    expect(texts(hist!, '.vf-chip')).toEqual(['Pacient nou'])
     expect(hist!.querySelector('.vf-last')).toBeNull()
   })
 

@@ -298,8 +298,7 @@ export interface VisitFacts {
   anam: boolean
   /** Активный план: зуб, процедура, «în lucru». */
   plan: { tooth: number | null; proc: string; work: boolean }[]
-  /** Долг: плюс — должен, минус — аванс. */
-  debt: number
+  /* ⛔ Денег нет (Олег 22.10): долг — в фише и у статистики. */
 }
 
 /** Где мы стоим: свежий день в ответе действия приезжает для ЭКРАНА. */

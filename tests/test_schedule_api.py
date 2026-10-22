@@ -1024,8 +1024,11 @@ def suite_doctor_day(res: Result) -> None:
     что они буквальны на известном засеве (дубли atenționări и анамнеза
     сведены одним правилом `core.risks.merge`) и что в них нет «сейчас».
     Засев: d2 — Pavel (два прошлых визита, отмена и неявка, дневник у
-    второго; риски, анамнез с дублями, план, долг), Ana (новая, беременность и
-    в фише, и галочкой), Vasile (анамнез не собран), заметка; d3 — Ion.
+    второго; риски, анамнез с дублями, план, долг 700 — чтобы было что не
+    показать), Ana (новая, беременность и в фише, и галочкой), Vasile (анамнез
+    не собран), заметка; d3 — Ion.
+    ⛔ Денег в фактах нет (Олег 22.10, «не думаю что врачу эта информация
+    нужна»): долг остаётся в фише и у статистики.
     """
     from app.core import risks
     from app.modules.patients import anamneza as panam
@@ -1121,15 +1124,20 @@ def suite_doctor_day(res: Result) -> None:
                   ["Alergii: latex", "Medicamente: Concor 5 mg",
                    "Boli cardiovasculare / hipertensiune"])
         res.check("Pavel: активный план с номерами зубов, «în lucru» отмечен; "
-                  "финализированное — не план, а долг",
-                  (p.get("plan"), p.get("debt"), p.get("anam")),
+                  "финализированное — не план",
+                  (p.get("plan"), p.get("anam")),
                   ([{"tooth": 46, "proc": "Implant", "work": True},
-                    {"tooth": 45, "proc": "Obturație compozit", "work": False}], 700, True))
+                    {"tooth": 45, "proc": "Obturație compozit", "work": False}], True))
+        # ⛔ Пятёрка ключей, а не «нет debt»: деньги вернулись бы и под другим
+        # именем (balance, sold), а у Pavel долг 700 есть — было бы что везти.
+        res.check("денег в фактах нет (Олег 22.10): ни debt, ни ключа сверх пяти",
+                  sorted({k for v in x.values() for k in v}),
+                  ["anam", "last", "nth", "plan", "risks"])
         a = x.get(ids["Ana Nouă"], {})
         res.check("Ana: новая, «Sarcină» галочкой не дублирует atenționare",
                   (a.get("nth"), a.get("last"), [r_["text"] for r_ in a.get("risks", [])],
-                   a.get("plan"), a.get("debt")),
-                  (1, None, ["Sarcină, trimestrul II"], [], 0))
+                   a.get("plan")),
+                  (1, None, ["Sarcină, trimestrul II"], []))
         v = x.get(ids["Vasile Lupu"], {})
         res.check("Vasile: анамнез не собран — флагом, слово рисует экран",
                   (v.get("anam"), v.get("risks")), (False, []))
