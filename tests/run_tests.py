@@ -141,6 +141,7 @@ SUITES = [
     ("SMS: живой цикл — накануне, в день визита, кому нет, без дубля", test_sms.suite_live),
     ("SMS: пакет не предлагается, файл без renew", test_sms.suite_not_offered),
     ("SMS: экран Setări › SMS, фиша, acord, баннер остатка", test_sms.suite_screen),
+    ("SMS: галочка «SMS reminder» окна записи — пакет, право, sms_off", test_sms.suite_box),
     ("Tauri: пороги уведомлений и дверь /shell/notices", test_notices.suite_rules),
     ("Tauri: /shell/notices — 404 без токена, обновление", test_notices.suite_route),
     ("Tauri: уведомление «лицензия кончается» — 7 и 1 день", test_notices.suite_license),
