@@ -2779,9 +2779,15 @@ PLAN_CLOSED = ("finalizat", "refuzat")
 async def plan_items(pid: int) -> list:
     # created_at — когда позиция появилась в плане: по нему статус «acord
     # informat» говорит «план изменён после подписи» (01.10)
+    # visit_doctor — врач визита, на котором позицию выполнили (22.10): кто
+    # ЗАПЛАНИРОВАН, лежит в `doctor` и не переписывается — «Redeschide»
+    # обязан вернуть его. Кого печатать — fisa043.plan_doctor. Подзапрос, а
+    # не JOIN: doctor/status/id/created_at есть в обеих таблицах.
     return await _fetch(
         """SELECT id, tooth, procedure, doctor, status, price_mdl, due_date,
-                  done_at, appointment_id, refuz_motiv, created_at
+                  done_at, appointment_id, refuz_motiv, created_at,
+                  (SELECT a.doctor FROM appointments a
+                    WHERE a.id = plan_items.appointment_id) AS visit_doctor
            FROM plan_items WHERE patient_id = ? ORDER BY id""", pid)
 
 

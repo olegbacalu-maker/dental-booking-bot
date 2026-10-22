@@ -11,6 +11,7 @@
 """
 import io
 import json
+import re
 import zipfile
 from datetime import date, timedelta
 
@@ -39,6 +40,27 @@ def _visit(c: Client, aid) -> dict:
 def _card(c: Client, pid) -> dict:
     """Фиша данными (`GET /api/patients/{pid}`)."""
     return json.loads(c.get(f"/api/patients/{pid}").body)["data"]
+
+
+def _plan_doctors(c: Client, pid, proc: str) -> tuple:
+    """Врач позиции плана везде, где его читают: фиша (и кого планировали),
+    лист 043/e, читаемая копия по 195-му, машинная копия (doctor, visit_doctor).
+    Ячейка — по строке таблицы с этой процедурой: имя врача визита стоит на
+    листе и в подписи дневника, и простое «есть на странице» ничего бы не
+    сказало."""
+    it = next(x for x in _card(c, pid)["plan"]["items"] if x["procedure"] == proc)
+    row = re.compile(rf"<tr><td>[^<]*</td><td>{re.escape(proc)}</td><td>([^<]*)</td>")
+
+    def cell(page: str):
+        m = row.search(page)
+        return m.group(1) if m else None
+    z = zipfile.ZipFile(io.BytesIO(c.get(f"/admin/patient/{pid}/export").raw))
+    raw = next(x for x in json.loads(z.read("date-pacient.json").decode("utf-8"))["plan_tratament"]
+               if x["procedure"] == proc)
+    return (it["doctor"], it["planned_doctor"],
+            cell(c.get(f"/admin/patient/{pid}/fisa043").body),
+            cell(z.read("fisa-pacient.html").decode("utf-8")),
+            (raw["doctor"], raw["visit_doctor"]))
 
 
 def suite(res: Result) -> None:
@@ -126,8 +148,9 @@ def suite_plan(res: Result) -> None:
         pid = _pid(c, "022333444")
         aid = _aid(c, _d(1))
 
+        # запланирована ДРУГОМУ врачу, чем ведёт визит (d2 — Dr. Activ Doi)
         c.post_json(f"/api/patients/{pid}/plan", {"procedure": "Obturație 26", "tooth": "26",
-                                                 "price": "500"})
+                                                 "price": "500", "doctor": "Dr. Activ Trei"})
         r = c.post_json(f"/api/patients/{pid}/plan", {"procedure": "Detartraj", "price": "300"})
         items = json.loads(r.body)["data"]["plan"]["items"]
         res.check("обе позиции на месте", len(items), 2)
@@ -156,6 +179,15 @@ def suite_plan(res: Result) -> None:
                any("Detartraj" in x["text"] for x in plan["open"]),
                "непривязанное исчезло из формы")
 
+        # ⚠️ 22.10 (пункт 3 доработок Олега): у выполненной на визите врачом
+        # стоит ВРАЧ ВИЗИТА — до 2.0.4 фиша и 043/e печатали запланированного,
+        # и в медзаписи значился не тот, кто лечил
+        doi, trei = "Dr. Activ Doi", "Dr. Activ Trei"
+        res.check("выполнена на визите — врач визита в фише, 043/e и выгрузке; "
+                  "запланированный цел",
+                  _plan_doctors(c, pid, "Obturație 26"),
+                  (doi, trei, doi, doi, (trei, doi)))
+
         # Redeschide в фише = «на самом деле не сделано» → привязка снимается
         res.check("Redeschide позиции",
                   c.post_json(f"/api/patients/{pid}/plan/{iid1}/status", {"to": "in_lucru"}).msg, "")
@@ -163,6 +195,15 @@ def suite_plan(res: Result) -> None:
         res.ok("привязка снята вместе с done_at",
                plan["linked"] == [] and iid1 in [x["id"] for x in plan["open"]],
                "переоткрытая позиция осталась «выполненной на визите»")
+        res.check("Redeschide — снова запланированный врач везде",
+                  _plan_doctors(c, pid, "Obturație 26"),
+                  (trei, trei, trei, trei, (trei, None)))
+        # кнопка плана визита не знает: закрытая ею — у запланированного
+        res.check("закрыта кнопкой плана",
+                  c.post_json(f"/api/patients/{pid}/plan/{iid1}/status", {"to": "finalizat"}).msg, "")
+        res.check("закрыта кнопкой — запланированный врач везде",
+                  _plan_doctors(c, pid, "Obturație 26"),
+                  (trei, trei, trei, trei, (trei, None)))
 
         # отменённый визит консультацию не принимает
         c.post_json("/api/schedule/appointments", {"date": _d(2), "time": "11:00",

@@ -88,6 +88,18 @@ PLAN_RO = {"planificat": "planificat", "in_lucru": "în lucru",
 PLAN_RU = {"planificat": "запланировано", "in_lucru": "в работе",
            "finalizat": "выполнено", "refuzat": "ОТКАЗ"}
 
+
+def plan_doctor(it: dict) -> str:
+    """Врач позиции плана — на этом листе, в фише и в выгрузке по 195-му
+    (22.10). У выполненной НА ВИЗИТЕ (Consultație ставит appointment_id) —
+    врач того визита: в медзаписи стоит, кто сделал, а не кому планировали.
+    Закрытая кнопкой плана визита не знает — остаётся запланированный.
+    ⚠️ Правило одно и здесь: три места спросили бы каждое по-своему."""
+    if it.get("status") == "finalizat" and (it.get("visit_doctor") or "").strip():
+        return it["visit_doctor"]
+    return it.get("doctor") or ""
+
+
 # Двуязычные ПОДПИСИ бланка. ⚠️ Не переводятся и в русской версии остаются
 # как есть: номер формуляра (043/e), приказ МЗ, название министерства — это
 # официальные наименования, по которым лист опознаёт проверяющий, и буквенные
@@ -407,7 +419,7 @@ def render(p: dict, alerts: list, teeth: dict, plan: list, recs: list,
         f"<tr><td>{it['tooth'] or '—'}</td><td>{e(it['procedure'])}"
         + (f"<br><small>{e(t['p_refuz'])}: {e(it['refuz_motiv'])}</small>"
            if it["status"] == "refuzat" and it.get("refuz_motiv") else "")
-        + f"</td><td>{e(it['doctor']) or '—'}</td>"
+        + f"</td><td>{e(plan_doctor(it)) or '—'}</td>"
         f"<td>{plan_ro.get(it['status'], it['status'])}</td>"
         f"<td>{it['price_mdl'] or '—'}</td></tr>"
         for it in plan)

@@ -36,6 +36,7 @@ from ...core.auth import PERM_MONEY, can, request_user
 from ...core.layout import ALERT_KINDS, STATUS_LABEL, _initials, msg_json
 from . import anamneza as panam
 from . import card as pcard
+from . import fisa043 as pfisa
 from . import odontogram as podo
 from . import perio as pperio
 from . import scan as pscan
@@ -246,7 +247,10 @@ def _plan_item(it: dict, today) -> dict:
     st = it["status"]
     return {
         "id": it["id"], "tooth": it["tooth"], "procedure": it["procedure"] or "",
-        "doctor": it["doctor"] or "", "status": st,
+        # врач — по правилу листа 043/e (у выполненной на визите — врач
+        # визита); кого планировали — рядом, клиент его пока не рисует
+        "doctor": pfisa.plan_doctor(it), "planned_doctor": it["doctor"] or "",
+        "status": st,
         "label": pcard.PLAN_LABEL.get(st, st), "price": it["price_mdl"],
         "due": "" if due == "—" else due, "overdue": overdue,
         "done": pcard.done_view(it),

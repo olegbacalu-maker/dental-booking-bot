@@ -255,7 +255,7 @@ def render_html(data: dict) -> str:
     plan = _table(
         ["Dinte", "Procedură", "Medic", "Stare", "Preț (MDL)", "Termen",
          "Motivul refuzului"],
-        [[_esc(i["tooth"]) or "—", _esc(i["procedure"]), _esc(i["doctor"]),
+        [[_esc(i["tooth"]) or "—", _esc(i["procedure"]), _esc(pfisa.plan_doctor(i)),
           _word(pfisa.PLAN_RO, i["status"]), _esc(i["price_mdl"]) or "—",
           _dt(i["due_date"], with_time=False),
           _esc(i.get("refuz_motiv")) or "—"] for i in data["plan_tratament"]])

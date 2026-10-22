@@ -181,6 +181,12 @@ def suite_api(res: Result) -> None:
                    by["Detartraj"]["done"], by["Implant 36"]["motiv"], by["Coroană 11"]["label"],
                    by["Consult gratuit"]["price"], by["Coroană 11"]["tooth"]),
                   ("01.01.2020", True, _dmy(0), "refuză implantul", "În lucru", None, 11))
+        # без визита врач позиции — запланированный, и Detartraj, закрытый
+        # кнопкой плана, тоже; выполненная на визите — test_visit.suite_plan
+        res.check("план: врач позиции и кого планировали",
+                  [(it["procedure"], it["doctor"], it["planned_doctor"]) for it in pl["items"]],
+                  [("Coroană 11", "Dr. Activ Doi", "Dr. Activ Doi"), ("Extracție 48", "", ""),
+                   ("Consult gratuit", "", ""), ("Detartraj", "", ""), ("Implant 36", "", "")])
         fin = d["finance"]
         res.check("сальдо: начислено, оплачено, долг, плашка",
                   (fin["charged"], fin["paid"], fin["debt"], fin["sold"], fin["can_delete"]),
