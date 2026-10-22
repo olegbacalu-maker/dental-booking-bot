@@ -435,6 +435,10 @@ pub fn main(args: &[OsString], context: tauri::Context<tauri::Wry>) -> i32 {
                 .center()
                 .background_color(crate::tint(&plan.primary, 0.06))
                 .data_directory(plan.profile.clone())
+                // те же аргументы и тот же отказ от обработчика Tauri, что у окна
+                // программы (main.rs::BROWSER_ARGS)
+                .additional_browser_args(crate::BROWSER_ARGS)
+                .disable_drag_drop_handler()
                 .devtools(false)
                 .on_navigation(|u| u.as_str().starts_with(crate::SHELL_PAGES))
                 .on_page_load(move |win, p| {

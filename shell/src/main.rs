@@ -47,6 +47,16 @@ const H: f64 = 860.0;
 /// Заставка видна не меньше — иначе это вспышка (как SPLASH_MIN_S лаунчера).
 const SPLASH_MIN: Duration = Duration::from_millis(900);
 const TEAL: &str = "#0E9F8A";
+/// Аргументы браузера WebView2 — ОДНИ у всех WebView оболочки (`bar`, `app`,
+/// сторож `watch`): WebView с другими аргументами на том же профиле не
+/// создаётся (0x8007139F, `shell/dev/busy_stand.py`). Первые два — прежние
+/// умолчания wry (без «мини-меню» выделения, PDF не в отдельном окне, без
+/// SmartScreen на каждый адрес; звук без нажатия): назначив свои, wry своих
+/// больше не ставит. ⭐ `--lang=ro` (22.10, слово Олега): поле даты, подписи
+/// правой кнопки и вопросы Edge рисуются языком браузера, а он у wry — язык
+/// Windows; окно румынское, и «дд.мм.гггг» в «Data nașterii» было чужим.
+pub const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
+     --autoplay-policy=no-user-gesture-required --lang=ro";
 
 /// Что известно о запуске: заставка, движок, адрес программы.
 #[derive(Default)]
@@ -306,6 +316,9 @@ fn allow_navigation(app: &AppHandle, url: &Url) -> bool {
     if url.as_str().starts_with(SHELL_PAGES) || url.as_str() == "about:blank" {
         return true;
     }
+    if dropped_file(url) {
+        return false;
+    }
     if is_engine_url(app, url.as_str()) {
         return true;
     }
@@ -315,6 +328,18 @@ fn allow_navigation(app: &AppHandle, url: &Url) -> bool {
     }
     win::open_external(url.as_str());
     false
+}
+
+/// Файл, брошенный из «Проводника» на страницу. Цель броска — снова WebView2
+/// (обработчик Tauri выключен), и он просит открыть файл НОВЫМ окном (опыт
+/// 22.10: `NewWindowRequested` с `file:///…`; переходом — тоже отсюда). Ни в
+/// окно, ни наружу — молча; путь в журнал не пишется (имя файла пациента).
+fn dropped_file(url: &Url) -> bool {
+    if url.scheme() != "file" {
+        return false;
+    }
+    log("dropped file not opened");
+    true
 }
 
 fn dev_identifier(paths: &Paths) -> Option<String> {
@@ -358,6 +383,8 @@ fn open_window(
         || {
             WebviewBuilder::new("bar", WebviewUrl::App(bar_url.clone().into()))
                 .data_directory(profile.clone())
+                .additional_browser_args(BROWSER_ARGS)
+                .disable_drag_drop_handler()
                 .background_color(tint(c, 0.07))
                 .devtools(false)
                 .on_navigation(|u| u.as_str().starts_with(SHELL_PAGES))
@@ -390,12 +417,21 @@ fn page_builder(h: &AppHandle, color: Option<&str>, bg: Color, profile: std::pat
     let script = include_str!("page.js").replace("__DP_SHELL_VERSION__", VERSION);
     WebviewBuilder::new("app", WebviewUrl::App(splash_url(color).into()))
         .data_directory(profile)
+        .additional_browser_args(BROWSER_ARGS)
+        // ⛔ Обработчик перетаскивания Tauri выключен (22.10, регрессия 2.0.0):
+        // на Windows wry ставит ВМЕСТО цели броска WebView2 свою, знающую
+        // только файлы (CF_HDROP), и `dragover`/`drop` страницы не доходят —
+        // визит не переносился от врача к врачу. Стенд — `shell/dev/dnd_stand.py`.
+        .disable_drag_drop_handler()
         .background_color(bg)
         .devtools(cfg!(debug_assertions))
         .initialization_script(script)
         .on_navigation(move |u| allow_navigation(&h1, u))
         .on_new_window(move |u, _| {
             // target=_blank: своё — в этом же окне, чужое — в браузер
+            if dropped_file(&u) {
+                return NewWindowResponse::Deny;
+            }
             if is_engine_url(&h2, u.as_str()) {
                 if let Some(p) = page(&h2) {
                     let _ = p.navigate(u);
