@@ -955,6 +955,15 @@ def suite_box(res: Result) -> None:
                           add_appt(med, mon, "14:00", "Box Gama", "069000803", sms=False).msg, "ok")
                 cc = pid_by_phone(boss, "069000803")
                 res.ok("C: у врача права нет — sms_off не тронут", _off(d, cc) == 0 and _events(d, cc) == [])
+                # ⛔ Словарь общий с фишей: летопись хранит ГОТОВУЮ строку, и после
+                # переезда текстов в `db.SMS_OFF_EVENT` фиша обязана писать прежние
+                # литералы байт в байт (тире, диакритика)
+                rec.post_json(f"/api/patients/{cc}/sms-off", {"on": True})
+                rec.post_json(f"/api/patients/{cc}/sms-off", {"on": False})
+                res.ok("фиша пишет в летопись прежние строки байт в байт",
+                       [t.encode("utf-8") for t in _events(d, cc)]
+                       == [b"Remindere SMS oprite \xe2\x80\x94 la cererea pacientului",
+                           b"Remindere SMS pornite din nou"], repr(_events(d, cc)))
 
                 # пакет выключен — галочки нет, присланное не пишется
                 boss.post_json("/api/settings/sms", {"day_before": {"on": False}, "same_day": {"on": False}})
