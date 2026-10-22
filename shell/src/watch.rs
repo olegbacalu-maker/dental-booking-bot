@@ -5,13 +5,12 @@
 // (`<данные>\updates\DentPilot-watch.exe`; для перезапуска — саму
 // `DentPilot.exe`) в этом режиме: окно с заставкой «Se instalează
 // actualizarea…», ожидание итога мастера (`/RESULT=`), ожидание выхода старой
-// оболочки и запуск `{app}\DentPilot.exe`. Python-сторож окна pywebview
-// (`bot/app/restartwatch.py`, `desktop._watch_mode`) делает то же самое: у
-// движка pywebview нет, поэтому здесь — свой.
+// оболочки и запуск `{app}\DentPilot.exe`. Сторож один — этот (Python-сторож
+// окна pywebview снят 22.10.2026).
 //
-// ⛔ Аргументы, слова итога и тексты заставки — те же, что у Python-сторожа
-// (`restartwatch.argv_for`, `decide`, константы `TEXT_*`); тексты сверяет
-// `tests/test_restart.py`. ⛔ Копия, а не `{app}\DentPilot.exe`, когда ставится
+// ⛔ Аргументы, тексты заставки и потолки — договор с движком: их строит
+// `bot/app/restartwatch.py` (`argv_for`, `TEXT_*`, `WAIT_S`, `EXIT_WAIT_S`);
+// сверяет `tests/test_restart.py`. ⛔ Копия, а не `{app}\DentPilot.exe`, когда ставится
 // обновление: мастер заменяет файлы программы, и сторож из `{app}` он закрыл бы
 // вместе с ней. ⛔ Ни плагина «один экземпляр», ни значка, ни журнала оболочки:
 // сторож — другой процесс, и запускаемая им программа не должна найти «первый
@@ -95,7 +94,7 @@ pub fn is_watch(args: &[OsString]) -> bool {
 }
 
 /// `--watch proof task result pid label primary profile launch…` — разбор
-/// (`restartwatch.parse`).
+/// (обратное `restartwatch.argv_for`).
 pub fn parse(args: &[OsString]) -> Result<Plan, String> {
     if !is_watch(args) {
         return Err("nu este --watch".into());
