@@ -3,7 +3,7 @@ import { AppLink } from '../../components/AppLink'
 import { when } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
 import { hideDialog, showDialog } from '../patients/card/dialog'
-import type { StatusAction, VisitCardView } from './day'
+import { day, type ServiceOption, type StatusAction, type VisitCardView } from './day'
 import { CALL_WORDS, type CallResult } from './desk'
 
 /* Карточка визита по клику (C25.5b): что это за визит, комментарий стойки и
@@ -33,12 +33,6 @@ const T = {
   close: 'Închide',
 } as const
 
-/** Услуга так, как её знает форма экрана: ключ clinic.json и подпись. */
-export interface ServiceOption {
-  id: string
-  label: string
-}
-
 interface Props {
   open: boolean
   id: number
@@ -58,18 +52,16 @@ interface Props {
    *  хочу подтвердить сегодня»). Строка видна, только когда сервер сказал
    *  `callable`; диалог остаётся открытым — отметка приезжает с каналом. */
   onCall?: (result: CallResult) => Promise<boolean>
-  /** Подписи услуг — из формы, которую экран уже знает (`form.services` дня,
-   *  `slotform.services` панели). Какие из них предложить, решает СЕРВЕР
-   *  (`card.service_opts`), здесь только раскладка. */
-  services?: ServiceOption[]
   /** Смена процедуры (22.10, Олег: только смена, вторая услуга — нет).
+   *  Список услуг окно спрашивает само (`day.serviceOptions`), когда сервер
+   *  сказал `service_edit`: в блоке живого канала списка нет.
    *  `true` — сменено, окно закрывается; отказ приходит словом в `fail` и
    *  печатается В ОКНЕ: плашка экрана под `<dialog>` не видна. */
   onService?: (serviceId: string, fail: (text: string) => void) => Promise<boolean>
 }
 
 export function CardDialog({ open, id, card, actions, note = '', back, busy,
-  onClose, onComment, onStatus, onCall, services = [], onService }: Props) {
+  onClose, onComment, onStatus, onCall, onService }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
   const [text, setText] = useState(card.comment)
   /* Выбор процедуры живёт тем же правилом, что черновик комментария: пока
@@ -78,6 +70,10 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
   const [svc, setSvc] = useState(card.service_id)
   const svcSeeded = useRef(card.service_id)
   const [svcFail, setSvcFail] = useState('')
+  /* Список услуг врача этого визита — ответ сервера; `null` — ещё не пришёл
+     (или не спрашивали), выбора на экране нет. */
+  const [svcOpts, setSvcOpts] = useState<ServiceOption[] | null>(null)
+  const svcAsk = !!onService && !note && card.service_edit
   /* ⭐ Черновик держит СЕБЯ, а не экран (C26.5.3-b). Пока его не трогали —
      приехавшее значение пересевает поле, и правка со второго рабочего места
      видна сразу. Тронули — поле остаётся, а канва под диалогом продолжает
@@ -105,6 +101,19 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
     })
   }, [card.comment])
 
+  /* Спросить список при открытии — один раз на окно (другой визит — другое
+     окно, экран пересоздаёт его по номеру). Отказ сети — выбора нет, а
+     остальное окно живёт как жило. */
+  useEffect(() => {
+    if (!svcAsk) return
+    const ctl = new AbortController()
+    day.serviceOptions(id, ctl.signal).then(
+      (r) => { if (!ctl.signal.aborted) setSvcOpts(r.data.options) },
+      () => { if (!ctl.signal.aborted) setSvcOpts([]) },
+    )
+    return () => ctl.abort()
+  }, [svcAsk, id])
+
   useEffect(() => {
     setSvc((cur) => {
       if (cur !== svcSeeded.current) return cur
@@ -115,14 +124,14 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
 
   const info = [card.service, card.doctor, card.phone,
     card.age ? `${card.age} ani` : ''].filter(Boolean).join(' · ')
-  /* ⛔ Список — пересечение формы экрана с тем, что разрешил сервер: у
-     закрытого визита, у врача на отпуске и у легаси-строки `service_opts`
-     пуст, и выбора нет вовсе. Своего «можно ли» браузер не считает. */
-  const svcOpts = services.filter((s) => card.service_opts.includes(s.id))
-  const svcShown = onService && !note && svcOpts.length > 0
+  /* ⛔ «Можно ли» и список решает СЕРВЕР: у закрытого визита, у врача в
+     отпуске и у легаси-строки `service_edit` снят, и окно не спрашивает
+     вовсе. Своего правила браузер не считает. */
+  const svcList = svcAsk ? svcOpts ?? [] : []
+  const svcShown = svcList.length > 0
   /* Нынешней услуги в списке может не быть (легаси-строка без ключа, услугу
      убрали из clinic.json): тогда она стоит первой строкой, выбрать её нельзя. */
-  const svcKnown = svcOpts.some((s) => s.id === card.service_id)
+  const svcKnown = svcList.some((s) => s.id === card.service_id)
 
   async function saveSvc(e: FormEvent) {
     e.preventDefault()
@@ -199,7 +208,7 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
             <select value={svc} aria-label={T.svc}
                     onChange={(e) => { setSvc(e.target.value); setSvcFail('') }}>
               {svcKnown ? null : <option value={card.service_id} disabled>{card.service}</option>}
-              {svcOpts.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+              {svcList.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
             </select>
             <button disabled={busy || svc === card.service_id}>
               <Icon name="pen" /> {T.svcSave}

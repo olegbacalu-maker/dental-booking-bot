@@ -25,7 +25,7 @@ function appt(over: Partial<Extract<DashBlock, { kind: 'appt' }>> = {})
     status: 'confirmed', status_label: 'confirmată', urgent: false, source: 'manual',
     comment: '', comment_cut: '', age: null,
     doctor: 'Dr. Ion', pid: 17, rec: false, call: '', callable: true, clickable: true,
-    service_id: 'consult', service_opts: ['consult'],
+    service_id: 'consult', service_edit: true,
     bg: 'var(--green-soft)', bar: 'var(--green)', wait_since: null, ...over,
   }
 }

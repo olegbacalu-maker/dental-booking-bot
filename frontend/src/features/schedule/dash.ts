@@ -78,10 +78,11 @@ export interface DashAppt extends BlockBase {
   /** Отметка звонка и можно ли её ставить (12.10) — `core.visits.call_fields`. */
   call: CallResult
   callable: boolean
-  /** Процедура и на что её можно сменить (22.10) — `core.visits.service_fields`,
-   *  тем же правилом, что у карточки дня. */
+  /** Процедура и можно ли её менять (22.10) — `core.visits.service_fields`,
+   *  тем же правилом, что у карточки дня. ⛔ Списка услуг в блоке нет: блок
+   *  едет в каждом конверте канала, список окно спрашивает само. */
   service_id: string
-  service_opts: string[]
+  service_edit: boolean
   clickable: boolean
   bg: string
   bar: string

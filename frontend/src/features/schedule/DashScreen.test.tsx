@@ -34,7 +34,7 @@ function model(over: Partial<DashModel> = {}): DashModel {
           status: 'confirmed', status_label: 'confirmată', urgent: false, source: 'manual',
           comment: '', comment_cut: '', age: null,
           doctor: 'Dr. Ion', pid: 17, rec: false, call: '', callable: true, clickable: true,
-          service_id: 'consult', service_opts: ['consult', 'pain'],
+          service_id: 'consult', service_edit: true,
           bg: 'var(--green-soft)', bar: 'var(--green)', wait_since: null,
         }],
       }],
@@ -244,7 +244,7 @@ describe('C26.5.2: панель дня — экран целиком', () => {
       status: 'confirmed', status_label: 'confirmată', urgent: false, source: 'bot',
       comment: '', comment_cut: '', age: null,
       doctor: 'Dr. Ion', pid: 18, rec: false, call: '', callable: true, clickable: true,
-      service_id: 'consult', service_opts: ['consult', 'pain'],
+      service_id: 'consult', service_edit: true,
       bg: 'var(--green-soft)', bar: 'var(--green)', wait_since: null,
     })
     second.agenda = { count: 2, today: true, items: [...model().agenda.items] }
@@ -636,7 +636,7 @@ describe('C26.5.3-b: диалог визита', () => {
       status_label: 'confirmată', urgent: false, source: 'bot', comment: '',
       comment_cut: '', age: null, doctor: 'Dr. Ion', pid: 18, rec: false,
       call: '', callable: true, clickable: true, bg: 'var(--green-soft)', bar: 'var(--green)', wait_since: null,
-      service_id: 'consult', service_opts: ['consult', 'pain'],
+      service_id: 'consult', service_edit: true,
     })
     f.mockImplementation(async () => reply(200, second, { 'X-DP-Hash': 'h2' }))
     await vi.advanceTimersByTimeAsync(12_000)
@@ -709,32 +709,37 @@ describe('C26.5.3-b: диалог визита', () => {
   })
 })
 
-/* Смена процедуры в окне визита на панели (22.10). ⛔ Команда без состояния,
-   как статус и комментарий: новая подпись и длительность приезжают КАНАЛОМ,
-   второй двери к состоянию у панели нет. Подписи — из конверта (`slotform`). */
+/* Смена процедуры в окне визита на панели (22.10). ⛔ В блоке канвы — только
+   ключ и флаг `service_edit`: список услуг окно спрашивает само (GET), он не
+   едет в каждом конверте. Смена — команда без состояния, как статус и
+   комментарий: новая подпись и длительность приезжают КАНАЛОМ. */
 describe('22.10: смена процедуры в окне визита', () => {
-  const SLOTFORM = { services: [{ id: 'consult', label: 'Consultație' },
-    { id: 'pain', label: 'Durere acută' }, { id: 'hygiene', label: 'Igienizare' }],
-  birth_max: TODAY }
+  const OPTS = { service_id: 'consult', options: [{ id: 'consult', label: 'Consultație' },
+    { id: 'pain', label: 'Durere acută' }] }
   const pick = () => document.querySelector('dialog select[aria-label="Procedura"]') as
     HTMLSelectElement | null
+  const isPost = (init: unknown) => (init as RequestInit | undefined)?.method === 'POST'
   const open1 = async () => {
     await show()
     fireEvent.click(document.querySelector('[data-appt="1"]') as HTMLElement)
     await waitFor(() => expect(pick()).toBeTruthy())
   }
+  const fetchWith = (cmd: () => Response) => vi.fn(async (url: string, init?: unknown) => {
+    if (!String(url).includes('/service')) return reply(200, model())
+    return isPost(init) ? cmd() : reply(200, OPTS)
+  })
 
-  it('список — услуги из `slotform`, которые сервер разрешил визиту', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => reply(200, model({ slotform: SLOTFORM }))) as
-      unknown as typeof fetch)
+  it('список — ответ GET окна, а не поле блока конверта', async () => {
+    const f = fetchWith(() => cmdReply('ok_svc', ''))
+    vi.stubGlobal('fetch', f as unknown as typeof fetch)
     await open1()
     expect(Array.from(pick()?.options ?? []).map((o) => o.value)).toEqual(['consult', 'pain'])
+    expect(f.mock.calls.some((c) => String(c[0]).endsWith('/api/schedule/appointments/1/service')
+      && !isPost(c[1]))).toBe(true)
   })
 
   it('⭐ команда не приносит состояния: окно закрывается, экран спрашивает КАНАЛ', async () => {
-    const f = vi.fn(async (url: string) => (String(url).includes('/service')
-      ? cmdReply('ok_svc', 'Procedura a fost schimbată')
-      : reply(200, model({ slotform: SLOTFORM }))))
+    const f = fetchWith(() => cmdReply('ok_svc', 'Procedura a fost schimbată'))
     vi.stubGlobal('fetch', f as unknown as typeof fetch)
     await open1()
     const before = f.mock.calls.length
@@ -742,7 +747,7 @@ describe('22.10: смена процедуры в окне визита', () => 
     fireEvent.submit(document.querySelector('dialog form.dp-card-svc') as HTMLFormElement)
     await waitFor(() => expect(f.mock.calls.length).toBeGreaterThan(before + 1))
     const urls = f.mock.calls.map((c) => String(c[0]))
-    const cmd = f.mock.calls.findIndex((c) => String(c[0]).includes('/service'))
+    const cmd = f.mock.calls.findIndex((c) => isPost(c[1]) && String(c[0]).includes('/service'))
     expect(urls[cmd]).toContain('/api/schedule/appointments/1/service?screen=panel')
     expect(bodyOf(f.mock.calls[cmd])).toEqual({ service_id: 'pain' })
     expect(urls[urls.length - 1]).toContain('/schedule/live')
@@ -750,9 +755,7 @@ describe('22.10: смена процедуры в окне визита', () => 
   })
 
   it('⛔ на 409 окно открыто, слово отказа — в окне, канал всё равно спрошен', async () => {
-    const f = vi.fn(async (url: string) => (String(url).includes('/service')
-      ? cmdReply('conflict', 'Intervalul este deja ocupat la acest medic', 409)
-      : reply(200, model({ slotform: SLOTFORM }))))
+    const f = fetchWith(() => cmdReply('conflict', 'Intervalul este deja ocupat la acest medic', 409))
     vi.stubGlobal('fetch', f as unknown as typeof fetch)
     await open1()
     const before = f.mock.calls.length
@@ -831,7 +834,7 @@ describe('C26.5.3-c: диалог пустого часа', () => {
       status_label: 'confirmată', urgent: false, source: 'bot', comment: '',
       comment_cut: '', age: null, doctor: 'Dr. Ion', pid: 18, rec: false,
       call: '', callable: true, clickable: true, bg: 'var(--green-soft)', bar: 'var(--green)', wait_since: null,
-      service_id: 'consult', service_opts: ['consult', 'pain'],
+      service_id: 'consult', service_edit: true,
     })
     f.mockImplementation(async () => reply(200, second, { 'X-DP-Hash': 'h2' }))
     await vi.advanceTimersByTimeAsync(12_000)
@@ -1175,7 +1178,7 @@ describe('C26.5.3-f: перенос перетаскиванием', () => {
       status_label: 'confirmată', urgent: false, source: 'manual', comment: '',
       comment_cut: '', age: null, doctor: 'Dr. Ion', pid: 18, rec: false,
       call: '', callable: true, clickable: true, bg: 'var(--green-soft)', bar: 'var(--green)', wait_since: null,
-      service_id: 'consult', service_opts: ['consult', 'pain'],
+      service_id: 'consult', service_edit: true,
     })
     return m
   }
@@ -1267,7 +1270,7 @@ describe('C26.5.4: подсветка приехавшей записи', () => 
     status: 'confirmed', status_label: 'confirmată', urgent: false, source: 'bot',
     comment: '', comment_cut: '', age: null, doctor: 'Dr. Ion', pid: 18,
     rec: false, call: '' as const, callable: true, clickable: true, bg: 'var(--green-soft)', bar: 'var(--green)',
-    service_id: 'consult', service_opts: ['consult', 'pain'],
+    service_id: 'consult', service_edit: true,
     wait_since: null,
   }
   const withNew = () => {

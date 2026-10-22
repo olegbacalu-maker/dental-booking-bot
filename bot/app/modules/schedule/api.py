@@ -34,7 +34,7 @@ from ... import engine as eng
 from ...core.api import api_body, api_guard, api_require, live_envelope, live_reply
 from ...core.auth import PERM_SMS, request_user
 from ...core.layout import msg_json
-from ...core.visits import _collect_cards, _parse_date, all_status_actions
+from ...core.visits import _collect_cards, _parse_date, all_status_actions, service_options
 from . import chair as pchair
 from . import panel as ppanel
 from .routes import (_AG_CLS, _add_appt, _add_note, _canvas_model, _day_model,
@@ -321,6 +321,25 @@ async def api_comment(request: Request, appt_id: int,
         return msg_json(False, "bad", field="comment", status=422)
     return await _done(await _set_comment(appt_id, _s(body, "comment")),
                        _screen(date_q), doctor, f=f, screen=screen)
+
+
+@router.get("/api/schedule/appointments/{appt_id}/service")
+async def api_service_options(request: Request, appt_id: int):
+    """На какие услуги можно сменить процедуру визита (22.10): {service_id,
+    options: [{id, label}]}. Окно визита спрашивает при открытии.
+
+    ⛔ Это НЕ состояние живой поверхности, а подсказка окна, как часы другой
+    даты у окна записи: список у всех визитов одного врача одинаков, и в
+    каждом блоке конверта он раздул бы каждый опрос главной. Правду при
+    смене говорит POST под `_slot_lock`.
+    """
+    if (deny := api_guard(request)) is not None:
+        return deny
+    cur = await db.appointment_brief(appt_id)
+    if cur is None:
+        return msg_json(False, "mv_gone", status=409)
+    return msg_json(True, data={"service_id": cur["service_id"] or "",
+                                "options": service_options(cur)})
 
 
 @router.post("/api/schedule/appointments/{appt_id}/service")

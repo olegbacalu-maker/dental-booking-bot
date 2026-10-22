@@ -462,8 +462,7 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
           onCall={(result) => act(() => dash.call(d.date, card.id, result))}
           /* ⛔ Смена процедуры — команда без состояния, как статус: новая
              подпись и длительность приезжают КАНАЛОМ (`refresh()` в `act`),
-             а не из ответа. Подписи — из конверта (`slotform`). */
-          services={d.slotform.services}
+             а не из ответа. */
           onService={(sid, fail) => act(() => dash.service(d.date, card.id, sid), fail)} />
       )}
       {note !== null && openNote && (

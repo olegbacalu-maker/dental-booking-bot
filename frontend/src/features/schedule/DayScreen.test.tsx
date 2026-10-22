@@ -34,7 +34,7 @@ const block = (id: number, time: string, name: string,
   comment: '', comment_cut: '', age: null, clickable: true, call: '', callable: true,
   bg: 'var(--green-soft)', bar: 'var(--green)', min: 540, busy: true, movable: true,
   doctor: 'Dr. Activ Doi', pid: 7, rec: false, top: 0, height: 1, col: 0, of: 1,
-  service_id: 'consult', service_opts: ['consult', 'pain'],
+  service_id: 'consult', service_edit: true,
   title: `${time} · 60′ · Consultație · ${name}`, wait_since: null, ...extra,
 })
 
@@ -137,11 +137,11 @@ const MODEL: DayModel = {
     1: { name: 'Ion Popa', phone: '069000000', service: 'Consultație',
       doctor: 'Dr. Activ Doi', time: '09:00', comment: LONG, age: 41,
       status: 'confirmed', pid: 7, rec: false, call: '', callable: true,
-      service_id: 'consult', service_opts: ['consult', 'pain'] },
+      service_id: 'consult', service_edit: true },
     2: { name: 'Maria Rusu', phone: '069000001', service: 'Durere acută',
       doctor: 'Dr. Activ Trei', time: '10:00', comment: '', age: 36,
       status: 'noshow', pid: 8, rec: true, call: '', callable: false,
-      service_id: 'pain', service_opts: [] },
+      service_id: 'pain', service_edit: false },
   },
   actions: {
     confirmed: [{ to: 'waiting', cls: 'b-waiting', label: 'A venit', confirm: '' },
@@ -1202,24 +1202,33 @@ describe('адрес дня', () => {
 })
 
 /* Смена процедуры у стоящей записи (22.10, Олег: только смена — вторая
-   услуга в одну запись не делается). Подписи — из формы дня, какие
-   предложить — сервер (`service_opts`); ответ — свежий день, как у
-   комментария; отказ — словом В ОКНЕ. */
+   услуга в одну запись не делается). Можно ли — флаг сервера на карточке
+   (`service_edit`), список услуг врача окно спрашивает само (`GET …/service`);
+   ответ смены — свежий день, как у комментария; отказ — словом В ОКНЕ. */
 describe('карточка визита: смена процедуры', () => {
+  const OPTS = { service_id: 'consult', options: [{ id: 'consult', label: 'Consultație' },
+    { id: 'pain', label: 'Durere acută' }] }
   const pick = () => document.querySelector('dialog select[aria-label="Procedura"]') as
     HTMLSelectElement | null
   const svcForm = () => document.querySelector('dialog form.dp-card-svc') as HTMLFormElement
+  beforeEach(() => {
+    get.mockImplementation(async (url: string) =>
+      (url.includes('/service') ? ok(OPTS) : ok(MODEL)))
+  })
 
-  it('у активного визита — услуги этого врача подписями формы; у закрытого выбора нет', async () => {
+  it('у активного визита — услуги врача с сервера; у закрытого не спрашивает вовсе', async () => {
     await show({ date: '2026-09-23' })
     fireEvent.click(blk(1))
     await waitFor(() => expect(pick()).toBeTruthy())
+    expect(get).toHaveBeenCalledWith('/schedule/appointments/1/service', expect.anything())
     expect(Array.from(pick()?.options ?? []).map((o) => o.textContent))
       .toEqual(['Consultație', 'Durere acută'])
     fireEvent.click(document.querySelector('dialog .dlg-head button') as HTMLButtonElement)
+    get.mockClear()
     fireEvent.click(blk(2))
     await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
     expect(pick()).toBeNull()
+    expect(get).not.toHaveBeenCalled()
   })
 
   it('выбор уходит ключом услуги в день экрана, окно закрывается, день — из ответа', async () => {
@@ -1235,7 +1244,9 @@ describe('карточка визита: смена процедуры', () => {
       '/schedule/appointments/1/service?date=2026-09-23', { service_id: 'pain' }))
     await waitFor(() => expect(document.querySelector('dialog')).toBeNull())
     expect(document.querySelector('.toastbox')?.textContent).toContain('Procedura a fost schimbată')
-    expect(get).toHaveBeenCalledTimes(1)
+    /* день не перечитывался: один GET дня (и GET списка окна) */
+    expect(get.mock.calls.map((c) => String(c[0])).filter((u) => u.startsWith('/schedule/day')))
+      .toHaveLength(1)
   })
 
   it('⛔ отказ сервера — словом в окне, окно и выбор остаются', async () => {

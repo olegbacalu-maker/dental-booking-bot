@@ -879,7 +879,9 @@ def suite_service(res: Result) -> None:
     ключ услуги, снимок подписи и снимок длительности; выросшая длительность
     проверяется по часам клиники и по соседу под `_slot_lock`; врач обязан
     делать услугу; закрытый визит и заметка стойки не меняются. Список услуг
-    окна (`service_opts`) — тем же правилом (`visits.service_refusal`).
+    окна (`GET …/service`) — тем же правилом (`visits.service_refusal`); в
+    карточке и в блоке канвы — только ключ и флаг `service_edit`: список в
+    каждом блоке раздул бы каждый опрос главной.
     Засев клиники теста: d2 делает consult (60), pain (60), long (120), но не
     hygiene (только d3); клиника 7–21.
     """
@@ -909,10 +911,22 @@ def suite_service(res: Result) -> None:
             return [a["text"] for a in _j(c.get(
                 f"/api/patients/{pid}/activity?views=1"))["data"]["items"]]
 
-        card = day_model(c, day)["cards"][str(a1)]
-        res.check("карточка: ключ процедуры и услуги ЭТОГО врача (без hygiene d3)",
-                  (card["service_id"], card["service_opts"]),
-                  ("consult", ["consult", "pain", "long"]))
+        def opts(aid: int) -> tuple:
+            r = c.get(f"/api/schedule/appointments/{aid}/service")
+            d = _j(r).get("data") or {}
+            return r.status, d.get("service_id"), [o["id"] for o in d.get("options", [])]
+
+        m = day_model(c, day)
+        blk1 = next(b for col in m["canvas"]["columns"] for b in col["blocks"] if b["id"] == a1)
+        res.check("карточка и блок канвы: ключ процедуры и флаг, без списка",
+                  ({k: m["cards"][str(a1)][k] for k in ("service_id", "service_edit")},
+                   {k: blk1[k] for k in ("service_id", "service_edit")},
+                   "service_opts" in blk1),
+                  ({"service_id": "consult", "service_edit": True},
+                   {"service_id": "consult", "service_edit": True}, False))
+        res.check("GET …/service: услуги ЭТОГО врача, подписями (без hygiene d3)",
+                  opts(a1), (200, "consult", ["consult", "pain", "long"]))
+        res.check("GET …/service: визита нет — 409", opts(999999)[0], 409)
 
         # длинная упирается в соседа 10:00 — отказ, запись цела
         r = svc(a1, "long")
@@ -962,8 +976,9 @@ def suite_service(res: Result) -> None:
 
         # закрытый визит
         c.post_json(f"/api/schedule/appointments/{a2}/status?screen=panel", {"to": "done"})
-        res.check("закрытый: в карточке выбора нет",
-                  day_model(c, day)["cards"][str(a2)]["service_opts"], [])
+        res.check("закрытый: флаг снят, список пуст",
+                  (day_model(c, day)["cards"][str(a2)]["service_edit"], opts(a2)[2]),
+                  (False, []))
         r = svc(a2, "pain")
         res.check("закрытый — 409 svc_closed", (r.status, r.msg), (409, "svc_closed"))
         res.check("закрытый не тронут", row(a2), ("Consultație", "consult", 60))

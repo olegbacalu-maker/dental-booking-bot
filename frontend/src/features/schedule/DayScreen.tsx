@@ -349,10 +349,6 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
                         return ok
                       }}
                       onCall={(result) => act(() => day.call(at, doctor, tile, card, result))}
-                      /* подписи — из формы дня; у дня выключенного врача
-                         формы нет, и выбора процедуры тоже (сервер и так
-                         не даёт `service_opts` его визитам) */
-                      services={m.form?.services ?? []}
                       onService={(sid, fail) =>
                         act(() => day.service(at, doctor, tile, card, sid), fail)} />
         : null}
