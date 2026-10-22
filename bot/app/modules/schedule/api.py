@@ -39,7 +39,7 @@ from . import chair as pchair
 from . import panel as ppanel
 from .routes import (_AG_CLS, _add_appt, _add_note, _canvas_model, _day_model,
                      _move_appt, _of_doctor, _panel_live, _set_comment,
-                     _set_status, _svc_colors, _week_model)
+                     _set_service, _set_status, _svc_colors, _week_model)
 
 router = APIRouter()
 
@@ -47,8 +47,9 @@ router = APIRouter()
 # чтобы клиент разбирал ответы журнала и фиши одинаково.
 # ⚠️ Пустой код — это удача: так отвечает смена статуса, у которой баннера нет.
 _OK = {"", "ok", "ok_note", "part_note", "ok_move", "ok_comment", "ok_past",
-       "ok_other"}
-_CONFLICT = {"conflict", "dup", "bad_off", "mv_gone", "mv_closed", "past", "bad_step"}
+       "ok_other", "ok_svc"}
+_CONFLICT = {"conflict", "dup", "bad_off", "mv_gone", "mv_closed", "past", "bad_step",
+             "svc_closed", "svc_doc"}
 # какое поле формы подсветить при 422; отказ без поля оставляет его пустым
 _FIELD = {"bad": "time", "bad_time": "time", "outside": "time",
           "outside_doc": "time", "bad_name": "name", "bad_phone": "phone",
@@ -320,6 +321,27 @@ async def api_comment(request: Request, appt_id: int,
         return msg_json(False, "bad", field="comment", status=422)
     return await _done(await _set_comment(appt_id, _s(body, "comment")),
                        _screen(date_q), doctor, f=f, screen=screen)
+
+
+@router.post("/api/schedule/appointments/{appt_id}/service")
+async def api_service(request: Request, appt_id: int,
+                      date_q: str = Query("", alias="date"),
+                      doctor: str = Query(""), f: str = Query(""),
+                      screen: str = Query("")):
+    """Смена процедуры у стоящей записи (окно визита, 22.10): {service_id}.
+
+    Ответ — как у комментария: дню журнала свежий день в его отборе, панели
+    (`screen=panel`) — код без состояния, она спрашивает канал. Отказ
+    называет причину (`svc_closed`, `svc_doc`, `outside`, `conflict`…), и окно
+    печатает её у себя: плашку экрана под открытым окном не видно.
+    """
+    if (deny := api_guard(request)) is not None:
+        return deny
+    body = await api_body(request)
+    if body is None:
+        return msg_json(False, "bad", field="service", status=422)
+    return await _done(await _set_service(appt_id, _s(body, "service_id")),
+                       _screen(date_q), doctor, field="service", f=f, screen=screen)
 
 
 @router.get("/api/chair")

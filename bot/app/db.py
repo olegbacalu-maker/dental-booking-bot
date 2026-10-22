@@ -2940,8 +2940,9 @@ async def appointment_brief(appt_id: int) -> dict | None:
     patient_id отсюда — источник истины «чей визит»: маршруты обязаны брать
     его из этой выборки, а не из формы."""
     rows = await _fetch(
-        """SELECT a.id, a.patient_id, a.service, a.doctor, a.starts_at,
-                  a.duration_min, a.status, a.source, a.comment, p.name
+        """SELECT a.id, a.patient_id, a.service, a.doctor, a.doctor_id,
+                  a.service_id, a.starts_at, a.duration_min, a.status, a.source,
+                  a.comment, p.name
            FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id
            WHERE a.id = ?""", appt_id)
     return rows[0] if rows else None
@@ -3406,6 +3407,53 @@ async def move_appointment(appt_id: int, doctor_id: str, doctor: str,
         if r["patient_id"]:
             await log_event(r["patient_id"], "appt_move",
                             f"Vizită mutată: {when} · {doctor} — {r['service']}")
+        return ""
+
+
+async def set_appt_service(appt_id: int, service_id: str, service: str,
+                           duration_min: int) -> str:
+    """Смена процедуры у стоящей записи (22.10): ключ услуги, СНИМОК подписи и
+    СНИМОК длительности — те же три колонки, что пишет бронь.
+
+    Ответ — КОД, как у переноса: `''` — сменено (или уже та же услуга);
+    `gone` — записи нет; `closed` — визит не активен; `conflict` — выросшая
+    длительность наезжает на соседа у того же врача.
+    ⚠️ Состояние перечитывается ПОД `_slot_lock`, а не берётся у вызывающего:
+    пока регистратура выбирала услугу, вторая вкладка могла завершить визит,
+    поставить соседа вплотную или уже сменить процедуру. Наезд спрашиваем у
+    ДАННЫХ (`_conflicts`) до записи — текст ошибки движка индекс не называет.
+    ⚠️ Проверка наезда — только когда визит ДЛИННЕЕ прежнего: короче или
+    столько же — он лежит внутри уже занятого им интервала, и отказ «занято»
+    из-за чужой старой ошибки (наезд, записанный до 08-13) не дал бы даже
+    сократить визит.
+    ⛔ Заметку стойки (`source='note'`) здесь не тронуть: у неё в `service`
+    лежит ТЕКСТ заметки, а не процедура; правило вызывающего её не пропускает,
+    а условие ниже держит то же на уровне данных.
+    """
+    async with _slot_lock():
+        rows = await _fetch(
+            """SELECT patient_id, doctor, doctor_id, starts_at, duration_min,
+                      status, source, service, service_id
+               FROM appointments WHERE id = ?""", appt_id)
+        if not rows or rows[0]["source"] == "note":
+            return "gone"
+        r = rows[0]
+        if r["status"] not in ACTIVE_STATUSES:
+            return "closed"
+        if r["service_id"] == service_id:
+            return ""
+        if duration_min > int(r["duration_min"] or 60) and await _conflicts(
+                r["doctor_id"], r["doctor"], r["starts_at"], duration_min,
+                exclude_id=appt_id):
+            return "conflict"
+        await _execute(
+            """UPDATE appointments SET service = ?, service_id = ?, duration_min = ?
+               WHERE id = ? AND source != 'note'""",
+            service, service_id, duration_min, appt_id)
+        if r["patient_id"]:
+            # «›», а не стрелка: стрелки нет во вшитом шрифте (CLAUDE.md)
+            await log_event(r["patient_id"], "appt_service",
+                            f"Procedura schimbată: {r['service']} › {service}")
         return ""
 
 

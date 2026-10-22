@@ -513,6 +513,10 @@
 .dp-react-root .dp-card-info { font-size: var(--fs-body); color: var(--text2); }
 .dp-react-root .dp-card-link { font-size: var(--fs-s); font-weight: 600; }
 .dp-react-root .dp-card-cmt { display: flex; flex-direction: column; gap: 8px; }
+/* смена процедуры (22.10): список и кнопка одной строкой, отказ — над ними */
+.dp-react-root .dp-card-svc { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.dp-react-root .dp-card-svc select { flex: 1 1 200px; min-width: 0; }
+.dp-react-root .dp-card-svc .banner { flex-basis: 100%; }
 /* Текст заметки — ЧИТАЕТСЯ, а не правится: обычный абзац, перенос по
    словам и по длинному слову тоже (120 знаков без пробелов бывают). */
 .dp-react-root .dp-note-text { margin: 0; font-size: var(--fs-body); line-height: 1.45;

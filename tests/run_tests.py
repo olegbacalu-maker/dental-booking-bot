@@ -326,6 +326,7 @@ SUITES = [
     ("Неделя: JSON API", test_schedule_api.suite_api),
     ("Статус визита: переход только по ребру матрицы кнопок",
      test_schedule_api.suite_status_edges),
+    ("Процедура визита: смена у стоящей записи", test_schedule_api.suite_service),
     ("Неделя: узел React, раздел «Programări»", test_schedule_api.suite_switch),
     ("День: модель «Programări» — канва, подпись, врач", test_schedule_api.suite_day_parity),
     ("День: «Sursă» — у клиники с ботом", test_schedule_api.suite_day_source),

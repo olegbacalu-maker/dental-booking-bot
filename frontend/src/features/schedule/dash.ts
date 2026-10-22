@@ -78,6 +78,10 @@ export interface DashAppt extends BlockBase {
   /** Отметка звонка и можно ли её ставить (12.10) — `core.visits.call_fields`. */
   call: CallResult
   callable: boolean
+  /** Процедура и на что её можно сменить (22.10) — `core.visits.service_fields`,
+   *  тем же правилом, что у карточки дня. */
+  service_id: string
+  service_opts: string[]
   clickable: boolean
   bg: string
   bar: string
@@ -340,6 +344,11 @@ export const dash = {
       { comment: text }),
   status: (date: string, id: number, to: string) =>
     api.post<void>(`/schedule/appointments/${id}/status${cmdQuery(date)}`, { to }),
+  /* смена процедуры (22.10): команда без состояния, как статус — новая
+     длительность и подпись приезжают каналом */
+  service: (date: string, id: number, serviceId: string) =>
+    api.post<void>(`/schedule/appointments/${id}/service${cmdQuery(date)}`,
+      { service_id: serviceId }),
   /* отметка звонка-подтверждения («De confirmat», 01.10): как статус —
      команда без состояния, экран спрашивает канал */
   call: (date: string, id: number, result: CallResult) =>

@@ -112,6 +112,10 @@ export interface VisitCardView {
   /** Отметка звонка и можно ли её ставить (12.10) — поля сервера. */
   call: CallResult
   callable: boolean
+  /** Ключ процедуры в clinic.json (пусто у легаси-строки) и на какие услуги
+   *  её можно сменить (22.10) — `core.visits.service_fields`; пусто — выбора нет. */
+  service_id: string
+  service_opts: string[]
 }
 
 /**
@@ -156,6 +160,9 @@ export interface DayCard {
    *  `core.visits.call_fields`; дату в браузере не считает никто. */
   call: CallResult
   callable: boolean
+  /** Процедура и на что её можно сменить (22.10) — `core.visits.service_fields`. */
+  service_id: string
+  service_opts: string[]
 }
 
 /** Кнопка исхода — сервер говорит и слово, и класс, и нужен ли вопрос. */
@@ -313,6 +320,13 @@ export const day = {
   status: (at: string, doctor: string, f: string, id: number, to: string) =>
     api.post<DayModel>(
       `/schedule/appointments/${id}/status${screen(at, doctor, f)}`, { to }),
+
+  /** Смена процедуры у стоящей записи (22.10): ответ — свежий день, как у
+   *  комментария. */
+  service: (at: string, doctor: string, f: string, id: number, serviceId: string) =>
+    api.post<DayModel>(
+      `/schedule/appointments/${id}/service${screen(at, doctor, f)}`,
+      { service_id: serviceId }),
 
   move: (at: string, doctor: string, f: string, id: number,
          body: { date: string; time: string; doctor: string }) =>

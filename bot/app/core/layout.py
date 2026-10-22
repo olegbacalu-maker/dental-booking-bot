@@ -207,6 +207,14 @@ MSG_BANNER = {
                          "fișa și mutați programarea, sau adăugați pacientul "
                          "separat din Pacienți"),
     "ok_comment": ("ok", "Comentariu salvat"),
+    # смена процедуры у стоящей записи (22.10, окно визита): отказы говорят,
+    # что делать дальше, — как у переноса
+    "ok_svc": ("ok", "Procedura a fost schimbată"),
+    "svc_closed": ("err", "Procedura se schimbă doar la programările active — cea "
+                          "finalizată, anulată sau neprezentată rămâne cum a fost "
+                          "(redeschideți-o dacă chiar trebuie schimbată)"),
+    "svc_doc": ("err", "Medicul acestei programări nu face procedura aleasă — "
+                       "alegeți altă procedură sau mutați programarea la alt medic"),
     "ok_set": ("ok", "Setări salvate"),
     # SMS-пакет (S6): Setări › SMS — ответы JSON API; отказ сервера едет его же
     # словами (`msg_json(text=…)`: словарь CODES облака — один на обе стороны)

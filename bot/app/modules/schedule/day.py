@@ -16,7 +16,7 @@ from ... import engine as eng
 from ...core import sms_loop
 from ...core.auth import PERM_SMS, can, request_user
 from ...core.layout import _DOW_FULL, _DOW_ORDER, STATUS_LABEL, tg_configured
-from ...core.visits import _age, all_status_actions, call_fields, list_rows
+from ...core.visits import _age, all_status_actions, call_fields, list_rows, service_fields
 
 
 def day_title(d: date) -> str:
@@ -240,6 +240,9 @@ def appt_view(r, dk: str, cards: dict | None, colors) -> dict:
         # отметка звонка и «можно ли её ставить» — тем же правилом, что у
         # карточки дня (`core.visits.call_fields`, 12.10)
         **call_fields(r),
+        # процедура и на что её сменить (22.10) — тем же правилом, что у
+        # карточки дня: окно визита у панели и дня одно
+        **service_fields(r),
         "clickable": bool(cards is not None and r["id"] in cards),
         "bg": bg, "bar": bar,
         # перетаскивание — одними полями на панель и «Programări». `busy` —

@@ -16,6 +16,7 @@ import pathlib
 import urllib.parse
 from datetime import date, datetime
 
+from .. import db
 from .. import engine as eng
 from .layout import _age, status_view
 from .storage import _data_dir
@@ -173,6 +174,51 @@ def call_fields(r) -> dict:
                          and st.date() >= datetime.now(eng.TZ).date())}
 
 
+def service_refusal(r, sid: str) -> str:
+    """Можно ли сменить процедуру визита `r` на услугу `sid` (22.10, Олег:
+    «сменить процедуру, не удаляя запись»): «» — можно, иначе код отказа из
+    `MSG_BANNER`.
+
+    ⛔ Одно правило на окно и на сервер: список услуг окна (`service_fields`)
+    и маршрут смены (`routes._set_service`) спрашивают ЭТУ функцию. Своё
+    условие в браузере разошлось бы молча — окно предлагало бы услугу, которую
+    сервер отбивает, или прятало бы законную.
+    ⚠️ Здесь только то, что не зависит от часов: влезет ли новая длительность
+    в график и не наедет ли на соседа, решает маршрут под `_slot_lock`.
+    ⚠️ Врач — по `doctor_id`, и он обязан быть АКТИВНЫМ (`allowed_doc_items`
+    знает только активных): выключенному журнал не пишет (`bad_off`, как у
+    записи и переноса). У легаси-строки без `doctor_id` смены нет — её, как и
+    перенос, сперва перевязывают к врачу (relink на канве).
+    Закрытый визит не меняется, как и не переносится: смена процедуры — это
+    правка ЗАПИСИ, а у состоявшегося приёма процедура — уже факт (дневник,
+    043/e, статистика).
+    """
+    if r["source"] == "note" or sid not in eng.SERVICES:
+        return "bad"
+    if r["status"] not in db.ACTIVE_STATUSES:
+        return "svc_closed"
+    dk = r.get("doctor_id") or ""
+    if dk not in eng.ACTIVE_DOCTORS:
+        return "bad_off"
+    if all(k != dk for k, _n in eng.allowed_doc_items(sid)):
+        return "svc_doc"
+    return ""
+
+
+def service_fields(r) -> dict:
+    """Процедура визита для окна карточки (22.10): `service_id` — ключ услуги
+    в clinic.json (пусто у легаси-строки: смену она не предлагает),
+    `service_opts` — ключи услуг, на которые её МОЖНО сменить по
+    `service_refusal`; пустой список — выбора в окне нет.
+    ⛔ Одно поле на карточку дня и блок канвы панели (как `call_fields`):
+    окно визита у двух экранов одно. Подписи услуг окно берёт из формы экрана
+    (`form.services` / `slotform.services`), второго их списка здесь нет.
+    ⚠️ Список зависит только от данных записи и clinic.json — отпечаток
+    живого канала он не шевелит, пока не меняются они."""
+    return {"service_id": r.get("service_id") or "",
+            "service_opts": [k for k in eng.SERVICES if not service_refusal(r, k)]}
+
+
 def _collect_cards(rows: list) -> dict:
     """Данные карточек визита (диалог по клику) — по ВСЕМ записям дня (вкл.
     отменённые: их открывают из «Lista zilei», чтобы вернуть), кроме заметок."""
@@ -200,6 +246,9 @@ def _collect_cards(rows: list) -> dict:
             # .get: не всякий вызывающий тянет флаг дневника из day_appointments
             "rec": bool(r.get("has_rec")),
             **call_fields(r),
+            # процедура и на что её можно сменить (22.10) — тем же правилом,
+            # что у блока канвы панели
+            **service_fields(r),
         }
     return cards
 

@@ -14,8 +14,8 @@
 import json
 from datetime import datetime, timedelta
 
-from harness import (TG_ON, Client, Result, Server, appt_id, clinic_today, day_model,
-                     shell_model)
+from harness import (TG_ON, Client, Result, Server, add_appt, appt_id, clinic_today,
+                     day_model, shell_model)
 
 # Сокращения дней недели — те же, что у движка (`engine.RO_DOW`): подпись дня
 # в шапке «Jo 24.09.2026» строит сервер, и здесь она проверяется буквально.
@@ -869,3 +869,126 @@ def suite_status_edges(res: Result) -> None:
         res.check("заметка → done: ребра нет", to(nid, "done"), (409, "bad_step"))
         res.check("заметка → cancelled (Șterge): ребро есть", to(nid, "cancelled"), (200, ""))
         res.check("заметка → confirmed (Restabilește): ребро есть", to(nid, "confirmed"), (200, ""))
+
+
+def suite_service(res: Result) -> None:
+    """Смена процедуры у стоящей записи (22.10, Олег 19.10: «сменить процедуру,
+    не удаляя запись»; вторая услуга в одну запись — НЕ делается).
+
+    Маршрут `POST /api/schedule/appointments/{id}/service` {service_id}: пишет
+    ключ услуги, снимок подписи и снимок длительности; выросшая длительность
+    проверяется по часам клиники и по соседу под `_slot_lock`; врач обязан
+    делать услугу; закрытый визит и заметка стойки не меняются. Список услуг
+    окна (`service_opts`) — тем же правилом (`visits.service_refusal`).
+    Засев клиники теста: d2 делает consult (60), pain (60), long (120), но не
+    hygiene (только d3); клиника 7–21.
+    """
+    with Server() as s:
+        c = Client(s.url).login()
+        day = (clinic_today() + timedelta(days=2)).isoformat()
+        for hh, nm in (("09:00", "Svc Unu"), ("10:00", "Svc Doi"), ("13:00", "Svc Trei"),
+                       ("15:00", "Svc Patru"), ("20:00", "Svc Cinci")):
+            add_appt(c, day, hh, nm, "0697" + hh.replace(":", ""))
+        a1, a2, a3, a4, a5 = (appt_id(c, day, nm) for nm in (
+            "Svc Unu", "Svc Doi", "Svc Trei", "Svc Patru", "Svc Cinci"))
+
+        def svc(aid: int, sid: str, panel: bool = True):
+            q = f"?screen=panel&date={day}" if panel else f"?date={day}"
+            return c.post_json(f"/api/schedule/appointments/{aid}/service{q}",
+                               {"service_id": sid})
+
+        def row(aid: int) -> tuple:
+            m = day_model(c, day)
+            lst = next(r for r in m["list"] if r["id"] == aid)
+            blk = next(b for col in m["canvas"]["columns"] for b in col["blocks"]
+                       if b["id"] == aid)
+            return lst["service"], m["cards"][str(aid)]["service_id"], blk["dur"]
+
+        def feed(aid: int) -> list[str]:
+            pid = day_model(c, day)["cards"][str(aid)]["pid"]
+            return [a["text"] for a in _j(c.get(
+                f"/api/patients/{pid}/activity?views=1"))["data"]["items"]]
+
+        card = day_model(c, day)["cards"][str(a1)]
+        res.check("карточка: ключ процедуры и услуги ЭТОГО врача (без hygiene d3)",
+                  (card["service_id"], card["service_opts"]),
+                  ("consult", ["consult", "pain", "long"]))
+
+        # длинная упирается в соседа 10:00 — отказ, запись цела
+        r = svc(a1, "long")
+        res.check("09:00 → long (120) наезжает на 10:00 — 409 conflict, без состояния",
+                  (r.status, r.msg, "data" in _j(r)), (409, "conflict", False))
+        res.check("отказ: запись не тронута", row(a1), ("Consultație", "consult", 60))
+
+        # длинная без соседа: 13:00–15:00, сосед ровно в 15:00 — не наезд
+        r = svc(a3, "long", panel=False)
+        res.check("13:00 → long — удача, дню свежий день",
+                  (r.status, r.msg, "data" in _j(r)), (200, "ok_svc", True))
+        res.check("сменены подпись, ключ и длительность", row(a3),
+                  ("Tratament lung", "long", 120))
+        res.ok("строка в летописи: было › стало",
+               "Procedura schimbată: Consultație › Tratament lung" in feed(a3),
+               str(feed(a3)[:3]))
+
+        # короткая: 120 → 60 — проверки соседа нет, интервал сжался
+        r = svc(a3, "pain")
+        res.check("long → pain (короче) — удача, панели без состояния",
+                  (r.status, r.msg, "data" in _j(r)), (200, "ok_svc", False))
+        res.check("короткая: подпись, ключ, длительность", row(a3),
+                  ("Durere acută", "pain", 60))
+
+        # повтор той же услуги — тихий успех, летопись не пишется
+        n = len(feed(a3))
+        r = svc(a3, "pain")
+        res.check("та же услуга — тихий успех", (r.status, r.msg), (200, ""))
+        res.check("повтор летопись не пишет", len(feed(a3)), n)
+
+        # услуга не этого врача
+        r = svc(a1, "hygiene")
+        res.check("hygiene (только d3) у d2 — 409 svc_doc", (r.status, r.msg), (409, "svc_doc"))
+        r = svc(a1, "nope")
+        res.check("неизвестная услуга — 422 bad", (r.status, r.msg), (422, "bad"))
+
+        # 20:00 + 120 = 22:00 при закрытии в 21:00
+        r = svc(a5, "long")
+        res.check("20:00 → long не влезает в часы клиники — outside",
+                  (r.status, r.msg), (422, "outside"))
+        res.check("отказ часов: запись цела", row(a5), ("Consultație", "consult", 60))
+
+        # «în cabinet» — активный визит, процедуру уточняют как раз у кресла
+        c.post_json(f"/api/schedule/appointments/{a4}/status?screen=panel", {"to": "arrived"})
+        r = svc(a4, "pain")
+        res.check("«în cabinet» → pain — удача", (r.status, r.msg), (200, "ok_svc"))
+
+        # закрытый визит
+        c.post_json(f"/api/schedule/appointments/{a2}/status?screen=panel", {"to": "done"})
+        res.check("закрытый: в карточке выбора нет",
+                  day_model(c, day)["cards"][str(a2)]["service_opts"], [])
+        r = svc(a2, "pain")
+        res.check("закрытый — 409 svc_closed", (r.status, r.msg), (409, "svc_closed"))
+        res.check("закрытый не тронут", row(a2), ("Consultație", "consult", 60))
+        r = svc(999999, "pain")
+        res.check("визита нет — 409 mv_gone", (r.status, r.msg), (409, "mv_gone"))
+
+        # заметка стойки: в `service` у неё ТЕКСТ — не процедура
+        c.post_json("/api/schedule/notes", {"date": day, "time": "17:00", "doctor": "d2",
+                                           "text": "Livrare materiale"})
+        nid = next(r["id"] for r in day_model(c, day)["list"] if r["is_note"])
+        r = svc(nid, "pain")
+        res.check("заметка — 422 bad", (r.status, r.msg), (422, "bad"))
+        res.check("текст заметки цел",
+                  next(r["service"] for r in day_model(c, day)["list"] if r["id"] == nid),
+                  "Livrare materiale")
+
+        # статистика считает по НОВОМУ ключу: consult бесплатна, long — 2000 MDL
+        today = clinic_today().isoformat()
+        add_appt(c, today, "07:00", "Svc Stat", "069707000")
+        sid_ = appt_id(c, today, "Svc Stat")
+        r = c.post_json(f"/api/schedule/appointments/{sid_}/service?screen=panel",
+                        {"service_id": "long"})
+        res.check("визит дня (07:00, обычно уже прошёл) → long — удача",
+                  (r.status, r.msg), (200, "ok_svc"))
+        st = _j(c.get(f"/api/stats?from={today}&to={today}"))["data"]["services"]
+        res.check("статистика: услуга и цена — по новому ключу",
+                  [(x["label"], x["cnt"], x["val_n"]) for x in st],
+                  [("Tratament lung", 1, 2000)])

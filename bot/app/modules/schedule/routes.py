@@ -7,7 +7,8 @@
 - модели, которые собирает и панель, и день (`_panel_live`, `_day_model`,
   `_week_model`) — из одной выборки, тем же цветом (`_svc_colors`);
 - правила действий журнала (`_add_appt`, `_add_note`, `_set_comment`,
-  `_move_appt`, `_set_status`): JSON API зовёт их, своих проверок у него нет;
+  `_move_appt`, `_set_service`, `_set_status`): JSON API зовёт их, своих
+  проверок у него нет;
 - выгрузка дня в Excel (кнопка «Excel» на «Programări» и в статистике).
 
 Правило то же, что у пациентов: сюда можно смотреть в `core`, `db` и `engine`,
@@ -27,7 +28,7 @@ from ...core.auth import _guard, request_user
 from ...core import xlsx
 from ...core.layout import react_shell, shell_model
 from ...core.visits import (SVC_PALETTE, _collect_cards, _parse_date,
-                            all_status_actions, status_actions)
+                            all_status_actions, service_refusal, status_actions)
 from . import canvas as pcanvas
 from . import chair as pchair
 from . import day as pday
@@ -602,6 +603,47 @@ async def _move_appt(appt_id: int, mdate: str, mtime: str, mdoctor: str) -> str:
                                      when=dt.strftime("%H:%M"))
     return {"": "ok_move", "gone": "mv_gone",
             "closed": "mv_closed"}.get(code, code)
+
+
+async def _set_service(appt_id: int, sid: str) -> str:
+    """Смена процедуры у стоящей записи (окно визита, 22.10; Олег: только
+    смена — вторая услуга в одну запись НЕ делается). Код — из `MSG_BANNER`.
+
+    Проверки — по образцу ручной записи (`_add_appt`): услуга есть, врач её
+    делает, новая длительность влезает в часы клиники и врача, и в общем
+    составе с данными под `_slot_lock` (`db.set_appt_service`).
+    ⭐ Кто и что вправе менять — ОДНО правило с окном (`visits.service_refusal`):
+    по нему окно строит список, по нему же сервер отказывает.
+    ⚠️ Часы проверяются, только когда визит ДЛИННЕЕ прежнего — по той же
+    причине, что у переноса (`fits_clinic(dt, 30)`): короче он лежит внутри
+    интервала, который уже занимал, и отказ «не влезает» не дал бы даже
+    сократить визит, записанный внахлёст с закрытием.
+    ⚠️ График врача — только у БУДУЩЕГО старта, как у `_add_appt`: у визита,
+    который уже идёт («a venit», «în cabinet») или забыт открытым со вчера,
+    обещать пациенту нечего, а график могли сузить после записи.
+    ⭐ Решено 22.10 (совет главного окна): менять можно у ЛЮБОГО активного
+    визита — будущего, прошедшего незакрытого, «a venit» и «în cabinet»;
+    регистратура как раз у кресла и узнаёт, что делают на самом деле.
+    Закрытый (finalizat / nu a venit / anulat) — `svc_closed`.
+    """
+    cur = await db.appointment_brief(appt_id)
+    if cur is None:
+        return "mv_gone"
+    if code := service_refusal(cur, sid):
+        return code
+    if cur["service_id"] == sid:
+        return ""
+    dk = cur["doctor_id"]
+    dur = eng.svc_duration(sid)
+    if dur > int(cur["duration_min"] or 60):
+        start = cur["starts_at"].astimezone(eng.TZ)
+        if not eng.fits_clinic(start, dur):
+            return "outside"
+        if not eng.is_past(start) and not eng.fits_doctor(dk, start, dur):
+            return "outside_doc"
+    code = await db.set_appt_service(appt_id, sid, eng.SERVICES[sid]["ro"], dur)
+    return {"": "ok_svc", "gone": "mv_gone",
+            "closed": "svc_closed"}.get(code, code)
 
 
 async def _set_status(appt_id: int, to: str) -> str:

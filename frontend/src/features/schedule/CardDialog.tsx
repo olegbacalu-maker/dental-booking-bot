@@ -28,8 +28,16 @@ const T = {
   visitOld: 'Vezi consultația ›',
   comment: 'Comentariu: alergii, preferințe, de sunat înapoi…',
   save: 'Salvează comentariul',
+  svc: 'Procedura',
+  svcSave: 'Schimbă procedura',
   close: 'Închide',
 } as const
+
+/** Услуга так, как её знает форма экрана: ключ clinic.json и подпись. */
+export interface ServiceOption {
+  id: string
+  label: string
+}
 
 interface Props {
   open: boolean
@@ -50,12 +58,26 @@ interface Props {
    *  хочу подтвердить сегодня»). Строка видна, только когда сервер сказал
    *  `callable`; диалог остаётся открытым — отметка приезжает с каналом. */
   onCall?: (result: CallResult) => Promise<boolean>
+  /** Подписи услуг — из формы, которую экран уже знает (`form.services` дня,
+   *  `slotform.services` панели). Какие из них предложить, решает СЕРВЕР
+   *  (`card.service_opts`), здесь только раскладка. */
+  services?: ServiceOption[]
+  /** Смена процедуры (22.10, Олег: только смена, вторая услуга — нет).
+   *  `true` — сменено, окно закрывается; отказ приходит словом в `fail` и
+   *  печатается В ОКНЕ: плашка экрана под `<dialog>` не видна. */
+  onService?: (serviceId: string, fail: (text: string) => void) => Promise<boolean>
 }
 
 export function CardDialog({ open, id, card, actions, note = '', back, busy,
-  onClose, onComment, onStatus, onCall }: Props) {
+  onClose, onComment, onStatus, onCall, services = [], onService }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
   const [text, setText] = useState(card.comment)
+  /* Выбор процедуры живёт тем же правилом, что черновик комментария: пока
+     его не трогали, приехавшая со второго рабочего места смена пересевает
+     список; тронули — выбор остаётся. */
+  const [svc, setSvc] = useState(card.service_id)
+  const svcSeeded = useRef(card.service_id)
+  const [svcFail, setSvcFail] = useState('')
   /* ⭐ Черновик держит СЕБЯ, а не экран (C26.5.3-b). Пока его не трогали —
      приехавшее значение пересевает поле, и правка со второго рабочего места
      видна сразу. Тронули — поле остаётся, а канва под диалогом продолжает
@@ -83,8 +105,31 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
     })
   }, [card.comment])
 
+  useEffect(() => {
+    setSvc((cur) => {
+      if (cur !== svcSeeded.current) return cur
+      svcSeeded.current = card.service_id
+      return card.service_id
+    })
+  }, [card.service_id])
+
   const info = [card.service, card.doctor, card.phone,
     card.age ? `${card.age} ani` : ''].filter(Boolean).join(' · ')
+  /* ⛔ Список — пересечение формы экрана с тем, что разрешил сервер: у
+     закрытого визита, у врача на отпуске и у легаси-строки `service_opts`
+     пуст, и выбора нет вовсе. Своего «можно ли» браузер не считает. */
+  const svcOpts = services.filter((s) => card.service_opts.includes(s.id))
+  const svcShown = onService && !note && svcOpts.length > 0
+  /* Нынешней услуги в списке может не быть (легаси-строка без ключа, услугу
+     убрали из clinic.json): тогда она стоит первой строкой, выбрать её нельзя. */
+  const svcKnown = svcOpts.some((s) => s.id === card.service_id)
+
+  async function saveSvc(e: FormEvent) {
+    e.preventDefault()
+    if (!onService) return
+    setSvcFail('')
+    if (await onService(svc, setSvcFail)) onClose()
+  }
 
   /* Сохранённый комментарий закрывает окно, как исход визита (14.10, слово
      Олега: «вкладка по идее должна закрыться»); отказ оставляет окно с
@@ -146,6 +191,21 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
                     onChange={(e) => setText(e.target.value)} />
           <button disabled={busy}><Icon name="chat" /> {T.save}</button>
         </form>
+        {/* Смена процедуры — ПОД комментарием: она редкая, а комментарий
+            правят каждый день; и первой формой окна остаётся комментарий. */}
+        {svcShown && (
+          <form onSubmit={saveSvc} className="dp-card-svc" aria-label={T.svc}>
+            {svcFail ? <div className="banner err" role="alert">{svcFail}</div> : null}
+            <select value={svc} aria-label={T.svc}
+                    onChange={(e) => { setSvc(e.target.value); setSvcFail('') }}>
+              {svcKnown ? null : <option value={card.service_id} disabled>{card.service}</option>}
+              {svcOpts.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+            <button disabled={busy || svc === card.service_id}>
+              <Icon name="pen" /> {T.svcSave}
+            </button>
+          </form>
+        )}
       </div>
       <div className="dlg-status">
         {actions.map((a) => (

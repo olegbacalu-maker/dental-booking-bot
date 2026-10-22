@@ -1,0 +1,116 @@
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { CardDialog, type ServiceOption } from './CardDialog'
+import type { VisitCardView } from './day'
+
+/* Смена процедуры в окне визита (22.10, Олег: сменить процедуру, не удаляя
+   запись; вторая услуга в одну запись — нет).
+   ⛔ Какие услуги предложить, решает СЕРВЕР (`service_opts`, правило
+   `visits.service_refusal`): окно только пересекает их с подписями формы.
+   ⛔ Отказ печатается В ОКНЕ, как у окна пустого часа: плашка экрана под
+   `<dialog>` не видна. */
+
+const SERVICES: ServiceOption[] = [
+  { id: 'consult', label: 'Consultație' },
+  { id: 'pain', label: 'Durere acută' },
+  { id: 'hygiene', label: 'Igienizare' },
+  { id: 'long', label: 'Tratament lung' },
+]
+
+function card(over: Partial<VisitCardView> = {}): VisitCardView {
+  return {
+    time: '09:00', name: 'Ion Popa', service: 'Consultație', doctor: 'Dr. Activ Doi',
+    phone: '069000000', age: 41, comment: '', status: 'confirmed', pid: 7, rec: false,
+    call: '', callable: false, service_id: 'consult',
+    service_opts: ['consult', 'pain', 'long'], ...over,
+  }
+}
+
+const onClose = vi.fn()
+const ok = async () => true
+
+function show(c: VisitCardView, onService?: (sid: string, fail: (t: string) => void)
+  => Promise<boolean>, note = '') {
+  return render(<CardDialog open id={1} card={c} actions={[]} note={note} back="/admin/all"
+    busy={false} onClose={onClose} onComment={ok} onStatus={ok} services={SERVICES}
+    {...(onService ? { onService } : {})} />)
+}
+
+const picker = () => document.querySelector('dialog select[aria-label="Procedura"]') as
+  HTMLSelectElement | null
+const options = () => Array.from(picker()?.options ?? []).map((o) => [o.value, o.textContent, o.disabled])
+const svcBtn = () => Array.from(document.querySelectorAll('dialog button'))
+  .find((b) => b.textContent?.includes('Schimbă procedura')) as HTMLButtonElement
+const banner = () => document.querySelector('dialog form[aria-label="Procedura"] .banner.err')
+  ?.textContent ?? ''
+
+afterEach(() => { cleanup(); onClose.mockClear() })
+
+describe('окно визита: смена процедуры', () => {
+  it('список — услуги, которые разрешил сервер, подписями формы; нынешняя выбрана', () => {
+    show(card(), ok)
+    expect(options()).toEqual([['consult', 'Consultație', false], ['pain', 'Durere acută', false],
+      ['long', 'Tratament lung', false]])
+    expect(picker()?.value).toBe('consult')
+    // без перемены отправлять нечего
+    expect(svcBtn().disabled).toBe(true)
+  })
+
+  it('сервер не дал выбора (закрытый визит, врач в отпуске) — выбора нет вовсе', () => {
+    show(card({ status: 'done', service_opts: [] }), ok)
+    expect(picker()).toBeNull()
+  })
+
+  it('без колбэка экрана и у надгробия выбора нет', () => {
+    show(card())
+    expect(picker()).toBeNull()
+    cleanup()
+    show(card(), ok, 'Programarea nu mai există — reîmprospătați pagina')
+    expect(picker()).toBeNull()
+  })
+
+  it('нынешней услуги нет среди разрешённых — она первой строкой и не выбирается', () => {
+    show(card({ service: 'Albire veche', service_id: '' }), ok)
+    expect(options()[0]).toEqual(['', 'Albire veche', true])
+    expect(picker()?.value).toBe('')
+  })
+
+  it('выбрали другую — уходит ключ услуги, удача закрывает окно', async () => {
+    const onService = vi.fn(async () => true)
+    show(card(), onService)
+    fireEvent.change(picker() as HTMLSelectElement, { target: { value: 'long' } })
+    expect(svcBtn().disabled).toBe(false)
+    await act(async () => { fireEvent.click(svcBtn()) })
+    expect(onService).toHaveBeenCalledWith('long', expect.any(Function))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('⛔ отказ сервера — словом в окне, окно открыто, выбор остаётся', async () => {
+    const onService = vi.fn(async (_sid: string, fail: (t: string) => void) => {
+      fail('Intervalul este deja ocupat la acest medic')
+      return false
+    })
+    show(card(), onService)
+    fireEvent.change(picker() as HTMLSelectElement, { target: { value: 'long' } })
+    await act(async () => { fireEvent.click(svcBtn()) })
+    await waitFor(() => expect(banner()).toBe('Intervalul este deja ocupat la acest medic'))
+    expect(onClose).not.toHaveBeenCalled()
+    expect(picker()?.value).toBe('long')
+    // другой выбор снимает слово прежнего отказа
+    fireEvent.change(picker() as HTMLSelectElement, { target: { value: 'pain' } })
+    expect(banner()).toBe('')
+  })
+
+  it('смена со второго рабочего места пересевает нетронутый выбор, тронутый — нет', () => {
+    const r = show(card(), ok)
+    r.rerender(<CardDialog open id={1} card={card({ service: 'Durere acută', service_id: 'pain' })}
+      actions={[]} back="/admin/all" busy={false} onClose={onClose} onComment={ok}
+      onStatus={ok} services={SERVICES} onService={ok} />)
+    expect(picker()?.value).toBe('pain')
+    fireEvent.change(picker() as HTMLSelectElement, { target: { value: 'long' } })
+    r.rerender(<CardDialog open id={1} card={card({ service_id: 'consult' })}
+      actions={[]} back="/admin/all" busy={false} onClose={onClose} onComment={ok}
+      onStatus={ok} services={SERVICES} onService={ok} />)
+    expect(picker()?.value).toBe('long')
+  })
+})

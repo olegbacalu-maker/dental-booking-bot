@@ -34,6 +34,7 @@ const block = (id: number, time: string, name: string,
   comment: '', comment_cut: '', age: null, clickable: true, call: '', callable: true,
   bg: 'var(--green-soft)', bar: 'var(--green)', min: 540, busy: true, movable: true,
   doctor: 'Dr. Activ Doi', pid: 7, rec: false, top: 0, height: 1, col: 0, of: 1,
+  service_id: 'consult', service_opts: ['consult', 'pain'],
   title: `${time} · 60′ · Consultație · ${name}`, wait_since: null, ...extra,
 })
 
@@ -135,10 +136,12 @@ const MODEL: DayModel = {
   cards: {
     1: { name: 'Ion Popa', phone: '069000000', service: 'Consultație',
       doctor: 'Dr. Activ Doi', time: '09:00', comment: LONG, age: 41,
-      status: 'confirmed', pid: 7, rec: false, call: '', callable: true },
+      status: 'confirmed', pid: 7, rec: false, call: '', callable: true,
+      service_id: 'consult', service_opts: ['consult', 'pain'] },
     2: { name: 'Maria Rusu', phone: '069000001', service: 'Durere acută',
       doctor: 'Dr. Activ Trei', time: '10:00', comment: '', age: 36,
-      status: 'noshow', pid: 8, rec: true, call: '', callable: false },
+      status: 'noshow', pid: 8, rec: true, call: '', callable: false,
+      service_id: 'pain', service_opts: [] },
   },
   actions: {
     confirmed: [{ to: 'waiting', cls: 'b-waiting', label: 'A venit', confirm: '' },
@@ -1195,5 +1198,58 @@ describe('адрес дня', () => {
     expect(document.querySelector('[aria-busy="true"]')).toBeNull()
     expect(canvasShown()).toBe(true)
     expect(dayLabel()).toBe('Miercuri, 23 septembrie 2026')
+  })
+})
+
+/* Смена процедуры у стоящей записи (22.10, Олег: только смена — вторая
+   услуга в одну запись не делается). Подписи — из формы дня, какие
+   предложить — сервер (`service_opts`); ответ — свежий день, как у
+   комментария; отказ — словом В ОКНЕ. */
+describe('карточка визита: смена процедуры', () => {
+  const pick = () => document.querySelector('dialog select[aria-label="Procedura"]') as
+    HTMLSelectElement | null
+  const svcForm = () => document.querySelector('dialog form.dp-card-svc') as HTMLFormElement
+
+  it('у активного визита — услуги этого врача подписями формы; у закрытого выбора нет', async () => {
+    await show({ date: '2026-09-23' })
+    fireEvent.click(blk(1))
+    await waitFor(() => expect(pick()).toBeTruthy())
+    expect(Array.from(pick()?.options ?? []).map((o) => o.textContent))
+      .toEqual(['Consultație', 'Durere acută'])
+    fireEvent.click(document.querySelector('dialog .dlg-head button') as HTMLButtonElement)
+    fireEvent.click(blk(2))
+    await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
+    expect(pick()).toBeNull()
+  })
+
+  it('выбор уходит ключом услуги в день экрана, окно закрывается, день — из ответа', async () => {
+    const after = { ...MODEL, cards: { ...MODEL.cards,
+      1: { ...MODEL.cards[1]!, service: 'Durere acută', service_id: 'pain' } } }
+    post.mockResolvedValue({ ...ok(after), code: 'ok_svc', text: 'Procedura a fost schimbată' })
+    await show({ date: '2026-09-23' })
+    fireEvent.click(blk(1))
+    await waitFor(() => expect(pick()).toBeTruthy())
+    fireEvent.change(pick() as HTMLSelectElement, { target: { value: 'pain' } })
+    fireEvent.submit(svcForm())
+    await waitFor(() => expect(post).toHaveBeenCalledWith(
+      '/schedule/appointments/1/service?date=2026-09-23', { service_id: 'pain' }))
+    await waitFor(() => expect(document.querySelector('dialog')).toBeNull())
+    expect(document.querySelector('.toastbox')?.textContent).toContain('Procedura a fost schimbată')
+    expect(get).toHaveBeenCalledTimes(1)
+  })
+
+  it('⛔ отказ сервера — словом в окне, окно и выбор остаются', async () => {
+    post.mockRejectedValueOnce(new ApiError({ kind: 'conflict', code: 'conflict',
+      text: 'Intervalul este deja ocupat la acest medic' },
+      'Intervalul este deja ocupat la acest medic'))
+    await show({ date: '2026-09-23' })
+    fireEvent.click(blk(1))
+    await waitFor(() => expect(pick()).toBeTruthy())
+    fireEvent.change(pick() as HTMLSelectElement, { target: { value: 'pain' } })
+    fireEvent.submit(svcForm())
+    await waitFor(() => expect(svcForm().querySelector('.banner.err')?.textContent)
+      .toBe('Intervalul este deja ocupat la acest medic'))
+    expect(document.querySelector('dialog[open]')).toBeTruthy()
+    expect(pick()?.value).toBe('pain')
   })
 })
