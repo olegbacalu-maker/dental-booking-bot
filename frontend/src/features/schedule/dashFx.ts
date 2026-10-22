@@ -227,6 +227,61 @@ export function useFitAppts(
       if (over(a)) a.classList.remove('duo')
       if (over(a)) a.classList.add('tiny')
       if (over(a)) a.classList.add('bare')
+      fitFacts(a)
     }
   }, [body, tick, deps, view, marks])
+}
+
+/**
+ * Колонки фактов карточки дня врача (22.10, вариант A, `FactCols`): строки,
+ * не влезшие в колонку, прячутся С КОНЦА (`vf-cut`), а у последней видимой
+ * встаёт «+N» с их текстом в подсказке.
+ *
+ * ⛔ Зовётся ПОСЛЕ ступени блока, в том же проходе: высоту колонки задаёт
+ * ступень (полный вид — колонка строк, сжатый — одна строка), и мерить её
+ * раньше — значит мерить не ту колонку.
+ * ⛔ Колонка стоит абсолютно с `overflow:hidden` и `scrollHeight` блока не
+ * растит — поэтому ступень её не видит, и без этого прохода строка резалась
+ * бы краем молча (кадр A-zoom макета: пятая строка у 90-минутного визита).
+ * Переполнение колонки мерится У НЕЁ САМОЙ — по высоте и по ширине (сжатый
+ * вид — строка, и там лишнее уходит вбок). Первая строка остаётся всегда:
+ * она режется своим многоточием, а не пропадает.
+ * ⚠️ Мимо React, как и ступени: React не знает про `vf-cut`, и потому
+ * перемер идёт на каждую новую модель — тем же эффектом.
+ * Скрытое правилами вида (`display:none` в сжатом) в «+N» не считается.
+ */
+export function fitFacts(a: HTMLElement): void {
+  for (const col of a.querySelectorAll<HTMLElement>('.vf-col')) {
+    const more = col.querySelector<HTMLElement>(':scope > .vf-more')
+    if (!more) continue
+    col.classList.remove('cut')
+    more.classList.remove('on')
+    more.textContent = ''
+    more.removeAttribute('title')
+    more.style.removeProperty('top')
+    const kids = Array.from(col.children).filter((e): e is HTMLElement => e !== more)
+    for (const k of kids) k.classList.remove('vf-cut', 'vf-tail')
+    const items = kids.filter((k) => getComputedStyle(k).display !== 'none')
+    const over = () => col.scrollHeight > col.clientHeight + 0.5
+      || col.scrollWidth > col.clientWidth + 0.5
+    if (!over()) continue
+    col.classList.add('cut')
+    more.classList.add('on')
+    const cut: string[] = []
+    for (let i = items.length - 1; i > 0 && over(); i--) {
+      const it = items[i]!
+      it.classList.add('vf-cut')
+      cut.unshift(it.title || (it.textContent ?? '').trim())
+      more.textContent = `+${cut.length}`
+    }
+    if (!cut.length) {
+      col.classList.remove('cut')
+      more.classList.remove('on')
+      continue
+    }
+    const tail = items[items.length - 1 - cut.length]!
+    tail.classList.add('vf-tail')
+    more.style.top = `${tail.offsetTop}px`
+    more.title = cut.join('\n')
+  }
 }

@@ -22,6 +22,7 @@ from datetime import date, datetime
 from ... import db
 from ... import engine as eng
 from ...core.layout import LIVE_STATUSES, _age
+from ...core.risks import ALERT_ICON, ALERT_TONE  # noqa: F401 — api.py берёт pcard.ALERT_ICON
 from . import anamneza as panam
 
 # ---------- словари фиши (переехали из routes.py 18.09, там остались псевдонимы) ----------
@@ -104,10 +105,8 @@ PDF_MIME = {"application/pdf"}
 # красное. Баннер «Date invalide» без этого заставлял искать ошибку перебором
 BAD_FIELD = {"bad_card": "name", "bad_bd": "birth_date", "bad_idnp": "idnp"}
 
-# Значки — ИМЕНАМИ из layout._I: клиент рисует <Icon>. Сами подписи видов
-# (ALERT_KINDS) живут в core/layout.
-ALERT_ICON = {"allergy": "sos", "medication": "pill", "warning": "alarm", "info": "info"}
-ALERT_TONE = {"allergy": "orange", "medication": "orange", "warning": "red"}
+# Значки и тона atenționări — в core/risks (22.10): их берёт и журнал, у
+# карточки визита дня врача.
 DOC_ICON = {"radiografie": "xray", "acord": "note", "trimitere": "mail", "alt": "file",
             "acord195": "clipboard", "acord_plan": "clipboard", "chestionar": "note",
             "fisa043": "print"}

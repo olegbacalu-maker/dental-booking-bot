@@ -347,6 +347,99 @@ describe('день журнала: чтение', () => {
   })
 })
 
+/* ⭐ (22.10, вариант A + H Олега) День ОДНОГО врача: факты карточки визита
+   (`extras`) и календарь кнопкой даты (`minical`) приходят ТОЛЬКО в его
+   модели; у «Toți medicii» и главной карточка и шапка прежние. */
+describe('день врача: колонки фактов и календарь шапки (22.10)', () => {
+  const cell = (date: string, over = {}) => ({
+    date, day: Number(date.slice(8)), other: false, today: false, selected: false, busy: false,
+    href: `/admin/doctor/d2?date=${date}`, ...over,
+  })
+  const week = (from: number) => Array.from({ length: 7 }, (_, i) =>
+    cell(`2026-09-${String(from + i).padStart(2, '0')}`, from + i === 23
+      ? { selected: true, busy: true } : from + i === 30 ? { busy: true } : {}))
+  const DOC: DayModel = {
+    ...MODEL,
+    doctors: [MODEL.doctors[0]!],
+    extras: {
+      1: { nth: 2, last: { date: '2026-09-09', what: 'Detartraj' }, anam: true, debt: 0,
+        risks: [{ tone: 'orange', icon: 'sos', text: 'Alergie: latex', title: 'Alergie: latex' }],
+        plan: [{ tooth: 36, proc: 'Obturație', work: false }] },
+    },
+    minical: {
+      title: 'Septembrie 2026', weekdays: ['Lu', 'Ma', 'Mi', 'Jo', 'Vi', 'Sâ', 'Du'],
+      weeks: [week(21), week(28).map((c, i) => i < 3 ? c : { ...c, date: `2026-10-0${i - 2}`,
+        day: i - 2, other: true, href: `/admin/doctor/d2?date=2026-10-0${i - 2}` })],
+      prev: { date: '2026-08-01', href: '/admin/doctor/d2?date=2026-08-01' },
+      next: { date: '2026-10-01', href: '/admin/doctor/d2?date=2026-10-01' },
+    },
+  }
+  const btn = () => document.querySelector('.dp-daysub .dp-calbtn > button') as HTMLButtonElement
+  const pop = () => document.querySelector('.dp-calpop')
+
+  it('общий день: ни колонок у карточек, ни кнопки календаря — дата текстом', async () => {
+    await show()
+    expect(document.querySelector('.vf')).toBeNull()
+    expect(btn()).toBeNull()
+    expect(dayLabel()).toBe('Miercuri, 23 septembrie 2026')
+  })
+
+  it('день врача: у визита с фактами — колонки, у прочих — нет', async () => {
+    get.mockResolvedValue(ok(DOC))
+    await show({ doctor: 'd2' })
+    expect(blk(1).classList.contains('has-vf')).toBe(true)
+    expect(blk(1).querySelector('.vf-chip')?.textContent).toBe('Alergie: latex')
+    /* давность — от дня ЭКРАНА (23.09), а не от часов прогона */
+    expect(blk(1).querySelector('.vf-last')?.textContent).toBe('ultima 09.09 · acum 2 săpt.')
+    expect(blk(2).querySelector('.vf')).toBeNull()
+  })
+
+  it('дата — кнопка: открывает календарь врача, Esc и щелчок мимо закрывают', async () => {
+    get.mockResolvedValue(ok(DOC))
+    await show({ doctor: 'd2' })
+    expect(btn().textContent).toBe('Miercuri, 23 septembrie 2026')
+    expect(pop()).toBeNull()
+    fireEvent.click(btn())
+    expect(btn().getAttribute('aria-expanded')).toBe('true')
+    expect(pop()?.querySelector('.mcal .mhead b')?.textContent).toBe('Septembrie 2026')
+    /* точки — с сервера: дни записей ЭТОГО врача */
+    const busy = Array.from(pop()!.querySelectorAll('td a')).filter((a) => a.querySelector('.dot'))
+    expect(busy.map((a) => a.getAttribute('href')))
+      .toEqual(['/admin/doctor/d2?date=2026-09-23', '/admin/doctor/d2?date=2026-09-30'])
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(pop()).toBeNull()
+    fireEvent.click(btn())
+    fireEvent.pointerDown(document.body)
+    expect(pop()).toBeNull()
+    /* щелчок по самому окну его не закрывает */
+    fireEvent.click(btn())
+    fireEvent.pointerDown(pop()!.querySelector('.mhead b')!)
+    expect(pop()).not.toBeNull()
+  })
+
+  it('день в календаре ведёт роутером на день ЭТОГО врача и закрывает окно', async () => {
+    get.mockImplementation((url: string) => Promise.resolve(ok({
+      ...DOC, date: /date=([\d-]+)/.exec(url)?.[1] ?? DOC.date })))
+    const { router } = await show({ doctor: 'd2' })
+    fireEvent.click(btn())
+    fireEvent.click(pop()!.querySelector('a[href="/admin/doctor/d2?date=2026-09-30"]')!)
+    await waitFor(() => expect(get).toHaveBeenCalledWith(
+      '/schedule/day?date=2026-09-30&doctor=d2', expect.anything()))
+    await waitFor(() => expect(addr(router)).toBe('/admin/doctor/d2?date=2026-09-30'))
+    expect(pop()).toBeNull()
+  })
+
+  it('стрелка месяца листает, не закрывая окно', async () => {
+    get.mockImplementation((url: string) => Promise.resolve(ok({
+      ...DOC, date: /date=([\d-]+)/.exec(url)?.[1] ?? DOC.date })))
+    const { router } = await show({ doctor: 'd2' })
+    fireEvent.click(btn())
+    fireEvent.click(pop()!.querySelector('.mhead a[aria-label="Luna următoare"]')!)
+    await waitFor(() => expect(addr(router)).toBe('/admin/doctor/d2?date=2026-10-01'))
+    expect(pop()).not.toBeNull()
+  })
+})
+
 /* ⭐ (06.10, Олег) Ручная запись — ОКНОМ «Programare nouă», а не формой внизу
    страницы. Открывает его `#addform` в адресе: туда ведёт кнопка шапки
    программы, и адрес — единственное состояние окна. */

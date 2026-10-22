@@ -6,6 +6,7 @@ import { DeskCard } from './DeskCard'
 import { Fold } from './Fold'
 import { flowOf, type Flow } from './flow'
 import { FlowBar, FlowList, flowLabels, type FlowLabels, type FlowTab, type FlowTo } from './FlowTabs'
+import { MiniCal } from './MiniCal'
 import { freeSlots } from './free'
 import { dm } from '../../utils/date'
 import type { DashActions, DashAgenda, DashCanvasModel, DashMiniCal } from './dash'
@@ -31,8 +32,6 @@ const T = {
   cons: 'Consultație',
   anam: 'Anamneză',
   comment: 'Comentariu',
-  prev: '‹',
-  next: '›',
   one: 'programare',
   many: 'programări',
   free: 'Primul loc liber',
@@ -42,9 +41,6 @@ const T = {
   cash: 'Casa azi',
   casa: 'Raport de casă',
   mdl: 'MDL',
-  prevMonth: 'Luna precedentă',
-  nextMonth: 'Luna următoare',
-  withAppts: 'are programări',
 } as const
 
 interface Props {
@@ -90,47 +86,6 @@ export function DashRail(
         desk={desk} busy={busy} onSlot={onSlot} />
       <DeskCard desk={desk} busy={busy} onCall={onCall} />
     </>
-  )
-}
-
-/**
- * Месяц полными неделями Пн–Вс.
- *
- * ⛔ Четыре метки НЕЗАВИСИМЫ и складываются: `oth tdy` — законное сочетание,
- * сегодняшний день в хвосте прошлого месяца; точка `busy` (08.10) — у любого
- * из них. Склей их в одно поле — и такой день перестанет подсвечиваться.
- * ⚠️ Стрелки — литералы `‹`/`›` (U+2039/U+203A), а не иконки: так на старой
- * странице, оба знака в вшитом подмножестве Inter, и замена на `chev-l`
- * развела бы два экрана визуально. Это решение, а не недосмотр.
- */
-function MiniCal({ cal }: { cal: DashMiniCal }) {
-  return (
-    <div className="mcal">
-      <div className="mhead">
-        <AppLink href={cal.prev.href} aria-label={T.prevMonth}>{T.prev}</AppLink>
-        <b>{cal.title}</b>
-        <AppLink href={cal.next.href} aria-label={T.nextMonth}>{T.next}</AppLink>
-      </div>
-      <table>
-        <tbody>
-          <tr>{cal.weekdays.map((w) => <th key={w}>{w}</th>)}</tr>
-          {cal.weeks.map((week) => (
-            <tr key={week[0]!.date}>
-              {week.map((c) => (
-                <td key={c.date}>
-                  <AppLink className={[c.other && 'oth', c.today && 'tdy', c.selected && 'seld']
-                    .filter(Boolean).join(' ')} href={c.href}
-                    aria-current={c.selected ? 'date' : undefined}
-                    title={c.busy ? `${c.date} · ${T.withAppts}` : c.date}>
-                    {c.day}{c.busy && <i className="dot" />}
-                  </AppLink>
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
   )
 }
 

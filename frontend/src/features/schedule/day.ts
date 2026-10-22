@@ -1,5 +1,5 @@
 import { api } from '../../services/api'
-import type { DashCanvasModel } from './dash'
+import type { DashCanvasModel, DashMiniCal } from './dash'
 import type { CallResult } from './desk'
 
 /* Сетка дня (C25). Формы ответа — bot/app/modules/schedule/api.py и day.py:
@@ -266,6 +266,40 @@ export interface DayModel {
   note_actions: Record<string, StatusAction[]>
   list: DayListRow[]
   filter: DayFilter | null
+  /** Только у дня ОДНОГО врача (22.10, вариант A Олега): что карточка визита
+   *  знает о пациенте, по id визита. ⛔ Не в блоках канвы: они едут в каждом
+   *  конверте живой главной, и канва общего дня обязана совпадать с ней. */
+  extras?: Record<string, VisitFacts>
+  /** Только у дня врача (22.10, вариант H): календарь кнопки даты в шапке —
+   *  ссылки на `/admin/doctor/{dk}`, точки только его записей. */
+  minical?: DashMiniCal
+}
+
+/** Строка колонки рисков: atenționare фиши или часть анамнеза. Сведены без
+ *  дублей СЕРВЕРОМ (`core.risks.merge`) — второго правила здесь нет. Тон —
+ *  `red` | `orange` | `amber` | `grey`, значок — имя `layout._I` (пусто — без). */
+export interface VisitRisk {
+  tone: string
+  icon: string
+  text: string
+  title: string
+}
+
+/** Факты карточки визита дня врача (`routes._visit_facts`). ⛔ «Сейчас» в них
+ *  нет: прошлый визит — последний ДО этого, давность считает экран от дня
+ *  экрана по `last.date`. */
+export interface VisitFacts {
+  /** Какой это визит пациента: 1 — первый («Pacient nou»). */
+  nth: number
+  /** Прошлый визит: ISO-дата и что делали (графа «Tratament», иначе услуга). */
+  last: { date: string; what: string } | null
+  risks: VisitRisk[]
+  /** Собран ли анамнез. */
+  anam: boolean
+  /** Активный план: зуб, процедура, «în lucru». */
+  plan: { tooth: number | null; proc: string; work: boolean }[]
+  /** Долг: плюс — должен, минус — аванс. */
+  debt: number
 }
 
 /** Где мы стоим: свежий день в ответе действия приезжает для ЭКРАНА. */

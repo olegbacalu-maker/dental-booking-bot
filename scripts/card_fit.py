@@ -2,8 +2,10 @@
 """Влезает ли карточка визита в свой блок — стенд вида карточки (03.10).
 
     python scripts\\card_fit.py           оба вида на канве панели дня
-    python scripts\\card_fit.py --pair    и пара: копия дерева, где «время
-                                         впереди» разложено сеткой, обязана краснеть
+    python scripts\\card_fit.py --pair    и две пары: копия дерева, где «время
+                                         впереди» разложено сеткой, и копия без
+                                         «+N» в колонках дня врача — обе обязаны
+                                         краснеть
 
 ⛔ Не в CI и не в `.\\dev test`: нужен Edge (в `.venv-desktop` ничего не ставить).
 
@@ -25,9 +27,22 @@
   7. в сжатом виде — имя и кнопка зуба, а статус словом: значка в углу нет;
   8. визит на 45 минут при часе 64px — две строки (`slim duo`), а не одна.
 
-⛔ Зелёный стенд сам по себе ничего не доказывает. Доказательство — ПАРА
+День ОДНОГО врача (22.10, вариант A Олега: колонки фактов справа от имени) —
+те же утверждения 1–8 на его карточках, и сверх них:
+  9. колонки стоят у каждой карточки с пациентом, кроме «только имени»;
+ 10. внутри колонки НИЧЕГО не срезано: колонка не переполнена ни по высоте,
+     ни по ширине, каждая видимая строка внутри неё и внутри блока, «+N» не
+     наезжает на строку и называет ровно столько, сколько спрятано;
+ 11. 90-минутный визит с восемью рисками колонку переполняет — у него «+N»:
+     иначе случай, ради которого утверждение 10 есть, не засеян.
+⚠️ Утверждение 10 — НЕ замер блока: колонки абсолютны с overflow:hidden и
+`scrollHeight` блока не растят. Макет 22.10 мерил только блок, написал «не
+переполнена», а кадр показал пятую строку, срезанную снизу.
+
+⛔ Зелёный стенд сам по себе ничего не доказывает. Доказательство — ПАРЫ
 (`--pair`): та же раскладка сеткой вместо flex-переноса обязана дать красное
-по утверждению 3 или 4, иначе стенд не видит того, ради чего написан.
+по утверждению 3 или 4, а колонки без «+N» (спрятанное снова видно) — по
+утверждению 10; иначе стенд не видит того, ради чего написан.
 """
 from __future__ import annotations
 
@@ -39,7 +54,7 @@ import shutil
 import sys
 import tempfile
 import time
-from datetime import timedelta
+from datetime import date, timedelta
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.stderr.reconfigure(encoding="utf-8", errors="replace")
@@ -61,6 +76,9 @@ VIEWS = ("name", "time")
 DUR = {"consult": 30, "hygiene": 45, "long": 120}
 # 15 минут — своя услуга: у фикстуры такой длины нет (13.10, вариант B)
 SHORT = {"id": "xray", "ro": "Radiografie dentară", "ru": "Рентген", "duration": 15}
+# 90 минут — день врача (22.10): пять строк колонки на полу часа, и восемь
+# рисков в них не влезают
+LONG90 = {"id": "impl90", "ro": "Implant dentar", "ru": "Имплант", "duration": 90}
 # (врач, час, услуга, имя, статус): у 60-минутных — каждое слово статуса,
 # которое печатается на блоке, и одно длинное имя.
 ROWS = [
@@ -73,7 +91,11 @@ ROWS = [
     ("d4", "08:00", "long", "Proba Lung Popescu-Vasilescu", ""),
     ("d4", "10:00", "pain", "Proba In Cabinet", "arrived"),
     ("d3", "11:00", "xray", "Proba Scurt", "waiting"),
+    ("d2", "12:00", "impl90", "Proba Riscuri", ""),
 ]
+# День врача: d2 — первые три строки ROWS и 90-минутный визит с рисками
+DOC = "d2"
+RISKY = "Proba Riscuri"
 
 # Обрезанный по вертикали текст: за краем блока или внутри своей строки.
 # ⚠️ У строчных (`display:inline`, сжатая строка) своей высоты нет — у них
@@ -127,6 +149,56 @@ MEASURE = r"""(() => {
 })()"""
 
 
+# Колонки фактов дня врача (утверждение 10): переполнение мерится У КОЛОНКИ —
+# по высоте и по ширине, — а каждая видимая строка сверяется с краем колонки
+# и блока. Спрятанное в «+N» (`vf-cut`, display:none) не мерится, а считается.
+FACTS = r"""(() => {
+  const out = [];
+  for (const a of document.querySelectorAll('.gappt.has-vf')) {
+    const r = a.getBoundingClientRect();
+    const mode = ['bare', 'tiny', 'duo', 'slim'].find((c) => a.classList.contains(c)) || 'full';
+    const vf = a.querySelector('.vf');
+    const shown = !!vf && getComputedStyle(vf).display !== 'none';
+    const cut = [];
+    let more = 0;
+    if (shown) {
+      const vr = vf.getBoundingClientRect();
+      if (vr.bottom > r.bottom + 0.5 || vr.top < r.top - 0.5) cut.push('колонки за краем блока');
+      for (const col of vf.querySelectorAll('.vf-col')) {
+        const nm = col.getAttribute('aria-label') || 'колонка';
+        const cs = getComputedStyle(col);
+        const cr = col.getBoundingClientRect();
+        const right = cr.right - parseFloat(cs.paddingRight) + 0.5;
+        if (col.scrollHeight > col.clientHeight + 0.5) cut.push(nm + ': переполнена по высоте');
+        if (col.scrollWidth > col.clientWidth + 0.5) cut.push(nm + ': переполнена по ширине');
+        const m = col.querySelector(':scope > .vf-more');
+        const on = !!m && getComputedStyle(m).display !== 'none';
+        const mr = on ? m.getBoundingClientRect() : null;
+        let hid = 0;
+        for (const k of col.children) {
+          if (k === m) continue;
+          if (getComputedStyle(k).display === 'none') { hid += k.classList.contains('vf-cut') ? 1 : 0; continue; }
+          const q = k.getBoundingClientRect();
+          const t = (k.textContent || '').trim().slice(0, 28);
+          if (q.bottom > Math.min(cr.bottom, vr.bottom, r.bottom) + 0.5 || q.top < Math.max(cr.top, r.top) - 0.5)
+            cut.push(nm + ': строка «' + t + '» срезана краем');
+          if (q.right > right + 1) cut.push(nm + ': строка «' + t + '» шире колонки');
+          if (mr && q.bottom > mr.top + 1 && q.top < mr.bottom - 1 && q.right > mr.left + 0.5)
+            cut.push(nm + ': «+N» наезжает на «' + t + '»');
+        }
+        if (on) {
+          more += 1;
+          if ((m.textContent || '') !== '+' + hid) cut.push(nm + ': «' + m.textContent + '» при спрятанных ' + hid);
+          if (mr.bottom > cr.bottom + 0.5) cut.push(nm + ': «+N» срезан краем');
+        } else if (hid) cut.push(nm + ': спрятано ' + hid + ', а «+N» нет');
+      }
+    }
+    out.push({ title: a.getAttribute('title') || '', mode, shown, cut, more });
+  }
+  return JSON.stringify(out);
+})()"""
+
+
 def prepare(dir_: pathlib.Path) -> None:
     """Профиль стенда: длительности услуг и React по умолчанию.
 
@@ -138,6 +210,7 @@ def prepare(dir_: pathlib.Path) -> None:
         if s.get("id") in DUR:
             s["duration"] = DUR[s["id"]]
     cfg["services"].append(SHORT)
+    cfg["services"].append(LONG90)
     cfg.pop("ui", None)
     cfg.pop("_ui_comment", None)
     p.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
@@ -157,30 +230,56 @@ def seed(c: Client, day: str) -> None:
     for _, _, _, name, status in ROWS:
         if status:
             c.post_json(f"/api/schedule/appointments/{ids[name]}/status", {"to": status})
+    seed_facts(c, day, canvas)
 
 
-def measure(page: Page, c: Client, view: str, day: str) -> dict:
+def seed_facts(c: Client, day: str, canvas: dict) -> None:
+    """Факты 90-минутного визита дня врача: восемь рисков (atenționări и
+    анамнез без пересечений — сервер их не сведёт), четыре процедуры плана,
+    долг и прошлый визит. Пять строк колонки на полу часа — им не влезть."""
+    pid = next(b["pid"] for col in canvas["columns"] for b in col["blocks"]
+               if b["kind"] == "appt" and b["name"] == RISKY)
+    for kind, text in (("allergy", "Alergie: penicilină"), ("medication", "Anticoagulant: Xarelto"),
+                       ("warning", "Sarcină, trimestrul II")):
+        c.post_json(f"/api/patients/{pid}/alerts", {"kind": kind, "text": text})
+    c.post_json(f"/api/patients/{pid}/anamneza",
+                {"flags": ["diabet", "astm", "epilepsie", "tiroida"], "alergii": "latex"})
+    for tooth, proc in (("46", "Implant Osstem"), ("45", "Obturație compozit"),
+                        ("11", "Coroană ceramică"), ("36", "Tratament endodontic")):
+        c.post_json(f"/api/patients/{pid}/plan", {"tooth": tooth, "procedure": proc,
+                                                 "doctor": "", "price": "900", "due_date": ""})
+    c.post_json(f"/api/patients/{pid}/payments", {"amount": "500", "method": "card", "note": ""})
+    # прошлый визит — тем же телефоном, то есть тем же пациентом
+    phone = f"069{[r[3] for r in ROWS].index(RISKY):06d}"
+    prev = (date.fromisoformat(day) - timedelta(days=40)).isoformat()
+    c.post_json("/api/schedule/appointments", {"date": prev, "time": "09:00", "doctor": DOC,
+                                              "service": "pain", "name": RISKY, "phone": phone})
+
+
+def measure(page: Page, c: Client, view: str, day: str, doctor: str = "") -> dict:
     r = c.post_json("/api/settings/theme", {"style": "fluent", "primary": "#0E9F8A",
                                             "custom": "", "card": view})
     if r.msg != "ok_theme":
         raise SystemExit(f"вид {view} не сохранился: {r.msg}")
-    page.go(f"/admin?date={day}")
+    page.go(f"/admin/doctor/{doctor}?date={day}" if doctor else f"/admin?date={day}")
     time.sleep(1.0)
-    return json.loads(page.js(MEASURE))
+    m = json.loads(page.js(MEASURE))
+    m["facts"] = json.loads(page.js(FACTS)) if doctor else []
+    return m
 
 
 def dur_of(block: dict) -> int:
     return int(re.search(r"(\d+)′", block["title"]).group(1))
 
 
-def verdict(view: str, m: dict) -> list[str]:
+def verdict(view: str, m: dict, rows: list = ROWS) -> list[str]:
     bad = []
     if m["card"] != view:
         bad.append(f"документ несёт data-card={m['card']!r}, а выбран {view!r}")
     if m["cell"] != "64px":
         bad.append(f"час не на полу: --cell={m['cell']} — запас 58px не проверен")
-    if len(m["blocks"]) != len(ROWS):
-        bad.append(f"блоков {len(m['blocks'])}, засеяно {len(ROWS)} — стенд мерил не то")
+    if len(m["blocks"]) != len(rows):
+        bad.append(f"блоков {len(m['blocks'])}, засеяно {len(rows)} — стенд мерил не то")
     for b in m["blocks"]:
         dur = dur_of(b)
         who = b["title"].split(" · ")[3] if b["title"].count(" · ") >= 3 else b["title"]
@@ -208,6 +307,24 @@ def verdict(view: str, m: dict) -> list[str]:
     return bad
 
 
+def verdict_facts(m: dict) -> list[str]:
+    """Утверждения 9–11: колонки фактов дня врача."""
+    bad = []
+    mine = [r for r in ROWS if r[0] == DOC]
+    if len(m["facts"]) != len(mine):
+        bad.append(f"колонки у {len(m['facts'])} карточек из {len(mine)} — факты не приехали")
+    for f in m["facts"]:
+        dur = dur_of(f)
+        who = f["title"].split(" · ")[3] if f["title"].count(" · ") >= 3 else f["title"]
+        if not f["shown"] and f["mode"] not in ("tiny", "bare"):
+            bad.append(f"{who} ({dur}′, {f['mode']}): колонок не видно")
+        for x in f["cut"]:
+            bad.append(f"{who} ({dur}′, {f['mode']}): {x}")
+        if who == RISKY and not f["more"]:
+            bad.append(f"{who} ({dur}′): восемь рисков влезли без «+N» — переполнение не засеяно")
+    return bad
+
+
 def run(bot: pathlib.Path | None, label: str) -> list[str]:
     """Один проход: свой сервер (из дерева `bot` или настоящего), оба вида."""
     day = (clinic_today() - timedelta(days=1)).isoformat()
@@ -228,13 +345,18 @@ def run(bot: pathlib.Path | None, label: str) -> list[str]:
             page = Page(cdp, s1.url)
             page.size(*SIZE)
             for view in VIEWS:
-                m = measure(page, c, view, day)
-                bad = verdict(view, m)
-                modes = "  ".join(f"{dur_of(b)}′={b['mode']}" for b in m["blocks"])
-                print(f"{'OK ' if not bad else 'RED'} {label}: {view:<4}  --cell={m['cell']}  {modes}")
-                for b in bad:
-                    print(f"    ✗ {b}")
-                problems += [f"{view}: {b}" for b in bad]
+                for doctor in ("", DOC):
+                    m = measure(page, c, view, day, doctor)
+                    bad = (verdict(view, m, [r for r in ROWS if r[0] == DOC]) + verdict_facts(m)
+                           if doctor else verdict(view, m))
+                    where = f"день {doctor}" if doctor else "главная"
+                    modes = "  ".join(f"{dur_of(b)}′={b['mode']}" for b in m["blocks"])
+                    more = f"  «+N»={sum(f['more'] for f in m['facts'])}" if doctor else ""
+                    print(f"{'OK ' if not bad else 'RED'} {label}: {view:<4} {where:<8} "
+                          f"--cell={m['cell']}  {modes}{more}")
+                    for b in bad:
+                        print(f"    ✗ {b}")
+                    problems += [f"{view} {where}: {b}" for b in bad]
     finally:
         if proc:
             proc.kill()
@@ -256,16 +378,28 @@ _GRID = """
 """
 
 
-def broken_tree() -> pathlib.Path:
-    """Копия `bot/`, где «время впереди» разложено сеткой — та самая первая
-    версия 03.10. Правка вносится в КОПИЮ; настоящее дерево не трогается."""
+# Вторая пара (22.10): колонки дня врача без «+N» — спрятанное снова видно,
+# метки нет. Так стояло на макете: строки режутся краем колонки, а блок «не
+# переполнен». Утверждение 10 обязано это увидеть.
+_NO_MORE = """
+.vf-col > .vf-cut{display:block !important}
+.vf-more.on{display:none !important}
+"""
+
+
+def broken_tree(tail: str = _GRID, marker: bytes = b'[data-card="time"] .gappt') -> pathlib.Path:
+    """Копия `bot/` с правилом поломки в конце panel.css: сетка «времени
+    впереди» (первая версия 03.10) или колонки без «+N» (макет 22.10).
+    Правка вносится в КОПИЮ; настоящее дерево не трогается. `marker` — правило,
+    которое ломается: нет его в стилях — стенд устарел вместе с CSS."""
     dst = pathlib.Path(tempfile.mkdtemp(prefix="dp_cardfit_")) / "bot"
     shutil.copytree(BOT, dst, ignore=shutil.ignore_patterns("__pycache__"))
-    css = dst / "app" / "static" / "css" / "panel.css"
-    if b'[data-card="time"] .gappt' not in css.read_bytes():
-        raise SystemExit("пара: правил «времени впереди» нет — стенд устарел вместе с CSS")
-    with open(css, "ab") as f:
-        f.write(_GRID.encode("utf-8"))
+    css = dst / "app" / "static" / "css"
+    if not any(marker in (css / n).read_bytes() for n in ("panel.css", "bundle.css")
+               if (css / n).exists()):
+        raise SystemExit(f"пара: правила {marker.decode()} нет — стенд устарел вместе с CSS")
+    with open(css / "panel.css", "ab") as f:
+        f.write(tail.encode("utf-8"))
     return dst
 
 
@@ -282,7 +416,15 @@ def main(argv: list[str]) -> int:
         shutil.rmtree(copy.parent, ignore_errors=True)
     seen = bool(broken)
     print(f"пара: раскладка сеткой {'видна (красное)' if seen else 'НЕ ВИДНА — стенд слеп'}")
-    return 1 if problems or not seen else 0
+    copy = broken_tree(_NO_MORE, b".vf-more")
+    try:
+        cols = run(copy, "без +N")
+    finally:
+        shutil.rmtree(copy.parent, ignore_errors=True)
+    # красное — именно утверждением 10, а не случайным соседом
+    seen_cols = any("срезана краем" in p or "переполнена" in p for p in cols)
+    print(f"пара: колонки без «+N» {'видны (красное)' if seen_cols else 'НЕ ВИДНЫ — стенд слеп'}")
+    return 1 if problems or not seen or not seen_cols else 0
 
 
 if __name__ == "__main__":

@@ -12,10 +12,15 @@
 «столько же колонок» — не доказательство совпадения.
 """
 import json
+import pathlib
+import sys
 from datetime import datetime, timedelta
 
 from harness import (TG_ON, Client, Result, Server, add_appt, appt_id, clinic_today,
                      day_model, shell_model)
+
+# правило сведения рисков (`core.risks`) проверяется и чистым вызовом
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "bot"))
 
 # Сокращения дней недели — те же, что у движка (`engine.RO_DOW`): подпись дня
 # в шапке «Jo 24.09.2026» строит сервер, и здесь она проверяется буквально.
@@ -1007,3 +1012,157 @@ def suite_service(res: Result) -> None:
         res.check("статистика: услуга и цена — по новому ключу",
                   [(x["label"], x["cnt"], x["val_n"]) for x in st],
                   [("Tratament lung", 1, 2000)])
+
+
+def suite_doctor_day(res: Result) -> None:
+    """День ОДНОГО врача (22.10, вариант A + H Олега): факты карточки визита
+    (`extras`) и календарь шапки (`minical`) — только у него.
+
+    ⛔ Не в `appt_view` и не в `canvas.blocks`: те едут в каждом конверте
+    живого канала главной, а канва общего дня обязана совпадать с ним
+    (`suite_day_parity`). Здесь — что факты есть у дня врача и только там,
+    что они буквальны на известном засеве (дубли atenționări и анамнеза
+    сведены одним правилом `core.risks.merge`) и что в них нет «сейчас».
+    Засев: d2 — Pavel (два прошлых визита, отмена и неявка, дневник у
+    второго; риски, анамнез с дублями, план, долг), Ana (новая, беременность и
+    в фише, и галочкой), Vasile (анамнез не собран), заметка; d3 — Ion.
+    """
+    from app.core import risks
+    from app.modules.patients import anamneza as panam
+
+    # ⭐ Списки имён гниют молча (`_AUTH_WRITERS`): новая галочка анамнеза без
+    # корней дублировалась бы в колонке, новое поле — пропало бы из неё.
+    res.check("корни галочек — на каждую галочку анамнеза",
+              sorted(risks.FLAG_ROOTS), sorted(panam.FLAGS["ro"]))
+    res.check("порядок свободных полей — все поля анамнеза",
+              sorted(risks.FREE_ORDER), sorted(k for k, *_ in panam.TEXTS))
+    res.check("сведение без анамнеза — только atenționări",
+              [x["text"] for x in risks.merge([{"kind": "allergy", "text": "Alergie: latex"}],
+                                              None)],
+              ["Alergie: latex"])
+    res.check("«alergie la …» узнаётся по веществу, а не по слову «alergie»",
+              [x["text"] for x in risks.merge(
+                  [{"kind": "allergy", "text": "Alergie: penicilină"}],
+                  {"flags": "", "alergii": "alergie la latex; Penicilina"})],
+              ["Alergie: penicilină", "alergie la latex"])
+
+    with Server() as s:
+        c = Client(s.url).login()
+        today = clinic_today()
+        d0 = today + timedelta(days=3)
+        day = d0.isoformat()
+        # день того же месяца, где есть только чужой врач: точка у главной, не у d2
+        other = (d0 - timedelta(days=1) if d0.day > 1 else d0 + timedelta(days=1)).isoformat()
+        past = lambda n: (today - timedelta(days=n)).isoformat()  # noqa: E731
+        tel = "069300300"
+        add_appt(c, past(70), "09:00", "Pavel Moraru", tel)
+        add_appt(c, past(40), "10:00", "Pavel Moraru", tel, service="pain")
+        add_appt(c, past(30), "11:00", "Pavel Moraru", tel)
+        add_appt(c, past(20), "11:00", "Pavel Moraru", tel)
+        c.post_json(f"/api/schedule/appointments/{appt_id(c, past(30), 'Pavel Moraru')}/status",
+                    {"to": "cancelled"})
+        c.post_json(f"/api/schedule/appointments/{appt_id(c, past(20), 'Pavel Moraru')}/status",
+                    {"to": "noshow"})
+        r = c.post_json(f"/api/visits/{appt_id(c, past(40), 'Pavel Moraru')}",
+                        {"tratament": "Extracție 46", "done": []})
+        res.check("засев: дневник прошлого визита записан", r.msg, "ok_visit")
+        add_appt(c, day, "09:00", "Pavel Moraru", tel, service="long")
+        add_appt(c, day, "12:00", "Ana Nouă", "069300301")
+        add_appt(c, day, "14:00", "Vasile Lupu", "069300302")
+        add_appt(c, day, "10:00", "Ion Strain", "069300303", doctor="d3")
+        add_appt(c, other, "10:00", "Ion Strain", "069300303", doctor="d3")
+        c.post_json("/api/schedule/notes", {"date": day, "time": "16:00", "doctor": "d2",
+                                           "text": "Livrare materiale"})
+        blocks = {b["name"]: b for b in _blocks(day_model(c, day)["canvas"])
+                  if b["kind"] == "appt"}
+        pav, ana = blocks["Pavel Moraru"]["pid"], blocks["Ana Nouă"]["pid"]
+        for kind, text in (("allergy", "Alergie: penicilină"),
+                           ("medication", "Anticoagulant: Xarelto 20 mg")):
+            c.post_json(f"/api/patients/{pav}/alerts", {"kind": kind, "text": text})
+        c.post_json(f"/api/patients/{pav}/anamneza",
+                    {"flags": ["cardio", "coagulare"], "boli": "", "anestezie": "",
+                     "medicamente": "Xarelto 20 mg/zi, Concor 5 mg",
+                     "alergii": "penicilină, latex"})
+        c.post_json(f"/api/patients/{ana}/alerts",
+                    {"kind": "warning", "text": "Sarcină, trimestrul II"})
+        c.post_json(f"/api/patients/{ana}/anamneza", {"flags": ["sarcina"]})
+        for tooth, proc, price in (("46", "Implant", "9500"), ("45", "Obturație compozit", "900"),
+                                   ("36", "Tratament endodontic", "1200")):
+            c.post_json(f"/api/patients/{pav}/plan", {"tooth": tooth, "procedure": proc,
+                                                     "doctor": "Dr. Activ Doi", "price": price,
+                                                     "due_date": ""})
+        items = {it["procedure"]: it["id"] for it in
+                 _j(c.get(f"/api/patients/{pav}"))["data"]["plan"]["items"]}
+        endo = items["Tratament endodontic"]
+        c.post_json(f"/api/patients/{pav}/plan/{items['Implant']}/status", {"to": "in_lucru"})
+        c.post_json(f"/api/patients/{pav}/plan/{endo}/status", {"to": "in_lucru"})
+        c.post_json(f"/api/patients/{pav}/plan/{endo}/status", {"to": "finalizat"})
+        c.post_json(f"/api/patients/{pav}/payments", {"amount": "500", "method": "card", "note": ""})
+
+        m = day_model(c, day, doctor="d2")
+        ids = {b["name"]: str(b["id"]) for b in _blocks(m["canvas"]) if b["kind"] == "appt"}
+        x = m.get("extras") or {}
+        res.check("факты — у каждого визита дня врача с пациентом, без заметки и чужих",
+                  sorted(x), sorted(ids[n] for n in ("Pavel Moraru", "Ana Nouă", "Vasile Lupu")))
+        p = x.get(ids["Pavel Moraru"], {})
+        res.check("Pavel: третий визит, прошлый — с графой «Tratament» дневника "
+                  "(отмена и неявка — не визиты)",
+                  (p.get("nth"), p.get("last")),
+                  (3, {"date": past(40), "what": "Extracție 46"}))
+        res.check("Pavel: риски без дублей — «Xarelto» и «penicilină» анамнеза и "
+                  "галочка «coagulare» ушли, «Concor» и «latex» остались",
+                  [(r_["text"], r_["tone"], r_["icon"]) for r_ in p.get("risks", [])],
+                  [("Alergie: penicilină", "orange", "sos"),
+                   ("Anticoagulant: Xarelto 20 mg", "orange", "pill"),
+                   ("latex", "amber", "sos"), ("Concor 5 mg", "amber", "pill"),
+                   ("Boli cardiovasculare", "amber", "")])
+        res.check("подсказка свободного поля называет поле, галочки — полностью",
+                  [r_["title"] for r_ in p.get("risks", [])][2:],
+                  ["Alergii: latex", "Medicamente: Concor 5 mg",
+                   "Boli cardiovasculare / hipertensiune"])
+        res.check("Pavel: активный план с номерами зубов, «în lucru» отмечен; "
+                  "финализированное — не план, а долг",
+                  (p.get("plan"), p.get("debt"), p.get("anam")),
+                  ([{"tooth": 46, "proc": "Implant", "work": True},
+                    {"tooth": 45, "proc": "Obturație compozit", "work": False}], 700, True))
+        a = x.get(ids["Ana Nouă"], {})
+        res.check("Ana: новая, «Sarcină» галочкой не дублирует atenționare",
+                  (a.get("nth"), a.get("last"), [r_["text"] for r_ in a.get("risks", [])],
+                   a.get("plan"), a.get("debt")),
+                  (1, None, ["Sarcină, trimestrul II"], [], 0))
+        v = x.get(ids["Vasile Lupu"], {})
+        res.check("Vasile: анамнез не собран — флагом, слово рисует экран",
+                  (v.get("anam"), v.get("risks")), (False, []))
+        res.ok("факты не зависят от момента запроса (ни одного «сейчас»)",
+               day_model(c, day, doctor="d2")["extras"] == x)
+
+        general = day_model(c, day)
+        live = _j(c.get(f"/api/schedule/live?screen=panel&date={day}"))["data"]
+        res.check("у общего дня и у живого канала фактов нет",
+                  ("extras" in general, "extras" in live), (False, False))
+        res.ok("блоки канвы фактов не несут (едут в каждый опрос главной)",
+               not any(k in b for b in _blocks(live["canvas"]) for k in ("risks", "nth", "plan")),
+               f"{sorted(_blocks(live['canvas'])[0])}")
+        res.check("у общего дня календаря в модели нет (он у главной — в канале)",
+                  "minical" in general, False)
+
+        cal = m.get("minical") or {}
+        cells = {c_["date"]: c_ for w in cal.get("weeks", []) for c_ in w}
+        res.check("календарь врача: ссылки дня и месяца — на день этого врача",
+                  (cells.get(day, {}).get("href"),
+                   cal.get("next", {}).get("href", "").split("?")[0]),
+                  (f"/admin/doctor/d2?date={day}", "/admin/doctor/d2"))
+        live_busy = {c_["date"]: c_["busy"] for w in live["minical"]["weeks"] for c_ in w}
+        res.check("точки — дни с записями ЭТОГО врача: свой день есть, день "
+                  "одного d3 — только у главной",
+                  (cells.get(day, {}).get("busy"), cells.get(other, {}).get("busy"),
+                   live_busy.get(other)),
+                  (True, False, True))
+        res.check("выбранный день — день экрана", cells.get(day, {}).get("selected"), True)
+
+        # ответ действия — свежий день экрана, с фактами (`_done`)
+        r = c.post_json(f"/api/schedule/appointments/{ids['Vasile Lupu']}/comment"
+                        f"?date={day}&doctor=d2", {"comment": "Sună înainte"})
+        res.check("ответ действия на дне врача несёт факты",
+                  (r.msg, sorted(_j(r).get("data", {}).get("extras", {}))),
+                  ("ok_comment", sorted(x)))

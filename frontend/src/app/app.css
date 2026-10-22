@@ -1553,6 +1553,115 @@ dialog.dp-about { width: 460px; }
   .gappt.slim.duo:not(.tiny) .apact svg { width: 18px; height: 18px; }
 }
 
+/* Карточка визита дня ОДНОГО врача — колонки фактов (22.10, вариант A Олега;
+   кадры — design/doctor-day). Слева на трети — как всегда (время, имя,
+   услуга), справа три колонки: риски, план, история (`FactCols`).
+   ⛔ Колонки АБСОЛЮТНЫ и с `overflow:hidden`: высоту блока они не растят, и
+   ступени сжатия (`useFitAppts`) те же, что без них. Переполнение колонки
+   мерит `dashFx.fitFacts` у неё самой и прячет хвост в «+N».
+   ⛔ Строка колонки — 16px (15 и зазор 1): час на полу 64px — блок 58px,
+   колонка 49px — ровно три строки; полтора часа — пять. Меняя высоту строки,
+   мерить стендом `card_fit`.
+   Только на компьютере и в широкой колонке (`.gcol` — контейнер с 641px):
+   уже 640px трети на имя не хватает, и колонки не рисуются вовсе. */
+.gappt .vf { display: none; }
+@media (min-width: 641px) {
+  @container (min-width: 640px) {
+    .gcol .gappt.has-vf:not(.tiny):not(.bare):not(.gnote) { padding-right: 67%; }
+    .gcol .gappt.has-vf:not(.slim):not(.tiny):not(.bare):not(.gnote) b,
+    .gcol .gappt.has-vf:not(.slim):not(.tiny):not(.bare):not(.gnote) small { padding-right: 0; }
+    .gappt.has-vf:not(.tiny):not(.bare) .vf {
+      display: flex; position: absolute; left: 33%; right: 46px; top: 5px; bottom: 4px;
+      overflow: hidden; pointer-events: none; white-space: nowrap; line-height: 16px;
+    }
+    .gappt.has-vf.slim:not(.tiny) .vf { top: 2px; bottom: 2px; right: 40px; align-items: center; }
+  }
+}
+.vf-col {
+  position: relative; flex: 1 1 0; min-width: 0; display: flex; flex-direction: column;
+  align-items: flex-start; overflow: hidden; padding: 0 12px;
+  border-left: 1px solid color-mix(in srgb, var(--bar) 28%, transparent);
+}
+.vf-col.vf-plan { flex-grow: 1.15; }
+.vf-col > * { flex: none; max-width: 100%; }
+.vf-col > .vf-cut { display: none; }
+.vf-col > .vf-tail { max-width: calc(100% - 30px); }
+/* две строки (45 минут): колонка по центру блока; одна строка (полчаса) —
+   колонка становится строкой, лишнее уходит вбок и тоже в «+N» */
+.gappt.duo .vf-col { justify-content: center; }
+.gappt.slim:not(.duo) .vf-col { flex-direction: row; align-items: center; gap: 4px; }
+/* в строке «+N» встаёт сразу за последним видимым, а не у края колонки */
+.gappt.slim:not(.duo) .vf-col > .vf-more.on { position: static; flex: none; }
+.gappt.slim .vf-what { display: none; }
+/* Тоны — как на макете, который выбрал Олег: atenționări фиши (тон сервера
+   `orange` — аллергия и лекарство) красной заливкой, особое (`red`) и долг —
+   ещё и рамкой; анамнез — янтарём; «не собран» — серым. */
+.vf-chip {
+  display: block; height: 15px; margin-bottom: 1px; padding: 0 6px; border-radius: var(--r-xs);
+  font-size: var(--fs-xs); font-weight: 600; line-height: 15px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.vf-chip svg { width: 11px; height: 11px; margin-right: 3px; vertical-align: -2px; }
+.vf-chip.red {
+  background: var(--red-soft); color: var(--red-t);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--red) 30%, transparent);
+}
+.vf-chip.orange { background: var(--red-soft); color: var(--red-t); }
+.vf-chip.amber { background: var(--amber-soft); color: var(--amber-t); }
+.vf-chip.green { background: var(--green-soft); color: var(--green-t); }
+.vf-chip.grey {
+  background: color-mix(in srgb, var(--panel) 70%, transparent); color: var(--text3); font-weight: 500;
+}
+.vf-row { display: flex; align-items: center; gap: 5px; height: 16px; min-width: 0; overflow: hidden; }
+.vf-row .vf-chip { margin-bottom: 0; }
+.vf-pl { display: flex; align-items: center; gap: 3px; height: 16px; min-width: 0; }
+.vf-tn {
+  flex: none; min-width: 20px; height: 15px; padding: 0 3px; border-radius: var(--r-xs);
+  background: var(--panel); color: var(--text); box-shadow: inset 0 0 0 1px var(--line);
+  font-size: var(--fs-xs); font-weight: 700; line-height: 15px; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.vf-tn.work { background: var(--teal); color: var(--on-teal); box-shadow: none; }
+.vf-proc {
+  min-width: 0; margin-left: 2px; overflow: hidden; text-overflow: ellipsis;
+  color: var(--text2); font-size: var(--fs-xs);
+}
+.vf-nth { flex: none; color: var(--text2); font-size: var(--fs-xs); font-weight: 600; }
+.vf-last {
+  display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  color: var(--text2); font-size: var(--fs-xs);
+}
+.vf-last i { font-style: normal; color: var(--text3); }
+.vf-muted { color: var(--text3); font-size: var(--fs-xs); }
+.vf-more { display: none; }
+.vf-more.on {
+  display: block; position: absolute; right: 12px; height: 15px; padding: 0 5px;
+  border-radius: var(--r-xs); background: color-mix(in srgb, var(--text3) 18%, transparent);
+  color: var(--text2); font-size: var(--fs-xs); font-weight: 700; line-height: 15px;
+}
+
+/* Дата в подзаголовке дня врача — кнопка календаря (22.10, вариант H):
+   тот же `MiniCal`, что в правой колонке главной, всплывает под кнопкой.
+   ⛔ Окно не двигает страницу (Олег: «без прыжков») — оно поверх, и фокус в
+   него не переводится. */
+.dp-calbtn { position: relative; display: inline-block; }
+.dp-calbtn > button {
+  display: inline-flex; align-items: center; gap: 6px; height: 30px; margin: -4px 0;
+  padding: 0 8px 0 9px; border: 1px solid var(--line); border-radius: var(--r-ctl);
+  background: var(--surface); color: var(--text); font: inherit; cursor: pointer;
+}
+.dp-calbtn > button svg { width: 15px; height: 15px; color: var(--teal-d); }
+.dp-calbtn > button svg:last-child { width: 13px; height: 13px; color: var(--text3); }
+.dp-calbtn > button:hover, .dp-calbtn > button[aria-expanded="true"] { border-color: var(--teal); }
+.dp-calbtn > button:focus-visible { outline: none; box-shadow: var(--ring); }
+.dp-calpop {
+  position: absolute; top: calc(100% + 10px); left: 0; z-index: 60;
+  width: 324px; max-width: calc(100vw - 32px);
+}
+/* сплошной `--panel`, не `--surface`: у Sticlă поверхность прозрачная, и
+   сетка дня просвечивала бы сквозь числа */
+.dp-calpop .mcal { margin: 0; background: var(--panel); box-shadow: var(--sh3); }
+
 /* «Primul loc liber»: врач, ближайший свободный час, кнопка-контур; внизу касса */
 .dp-free {
   background: var(--surface); border: 1px solid var(--glass-edge); border-radius: var(--r-card);

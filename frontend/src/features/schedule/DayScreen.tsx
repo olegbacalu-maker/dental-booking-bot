@@ -16,6 +16,7 @@ import { CardDialog } from './CardDialog'
 import { CardMenu, type CardMenuAt } from './CardMenu'
 import { DashCanvas } from './DashCanvas'
 import { DayList } from './DayList'
+import { CalButton } from './MiniCal'
 import { MoveDialog } from './MoveDialog'
 import { NoteDialog } from './NoteDialog'
 import { SlotDialog } from './SlotDialog'
@@ -278,9 +279,14 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
           </AppLink>
         )}
       </div>
+      {/* ⭐ (22.10, вариант H Олега) У дня врача дата — кнопка календаря: тот
+          же `MiniCal`, что на главной, с точками ЕГО записей; модель несёт
+          его только у дня врача (`minical`). */}
       <div className="sub dp-daysub">
         {docName ? <><b>{docName}</b> · </> : null}
-        <b className="dp-daysub-date">{m.day_long}</b> · {count} {count === 1 ? T.one : T.many} · {occPct}% {T.occ}
+        {m.minical
+          ? <CalButton label={m.day_long} cal={m.minical} />
+          : <b className="dp-daysub-date">{m.day_long}</b>} · {count} {count === 1 ? T.one : T.many} · {occPct}% {T.occ}
       </div>
 
       {/* ⚠️ Место списка зависит от отбора, и это не косметика: пришедший с
@@ -296,7 +302,7 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
                     onSlot={(dk, name, hour) => setSlot({ dk, name, hour })}
                     onNote={openNote}
                     drag={drag} hover={hover} onDrag={setDrag} onHover={setHover} onDrop={onDrop}
-                    fresh={NO_FRESH} />
+                    fresh={NO_FRESH} facts={m.extras} />
       </div>
       <p className="hint dp-dayhint">
         <b>{T.hintFree}</b> — {T.hintFreeT} · <b>{T.hintAppt}</b> — {T.hintApptT} · {T.hintDrag}

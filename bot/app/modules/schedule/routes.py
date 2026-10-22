@@ -27,6 +27,7 @@ from ... import engine as eng
 from ...core.auth import _guard, request_user
 from ...core import xlsx
 from ...core.layout import react_shell, shell_model
+from ...core.risks import merge as merge_risks
 from ...core.visits import (SVC_PALETTE, _collect_cards, _parse_date,
                             all_status_actions, service_refusal, status_actions)
 from . import canvas as pcanvas
@@ -249,7 +250,72 @@ async def _day_model(d: date, doctor: str = "", f: str = "") -> dict | None:
     # из тех же строк — у общего дня она совпадает с канвой панели того же
     # дня (держит test_schedule_api), у дня врача в ней одна колонка.
     m["canvas"] = pcanvas.model(d, rows, cards, _svc_colors, only=doctor)
+    if doctor:
+        # ⭐ (22.10, вариант A + H Олега) Только у дня ОДНОГО врача: факты о
+        # пациенте карточки визита и календарь шапки. ⛔ Не в `appt_view` и не
+        # в `canvas.blocks`: они едут в каждом конверте живого канала главной,
+        # и канва общего дня обязана совпадать с ним (`suite_day_parity`).
+        m["extras"] = await _visit_facts(d, rows)
+        m["minical"] = ppanel.minical(d, datetime.now(eng.TZ).date(), _RO_MONTHS,
+                                      base=f"/admin/doctor/{doctor}",
+                                      busy=await _busy_days(d, doctor))
     return m
+
+
+async def _busy_days(d: date, doctor: str = "") -> set:
+    """Точки мини-календаря (08.10): дни окна месяца с живой записью — у
+    главной всех врачей, у шапки дня врача (22.10) только его (`_of_doctor`).
+    Окно — те же полные недели, что рисует `panel.minical` (с понедельника
+    перед первым числом, шесть недель с запасом); выборка лёгкая.
+    ⚠️ Правило «живая запись» то же, что у повестки и загрузки: без
+    отменённых и без заметок стойки."""
+    first = d.replace(day=1)
+    m_start = first - timedelta(days=first.weekday())
+    m0 = datetime(m_start.year, m_start.month, m_start.day, tzinfo=eng.TZ)
+    return {r["starts_at"].astimezone(eng.TZ).date()
+            for r in await db.appointment_days(m0, m0 + timedelta(days=42))
+            if r["status"] != "cancelled" and r["source"] != "note"
+            and (not doctor or _of_doctor(r, doctor))}
+
+
+async def _visit_facts(d: date, rows: list) -> dict:
+    """Факты карточки визита дня врача по id визита (22.10, вариант A):
+    риски (`core.risks.merge` — atenționări и анамнез без дублей), состояние
+    анамнеза, активный план, долг, какой это визит пациента и прошлый визит.
+
+    ⛔ Ни одного «сейчас»: прошлый визит — последний ДО этого визита, счёт —
+    по визитам до него, давность считает браузер от дня экрана по дате
+    `last.date`. Ответ меняется только с данными. Выборки — `db.day_patient_facts`,
+    шесть на день, а не по запросу на визит.
+    """
+    own = [r for r in rows if r.get("patient_id") and r["source"] != "note"
+           and r["status"] != "cancelled"]
+    if not own:
+        return {}
+    day_end = datetime(d.year, d.month, d.day, tzinfo=eng.TZ) + timedelta(days=1)
+    f = await db.day_patient_facts(sorted({r["patient_id"] for r in own}), day_end)
+    out: dict[str, dict] = {}
+    for r in own:
+        pid = r["patient_id"]
+        prior = [v for v in f["visits"].get(pid, [])
+                 if v["starts_at"] < r["starts_at"] and v["id"] != r["id"]]
+        last = prior[-1] if prior else None
+        anam = f["anam"].get(pid)
+        risks = merge_risks(f["alerts"].get(pid, []), anam)
+        out[str(r["id"])] = {
+            "nth": len(prior) + 1,
+            "last": ({"date": last["starts_at"].astimezone(eng.TZ).date().isoformat(),
+                      "what": (last.get("tratament") or "").strip() or last["service"] or ""}
+                     if last else None),
+            "risks": risks,
+            # собран ли анамнез: нет — экран ставит серое «Anamneză necompletată»
+            "anam": anam is not None,
+            "plan": [{"tooth": it["tooth"], "proc": it["procedure"],
+                      "work": it["status"] == "in_lucru"}
+                     for it in f["plan"].get(pid, [])],
+            "debt": f["debt"].get(pid, 0),
+        }
+    return out
 
 
 async def _panel_live(d: date, now: datetime) -> dict:
@@ -272,17 +338,7 @@ async def _panel_live(d: date, now: datetime) -> dict:
     cards = _collect_cards(rows)
     active_dks = [dk for dk in eng.DOCTORS
                   if eng.DOCTOR_META.get(dk, {}).get("active", True)]
-    # Точки мини-календаря (08.10): дни окна месяца с живой записью. Окно —
-    # те же полные недели, что рисует `panel.minical` (с понедельника перед
-    # первым числом, шесть недель с запасом); выборка лёгкая, три колонки.
-    # ⚠️ Правило «живая запись» то же, что у повестки и загрузки: без
-    # отменённых и без заметок стойки.
-    first = d.replace(day=1)
-    m_start = first - timedelta(days=first.weekday())
-    m0 = datetime(m_start.year, m_start.month, m_start.day, tzinfo=eng.TZ)
-    busy_days = {r["starts_at"].astimezone(eng.TZ).date()
-                 for r in await db.appointment_days(m0, m0 + timedelta(days=42))
-                 if r["status"] != "cancelled" and r["source"] != "note"}
+    busy_days = await _busy_days(d)
     return {
         # ⭐ Подпись дня для шапки — В КОНВЕРТЕ, рядом с эхом `date` (решение
         # Олега 24.09). Адрес панели без `?date=` значит «сегодня сервера», и в

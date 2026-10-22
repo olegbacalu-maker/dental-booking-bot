@@ -3,6 +3,8 @@ import { AppLink } from '../../components/AppLink'
 import { Icon, iconName } from '../../components/Icon'
 import { clinicNow, clinicTz, nowlineRows, useCardView, useFitAppts, useFitGrid, waitLabel } from './dashFx'
 import type { DashAppt, DashBlock, DashCanvasModel, DashColumn } from './dash'
+import type { VisitFacts } from './day'
+import { FactCols } from './FactCols'
 import { freeHalves, freeKind, hourLabel } from './slot'
 import { cellAtY, dragOf, endOf, type CellRect, type Drag, type Target } from './move'
 
@@ -82,12 +84,15 @@ interface Props {
   onDrop: (t: Target) => void
   /** Что приехало прямо сейчас: этим блокам ставится `fresh` (C26.5.4). */
   fresh: ReadonlySet<number>
+  /** Факты карточки визита по id — только у дня ОДНОГО врача (22.10, вариант
+   *  A): колонки справа от имени. Нет — карточка как на главной. */
+  facts?: Record<string, VisitFacts> | undefined
 }
 
 const p2 = (n: number) => String(n).padStart(2, '0')
 
 export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu, onSlot, onNote,
-  drag, hover, onDrag, onHover, onDrop, fresh }: Props) {
+  drag, hover, onDrag, onHover, onDrop, fresh, facts }: Props) {
   const body = useRef<HTMLDivElement | null>(null)
   /* ⚠️ Перемер блоков привязан к минутам ожидания не вообще, а только когда
      ожидающие ЕСТЬ: текст «așteaptă N min» вписывается после замера, и блок
@@ -173,7 +178,7 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
             {col.blocks.map((b) => (
               <Block key={b.id} block={b} waitTick={waitTick} dk={col.id ?? ''}
                 onCard={onCard} onCardMenu={onCardMenu} onNote={onNote} onDrag={onDrag}
-                fresh={fresh.has(b.id)} />
+                fresh={fresh.has(b.id)} facts={facts?.[String(b.id)]} date={model.date} />
             ))}
           </div>
         ))}
@@ -325,13 +330,15 @@ function Relink({ relink, date }: { relink: NonNullable<DashColumn['relink']>; d
 }
 
 function Block(
-  { block, waitTick, dk, onCard, onCardMenu, onNote, onDrag, fresh }:
+  { block, waitTick, dk, onCard, onCardMenu, onNote, onDrag, fresh, facts, date }:
   {
     block: DashBlock; waitTick: number; dk: string
     onCard: (id: number) => void; onNote: (id: number) => void
     onCardMenu?: ((id: number, x: number, y: number) => void) | undefined
     onDrag: (d: Drag | null) => void
     fresh: boolean
+    facts: VisitFacts | undefined
+    date: string
   },
 ) {
   /* ⛔ Класс ТОТ ЖЕ, что у легаси (`.gappt.fresh` в panel.css): оформление уже
@@ -373,16 +380,18 @@ function Block(
     )
   }
   return <ApptBlock block={block} pos={pos} waitTick={waitTick} onCard={onCard}
-    onCardMenu={onCardMenu} grab={grab} fx={fx} />
+    onCardMenu={onCardMenu} grab={grab} fx={fx} facts={facts} date={date} />
 }
 
 function ApptBlock(
-  { block, pos, waitTick, onCard, onCardMenu, grab, fx }: {
+  { block, pos, waitTick, onCard, onCardMenu, grab, fx, facts, date }: {
     block: DashAppt; pos: React.CSSProperties; waitTick: number
     onCard: (id: number) => void
     onCardMenu?: ((id: number, x: number, y: number) => void) | undefined
     grab: Record<string, unknown>
     fx: string
+    facts: VisitFacts | undefined
+    date: string
   },
 ) {
   /* Срочность — чипом в строке интервала (макет), а не только цветом: чип
@@ -403,7 +412,7 @@ function ApptBlock(
   const bg = done ? 'var(--line2)' : block.bg
   const bar = done ? 'var(--text3)' : block.bar
   return (
-    <div className={`gappt${block.status === 'noshow' ? ' noshow' : ''}${done ? ' done' : ''}${urgent ? ' urg' : ''}${fx}`}
+    <div className={`gappt${block.status === 'noshow' ? ' noshow' : ''}${done ? ' done' : ''}${urgent ? ' urg' : ''}${facts ? ' has-vf' : ''}${fx}`}
       data-appt={block.id}
       style={{ ...pos, background: bg, borderLeft: `5px solid ${bar}`,
         '--bar': bar } as React.CSSProperties}
@@ -428,6 +437,9 @@ function ApptBlock(
       <b>{block.name}{block.source === 'bot' && <> <Icon name="bot" /></>}
         {block.comment && <> <Icon name="chat" /></>}</b>
       <small><span className="gt">{block.time} · {block.dur}′ · </span>{block.service}</small>
+      {/* колонки фактов — только у дня врача (`facts`); стоят абсолютно в
+          своей полосе и ступени блока не меняют (app.css › `.vf`) */}
+      {facts && <FactCols x={facts} date={date} />}
       {/* Кнопка одонтограммы в блоке (макет): только у визита С ПАЦИЕНТОМ, иначе
           ссылка вела бы на `/None/`. ⛔ Всплытие клика останавливает — строка
           кликабельна целиком; `draggable=false` — иначе браузер тащил бы ссылку

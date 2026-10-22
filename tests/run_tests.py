@@ -331,6 +331,7 @@ SUITES = [
     ("День: модель «Programări» — канва, подпись, врач", test_schedule_api.suite_day_parity),
     ("День: «Sursă» — у клиники с ботом", test_schedule_api.suite_day_source),
     ("День врача: легаси-строка — колонкой-сиротой", test_schedule_api.suite_day_orphan),
+    ("День врача: факты карточки и календарь шапки (A + H)", test_schedule_api.suite_doctor_day),
     ("Дневные экраны: узел React с параметрами адреса", test_schedule_api.suite_day_switch),
     ("День: окно записи — что оно предлагает (C25.5b)", test_day_forms.suite_form),
     ("День: заметки стойки", test_day_forms.suite_slot),
