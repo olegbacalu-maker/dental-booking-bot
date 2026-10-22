@@ -13,7 +13,8 @@
 подняла СОБРАННАЯ оболочка из временной «установки» (это и есть дымовой тест
 `Build-Installer.ps1`), и `scripts/engine_check.py --exe` — против собранного
 движка под харнессом (`Build-Engine.ps1`). Прежняя сборка одним файлом
-(`Build-Desktop.ps1`) — через `scripts/smoke_build.py`.
+(`Build-Desktop.ps1`, `scripts/smoke_build.py`) снята 22.10.2026 вместе с окном
+pywebview.
 
 Две фазы (02.10, ключ лицензии в сборке — `rsa_verify.KEYS`; стенд запускает
 ОДНУ программу дважды на одной лаборатории):
@@ -121,7 +122,7 @@ def _static(c: Client, check) -> None:
           f"код {r.status}, {len(r.body)} б")
 
     # Бандл React-клиента (DentPilot 2.0) собирает npm ДО PyInstaller
-    # (Build-Desktop.ps1), и он едет тем же --add-data, что panel.js. Пропади
+    # (Build-Engine.ps1), и он едет тем же --add-data, что panel.js. Пропади
     # шаг сборки — у клиники с включённым флагом React страница открылась бы
     # серверной заглушкой, а /health и всё выше осталось бы зелёным.
     r = c.get("/static/js/bundle.js")
