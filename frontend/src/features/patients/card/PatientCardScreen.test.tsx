@@ -1331,3 +1331,87 @@ describe('PatientCardScreen', () => {
     expect(strip().getByRole('tab', { name: /Date pacient/ }).querySelector('.wtab-dot')).toBeNull()
   })
 })
+
+/* 22.10: удача «Salvează profilul» схлопывает форму, и всё под ней уезжало
+   вверх на высоту формы (Олег: «после изменений на сохранение страница
+   прыгает»). jsdom прямоугольников не знает — здесь проверяется ВЫЗОВ
+   компенсации по разнице низа карточки до/после, не пиксели; пиксели и
+   кадры — стенд `scripts/profile_save_stand.py` (headless-Edge, оба окна). */
+describe('ProfileCard: «Salvează profilul» без прыжка (22.10)', () => {
+  const rect = (bottom: number): DOMRect =>
+    ({ x: 0, y: 0, top: 0, left: 0, right: 0, bottom, width: 0, height: bottom, toJSON: () => ({}) }) as DOMRect
+  /** Низ карточки профиля в окне: с раскрытой формой — ниже на её высоту
+   *  (610 px у стенда на 1920×1000); с закрытой — `closed`. Подмена на самом
+   *  узле: карточка не размонтируется, узел тот же до и после удачи. */
+  const measureCard = (open: number, closed: number) => {
+    const card = document.querySelector('.pv2-main .fcard') as HTMLElement
+    const form = card.querySelector('.dp-pedit') as HTMLElement
+    card.getBoundingClientRect = () => rect(form.style.display === 'none' ? closed : open)
+  }
+  const saved = () => ok({ ...CARD, profile: { ...CARD.profile, address: 'str. Pin 1 bis' } }, 'ok_card', 'Fișa pacientului a fost actualizată')
+  const formDisplay = () => (document.querySelector('.dp-pedit') as HTMLElement).style.display
+  /** Фиша на «Date pacient» с раскрытой формой и правкой адреса. */
+  const openForm = async (url = '/admin/patient/5?tab=date') => {
+    open(url)
+    await settled()
+    if (!url.includes('edit=1')) fireEvent.click(screen.getByText('Editează profilul'))
+    expect(formDisplay()).toBe('flex')
+    fireEvent.change(screen.getByLabelText('Adresă'), { target: { value: 'str. Pin 1 bis' } })
+  }
+
+  it('удача: низ карточки ушёл вверх на высоту формы — прокрутка на ту же разницу, мгновенно', async () => {
+    const scroll = vi.spyOn(window, 'scrollBy').mockImplementation(() => {})
+    serve()
+    post.mockResolvedValueOnce(saved())
+    await openForm()
+    measureCard(1177, 567)
+    fireEvent.click(screen.getByText('Salvează profilul'))
+    expect(await screen.findByText('Fișa pacientului a fost actualizată')).toBeTruthy()
+    expect(formDisplay()).toBe('none')
+    expect(screen.getByText('str. Pin 1 bis', { selector: '.frow .v' })).toBeTruthy()
+    expect(scroll).toHaveBeenCalledTimes(1)
+    expect(scroll).toHaveBeenCalledWith({ top: -610, behavior: 'auto' })
+  })
+
+  it('?edit=1 («Editează» из предпросмотра списка) — тот же якорь', async () => {
+    const scroll = vi.spyOn(window, 'scrollBy').mockImplementation(() => {})
+    serve()
+    post.mockResolvedValueOnce(saved())
+    await openForm('/admin/patient/5?tab=date&edit=1')
+    measureCard(940, 567)
+    fireEvent.click(screen.getByText('Salvează profilul'))
+    expect(await screen.findByText('Fișa pacientului a fost actualizată')).toBeTruthy()
+    expect(formDisplay()).toBe('none')
+    expect(scroll).toHaveBeenCalledWith({ top: -373, behavior: 'auto' })
+  })
+
+  it('браузер удержал низ сам (разницы нет) — прокрутка не трогается', async () => {
+    /* якорь прокрутки Chromium срабатывает через раз (стенд: 1 случай из 4) —
+       компенсация меряет по месту и не удваивает его сдвиг */
+    const scroll = vi.spyOn(window, 'scrollBy').mockImplementation(() => {})
+    serve()
+    post.mockResolvedValueOnce(saved())
+    await openForm()
+    measureCard(607, 607)
+    fireEvent.click(screen.getByText('Salvează profilul'))
+    expect(await screen.findByText('Fișa pacientului a fost actualizată')).toBeTruthy()
+    expect(formDisplay()).toBe('none')
+    expect(scroll).not.toHaveBeenCalled()
+  })
+
+  it('отказ сервера с полем и закрытие кнопкой «Editează» — без компенсации', async () => {
+    const scroll = vi.spyOn(window, 'scrollBy').mockImplementation(() => {})
+    serve()
+    post.mockRejectedValueOnce(new ApiError({ kind: 'validation', code: 'bad_idnp', text: 'IDNP trebuie să aibă exact 13 cifre', field: 'idnp' }, 'v'))
+    await openForm()
+    measureCard(1177, 567)
+    fireEvent.click(screen.getByText('Salvează profilul'))
+    expect(await screen.findByText('IDNP trebuie să aibă exact 13 cifre')).toBeTruthy()
+    expect(formDisplay()).toBe('flex')
+    expect(scroll).not.toHaveBeenCalled()
+    /* закрыть без записи: человек смотрит на «Editează», сдвигать её нельзя */
+    fireEvent.click(screen.getByText('Editează profilul'))
+    expect(formDisplay()).toBe('none')
+    expect(scroll).not.toHaveBeenCalled()
+  })
+})

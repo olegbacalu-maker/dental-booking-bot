@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { AppLink, useAppNavigate } from '../../../components/AppLink'
 import { ask } from '../../../components/confirm'
 import { Icon } from '../../../components/Icon'
@@ -100,6 +100,9 @@ export function ProfileCard({ card, a, editOpen, onEditOpen, noteFocus, onNoteFo
   const [confirm, setConfirm] = useState('')
   const [erasing, setErasing] = useState(false)
   const notesRef = useRef<HTMLTextAreaElement>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
+  /* низ карточки в окне ДО схлопывания формы — якорь удачи (эффект ниже) */
+  const keepBottom = useRef<number | null>(null)
   const set = (patch: Partial<ProfileForm>) =>
     setDraft((d) => { const b = d.card === card ? d : fresh(card); return { ...b, form: { ...b.form, ...patch } } })
   const setNoPhone = (on: boolean) =>
@@ -111,12 +114,39 @@ export function ProfileCard({ card, a, editOpen, onEditOpen, noteFocus, onNoteFo
     onNoteFocused()
   }, [noteFocus, onNoteFocused])
 
+  /* ⭐ Удача схлопывает форму, и всё под ней — кнопки архива, выгрузки,
+     стирания — уезжало вверх на её высоту (615 px), а низ карточки пустел
+     (Олег 22.10: «после изменений на сохранение страница прыгает»; замер
+     стендом: верх карточки стоит, низ уходит на 610–625 px). Якорь — как у
+     прокрутки браузера: низ карточки остаётся там, где был до схлопывания,
+     строки с результатом занимают место формы, «Editează profilul» встаёт
+     туда, где была «Salvează». Разница меряется ПОСЛЕ отрисовки по месту
+     (useLayoutEffect, до кадра — промежуточного кадра нет); браузер, который
+     удержал низ сам (якорь Chromium срабатывает через раз), даёт разницу 0,
+     и прокрутка не трогается. Мгновенно: это переход, не анимация.
+     ⛔ Только на удаче записи: закрытие кнопкой «Editează» компенсации не
+     получает — человек смотрит на неё, и сдвиг её вниз был бы хуже. */
+  useLayoutEffect(() => {
+    if (editOpen || keepBottom.current === null) return
+    const was = keepBottom.current
+    keepBottom.current = null
+    const el = cardRef.current
+    if (!el) return
+    const dy = el.getBoundingClientRect().bottom - was
+    if (Math.abs(dy) > 1) window.scrollBy({ top: dy, behavior: 'auto' })
+  }, [editOpen])
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     setInvalid('')
     const err = await a.act(() => patientCard.saveProfile(a.pid, a.views, { ...form, phone: noPhone ? '' : form.phone }))
     if (err?.field) setInvalid(err.field)
-    else if (!err) onEditOpen(false)
+    else if (!err) {
+      /* снимок до схлопывания: свежая фиша и скрытая форма рисуются одним
+         кадром, эффект сверит с ним положение после */
+      keepBottom.current = cardRef.current?.getBoundingClientRect().bottom ?? null
+      onEditOpen(false)
+    }
   }
 
   async function onErase(e: FormEvent) {
@@ -150,7 +180,7 @@ export function ProfileCard({ card, a, editOpen, onEditOpen, noteFocus, onNoteFo
   )
 
   return (
-    <div className="fcard">
+    <div ref={cardRef} className="fcard">
       <h3>{T.title}</h3>
       {p.phone ? row(T.rows.phone, p.phone, 'phone') : (
         <div className="frow">
