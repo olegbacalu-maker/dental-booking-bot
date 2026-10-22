@@ -134,7 +134,7 @@ fn on_message(app: &AppHandle, who: Who, src: &str, json: &str) {
 /// вставить/выделить всё; на выделенном тексте — копировать; на остальной
 /// странице меню нет вовсе: «Назад», «Сохранить как», «Печать» страницы и
 /// «Найти в интернете» окну программы ни к чему.
-/// ⚠️ Подписи — на языке Windows (их рисует Edge), как кнопки окон Windows.
+/// ⚠️ Подписи рисует Edge языком браузера — `--lang=ro` (main.rs::BROWSER_ARGS), не языком Windows.
 unsafe fn context_menu(core: &ICoreWebView2) {
     let Ok(c11) = core.cast::<ICoreWebView2_11>() else { return };
     let handler = ContextMenuRequestedEventHandler::create(Box::new(|_, args| {
