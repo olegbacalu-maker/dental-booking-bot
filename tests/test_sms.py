@@ -814,14 +814,18 @@ def suite_screen(res: Result) -> None:
                        and "zile" not in item.get("alert", "")
                        and "sms" not in shell_model(c.get("/admin").body)["signals"], repr(item))
 
-                # модуль выключен в облаке (с 23.10 — DentPilot Basic): код и контакты для экрана
-                stand.account.update(enabled=False, blocked="sms_off")
-                c.post_json("/api/settings/sms/refresh", {})
-                data = _wait(lambda: (lambda x: x if x.get("blocked") == "sms_off" else None)(
-                    _j(c.get("/api/settings/sms"))["data"])) or _j(c.get("/api/settings/sms"))["data"]
-                res.ok("модуль выключен (DentPilot Basic): offered, не enabled, код sms_off, причина называет Plus",
-                       data["offered"] and not data["enabled"] and data["blocked"] == "sms_off"
-                       and "DentPilot Plus" in data["why"], repr(data)[:400])
+                # модуль выключен в облаке, два кода (23.10): тариф Basic и тумблер облака;
+                # у тумблера причина без «Plus» — клиника под ним может быть и на Plus
+                for code, plus in (("sms_basic", True), ("sms_off", False)):
+                    stand.account.update(enabled=False, blocked=code)
+                    c.post_json("/api/settings/sms/refresh", {})
+                    data = _wait(lambda: (lambda x: x if x.get("blocked") == code else None)(
+                        _j(c.get("/api/settings/sms"))["data"])) or _j(c.get("/api/settings/sms"))["data"]
+                    res.ok(f"модуль выключен ({code}): offered, не enabled, код с сервера, "
+                           f"причина {'называет' if plus else 'не называет'} Plus",
+                           data["offered"] and not data["enabled"] and data["blocked"] == code
+                           and data["why"].startswith("modulul SMS este oprit")
+                           and ("DentPilot Plus" in data["why"]) == plus, repr(data)[:400])
                 src = (BOT / "app" / "core" / "layout.py").read_text(encoding="utf-8")
                 want = {k: re.search(rf'^{n} = "([^"]+)"', src, re.M).group(1)
                         for k, n in (("phone", "SUPPORT_PHONE"), ("email", "FEEDBACK_EMAIL"))}

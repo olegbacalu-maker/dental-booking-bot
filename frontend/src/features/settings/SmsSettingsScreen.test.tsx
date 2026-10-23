@@ -162,8 +162,8 @@ describe('SmsSettingsScreen', () => {
     expect(screen.getByLabelText('Cu o zi înainte')).toBeTruthy()
   })
 
-  it('модуль выключен в облаке (DentPilot Basic): спокойная строка с путём к Plus и контактами, не ошибка', async () => {
-    get.mockResolvedValueOnce(ok({ ...BASE, enabled: false, active: false, blocked: 'sms_off',
+  it('модуль выключен в облаке: Basic ведёт к Plus, тумблер — к нам; спокойная строка, не ошибка', async () => {
+    get.mockResolvedValueOnce(ok({ ...BASE, enabled: false, active: false, blocked: 'sms_basic',
       why: 'modulul SMS este oprit (face parte din DentPilot Plus)' }))
     open()
     const line = await screen.findByText('Modulul SMS este oprit: el face parte din DentPilot Plus.')
@@ -174,11 +174,27 @@ describe('SmsSettingsScreen', () => {
       + 'sau scriindu-ne: +373 60 508 048 · contact@dentpilot.md')
     expect(screen.queryByRole('alert')).toBeNull()
     cleanup()
+    // тумблер облака (исключения) — та же спокойная строка, но без «Plus»: клиника может быть на Plus
+    get.mockResolvedValueOnce(ok({ ...BASE, enabled: false, active: false, blocked: 'sms_off',
+      why: 'modulul SMS este oprit' }))
+    open()
+    const off = (await screen.findByText('Modulul SMS este oprit.')).closest('.banner') as HTMLElement
+    expect(off.className).toContain('warn')
+    expect(off.textContent).toBe('Modulul SMS este oprit. Pentru reluare, contactați-ne: +373 60 508 048 · contact@dentpilot.md')
+    expect(screen.queryByText(/DentPilot Plus/)).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    cleanup()
     get.mockResolvedValueOnce(ok({ ...BASE, enabled: false, active: false, blocked: 'sms_plan',
       why: 'abonamentul nu este activ' }))
     open()
     expect((await screen.findByRole('alert')).textContent).toBe('abonamentul nu este activ')
-    expect(screen.queryByText(/DentPilot Plus/)).toBeNull()
+    expect(screen.queryByText(/Modulul SMS este oprit/)).toBeNull()
+    cleanup()
+    // код, которого программа не знает, — виден как есть красной строкой, а не спрятан
+    get.mockResolvedValueOnce(ok({ ...BASE, enabled: false, active: false, blocked: 'sms_new', why: 'sms_new' }))
+    open()
+    expect((await screen.findByRole('alert')).textContent).toBe('sms_new')
+    expect(screen.queryByText(/Modulul SMS este oprit/)).toBeNull()
   })
 
   it('без лицензии с renew: одна фраза, ни счёта, ни событий', async () => {

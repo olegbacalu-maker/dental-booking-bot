@@ -72,8 +72,8 @@ META_LOW = "sms_low"                         # schema_meta: с какого вр
 ROW_FINAL = frozenset({"sms_phone", "sms_text", "sms_kind", "sms_idem", "sms_refused", "bad_json"})
 # Коды, после которых счёт перечитывается сразу: остаток или состояние
 # клиники на сервере изменились, и экран должен это показать.
-RECHECK = frozenset({"sms_balance", "sms_off", "sms_not_offered", "sms_plan", "sms_sender",
-                     "sms_unconfigured", "sms_cap"})
+RECHECK = frozenset({"sms_balance", "sms_off", "sms_basic", "sms_not_offered", "sms_plan",
+                     "sms_sender", "sms_unconfigured", "sms_cap"})
 
 # Причина для летописи и экрана — по-румынски, коротко; код сервера без строки
 # здесь печатается как есть (новый код сервера виден, а не спрятан).
@@ -82,10 +82,13 @@ WHY = {
     "refused": "licența nu a fost recunoscută de server",
     "sms_balance": "pachetul SMS s-a terminat",
     "sms_cap": "limita zilnică de SMS a fost atinsă",
-    # «Выключить» в карточке клиники облака = модуль SMS выключен: с 23.10 так
-    # выглядит DentPilot Basic (модуль — в Plus, условия § 4 и § 16); экран
-    # показывает путь к включению и контакты (SmsSettingsScreen, blocked).
-    "sms_off": "modulul SMS este oprit (face parte din DentPilot Plus)",
+    # Модуль SMS выключен — два кода, две причины (23.10): `sms_basic` — тариф
+    # DentPilot Basic (модуль — в Plus, условия § 4 и § 16), `sms_off` —
+    # тумблер карточки клиники в облаке (исключения: просьба клиники,
+    # злоупотребление). Экран рисует обоим спокойную строку со своим путём
+    # назад (SmsSettingsScreen, blocked).
+    "sms_basic": "modulul SMS este oprit (face parte din DentPilot Plus)",
+    "sms_off": "modulul SMS este oprit",
     "sms_not_offered": "modulul SMS nu este disponibil",
     "sms_unconfigured": "modulul SMS nu este disponibil pe server",
     "sms_plan": "abonamentul nu este activ",

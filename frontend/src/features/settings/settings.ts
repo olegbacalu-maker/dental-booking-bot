@@ -390,7 +390,7 @@ export interface SmsData {
   active: boolean
   /** Почему нельзя сейчас — проза сервера; пусто, когда можно. */
   why: string
-  /** Код отказа сервера (`sms_off` — выключено в облаке по желанию клиники); пусто, когда можно. */
+  /** Код отказа сервера (`sms_basic` — тариф DentPilot Basic, `sms_off` — выключено тумблером облака); пусто, когда можно. */
   blocked: string
   account: SmsAccount | null
   settings: SmsSettingsForm

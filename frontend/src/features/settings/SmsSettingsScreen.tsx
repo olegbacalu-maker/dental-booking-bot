@@ -22,8 +22,10 @@ const T = {
   offline: 'Programul nu răspunde. Reîncercați.',
   unavailable: 'Memento-urile SMS sunt disponibile doar în programul activat cu licență.',
   notOffered: 'Modulul SMS nu este disponibil acum pentru clinica dvs.',
-  offByClinic: 'Modulul SMS este oprit: el face parte din DentPilot Plus.',
-  resume: 'Îl porniți plătind varianta Plus în Setări › Licența („Plătește acum”) sau scriindu-ne:',
+  offBasic: 'Modulul SMS este oprit: el face parte din DentPilot Plus.',
+  toPlus: 'Îl porniți plătind varianta Plus în Setări › Licența („Plătește acum”) sau scriindu-ne:',
+  offManual: 'Modulul SMS este oprit.',
+  resume: 'Pentru reluare, contactați-ne:',
   stateTitle: 'Starea pachetului',
   balance: 'SMS rămase',
   from: 'expeditor',
@@ -79,6 +81,14 @@ const T = {
 
 const SENDER: Record<string, string> = {
   requested: T.senderRequested, submitted: T.senderSubmitted, active: T.senderActive, rejected: T.senderRejected,
+}
+
+/* Модуль выключен в облаке — не ошибка, а состояние с путём назад (23.10):
+   тариф Basic ведёт к оплате Plus, тумблер облака — к нам. Причины кодов —
+   `sms_loop.WHY`; код, которого здесь нет, остаётся красной строкой `why`. */
+const CALM: Record<string, { head: string; path: string }> = {
+  sms_basic: { head: T.offBasic, path: T.toPlus },
+  sms_off: { head: T.offManual, path: T.resume },
 }
 
 interface Props {
@@ -158,6 +168,8 @@ export function SmsSettingsScreen({ navigate = defaultNavigate }: Props) {
 
   const s = data?.settings
   const acc = data?.account ?? null
+  const calm: { head: string; path: string } | undefined =
+    data && data.offered && Object.hasOwn(CALM, data.blocked) ? CALM[data.blocked] : undefined
   const seg = (n: number) => (n <= 1 ? T.segments1 : T.segmentsN.replace('{n}', String(n)))
   const preview = (event: string, variant: string) => {
     const p = data?.previews[event]?.[variant]
@@ -183,13 +195,12 @@ export function SmsSettingsScreen({ navigate = defaultNavigate }: Props) {
       {data && data.available && !data.offered && (
         <div className="banner warn" role="status">{T.notOffered}{data.why ? ` (${data.why})` : ''}</div>
       )}
-      {/* «Выключить» в облаке = модуль SMS выключен, с 23.10 это DentPilot Basic: не ошибка, а состояние с путём к Plus */}
-      {data && data.offered && data.blocked === 'sms_off' && (
+      {data && calm && (
         <div className="banner warn" role="status">
-          <b>{T.offByClinic}</b> {T.resume} {data.support.phone} · {data.support.email}
+          <b>{calm.head}</b> {calm.path} {data.support.phone} · {data.support.email}
         </div>
       )}
-      {data && data.offered && !data.enabled && data.why && data.blocked !== 'sms_off' && (
+      {data && data.offered && !data.enabled && data.why && !calm && (
         <div className="banner err" role="alert">{data.why}</div>
       )}
       {/* «мало SMS» — слова сервера (`sms_loop.low`): одно правило по штукам на
