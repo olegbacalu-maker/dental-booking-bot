@@ -428,11 +428,16 @@ def entries() -> list[dict]:
         # подписи страницы оплаты — cloud/app/views.py (pay_link_page). Карта
         # появляется на той странице только с договором maib — отсюда «dacă».
         # Cont de plată «achitat» — cloud/app/receipts.py (письмо и кабинет).
+        # Варианты Basic / Plus и когда включается модуль SMS — условия § 4.1–4.2.
         _q("card", "Cum plătesc abonamentul?",
            f"{p}Din program: <b>Setări › Licența</b> și butonul <b>Plătește acum</b> — "
            f"același buton apare și în bannerul de sus când abonamentul a expirat. Pagina "
            f"de plată se deschide în browser, cu datele clinicii deja completate: alegeți "
-           f"perioada (o lună sau un an) și modul de plată.{end}"
+           f"varianta (<b>DentPilot Basic</b> fără modulul SMS sau <b>DentPilot Plus</b> "
+           f"cu modulul SMS), perioada (o lună sau un an) și modul de plată.{end}"
+           f"{p}Modulul SMS pornește imediat după plata variantei Plus; la trecerea la "
+           f"Basic rămâne pornit până la sfârșitul perioadei în curs. SMS-urile nu intră "
+           f"în abonament: pachetele se comandă separat, în <b>Setări › SMS</b>.{end}"
            f"{p}<b>Transfer bancar</b> — primiți nota de plată pe e-mail, cu referința ei "
            f"(DP-…), pe care o treceți în ordinul de plată. Dacă pagina afișează "
            f"<b>Plătește cu cardul</b>, puteți achita imediat cu cardul.{end}"

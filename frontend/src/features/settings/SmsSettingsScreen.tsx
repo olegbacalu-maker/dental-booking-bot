@@ -21,9 +21,9 @@ const T = {
   sub: 'memento-uri despre vizita programată, trimise în numele clinicii',
   offline: 'Programul nu răspunde. Reîncercați.',
   unavailable: 'Memento-urile SMS sunt disponibile doar în programul activat cu licență.',
-  notOffered: 'Pachetul SMS nu este încă disponibil pentru clinica dvs. — scrieți-ne și îl pornim.',
-  offByClinic: 'Serviciul SMS este oprit la cererea clinicii.',
-  resume: 'Pentru reluare, contactați-ne:',
+  notOffered: 'Modulul SMS nu este disponibil acum pentru clinica dvs.',
+  offByClinic: 'Modulul SMS este oprit: el face parte din DentPilot Plus.',
+  resume: 'Îl porniți plătind varianta Plus în Setări › Licența („Plătește acum”) sau scriindu-ne:',
   stateTitle: 'Starea pachetului',
   balance: 'SMS rămase',
   from: 'expeditor',
@@ -183,7 +183,7 @@ export function SmsSettingsScreen({ navigate = defaultNavigate }: Props) {
       {data && data.available && !data.offered && (
         <div className="banner warn" role="status">{T.notOffered}{data.why ? ` (${data.why})` : ''}</div>
       )}
-      {/* «Выключить» в облаке = клиника отказалась (Олег 17.10): не ошибка, а состояние с путём назад */}
+      {/* «Выключить» в облаке = модуль SMS выключен, с 23.10 это DentPilot Basic: не ошибка, а состояние с путём к Plus */}
       {data && data.offered && data.blocked === 'sms_off' && (
         <div className="banner warn" role="status">
           <b>{T.offByClinic}</b> {T.resume} {data.support.phone} · {data.support.email}

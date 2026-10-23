@@ -814,14 +814,14 @@ def suite_screen(res: Result) -> None:
                        and "zile" not in item.get("alert", "")
                        and "sms" not in shell_model(c.get("/admin").body)["signals"], repr(item))
 
-                # выключено в облаке по желанию клиники (Олег 17.10): код и контакты для экрана
+                # модуль выключен в облаке (с 23.10 — DentPilot Basic): код и контакты для экрана
                 stand.account.update(enabled=False, blocked="sms_off")
                 c.post_json("/api/settings/sms/refresh", {})
                 data = _wait(lambda: (lambda x: x if x.get("blocked") == "sms_off" else None)(
                     _j(c.get("/api/settings/sms"))["data"])) or _j(c.get("/api/settings/sms"))["data"]
-                res.ok("выключено по желанию клиники: offered, не enabled, код sms_off, причина «la cererea clinicii»",
+                res.ok("модуль выключен (DentPilot Basic): offered, не enabled, код sms_off, причина называет Plus",
                        data["offered"] and not data["enabled"] and data["blocked"] == "sms_off"
-                       and "la cererea clinicii" in data["why"], repr(data)[:400])
+                       and "DentPilot Plus" in data["why"], repr(data)[:400])
                 src = (BOT / "app" / "core" / "layout.py").read_text(encoding="utf-8")
                 want = {k: re.search(rf'^{n} = "([^"]+)"', src, re.M).group(1)
                         for k, n in (("phone", "SUPPORT_PHONE"), ("email", "FEEDBACK_EMAIL"))}

@@ -82,11 +82,12 @@ WHY = {
     "refused": "licența nu a fost recunoscută de server",
     "sms_balance": "pachetul SMS s-a terminat",
     "sms_cap": "limita zilnică de SMS a fost atinsă",
-    # «Выключить» в карточке клиники облака = клиника отказалась (слово Олега 17.10);
-    # экран показывает к этому контакты для возобновления (SmsSettingsScreen, blocked).
-    "sms_off": "pachetul SMS este oprit la cererea clinicii",
-    "sms_not_offered": "pachetul SMS nu este disponibil",
-    "sms_unconfigured": "pachetul SMS nu este disponibil pe server",
+    # «Выключить» в карточке клиники облака = модуль SMS выключен: с 23.10 так
+    # выглядит DentPilot Basic (модуль — в Plus, условия § 4 и § 16); экран
+    # показывает путь к включению и контакты (SmsSettingsScreen, blocked).
+    "sms_off": "modulul SMS este oprit (face parte din DentPilot Plus)",
+    "sms_not_offered": "modulul SMS nu este disponibil",
+    "sms_unconfigured": "modulul SMS nu este disponibil pe server",
     "sms_plan": "abonamentul nu este activ",
     "sms_sender": "numele expeditorului nu este aprobat",
     "sms_retry": "operatorul SMS nu a răspuns",

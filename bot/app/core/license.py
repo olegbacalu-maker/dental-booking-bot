@@ -77,7 +77,7 @@ TERMS_CODE = "license_terms"               # импорт без галочки 
 # actualizare» страницы. `test_structure` сверяет оба значения с
 # docs/site/termeni.html — поменялись условия, меняется и дата здесь.
 TERMS_URL = "https://dentpilot.md/termeni.html"
-TERMS_VERSION = "16.10.2026"        # § 16 «Pachetul SMS» (Олег 16.10, без юриста); было 26.09.2026
+TERMS_VERSION = "23.10.2026"        # DentPilot Basic / Plus (модуль SMS — в Plus), телефон — в Plus, карта (Олег 23.10); было 16.10.2026
 # Активация без файла (26.09): заявка на пробный уходит на сервер лицензий.
 # Боевой адрес — здесь (тот же, что умолчание DP_BASE_URL сервера, сверяет
 # cloud/tests/test_renew.py); окружение — только для стенда тестов и только
