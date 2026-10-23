@@ -218,8 +218,30 @@ stochează și nu prelucrează datele pacienților… nu este persoană împuter
   клиники один (`payments.open_of`), и нота за абонемент его не видит.
 - Себестоимость для прайса: клиника на 20 визитов в день — это около 440
   напоминаний в месяц (22 рабочих дня), 132 MDL у sms.md при одном сегменте
-  на SMS. Размеры пополнений и цены — «Решения S0»; в коде это константы
-  рядом с `config.PRICE_MONTH`, сайт и `cloud.env` меняются вместе.
+  на SMS. Размеры пополнений и цены — «Решения S0»; цены — в `cloud.env`
+  (`DP_SMS_PACKS`, `DP_SMS_NAME_PRICE`), как и прайс абонемента
+  (`DP_PRICE_BASIC` / `DP_PRICE_PLUS`, 23.10); сайт и `cloud.env` меняются вместе.
+
+## Модуль SMS и варианты абонемента (23.10)
+
+С 23.10 модуль SMS входит в **DentPilot Plus** и выключен в **DentPilot Basic**
+(условия 23.10.2026 § 4, § 16; сервер — `cloud.md` › «Оплата › Шаг 4»).
+Пробный месяц — Plus, 30 SMS один раз, как было.
+
+- **Два кода выключенного модуля — две причины, два пути** (те же слова, что
+  экран SMS программы 2.0.9): `sms_basic` — клиника на Basic, путь — оплатить
+  Plus («Plătește acum»); `sms_off` — ТОЛЬКО ручной тумблер карточки облака
+  (исключение Олега), путь — написать нам. Оба 423, оба в `blocked` счёта, экран
+  и настройки остаются видны. Порядок в `sms.blocked`: `sms_off` раньше
+  `sms_plan` и `sms_basic`.
+- **Basic с конца периода** (§ 4.2): оплата Basic при Plus или пробном оставляет
+  модуль до конца текущего периода (`subscriptions.sms_until`), потом
+  `sms_basic`; оплата Plus включает его сразу.
+- **Остаток не сгорает** (§ 16.10): выключение вариантом не трогает
+  `sms_ledger`; вернулись на Plus — те же SMS. Пакет на Basic не продаётся
+  (`/v1/sms/order` → `sms_basic`), письмо «au rămas N SMS» не идёт.
+- ⚠️ Программа ≤ 2.0.8 `sms_basic` не знает — покажет код как есть (отправка
+  стоит). Клиник на ней нет (23.10).
 
 ## Сервер (`cloud/`)
 
@@ -238,7 +260,7 @@ payments      + kind TEXT NOT NULL DEFAULT 'license', + sms_units INTEGER
 ```
 GET  /v1/sms/account   → {enabled, sender, sender_state, balance, packs, daily_cap}
 POST /v1/sms/send      {to, text, kind, idem} → 200 {id, segments, balance}
-                       400 sms_phone / sms_text · 402 sms_balance · 423 sms_off · 429 sms_cap
+                       400 sms_phone / sms_text · 402 sms_balance · 423 sms_off / sms_basic · 429 sms_cap
 POST /v1/sms/status    {ids: […]} → [{id, state, error}]
 POST /v1/sms/sender    {name} → заявка на имя
 POST /v1/sms/order     {pack} → платёж kind=sms, письмо с нотой и ссылкой maib

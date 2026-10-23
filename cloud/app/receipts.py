@@ -32,7 +32,7 @@ import re
 import sqlite3
 from datetime import datetime
 
-from . import config, db, pdf, sms
+from . import config, db, pdf, sms, tiers
 
 NUMBER_RE = re.compile(r"^DP-\d{4}-\d{6}$")
 # то же, что в config.BANK: продавец — Олег, статус из закона 228/2025
@@ -76,12 +76,32 @@ def item_for(con: sqlite3.Connection, p: sqlite3.Row, period: tuple[datetime, da
         row = con.execute("SELECT sender FROM sms_accounts WHERE clinic_id=?", (p["clinic_id"],)).fetchone()
         name = (row["sender"] if row else "") or "—"
         return {"title": "Nume de expeditor SMS", "detail": f"«{name}» — un an"}
+    # абонемент — с вариантом (23.10, tiers.py): «Abonament DentPilot Plus (cu modulul SMS)»,
+    # срок и период; платежи до шага 15 миграций — Plus
     months = int(p["months"] or 0)
-    luni = f"{months} {'lună' if months == 1 else 'luni'}"
-    detail = f"abonament pentru {luni}"
+    tier = p["tier"] if "tier" in p.keys() and p["tier"] in tiers.TIERS else tiers.PLUS
+    detail = f"{months} {'lună' if months == 1 else 'luni'}"
     if period:
-        detail += f", {sms.local(period[0]).strftime('%d.%m.%Y')} – {sms.local(period[1]).strftime('%d.%m.%Y')}"
-    return {"title": "Abonament DentPilot — program de evidență pentru clinica stomatologică", "detail": detail}
+        detail += (f", perioada {sms.local(period[0]).strftime('%d.%m.%Y')} – "
+                   f"{sms.local(period[1]).strftime('%d.%m.%Y')}")
+    return {"title": f"Abonament {tiers.NAME[tier]} ({tiers.WHAT[tier]})", "detail": detail}
+
+
+def summary(row: sqlite3.Row) -> str:
+    """Оплата строками для письма после оплаты — из того же снимка, что PDF: № заказа,
+    предмет и период, сумма и валюта, дата, способ, поставщик и сайт (требование maib к
+    письму клиенту; docs.maibmerchants.md › requirements)."""
+    d = json.loads(row["data"])
+    s, it = d["seller"], d["item"]
+    seller = ", ".join(x for x in (s.get("name"), SELLER_FORM) if x)
+    site = config.SITE_URL.rstrip("/").split("//", 1)[-1]
+    return ("Plata a fost primită:\n"
+            f"  Comanda nr.: {d['number']}\n"
+            f"  Ce ați plătit: {it['title']}, {it['detail']}\n"
+            f"  Suma: {money(d['amount'])} {d['currency']}\n"
+            f"  Data plății: {_d(d['paid_at'])}\n"
+            f"  Plătit prin: {METHOD.get(d['paid_via'], d['paid_via'])}\n"
+            f"  Furnizor: {seller} · {site}\n")
 
 
 def get(con: sqlite3.Connection, payment_id: int) -> sqlite3.Row | None:

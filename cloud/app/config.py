@@ -90,11 +90,21 @@ SMS_QUIET = env("DP_SMS_QUIET", "21-8")
 # только клиникам с `sms_accounts.pilot` (Олег ставит в карточке); 1 = всем.
 SMS_OFFERED = env("DP_SMS_OFFERED") == "1"
 SUPPORT_PHONE = "+373 60 508 048"
-# Прайс — тот же, что на сайте (dentpilot.md › #preturi, с 24.09.2026): месяц
-# 499 MDL, год — 11 месячных (5 489 MDL, «o lună gratuită»). Сроки и счёт
-# года — payments.MONTHS / payments.BILLED. Меняется цена — меняются сайт и
-# это число вместе; у заведённой подписки своя цена в subscriptions.price.
-PRICE_MONTH = 499
+# Прайс абонемента — два варианта (Олег 23.10.2026, tiers.py): DentPilot Basic без
+# модуля SMS и DentPilot Plus с ним, лей за месяц; год — 11 месячных (payments.BILLED,
+# «o lună gratuită»). ⛔ ЦЕН В РЕПОЗИТОРИИ НЕТ — он публичный: числа живут в cloud.env
+# рядом с сайтом (dentpilot.md › #preturi); меняется цена — меняются сайт и cloud.env
+# вместе. Пусто или 0 = вариант не продаётся (`tools check` это говорит). У заведённой
+# подписки своя цена в subscriptions.price — продление в том же варианте её не меняет.
+def _lei(raw: str) -> int:
+    """Целые лей; кривое значение — 0 («не продаётся»), а не падение старта."""
+    return int(raw) if raw.isdigit() else 0
+
+
+PRICES = {"basic": _lei(env("DP_PRICE_BASIC")), "plus": _lei(env("DP_PRICE_PLUS"))}
+# ⚠️ Прежнее имя одной цены (до 23.10) = цена Plus: его ещё читает tests/test_maib.py
+# (файл сессии maib). Новый код берёт tiers.price / tiers.list_price.
+PRICE_MONTH = PRICES["plus"]
 
 
 def _packs(raw: str) -> dict[int, int]:
@@ -108,7 +118,7 @@ def _packs(raw: str) -> dict[int, int]:
 
 
 # SMS-пакет — решения S0 Олега 16.10 (sms.md › «Решения S0»), каждое константой;
-# правка решения = правка здесь и на сайте вместе, как у PRICE_MONTH.
+# правка решения = правка здесь и на сайте вместе, как у цен абонемента.
 # ⛔ ЦЕН В РЕПОЗИТОРИИ НЕТ — он публичный. Пополнения и цена имени живут в cloud.env:
 # DP_SMS_PACKS=«штук:лей» через запятую (решение: 100/200/300/400/500, дешевле с
 # объёмом), DP_SMS_NAME_PRICE — лей за год своего имени. Пусто = не продаётся

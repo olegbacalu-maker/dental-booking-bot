@@ -26,7 +26,7 @@ from datetime import datetime, timedelta, timezone
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 
-from . import config, db, keys, mail
+from . import config, db, keys, mail, tiers
 
 log = logging.getLogger("cloud.license")
 
@@ -130,15 +130,16 @@ def issue(con: sqlite3.Connection, clinic: sqlite3.Row, plan: str, valid_until: 
                 (clinic["id"], seq, k.kid, b64u(payload), b64u(sig), claim["issued_at"],
                  claim["valid_until"], claim["grace_until"], reason))
     grace_days = max(0, (grace_until - valid_until).days)
-    # Цена ставится при заведении подписки — прайсом дня (config.PRICE_MONTH):
-    # умолчание колонки в шаге 1 миграций (399) — прежний прайс, шаги не правят.
-    # Продление цену не трогает: у заведённой клиники она своя.
+    # Цена ставится при заведении подписки — прайсом дня варианта Plus (tiers: пробный
+    # и подписка без выбора — Plus): умолчание колонки в шаге 1 миграций (399) — прежний
+    # прайс, шаги не правят. Выдача цену и вариант не трогает: их ставит оплата
+    # (payments.confirm) или ручная смена варианта в карточке.
     con.execute("""INSERT INTO subscriptions(clinic_id, plan, price, valid_until, grace_days, updated_at)
                    VALUES(?,?,?,?,?,?)
                    ON CONFLICT(clinic_id) DO UPDATE SET plan=excluded.plan,
                        valid_until=excluded.valid_until, grace_days=excluded.grace_days,
                        updated_at=excluded.updated_at""",
-                (clinic["id"], plan, config.PRICE_MONTH, claim["valid_until"], grace_days, db.now_iso()))
+                (clinic["id"], plan, tiers.list_price(tiers.PLUS), claim["valid_until"], grace_days, db.now_iso()))
     db.audit(con, who, "issue", clinic["id"],
              f"seq {seq}, {plan}, до {claim['valid_until']}, льгота до {claim['grace_until']}: {reason}")
     return seq, envelope(payload, sig, k.kid)
@@ -151,29 +152,31 @@ def issue_text(row: sqlite3.Row) -> str:
 
 
 def mail_latest(con: sqlite3.Connection, clinic: sqlite3.Row, who: str,
-                receipt: tuple[str, bytes] | None = None) -> str:
+                receipt: tuple[str, bytes] | None = None, summary: str = "") -> str:
     """Последний выданный файл письмом: админка, callback maib и ежедневная задача —
     одной функцией. Возвращает код для ?msg= или '' — ушло. `receipt` — (имя файла,
-    PDF) cont de plată после оплаты (receipts.py): вложением и фразой в письме."""
+    PDF) cont de plată после оплаты (receipts.py): вложением и фразой в письме;
+    `summary` — строки оплаты из того же снимка (receipts.summary, требование maib)."""
     row = con.execute("SELECT * FROM issues WHERE clinic_id=? ORDER BY seq DESC LIMIT 1",
                       (clinic["id"],)).fetchone()
     if row is None:
         return "no_issue"
     if not clinic["email"]:
         return "bad_email"
-    plan = con.execute("SELECT plan FROM subscriptions WHERE clinic_id=?", (clinic["id"],)).fetchone()
+    sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (clinic["id"],)).fetchone()
     # Декларация поставщика (закон 195) — в каждое письмо с файлом: клиника,
     # потерявшая первое письмо, получает её с любым следующим
     decl = mail.declaration()
     subject, body = mail.license_letter(clinic["name"], row["valid_until"],
-                                        plan["plan"] if plan else "standard", renew=renew_offered(),
-                                        declaration=decl is not None)
+                                        sub["plan"] if sub else "standard", renew=renew_offered(),
+                                        declaration=decl is not None, tier=tiers.current(sub),
+                                        sms_until=sub["sms_until"] if sub else None)
     # Файла в письме нет (02.10): клиник без интернета нет, программа забирает его
     # сама (L13/L16/L17); письмо — про срок, вложение — только декларация
     files = [decl] if decl else []
     if receipt:
         files.append(receipt)
-        body = mail.with_receipt(body, receipt[0][len("Cont-de-plata-"):-len(".pdf")])
+        body = mail.with_receipt(body, receipt[0][len("Cont-de-plata-"):-len(".pdf")], summary)
     try:
         where = mail.send(clinic["email"], subject, body, *files)
     except (RuntimeError, OSError, ValueError) as e:

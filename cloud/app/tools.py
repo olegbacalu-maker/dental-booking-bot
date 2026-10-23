@@ -44,7 +44,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-from . import account, auth, config, db, keys, license, mail, maib, pdf, smsmd, trial
+from . import account, auth, config, db, keys, license, mail, maib, payments, pdf, smsmd, tiers, trial
 
 OK, WARN, BAD = "ok", "⚠", "✗"
 PULL_MAX_DAYS = 3        # отметка вывоза копий старше — предупреждение (ПК выключен)
@@ -252,6 +252,13 @@ def check() -> list[tuple[str, str]]:
     else:
         out.append((WARN, f"DP_BASE_URL={config.BASE_URL}: не https и не loopback — поле renew в файлы "
                           "не пишется, программы клиник не обновятся сами"))
+    # прайс абонемента (23.10, tiers.py): пустой вариант не продаётся — страница оплаты его не предлагает
+    for t in tiers.TIERS:
+        if tiers.list_price(t):
+            out.append((OK, f"{tiers.NAME[t]}: {tiers.list_price(t)} MDL / мес., год {payments.amount(12, tiers.list_price(t))} MDL"))
+        else:
+            out.append((WARN, f"DP_PRICE_{t.upper()} пуст: {tiers.NAME[t]} не продаётся (страница оплаты его не "
+                              f"предлагает; продления в нём — по своей цене подписки)"))
     if maib.enabled():
         try:
             maib.token()

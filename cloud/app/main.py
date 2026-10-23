@@ -22,7 +22,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from . import (account, auth, config, db, download, fleet, jobs, license, logmask, maib, mail, payments, paylink,
-               receipts, robots, sms, sms_paper, sms_rule, smsmd, smsreport, trial, updates, views)
+               receipts, robots, sms, sms_paper, sms_rule, smsmd, smsreport, tiers, trial, updates, views)
 from . import login as elogin  # ⚠️ не `login`: так зовётся маршрут входа админки ниже, он затенил бы модуль
 
 APP_VERSION = "0.1.0"
@@ -256,10 +256,11 @@ def _sms_order(c, body: dict, ip: str) -> Response:
         return _sms_answer("sms_need_idno")
     kind = payments.SMS_NAME if name else payments.SMS
     with db.connect(immediate=True) as con:
-        # выключенной клинике и без права по плану не продаётся; без имени пополнение продаётся
+        # выключенной клинике, без права по плану и на Basic (модуль погашен) не продаётся;
+        # без имени пополнение продаётся
         acc = sms.ensure(con, c["id"])
         why = sms.blocked(con, c["id"], acc, datetime.now(timezone.utc))
-        if why in ("sms_unconfigured", "sms_not_offered", "sms_off", "sms_plan"):
+        if why in ("sms_unconfigured", "sms_not_offered", "sms_off", "sms_plan", "sms_basic"):
             return _sms_answer(why)
         if name and acc["sender_state"] not in (sms.S_REQUESTED, sms.S_SUBMITTED, sms.S_ACTIVE):
             return _sms_answer("sms_name_none")
@@ -325,22 +326,29 @@ def pay_link_page(pid: str, msg: str = "") -> Response:
     return HTMLResponse(views.pay_link_page(c, sub, pending, pid, msg, card_on=maib.enabled()))
 
 
+def _months(raw: str) -> int:
+    try:
+        return int(raw)
+    except ValueError:
+        return 0
+
+
 @app.post(paylink.PATH + "/{pid}", response_class=HTMLResponse)
 def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method: str = Form(payments.TRANSFER),
-                    idno: str = Form("")) -> Response:
-    """Со страницы оплаты: нота на выбранный срок (та же, что из админки и кабинета,
-    одна ожидающая на клинику) — картой сразу на страницу maib, переводом — нота с
-    реквизитами здесь и письмом. IDNO без него абонемента не бывает — заполняется тут же."""
+                    idno: str = Form(""), tier: str = Form(""), terms: str = Form("")) -> Response:
+    """Со страницы оплаты: нота на выбранные вариант и срок (та же, что из админки и
+    кабинета, одна ожидающая на клинику; другой вариант или срок — нота ЗАМЕНЯЕТСЯ,
+    payments.choose) — картой сразу на страницу maib, переводом — нота с реквизитами
+    здесь и письмом. ⛔ Без галочки условий (`terms`) — ни карты, ни ноты: требование
+    maib, «Am citit și accept Termenii» перед оплатой. IDNO без него абонемента не
+    бывает — заполняется тут же. Вариант не назван (старая страница) — текущий."""
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     ip = _ip(request)
     back = f"{paylink.PATH}/{pid}"
     if paylink.limited(ip):
         return RedirectResponse(f"{back}?msg=limited", status_code=303)
-    try:
-        m = int(months)
-    except ValueError:
-        m = 0
+    m = _months(months)
     idno = "".join(idno.split())
     card = method == payments.CARD and maib.enabled()
     with db.connect(immediate=True) as con:
@@ -349,6 +357,8 @@ def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method:
             return HTMLResponse(views.pay_link_expired_page(), status_code=410)
         if m not in payments.MONTHS:
             return RedirectResponse(f"{back}?msg=bad_months", status_code=303)
+        if terms != "1":
+            return RedirectResponse(f"{back}?msg=need_terms", status_code=303)
         if idno and idno != (c["idno"] or ""):
             if not trial.IDNO_RE.match(idno):
                 return RedirectResponse(f"{back}?msg=bad_idno", status_code=303)
@@ -360,21 +370,22 @@ def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method:
         if len(c["idno"] or "") != 13:
             return RedirectResponse(f"{back}?msg=pay_need_idno", status_code=303)
         sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (c["id"],)).fetchone()
-        price = sub["price"] if sub else config.PRICE_MONTH
-        pending = payments.open_of(con, c["id"])
-        created = pending is None
-        p = pending or payments.create(con, c, m, payments.amount(m, price), "program")
+        try:
+            p, outcome = payments.choose(con, c, tier or tiers.pick(sub), m, "program")
+        except ValueError:
+            return RedirectResponse(f"{back}?msg=tier_not_sold", status_code=303)
         if card and not p["pay_url"]:
             try:
                 p = payments.attach_card(con, p, c, "program", ip)
             except maib.MaibError as e:
                 log.warning("ссылка maib со страницы оплаты %s не создана: %s", p["reference"], e)
                 return RedirectResponse(f"{back}?msg=maib_failed", status_code=303)
-        if created:
+        if outcome != payments.EXISTS:
             _send_payment_letter(con, c, p, "program")
     if card and p["pay_url"]:
         return RedirectResponse(p["pay_url"], status_code=303)
-    return RedirectResponse(f"{back}?msg={'note_created' if created else 'note_exists'}", status_code=303)
+    code = {payments.CREATED: "note_created", payments.REPLACED: "note_replaced"}.get(outcome, "note_exists")
+    return RedirectResponse(f"{back}?msg={code}", status_code=303)
 
 
 # ---------- вход ----------
@@ -947,10 +958,11 @@ def payments_pending(request: Request, msg: str = "", month: str = "") -> Respon
 
 @app.post("/admin/clinics/{cid}/payments")
 def payment_new(request: Request, cid: str, months: str = Form("1"), amount: str = Form(""),
-                send: str = Form(""), method: str = Form(payments.TRANSFER)) -> Response:
+                send: str = Form(""), method: str = Form(payments.TRANSFER), tier: str = Form("")) -> Response:
     """Платёж: переводом (reference в письме) или картой (L12: плюс ссылка maib).
-    maib не ответил — строка откатывается вместе с транзакцией, reference не
-    потрачен, админ видит maib_failed."""
+    Вариант — названный в форме, иначе текущий (tiers.pick); сумма пусто = по правилу
+    tiers.price. maib не ответил — строка откатывается вместе с транзакцией, reference
+    не потрачен, админ видит maib_failed."""
     if (deny := _guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
@@ -964,15 +976,20 @@ def payment_new(request: Request, cid: str, months: str = Form("1"), amount: str
             c = _clinic(con, cid)
             if c is None:
                 return Response(status_code=404)
-            sub = con.execute("SELECT price FROM subscriptions WHERE clinic_id=?", (cid,)).fetchone()
-            price = sub["price"] if sub else config.PRICE_MONTH
+            sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (cid,)).fetchone()
+            t = tier if tier in tiers.TIERS else tiers.pick(sub)
+            if t not in tiers.TIERS:
+                return RedirectResponse(f"/admin/clinics/{cid}?msg=tier_not_sold", status_code=303)
             try:
                 m = int(months)
                 # срок не из ряда — отказ даёт payments.create (bad_months), не KeyError здесь
                 a = (int(amount) if amount.strip()
-                     else payments.amount(m, price) if m in payments.MONTHS else 1)
+                     else payments.amount_for(sub, t, m) if m in payments.MONTHS else 1)
             except ValueError:
                 return RedirectResponse(f"/admin/clinics/{cid}?msg=bad_amount", status_code=303)
+            if a <= 0 and not amount.strip():
+                # вариант без цены в cloud.env и без своей цены подписки — сумму только руками
+                return RedirectResponse(f"/admin/clinics/{cid}?msg=tier_not_sold", status_code=303)
             # вторая ожидающая нота не выставляется (03.10): кабинет, страница оплаты и
             # ежедневная задача её не плодят — админка тоже; письмо с прежней — по галочке
             pending = payments.open_of(con, cid)
@@ -989,7 +1006,7 @@ def payment_new(request: Request, cid: str, months: str = Form("1"), amount: str
                         code = _send_payment_letter(con, c, pending, who) or "note_pending_mailed"
                 return RedirectResponse(f"/admin/clinics/{cid}?msg={code}", status_code=303)
             try:
-                p = payments.create(con, c, m, a, who)
+                p = payments.create(con, c, m, a, who, tier=t)
             except ValueError as e:
                 return RedirectResponse(f"/admin/clinics/{cid}?msg=bad_{e}", status_code=303)
             code = "payment_created"
@@ -1009,7 +1026,7 @@ def _send_payment_letter(con, c, p, who: str) -> str:
         return "bad_email"
     try:
         subject, body = mail.payment_letter(c["name"], p["reference"], p["amount"], p["months"],
-                                            pay_url=p["pay_url"])
+                                            pay_url=p["pay_url"], tier=p["tier"])
     except RuntimeError:
         return "no_bank"
     try:
@@ -1127,16 +1144,30 @@ async def maib_callback(request: Request) -> Response:
     return await run_in_threadpool(_maib_callback, await request.body())
 
 
+def _returned(pay_id: str, order_id: str):
+    """Платёж, о котором браузер вернулся от maib, — по payId (неугадываемый id maib) и,
+    если maib назвал и его, orderId = наш reference. ⛔ Только по reference не искать:
+    он порядковый (DP-2026-000123), и страница по нему показывала бы чужие ноты."""
+    if not pay_id or len(pay_id) > 64:
+        return None
+    with db.connect() as con:
+        p = con.execute("SELECT * FROM payments WHERE provider_id=?", (pay_id,)).fetchone()
+    if p is None or (order_id and order_id != p["reference"]):
+        return None
+    return p
+
+
 @app.get(maib.OK_PATH, response_class=HTMLResponse)
-def pay_ok() -> Response:
-    """Куда maib возвращает браузер после оплаты. Редирект — не истина: страница
-    не говорит «оплачено», а что подтверждение и файл придут письмом."""
-    return HTMLResponse(views.pay_page(True))
+def pay_ok(payId: str = "", orderId: str = "") -> Response:  # noqa: N803 — имена параметров maib
+    """Куда maib возвращает браузер после оплаты. Редирект — не истина: «plătită» страница
+    говорит только о ноте, которую сервер уже закрыл по ответу maib (settle); иначе —
+    «în curs de confirmare». № заказа, что оплачивается, сумма и дата — требование maib."""
+    return HTMLResponse(views.pay_page(True, _returned(payId, orderId)))
 
 
 @app.get(maib.FAIL_PATH, response_class=HTMLResponse)
-def pay_fail() -> Response:
-    return HTMLResponse(views.pay_page(False))
+def pay_fail(payId: str = "", orderId: str = "") -> Response:  # noqa: N803
+    return HTMLResponse(views.pay_page(False, _returned(payId, orderId)))
 
 
 def _payment(con, pid: int):
@@ -1325,6 +1356,24 @@ def clinic_issue(request: Request, cid: str, kind: str = Form("trial"), valid_un
         if send == "1":
             code = _send_latest(con, c, who) or "issued_mailed"
     return RedirectResponse(f"/admin/clinics/{cid}?msg={code}", status_code=303)
+
+
+@app.post("/admin/clinics/{cid}/tier")
+def clinic_tier(request: Request, cid: str, tier: str = Form(""), price: str = Form("")) -> Response:
+    """Вариант абонемента вручную — для исключений (Олег 23.10): сразу, без оплаты, строкой
+    в журнале (tier_set). Обычный путь — выбор клиники при оплате (payments.choose)."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    raw = price.strip()
+    if raw and not raw.isdigit():
+        return RedirectResponse(f"/admin/clinics/{cid}?msg=tier_price", status_code=303)
+    with db.connect() as con:
+        if _clinic(con, cid) is None:
+            return Response(status_code=404)
+        code = payments.set_tier(con, cid, tier, int(raw) if raw else None, auth.current_user(request))
+    return RedirectResponse(f"/admin/clinics/{cid}?msg={code or 'tier_set'}", status_code=303)
 
 
 @app.get("/admin/clinics/{cid}/issues/{seq}/license.json")
@@ -1646,16 +1695,15 @@ def cont_edit(request: Request, name: str = Form(""), idno: str = Form(""), cont
 
 
 @app.post("/cont/nota")
-def cont_note(request: Request, months: str = Form("1"), method: str = Form(payments.TRANSFER)) -> Response:
-    """Нота на абонемент из кабинета: тот же payments.create, что у админки и
-    ежедневной задачи; второй открытой ноты нет (долг один); карта — только при
-    настроенном maib. Письмо с нотой — как из админки."""
+def cont_note(request: Request, months: str = Form("1"), method: str = Form(payments.TRANSFER),
+              tier: str = Form(""), terms: str = Form("")) -> Response:
+    """Нота на абонемент из кабинета: тот же выбор, что на странице оплаты
+    (payments.choose — вариант и срок, другой заменяет открытую ноту, долг один); карта —
+    только при настроенном maib; ⛔ без галочки условий — нет (требование maib). Письмо с
+    нотой — как из админки."""
     if not auth.same_origin_post(request):
         return Response(status_code=403)
-    try:
-        m = int(months)
-    except ValueError:
-        m = 0
+    m = _months(months)
     card = method == payments.CARD and maib.enabled()
     try:
         with db.connect(immediate=True) as con:
@@ -1664,20 +1712,28 @@ def cont_note(request: Request, months: str = Form("1"), method: str = Form(paym
                 return _cont_login_redirect()
             if m not in payments.MONTHS:
                 return RedirectResponse("/cont?msg=bad_months", status_code=303)
+            if terms != "1":
+                return RedirectResponse("/cont?msg=need_terms", status_code=303)
             if len(c["idno"] or "") != 13:
                 return RedirectResponse("/cont?msg=need_idno", status_code=303)
-            if payments.open_of(con, c["id"]) is not None:
+            sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (c["id"],)).fetchone()
+            try:
+                p, outcome = payments.choose(con, c, tier or tiers.pick(sub), m, acc["email"])
+            except ValueError:
+                return RedirectResponse("/cont?msg=tier_not_sold", status_code=303)
+            if outcome == payments.EXISTS and not card:
                 return RedirectResponse("/cont?msg=note_exists", status_code=303)
-            sub = con.execute("SELECT price FROM subscriptions WHERE clinic_id=?", (c["id"],)).fetchone()
-            price = sub["price"] if sub else config.PRICE_MONTH
-            p = payments.create(con, c, m, payments.amount(m, price), acc["email"])
-            if card:
+            if card and not p["pay_url"]:
                 p = payments.attach_card(con, p, c, acc["email"], _ip(request))
-            _send_payment_letter(con, c, p, acc["email"])
+            if outcome != payments.EXISTS:
+                _send_payment_letter(con, c, p, acc["email"])
     except maib.MaibError as e:
         log.error("maib: нота из кабинета не создана: %s", e)
         return RedirectResponse("/cont?msg=maib_failed", status_code=303)
-    return RedirectResponse("/cont?msg=note_created", status_code=303)
+    if card and p["pay_url"]:
+        return RedirectResponse(p["pay_url"], status_code=303)
+    return RedirectResponse(f"/cont?msg={'note_replaced' if outcome == payments.REPLACED else 'note_created'}",
+                            status_code=303)
 
 
 @app.get("/cont/plati/{number}.pdf")

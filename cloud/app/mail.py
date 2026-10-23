@@ -17,7 +17,7 @@ import time
 from datetime import datetime
 from email.message import EmailMessage
 
-from . import config
+from . import config, tiers
 
 log = logging.getLogger("cloud.mail")
 
@@ -108,15 +108,31 @@ def ways_to_pay(reference: str, amount: int, pay_url: str | None) -> str:
     return "\n".join(parts)
 
 
+def tier_line(tier: str | None) -> str:
+    """«DentPilot Plus (cu modulul SMS)» — вариант ноты словами условий § 4.1."""
+    t = tier if tier in tiers.TIERS else tiers.PLUS
+    return f"{tiers.NAME[t]} ({tiers.WHAT[t]})"
+
+
+def change_note() -> str:
+    """Как сменить вариант или срок до оплаты (условия § 4.2: «varianta o alege clinica la
+    fiecare plată»): ссылка оплаты из программы живёт сутки, поэтому письмо ведёт в
+    программу и в кабинет; нота там заменяется, а не плодится вторая."""
+    return (f"Varianta (DentPilot Basic, fără modulul SMS, sau DentPilot Plus, cu modulul SMS) și termenul "
+            f"le puteți schimba până la plată: din program, butonul „Plătește acum” (Setări › Licența), "
+            f"sau din contul clinicii, {CONT_URL} — nota de plată se înlocuiește cu una nouă.")
+
+
 def payment_letter(clinic: str, reference: str, amount: int, months: int,
-                   pay_url: str | None = None) -> tuple[str, str]:
-    """Письмо с нотой: ссылка на карту (L12), реквизиты перевода — что настроено."""
+                   pay_url: str | None = None, tier: str | None = None) -> tuple[str, str]:
+    """Письмо с нотой: вариант и срок, ссылка на карту (L12), реквизиты перевода — что настроено."""
     ways = ways_to_pay(reference, amount, pay_url)
     subject = f"DentPilot: nota de plată {reference} pentru {clinic}"
     body = (f"Bună ziua,\n\n"
-            f"Pentru continuarea abonamentului DentPilot ({clinic}, {luni(months)}) "
+            f"Pentru abonamentul {tier_line(tier)} — {clinic}, {luni(months)} — "
             f"vă rugăm să achitați {amount} MDL:\n\n"
             f"{ways}\n\n"
+            f"{change_note()}\n\n"
             f"{FOOTER}")
     return subject, body
 
@@ -160,42 +176,52 @@ def sms_name_letter(clinic: str, name: str, until: str | None, reference: str) -
 
 def sms_pack_letter(clinic: str, units: int, balance: int, reference: str) -> tuple[str, str]:
     """Клинике: пакет начислен (после подтверждения платежа kind=sms)."""
-    subject = f"DentPilot: pachetul SMS a fost activat ({clinic})"
+    subject = f"DentPilot: pachetul de {units} SMS a fost activat ({clinic})"
     body = (f"Bună ziua,\n\n"
-            f"Pachetul de {units} SMS pentru {clinic} a fost activat (nota {reference}). "
+            f"Pachetul de {units} SMS pentru {clinic} a fost activat (nota {reference}): SMS-urile au intrat "
+            f"în contul clinicii. "
             f"Soldul actual: {balance} SMS. Programul îl preia singur — îl vedeți în Setări › SMS.\n\n"
             f"{FOOTER}")
     return subject, body
 
 
 def sms_low_letter(clinic: str, balance: int) -> tuple[str, str]:
-    """Клинике: остаток пакета на пороге (раз за пакет, jobs)."""
+    """Клинике: остаток SMS на пороге (раз за пакет, jobs)."""
     subject = f"DentPilot: au rămas {balance} SMS ({clinic})"
     body = (f"Bună ziua,\n\n"
-            f"În pachetul SMS al clinicii {clinic} au rămas {balance} SMS. Când soldul ajunge la zero, "
+            f"Clinica {clinic} mai are {balance} SMS. Când soldul ajunge la zero, "
             f"reminderele SMS nu se mai trimit. Un pachet nou comandați din program, Setări › SMS "
             f"(nota de plată vine pe e-mail), sau scrieți-ne.\n\n{FOOTER}")
     return subject, body
 
 
-def how_to_pay(pay: dict | None, price: int) -> str:
+def offer_line() -> str:
+    """Варианты, которые продаются, с ценой месяца — для пробной клиники (прайс из cloud.env)."""
+    sold = [f"{tiers.NAME[t]}, {tiers.WHAT[t]} — {tiers.list_price(t)} MDL pe lună"
+            for t in tiers.TIERS if tiers.list_price(t) > 0]
+    return "; ".join(sold) if sold else "prețul din oferta publicată pe dentpilot.md"
+
+
+def how_to_pay(pay: dict | None) -> str:
     """Абзац «как продолжить»: ссылка на карту и/или реквизиты с reference
-    (абонемент) или как оформить абонемент (пробный). Без ссылки и без
-    DP_BANK_* — честная фраза, что нота придёт отдельно."""
+    (абонемент, в варианте ноты) или как оформить абонемент (пробный — оба варианта
+    с ценой). Без ссылки и без DP_BANK_* — честная фраза, что нота придёт отдельно."""
     if pay is None:
-        # пробной клинике: сперва кабинет (сама заказывает ноту и платит), потом «напишите нам»
-        return (f"Pentru a continua cu un abonament ({price} MDL pe lună) intrați în contul clinicii "
-                f"({CONT_URL}) și comandați nota de plată: o plătiți prin transfer bancar cu referința din "
-                f"notă, iar după confirmare termenul se prelungește automat în program. Sau răspundeți la "
-                f"acest e-mail / sunați la {config.SUPPORT_PHONE}, indicând IDNO-ul clinicii — vă trimitem "
-                f"nota de plată noi.")
+        # пробной клинике: сперва программа и кабинет (сама выбирает вариант и платит), потом «напишите нам»
+        return (f"Pentru a continua alegeți abonamentul ({offer_line()}): din program, butonul „Plătește "
+                f"acum” (Setări › Licența), sau din contul clinicii ({CONT_URL}), unde comandați nota de plată: "
+                f"o plătiți prin transfer bancar cu referința din notă, iar după confirmare termenul se "
+                f"prelungește automat în program. Sau răspundeți la acest e-mail / sunați la "
+                f"{config.SUPPORT_PHONE}, indicând IDNO-ul clinicii și varianta — vă trimitem nota de plată noi.")
+    what = f"{tier_line(pay.get('tier'))}, {luni(pay['months'])}"
     try:
         ways = ways_to_pay(pay["reference"], pay["amount"], pay.get("url"))
+        text = (f"Pentru a continua — {what}, {pay['amount']} MDL:\n\n{ways} "
+                f"Dacă ați plătit deja, ignorați acest mesaj.")
     except RuntimeError:
-        return (f"Nota de plată {pay['reference']} ({pay['amount']} MDL pentru {luni(pay['months'])}) "
+        text = (f"Nota de plată {pay['reference']} ({what}, {pay['amount']} MDL) "
                 f"o primiți separat; întrebări — {config.SUPPORT_EMAIL}.")
-    return (f"Pentru a continua ({luni(pay['months'])}, {pay['amount']} MDL):\n\n{ways} "
-            f"Dacă ați plătit deja, ignorați acest mesaj.")
+    return f"{text}\n\n{change_note()}"
 
 
 _READONLY = ("Datele pacienților se pot consulta, tipări și exporta, iar copia de rezervă rămâne "
@@ -203,7 +229,7 @@ _READONLY = ("Datele pacienților se pot consulta, tipări și exporta, iar copi
 
 
 def reminder_letter(kind: str, clinic: str, plan: str, valid_until: datetime, grace_until: datetime,
-                    grace_days: int, pay: dict | None, price: int) -> tuple[str, str]:
+                    grace_days: int, pay: dict | None) -> tuple[str, str]:
     """Письмо строки таблицы cloud.md › «Напоминания» (kind — из app.jobs).
     У пробного свой текст и свой срок: «perioada de probă», дни льготы из подписки."""
     trial = plan == "trial"
@@ -213,8 +239,10 @@ def reminder_letter(kind: str, clinic: str, plan: str, valid_until: datetime, gr
     d, g = valid_until.strftime("%d.%m.%Y"), grace_until.strftime("%d.%m.%Y")
     if kind == "invoice":
         subject = f"DentPilot: nota de plată {pay['reference']} — abonamentul expiră la {d}"
+        # условия § 4.5: нота за 14 дней — «în varianta în curs»; сменить — change_note в how_to_pay
         intro = (f"Abonamentul DentPilot pentru {clinic} expiră la {d}. După această dată programul "
-                 f"funcționează complet încă {zile(grace_days)}, apoi trece în regim de citire.")
+                 f"funcționează complet încă {zile(grace_days)}, apoi trece în regim de citire. Nota de plată "
+                 f"pentru perioada următoare este în varianta în curs, {tier_line(pay.get('tier'))}.")
     elif kind == "expiring":
         subject = f"DentPilot: {what} expiră în 3 zile ({clinic})"
         intro = (f"{what_cap} DentPilot pentru {clinic} expiră la {d}. După această dată programul "
@@ -234,7 +262,7 @@ def reminder_letter(kind: str, clinic: str, plan: str, valid_until: datetime, gr
                  f"După plată programul revine singur la lucru complet.")
     else:
         raise ValueError(f"kind: {kind}")
-    return subject, f"Bună ziua,\n\n{intro}\n\n{how_to_pay(pay, price)}\n\n{FOOTER}"
+    return subject, f"Bună ziua,\n\n{intro}\n\n{how_to_pay(pay)}\n\n{FOOTER}"
 
 
 # Файл лицензии клинике не показывается (решение Олега 02.10: клиник без
@@ -252,9 +280,11 @@ RECEIPT_NOTE = ("Contul de plată nr. {number}, cu mențiunea „achitat”, est
                 "contabilitatea clinicii; îl găsiți oricând și în contul clinicii, {cont}.")
 
 
-def with_receipt(body: str, number: str) -> str:
-    """Письмо с фразой о приложенном cont de plată — перед подписью."""
-    note = RECEIPT_NOTE.format(number=number, cont=CONT_URL)
+def with_receipt(body: str, number: str, summary: str = "") -> str:
+    """Письмо с фразой о приложенном cont de plată — перед подписью. `summary` — строки
+    оплаты из того же снимка, что PDF (receipts.summary: № заказа, что, сумма, дата,
+    поставщик и сайт — требование maib к письму после оплаты)."""
+    note = (summary.rstrip() + "\n\n" if summary else "") + RECEIPT_NOTE.format(number=number, cont=CONT_URL)
     tail = "\n\n" + FOOTER
     if body.endswith(tail):
         return body[:-len(tail)] + "\n\n" + note + tail
@@ -349,17 +379,22 @@ def declaration() -> tuple[str, bytes] | None:
 
 
 def license_letter(clinic: str, valid_until: str, plan: str, renew: bool = False,
-                   declaration: bool = False) -> tuple[str, str]:
+                   declaration: bool = False, tier: str | None = None, sms_until: str | None = None) -> tuple[str, str]:
     """Тема и текст письма о лицензии — по-румынски, как интерфейс программы.
     Файла в письме НЕТ (02.10): программа забирает его сама — `renew` (адрес
     автообновления в файле есть) добавляет RENEW_NOTE об этом. `declaration` —
-    к письму приложена декларация поставщика: письмо называет её только тогда."""
-    what = "Perioada de probă" if plan == "trial" else "Abonamentul"
-    valid = "este valabilă" if plan == "trial" else "este valabil"
+    к письму приложена декларация поставщика: письмо называет её только тогда. `tier` —
+    вариант подписки (у пробного не называется: он всегда Plus); `sms_until` — у Basic,
+    перешедшего с Plus или пробного: до какого дня модуль SMS ещё работает (§ 4.2)."""
+    trial = plan == "trial"
+    what = "Perioada de probă DentPilot" if trial else f"Abonamentul {tiers.NAME.get(tier or '', 'DentPilot')}"
+    valid = "este valabilă" if trial else "este valabil"
+    module = (f" Modulul SMS rămâne pornit până la {sms_until[:10]} și se oprește apoi (DentPilot Basic); "
+              f"SMS-urile rămase nu se pierd." if sms_until and not trial and tier == tiers.BASIC else "")
     site = config.SITE_URL.rstrip("/")
     subject = f"DentPilot: licența pentru {clinic}"
     body = (f"Bună ziua,\n\n"
-            f"{what} DentPilot pentru {clinic} {valid} până la {valid_until[:10]}.\n\n"
+            f"{what} pentru {clinic} {valid} până la {valid_until[:10]}.{module}\n\n"
             + (f"{RENEW_NOTE}\n\n" if renew else "") +
             f"Programul îl descărcați de pe {site}/descarca.html sau din contul clinicii ({CONT_URL}). "
             f"Pe un calculator nou, la prima pornire, introduceți datele clinicii: primiți un cod pe "

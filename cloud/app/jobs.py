@@ -31,7 +31,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
-from . import db, license, mail, maib, payments, sms, smsmd
+from . import db, license, mail, maib, payments, sms, smsmd, tiers
 
 log = logging.getLogger("cloud.jobs")
 
@@ -83,22 +83,26 @@ class Report:
                 f"картой оплачено: {len(self.cards)}" + (f"; SMS: {self.sms}" if self.sms else ""))
 
 
-_SUBS = """SELECT c.*, s.plan, s.price, s.valid_until, s.grace_days
+_SUBS = """SELECT c.*, s.plan, s.price, s.tier, s.sms_until, s.valid_until, s.grace_days
            FROM subscriptions s JOIN clinics c ON c.id = s.clinic_id
            WHERE s.valid_until IS NOT NULL AND s.cancelled_at IS NULL
            ORDER BY c.created_at, c.id"""
 
 
 def open_payment(con: sqlite3.Connection, clinic: sqlite3.Row, who: str = WHO) -> sqlite3.Row:
-    """Открытый платёж клиники — или новый на тот же срок, что оплачивали в последний раз.
-    Один reference на всю серию писем периода: второго ожидающего платежа задача не заводит."""
+    """Открытый платёж клиники — или новый на тот же срок, что оплачивали в последний раз,
+    в варианте, в котором идёт подписка (условия § 4.5: «în varianta în curs»; сменить его
+    клиника может на странице оплаты — нота заменится). Один reference на всю серию писем
+    периода: второго ожидающего платежа задача не заводит. `clinic` — строка _SUBS
+    (клиника и её подписка). Цены у варианта нет — ValueError('amount') от create."""
     p = payments.open_of(con, clinic["id"])
     if p is not None:
         return p
     last = con.execute("SELECT months FROM payments WHERE clinic_id=? AND status=? AND kind=? "
                        "ORDER BY id DESC LIMIT 1", (clinic["id"], payments.PAID, payments.LICENSE)).fetchone()
     months = int(last["months"]) if last and int(last["months"]) in payments.MONTHS else 1
-    return payments.create(con, clinic, months, payments.amount(months, int(clinic["price"] or 0)), who)
+    tier = tiers.current(clinic)
+    return payments.create(con, clinic, months, payments.amount_for(clinic, tier, months), who, tier=tier)
 
 
 def _one(con: sqlite3.Connection, row: sqlite3.Row, now: datetime, send, who: str, rep: Report) -> None:
@@ -127,9 +131,9 @@ def _one(con: sqlite3.Connection, row: sqlite3.Row, now: datetime, send, who: st
             except maib.MaibError as e:
                 log.warning("ссылка maib для %s не создана: %s", p["reference"], e)
         pay = {"reference": p["reference"], "amount": int(p["amount"]), "months": int(p["months"]),
-               "url": p["pay_url"]}
+               "url": p["pay_url"], "tier": p["tier"]}
     subject, body = mail.reminder_letter(kind, row["name"], row["plan"], valid, grace,
-                                         int(row["grace_days"]), pay, int(row["price"] or 0))
+                                         int(row["grace_days"]), pay)
     try:
         where = send(row["email"], subject, body)
     except (RuntimeError, OSError) as e:

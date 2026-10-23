@@ -33,6 +33,7 @@ import test_sms_admin  # noqa: E402
 import test_sms_paper  # noqa: E402
 import test_sms_client  # noqa: E402
 import test_sms_rule  # noqa: E402
+import test_tiers  # noqa: E402
 import test_trial  # noqa: E402
 from harness import run  # noqa: E402
 
@@ -56,6 +57,12 @@ SUITES = [
     ("Сервер: cont de plată — генератор PDF без библиотек, деньги, имя, режим шрифта", test_receipts.suite_pdf),
     ("Сервер: cont de plată — снимок при оплате, PDF админки и кабинета, вложение, чужой документ",
      test_receipts.suite_flow),
+    ("Варианты Basic / Plus: цена, модуль SMS после оплаты, тексты — без сервера", test_tiers.suite_rules),
+    ("Варианты Basic / Plus: выбор на /plata, замена ноты, confirm, sms_basic, вручную, страница возврата",
+     test_tiers.suite_flow),
+    ("Варианты Basic / Plus: вариант без цены не продаётся", test_tiers.suite_not_sold),
+    ("Варианты Basic / Plus: нота за 14 дней — в текущем варианте", test_tiers.suite_jobs),
+    ("Варианты Basic / Plus: данные до шага 15 — Plus, цена прежняя", test_tiers.suite_migration),
     ("Сервер: окна напоминаний — подставная дата на каждую строку", test_jobs.suite_windows),
     ("Сервер: ежедневная задача — письма, повтор, новый период", test_jobs.suite_daily),
     ("Сервер: задача — пробный, без e-mail, без реквизитов, кнопка, журнал", test_jobs.suite_edges),

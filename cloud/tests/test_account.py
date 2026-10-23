@@ -30,7 +30,7 @@ import urllib.request
 from harness import CLOUD, FIX, ROOT, Client, Result, Server, cid_from, load_by_path
 
 sys.path.insert(0, str(CLOUD))
-from app import account, auth, config, license, mail, trial  # noqa: E402
+from app import account, auth, config, license, mail, tiers, trial, views  # noqa: E402
 from app import payments as pay  # noqa: E402
 
 rv = load_by_path("rsa_verify", ROOT / "bot" / "app" / "core" / "rsa_verify.py")
@@ -469,17 +469,19 @@ def suite_cabinet(res: Result) -> None:
                rv.open_envelope(admin.get(f"/admin/clinics/{cid}/issues/1/license.json").body, KEYS)[0] == ""
                and c.get("/cont/licenta.json").status == 404)
         # абонемент: IDNO есть с регистрации → форма ноты
-        res.ok("форма абонемента: месяц и год по прайсу, кнопка по цели (пробная → «Treci la abonament»), три шага",
-               "Treci la abonament" in home.body and "<ol class='steps'>" in home.body
-               and f"{pay.amount(12, config.PRICE_MONTH)} MDL" in home.body and "name='method'" not in home.body)
+        res.ok("форма абонемента: оба варианта, месяц и год по прайсу, галочка условий, без maib — без карты, три шага",
+               "<ol class='steps'>" in home.body and "DentPilot Basic" in home.body and "DentPilot Plus" in home.body
+               and all(f"{views._mdl(pay.amount(12, tiers.list_price(t)))} MDL" in home.body for t in tiers.TIERS)
+               and "name='terms'" in home.body and "Plătește cu cardul" not in home.body)
         r = c.post("/cont/nota", months="6")
         res.check("срок не из ряда — bad_months", r.location, "/cont?msg=bad_months")
         n = len(_letters(s))
-        r = c.post("/cont/nota", months="12")
+        res.check("без галочки условий — need_terms", c.post("/cont/nota", months="12").location, "/cont?msg=need_terms")
+        r = c.post("/cont/nota", months="12", terms="1")
         res.ok("нота на год создана", r.location == "/cont?msg=note_created", r.location)
         p = _sql(s, "SELECT reference, amount, months, status FROM payments WHERE clinic_id=?", cid)
         res.ok("платёж в ожидании: год по прайсу (11 месячных), reference DP-",
-               len(p) == 1 and p[0][1] == pay.amount(12, config.PRICE_MONTH) and p[0][2] == 12
+               len(p) == 1 and p[0][1] == pay.amount(12, tiers.list_price(tiers.PLUS)) and p[0][2] == 12
                and p[0][3] == "pending" and p[0][0].startswith("DP-"), repr(p))
         ref = p[0][0]
         last = _letters(s)[-1]
@@ -490,12 +492,13 @@ def suite_cabinet(res: Result) -> None:
                ref in home.body and "MD00TEST" in home.body and "Treci la abonament" not in home.body
                and "Prelungește abonamentul" not in home.body
                and "în așteptare" in home.body, home.body[-2500:])
-        res.check("вторая нота — note_exists", c.post("/cont/nota", months="1").location, "/cont?msg=note_exists")
+        res.check("тот же выбор — note_exists, вторая нота не плодится",
+                  c.post("/cont/nota", months="12", tier="plus", terms="1").location, "/cont?msg=note_exists")
         pid = _sql(s, "SELECT id FROM payments WHERE reference=?", ref)[0][0]
         admin.post(f"/admin/payments/{pid}/confirm")
         home = c.get("/cont")
         res.ok("после подтверждения: абонемент действует, платёж оплачен, новый файл выдан (seq 2)",
-               "Abonamentul este valabil" in home.body and "plătită" in home.body
+               "Abonamentul DentPilot Plus este valabil" in home.body and "plătită" in home.body
                and rv.open_envelope(admin.get(f"/admin/clinics/{cid}/issues/2/license.json").body, KEYS)[1].seq == 2,
                home.body[-2500:])
         # реквизиты

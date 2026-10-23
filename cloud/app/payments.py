@@ -25,6 +25,12 @@ reference как следующий период (`credit_again`) — карто
 переводом с reference, долг один. Ответ maib применяет `settle` — одно правило
 на callback, кнопку «Проверить» и ежедневную задачу: оплачено только то, про
 что сам maib (pay-info) сказал OK; второй раз ничего не продлевается.
+
+Варианты абонемента (23.10, tiers.py): нота абонемента знает свой вариант
+(`payments.tier`), клиника выбирает его при каждой оплате (`choose`); открытая нота
+другого варианта или срока ЗАМЕНЯЕТСЯ (отклоняется с причиной, выставляется новая),
+второго долга нет. `confirm` ставит подписке вариант и цену месяца и решает модуль
+SMS: Plus — сразу, Basic — до конца периода, шедшего на момент оплаты (`sms_until`).
 """
 from __future__ import annotations
 
@@ -32,7 +38,7 @@ import calendar
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
-from . import db, license, maib, receipts, sms
+from . import db, license, maib, mail, receipts, sms, tiers
 
 PENDING, PAID, REJECTED = "pending", "paid", "rejected"
 TRANSFER, CARD = "transfer", "card"
@@ -88,18 +94,62 @@ def next_reference(con: sqlite3.Connection, now: datetime) -> str:
     return f"DP-{year}-{last + 1:06d}"
 
 
-def create(con: sqlite3.Connection, clinic: sqlite3.Row, months: int, amount: int, who: str) -> sqlite3.Row:
+def create(con: sqlite3.Connection, clinic: sqlite3.Row, months: int, amount: int, who: str,
+           tier: str = tiers.PLUS, terms: bool = False, note: str = "") -> sqlite3.Row:
+    """Нота абонемента варианта `tier`. `terms` — клиника отметила условия перед этой
+    оплатой (страница оплаты, кабинет): время ложится в terms_at. `note` — хвост строки журнала."""
     if months not in MONTHS:
         raise ValueError("months")
+    if tier not in tiers.TIERS:
+        raise ValueError("tier")
     if amount <= 0:
         raise ValueError("amount")
     now = datetime.now(timezone.utc)
     ref = next_reference(con, now)
-    con.execute("""INSERT INTO payments(clinic_id, amount, currency, method, status, reference, months, created_at)
-                   VALUES(?,?,?,?,?,?,?,?)""",
-                (clinic["id"], amount, "MDL", TRANSFER, PENDING, ref, months, db.now_iso()))
-    db.audit(con, who, "payment_new", clinic["id"], f"{ref}: {amount} MDL за {months} мес., перевод")
+    con.execute("""INSERT INTO payments(clinic_id, amount, currency, method, status, reference, months, tier,
+                                        terms_at, created_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (clinic["id"], amount, "MDL", TRANSFER, PENDING, ref, months, tier,
+                 db.now_iso() if terms else None, db.now_iso()))
+    db.audit(con, who, "payment_new", clinic["id"],
+             f"{ref}: {amount} MDL за {months} мес., {tiers.NAME[tier]}, перевод"
+             + (", условия приняты" if terms else "") + (f"; {note}" if note else ""))
     return con.execute("SELECT * FROM payments WHERE reference=?", (ref,)).fetchone()
+
+
+def amount_for(sub: sqlite3.Row | None, tier: str, months: int) -> int:
+    """Сумма ноты варианта за срок по правилу tiers.price; 0 — вариант не продаётся."""
+    return amount(months, tiers.price(sub, tier)) if months in MONTHS else 0
+
+
+CREATED, EXISTS, REPLACED = "created", "exists", "replaced"
+
+
+def choose(con: sqlite3.Connection, clinic: sqlite3.Row, tier: str, months: int, who: str,
+           terms: bool = True) -> tuple[sqlite3.Row, str]:
+    """Выбор клиники на странице оплаты или в кабинете → (нота, CREATED | EXISTS | REPLACED).
+
+    Открытая нота того же варианта и срока — она же (сумма прежняя: её мог выставить
+    админ со скидкой). Другого — отклоняется с причиной «заменена» и выставляется новая:
+    долг у клиники один, а прежний reference, если по нему всё же заплатят, зачитывается
+    повторным платежом (credit_again), деньги не теряются.
+    ⛔ Вариант не продаётся (цены нет) — ValueError('tier'), срок не из ряда — ValueError('months')."""
+    if months not in MONTHS:
+        raise ValueError("months")
+    sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (clinic["id"],)).fetchone()
+    a = amount_for(sub, tier, months) if tier in tiers.TIERS else 0
+    if a <= 0:
+        raise ValueError("tier")
+    old = open_of(con, clinic["id"])
+    if old is not None and (old["tier"] or tiers.PLUS) == tier and int(old["months"]) == months:
+        if terms and not old["terms_at"]:
+            con.execute("UPDATE payments SET terms_at=? WHERE id=?", (db.now_iso(), old["id"]))
+        return con.execute("SELECT * FROM payments WHERE id=?", (old["id"],)).fetchone(), EXISTS
+    if old is not None:
+        reject(con, old, f"заменена: клиника выбрала {tiers.NAME[tier]}, {months} мес.", who)
+    p = create(con, clinic, months, a, who, tier=tier, terms=terms,
+               note=f"взамен {old['reference']}" if old is not None else "")
+    return p, (REPLACED if old is not None else CREATED)
 
 
 def create_pack(con: sqlite3.Connection, clinic: sqlite3.Row, units: int, amount: int, who: str) -> sqlite3.Row:
@@ -139,11 +189,25 @@ def notify_paid(con: sqlite3.Connection, payment: sqlite3.Row, who: str) -> str:
     абонемент → письмо о лицензии (license.mail_latest). Код для ?msg= или ''."""
     clinic = con.execute("SELECT * FROM clinics WHERE id=?", (payment["clinic_id"],)).fetchone()
     fresh = con.execute("SELECT * FROM payments WHERE id=?", (payment["id"],)).fetchone()
-    # cont de plată (17.10) — вложением в то же письмо, что говорит об оплате
+    # cont de plată (17.10) — вложением в то же письмо, что говорит об оплате; строки оплаты
+    # в тексте (№, что, сумма, дата, поставщик — требование maib) — из того же снимка
     receipt = receipts.attachment(con, fresh, who)
+    row = receipts.get(con, fresh["id"]) if receipt else None
+    summary = receipts.summary(row) if row is not None else ""
     if payment["kind"] in (SMS, SMS_NAME):
-        return (sms.mail_pack if payment["kind"] == SMS else sms.mail_name)(con, clinic, fresh, who, receipt=receipt)
-    return license.mail_latest(con, clinic, who, receipt=receipt)
+        return (sms.mail_pack if payment["kind"] == SMS else sms.mail_name)(con, clinic, fresh, who,
+                                                                            receipt=receipt, summary=summary)
+    return license.mail_latest(con, clinic, who, receipt=receipt, summary=summary)
+
+
+def subject(p: sqlite3.Row) -> str:
+    """Что оплачивается — одной строкой по-румынски (описание у maib, страница возврата)."""
+    kind = p["kind"] or LICENSE
+    if kind == SMS:
+        return f"pachet {p['sms_units']} SMS"
+    if kind == SMS_NAME:
+        return "nume de expeditor SMS, un an"
+    return f"abonament {tiers.NAME.get(p['tier'], tiers.NAME[tiers.PLUS])}, {mail.luni(int(p['months'] or 1))}"
 
 
 def attach_card(con: sqlite3.Connection, payment: sqlite3.Row, clinic: sqlite3.Row, who: str,
@@ -154,7 +218,7 @@ def attach_card(con: sqlite3.Connection, payment: sqlite3.Row, clinic: sqlite3.R
     if payment["status"] != PENDING:
         raise ValueError("not_pending")
     pay_id, pay_url = maib.create(int(payment["amount"]), payment["reference"],
-                                  f"DentPilot {payment['reference']}: {clinic['name']}",
+                                  f"DentPilot {payment['reference']}: {subject(payment)} — {clinic['name']}",
                                   clinic["email"] or "", client_ip)
     con.execute("UPDATE payments SET method=?, provider_id=?, pay_url=?, provider_status='' WHERE id=?",
                 (CARD, pay_id, pay_url, payment["id"]))
@@ -216,18 +280,69 @@ def confirm(con: sqlite3.Connection, payment: sqlite3.Row, who: str,
     day = anchor_day(current, now, sub["anchor_day"] if sub else None)
     valid = extend_from(current, int(payment["months"]), now, day)
     grace = valid + timedelta(days=license.GRACE_DAYS)
+    tier, price, sms_until, switch = tier_after(sub, payment, now)
     con.execute("UPDATE payments SET status=?, paid_at=?, confirmed_by=?, paid_via=? WHERE id=? AND status=?",
                 (PAID, db.now_iso(), who, via, payment["id"], PENDING))
     db.audit(con, who, "payment_paid", clinic["id"],
-             f"{payment['reference']}: {payment['amount']} MDL, срок до {valid.strftime(db.TS)}")
+             f"{payment['reference']}: {payment['amount']} MDL, {tiers.NAME[tier]}, срок до {valid.strftime(db.TS)}"
+             + (f"; {switch}" if switch else ""))
     issued = license.issue(con, clinic, "standard", valid, grace,
                            f"платёж {payment['reference']}", who)
-    # якорь — после выдачи: она заводит строку подписки, если её ещё не было
-    con.execute("UPDATE subscriptions SET anchor_day=? WHERE clinic_id=?", (day, clinic["id"]))
+    # якорь и вариант — после выдачи: она заводит строку подписки, если её ещё не было
+    con.execute("UPDATE subscriptions SET anchor_day=?, tier=?, price=?, sms_until=? WHERE clinic_id=?",
+                (day, tier, price, sms_until, clinic["id"]))
     # cont de plată (17.10): снимок оплаты с оплаченным сроком — от начала периода до нового конца
     start = now if current is None or current < now else current
     receipts.create(con, payment["id"], who, period=(start, valid))
     return issued
+
+
+def tier_after(sub: sqlite3.Row | None, payment: sqlite3.Row, now: datetime) -> tuple[str, int, str | None, str]:
+    """Подписка после оплаты ноты абонемента: (вариант, цена месяца, sms_until, строка для журнала).
+
+    Цена — по правилу tiers.price (свой вариант — своя цена, другой — прайс); прайса
+    нет (вариант сняли с продажи после ноты) — цена из суммы ноты. Модуль SMS (§ 4.2):
+    Plus — работает сразу (`sms_until` пуст); переход на Basic с Plus или пробного —
+    работает до конца периода, который идёт сейчас, и гаснет; Basic → Basic — как было."""
+    tier = payment["tier"] if payment["tier"] in tiers.TIERS else tiers.PLUS
+    months = int(payment["months"] or 1)
+    price = tiers.price(sub, tier) or int(payment["amount"]) // BILLED.get(months, months)
+    before = tiers.current(sub)
+    if tier == tiers.PLUS:
+        return tier, price, None, (f"переход {tiers.NAME[before]} → {tiers.NAME[tier]}, модуль SMS сразу"
+                                   if sub is not None and sub["plan"] != "trial" and before != tier else "")
+    if before == tiers.BASIC:
+        return tier, price, sub["sms_until"] if sub is not None else None, ""
+    current = db.parse_ts(sub["valid_until"]) if sub is not None else None
+    until = current.strftime(db.TS) if current is not None and current > now else None
+    what = "пробный" if sub is not None and sub["plan"] == "trial" else tiers.NAME[before]
+    return tier, price, until, (f"переход {what} → {tiers.NAME[tier]}: модуль SMS до {until[:10]}" if until
+                                else f"переход {what} → {tiers.NAME[tier]}: модуль SMS выключен сразу")
+
+
+def set_tier(con: sqlite3.Connection, clinic_id: str, tier: str, price: int | None, who: str) -> str:
+    """Карточка › «Вариант вручную» — для исключений (Олег 23.10): вариант сразу, без оплаты.
+    Plus — модуль SMS сразу; Basic — модуль гаснет сразу (переход «с конца периода» даёт
+    только оплата). Цена месяца — названная, иначе по правилу tiers.price. '' или код
+    отказа: tier_bad, tier_trial (пробный — всегда Plus, вариант выбирают при оплате),
+    tier_no_sub (подписки нет), tier_price (цены нет ни в форме, ни в прайсе)."""
+    if tier not in tiers.TIERS:
+        return "tier_bad"
+    sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (clinic_id,)).fetchone()
+    if sub is None:
+        return "tier_no_sub"
+    if sub["plan"] == "trial":
+        return "tier_trial"
+    p = price if price and price > 0 else tiers.price(sub, tier)
+    if p <= 0:
+        return "tier_price"
+    before = tiers.current(sub)
+    con.execute("UPDATE subscriptions SET tier=?, price=?, sms_until=NULL, updated_at=? WHERE clinic_id=?",
+                (tier, p, db.now_iso(), clinic_id))
+    db.audit(con, who, "tier_set", clinic_id,
+             f"вручную: {tiers.NAME[before]} → {tiers.NAME[tier]}, {p} MDL / мес.; модуль SMS "
+             + ("работает" if tier == tiers.PLUS else "выключен сразу"))
+    return ""
 
 
 def credit_again(con: sqlite3.Connection, payment: sqlite3.Row, via: str, who: str) -> sqlite3.Row:
@@ -247,10 +362,11 @@ def credit_again(con: sqlite3.Connection, payment: sqlite3.Row, via: str, who: s
     if provider_id:
         con.execute("UPDATE payments SET provider_id=NULL WHERE id=?", (payment["id"],))
     con.execute("""INSERT INTO payments(clinic_id, amount, currency, method, status, reference, months,
-                                        provider_id, pay_url, created_at, kind, sms_units)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                                        provider_id, pay_url, created_at, kind, sms_units, tier)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (payment["clinic_id"], payment["amount"], payment["currency"], via, PENDING, ref,
-                 payment["months"], provider_id, pay_url, db.now_iso(), payment["kind"], payment["sms_units"]))
+                 payment["months"], provider_id, pay_url, db.now_iso(), payment["kind"], payment["sms_units"],
+                 payment["tier"]))
     new = con.execute("SELECT * FROM payments WHERE reference=?", (ref,)).fetchone()
     db.audit(con, who, "payment_repeat", payment["clinic_id"],
              f"{payment['reference']} ({payment['status']}): второй платёж "

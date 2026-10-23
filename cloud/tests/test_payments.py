@@ -15,7 +15,7 @@ from harness import CLOUD, FIX, ROOT, Client, Result, Server, cid_from, load_by_
 
 sys.path.insert(0, str(CLOUD))
 from app import payments as pay  # noqa: E402 — чистые функции сервера
-from app import config  # noqa: E402 — прайс
+from app import config, tiers  # noqa: E402 — прайс
 
 rv = load_by_path("rsa_verify", ROOT / "bot" / "app" / "core" / "rsa_verify.py")
 KEY = __import__("json").loads((FIX / "test-key.json").read_text(encoding="utf-8"))
@@ -118,9 +118,15 @@ def suite_rules(res: Result) -> None:
     res.check("30.11 + 3 = 28.02", pay.add_months(_t("2026-11-30T00:00:00Z"), 3), _t("2027-02-28T00:00:00Z"))
     res.check("+12 = тот же день через год", pay.add_months(_t("2026-09-24T12:00:00Z"), 12), _t("2027-09-24T12:00:00Z"))
     res.check("сроки — месяц и год, как на сайте", pay.MONTHS, (1, 12))
-    res.check("прайс сайта: 499 в месяц, год 5 489 (11 месячных)",
-              (config.PRICE_MONTH, pay.amount(1, config.PRICE_MONTH), pay.amount(12, config.PRICE_MONTH)),
-              (499, 499, 5489))
+    # ⛔ цен в репозитории нет (23.10): прайс — из cloud.env, здесь только правило «год = 11 месячных»
+    res.ok("прайс — из окружения, у прогона оба варианта продаются",
+           all(tiers.list_price(t) > 0 for t in tiers.TIERS), str(config.PRICES))
+    res.check("год — 11 месячных у каждого варианта, месяц — одна",
+              [(pay.amount(1, tiers.list_price(t)), pay.amount(12, tiers.list_price(t))) for t in tiers.TIERS],
+              [(tiers.list_price(t), 11 * tiers.list_price(t)) for t in tiers.TIERS])
+    res.ok("в коде сервера нет числа цены абонемента: config.PRICE_MONTH — цена Plus из окружения",
+           config.PRICE_MONTH == tiers.list_price(tiers.PLUS)
+           and "PRICE_MONTH = 499" not in (CLOUD / "app" / "config.py").read_text(encoding="utf-8"))
     res.check("декабрь + 1 = январь", pay.add_months(_t("2026-12-15T00:00:00Z"), 1), _t("2027-01-15T00:00:00Z"))
     now = _t("2026-09-24T12:00:00Z")
     res.check("ранняя оплата: от конца срока", pay.extend_from(_t("2026-11-01T00:00:00Z"), 1, now),

@@ -417,8 +417,9 @@ def suite_send(res: Result) -> None:
                    _bal(s, cid) == 100 and _one(s, "SELECT count(*) FROM issues WHERE clinic_id=?", cid) == issues
                    and _sql(s, "SELECT reason, delta, payment_id FROM sms_ledger WHERE clinic_id=?", cid) == [("pack", 100, pid)]
                    and _one(s, "SELECT count(*) FROM audit WHERE what='sms_pack'") == 1)
-            res.ok("письмо «pachetul SMS a fost activat» с остатком 100",
-                   "pachetul SMS a fost activat" in _letters(s)[-1][1] and "Soldul actual: 100 SMS" in _letters(s)[-1][2])
+            res.ok("письмо «pachetul de 100 SMS a fost activat» с остатком 100",
+                   "pachetul de 100 SMS a fost activat" in _letters(s)[-1][1]
+                   and "Soldul actual: 100 SMS" in _letters(s)[-1][2])
             res.check("второе подтверждение — не в ожидании", admin.post(f"/admin/payments/{pid}/confirm").location,
                       f"/admin/clinics/{cid}?msg=payment_not_pending")
             # отправка

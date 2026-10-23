@@ -93,7 +93,7 @@ def suite(res: Result) -> None:
            "codul de activare trimis pe e-mailul clinicii" in flat_terms)
     # письма пробной клинике ведут в кабинет (02.10): тот же адрес, что на страницах
     res.ok("письмо «как продолжить» без ноты ведёт в кабинет и называет ноту",
-           mail.CONT_URL in mail.how_to_pay(None, 499) and "nota de plată" in mail.how_to_pay(None, 499))
+           mail.CONT_URL in mail.how_to_pay(None) and "nota de plată" in mail.how_to_pay(None))
     res.ok("декларация: письмо называет её тем же именем, что страница",
            "Declarația furnizorului" in decl and "Declarația furnizorului" in mail.DECLARATION_NOTE)
     # IDNO вписан 26.09 (был плейсхолдер): один и тот же номер на обеих страницах.

@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 TS = "%Y-%m-%dT%H:%M:%SZ"
 
 MIGRATIONS = {
@@ -203,6 +203,20 @@ MIGRATIONS = {
             filename TEXT NOT NULL DEFAULT '', uploaded_at TEXT NOT NULL, who TEXT NOT NULL)""",
         "CREATE INDEX IF NOT EXISTS ix_sms_papers_clinic ON sms_papers(clinic_id, id)",
         "ALTER TABLE sms_accounts ADD COLUMN sender_paper_id INTEGER",
+    ],
+    # 15 (23.10): два варианта абонемента — DentPilot Basic без модуля SMS и Plus с ним
+    # (tiers.py). `subscriptions.tier` — вариант подписки, `sms_until` — до какого момента
+    # модуль SMS ещё работает у Basic (конец периода, шедшего при переходе, условия § 4.2).
+    # `payments.tier` — за какой вариант нота абонемента (у SMS-нот пусто), `terms_at` —
+    # когда клиника отметила «Am citit și accept Termenii» перед этой оплатой (требование
+    # maib; у нот админки и ежедневной задачи пусто). Всё, что было до шага, — Plus: пробный
+    # и прежний единственный тариф включали SMS; цены существующих подписок не трогаются.
+    15: [
+        "ALTER TABLE subscriptions ADD COLUMN tier TEXT NOT NULL DEFAULT 'plus'",
+        "ALTER TABLE subscriptions ADD COLUMN sms_until TEXT",
+        "ALTER TABLE payments ADD COLUMN tier TEXT",
+        "ALTER TABLE payments ADD COLUMN terms_at TEXT",
+        "UPDATE payments SET tier='plus' WHERE kind='license'",
     ],
 }
 

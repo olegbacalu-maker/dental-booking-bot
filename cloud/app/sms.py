@@ -33,7 +33,7 @@ import re
 import sqlite3
 from datetime import date, datetime, time, timedelta, timezone
 
-from . import config, db, license, mail, sms_rule, smsmd
+from . import config, db, license, mail, sms_rule, smsmd, tiers
 
 log = logging.getLogger("cloud.sms")
 UTC = timezone.utc
@@ -133,13 +133,19 @@ SENDER_RE = re.compile(r"^(?=.*[A-Za-z])[A-Za-z0-9 .\-]{1,11}$")
 # ---------- ответы программе: код → (HTTP, текст по-румынски) ----------
 
 CODES = {
-    "sms_unconfigured": (503, "Pachetul SMS nu este disponibil încă pe server."),
-    "sms_not_offered": (503, "Pachetul SMS nu este disponibil încă pentru clinica dvs."),
-    "sms_off": (423, "Serviciul SMS este oprit la cererea clinicii. Pentru reluare, contactați-ne."),
+    # Модуль SMS выключен — два кода, две причины (23.10, те же слова, что экран SMS 2.0.9):
+    # sms_basic — вариант DentPilot Basic (модуль — в Plus, условия § 4 и § 16), путь — оплата
+    # Plus; sms_off — ТОЛЬКО ручной тумблер карточки (исключение Олега), путь — написать нам.
+    # ⚠️ Программа ≤ 2.0.8 кода sms_basic не знает: покажет его как есть (sms.md › «Варианты»).
+    "sms_unconfigured": (503, "Modulul SMS nu este disponibil încă pe server."),
+    "sms_not_offered": (503, "Modulul SMS nu este disponibil acum pentru clinica dvs."),
+    "sms_off": (423, "Modulul SMS este oprit. Pentru reluare, contactați-ne."),
+    "sms_basic": (423, "Modulul SMS este oprit: el face parte din DentPilot Plus. Îl porniți plătind "
+                       "varianta Plus („Plătește acum” în Setări › Licența) sau scriindu-ne."),
     "sms_plan": (423, "SMS-urile se trimit doar cu abonament activ."),
     "sms_sender": (423, "Numele expeditorului nu este încă aprobat de operatori."),
     "sms_quiet": (423, "SMS-urile nu se trimit între 21:00 și 08:00."),
-    "sms_balance": (402, "Pachetul SMS s-a terminat — comandați un pachet nou."),
+    "sms_balance": (402, "SMS-urile plătite s-au terminat — comandați un pachet nou."),
     "sms_cap": (429, "Limita zilnică de SMS a clinicii a fost atinsă."),
     "sms_phone": (400, "Numărul nu este un mobil din Moldova."),
     "sms_text": (400, "Textul este gol sau mai lung de 3 SMS."),
@@ -254,7 +260,10 @@ def plan_ok(sub: sqlite3.Row | None, now: datetime) -> bool:
 
 
 def blocked(con: sqlite3.Connection, clinic_id: str, acc: sqlite3.Row, now: datetime) -> str:
-    """Почему клиника не может слать сейчас ('' — может). Остаток и потолок — отдельно."""
+    """Почему клиника не может слать сейчас ('' — может). Остаток и потолок — отдельно.
+    Порядок — от того, что клиника не изменит, к тому, что изменит оплатой: ручное
+    выключение Олега (sms_off) говорится раньше варианта Basic (sms_basic) — оплата Plus
+    его не сняла бы. Остаток при выключенном модуле не трогается (условия § 16.10)."""
     if not smsmd.enabled():
         return "sms_unconfigured"
     if not offered(acc):
@@ -264,6 +273,8 @@ def blocked(con: sqlite3.Connection, clinic_id: str, acc: sqlite3.Row, now: date
     sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (clinic_id,)).fetchone()
     if not plan_ok(sub, now):
         return "sms_plan"
+    if not tiers.module_on(sub, now):
+        return "sms_basic"
     if not sender_now(acc, now):
         return "sms_sender"
     return ""
@@ -727,16 +738,16 @@ def credit_name(con: sqlite3.Connection, payment: sqlite3.Row, who: str) -> str 
 
 
 def mail_name(con: sqlite3.Connection, clinic: sqlite3.Row, payment: sqlite3.Row, who: str,
-              receipt: tuple[str, bytes] | None = None) -> str:
+              receipt: tuple[str, bytes] | None = None, summary: str = "") -> str:
     """Письмо об оплаченном имени; код для ?msg= ('' — ушло). `receipt` — cont de
-    plată (имя, PDF) вложением, как у письма о лицензии."""
+    plată (имя, PDF) вложением, как у письма о лицензии; `summary` — строки оплаты."""
     if not clinic["email"]:
         return "bad_email"
     acc = account(con, clinic["id"])
     until = acc["sender_until"] if acc is not None and acc["sender_state"] == S_ACTIVE else None
     subject, body = mail.sms_name_letter(clinic["name"], acc["sender"] if acc else "", until, payment["reference"])
     if receipt:
-        body = mail.with_receipt(body, payment["reference"])
+        body = mail.with_receipt(body, payment["reference"], summary)
     try:
         where = mail.send(clinic["email"], subject, body, *([receipt] if receipt else []))
     except (RuntimeError, OSError) as e:
@@ -787,15 +798,15 @@ def set_cap(con: sqlite3.Connection, clinic_id: str, cap: int, who: str) -> str:
 
 
 def mail_pack(con: sqlite3.Connection, clinic: sqlite3.Row, payment: sqlite3.Row, who: str,
-              receipt: tuple[str, bytes] | None = None) -> str:
-    """Письмо «Pachetul SMS a fost activat»; код для ?msg= ('' — ушло). `receipt` —
-    cont de plată вложением."""
+              receipt: tuple[str, bytes] | None = None, summary: str = "") -> str:
+    """Письмо «pachetul de N SMS a fost activat»; код для ?msg= ('' — ушло). `receipt` —
+    cont de plată вложением, `summary` — строки оплаты."""
     if not clinic["email"]:
         return "bad_email"
     subject, body = mail.sms_pack_letter(clinic["name"], int(payment["sms_units"] or 0),
                                          balance(con, clinic["id"]), payment["reference"])
     if receipt:
-        body = mail.with_receipt(body, payment["reference"])
+        body = mail.with_receipt(body, payment["reference"], summary)
     try:
         where = mail.send(clinic["email"], subject, body, *([receipt] if receipt else []))
     except (RuntimeError, OSError) as e:
@@ -834,10 +845,15 @@ def low_letters(send=None, who: str = "daily") -> list[str]:
             """SELECT c.*, (SELECT COALESCE(SUM(delta), 0) FROM sms_ledger l WHERE l.clinic_id=c.id) AS bal,
                       (SELECT MAX(id) FROM sms_ledger l WHERE l.clinic_id=c.id AND l.reason='pack') AS pack
                FROM clinics c JOIN sms_accounts a ON a.clinic_id=c.id WHERE a.enabled=1""").fetchall()
+    now = datetime.now(UTC)
     for r in rows:
         if r["pack"] is None or r["bal"] > config.SMS_LOW or not r["email"]:
             continue
         with db.connect() as con:
+            # модуль погашен вариантом Basic — «пополните» не к месту: остаток ждёт возврата на Plus
+            sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (r["id"],)).fetchone()
+            if not tiers.module_on(sub, now):
+                continue
             if con.execute("SELECT 1 FROM reminders WHERE subscription_id=? AND kind='sms_low' AND period=?",
                            (r["id"], str(r["pack"]))).fetchone():
                 continue

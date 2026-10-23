@@ -28,6 +28,12 @@ CLOUD = ROOT / "cloud"
 FIX = ROOT / "tests" / "fixtures" / "license"
 ADMIN_USER, ADMIN_PASS = "oleg", "test-parola-123"
 
+# Прайс абонемента прогона (23.10, tiers.py) — ДО импорта app: config читает окружение при
+# импорте, а серверы наследуют os.environ. Числа заметно не настоящие: цен Олега в
+# репозитории нет (они только в cloud.env боевого); «вариант не продаётся» — пустым env набора.
+os.environ.setdefault("DP_PRICE_BASIC", "310")
+os.environ.setdefault("DP_PRICE_PLUS", "520")
+
 sys.path.insert(0, str(CLOUD))
 from app.auth import make_hash  # noqa: E402
 

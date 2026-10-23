@@ -9,7 +9,7 @@ from __future__ import annotations
 import html
 from datetime import datetime, timedelta, timezone
 
-from . import config, license, maib, mail, trial
+from . import config, license, maib, mail, sms, tiers, trial
 from . import payments as pay  # ⚠️ не `payments`: так зовётся параметр карточки клиники (список строк)
 
 esc = html.escape
@@ -87,6 +87,13 @@ MSG = {
     "sms_test_phone": ("err", "Номер — мобильный Молдовы (8 цифр, 6x/7x)"),
     "sms_unconfigured": ("err", "DP_SMSMD_TOKEN пуст — к sms.md не обратиться"),
     "sms_action": ("err", "Неизвестное действие"),
+    # варианты абонемента (23.10, tiers.py)
+    "tier_set": ("ok", "Вариант изменён — строка в журнале; модуль SMS следует за вариантом сразу"),
+    "tier_bad": ("err", "Вариант — DentPilot Basic или DentPilot Plus"),
+    "tier_trial": ("err", "Пробный — всегда Plus: вариант клиника выберет при оплате"),
+    "tier_no_sub": ("err", "У клиники нет подписки — сперва выдайте файл"),
+    "tier_price": ("err", "Цена месяца — целое число лей; у варианта нет прайса в cloud.env — впишите цену"),
+    "tier_not_sold": ("err", "У варианта нет цены (DP_PRICE_* в cloud.env) — впишите сумму руками или выберите другой"),
 }
 
 STATE_RU = {"active": ("ok", "действует"), "grace": ("warn", "льгота"),
@@ -467,7 +474,8 @@ def _term(p) -> str:
         return f"SMS ×{p['sms_units']}"
     if kind == "sms_name":
         return "имя SMS, год"
-    return f"{p['months']} мес."
+    tier = p["tier"] if "tier" in p.keys() else None
+    return f"{p['months']} мес.{(' · ' + tiers.NAME[tier].split()[-1]) if tier in tiers.TIERS else ''}"
 
 
 def _receipt_link(p) -> str:
@@ -520,24 +528,46 @@ def _payment_rows(rows: list, with_clinic: bool = False) -> str:
     return "".join(out)
 
 
-def pay_page(ok: bool) -> str:
-    """Куда maib возвращает браузер клиники (L12). Редирект — не истина о платеже,
-    поэтому страница не говорит «оплачено»: подтверждение и файл придут письмом."""
+def pay_page(ok: bool, p=None) -> str:
+    """Куда maib возвращает браузер клиники (L12). Редирект — не истина о платеже:
+    «plătită» — только когда сервер уже закрыл ноту по ответу maib (settle), иначе «în
+    curs de confirmare». `p` — платёж по payId из адреса (main._returned): № заказа, что
+    оплачивается, сумма, дата, поставщик и сайт — требование maib к странице возврата;
+    без него (адрес без payId, чужой) — общий текст без подробностей."""
     if ok:
-        title, text = ("Mulțumim!", "Plata a fost transmisă către bancă. După confirmare termenul se "
-                                    "prelungește automat — de obicei în câteva minute: programul DentPilot "
-                                    "îl preia singur când are acces la internet, iar confirmarea vine pe e-mail.")
+        title, sub, text = ("Mulțumim!", "plata a fost transmisă către bancă",
+                            "Banca ne confirmă plata de obicei în câteva minute. După confirmare termenul se "
+                            "prelungește automat, programul DentPilot îl preia singur când are acces la internet, "
+                            "iar confirmarea și contul de plată (PDF) vin pe e-mailul clinicii.")
     else:
-        title, text = ("Plata nu a reușit", "Banca nu a confirmat plata. Puteți încerca din nou din e-mailul "
-                                            "cu nota de plată sau plăti prin transfer bancar cu referința din "
-                                            "aceeași notă.")
-    return (f"<!doctype html><html lang='ro'><head><meta charset='utf-8'>"
-            f"<meta name='viewport' content='width=device-width, initial-scale=1'>"
-            f"<title>{esc(title)} — DentPilot</title><style>{_CSS}"
-            f".box{{max-width:520px;margin:48px auto;padding:0 16px}}</style></head>"
-            f"<body><div class='box'><div class='card'><h1>{esc(title)}</h1><p>{esc(text)}</p>"
-            f"<p class='muted'>Întrebări: {esc(config.SUPPORT_EMAIL)} · {esc(config.SUPPORT_PHONE)}</p>"
-            f"</div></div></body></html>")
+        title, sub, text = ("Plata nu a reușit", "banca nu a confirmat plata",
+                            "Banca nu a confirmat plata, banii nu au fost retrași. Puteți încerca din nou din program "
+                            "(„Plătește acum”) sau din e-mailul cu nota de plată, ori plăti prin transfer bancar cu "
+                            "referința din aceeași notă.")
+    details = ""
+    if p is not None:
+        paid = p["status"] == "paid"
+        when = _ro(p["paid_at"]) if paid else sms.local(datetime.now(timezone.utc)).strftime("%d.%m.%Y")
+        state = ("<span class='tag ok'>plătită — confirmată de bancă</span>" if paid
+                 else "<span class='tag warn'>în curs de confirmare</span>" if ok
+                 else "<span class='tag bad'>neplătită</span>")
+        seller = ", ".join(x for x in (config.BANK["beneficiary"], "antreprenor independent") if x)
+        what = pay.subject(p)
+        details = (f"<dl class='ok-list'><dt>Comanda nr.</dt><dd class='mono'>{esc(p['reference'])}</dd>"
+                   f"<dt>Ce plătiți</dt><dd>{esc(what[:1].upper() + what[1:])}</dd>"
+                   f"<dt>Suma</dt><dd>{_mdl(p['amount'])} {esc(p['currency'] or 'MDL')}</dd>"
+                   f"<dt>Data</dt><dd>{when}</dd><dt>Starea</dt><dd>{state}</dd>"
+                   f"<dt>Furnizor</dt><dd class='plain'>{esc(seller)} · "
+                   f"{esc(config.SITE_URL.rstrip('/').split('//', 1)[-1])}</dd></dl>"
+                   f"<p class='muted' style='margin:0'>Păstrați numărul comenzii: după el găsim plata la orice "
+                   f"întrebare.</p>")
+        if paid and ok:
+            text = ("Plata a fost confirmată de bancă: termenul se prelungește automat, programul DentPilot îl "
+                    "preia singur când are acces la internet, iar confirmarea și contul de plată (PDF) vin pe "
+                    "e-mailul clinicii.")
+    inner = (f"<div class='card narrow'>{_chead('shield' if ok else 'clock', esc(title), esc(sub))}"
+             f"<p style='margin:0'>{esc(text)}</p>{details}</div>")
+    return _cont_shell(title, inner, eyebrow="DentPilot · plata cu cardul")
 
 
 _MONTHS_RU = ("январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь",
@@ -847,9 +877,10 @@ def _sender_card(c, det: dict) -> str:
             f"{flow}<div class='acts' style='margin:0'>{nxt}{pdf}{refuse}{other}</div></div>")
 
 
-def sms_block(c, det: dict | None) -> str:
+def sms_block(c, det: dict | None, module: str = "") -> str:
     """Карточка клиники › SMS (S4, разложено 17.10): плитки, имя отправителя шагами, настройки
-    с подписями; свой текст, расход по дням и журнал — свёрнуты."""
+    с подписями; свой текст, расход по дням и журнал — свёрнуты. `module` — что с модулем
+    по варианту абонемента (23.10, `_tier_sub`): тумблер «включено» не значит, что SMS уходят."""
     cid = esc(c["id"])
     act = f"/admin/clinics/{cid}/sms"
     if det is None:
@@ -864,7 +895,7 @@ def sms_block(c, det: dict | None) -> str:
                 f"</div></td></tr></table></div>")
     state_txt = "включено" if det["enabled"] else "выключено"
     state_sub = " · ".join(x for x in (
-        "пилот" if det["pilot"] else "", "" if det["offered"] else "программе не предложено",
+        esc(module), "пилот" if det["pilot"] else "", "" if det["offered"] else "программе не предложено",
         f"в {esc(det['month'])} отправлено {det['sent']}") if x)
     tiles = (f"<div class='tiles'>"
              f"{_stat('Остаток', '<b>' + str(det['balance']) + '</b> сегм.', 'потрачено за месяц: ' + str(det['spent']) + ' сегм.')}"
@@ -879,7 +910,7 @@ def sms_block(c, det: dict | None) -> str:
         f"<tr><td>Отправка SMS</td><td><div class='actions'>"
         f"{on_txt}"
         f"<form method='post' action='{act}'><input type='hidden' name='action' value='{'off' if on else 'on'}'>"
-        f"<button title='{'Клиника отказалась: программа покажет «Serviciul SMS este oprit la cererea clinicii» и наши контакты для возобновления' if on else 'Клиника снова хочет SMS: отправка возобновится'}'>"
+        f"<button title='{'Исключение: программа покажет «Modulul SMS este oprit» и наши контакты (код sms_off). Вариант Basic гасит модуль сам (sms_basic) — тумблер для этого не нужен' if on else 'Снять исключение: отправка возобновится, если вариант это позволяет'}'>"
         f"{'Выключить' if on else 'Включить'}</button></form></div></td></tr>"
         f"<tr><td>Пилот</td><td><div class='actions'>"
         f"{'пакет предложен этой клинике' if det['pilot'] else ('предложен всем клиникам' if det['offered'] else 'программе не предложено')}"
@@ -1004,6 +1035,7 @@ AUDIT_RU = {
     "payment_rejected": ("нота отклонена", "pay"), "payment_repeat": ("повторный перевод", "pay"),
     "card_link": ("ссылка на карту", "pay"), "card_failed": ("карта: отказ", "pay"),
     "paylink_new": ("ссылка оплаты из программы", "pay"), "reminder": ("напоминание о сроке", "pay"),
+    "tier_set": ("вариант вручную", "pay"),
     "issue": ("файл выдан", "lic"), "trial_request": ("заявка на пробный", "lic"),
     "trial_declined": ("заявка скрыта", "lic"), "trial_duplicate": ("повторная заявка", "lic"),
     "trial_no_key": ("пробный не выдан", "lic"),
@@ -1130,7 +1162,8 @@ def _clinic_tiles(c, sub, st: str, issues: list, devices: list, accounts: list, 
 def _pay_pane(c, sub, st: str, payments: list, reminders: list, now: datetime) -> str:
     """Вкладка «Оплата»: срок, что ждёт оплаты, тариф; «Выставить ноту» за кнопкой; ноты; напоминания."""
     cid = esc(c["id"])
-    price = sub["price"] if sub else config.PRICE_MONTH
+    cur = tiers.current(sub)
+    price = tiers.price(sub, cur)
     vu = _ts(sub["valid_until"]) if sub else None
     if vu is None:
         term = _stat("Срок", "файла нет", "лицензия не выдана: вкладка «Лицензия»")
@@ -1146,8 +1179,12 @@ def _pay_pane(c, sub, st: str, payments: list, reminders: list, now: datetime) -
                      f"нота <span class='mono'>{esc(p['reference'])}</span> от {esc(p['created_at'][:10])}, {_term(p)}")
     else:
         wait = _stat("Ждёт оплаты", "ничего", "ожидающих нот нет")
-    tariff = _stat("Тариф", f"{price} MDL / мес.", f"{pay.amount(12, price)} MDL за год")
-    opts = "".join(f"<option value='{m}'>{'месяц' if m == 1 else 'год'} — {pay.amount(m, price)} MDL</option>"
+    tariff = _stat("Вариант", f"{esc(tiers.NAME[cur])}", _tier_sub(sub, now))
+    tsel = "".join(f"<option value='{t}'{' selected' if t == cur else ''}{'' if tiers.price(sub, t) else ' disabled'}>"
+                   f"{esc(tiers.NAME[t])} — "
+                   f"{(str(tiers.price(sub, t)) + ' MDL / мес.') if tiers.price(sub, t) else 'не продаётся'}</option>"
+                   for t in tiers.TIERS)
+    opts = "".join(f"<option value='{m}'>{'месяц' if m == 1 else 'год (цена 11 месяцев)'}</option>"
                    for m in pay.MONTHS)
     if maib.enabled():
         method = ("<div><label>Как платит клиника</label><select name='method'>"
@@ -1160,7 +1197,8 @@ def _pay_pane(c, sub, st: str, payments: list, reminders: list, now: datetime) -
     form = (f"<p class='muted'>Нота — счёт клинике с reference. «Подтвердить» у ноты = перевод пришёл: "
             f"срок продлится, файл выдастся сам.</p>"
             f"<form method='post' action='/admin/clinics/{cid}/payments'>"
-            f"<div class='grid'><div><label>Срок</label><select name='months'>{opts}</select></div>"
+            f"<div class='grid'><div><label>Вариант</label><select name='tier'>{tsel}</select></div>"
+            f"<div><label>Срок</label><select name='months'>{opts}</select></div>"
             f"<div><label>Сумма, MDL (пусто = по тарифу)</label><input name='amount' inputmode='numeric'></div>"
             f"{method}</div>"
             f"<label class='chk'><input type='checkbox' name='send' value='1' checked> отправить письмо с нотой "
@@ -1175,8 +1213,39 @@ def _pay_pane(c, sub, st: str, payments: list, reminders: list, now: datetime) -
              f"<table><tr><th>Письмо</th><th>Период до</th><th>Отправлено</th></tr>"
              f"{_reminder_rows(rems) or '<tr><td colspan=3 class=muted>Напоминаний ещё не было</td></tr>'}"
              f"</table></details></div>")
+    if sub is None or sub["plan"] == "trial":
+        manual = ""
+    else:
+        msel = "".join(f"<option value='{t}'{' selected' if t != cur else ''}>{esc(tiers.NAME[t])}</option>"
+                       for t in tiers.TIERS)
+        manual = _drop("Вариант вручную",
+                       f"<p class='muted'>Исключение: вариант меняется сразу, без оплаты, строкой в журнале. Plus — "
+                       f"модуль SMS работает сразу; Basic — гаснет сразу. Обычный путь — выбор клиники при "
+                       f"оплате (Basic с конца оплаченного Plus).</p>"
+                       f"<form method='post' action='/admin/clinics/{cid}/tier' class='actions'>"
+                       f"<select name='tier' style='width:auto'>{msel}</select>"
+                       f"<input name='price' inputmode='numeric' placeholder='цена / мес. (пусто = прайс)' "
+                       f"style='width:200px'><button>Сменить вариант</button></form>")
     return (f"<div class='tiles'>{term}{wait}{tariff}</div>"
-            f"<div class='acts'>{_drop('Выставить ноту', form, primary=True)}</div>{table}")
+            f"<div class='acts'>{_drop('Выставить ноту', form, primary=True)}{manual}</div>{table}")
+
+
+def _tier_sub(sub, now: datetime) -> str:
+    """Подпись плитки «Вариант»: цена и что с модулем SMS (tiers.module_on)."""
+    if sub is None or sub["plan"] == "trial":
+        sold = ", ".join(f"{tiers.NAME[t].split()[-1]} {tiers.list_price(t)}" for t in tiers.offered(sub))
+        return f"пробный = Plus; при оплате клиника выберет сама · прайс: {esc(sold or 'нет')} MDL / мес."
+    p = tiers.price(sub, tiers.current(sub))
+    return f"{p} MDL / мес. · {pay.amount(12, p)} за год · {_module_word(sub, now)}"
+
+
+def _module_word(sub, now: datetime) -> str:
+    """Модуль SMS по варианту — словами админки (tiers.module_on): пробный и Plus — работает."""
+    if tiers.current(sub) == tiers.PLUS:
+        return "по варианту модуль SMS работает" if sub is not None else ""
+    if tiers.module_on(sub, now):
+        return f"Basic: модуль SMS до {_d(sub['sms_until'])}, потом sms_basic"
+    return "Basic: модуль SMS выключен (sms_basic)"
 
 
 def _lic_pane(c, issues: list, devices: list) -> str:
@@ -1287,10 +1356,12 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
     count = {"overview": len(todo), "pay": sum(1 for p in payments if p["status"] == "pending"),
              "sms": 1 if smsinfo and smsinfo["sender_state"] in ("requested", "submitted") else 0}
     panes = {"overview": overview, "pay": _pay_pane(c, sub, st, payments, list(reminders), now),
-             "lic": _lic_pane(c, issues, devices), "sms": sms_block(c, smsinfo), "access": dev_html + acc_html,
+             "lic": _lic_pane(c, issues, devices), "sms": sms_block(c, smsinfo, _module_word(sub, now)), "access": dev_html + acc_html,
              "profile": edit, "log": _log_pane(cid, audit, log, log_counts)}
     body = _tabbed([(k, t, panes[k], count.get(k, 0)) for k, t in CLINIC_TABS])
-    lead = f"{_tag(st)} <span class='muted'>{esc(sub['plan']) if sub else 'без файла'} · срок до {_d(sub['valid_until']) if sub else '—'} · IDNO {esc(c['idno'] or '—')}</span>"
+    plan_txt = (esc(sub["plan"]) + ("" if sub["plan"] == "trial" else " · " + esc(tiers.NAME[tiers.current(sub)]))
+                if sub else "без файла")
+    lead = f"{_tag(st)} <span class='muted'>{plan_txt} · срок до {_d(sub['valid_until']) if sub else '—'} · IDNO {esc(c['idno'] or '—')}</span>"
     return page(c["name"], body, user, msg, pending=pending, active="clinics", lead=lead, names=names)
 
 
@@ -1316,6 +1387,10 @@ CONT_MSG = {
     "idno_taken": "Acest IDNO este deja înregistrat la altă clinică — scrieți-ne.",
     "note_created": "Nota de plată a fost creată: datele pentru plată sunt mai jos și pe e-mail.",
     "note_exists": "Aveți deja o notă de plată în așteptare — datele pentru plată sunt mai jos.",
+    "note_replaced": "Nota de plată a fost înlocuită: datele noii note sunt mai jos și pe e-mail — nota veche nu "
+                     "se mai plătește.",
+    "need_terms": "Pentru plată bifați „Am citit și accept Termenii și condițiile”.",
+    "tier_not_sold": "Varianta aleasă nu se poate plăti acum online — alegeți cealaltă variantă sau scrieți-ne.",
     "need_idno": "Pentru abonament completați mai întâi IDNO-ul clinicii (13 cifre), în datele clinicii.",
     "maib_failed": "Pagina de plată cu cardul nu a putut fi creată acum — încercați din nou sau alegeți "
                    "transferul bancar.",
@@ -1333,7 +1408,7 @@ CONT_MSG = {
     "sms_name": "Numele expeditorului: până la 11 caractere — litere latine, cifre, spațiu, punct sau cratimă, "
                 "cel puțin o literă.",
     "sms_name_taken": "Acest nume de expeditor este deja folosit sau cerut de altă clinică — alegeți alt nume.",
-    "sms_not_offered": "Pachetul SMS nu este disponibil încă pentru clinica dvs.",
+    "sms_not_offered": "Modulul SMS nu este disponibil acum pentru clinica dvs.",
     "sms_paper_state": "Cererea se descarcă și se încarcă doar pentru un nume cerut și încă nedepus la SMS.MD.",
     "sms_paper_data": "Pentru cerere completați mai întâi datele clinicii: IDNO, adresa, telefonul.",
     "sms_paper_rep": "Scrieți numele și prenumele reprezentantului legal care semnează cererea.",
@@ -1343,6 +1418,7 @@ CONT_MSG = {
     "sms_paper_empty": "Alegeți fișierul PDF al cererii semnate.",
 }
 _CONT_OK = {"logged_out", "registered_issued", "registered_requested", "saved", "note_created", "note_exists",
+            "note_replaced",
             "linked", "sms_requested", "sms_paper_ok"}
 SENDER_RO = {"none": ("mute", "fără nume propriu"), "requested": ("warn", "cerere în lucru"),
              "submitted": ("warn", "la operatori"), "active": ("ok", "aprobat"), "rejected": ("bad", "respins")}
@@ -1451,8 +1527,28 @@ label.chk input{width:auto;margin-top:3px}
 .auth .form h2{margin:0 0 6px;font-size:22px;letter-spacing:-.015em}
 .or{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:13px;margin:4px 0 14px}
 .or:before,.or:after{content:'';flex:1;height:1px;background:var(--line)}
+/* выбор варианта абонемента (23.10): карточки Basic / Plus, срок, сумма, галочка условий */
+.tiers{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin:4px 0 18px}
+label.tier{position:relative;display:flex;flex-direction:column;gap:6px;border:1.5px solid #D8E2DF;border-radius:16px;padding:16px 18px;margin:0;cursor:pointer;background:#fff;color:var(--ink);font-size:14.5px;font-weight:400}
+label.tier:has(input:checked){border-color:var(--teal);box-shadow:0 0 0 3px rgba(14,159,138,.14);background:linear-gradient(180deg,#F2FBF8,#fff 60%)}
+label.tier input{position:absolute;top:16px;right:16px;width:18px;height:18px;margin:0;accent-color:var(--teal)}
+.tier .nm{font-weight:700;font-size:17px;letter-spacing:-.01em;padding-right:26px}.tier .what{font-size:13px;color:var(--muted);margin-top:-4px}
+.tier .pr{font-size:28px;font-weight:800;letter-spacing:-.02em;line-height:1.1;margin-top:6px}.tier .pr small{font-size:14px;font-weight:600;color:var(--muted)}
+.tier .yr{font-size:13px;color:var(--muted)}
+.tier ul{list-style:none;padding:0;margin:8px 0 0}.tier li{display:flex;gap:8px;align-items:flex-start;margin:0 0 6px;font-size:14px;line-height:1.4}
+.tier li svg{flex:none;margin-top:1px}.tier li.no{color:var(--muted)}.tier .fine{font-size:12.5px;color:var(--muted);margin-top:auto;padding-top:6px}
+.seg{display:inline-flex;background:#EEF2F1;border-radius:12px;padding:4px;gap:4px;flex-wrap:wrap}
+.seg label{margin:0;padding:8px 14px;border-radius:9px;cursor:pointer;font-size:14.5px;color:var(--ink);font-weight:600;display:flex;gap:8px;align-items:center}
+.seg label input{width:auto;margin:0;accent-color:var(--teal)}.seg label:has(input:checked){background:#fff;box-shadow:0 1px 2px rgba(11,43,38,.12)}
+.gift{font-weight:600;font-size:12px;color:var(--teal-d);background:var(--teal-soft);border-radius:999px;padding:2px 8px}
+.total{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:16px 0 4px}
+.total .t{font-size:14px;color:var(--muted)}.total .t b{color:var(--ink)}.total .s{font-size:22px;font-weight:800;letter-spacing:-.02em}
+.note{font-size:13px;color:var(--muted);line-height:1.5;margin:10px 0 0}.terms{border-top:1px solid var(--line);margin-top:18px;padding-top:6px}
+.btns{margin:14px 0 0;display:flex;gap:10px;flex-wrap:wrap}.lbl{display:block;font-size:13px;color:var(--muted);margin:16px 0 8px;font-weight:500}
+details.more summary{cursor:pointer;color:var(--teal-d);font-size:14px;font-weight:600}details.more{margin:16px 0 0}
+.ok-list{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:14.5px;margin:14px 0}.ok-list dt{color:var(--muted)}.ok-list dd{margin:0;font-weight:600}.ok-list dd.plain{font-weight:400}
 @media (max-width:900px){.hero{grid-template-columns:1fr}.grid2{grid-template-columns:1fr}.split{grid-template-columns:1fr}.auth{grid-template-columns:1fr}.auth .brand{padding:28px 22px}.auth .form{padding:26px 22px}}
-@media (max-width:720px){.chead .right{margin-left:0;flex-basis:100%}.price{white-space:normal}.wrap{padding:22px 16px 48px}.top-in{padding:0 16px;height:60px}.logo .sub{display:none}.acc .em{display:none}.card{padding:18px 16px;border-radius:16px}.hero .main{padding:20px 18px}.hero .side{padding:20px 18px}button.primary,a.btn,a.gbtn{width:100%}}
+@media (max-width:720px){.seg{display:grid;grid-template-columns:1fr}.seg label{padding:10px 12px}.total .s{font-size:20px}.chead .right{margin-left:0;flex-basis:100%}.price{white-space:normal}.wrap{padding:22px 16px 48px}.top-in{padding:0 16px;height:60px}.logo .sub{display:none}.acc .em{display:none}.card{padding:18px 16px;border-radius:16px}.hero .main{padding:20px 18px}.hero .side{padding:20px 18px}button.primary,a.btn,a.gbtn{width:100%}}
 """
 # Знак DentPilot v2 (05.10.2026): зуб с лентой и стрелкой-«пилотом». ⛔ Облако
 # не импортирует bot/, поэтому знак здесь — готовыми SVG-строками, снятыми с
@@ -1697,13 +1793,6 @@ def _pay_tag_ro(status: str) -> str:
     return f"<span class='tag {cls}'>{esc(text)}</span>"
 
 
-def _card_link_ro(p) -> str:
-    """Ссылка maib у ожидающего платежа (L12) — в кабинете, по-румынски."""
-    if p["status"] != "pending" or not p["pay_url"]:
-        return ""
-    return f" · <a href='{esc(p['pay_url'])}' target='_blank' rel='noopener'>plata cu cardul</a>"
-
-
 def _lic_parts(c, sub, issue, st: str, now: datetime) -> dict:
     """Состояние лицензии словами: `text` (с тегом), `check` (последняя проверка
     программой), `bar` (полоса дней — только при выданном файле)."""
@@ -1714,7 +1803,7 @@ def _lic_parts(c, sub, issue, st: str, now: datetime) -> dict:
                          f"Programul se activează singur imediat ce aprobăm cererea — de obicei în aceeași zi "
                          f"lucrătoare; vă anunțăm pe e-mail."), "check": "", "bar": ""}
     plan = sub["plan"] if sub else "trial"
-    what = "Perioada de probă" if plan == "trial" else "Abonamentul"
+    what = "Perioada de probă" if plan == "trial" else f"Abonamentul {tiers.NAME[tiers.current(sub)]}"
     d, g = _ro(issue["valid_until"]), _ro(issue["grace_until"])
     cls, tag = STATE_RO.get(st, ("mute", st))
     if st == "active":
@@ -1762,7 +1851,8 @@ def _subscribe_label(sub) -> str:
 
 
 _STEPS = ("<ol class='steps'>"
-          "<li><b>Alegeți</b> o lună sau un an și comandați nota de plată — o primiți și pe e-mail, cu referința.</li>"
+          "<li><b>Alegeți</b> varianta — DentPilot Basic sau DentPilot Plus — și termenul, o lună sau un an; "
+          "nota de plată o primiți și pe e-mail, cu referința.</li>"
           "<li><b>Plătiți</b> prin transfer bancar, cu referința din notă în destinația plății.</li>"
           "<li><b>Confirmăm</b> plata în aceeași zi lucrătoare: termenul se prelungește, iar programul preia "
           "singur noul termen — o dată pe zi sau cu «Verifică acum».</li></ol>")
@@ -1776,40 +1866,151 @@ def _receipt_link_ro(p) -> str:
             f"cont de plată (PDF)</a>")
 
 
+def _mdl(n) -> str:
+    """12345 → «12 345» (неразрывный пробел между разрядами): суммы на страницах оплаты."""
+    return f"{int(n):,}".replace(",", "\u00a0")
+
+
+_DASH = ("<svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='#9AA8AD' stroke-width='2.4' "
+         "stroke-linecap='round' aria-hidden='true'><path d='M6 12h12'/></svg>")
+# Что даёт вариант — словами условий (§ 4.1, § 10, § 16): телефон — только Plus (вариант B Олега)
+_TIER_PERKS = {
+    tiers.BASIC: ((True, "Programări, fișe, odontogramă, statistică"), (True, "Actualizări incluse"),
+                  (True, "Suport pe e-mail"), (False, "Fără modulul SMS")),
+    tiers.PLUS: ((True, "Tot ce are Basic"), (True, "Modulul SMS: memento-uri automate pentru pacienți"),
+                 (True, "Suport pe e-mail și la telefon")),
+}
+# Сумма под выбором считается в браузере из data-атрибутов карточек; без скрипта — сумма
+# выбора при открытии (сервер всё равно считает сам: payments.choose)
+_TOTAL_JS = ("(function(){document.querySelectorAll('form.pick').forEach(function(f){"
+             "function up(){var t=f.querySelector('[name=tier]:checked'),m=f.querySelector('[name=months]:checked');"
+             "if(!t||!m)return;var y=m.value=='12';"
+             "f.querySelector('.total .t').innerHTML='<b>'+t.dataset.name+'</b> · '+(y?'un an (12 luni)':'o lună');"
+             "f.querySelector('.total .s').textContent=(y?t.dataset.y:t.dataset.m)+' MDL'}"
+             "f.addEventListener('change',up);up()})})()")
+
+
+def _terms_box() -> str:
+    """Галочка условий перед оплатой (требование maib): обязательна в браузере и на сервере."""
+    site = config.SITE_URL.rstrip("/")
+    return (f"<div class='terms'><label class='chk'><input type='checkbox' name='terms' value='1' required> "
+            f"<span>Am citit și accept <a href='{esc(site)}/termeni.html' target='_blank' rel='noopener'>"
+            f"Termenii și condițiile</a> DentPilot.</span></label></div>")
+
+
+def _module_note(sub, now: datetime) -> str:
+    """Что будет с модулем SMS при выборе (условия § 4.2, § 16.10) — по состоянию подписки."""
+    cur = tiers.current(sub)
+    vu = _ts(sub["valid_until"]) if sub else None
+    until = tiers.sms_until(sub)
+    if cur == tiers.PLUS and vu is not None and vu > now:
+        basic = (f"Cu DentPilot Basic modulul SMS rămâne pornit până la sfârșitul perioadei în curs "
+                 f"(<b>{_ro(sub['valid_until'])}</b>) și se oprește apoi; SMS-urile rămase nu se pierd.")
+    elif cur == tiers.PLUS:
+        basic = "Cu DentPilot Basic modulul SMS se oprește; SMS-urile rămase nu se pierd."
+    elif until is not None and until > now:
+        basic = (f"Acum clinica are DentPilot Basic: modulul SMS mai funcționează până la "
+                 f"<b>{_ro(sub['sms_until'])}</b>.")
+    else:
+        basic = "Acum clinica are DentPilot Basic: modulul SMS este oprit, SMS-urile rămase așteaptă."
+    return (f"<p class='note'>Varianta o alegeți la fiecare plată. DentPilot Plus pornește modulul SMS imediat "
+            f"după confirmarea plății. {basic} SMS-urile se plătesc separat, în pachete — în nicio variantă nu "
+            f"intră în abonament.</p>")
+
+
+def _tier_card(sub, t: str, checked: bool) -> str:
+    m1 = pay.amount_for(sub, t, 1)
+    y = pay.amount_for(sub, t, 12)
+    lis = "".join(f"<li class='{'' if ok else 'no'}'>{_CHECK if ok else _DASH}<span>{esc(x)}</span></li>"
+                  for ok, x in _TIER_PERKS[t])
+    fine = "<span class='fine'>SMS-urile — în pachete, separat de abonament</span>" if t == tiers.PLUS else ""
+    return (f"<label class='tier'><input type='radio' name='tier' value='{t}'{' checked' if checked else ''} required "
+            f"data-name='{esc(tiers.NAME[t])}' data-m='{_mdl(m1)}' data-y='{_mdl(y)}'>"
+            f"<span class='nm'>{esc(tiers.NAME[t])}</span><span class='what'>{esc(tiers.WHAT[t])}</span>"
+            f"<span class='pr'>{_mdl(m1)} MDL <small>/ lună</small></span>"
+            f"<span class='yr'>sau {_mdl(y)} MDL pe an — o lună gratuită</span><ul>{lis}</ul>{fine}</label>")
+
+
+def tier_form(sub, action: str, card_on: bool, now: datetime, tier: str = "", months: int = 1,
+              extra: str = "", replace: str = "") -> str:
+    """Выбор варианта и срока + галочка условий + кнопки (вариант A кадров 23.10): одна форма
+    на /plata и кабинет. `extra` — поля перед галочкой (IDNO); `replace` — reference
+    ожидающей ноты: форма заменяет её (кнопки и подпись другие)."""
+    sold = tiers.offered(sub)
+    if not sold:
+        return ("<p class='empty'>Abonamentul nu se poate plăti acum online. Scrieți-ne — vă trimitem nota de "
+                "plată noi.</p>")
+    t = tiers.pick(sub, tier)
+    cards = "".join(_tier_card(sub, x, x == t) for x in sold)
+
+    def seg(m: int, text: str, gift: str = "") -> str:
+        return (f"<label><input type='radio' name='months' value='{m}'{' checked' if m == months else ''}> {text}"
+                f"{(' <span class=gift>' + gift + '</span>') if gift else ''}</label>")
+    when = "un an (12 luni)" if months == 12 else "o lună"
+    total = (f"<div class='total'><span class='t'><b>{esc(tiers.NAME[t])}</b> · {when}</span>"
+             f"<span class='s'>{_mdl(pay.amount_for(sub, t, months))} MDL</span></div>")
+    if replace:
+        note = (f"<p class='note'>Nota {esc(replace)} se anulează și primiți una nouă, cu altă referință — nu mai "
+                f"plătiți nota veche.</p>")
+        buttons = ((f"<button class='primary' name='method' value='card'>Înlocuiește și plătește cu cardul</button>"
+                    if card_on else "")
+                   + f"<button class='{'' if card_on else 'primary'}' name='method' value='transfer'>"
+                     f"Înlocuiește nota de plată</button>")
+    else:
+        note = _module_note(sub, now)
+        buttons = ((f"<button class='primary' name='method' value='card'>Plătește cu cardul</button>" if card_on else "")
+                   + f"<button class='{'' if card_on else 'primary'}' name='method' value='transfer'>"
+                     f"Transfer bancar — primesc nota de plată</button>")
+    return (f"<form method='post' action='{action}' class='pick'><span class='lbl'>Varianta</span>"
+            f"<div class='tiers'>{cards}</div><span class='lbl'>Termen</span><div class='seg'>"
+            f"{seg(1, 'O lună')}{seg(12, 'Un an (12 luni)', 'o lună gratuită')}</div>{total}{note}{extra}"
+            f"{_terms_box()}<p class='btns'>{buttons}</p></form><script>{_TOTAL_JS}</script>")
+
+
+def pending_note(p, sub, action: str, card_on: bool, now: datetime) -> str:
+    """Ожидающая нота на /plata и в кабинете: вариант и срок в строке ноты, карта — ТОЖЕ за
+    галочкой условий (прямой ссылки maib на странице нет: та пускала бы мимо галочки),
+    реквизиты перевода, «Altă variantă sau alt termen?» — замена ноты (payments.choose)."""
+    tier = p["tier"] if p["tier"] in tiers.TIERS else tiers.PLUS
+    try:
+        ways = f"<pre class='pay'>{esc(mail.ways_to_pay(p['reference'], p['amount'], None))}</pre>"
+    except RuntimeError:
+        ways = "<p>Datele pentru transfer bancar le primiți pe e-mail.</p>"
+    card = ""
+    if card_on:
+        card = (f"<form method='post' action='{action}'><input type='hidden' name='tier' value='{tier}'>"
+                f"<input type='hidden' name='months' value='{p['months']}'>{_terms_box()}"
+                f"<p class='btns'><button class='primary' name='method' value='card'>Plătește cu cardul</button>"
+                f"</p></form>")
+    change = (f"<details class='more'><summary>Altă variantă sau alt termen?</summary>"
+              f"{tier_form(sub, action, card_on, now, tier, int(p['months']), replace=p['reference'])}</details>")
+    return (f"<p><b>Nota de plată {esc(p['reference'])}</b> — <b>{esc(tiers.NAME[tier])}</b>, "
+            f"{mail.luni(p['months'])}: <b>{_mdl(p['amount'])} MDL</b> <span class='tag warn'>în așteptare</span></p>"
+            f"{card}{ways}"
+            f"<p class='muted' style='margin:0'>După confirmarea plății termenul se prelungește automat — programul "
+            f"îl preia singur, o dată pe zi sau cu «Verifică acum»; primiți și confirmarea pe e-mail.</p>{change}")
+
+
 def _cont_payments(c, sub, payments: list) -> str:
-    price = sub["price"] if sub else config.PRICE_MONTH
+    now = datetime.now(timezone.utc)
     pending = [p for p in payments if p["status"] == "pending"]
     if pending:
-        p = pending[0]
-        try:
-            ways = f"<pre class='pay'>{esc(mail.ways_to_pay(p['reference'], p['amount'], p['pay_url']))}</pre>"
-        except RuntimeError:
-            ways = "<p>Datele pentru plată le primiți pe e-mail.</p>"
-        top = (f"<p><b>Nota de plată {esc(p['reference'])}</b>: {p['amount']} MDL pentru "
-               f"{mail.luni(p['months'])}.</p>{ways}"
-               f"<p class='muted'>După confirmarea plății termenul se prelungește automat — programul îl preia "
-               f"singur; primiți și confirmarea pe e-mail.</p>")
+        top = pending_note(pending[0], sub, "/cont/nota", maib.enabled(), now)
     elif len(c["idno"] or "") == 13:
-        opts = "".join(f"<option value='{m}'>{'o lună' if m == 1 else 'un an (12 luni)'} — "
-                       f"{pay.amount(m, price)} MDL</option>" for m in pay.MONTHS)
-        method = ""
-        if maib.enabled():
-            method = ("<div><label>Cum plătiți</label><select name='method'>"
-                      "<option value='transfer'>Transfer bancar</option>"
-                      "<option value='card'>Cu cardul (link de plată maib)</option></select></div>")
-        top = (f"{_STEPS}<form method='post' action='/cont/nota'><div class='grid'><div><label>Abonament</label>"
-               f"<select name='months'>{opts}</select></div>{method}</div>"
-               f"<p><button class='primary'>{_subscribe_label(sub)}</button></p></form>"
+        top = (f"{_STEPS}{tier_form(sub, '/cont/nota', maib.enabled(), now)}"
                f"<p class='muted'>Nota de plată cu referința și datele pentru plată apare aici și vine pe e-mail; "
                f"după confirmarea plății termenul se prelungește, iar programul îl preia singur.</p>")
     else:
-        top = (f"{_STEPS}<p>Pentru abonament ({price} MDL pe lună sau {pay.amount(12, price)} MDL pe an) completați "
+        offer = "; ".join(f"{tiers.NAME[t]} — {_mdl(tiers.price(sub, t))} MDL pe lună sau "
+                          f"{_mdl(pay.amount_for(sub, t, 12))} MDL pe an" for t in tiers.offered(sub))
+        top = (f"{_STEPS}<p>Pentru abonament ({offer or 'prețul din oferta de pe dentpilot.md'}) completați "
                f"IDNO-ul clinicii în datele de mai jos, apoi {_subscribe_label(sub).lower()[0] + _subscribe_label(sub)[1:]} "
                f"— nota de plată apare aici.</p>")
     rows = "".join(
         f"<tr><td class='mono'>{esc(p['reference'])}</td><td>{p['amount']} MDL</td>"
-        f"<td>{esc(mail.luni(p['months']))}</td><td>{_ro(p['created_at'])}</td>"
-        f"<td>{_pay_tag_ro(p['status'])}{(' · ' + _ro(p['paid_at'])) if p['paid_at'] else ''}{_card_link_ro(p)}"
+        f"<td>{esc((tiers.NAME[p['tier']] + ', ') if p['tier'] in tiers.TIERS else '')}{esc(mail.luni(p['months']))}</td>"
+        f"<td>{_ro(p['created_at'])}</td>"
+        f"<td>{_pay_tag_ro(p['status'])}{(' · ' + _ro(p['paid_at'])) if p['paid_at'] else ''}"
         f"</td><td>{_receipt_link_ro(p)}</td></tr>" for p in payments)
     table = (f"<table><tr><th>Referința</th><th>Suma</th><th>Termen</th><th>Data</th><th>Stare</th>"
              f"<th>Document</th></tr>"
@@ -1834,53 +2035,33 @@ def _cont_devices(devices: list, latest: str) -> str:
 
 
 def pay_link_page(c, sub, pending, pid: str, msg: str = "", card_on: bool = False) -> str:
-    """Страница оплаты по ссылке из программы (02.10, paylink.py): срок клиники, нота
-    с реквизитами (и кнопка maib, если настроен) — или выбор срока и способа.
-    Без входа: ссылка неугадываема и живёт сутки; кроме оплаты и IDNO здесь нет ничего."""
+    """Страница оплаты по ссылке из программы (02.10, paylink.py): срок клиники, выбор
+    варианта (Basic / Plus) и срока с галочкой условий — или ожидающая нота с реквизитами
+    и заменой (23.10). Без входа: ссылка неугадываема и живёт сутки; кроме оплаты и IDNO
+    здесь нет ничего."""
     now = datetime.now(timezone.utc)
     st = license.state(_ts(sub["valid_until"]) if sub else None, sub["grace_days"] if sub else 0, now)
-    price = sub["price"] if sub else config.PRICE_MONTH
     plan = sub["plan"] if sub else "trial"
     action = f"/plata/{esc(pid)}"
     if sub is not None and sub["valid_until"]:
-        what = "Perioada de probă" if plan == "trial" else "Abonamentul"
+        what = "Perioada de probă" if plan == "trial" else f"Abonamentul {tiers.NAME[tiers.current(sub)]}"
         cls, tag = STATE_RO.get(st, ("mute", st))
         term = (f"{what} {'este valabilă' if plan == 'trial' else 'este valabil'} până la "
                 f"<b>{_ro(sub['valid_until'])}</b> <span class='tag {cls}'>{esc(tag)}</span>")
     else:
         term = "Licența nu este încă activată."
-    head = _chead("card", esc(c["name"]), f"abonament DentPilot · {price} MDL / lună · {pay.amount(12, price)} MDL / an")
     if pending is not None:
-        p = pending
-        try:
-            ways = f"<pre class='pay'>{esc(mail.ways_to_pay(p['reference'], p['amount'], p['pay_url']))}</pre>"
-        except RuntimeError:
-            ways = "<p>Datele pentru plată le primiți pe e-mail.</p>"
-        if p["pay_url"]:
-            card = f"<p><a class='btn' href='{esc(p['pay_url'])}'>Plătește cu cardul</a></p>"
-        elif card_on:
-            card = (f"<form method='post' action='{action}'><input type='hidden' name='months' value='{p['months']}'>"
-                    f"<p><button class='primary' name='method' value='card'>Plătește cu cardul</button></p></form>")
-        else:
-            card = ""
-        body = (f"<p class='lic'>{term}</p>"
-                f"<p><b>Nota de plată {esc(p['reference'])}</b>: {p['amount']} MDL pentru {mail.luni(p['months'])}.</p>"
-                f"{card}{ways}"
-                f"<p class='muted' style='margin:0'>După confirmarea plății termenul se prelungește automat — programul "
-                f"îl preia singur, o dată pe zi sau cu «Verifică acum»; primiți și confirmarea pe e-mail.</p>")
+        tier = pending["tier"] if pending["tier"] in tiers.TIERS else tiers.PLUS
+        head = _chead("card", esc(c["name"]), f"nota {esc(pending['reference'])} · {esc(tiers.NAME[tier])}, "
+                                              f"{mail.luni(pending['months'])}")
+        body = f"<p class='lic'>{term}</p>{pending_note(pending, sub, action, card_on, now)}"
     else:
-        opts = "".join(f"<option value='{m}'>{'o lună' if m == 1 else 'un an (12 luni)'} — "
-                       f"{pay.amount(m, price)} MDL</option>" for m in pay.MONTHS)
+        head = _chead("card", esc(c["name"]), "abonament DentPilot · varianta și termenul le alegeți mai jos")
         idno = "" if len(c["idno"] or "") == 13 else (
             "<label for='p-idno'>IDNO-ul clinicii (13 cifre) — necesar pentru abonament</label>"
             "<input id='p-idno' name='idno' maxlength='16' inputmode='numeric' required>")
-        buttons = ((f"<button class='primary' name='method' value='card'>Plătește cu cardul</button>" if card_on else "")
-                   + f"<button class='{'' if card_on else 'primary'}' name='method' value='transfer'>"
-                     f"Transfer bancar — primesc nota de plată</button>")
-        body = (f"<p class='lic'>{term}</p>{_STEPS}<form method='post' action='{action}'>"
-                f"<label for='p-months'>Abonament</label><select id='p-months' name='months'>{opts}</select>{idno}"
-                f"<p style='margin:16px 0 0;display:flex;gap:10px;flex-wrap:wrap'>{buttons}</p></form>")
-    inner = f"<div class='card narrow' style='max-width:680px'>{head}{body}</div>"
+        body = f"<p class='lic'>{term}</p>{_STEPS}{tier_form(sub, action, card_on, now, extra=idno)}"
+    inner = f"<div class='card narrow' style='max-width:760px'>{head}{body}</div>"
     return _cont_shell("Plata abonamentului", inner, msg=msg, eyebrow="DentPilot · plata din program",
                        lead="Linkul deschis din program: aici plătiți abonamentul clinicii — fără parolă, fără cont.")
 
@@ -1993,8 +2174,9 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
                f"nu există — <a href='{esc(site)}/privacy.html'>Politica de confidențialitate</a>, § 5.</p>")
     acct = (f"<div class='card'>{_chead('user', 'Contul')}{who}"
             f"<form method='post' action='/cont/iesire' style='margin-top:auto'><button>Ieșire</button></form></div>")
-    price = sub["price"] if sub else config.PRICE_MONTH
-    chip = f"<span class='price'>{price} MDL / lună · {pay.amount(12, price)} MDL / an</span>"
+    cur = tiers.current(sub)
+    chip = (f"<span class='price'>perioada de probă · {tiers.NAME[cur]}</span>" if sub is None or sub["plan"] == "trial"
+            else f"<span class='price'>{tiers.NAME[cur]} · {_mdl(tiers.price(sub, cur))} MDL / lună</span>")
     pays = (f"<div class='card' id='plati'>{_chead('card', 'Abonament și plăți', 'un singur abonament pentru toată clinica', chip)}"
             f"{_cont_payments(c, sub, payments)}</div>")
     data = (f"<div class='card' id='date'>{_chead('building', 'Datele clinicii', 'apar în nota de plată și în licență')}"

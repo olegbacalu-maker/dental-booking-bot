@@ -8,7 +8,7 @@ import sys
 from harness import Client, Result, Server, cid_from
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1]))
-from app import config, paylink  # noqa: E402
+from app import config, paylink, tiers, views  # noqa: E402
 from app import payments as pay  # noqa: E402
 from test_account import BANK_ENV, _letters, _sql  # noqa: E402
 from test_maib import FakeMaib  # noqa: E402
@@ -61,9 +61,14 @@ def suite_paylink(res: Result) -> None:
         res.ok("компьютер программы записан во флот", _sql(s, "SELECT clinic_id FROM devices WHERE id='d_0a1b2c3d4e5f'") == [(cid,)])
         path = "/plata/" + url.rsplit("/", 1)[1]
         page = anon.get(path)
-        res.ok("страница: клиника, цены, срок, выбор месяца/года, перевод; без maib карты нет, IDNO не спрашивает",
+        res.ok("страница: клиника, оба варианта с ценой месяца и года, выбор срока, галочка условий, перевод; "
+               "без maib карты нет, IDNO не спрашивает",
                page.status == 200 and "Clinica Plată Program" in page.body
-               and f"{pay.amount(12, config.PRICE_MONTH)} MDL" in page.body and "name='months'" in page.body
+               and all(f"{views._mdl(pay.amount(m, tiers.list_price(t)))} MDL" in page.body
+                       for t in tiers.TIERS for m in pay.MONTHS)
+               and "DentPilot Basic" in page.body and "DentPilot Plus" in page.body
+               and "name='months'" in page.body and "name='tier'" in page.body
+               and "name='terms' value='1' required" in page.body and "dentpilot.md/termeni.html" in page.body
                and "Transfer bancar" in page.body and "Plătește cu cardul" not in page.body
                and "name='idno'" not in page.body and "Perioada de probă este valabilă" in page.body
                and "noindex" in page.body, page.body[-1200:])
@@ -72,29 +77,37 @@ def suite_paylink(res: Result) -> None:
                                                           "Host": f"127.0.0.1:{s.port}"}).status, 403)
         res.check("срок не из ряда — bad_months", anon.post(path, months="6", method="transfer").location,
                   f"{path}?msg=bad_months")
+        res.ok("пробный — по умолчанию Plus (условия § 3)", "value='plus' checked" in page.body
+               and "value='basic' checked" not in page.body)
         n0 = len(_letters(s))
-        r = anon.post(path, months="12", method="transfer")
+        res.check("без галочки условий ни ноты, ни карты — need_terms (требование maib)",
+                  anon.post(path, months="12", method="transfer").location, f"{path}?msg=need_terms")
+        res.check("без галочки нота не создана", _sql(s, "SELECT count(*) FROM payments WHERE clinic_id=?", cid)[0][0], 0)
+        r = anon.post(path, months="12", method="transfer", terms="1")
         res.check("нота переводом создана", r.location, f"{path}?msg=note_created")
         p = _sql(s, "SELECT reference, amount, months, status, method FROM payments WHERE clinic_id=?", cid)
         res.ok("платёж: год по прайсу, ожидает, перевод",
-               len(p) == 1 and p[0][1] == pay.amount(12, config.PRICE_MONTH) and p[0][2] == 12
+               len(p) == 1 and p[0][1] == pay.amount(12, tiers.list_price(tiers.PLUS)) and p[0][2] == 12
                and p[0][3] == "pending" and p[0][4] == "transfer", repr(p))
         ref = p[0][0]
         letters = _letters(s)
         res.ok("письмо с нотой ушло клинике, с reference",
                len(letters) == n0 + 1 and letters[-1][0] == "plata@example.md" and ref in letters[-1][2])
         page = anon.get(path + "?msg=note_created")
-        res.ok("страница показывает ноту: reference, IBAN, 12 luni; выбора срока больше нет",
+        res.ok("страница показывает ноту: reference, вариант, IBAN, 12 luni; смена — за «Altă variantă»",
                ref in page.body and "MD00TEST" in page.body and "12 luni" in page.body
-               and "name='months'" not in page.body and "Nota de plată a fost creată" in page.body, page.body[-1500:])
-        res.check("вторая нота не плодится — note_exists", anon.post(path, months="1", method="transfer").location,
+               and "<b>DentPilot Plus</b>" in page.body and "Altă variantă sau alt termen?" in page.body
+               and "Nota de plată a fost creată" in page.body, page.body[-1500:])
+        res.check("тот же выбор — нота та же, note_exists",
+                  anon.post(path, months="12", tier="plus", method="transfer", terms="1").location,
                   f"{path}?msg=note_exists")
         res.check("платёж по-прежнему один", _sql(s, "SELECT count(*) FROM payments WHERE clinic_id=?", cid)[0][0], 1)
         pid_db = _sql(s, "SELECT id FROM payments WHERE reference=?", ref)[0][0]
         admin.post(f"/admin/payments/{pid_db}/confirm")
         page = anon.get(path)
         res.ok("после подтверждения: абонемент действует, ноты нет, снова выбор срока",
-               "Abonamentul este valabil" in page.body and ref not in page.body and "name='months'" in page.body,
+               "Abonamentul DentPilot Plus este valabil" in page.body and ref not in page.body
+               and "name='months'" in page.body,
                page.body[-1500:])
         # клиника без IDNO: абонемента без него не бывает — просим на месте
         cid2 = cid_from(admin.post("/admin/clinics", name="Fără IDNO", idno="", email="fara@example.md").location)
@@ -103,13 +116,14 @@ def suite_paylink(res: Result) -> None:
         path2 = "/plata/" + url2.rsplit("/", 1)[1]
         res.ok("без IDNO страница просит IDNO", "name='idno'" in anon.get(path2).body)
         res.check("без IDNO нота не создаётся — pay_need_idno",
-                  anon.post(path2, months="1", method="transfer").location, f"{path2}?msg=pay_need_idno")
+                  anon.post(path2, months="1", method="transfer", terms="1").location, f"{path2}?msg=pay_need_idno")
         res.check("IDNO другой клиники — idno_taken",
-                  anon.post(path2, months="1", method="transfer", idno="1234567890123").location,
+                  anon.post(path2, months="1", method="transfer", idno="1234567890123", terms="1").location,
                   f"{path2}?msg=idno_taken")
-        res.check("кривой IDNO — bad_idno", anon.post(path2, months="1", method="transfer", idno="12").location,
+        res.check("кривой IDNO — bad_idno", anon.post(path2, months="1", method="transfer", idno="12",
+                                                     terms="1").location,
                   f"{path2}?msg=bad_idno")
-        r = anon.post(path2, months="1", method="transfer", idno="7777 777 777 777")
+        r = anon.post(path2, months="1", method="transfer", idno="7777 777 777 777", terms="1")
         res.ok("IDNO сохранён (пробелы сняты) и нота создана",
                r.location == f"{path2}?msg=note_created"
                and _sql(s, "SELECT idno FROM clinics WHERE id=?", cid2) == [("7777777777777",)], r.location)
@@ -139,12 +153,19 @@ def suite_paylink(res: Result) -> None:
             path = "/plata/" + url.rsplit("/", 1)[1]
             res.ok("с maib страница предлагает и карту, и перевод",
                    "Plătește cu cardul" in anon.get(path).body and "Transfer bancar" in anon.get(path).body)
-            r = anon.post(path, months="1", method="card")
+            res.check("карта без галочки — need_terms", anon.post(path, months="1", method="card").location,
+                      f"{path}?msg=need_terms")
+            r = anon.post(path, months="1", method="card", terms="1")
             p = _sql(s, "SELECT provider_id, pay_url, method, status FROM payments WHERE clinic_id=?", cid)
             res.ok("карта: 303 прямо на страницу maib, платёж с payId, ссылкой и методом card",
                    r.status == 303 and len(p) == 1 and r.location == p[0][1] and p[0][0] in fake.pays
                    and p[0][2] == "card" and p[0][3] == "pending", f"{r.status} {r.location} {p}")
-            res.ok("страница с ожидающей нотой ведёт на ту же ссылку maib и показывает перевод",
-                   p[0][1] in anon.get(path).body and "MD00TEST" in anon.get(path).body)
+            page = anon.get(path).body
+            res.ok("страница с ожидающей нотой: карта — кнопкой за галочкой (прямой ссылки maib нет), перевод виден",
+                   p[0][1] not in page and "Plătește cu cardul" in page and "name='terms'" in page
+                   and "MD00TEST" in page)
+            r = anon.post(path, months="1", tier="plus", method="card", terms="1")
+            res.ok("кнопка карты у ожидающей ноты — на ту же ссылку maib, второй платёж у maib не создан",
+                   r.status == 303 and r.location == p[0][1] and len(fake.pays) == 1, f"{r.location} {fake.pays}")
     finally:
         fake.close()
