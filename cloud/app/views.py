@@ -1859,12 +1859,14 @@ def _subscribe_label(sub) -> str:
 
 
 def _steps(card_on: bool) -> str:
-    """Три шага оплаты; с картой (maib настроен) — и она, со своим сроком подтверждения."""
+    """Три шага оплаты; с картой (maib настроен) — и она. Срок перевода — словами условий § 4.6
+    («după ce banii ajung în contul furnizorului»): его подтверждает Олег руками, своего срока
+    у сервера нет — «в тот же рабочий день» не обещать (координатор 23.10)."""
     pay_ = ("<li><b>Plătiți</b> cu cardul, chiar aici, sau prin transfer bancar, cu referința din notă în "
             "destinația plății.</li>" if card_on else
             "<li><b>Plătiți</b> prin transfer bancar, cu referința din notă în destinația plății.</li>")
-    when = ("plata cu cardul — în câteva minute, transferul — în aceeași zi lucrătoare" if card_on
-            else "plata în aceeași zi lucrătoare")
+    when = ("plata cu cardul — în câteva minute, transferul — după ce banii ajung în contul furnizorului"
+            if card_on else "transferul după ce banii ajung în contul furnizorului")
     return ("<ol class='steps'>"
             "<li><b>Alegeți</b> varianta — DentPilot Basic sau DentPilot Plus — și termenul, o lună sau un an; "
             "nota de plată o primiți și pe e-mail, cu referința.</li>"

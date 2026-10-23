@@ -121,6 +121,11 @@ def suite_rules(res: Result) -> None:
            all(tiers.NAME[t] in terms for t in tiers.TIERS)
            and "modulul SMS rămâne pornit până la sfârșitul perioadei în curs" in terms
            and "în varianta în curs" in terms and "Varianta o alege clinica la fiecare plată" in terms)
+    # срок перевода — словами § 4.6: его подтверждает Олег, когда деньги дошли; своего срока нет
+    when = "după ce banii ajung în contul furnizorului"
+    res.ok("шаги оплаты: перевод — словами условий § 4.6, без «în aceeași zi lucrătoare»",
+           when in terms and all(when in views._steps(on) and "aceeași zi" not in views._steps(on)
+                                 for on in (True, False)), views._steps(True))
 
 
 def _account(anon: Client, tok: str) -> dict:
