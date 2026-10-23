@@ -109,3 +109,19 @@ describe('ChairScreen', () => {
     expect(get).toHaveBeenLastCalledWith('/chair?doctor=d2', {})
   })
 })
+
+/* Права врача (22.10): учётка `medic` без привязки — ничьё кресло, выбирать
+   некого: подсказка сервера вместо списка врачей. */
+describe('права врача: кресло учётки без врача', () => {
+  it('notice вместо «Al cui cabinet?»', async () => {
+    get.mockResolvedValueOnce(ok(base({
+      doctor: null, doctors: [],
+      notice: { code: 'no_doctor_link', tone: 'warn', text: 'Contul nu e legat de un medic' },
+    })))
+    open()
+    const n = await screen.findByText('Contul nu e legat de un medic')
+    expect(n.className).toBe('banner warn')
+    expect(screen.queryByText('Al cui cabinet? Alegeți medicul.')).toBeNull()
+    expect(screen.queryByRole('link', { name: /Dr\./ })).toBeNull()
+  })
+})

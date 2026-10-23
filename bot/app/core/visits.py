@@ -18,6 +18,7 @@ from datetime import date, datetime
 
 from .. import db
 from .. import engine as eng
+from .auth import request_user, schedule_scope
 from .layout import _age, status_view
 from .storage import _data_dir
 
@@ -27,6 +28,34 @@ def _parse_date(value: str) -> date:
         return date.fromisoformat(value)
     except ValueError:
         return datetime.now(eng.TZ).date()
+
+
+def of_doctor(r: dict, dk: str) -> bool:
+    """Строка дня принадлежит врачу `dk`: по `doctor_id`, а у легаси-строки
+    без него — по снимку имени. ⛔ Одно правило на всех, кто режет день по
+    врачу (сетка врача, его страница, экран кресла, журнал врача по праву,
+    списки стойки): третья копия условия однажды забыла бы легаси-ветку, и
+    старая запись пропала бы с одного экрана, оставаясь на другом. Жила в
+    `schedule/routes` до 22.10 — переехала сюда, когда понадобилась и
+    `desk.py`, который `routes` импортирует сам."""
+    return (r.get("doctor_id") == dk
+            or (not r.get("doctor_id") and r["doctor"] == eng.DOCTORS.get(dk)))
+
+
+def my_scope() -> str | None:
+    """Чей журнал видит вошедший (22.10, права врача) — `auth.schedule_scope`
+    по живому справочнику врачей: None — всех, ключ — только этого врача,
+    "" — ничей (учётка врача без привязки). Один вызов на журнал, окно записи
+    фиши и кресло: второй вычислитель разошёлся бы с первым молча."""
+    return schedule_scope(request_user(), eng.DOCTORS)
+
+
+def mine(r: dict, scope: str | None) -> bool:
+    """Строка дня — из журнала вошедшего: все при полном праве, свои у
+    врача (`of_doctor`, с его легаси-строками), ничьи у учётки без врача.
+    ⛔ Пустой `scope` — это «никого», а не «всех»: перепутай их — и учётка без
+    привязки увидела бы весь журнал."""
+    return scope is None or (scope != "" and of_doctor(r, scope))
 
 
 # Кнопки исхода — ПО СОСТОЯНИЮ записи, а не один набор на все живые статусы.

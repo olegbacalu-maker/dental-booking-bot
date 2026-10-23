@@ -1,3 +1,4 @@
+import type { ServerNotice } from '../../components/Notice'
 import { api } from '../../services/api'
 
 /* Недельный календарь (C24). Формы ответа — bot/app/modules/schedule/api.py
@@ -60,6 +61,9 @@ export interface WeekModel {
   days: WeekDay[]
   /** День, от которого открыли неделю: ссылки «Zi» ведут на него. */
   day: string
+  /** Подсказка-состояние сервера (22.10, права врача): учётка врача без
+   *  привязки — пустая неделя и «contul nu e legat de un medic». */
+  notice?: ServerNotice | null
 }
 
 export const week = {

@@ -34,7 +34,7 @@ from ... import update as upd
 from ...core import backup_loop, dbkey, notices, restore, sms_loop, theme
 from ...core import sms_plan as splan
 from ...core.api import api_body, api_guard, api_require
-from ...core.auth import (PERM_SETTINGS, PERM_USERS, PIN_MAX, PIN_MIN_LAN, ROLE_LABEL,
+from ...core.auth import (PERM_SETTINGS, PERM_SMS, PERM_USERS, PIN_MAX, PIN_MIN_LAN, ROLE_LABEL,
                           _pin_rec, _set_auth_cookie, all_users, can, change_pin,
                           client_peer, current_user, pin_min, pin_readiness,
                           request_user)
@@ -873,7 +873,9 @@ def _sms_fail(outcome: str, body: dict, *, field: str = ""):
 
 @router.get("/api/settings/sms")
 async def api_sms_get(request: Request):
-    if (deny := api_guard(request)) is not None:
+    # экран SMS — директору и регистратуре; врачу нет (Олег 22.10), то же
+    # право, что у галочки окна записи и у страницы `/admin/settings/sms`
+    if (deny := api_require(request, PERM_SMS)) is not None:
         return deny
     return msg_json(True, data=_sms_data())
 
@@ -883,7 +885,7 @@ async def api_sms_save(request: Request):
     """Переключатели целиком ({day_before, same_day, phone_line}): кривое —
     умолчание (`sms_plan.settings`); цикл будится сразу — включённое событие
     может быть «уже пора»."""
-    if (deny := api_guard(request)) is not None:
+    if (deny := api_require(request, PERM_SMS)) is not None:
         return deny
     body = await api_body(request)
     if body is None:
@@ -901,7 +903,7 @@ async def api_sms_save(request: Request):
 @router.post("/api/settings/sms/refresh")
 async def api_sms_refresh(request: Request):
     """«Verifică acum»: счёт перечитывается у сервера, очередь — следующим тиком."""
-    if (deny := api_guard(request)) is not None:
+    if (deny := api_require(request, PERM_SMS)) is not None:
         return deny
     if not sms_loop.available():
         return msg_json(False, "sms_unavailable", status=409)

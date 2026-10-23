@@ -38,7 +38,13 @@ export interface ShellModel {
     role: string
     role_label: string
     initials: string
-    can: { money: boolean; settings: boolean; doctors: boolean }
+    can: { money: boolean; settings: boolean; doctors: boolean; schedule_all: boolean }
+    /** Ключ СВОЕГО врача, когда журнал сужен до него (роль `medic` с привязкой,
+     *  22.10); пусто — журнал всех (`can.schedule_all`) или ничей (учётка без
+     *  врача: записывать некуда, кнопки «Programare nouă» нет). Кому что
+     *  показывать, решает сервер (`auth.schedule_scope`); это удобство, не
+     *  защита — чужой визит отбивает сам маршрут. */
+    doctor: string
   } | null
   /** `logo` — логотип карточки входа (экран PIN, B4.4): как у страницы входа,
    *  если клиника его загрузила; `logo_topbar` — тот же файл по галочке шапки. */

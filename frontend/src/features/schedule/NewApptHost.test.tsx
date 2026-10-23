@@ -69,7 +69,7 @@ const VPAGE: VisitPage = {
 
 const SHELL: ShellModel = {
   identity: { name: 'Ana Recepție', role: 'receptie', role_label: 'Recepție', initials: 'AR',
-    can: { money: false, settings: false, doctors: true } },
+    can: { money: false, settings: false, doctors: true, schedule_all: true }, doctor: '' },
   clinic: { name: 'Clinica Test', mark: '', logo_topbar: '', logo: '' },
   runtime: { version: '9.9.9', tz: 'Europe/Chisinau' },
   about: { data: '', license_until: '' },

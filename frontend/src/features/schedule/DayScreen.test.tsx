@@ -1368,3 +1368,29 @@ describe('карточка визита: смена процедуры', () => {
     expect(pick()?.value).toBe('pain')
   })
 })
+
+/* Права врача (22.10): учётка `medic` без привязки к врачу получает пустой
+   день и подсказку сервера — состоянием в потоке, не плашкой. */
+describe('права врача: подсказка учётки без врача', () => {
+  const NOTICE = { code: 'no_doctor_link', tone: 'warn', text: 'Contul nu e legat de un medic' }
+  const EMPTY: DayModel = {
+    ...MODEL, doctors: [], hours: [], form: null, list: [], cards: {},
+    canvas: { ...CANVAS, columns: [] }, notice: NOTICE,
+  }
+
+  it('notice сервера печатается словами сервера и тоном warn', async () => {
+    get.mockResolvedValue(ok(EMPTY))
+    openScreen('/admin/all', '/admin/all?date=2026-09-23', <DayScreen navigate={() => {}} />, loadDay)
+    const n = await screen.findByText('Contul nu e legat de un medic')
+    expect(n.className).toBe('banner warn')
+    expect(n.getAttribute('data-code')).toBe('no_doctor_link')
+    /* формы нет — окна записи нет, даже с якорем в адресе */
+    expect(document.querySelector('dialog')).toBeNull()
+  })
+
+  it('без notice строки нет', async () => {
+    openScreen('/admin/all', '/admin/all?date=2026-09-23', <DayScreen navigate={() => {}} />, loadDay)
+    await screen.findAllByText('Ion Popa')
+    expect(document.querySelector('.banner.warn')).toBeNull()
+  })
+})

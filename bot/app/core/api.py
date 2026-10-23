@@ -19,9 +19,11 @@ import json
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 
+from .. import db
 from .. import engine as eng
 from .auth import _secret, can, current_user, same_origin_post
 from .layout import msg_json
+from .visits import mine, my_scope
 
 
 # ---- живой канал ДАННЫМИ (C27.1) -------------------------------------------
@@ -133,3 +135,40 @@ async def api_body(request: Request) -> dict | None:
     except (ValueError, UnicodeDecodeError):
         return None
     return data if isinstance(data, dict) else None
+
+
+# ---- журнал врача: только свои визиты (22.10, права врача) -------------------
+# Две двери одного правила (`auth.schedule_scope` через `visits.my_scope`):
+# команда К СТОЯЩЕМУ визиту спрашивает, чей он, по строке из базы; запись,
+# заметка и перенос спрашивают, К КОМУ. Отказ — 403 `other_doctor`, тем же
+# конвертом, что `no_access`. ⛔ Это последняя линия: клиент чужих визитов
+# не получает вовсе (модели режутся по `mine`), но адрес набирается руками,
+# а вкладка живёт долго. Правило `test_structure` «команда к визиту журнала
+# спрашивает, чей он» требует `api_own_appt` у каждого маршрута команды.
+
+
+def api_own_doctor(doctor: str) -> JSONResponse | None:
+    """Запись, заметка или перенос к врачу `doctor`: 403 `other_doctor`, если
+    журнал вошедшего не включает его (у врача — чужой, у учётки без врача —
+    любой). None — можно, или врача такого нет и правило само ответит `bad`:
+    кривой ввод остаётся кривым вводом, а не чужим врачом."""
+    scope = my_scope()
+    if scope is None or (scope and (doctor == scope or doctor not in eng.DOCTORS)):
+        return None
+    return msg_json(False, "other_doctor", status=403)
+
+
+async def api_own_appt(appt_id: int) -> JSONResponse | None:
+    """Команда к стоящему визиту (исход, комментарий, процедура, перенос,
+    отметка звонка): 403 `other_doctor`, если визит не из журнала вошедшего.
+    None — свой, полное право, или визита нет: «нет такого» (`mv_gone`)
+    говорит правило, как и раньше.
+    ⛔ Спрашивается ДО правила и по строке из базы, а не по телу запроса: тело
+    переноса называет, КУДА двигать, а не чей визит."""
+    scope = my_scope()
+    if scope is None:
+        return None
+    cur = await db.appointment_brief(appt_id)
+    if cur is None or mine(cur, scope):
+        return None
+    return msg_json(False, "other_doctor", status=403)

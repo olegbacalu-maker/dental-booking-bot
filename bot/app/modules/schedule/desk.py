@@ -30,6 +30,7 @@ from ... import db
 from ... import engine as eng
 from ...core.auth import PERM_MONEY, can, request_user
 from ...core.layout import status_view
+from ...core.visits import mine
 
 _WD = ("Lu", "Ma", "Mi", "Jo", "Vi", "Sâ", "Du")
 # статусы, при которых пациент «сегодня был/будет» — перечислением. Слово —
@@ -71,15 +72,15 @@ def _local(v) -> datetime | None:
     return v.astimezone(eng.TZ) if hasattr(v, "astimezone") else None
 
 
-async def _confirm(today: date) -> dict:
+async def _confirm(today: date, scope: str | None = None) -> dict:
     d = next_open(today + timedelta(days=1))
     rows = [r for r in await db.day_appointments(*_bounds(d))
-            if r["patient_id"] and r["status"] == "confirmed"]
+            if r["patient_id"] and r["status"] == "confirmed" and mine(r, scope)]
     calls = await db.appt_calls([r["id"] for r in rows])
     return _confirm_list(d, today, rows, calls)
 
 
-async def _confirm_today(today: date) -> dict:
+async def _confirm_today(today: date, scope: str | None = None) -> dict:
     """«De confirmat azi» (12.10, слово Олега: «вчера не сделал — хочу сегодня»):
     сегодняшние «programată» с пациентом, кого ещё не подтвердили. Отметка,
     поставленная СЕГОДНЯ, строку не убирает — виден ход обзвона и «Anulează
@@ -88,7 +89,7 @@ async def _confirm_today(today: date) -> dict:
     не `confirmed`. ⚠️ Записанный сегодня на сегодня тоже в списке — как и
     записанный сегодня на завтра в списке на завтра: правило у двух дней одно."""
     rows = [r for r in await db.day_appointments(*_bounds(today))
-            if r["patient_id"] and r["status"] == "confirmed"]
+            if r["patient_id"] and r["status"] == "confirmed" and mine(r, scope)]
     calls = await db.appt_calls([r["id"] for r in rows])
     done_before = {aid for aid, c in calls.items()
                    if c["result"] == "ok" and (_local(c["at"]) or datetime.max).date() < today}
@@ -166,9 +167,11 @@ async def _collect(today: date) -> dict:
             "casa_href": f"/admin/casa?d={today.isoformat()}"}
 
 
-async def _free(today: date) -> list:
+async def _free(today: date, scope: str | None = None) -> list:
     out = []
     for dk, name in eng.ACTIVE_DOCTORS.items():
+        if scope is not None and dk != scope:
+            continue            # врачу — своё окно, учётке без врача — ничьё
         d, first = today, None
         for _ in range(FREE_DAYS):
             if eng.hours_for(d):
@@ -186,16 +189,20 @@ async def _free(today: date) -> list:
     return out
 
 
-async def desk_model(now: datetime) -> dict:
+async def desk_model(now: datetime, scope: str | None = None) -> dict:
     """Все четыре списка на момент `now` (день клиники — из него). Касса и
     долги — только тому, кому положены деньги (PERM_MONEY): регистратура
-    получает `collect: null`, и карточка блока не рисует."""
+    получает `collect: null`, и карточка блока не рисует.
+    `scope` — журнал вошедшего (22.10, права врача): обзвон и «primul loc
+    liber» — только его визиты и его окно. «Plan fără programare» остаётся
+    целиком: это пациенты с планом, а картотека врачу открыта вся (Олег
+    23.10); кассу врачу не отдаёт `PERM_MONEY` и без этого."""
     today = now.date()
     money = can(request_user(), PERM_MONEY)
     return {
-        "confirm_today": await _confirm_today(today),
-        "confirm": await _confirm(today),
+        "confirm_today": await _confirm_today(today, scope),
+        "confirm": await _confirm(today, scope),
         "unscheduled": await _unscheduled(now),
         "collect": await _collect(today) if money else None,
-        "free": await _free(today),
+        "free": await _free(today, scope),
     }

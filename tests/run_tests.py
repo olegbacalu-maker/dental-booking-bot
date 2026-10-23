@@ -33,6 +33,7 @@ import test_dbcrypt  # noqa: E402
 import test_demo  # noqa: E402
 import test_desk  # noqa: E402
 import test_dev  # noqa: E402
+import test_doctor_rights  # noqa: E402
 import test_doctors  # noqa: E402
 import test_doctor_windows  # noqa: E402
 import test_day_actions  # noqa: E402
@@ -200,6 +201,11 @@ SUITES = [
     ("PIN: смена", test_pin.suite_change),
     ("PIN: JSON-дверь смены человека", test_pin.suite_api_login),
     ("Роли и права доступа", test_pin.suite_roles),
+    # права врача (22.10): журнал — только свои визиты; ветка PIN-файла
+    ("Права врача: правило schedule_scope", test_doctor_rights.suite_rule),
+    ("Права врача: журнал только своих визитов", test_doctor_rights.suite_journal),
+    ("Права врача: учётка без привязки к врачу", test_doctor_rights.suite_unlinked),
+    ("Права врача: SMS закрыт, фиша вся, запись к себе", test_doctor_rights.suite_sms_and_card),
     ("PIN: битый auth.json", test_pin.suite_broken),
     ("PIN: не короче 6 при включённой сети", test_pin.suite_lan_pin),
     ("PIN: срок и отзыв сессии", test_pin.suite_session),

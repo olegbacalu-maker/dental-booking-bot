@@ -31,14 +31,16 @@ from fastapi import APIRouter, Query, Request
 
 from ... import db
 from ... import engine as eng
-from ...core.api import api_body, api_guard, api_require, live_envelope, live_reply
-from ...core.auth import PERM_SMS, request_user
+from ...core.api import (api_body, api_guard, api_own_appt, api_own_doctor, api_require,
+                         live_envelope, live_reply)
+from ...core.auth import PERM_SMS
 from ...core.layout import msg_json
-from ...core.visits import _collect_cards, _parse_date, all_status_actions, service_options
+from ...core.visits import (_collect_cards, _parse_date, all_status_actions, my_scope,
+                            of_doctor, service_options)
 from . import chair as pchair
 from . import panel as ppanel
-from .routes import (_AG_CLS, _add_appt, _add_note, _canvas_model, _day_model,
-                     _move_appt, _of_doctor, _panel_live, _set_comment,
+from .routes import (_AG_CLS, _add_appt, _add_note, _canvas_model, _chair_doctor,
+                     _day_model, _move_appt, _notice, _panel_live, _set_comment,
                      _set_service, _set_status, _svc_colors, _week_model)
 
 router = APIRouter()
@@ -106,7 +108,7 @@ async def _done(code: str, d: date, doctor: str, field: str | None = None,
                         status=409 if code in _CONFLICT else 422)
     if screen in _NO_STATE:
         return msg_json(True, code)
-    data = await _day_model(d, doctor, f)
+    data = await _day_model(d, doctor, f, my_scope())
     if data is None:
         return msg_json(False, status=404)
     return msg_json(True, code, data=data)
@@ -123,6 +125,8 @@ async def api_desk_call(request: Request, aid: int,
     живой канал, и отметка доезжает до всех рабочих мест тем же конвертом.
     Дню журнала — свежий день в его отборе (`_done`), как после смены статуса."""
     if (deny := api_guard(request)) is not None:
+        return deny
+    if (deny := await api_own_appt(aid)) is not None:
         return deny
     body = await api_body(request)
     result = _s(body, "result")
@@ -150,7 +154,7 @@ async def api_week(request: Request, date_q: str = Query("", alias="date")):
     if (deny := api_guard(request)) is not None:
         return deny
     d = _screen(date_q)
-    data = await _week_model(d)
+    data = await _week_model(d, my_scope())
     # день, от которого открыли неделю: ссылки «Zi» и «Săptămâna» ведут на
     # него, а не на понедельник
     data["day"] = d.isoformat()
@@ -169,8 +173,12 @@ async def api_day(request: Request, date_q: str = Query("", alias="date"),
     """
     if (deny := api_guard(request)) is not None:
         return deny
+    scope = my_scope()
+    if doctor and scope is not None and doctor != scope:
+        # права врача (22.10): день чужого врача — отказ, а не пустой день
+        return msg_json(False, "other_doctor", status=403)
     d = _screen(date_q)
-    data = await _day_model(d, doctor, f)
+    data = await _day_model(d, doctor, f, scope)
     if data is None:
         return msg_json(False, status=404)
     return msg_json(True, data=data)
@@ -197,10 +205,13 @@ async def api_live(request: Request, screen: str = Query("panel"),
     увидеть это можно, только простояв на странице полминуты.
 
     ⛔ Канал НЕ СПРАШИВАЕТ, кто рисует экран: состояние одного и того же дня
-    всегда одно и то же. До 19.09 он отвечал `live:false` и пустотой, увидев
-    флаг React, — то есть отнимал состояние ровно у того клиента, ради
-    которого делался. (С 13.10 старой панели нет, и спрашивать стало нечего:
-    заголовок поверхности `X-DP-Surface` снят вместе с ней.)
+    у одного человека всегда одно и то же. До 19.09 он отвечал `live:false` и
+    пустотой, увидев флаг React, — то есть отнимал состояние ровно у того
+    клиента, ради которого делался. (С 13.10 старой панели нет, и спрашивать
+    стало нечего: заголовок поверхности `X-DP-Surface` снят вместе с ней.)
+    ⚠️ КТО смотрит — спрашивается (22.10, права врача): врач получает панель
+    своих визитов. Отпечаток клиент сравнивает со СВОИМ прошлым ответом, и у
+    одного человека он так же неподвижен на неизменном дне.
     ⚠️ Версии в состоянии НЕТ намеренно: она едет заголовком `X-DP-V`. Положи
     её в данные — и отпечаток менялся бы при каждом обновлении exe, хотя день
     тот же; клиент и так перезагружается по заголовку.
@@ -215,7 +226,8 @@ async def api_live(request: Request, screen: str = Query("panel"),
         return msg_json(False, status=422, field="screen")
     d = _screen(date_q)
     return live_reply(request,
-                      live_envelope(screen, d, await build(d, datetime.now(eng.TZ))))
+                      live_envelope(screen, d,
+                                    await build(d, datetime.now(eng.TZ), my_scope())))
 
 
 @router.get("/api/schedule/canvas")
@@ -231,7 +243,7 @@ async def api_canvas(request: Request, date_q: str = Query("", alias="date")):
     """
     if (deny := api_guard(request)) is not None:
         return deny
-    return msg_json(True, data=await _canvas_model(_screen(date_q)))
+    return msg_json(True, data=await _canvas_model(_screen(date_q), my_scope()))
 
 
 @router.post("/api/schedule/appointments")
@@ -255,6 +267,8 @@ async def api_add(request: Request, date_q: str = Query("", alias="date"),
     body = await api_body(request)
     if body is None:
         return msg_json(False, "bad", status=422)
+    if (deny := api_own_doctor(_s(body, "doctor"))) is not None:
+        return deny
     sms = body.get("sms")
     code = await _add_appt(_s(body, "date"), _s(body, "time"), _s(body, "doctor"),
                            _s(body, "service"), _s(body, "name"), _s(body, "phone"),
@@ -298,6 +312,8 @@ async def api_note(request: Request, date_q: str = Query("", alias="date"),
     body = await api_body(request)
     if body is None:
         return msg_json(False, "bad", field="text", status=422)
+    if (deny := api_own_doctor(_s(body, "doctor"))) is not None:
+        return deny
     code = await _add_note(_s(body, "date"), _s(body, "time"), _s(body, "doctor"),
                            _s(body, "text"), _s(body, "until"))
     return await _done(code, _screen(date_q), doctor, field="text", f=f,
@@ -315,6 +331,8 @@ async def api_comment(request: Request, appt_id: int,
     (`panel`, `med`; разбор в `_done`).
     """
     if (deny := api_guard(request)) is not None:
+        return deny
+    if (deny := await api_own_appt(appt_id)) is not None:
         return deny
     body = await api_body(request)
     if body is None:
@@ -334,6 +352,8 @@ async def api_service_options(request: Request, appt_id: int):
     смене говорит POST под `_slot_lock`.
     """
     if (deny := api_guard(request)) is not None:
+        return deny
+    if (deny := await api_own_appt(appt_id)) is not None:
         return deny
     cur = await db.appointment_brief(appt_id)
     if cur is None:
@@ -356,6 +376,8 @@ async def api_service(request: Request, appt_id: int,
     """
     if (deny := api_guard(request)) is not None:
         return deny
+    if (deny := await api_own_appt(appt_id)) is not None:
+        return deny
     body = await api_body(request)
     if body is None:
         return msg_json(False, "bad", field="service", status=422)
@@ -372,22 +394,27 @@ async def api_chair(request: Request, doctor: str = Query(""),
     Чей экран — `chair.resolve_doctor`: `?doctor=`, иначе врач учётки;
     никого — `doctor: null` и список врачей для выбора. `?date=` — для
     проверок и «посмотреть вчера»; экран живёт сегодняшним днём.
-    ⚠️ Строки берутся тем же `_of_doctor`, что у сетки врача, а слово статуса
+    ⚠️ Строки берутся тем же `of_doctor`, что у сетки врача, а слово статуса
     и форма строки — той же `panel.agenda`, что у панели: второй сборки нет.
     """
     if (deny := api_guard(request)) is not None:
         return deny
     d = _screen(date_q)
-    dk = pchair.resolve_doctor(doctor, request_user(), eng.DOCTORS)
+    scope = my_scope()
+    # права врача (22.10): врачу — своё кресло и только оно в списке, чужой
+    # `?doctor=` молча заменяется своим; учётке без врача — ничьё и подсказка
+    dk = _chair_doctor(doctor)
+    shown = (eng.ACTIVE_DOCTORS.items() if scope is None
+             else [(scope, eng.DOCTORS[scope])] if scope else [])
     data = {"date": d.isoformat(),
-            "doctors": [{"dk": k, "name": n} for k, n in eng.ACTIVE_DOCTORS.items()],
+            "doctors": [{"dk": k, "name": n} for k, n in shown],
             "doctor": None, "chair": None, "stale": [], "queue": [],
-            "actions": all_status_actions()}
+            "actions": all_status_actions(), "notice": _notice(scope)}
     if not dk:
         return msg_json(True, data=data)
     start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
     rows = [r for r in await db.day_appointments(start, start + timedelta(days=1))
-            if _of_doctor(r, dk)]
+            if of_doctor(r, dk)]
     agenda = ppanel.agenda(d, rows, _collect_cards(rows), _svc_colors, _AG_CLS,
                            datetime.now(eng.TZ))
     data.update(pchair.model(rows, agenda["items"]),
@@ -409,6 +436,8 @@ async def api_status(request: Request, appt_id: int,
     """
     if (deny := api_guard(request)) is not None:
         return deny
+    if (deny := await api_own_appt(appt_id)) is not None:
+        return deny
     body = await api_body(request)
     if body is None:
         return msg_json(False, "bad", status=422)
@@ -429,9 +458,14 @@ async def api_move(request: Request, appt_id: int,
     """
     if (deny := api_guard(request)) is not None:
         return deny
+    # свой ли визит — и к своему ли врачу: обе двери правила (22.10)
+    if (deny := await api_own_appt(appt_id)) is not None:
+        return deny
     body = await api_body(request)
     if body is None:
         return msg_json(False, "bad", status=422)
+    if (deny := api_own_doctor(_s(body, "doctor"))) is not None:
+        return deny
     code = await _move_appt(appt_id, _s(body, "date"), _s(body, "time"),
                             _s(body, "doctor"))
     return await _done(code, _screen(date_q), doctor, f=f, screen=screen)

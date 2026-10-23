@@ -169,6 +169,12 @@ def shown_doctors(by_col: dict) -> list[tuple[str, str]]:
             or by_col.get(f"k:{dk}")]
 
 
+# `only=NOBODY` — колонок нет вовсе: учётка врача без привязки (22.10, права
+# врача) видит часы клиники и ни одного столбца, а не столбцы всех врачей.
+# Любой ключ вне справочника дал бы то же, но имя говорит, что это нарочно.
+NOBODY = "-"
+
+
 def orphan_cols(by_col: dict) -> list[str]:
     """Ключи колонок-сирот: всё, что не принадлежит живому справочнику."""
     return sorted(set(by_col) - {f"k:{dk}" for dk in eng.DOCTORS})

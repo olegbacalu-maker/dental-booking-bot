@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
+import { Notice } from '../../components/Notice'
 import { Toast, type ToastState } from '../../components/Toast'
 import { CardDialog } from './CardDialog'
 import { CardMenu, type CardMenuAt } from './CardMenu'
@@ -412,6 +413,8 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
     <section className="dp-react-root">
       {navNode()}
       {subNode(d)}
+      {/* учётка врача без привязки (22.10): пустая панель и слова сервера */}
+      <Notice n={d.notice} />
       <div className="dash">
         <div className="dashmain">
           <DashCanvas model={d.canvas} rail={rail} waitTick={waitTick}

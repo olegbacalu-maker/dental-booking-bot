@@ -26,10 +26,11 @@ from ... import db
 from ... import engine as eng
 from ...core.auth import _guard, request_user
 from ...core import xlsx
-from ...core.layout import react_shell, shell_model
+from ...core.layout import msg_view, react_shell, shell_model
 from ...core.risks import merge as merge_risks
 from ...core.visits import (SVC_PALETTE, _collect_cards, _parse_date,
-                            all_status_actions, service_refusal, status_actions)
+                            all_status_actions, mine, my_scope, of_doctor,
+                            service_refusal, status_actions)
 from . import canvas as pcanvas
 from . import chair as pchair
 from . import day as pday
@@ -127,18 +128,40 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
                        shell_model("dash", "", msg=msg))
 
 
-async def _week_model(d: date) -> dict:
+def _notice(scope: str | None) -> dict | None:
+    """Подсказка-состояние журнала (22.10): у учётки врача без привязки
+    (`scope == ""`) — «contul nu e legat de un medic», иначе None. Слова —
+    `MSG_BANNER` через `msg_view`; ключ `notice` один у дня, панели, недели
+    и кресла, экран печатает его состоянием, а не плашкой."""
+    return msg_view("no_doctor_link") if scope == "" else None
+
+
+def _only(scope: str | None, doctor: str = "") -> str:
+    """Чья колонка на канве: `doctor` — день этого врача; иначе по журналу
+    вошедшего — все (пусто), свой врач или никого (`canvas.NOBODY`).
+    ⛔ `scope == ""` и `scope is None` — РАЗНЫЕ ответы: пустая строка в `only`
+    значила бы «все колонки», то есть ровно то, что учётке без врача не положено."""
+    if scope == "":
+        return pcanvas.NOBODY
+    return doctor or scope or ""
+
+
+async def _week_model(d: date, scope: str | None = None) -> dict:
     """Неделя данными: ОДИН запрос к базе на всю неделю вместо семи.
 
     ⚠️ Правила живут в `week.py` и ничего не знают о разметке — их же возьмёт
     JSON API. Цвет передаётся функцией: он общий с днём и агендой, а импорт
     `routes` из `week` замкнул бы круг.
+    `scope` — журнал вошедшего (`visits.my_scope`, 22.10): врач видит неделю
+    только своих визитов, учётка без врача — пустую с подсказкой `notice`.
     """
     monday = pweek.monday_of(d)
     start, end = pweek.week_span(monday)
-    rows = await db.day_appointments(start, end)
-    return pweek.model(monday, pweek.by_day(rows),
-                       datetime.now(eng.TZ).date(), _svc_colors)
+    rows = [r for r in await db.day_appointments(start, end) if mine(r, scope)]
+    m = pweek.model(monday, pweek.by_day(rows),
+                    datetime.now(eng.TZ).date(), _svc_colors)
+    m["notice"] = _notice(scope)
+    return m
 
 
 @router.get("/admin/week", response_class=HTMLResponse)
@@ -177,7 +200,8 @@ async def admin_export_xlsx(
         d1, d2 = d2, d1
     start = datetime(d1.year, d1.month, d1.day, tzinfo=eng.TZ)
     end = datetime(d2.year, d2.month, d2.day, tzinfo=eng.TZ) + timedelta(days=1)
-    rows = await db.day_appointments(start, end)
+    # права врача (22.10): в выгрузке — те же строки, что в его журнале
+    rows = [r for r in await db.day_appointments(start, end) if mine(r, my_scope())]
 
     data = []
     for r in rows:
@@ -205,33 +229,38 @@ async def admin_export_xlsx(
     )
 
 
-def _of_doctor(r: dict, dk: str) -> bool:
-    """Строка дня принадлежит врачу `dk`: по `doctor_id`, а у легаси-строки
-    без него — по снимку имени. ⛔ Одно правило на всех, кто режет день по
-    врачу (сетка врача, его страница, экран кресла): третья копия условия
-    однажды забыла бы легаси-ветку, и старая запись пропала бы с одного экрана,
-    оставаясь на другом."""
-    return (r.get("doctor_id") == dk
-            or (not r.get("doctor_id") and r["doctor"] == eng.DOCTORS.get(dk)))
+# `_of_doctor` жил здесь до 22.10 — теперь `core.visits.of_doctor` (его зовёт и
+# `desk.py`, который этот модуль импортирует сам); правило то же, одно.
 
 
-async def _day_model(d: date, doctor: str = "", f: str = "") -> dict | None:
+async def _day_model(d: date, doctor: str = "", f: str = "",
+                     scope: str | None = None) -> dict | None:
     """День экрана «Programări» — один на «Toți medicii» и на день врача.
 
     `doctor` пуст — все врачи и все записи; иначе один врач и ТОЛЬКО его
     записи, включая легаси-строки без `doctor_id`, найденные по снимку имени.
     None — такого врача в справочнике нет.
+    `scope` — журнал вошедшего (`visits.my_scope`, 22.10, права врача): у
+    врача общий день — это ЕГО день (одна колонка, форма только на него, его
+    факты и календарь), у учётки без врача — пустой день с подсказкой
+    `notice`. Чужой `doctor` при суженном журнале отбивает маршрут (403),
+    сюда он не доходит.
     """
     day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
-    rows = await db.day_appointments(day_start, day_start + timedelta(days=1))
-    if doctor:
-        if doctor not in eng.DOCTORS:
+    rows = [r for r in await db.day_appointments(day_start, day_start + timedelta(days=1))
+            if mine(r, scope)]
+    one = _only(scope, doctor)      # чей это день: ключ врача или никого
+    if scope == "":
+        # учётка врача без привязки: ни колонок, ни формы — на экране `notice`
+        items, form_items = [], None
+    elif doctor or scope:
+        if one not in eng.DOCTORS:
             return None
-        name = eng.DOCTORS[doctor]
-        rows = [r for r in rows if _of_doctor(r, doctor)]
-        items = [(doctor, name)]
+        name = eng.DOCTORS[one]
+        rows = [r for r in rows if of_doctor(r, one)]
+        items = [(one, name)]
         # у выключенного врача формы нет вовсе — как на его странице
-        form_items = (items if eng.DOCTOR_META.get(doctor, {}).get("active", True)
+        form_items = (items if eng.DOCTOR_META.get(one, {}).get("active", True)
                       else None)
     else:
         # неактивный врач остаётся колонкой, пока у него есть записи этого дня
@@ -249,16 +278,18 @@ async def _day_model(d: date, doctor: str = "", f: str = "") -> dict | None:
     # шапки врачей, цвета и геометрия. Канва строится тем же `canvas.model`
     # из тех же строк — у общего дня она совпадает с канвой панели того же
     # дня (держит test_schedule_api), у дня врача в ней одна колонка.
-    m["canvas"] = pcanvas.model(d, rows, cards, _svc_colors, only=doctor)
-    if doctor:
-        # ⭐ (22.10, вариант A + H Олега) Только у дня ОДНОГО врача: факты о
-        # пациенте карточки визита и календарь шапки. ⛔ Не в `appt_view` и не
-        # в `canvas.blocks`: они едут в каждом конверте живого канала главной,
-        # и канва общего дня обязана совпадать с ним (`suite_day_parity`).
+    m["canvas"] = pcanvas.model(d, rows, cards, _svc_colors, only=one)
+    if one and one in eng.DOCTORS:
+        # ⭐ (22.10, вариант A + H Олега) Только у дня ОДНОГО врача — по адресу
+        # или по праву: факты о пациенте карточки визита и календарь шапки.
+        # ⛔ Не в `appt_view` и не в `canvas.blocks`: они едут в каждом конверте
+        # живого канала главной, и канва общего дня обязана совпадать с ним
+        # (`suite_day_parity`).
         m["extras"] = await _visit_facts(d, rows)
         m["minical"] = ppanel.minical(d, datetime.now(eng.TZ).date(), _RO_MONTHS,
-                                      base=f"/admin/doctor/{doctor}",
-                                      busy=await _busy_days(d, doctor))
+                                      base=f"/admin/doctor/{doctor}" if doctor else "/admin/all",
+                                      busy=await _busy_days(d, one))
+    m["notice"] = _notice(scope)
     return m
 
 
@@ -275,7 +306,7 @@ async def _busy_days(d: date, doctor: str = "") -> set:
     return {r["starts_at"].astimezone(eng.TZ).date()
             for r in await db.appointment_days(m0, m0 + timedelta(days=42))
             if r["status"] != "cancelled" and r["source"] != "note"
-            and (not doctor or _of_doctor(r, doctor))}
+            and (not doctor or of_doctor(r, doctor))}
 
 
 async def _visit_facts(d: date, rows: list) -> dict:
@@ -317,9 +348,14 @@ async def _visit_facts(d: date, rows: list) -> dict:
     return out
 
 
-async def _panel_live(d: date, now: datetime) -> dict:
+async def _panel_live(d: date, now: datetime, scope: str | None = None) -> dict:
     """Живое состояние панели данными: канва, повестка и загрузка — от ОДНОЙ
     выборки дня.
+    `scope` — журнал вошедшего (`visits.my_scope`, 22.10, права врача): врач
+    получает панель только своих визитов (колонка, повестка, загрузка,
+    точки календаря, списки стойки), учётка без врача — пустую с подсказкой
+    `notice`. У одного человека ответ по-прежнему детерминирован при
+    неизменных данных: отпечаток клиент сравнивает со своим же прошлым ответом.
 
     ⛔ Выборка одна не ради скорости. Части панели обязаны отвечать про один и
     тот же день: два запроса к базе подряд — это два РАЗНЫХ дня, если между
@@ -333,11 +369,15 @@ async def _panel_live(d: date, now: datetime) -> dict:
     нужна возможность назвать момент.
     """
     day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
-    rows = await db.day_appointments(day_start, day_start + timedelta(days=1))
+    rows = [r for r in await db.day_appointments(day_start, day_start + timedelta(days=1))
+            if mine(r, scope)]
     cards = _collect_cards(rows)
-    active_dks = [dk for dk in eng.DOCTORS
-                  if eng.DOCTOR_META.get(dk, {}).get("active", True)]
-    busy_days = await _busy_days(d)
+    # ёмкость загрузки — кресла, которые человек видит: все активные, своё
+    # или ни одного (иначе врач видел бы «3% ocupare» на свой полный день)
+    active_dks = ([dk for dk in eng.DOCTORS
+                   if eng.DOCTOR_META.get(dk, {}).get("active", True)] if scope is None
+                  else [scope] if scope else [])
+    busy_days = await _busy_days(d, scope or "") if scope != "" else set()
     return {
         # ⭐ Подпись дня для шапки — В КОНВЕРТЕ, рядом с эхом `date` (решение
         # Олега 24.09). Адрес панели без `?date=` значит «сегодня сервера», и в
@@ -348,7 +388,7 @@ async def _panel_live(d: date, now: datetime) -> dict:
         # дата словами — под заголовок панели (08.10, макет); та же причина
         # быть в конверте, что у `day_label`
         "day_long": pday.day_long(d, _RO_MONTHS),
-        "canvas": pcanvas.model(d, rows, cards, _svc_colors),
+        "canvas": pcanvas.model(d, rows, cards, _svc_colors, only=_only(scope)),
         "agenda": ppanel.agenda(d, rows, cards, _svc_colors, _AG_CLS, now),
         # ⚠️ `now.date()`, а не `d`: «сегодня» в календаре — это сегодня, а не
         # день, на который смотрят. Подставь `d` — и метка «tdy» поедет вслед
@@ -374,21 +414,24 @@ async def _panel_live(d: date, now: datetime) -> dict:
         # ⭐ Про СЕГОДНЯ (`now`), а не про день, на который смотрят: звонки на
         # завтра и касса не зависят от листания календаря. В конверте — чтобы
         # отметка звонка со второго места доехала живым каналом, как запись.
-        "desk": await pdesk.desk_model(now),
+        "desk": await pdesk.desk_model(now, scope),
+        # подсказка учётки без врача (22.10) — состоянием, в том же конверте
+        "notice": _notice(scope),
     }
 
 
-async def _canvas_model(d: date) -> dict:
+async def _canvas_model(d: date, scope: str | None = None) -> dict:
     """Данные канвы панели — ТЕ ЖЕ строки и карточки, что везёт живой канал.
 
-    ⛔ Отбора по врачу здесь нет и не будет: канва показывает день целиком,
-    включая колонку выпавшего из справочника врача, которой на дне врача
-    просто неоткуда взяться.
+    ⛔ Отбора по врачу АДРЕСОМ здесь нет и не будет: канва показывает день
+    целиком, включая колонку выпавшего из справочника врача, которой на дне
+    врача просто неоткуда взяться. Отбор ПО ПРАВУ вошедшего (`scope`, 22.10)
+    — тот же, что у живого канала: врач видит свою колонку и там, и здесь.
     ⚠️ Собирается ТЕМ ЖЕ путём, что живое состояние: своя вторая сборка канвы
     разошлась бы с живой молча, и отличить это можно было бы только сверкой
     двух маршрутов между собой.
     """
-    return (await _panel_live(d, datetime.now(eng.TZ)))["canvas"]
+    return (await _panel_live(d, datetime.now(eng.TZ), scope))["canvas"]
 
 
 @router.get("/admin/all", response_class=HTMLResponse)
@@ -419,9 +462,20 @@ async def admin_cabinet(request: Request, doctor: str = ""):
     """
     if (deny := _guard(request)) is not None:
         return deny
-    dk = pchair.resolve_doctor(doctor, request_user(), eng.DOCTORS)
+    dk = _chair_doctor(doctor)
     return react_shell("chair", "/admin/cabinet", shell_model("prog", "cabinet"),
                        {"doctor": dk} if dk else None)
+
+
+def _chair_doctor(asked: str) -> str:
+    """Чьё кресло: при полном праве — `chair.resolve_doctor` (адрес, иначе врач
+    учётки); у врача — только своё, чужой `?doctor=` молча заменяется своим
+    (22.10, права врача); у учётки без врача — ничьё. Одно правило на
+    страницу `/admin/cabinet` и `GET /api/chair`."""
+    scope = my_scope()
+    if scope is None:
+        return pchair.resolve_doctor(asked, request_user(), eng.DOCTORS)
+    return scope
 
 
 @router.get("/admin/doctor/{dk}", response_class=HTMLResponse)
@@ -431,6 +485,10 @@ async def admin_doctor(request: Request, dk: str,
         return deny
     if dk not in eng.DOCTORS:
         return RedirectResponse("/admin")
+    scope = my_scope()
+    if scope is not None and dk != scope:
+        # права врача (22.10): день чужого врача не открывается — на свой журнал
+        return RedirectResponse("/admin/all")
     d = _parse_date(date_q) if date_q else datetime.now(eng.TZ).date()
     # ⭐ B1: оболочку рисует React.
     return react_shell("schedule_doctor", f"/admin/doctor/{dk}",

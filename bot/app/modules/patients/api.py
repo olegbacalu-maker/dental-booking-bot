@@ -31,9 +31,10 @@ from fastapi import APIRouter, File, Request, UploadFile
 from ... import db
 from ... import engine as eng
 from ... import teeth_svg as tsvg
-from ...core.api import api_body, api_guard, api_require
+from ...core.api import api_body, api_guard, api_own_doctor, api_require
 from ...core.auth import PERM_MONEY, can, request_user
 from ...core.layout import ALERT_KINDS, STATUS_LABEL, _initials, msg_json
+from ...core.visits import my_scope
 from . import anamneza as panam
 from . import card as pcard
 from . import fisa043 as pfisa
@@ -309,7 +310,8 @@ async def _card(pid: int, p: dict, *, views: bool, log_view: bool) -> dict:
     debt = pcard.debt_of(fin)
     av = pcard.anamneza_view(anam)
     sv = pcard.sold_view(fin)
-    ap = pcard.appoint_view(p)
+    # окно записи фиши — только к своему врачу у врача (22.10, права врача)
+    ap = pcard.appoint_view(p, my_scope())
     created = p["created_at"].astimezone(eng.TZ)
     return {
         "id": pid, "name": p["name"] or "", "initials": _initials(p["name"] or "?"),
@@ -758,6 +760,10 @@ async def api_patient_appoint(request: Request, pid: int):
     if deny is not None:
         return deny
     body = await api_body(request)
+    # к чужому врачу из фиши не записать (22.10, права врача) — та же дверь,
+    # что у окна записи журнала
+    if (deny := api_own_doctor(_s(body, "doctor"))) is not None:
+        return deny
     code = await _appoint(pid, _s(body, "date"), _s(body, "time"),
                           _s(body, "doctor"), _s(body, "service"))
     return await _card_reply(request, pid, code, "time" if code in ("bad", "outside") else "")

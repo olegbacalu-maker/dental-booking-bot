@@ -224,8 +224,13 @@ function Topbar({ m, prose, onNew }: TopbarProps) {
      Действие одно на кнопку, Ctrl+N и пункт меню окна Tauri (`useCommand`). */
   const onDay = isJournalDay(loc.pathname)
   const addHref = newApptHref(loc.pathname, loc.search, frame.today)
+  /* Кому записывать некуда — кнопки нет (22.10, права врача): учётка `medic`
+     без привязки к врачу получает от сервера форму без врачей, и кнопка
+     открывала бы пустое окно. Решает сервер (`identity.doctor`); это
+     удобство, не защита — запись к чужому врачу отбивает сам маршрут. */
+  const canAdd = !identity || identity.can.schedule_all || identity.doctor !== ''
   const add = onDay ? () => { void to(addHref) } : onNew
-  useCommand('act:newAppt', add)
+  useCommand('act:newAppt', canAdd && add)
   const click = (e: React.MouseEvent<HTMLAnchorElement>) => {
     if (onDay || !isPlainClick(e, null)) return
     e.preventDefault()
@@ -246,9 +251,11 @@ function Topbar({ m, prose, onNew }: TopbarProps) {
       )}
       <div style={{ flex: 1 }} />
       <span className="dp-upd" onClick={prose} dangerouslySetInnerHTML={{ __html: frame.update }} />
-      <AppLink className="newbtn" href={addHref} onClick={click}>
-        <span className="plus">+</span><span className="nb-t">{T.newAppt}</span>
-      </AppLink>
+      {canAdd && (
+        <AppLink className="newbtn" href={addHref} onClick={click}>
+          <span className="plus">+</span><span className="nb-t">{T.newAppt}</span>
+        </AppLink>
+      )}
       {identity && (
         <div className="who" title={`${identity.name} · ${identity.role_label}`}>
           <span className="who-av">{identity.initials}</span>

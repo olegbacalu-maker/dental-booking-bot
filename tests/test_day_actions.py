@@ -61,7 +61,7 @@ def suite_model(res: Result) -> None:
         res.check("в модели есть всё, чем живут шапка, канва, окна и список",
                   sorted(set(m) - {"date", "doctors"}),
                   ["actions", "canvas", "cards", "day_label", "day_long", "filter", "form", "list",
-                   "note_actions", "note_ends", "source_col"])
+                   "note_actions", "note_ends", "notice", "source_col"])
         # ⛔ ТРИ значения, а не два (C26.5.2). Обрезок больше не носит имени
         # полного: в блоке сетки рядом лежат `comment` (полное, источник
         # правки и участник отпечатка живого канала) и `comment_cut` (60, то,

@@ -126,3 +126,18 @@ describe('недельный календарь', () => {
     expect(get).toHaveBeenCalledWith('/schedule/week?date=2026-09-14', expect.anything())
   })
 })
+
+/* Права врача (22.10): учётка `medic` без привязки — пустая неделя и
+   подсказка сервера над колонками. */
+describe('права врача: подсказка учётки без врача', () => {
+  it('notice модели печатается словами сервера', async () => {
+    get.mockResolvedValue(ok({
+      ...MODEL, total: 0, days: MODEL.days.map((d) => ({ ...d, count: 0, items: [] })),
+      notice: { code: 'no_doctor_link', tone: 'warn', text: 'Contul nu e legat de un medic' },
+    }))
+    await show()
+    const n = screen.getByText('Contul nu e legat de un medic')
+    expect(n.className).toBe('banner warn')
+    expect(document.querySelectorAll('.wcol .wchip').length).toBe(0)
+  })
+})

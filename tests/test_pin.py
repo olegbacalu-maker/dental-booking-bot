@@ -14,7 +14,7 @@ import tempfile
 import time
 
 from harness import PIN as KEY  # ключ облачной ветки (ADMIN_KEY харнесса)
-from harness import BOT, Client, Result, Server, _rmtree_settled, shell_model
+from harness import BOT, Client, Result, Server, _rmtree_settled, day_model, shell_model
 
 NO_KEY = {"ADMIN_KEY": ""}          # без него издание уходит веткой ADMIN_KEY
 
@@ -251,6 +251,13 @@ def suite_roles(res: Result) -> None:
         for path in ("/admin/all", "/admin/search", "/admin/doctor/d2"):
             res.ok(f"врачу открыто {path}", med.get(path).status == 200,
                    "закрыли лишнее")
+        # права врача (22.10): вошедший по PIN врач видит в журнале только свой
+        # столбец — полный разбор в test_doctor_rights, здесь якорь на ветке PIN
+        res.check("врачу в журнале — только его колонка",
+                  [x["id"] for x in day_model(med)["doctors"]], ["d2"])
+        r = med.get("/admin/doctor/d3")
+        res.ok("день чужого врача врачу не открывается",
+               r.status in (303, 307) and r.location == "/admin/all", f"{r!r}")
         # каталог врачей врачу закрыт с 1.15.1 (канарейка 1.15.0: врач с
         # телефона открывал ЧУЖИЕ карточки и мог менять фото) — журнал и
         # пациенты открыты, карточки врачей нет

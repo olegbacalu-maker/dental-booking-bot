@@ -46,6 +46,7 @@ from . import plan_acord as pplan
 from . import visit as pvisit
 from ...core import shellopen, xlsx
 from ...core.auth import _guard
+from ...core.visits import my_scope
 from ...core.layout import (ALERT_KINDS, LIVE_STATUSES, _ic, _initials, react_shell,
                             shell_model)
 from ...core.storage import _data_dir
@@ -192,8 +193,11 @@ async def _set_doctor(pid: int, prev: dict, name: str) -> str:
 async def _free_slots(date_q: str, doctor: str, service: str) -> list[str]:
     """Свободные старты у врача на дату — для окна записи прямо из фиши.
     Тот же eng.free_starts, что у бота: одна правда о занятости на всех.
-    Чужой врач, чужая услуга, кривая дата, врач не по услуге — пусто."""
+    Чужой врач, чужая услуга, кривая дата, врач не по услуге — пусто. Врач не
+    из журнала вошедшего (22.10, права врача) — тоже пусто."""
     if doctor not in eng.DOCTORS or service not in eng.SERVICES:
+        return []
+    if (scope := my_scope()) is not None and doctor != scope:
         return []
     try:
         d = date.fromisoformat(date_q)

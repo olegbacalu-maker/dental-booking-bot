@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router'
 import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
+import { Notice } from '../../components/Notice'
 import { defaultNavigate } from '../../hooks/useLoad'
 import { queryParam, useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { week, type WeekDay, type WeekItem, type WeekModel } from './week'
@@ -85,6 +86,8 @@ export function WeekScreen({ navigate = defaultNavigate }: Props) {
         <AppLink href={`/admin/all?date=${m.day}`}>{T.day}</AppLink>
         <AppLink className="primary" href={`/admin/week?date=${m.day}`}>{T.title}</AppLink>
       </div>
+      {/* учётка врача без привязки (22.10): пустая неделя и слова сервера */}
+      <Notice n={m.notice} />
       <div className="week">
         {m.days.map((d) => <WeekColumn key={d.date} day={d} />)}
       </div>

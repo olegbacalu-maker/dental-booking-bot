@@ -409,11 +409,16 @@ def who(actor: str | None) -> str:
     return "bot" if actor == "bot" else (actor or "recepție")
 
 
-def appoint_view(p: dict) -> dict:
+def appoint_view(p: dict, scope: str | None = None) -> dict:
     """Окно записи для ЭТОГО пациента: услуга решает, кто из врачей её
-    выполняет; медик курант из фиши выбран заранее."""
+    выполняет; медик курант из фиши выбран заранее. `scope` — журнал
+    вошедшего (22.10, права врача): врачу предлагается только он сам, учётке
+    без врача — никто; предвыбор чужого врача снимается."""
+    ok = (lambda dk: True) if scope is None else (lambda dk: dk == scope)
+    prim = next((dk for dk, n in eng.ACTIVE_DOCTORS.items()
+                 if n == (p.get("primary_doctor") or "")), "")
     return {
-        "svc_docs": {k: [dk for dk, _n in eng.allowed_doc_items(k)] for k in eng.SERVICES},
-        "prim": next((dk for dk, n in eng.ACTIVE_DOCTORS.items()
-                      if n == (p.get("primary_doctor") or "")), ""),
+        "svc_docs": {k: [dk for dk, _n in eng.allowed_doc_items(k) if ok(dk)]
+                     for k in eng.SERVICES},
+        "prim": prim if ok(prim) else "",
     }

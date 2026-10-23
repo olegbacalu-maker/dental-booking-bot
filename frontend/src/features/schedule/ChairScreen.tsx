@@ -3,6 +3,7 @@ import { AppLink, useAppNavigate } from '../../components/AppLink'
 import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
+import { Notice } from '../../components/Notice'
 import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
 import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
@@ -122,9 +123,12 @@ export function ChairScreen({ navigate = defaultNavigate }: Props) {
   if (!data) return <section className="dp-react-root chair" aria-busy="true" />
 
   if (!data.doctor) {
+    /* Врача нет: при полном праве — выбор из списка; учётке врача без привязки
+       (22.10) сервер шлёт `notice` и пустой список — печатается подсказка. */
     return (
       <section className="dp-react-root chair">
-        <p>{T.pick}</p>
+        <Notice n={data.notice} />
+        {data.doctors.length > 0 && <p>{T.pick}</p>}
         <div className="chair-docs">
           {data.doctors.map((d) => (
             <AppLink key={d.dk} className="pl-btn" href={`/admin/cabinet?doctor=${d.dk}`}>

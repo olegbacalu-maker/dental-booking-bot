@@ -1366,3 +1366,22 @@ describe('C26.5.4: подсветка приехавшей записи', () => 
     expect(marked()).toEqual([])
   })
 })
+
+/* Права врача (22.10): учётка `medic` без привязки — пустая панель и
+   подсказка сервера в конверте канала, состоянием под подзаголовком. */
+describe('права врача: подсказка учётки без врача на панели', () => {
+  it('notice конверта печатается, без него — нет', async () => {
+    const notice = { code: 'no_doctor_link', tone: 'warn', text: 'Contul nu e legat de un medic' }
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, model({
+      canvas: { ...model().canvas, columns: [] }, agenda: { count: 0, today: true, items: [] }, notice,
+    }))))
+    mount()
+    const n = await screen.findByText('Contul nu e legat de un medic')
+    expect(n.className).toBe('banner warn')
+    expect(document.querySelectorAll('.gridbody .gcol').length).toBe(0)
+    cleanup()
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, model())))
+    await show()
+    expect(document.querySelector('.banner.warn')).toBeNull()
+  })
+})

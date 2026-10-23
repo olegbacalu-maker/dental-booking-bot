@@ -25,9 +25,9 @@ from . import demo
 from . import license as lic
 from . import backup_loop, sms_loop
 from . import theme
-from .auth import (PERM_DOCTORS, PERM_MONEY, PERM_SETTINGS, PIN_MAX, PIN_MIN_LAN,
-                   ROLE_LABEL, _pin_rec, can,
-                   request_user, tamper_alert)
+from .auth import (PERM_DOCTORS, PERM_MONEY, PERM_SCHEDULE_ALL, PERM_SETTINGS, PERM_SMS,
+                   PIN_MAX, PIN_MIN_LAN, ROLE_LABEL, _pin_rec, can,
+                   request_user, schedule_scope, tamper_alert)
 
 # Адрес на домене сайта (06.10, слово Олега): Cloudflare пересылает его в
 # рабочий ящик, и сменить ящик можно, не трогая ни одной установленной копии.
@@ -390,6 +390,13 @@ MSG_BANNER = {
     "no_access": ("err", "Secțiunea este rezervată directorului clinicii. "
                          "Dacă aveți nevoie de acces, cereți-i să vă schimbe rolul "
                          "în Setări › Utilizatori"),
+    # Права врача (22.10): в журнале — только свои визиты. Отказ командам к
+    # чужому визиту и записи к чужому врачу (403) и подсказка-состояние
+    # учётки без врача (едет в модели экранов через `msg_view`).
+    "other_doctor": ("err", "Programarea este la alt medic — în registru vedeți și "
+                            "modificați doar programările dvs."),
+    "no_doctor_link": ("warn", "Contul nu e legat de un medic, de aceea registrul este "
+                               "gol. Directorul alege medicul în Setări › Utilizatori."),
     "ok_user": ("ok", "Utilizator salvat"),
     # ⚠️ без диапазона числами: минимум зависит от сети (`auth.pin_min`), а
     # словарь — импорт; числа показывает поле формы
@@ -513,6 +520,15 @@ def msg_text(code: str) -> str:
     вторым владельцем слова — ровно то, чего держится `test_structure`.
     Неизвестный код — пустая строка, как у `msg_json`."""
     return MSG_BANNER.get(code, ("", ""))[1]
+
+
+def msg_view(code: str) -> dict:
+    """Код словами и тоном — подсказка-СОСТОЯНИЕ внутри модели экрана
+    (`notice` дня, панели, недели и кресла: «contul nu e legat de un medic»,
+    22.10). Тот же словарь, что у `msg_json` и `msg_text`: клиент печатает
+    `text` и красит по `tone`, переводить код сам не имеет права."""
+    tone, text = MSG_BANNER.get(code, ("", ""))
+    return {"code": code, "tone": tone, "text": text}
 
 
 def msg_json(ok: bool, code: str = "", *, data=None, field: str = "",
@@ -1377,6 +1393,11 @@ def shell_model(active: str, sub: str, rail: bool = False,
     show_money = can(me, PERM_MONEY) or me is None
     show_set = can(me, PERM_SETTINGS) or me is None
     show_docs = can(me, PERM_DOCTORS) or me is None
+    # права врача (22.10): журнал всех врачей и SMS — по праву; врачу без
+    # полного права клиент узнаёт СВОЕГО врача (`doctor`), чтобы не рисовать
+    # «Programare nouă» учётке, которой записывать некуда
+    show_sched = can(me, PERM_SCHEDULE_ALL) or me is None
+    show_sms = can(me, PERM_SMS) or me is None
     tg_on, tg_user = _tg_state()
     th = theme.current()
 
@@ -1405,7 +1426,9 @@ def shell_model(active: str, sub: str, rail: bool = False,
     # SMS-пакет (S6): пункт у ВСЕХ ролей, когда сервер предлагает пакет
     # (видимость — выключателем на сервере, S0 › 7); регистратура меняет
     # переключатели, директор платит — решает API, не меню
-    if sms_loop.offered():
+    # Врачу пункта нет (Олег 22.10: SMS врач не видит) — то же право, что у
+    # галочки окна записи и у страницы `/admin/settings/sms` (`PERM_SMS`).
+    if sms_loop.offered() and show_sms:
         item = {"key": "sms", "href": "/admin/settings/sms", "icon": "chat",
                 "label": SECTION_TITLE["sms"], "dot": "ok" if sms_loop.active() else "off"}
         # остаток на считанные дни — треугольник с подсказкой вместо точки
@@ -1421,7 +1444,10 @@ def shell_model(active: str, sub: str, rail: bool = False,
                       "role_label": ROLE_LABEL.get(me["role"], me["role"]),
                       "initials": _initials(me["name"]),
                       "can": {"money": show_money, "settings": show_set,
-                              "doctors": show_docs}} if me else None),
+                              "doctors": show_docs, "schedule_all": show_sched},
+                      # ключ СВОЕГО врача у журнала, суженного до него
+                      # (`auth.schedule_scope`); пусто — журнал всех или ничей
+                      "doctor": schedule_scope(me, eng.DOCTORS) or ""} if me else None),
         # ⚠️ Знак и адрес обратной связи едут СТРОКАМИ сервера, как проза
         # баннеров: рисовать фирменный знак второй раз в TSX значило бы завести
         # второго владельца одной картинки.

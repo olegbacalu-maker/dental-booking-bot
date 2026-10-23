@@ -13,6 +13,7 @@
  * Обе живут в `dashFx.ts`.
  */
 
+import type { ServerNotice } from '../../components/Notice'
 import { api } from '../../services/api'
 import type { NewAppt, NewNote, NoteView, VisitCardView } from './day'
 import type { CallResult, Desk } from './desk'
@@ -246,6 +247,9 @@ export interface DashModel {
   slotform: DashSlotForm
   /** «La recepție» (01.10): списки стойки — тем же конвертом, про СЕГОДНЯ. */
   desk: Desk
+  /** Подсказка-состояние сервера (22.10, права врача): учётка врача без
+   *  привязки — пустая панель и «contul nu e legat de un medic». */
+  notice?: ServerNotice | null
 }
 
 /**

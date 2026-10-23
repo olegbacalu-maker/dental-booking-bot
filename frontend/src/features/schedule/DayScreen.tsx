@@ -4,6 +4,7 @@ import { AppLink } from '../../components/AppLink'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
+import { Notice } from '../../components/Notice'
 import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
 import {
@@ -288,6 +289,8 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
           ? <CalButton label={m.day_long} cal={m.minical} />
           : <b className="dp-daysub-date">{m.day_long}</b>} · {count} {count === 1 ? T.one : T.many} · {occPct}% {T.occ}
       </div>
+      {/* учётка врача без привязки (22.10): пустой день и слова сервера */}
+      <Notice n={m.notice} />
 
       {/* ⚠️ Место списка зависит от отбора, и это не косметика: пришедший с
           плитки панели дня должен увидеть СВОИ строки сразу, а не под сеткой.

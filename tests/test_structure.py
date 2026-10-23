@@ -991,6 +991,39 @@ def suite(res: Result) -> None:
     res.ok("дверь /api/auth/login: без охраны, но со сверкой Origin", not door_bad,
            "; ".join(door_bad))
 
+    # ---- команда к визиту журнала спрашивает, чей он (22.10, права врача) ----
+    # Врач видит и правит только свои визиты. Модели режутся по `visits.mine`,
+    # но адрес команды набирается руками, а вкладка живёт долго, поэтому каждая
+    # команда К СТОЯЩЕМУ визиту — `/api/schedule/appointments/{id}/…` и отметка
+    # звонка `/api/schedule/desk/call/{aid}` — обязана спросить `api_own_appt`
+    # ДО правила. Новый маршрут команды (так появилась `…/service` 22.10) без
+    # этого вызова молча открыл бы врачу чужой визит: ответ — «успех», экран
+    # цел, и красным это ловится только здесь.
+    # ⚠️ Полярность опасная: ищутся ИМЕНА. Якорей два — `api_own_appt` определён
+    # в core/api.py, и маршрутов команд нашлось не меньше пяти.
+    bad, n_cmd = [], 0
+    if "api_own_appt" not in api_defs:
+        bad.append("app/core/api.py: нет api_own_appt — якорь правила пропал")
+    cmd_re = re.compile(r"^/api/schedule/(appointments|desk/call)/\{")
+    for rel, tree in src:
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            routes = [d.args[0].value for d in fn.decorator_list
+                      if isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute)
+                      and d.func.attr in ("get", "post", "put", "delete", "patch")
+                      and d.args and isinstance(d.args[0], ast.Constant)
+                      and isinstance(d.args[0].value, str)]
+            if not any(cmd_re.match(p) for p in routes):
+                continue
+            n_cmd += 1
+            if "api_own_appt" not in _calls(fn):
+                bad.append(f"{rel}:{fn.lineno} {fn.name}() не спрашивает api_own_appt")
+    if n_cmd < 5:
+        bad.append(f"маршрутов команд к визиту нашлось {n_cmd} — якорь правила пропал")
+    res.ok("команда к визиту журнала спрашивает, чей он", not bad,
+           "врач с телефона тронул бы чужой визит адресом: " + "; ".join(bad))
+
     # ---- обрезок не носит имени полного значения (C26.5.2) ----
     # Один и тот же текст живёт в нескольких длинах: комментарий — 80 в списке
     # дня, 60 в карточке сетки, полный в базе; заметка — 80 в подсказке, 40 в

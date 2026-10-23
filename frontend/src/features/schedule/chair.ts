@@ -1,3 +1,4 @@
+import type { ServerNotice } from '../../components/Notice'
 import { api, type ApiResult } from '../../services/api'
 import type { StatusAction } from './day'
 
@@ -40,6 +41,9 @@ export interface ChairData {
   stale: ChairItem[]
   queue: ChairItem[]
   actions: Record<string, StatusAction[]>
+  /** Подсказка-состояние сервера (22.10, права врача): учётка врача без
+   *  привязки — ничьё кресло, выбирать некого (`doctors` пуст). */
+  notice?: ServerNotice | null
 }
 
 const query = (doctor: string) => (doctor ? `?doctor=${encodeURIComponent(doctor)}` : '')

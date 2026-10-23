@@ -30,9 +30,9 @@ vi.mock('../hooks/useLive', async (importOriginal) => ({
 }))
 
 const ION: ShellModel['identity'] = { name: 'Ion Director', role: 'director', role_label: 'Director',
-  initials: 'ID', can: { money: true, settings: true, doctors: true } }
+  initials: 'ID', can: { money: true, settings: true, doctors: true, schedule_all: true }, doctor: '' }
 const ANA: ShellModel['identity'] = { name: 'Ana Recepție', role: 'receptie', role_label: 'Recepție',
-  initials: 'AR', can: { money: false, settings: false, doctors: true } }
+  initials: 'AR', can: { money: false, settings: false, doctors: true, schedule_all: true }, doctor: '' }
 
 const NAV = [
   { key: 'dash', href: '/admin', icon: 'home', label: 'Panoul principal' },

@@ -8,7 +8,7 @@ import {
 /* Список команд окна Tauri (Т7) — чистые функции: что видит человек в каком
    меню и какой пункт отвечает на какую клавишу. Мост и экраны — bridge.test. */
 
-const CAN_ALL = { money: true, settings: true, doctors: true }
+const CAN_ALL = { money: true, settings: true, doctors: true, schedule_all: true }
 const NAV_ALL = [
   { key: 'dash', href: '/admin', icon: 'home', label: 'Panoul principal' },
   { key: 'prog', href: '/admin/all', icon: 'cal', label: 'Programări' },
@@ -20,7 +20,7 @@ const NAV_ALL = [
 
 function model(over: Partial<ShellModel> = {}): ShellModel {
   return {
-    identity: { name: 'Ion Director', role: 'director', role_label: 'Director', initials: 'ID', can: CAN_ALL },
+    identity: { name: 'Ion Director', role: 'director', role_label: 'Director', initials: 'ID', can: CAN_ALL, doctor: '' },
     clinic: { name: 'Clinica Test', mark: '', logo_topbar: '', logo: '' },
     runtime: { version: '9.9.9', tz: 'Europe/Chisinau' },
     about: { data: '', license_until: '' },
@@ -44,7 +44,7 @@ function model(over: Partial<ShellModel> = {}): ShellModel {
 /** Регистратура: без денег и настроек, врачи — есть (как у сервера). */
 const RECEPTIE = model({
   identity: { name: 'Ana', role: 'receptie', role_label: 'Recepție', initials: 'A',
-    can: { money: false, settings: false, doctors: true } },
+    can: { money: false, settings: false, doctors: true, schedule_all: true }, doctor: '' },
   nav: { active: 'dash', items: NAV_ALL.filter((i) => i.key !== 'stat' && i.key !== 'set'), sync: [], foot_title: '' },
 })
 

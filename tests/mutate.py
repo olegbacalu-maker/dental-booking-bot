@@ -252,6 +252,17 @@ MUTATIONS = [
     ("дверь /api/auth/login", "app/modules/entry/api.py",
      ("    if not same_origin_post(request):\n        return msg_json(False, status=403)\n",
       "")),
+    # Команда к визиту без вопроса «чей он»: врач адресом тронул бы чужой визит,
+    # ответ «успех», экран цел — так жила бы следующая команда журнала.
+    ("команда к визиту журнала спрашивает", "app/modules/schedule/api.py",
+     ("    if (deny := await api_own_appt(appt_id)) is not None:\n"
+      "        return deny\n"
+      "    body = await api_body(request)\n"
+      "    if body is None:\n"
+      '        return msg_json(False, "bad", field="comment", status=422)\n',
+      "    body = await api_body(request)\n"
+      "    if body is None:\n"
+      '        return msg_json(False, "bad", field="comment", status=422)\n')),
     # Обрезок, названный именем целого: ровно так жил `comment` до 19.09 —
     # 60 знаков под именем полного значения, и живой канал не замечал правки
     # за 60-м знаком (204 «день не менялся»), а диалог записал бы обрезок.

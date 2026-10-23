@@ -66,9 +66,11 @@ def suite_api(res: Result) -> None:
         d = _seed(c, monday)
 
         j = _j(c.get(f"/api/schedule/week?date={d(1)}"))["data"]
+        # `notice` — подсказка-состояние (22.10, права врача: учётка без врача);
+        # у полного журнала она null, но ключ в составе всегда
         res.check("состав", sorted(j),
                   sorted(["monday", "sunday", "prev", "next", "span", "total",
-                          "days", "day"]))
+                          "days", "day", "notice"]))
         res.check("границы недели и соседние недели",
                   (j["monday"], j["sunday"], j["prev"], j["next"], j["day"]),
                   (monday.isoformat(), d(6),
@@ -614,8 +616,10 @@ def suite_dash_flag(res: Result) -> None:
     заголовком «legacy» React-панель перезагружалась бы по кругу.
     """
     day = clinic_today().isoformat()
+    # `notice` — подсказка-состояние (22.10, права врача: учётка без врача);
+    # у полного журнала null, но в составе конверта всегда
     keys = ["actions", "agenda", "canvas", "day_label", "day_long", "desk",
-            "minical", "note_actions", "note_ends", "occupancy", "slotform"]
+            "minical", "note_actions", "note_ends", "notice", "occupancy", "slotform"]
     with Server() as s:
         c = Client(s.url).login()
         page = c.get(f"/admin?date={day}").body

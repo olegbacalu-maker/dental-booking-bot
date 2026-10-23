@@ -1,3 +1,4 @@
+import type { ServerNotice } from '../../components/Notice'
 import { api } from '../../services/api'
 import type { DashCanvasModel, DashMiniCal } from './dash'
 import type { CallResult } from './desk'
@@ -273,6 +274,10 @@ export interface DayModel {
   /** Только у дня врача (22.10, вариант H): календарь кнопки даты в шапке —
    *  ссылки на `/admin/doctor/{dk}`, точки только его записей. */
   minical?: DashMiniCal
+  /** Подсказка-состояние сервера (22.10, права врача): учётка `medic` без
+   *  привязки к врачу — «contul nu e legat de un medic»; слова и тон —
+   *  `MSG_BANNER` (`layout.msg_view`). Нет или `null` — журнал обычный. */
+  notice?: ServerNotice | null
 }
 
 /** Строка колонки рисков: atenționare фиши или часть анамнеза. Сведены без

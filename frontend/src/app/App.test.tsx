@@ -416,12 +416,25 @@ describe('B4.2: оболочка — сайдбар, крошки, шапка, �
     await expectTransition(router, '/admin/settings/system')
   })
 
+  it('права врача (22.10): учётке без привязки к врачу «Programare nouă» не рисуется, врачу с привязкой — да', () => {
+    get.mockReturnValue(new Promise(() => {}))
+    const medic = (doctor: string): ShellModel['identity'] => ({
+      name: 'Dr. X', role: 'medic', role_label: 'Medic', initials: 'DX',
+      can: { money: false, settings: false, doctors: false, schedule_all: false }, doctor,
+    })
+    open(CLINIC_URL, node('settings_clinic', {}, { ...SHELL_FULL, identity: medic('') }))
+    expect(screen.queryByText('Programare nouă')).toBeNull()
+    cleanup()
+    open(CLINIC_URL, node('settings_clinic', {}, { ...SHELL_FULL, identity: medic('d2') }))
+    expect(screen.getByText('Programare nouă')).toBeTruthy()
+  })
+
   it('выход без PIN-файла (облако, демо) — не экран: обычная ссылка на сервер', async () => {
     get.mockReturnValue(new Promise(() => {}))
     const { router } = open(CLINIC_URL, node('settings_clinic', {}, {
       ...SHELL_FULL,
       identity: { name: 'Ana', role: 'director', role_label: 'Director', initials: 'A',
-        can: { money: true, settings: true, doctors: true } },
+        can: { money: true, settings: true, doctors: true, schedule_all: true }, doctor: '' },
     }))
     const out = screen.getByTitle('Ieșire din cont')
     expect(out.tagName).toBe('A')
@@ -493,9 +506,9 @@ describe('B4.2: оболочка — сайдбар, крошки, шапка, �
 
 describe('B4.4: смена человека без перезагрузки', () => {
   const ION: ShellModel['identity'] = { name: 'Ion Director', role: 'director', role_label: 'Director',
-    initials: 'ID', can: { money: true, settings: true, doctors: true } }
+    initials: 'ID', can: { money: true, settings: true, doctors: true, schedule_all: true }, doctor: '' }
   const ANA: ShellModel['identity'] = { name: 'Ana Recepție', role: 'receptie', role_label: 'Recepție',
-    initials: 'AR', can: { money: false, settings: false, doctors: true } }
+    initials: 'AR', can: { money: false, settings: false, doctors: true, schedule_all: true }, doctor: '' }
   /* клиника с PIN-файлом: дверь — замок на месте */
   const PIN_SHELL: ShellModel = {
     ...SHELL, identity: ION,
