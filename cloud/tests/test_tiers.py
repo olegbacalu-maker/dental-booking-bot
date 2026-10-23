@@ -116,7 +116,9 @@ def suite_rules(res: Result) -> None:
     res.check("cont de plată: предмет с вариантом",
               receipts.item_for(None, {"kind": "license", "months": 12, "tier": B})["title"],
               "Abonament DentPilot Basic (fără modulul SMS)")
-    terms = " ".join((ROOT / "docs" / "site" / "termeni.html").read_text(encoding="utf-8").split())
+    # «DentPilot™ Basic» в условиях = «DentPilot Basic» сервера: знак ставит сайт, имя варианта то же
+    terms = " ".join((ROOT / "docs" / "site" / "termeni.html").read_text(encoding="utf-8")
+                     .replace("™", "").split())
     res.ok("условия называют варианты так же, как сервер, и обещают то, что делает confirm",
            all(tiers.NAME[t] in terms for t in tiers.TIERS)
            and "modulul SMS rămâne pornit până la sfârșitul perioadei în curs" in terms
