@@ -8,6 +8,11 @@ import { printHref } from './print'
 /* Опросник анамнеза: свёрнутая секция обязана показывать САМО содержимое —
    врач смотрит на неё перед анестезией и раскрывать «Chestionar» не будет.
    Риски (галочки И свободный текст) посчитаны на сервере.
+   «Niciuna dintre afecțiunile de mai sus» (Олег 23.10) — последняя строка
+   списка, ключ `options.anamneza_none` в той же строке flags: отметил её —
+   двенадцать снимаются, отметил любую из двенадцати — она снимается (сервер
+   на оба разом отвечает отказом). Свободные поля она не трогает. Сохранённая
+   — серый чип словами медзаписи, дата — строкой «Completat».
    ⭐ Черновик живёт у ЭКРАНА фиши, не у карточки (01.10): вкладки
    размонтированы, и две галочки, поставленные до «Salvează», пропадали при
    щелчке по соседней вкладке — молча, без вопроса. */
@@ -16,6 +21,7 @@ const T = {
   risk: 'de reținut',
   noRisk: 'fără riscuri',
   none: 'necompletată',
+  denies: 'Neagă afecțiunile din chestionar',
   filled: 'Completat:',
   notFilled: 'Nu a fost completată — întrebați pacientul înainte de tratament',
   print: 'Formular pentru pacient',
@@ -83,9 +89,11 @@ export function AnamnezaCard({ card, a, draft, onDraft, focusTick }: Props) {
     : an.state === 'risk'
       ? <span className="pill orange">{an.n_risk} {T.risk}</span>
       : <span className="pill green">{T.noRisk}</span>
+  const none = opts.anamneza_none
   const chips = [
-    ...an.marked.map((m) => ({ icon: 'sos' as const, text: m })),
-    ...an.free.map((f) => ({ icon: 'note' as const, text: `${f.label}: ${f.text.slice(0, 70)}` })),
+    ...(an.denies ? [{ icon: 'check' as const, text: T.denies, cls: 'none' }] : []),
+    ...an.marked.map((m) => ({ icon: 'sos' as const, text: m, cls: '' })),
+    ...an.free.map((f) => ({ icon: 'note' as const, text: `${f.label}: ${f.text.slice(0, 70)}`, cls: '' })),
   ]
 
   return (
@@ -93,7 +101,7 @@ export function AnamnezaCard({ card, a, draft, onDraft, focusTick }: Props) {
       <h3>{T.title} {head}{dirty && <span className="pill orange dp-unsaved">{T.unsaved}</span>}</h3>
       {chips.length > 0 && (
         <div className="anlist">
-          {chips.map((c, i) => <span key={i}><Icon name={c.icon} /> {c.text}</span>)}
+          {chips.map((c, i) => <span key={i} className={c.cls || undefined}><Icon name={c.icon} /> {c.text}</span>)}
         </div>
       )}
       <small className="hint dp-m0">
@@ -114,10 +122,18 @@ export function AnamnezaCard({ card, a, draft, onDraft, focusTick }: Props) {
             {opts.anamneza_flags.map((f) => (
               <label key={f.id}>
                 <input type="checkbox" checked={flags.includes(f.id)}
-                       onChange={(e) => edit({ flags: e.target.checked ? [...flags, f.id] : flags.filter((x) => x !== f.id) })} />
+                       onChange={(e) => edit({ flags: e.target.checked
+                         ? [...flags.filter((x) => x !== none.id), f.id]
+                         : flags.filter((x) => x !== f.id) })} />
                 {' '}{f.label}
               </label>
             ))}
+            {/* ответ на весь список — последней строкой, на всю ширину */}
+            <label className="annone">
+              <input type="checkbox" checked={flags.includes(none.id)}
+                     onChange={(e) => edit({ flags: e.target.checked ? [none.id] : flags.filter((x) => x !== none.id) })} />
+              {' '}{none.label}
+            </label>
           </div>
           {opts.anamneza_texts.map((t) => (
             <label key={t.id} className="dlab">{t.label}

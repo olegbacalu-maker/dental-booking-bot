@@ -186,7 +186,9 @@ săptămâna trecută» (`.stx-period b` остаётся — его читае�
   здесь: `select.dp-hero-doc` выглядит значением (не задан — «Setează medicul»
   цветом ссылки), сохраняет одним полем `POST …/doctor`. Кнопка «Anamneză» из шапки СНЯТА: не
   собирали — баннер `.dp-abanner` (role=alert, янтарный) с «Completează
-  anamneza»; есть риски — полоса `.hero-risk` с «Anamneză ›». KPI `.kpi` без
+  anamneza»; есть риски — полоса `.hero-risk` с «Anamneză ›»; собран без
+  рисков и пациент заявил, что ничем из списка не болеет (23.10) — серая
+  `.hero-risk.none` «Neagă afecțiunile din chestionar · completat дата». KPI `.kpi` без
   значков: подпись / число 22·700 / пояснение; «Ultima vizită» — ДАТОЙ,
   давность под ней словом (`daysLabel`: azi / ieri / acum N zile; дни считает
   сервер по календарю клиники). Вкладки 44px, активная — подчёркивание 3px.

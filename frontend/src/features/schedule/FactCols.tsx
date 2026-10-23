@@ -24,6 +24,8 @@ const T = {
   nth: (n: number) => `vizita a ${n}-a`,
   last: 'ultima',
   noAnam: 'Anamneză necompletată',
+  denies: 'Neagă afecțiunile din chestionar',
+  filledOn: 'completat',
   noRisk: 'fără riscuri',
   noPlan: 'fără plan activ',
   inWork: 'în lucru',
@@ -58,6 +60,9 @@ function lastDay(iso: string, date: string): string {
   return iso.slice(0, 4) === date.slice(0, 4) ? dm(iso) : `${dm(iso)}.${iso.slice(0, 4)}`
 }
 
+/** Дата опроса анамнеза — всегда с годом: опросник бывает старше года. */
+const dmy = (iso: string) => `${dm(iso)}.${iso.slice(0, 4)}`
+
 /** Позиции плана по процедуре: «45 46 Obturație compozit»; «în lucru» — у
  *  группы, где хоть одна позиция в работе. */
 function planGroups(x: VisitFacts) {
@@ -83,7 +88,16 @@ export function FactCols({ x, date }: { x: VisitFacts; date: string }) {
           </span>
         ))}
         {!x.anam && <span className="vf-chip grey">{T.noAnam}</span>}
-        {x.anam && !x.risks.length && <span className="vf-muted">{T.noRisk}</span>}
+        {/* третье состояние (23.10): собран, рисков нет, заявил, что здоров —
+            серое слово медзаписи и дата опроса второй строкой (в «+N» уходит
+            с полным текстом из title) */}
+        {x.anam && !x.risks.length && x.denies && (
+          <>
+            <span className="vf-chip grey" title={`${T.denies} · ${T.filledOn} ${dmy(x.denies)}`}>{T.denies}</span>
+            <span className="vf-muted" title={`${T.filledOn} ${dmy(x.denies)}`}>{T.filledOn} {dmy(x.denies)}</span>
+          </>
+        )}
+        {x.anam && !x.risks.length && !x.denies && <span className="vf-muted">{T.noRisk}</span>}
         <span className="vf-more" />
       </span>
       <span className="vf-col vf-plan" aria-label={T.plan}>

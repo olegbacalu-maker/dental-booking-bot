@@ -270,6 +270,8 @@ def _options() -> dict:
     return {
         "alert_kinds": [{"id": k, "label": v} for k, v in ALERT_KINDS.items()],
         "anamneza_flags": [{"id": k, "label": v} for k, v in panam.FLAGS["ro"].items()],
+        # «ничем из перечисленного» — последняя строка списка, не среди двенадцати
+        "anamneza_none": {"id": panam.NONE_KEY, "label": panam.NONE_LABEL["card"]},
         "anamneza_texts": [{"id": k, "label": lab, "placeholder": ph}
                            for k, lab, ph in panam.TEXTS],
         "doc_categories": [{"id": k, "label": v} for k, v in pcard.DOC_CATEGORIES.items()],
@@ -346,7 +348,9 @@ async def _card(pid: int, p: dict, *, views: bool, log_view: bool) -> dict:
                    for a in alerts],
         "anamneza": {
             "filled": av["filled"], "state": av["state"], "n_risk": av["n_risk"],
-            "flags": [k for k in panam.FLAGS["ro"] if k in av["flags"]],
+            # заявил, что здоров: третье состояние (слово и дата — экрану)
+            "denies": av["denies"],
+            "flags": [k for k in (*panam.FLAGS["ro"], panam.NONE_KEY) if k in av["flags"]],
             "texts": {k: ((anam.get(k) if anam else "") or "") for k, *_ in panam.TEXTS},
             "marked": av["marked"],
             # `short` — короткая подпись поля (как на печатном листе): полоса

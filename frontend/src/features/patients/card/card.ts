@@ -65,6 +65,10 @@ export interface Anamneza {
   filled: boolean
   state: 'none' | 'ok' | 'risk'
   n_risk: number
+  /** Пациент заявил, что ничем из двенадцати не болеет (23.10; ключ
+   *  `options.anamneza_none.id` в `flags`). Не риск: без рисков — третье
+   *  состояние «neagă afecțiunile» с датой `when`; с рисками — риски. */
+  denies: boolean
   flags: string[]
   texts: Record<string, string>
   marked: string[]
@@ -192,6 +196,8 @@ export interface Appoint {
 export interface Options {
   alert_kinds: { id: string; label: string }[]
   anamneza_flags: { id: string; label: string }[]
+  /** «Niciuna dintre afecțiunile de mai sus» — последняя строка списка, взаимоисключающая с двенадцатью. */
+  anamneza_none: { id: string; label: string }
   anamneza_texts: { id: string; label: string; placeholder: string }[]
   doc_categories: { id: string; label: string }[]
   max_doc_mb: number

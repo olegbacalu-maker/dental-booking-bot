@@ -93,7 +93,7 @@ const CARD: PatientCard = {
   kpi: { visits: 3, active: 3, done: 1, canc: 1 },
   alerts: [{ id: 1, kind: 'allergy', label: 'Alergie', icon: 'sos', text: 'Penicilină' }],
   anamneza: {
-    filled: true, state: 'risk', n_risk: 3, flags: ['cardio', 'diabet'],
+    filled: true, state: 'risk', n_risk: 3, denies: false, flags: ['cardio', 'diabet'],
     texts: { boli: '', medicamente: '', alergii: 'latex', anestezie: '' },
     marked: ['Boli cardiovasculare / hipertensiune', 'Diabet zaharat'],
     free: [{ label: 'Alergii (medicamente, materiale)', text: 'latex', short: 'Alergii' }],
@@ -151,6 +151,7 @@ const CARD: PatientCard = {
   options: {
     alert_kinds: [{ id: 'allergy', label: 'Alergie' }, { id: 'info', label: 'Info' }],
     anamneza_flags: [{ id: 'cardio', label: 'Boli cardiovasculare / hipertensiune' }, { id: 'diabet', label: 'Diabet zaharat' }],
+    anamneza_none: { id: 'niciuna', label: 'Niciuna dintre afecțiunile de mai sus' },
     anamneza_texts: [{ id: 'alergii', label: 'Alergii (medicamente, materiale)', placeholder: 'ex. penicilină' }],
     doc_categories: [{ id: 'radiografie', label: 'Radiografie' }, { id: 'acord_plan', label: 'Acord informat la plan — semnat' }, { id: 'alt', label: 'Alt document' }],
     max_doc_mb: 25,
@@ -983,6 +984,26 @@ describe('PatientCardScreen', () => {
     expect(note.textContent).toContain('Anamneza nu a fost completată.')
     fireEvent.click(within(note).getByRole('button', { name: 'Completează anamneza' }))
     await strip().findByRole('tab', { name: 'Date pacient', selected: true })
+  })
+
+  it('23.10: третье состояние — собран, рисков нет, заявил, что здоров: серая полоса «Neagă afecțiunile din chestionar» с датой, без баннера и без полосы рисков; «Anamneză ›» ведёт в опросник, где серый чип и «Niciuna…» отмечена', async () => {
+    serve({ ...CARD, alerts: [], anamneza: { ...CARD.anamneza, state: 'ok', n_risk: 0, denies: true, flags: ['niciuna'], marked: [], free: [], when: '03.11.2025' } })
+    open()
+    await settled()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('note', { name: 'Riscuri medicale' })).toBeNull()
+    const note = screen.getByRole('note', { name: 'Anamneză' })
+    expect(note.className).toContain('none')
+    expect(note.textContent).toContain('Neagă afecțiunile din chestionar')
+    expect(note.textContent).toContain('completat 03.11.2025')
+    fireEvent.click(within(note).getByRole('button', { name: /^Anamneză/ }))
+    await strip().findByRole('tab', { name: 'Date pacient', selected: true })
+    const an = document.querySelector('#anamneza') as HTMLElement
+    expect(Array.from(an.querySelectorAll('.anlist span.none')).map((e) => e.textContent?.trim()))
+      .toEqual(['Neagă afecțiunile din chestionar'])
+    expect((within(an).getByLabelText('Niciuna dintre afecțiunile de mai sus') as HTMLInputElement).checked).toBe(true)
+    /* «Atenționări» на Rezumat этот ответ не повторяет: он не предупреждение */
+    expect(document.querySelector('.dp-alerts .alert.anam')).toBeNull()
   })
 
   it('09.10: блок «Atenționări» на Rezumat сводный — пометки + риски анамнеза серыми; «Modifică în Anamneză ›» ведёт в опросник; на Date pacient блок с формой под опросником', async () => {

@@ -11,7 +11,9 @@ import { printHref } from './print'
    кнопки «Sună», «Programează», «Fișa 043/e»; справа «Ultima vizită» и
    «Medic curant» — выбор прямо здесь (14.10, слово Олега: «Setează medicul»
    вёл на форму профиля ниже). Под шапкой — баннер
-   «Anamneza nu a fost completată…» (role=alert) или полоса рисков; ниже пять
+   «Anamneza nu a fost completată…» (role=alert), полоса рисков или (23.10,
+   третье состояние) серая полоса «Neagă afecțiunile din chestionar» с датой
+   опроса — анамнез собран, пациент заявил, что здоров; ниже пять
    карточек-цифр без значков. Слова — те же, что на старой странице; сами
    цифры, пилюли, «последний» и «следующий» визит посчитаны на сервере. */
 const T = {
@@ -28,6 +30,8 @@ const T = {
   fisa: 'Fișa 043/e',
   anamneza: 'Anamneză',
   riskLabel: 'Riscuri medicale',
+  denies: 'Neagă afecțiunile din chestionar',
+  filledOn: 'completat',
   noneA: 'Anamneza nu a fost completată.',
   noneB: 'Întrebați pacientul înainte de tratament.',
   fill: 'Completează anamneza',
@@ -282,6 +286,14 @@ export function HeroKpi({ card, onBook, onPlan, onAnamneza, onDoctor, busy, back
           <Icon name="excl" />
           <span><b>{T.noneA}</b> {T.noneB}</span>
           <button type="button" className="dp-btn" onClick={onAnamneza}>{T.fill}</button>
+        </div>
+      ) : card.anamneza.denies ? (
+        /* третье состояние (23.10): собран, рисков нет, пациент заявил, что
+           ничем из списка не болеет — серым, с датой опроса */
+        <div className="hero-risk none" role="note" aria-label={T.anamneza}>
+          <Icon name="check" />
+          <span className="hero-risk-list"><span>{T.denies}</span><span>{T.filledOn} {card.anamneza.when}</span></span>
+          <button type="button" className="hero-risk-go" onClick={onAnamneza}>{T.anamneza} ›</button>
         </div>
       ) : null}
       <div className="kpi5">

@@ -1316,6 +1316,11 @@
 .dp-react-root .hero-risk-list > span + span::before { content: '·'; margin: 0 8px; font-weight: 400; opacity: .6; }
 .dp-react-root .hero-risk.soft { background: var(--amber-soft); color: var(--amber-t); border-color: var(--amber-soft); }
 .dp-react-root .hero-risk.soft .hero-risk-list > span { font-weight: 500; }
+/* `none` — третье состояние (23.10): собран, рисков нет, пациент заявил, что
+   ничем из списка не болеет; серым — это ответ, не тревога */
+.dp-react-root .hero-risk.none { background: var(--line2); color: var(--text2); border-color: var(--line2); }
+.dp-react-root .hero-risk.none .hero-risk-list > span { font-weight: 500; }
+.dp-react-root .hero-risk.none .hero-risk-list > span:first-child { font-weight: 600; }
 .dp-react-root .hero-risk-go {
   background: none; border: 0; padding: 0; cursor: pointer; font: inherit; font-weight: 600; color: inherit; white-space: nowrap;
 }

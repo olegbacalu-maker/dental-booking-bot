@@ -20,6 +20,9 @@
    (`FLAG_ROOTS`: «Sarcină» при «Sarcină, trimestrul II», «Tulburări de
    coagulare» при «Anticoagulant…»).
 Сравнение — по словам без диакритики и регистра.
+⛔ «Ничем из перечисленного» (`anamneza.NONE_KEY`, 23.10) риском НЕ является и
+отсюда не выходит: галочки идут по `FLAGS`, а ключ лежит вне словаря.
+Слово «neagă afecțiunile» с датой рисует экран по `denies` факта.
 
 Значки и тона atenționări — тоже здесь (`ALERT_ICON`, `ALERT_TONE`): их
 берёт и фиша (`patients/card.py`), и журнал, а соседние модули друг друга не
@@ -130,3 +133,15 @@ def merge(alerts: list, anam: dict | None) -> list[dict]:
             continue
         out.append({"tone": "amber", "icon": "", "text": full.split(" / ")[0], "title": full})
     return out
+
+
+def denied_since(anam: dict | None):
+    """Третье состояние колонки (23.10): пациент заявил, что ничем из списка
+    не болеет, — отметка времени опроса (последнее сохранение, UTC из базы),
+    иначе None. Здесь, а не в журнале: ключ знает модуль фиши, а соседние
+    модули друг друга не импортируют (как `merge`)."""
+    from ..modules.patients import anamneza as panam
+
+    if not anam or not panam.denies(anam.get("flags")):
+        return None
+    return anam.get("updated_at") or anam.get("created_at")

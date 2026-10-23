@@ -45,7 +45,7 @@ const MODEL: DashCanvasModel = {
 /* Pavel: пять рисков (сервер уже свёл дубли), план с «în lucru», третий
    визит. Ana: новая, анамнез не собран, плана нет. */
 const PAVEL: VisitFacts = {
-  nth: 3, last: { date: '2026-08-12', what: 'Extracție 46' }, anam: true,
+  nth: 3, last: { date: '2026-08-12', what: 'Extracție 46' }, anam: true, denies: null,
   risks: [
     { tone: 'orange', icon: 'sos', text: 'Alergie: penicilină', title: 'Alergie: penicilină' },
     { tone: 'orange', icon: 'pill', text: 'Anticoagulant: Xarelto 20 mg', title: 'Anticoagulant: Xarelto 20 mg' },
@@ -56,7 +56,11 @@ const PAVEL: VisitFacts = {
   plan: [{ tooth: 46, proc: 'Implant', work: true }, { tooth: 45, proc: 'Obturație compozit', work: false },
     { tooth: 44, proc: 'Obturație compozit', work: false }],
 }
-const ANA: VisitFacts = { nth: 1, last: null, anam: false, risks: [], plan: [] }
+const ANA: VisitFacts = { nth: 1, last: null, anam: false, denies: null, risks: [], plan: [] }
+/* Maria (23.10): анамнез собран, заявила, что ничем из списка не болеет —
+   третье состояние колонки, дата опроса из данных сервера. */
+const MARIA: VisitFacts = { nth: 2, last: { date: '2025-11-03', what: 'Consultație' }, anam: true,
+  denies: '2025-11-03', risks: [], plan: [] }
 
 const rail = createRef<HTMLDivElement>()
 const show = (facts?: Record<string, VisitFacts>) =>
@@ -130,6 +134,24 @@ describe('день врача: колонки фактов карточки (22.
     show({ 2: { ...ANA, anam: true } })
     expect(texts(colsOf(2)[0]!, '.vf-muted')).toEqual(['fără riscuri'])
     expect(colsOf(2)[0]!.querySelector('.vf-chip')).toBeNull()
+  })
+
+  it('23.10: заявил, что здоров, рисков нет — серое «Neagă afecțiunile din chestionar» и дата опроса с годом; ни «fără riscuri», ни «necompletată»', () => {
+    show({ 2: MARIA })
+    const [risk] = colsOf(2)
+    expect(texts(risk!, '.vf-chip.grey')).toEqual(['Neagă afecțiunile din chestionar'])
+    expect(texts(risk!, '.vf-muted')).toEqual(['completat 03.11.2025'])
+    expect(risk!.textContent).not.toMatch(/fără riscuri|necompletată/)
+    /* подсказка несёт слово и дату целиком — в «+N» уходит она */
+    expect(risk!.querySelector('.vf-chip.grey')!.getAttribute('title'))
+      .toBe('Neagă afecțiunile din chestionar · completat 03.11.2025')
+  })
+
+  it('23.10: заявил, что здоров, но свободное поле дало риск — колонка показывает риски, слова «neagă» нет', () => {
+    show({ 2: { ...MARIA, risks: [{ tone: 'amber', icon: 'sos', text: 'penicilină', title: 'Alergii: penicilină' }] } })
+    const [risk] = colsOf(2)
+    expect(texts(risk!, '.vf-chip')).toEqual(['penicilină'])
+    expect(risk!.textContent).not.toMatch(/Neagă|completat/)
   })
 })
 

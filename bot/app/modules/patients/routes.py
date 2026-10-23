@@ -277,8 +277,14 @@ async def patient_anamneza_print(request: Request, pid: int, lang: str = "",
 
 async def _save_anamneza(pid: int, checked: set[str], fields: dict) -> str:
     """Опросник анамнеза. Пустой не сохраняем: «фиша с пустым анамнезом» и
-    «анамнез не собирали» — разные вещи, и вторая обязана быть видна."""
-    flags = ",".join(k for k in ANAMNEZA_FLAGS if k in checked)
+    «анамнез не собирали» — разные вещи, и вторая обязана быть видна.
+    «Ничем из перечисленного» (`panam.NONE_KEY`, 23.10) — тринадцатый ключ той
+    же строки; вместе с любым из двенадцати — отказ: намерение берётся из
+    формы, а не угадывается (клиент снимает другую сторону сам, сервер —
+    последняя линия). Свободные поля он не трогает."""
+    if panam.conflict(checked):
+        return "bad_anam_none"
+    flags = ",".join(k for k in (*ANAMNEZA_FLAGS, panam.NONE_KEY) if k in checked)
     if not flags and not any(v.strip() for v in fields.values()):
         # пустая форма на ПУСТОМ опроснике — промах, а не ответ: «фиша с
         # пустым анамнезом» и «анамнез не собирали» это разные вещи.

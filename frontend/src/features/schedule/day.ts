@@ -301,6 +301,10 @@ export interface VisitFacts {
   risks: VisitRisk[]
   /** Собран ли анамнез. */
   anam: boolean
+  /** Заявил, что ничем из списка не болеет (23.10): ISO-дата опроса (последнее
+   *  сохранение, по часам клиники), иначе null. Без рисков — серое «Neagă
+   *  afecțiunile din chestionar» с ней вместо пустой колонки. */
+  denies: string | null
   /** Активный план: зуб, процедура, «în lucru». */
   plan: { tooth: number | null; proc: string; work: boolean }[]
   /* ⛔ Денег нет (Олег 22.10): долг — в фише и у статистики. */

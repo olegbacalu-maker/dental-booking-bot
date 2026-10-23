@@ -27,7 +27,7 @@ from ... import engine as eng
 from ...core.auth import _guard, request_user
 from ...core import xlsx
 from ...core.layout import msg_view, react_shell, shell_model
-from ...core.risks import merge as merge_risks
+from ...core.risks import denied_since, merge as merge_risks
 from ...core.visits import (SVC_PALETTE, _collect_cards, _parse_date,
                             all_status_actions, mine, my_scope, of_doctor,
                             service_refusal, status_actions)
@@ -341,6 +341,11 @@ async def _visit_facts(d: date, rows: list) -> dict:
             "risks": risks,
             # собран ли анамнез: нет — экран ставит серое «Anamneză necompletată»
             "anam": anam is not None,
+            # заявил, что здоров (23.10, `anamneza.NONE_KEY`): дата опроса ISO —
+            # экран ставит серое «Neagă afecțiunile din chestionar» с ней;
+            # дата из данных (последнее сохранение опросника), не «сейчас»
+            "denies": (since.astimezone(eng.TZ).date().isoformat()
+                       if (since := denied_since(anam)) else None),
             "plan": [{"tooth": it["tooth"], "proc": it["procedure"],
                       "work": it["status"] == "in_lucru"}
                      for it in f["plan"].get(pid, [])],

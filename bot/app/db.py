@@ -1867,8 +1867,10 @@ async def day_patient_facts(pids: list, before: datetime) -> dict:
             f"SELECT patient_id, kind, text FROM patient_alerts WHERE patient_id IN ({lite}) "
             "ORDER BY id", *pids):
         alerts.setdefault(r["patient_id"], []).append(r)
+    # created_at/updated_at — дата опроса для «neagă afecțiunile» дня врача
     anam = {r["patient_id"]: r for r in await _fetch(
-        f"""SELECT patient_id, flags, boli, medicamente, alergii, anestezie
+        f"""SELECT patient_id, flags, boli, medicamente, alergii, anestezie,
+                   created_at, updated_at
             FROM anamneza WHERE patient_id IN ({lite})""", *pids)}
     plan: dict[int, list] = {}
     for r in await _fetch(

@@ -439,6 +439,8 @@ MSG_BANNER = {
     "ok_anam": ("ok", "Anamneza a fost salvată"),
     "bad_anam": ("err", "Anamneza nu a fost salvată — bifați ce se potrivește "
                         "sau completați cel puțin un câmp"),
+    "bad_anam_none": ("err", "Anamneza nu a fost salvată — «Niciuna dintre afecțiunile "
+                             "de mai sus» nu se bifează împreună cu o afecțiune din listă"),
     "ok_visit": ("ok", "Consultația a fost salvată"),
     "bad_visit": ("err", "Consultația nu a fost salvată — completați cel puțin "
                          "un câmp"),

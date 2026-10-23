@@ -256,6 +256,7 @@ SUITES = [
     ("Печать на языке пациента", test_anamneza.suite_lang),
     ("Находки ревью 08-08", test_anamneza.suite_review),
     ("Анамнез: бумажный бланк", test_anamneza.suite_form),
+    ("Анамнез: «niciuna dintre afecțiuni» — ключ, лист, 043/e, выгрузка", test_anamneza.suite_none),
     ("Одонтограмма: поверхности", test_teeth.suite_surfaces),
     ("Одонтограмма: молочный прикус", test_teeth.suite_milk),
     ("Одонтограмма: форма зуба", test_teeth.suite_shape),

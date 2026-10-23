@@ -449,3 +449,147 @@ def suite_form(res: Result) -> None:
         res.ok("выдача бланка анкеты попала в летопись",
                any("Chestionar medical generat" in t for t in _feed(c, pid)),
                "лист с именем пациента ушёл без следа")
+
+
+def suite_none(res: Result) -> None:
+    """«Ничем из перечисленного не болею» (Олег 23.10): тринадцатый ключ
+    `anamneza.NONE_KEY` в той же строке flags, взаимоисключающий с двенадцатью.
+
+    До него «все NU на листе» и «не спрашивали» были неразличимы: снятая
+    галочка ничего не значила. Проверяется путь ответа целиком: лист (первое
+    лицо, RO и RU) → фиша (последняя строка списка, состояние «заявил, что
+    здоров» с датой) → 043/e раздел 2 (третье лицо вместо жёлтого пропуска,
+    на языке листа) → выгрузка 195 (подпись как у прочих пунктов, JSON —
+    машинный ключ). Сервер — последняя линия взаимоисключения: ключ вместе
+    с любым из двенадцати — отказ `bad_anam_none`, не угадывание. Свободные
+    поля от ключа не зависят. Факты дня врача — `test_schedule_api.
+    suite_doctor_day`.
+    """
+    from app.core import risks
+    from app.modules.patients import anamneza as panam
+
+    ro_sheet = panam.NONE_LABEL["sheet"]["ro"]
+    ru_sheet = panam.NONE_LABEL["sheet"]["ru"]
+    rec_ro, rec_ru = panam.NONE_LABEL["record"]["ro"], panam.NONE_LABEL["record"]["ru"]
+    res.ok("ключ вне словаря состояний: не галочка FLAGS и не корень рисков",
+           panam.NONE_KEY not in panam.FLAGS["ro"] and panam.NONE_KEY not in risks.FLAG_ROOTS,
+           "ключ попал в список состояний — merge выдал бы его риском")
+    res.check("конфликт — перечислением: ключ с КАЖДЫМ из двенадцати",
+              [panam.conflict({panam.NONE_KEY, k}) for k in panam.FLAGS["ro"]],
+              [True] * len(panam.FLAGS["ro"]))
+    res.check("ключ сам, с незнакомым ключом или без ключа — не конфликт",
+              (panam.conflict({panam.NONE_KEY}), panam.conflict({panam.NONE_KEY, "zzz"}),
+               panam.conflict({"diabet", "cardio"})), (False, False, False))
+    res.check("merge: ключ риском не выходит, atenționare остаётся",
+              [x["text"] for x in risks.merge([{"kind": "allergy", "text": "Alergie: latex"}],
+                                              {"flags": panam.NONE_KEY, "alergii": ""})],
+              ["Alergie: latex"])
+    res.check("marked — только состояния; record_label — слово медзаписи на языке",
+              (panam.marked(f"{panam.NONE_KEY}"), panam.denies("diabet"),
+               panam.record_label(panam.NONE_KEY), panam.record_label(panam.NONE_KEY, "ru"),
+               panam.record_label("diabet")),
+              ([], False, rec_ro, rec_ru, ""))
+
+    with Server() as s:
+        c = Client(s.url).login()
+        c.post_json("/api/patients", {"name": "Sanatos Test", "phone": "022212121"})
+        pid = _pid(c, "022212121")
+
+        # лист: строка после двенадцати пунктов, один квадратик, первое лицо
+        page = c.get(f"/admin/patient/{pid}/anamneza/print").body
+        res.ok("лист RO: формулировка первого лица стоит ПОСЛЕ двенадцати пунктов",
+               ro_sheet in page and page.index(ro_sheet) > page.rindex("Fumător"),
+               "строки «niciuna» нет или она не последняя")
+        res.check("лист RO: квадратиков 25 — по два на пункт и один у «niciuna»",
+                  page.count("class='chk'"), 2 * len(panam.FLAGS["ro"]) + 1)
+        res.ok("лист RO: строка «niciuna» без DA/NU",
+               "DA &nbsp;&nbsp;" not in page.split(ro_sheet, 1)[0].rsplit("<tr", 1)[1],
+               "у строки «niciuna» появились DA/NU")
+        ru = c.get(f"/admin/patient/{pid}/anamneza/print?lang=ru").body
+        res.ok("лист RU: та же строка по-русски, румынской нет",
+               ru_sheet in ru and ro_sheet not in ru, "строка «niciuna» не переведена")
+
+        card = _card(c, pid)
+        res.check("фиша: ключ и подпись последней строки списка — в справочнике",
+                  card["options"]["anamneza_none"],
+                  {"id": panam.NONE_KEY, "label": "Niciuna dintre afecțiunile de mai sus"})
+        res.check("фиша: ключа нет среди двенадцати",
+                  [x["id"] for x in card["options"]["anamneza_flags"]].count(panam.NONE_KEY), 0)
+        res.check("пустой опросник: denies не стоит", card["anamneza"]["denies"], False)
+
+        r = c.post_json(f"/api/patients/{pid}/anamneza", {"flags": [panam.NONE_KEY]})
+        res.check("«ничем не болею» сохраняется само — это ответ, а не пустая форма",
+                  r.msg, "ok_anam")
+        an = _card(c, pid)["anamneza"]
+        res.check("фиша: заявил, что здоров — заполнен, без рисков, одна галочка, denies",
+                  (an["filled"], an["state"], an["n_risk"], an["flags"], an["marked"], an["denies"]),
+                  (True, "ok", 0, [panam.NONE_KEY], [], True))
+        res.check("дата опроса — день сохранения по часам клиники",
+                  an["when"], clinic_today().strftime("%d.%m.%Y"))
+
+        # 043/e раздел 2: слово медзаписи вместо жёлтого пропуска, на языке листа
+        sect = c.get(f"/admin/patient/{pid}/fisa043").body.split(
+            "2. Anamneza", 1)[1].split("<h2>", 1)[0]
+        line = next(l for l in sect.splitlines() if "Bolile suportate" in l)
+        res.ok("043/e RO: «Neagă afecțiunile din chestionar» в «Bolile suportate», пропуска нет",
+               rec_ro in line and "class='fill'" not in line, f"строка: {line[:160]}")
+        res.ok("043/e RO: аллергии и лекарства — по-прежнему пропуски (ключ их не трогает)",
+               sect.count("class='fill'") >= 2, "свободные поля заполнились сами")
+        sect_ru = c.get(f"/admin/patient/{pid}/fisa043?lang=ru").body.split(
+            "2. Анамнез", 1)[1].split("<h2>", 1)[0]
+        res.ok("043/e RU: слово медзаписи по-русски, румынского нет",
+               rec_ru in sect_ru and rec_ro not in sect_ru, "русский лист печатает румынское")
+
+        # выгрузка по 195-му: читаемая копия — словом, JSON — ключом
+        z = zipfile.ZipFile(io.BytesIO(c.get(f"/admin/patient/{pid}/export").raw))
+        html_copy = z.read("fisa-pacient.html").decode("utf-8")
+        data = json.loads(z.read("date-pacient.json").decode("utf-8"))
+        res.ok("выгрузка: в читаемой копии — слово, как у прочих пунктов",
+               rec_ro in html_copy and f">{panam.NONE_KEY}<" not in html_copy,
+               "ключ уехал слагом или потерялся")
+        res.check("выгрузка: JSON несёт машинный ключ", data["anamneza"]["flags"], panam.NONE_KEY)
+
+        # сервер — последняя линия взаимоисключения
+        r = c.post_json(f"/api/patients/{pid}/anamneza",
+                        {"flags": [panam.NONE_KEY, "diabet"], "alergii": "latex"})
+        res.check("ключ вместе с болезнью — отказ bad_anam_none (намерение не угадывается)",
+                  (r.status, r.msg), (422, "bad_anam_none"))
+        an = _card(c, pid)["anamneza"]
+        res.check("отказ ничего не записал: ни галочки, ни свободного поля",
+                  (an["flags"], an["texts"]["alergii"]), ([panam.NONE_KEY], ""))
+        res.ok("слово отказа названо в MSG_BANNER",
+               "Niciuna dintre afecțiunile" in (_j_text(r) or ""), f"текст: {_j_text(r)!r}")
+
+        # свободные поля независимы: «ничем из списка» ≠ «нет аллергий»
+        r = c.post_json(f"/api/patients/{pid}/anamneza",
+                        {"flags": [panam.NONE_KEY], "alergii": "penicilină"})
+        an = _card(c, pid)["anamneza"]
+        res.check("ключ + аллергия: заявил, что здоров, но риск есть — состояние risk",
+                  (r.msg, an["state"], an["denies"], an["n_risk"], [x["text"] for x in an["free"]]),
+                  ("ok_anam", "risk", True, 1, ["penicilină"]))
+        res.check("merge на этой записи — только аллергия, ключа нет",
+                  [x["text"] for x in risks.merge([], {"flags": panam.NONE_KEY,
+                                                       "alergii": "penicilină", "boli": "",
+                                                       "medicamente": "", "anestezie": ""})],
+                  ["penicilină"])
+
+        # другая сторона: отметил болезнь — ключа больше нет
+        r = c.post_json(f"/api/patients/{pid}/anamneza", {"flags": ["diabet"]})
+        an = _card(c, pid)["anamneza"]
+        res.check("отметил болезнь — ключ снят, denies нет",
+                  (r.msg, an["denies"], an["flags"]), ("ok_anam", False, ["diabet"]))
+        sect = c.get(f"/admin/patient/{pid}/fisa043").body.split(
+            "2. Anamneza", 1)[1].split("<h2>", 1)[0]
+        res.ok("043/e: слова медзаписи больше нет, болезнь напечатана",
+               rec_ro not in sect and "Diabet zaharat" in sect, "лист не следует за ответом")
+        res.ok("правка отмечена в летописи",
+               any(t.startswith("Anamneza actualizată") for t in _feed(c, pid)),
+               "летопись молчит")
+
+
+def _j_text(r) -> str:
+    """Текст конверта JSON API (`text` из MSG_BANNER)."""
+    try:
+        return json.loads(r.body).get("text") or ""
+    except ValueError:
+        return ""

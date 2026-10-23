@@ -27,6 +27,7 @@ from ... import teeth_svg as tsvg
 from ...core import theme
 from ...core.layout import _ic
 from . import acord as pacord
+from . import anamneza as panam
 from . import visit as pvisit
 
 # буквенные коды одонтограммы; пустая клетка = sănătos / neexaminat.
@@ -363,9 +364,12 @@ def render(p: dict, alerts: list, teeth: dict, plan: list, recs: list,
     mentions = "; ".join(a["text"] for a in alerts
                          if a["kind"] in ("medication", "warning"))
     marked = [lab for k, lab in (flag_labels or {}).items()
-              if k in set((an.get("flags") or "").split(","))]
-    # раздел «Bolile suportate»: сперва отмеченное в опроснике, затем дописанное
+              if k in panam.keys(an.get("flags"))]
+    # раздел «Bolile suportate»: сперва отмеченное в опроснике, затем дописанное;
+    # «ничем не болеет» (23.10) — строкой медзаписи на языке листа, а не
+    # жёлтым пропуском: заявленное здоровье — тоже запись анамнеза
     boli = "; ".join(x for x in [", ".join(marked),
+                                 panam.record_label(an.get("flags"), lang),
                                  (an.get("boli") or "").strip()] if x)
     medicamente = (an.get("medicamente") or "").strip()
     anestezie = (an.get("anestezie") or "").strip()

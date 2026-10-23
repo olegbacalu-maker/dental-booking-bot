@@ -10,6 +10,18 @@
 
 ⚠️ Наборы ключей ro и ru обязаны совпадать: подпись ищется по ключу, и
 пропущенный перевод молча напечатает ключ вместо вопроса.
+
+«Ничем из перечисленного не болею» (Олег 23.10) — тринадцатый ключ
+`NONE_KEY` в ТОЙ ЖЕ строке `flags`, но не в `FLAGS`: это не состояние, а
+ОТВЕТ на список, и подпись у него своя на каждом месте (`NONE_LABEL`: лист —
+первое лицо пациента, фиша — последняя строка списка, медзапись 043/e и день
+врача — третье лицо). Взаимоисключение с двенадцатью держит клиент
+(отметка снимает другую сторону) и сервер (`conflict`: оба разом — отказ, не
+угадывание). Свободные поля (лекарства, аллергии, реакции, другие болезни)
+он не трогает: «ничем из списка» не значит «нет аллергий». Отсюда три
+состояния анамнеза вместо двух: не заполнен / заявил, что здоров (`denies`,
+с датой опроса) / есть риски. `risks.merge` ключ не выдаёт — он идёт по
+`FLAGS`, и это проверяет прогон.
 """
 from __future__ import annotations
 
@@ -45,6 +57,20 @@ FLAGS = {
         "sarcina": "Беременность / кормление",
         "fumat": "Курит",
     },
+}
+
+# Тринадцатый ключ строки flags: пациент не отметил ни одного из двенадцати и
+# сказал это явно. Иначе «все NU на листе» и «не спрашивали» неразличимы.
+NONE_KEY = "niciuna"
+NONE_LABEL = {
+    # лист пациенту, первое лицо, под вопросом «Suferiți sau ați suferit de:»
+    "sheet": {"ro": "Nu sufăr și nu am suferit de niciuna dintre afecțiunile de mai sus",
+              "ru": "Не страдаю и не страдал(а) ни одним из перечисленных заболеваний"},
+    # фиша: регистратура переносит с листа — последняя строка списка галочек
+    "card": "Niciuna dintre afecțiunile de mai sus",
+    # медзапись (043/e раздел 2, день врача, выгрузка): третье лицо
+    "record": {"ro": "Neagă afecțiunile din chestionar",
+               "ru": "Отрицает заболевания из анкеты"},
 }
 
 # (ключ поля, подпись в фише, подсказка-плейсхолдер) — панель только румынская
@@ -124,6 +150,8 @@ _FORM_CSS = """
       vertical-align:-1px;margin-right:2px}
  table.q td.a{width:130px;white-space:nowrap;text-align:right;
       font-family:'Segoe UI Symbol',sans-serif}
+ /* ответ на весь список — одна строка с одним квадратиком, отделена чертой */
+ table.q tr.none td{border-top:1.5px solid #555;border-bottom:none;padding-top:9px}
  .fl{margin:10px 0 0;font-size:13px}
  .fl b{display:block;margin-bottom:2px;font-weight:600}
  .fl .ln{border-bottom:1px solid #999;height:19px}
@@ -160,6 +188,10 @@ def render_form(p: dict, lang: str = "ro", back: str = "") -> str:
         f"<tr><td>{e(v)}</td>"
         f"<td class='a'>{chk} {t['yes']} &nbsp;&nbsp; {chk} {t['no']}</td></tr>"
         for v in FLAGS[lang].values())
+    # «ничем из перечисленного» — последней строкой, квадратик первым: это
+    # утверждение на весь список, а не ответ DA/NU на один пункт
+    rows += (f"<tr class='none'><td colspan='2'>{chk} "
+             f"{e(NONE_LABEL['sheet'][lang])}</td></tr>")
     free = "".join(
         f"<div class='fl'><b>{e(TEXT_LABELS[lang][k])}:</b>"
         f"<div class='ln'></div><div class='ln'></div></div>"
@@ -206,8 +238,33 @@ def labels(lang: str = "ro") -> dict:
     return FLAGS.get(lang) or FLAGS["ro"]
 
 
+def keys(flags: str) -> set[str]:
+    """Ключи строки flags как множество (пустые куски — не ключи)."""
+    return {x for x in (flags or "").split(",") if x}
+
+
 def marked(flags: str, lang: str = "ro") -> list[str]:
-    """Подписи отмеченного, в порядке справочника (а не в порядке галочек)."""
-    have = {x for x in (flags or "").split(",") if x}
+    """Подписи отмеченных СОСТОЯНИЙ, в порядке справочника (а не в порядке
+    галочек). `NONE_KEY` сюда не входит — он не состояние (`denies`)."""
+    have = keys(flags)
     lab = labels(lang)
     return [v for k, v in lab.items() if k in have]
+
+
+def denies(flags: str) -> bool:
+    """Пациент заявил: ничем из двенадцати не болеет."""
+    return NONE_KEY in keys(flags)
+
+
+def conflict(checked: set[str]) -> bool:
+    """«Ничем не болею» вместе с любым из ДВЕНАДЦАТИ — двусмысленный ввод.
+    Перечислением по `FLAGS`, а не «всё, кроме NONE_KEY»: незнакомый ключ
+    (отброшенный при сохранении) конфликтом быть не должен."""
+    return NONE_KEY in checked and any(k in checked for k in FLAGS["ro"])
+
+
+def record_label(flags: str, lang: str = "ro") -> str:
+    """Строка медзаписи при `denies`, иначе пусто: 043/e, выгрузка 195."""
+    if not denies(flags):
+        return ""
+    return NONE_LABEL["record"].get(lang) or NONE_LABEL["record"]["ro"]

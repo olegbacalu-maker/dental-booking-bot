@@ -1293,6 +1293,8 @@
  .anlist{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
  .anlist span{background:var(--amber-soft);color:var(--amber-t);border-radius:var(--r-s);
    padding:3px 8px;font-size:var(--fs-s);font-weight:600}
+ /* «neagă afecțiunile» (23.10) — ответ, не риск: серым, как pill.grey */
+ .anlist span.none{background:var(--line2);color:var(--text2);font-weight:500}
  .anprint{display:inline-block;margin:8px 0 0;font-size:var(--fs-s);color:var(--teal-d);
    text-decoration:none;font-weight:600}
  .anprint:hover{text-decoration:underline}
@@ -1314,6 +1316,11 @@
    color:var(--text2);cursor:pointer;line-height:1.25;padding:3px 0}
  .anbox input[type=checkbox]{width:16px;height:16px;flex:0 0 16px;
    accent-color:var(--teal);margin:0}
+ /* «Niciuna dintre afecțiunile de mai sus» (23.10) — последняя строка списка,
+    на всю ширину и за чертой: это ответ на все двенадцать, не тринадцатое
+    состояние */
+ .anbox label.annone{grid-column:1/-1;border-top:1px solid var(--line);
+   margin-top:4px;padding-top:8px}
  .arch-wrap{display:flex;flex-direction:column;gap:10px}
  .arch-mid{display:flex;flex-direction:column;align-items:center;margin:2px 0}
  .arch-mid i{display:block;width:100%;height:1px;background:var(--line);margin:4px 0}

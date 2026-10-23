@@ -280,7 +280,9 @@ def render_html(data: dict) -> str:
     # tiroida» этого не дают. В JSON ключи остаются как есть (машинный формат),
     # а в читаемой фише разворачиваются в вопросы
     if an:
-        an["flags"] = ", ".join(panam.marked(an.get("flags") or ""))
+        an["flags"] = ", ".join(panam.marked(an.get("flags") or "")
+                                + ([panam.record_label(an.get("flags"))]
+                                   if panam.denies(an.get("flags")) else []))
     anamneza = _table(
         ["Câmp", "Valoare"],
         [[_esc(lbl), _esc(an.get(key)) or "—"] for key, lbl in (

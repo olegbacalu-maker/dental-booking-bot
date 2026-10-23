@@ -336,8 +336,11 @@ def anamneza_view(anam: dict | None) -> dict:
     ⚠️ Свободный текст — ТОЖЕ риск, и чаще всего именно там аллергия и
     реакция на анестезию. Считать риски по одним галочкам значит показать
     «fără riscuri» над записанной пенициллиновой аллергией. `state`:
-    none — не собирали, ok — собран без рисков, risk — есть что запомнить."""
-    flags = set((anam.get("flags") or "").split(",")) if anam else set()
+    none — не собирали, ok — собран без рисков, risk — есть что запомнить.
+    `denies` (23.10) — пациент заявил, что ничем из двенадцати не болеет
+    (`panam.NONE_KEY` в строке): не риск и не состояние, а ответ на список;
+    экран показывает его словами медзаписи с датой опроса."""
+    flags = panam.keys(anam.get("flags")) if anam else set()
     marked = [v for k, v in panam.FLAGS["ro"].items() if k in flags]
     free = [(lab, (anam.get(k) or "").strip()) for k, lab, _ph in panam.TEXTS
             if anam and (anam.get(k) or "").strip()]
@@ -347,6 +350,7 @@ def anamneza_view(anam: dict | None) -> dict:
         "filled": bool(anam), "flags": flags, "marked": marked, "free": free,
         "n_risk": n_risk,
         "state": "none" if not anam else ("risk" if n_risk else "ok"),
+        "denies": panam.NONE_KEY in flags,
         "when": when, "author": (anam.get("author") or "") if anam else "",
     }
 

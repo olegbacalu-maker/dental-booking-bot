@@ -1030,7 +1030,8 @@ def suite_doctor_day(res: Result) -> None:
     Засев: d2 — Pavel (два прошлых визита, отмена и неявка, дневник у
     второго; риски, анамнез с дублями, план, долг 700 — чтобы было что не
     показать), Ana (новая, беременность и в фише, и галочкой), Vasile (анамнез
-    не собран), заметка; d3 — Ion.
+    не собран), Maria (23.10: заявила, что ничем из списка не болеет —
+    третье состояние колонки, с датой опроса), заметка; d3 — Ion.
     ⛔ Денег в фактах нет (Олег 22.10, «не думаю что врачу эта информация
     нужна»): долг остаётся в фише и у статистики.
     """
@@ -1052,6 +1053,17 @@ def suite_doctor_day(res: Result) -> None:
                   [{"kind": "allergy", "text": "Alergie: penicilină"}],
                   {"flags": "", "alergii": "alergie la latex; Penicilina"})],
               ["Alergie: penicilină", "alergie la latex"])
+    # «ничем из перечисленного» (23.10) — не риск: merge его не выдаёт, дату
+    # опроса отдаёт denied_since (последнее сохранение), без ключа — None
+    stamp = datetime(2026, 10, 1, 9, 0)
+    res.check("ключ «niciuna» — не риск; дата опроса — updated_at, иначе created_at",
+              ([x["text"] for x in risks.merge([], {"flags": panam.NONE_KEY, "alergii": ""})],
+               risks.denied_since({"flags": panam.NONE_KEY, "created_at": stamp, "updated_at": None}),
+               risks.denied_since({"flags": panam.NONE_KEY, "created_at": stamp,
+                                   "updated_at": stamp + timedelta(days=2)}),
+               risks.denied_since({"flags": "diabet", "created_at": stamp, "updated_at": None}),
+               risks.denied_since(None)),
+              ([], stamp, stamp + timedelta(days=2), None, None))
 
     with Server() as s:
         c = Client(s.url).login()
@@ -1076,6 +1088,7 @@ def suite_doctor_day(res: Result) -> None:
         add_appt(c, day, "09:00", "Pavel Moraru", tel, service="long")
         add_appt(c, day, "12:00", "Ana Nouă", "069300301")
         add_appt(c, day, "14:00", "Vasile Lupu", "069300302")
+        add_appt(c, day, "15:00", "Maria Sanatoasa", "069300304")
         add_appt(c, day, "10:00", "Ion Strain", "069300303", doctor="d3")
         add_appt(c, other, "10:00", "Ion Strain", "069300303", doctor="d3")
         c.post_json("/api/schedule/notes", {"date": day, "time": "16:00", "doctor": "d2",
@@ -1083,6 +1096,8 @@ def suite_doctor_day(res: Result) -> None:
         blocks = {b["name"]: b for b in _blocks(day_model(c, day)["canvas"])
                   if b["kind"] == "appt"}
         pav, ana = blocks["Pavel Moraru"]["pid"], blocks["Ana Nouă"]["pid"]
+        mar = blocks["Maria Sanatoasa"]["pid"]
+        c.post_json(f"/api/patients/{mar}/anamneza", {"flags": [panam.NONE_KEY]})
         for kind, text in (("allergy", "Alergie: penicilină"),
                            ("medication", "Anticoagulant: Xarelto 20 mg")):
             c.post_json(f"/api/patients/{pav}/alerts", {"kind": kind, "text": text})
@@ -1110,7 +1125,8 @@ def suite_doctor_day(res: Result) -> None:
         ids = {b["name"]: str(b["id"]) for b in _blocks(m["canvas"]) if b["kind"] == "appt"}
         x = m.get("extras") or {}
         res.check("факты — у каждого визита дня врача с пациентом, без заметки и чужих",
-                  sorted(x), sorted(ids[n] for n in ("Pavel Moraru", "Ana Nouă", "Vasile Lupu")))
+                  sorted(x), sorted(ids[n] for n in ("Pavel Moraru", "Ana Nouă", "Vasile Lupu",
+                                                     "Maria Sanatoasa")))
         p = x.get(ids["Pavel Moraru"], {})
         res.check("Pavel: третий визит, прошлый — с графой «Tratament» дневника "
                   "(отмена и неявка — не визиты)",
@@ -1132,11 +1148,12 @@ def suite_doctor_day(res: Result) -> None:
                   (p.get("plan"), p.get("anam")),
                   ([{"tooth": 46, "proc": "Implant", "work": True},
                     {"tooth": 45, "proc": "Obturație compozit", "work": False}], True))
-        # ⛔ Пятёрка ключей, а не «нет debt»: деньги вернулись бы и под другим
+        # ⛔ Шестёрка ключей, а не «нет debt»: деньги вернулись бы и под другим
         # именем (balance, sold), а у Pavel долг 700 есть — было бы что везти.
-        res.check("денег в фактах нет (Олег 22.10): ни debt, ни ключа сверх пяти",
+        res.check("денег в фактах нет (Олег 22.10): ни debt, ни ключа сверх шести",
                   sorted({k for v in x.values() for k in v}),
-                  ["anam", "last", "nth", "plan", "risks"])
+                  ["anam", "denies", "last", "nth", "plan", "risks"])
+        res.check("Pavel: анамнез с болезнями — denies нет", p.get("denies"), None)
         a = x.get(ids["Ana Nouă"], {})
         res.check("Ana: новая, «Sarcină» галочкой не дублирует atenționare",
                   (a.get("nth"), a.get("last"), [r_["text"] for r_ in a.get("risks", [])],
@@ -1144,7 +1161,12 @@ def suite_doctor_day(res: Result) -> None:
                   (1, None, ["Sarcină, trimestrul II"], []))
         v = x.get(ids["Vasile Lupu"], {})
         res.check("Vasile: анамнез не собран — флагом, слово рисует экран",
-                  (v.get("anam"), v.get("risks")), (False, []))
+                  (v.get("anam"), v.get("risks"), v.get("denies")), (False, [], None))
+        mf = x.get(ids["Maria Sanatoasa"], {})
+        res.check("Maria: заявила, что здорова — анамнез есть, рисков нет, denies = дата "
+                  "опроса ISO по часам клиники (слово рисует экран)",
+                  (mf.get("anam"), mf.get("risks"), mf.get("denies")),
+                  (True, [], clinic_today().isoformat()))
         res.ok("факты не зависят от момента запроса (ни одного «сейчас»)",
                day_model(c, day, doctor="d2")["extras"] == x)
 

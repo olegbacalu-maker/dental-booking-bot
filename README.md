@@ -241,8 +241,11 @@ reload lands on the same tab.
   disappear. Finishing plan items from the diary bypasses the usual status path on purpose —
   the diary records what actually happened.
 - **Anamnesis** — twelve yes/no questions (cardiac, diabetes, coagulation, hepatitis, HIV,
-  pregnancy, allergies…) plus four free-text fields, which is exactly what section 2 of the
-  043/e sheet wants. It also prints as a **paper questionnaire in the patient's language**,
+  pregnancy, allergies…), a thirteenth line "none of the above" that is the explicit answer
+  to the list (otherwise "all NO" and "never asked" look the same), plus four free-text
+  fields, which is exactly what section 2 of the 043/e sheet wants. The card therefore has
+  three states: not collected, declared healthy (with the date), risks present. It also
+  prints as a **paper questionnaire in the patient's language**,
   because reading twelve questions aloud across the reception desk is not how a waiting room
   works; reception copies the answers into the card afterwards. The paper is not stored as a
   document: the card is the single source of truth, or two versions of the same anamnesis
