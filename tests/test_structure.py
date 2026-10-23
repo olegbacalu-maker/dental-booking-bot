@@ -379,10 +379,23 @@ def _calls(node: ast.AST) -> set[str]:
 
 
 def _enclosing(tree: ast.Module, lineno: int) -> set[str]:
-    """Имена всех функций, внутри которых лежит строка (вложенные — тоже)."""
-    return {fn.name for fn in ast.walk(tree)
-            if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and fn.lineno <= lineno <= (fn.end_lineno or fn.lineno)}
+    """Имена всех функций, внутри которых лежит строка (вложенные — тоже).
+
+    Один обход на дерево: интервалы всех def'ов (начало, конец, имя) считаются
+    при первом вызове и кладутся на САМО дерево (`tree._def_spans`), дальше —
+    перебор интервалов. До 23.10 каждый вызов обходил дерево целиком: две
+    тысячи вызовов за набор — 17,6 млн узлов и половина времени набора, а
+    мутация, гоняющая набор на каждое правило, шла под час.
+    Кэш на дереве, а не в словаре по `id(tree)`: `mutate.py` и `test_guards`
+    гонят suite много раз по НОВЫМ деревьям в одном процессе, и id() умершего
+    дерева достаётся новому — словарь отдал бы функции чужого файла."""
+    spans = getattr(tree, "_def_spans", None)
+    if spans is None:
+        spans = tree._def_spans = [
+            (fn.lineno, fn.end_lineno or fn.lineno, fn.name)
+            for fn in ast.walk(tree)
+            if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    return {name for lo, hi, name in spans if lo <= lineno <= hi}
 
 
 def _templates(tree: ast.Module) -> list[tuple[int, str]]:
@@ -480,8 +493,9 @@ def suite(res: Result) -> None:
             for side in [n.left, *n.comparators]:
                 lit = isinstance(side, ast.Constant) and side.value in _ROLES
                 const = isinstance(side, ast.Name) and side.id.startswith("ROLE_")
-                # белый список спрашиваем ПОСЛЕ совпадения: _enclosing обходит
-                # дерево целиком, и на каждое сравнение подряд это секунды
+                # белый список спрашиваем ПОСЛЕ совпадения: у _enclosing с
+                # 23.10 кэш интервалов на дереве, но звать его на каждое
+                # сравнение подряд всё равно незачем
                 if (lit or const) and not allowed & _enclosing(tree, n.lineno):
                     bad.append(f"{rel}:{n.lineno}")
                     break
