@@ -849,14 +849,17 @@ describe('карточка визита', () => {
     await show({ date: '2026-09-23' })
     fireEvent.click(blk(1))
     await waitFor(() => expect(document.querySelector('dialog .dp-card-call')).toBeTruthy())
-    fireEvent.click(Array.from(document.querySelectorAll('dialog .dp-card-call button'))
-      .find((b) => b.textContent?.includes('Confirmat')) as HTMLButtonElement)
+    const seg = () => Array.from(document.querySelectorAll('dialog .dp-card-call button')) as HTMLButtonElement[]
+    expect(seg().map((b) => b.textContent?.trim())).toEqual(['Confirmat', 'Nu răspunde'])
+    fireEvent.click(seg()[0] as HTMLButtonElement)
     await waitFor(() => expect(post).toHaveBeenCalledWith('/schedule/desk/call/1?date=2026-09-23', { result: 'ok' }))
-    /* ответ — свежий день: в окне отметка и «Anulează bifa», окно открыто */
-    await waitFor(() => expect(document.querySelector('dialog .dp-card-call .dk-ok')?.textContent).toContain('confirmat'))
-    expect(Array.from(document.querySelectorAll('dialog .dp-card-call button')).map((b) => b.textContent?.trim()))
-      .toEqual(['Anulează bifa'])
+    /* ответ — свежий день: в окне горит «Confirmat» (23.10 — сегмент вместо
+       строки с «Anulează bifa»), окно открыто; щелчок по горящему снимает отметку */
+    await waitFor(() => expect(seg()[0]?.getAttribute('aria-pressed')).toBe('true'))
+    expect(seg()[0]?.classList.contains('on')).toBe(true)
     expect(document.querySelector('dialog[open]')).toBeTruthy()
+    fireEvent.click(seg()[0] as HTMLButtonElement)
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/schedule/desk/call/1?date=2026-09-23', { result: '' }))
   })
 
   it('12.10: у закрытой записи (callable false) строки звонка в карточке нет', async () => {
@@ -881,7 +884,7 @@ describe('карточка визита', () => {
     post.mockResolvedValue(ok(MODEL))
     const ask = vi.spyOn(window, 'confirm').mockReturnValue(false)
     await openCard(2)
-    fireEvent.submit(document.querySelector('.dlg-status form') as HTMLFormElement)
+    fireEvent.click(document.querySelector('.dlg-status button') as HTMLButtonElement)
     expect(ask).toHaveBeenCalledWith('Redeschideți programarea (înapoi la «confirmată»)?')
     expect(post).not.toHaveBeenCalled()
   })
@@ -892,7 +895,7 @@ describe('карточка визита', () => {
       .toContain('Completează')
     cleanup()
     await openCard(2)
-    expect(document.querySelectorAll('.dp-card-link')[1]?.textContent).toContain('Vezi')
+    expect(document.querySelectorAll('.dp-card-link')[1]?.textContent?.trim()).toBe('Consultația')
   })
 
   it('комментарий уходит на сервер вместе с id записи', async () => {
@@ -1303,6 +1306,8 @@ describe('карточка визита: смена процедуры', () => {
     { id: 'pain', label: 'Durere acută' }] }
   const pick = () => document.querySelector('dialog select[aria-label="Procedura"]') as
     HTMLSelectElement | null
+  const pen = () => document.querySelector('dialog button[aria-label="Schimbă procedura"]') as
+    HTMLButtonElement | null
   const svcForm = () => document.querySelector('dialog form.dp-card-svc') as HTMLFormElement
   beforeEach(() => {
     get.mockImplementation(async (url: string) =>
@@ -1312,14 +1317,18 @@ describe('карточка визита: смена процедуры', () => {
   it('у активного визита — услуги врача с сервера; у закрытого не спрашивает вовсе', async () => {
     await show({ date: '2026-09-23' })
     fireEvent.click(blk(1))
-    await waitFor(() => expect(pick()).toBeTruthy())
+    /* список окно спрашивает при открытии, а на экран его выводит карандаш (23.10) */
+    await waitFor(() => expect(pen()).toBeTruthy())
     expect(get).toHaveBeenCalledWith('/schedule/appointments/1/service', expect.anything())
+    expect(pick()).toBeNull()
+    fireEvent.click(pen() as HTMLButtonElement)
     expect(Array.from(pick()?.options ?? []).map((o) => o.textContent))
       .toEqual(['Consultație', 'Durere acută'])
     fireEvent.click(document.querySelector('dialog .dlg-head button') as HTMLButtonElement)
     get.mockClear()
     fireEvent.click(blk(2))
     await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
+    expect(pen()).toBeNull()
     expect(pick()).toBeNull()
     expect(get).not.toHaveBeenCalled()
   })
@@ -1330,7 +1339,8 @@ describe('карточка визита: смена процедуры', () => {
     post.mockResolvedValue({ ...ok(after), code: 'ok_svc', text: 'Procedura a fost schimbată' })
     await show({ date: '2026-09-23' })
     fireEvent.click(blk(1))
-    await waitFor(() => expect(pick()).toBeTruthy())
+    await waitFor(() => expect(pen()).toBeTruthy())
+    fireEvent.click(pen() as HTMLButtonElement)
     fireEvent.change(pick() as HTMLSelectElement, { target: { value: 'pain' } })
     fireEvent.submit(svcForm())
     await waitFor(() => expect(post).toHaveBeenCalledWith(
@@ -1348,7 +1358,8 @@ describe('карточка визита: смена процедуры', () => {
       'Intervalul este deja ocupat la acest medic'))
     await show({ date: '2026-09-23' })
     fireEvent.click(blk(1))
-    await waitFor(() => expect(pick()).toBeTruthy())
+    await waitFor(() => expect(pen()).toBeTruthy())
+    fireEvent.click(pen() as HTMLButtonElement)
     fireEvent.change(pick() as HTMLSelectElement, { target: { value: 'pain' } })
     fireEvent.submit(svcForm())
     await waitFor(() => expect(svcForm().querySelector('.banner.err')?.textContent)

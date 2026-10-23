@@ -507,16 +507,81 @@
   border-color: var(--line);
 }
 @media print { .dp-cmenu, .dp-draft, .dp-insp-acts { display: none; } }
-/* день (C25.5b): карточка визита и нижняя форма. Классы вместо инлайновых
-   стилей старой страницы — те же величины, но красит их тема клиники, а не
-   зашитый хекс (прайор 08-09). */
+/* день (C25.5b): карточка визита. Классы вместо инлайновых стилей старой
+   страницы — те же величины, но красит их тема клиники, а не зашитый хекс
+   (прайор 08-09). `.dp-card-info` — строка заметки стойки (NoteDialog).
+   Окно визита с 23.10 — «три этажа» (design/visit-card, вариант A, ряд 1):
+   один фирменный акцент — следующий шаг; всё прочее — контур, сегмент или
+   тихое слово. Три семьи кнопок в одном окне (фирменный рецепт, dk-btn,
+   bstat) заменены одной: `.dp-card-chip` (контур), `.dp-card-quiet` (слово),
+   `.dp-card-seg-b` (сегмент), `.dp-card-next`/`.dp-card-step` (ряд исходов).
+   ⚠️ Общий `.dlg-form button` красит любую кнопку окна фирменной заливкой
+   (0,1,1; :hover 0,2,1): каждая семья задаёт вид целиком селектором длиннее. */
 .dp-react-root .dp-card-info { font-size: var(--fs-body); color: var(--text2); }
-.dp-react-root .dp-card-link { font-size: var(--fs-s); font-weight: 600; }
-.dp-react-root .dp-card-cmt { display: flex; flex-direction: column; gap: 8px; }
-/* смена процедуры (22.10): список и кнопка одной строкой, отказ — над ними */
-.dp-react-root .dp-card-svc { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.dp-react-root .dp-card-svc select { flex: 1 1 200px; min-width: 0; }
+.dp-react-root .dp-card-facts { display: flex; flex-direction: column; gap: 3px; }
+.dp-react-root .dp-card-fl { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; font-size: var(--fs-body); color: var(--text); }
+.dp-react-root .dp-card-fl.dp-card-sub { font-size: var(--fs-m); color: var(--text3); }
+.dp-react-root .dp-card-dot { color: var(--text3); }
+/* слово с точкой-разделителем переносится целиком: точка не висит в конце строки */
+.dp-react-root .dp-card-w { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+/* карандаш смены процедуры (22.10 → в строку фактов 23.10): тихая кнопка-значок */
+.dp-react-root .dlg-form .dp-card-pen, .dp-react-root .dlg-form .dp-card-pen:hover {
+  width: 24px; height: 24px; padding: 0; border: 1px solid transparent; border-radius: var(--r-xs); background: none;
+  color: var(--text3); display: inline-flex; align-items: center; justify-content: center; box-shadow: none; transform: none;
+  font-size: var(--fs-m);
+}
+.dp-react-root .dlg-form .dp-card-pen:hover { background: var(--teal-soft); color: var(--teal-d); }
+.dp-react-root .dp-card-pen svg { width: 14px; height: 14px; }
+/* смена процедуры: список, контурная «Schimbă» и «Renunță» одной строкой под фактами, отказ — над ними */
+.dp-react-root .dp-card-svc { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; width: 100%; }
+.dp-react-root .dlg-form .dp-card-svc select { flex: 1 1 160px; min-width: 0; height: var(--h-ctl-s); }
 .dp-react-root .dp-card-svc .banner { flex-basis: 100%; }
+/* контурная малая кнопка и ссылка-чип (фиша, дневник, «Schimbă», «Salvează comentariul») — одна семья;
+   `.strong` — фирменный контур у действия, которое человек только что заказал */
+.dp-react-root .dlg-form .dp-card-chip, .dp-react-root .dlg-form .dp-card-chip:hover, .dp-react-root .dlg-form a.dp-card-chip {
+  display: inline-flex; align-items: center; gap: 6px; height: var(--h-ctl-s); padding: 0 12px; border-radius: var(--r-ctl);
+  border: 1px solid var(--line); background: var(--panel); color: var(--text2); font: inherit; font-size: var(--fs-m);
+  font-weight: 600; text-decoration: none; box-shadow: none; transform: none; cursor: pointer; white-space: nowrap;
+}
+.dp-react-root .dlg-form .dp-card-chip:hover { border-color: var(--teal); color: var(--teal-d); }
+.dp-react-root .dlg-form .dp-card-chip.strong, .dp-react-root .dlg-form .dp-card-chip.strong:hover { border-color: var(--teal); color: var(--teal-d); background: var(--teal-soft); }
+.dp-react-root .dlg-form .dp-card-chip:disabled { opacity: .5; cursor: default; }
+.dp-react-root .dp-card-chip svg { width: 15px; height: 15px; flex: none; }
+.dp-react-root .dp-card-links { display: flex; flex-wrap: wrap; gap: 8px; }
+/* тихая текстовая кнопка: «Renunță», «Nu a venit», «Anulează» */
+.dp-react-root .dlg-form .dp-card-quiet, .dp-react-root .dp-card-neg .dp-card-quiet,
+.dp-react-root .dlg-form .dp-card-quiet:hover, .dp-react-root .dp-card-neg .dp-card-quiet:hover {
+  height: auto; padding: 5px 8px; border: none; background: none; color: var(--text3); font: inherit; font-size: var(--fs-m);
+  font-weight: 600; box-shadow: none; transform: none; cursor: pointer; border-radius: var(--r-xs); display: inline-flex;
+  align-items: center; gap: 6px;
+}
+.dp-react-root .dlg-form .dp-card-quiet:hover, .dp-react-root .dp-card-neg .dp-card-quiet:hover { background: var(--fill); color: var(--text); }
+.dp-react-root .dp-card-neg .dp-card-quiet.b-noshow:hover { background: var(--red-soft); color: var(--red-t); }
+.dp-react-root .dp-card-quiet:disabled { opacity: .5; cursor: default; }
+/* комментарий: кнопка сохранения появляется только у тронутого поля */
+.dp-react-root .dp-card-cmt { display: flex; flex-direction: column; gap: 6px; }
+.dp-react-root .dp-card-cmt-b { display: flex; justify-content: flex-end; gap: 8px; }
+/* подвал: ряд исходов — следующий шаг крупно, остальные ступени контуром, исключения тихой строкой */
+.dp-react-root .dp-card-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 16px 16px; }
+.dp-react-root .dp-card-foot .dp-card-next {
+  flex: 1 1 140px; height: var(--h-ctl); padding: 0 14px; border: none; border-radius: var(--r-ctl); background: var(--teal);
+  color: var(--on-teal); font: inherit; font-size: var(--fs-body); font-weight: 600; cursor: pointer;
+}
+.dp-react-root .dp-card-foot .dp-card-next:hover { background: var(--teal-d); color: var(--on-teal-d); }
+.dp-react-root .dp-card-foot .dp-card-step {
+  flex: 0 1 auto; height: var(--h-ctl); padding: 0 14px; border: 1px solid var(--line); border-radius: var(--r-ctl);
+  background: var(--panel); color: var(--text2); font: inherit; font-size: var(--fs-m); font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.dp-react-root .dp-card-foot .dp-card-step:hover { border-color: var(--teal); color: var(--teal-d); }
+.dp-react-root .dp-card-foot .dp-card-step svg { width: 13px; height: 13px; vertical-align: -2px; }
+.dp-react-root .dp-card-foot .dp-card-step.reopen:hover { border-color: var(--amber); color: var(--amber-t); }
+.dp-react-root .dp-card-foot button:focus-visible { outline: none; box-shadow: var(--ring); }
+.dp-react-root .dp-card-foot button:disabled { opacity: .5; cursor: default; }
+.dp-react-root .dp-card-neg { display: flex; justify-content: flex-end; gap: 2px; padding: 0 12px 12px; margin-top: -8px; }
+/* меню правой кнопки — тот же порядок: следующий шаг жирно, исключения приглушённо под чертой */
+.dp-cmenu-i.dp-cmenu-next { font-weight: 700; color: var(--teal-d); }
+.dp-cmenu-i.dp-cmenu-neg { color: var(--text3); }
+.dp-cmenu-i.dp-cmenu-neg.dp-cmenu-b-noshow:hover { background: var(--red-soft); color: var(--red-t); }
 /* Текст заметки — ЧИТАЕТСЯ, а не правится: обычный абзац, перенос по
    словам и по длинному слову тоже (120 знаков без пробелов бывают). */
 .dp-react-root .dp-note-text { margin: 0; font-size: var(--fs-body); line-height: 1.45;
@@ -2334,24 +2399,23 @@ dialog.dp-about { width: 460px; }
 .anim .side .side-fold span { white-space: nowrap; }
 @media (max-width: 1000px) { .side .side-fold { display: none; } }
 
-/* Карточка визита: строка подтверждения звонком (12.10) — те же кнопки, что у «De confirmat» */
-.dp-react-root .dp-card-call {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px 12px;
-  border: 1px solid var(--line); border-radius: var(--r-block); background: var(--fill); font-size: var(--fs-m);
+/* Карточка визита: строка подтверждения звонком (12.10; с 23.10 — сегмент без коробки).
+   Горит отмеченный исход — зелёный / янтарный, цветами повестки; повторный
+   щелчок по горящему снимает отметку (прежняя «Anulează bifa»). */
+.dp-react-root .dp-card-call { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: var(--fs-m); padding: 2px 0; }
+.dp-react-root .dp-card-call-l { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--text2); margin-right: auto; }
+.dp-react-root .dp-card-call-l svg { width: 14px; height: 14px; }
+.dp-react-root .dp-card-seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r-ctl); overflow: hidden; }
+.dp-react-root .dlg-form .dp-card-seg-b, .dp-react-root .dlg-form .dp-card-seg-b:hover {
+  height: 32px; padding: 0 10px; border: none; border-radius: 0; background: var(--panel); color: var(--text2); font: inherit;
+  font-size: var(--fs-m); font-weight: 600; display: inline-flex; align-items: center; gap: 6px; box-shadow: none; transform: none;
 }
-.dp-react-root .dp-card-call-l { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--text2); }
-.dp-react-root .dp-card-call-l svg, .dp-react-root .dp-card-call .dk-ok svg, .dp-react-root .dp-card-call .dk-no svg { width: 14px; height: 14px; }
-.dp-react-root .dp-card-call-b { display: flex; gap: 6px; margin-left: auto; }
-/* ⚠️ Общий `.dlg-form button` красит любую кнопку диалога фирменной заливкой
-   (0,1,1, а его :hover — 0,2,1): кнопки звонка — вторичные, как в «De confirmat»,
-   поэтому вид задаётся здесь целиком и селектором длиннее. */
-.dp-react-root .dlg-form .dp-card-call .dk-btn, .dp-react-root .dlg-form .dp-card-call .dk-btn:hover {
-  width: auto; height: 30px; padding: 0 10px; gap: 6px; font: inherit; font-size: var(--fs-m); font-weight: 600;
-  background: var(--panel); color: var(--text2); border: 1px solid var(--line); box-shadow: none; transform: none;
-}
-.dp-react-root .dlg-form .dp-card-call .dk-btn.ok:hover { background: var(--green-soft); color: var(--green-t); border-color: transparent; }
-.dp-react-root .dlg-form .dp-card-call .dk-btn.no:hover { background: var(--amber-soft); color: var(--amber-t); border-color: transparent; }
-.dp-react-root .dlg-form .dp-card-call .dk-btn:not(.ok):not(.no):hover { border-color: var(--text3); color: var(--text); }
+.dp-react-root .dlg-form .dp-card-seg-b + .dp-card-seg-b { border-left: 1px solid var(--line); }
+.dp-react-root .dlg-form .dp-card-seg-b:hover { background: var(--fill); color: var(--text); }
+.dp-react-root .dlg-form .dp-card-seg-b.ok.on, .dp-react-root .dlg-form .dp-card-seg-b.ok.on:hover { background: var(--green-soft); color: var(--green-t); }
+.dp-react-root .dlg-form .dp-card-seg-b.no.on, .dp-react-root .dlg-form .dp-card-seg-b.no.on:hover { background: var(--amber-soft); color: var(--amber-t); }
+.dp-react-root .dlg-form .dp-card-seg-b:focus-visible { box-shadow: inset 0 0 0 2px var(--teal); }
+.dp-react-root .dp-card-seg-b svg { width: 14px; height: 14px; }
 /* меню правой кнопки: пункты звонка — цветом своего исхода при наведении */
 .dp-cmenu-call.ok:hover { background: var(--green-soft); color: var(--green-t); }
 .dp-cmenu-call.noanswer:hover { background: var(--amber-soft); color: var(--amber-t); }

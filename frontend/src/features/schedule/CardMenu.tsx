@@ -3,6 +3,7 @@ import { AppLink } from '../../components/AppLink'
 import { when } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
 import { placeMenu, useMenuDismiss } from '../../components/menu'
+import { splitActions } from './CardDialog'
 import type { StatusAction, VisitCardView } from './day'
 import { CALL_WORDS, type CallResult } from './desk'
 
@@ -49,6 +50,7 @@ export function CardMenu({ at, card, actions, busy, onStatus, onCall, onClose }:
   const ref = useRef<HTMLDivElement>(null)
   useMenuDismiss(ref, onClose)
   const fisa = card.pid !== null
+  const { steps, neg, reopen } = splitActions(actions)
   const calls: { result: CallResult; label: string; icon: 'check' | 'phone-off' | 'undo' }[] =
     card.callable && onCall
       ? [
@@ -59,25 +61,52 @@ export function CardMenu({ at, card, actions, busy, onStatus, onCall, onClose }:
       : []
   /* фиша и одонтограмма (08.10, макет списка дня) — два пункта под чертой;
      звонок (12.10) — своей группой под исходами */
-  const height = 40 + actions.length * ROW + (calls.length ? ROW * calls.length + 9 : 0)
+  const height = 40 + actions.length * ROW + (neg.length && steps.length ? 9 : 0)
+    + (calls.length ? ROW * calls.length + 9 : 0)
     + (fisa ? ROW * 2 + 9 : 0) + 12
   const { left, top } = placeMenu(at.x, at.y, WIDTH, height)
   return (
     <div ref={ref} className="dp-cmenu" role="menu" aria-label={`${card.time} — ${card.name}`}
       style={{ left, top, width: WIDTH }}>
       <div className="dp-cmenu-h">{card.time} — {card.name}</div>
-      {actions.map((a) => (
+      {/* Тот же порядок, что в ряду окна (23.10): ступени — первой жирно
+          следующий шаг, исключения «Nu a venit»/«Anulează» — приглушённо под
+          чертой. Состав и порядок внутри групп — серверные. */}
+      {steps.map((a, i) => (
         <button
           key={a.to}
           type="button"
           role="menuitem"
-          className={`dp-cmenu-i dp-cmenu-${a.cls}`}
+          className={`dp-cmenu-i dp-cmenu-${a.cls}${i === 0 ? ' dp-cmenu-next' : ''}`}
           disabled={busy}
           onClick={() => { void when(a.confirm, () => { void onStatus(a.to) }) }}
         >
-          {a.cls === 'b-reopen' ? <><Icon name="undo" /> </> : null}{a.label}
+          {a.label}
         </button>
       ))}
+      {reopen && (
+        <button type="button" role="menuitem" className="dp-cmenu-i dp-cmenu-b-reopen" disabled={busy}
+          onClick={() => { void when(reopen.confirm, () => { void onStatus(reopen.to) }) }}>
+          <Icon name="undo" /> {reopen.label}
+        </button>
+      )}
+      {neg.length > 0 && (
+        <>
+          {steps.length > 0 && <div className="dp-cmenu-sep" />}
+          {neg.map((a) => (
+            <button
+              key={a.to}
+              type="button"
+              role="menuitem"
+              className={`dp-cmenu-i dp-cmenu-${a.cls} dp-cmenu-neg`}
+              disabled={busy}
+              onClick={() => { void when(a.confirm, () => { void onStatus(a.to) }) }}
+            >
+              {a.label}
+            </button>
+          ))}
+        </>
+      )}
       {calls.length > 0 && onCall && (
         <>
           {actions.length > 0 && <div className="dp-cmenu-sep" />}

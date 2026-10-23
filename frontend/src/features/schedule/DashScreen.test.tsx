@@ -719,9 +719,14 @@ describe('22.10: смена процедуры в окне визита', () => 
   const pick = () => document.querySelector('dialog select[aria-label="Procedura"]') as
     HTMLSelectElement | null
   const isPost = (init: unknown) => (init as RequestInit | undefined)?.method === 'POST'
+  const pen = () => document.querySelector('dialog button[aria-label="Schimbă procedura"]') as
+    HTMLButtonElement | null
+  /* список окно спрашивает при открытии, а на экран его выводит карандаш (23.10) */
   const open1 = async () => {
     await show()
     fireEvent.click(document.querySelector('[data-appt="1"]') as HTMLElement)
+    await waitFor(() => expect(pen()).toBeTruthy())
+    fireEvent.click(pen() as HTMLButtonElement)
     await waitFor(() => expect(pick()).toBeTruthy())
   }
   const fetchWith = (cmd: () => Response) => vi.fn(async (url: string, init?: unknown) => {
