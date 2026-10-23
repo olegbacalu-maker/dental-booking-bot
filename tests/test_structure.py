@@ -225,7 +225,16 @@ def _ui_texts(tree: ast.Module) -> list[tuple[int, str]]:
     Пояснения в проекте написаны со знаками ⚠/⭐/⛔ по стилю, и до экрана они
     не доезжают — запрещать их незачем, а с ними правило краснело бы всегда.
     Отсев по САМОМУ узлу, а не по номеру строки: у многострочного литерала
-    номер зависит от версии Python, и сверка номеров тихо перестала бы ловить."""
+    номер зависит от версии Python, и сверка номеров тихо перестала бы ловить.
+    Три обхода дерева на вызов, а зовут его пять правил на каждый модуль —
+    поэтому ответ считается один раз и лежит на самом дереве
+    (`tree._ui_texts_cache`), как интервалы у `_enclosing`: не в словаре по
+    `id(tree)`, потому что мутация и `test_guards` гонят набор по новым
+    деревьям в одном процессе. Список отдаётся тот же — правила его только
+    читают."""
+    cached = getattr(tree, "_ui_texts_cache", None)
+    if cached is not None:
+        return cached
     inner = {id(x) for n in ast.walk(tree) if isinstance(n, ast.JoinedStr)
              for x in ast.walk(n) if x is not n}
     docs = set()
@@ -247,6 +256,7 @@ def _ui_texts(tree: ast.Module) -> list[tuple[int, str]]:
                                           and isinstance(v.value, str))))
         elif isinstance(n, ast.Constant) and isinstance(n.value, str):
             out.append((n.lineno, n.value))
+    tree._ui_texts_cache = out
     return out
 
 
