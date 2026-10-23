@@ -82,19 +82,23 @@ def bank_lines(reference: str, amount: int) -> str:
 _REFERENCE_NOTE = ("Important: indicați neapărat referința {reference} în destinația plății — după ea "
                    "recunoaștem plata dumneavoastră. După confirmare termenul se prelungește automat în "
                    "program; primiți confirmarea pe e-mail.")
-CARD_NOTE = "Plata cu cardul (Visa, Mastercard, Apple Pay, Google Pay), pe pagina securizată maib:"
+# Карта — на НАШЕЙ странице оплаты (23.10): ссылка maib живёт 10 минут (maib.PAY_TTL) и
+# рождается по кнопке после галочки условий (требование maib), поэтому в письме её нет.
+# Значков и названий Apple Pay / Google Pay нет, пока maib их не включит (Олег 23.10).
+CARD_NOTE = "Plata cu cardul — pe pagina de plată DentPilot (bifați Termenii și condițiile, apoi „Plătește cu cardul”):"
 
 
 def card_lines(pay_url: str, amount: int) -> str:
-    """Ссылка на hosted-страницу maib (L12). После оплаты картой программа продлевается сама."""
+    """Карта (L12): `pay_url` — страница оплаты клиники (paylink.for_mail), не ссылка maib.
+    После оплаты картой программа продлевается сама."""
     return (f"{CARD_NOTE}\n  {pay_url}\n  Suma: {amount} MDL\n"
             f"  După plata cu cardul nu trebuie să faceți nimic: noul termen ajunge singur în program "
             f"în câteva minute, iar confirmarea — pe e-mail.\n")
 
 
 def ways_to_pay(reference: str, amount: int, pay_url: str | None) -> str:
-    """Способы оплаты по порядку: карта (если есть ссылка), перевод (если есть
-    реквизиты). Ни того ни другого — RuntimeError, как у bank_lines."""
+    """Способы оплаты по порядку: карта (если есть страница оплаты с картой), перевод (если
+    есть реквизиты). Ни того ни другого — RuntimeError, как у bank_lines."""
     parts = []
     if pay_url:
         parts.append(card_lines(pay_url, amount))
@@ -114,25 +118,28 @@ def tier_line(tier: str | None) -> str:
     return f"{tiers.NAME[t]} ({tiers.WHAT[t]})"
 
 
-def change_note() -> str:
+def change_note(page: str | None = None) -> str:
     """Как сменить вариант или срок до оплаты (условия § 4.2: «varianta o alege clinica la
-    fiecare plată»): ссылка оплаты из программы живёт сутки, поэтому письмо ведёт в
-    программу и в кабинет; нота там заменяется, а не плодится вторая."""
+    fiecare plată»): на странице оплаты из письма (`page`), в программе или в кабинете;
+    нота там заменяется, а не плодится вторая."""
+    where = f"pe pagina de plată, {page}, " if page else ""
     return (f"Varianta (DentPilot Basic, fără modulul SMS, sau DentPilot Plus, cu modulul SMS) și termenul "
-            f"le puteți schimba până la plată: din program, butonul „Plătește acum” (Setări › Licența), "
+            f"le puteți schimba până la plată: {where}din program, butonul „Plătește acum” (Setări › Licența), "
             f"sau din contul clinicii, {CONT_URL} — nota de plată se înlocuiește cu una nouă.")
 
 
 def payment_letter(clinic: str, reference: str, amount: int, months: int,
-                   pay_url: str | None = None, tier: str | None = None) -> tuple[str, str]:
-    """Письмо с нотой: вариант и срок, ссылка на карту (L12), реквизиты перевода — что настроено."""
+                   pay_url: str | None = None, tier: str | None = None,
+                   page: str | None = None) -> tuple[str, str]:
+    """Письмо с нотой: вариант и срок, карта на странице оплаты (`pay_url` — она же, когда
+    карта включена), реквизиты перевода — что настроено; `page` — страница для смены варианта."""
     ways = ways_to_pay(reference, amount, pay_url)
     subject = f"DentPilot: nota de plată {reference} pentru {clinic}"
     body = (f"Bună ziua,\n\n"
             f"Pentru abonamentul {tier_line(tier)} — {clinic}, {luni(months)} — "
             f"vă rugăm să achitați {amount} MDL:\n\n"
             f"{ways}\n\n"
-            f"{change_note()}\n\n"
+            f"{change_note(page)}\n\n"
             f"{FOOTER}")
     return subject, body
 
@@ -203,7 +210,7 @@ def offer_line() -> str:
 
 
 def how_to_pay(pay: dict | None) -> str:
-    """Абзац «как продолжить»: ссылка на карту и/или реквизиты с reference
+    """Абзац «как продолжить»: карта на странице оплаты (`url`) и/или реквизиты с reference
     (абонемент, в варианте ноты) или как оформить абонемент (пробный — оба варианта
     с ценой). Без ссылки и без DP_BANK_* — честная фраза, что нота придёт отдельно."""
     if pay is None:
@@ -221,7 +228,7 @@ def how_to_pay(pay: dict | None) -> str:
     except RuntimeError:
         text = (f"Nota de plată {pay['reference']} ({what}, {pay['amount']} MDL) "
                 f"o primiți separat; întrebări — {config.SUPPORT_EMAIL}.")
-    return f"{text}\n\n{change_note()}"
+    return f"{text}\n\n{change_note(pay.get('page'))}"
 
 
 _READONLY = ("Datele pacienților se pot consulta, tipări și exporta, iar copia de rezervă rămâne "
@@ -303,11 +310,12 @@ def trial_received(clinic: str, days: int, origin: str = "form") -> tuple[str, s
     elif origin == "cont":
         rest = (f"Perioada de probă de {zile(days)} se activează în cel mult o zi lucrătoare — vă "
                 f"confirmăm pe acest e-mail. Programul îl descărcați din contul clinicii, {CONT_URL}; la "
-                f"prima pornire introduceți aceleași date și se activează singur.")
+                f"prima pornire introduceți aceleași date și codul pe care îl trimitem pe acest e-mail.")
     else:
         rest = (f"Perioada de probă de {zile(days)} se activează în cel mult o zi lucrătoare — vă "
                 f"confirmăm pe acest e-mail. Programul îl descărcați de pe {config.SITE_URL.rstrip('/')}/descarca.html; "
-                f"la prima pornire introduceți aceleași date și se activează singur. Instalăm împreună, la "
+                f"la prima pornire introduceți aceleași date și codul pe care îl trimitem pe acest e-mail. "
+                f"Instalăm împreună, la "
                 f"telefon, dacă doriți.")
     body = (f"Bună ziua,\n\n"
             f"Am primit cererea de perioadă de probă DentPilot pentru {clinic}. {rest}\n\n{FOOTER}")

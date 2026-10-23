@@ -252,8 +252,8 @@ def suite_flow(res: Result) -> None:
                and "Mulțumim" in ok.body, ok.body[-1500:])
         res.ok("/pay/ok по одному reference (порядковому) ничего не показывает",
                ref not in Client(s.url).get(f"/pay/ok?orderId={ref}").body)
-        res.ok("/pay/ok с чужим orderId — без подробностей",
-               ref not in Client(s.url).get("/pay/ok?payId=pay-ok-test-uuid&orderId=DP-2026-999999").body)
+        res.ok("/pay/ok с неизвестным payId — без подробностей",
+               ref not in Client(s.url).get(f"/pay/ok?payId=nu-exista&orderId={ref}").body)
         anon.post(path, tier="plus", months="12", method="transfer", terms="1")
         pend = _sql(s, "SELECT id, reference FROM payments WHERE clinic_id=? AND status='pending'", cid)[0]
         _sql(s, "UPDATE payments SET provider_id='pay-wait-uuid' WHERE id=?", pend[0])
@@ -355,3 +355,87 @@ def _migrated(res: Result, path: pathlib.Path, tok: str) -> None:
         anon.post(url, tier="plus", months="12", method="transfer", terms="1")
         res.check("продление Plus на год — 11 × своя цена",
                   _sql(s, "SELECT tier, amount FROM payments WHERE status='pending'"), [("plus", 11 * 444)])
+
+
+def suite_card(res: Result) -> None:
+    """Карта по клику (23.10): ссылка maib живёт 10 минут (maib.PAY_TTL) — письмо несёт нашу
+    страницу, ссылка рождается кнопкой за галочкой; у ноты может быть несколько попыток, и
+    оплата во вкладке со старой ссылкой узнаётся; задача не пишет card_failed каждый день."""
+    from test_maib import CALLBACK, FakeMaib, _payment
+    fake = FakeMaib()
+    try:
+        with Server(env={**BANK_ENV, **SMS_ENV, **fake.env}) as s:
+            admin = Client(s.url).login()
+            cid = cid_from(admin.post("/admin/clinics", name="Clinica Card Clic", idno="8888888888888",
+                                      email="clic@example.md").location)
+            admin.post(f"/admin/clinics/{cid}/issue", kind="trial")
+            anon = Client(s.url)
+            path = "/plata/" + _link(anon, _token(s, cid))[1].rsplit("/", 1)[1]
+            r = anon.post(path, tier="basic", months="1", method="transfer", terms="1")
+            p = _payment(s, cid)
+            body = _letters(s)[-1][2]
+            res.ok("нота переводом: ссылки maib нет ни в строке, ни в письме; письмо ведёт на страницу оплаты",
+                   r.location.endswith("msg=note_created") and not p["provider_id"] and fake.calls["pay"] == 0
+                   and "/plata/" in body and "maib.ecommerce.md" not in body and mail.CARD_NOTE in body, body[:800])
+            r = anon.post(path, tier="basic", months="1", method="card", terms="1")
+            p1 = _payment(s, cid)
+            res.ok("клик «Plătește cu cardul»: ссылка рождается сейчас, браузер на неё",
+                   r.status == 303 and r.location == p1["pay_url"] and fake.calls["pay"] == 1, r.location)
+            r = anon.post(path, tier="basic", months="1", method="card", terms="1")
+            res.ok("второй клик, пока ссылка молода и maib ждёт: та же ссылка, у maib второго платежа нет",
+                   r.location == p1["pay_url"] and fake.calls["pay"] == 1 and fake.calls["info"] == 1,
+                   f"{r.location} {fake.calls}")
+            old_pid = p1["provider_id"]
+            _sql(s, "UPDATE pay_attempts SET created_at='2020-01-01T00:00:00Z' WHERE provider_id=?", old_pid)
+            r = anon.post(path, tier="basic", months="1", method="card", terms="1")
+            p2 = _payment(s, cid)
+            res.ok("ссылка старше PAY_TTL: новая попытка, reference прежний",
+                   p2["provider_id"] != old_pid and r.location == p2["pay_url"] and p2["reference"] == p1["reference"]
+                   and fake.calls["pay"] == 2, f"{dict(p2)}")
+            res.check("обе попытки записаны", _sql(s, "SELECT count(*) FROM pay_attempts WHERE payment_id=?", p2["id"]),
+                      [(2,)])
+            # клиника заплатила во вкладке со СТАРОЙ ссылкой — callback по старому payId
+            fake.set_status(old_pid, "OK")
+            r = anon.post_raw(CALLBACK, fake.callback(old_pid))
+            res.ok("callback по прежней попытке — наш, нота оплачена (не 404)",
+                   r.status == 200 and json.loads(r.body).get("outcome") == "paid"
+                   and _payment(s, cid)["status"] == "paid", f"{r.status} {r.body}")
+            res.check("вариант после оплаты прежней попыткой — Basic", _subrow(s, cid)[1], "basic")
+            res.ok("повторный callback той же попытки — already",
+                   json.loads(anon.post_raw(CALLBACK, fake.callback(old_pid)).body).get("outcome") == "already")
+            # задача: протухшая попытка — один окончательный ответ, без card_failed, назавтра не спрашивает
+            fake.set_status(p2["provider_id"], "TIMEOUT")
+            info0 = fake.calls["info"]
+            rc, out = _run(s, datetime.now(UTC).date())
+            rc2, out2 = _run(s, datetime.now(UTC).date())
+            res.ok("TIMEOUT протухшей ссылки: maib спрошен один раз, card_failed не пишется",
+                   fake.calls["info"] == info0 + 1
+                   and _sql(s, "SELECT count(*) FROM audit WHERE what='card_failed'")[0][0] == 0
+                   and _sql(s, "SELECT final FROM pay_attempts WHERE provider_id=?", p2["provider_id"]) == [(1,)],
+                   f"{fake.calls} {out[-300:]}")
+            # нота SMS: программа получает страницу оплаты, карта — там же, за галочкой
+            st, data = _json(anon, "/v1/sms/order", _token(s, cid), {"pack": 100})
+            res.ok("нота SMS из программы: pay_url — страница оплаты, не ссылка maib; у maib платежа нет",
+                   st == 200 and (data.get("pay_url") or "").startswith(config.BASE_URL.rstrip("/") + "/plata/")
+                   and fake.calls["pay"] == 2, repr((st, data)))
+            page = anon.get(path).body
+            sms_ref = data.get("reference", "")
+            res.ok("страница оплаты показывает ноту SMS с картой за галочкой",
+                   sms_ref in page and "Pachet 100 SMS" in page and f"name='ref' value='{sms_ref}'" in page, page[-1500:])
+            res.check("карта ноты SMS без галочки — need_terms",
+                      anon.post(path, ref=sms_ref, method="card").location, f"{path}?msg=need_terms")
+            r = anon.post(path, ref=sms_ref, method="card", terms="1")
+            sp = _sql(s, "SELECT provider_id, pay_url FROM payments WHERE reference=?", sms_ref)[0]
+            res.ok("клик на ноте SMS: ссылка maib родилась сейчас", r.status == 303 and r.location == sp[1]
+                   and sp[0] in fake.pays, f"{r.location} {sp}")
+            # страница возврата: maib уже сказал OK — сервер применяет сразу и говорит «plătită»
+            fake.set_status(sp[0], "OK")
+            ok = Client(s.url).get(f"/pay/ok?payId={sp[0]}&orderId={sms_ref}")
+            res.ok("/pay/ok: спросил maib о попытке, нота SMS оплачена, «plătită»",
+                   "plătită" in ok.body and sms_ref in ok.body
+                   and _sql(s, "SELECT status FROM payments WHERE reference=?", sms_ref) == [("paid",)], ok.body[-1200:])
+            acc = _account(anon, _token(s, cid))
+            # пробных 30 здесь нет: счёт SMS завёлся уже после оплаты (бонус — при первом обращении в пробном)
+            res.ok("пакет начислен: +100", acc.get("balance") == 100, repr(acc))
+    finally:
+        fake.close()

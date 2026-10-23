@@ -353,8 +353,9 @@ def suite_flow(res: Result) -> None:
                    and body.get("clientIp") and body.get("email") == "card@example.md", body)
             res.check("токен взят один раз и переиспользован", fake.calls, {"token": 1, "pay": 1, "info": 0, "refund": 0})
             subj, text, _ = _letters(s)[-1]
-            res.ok("письмо: ссылка на карту, сумма, и перевод с тем же reference",
-                   ref in subj and mail.CARD_NOTE in text and p["pay_url"] in text
+            # 23.10: ссылка maib живёт 10 минут (maib.PAY_TTL) — письмо несёт страницу оплаты, не payUrl
+            res.ok("письмо: карта — на странице оплаты (не ссылка maib), сумма, и перевод с тем же reference",
+                   ref in subj and mail.CARD_NOTE in text and "/plata/" in text and p["pay_url"] not in text
                    and "MD00TEST0000000000000001" in text and f"Destinația plății: {ref}" in text, text[:400])
             res.ok("журнал: card_link с payId", any(p["provider_id"] in d[0] for d in
                                                      _sql(s, "SELECT detail FROM audit WHERE what='card_link'")))
@@ -435,7 +436,8 @@ def suite_flow(res: Result) -> None:
             res.ok("новый payId, адрес, слова maib стёрты, reference прежний",
                    q3["provider_id"] != q["provider_id"] and q3["provider_id"] in fake.pays
                    and q3["provider_status"] == "" and q3["reference"] == q["reference"], dict(q3))
-            res.ok("письмо с новой ссылкой", q3["pay_url"] in _letters(s)[-1][1])
+            res.ok("письмо с нотой — страница оплаты, не ссылка maib",
+                   "/plata/" in _letters(s)[-1][1] and q3["pay_url"] not in _letters(s)[-1][1])
             fake.set_status(q3["provider_id"], "OK")
             r = c.post(f"/admin/payments/{q['id']}/check")
             res.check("проверить: оплачен", r.location, f"/admin/clinics/{cid}?msg=card_paid")
@@ -560,7 +562,8 @@ def suite_duplicate(res: Result) -> None:
 
 
 def suite_daily(res: Result) -> None:
-    """Ежедневная задача с maib: ссылка в счёте, оплата картой замечена без callback."""
+    """Ежедневная задача с maib: в счёте — страница оплаты (ссылка maib рождается по клику,
+    23.10), оплата картой замечена без callback."""
     fake = FakeMaib()
     try:
         with Server(env={**BANK_ENV, **fake.env}) as s:
@@ -571,11 +574,19 @@ def suite_daily(res: Result) -> None:
             rc, out = _run(s, v - 14 * D)
             res.ok("за 14 дней: счёт ушёл, код 0", rc == 0 and "писем: 1" in out, out[-300:])
             p = _payment(s, cid)
-            res.ok("платёж задачи получил ссылку maib до письма",
-                   p["method"] == "card" and p["provider_id"] in fake.pays and fake.calls["pay"] == 1, dict(p))
+            res.ok("платёж задачи без ссылки maib: та живёт 10 минут и рождается по клику",
+                   not p["provider_id"] and fake.calls["pay"] == 0, dict(p))
             subj, text, _ = _letters(s)[0]
-            res.ok("счёт: ссылка на карту и перевод с reference",
-                   p["pay_url"] in text and f"Destinația plății: {p['reference']}" in text, text[:400])
+            res.ok("счёт: страница оплаты с картой и перевод с reference",
+                   mail.CARD_NOTE in text and "/plata/" in text and f"Destinația plății: {p['reference']}" in text,
+                   text[:400])
+            # клиника открыла страницу из письма и нажала «Plătește cu cardul» (за галочкой)
+            page = "/plata/" + text.split("/plata/", 1)[1].split()[0]
+            r = Client(s.url).post(page, tier="plus", months="1", method="card", terms="1")
+            p = _payment(s, cid)
+            res.ok("клик на странице из письма: ссылка maib родилась сейчас, браузер — на неё",
+                   r.status == 303 and r.location == p["pay_url"] and p["provider_id"] in fake.pays
+                   and fake.calls["pay"] == 1, f"{r.status} {r.location} {dict(p)}")
             rc, out = _run(s, v - 13 * D)
             res.ok("на следующий день: maib спрошен, оплаты нет, писем нет",
                    rc == 0 and "писем: 0" in out and "картой оплачено: 0" in out and fake.calls["info"] == 1, out[-300:])

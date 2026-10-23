@@ -63,6 +63,8 @@ SUITES = [
     ("Варианты Basic / Plus: вариант без цены не продаётся", test_tiers.suite_not_sold),
     ("Варианты Basic / Plus: нота за 14 дней — в текущем варианте", test_tiers.suite_jobs),
     ("Варианты Basic / Plus: данные до шага 15 — Plus, цена прежняя", test_tiers.suite_migration),
+    ("Карта по клику: письмо — страница оплаты, ссылка maib за галочкой, прежняя попытка узнаётся, ноты SMS",
+     test_tiers.suite_card),
     ("Сервер: окна напоминаний — подставная дата на каждую строку", test_jobs.suite_windows),
     ("Сервер: ежедневная задача — письма, повтор, новый период", test_jobs.suite_daily),
     ("Сервер: задача — пробный, без e-mail, без реквизитов, кнопка, журнал", test_jobs.suite_edges),

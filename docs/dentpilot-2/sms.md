@@ -263,7 +263,8 @@ POST /v1/sms/send      {to, text, kind, idem} → 200 {id, segments, balance}
                        400 sms_phone / sms_text · 402 sms_balance · 423 sms_off / sms_basic · 429 sms_cap
 POST /v1/sms/status    {ids: […]} → [{id, state, error}]
 POST /v1/sms/sender    {name} → заявка на имя
-POST /v1/sms/order     {pack} → платёж kind=sms, письмо с нотой и ссылкой maib
+POST /v1/sms/order     {pack} → платёж kind=sms, письмо с нотой; pay_url — страница оплаты /plata/<id>
+                       (с 23.10: карта там, кнопкой за галочкой условий; ссылка maib живёт 10 минут)
 POST /v1/smsmd/dlr/<секрет>   ← sms.md, смена статуса: сигнал, не истина (как callback maib)
 ```
 

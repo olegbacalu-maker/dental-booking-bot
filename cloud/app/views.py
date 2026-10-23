@@ -414,7 +414,7 @@ def trial_page(msg: str = "", values: dict | None = None) -> str:
              f"<div class='card'><p>Completați formularul: perioada de probă de {mail.zile(license.TRIAL_DAYS)} "
              f"se activează fără plată și fără obligații. Descărcați programul de pe "
              f"<a href='{esc(site)}/descarca.html'>dentpilot.md</a> și, la prima pornire, introduceți aceleași "
-             f"date — programul se activează singur (dacă e nevoie, cu un cod trimis pe acest e-mail). "
+             f"date și codul pe care îl trimitem pe acest e-mail — așa se activează programul. "
              f"Instalăm împreună, la telefon, dacă doriți. Datele pacienților rămân pe calculatorul clinicii.</p>"
              f"{err}<form method='post' action='/proba'>"
              f"<label>Denumirea clinicii *</label><input name='name' value='{v['name']}' required maxlength='{trial.NAME_MAX}'>"
@@ -439,7 +439,8 @@ def trial_done_page(outcome: str, email: str) -> str:
         title, text = ("Perioada de probă este activă",
                        f"Perioada de probă de {mail.zile(license.TRIAL_DAYS)} pentru {email} este activă, iar "
                        f"confirmarea a plecat pe e-mail. Descărcați programul de pe {site}/descarca.html; la "
-                       f"prima pornire introduceți aceleași date și programul se activează singur. Dacă nu "
+                       f"prima pornire introduceți aceleași date, iar programul se activează cu codul pe care "
+                       f"îl trimitem pe e-mailul clinicii. Dacă nu "
                        f"găsiți e-mailul în câteva minute, verificați dosarul Spam sau scrieți-ne.")
     else:
         title, text = ("Cererea a fost primită", f"Vă răspundem la {email} în cel mult o zi lucrătoare — "
@@ -567,7 +568,7 @@ def pay_page(ok: bool, p=None) -> str:
                     "e-mailul clinicii.")
     inner = (f"<div class='card narrow'>{_chead('shield' if ok else 'clock', esc(title), esc(sub))}"
              f"<p style='margin:0'>{esc(text)}</p>{details}</div>")
-    return _cont_shell(title, inner, eyebrow="DentPilot · plata cu cardul")
+    return _cont_shell("Plata cu cardul", inner, eyebrow="DentPilot · plata online")
 
 
 _MONTHS_RU = ("январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь",
@@ -1189,7 +1190,8 @@ def _pay_pane(c, sub, st: str, payments: list, reminders: list, now: datetime) -
     if maib.enabled():
         method = ("<div><label>Как платит клиника</label><select name='method'>"
                   "<option value='transfer'>Переводом — реквизиты и reference в письме</option>"
-                  "<option value='card'>Картой — ссылка maib в письме (и reference для перевода)</option>"
+                  "<option value='card'>Картой — ссылка maib сразу, в таблице (живёт 10 минут); в письме — "
+                  "страница оплаты с галочкой</option>"
                   "</select></div>")
     else:
         method = ("<div><label>Как платит клиника</label><div class='muted' style='padding:9px 0'>только переводом: "
@@ -1377,7 +1379,8 @@ CONT_MSG = {
                          "Google sau scrieți-ne.",
     "logged_out": "Ați ieșit din cont.",
     "registered_issued": "Clinica a fost înregistrată, perioada de probă este activă. Descărcați programul: "
-                         "la prima pornire se activează singur.",
+                         "la prima pornire introduceți aceleași date, iar programul se activează cu codul pe "
+                         "care îl trimitem pe e-mailul clinicii.",
     "registered_requested": "Clinica a fost înregistrată. Cererea de probă a fost primită — vă răspundem pe "
                             "e-mail în cel mult o zi lucrătoare.",
     "duplicate": "O clinică cu acest IDNO este deja înregistrată la DentPilot, dar codul de conectare nu a "
@@ -1390,6 +1393,10 @@ CONT_MSG = {
     "note_replaced": "Nota de plată a fost înlocuită: datele noii note sunt mai jos și pe e-mail — nota veche nu "
                      "se mai plătește.",
     "need_terms": "Pentru plată bifați „Am citit și accept Termenii și condițiile”.",
+    "card_paid": "Banca a confirmat deja plata cu cardul: termenul se prelungește automat, iar confirmarea vine "
+                 "pe e-mail.",
+    "note_gone": "Această notă de plată nu mai așteaptă plata — reîncărcați pagina.",
+    "no_card": "Plata cu cardul nu este disponibilă acum — plătiți prin transfer bancar, cu referința din notă.",
     "tier_not_sold": "Varianta aleasă nu se poate plăti acum online — alegeți cealaltă variantă sau scrieți-ne.",
     "need_idno": "Pentru abonament completați mai întâi IDNO-ul clinicii (13 cifre), în datele clinicii.",
     "maib_failed": "Pagina de plată cu cardul nu a putut fi creată acum — încercați din nou sau alegeți "
@@ -1418,7 +1425,7 @@ CONT_MSG = {
     "sms_paper_empty": "Alegeți fișierul PDF al cererii semnate.",
 }
 _CONT_OK = {"logged_out", "registered_issued", "registered_requested", "saved", "note_created", "note_exists",
-            "note_replaced",
+            "note_replaced", "card_paid",
             "linked", "sms_requested", "sms_paper_ok"}
 SENDER_RO = {"none": ("mute", "fără nume propriu"), "requested": ("warn", "cerere în lucru"),
              "submitted": ("warn", "la operatori"), "active": ("ok", "aprobat"), "rejected": ("bad", "respins")}
@@ -1672,7 +1679,7 @@ def _cont_shell(title: str, inner: str, acc=None, msg: str = "", lead: str = "",
 
 _PERKS = [
     "Perioada de probă — o lună gratuită, fără card și fără obligații",
-    "Programul DentPilot, de descărcat oricând — se activează singur",
+    "Programul DentPilot, de descărcat oricând — se activează cu un cod trimis pe e-mailul clinicii",
     "Nota de plată pentru abonament, cu datele pentru plată",
     "Datele clinicii și calculatoarele pe care rulează programul",
 ]
@@ -1760,7 +1767,7 @@ def cont_register_page(acc, msg: str = "", values: dict | None = None) -> str:
             f"<a href='{esc(site)}/termeni.html' target='_blank' rel='noopener'>Termenii și condițiile</a> și "
             f"<a href='{esc(site)}/privacy.html' target='_blank' rel='noopener'>Politica de confidențialitate</a>."
             f"</span></label><p style='margin:14px 0 0'><button class='primary'>Înregistrez clinica</button></p></form></div>")
-    aside = (f"<div class='card'>{_chead('shield', 'Ce urmează')}{_perks(['Perioada de probă de ' + mail.zile(license.TRIAL_DAYS) + ' se activează imediat; confirmarea vine pe e-mail', 'Descărcați programul din cont; la prima pornire introduceți aceleași date și se activează singur', 'IDNO și adresa le completați oricând — sunt necesare doar pentru abonament'])}"
+    aside = (f"<div class='card'>{_chead('shield', 'Ce urmează')}{_perks(['Perioada de probă de ' + mail.zile(license.TRIAL_DAYS) + ' se activează imediat; confirmarea vine pe e-mail', 'Descărcați programul din cont; la prima pornire introduceți aceleași date și codul primit pe e-mail', 'IDNO și adresa le completați oricând — sunt necesare doar pentru abonament'])}"
              f"<p class='muted' style='margin-bottom:0'>Aveți deja DentPilot pe un calculator al clinicii? "
              f"Completați aceleași date: trimitem un cod pe e-mailul clinicii și contul se conectează.</p></div>")
     return _cont_shell("Înregistrarea clinicii", f"<div class='split'>{form}{aside}</div>", acc, msg,
@@ -1800,8 +1807,9 @@ def _lic_parts(c, sub, issue, st: str, now: datetime) -> dict:
         if c["declined_at"]:
             return {"text": esc(CONT_MSG["closed"]), "check": "", "bar": ""}
         return {"text": (f"Cererea de probă a fost primită la {_ro(c['requested_at'] or c['created_at'])}. "
-                         f"Programul se activează singur imediat ce aprobăm cererea — de obicei în aceeași zi "
-                         f"lucrătoare; vă anunțăm pe e-mail."), "check": "", "bar": ""}
+                         f"O aprobăm de obicei în aceeași zi lucrătoare și vă anunțăm pe e-mail. Programul de pe "
+                         f"calculatorul din care ați trimis cererea se activează singur; pe alt calculator — cu "
+                         f"codul trimis pe e-mail."), "check": "", "bar": ""}
     plan = sub["plan"] if sub else "trial"
     what = "Perioada de probă" if plan == "trial" else f"Abonamentul {tiers.NAME[tiers.current(sub)]}"
     d, g = _ro(issue["valid_until"]), _ro(issue["grace_until"])
@@ -1850,12 +1858,18 @@ def _subscribe_label(sub) -> str:
     return "Treci la abonament" if (sub is None or sub["plan"] == "trial") else "Prelungește abonamentul"
 
 
-_STEPS = ("<ol class='steps'>"
-          "<li><b>Alegeți</b> varianta — DentPilot Basic sau DentPilot Plus — și termenul, o lună sau un an; "
-          "nota de plată o primiți și pe e-mail, cu referința.</li>"
-          "<li><b>Plătiți</b> prin transfer bancar, cu referința din notă în destinația plății.</li>"
-          "<li><b>Confirmăm</b> plata în aceeași zi lucrătoare: termenul se prelungește, iar programul preia "
-          "singur noul termen — o dată pe zi sau cu «Verifică acum».</li></ol>")
+def _steps(card_on: bool) -> str:
+    """Три шага оплаты; с картой (maib настроен) — и она, со своим сроком подтверждения."""
+    pay_ = ("<li><b>Plătiți</b> cu cardul, chiar aici, sau prin transfer bancar, cu referința din notă în "
+            "destinația plății.</li>" if card_on else
+            "<li><b>Plătiți</b> prin transfer bancar, cu referința din notă în destinația plății.</li>")
+    when = ("plata cu cardul — în câteva minute, transferul — în aceeași zi lucrătoare" if card_on
+            else "plata în aceeași zi lucrătoare")
+    return ("<ol class='steps'>"
+            "<li><b>Alegeți</b> varianta — DentPilot Basic sau DentPilot Plus — și termenul, o lună sau un an; "
+            "nota de plată o primiți și pe e-mail, cu referința.</li>"
+            f"{pay_}<li><b>Confirmăm</b> {when}: termenul se prelungește, iar programul preia "
+            "singur noul termen — o dată pe zi sau cu «Verifică acum».</li></ol>")
 
 
 def _receipt_link_ro(p) -> str:
@@ -1888,6 +1902,27 @@ _TOTAL_JS = ("(function(){document.querySelectorAll('form.pick').forEach(functio
              "f.querySelector('.total .t').innerHTML='<b>'+t.dataset.name+'</b> · '+(y?'un an (12 luni)':'o lună');"
              "f.querySelector('.total .s').textContent=(y?t.dataset.y:t.dataset.m)+' MDL'}"
              "f.addEventListener('change',up);up()})})()")
+
+
+def _online(card_on: bool) -> list[tuple[str, str]]:
+    """Способы оплаты онлайн кнопками, по порядку (value поля `method`, надпись). Сейчас —
+    карта maib. MIA QR (Олег 23.10: «QR MIA будет», в договоре maib — «API plăți prin QR
+    MIA») ляжет сюда второй парой («mia», «Plătește cu MIA QR»): страница рисует столько
+    кнопок, сколько способов, а pay_link_submit различает их по `method`. Значков Apple Pay /
+    Google Pay нет, пока maib их не включит."""
+    return [("card", "Plătește cu cardul")] if card_on else []
+
+
+def _buttons(card_on: bool, transfer: str = "", online_prefix: str = "") -> str:
+    """Ряд кнопок формы: онлайн-способы (первый — главный) и, если назван, перевод."""
+    online = _online(card_on)
+    out = "".join(f"<button class='{'primary' if i == 0 else ''}' name='method' value='{v}'>"
+                  f"{esc(online_prefix + (label[0].lower() + label[1:] if online_prefix else label))}</button>"
+                  for i, (v, label) in enumerate(online))
+    if transfer:
+        out += (f"<button class='{'' if online else 'primary'}' name='method' value='transfer'>"
+                f"{esc(transfer)}</button>")
+    return f"<p class='btns'>{out}</p>"
 
 
 def _terms_box() -> str:
@@ -1952,19 +1987,14 @@ def tier_form(sub, action: str, card_on: bool, now: datetime, tier: str = "", mo
     if replace:
         note = (f"<p class='note'>Nota {esc(replace)} se anulează și primiți una nouă, cu altă referință — nu mai "
                 f"plătiți nota veche.</p>")
-        buttons = ((f"<button class='primary' name='method' value='card'>Înlocuiește și plătește cu cardul</button>"
-                    if card_on else "")
-                   + f"<button class='{'' if card_on else 'primary'}' name='method' value='transfer'>"
-                     f"Înlocuiește nota de plată</button>")
+        buttons = _buttons(card_on, "Înlocuiește nota de plată", online_prefix="Înlocuiește și ")
     else:
         note = _module_note(sub, now)
-        buttons = ((f"<button class='primary' name='method' value='card'>Plătește cu cardul</button>" if card_on else "")
-                   + f"<button class='{'' if card_on else 'primary'}' name='method' value='transfer'>"
-                     f"Transfer bancar — primesc nota de plată</button>")
+        buttons = _buttons(card_on, "Transfer bancar — primesc nota de plată")
     return (f"<form method='post' action='{action}' class='pick'><span class='lbl'>Varianta</span>"
             f"<div class='tiers'>{cards}</div><span class='lbl'>Termen</span><div class='seg'>"
             f"{seg(1, 'O lună')}{seg(12, 'Un an (12 luni)', 'o lună gratuită')}</div>{total}{note}{extra}"
-            f"{_terms_box()}<p class='btns'>{buttons}</p></form><script>{_TOTAL_JS}</script>")
+            f"{_terms_box()}{buttons}</form><script>{_TOTAL_JS}</script>")
 
 
 def pending_note(p, sub, action: str, card_on: bool, now: datetime) -> str:
@@ -1977,11 +2007,10 @@ def pending_note(p, sub, action: str, card_on: bool, now: datetime) -> str:
     except RuntimeError:
         ways = "<p>Datele pentru transfer bancar le primiți pe e-mail.</p>"
     card = ""
-    if card_on:
+    if _online(card_on):
         card = (f"<form method='post' action='{action}'><input type='hidden' name='tier' value='{tier}'>"
                 f"<input type='hidden' name='months' value='{p['months']}'>{_terms_box()}"
-                f"<p class='btns'><button class='primary' name='method' value='card'>Plătește cu cardul</button>"
-                f"</p></form>")
+                f"{_buttons(card_on)}</form>")
     change = (f"<details class='more'><summary>Altă variantă sau alt termen?</summary>"
               f"{tier_form(sub, action, card_on, now, tier, int(p['months']), replace=p['reference'])}</details>")
     return (f"<p><b>Nota de plată {esc(p['reference'])}</b> — <b>{esc(tiers.NAME[tier])}</b>, "
@@ -1991,19 +2020,37 @@ def pending_note(p, sub, action: str, card_on: bool, now: datetime) -> str:
             f"îl preia singur, o dată pe zi sau cu «Verifică acum»; primiți și confirmarea pe e-mail.</p>{change}")
 
 
+def sms_notes_block(notes: list, action: str, card_on: bool) -> str:
+    """Ожидающие ноты SMS (пакет, имя) на странице оплаты: письмо и программа ведут сюда —
+    карта тем же путём, за галочкой условий (поле `ref`), перевод — по реквизитам ноты."""
+    out = []
+    for p in notes:
+        what = pay.subject(p)
+        try:
+            ways = f"<pre class='pay'>{esc(mail.ways_to_pay(p['reference'], p['amount'], None))}</pre>"
+        except RuntimeError:
+            ways = "<p>Datele pentru transfer bancar le primiți pe e-mail.</p>"
+        card = (f"<form method='post' action='{action}'><input type='hidden' name='ref' value='{esc(p['reference'])}'>"
+                f"{_terms_box()}{_buttons(card_on)}</form>") if _online(card_on) else ""
+        out.append(f"<div class='card narrow' style='max-width:760px'>"
+                   f"{_chead('message', 'Nota de plată ' + esc(p['reference']), esc(what[:1].upper() + what[1:]))}"
+                   f"<p><b>{_mdl(p['amount'])} MDL</b> <span class='tag warn'>în așteptare</span></p>{card}{ways}</div>")
+    return "".join(out)
+
+
 def _cont_payments(c, sub, payments: list) -> str:
     now = datetime.now(timezone.utc)
     pending = [p for p in payments if p["status"] == "pending"]
     if pending:
         top = pending_note(pending[0], sub, "/cont/nota", maib.enabled(), now)
     elif len(c["idno"] or "") == 13:
-        top = (f"{_STEPS}{tier_form(sub, '/cont/nota', maib.enabled(), now)}"
+        top = (f"{_steps(maib.enabled())}{tier_form(sub, '/cont/nota', maib.enabled(), now)}"
                f"<p class='muted'>Nota de plată cu referința și datele pentru plată apare aici și vine pe e-mail; "
                f"după confirmarea plății termenul se prelungește, iar programul îl preia singur.</p>")
     else:
         offer = "; ".join(f"{tiers.NAME[t]} — {_mdl(tiers.price(sub, t))} MDL pe lună sau "
                           f"{_mdl(pay.amount_for(sub, t, 12))} MDL pe an" for t in tiers.offered(sub))
-        top = (f"{_STEPS}<p>Pentru abonament ({offer or 'prețul din oferta de pe dentpilot.md'}) completați "
+        top = (f"{_steps(maib.enabled())}<p>Pentru abonament ({offer or 'prețul din oferta de pe dentpilot.md'}) completați "
                f"IDNO-ul clinicii în datele de mai jos, apoi {_subscribe_label(sub).lower()[0] + _subscribe_label(sub)[1:]} "
                f"— nota de plată apare aici.</p>")
     rows = "".join(
@@ -2034,11 +2081,11 @@ def _cont_devices(devices: list, latest: str) -> str:
     return f"<ul class='dev'>{rows}</ul>"
 
 
-def pay_link_page(c, sub, pending, pid: str, msg: str = "", card_on: bool = False) -> str:
-    """Страница оплаты по ссылке из программы (02.10, paylink.py): срок клиники, выбор
-    варианта (Basic / Plus) и срока с галочкой условий — или ожидающая нота с реквизитами
-    и заменой (23.10). Без входа: ссылка неугадываема и живёт сутки; кроме оплаты и IDNO
-    здесь нет ничего."""
+def pay_link_page(c, sub, pending, pid: str, msg: str = "", card_on: bool = False, sms_notes: list = ()) -> str:
+    """Страница оплаты по ссылке из программы или письма (02.10, paylink.py): срок клиники,
+    выбор варианта (Basic / Plus) и срока с галочкой условий — или ожидающая нота с
+    реквизитами и заменой (23.10); ниже — ожидающие ноты SMS. Без входа: ссылка
+    неугадываема и живёт сутки (из письма — 45 дней); кроме оплаты и IDNO здесь нет ничего."""
     now = datetime.now(timezone.utc)
     st = license.state(_ts(sub["valid_until"]) if sub else None, sub["grace_days"] if sub else 0, now)
     plan = sub["plan"] if sub else "trial"
@@ -2052,23 +2099,27 @@ def pay_link_page(c, sub, pending, pid: str, msg: str = "", card_on: bool = Fals
         term = "Licența nu este încă activată."
     if pending is not None:
         tier = pending["tier"] if pending["tier"] in tiers.TIERS else tiers.PLUS
-        head = _chead("card", esc(c["name"]), f"nota {esc(pending['reference'])} · {esc(tiers.NAME[tier])}, "
-                                              f"{mail.luni(pending['months'])}")
+        head = _chead("card", esc(c["name"]), f"{esc(tiers.NAME[tier])} · "
+                                              f"{'un an (12 luni)' if int(pending['months']) == 12 else 'o lună'}")
         body = f"<p class='lic'>{term}</p>{pending_note(pending, sub, action, card_on, now)}"
     else:
         head = _chead("card", esc(c["name"]), "abonament DentPilot · varianta și termenul le alegeți mai jos")
         idno = "" if len(c["idno"] or "") == 13 else (
             "<label for='p-idno'>IDNO-ul clinicii (13 cifre) — necesar pentru abonament</label>"
             "<input id='p-idno' name='idno' maxlength='16' inputmode='numeric' required>")
-        body = f"<p class='lic'>{term}</p>{_STEPS}{tier_form(sub, action, card_on, now, extra=idno)}"
-    inner = f"<div class='card narrow' style='max-width:760px'>{head}{body}</div>"
-    return _cont_shell("Plata abonamentului", inner, msg=msg, eyebrow="DentPilot · plata din program",
-                       lead="Linkul deschis din program: aici plătiți abonamentul clinicii — fără parolă, fără cont.")
+        body = f"<p class='lic'>{term}</p>{_steps(card_on)}{tier_form(sub, action, card_on, now, extra=idno)}"
+    inner = (f"<div class='card narrow' style='max-width:760px'>{head}{body}</div>"
+             f"{sms_notes_block(list(sms_notes), action, card_on)}")
+    return _cont_shell("Plata abonamentului", inner, msg=msg, eyebrow="DentPilot · plata online",
+                       lead="Linkul din program sau din e-mailul cu nota de plată: aici plătiți abonamentul clinicii — "
+                            "fără parolă, fără cont.")
 
 
 def pay_link_expired_page() -> str:
-    inner = (f"<div class='card narrow'>{_chead('clock', 'Linkul de plată a expirat', 'linkul din program este valabil o zi')}"
-             f"<p>Deschideți din nou «Plătește acum» în program — primiți un link nou. Sau intrați în "
+    sub = "linkul din program este valabil o zi, cel din e-mail — 45 de zile"
+    inner = (f"<div class='card narrow'>{_chead('clock', 'Linkul de plată a expirat', sub)}"
+             f"<p>Deschideți din nou «Plătește acum» în program — primiți un link nou — sau linkul din cel mai nou "
+             f"e-mail cu nota de plată. Sau intrați în "
              f"<a href='/cont'>contul clinicii</a>: acolo comandați nota de plată oricând.</p></div>")
     return _cont_shell("Linkul a expirat", inner, eyebrow="DentPilot · plata din program")
 
@@ -2150,8 +2201,10 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
         act = f"<a class='btn ghost' href='#plati'>{_subscribe_label(sub)}</a>"
     else:
         act = ""
-    how = (f"<p class='muted' style='margin:14px 0 0'>La prima pornire programul cere datele clinicii și se "
-           f"activează singur; pe un calculator nou al clinicii deja înregistrate cere codul trimis pe e-mail. "
+    # Клиника кабинета уже на сервере: программа на любом её компьютере активируется кодом на
+    # e-mail (заявка с теми же данными — «повтор», main._trial_program), а не «сама» (23.10)
+    how = (f"<p class='muted' style='margin:14px 0 0'>La prima pornire programul cere datele clinicii și "
+           f"codul pe care îl trimitem pe e-mailul clinicii — așa se activează pe orice calculator al ei. "
            f"Înainte de instalare citiți <a href='{esc(site)}/descarca.html'>ce cere Legea 195</a>.</p>")
     hero = (f"<div class='card hero'><div class='main'><p class='eyebrow'>Licența</p>"
             f"<p class='lic'>{lic['text']}</p>{lic['bar']}"

@@ -14,6 +14,11 @@
 ⛔ Ссылка — не вход в кабинет: по ней нельзя ни увидеть, ни изменить ничего,
 кроме оплаты (и IDNO, без которого абонемента не бывает). Повторный запрос
 программы в пределах TTL возвращает ту же ссылку — строки не плодятся.
+
+С 23.10 та же страница — адрес в письмах с нотой (`for_mail`, 45 дней): ссылка maib
+живёт 10 минут и рождается на странице по кнопке «Plătește cu cardul» после галочки
+условий (требование maib), поэтому письмо ведёт сюда. Здесь же — ожидающие ноты SMS
+(пакет, имя): их карта тем же путём; программа получает этот адрес в `pay_url` ноты SMS.
 """
 from __future__ import annotations
 
@@ -35,18 +40,32 @@ def url_for(pid: str) -> str:
     return config.BASE_URL.rstrip("/") + f"{PATH}/{pid}"
 
 
-def create(con: sqlite3.Connection, clinic: sqlite3.Row, who: str) -> sqlite3.Row:
-    """Живая ссылка клиники — прежняя, если ещё не истекла, иначе новая."""
+def create(con: sqlite3.Connection, clinic: sqlite3.Row, who: str, ttl: timedelta = TTL,
+           min_left: timedelta = timedelta(0)) -> sqlite3.Row:
+    """Живая ссылка клиники — прежняя, если ей осталось больше `min_left`, иначе новая на `ttl`."""
     now = datetime.now(timezone.utc)
-    live = con.execute("SELECT * FROM pay_links WHERE clinic_id=? AND expires_at > ? ORDER BY created_at DESC LIMIT 1",
-                       (clinic["id"], now.strftime(db.TS))).fetchone()
+    live = con.execute("SELECT * FROM pay_links WHERE clinic_id=? AND expires_at > ? ORDER BY expires_at DESC LIMIT 1",
+                       (clinic["id"], (now + min_left).strftime(db.TS))).fetchone()
     if live is not None:
         return live
     pid = secrets.token_urlsafe(18)
     con.execute("INSERT INTO pay_links(id, clinic_id, created_at, expires_at) VALUES(?,?,?,?)",
-                (pid, clinic["id"], now.strftime(db.TS), (now + TTL).strftime(db.TS)))
-    db.audit(con, who, "paylink_new", clinic["id"], f"ссылка оплаты до {(now + TTL).strftime(db.TS)}")
+                (pid, clinic["id"], now.strftime(db.TS), (now + ttl).strftime(db.TS)))
+    db.audit(con, who, "paylink_new", clinic["id"], f"ссылка оплаты до {(now + ttl).strftime(db.TS)}")
     return con.execute("SELECT * FROM pay_links WHERE id=?", (pid,)).fetchone()
+
+
+# Ссылка в письме с нотой (23.10, требование maib — галочка условий перед оплатой): письмо
+# ведёт на эту же страницу, а не на ссылку maib — та живёт 10 минут (maib.PAY_TTL). Письма
+# периода идут ~6 недель (счёт за 14 дней … режим чтения), поэтому срок долгий и ссылка
+# обновляется, когда ей остаётся меньше двух недель. По ней — только оплата, как у программы.
+MAIL_TTL = timedelta(days=45)
+MAIL_MIN_LEFT = timedelta(days=14)
+
+
+def for_mail(con: sqlite3.Connection, clinic: sqlite3.Row, who: str) -> str:
+    """Адрес страницы оплаты клиники для письма."""
+    return url_for(create(con, clinic, who, ttl=MAIL_TTL, min_left=MAIL_MIN_LEFT)["id"])
 
 
 def lookup(con: sqlite3.Connection, pid: str) -> sqlite3.Row | None:

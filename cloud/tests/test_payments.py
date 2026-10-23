@@ -279,9 +279,11 @@ def suite_flow(res: Result) -> None:
                   f"/admin/clinics/{cid}?msg=bad_amount")
         res.check("чужой платёж: 404", c.post("/admin/payments/999/confirm").status, 404)
         kinds = [k[0] for k in _sql(s, "SELECT what FROM audit WHERE clinic_id=? ORDER BY id", cid)]
+        # paylink_new (23.10): письмо с нотой ведёт на страницу оплаты клиники — ссылка рождается
+        # с первым письмом и дальше переиспользуется (paylink.for_mail)
         res.check("журнал: каждое действие своей строкой",
-                  kinds[:9], ["clinic_new", "payment_new", "mail", "payment_paid", "issue", "mail",
-                              "payment_new", "payment_paid", "issue"])
+                  kinds[:10], ["clinic_new", "payment_new", "paylink_new", "mail", "payment_paid", "issue", "mail",
+                               "payment_new", "payment_paid", "issue"])
 
     with Server() as s:
         res.check("ожидающие без входа: на вход", Client(s.url).get("/admin/payments").status, 303)

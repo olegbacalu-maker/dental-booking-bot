@@ -269,25 +269,24 @@ def _sms_order(c, body: dict, ip: str) -> Response:
         if created:
             p = (payments.create_name(con, c, amount, "program") if name
                  else payments.create_pack(con, c, units, amount, "program"))
-        if maib.enabled() and not p["pay_url"]:
-            try:
-                p = payments.attach_card(con, p, c, "program", ip)
-            except maib.MaibError as e:
-                log.warning("ссылка maib для ноты SMS %s не создана: %s", p["reference"], e)
+        # Карта — на нашей странице оплаты, кнопкой после галочки условий (23.10): ссылка maib
+        # живёт 10 минут и рождается по клику (payments.card_link), поэтому ни программе, ни
+        # письму её не даём. Программа (2.0.9) показывает `pay_url` ссылкой «Plătește cu cardul».
+        page = paylink.for_mail(con, c, "program") if maib.enabled() else None
         if created and c["email"]:
             try:
                 if name:
                     subject, text = mail.sms_name_note_letter(c["name"], p["reference"], int(p["amount"]),
-                                                              acc["sender"], p["pay_url"])
+                                                              acc["sender"], page)
                 else:
                     subject, text = mail.sms_pack_note_letter(c["name"], p["reference"], int(p["amount"]),
-                                                              int(p["sms_units"]), p["pay_url"])
+                                                              int(p["sms_units"]), page)
                 where = mail.send(c["email"], subject, text)
                 db.audit(con, "program", "mail", c["id"], f"нота {kind} {p['reference']} на {c['email']} ({where})")
             except (RuntimeError, OSError) as e:
                 log.error("письмо с нотой SMS %s не отправлено: %r", p["reference"], e)
     return JSONResponse({"ok": True, "kind": kind, "reference": p["reference"], "amount": int(p["amount"]),
-                         "units": p["sms_units"], "pay_url": p["pay_url"], "created": created})
+                         "units": p["sms_units"], "pay_url": page, "created": created})
 
 
 @app.post("/v1/sms/order")
@@ -323,7 +322,9 @@ def pay_link_page(pid: str, msg: str = "") -> Response:
             return HTMLResponse(views.pay_link_expired_page(), status_code=410)
         sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (c["id"],)).fetchone()
         pending = payments.open_of(con, c["id"])
-    return HTMLResponse(views.pay_link_page(c, sub, pending, pid, msg, card_on=maib.enabled()))
+        extra = [x for x in (payments.open_of(con, c["id"], payments.SMS),
+                             payments.open_of(con, c["id"], payments.SMS_NAME)) if x is not None]
+    return HTMLResponse(views.pay_link_page(c, sub, pending, pid, msg, card_on=maib.enabled(), sms_notes=extra))
 
 
 def _months(raw: str) -> int:
@@ -335,13 +336,16 @@ def _months(raw: str) -> int:
 
 @app.post(paylink.PATH + "/{pid}", response_class=HTMLResponse)
 def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method: str = Form(payments.TRANSFER),
-                    idno: str = Form(""), tier: str = Form(""), terms: str = Form("")) -> Response:
+                    idno: str = Form(""), tier: str = Form(""), terms: str = Form(""),
+                    ref: str = Form("")) -> Response:
     """Со страницы оплаты: нота на выбранные вариант и срок (та же, что из админки и
     кабинета, одна ожидающая на клинику; другой вариант или срок — нота ЗАМЕНЯЕТСЯ,
     payments.choose) — картой сразу на страницу maib, переводом — нота с реквизитами
     здесь и письмом. ⛔ Без галочки условий (`terms`) — ни карты, ни ноты: требование
     maib, «Am citit și accept Termenii» перед оплатой. IDNO без него абонемента не
-    бывает — заполняется тут же. Вариант не назван (старая страница) — текущий."""
+    бывает — заполняется тут же. Вариант не назван (старая страница) — текущий.
+    `ref` — ожидающая нота SMS (пакет, имя) этой клиники: её карта, тем же путём.
+    Карта — `payments.card_link`: ссылка maib рождается по клику (живёт 10 минут)."""
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     ip = _ip(request)
@@ -359,6 +363,14 @@ def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method:
             return RedirectResponse(f"{back}?msg=bad_months", status_code=303)
         if terms != "1":
             return RedirectResponse(f"{back}?msg=need_terms", status_code=303)
+        if ref:
+            note = con.execute("SELECT * FROM payments WHERE reference=? AND clinic_id=? AND status=? AND kind IN (?,?)",
+                               (ref, c["id"], payments.PENDING, payments.SMS, payments.SMS_NAME)).fetchone()
+            if note is None:
+                return RedirectResponse(f"{back}?msg=note_gone", status_code=303)
+            if not card:
+                return RedirectResponse(f"{back}?msg=no_card", status_code=303)
+            return _card_go(con, note, c, "program", ip, back)
         if idno and idno != (c["idno"] or ""):
             if not trial.IDNO_RE.match(idno):
                 return RedirectResponse(f"{back}?msg=bad_idno", status_code=303)
@@ -374,18 +386,27 @@ def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method:
             p, outcome = payments.choose(con, c, tier or tiers.pick(sub), m, "program")
         except ValueError:
             return RedirectResponse(f"{back}?msg=tier_not_sold", status_code=303)
-        if card and not p["pay_url"]:
-            try:
-                p = payments.attach_card(con, p, c, "program", ip)
-            except maib.MaibError as e:
-                log.warning("ссылка maib со страницы оплаты %s не создана: %s", p["reference"], e)
-                return RedirectResponse(f"{back}?msg=maib_failed", status_code=303)
         if outcome != payments.EXISTS:
+            # новая нота — письмом и при карте: не дойдёт клиника до оплаты — реквизиты у неё есть
             _send_payment_letter(con, c, p, "program")
-    if card and p["pay_url"]:
-        return RedirectResponse(p["pay_url"], status_code=303)
+        if card:
+            return _card_go(con, p, c, "program", ip, back)
     code = {payments.CREATED: "note_created", payments.REPLACED: "note_replaced"}.get(outcome, "note_exists")
     return RedirectResponse(f"{back}?msg={code}", status_code=303)
+
+
+def _card_go(con, p, c, who: str, ip: str, back: str) -> Response:
+    """Клик «Plătește cu cardul» → браузер на страницу maib (ссылка по клику, payments.card_link)
+    или назад с card_paid, если maib уже сказал «оплачено» (тогда и письмо об оплате)."""
+    try:
+        outcome, url = payments.card_link(con, p, c, who, ip)
+    except maib.MaibError as e:
+        log.warning("ссылка maib для %s не создана: %s", p["reference"], e)
+        return RedirectResponse(f"{back}?msg=maib_failed", status_code=303)
+    if outcome == payments.SETTLED_PAID:
+        payments.notify_paid(con, p, who)
+        return RedirectResponse(f"{back}?msg=card_paid", status_code=303)
+    return RedirectResponse(url, status_code=303)
 
 
 # ---------- вход ----------
@@ -1022,11 +1043,15 @@ def payment_new(request: Request, cid: str, months: str = Form("1"), amount: str
 
 
 def _send_payment_letter(con, c, p, who: str) -> str:
+    """Письмо с нотой абонемента: страница оплаты клиники (paylink.for_mail) — и для карты,
+    и для смены варианта; ссылки maib в письме нет (живёт 10 минут, 23.10)."""
     if not c["email"]:
         return "bad_email"
+    page = paylink.for_mail(con, c, who)
     try:
         subject, body = mail.payment_letter(c["name"], p["reference"], p["amount"], p["months"],
-                                            pay_url=p["pay_url"], tier=p["tier"])
+                                            pay_url=page if maib.enabled() else None, tier=p["tier"],
+                                            page=page)
     except RuntimeError:
         return "no_bank"
     try:
@@ -1120,8 +1145,7 @@ def _maib_callback(raw: bytes) -> Response:
         return JSONResponse({"ok": False, "code": "bad_signature"}, status_code=400)
     pay_id = result.get("payId")
     with db.connect() as con:
-        p = (con.execute("SELECT * FROM payments WHERE provider_id=?", (pay_id,)).fetchone()
-             if isinstance(pay_id, str) and pay_id else None)
+        p = payments.by_pay_id(con, pay_id) if isinstance(pay_id, str) and pay_id else None
     if p is None:
         log.warning("maib callback: платёж %r не наш", pay_id)
         return JSONResponse({"ok": False, "code": "unknown_payment"}, status_code=404)
@@ -1144,17 +1168,29 @@ async def maib_callback(request: Request) -> Response:
     return await run_in_threadpool(_maib_callback, await request.body())
 
 
-def _returned(pay_id: str, order_id: str):
-    """Платёж, о котором браузер вернулся от maib, — по payId (неугадываемый id maib) и,
-    если maib назвал и его, orderId = наш reference. ⛔ Только по reference не искать:
-    он порядковый (DP-2026-000123), и страница по нему показывала бы чужие ноты."""
+def _returned(pay_id: str):
+    """Платёж, о котором браузер вернулся от maib, — по payId (неугадываемый id maib, любая
+    попытка ноты). ⛔ По orderId (= наш reference) не искать: он порядковый
+    (DP-2026-000123), и страница по нему показывала бы чужие ноты; а после зачёта
+    повторного платежа он и не совпадает с reference строки. Нота ещё ждёт, а maib
+    настроен — сразу спросить maib о ЭТОЙ попытке и применить ответ (settle: та же
+    истина, что у callback), чтобы страница могла сказать «plătită» по факту."""
     if not pay_id or len(pay_id) > 64:
         return None
     with db.connect() as con:
-        p = con.execute("SELECT * FROM payments WHERE provider_id=?", (pay_id,)).fetchone()
-    if p is None or (order_id and order_id != p["reference"]):
-        return None
-    return p
+        p = payments.by_pay_id(con, pay_id)
+    if p is None or p["status"] != payments.PENDING or not maib.enabled():
+        return p
+    try:
+        truth = maib.info(pay_id)
+    except maib.MaibError as e:
+        log.warning("maib о возврате %s не ответил: %s", p["reference"], e)
+        return p
+    with db.connect() as con:
+        fresh = _payment(con, p["id"])
+        if payments.settle(con, fresh, truth, "maib") == payments.SETTLED_PAID:
+            payments.notify_paid(con, fresh, "maib")
+        return payments.by_pay_id(con, pay_id)
 
 
 @app.get(maib.OK_PATH, response_class=HTMLResponse)
@@ -1162,12 +1198,12 @@ def pay_ok(payId: str = "", orderId: str = "") -> Response:  # noqa: N803 — и
     """Куда maib возвращает браузер после оплаты. Редирект — не истина: «plătită» страница
     говорит только о ноте, которую сервер уже закрыл по ответу maib (settle); иначе —
     «în curs de confirmare». № заказа, что оплачивается, сумма и дата — требование maib."""
-    return HTMLResponse(views.pay_page(True, _returned(payId, orderId)))
+    return HTMLResponse(views.pay_page(True, _returned(payId)))
 
 
 @app.get(maib.FAIL_PATH, response_class=HTMLResponse)
 def pay_fail(payId: str = "", orderId: str = "") -> Response:  # noqa: N803
-    return HTMLResponse(views.pay_page(False, _returned(payId, orderId)))
+    return HTMLResponse(views.pay_page(False, _returned(payId)))
 
 
 def _payment(con, pid: int):
@@ -1721,17 +1757,15 @@ def cont_note(request: Request, months: str = Form("1"), method: str = Form(paym
                 p, outcome = payments.choose(con, c, tier or tiers.pick(sub), m, acc["email"])
             except ValueError:
                 return RedirectResponse("/cont?msg=tier_not_sold", status_code=303)
-            if outcome == payments.EXISTS and not card:
-                return RedirectResponse("/cont?msg=note_exists", status_code=303)
-            if card and not p["pay_url"]:
-                p = payments.attach_card(con, p, c, acc["email"], _ip(request))
             if outcome != payments.EXISTS:
                 _send_payment_letter(con, c, p, acc["email"])
+            if card:
+                return _card_go(con, p, c, acc["email"], _ip(request), "/cont")
+            if outcome == payments.EXISTS:
+                return RedirectResponse("/cont?msg=note_exists", status_code=303)
     except maib.MaibError as e:
         log.error("maib: нота из кабинета не создана: %s", e)
         return RedirectResponse("/cont?msg=maib_failed", status_code=303)
-    if card and p["pay_url"]:
-        return RedirectResponse(p["pay_url"], status_code=303)
     return RedirectResponse(f"/cont?msg={'note_replaced' if outcome == payments.REPLACED else 'note_created'}",
                             status_code=303)
 

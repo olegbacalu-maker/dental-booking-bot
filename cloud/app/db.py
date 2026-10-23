@@ -211,12 +211,29 @@ MIGRATIONS = {
     # когда клиника отметила «Am citit și accept Termenii» перед этой оплатой (требование
     # maib; у нот админки и ежедневной задачи пусто). Всё, что было до шага, — Plus: пробный
     # и прежний единственный тариф включали SMS; цены существующих подписок не трогаются.
+    # Там же — попытки оплаты картой: ссылка maib живёт 10 минут (maib.PAY_TTL), поэтому она
+    # создаётся по клику «Plătește cu cardul», и у одной ноты их может быть несколько.
+    # `payments.provider_id`/`pay_url` — последняя; `pay_attempts` — КАЖДАЯ: оплата во вкладке
+    # со старой ссылкой должна узнаваться (callback, задача), а не прийти «не нашей».
+    # `final` — maib дал окончательный ответ (OK, FAILED, TIMEOUT…): задача больше не спрашивает;
+    # `counted` — деньги этой попытки зачтены (ноту закрыла она или зачёт повторного платежа).
     15: [
         "ALTER TABLE subscriptions ADD COLUMN tier TEXT NOT NULL DEFAULT 'plus'",
         "ALTER TABLE subscriptions ADD COLUMN sms_until TEXT",
         "ALTER TABLE payments ADD COLUMN tier TEXT",
         "ALTER TABLE payments ADD COLUMN terms_at TEXT",
         "UPDATE payments SET tier='plus' WHERE kind='license'",
+        """CREATE TABLE IF NOT EXISTS pay_attempts(
+            provider_id TEXT PRIMARY KEY, payment_id INTEGER NOT NULL REFERENCES payments(id),
+            pay_url TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT '', final INTEGER NOT NULL DEFAULT 0,
+            counted INTEGER NOT NULL DEFAULT 0)""",
+        "CREATE INDEX IF NOT EXISTS ix_pay_attempts_payment ON pay_attempts(payment_id)",
+        "CREATE INDEX IF NOT EXISTS ix_pay_attempts_open ON pay_attempts(final, created_at)",
+        """INSERT OR IGNORE INTO pay_attempts(provider_id, payment_id, pay_url, created_at, status, final, counted)
+           SELECT provider_id, id, COALESCE(pay_url, ''), created_at, provider_status,
+                  CASE WHEN paid_via='card' THEN 1 ELSE 0 END, CASE WHEN paid_via='card' THEN 1 ELSE 0 END
+           FROM payments WHERE provider_id IS NOT NULL""",
     ],
 }
 

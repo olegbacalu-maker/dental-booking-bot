@@ -17,10 +17,11 @@ cloud.md › «Напоминания». Запуск раз в сутки из 
 откатывает запись об отправленном у другой, а ошибка одной не останавливает
 остальных. Состояние по-прежнему не хранится: окна считаются от дат.
 
-Карты (L12): при настроенном maib открытый платёж получает ссылку на
-hosted-страницу до первого письма периода, и все письма периода несут её
-рядом с reference. Вторая забота задачи — спросить maib про каждый ожидающий
-платёж со ссылкой: callback мог не дойти, а истина всё равно у maib.
+Карты (L12; с 23.10): письма периода несут страницу оплаты клиники
+(paylink.for_mail) рядом с reference — ссылка maib живёт 10 минут и рождается
+только по клику на этой странице, после галочки условий. Вторая забота задачи —
+спросить maib про каждую попытку оплаты картой без окончательного ответа:
+callback мог не дойти, а истина всё равно у maib.
 """
 from __future__ import annotations
 
@@ -31,7 +32,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
-from . import db, license, mail, maib, payments, sms, smsmd, tiers
+from . import db, license, mail, maib, paylink, payments, sms, smsmd, tiers
 
 log = logging.getLogger("cloud.jobs")
 
@@ -124,14 +125,11 @@ def _one(con: sqlite3.Connection, row: sqlite3.Row, now: datetime, send, who: st
     pay = None
     if row["plan"] != "trial":
         p = open_payment(con, row, who)
-        if maib.enabled() and not p["provider_id"]:
-            # ссылка на карту — до первого письма периода; maib молчит — письмо идёт с одним reference
-            try:
-                p = payments.attach_card(con, p, row, who)
-            except maib.MaibError as e:
-                log.warning("ссылка maib для %s не создана: %s", p["reference"], e)
+        # карта — на странице оплаты клиники, кнопкой после галочки условий (23.10): ссылка maib
+        # живёт 10 минут и рождается по клику, поэтому письмо несёт НАШУ страницу, не ссылку maib
+        page = paylink.for_mail(con, row, who)
         pay = {"reference": p["reference"], "amount": int(p["amount"]), "months": int(p["months"]),
-               "url": p["pay_url"], "tier": p["tier"]}
+               "url": page if maib.enabled() else None, "page": page, "tier": p["tier"]}
     subject, body = mail.reminder_letter(kind, row["name"], row["plan"], valid, grace,
                                          int(row["grace_days"]), pay)
     try:
@@ -146,22 +144,26 @@ def _one(con: sqlite3.Connection, row: sqlite3.Row, now: datetime, send, who: st
     rep.sent.append((row["id"], kind))
 
 
+ATTEMPT_DAYS = 30      # попытку без окончательного ответа maib спрашивают не дольше месяца
+
+
 def settle_cards(who: str, rep: Report) -> None:
-    """Каждый ожидающий платёж со ссылкой maib: спросить pay-info и применить
-    (payments.settle). Callback мог не дойти; истина у maib и без него.
+    """Каждая попытка оплаты картой без окончательного ответа maib (pay_attempts.final = 0):
+    спросить pay-info и применить (payments.settle). Callback мог не дойти; истина у maib
+    и без него. Окончательный ответ (OK, FAILED, TIMEOUT протухшей ссылки) закрывает
+    попытку — назавтра её не спрашивают, и «card_failed» не пишется каждый день (23.10).
     Оплачено — файл письмом, как из админки. maib не ответил — в отчёт, не в
-    падение задачи: письма клиникам от этого не зависят."""
+    падение задачи: письма клиникам от этого не зависят.
+    ⭐ Нота могла закрыться ДРУГИМ путём (перевод подтверждён), а карта по её попытке —
+    пройти потом: попытка остаётся открытой, и задача зачтёт второй платёж (credit_again)."""
     if not maib.enabled():
         return
-    # ⭐ И закрытые ДРУГИМ путём ноты с живой ссылкой maib за последний месяц: карта могла
-    # пройти уже после подтверждённого перевода, а её callback — потеряться. Без этого
-    # второй платёж клиники молча остался бы у нас (payments.credit_again).
-    since = (datetime.now(timezone.utc) - timedelta(days=30)).strftime(db.TS)
+    since = (datetime.now(timezone.utc) - timedelta(days=ATTEMPT_DAYS)).strftime(db.TS)
     with db.connect() as con:
-        rows = con.execute("""SELECT * FROM payments WHERE provider_id IS NOT NULL
-                                AND (status=? OR (COALESCE(paid_via, '')<>? AND created_at>=?))
-                              ORDER BY id""",
-                           (payments.PENDING, payments.CARD, since)).fetchall()
+        rows = con.execute("""SELECT a.provider_id, a.payment_id, p.reference, p.clinic_id
+                              FROM pay_attempts a JOIN payments p ON p.id = a.payment_id
+                              WHERE a.final=0 AND a.created_at>=? ORDER BY a.created_at""",
+                           (since,)).fetchall()
     for p in rows:
         try:
             truth = maib.info(p["provider_id"])
@@ -171,7 +173,8 @@ def settle_cards(who: str, rep: Report) -> None:
             continue
         try:
             with db.connect() as con:
-                fresh = con.execute("SELECT * FROM payments WHERE id=?", (p["id"],)).fetchone()
+                # попытка могла переехать на другую строку (зачёт повторного платежа) — платёж по ней
+                fresh = payments.by_pay_id(con, p["provider_id"])
                 outcome = payments.settle(con, fresh, truth, who)
                 if outcome == payments.SETTLED_PAID:
                     payments.notify_paid(con, fresh, who)

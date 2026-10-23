@@ -461,7 +461,8 @@ def suite_cabinet(res: Result) -> None:
                and "license.json" not in home.body and "licenta.json" not in home.body
                and "Descarcă DentPilot 1.35.3" in home.body
                and "DentPilot-Setup-1.35.3.exe" in home.body and "nu a verificat încă" in home.body
-               and "completați IDNO" not in home.body and "se activează singur" in home.body, home.body[-2500:])
+               and "completați IDNO" not in home.body
+               and "codul pe care îl trimitem pe e-mailul clinicii — așa se activează" in home.body, home.body[-2500:])
         res.ok("кабинет не для роботов и без админских слов",
                "noindex" in home.body and "Клиники" not in home.body and "dentpilot.md/privacy.html" in home.body)
         admin = Client(s.url).login()
@@ -549,7 +550,7 @@ def suite_link_and_duplicate(res: Result) -> None:
         res.ok("ящик Google = ящик клиники из админки (регистр другой): привязка сразу, в кабинет",
                r.location == "/cont" and _accounts(s)[0][4] == cid, r.location)
         home = c.get("/cont")
-        res.ok("кабинет до выдачи: «cererea a fost primită» с датой, программа активируется сама",
+        res.ok("кабинет до выдачи: «cererea a fost primită» с датой; сама — программа, приславшая заявку",
                "Clinica Veche" in home.body and "a fost primită" in home.body and "se activează singur" in home.body)
         res.check("кабинет файла не отдаёт", c.get("/cont/licenta.json").status, 404)
         admin.post(f"/admin/clinics/{cid}/issue", kind="trial")
