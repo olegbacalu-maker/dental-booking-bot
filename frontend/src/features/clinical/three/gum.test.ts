@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { layoutArch } from './arch'
+import { archCurve, layoutArch } from './arch'
 import { crownModel } from './crown'
-import { anchorsFor, buildGum, linRgb, marginPoint, RIB, stripesFor, type GumKind, type GumTooth } from './gum'
+import { anchorsFor, archFrame, buildGum, linRgb, marginPoint, RIB, stripesFor, type GumKind, type GumTooth } from './gum'
 import { finite } from './mesh'
 import { posed } from './pose'
 import { toCls } from './toothGeometry'
@@ -84,6 +84,21 @@ describe('десна по краю', () => {
       expect(frontNz(gum.positions, gum.index, lay.apex)).toBeGreaterThan(0)
     })
   }
+
+  it('⭐ дуга десны — та же, что у зубов: середина каждого зуба лежит на ней на своей длине дуги (24.10)', () => {
+    // своя формула у десны (до 24.10 — копия параболы) разошлась бы с зубами
+    // молча: правка формы в `arch.ts` сдвигала бы зубы, а десну оставляла
+    for (const [list, upper] of [[UP, true], [LO, false]] as const) {
+      const { lay } = jaw(list, upper)
+      const F = archFrame(lay.A, lay.D, lay.apex)
+      expect(F.total).toBeCloseTo(archCurve(lay.A, lay.D, lay.apex, -1).total, 2)
+      for (const t of lay.teeth) {
+        const f = F.at(t.s)
+        expect(Math.hypot(f.x - t.position[0], f.z - t.position[2])).toBeLessThan(0.01)
+        expect(Math.abs(f.nx * t.zAxis[0] + f.nz * t.zAxis[2])).toBeGreaterThan(0.9999)
+      }
+    }
+  })
 
   it('край садится на стенку зуба: у щёчной середины 11 вершина десны не дальше 0,3 мм от точки края', () => {
     const { gum, teeth } = jaw(UP, true)

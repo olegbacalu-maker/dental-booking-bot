@@ -72,6 +72,50 @@ describe('расстановка', () => {
     }
   })
 
+  it('⭐ средняя линия не выделяется: пара 11–21 (41–31) развёрнута и раскрыта у губы не больше соседних', () => {
+    /* Щель 11–21 (Олег 24.10): у параболы кривизна наибольшая в вершине, то
+       есть ровно между центральными резцами, — коронки по касательной
+       расходились на 42°, клин у губных углов 3,2 мм против 1,9 у 12–11.
+       Коронка здесь — прямоугольник md × bl в базисе места; клин — расстояние
+       между губными углами, обращёнными друг к другу. Размеры — как у
+       `teeth_svg.tooth_geom` (24.10) и ровные 8 × 7: форма, а не числа. */
+    const REAL: Record<number, [number, number]> = {
+      11: [8.52, 7.16], 12: [6.73, 6.46], 13: [7.62, 8.07], 14: [7.48, 9.5],
+      15: [7.16, 9.09], 16: [10.5, 11.03], 17: [9.98, 10.47], 18: [9.24, 9.7],
+      41: [5.79, 6.55], 42: [6.26, 6.88], 43: [7.01, 7.57], 44: [7.48, 8.0],
+      45: [7.16, 7.66], 46: [10.5, 10.08], 47: [9.98, 9.58], 48: [9.24, 8.87],
+    }
+    const real = (n: number): [number, number] => REAL[(n >= 30 ? 40 : 10) + (n % 10)] ?? [8, 7]
+    for (const size of [real, (): [number, number] => [8, 7]]) {
+      for (const [list, upper, l2, l1, r1, r2] of [[UPPER, true, 12, 11, 21, 22], [LOWER, false, 42, 41, 31, 32]] as const) {
+        const lay = layoutArch(list.map((n) => ({ n, md: size(n)[0] })), upper)
+        const at = (n: number) => lay.teeth.find((t) => t.n === n)!
+        const turn = (a: number, b: number): number => {
+          const za = at(a).zAxis
+          const zb = at(b).zAxis
+          return (Math.acos(Math.min(1, za[0] * zb[0] + za[2] * zb[2])) * 180) / Math.PI
+        }
+        const wedge = (a: number, b: number): number => {
+          const corner = (n: number, m: number): [number, number] => {
+            const [md, bl] = size(n)
+            const o = at(m).position
+            const c = [toWorld(at(n), [-md / 2, 0, bl / 2]), toWorld(at(n), [md / 2, 0, bl / 2])]
+              .sort((p, q) => Math.hypot(p[0] - o[0], p[2] - o[2]) - Math.hypot(q[0] - o[0], q[2] - o[2]))[0]!
+            return [c[0], c[2]]
+          }
+          const p = corner(a, b)
+          const q = corner(b, a)
+          return Math.hypot(p[0] - q[0], p[1] - q[1])
+        }
+        const mid = turn(l1, r1)
+        expect(mid).toBeLessThanOrEqual(turn(l2, l1))
+        expect(mid).toBeLessThanOrEqual(turn(r1, r2))
+        expect(wedge(l1, r1)).toBeLessThanOrEqual(wedge(l2, l1))
+        expect(wedge(l1, r1)).toBeLessThanOrEqual(wedge(r1, r2))
+      }
+    }
+  })
+
   it('оси базиса единичные и взаимно перпендикулярные', () => {
     const lay = layoutArch(row(UPPER), true)
     const dot = (a: number[], b: number[]) => (a[0] ?? 0) * (b[0] ?? 0) + (a[1] ?? 0) * (b[1] ?? 0) + (a[2] ?? 0) * (b[2] ?? 0)

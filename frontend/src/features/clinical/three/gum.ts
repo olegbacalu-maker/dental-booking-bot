@@ -1,4 +1,4 @@
-import type { Vec3 } from './arch'
+import { archProfile, type Vec3 } from './arch'
 import type { RawMesh } from './mesh'
 import type { Cls } from './toothGeometry'
 
@@ -177,13 +177,14 @@ export function wallPoint(t: GumTooth, th: number, h: number, out = 0): Vec3 {
 
 interface Frame { x: number; z: number; tx: number; tz: number; nx: number; nz: number }
 
-/** Та же парабола, что у `layoutArch` (z = apex − D·x²/A²), с гладкой
+/** Та же дуга, что у `layoutArch` (z = apex − D·f(x/A), `archProfile` —
+ *  своей формулы у десны нет: копия разошлась бы с зубами молча), с гладкой
  *  нормалью и продолжением по касательной за концами дуги. */
-function archFrame(A: number, D: number, apex: number) {
+export function archFrame(A: number, D: number, apex: number) {
   const N = 3000
   const xs = new Float64Array(N + 1)
   const ss = new Float64Array(N + 1)
-  const zf = (x: number): number => apex - (D * x * x) / (A * A)
+  const zf = (x: number): number => apex - D * archProfile(x / A)[0]
   xs[0] = -A
   for (let i = 1; i <= N; i++) {
     const x0 = -A + (2 * A * (i - 1)) / N
@@ -206,7 +207,7 @@ function archFrame(A: number, D: number, apex: number) {
   const at = (u: number): Frame => {
     const uu = Math.max(0, Math.min(total, u))
     const x = xAt(uu)
-    const dz = (-2 * D * x) / (A * A)
+    const dz = (-D / A) * archProfile(x / A)[1]
     const L = Math.hypot(1, dz)
     const tx = 1 / L
     const tz = dz / L
@@ -219,9 +220,9 @@ function archFrame(A: number, D: number, apex: number) {
   }
   const kappa = (u: number): number => {
     if (u < 0 || u > total) return 0
-    const x = xAt(u)
-    const d1 = (-2 * D * x) / (A * A)
-    return ((2 * D) / (A * A)) / Math.pow(1 + d1 * d1, 1.5)
+    const [, f1, f2] = archProfile(xAt(u) / A)
+    const d1 = (-D / A) * f1
+    return ((D / (A * A)) * f2) / Math.pow(1 + d1 * d1, 1.5)
   }
   /** Станция точки: u, при котором точка лежит в нормальной плоскости дуги. */
   const project = (px: number, pz: number, guess: number): number => {
