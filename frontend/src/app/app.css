@@ -413,8 +413,6 @@
 .dp-react-root .odop .arch .tooth-btn.dim { opacity: .22; }
 .dp-react-root .odop .arch .tooth-btn.dim:hover, .dp-react-root .odop .arch .tooth-btn.dim.sel { opacity: .6; }
 @media print { .dp-react-root .odop .arch .tooth-btn.dim { opacity: 1; } }
-/* инспектор: действия с зуба в ряд — «Adaugă în plan» (01.10) и мост от зуба */
-.dp-react-root .dp-insp-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 /* контекстное меню зуба — состояния сервера и мост от зуба */
 .dp-cmenu {
   position: fixed;
@@ -506,7 +504,7 @@
   box-shadow: none;
   border-color: var(--line);
 }
-@media print { .dp-cmenu, .dp-draft, .dp-insp-acts { display: none; } }
+@media print { .dp-cmenu, .dp-draft { display: none; } }
 /* день (C25.5b): карточка визита. Классы вместо инлайновых стилей старой
    страницы — те же величины, но красит их тема клиники, а не зашитый хекс
    (прайор 08-09). `.dp-card-info` — строка заметки стойки (NoteDialog).
@@ -1915,7 +1913,7 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .dp-tm-btn.miss { color: var(--text3); }
 @media print { .dp-react-root .dp-tm-btn.dim { opacity: 1; } }
 
-/* панель зуба: секции через линию, крупный номер, крест, сетка состояний */
+/* панель зуба: секции через линию, крупный номер, сетка состояний (вкладки и крупный зуб — секция odo:panel) */
 .dp-react-root .dp-tp { display: flex; flex-direction: column; padding: 0; margin: 0; }
 .dp-react-root .dp-tp-sec { padding: 16px 20px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; }
 .dp-react-root .dp-tp-head { display: flex; align-items: center; gap: 16px; padding: 18px 20px; }
@@ -1932,40 +1930,12 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .dp-tp-form { display: contents; }
 .dp-react-root .dp-tp-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .dp-react-root .dp-tp-note { font-size: var(--fs-s); color: var(--text3); }
-.dp-react-root .dp-tp .i-bridge { margin: 0; border-radius: 0; background: var(--fill); flex-direction: row; align-items: center; }
-/* крест поверхностей 3×3 (64×58) и подпись справа */
-.dp-react-root .dp-sfx { display: flex; gap: 16px; align-items: center; }
-.dp-react-root .dp-sfx-grid { display: grid; grid-template-columns: repeat(3, 64px); grid-template-rows: repeat(3, 58px); gap: 6px; flex: none; }
-.dp-react-root .dp-sf {
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-  border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--panel); font: inherit; color: var(--text); cursor: pointer;
-  padding: 0;
-}
-.dp-react-root .dp-sf:hover { background: var(--fill); }
-.dp-react-root .dp-sf:focus-visible { outline: none; box-shadow: var(--ring); }
-.dp-react-root .dp-sf .l {
-  width: 22px; height: 22px; border-radius: var(--r-xs); background: var(--fill); display: inline-flex; align-items: center;
-  justify-content: center; font-size: var(--fs-m); font-weight: 700;
-}
-.dp-react-root .dp-sf .n { font-size: var(--fs-xs); color: var(--text3); }
-.dp-react-root .dp-sf.on { background: var(--teal-soft); border: 2px solid var(--teal); }
-.dp-react-root .dp-sf.on .l { background: var(--teal); color: var(--on-teal); }
-/* бейдж с состоянием поверхности — цвет палитры инлайном, текст белый */
-.dp-react-root .dp-sf.has .l { color: #fff; }
-.dp-react-root .dp-sfx-info { min-width: 0; font-size: var(--fs-m); line-height: 19px; color: var(--text2); display: flex; flex-direction: column; gap: 2px; }
-.dp-react-root .dp-sfx-info b { font-size: var(--fs-l); line-height: 22px; color: var(--text); }
-.dp-react-root .dp-sfx-info em { font-style: normal; font-weight: 600; }
-.dp-react-root .dp-tp-sfst { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-s); color: var(--text2); }
-.dp-react-root .dp-tp-sfst b { color: var(--text); }
 /* кисть (11.10): те же кнопки, что у состояния зуба; с кистью курсор над
    поверхностями — крест; старая запись «на весь зуб» — строкой с выбором */
 .dp-react-root .dp-brush .dp-stb.on { border-color: var(--brush); background: var(--brush); color: #fff; }
 .dp-react-root .dp-brush-on { font-weight: 600; }
-.dp-react-root .dp-odo[data-brush] .dp-sf, .dp-react-root .dp-odo[data-brush] .tooth-svg [data-s],
+.dp-react-root .dp-odo[data-brush] .tooth-svg [data-s],
 .dp-react-root .dp-odo[data-brush] .odo-stage canvas { cursor: crosshair; }
-/* кисть в руке: клетки креста — цели, пунктиром; наведение — рамка цветом текста */
-.dp-react-root .dp-odo[data-brush] .dp-sf { border-style: dashed; }
-.dp-react-root .dp-odo[data-brush] .dp-sf:hover { border-color: var(--text); border-style: solid; }
 .dp-react-root .dp-tp-old {
   display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: var(--r-ctl);
   background: var(--fill); font-size: var(--fs-s); color: var(--text2);
@@ -2014,19 +1984,7 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .dp-tp-status { min-height: 18px; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: var(--fs-s); color: var(--text3); }
 .dp-react-root .dp-tp-status .dp-saved { color: var(--green-t); font-weight: 600; }
 .dp-react-root .dp-link { border: 0; background: none; padding: 0; font: inherit; font-size: var(--fs-s); font-weight: 600; color: var(--teal-d); cursor: pointer; text-decoration: underline; }
-.dp-react-root .dp-tp-acts { gap: 6px; padding: 12px 20px; }
 .dp-react-root .dp-tp .i-perio { margin: 0; }
-/* история — шторка */
-.dp-react-root .dp-tp-hist { border-top: 1px solid var(--line); margin: 0; padding: 0; }
-.dp-react-root .dp-tp-hist summary {
-  display: flex; align-items: center; justify-content: space-between; min-height: 52px; padding: 0 20px; cursor: pointer; list-style: none;
-}
-.dp-react-root .dp-tp-hist summary::-webkit-details-marker { display: none; }
-.dp-react-root .dp-tp-hist summary svg { width: 16px; height: 16px; color: var(--text3); transition: transform var(--dur) ease; }
-.dp-react-root .dp-tp-hist[open] summary svg { transform: rotate(90deg); }
-.dp-react-root .dp-tp-hist .th-r, .dp-react-root .dp-tp-hist .hint { padding-left: 20px; padding-right: 20px; }
-.dp-react-root .dp-tp-hist .hint { padding-bottom: 12px; }
-.dp-react-root .dp-tp-hist .th-r:last-child { padding-bottom: 12px; }
 @media (pointer: coarse) {
   .dp-react-root .dp-odo .odop-side { max-width: none; }
   .dp-react-root .dp-odo[data-sel] .odop-side .dp-tp { border: none; box-shadow: none; }
