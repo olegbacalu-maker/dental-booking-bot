@@ -3,14 +3,14 @@ import type { Odontogram, ToothGeom, ToothInfo } from '../chart'
 import { archCurve, GAP, GAP_CLOSED, layoutArch, type ArchLayout, type PlacedTooth } from './arch'
 import { focusOcclusal, focusOrbit, nearestTheta } from './focus'
 import type { Three } from './loadThree'
-import { COLOR, hex, lerpHex, sameLook, setTransparent, structChanged, targetLook, type Look } from './look'
+import { COLOR, FINISH, finishOf, hex, lerpHex, mixFinish, sameFinish, sameLook, setFinish, setTransparent, structChanged, targetLook, type Finish, type Look } from './look'
 import type { RawMesh } from './mesh'
 import { buildDashedLoop, buildRoots, buildScrew, SURF, toCls, type Letter } from './toothGeometry'
 import { crownModel, type CrownModel } from './crown'
 import { sculptModel, type SculptSet } from './sculpt'
 import { posed } from './pose'
 import { anchorsFor, buildGum, linRgb, marginH, SITE_DEG, stripesFor, wallPoint, type GumKind, type GumTooth } from './gum'
-import { studioEnv } from './env'
+import { roomEnv } from './env'
 import { comesFrom, MS, sceneFor, startLift } from './transition'
 import { createTweens, type Tweens } from './tween'
 import { EMPTY_BOUNDS, fillAt, fitRadius, isEmpty, union, type Bounds } from './fit'
@@ -20,7 +20,8 @@ import { isFinger, LONG_MS, slopOf, swallowNextClick } from '../touch'
    челюсти на дуге движка, пять материалов на коронку (= пять поверхностей),
    корни, винт импланта, кольца отметок и выбора, номера. С 06.10 (кадры
    до/после, слово Олега «нравится»): коронка `crown.ts`, постановка `pose.ts`,
-   десна по краю каждого зуба `gum.ts`, блики от карты окружения `env.ts`;
+   десна по краю каждого зуба `gum.ts`, блики от карты окружения `env.ts`
+   (с 24.10 — вид «Simplu»: комната и отделка поверхностей по смыслу `look.FINISH`);
    слой пародонта — рецессия, полосы карманов, BOP, зонды — `setPerio`.
    THREE приходит снаружи уже загруженным (`loadThree`), поэтому модуль
    импортирует только его ТИПЫ. Кадры — ТОЛЬКО по требованию: `invalidate()`
@@ -109,6 +110,11 @@ export interface ToothProbe {
   /** номер показан (слой «Numere» или выбранный зуб) и его размер */
   label: boolean
   labelScale: number
+  /** отделка материалов коронки сейчас (порядок `SURF`) и прозрачность первого —
+   *  сошёлся ли материал с видом после твина (24.10, вид «Simplu») */
+  fin: Finish[]
+  transparent: boolean
+  depthWrite: boolean
 }
 
 export interface ArchScene {
@@ -145,7 +151,7 @@ interface ToothNodes {
   place: PlacedTooth
   group: T3.Group
   crown: T3.Mesh
-  mats: T3.MeshStandardMaterial[]
+  mats: T3.MeshPhysicalMaterial[]
   roots: T3.Mesh
   rootMat: T3.MeshStandardMaterial
   screw: T3.Mesh
@@ -207,7 +213,6 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
   renderer.outputColorSpace = THREE.SRGBColorSpace
   renderer.toneMapping = THREE.ACESFilmicToneMapping
-  renderer.toneMappingExposure = 0.95
   const canvas = renderer.domElement
   canvas.style.display = 'block'
   canvas.style.width = '100%'
@@ -218,20 +223,24 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   container.appendChild(canvas)
 
   const scene = new THREE.Scene()
-  // свет мягкий: форму и блики эмали даёт карта окружения (`env.ts`)
-  scene.add(new THREE.HemisphereLight(0xeef5f7, 0xb9a692, 0.42))
-  const key = new THREE.DirectionalLight(0xfff4e8, 1.55)
+  // свет «Simplu» (прототип 19.10, Олег: «да уже лучше»): форму и блики даёт карта
+  // окружения комнаты (`env.ts`), заливка и низ слабее, ключ и контровой сильнее —
+  // поверхность читается лаком и бликом, а не ровной заливкой; постобработки нет
+  // (тень + SSAO + SMAA прототипа — ×1,9 времени кадра на слабом GPU, отвергнуты)
+  scene.add(new THREE.HemisphereLight(0xeef5f7, 0xb9a692, 0.25))
+  const key = new THREE.DirectionalLight(0xfff4e8, 1.9)
   key.position.set(40, 80, 90)
-  const fill = new THREE.DirectionalLight(0xdfeaf2, 0.5)
+  const fill = new THREE.DirectionalLight(0xdfeaf2, 0.35)
   fill.position.set(-70, 20, 50)
-  const rim = new THREE.DirectionalLight(0xffffff, 0.55)
+  const rim = new THREE.DirectionalLight(0xffffff, 0.7)
   rim.position.set(-20, 40, -120)
-  const low = new THREE.DirectionalLight(0xfff4e8, 0.35)
+  const low = new THREE.DirectionalLight(0xfff4e8, 0.25)
   low.position.set(20, -80, 60)
   scene.add(key, fill, rim, low)
-  const envTex = studioEnv(THREE, renderer)
+  const envTex = roomEnv(THREE, renderer)
   scene.environment = envTex
-  renderer.toneMappingExposure = 1.0
+  scene.environmentIntensity = 1.1
+  renderer.toneMappingExposure = 1.1
 
   // цвет десны — в вершинах (`gum.ts`: свободная, прикреплённая, слизистая, полоса кармана)
   const gumMat = new THREE.MeshPhysicalMaterial({
@@ -478,21 +487,25 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     const g = geomOf(model.teeth[String(p.n)], upper)
     const hmd = g.md / 2
     const hbl = g.bl / 2
-    // эмаль с лаковым слоем: блик по форме коронки; цвет вершин — оттенок по высоте (`crown.ts`)
-    const mats: T3.MeshStandardMaterial[] = SURF.map(() => new THREE.MeshPhysicalMaterial({
-      color: COLOR.enamel, vertexColors: true, roughness: 0.34, metalness: 0, clearcoat: 0.55, clearcoatRoughness: 0.18,
+    // эмаль с лаком и тёплым бархатом: блик по форме коронки; цвет вершин — оттенок по высоте
+    // (`crown.ts`); отделку поверхности по смыслу (пломба, кариес, коронка, цирконий) ставит `applyLook`
+    const mats = SURF.map(() => new THREE.MeshPhysicalMaterial({
+      color: COLOR.enamel, vertexColors: true, ...FINISH.enamel,
+      sheenColor: new THREE.Color(COLOR.sheenEnamel), sheenRoughness: 0.45,
       emissive: new THREE.Color(COLOR.glow), emissiveIntensity: 0,
     }))
     const crownGeo = toGeometry(THREE, cm.mesh)
     const crown = new THREE.Mesh(crownGeo, mats)
     crown.userData['n'] = p.n
     crowns.push(crown)
-    const rootMat = new THREE.MeshStandardMaterial({ color: COLOR.dentin, roughness: 0.62, metalness: 0 })
+    const rootMat = new THREE.MeshPhysicalMaterial({
+      color: COLOR.dentin, ...FINISH.dentin, sheenColor: new THREE.Color(COLOR.sheenDentin), sheenRoughness: 0.5,
+    })
     const rootsGeo = toGeometry(THREE, buildRoots(g, cm.neck))
     const roots = new THREE.Mesh(rootsGeo, rootMat)
     roots.raycast = () => undefined
     const screwGeo = toGeometry(THREE, buildScrew(Math.min(hmd, hbl) * 0.9))
-    const screwMat = new THREE.MeshStandardMaterial({ color: COLOR.titan, roughness: 0.35, metalness: 0.9 })
+    const screwMat = new THREE.MeshPhysicalMaterial({ color: COLOR.screw, ...FINISH.titanium })
     const screw = new THREE.Mesh(screwGeo, screwMat)
     screw.raycast = () => undefined
     // винт виден ВСЕГДА, даже сквозь десну: та же геометрия поверх всего, полупрозрачная, со свечением состояния
@@ -593,23 +606,21 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     SURF.forEach((_L, i) => {
       const m = t.mats[i]
       const c = look.cols[i]
-      if (!m || c === undefined) return
+      const f = look.fin[i]
+      if (!m || c === undefined || !f) return
       const target = new THREE.Color(c)
       if (instant) {
         m.color.copy(target)
-        m.metalness = look.metalness
-        m.roughness = look.roughness
+        setFinish(m, f)
         m.opacity = look.opacity
         setTransparent(m, see)
         m.depthWrite = !see
         return
       }
       const c0 = m.color.clone()
-      const met0 = m.metalness
-      const r0 = m.roughness
+      const f0 = finishOf(m)
       const op0 = m.opacity
-      if (c0.equals(target) && met0 === look.metalness && op0 === look.opacity) {
-        m.roughness = look.roughness
+      if (c0.equals(target) && sameFinish(f0, f) && op0 === look.opacity) {
         setTransparent(m, see)
         m.depthWrite = !see
         return
@@ -617,10 +628,10 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       // на время твина прозрачна, только если прозрачность меняется или была/будет < 1:
       // у непрозрачного зуба перекраска не меняет программу шейдера (`setTransparent`)
       setTransparent(m, see || op0 < 1)
+      // отделка едет тем же твином, что цвет: лак пломбы проявляется, кариес матовеет
       tweens.add(380, (k) => {
         m.color.copy(c0).lerp(target, k)
-        m.metalness = met0 + (look.metalness - met0) * k
-        m.roughness = r0 + (look.roughness - r0) * k
+        setFinish(m, mixFinish(f0, f, k))
         m.opacity = op0 + (look.opacity - op0) * k
       }, () => {
         setTransparent(m, see)
@@ -672,12 +683,13 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     tweens.kill(t)
     const finish = (): void => applyLook(t, look, true)
     const from = comesFrom(prev)
-    const paintCols = (metal: number, rough: number): void => {
+    // цвет и отделка нового состояния — до того, как коронка проявится
+    const paintCols = (): void => {
       t.mats.forEach((m, i) => {
         const c = look.cols[i]
+        const f = look.fin[i]
         if (c !== undefined) m.color.setHex(c)
-        m.metalness = metal
-        m.roughness = rough
+        if (f) setFinish(m, f)
       })
     }
     switch (sceneFor(look)) {
@@ -689,7 +701,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
         screwY(t, 16)
         screwSpin(t, 0)
         tweens.add(MS.screwIn, (k) => { screwY(t, 16 * (1 - k)); screwSpin(t, k * Math.PI * 6) }, null, 0, t)
-        paintCols(0, 0.22)
+        paintCols()
         setOpacity(t, 0)
         tweens.add(MS.crownSeat, (k) => {
           t.crown.visible = true
@@ -735,7 +747,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
         if (!t.roots.visible && !look.pontic && from !== 'gone' && from !== 'implant') fadeRoots(t, true)
         if (from) {
           t.crown.visible = true
-          paintCols(0.85, 0.28)
+          paintCols()
           setOpacity(t, 0)
           if (from === 'implant') tweens.add(MS.screwOut, (k) => screwY(t, 16 * k), null, 0, t)
           if (from === 'ghost') gapOut(t)
@@ -762,7 +774,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
         if (!t.roots.visible) fadeRoots(t, true)
         if (from) {
           t.crown.visible = true
-          paintCols(0, 0.32)
+          paintCols()
           if (from === 'ghost') gapOut(t)
           const lift = startLift(from)
           setOpacity(t, 0)
@@ -795,7 +807,10 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       const look = targetLook(info, palette)
       // в режиме пародонта находки зубов приглушены: красный кариеса спорил бы с
       // красным кармана и кровоточивости; коронка, имплант и отсутствие остаются
-      if (perio && !look.gold && !look.implant) look.cols = look.cols.map(() => COLOR.enamel)
+      if (perio && !look.gold && !look.implant) {
+        look.cols = look.cols.map(() => COLOR.enamel)
+        look.fin = look.fin.map(() => FINISH.enamel)
+      }
       // гашение — поверх вида данных, но не в данных: `targetLook` чист, фильтр — экрана
       const dim = dimmed.has(t.n)
       if (dim) look.opacity = DIM
@@ -1166,6 +1181,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
         look: t.look, crown: t.crown.visible, roots: t.roots.visible, screw: t.screw.visible, socket: t.socket.visible,
         opacity: t.mats[0]?.opacity ?? 1, y: t.crown.position.y, busy: tweens.has(t),
         label: t.sprite.visible, labelScale: t.sprite.scale.x,
+        fin: t.mats.map(finishOf), transparent: t.mats[0]?.transparent ?? false, depthWrite: t.mats[0]?.depthWrite ?? true,
       }
     },
     setModel(model) {

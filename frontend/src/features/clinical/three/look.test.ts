@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { COLOR, effState, hex, lerpHex, sameLook, setTransparent, structChanged, targetLook, type Look } from './look'
+import { COLOR, effState, FINISH, finishFor, finishOf, hex, lerpHex, mixFinish, sameFinish, sameLook, setFinish, setTransparent, structChanged, targetLook, type Finish, type Look } from './look'
 
 /* Вид зуба — таблица состояний → видимость и цвета, с палитрой сервера. */
 
@@ -34,7 +34,7 @@ describe('вид по состоянию', () => {
     expect(l.cols).toEqual([COLOR.enamel, COLOR.enamel, COLOR.enamel, COLOR.enamel, COLOR.enamel])
     expect([l.crown, l.roots, l.screw, l.socket, l.ghost, l.mark]).toEqual([true, true, false, false, false, false])
     expect(l.opacity).toBe(1)
-    expect(l.metalness).toBe(0)
+    expect(l.fin).toEqual([FINISH.enamel, FINISH.enamel, FINISH.enamel, FINISH.enamel, FINISH.enamel])
   })
 
   it('кариес на поверхности O красит только её цветом палитры (0.6), остальные — эмаль', () => {
@@ -54,12 +54,12 @@ describe('вид по состоянию', () => {
     const l = targetLook(tooth('implant'), PALETTE)
     expect([l.screw, l.roots, l.crown, l.implant]).toEqual([true, false, true, true])
     expect(l.cols[0]).toBe(COLOR.ceramic)
-    expect(l.roughness).toBe(0.22)
+    expect(l.fin.every((f) => f === FINISH.zirconia)).toBe(true)
   })
 
   it('коронка и тело моста — золото без корней у тела; опора моста корни оставляет', () => {
     const crown = targetLook(tooth('coroana'), PALETTE)
-    expect([crown.gold, crown.roots, crown.metalness]).toEqual([true, true, 0.85])
+    expect([crown.gold, crown.roots, crown.fin[0]]).toEqual([true, true, FINISH.crown])
     const pontic = targetLook(tooth('lipsa', {}, [], { role: 'corp', material: 'zirconiu' }), PALETTE)
     expect([pontic.gold, pontic.pontic, pontic.roots, pontic.ghost]).toEqual([true, true, false, false])
     const abutment = targetLook(tooth('ok', {}, [], { role: 'stalp', material: 'zirconiu' }), PALETTE)
@@ -150,5 +150,68 @@ describe('тот же вид', () => {
     expect(sameLook(base, { ...base, opacity: 0.16 })).toBe(false)
     expect(sameLook(targetLook(tooth('ok'), PALETTE), targetLook(tooth('lipsa'), PALETTE))).toBe(false)
     expect(sameLook(base, { ...base, cols: base.cols.map(() => COLOR.enamel) })).toBe(false)
+  })
+})
+
+/* Вид «Simplu» (прототип 19.10, в продукте с 24.10): отделка поверхности по
+   смыслу — блеск, лак, шероховатость. Цвет остаётся за палитрой сервера. */
+describe('отделка по смыслу', () => {
+  it('у поверхности с находкой — своя отделка (порядок SURF: O V L M D), остальные — эмаль', () => {
+    const l = targetLook(tooth('ok', { O: 'carie', M: 'obturatie', D: 'obturatie' }), PALETTE)
+    expect(l.fin).toEqual([FINISH.caries, FINISH.enamel, FINISH.enamel, FINISH.fill, FINISH.fill])
+  })
+
+  it('находка зуба целиком без поверхностей — на всех пяти, как оттенок цвета', () => {
+    expect(targetLook(tooth('carie'), PALETTE).fin.every((f) => f === FINISH.caries)).toBe(true)
+    expect(targetLook(tooth('obturatie'), PALETTE).fin.every((f) => f === FINISH.fill)).toBe(true)
+  })
+
+  it('коронка и тело моста — металлокерамика целиком (поверхности под коронкой не считаются); имплант — цирконий', () => {
+    expect(targetLook(tooth('coroana', { O: 'carie' }), PALETTE).fin.every((f) => f === FINISH.crown)).toBe(true)
+    const pontic = targetLook(tooth('lipsa', {}, [], { role: 'corp', material: 'zirconiu' }), PALETTE)
+    expect(pontic.fin.every((f) => f === FINISH.crown)).toBe(true)
+    expect(finishFor(false, true, 'carie')).toBe(FINISH.zirconia)
+    expect(finishFor(false, false, undefined)).toBe(FINISH.enamel)
+  })
+
+  it('⭐ отделка не трогает цвет: цвета поверхностей те же, что у палитры сервера', () => {
+    const l = targetLook(tooth('ok', { O: 'carie' }), PALETTE)
+    expect(l.cols[0]).toBe(lerpHex(COLOR.enamel, 0xef4444, 0.6))
+    for (const f of Object.values(FINISH)) {
+      expect(Object.keys(f).sort()).toEqual(['clearcoat', 'clearcoatRoughness', 'ior', 'metalness', 'roughness', 'sheen', 'specularIntensity'])
+    }
+  })
+
+  it('смысл таблицы: мел матовее эмали, композит глаже; цирконий преломляет сильнее эмали; титан — металл', () => {
+    expect(FINISH.caries.roughness).toBeGreaterThan(FINISH.enamel.roughness)
+    expect(FINISH.enamel.roughness).toBeGreaterThan(FINISH.fill.roughness)
+    expect(FINISH.caries.clearcoat).toBeLessThan(FINISH.enamel.clearcoat)
+    expect(FINISH.zirconia.ior).toBeGreaterThan(FINISH.enamel.ior)
+    expect([FINISH.enamel.ior, FINISH.zirconia.ior]).toEqual([1.62, 2.15])
+    expect(FINISH.titanium.metalness).toBe(1)
+    expect(FINISH.crown.metalness).toBeGreaterThan(0)
+  })
+
+  it('твин отделки: концы, середина, выход за [0, 1] прижат', () => {
+    const a = FINISH.enamel
+    const b = FINISH.fill
+    expect(sameFinish(mixFinish(a, b, 0), a)).toBe(true)
+    expect(sameFinish(mixFinish(a, b, 1), b)).toBe(true)
+    expect(mixFinish(a, b, 0.5).roughness).toBeCloseTo((a.roughness + b.roughness) / 2)
+    expect(sameFinish(mixFinish(a, b, 3), b)).toBe(true)
+    expect(sameFinish(a, b)).toBe(false)
+    // конец твина — ровно цель, без хвоста в последнем знаке (кариес → коронка: 0.6 + (0.04 − 0.6))
+    expect(sameFinish(mixFinish(FINISH.caries, FINISH.crown, 1), FINISH.crown)).toBe(true)
+  })
+
+  it('setFinish ставит только семь полей отделки: цвет и прозрачность материала не трогаются; finishOf — копия', () => {
+    const m: Finish & { color: number; opacity: number; transparent: boolean } = { ...FINISH.enamel, color: 0x123456, opacity: 0.16, transparent: true }
+    setFinish(m, FINISH.crown)
+    expect(sameFinish(m, FINISH.crown)).toBe(true)
+    expect([m.color, m.opacity, m.transparent]).toEqual([0x123456, 0.16, true])
+    const c = finishOf(m)
+    m.roughness = 0.9
+    expect(c.roughness).toBe(FINISH.crown.roughness)
+    expect('color' in c).toBe(false)
   })
 })
