@@ -580,7 +580,13 @@ async def api_patient_anamneza(request: Request, pid: int):
 
 @router.post("/api/patients/{pid}/plan")
 async def api_patient_plan_add(request: Request, pid: int):
-    """{tooth, procedure, doctor, price, due_date} — строками, как из формы."""
+    """{tooth, procedure, doctor, price, due_date} — строками, как из формы.
+
+    `?odo=1` — позиция С ЗУБА («Adaugă în plan» одонтограммы, 24.10): в ответе
+    свежая МОДЕЛЬ одонтограммы — в ней план зуба (вкладка «Tratament» панели),
+    и экран показывает позицию без перечитывания; `&card=1` — рядом и фиша (в
+    режиме `?views=` того же запроса), как в ответе записи зуба. Без `odo` —
+    фиша, как было. Правило записи одно (`_add_plan`), меняется только ответ."""
     if (deny := api_guard(request)) is not None:
         return deny
     deny, p = await _owned(pid)
@@ -589,7 +595,11 @@ async def api_patient_plan_add(request: Request, pid: int):
     body = await api_body(request)
     code = await _add_plan(pid, _s(body, "tooth"), _s(body, "procedure"),
                            _s(body, "doctor"), _s(body, "price"), _s(body, "due_date"))
-    return await _card_reply(request, pid, code, "procedure" if code == "bad_card" else "")
+    field = "procedure" if code == "bad_card" else ""
+    if request.query_params.get("odo") == "1":
+        return await _odo_reply(pid, code, ok={"ok_card"}, field=field,
+                                card_for=request if request.query_params.get("card") == "1" else None)
+    return await _card_reply(request, pid, code, field)
 
 
 @router.post("/api/patients/{pid}/plan/{item_id}/status")

@@ -399,6 +399,30 @@ def suite_plan(res: Result) -> None:
         res.check("удалённая позиция из зуба ушла",
                   [x["procedure"] for x in d["plan"]["16"]], ["Endodonție 16", "Sigilare 16", "Coroană 16"])
 
+        # «Adaugă în plan» с зуба (24.10): `?odo=1` — в ответе МОДЕЛЬ одонтограммы
+        # с позицией (вкладка «Tratament» без перечитывания), `&card=1` — и фиша
+        # рядом, как у записи зуба; без `odo` — фиша, как было; отказ — тот же
+        body = {"procedure": "Inlay 36", "tooth": "36", "price": "2500", "due_date": "", "doctor": ""}
+        r = c.post_json(f"{st}?odo=1", body)
+        j = _j(r)
+        res.check("?odo=1: ответ — модель одонтограммы с новой позицией, без фиши",
+                  (r.status, j["code"], "teeth" in j["data"], "card" in j["data"],
+                   [x["procedure"] for x in j["data"]["plan"]["36"]]),
+                  (200, "ok_card", True, False, ["Inlay 36", "Implant 36"]))
+        seen = _views(s.dir / "dental.db")
+        r = c.post_json(f"{st}?odo=1&card=1&views=1", {**body, "procedure": "Onlay 36"})
+        j = _j(r)
+        res.check("?odo=1&card=1: модель и рядом фиша с той же позицией, без записи «Fișa deschisă»",
+                  ("teeth" in j["data"], [x["procedure"] for x in j["data"]["plan"]["36"]][:2],
+                   any(it["procedure"] == "Onlay 36" for it in j["data"]["card"]["plan"]["items"]),
+                   _views(s.dir / "dental.db") == seen),
+                  (True, ["Inlay 36", "Onlay 36"], True, True))
+        r = c.post_json(st, {**body, "procedure": "Coroană 36"})
+        res.check("без odo — фиша, как было", ("plan" in _j(r)["data"], "teeth" in _j(r)["data"]), (True, False))
+        r = c.post_json(f"{st}?odo=1", {**body, "procedure": "  "})
+        res.check("?odo=1 и пустая процедура — тот же отказ 422 с полем, без модели",
+                  (r.status, _j(r)["code"], _j(r).get("field"), "data" in _j(r)), (422, "bad_card", "procedure", False))
+
 
 def suite_switch(res: Result) -> None:
     """Одонтограмма — узел React (старая страница снята 13.10): рамка с узким
