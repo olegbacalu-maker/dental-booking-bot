@@ -2506,6 +2506,10 @@ dialog.dp-about { width: 460px; }
   gap: 6px; padding-top: 12px; padding-bottom: 12px; position: sticky; bottom: 0; z-index: 1;
   background: var(--surface); border-radius: 0 0 var(--r-card) var(--r-card);
 }
+/* ⚠️ Липкий подвал закрывает то, к чему браузер докручивает САМ (фокус с клавиатуры,
+   scrollIntoView): без поля прокрутки «Adaugă în plan» вставала ровно под «Salvează»,
+   и щелчок уходил в подвал — поймал стенд во вкладке фиши */
+.dp-react-root .dp-tp-body :where(button, a, input, select, textarea) { scroll-margin-bottom: 104px; }
 
 /* Крупный зуб: рисунок сервера вида сверху, буквы сторон вокруг. Размер — по
    высоте окна (104 px при 656 полезных на 1366×768, 184 px при 968 на 1920×1080,
@@ -2594,4 +2598,5 @@ dialog.dp-about { width: 460px; }
   .dp-react-root .dp-sfl-r { min-height: 44px; }
   .dp-react-root .odop[data-sel] .odop-side .dp-pt { position: sticky; top: -8px; z-index: 1; background: var(--surface); }
   .dp-react-root .odop[data-sel] .odop-side .dp-tp-foot { bottom: calc(-12px - env(safe-area-inset-bottom)); border-radius: 0; }
+  .dp-react-root .odop[data-sel] .odop-side .dp-tp-body :where(button, a, input, select, textarea) { scroll-margin-top: 56px; }
 }
