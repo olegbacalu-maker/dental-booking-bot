@@ -386,6 +386,15 @@ def suite_odo_page(res: Result) -> None:
         r = c.post_json(f"/api/patients/{pid}/teeth/99", {"state": "carie", "surfaces": []})
         res.check("выдуманный зуб отбит", (r.status, r.msg), (422, "bad_card"))
 
+        # ---- режимы рабочего стола (Олег 24.10): словарь едет в модели ----
+        from app.modules.patients import odontogram as podo   # noqa: E402
+        odo = _odo(c, pid)
+        res.check("режимы — в модели экрана, тем же словарём", odo.get("modes"), podo.modes())
+        res.ok("режим не попадает в запись зуба",
+               "mode" not in odo["teeth"]["16"] and "modes" not in odo["teeth"]["16"],
+               str(sorted(odo["teeth"]["16"])))
+    _modes_dictionary(res)
+
     # ---- узкий сайдбар: две копии правил обязаны совпадать ----
     # ⛔ Копия появилась вынужденно: медиазапрос не умеет навесить класс, а
     # класс не умеет сработать по ширине окна. Значит правку внесут в один
@@ -417,6 +426,37 @@ def suite_odo_page(res: Result) -> None:
     diff = [k for k in common if a[k] != b[k]]
     res.ok("суженный сайдбар совпадает с оконным", not diff and set(a) == set(b),
            f"копии разошлись: {diff or (set(a) ^ set(b))}")
+
+def _modes_dictionary(res: Result) -> None:
+    """Режимы ↔ состояния и отметки: ОДИН словарь (`odontogram.MODES`).
+
+    ⛔ Состояние или отметка, не названные ни одним режимом «keys», выпали бы
+    из фильтра экрана молча: зуб с ними гаснет в КАЖДОМ режиме, кроме
+    «Examinare», и врач решит, что находки нет. Обратное — режим с выдуманным
+    или переименованным ключом — гасит все зубы и тоже без ошибки.
+    """
+    from app import teeth_svg as tsvg                      # noqa: E402
+    from app.modules.patients import odontogram as podo   # noqa: E402
+    ms = podo.modes()
+    res.ok("словарь режимов нашёлся", len(ms) >= 2, str(ms))
+    known = set(tsvg.STATE_RO) | set(tsvg.TOOTH_MARKS)
+    keyed = [m for m in ms if m["kind"] == "keys"]
+    named = {k for m in keyed for k in m["keys"]}
+    res.check("каждое состояние и каждая отметка — хотя бы в одном режиме",
+              sorted(known - {"ok"} - named), [])
+    res.check("режим называет только существующие ключи (и не «ok»)",
+              sorted(named - known | (named & {"ok"})), [])
+    res.check("вид режима — из трёх известных", sorted({m["kind"] for m in ms} - {"all", "keys", "perio"}), [])
+    res.ok("у режима «keys» есть что показать", all(m["keys"] or m["bridges"] for m in keyed),
+           str([m["key"] for m in keyed if not (m["keys"] or m["bridges"])]))
+    res.check("«всё видно» — один и первым: с него экран открывается",
+              [i for i, m in enumerate(ms) if m["kind"] == "all"], [0])
+    res.check("ключи и подписи режимов не повторяются",
+              (len({m["key"] for m in ms}), len({m["label"] for m in ms})), (len(ms), len(ms)))
+    res.ok("подписи — словами, без пустых", all(m["label"].strip() for m in ms), str(ms))
+    res.ok("Ortodonție нет: данных ортодонтии программа не пишет (Олег 24.10)",
+           not any("orto" in m["key"] for m in ms), str([m["key"] for m in ms]))
+
 
 def suite_surface_states(res: Result) -> None:
     """Разные состояния на разных поверхностях одного зуба.

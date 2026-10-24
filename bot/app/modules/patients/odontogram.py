@@ -211,6 +211,42 @@ def legend_items(occ: bool) -> list[dict]:
                for k, v in MARKS.items()])
 
 
+# Режимы рабочего стола (Олег 24.10, макет B: вкладки шапки на месте «Stare
+# dinți | Parodont»). Режим — ФИЛЬТР ЭКРАНА по уже записанным данным: гасит зубы
+# не про него (тот же `setDim` и класс `dim`, что у легенды-фильтра) и ставит
+# его пункты первыми в меню зуба. ⛔ Выбор режима живёт в экране: ни в запись
+# зуба, ни в 043/e, ни в печать он не попадает — здесь только словарь.
+# ⭐ Словарь ОДИН и здесь, ключи — те же, что у легенды (`STATE_RO`, `MARK_RO`):
+# второго словаря состояний у клиента нет. Новое состояние или отметка без
+# режима выпали бы из фильтра молча, поэтому `test_teeth` требует, чтобы каждое
+# (кроме «ok») стояло хотя бы в одном режиме «keys» и чтобы режим называл только
+# существующие ключи.
+# kind: «all» — всё видно, ничего не гасится (Examinare); «keys» — зубы с этими
+# состояниями (целиком или на поверхности) или отметками, при `bridges` ещё и
+# зубы мостов; «perio» — слой последнего осмотра на десне, находки приглушены,
+# зубы не гасятся (Parodonțiu = прежний режим «Parodont»).
+# Ortodonție нет: данных ортодонтии программа не записывает (Олег 24.10).
+# «În tratament» — в Endodonție: лечение в несколько визитов чаще всего каналы.
+MODES = (
+    {"key": "examinare", "label": "Examinare", "kind": "all", "keys": (), "bridges": False},
+    {"key": "carii", "label": "Carii", "kind": "keys", "keys": ("carie",), "bridges": False},
+    {"key": "restaurare", "label": "Restaurare", "kind": "keys", "keys": ("obturatie", "coroana"),
+     "bridges": False},
+    {"key": "endo", "label": "Endodonție", "kind": "keys", "keys": ("devital", "tratament"),
+     "bridges": False},
+    {"key": "paro", "label": "Parodonțiu", "kind": "perio", "keys": (), "bridges": False},
+    {"key": "chirurgie", "label": "Chirurgie", "kind": "keys", "keys": ("extras", "lipsa"),
+     "bridges": False},
+    {"key": "implant", "label": "Implant", "kind": "keys", "keys": ("implant",), "bridges": False},
+    {"key": "proteza", "label": "Proteză", "kind": "keys", "keys": ("coroana",), "bridges": True},
+)
+
+
+def modes() -> list[dict]:
+    """Словарь режимов для модели экрана — копия, список ключей списком (JSON)."""
+    return [{**m, "keys": list(m["keys"])} for m in MODES]
+
+
 def model(tmap: dict, tooth_acts: list, bridges: list | None) -> dict:
     """Одонтограмма данными для React (C21, docs/dentpilot-2/clinical-chart.md):
     зубы с рисунками обоих видов (с целями поверхностей `hit=True`), история,
@@ -277,5 +313,7 @@ def model(tmap: dict, tooth_acts: list, bridges: list | None) -> dict:
         "surfaces": dict(TOOTH_SURFACES), "surface_states": list(tsvg.SURFACE_STATES),
         "bridge_roles": dict(tsvg.BRIDGE_RO),
         "materials": [{"id": k, "label": v} for k, v in BRIDGE_MATERIALS],
+        # режимы рабочего стола — статический словарь; выбор режима — экрана
+        "modes": modes(),
     }
 

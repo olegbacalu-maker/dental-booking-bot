@@ -2485,3 +2485,25 @@ dialog.dp-about { width: 460px; }
 /* треугольник у пункта меню (остаток SMS): на месте точки, цветом смысла */
 .side nav a .nav-alert { margin-left: auto; display: inline-flex; color: var(--amber); }
 .side nav a .nav-alert svg { width: 16px; height: 16px; }
+
+/* odo:modes — режимы рабочего стола вкладками шапки (Олег 24.10, макет B):
+   на месте прежних «Stare dinți | Parodont». Ряд не переносится — при нехватке
+   места (вкладка фиши, планшет) прокручивается вбок без полосы; шапка сперва
+   переносит правый блок на вторую строку. Рамка фокуса внутри вкладки: ряд с
+   прокруткой обрезал бы внешнюю тень. */
+.dp-react-root .dp-odo-modes { min-width: 0; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.dp-react-root .dp-odo-modes::-webkit-scrollbar { display: none; }
+.dp-react-root .dp-odo-modes .dp-tab {
+  display: inline-flex; align-items: center; gap: 5px; flex: none; margin-right: 14px;
+  font-size: var(--fs-m); white-space: nowrap;
+}
+.dp-react-root .dp-odo-modes .dp-tab:last-child { margin-right: 0; }
+.dp-react-root .dp-odo-modes .dp-tab:focus-visible { box-shadow: none; outline: 2px solid var(--teal); outline-offset: -2px; }
+.dp-react-root .dp-mode-sw { display: inline-flex; gap: 2px; }
+.dp-react-root .dp-mode-sw i { width: 7px; height: 7px; border-radius: 50%; }
+.dp-react-root .dp-mode-n {
+  min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: var(--fill);
+  font-size: var(--fs-xs); line-height: 18px; font-weight: 700; color: var(--text2); text-align: center;
+}
+.dp-react-root .dp-odo-modes .dp-tab.on .dp-mode-n { background: var(--teal-soft); color: var(--teal-d); }
+.dp-cmenu-mode { text-transform: none; letter-spacing: 0; font-weight: 600; }

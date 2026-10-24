@@ -7,11 +7,12 @@ import { asApiError } from '../../services/api'
 import { BridgeBar, BridgeDialog } from './BridgeTool'
 import { DentalArch } from './DentalArch'
 import { LegendFilter } from './LegendFilter'
+import { ModeTabs } from './ModeTabs'
 import { PlanDialog } from './PlanDialog'
 import { ToothMap } from './ToothMap'
 import { ToothMenu, type MenuAt } from './ToothMenu'
 import { ToothPanel } from './ToothPanel'
-import { chart, dimmedTeeth, legendCounts, neighbour, shownTeeth, type Arrow, type Odontogram, type PlanAdd } from './chart'
+import { chart, legendCounts, modeSet, neighbour, screenDim, shownTeeth, type Arrow, type Odontogram, type PlanAdd } from './chart'
 import { Odontogram3D, type Mode } from './three/Odontogram3D'
 import { useCoarse } from './touch'
 import { useChart } from './useChart'
@@ -24,7 +25,7 @@ import { useChart } from './useChart'
    инструмент один, а не «компактный» и «детальный» с разными возможностями.
 
    Вид — по макету Олега (08.10, design/redesign-2026-10, промпт 3): вкладки
-   «Stare dinți | Parodont» и счётчик записанных зубов в шапке; карточка
+   (с 24.10 — режимы, см. ниже) и счётчик записанных зубов в шапке; карточка
    вьюпорта (полоса видов и зума, слои слева, сцена, легенда чипами); новая
    карточка «Harta dinților» — плоская карта кнопками, тот же выбор, что в
    сцене; панель зуба — `ToothPanel`. Рисунки сервера (frontal / ocluzal)
@@ -54,13 +55,19 @@ import { useChart } from './useChart'
    вьюпортом; нажатый пункт гасит зубы не про него (`dimmedTeeth` — классом
    на дуге и карте, прозрачностью в сцене), счётчик у пункта — сколько зубов
    про него. Фильтр — экрана: в модель, в запись и в печать 043/e он не
-   попадает. */
+   попадает.
+
+   Режимы (Олег 24.10, макет B): вкладки шапки `ModeTabs` по словарю сервера
+   `model.modes` — Examinare (всё видно, прежнее «Stare dinți»), Carii,
+   Restaurare, Endodonție, Parodonțiu (прежний «Parodont»: слой осмотра на
+   десне, живёт в 3D), Chirurgie, Implant, Proteză. Режим ЗАДАЁТ набор зубов —
+   всё вне его гаснет тем же `dim`, что у легенды; легенда СУЖАЕТ внутри
+   набора, и её счётчики считают внутри него (`screenDim`, `legendCounts`).
+   Выбор режима снимает фильтр легенды: иначе «Carii» поверх нажатой
+   «Coroană» гасил бы всё, и непонятно почему. Меню зуба ставит пункты
+   режима первыми. Режим не запоминается (как и легенда) и, как она, —
+   свойство экрана: в запись, 043/e и печать не попадает. */
 const T = {
-  stare: 'Stare dinți',
-  paro: 'Parodont',
-  modes: 'Ce arată vederea',
-  paroNone: 'Pacientul nu are încă o parodontogramă cu măsurători',
-  paroTitle: 'Parodontograma din {at} pe gingie: recesiune, pungi, sângerare',
   recorded: 'dinți cu stare înregistrată',
   back: 'Înapoi la fișă',
   newBridge: 'Punte nouă',
@@ -127,15 +134,27 @@ export function OdontogramWorkbench({
   const [zoom, setZoom] = useState(false)
   const focus3d = zoom && !brMode && c.view === '3d' ? c.selected : null
   const [filter, setFilter] = useState<string | null>(null)
-  /* вкладка страницы: «Parodont» живёт в 3D — слой осмотра на десне */
-  const [mode, setMode] = useState<Mode>('stare')
+  /* режим экрана: с «всё видно»; «Parodonțiu» живёт в 3D и только при осмотре —
+     в 2D (или без осмотра) экран показывает «всё видно», как прежний «Parodont» */
+  const modes = model.modes ?? []
+  const allMode = modes.find((m) => m.kind === 'all') ?? null
+  const [modeKey, setModeKey] = useState(() => allMode?.key ?? '')
   const layer = model.perio_layer ?? null
-  const paroOn = mode === 'paro' && c.view === '3d' && layer !== null
+  const chosen = modes.find((m) => m.key === modeKey) ?? allMode
+  const mode = chosen?.kind === 'perio' && !(c.view === '3d' && layer) ? allMode : chosen
+  const scene: Mode = mode?.kind === 'perio' ? 'paro' : 'stare'
   const legendItems = c.view === 'ocluzal' ? model.legend.occlusal : model.legend.frontal
-  const dim = useMemo(() => dimmedTeeth(model, filter), [model, filter])
-  const counts = useMemo(() => legendCounts(model, legendItems), [model, legendItems])
+  const dim = useMemo(() => screenDim(model, mode, filter), [model, mode, filter])
+  const counts = useMemo(() => legendCounts(model, legendItems, modeSet(model, mode)), [model, legendItems, mode])
   const recorded = useMemo(() => recordedCount(model), [model])
   const pickLegend = (k: string) => setFilter((f) => (f === k ? null : k))
+  const pickMode = (k: string) => {
+    const m = modes.find((x) => x.key === k)
+    if (!m || (m.kind === 'perio' && !layer)) return
+    if (m.kind === 'perio' && c.view !== '3d') c.setView('3d')
+    setModeKey(k)
+    setFilter(null)
+  }
   const onDouble = (n: number) => { if (!brMode) { c.select(n); setZoom(true) } }
   const closePlan = useCallback(() => setPlan(null), [])
   /* «Tipărește…» меню окна Tauri — кнопка печати шапки ниже */
@@ -281,14 +300,7 @@ export function OdontogramWorkbench({
       <div ref={root} className="odop odo dp-odo" id="odo" data-view={c.view} data-sel={c.selected ?? undefined} data-side={side}
         data-brush={c.brush ?? undefined} tabIndex={0} onKeyDown={onKey}>
         <div className="dp-odo-head">
-          <div className="dp-tabs" role="group" aria-label={T.modes}>
-            <button type="button" data-mode="stare" className={`dp-tab${paroOn ? '' : ' on'}`} aria-pressed={!paroOn}
-              onClick={() => setMode('stare')}>{T.stare}</button>
-            <button type="button" data-mode="paro" className={`dp-tab${paroOn ? ' on' : ''}`} aria-pressed={paroOn}
-              disabled={layer === null}
-              title={layer ? T.paroTitle.replace('{at}', layer.exam.at) : T.paroNone}
-              onClick={() => { if (c.view !== '3d') c.setView('3d'); setMode('paro') }}>{T.paro}</button>
-          </div>
+          <ModeTabs model={model} value={mode?.key ?? ''} onPick={pickMode} />
           <div className="dp-odo-headr">
             <span className="dp-odo-count"><b>{recorded}</b> {T.recorded}</span>
             {!embedded && (
@@ -311,7 +323,7 @@ export function OdontogramWorkbench({
                 /* B7: объёмный вид — тот же контроллер, те же действия; выбор,
                    поверхность и меню идут в панель, как из карты */
                 <Odontogram3D model={model} selected={brMode ? null : c.selected} onSurface={onSurface} onMenu={onMenu}
-                  focus={focus3d} onZoom={setZoom} onDouble={onDouble} dim={dim} mode={mode}
+                  focus={focus3d} onZoom={setZoom} onDouble={onDouble} dim={dim} mode={scene}
                   onFlat={() => c.setView('frontal')} />
               ) : (
                 <>
@@ -372,7 +384,7 @@ export function OdontogramWorkbench({
       </div>
       {menu && (
         <ToothMenu model={model} at={menu} current={menuCurrent} onState={menuState} marks={menuMarks} onMark={menuMark}
-          onPlan={planFrom} onBridge={bridgeFrom} onClose={closeMenu} />
+          onPlan={planFrom} onBridge={bridgeFrom} onClose={closeMenu} mode={mode} />
       )}
       <PlanDialog model={model} n={plan} busy={planBusy} invalid={planBad} onClose={closePlan} onSave={savePlan} />
       <BridgeDialog

@@ -97,6 +97,19 @@ export interface LegendItem {
   svg: string
 }
 
+/** Режим рабочего стола (Олег 24.10, макет B) — словарь сервера
+ *  (`odontogram.MODES`). Режим — фильтр ЭКРАНА по записанным данным: в
+ *  запись, 043/e и печать не попадает. Ключи `keys` — те же, что у легенды. */
+export interface ChartMode {
+  key: string
+  label: string
+  /** all — всё видно; keys — зубы с этими состояниями/отметками; perio — слой осмотра на десне */
+  kind: 'all' | 'keys' | 'perio'
+  keys: string[]
+  /** ещё и зубы мостов (Proteză) */
+  bridges: boolean
+}
+
 export interface ArchRows {
   upper: number[]
   lower: number[]
@@ -124,6 +137,9 @@ export interface Odontogram {
   surface_states: string[]
   bridge_roles: Record<string, string>
   materials: { id: string; label: string }[]
+  /** режимы вкладками шапки; сервер шлёт всегда (держит `test_teeth`), без
+   *  них — старые засевы проверок — экран просто без вкладок режимов */
+  modes?: ChartMode[]
   patient: { id: number; name: string; primary_doctor: string }
   doctors: string[]
   /** Последний пародонтальный замер по зубам: дата, id осмотра и ГОТОВАЯ
@@ -253,10 +269,11 @@ export function shownTeeth(model: Odontogram): number[] {
   return model.milk_open ? [...a.upper, ...a.lower, ...a.milk_upper, ...a.milk_lower] : [...a.upper, ...a.lower]
 }
 
-/** Сколько зубов на экране «про» каждый пункт легенды — подпись счётчика. */
-export function legendCounts(model: Odontogram, items: LegendItem[]): Record<string, number> {
+/** Сколько зубов на экране «про» каждый пункт легенды — подпись счётчика;
+ *  `within` — набор режима: легенда считает внутри него. */
+export function legendCounts(model: Odontogram, items: LegendItem[], within: ReadonlySet<number> | null = null): Record<string, number> {
   const out: Record<string, number> = {}
-  const shown = shownTeeth(model)
+  const shown = within ? shownTeeth(model).filter((n) => within.has(n)) : shownTeeth(model)
   for (const it of items) {
     out[it.key] = shown.filter((n) => { const t = model.teeth[String(n)]; return t ? toothMatches(t, it.key) : false }).length
   }
@@ -270,6 +287,43 @@ export function dimmedTeeth(model: Odontogram, key: string | null): ReadonlySet<
   if (key === null) return NO_TEETH
   const out = new Set<number>()
   for (const [k, t] of Object.entries(model.teeth)) if (!toothMatches(t, key)) out.add(Number(k))
+  return out
+}
+
+/** Зубы режима — набор, внутри которого работает экран; null — режим ничего
+ *  не сужает («all» и «perio»: слой осмотра гасит находки сам, не зубы).
+ *  «keys» — зуб с любым ключом режима (как у легенды) или в мосте при `bridges`. */
+export function modeSet(model: Odontogram, mode: ChartMode | null): ReadonlySet<number> | null {
+  if (!mode || mode.kind !== 'keys') return null
+  const out = new Set<number>()
+  for (const [k, t] of Object.entries(model.teeth)) {
+    const n = Number(k)
+    if (mode.keys.some((key) => toothMatches(t, key)) || (mode.bridges && bridgeOf(model, n))) out.add(n)
+  }
+  return out
+}
+
+/** Число у вкладки режима: зубы на экране про него; у «perio» — зубы с
+ *  карманом от порога сервера `deep` (тот же порог, что у полосы на десне);
+ *  у «all» числа нет — сколько записано, говорит шапка. */
+export function modeCount(model: Odontogram, mode: ChartMode): number | null {
+  if (mode.kind === 'all') return null
+  if (mode.kind === 'perio') {
+    const l = model.perio_layer
+    return l ? Object.values(l.rows).filter((r) => r.pd.some((v) => v >= l.limits.deep)).length : 0
+  }
+  const set = modeSet(model, mode)
+  return set ? shownTeeth(model).filter((n) => set.has(n)).length : 0
+}
+
+/** Что гасит экран (24.10): режим задаёт набор — гаснет всё вне его, легенда
+ *  сужает внутри — гаснет и то, что не про её пункт. Ни режима, ни легенды —
+ *  никого. */
+export function screenDim(model: Odontogram, mode: ChartMode | null, key: string | null): ReadonlySet<number> {
+  const set = modeSet(model, mode)
+  if (!set) return dimmedTeeth(model, key)
+  const out = new Set(dimmedTeeth(model, key))
+  for (const k of Object.keys(model.teeth)) if (!set.has(Number(k))) out.add(Number(k))
   return out
 }
 

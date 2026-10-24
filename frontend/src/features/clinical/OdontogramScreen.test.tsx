@@ -61,6 +61,11 @@ const MODEL: Odontogram = {
   surfaces: { M: 'mezial', O: 'ocluzal', D: 'distal', V: 'vestibular', L: 'lingual' },
   surface_states: ['carie', 'obturatie'],
   tooth_states: { ok: 'Sănătos', coroana: 'Coroană', implant: 'Implant', extras: 'Extras', lipsa: 'Lipsă' },
+  // режимы шапки (24.10) — словарь сервера; «Parodonțiu» — бывшая кнопка «Parodont»
+  modes: [
+    { key: 'examinare', label: 'Examinare', kind: 'all', keys: [], bridges: false },
+    { key: 'paro', label: 'Parodonțiu', kind: 'perio', keys: [], bridges: false },
+  ],
   bridge_roles: { stalp: 'Stâlp', corp: 'Corp de punte' },
   materials: [{ id: 'zirconiu', label: 'Zirconiu' }, { id: 'alt', label: 'Alt material…' }],
   patient: { id: 5, name: 'Odonto Pin', primary_doctor: '' },
