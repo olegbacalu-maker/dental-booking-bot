@@ -80,7 +80,8 @@ def suite_api(res: Result) -> None:
                           "states", "marks", "surfaces", "surface_states", "bridge_roles",
                           "materials", "patient", "doctors", "perio", "perio_layer", "palette",
                           "tooth_states",
-                          "modes"]))
+                          "modes", "plan"]))
+        res.check("план зуба: у пациента без плана — пустой словарь", d["plan"], {})
         # кисть (11.10): кариес и пломба ставятся только по поверхностям, сетка
         # состояний зуба получает СПИСОК СЕРВЕРА — второго словаря у клиента нет
         res.check("tooth_states: состояния про весь зуб — словарь состояний без поверхностных, тем же порядком",
@@ -308,6 +309,95 @@ def suite_api(res: Result) -> None:
         res.check("пороги и цвета полосы — с сервера, ключи совпадают",
                   (lay["limits"], sorted(lay["colors"]), [x["key"] for x in lay["sites"]]),
                   ({"deep": 4, "severe": 6}, ["deep", "severe"], ["MV", "V", "DV", "ML", "L", "DL"]))
+
+
+_PLAN_FIELDS = ["active", "doctor", "done", "due", "id", "label", "motiv", "overdue",
+                "price", "procedure", "status"]
+
+
+def _views(dbfile) -> int:
+    """Сколько раз фишу ОТКРЫВАЛИ — строки «Fișa deschisă» журнала доступа."""
+    con = sqlite3.connect(str(dbfile))
+    try:
+        return con.execute("SELECT COUNT(*) FROM activity WHERE kind = 'view'").fetchone()[0]
+    finally:
+        con.close()
+
+
+def suite_plan(res: Result) -> None:
+    """План ЗУБА в модели одонтограммы (24.10, вкладка «Tratament» панели):
+    позиции раскладываются по номеру в порядке плана фиши, строка — та же, что
+    у фиши (одна сериализация на два места), активная — перечислением сервера;
+    позиция без зуба в зуб не попадает. GET одонтограммы — не открытие фиши:
+    в журнал доступа он не пишет, а план читается без него."""
+    with Server() as s:
+        c = Client(s.url).login()
+        c.post_json("/api/patients", {"name": "Odonto Plan", "phone": "069300302"})
+        pid = _pid(c, "069300302")
+        add = {}
+        for proc, tooth, price, due, doc in (("Obturație 16 MO", "16", "800", _d(-3), "Dr. Activ Doi"),
+                                             ("Endodonție 16", "16", "1500", "", ""),
+                                             ("Coroană 16", "16", "", _d(30), ""),
+                                             ("Implant 36", "36", "9000", "", "Dr. Activ Trei"),
+                                             ("Detartraj", "", "500", "", ""),
+                                             ("Extracție 55", "55", "200", "", "")):
+            r = c.post_json(f"/api/patients/{pid}/plan", {"procedure": proc, "tooth": tooth, "price": price,
+                                                          "due_date": due, "doctor": doc})
+            assert r.msg == "ok_card", r.body[:200]
+            add[proc] = max(it["id"] for it in _j(r)["data"]["plan"]["items"])
+        st = f"/api/patients/{pid}/plan"
+        c.post_json(f"{st}/{add['Endodonție 16']}/status", {"to": "in_lucru"})
+        c.post_json(f"{st}/{add['Coroană 16']}/status", {"to": "in_lucru"})
+        c.post_json(f"{st}/{add['Coroană 16']}/status", {"to": "finalizat"})
+        r = c.post_json(f"{st}/{add['Implant 36']}/status", {"to": "refuzat", "motiv": "refuză implantul"})
+        assert r.msg == "ok_refuz", r.body[:200]
+
+        seen = _views(s.dir / "dental.db")
+        d = _j(c.get(f"/api/patients/{pid}/odontogram"))["data"]
+        res.check("GET одонтограммы не пишет «Fișa deschisă» — план читается без открытия фиши",
+                  _views(s.dir / "dental.db"), seen)
+        plan = d["plan"]
+        res.check("план разложен по зубам: позиция без зуба («Detartraj») — ни в один",
+                  sorted(plan), ["16", "36", "55"])
+        res.check("поля строки — чтение, без кнопок переходов фиши",
+                  sorted(plan["16"][0]), _PLAN_FIELDS)
+        res.check("порядок фиши: в работе, запланированное, законченное; подписи статусов сервера",
+                  [(x["procedure"], x["status"], x["label"], x["active"]) for x in plan["16"]],
+                  [("Endodonție 16", "in_lucru", "În lucru", True),
+                   ("Obturație 16 MO", "planificat", "Planificat", True),
+                   ("Coroană 16", "finalizat", "Finalizat", False)])
+        by = {x["procedure"]: x for x in plan["16"] + plan["36"]}
+        res.check("срок и просрочка, цена, врач, дата закрытия — значениями фиши",
+                  ((by["Obturație 16 MO"]["due"], by["Obturație 16 MO"]["overdue"], by["Obturație 16 MO"]["price"],
+                    by["Obturație 16 MO"]["doctor"]),
+                   (by["Coroană 16"]["due"], by["Coroană 16"]["overdue"], by["Coroană 16"]["price"],
+                    by["Coroană 16"]["done"])),
+                  ((_dmy(-3), True, 800, "Dr. Activ Doi"), (_dmy(30), False, None, _dmy(0))))
+        res.check("отказ: не активен, причина рядом",
+                  (by["Implant 36"]["label"], by["Implant 36"]["active"], by["Implant 36"]["motiv"]),
+                  ("Refuzat", False, "refuză implantul"))
+        res.check("молочный зуб — тем же путём", [x["procedure"] for x in plan["55"]], ["Extracție 55"])
+
+        # ⭐ одна строка на два места: всё, что едет в зуб, — ровно то, что фиша
+        # говорит о той же позиции (её читает GET фиши, это открытие — здесь можно)
+        card = {it["id"]: it for it in _j(c.get(f"/api/patients/{pid}"))["data"]["plan"]["items"]}
+        mine = [x for rows in plan.values() for x in rows]
+        res.check("каждая позиция зуба — та же строка, что у плана фиши",
+                  [{k: v for k, v in x.items() if k != "active"} for x in mine],
+                  [{k: card[x["id"]][k] for k in _PLAN_FIELDS if k != "active"} for x in mine])
+
+        # запись плана меняет модель одонтограммы: следующая модель её знает
+        r = c.post_json(f"/api/patients/{pid}/plan", {"procedure": "Sigilare 16", "tooth": "16", "price": "",
+                                                      "due_date": "", "doctor": ""})
+        assert r.msg == "ok_card", r.body[:200]
+        d = _j(c.get(f"/api/patients/{pid}/odontogram"))["data"]
+        res.check("новая позиция — в модели зуба сразу, на своём месте порядка",
+                  [x["procedure"] for x in d["plan"]["16"]],
+                  ["Endodonție 16", "Obturație 16 MO", "Sigilare 16", "Coroană 16"])
+        c.post_json(f"{st}/{add['Obturație 16 MO']}/delete", {})
+        d = _j(c.get(f"/api/patients/{pid}/odontogram"))["data"]
+        res.check("удалённая позиция из зуба ушла",
+                  [x["procedure"] for x in d["plan"]["16"]], ["Endodonție 16", "Sigilare 16", "Coroană 16"])
 
 
 def suite_switch(res: Result) -> None:

@@ -14,6 +14,7 @@ Carie · MO» на одном экране и «11 Carie» на другом, р
 """
 from __future__ import annotations
 
+from ... import db
 from ... import engine as eng
 from ... import teeth_svg as tsvg
 
@@ -247,11 +248,39 @@ def modes() -> list[dict]:
     return [{**m, "keys": list(m["keys"])} for m in MODES]
 
 
-def model(tmap: dict, tooth_acts: list, bridges: list | None) -> dict:
+# Позиции плана ЗУБА — вкладка «Tratament» панели зуба (24.10, макет B).
+# Строка та же, что у плана фиши (`api._plan_item`: подпись статуса
+# `card.PLAN_LABEL`, срок и просрочка, врач по правилу 043/e), здесь только
+# раскладка по номеру. ⛔ Только ЧТЕНИЕ: переходы плана живут во вкладке фиши,
+# поэтому `next`/`refusable`/`deletable` сюда не едут. Активная — ПЕРЕЧИСЛЕНИЕМ
+# (`db.PLAN_ACTIVE`): правило «всё, кроме finalizat» с появлением отказа
+# соврало шестью местами (08-11), и клиент своего правила не заводит.
+PLAN_FIELDS = ("id", "procedure", "status", "label", "doctor", "price",
+               "due", "overdue", "done", "motiv")
+
+
+def tooth_plan(items: list) -> dict:
+    """{fdi: [позиция, …]} в порядке плана фиши (`card.plan_key`: в работе,
+    запланированное по сроку, законченное, отказы). Позиция без зуба (план
+    «на весь рот») и с чужим номером в зуб не попадает."""
+    out: dict[str, list] = {}
+    for it in items:
+        n = it.get("tooth")
+        if n not in FDI_ALL:
+            continue
+        row = {k: it.get(k) for k in PLAN_FIELDS}
+        row["active"] = it.get("status") in db.PLAN_ACTIVE
+        out.setdefault(str(n), []).append(row)
+    return out
+
+
+def model(tmap: dict, tooth_acts: list, bridges: list | None,
+          plan: list | None = None) -> dict:
     """Одонтограмма данными для React (C21, docs/dentpilot-2/clinical-chart.md):
     зубы с рисунками обоих видов (с целями поверхностей `hit=True`), история,
-    дуги и подъём вида сверху, мосты, легенда и словари. Всё считает сервер —
-    у клиента нет ни геометрии, ни второго словаря состояний."""
+    позиции плана по зубам, дуги и подъём вида сверху, мосты, легенда и
+    словари. Всё считает сервер — у клиента нет ни геометрии, ни второго
+    словаря состояний. `plan` — строки плана фиши (`api._plan_item`)."""
     infos, hist = tooth_info(tmap, tooth_acts)
     bmap = _bmap(bridges or [])
     teeth: dict = {}
@@ -290,6 +319,8 @@ def model(tmap: dict, tooth_acts: list, bridges: list | None) -> dict:
                          "doctor": b.get("doctor") or ""})
     return {
         "teeth": teeth, "history": hist,
+        # план ЗУБА — вкладка «Tratament» панели (24.10); у зуба без позиций ключа нет
+        "plan": tooth_plan(plan or []),
         "arches": {"upper": list(FDI_UPPER), "lower": list(FDI_LOWER),
                    "milk_upper": list(FDI_MILK_UPPER), "milk_lower": list(FDI_MILK_LOWER)},
         "arc": {"upper": arcs(FDI_UPPER, lower=False, milk=False),

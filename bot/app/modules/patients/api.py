@@ -857,7 +857,13 @@ async def _odontogram(pid: int, p: dict) -> dict:
     tmap = await db.teeth_map(pid)
     tooth_acts = await db.tooth_activity(pid)
     punti = await db.bridges(pid)
-    m = podo.model(tmap, tooth_acts, punti)
+    # позиции плана по зубу — вкладка «Tratament» панели зуба (24.10): строки
+    # те же, что у плана фиши (`_plan_item`), и в том же порядке. ⛔ Читать их
+    # открытием фиши нельзя: GET фиши пишет «Fișa deschisă» в журнал доступа
+    # (закон 195), а GET одонтограммы — нет
+    today = datetime.now(eng.TZ).date()
+    plan = [_plan_item(it, today) for it in pcard.plan_view(await db.plan_items(pid))["items"]]
+    m = podo.model(tmap, tooth_acts, punti, plan=plan)
     m["patient"] = {"id": pid, "name": p["name"] or "",
                     "primary_doctor": p.get("primary_doctor") or ""}
     m["doctors"] = list(eng.DOCTORS.values())
