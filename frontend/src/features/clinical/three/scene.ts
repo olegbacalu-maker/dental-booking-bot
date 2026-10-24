@@ -3,7 +3,7 @@ import type { Odontogram, ToothGeom, ToothInfo } from '../chart'
 import { archCurve, GAP, GAP_CLOSED, layoutArch, type ArchLayout, type PlacedTooth } from './arch'
 import { focusOcclusal, focusOrbit, nearestTheta } from './focus'
 import type { Three } from './loadThree'
-import { COLOR, hex, lerpHex, structChanged, targetLook, type Look } from './look'
+import { COLOR, hex, lerpHex, setTransparent, structChanged, targetLook, type Look } from './look'
 import type { RawMesh } from './mesh'
 import { buildDashedLoop, buildRoots, buildScrew, SURF, toCls, type Letter } from './toothGeometry'
 import { crownModel, type CrownModel } from './crown'
@@ -570,21 +570,21 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     t.gapMat.opacity = look.opacity
     const sm = t.socket.material as T3.MeshStandardMaterial
     sm.opacity = look.opacity
-    sm.transparent = look.opacity < 1
+    setTransparent(sm, look.opacity < 1)
     const scm = t.screw.material as T3.MeshStandardMaterial
     scm.opacity = look.opacity
-    scm.transparent = look.opacity < 1
+    setTransparent(scm, look.opacity < 1)
     ;(t.screwX.material as T3.MeshStandardMaterial).opacity = 0.62 * look.opacity
     ;(t.sprite.material as T3.SpriteMaterial).opacity = look.opacity < 1 ? 0.35 : 1
     // корни гаснут вместе с коронкой: сразу или тем же твином
     const rm = t.rootMat
     if (instant || rm.opacity === look.opacity) {
       rm.opacity = look.opacity
-      rm.transparent = look.opacity < 1
+      setTransparent(rm, look.opacity < 1)
     } else {
       const o0 = rm.opacity
-      rm.transparent = true
-      tweens.add(380, (k) => { rm.opacity = o0 + (look.opacity - o0) * k }, () => { rm.transparent = look.opacity < 1 }, 0, t)
+      setTransparent(rm, true)
+      tweens.add(380, (k) => { rm.opacity = o0 + (look.opacity - o0) * k }, () => setTransparent(rm, look.opacity < 1), 0, t)
     }
     SURF.forEach((_L, i) => {
       const m = t.mats[i]
@@ -596,7 +596,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
         m.metalness = look.metalness
         m.roughness = look.roughness
         m.opacity = look.opacity
-        m.transparent = see
+        setTransparent(m, see)
         m.depthWrite = !see
         return
       }
@@ -606,18 +606,20 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       const op0 = m.opacity
       if (c0.equals(target) && met0 === look.metalness && op0 === look.opacity) {
         m.roughness = look.roughness
-        m.transparent = see
+        setTransparent(m, see)
         m.depthWrite = !see
         return
       }
-      m.transparent = true
+      // на время твина прозрачна, только если прозрачность меняется или была/будет < 1:
+      // у непрозрачного зуба перекраска не меняет программу шейдера (`setTransparent`)
+      setTransparent(m, see || op0 < 1)
       tweens.add(380, (k) => {
         m.color.copy(c0).lerp(target, k)
         m.metalness = met0 + (look.metalness - met0) * k
         m.roughness = r0 + (look.roughness - r0) * k
         m.opacity = op0 + (look.opacity - op0) * k
       }, () => {
-        m.transparent = see
+        setTransparent(m, see)
         m.depthWrite = !see
       }, 0, t)
     })
@@ -625,7 +627,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
 
   const setOpacity = (t: ToothNodes, v: number): void => {
     for (const m of t.mats) {
-      m.transparent = true
+      setTransparent(m, true)
       m.opacity = v
     }
   }
@@ -639,7 +641,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   }
   function fadeRoots(t: ToothNodes, on: boolean): void {
     const rm = t.rootMat
-    rm.transparent = true
+    setTransparent(rm, true)
     if (on) {
       t.roots.visible = true
       rm.opacity = 0
@@ -649,7 +651,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     tweens.add(MS.roots, (k) => { rm.opacity = o0 + (o1 - o0) * k }, () => {
       if (!on) t.roots.visible = false
       rm.opacity = 1
-      rm.transparent = false
+      setTransparent(rm, false)
     }, 0, t)
   }
 
@@ -695,11 +697,11 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       case 'extract': {
         const rm = t.rootMat
         const rootsOn = t.roots.visible
-        rm.transparent = true
+        setTransparent(rm, true)
         const op0 = t.mats[0]?.opacity ?? 1
         t.socket.visible = true
         const sm = t.socket.material as T3.MeshStandardMaterial
-        sm.transparent = true
+        setTransparent(sm, true)
         sm.opacity = 0
         tweens.add(MS.extract, (k) => {
           t.crown.position.y = 16 * k
@@ -708,7 +710,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
           setOpacity(t, op0 * (1 - k))
           if (rootsOn) rm.opacity = 1 - k
           sm.opacity = k
-        }, () => { sm.transparent = false; sm.opacity = 1; finish() }, 0, t)
+        }, () => { setTransparent(sm, false); sm.opacity = 1; finish() }, 0, t)
         return
       }
       case 'ghost': {
@@ -750,8 +752,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
         if (from === 'implant') tweens.add(MS.screwOut, (k) => { screwY(t, 16 * k); screwSpin(t, -k * Math.PI * 6) }, null, 0, t)
         if (from === 'gone') {
           const sm = t.socket.material as T3.MeshStandardMaterial
-          sm.transparent = true
-          tweens.add(MS.socketFade, (k) => { sm.opacity = 1 - k }, () => { sm.transparent = false; sm.opacity = 1 }, 0, t)
+          setTransparent(sm, true)
+          tweens.add(MS.socketFade, (k) => { sm.opacity = 1 - k }, () => { setTransparent(sm, false); sm.opacity = 1 }, 0, t)
         }
         if (!t.roots.visible) fadeRoots(t, true)
         if (from) {
@@ -1214,7 +1216,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     setToggle(k, on) {
       togs[k] = on
       if (k === 'xray') {
-        gumMat.transparent = on
+        setTransparent(gumMat, on)
         gumMat.opacity = on ? 0.28 : 1
         gumMat.depthWrite = !on
         for (const J of jawGum) {

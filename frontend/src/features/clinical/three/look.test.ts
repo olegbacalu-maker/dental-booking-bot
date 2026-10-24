@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { COLOR, effState, hex, lerpHex, structChanged, targetLook } from './look'
+import { COLOR, effState, hex, lerpHex, setTransparent, structChanged, targetLook } from './look'
 
 /* Вид зуба — таблица состояний → видимость и цвета, с палитрой сервера. */
 
@@ -95,5 +95,18 @@ describe('вид по состоянию', () => {
     expect(structChanged(a, b)).toBe(true)
     expect(structChanged(b, c)).toBe(true)
     expect(structChanged(c, targetLook(tooth('ok', { M: 'carie' }), PALETTE))).toBe(false)
+  })
+})
+
+describe('прозрачность материала', () => {
+  it('⭐ смена transparent просит пересборку программы (OPAQUE в шейдере three r151+), повтор того же значения — нет', () => {
+    const m = { transparent: false, needsUpdate: false }
+    setTransparent(m, true)
+    expect(m).toEqual({ transparent: true, needsUpdate: true })
+    m.needsUpdate = false
+    setTransparent(m, true)
+    expect(m.needsUpdate).toBe(false)
+    setTransparent(m, false)
+    expect(m).toEqual({ transparent: false, needsUpdate: true })
   })
 })

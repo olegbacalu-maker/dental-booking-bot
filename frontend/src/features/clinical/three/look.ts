@@ -123,3 +123,17 @@ export function targetLook(t: Info, palette: Record<string, string>): Look {
 export function structChanged(prev: Look | null, next: Look): boolean {
   return prev !== null && (prev.st !== next.st || prev.pontic !== next.pontic)
 }
+
+/** Прозрачность материала (24.10, находка `odo-modes` и `odo-look`). В three r151+
+ *  `transparent` — параметр ПРОГРАММЫ шейдера (`#define OPAQUE`: альфа
+ *  принудительно 1), а смену three сам не замечает (`needsProgramChange` её не
+ *  сверяет): без `needsUpdate` погашенная легендой коронка оставалась
+ *  непрозрачной, а сцены смены состояния «хлопали» вместо плавного гашения.
+ *  Десна в «Rădăcini» работала случайно — двусторонним прозрачным three ставит
+ *  `needsUpdate` сам. Пересборка — только при НАСТОЯЩЕЙ смене: на каждом `paint`
+ *  она меняла бы программу впустую. */
+export function setTransparent(m: { transparent: boolean; needsUpdate: boolean }, on: boolean): void {
+  if (m.transparent === on) return
+  m.transparent = on
+  m.needsUpdate = true
+}
