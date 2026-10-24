@@ -738,15 +738,16 @@ describe('зуб → план (01.10)', () => {
     expect(post).not.toHaveBeenCalled()
     fireEvent.change(proc(), { target: { value: 'Coroană zirconiu' } })
     fireEvent.change(within(dlg()).getByLabelText('Preț MDL'), { target: { value: '1500' } })
+    const loads = get.mock.calls.length
     fireEvent.click(within(dlg()).getByRole('button', { name: 'Adaugă în plan' }))
     expect(await screen.findByText('Fișa pacientului a fost actualizată')).toBeTruthy()
     expect(post).toHaveBeenCalledWith('/patients/5/plan?odo=1', {
       tooth: '16', procedure: 'Coroană zirconiu', doctor: 'Dr. Activ Doi', price: '1500', due_date: '',
     })
     await waitFor(() => expect(dlg().hasAttribute('open')).toBe(false))
-    /* ответ плана — модель с позицией: дуга на месте, второго GET нет, «Tratament» уже знает позицию */
+    /* ответ плана — модель с позицией: дуга на месте, ни одного GET после ответа, «Tratament» уже знает позицию */
     expect(btn(16)).toBeTruthy()
-    expect(get).toHaveBeenCalledTimes(1)
+    expect(get.mock.calls.length).toBe(loads)
     fireEvent.click(btn(16))
     expect(within(inspector()).getByRole('tab', { name: /^Tratament/ }).textContent).toBe('Tratament 1')
     tabTo('Tratament')

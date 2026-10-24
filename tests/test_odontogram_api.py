@@ -418,7 +418,19 @@ def suite_plan(res: Result) -> None:
                    _views(s.dir / "dental.db") == seen),
                   (True, ["Inlay 36", "Onlay 36"], True, True))
         r = c.post_json(st, {**body, "procedure": "Coroană 36"})
-        res.check("без odo — фиша, как было", ("plan" in _j(r)["data"], "teeth" in _j(r)["data"]), (True, False))
+        j = _j(r)
+        # ⛔ Ответ БЕЗ odo — прежний: им живёт вкладка плана фиши. Состав — тот
+        # же, что у фиши, открытой GET-ом (это открытие, здесь можно), код тот же
+        card = _j(c.get(f"/api/patients/{pid}"))["data"]
+        res.check("без odo — прежний ответ: фиша того же состава, код ok_card, модели нет",
+                  (r.status, j["code"], sorted(j["data"]), "teeth" in j["data"]),
+                  (200, "ok_card", sorted(card), False))
+        # запись одна и та же на обеих ветках: строки плана отличаются только
+        # процедурой и номером
+        rows = {it["procedure"]: it for it in card["plan"]["items"]}
+        same = lambda it: {k: v for k, v in it.items() if k not in ("id", "procedure")}  # noqa: E731
+        res.check("запись одна: позиция с odo и без — одинаковые строки плана",
+                  same(rows["Inlay 36"]) == same(rows["Coroană 36"]), True)
         r = c.post_json(f"{st}?odo=1", {**body, "procedure": "  "})
         res.check("?odo=1 и пустая процедура — тот же отказ 422 с полем, без модели",
                   (r.status, _j(r)["code"], _j(r).get("field"), "data" in _j(r)), (422, "bad_card", "procedure", False))

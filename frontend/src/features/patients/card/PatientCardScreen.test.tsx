@@ -1313,6 +1313,8 @@ describe('PatientCardScreen', () => {
     expect(document.activeElement).toBe(within(dlg).getByLabelText('Procedură (ex. Coroană zirconiu)'))
     fireEvent.change(within(dlg).getByLabelText('Medic —'), { target: { value: 'Dr. Activ Doi' } })
     fireEvent.change(within(dlg).getByLabelText('Preț MDL'), { target: { value: '3000' } })
+    const arcGets = () => get.mock.calls.filter(([p]) => p === '/patients/5/odontogram').length
+    const before = arcGets()
     fireEvent.click(within(dlg).getByRole('button', { name: 'Adaugă în plan' }))
     expect(await screen.findByText('Fișa pacientului a fost actualizată')).toBeTruthy()
     expect(post).toHaveBeenCalledWith('/patients/5/plan?odo=1&card=1&views=1', {
@@ -1321,9 +1323,9 @@ describe('PatientCardScreen', () => {
     /* диалог закрывает эффект — после коммита плашки, поэтому ждём */
     await waitFor(() => expect(dlg.hasAttribute('open')).toBe(false))
     expect(opens()).toBe(1)
-    /* фиша из ответа — план уже с позицией; дуга НЕ перечитана и не перемонтирована:
-       тот же узел, выбранный зуб на месте, ожидания не было */
-    expect(get.mock.calls.filter(([p]) => p === '/patients/5/odontogram').length).toBe(1)
+    /* модель и фиша — из ответа (24.10): тот же узел диалога, ни одного GET дуги
+       после ответа, выбранный зуб на месте, ожидания не было */
+    expect(arcGets()).toBe(before)
     expect(dlg.isConnected).toBe(true)
     expect(document.querySelector('.dp-odo-wait')).toBeNull()
     expect(document.querySelector('#odo .tooth-btn[data-n="11"]')?.className).toContain('sel')
