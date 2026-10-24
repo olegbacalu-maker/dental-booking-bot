@@ -294,7 +294,7 @@ describe('OdontogramScreen', () => {
 })
 
 describe('C22: поверхность как первичный жест, черновик, клавиатура, меню', () => {
-  it('кисть (11.10): «Carie»/«Obturație» в руке красят поверхности на рисунке и на кресте, повтор снимает, кисть липкая, Esc отпускает; без кисти клик — выбор', async () => {
+  it('кисть (11.10): «Carie»/«Obturație» в руке красят поверхности на рисунке и в списке поверхностей, повтор снимает, кисть липкая, Esc отпускает; без кисти клик — выбор', async () => {
     open()
     await waitFor(() => expect(btn(16)).toBeTruthy())
     fireEvent.click(hitOf(16, 'O'))                        // без кисти — выбор зуба и поверхности, не правка
@@ -311,7 +311,7 @@ describe('C22: поверхность как первичный жест, чер
     expect(sfStateOf('D distal')).toBe('carie')
     expect(unsaved()).toBeTruthy()
     expect(btn(16).className).toContain('dirty')
-    fireEvent.click(sfBtn('O ocluzal'))                    // крест: O obturatie → carie (перекраска)
+    fireEvent.click(sfBtn('O ocluzal'))                    // список: O obturatie → carie (перекраска)
     expect(sfStateOf('O ocluzal')).toBe('carie')
     fireEvent.click(sfBtn('O ocluzal'))                    // та же кисть по той же поверхности — снять
     expect(sfStateOf('O ocluzal')).toBe('')
