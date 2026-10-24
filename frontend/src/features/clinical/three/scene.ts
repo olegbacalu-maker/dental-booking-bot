@@ -131,6 +131,10 @@ export interface ArchScene {
   setDim(teeth: ReadonlySet<number>): void
   /** слой пародонта (край по рецессии, полосы карманов, BOP, зонды); null — снять */
   setPerio(p: PerioInput | null): void
+  /** замер (24.10): мс на кадр — n кадров подряд с шагом орбиты, каждый дождан
+   *  чтением пикселя (иначе считалась бы очередь команд, а не GPU). Для стендов
+   *  Edge: `.odo-stage canvas.__dpBench(n)`; кадров в покое не добавляет. */
+  bench(n: number): number
   invalidate(): void
   dispose(): void
 }
@@ -1134,7 +1138,27 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   let lastModel: Odontogram | null = null
   applyCam()
 
+  function bench(n: number): number {
+    const gl = renderer.getContext()
+    const px = new Uint8Array(4)
+    const th = orb.theta
+    const t0 = performance.now()
+    for (let i = 0; i < n; i++) {
+      orb.theta = th + i * 0.01
+      applyCam()
+      renderer.render(scene, cam)
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
+    }
+    const ms = (performance.now() - t0) / Math.max(1, n)
+    orb.theta = th
+    invalidate()
+    return ms
+  }
+  // зонд замера — на холсте: узел `__dp3d` собирает компонент, а замер — дело сцены
+  ;(canvas as HTMLCanvasElement & { __dpBench?: (n: number) => number }).__dpBench = bench
+
   return {
+    bench,
     inspect(n) {
       const t = teeth.get(n)
       if (!t) return null
