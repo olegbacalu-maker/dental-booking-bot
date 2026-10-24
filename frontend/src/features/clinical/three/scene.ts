@@ -3,7 +3,7 @@ import type { Odontogram, ToothGeom, ToothInfo } from '../chart'
 import { archCurve, GAP, GAP_CLOSED, layoutArch, type ArchLayout, type PlacedTooth } from './arch'
 import { focusOcclusal, focusOrbit, nearestTheta } from './focus'
 import type { Three } from './loadThree'
-import { COLOR, hex, lerpHex, setTransparent, structChanged, targetLook, type Look } from './look'
+import { COLOR, hex, lerpHex, sameLook, setTransparent, structChanged, targetLook, type Look } from './look'
 import type { RawMesh } from './mesh'
 import { buildDashedLoop, buildRoots, buildScrew, SURF, toCls, type Letter } from './toothGeometry'
 import { crownModel, type CrownModel } from './crown'
@@ -825,7 +825,9 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       }
       if (!prev) applyLook(t, look, true)
       else if (structChanged(prev, look)) animateStruct(t, prev, look)
-      else applyLook(t, look, false)
+      // вид не изменился — зуб не трогаем: второй `paint` того же коммита (`setDim`,
+      // `setPerio`) иначе обрезал бы идущую сцену смены состояния (`look.sameLook`)
+      else if (!sameLook(prev, look)) applyLook(t, look, false)
     }
     rebuildGums()
     paintGlow()

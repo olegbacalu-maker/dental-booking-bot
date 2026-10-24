@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { COLOR, effState, hex, lerpHex, setTransparent, structChanged, targetLook } from './look'
+import { COLOR, effState, hex, lerpHex, sameLook, setTransparent, structChanged, targetLook, type Look } from './look'
 
 /* Вид зуба — таблица состояний → видимость и цвета, с палитрой сервера. */
 
@@ -108,5 +108,47 @@ describe('прозрачность материала', () => {
     expect(m.needsUpdate).toBe(false)
     setTransparent(m, false)
     expect(m).toEqual({ transparent: false, needsUpdate: true })
+  })
+})
+
+/* Тот же вид — `paint` не трогает зуб, и идущая сцена смены состояния доживает до
+   своего `applyLook(…, true)`. Любое поле, которое ставит `applyLook`, обязано
+   отличать вид: иначе настоящая смена молча не применится. */
+describe('тот же вид', () => {
+  // сдвинуть значение любого вида: флаг — наоборот, число — на 1, строку — дописать,
+  // массив и объект — их первый элемент
+  const bump = (v: unknown): unknown => {
+    if (typeof v === 'boolean') return !v
+    if (typeof v === 'number') return v + 1
+    if (typeof v === 'string') return v + '_'
+    if (Array.isArray(v)) return [bump(v[0]), ...v.slice(1)]
+    if (v && typeof v === 'object') {
+      const k = Object.keys(v)[0] ?? ''
+      return { ...v, [k]: bump((v as Record<string, unknown>)[k]) }
+    }
+    return v
+  }
+
+  it('два расчёта одних данных — тот же вид; пустой прежний — не тот же', () => {
+    const t = tooth('ok', { O: 'carie', M: 'obturatie' }, ['devital'])
+    expect(sameLook(targetLook(t, PALETTE), targetLook(t, PALETTE))).toBe(true)
+    expect(sameLook(null, targetLook(t, PALETTE))).toBe(false)
+  })
+
+  it('⭐ смена КАЖДОГО поля по отдельности — уже не тот же вид (список полей берётся из самого вида)', () => {
+    const base = targetLook(tooth('ok', { O: 'carie' }, ['tratament']), PALETTE)
+    const keys = Object.keys(base) as (keyof Look)[]
+    expect(keys.length).toBeGreaterThan(10)
+    for (const k of keys) {
+      const other = { ...base, [k]: bump(base[k]) } as Look
+      expect(sameLook(base, other), String(k)).toBe(false)
+    }
+  })
+
+  it('гашение, призрак и пародонт — разные виды', () => {
+    const base = targetLook(tooth('ok', { O: 'carie' }), PALETTE)
+    expect(sameLook(base, { ...base, opacity: 0.16 })).toBe(false)
+    expect(sameLook(targetLook(tooth('ok'), PALETTE), targetLook(tooth('lipsa'), PALETTE))).toBe(false)
+    expect(sameLook(base, { ...base, cols: base.cols.map(() => COLOR.enamel) })).toBe(false)
   })
 })

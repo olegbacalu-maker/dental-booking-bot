@@ -124,6 +124,29 @@ export function structChanged(prev: Look | null, next: Look): boolean {
   return prev !== null && (prev.st !== next.st || prev.pontic !== next.pontic)
 }
 
+/** Тот же вид до последнего поля (24.10). `paint` не трогает зуб, чей вид не
+ *  изменился: после записи сцену смены состояния обрезал второй `paint` того же
+ *  коммита (`setDim` с новым набором, `setPerio`) — его `applyLook` ставил
+ *  видимость и положение итогового вида с первого кадра сцены (удаление и
+ *  «lipsă» исчезали сразу, твин шёл на невидимой коронке). Сравнение ПОЛНОЕ, по
+ *  всем ключам вида: новое поле `Look` попадает в него само — иначе настоящая
+ *  смена (гашение, призрак, пародонт) молча не применилась бы. */
+export function sameLook(a: Look | null, b: Look): boolean {
+  return a !== null && same(a, b)
+}
+
+function same(x: unknown, y: unknown): boolean {
+  if (x === y) return true
+  if (Array.isArray(x) && Array.isArray(y)) return x.length === y.length && x.every((v, i) => same(v, y[i]))
+  if (x !== null && y !== null && typeof x === 'object' && typeof y === 'object') {
+    const a = x as Record<string, unknown>
+    const b = y as Record<string, unknown>
+    const ka = Object.keys(a)
+    return ka.length === Object.keys(b).length && ka.every((k) => k in b && same(a[k], b[k]))
+  }
+  return false
+}
+
 /** Прозрачность материала (24.10, находка `odo-modes` и `odo-look`). В three r151+
  *  `transparent` — параметр ПРОГРАММЫ шейдера (`#define OPAQUE`: альфа
  *  принудительно 1), а смену three сам не замечает (`needsProgramChange` её не
