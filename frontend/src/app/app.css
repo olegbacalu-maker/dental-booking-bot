@@ -2502,7 +2502,7 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .dp-mode-sw { display: inline-flex; gap: 2px; }
 .dp-react-root .dp-mode-sw i { width: 7px; height: 7px; border-radius: 50%; }
 .dp-react-root .dp-mode-n {
-  min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: var(--fill);
+  min-width: 18px; height: 18px; padding: 0 4px; border-radius: var(--r-tab); background: var(--fill);
   font-size: var(--fs-xs); line-height: 18px; font-weight: 700; color: var(--text2); text-align: center;
 }
 .dp-react-root .dp-odo-modes .dp-tab.on .dp-mode-n { background: var(--teal-soft); color: var(--teal-d); }

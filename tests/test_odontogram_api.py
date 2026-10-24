@@ -79,7 +79,8 @@ def suite_api(res: Result) -> None:
                   sorted(["teeth", "history", "arches", "arc", "milk_open", "bridges", "legend",
                           "states", "marks", "surfaces", "surface_states", "bridge_roles",
                           "materials", "patient", "doctors", "perio", "perio_layer", "palette",
-                          "tooth_states"]))
+                          "tooth_states",
+                          "modes"]))
         # кисть (11.10): кариес и пломба ставятся только по поверхностям, сетка
         # состояний зуба получает СПИСОК СЕРВЕРА — второго словаря у клиента нет
         res.check("tooth_states: состояния про весь зуб — словарь состояний без поверхностных, тем же порядком",
