@@ -1277,7 +1277,7 @@ describe('PatientCardScreen', () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith('/patients/5/plan/1/status', { to: 'finalizat', motiv: '' }))
   })
 
-  it('зуб → план из вкладки Odontogramă (01.10): позиция уходит на маршрут плана в режиме ленты, свежая фиша — из ответа, не новым открытием', async () => {
+  it('зуб → план из вкладки Odontogramă (01.10; 24.10 — ответ моделью): позиция уходит на маршрут плана в режиме ленты, свежие модель с планом зуба и фиша — из ответа, не новым открытием', async () => {
     const added: PatientCard = {
       ...CARD,
       plan: {
@@ -1288,12 +1288,21 @@ describe('PatientCardScreen', () => {
         ],
       },
     }
+    /* ответ `?odo=1&card=1` — модель одонтограммы с планом зуба и фиша рядом, как у записи зуба */
+    const planned = {
+      ...ODO,
+      plan: { '11': [{ id: 9, procedure: 'Coroană zirconiu', status: 'planificat', label: 'Planificat', doctor: 'Dr. Activ Doi',
+        price: 3000, due: '', overdue: false, done: '', motiv: '', active: true }] },
+      card: { ...added, activity: feed(added, true) },
+    }
     serve()
-    post.mockResolvedValueOnce(ok({ ...added, activity: feed(added, true) }, 'ok_card', 'Fișa pacientului a fost actualizată'))
+    post.mockResolvedValueOnce(ok(planned, 'ok_card', 'Fișa pacientului a fost actualizată'))
     open('/admin/patient/5?tab=odonto&views=1')
     await odoReady()
     fireEvent.click(document.querySelector('#odo .tooth-btn[data-n="11"]') as HTMLElement)
     const insp = document.querySelector('.insp') as HTMLElement
+    /* «Adaugă în plan» — во вкладке «Tratament» панели зуба (24.10, макет B) */
+    fireEvent.click(within(insp).getByRole('tab', { name: /^Tratament/ }))
     fireEvent.click(within(insp).getByRole('button', { name: 'Adaugă în plan' }))
     const dlg = document.querySelector('dialog.dp-plan-dlg') as HTMLDialogElement
     expect(dlg.hasAttribute('open')).toBe(true)
@@ -1306,7 +1315,7 @@ describe('PatientCardScreen', () => {
     fireEvent.change(within(dlg).getByLabelText('Preț MDL'), { target: { value: '3000' } })
     fireEvent.click(within(dlg).getByRole('button', { name: 'Adaugă în plan' }))
     expect(await screen.findByText('Fișa pacientului a fost actualizată')).toBeTruthy()
-    expect(post).toHaveBeenCalledWith('/patients/5/plan?views=1', {
+    expect(post).toHaveBeenCalledWith('/patients/5/plan?odo=1&card=1&views=1', {
       tooth: '11', procedure: 'Coroană zirconiu', doctor: 'Dr. Activ Doi', price: '3000', due_date: '',
     })
     /* диалог закрывает эффект — после коммита плашки, поэтому ждём */
@@ -1318,6 +1327,9 @@ describe('PatientCardScreen', () => {
     expect(dlg.isConnected).toBe(true)
     expect(document.querySelector('.dp-odo-wait')).toBeNull()
     expect(document.querySelector('#odo .tooth-btn[data-n="11"]')?.className).toContain('sel')
+    /* модель из ответа — вкладка «Tratament» панели уже с позицией, без перечитывания (засев фиши заменён) */
+    expect(within(insp).getByRole('tab', { name: /^Tratament/ }).textContent).toBe('Tratament 1')
+    expect(document.querySelector('.insp .dp-tpl-r .pr')?.textContent).toBe('Coroană zirconiu')
     await tabTo('Plan și plăți')
     expect(rowOf('Coroană zirconiu').querySelector('.pt')?.textContent).toBe('11')
   })

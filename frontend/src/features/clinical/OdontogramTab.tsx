@@ -14,8 +14,10 @@ import { chart, type Odontogram } from './chart'
    карты или фиша уже подменена ответом действия — там `odontogram` нет).
    Запись зуба просит у сервера и свежую фишу (`?card=1`) и отдаёт её наверх
    (`onChanged`) — пилюли шапки и летопись зависят от зубов; «Adaugă în plan»
-   с зуба (01.10) приносит фишу тем же путём (`onCard`) — план во вкладке
-   «Plan și plăți» уже с позицией. ⛔ Фиша не перечитывает себя GET-ом: это
+   с зуба (01.10) идёт тем же путём (24.10: тем же хвостом `?card=1…`, в
+   ответе модель с планом зуба и фиша) — вкладка «Tratament» панели и план во
+   вкладке «Plan și plăți» уже с позицией, засев фиши заменён своей моделью
+   из ответа. ⛔ Фиша не перечитывает себя GET-ом: это
    ОТКРЫТИЕ, и каждое сохранение зуба оставляло бы в журнале доступа ложное
    «Fișa deschisă». */
 const T = {
@@ -52,13 +54,6 @@ export function OdontogramTab({ pid, views, say, onFail, onChanged, open = null,
     setGot({ pid, model: fresh, failed: false })
     onChanged(card)
   }, [pid, onChanged])
-  /* ответ «Adaugă în plan» — фиша БЕЗ одонтограммы: засев фиши пропадает, и
-     без своей модели вкладка перечитала бы дугу (ожидание, потеря выбранного
-     зуба). Нынешняя модель становится своей — зуб и черновик остаются. */
-  const onCard = useCallback((card: unknown) => {
-    setGot((g) => (g && g.pid === pid ? g : (model ? { pid, model, failed: false } : g)))
-    onChanged(card)
-  }, [pid, model, onChanged])
   /* отказ — через ref: личность `onFail` меняется вслед за адресом, а запрос
      модели от неё зависеть не должен (иначе обрыв и повтор) */
   const onFailRef = useRef(onFail)
@@ -86,6 +81,6 @@ export function OdontogramTab({ pid, views, say, onFail, onChanged, open = null,
   if (!model) return <div className="fcard dp-odo-wait" aria-busy="true"><p className="hint dp-m0">{T.loading}</p></div>
   return (
     <OdontogramWorkbench pid={pid} model={model} replace={replace} fail={fail} say={say} open={open}
-      saveQuery={`?card=1${views ? '&views=1' : ''}`} embedded views={views} onCard={onCard} />
+      saveQuery={`?card=1${views ? '&views=1' : ''}`} embedded />
   )
 }

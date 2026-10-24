@@ -2507,3 +2507,133 @@ dialog.dp-about { width: 460px; }
 }
 .dp-react-root .dp-odo-modes .dp-tab.on .dp-mode-n { background: var(--teal-soft); color: var(--teal-d); }
 .dp-cmenu-mode { text-transform: none; letter-spacing: 0; font-weight: 600; }
+
+/* ---- odo:panel — панель «Dintele N» по макету B (24.10): вкладки, крупный зуб, план зуба ----
+   Вкладки — подчёркиванием, как у вкладок шапки; счётчик — кружком. Тело
+   вкладки без своей верхней черты: черту даёт полоса вкладок. */
+/* панель — контейнер: на узкой (360–380 px, 1366 и 1920 сегодня) пять вкладок со счётчиками
+   помещаются только мельче; шире 400 px (шторка планшета, панель 400 макета B) — обычный размер */
+.dp-react-root .dp-tp { container-type: inline-size; }
+.dp-react-root .dp-pt {
+  display: flex; padding: 0 6px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  overflow-x: auto; scrollbar-width: none;
+}
+.dp-react-root .dp-pt::-webkit-scrollbar { display: none; }
+.dp-react-root .dp-pt-b {
+  flex: 1 0 auto; display: inline-flex; align-items: center; justify-content: center; gap: 2px;
+  height: 40px; padding: 0 4px; border: 0; border-bottom: 3px solid transparent; background: none;
+  font: inherit; font-size: var(--fs-s); font-weight: 600; color: var(--text2); cursor: pointer; white-space: nowrap;
+}
+.dp-react-root .dp-pt-b:hover { color: var(--text); }
+.dp-react-root .dp-pt-b.on { color: var(--text); border-bottom-color: var(--teal); }
+.dp-react-root .dp-pt-b:focus-visible { outline: none; box-shadow: var(--ring); border-radius: var(--r-xs); }
+.dp-react-root .dp-pt-n {
+  min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px;
+  background: var(--fill); color: var(--text2); font-size: var(--fs-micro); line-height: 16px; text-align: center;
+}
+@container (max-width: 350px) {
+  .dp-react-root .dp-pt { padding: 0 2px; }
+  .dp-react-root .dp-pt-b { padding: 0 3px; letter-spacing: -.01em; }
+}
+@container (min-width: 400px) {
+  .dp-react-root .dp-pt { padding: 0 12px; }
+  .dp-react-root .dp-pt-b { padding: 0 6px; font-size: var(--fs-m); }
+  .dp-react-root .dp-pt-n { min-width: 18px; height: 18px; border-radius: 9px; font-size: var(--fs-xs); line-height: 18px; }
+}
+.dp-react-root .dp-pt-b.on .dp-pt-n { background: var(--teal-soft); color: var(--teal-d); }
+.dp-react-root .dp-tp-body { border-top: 0; }
+/* «Salvează» — внизу панели на любой вкладке и липкий к низу окна: панель выше окна
+   (1366: Diagnostic с таблицей пародонта — 805 px) не прячет кнопку за край */
+.dp-react-root .dp-tp-foot {
+  gap: 6px; padding-top: 12px; padding-bottom: 12px; position: sticky; bottom: 0; z-index: 1;
+  background: var(--surface); border-radius: 0 0 var(--r-card) var(--r-card);
+}
+
+/* Крупный зуб: рисунок сервера вида сверху, буквы сторон вокруг. Размер — по
+   высоте окна (104 px при 656 полезных на 1366×768, 184 px при 968 на 1920×1080,
+   макет B): мешает высота, а не ширина панели. Поле, где черновик разошёлся с
+   записью, красит цель `data-s` (поле сервера, обтравленное контуром): цвет —
+   `--bt-M`… из палитры сервера, «стёрто» — `--bt-clear`. Выбранное поле —
+   обводкой, наведение — тонкой. Правило панорамы `.odop .tooth-svg` (54 px)
+   здесь снято специфичностью. */
+.dp-react-root .dp-sf2 { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
+.dp-react-root .dp-bt {
+  --bt-size: clamp(104px, calc(25.6vh - 64px), 184px);
+  --bt-clear: #fff; --bt-clear-o: .8; --bt-paint-o: .58;
+  flex: none; display: grid; grid-template-columns: 16px var(--bt-size) 16px; grid-template-rows: 16px var(--bt-size) 16px auto;
+  align-items: center; justify-items: center; gap: 2px;
+}
+.dp-react-root .dp-bt-l { font-size: var(--fs-s); line-height: 16px; font-weight: 700; color: var(--text3); }
+.dp-react-root .dp-bt-l.t { grid-area: 1 / 2; }
+.dp-react-root .dp-bt-l.b { grid-area: 3 / 2; }
+.dp-react-root .dp-bt-l.l { grid-area: 2 / 1; }
+.dp-react-root .dp-bt-l.r { grid-area: 2 / 3; }
+.dp-react-root .dp-bt-pic { grid-area: 2 / 2; width: var(--bt-size); height: var(--bt-size); }
+.dp-react-root .dp-bt-pic .tooth-svg { display: block; width: 100%; height: 100%; max-width: none; }
+.dp-react-root .dp-bt [data-s] { cursor: pointer; vector-effect: non-scaling-stroke; }
+.dp-react-root .dp-bt [data-s]:hover { stroke: var(--text3); stroke-width: 1.5px; }
+.dp-react-root .dp-bt [data-s='M'] { fill: var(--bt-M, transparent); fill-opacity: var(--bt-M-o, 1); }
+.dp-react-root .dp-bt [data-s='O'] { fill: var(--bt-O, transparent); fill-opacity: var(--bt-O-o, 1); }
+.dp-react-root .dp-bt [data-s='D'] { fill: var(--bt-D, transparent); fill-opacity: var(--bt-D-o, 1); }
+.dp-react-root .dp-bt [data-s='V'] { fill: var(--bt-V, transparent); fill-opacity: var(--bt-V-o, 1); }
+.dp-react-root .dp-bt [data-s='L'] { fill: var(--bt-L, transparent); fill-opacity: var(--bt-L-o, 1); }
+.dp-react-root .dp-bt[data-sel='M'] [data-s='M'], .dp-react-root .dp-bt[data-sel='O'] [data-s='O'],
+.dp-react-root .dp-bt[data-sel='D'] [data-s='D'], .dp-react-root .dp-bt[data-sel='V'] [data-s='V'],
+.dp-react-root .dp-bt[data-sel='L'] [data-s='L'] { stroke: var(--teal-d); stroke-width: 2.5px; }
+/* в черновике другое состояние ЗУБА (коронка вместо здорового…): рисунок о записи — гаснет и говорит об этом */
+.dp-react-root .dp-bt.stale .dp-bt-pic { opacity: .45; }
+.dp-react-root .dp-bt-stale {
+  grid-area: 4 / 1 / 5 / 4; max-width: calc(var(--bt-size) + 36px); font-size: var(--fs-xs); line-height: 15px;
+  color: var(--text3); text-align: center;
+}
+
+/* список поверхностей рядом с зубом: буква с цветом состояния, название, состояние словом */
+.dp-react-root .dp-sfl { flex: 1 1 150px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.dp-react-root .dp-sfl-r {
+  display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 8px;
+  min-height: 32px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--panel);
+  font: inherit; font-size: var(--fs-m); color: var(--text); text-align: left; cursor: pointer;
+}
+.dp-react-root .dp-sfl-r:hover { background: var(--fill); }
+.dp-react-root .dp-sfl-r:focus-visible { outline: none; box-shadow: var(--ring); }
+.dp-react-root .dp-sfl-r .l {
+  width: 22px; height: 22px; border-radius: var(--r-xs); background: var(--fill); display: inline-flex;
+  align-items: center; justify-content: center; font-weight: 700;
+}
+.dp-react-root .dp-sfl-r.has .l { color: #fff; }
+.dp-react-root .dp-sfl-r .n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dp-react-root .dp-sfl-r .s { font-size: var(--fs-s); font-weight: 600; color: var(--text3); }
+.dp-react-root .dp-sfl-r.on { background: var(--teal-soft); border: 2px solid var(--teal); padding: 0 7px; }
+.dp-react-root .dp-sfl-r.on:not(.has) .l { background: var(--teal); color: var(--on-teal); }
+/* кисть в руке: строки — цели, пунктиром; наведение — рамка цветом текста */
+.dp-react-root .dp-odo[data-brush] .dp-sfl-r { border-style: dashed; cursor: crosshair; }
+.dp-react-root .dp-odo[data-brush] .dp-sfl-r:hover { border-color: var(--text); border-style: solid; }
+
+/* «Tratament»: позиции плана зуба — только чтение; закрытые (финал, отказ) — приглушены */
+.dp-react-root .dp-tpl { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.dp-react-root .dp-tpl-r {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--panel);
+}
+.dp-react-root .dp-tpl-r .pr { min-width: 0; font-size: var(--fs-body); font-weight: 600; overflow-wrap: anywhere; }
+.dp-react-root .dp-tpl-r .pbadge { align-self: start; }
+.dp-react-root .dp-tpl-r .mt { grid-column: 1 / -1; font-size: var(--fs-s); color: var(--text3); }
+.dp-react-root .dp-tpl-r .mt svg { width: 14px; height: 14px; vertical-align: -2px; }
+.dp-react-root .dp-tpl-r .pmotiv { grid-column: 1 / -1; font-size: var(--fs-s); color: var(--text2); }
+.dp-react-root .dp-tpl-r.off { background: var(--fill); }
+.dp-react-root .dp-tpl-r.off .pr { color: var(--text2); font-weight: 500; }
+.dp-react-root .dp-tpl-full { align-self: center; font-size: var(--fs-s); font-weight: 600; color: var(--teal-d); }
+.dp-react-root .dp-tp-br {
+  margin: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--fill); font-size: var(--fs-s);
+}
+.dp-react-root .dp-tp-perio { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.dp-react-root .dp-tp-log .th-r:first-child { padding-top: 0; }
+
+/* под палец: цели 44 px; в шторке вкладки и «Salvează» не уезжают с прокруткой */
+@media (pointer: coarse) {
+  .dp-react-root .dp-pt-b { height: 44px; }
+  .dp-react-root .dp-sfl-r { min-height: 44px; }
+  .dp-react-root .odop[data-sel] .odop-side .dp-pt { position: sticky; top: -8px; z-index: 1; background: var(--surface); }
+  .dp-react-root .odop[data-sel] .odop-side .dp-tp-foot { bottom: calc(-12px - env(safe-area-inset-bottom)); border-radius: 0; }
+}

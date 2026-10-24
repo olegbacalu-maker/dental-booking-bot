@@ -1,59 +1,36 @@
-import type { CSSProperties } from 'react'
+import { useId, useState } from 'react'
 import { Icon } from '../../components/Icon'
-import { AppLink } from '../../components/AppLink'
-import { ask } from '../../components/confirm'
-import { StatusPicker } from './StatusPicker'
-import { SurfaceCross } from './SurfaceCross'
-import { JAW_RO, bridgeOf, surfaceLetter, type Jaw, type Odontogram, type PerioLayer, type PerioLayerRow } from './chart'
+import { JAW_RO, bridgeOf, type Odontogram } from './chart'
+import { DiagnosticTab } from './panel/DiagnosticTab'
+import { PanelTabs, type Tab } from './panel/PanelTabs'
+import { SurfacesTab } from './panel/SurfacesTab'
+import { TreatmentTab } from './panel/TreatmentTab'
 import type { ToothDraft } from './useChart'
 
-/* Панель выбранного зуба (08.10, макет «Stare dinți»; до того — инспектор
-   `ToothInspector` + форма `ToothForm`): крупный номер с названием и
-   стороной (слова сервера), крест поверхностей, состояние сеткой кнопок,
-   отметки переключателями, врач, заметка, «Salvează» со строкой состояния,
-   замер пародонта, действия с зуба и история под шторкой.
+/* Панель зуба «Dintele N» (24.10, макет B Олега; до того — секции одна под
+   другой по макету 08.10, ещё раньше — инспектор `ToothInspector` + форма
+   `ToothForm`): шапка с крупным номером, названием и стороной (слова
+   сервера), вкладки Suprafețe / Diagnostic / Tratament / Notițe / Istoric и
+   «Salvează» со строкой состояния внизу — на ЛЮБОЙ вкладке. Содержимое то же,
+   что было секциями (`panel/*`); новое — крупный зуб вместо креста MODVL и
+   позиции плана этого зуба (`model.plan`, только чтение).
    Модалки здесь нет НАМЕРЕННО: она закрывает собой карту, а смысл экрана —
    видеть зуб и соседей сразу. Всё, что умеет контекстное меню, есть и
    здесь. Форма КОНТРОЛИРУЕМАЯ (C22): черновик живёт в useChart — его правят
-   ещё клик по кресту, по зубу в сцене и меню, а форма его только показывает
-   и меняет через onEdit. Намерение уезжает явно (карта поверхностей и список
-   отметок всегда, state0 — как показали).
+   ещё клик по зубу в сцене, на дуге, по крупному зубу и меню, а форма его
+   только показывает и меняет через onEdit; поэтому смена вкладки ничего не
+   теряет (вкладки размонтируются, черновик — нет). Намерение уезжает явно
+   (карта поверхностей и список отметок всегда, state0 — как показали).
    Пальцем (B7 · планшет) панель — шторка поверх карты: классы `insp`,
    `insp-close` держат те же правила app.css, что и раньше. */
 const T = {
-  title: 'Dinte selectat',
+  title: 'Dintele',
   pick: 'Alege un dinte',
-  bridge: 'Punte',
-  role: 'rol',
-  delBridge: 'Șterge puntea',
-  confirmDel: 'Ștergeți puntea {span}? Dinții rămân cu starea lor.',
-  bridgeFrom: 'Punte nouă de la acest dinte',
-  plan: 'Adaugă în plan',
-  history: 'Istoric',
-  noHistory: '— fără înregistrări —',
-  perio: 'Parodontogramă',
-  openPerio: 'Deschide examenul',
-  site: 'Punct',
-  bop: 'Sângerare la sondare',
-  noBop: 'fără sângerare',
-  notMeasured: 'nemăsurat',
-  mob: 'Mobilitate',
-  furc: 'Furcație',
   close: 'Închide',
-  surfaces: 'Suprafețe',
-  brush: 'Pensulă',
-  brushOff: 'Apasă „Carie” sau „Obturație” — pensula rămâne în mână până o lași',
-  brushOn: 'Pensula „{s}” este în mână: apasă pe suprafețele dintelui (aici, pe desen sau în 3D) — pune, a doua apăsare scoate. Esc sau încă o apăsare pe buton — lasă pensula',
-  brushNo: 'Dintele are o stare pe tot dintele — suprafețele nu se marchează',
-  old: '{s} pe tot dintele, din evidența veche (fără suprafețe)',
-  remark: 'Remarchează pe suprafețe',
-  del: 'Șterge',
-  state: 'Starea dintelui',
-  stateOn: 'Apasă din nou pentru a șterge',
-  stateOff: 'Sănătos / fără stare',
   doctor: 'Medic',
   doctorNone: 'Medic —',
   note: 'Notiță (opțional)',
+  noHistory: '— fără înregistrări —',
   save: 'Salvează',
   discard: 'Renunță',
   unsaved: 'Modificări nesalvate',
@@ -66,7 +43,7 @@ interface Props {
   busy: boolean
   /** Выбранная поверхность — состояние рабочего стола (её выбирают и из сцены). */
   sel: string
-  /** Клик по клетке креста: выбрать поверхность; с кистью — покрасить её. */
+  /** Клик по полю крупного зуба или по строке списка: выбрать поверхность; с кистью — покрасить её. */
   onSurface: (n: number, letter: string) => void
   /** Кисть (11.10): состояние, которым красят поверхности, и её переключатель. */
   brush: string | null
@@ -86,70 +63,34 @@ interface Props {
   saved: number | null
 }
 
-/** Шесть точек зуба таблицей (06.10): глубина, рецессия, CAL, кровоточивость.
- *  ⛔ Ничего не считается: CAL и пороги — с сервера (`perio_layer`), ноль —
- *  «не измеряли», а не «0 мм» (шапка perio.py), поэтому показывается точкой. */
-function PerioTable({ row, layer, jaw }: { row: PerioLayerRow; layer: PerioLayer; jaw: Jaw }) {
-  const L = surfaceLetter('L', jaw)
-  const codes = ['MV', 'V', 'DV', `M${L}`, L, `D${L}`]
-  const mm = (v: number | undefined) => (v ? String(v) : '·')
-  const band = (v: number) => (v >= layer.limits.severe ? 'sev' : v >= layer.limits.deep ? 'deep' : '')
-  const grade = (kind: 'mob' | 'furc', v: number) => (v ? `${kind === 'mob' ? T.mob : T.furc} ${layer.grades[kind][String(v)] ?? v}` : '')
-  const extra = [grade('mob', row.mob), grade('furc', row.furc)].filter(Boolean).join(' · ')
-  return (
-    <>
-      <table className="i-ptab">
-        <thead>
-          <tr><th scope="col">{T.site}</th><th scope="col">PD</th><th scope="col">REC</th><th scope="col">CAL</th><th scope="col">BOP</th></tr>
-        </thead>
-        <tbody>
-          {codes.map((code, i) => {
-            const pd = row.pd[i] ?? 0
-            const bleed = row.bop[i] === '1'
-            return (
-              <tr key={code} data-site={layer.sites[i]?.key}>
-                <th scope="row" title={layer.sites[i]?.label}>{code}</th>
-                <td className={band(pd)} title={pd ? undefined : T.notMeasured}>{mm(pd)}</td>
-                <td>{mm(row.rec[i])}</td>
-                <td>{mm(row.cal[i])}</td>
-                <td>{bleed ? <i className="i-bop" title={T.bop} aria-label={T.bop} /> : <span title={T.noBop}>–</span>}</td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-      {extra && <b>{extra}</b>}
-    </>
-  )
-}
-
 export function ToothPanel({
   model, n, busy, sel, onSurface, brush, onBrush, draft: d, dirty, onEdit: edit, onSave, onDiscard, onDelBridge,
   onBridgeFrom, onPlan, onClose, saved,
 }: Props) {
+  /* вкладка — свойство экрана: держится, пока врач ходит от зуба к зубу */
+  const [tab, setTab] = useState<Tab>('sf')
+  const id = useId()
   const info = n !== null ? model.teeth[String(n)] : undefined
   const inBr = n !== null ? bridgeOf(model, n) : null
   const hist = n !== null ? (model.history[String(n)] ?? []) : []
-  // замер пародонта у ЭТОГО зуба: у одонтограммы и пародонтограммы один зуб,
-  // и врачу не надо уходить со страницы, чтобы вспомнить глубину кармана
-  const perio = n !== null ? model.perio?.[String(n)] : undefined
-  const layer = model.perio_layer ?? null
-  const prow = n !== null ? layer?.rows[String(n)] : undefined
   const cur = info && sel in model.surfaces ? sel : 'O'
-  const canBridge = Boolean(info && n !== null && !inBr && !info.milk && onBridgeFrom)
-  /* состояние про весь зуб (коронка, имплант…) — поверхности не красятся;
-     старая запись «carie/obturatie без поверхностей» — строкой с выбором */
+  /* состояние про весь зуб (коронка, имплант…) — поверхности не красятся */
   const whole = Boolean(d && d.state !== 'ok' && d.state in model.tooth_states)
-  const oldWhole = Boolean(d && model.surface_states.includes(d.state) && Object.keys(d.sfst).length === 0)
+  /* счётчики: у «Tratament» — позиции, что ещё ждут работы (активные —
+     перечислением сервера), у «Istoric» — строки летописи */
+  const counts = {
+    tr: n !== null ? (model.plan?.[String(n)] ?? []).filter((it) => it.active).length : 0,
+    is: hist.length,
+  }
 
   return (
-    <div className="dp-card insp dp-tp" aria-label={T.title}>
+    <div className="dp-card insp dp-tp" aria-label={n !== null ? `${T.title} ${n}` : T.title} data-tab={tab}>
       <div className="dp-tp-head">
         {info && n !== null ? (
           <>
             <b className="dp-tp-num">{n}</b>
             <div className="dp-tp-who">
-              <span className="dp-lbl">{T.title}</span>
+              <span className="dp-lbl">{T.title} {n}</span>
               <span className="dp-tp-name">{info.name ?? ''}</span>
               <small><span>{JAW_RO[info.jaw]}</span>{info.side && <> · <span>{info.side}</span></>}</small>
             </div>
@@ -165,92 +106,44 @@ export function ToothPanel({
         )}
       </div>
 
-      {inBr && (
-        <div className="dp-tp-sec i-bridge">
-          <span>
-            {T.bridge} {inBr.bridge.teeth[0]?.[0]}-{inBr.bridge.teeth[inBr.bridge.teeth.length - 1]?.[0]}
-            {inBr.bridge.material ? ` (${inBr.bridge.material})` : ''} - {T.role}: {model.bridge_roles[inBr.role] ?? inBr.role}
-          </span>
-          <form onSubmit={(e) => {
-            e.preventDefault()
-            const span = `${inBr.bridge.teeth[0]?.[0]}-${inBr.bridge.teeth[inBr.bridge.teeth.length - 1]?.[0]}`
-            void ask({ text: T.confirmDel.replace('{span}', span), danger: true })
-              .then((yes) => { if (yes) onDelBridge(inBr.bridge.id) })
-          }}>
-            <button className="pl-btn" disabled={busy}>{T.delBridge}</button>
-          </form>
-        </div>
-      )}
-
       {info && n !== null && d && (
         <form className="dp-tp-form" onSubmit={(e) => { e.preventDefault(); onSave() }}>
-          <section className="dp-tp-sec">
-            <span className="dp-lbl">{T.surfaces}</span>
-            <SurfaceCross model={model} n={n} info={info} sel={cur} sfst={d.sfst} onSurface={onSurface} />
-            {/* кисть (11.10): кариес и пломба ставятся ТОЛЬКО по поверхностям —
-                выбрал кисть, клик по поверхности красит, повтор снимает;
-                список сервера (`surface_states`), цвета — его палитра */}
-            <div className="dp-tp-row">
-              <span className="dp-lbl">{T.brush}</span>
-            </div>
-            <div className="dp-st dp-brush" role="group" aria-label={T.brush}>
-              {model.surface_states.map((s) => {
-                const on = brush === s
-                const color = model.palette?.[s] ?? 'currentColor'
-                return (
-                  <button key={s} type="button" data-brush={s} className={`dp-stb${on ? ' on' : ''}`}
-                    style={{ '--brush': color } as CSSProperties}
-                    aria-pressed={on} disabled={busy || whole} onClick={() => onBrush(s)}>
-                    <i style={{ background: on ? '#fff' : color }} />
-                    <span>{on ? `${model.states[s] ?? s} — în mână` : model.states[s] ?? s}</span>
-                  </button>
-                )
-              })}
-            </div>
-            {whole
-              ? <span className="dp-tp-note">{T.brushNo}</span>
-              : brush
-                ? <b className="dp-tp-note dp-brush-on" style={{ color: model.palette?.[brush] }}>{T.brushOn.replace('{s}', model.states[brush] ?? brush)}</b>
-                : <span className="dp-tp-note">{T.brushOff}</span>}
-            {oldWhole && (
-              <div className="dp-tp-old" data-old={d.state}>
-                <span>{T.old.replace('{s}', model.states[d.state] ?? d.state)}</span>
-                <span className="dp-tp-old-acts">
-                  <button type="button" className="dp-link" onClick={() => onBrush(d.state)}>{T.remark}</button>
-                  <button type="button" className="dp-link" onClick={() => edit({ state: 'ok' })}>{T.del}</button>
-                </span>
+          <PanelTabs tab={tab} onTab={setTab} counts={counts} id={id} />
+          <div className="dp-tp-sec dp-tp-body" role="tabpanel" id={`${id}-p`} aria-labelledby={`${id}-t-${tab}`}>
+            {tab === 'sf' && (
+              <SurfacesTab model={model} n={n} info={info} d={d} sel={cur} brush={brush} busy={busy} whole={whole}
+                onSurface={onSurface} onBrush={onBrush} onEdit={edit} />
+            )}
+            {tab === 'dg' && <DiagnosticTab model={model} n={n} jaw={info.jaw} d={d} busy={busy} whole={whole} onEdit={edit} />}
+            {tab === 'tr' && (
+              <TreatmentTab model={model} n={n} milk={info.milk} busy={busy} inBr={inBr}
+                onPlan={onPlan} onBridgeFrom={onBridgeFrom} onDelBridge={onDelBridge} />
+            )}
+            {tab === 'nt' && (
+              <>
+                <label className="dp-lbl" htmlFor={`dp-doc-${n}`}>{T.doctor}</label>
+                <select id={`dp-doc-${n}`} className="dp-fld" value={d.doctor} onChange={(e) => edit({ doctor: e.target.value })}>
+                  <option value="">{T.doctorNone}</option>
+                  {model.doctors.map((doc) => <option key={doc} value={doc}>{doc}</option>)}
+                </select>
+                <label className="dp-lbl" htmlFor={`dp-note-${n}`}>{T.note}</label>
+                <textarea id={`dp-note-${n}`} className="dp-fld" rows={4} maxLength={120} value={d.note}
+                  onChange={(e) => edit({ note: e.target.value })} />
+              </>
+            )}
+            {tab === 'is' && (
+              <div className="thist dp-tp-log">
+                {hist.length
+                  ? hist.map((h, i) => <div key={i} className="th-r"><span>{h.at}</span>{h.text}</div>)
+                  : <p className="hint dp-m0">{T.noHistory}</p>}
               </div>
             )}
-          </section>
-
-          <section className="dp-tp-sec">
-            <div className="dp-tp-row">
-              <span className="dp-lbl">{T.state}</span>
-              <span className="dp-tp-note">{whole ? T.stateOn : T.stateOff}</span>
-            </div>
-            <StatusPicker states={model.tooth_states} palette={model.palette} value={d.state} disabled={busy}
-              onChange={(state) => edit({ state })} />
-            <div className="dp-tp-sw">
-              {Object.entries(model.marks).map(([k, v]) => (
-                <label key={k} className="dp-sw">
-                  <span>{v}</span>
-                  <input type="checkbox" role="switch" checked={d.marks.includes(k)} disabled={busy}
-                    onChange={(e) => edit({ marks: e.target.checked ? [...d.marks, k] : d.marks.filter((x) => x !== k) })} />
-                </label>
-              ))}
-            </div>
-          </section>
-
-          <section className="dp-tp-sec">
-            <label className="dp-lbl" htmlFor={`dp-doc-${n}`}>{T.doctor}</label>
-            <select id={`dp-doc-${n}`} className="dp-fld" value={d.doctor} onChange={(e) => edit({ doctor: e.target.value })}>
-              <option value="">{T.doctorNone}</option>
-              {model.doctors.map((doc) => <option key={doc} value={doc}>{doc}</option>)}
-            </select>
-            <label className="dp-lbl" htmlFor={`dp-note-${n}`}>{T.note}</label>
-            <textarea id={`dp-note-${n}`} className="dp-fld" rows={2} maxLength={120} value={d.note}
-              onChange={(e) => edit({ note: e.target.value })} />
-            <button className="dp-btn pri" disabled={busy}><Icon name="save" /> {T.save}</button>
+          </div>
+          <div className="dp-tp-sec dp-tp-foot">
+            {/* без правки записывать нечего (как у Enter рабочего стола): сервер
+                пишет строку летописи на КАЖДУЮ запись зуба, и пустое
+                пересохранение оставляло бы в истории «Dinte N: …» ни о чём */}
+            <button className="dp-btn pri" disabled={busy || !dirty}><Icon name="save" /> {T.save}</button>
             <div className="dp-tp-status" aria-live="polite">
               {dirty ? (
                 <>
@@ -259,42 +152,8 @@ export function ToothPanel({
                 </>
               ) : saved === n ? <span className="dp-saved">{T.saved} {n}</span> : null}
             </div>
-          </section>
+          </div>
         </form>
-      )}
-
-      {perio && (
-        <section className="dp-tp-sec i-perio">
-          <span>{T.perio} · {perio.at}</span>
-          {prow && layer && info ? <PerioTable row={prow} layer={layer} jaw={info.jaw} /> : <b>{perio.text}</b>}
-          <AppLink href={`/admin/patient/${model.patient.id}/parodontograma?exam=${perio.exam}`}>
-            {T.openPerio}
-          </AppLink>
-        </section>
-      )}
-
-      {info && n !== null && (onPlan || canBridge) && (
-        <section className="dp-tp-sec dp-tp-acts dp-insp-acts">
-          {onPlan && (
-            <button type="button" className="dp-btn dp-plan" disabled={busy} onClick={() => onPlan(n)}>
-              <Icon name="clipboard" /> {T.plan}
-            </button>
-          )}
-          {canBridge && onBridgeFrom && (
-            <button type="button" className="dp-btn ghost dp-brfrom" disabled={busy} onClick={() => onBridgeFrom(n)}>
-              <Icon name="plus" /> {T.bridgeFrom}
-            </button>
-          )}
-        </section>
-      )}
-
-      {n !== null && (
-        <details className="dp-tp-hist thist">
-          <summary><span className="dp-lbl">{T.history}</span><Icon name="chev-r" /></summary>
-          {hist.length
-            ? hist.map((h, i) => <div key={i} className="th-r"><span>{h.at}</span>{h.text}</div>)
-            : <p className="hint dp-m0">{T.noHistory}</p>}
-        </details>
       )}
       {n === null && <div className="dp-tp-empty"><Icon name="tooth" /></div>}
     </div>

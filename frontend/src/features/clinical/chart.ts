@@ -117,6 +117,27 @@ export interface ArchRows {
   milk_lower: number[]
 }
 
+/** Позиция плана ЗУБА — та же строка, что у плана фиши (`api._plan_item`), без
+ *  кнопок переходов: панель её только показывает. Подпись статуса, срок,
+ *  просрочка и врач — с сервера; `active` — перечислением сервера
+ *  (`db.PLAN_ACTIVE`), а не «всё, кроме finalizat». */
+export interface ToothPlanItem {
+  id: number
+  procedure: string
+  status: string
+  label: string
+  doctor: string
+  price: number | null
+  /** dd.mm.yyyy или пусто */
+  due: string
+  overdue: boolean
+  /** дата закрытия (финал или отказ), пусто у открытой */
+  done: string
+  /** причина отказа, только у `refuzat` */
+  motiv: string
+  active: boolean
+}
+
 export interface Odontogram {
   teeth: Record<string, ToothInfo>
   history: Record<string, { at: string; text: string }[]>
@@ -151,6 +172,9 @@ export interface Odontogram {
    *  инспекторе. CAL, пороги и цвета полосы — с сервера (`perio.layer`).
    *  null — осмотра с измерениями нет. */
   perio_layer?: PerioLayer | null
+  /** Позиции плана по зубам (24.10, вкладка «Tratament» панели зуба). У зуба
+   *  без позиций ключа нет; позиция «на весь рот» (без зуба) сюда не едет. */
+  plan?: Record<string, ToothPlanItem[]>
   /** Свежая фиша — ТОЛЬКО в ответе записи зуба, которая её попросила
    *  (`?card=1`, см. `saveTooth`). Её тип знает фиша, а не этот модуль. */
   card?: unknown
@@ -234,10 +258,12 @@ export const chart = {
     api.post<Odontogram>(`${P(pid)}/bridges`, body),
   delBridge: (pid: number, bid: number) =>
     api.post<Odontogram>(`${P(pid)}/bridges/${bid}/delete`, {}),
-  /** Позиция плана с зуба — маршрут плана фиши; в ответе СВЕЖАЯ ФИША (её тип
-   *  знает фиша, не этот модуль), `q` — режим ленты (`?views=1`), как у записи. */
+  /** Позиция плана с зуба — маршрут плана фиши с `?odo=1` (24.10): в ответе
+   *  свежая МОДЕЛЬ одонтограммы — план зуба во вкладке «Tratament» сразу с
+   *  позицией. `q` — тот же хвост, что у записи зуба: фиша шлёт `?card=1…` и
+   *  получает рядом с моделью себя (`card`). */
   addPlan: (pid: number, body: PlanAdd, q = '') =>
-    api.post<unknown>(`${P(pid)}/plan${q}`, body),
+    api.post<Odontogram>(`${P(pid)}/plan?odo=1${q ? `&${q.replace(/^\?/, '')}` : ''}`, body),
 }
 
 /** Мост, в котором стоит зуб, и его роль там. */

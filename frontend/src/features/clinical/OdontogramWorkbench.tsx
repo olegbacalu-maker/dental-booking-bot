@@ -41,10 +41,12 @@ import { useChart } from './useChart'
    Enter на кнопке зуба в фокусе кликнул бы её же.
 
    «Adaugă în plan» (01.10) — из меню зуба и из панели: диалог с номером
-   зуба шлёт позицию на маршрут плана фиши; в ответе приходит СВЕЖАЯ ФИША, и
-   она уходит владельцу (`onCard`) — вкладка фиши подменяет ею карту, как после
-   записи зуба; детальной странице и креслу фиша не нужна, им хватает плашки.
-   ⛔ Не через `useChart.act`: тот подменяет ответом МОДЕЛЬ одонтограммы.
+   зуба шлёт позицию на маршрут плана фиши с `?odo=1` (24.10), и в ответе
+   приходит СВЕЖАЯ МОДЕЛЬ одонтограммы — план зуба во вкладке «Tratament»
+   панели сразу с позицией, без перечитывания. Хвост адреса — тот же, что у
+   записи зуба (`saveQuery`): фиша просит им себя (`card`), и владелец
+   (`replace`) отдаёт её наверх, как после записи зуба. Занятость и виновное
+   поле у диалога свои: черновик зуба запись плана не трогает.
 
    Фокус камеры 3D (01.10): `zoom` — режим «камера у выбранного зуба»; пока он
    включён, выбор другого зуба везёт камеру к нему. F / кнопка камеры —
@@ -99,10 +101,6 @@ interface Props {
   open?: { n: number; k: number } | null
   /** внутри фиши: без обратной ссылки, со ссылкой «Pe tot ecranul» */
   embedded?: boolean
-  /** режим ленты фиши (`?views=1`) — едет в запрос позиции плана, как в запись зуба */
-  views?: boolean
-  /** свежая фиша из ответа «Adaugă în plan» — владельцу, который её показывает */
-  onCard?: (card: unknown) => void
 }
 
 /** Сколько зубов на экране с записанной находкой: состояние, поверхность или
@@ -116,7 +114,6 @@ function recordedCount(model: Odontogram): number {
 
 export function OdontogramWorkbench({
   pid, model, replace, fail, say, initial = null, saveQuery = '', open = null, embedded = false,
-  views = false, onCard,
 }: Props) {
   const c = useChart(pid, model, replace, fail, say, initial, saveQuery)
   const [brMode, setBrMode] = useState(false)
@@ -171,9 +168,9 @@ export function OdontogramWorkbench({
     setPlanBusy(true)
     setPlanBad(false)
     try {
-      const r = await chart.addPlan(pid, body, views ? '?views=1' : '')
+      const r = await chart.addPlan(pid, body, saveQuery)
       if (r.text) say({ tone: r.tone, text: r.text })
-      onCard?.(r.data)
+      replace(r.data)
       setPlan(null)
       return true
     } catch (e) {

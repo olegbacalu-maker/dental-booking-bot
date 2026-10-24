@@ -79,16 +79,26 @@ const inspector = () => document.querySelector('.insp') as HTMLElement
 const root = () => document.querySelector('.odop') as HTMLElement
 const key = (k: string, target: Element = root()) => fireEvent.keyDown(target, { key: k })
 const hitOf = (n: number, s: string) => btn(n).querySelector(`[data-s='${s}']`) as Element
+/* панель по вкладкам (24.10, макет B): поле живёт на своей вкладке, и помощник
+   сперва открывает её — Suprafețe (кисть, поверхности), Diagnostic (состояние,
+   отметки, пародонт), Tratament (план, мост), Notițe (врач, заметка), Istoric */
+const tabTo = (name: string) => {
+  const t = within(inspector()).getByRole('tab', { name: new RegExp(`^${name}`) })
+  if (t.getAttribute('aria-selected') !== 'true') fireEvent.click(t)
+}
 /* кисть (11.10): кнопки «Carie»/«Obturație» в группе «Pensulă»; состояние
-   поверхности читается с клетки креста (класс sf-…), списка больше нет */
-const brushBtn = (name: string) =>
-  within(within(inspector()).getByRole('group', { name: 'Pensulă' })).getByRole('button', { name: new RegExp(`^${name}`) }) as HTMLButtonElement
+   поверхности читается со строки списка поверхностей (класс sf-…) */
+const brushBtn = (name: string) => {
+  tabTo('Suprafețe')
+  return within(within(inspector()).getByRole('group', { name: 'Pensulă' })).getByRole('button', { name: new RegExp(`^${name}`) }) as HTMLButtonElement
+}
 const sfStateOf = (name: string) => (Array.from(sfBtn(name).classList).find((c) => c.startsWith('sf-')) ?? '').slice(3)
 /* состояние зуба — сетка кнопок (08.10): нажатая = состояние, ни одной — «ok» */
-const toothState = () => within(inspector()).getByRole('group', { name: 'Starea dintelui' })
+const toothState = () => { tabTo('Diagnostic'); return within(inspector()).getByRole('group', { name: 'Starea dintelui' }) }
 const stateOf = () => toothState().querySelector('button[aria-pressed="true"]')?.getAttribute('data-state') ?? 'ok'
 const setState = (k: string) => fireEvent.click(within(toothState()).getByRole('button', { name: MODEL.states[k]! }))
-const sfBtn = (name: string) => within(inspector()).getByRole('button', { name: new RegExp(`^${name}$`) })
+const sfBtn = (name: string) => { tabTo('Suprafețe'); return within(inspector()).getByRole('button', { name: new RegExp(`^${name}$`) }) }
+const noteFld = () => { tabTo('Notițe'); return within(inspector()).getByLabelText('Notiță (opțional)') as HTMLInputElement }
 const unsaved = () => screen.queryByText('Modificări nesalvate')
 
 /* Пациента даёт путь маршрута, зуб — адрес (?t=): экран читает его сам (B4.3). */
@@ -165,13 +175,15 @@ describe('OdontogramScreen', () => {
     expect(stateOf()).toBe('ok')
     expect(within(toothState()).queryByRole('button', { name: 'Carie' })).toBeNull()
     expect(brushBtn('Carie').disabled).toBe(false)
-    expect((within(insp).getByLabelText('Notiță (opțional)') as HTMLInputElement).value).toBe('distal')
+    expect(noteFld().value).toBe('distal')
+    tabTo('Istoric')
     expect(within(insp).getByText(/Carie \(MO\)/)).toBeTruthy()
     // поверхности: первая отмеченная выбрана, у верхней челюсти P вместо L
-    expect(within(insp).getByRole('button', { name: /^M mezial$/ }).className).toContain('on')
-    expect(within(insp).getByRole('button', { name: /^P palatinal$/ })).toBeTruthy()
+    expect(sfBtn('M mezial').className).toContain('on')
+    expect(sfBtn('P palatinal')).toBeTruthy()
     fireEvent.click(btn(47))
     expect(within(inspector()).getByText('47', { selector: 'b' })).toBeTruthy()
+    tabTo('Tratament')
     expect(within(inspector()).getByText(/Punte 47-46 \(zirconiu\) - rol: Stâlp/)).toBeTruthy()
     expect(within(inspector()).getByText('Șterge puntea')).toBeTruthy()
   })
@@ -193,8 +205,9 @@ describe('OdontogramScreen', () => {
     open(16)
     await waitFor(() => expect(btn(16)).toBeTruthy())
     const insp = inspector()
-    fireEvent.click(brushBtn('Carie'))                     // кисть в руке — крест красит
+    fireEvent.click(brushBtn('Carie'))                     // кисть в руке — список поверхностей красит
     fireEvent.click(within(insp).getByRole('button', { name: /^D distal/ }))
+    tabTo('Diagnostic')
     fireEvent.click(within(insp).getByLabelText('În tratament'))
     expect(unsaved()).toBeTruthy()
     fireEvent.click(within(insp).getByText('Salvează'))
@@ -243,6 +256,7 @@ describe('OdontogramScreen', () => {
     post.mockResolvedValueOnce(ok({ ...MODEL, bridges: [] }, 'ok_punte_del', 'Puntea a fost ștearsă'))
     open(47)
     await waitFor(() => expect(btn(47)).toBeTruthy())
+    tabTo('Tratament')
     fireEvent.click(within(inspector()).getByText('Șterge puntea'))
     expect(await screen.findByText('Puntea a fost ștearsă')).toBeTruthy()
     expect(post).toHaveBeenCalledWith('/patients/5/bridges/3/delete', {})
@@ -262,10 +276,10 @@ describe('OdontogramScreen', () => {
     post.mockRejectedValueOnce(new ApiError({ kind: 'validation', code: 'bad_card', text: 'Date invalide', field: 'state' }, 'v'))
     open(16)
     await waitFor(() => expect(btn(16)).toBeTruthy())
-    fireEvent.change(within(inspector()).getByLabelText('Notiță (opțional)'), { target: { value: 'nou' } })
+    fireEvent.change(noteFld(), { target: { value: 'nou' } })
     fireEvent.click(within(inspector()).getByText('Salvează'))
     expect(await screen.findByText('Date invalide')).toBeTruthy()
-    expect((within(inspector()).getByLabelText('Notiță (opțional)') as HTMLInputElement).value).toBe('nou')
+    expect(noteFld().value).toBe('nou')
     expect(unsaved()).toBeTruthy()
     cleanup()
     get.mockRejectedValueOnce(new ApiError({ kind: 'server', status: 404, code: '', text: '' }, 's'))
@@ -342,6 +356,7 @@ describe('C22: поверхность как первичный жест, чер
     fireEvent.click(btn(27))
     expect(screen.getByText('Carie pe tot dintele, din evidența veche (fără suprafețe)')).toBeTruthy()
     expect(stateOf()).toBe('ok')                           // в сетке зуба ей места нет
+    tabTo('Suprafețe')
     fireEvent.click(screen.getByRole('button', { name: 'Remarchează pe suprafețe' }))
     expect(root().getAttribute('data-brush')).toBe('carie')
     fireEvent.click(sfBtn('M mezial'))
@@ -411,7 +426,7 @@ describe('C22: поверхность как первичный жест, чер
     fireEvent.click(brushBtn('Obturație'))
     fireEvent.click(hitOf(16, 'O'))                        // та же кисть по O: obturatie → снято
     expect(unsaved()).toBeTruthy()
-    fireEvent.keyDown(within(inspector()).getByLabelText('Notiță (opțional)'), { key: 'Enter' })
+    fireEvent.keyDown(noteFld(), { key: 'Enter' })
     expect(post).not.toHaveBeenCalled()                    // в поле ввода Enter — браузерный
     fireEvent.keyDown(within(inspector()).getByLabelText('Medic'), { key: 'Escape' })
     expect(unsaved()).toBeTruthy()                         // и Esc в списке черновик не трогает
@@ -470,6 +485,7 @@ describe('C22: поверхность как первичный жест, чер
     fireEvent.click(nerv)
     expect(screen.queryByRole('menu')).toBeNull()
     expect(stateOf()).toBe('coroana')                // коронка осталась — отметка поверх
+    tabTo('Diagnostic')
     expect((within(inspector()).getByLabelText('Nerv extras') as HTMLInputElement).checked).toBe(true)
     fireEvent.contextMenu(btn(21))
     expect(within(screen.getByRole('menu')).getByRole('menuitemcheckbox', { name: 'Nerv extras' }).getAttribute('aria-checked')).toBe('true')
@@ -492,6 +508,7 @@ describe('C22: поверхность как первичный жест, чер
     expect(screen.queryByText('Continuă')).toBeNull()      // Esc выходит из режима моста
     // тот же путь из инспектора — меню не единственный
     fireEvent.click(btn(16))
+    tabTo('Tratament')
     fireEvent.click(within(inspector()).getByText('Punte nouă de la acest dinte'))
     expect(btn(16).className).toContain('br-pick')
     expect(screen.getByText('Continuă')).toBeTruthy()
@@ -502,6 +519,7 @@ describe('замер пародонта в инспекторе', () => {
   it('у зуба с осмотром — строка сервера и ссылка в тот же осмотр', async () => {
     open(16, () => {})
     await waitFor(() => expect(btn(16)).toBeTruthy())
+    tabTo('Diagnostic')
     const box = document.querySelector('.i-perio') as HTMLElement
     expect(box.textContent).toContain('PD 3 2 3 / 4 2 5 · sângerare 2/6')
     expect(box.textContent).toContain('18.09.2026')
@@ -512,6 +530,7 @@ describe('замер пародонта в инспекторе', () => {
   it('у зуба без осмотра блока нет — нулей не выдумываем', async () => {
     open(21, () => {})
     await waitFor(() => expect(btn(21)).toBeTruthy())
+    tabTo('Diagnostic')
     expect(document.querySelector('.i-perio')).toBeNull()
   })
 
@@ -528,6 +547,8 @@ describe('замер пародонта в инспекторе', () => {
   it('со слоем пародонта — таблица точек: P у верхней челюсти, CAL сервера, порог цветом, BOP точкой', async () => {
     get.mockResolvedValue(ok({ ...MODEL, perio_layer: LAYER }))
     open(16, () => {})
+    await waitFor(() => expect(btn(16)).toBeTruthy())
+    tabTo('Diagnostic')
     await waitFor(() => expect(document.querySelector('.i-ptab')).toBeTruthy())
     const rows = [...document.querySelectorAll('.i-ptab tbody tr')].map((tr) =>
       [...tr.children].map((c) => (c.querySelector('.i-bop') ? '●' : c.textContent)))
@@ -681,7 +702,7 @@ describe('B7 · планшет: инспектор — шторка', () => {
     expect(root().getAttribute('data-sel')).toBeNull()
     fireEvent.click(btn(16))
     expect(root().getAttribute('data-sel')).toBe('16')
-    fireEvent.change(within(inspector()).getByLabelText('Notiță (opțional)'), { target: { value: 'ciornă' } })
+    fireEvent.change(noteFld(), { target: { value: 'ciornă' } })
     expect(unsaved()).toBeTruthy()
     fireEvent.click(within(inspector()).getByRole('button', { name: 'Închide' }))
     expect(root().getAttribute('data-sel')).toBeNull()
@@ -689,7 +710,7 @@ describe('B7 · планшет: инспектор — шторка', () => {
     expect(within(inspector()).queryByRole('button', { name: 'Închide' })).toBeNull()
     // снова тот же зуб — черновика нет, заметка прежняя
     fireEvent.click(btn(16))
-    expect((within(inspector()).getByLabelText('Notiță (opțional)') as HTMLInputElement).value).not.toBe('ciornă')
+    expect(noteFld().value).not.toBe('ciornă')
   })
 })
 
@@ -697,8 +718,14 @@ describe('зуб → план (01.10)', () => {
   const dlg = () => document.querySelector('dialog.dp-plan-dlg') as HTMLDialogElement
   const proc = () => within(dlg()).getByLabelText('Procedură (ex. Coroană zirconiu)') as HTMLInputElement
 
-  it('из меню зуба: диалог с номером, врач зуба подставлен, позиция уходит на маршрут плана; модель не тронута', async () => {
-    post.mockResolvedValueOnce(ok({ id: 5 }, 'ok_card', 'Fișa pacientului a fost actualizată'))
+  it('из меню зуба: диалог с номером, врач зуба подставлен, позиция уходит на маршрут плана; модель из ответа — план зуба сразу во вкладке', async () => {
+    /* 24.10: `?odo=1` — в ответе модель одонтограммы с планом зуба (вкладка «Tratament») */
+    const planned: Odontogram = {
+      ...MODEL,
+      plan: { '16': [{ id: 31, procedure: 'Coroană zirconiu', status: 'planificat', label: 'Planificat', doctor: 'Dr. Activ Doi',
+        price: 1500, due: '', overdue: false, done: '', motiv: '', active: true }] },
+    }
+    post.mockResolvedValueOnce(ok(planned, 'ok_card', 'Fișa pacientului a fost actualizată'))
     open()
     await waitFor(() => expect(btn(16)).toBeTruthy())
     fireEvent.contextMenu(btn(16), { clientX: 300, clientY: 200 })
@@ -713,13 +740,17 @@ describe('зуб → план (01.10)', () => {
     fireEvent.change(within(dlg()).getByLabelText('Preț MDL'), { target: { value: '1500' } })
     fireEvent.click(within(dlg()).getByRole('button', { name: 'Adaugă în plan' }))
     expect(await screen.findByText('Fișa pacientului a fost actualizată')).toBeTruthy()
-    expect(post).toHaveBeenCalledWith('/patients/5/plan', {
+    expect(post).toHaveBeenCalledWith('/patients/5/plan?odo=1', {
       tooth: '16', procedure: 'Coroană zirconiu', doctor: 'Dr. Activ Doi', price: '1500', due_date: '',
     })
     await waitFor(() => expect(dlg().hasAttribute('open')).toBe(false))
-    /* ответ плана — ФИША, не одонтограмма: дуга на месте, второго GET нет */
+    /* ответ плана — модель с позицией: дуга на месте, второго GET нет, «Tratament» уже знает позицию */
     expect(btn(16)).toBeTruthy()
     expect(get).toHaveBeenCalledTimes(1)
+    fireEvent.click(btn(16))
+    expect(within(inspector()).getByRole('tab', { name: /^Tratament/ }).textContent).toBe('Tratament 1')
+    tabTo('Tratament')
+    expect(inspector().querySelector('.dp-tpl-r .pr')?.textContent).toBe('Coroană zirconiu')
     /* следующий зуб — чистая форма */
     fireEvent.contextMenu(btn(21))
     fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Adaugă în plan' }))
@@ -732,12 +763,13 @@ describe('зуб → план (01.10)', () => {
     post.mockRejectedValueOnce(new ApiError({ kind: 'validation', code: 'bad_card', text: 'Date invalide', field: 'procedure' }, 'v'))
     open(21)
     await waitFor(() => expect(btn(21)).toBeTruthy())
+    tabTo('Tratament')
     fireEvent.click(within(inspector()).getByRole('button', { name: 'Adaugă în plan' }))
     expect(within(dlg()).getByText('21', { selector: 'b' })).toBeTruthy()
     fireEvent.change(proc(), { target: { value: '   ' } })
     fireEvent.click(within(dlg()).getByRole('button', { name: 'Adaugă în plan' }))
     expect(await screen.findByText('Date invalide')).toBeTruthy()
-    expect(post).toHaveBeenCalledWith('/patients/5/plan', expect.objectContaining({ tooth: '21', procedure: '   ' }))
+    expect(post).toHaveBeenCalledWith('/patients/5/plan?odo=1', expect.objectContaining({ tooth: '21', procedure: '   ' }))
     expect(dlg().hasAttribute('open')).toBe(true)
     expect(proc().getAttribute('aria-invalid')).toBe('true')
     fireEvent.click(within(dlg()).getByRole('button', { name: 'Închide' }))
