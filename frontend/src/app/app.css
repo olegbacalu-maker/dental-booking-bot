@@ -2486,7 +2486,7 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .dp-pt-b.on { color: var(--text); border-bottom-color: var(--teal); }
 .dp-react-root .dp-pt-b:focus-visible { outline: none; box-shadow: var(--ring); border-radius: var(--r-xs); }
 .dp-react-root .dp-pt-n {
-  min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px;
+  min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 999px;
   background: var(--fill); color: var(--text2); font-size: var(--fs-micro); line-height: 16px; text-align: center;
 }
 @container (max-width: 350px) {
@@ -2496,7 +2496,7 @@ dialog.dp-about { width: 460px; }
 @container (min-width: 400px) {
   .dp-react-root .dp-pt { padding: 0 12px; }
   .dp-react-root .dp-pt-b { padding: 0 6px; font-size: var(--fs-m); }
-  .dp-react-root .dp-pt-n { min-width: 18px; height: 18px; border-radius: 9px; font-size: var(--fs-xs); line-height: 18px; }
+  .dp-react-root .dp-pt-n { min-width: 18px; height: 18px; font-size: var(--fs-xs); line-height: 18px; }
 }
 .dp-react-root .dp-pt-b.on .dp-pt-n { background: var(--teal-soft); color: var(--teal-d); }
 .dp-react-root .dp-tp-body { border-top: 0; }
