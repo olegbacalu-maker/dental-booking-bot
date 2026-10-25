@@ -1573,6 +1573,15 @@ def suite_v6_history(res: Result) -> None:
                                 tzinfo=TZ)
         con.execute(_APPT_SQL, (1, "Dr. Activ Doi", yday.astimezone(timezone.utc).isoformat(timespec="seconds"),
                                 "done", "d2"))
+        # Ловушка (координатор 25.10): зуб 21 до обновления — кариес 02.09, вылечен
+        # 10.09. Запись «здоров» строку из teeth УДАЛЯЕТ, базовый снимок о нём молчит,
+        # знает только летопись. Визиты 05.09 (тогда кариес) и 12.09 (уже здоров).
+        for at, txt in (("2026-09-02T09:00:00+00:00", "Dinte 21: Carie (D)"),
+                        ("2026-09-10T09:00:00+00:00", "Dinte 21: Sănătos")):
+            con.execute("INSERT INTO activity(patient_id, at, actor, kind, tooth, text) "
+                        "VALUES(1, ?, 'Dr. Vechi', 'tooth', 21, ?)", (at, txt))
+        for at in ("2026-09-05T07:00:00+00:00", "2026-09-12T07:00:00+00:00"):
+            con.execute(_APPT_SQL, (1, "Dr. Activ Doi", at, "done", "d2"))
         con.execute("INSERT INTO schema_meta(key, value) VALUES('version', '5')")
         con.execute("INSERT INTO schema_meta(key, value) VALUES('act_backfill', '1')")
         con.commit()
@@ -1602,11 +1611,22 @@ def suite_v6_history(res: Result) -> None:
                       [(n, "base", since if n == 27 else "2026-09-01T09:00:00+00:00")
                        for n in (16, 24, 26, 27, 55)])
             vis = before["visits"]
-            res.check("визит до обновления — в списке, но без данных",
-                      [(v["date"], v["known"]) for v in vis], [(yday.strftime("%d.%m.%Y"), False)])
+            res.check("визиты до обновления — в списке, но без данных",
+                      [(v["date"], v["known"]) for v in vis],
+                      [(yday.strftime("%d.%m.%Y"), False), ("12.09.2026", False), ("05.09.2026", False)])
             r = json.loads(c.get(f"{odo}/compare?visit={vis[0]['id']}").body)["data"]
             res.check("сравнение с ним — «нет данных», без догадки",
                       (r["known"], r["changes"], r["teeth"]), (False, [], {}))
+            # ⛔ «known» — с МГНОВЕНИЯ обновления (метка), а не с последней записи зуба:
+            # визит, когда на 21 был кариес, — «нет данных», а не «здоров»
+            r5 = json.loads(c.get(f"{odo}/compare?visit={vis[2]['id']}").body)["data"]
+            res.check("зуб, вылеченный до обновления: визит, когда он был с находкой, — «нет данных», не «здоров»",
+                      (r5["known"], r5["changes"], "21" in r5["teeth"]), (False, [], False))
+            res.check("и вместо догадки — строка летописи о лечении, дословно",
+                      [(x["n"], x["at"], x["text"]) for x in r5["records"]], [(21, "10.09.2026", "Dinte 21: Sănătos")])
+            r12 = json.loads(c.get(f"{odo}/compare?visit={vis[1]['id']}").body)["data"]
+            res.check("визит после лечения, но до обновления — тоже «нет данных»: история не тянется назад",
+                      (r12["known"], r12["records"]), (False, []))
 
             # визит ПОСЛЕ обновления, потом правка: «было» = базовый снимок
             clock.set(datetime.combine(day0 + timedelta(days=1), datetime.min.time().replace(hour=10), tzinfo=TZ))
