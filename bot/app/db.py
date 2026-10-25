@@ -23,7 +23,7 @@ log = logging.getLogger("db")
 # идёт range(have+1, SCHEMA_VERSION+1) и до него не дойдёт (так шаг 4 с
 # 'waiting' в uq-индексах не исполнялся ни у одной клиники; держит
 # test_structure).
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # Записи, которые ЗАНИМАЮТ слот врача. 'waiting' (пациент пришёл, ждёт в
 # приёмной, 08-13) стоит между confirmed и arrived: физически человек уже в
@@ -180,7 +180,21 @@ MIGRATIONS = {
     # init, до _migrate.
     5: ["UPDATE teeth SET marks = 'tratament', state = 'ok' "
         "WHERE state = 'tratament'"],
+    # 6 (25.10, «сравнить с визитом»): базовый снимок карты в teeth_history и
+    # метка, С КАКОГО мгновения история полная. Работу делает
+    # `_teeth_hist_base` (см. TEETH_HIST_STEP): время снимка обязано быть тем
+    # же `_utcnow_iso`, что пишет записи зубов, а SQL-шаг параметров не берёт
+    # (`strftime('now')` SQLite шёл бы мимо часов программы).
+    # ⚠️ Список ПУСТ, но НЕ мёртв — как у 4: _migrate исполняет его после
+    # `_teeth_hist_base`.
+    6: [],
 }
+# Шаг, который кладёт базовый снимок истории зубов. В отличие от
+# UQ_GUARD_STEP — СТРОГИЙ: он меняет данные, и недописанный снимок не имеет
+# права записать версию схемы как выполненную.
+TEETH_HIST_STEP = 6
+# Ключ schema_meta: с какого мгновения `teeth_history` полная (ставит шаг 6).
+TEETH_HIST_SINCE = "teeth_hist_since"
 # Этап A2+A4 (v1.6.0) — карточка пациента: алерты, формула FDI, план лечения, документы
 SQLITE_CARD_SCHEMA = """
 CREATE TABLE IF NOT EXISTS patient_alerts(
@@ -283,6 +297,42 @@ CREATE TABLE IF NOT EXISTS bridges(
   doctor TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
+-- История зуба СОСТОЯНИЯМИ («сравнить с визитом», волна 2 одонтограммы, 25.10):
+-- строка на каждую запись зуба — каким он стал (`_put_tooth`, тот же `at`, что
+-- teeth.updated_at), state NULL — строки зуба нет (здоров). Летопись хранит
+-- СЛОВА, по ней прошлую карту не собрать; эта таблица копится с шага 6, а он
+-- кладёт базовый снимок (`src` 'base') и метку начала `teeth_hist_since`.
+-- Уникальных индексов нет и не надо: таблица только дописывается, и падать
+-- на данных клиники ей нечему.
+CREATE TABLE IF NOT EXISTS teeth_history(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  patient_id INTEGER NOT NULL REFERENCES patients(id),
+  tooth INTEGER NOT NULL,
+  at TEXT NOT NULL,
+  state TEXT,
+  note TEXT NOT NULL DEFAULT '',
+  doctor TEXT NOT NULL DEFAULT '',
+  surfaces TEXT NOT NULL DEFAULT '',
+  surface_states TEXT NOT NULL DEFAULT '',
+  marks TEXT NOT NULL DEFAULT '',
+  src TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS ix_teeth_hist ON teeth_history(patient_id, at);
+-- Снятые мосты (25.10): `delete_bridge` переносит строку сюда, а не теряет —
+-- иначе карта «на визит» рисовала бы без моста, который тогда стоял.
+-- `bridge_id` — id прежней строки bridges (свой id — чтобы вставке нечему
+-- было противоречить).
+CREATE TABLE IF NOT EXISTS bridges_removed(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  bridge_id INTEGER NOT NULL,
+  patient_id INTEGER NOT NULL REFERENCES patients(id),
+  teeth TEXT NOT NULL,
+  material TEXT NOT NULL DEFAULT '',
+  doctor TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  removed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_bridges_removed ON bridges_removed(patient_id);
 -- Пародонтограмма: ОСМОТР целиком, а не «текущее состояние зуба». Смысл карты
 -- пародонта — сравнение во времени (было 5 мм, стало 3), поэтому единица
 -- хранения — датированный осмотр, а строки зубов принадлежат ему.
@@ -1036,6 +1086,37 @@ async def _slot_guard_startup() -> None:
     await _slot_guard_apply(repair=why)
 
 
+async def _teeth_hist_base() -> None:
+    """Шаг 6: базовый снимок КАЖДОЙ строки teeth в teeth_history и метка
+    `teeth_hist_since` — одной транзакцией. С этого мгновения карта на любую
+    дату известна: что было записано, лежит снимком, а зуба без строки в
+    teeth тогда не было — он здоров.
+
+    Идемпотентно по метке: обрыв между этим commit и записью версии схемы
+    повторит шаг на следующем старте, и второй базовый снимок не ляжет.
+    ⛔ Ошибки не глотаются (`_fetchval`, а не `get_meta`): «метки не
+    прочитали» ≠ «метки нет», и второй снимок поверх первого лёг бы молча."""
+    if await _fetchval("SELECT value FROM schema_meta WHERE key = ?", TEETH_HIST_SINCE):
+        return
+    at = _utcnow_iso()
+    try:
+        # Снимок датирован ПОСЛЕДНЕЙ записью зуба (`updated_at`): с неё он такой
+        # и есть, и дата зуба на карте «на визит» та же, что у экрана. Не позже
+        # метки: строка «из будущего» (часы машины шагали назад) иначе не вошла
+        # бы в карту между меткой и своей датой — зуб показался бы здоровым.
+        await _CONN.execute(
+            """INSERT INTO teeth_history(patient_id, tooth, at, state, note, doctor,
+                                         surfaces, surface_states, marks, src)
+               SELECT patient_id, tooth, MIN(updated_at, ?), state, note, doctor,
+                      surfaces, surface_states, marks, 'base' FROM teeth""", (at,))
+        await _CONN.execute("INSERT INTO schema_meta(key, value) VALUES(?, ?)",
+                            (TEETH_HIST_SINCE, at))
+        await _CONN.commit()
+    except Exception:
+        await _CONN.rollback()
+        raise
+
+
 async def _migrate() -> None:
     """Пошаговые миграции: каждый шаг применяется один раз и фиксируется.
     Раньше состояние базы можно было понять только по наличию колонок."""
@@ -1055,6 +1136,9 @@ async def _migrate() -> None:
             # схемы прежней, то есть падал бы при КАЖДОМ запуске: у клиники это
             # «после обновления программа не открывается» (08-16).
             await _slot_guard_apply()
+        if v == TEETH_HIST_STEP:
+            # строгий: исключение роняет старт, версия остаётся прежней
+            await _teeth_hist_base()
         # ⚠️ Список шага исполняется ВСЕГДА, в том числе у UQ_GUARD_STEP (там он
         # сегодня пуст). Пропустить его значило бы завести МЁРТВЫЙ список:
         # дописанный туда через месяц оператор молча не выполнился бы, а версия
@@ -2503,6 +2587,48 @@ async def teeth_map(pid: int) -> dict:
     return {r["tooth"]: r for r in rows}
 
 
+async def teeth_hist_since() -> datetime | None:
+    """Начало истории зубов (UTC); None — метки нет, и тогда карту на дату не
+    знаем НИКОГДА: «нет данных» честнее догадки."""
+    v = await get_meta(TEETH_HIST_SINCE)
+    try:
+        return _parse_dt(v) if v else None
+    except ValueError:
+        log.warning("%s unreadable: %r", TEETH_HIST_SINCE, v)
+        return None
+
+
+async def teeth_map_at(pid: int, before: datetime) -> dict:
+    """Карта зубов (вид `teeth_map`) такой, какой она была до мгновения
+    `before`: последний снимок каждого зуба из `teeth_history`. Верна только
+    при `before` не раньше `teeth_hist_since()` — это проверяет вызывающий.
+    ⚠️ Последний — по id, а не по `at`: снимки дописываются по ходу записи, и
+    id растёт вместе с ними даже там, где часы машины шагнули назад."""
+    rows = await _fetch(
+        """SELECT tooth, state, note, doctor, surfaces, surface_states, marks,
+                  at AS updated_at FROM teeth_history
+           WHERE id IN (SELECT MAX(id) FROM teeth_history
+                        WHERE patient_id = ? AND at < ? GROUP BY tooth)
+             AND state IS NOT NULL""", pid, _iso(before))
+    return {r["tooth"]: r for r in rows}
+
+
+async def bridges_at(pid: int, before: datetime) -> list:
+    """Мосты (вид `bridges`), стоявшие до мгновения `before`: поставленные
+    раньше и ещё стоящие плюс снятые позже. Мост, снятый до начала истории,
+    к такому мгновению уже не стоял — для дат после `teeth_hist_since()`
+    ответ полный."""
+    b = _iso(before)
+    return await _fetch(
+        """SELECT id, teeth, material, doctor, created_at FROM bridges
+           WHERE patient_id = ? AND created_at < ?
+           UNION ALL
+           SELECT bridge_id AS id, teeth, material, doctor, created_at
+           FROM bridges_removed
+           WHERE patient_id = ? AND created_at < ? AND removed_at >= ?
+           ORDER BY id""", pid, b, pid, b, b)
+
+
 async def set_tooth(pid: int, tooth: int, state: str, note: str,
                     doctor: str = "", surfaces: str | None = None,
                     sfmap: dict | None = None, state0: str | None = None,
@@ -2524,7 +2650,17 @@ async def set_tooth(pid: int, tooth: int, state: str, note: str,
 
 async def _put_tooth(pid: int, tooth: int, row: dict | None, at: str) -> None:
     """Строка зуба по решению `_tooth_next` — БЕЗ commit: его делает
-    вызывающий (одна запись или вся пачка разом)."""
+    вызывающий (одна запись или вся пачка разом).
+
+    ⭐ Здесь же — снимок в `teeth_history` («сравнить с визитом», 25.10): в той
+    же транзакции и под тем же замком, что строка зуба, поэтому история и
+    карта не расходятся ни на одной записи. `None` — строки зуба нет."""
+    v = (row["state"], row["note"], row["doctor"], row["surfaces"],
+         row["surface_states"], row["marks"]) if row else (None, "", "", "", "", "")
+    await _CONN.execute(
+        """INSERT INTO teeth_history(patient_id, tooth, at, state, note, doctor,
+                                     surfaces, surface_states, marks)
+           VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)""", (pid, tooth, at, *v))
     if row is None:
         await _CONN.execute("DELETE FROM teeth WHERE patient_id = ? AND tooth = ?",
                             (pid, tooth))
@@ -2820,14 +2956,31 @@ async def delete_bridge(bid: int, pid: int) -> bool:
     from .teeth_svg import parse_bridge
     async with _slot_lock():
         rows = await _fetch(
-            "SELECT teeth FROM bridges WHERE id = ? AND patient_id = ?",
-            bid, pid)
+            "SELECT teeth, material, doctor, created_at FROM bridges "
+            "WHERE id = ? AND patient_id = ?", bid, pid)
         if not rows:
             return False
-        n = await _execute(
-            "DELETE FROM bridges WHERE id = ? AND patient_id = ?", bid, pid)
-    if n != 1:
-        return False
+        # снятый мост уходит в bridges_removed той же транзакцией («сравнить с
+        # визитом», 25.10): карта на дату, когда он стоял, обязана его рисовать
+        b = rows[0]
+        try:
+            await _CONN.execute(
+                """INSERT INTO bridges_removed(bridge_id, patient_id, teeth, material,
+                                               doctor, created_at, removed_at)
+                   VALUES(?, ?, ?, ?, ?, ?, ?)""",
+                (bid, pid, b["teeth"], b["material"], b["doctor"], _iso(b["created_at"]),
+                 _utcnow_iso()))
+            cur = await _CONN.execute(
+                "DELETE FROM bridges WHERE id = ? AND patient_id = ?", (bid, pid))
+            n = cur.rowcount
+            await cur.close()
+            if n != 1:
+                await _CONN.rollback()
+                return False
+            await _CONN.commit()
+        except Exception:
+            await _CONN.rollback()
+            raise
     t = parse_bridge(rows[0]["teeth"])
     span = f"{t[0][0]}–{t[-1][0]}" if t else "?"
     await log_event(pid, "bridge", f"Punte dentară {span} ștearsă")
@@ -3345,7 +3498,8 @@ async def erasure_kind(pid: int) -> str:
 # приёмов стоят раньше визитов: FK на appointments. ⚠️ Состав обязан совпадать
 # с export.py — обе стороны отвечают «где в базе лежит этот человек».
 _PATIENT_CHILD_TABLES = ("payments", "activity", "patient_alerts", "teeth",
-                         "plan_items", "documents", "anamneza", "bridges",
+                         "teeth_history", "plan_items", "documents", "anamneza",
+                         "bridges", "bridges_removed",
                          "perio_exams", "visit_records", "sms_log", "appointments")
 
 # ⚠️ Внуки: таблицы, которые висят НЕ на пациенте, а на его записи. У

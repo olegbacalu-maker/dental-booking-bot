@@ -13,9 +13,10 @@
 import json
 import re
 import sqlite3
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 
-from harness import Client, Result, Server, clinic_today, pid_by_phone
+from harness import (TZ, Client, Clock, Result, Server, add_appt, appt_id, clinic_now,
+                     clinic_today, pid_by_phone)
 
 
 def _d(offset: int) -> str:
@@ -80,7 +81,7 @@ def suite_api(res: Result) -> None:
                           "states", "marks", "surfaces", "surface_states", "bridge_roles",
                           "materials", "patient", "doctors", "perio", "perio_layer", "palette",
                           "tooth_states",
-                          "modes", "plan"]))
+                          "modes", "plan", "visits"]))
         res.check("план зуба: у пациента без плана — пустой словарь", d["plan"], {})
         # кисть (11.10): кариес и пломба ставятся только по поверхностям, сетка
         # состояний зуба получает СПИСОК СЕРВЕРА — второго словаря у клиента нет
@@ -622,3 +623,178 @@ def suite_batch(res: Result) -> None:
         res.check("без входа: предпросмотр закрыт (JSON 401)",
                   out.post_json(f"{odo}/preview", {"teeth": [ok21]}).status, 401)
         res.check("чужая фиша — 404", c.post_json("/api/patients/9999/teeth", {"teeth": [ok21]}).status, 404)
+
+
+def _hist_rows(dbfile, pid: int) -> list:
+    """Снимки истории зубов пациента по порядку: (зуб, at, state, src)."""
+    con = sqlite3.connect(str(dbfile))
+    try:
+        return con.execute("SELECT tooth, at, state, src FROM teeth_history WHERE patient_id = ? "
+                           "ORDER BY id", (pid,)).fetchall()
+    finally:
+        con.close()
+
+
+def _count(dbfile, table: str, pid: int) -> int:
+    con = sqlite3.connect(str(dbfile))
+    try:
+        return con.execute(f"SELECT COUNT(*) FROM {table} WHERE patient_id = ?", (pid,)).fetchone()[0]
+    finally:
+        con.close()
+
+
+def suite_compare(res: Result) -> None:
+    """«Сравнить с визитом» (волна 2, 25.10): история зубов СОСТОЯНИЯМИ.
+
+    Засев идёт по поддельным часам: метка начала истории (шаг 6 на старте),
+    потом три дня записей — день визита 1, день визита 2 и «сегодня». Карта
+    «на визит» — конец ДНЯ визита: что записано в тот день после приёма,
+    принадлежит ему. Ожидания записаны руками: какие зубы изменились и
+    какими словами, мост, снятый после визита, на карте визита стоит; визит
+    раньше метки — «нет данных». Рисунок «было» сверяется с моделью, которую
+    экран отдавал В ТОТ день: второго рисовальщика нет. Список визитов — без
+    отменённых, неявок, сегодняшних и будущих; GET сравнения ничего не пишет."""
+    day0 = clinic_today()
+
+    def at(days: int, hh: int = 14) -> datetime:
+        return datetime.combine(day0 + timedelta(days=days), time(hh, 0), tzinfo=TZ)
+
+    def dd(days: int) -> str:
+        return (day0 + timedelta(days=days)).isoformat()
+
+    def dmy(days: int) -> str:
+        return (day0 + timedelta(days=days)).strftime("%d.%m.%Y")
+
+    name, phone = "Odonto Compar", "069300404"
+    # ⚠️ часы стартуют с НАСТОЯЩЕГО «сейчас» и дальше только прыгают вперёд
+    # (харнесс: копии лаунчера иначе выходят «из будущего»)
+    with Clock(clinic_now()) as clock, Server() as s:
+        c = Client(s.url).login()
+        dbf = s.dir / "dental.db"
+        c.post_json("/api/patients", {"name": name, "phone": phone})
+        pid = _pid(c, phone)
+        t = f"/api/patients/{pid}/teeth"
+        odo = f"/api/patients/{pid}/odontogram"
+        res.check("визит до начала истории записан", add_appt(c, dd(-5), "10:00", name, phone).msg, "ok_past")
+
+        # день визита 1: зубы и мост записаны днём, визит — утром того же дня
+        clock.set(at(1))
+        c.post_json(f"{t}/16", {"state": "carie", "surfaces": {"M": "carie"}})
+        c.post_json(f"{t}/36", {"state": "obturatie", "surfaces": {"O": "obturatie"}})
+        c.post_json(f"{t}/26", {"state": "ok", "marks": ["devital"], "surfaces": {}})
+        r = c.post_json(f"/api/patients/{pid}/bridges", {"teeth": [[46, "stalp"], [45, "corp"], [44, "stalp"]],
+                                                        "material": "zirconiu", "doctor": "Dr. Activ Doi"})
+        res.check("мост поставлен", r.msg, "ok_punte")
+        bid = _j(r)["data"]["bridges"][0]["id"]
+        m1 = _j(c.get(odo))["data"]
+        clock.set(at(1, 16))
+        # утро того же дня — «ok», не «ok_past»: предупреждение о прошлом дневное
+        res.check("визит 1 (тот же день, утром) записан", add_appt(c, dd(1), "09:00", name, phone).msg, "ok")
+
+        # день визита 2: пломба вместо кариеса, 36 здоров, пачкой — коронка 21 и
+        # врач без находки на 11, мост снят; всё ПОСЛЕ приёма
+        clock.set(at(10))
+        res.check("визит 2 записан", add_appt(c, dd(10), "09:00", name, phone).msg, "ok")
+        clock.set(at(10, 15))
+        n0 = len(_hist_rows(dbf, pid))
+        c.post_json(f"{t}/16", {"state": "obturatie", "surfaces": {"M": "obturatie", "O": "obturatie"}})
+        c.post_json(f"{t}/36", {"state": "ok", "surfaces": {}, "marks": []})
+        res.check("снимок на каждую запись зуба (+2, второй — «строки нет»)",
+                  [(n, st) for n, _a, st, _s in _hist_rows(dbf, pid)[n0:]], [(16, "obturatie"), (36, None)])
+        cur = _j(c.get(odo))["data"]["teeth"]
+        r = c.post_json(t, {"teeth": [
+            {"n": 21, "state": "coroana", "state0": "ok", "note": "", "doctor": "", "surfaces": {}, "marks": [],
+             "base": _base(cur["21"])},
+            {"n": 11, "state": "ok", "state0": "ok", "note": "", "doctor": "Dr. Activ Doi", "surfaces": {},
+             "marks": [], "base": _base(cur["11"])}]})
+        res.check("пачка записана", r.msg, "ok_card")
+        rows = _hist_rows(dbf, pid)[n0 + 2:]
+        res.check("пачка — снимок на каждый зуб, одним мгновением",
+                  ([(n, st) for n, _a, st, _s in rows], len({a for _n, a, _st, _s in rows})),
+                  ([(21, "coroana"), (11, "ok")], 1))
+        res.check("снятие моста — ok", c.post_json(f"/api/patients/{pid}/bridges/{bid}/delete", {}).msg,
+                  "ok_punte_del")
+        m2 = _j(c.get(odo))["data"]
+
+        # «сегодня» (день 15): кариес на 11; визиты, которых в списке быть не должно
+        clock.set(at(15))
+        c.post_json(f"{t}/11", {"state": "carie", "doctor": "Dr. Activ Doi", "surfaces": {"D": "carie"}})
+        for day, to in ((12, "cancelled"), (13, "noshow")):
+            add_appt(c, dd(day), "10:00", name, phone)
+            c.post_json(f"/api/schedule/appointments/{appt_id(c, dd(day), name)}/status", {"to": to})
+        add_appt(c, dd(15), "09:00", name, phone)
+        add_appt(c, dd(17), "10:00", name, phone)
+        other = _seed(c, "Odonto Strain", "069300405")["pid"]
+        add_appt(c, dd(11), "10:00", "Odonto Strain", "069300405")
+
+        d = _j(c.get(odo))["data"]
+        vis = d["visits"]
+        ids = {v["date"]: v["id"] for v in vis}
+        res.check("список визитов: свежие первыми, без отменённого, неявки, сегодняшнего, будущего и чужого",
+                  [(v["date"], v["known"]) for v in vis], [(dmy(10), True), (dmy(1), True), (dmy(-5), False)])
+        res.check("подпись визита — дата · услуга · врач",
+                  (vis[0]["label"].startswith(dmy(10) + " · "), vis[0]["label"].count(" · ")), (True, 2))
+
+        views0, acts0, hist0 = _views(dbf), _tooth_acts(dbf, pid), _hist_rows(dbf, pid)
+        cmp = f"{odo}/compare?visit="
+        r1 = _j(c.get(cmp + str(ids[dmy(1)])))["data"]
+        res.check("визит 1: данные есть", (r1["known"], r1["visit"]["date"]), (True, dmy(1)))
+        res.check("визит 1: изменившиеся зубы в порядке экрана, было → стало",
+                  [(x["n"], x["was"], x["now"]) for x in r1["changes"]],
+                  [(16, "Carie (M)", "Obturație (MO)"),
+                   (11, "Sănătos", "Carie (D)"),
+                   (21, "Sănătos", "Coroană"),
+                   (46, "Sănătos · Punte: Stâlp", "Sănătos"),
+                   (45, "Sănătos · Punte: Corp de punte", "Sănătos"),
+                   (44, "Sănătos · Punte: Stâlp", "Sănătos"),
+                   (36, "Obturație (O)", "Sănătos")])
+        res.check("визит 1: «было» — только изменившиеся зубы", sorted(r1["teeth"], key=int),
+                  ["11", "16", "21", "36", "44", "45", "46"])
+        res.ok("визит 1: рисунок «было» = модель экрана В ТОТ день (поле в поле, с подписью и мостом)",
+               all(r1["teeth"][k] == m1["teeth"][k] for k in r1["teeth"]),
+               ", ".join(k for k in r1["teeth"] if r1["teeth"][k] != m1["teeth"][k]))
+        res.check("визит 1: мост, снятый после визита, на карте визита стоит", r1["bridges"], m1["bridges"])
+        res.check("зуб без изменений (26, отметка) в разнице не назван", "26" in r1["teeth"], False)
+
+        r2 = _j(c.get(cmp + str(ids[dmy(10)])))["data"]
+        res.check("визит 2: записанное в день визита после приёма — его работа; изменился только 11",
+                  [(x["n"], x["was"], x["now"]) for x in r2["changes"]],
+                  [(11, "Sănătos", "Carie (D)")])
+        res.check("визит 2: врач без находки — «Sănătos», и рисунок тот, что экран показывал",
+                  r2["teeth"]["11"], m2["teeth"]["11"])
+        res.check("визит 2: мост уже снят", r2["bridges"], [])
+
+        r0 = _j(c.get(cmp + str(ids[dmy(-5)])))["data"]
+        res.check("визит до начала истории — «нет данных», без разницы и без рисунка",
+                  (r0["known"], r0["changes"], r0["teeth"], r0["bridges"]), (False, [], {}, []))
+        res.check("начало истории названо датой", r0["since"], dmy(0))
+
+        res.check("GET сравнения не пишет «Fișa deschisă» (закон 195)", _views(dbf), views0)
+        res.check("GET сравнения не пишет летопись", _tooth_acts(dbf, pid), acts0)
+        res.check("GET сравнения не пишет историю", _hist_rows(dbf, pid), hist0)
+        res.ok("GET сравнения не трогает модель", _j(c.get(odo))["data"]["teeth"] == d["teeth"], "модель сменилась")
+
+        bad = {"отменённый": appt_id(c, dd(12), name), "неявка": appt_id(c, dd(13), name),
+               "сегодняшний": appt_id(c, dd(15), name), "будущий": appt_id(c, dd(17), name),
+               "чужой": appt_id(c, dd(11), "Odonto Strain"), "несуществующий": 99999}
+        for why, aid in bad.items():
+            res.check(f"визит {why} — 404", c.get(cmp + str(aid)).status, 404)
+        for why, q in (("без визита", f"{odo}/compare"), ("визит словом", cmp + "abc"), ("минус", cmp + "-1")):
+            res.check(f"{why} — 404", c.get(q).status, 404)
+        res.check("чужая фиша — 404", c.get(f"/api/patients/{other + 1000}/odontogram/compare?visit=1").status, 404)
+        res.check("без входа — JSON 401", Client(s.url).get(cmp + str(ids[dmy(1)])).status, 401)
+
+        # стирание: контакт без лечения, у которого зуб был записан и снят, уходит
+        # целиком — вместе с историей зубов и снятыми мостами
+        c.post_json("/api/patients", {"name": "Odonto Sters", "phone": "069300406"})
+        gone = _pid(c, "069300406")
+        c.post_json(f"/api/patients/{gone}/teeth/12", {"state": "carie", "surfaces": {"M": "carie"}})
+        c.post_json(f"/api/patients/{gone}/teeth/12", {"state": "ok", "surfaces": {}, "marks": []})
+        r = c.post_json(f"/api/patients/{gone}/bridges", {"teeth": [[14, "stalp"], [15, "stalp"]]})
+        c.post_json(f"/api/patients/{gone}/bridges/{_j(r)['data']['bridges'][0]['id']}/delete", {})
+        res.check("до стирания: история и снятый мост есть",
+                  (_count(dbf, "teeth_history", gone), _count(dbf, "bridges_removed", gone)), (2, 1))
+        res.check("стирание — физическое", c.post_json(f"/api/patients/{gone}/erase", {"confirm": "STERG"}).msg,
+                  "ok_del")
+        res.check("после стирания — ни истории, ни снятого моста",
+                  (_count(dbf, "teeth_history", gone), _count(dbf, "bridges_removed", gone)), (0, 0))

@@ -64,6 +64,11 @@
   (_log_booking) печатает час клиники, backfill печатал UTC: у клиники с
   историей каждая перенесённая строка показывала бы чужой час НАВСЕГДА —
   текст события хранится строкой и не пересчитывается.
+* `suite_v6_history` — шаг 6 (25.10): базовый снимок карты в историю зубов.
+  Клиника с v5 приносит зубы всех видов (смесь поверхностей, отметка, коронка
+  с буквами, молочный) и мост; после обновления «сравнить с визитом» обязано
+  показывать их ровно так, как показывает экран, а визит до обновления —
+  «нет данных», без догадки.
 
 Фикстурная база собирается сырым sqlite3 — это ТЕСТ-СТОРОНА (как в
 test_dbcrypt._plain_db), программа по-прежнему ходит только через db.
@@ -81,8 +86,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "bot"))
 
 from app import db as appdb  # noqa: E402 — только константы схем, не соединение
 
-from harness import (BOT, Client, Result, Server, add_appt, clinic_today,  # noqa: E402
-                     _rmtree_settled, shell_signal)
+from harness import (BOT, TZ, Client, Clock, Result, Server, add_appt,  # noqa: E402
+                     clinic_now, clinic_today, _rmtree_settled, shell_signal)
 
 
 def _slot(c: Client) -> str:
@@ -1528,5 +1533,106 @@ def suite_v5_marks(res: Result) -> None:
         finally:
             con.close()
         res.check("повторный старт ничего не переводит заново", again, 0)
+    finally:
+        _rmtree_settled(work)
+
+
+def suite_v6_history(res: Result) -> None:
+    """Шаг 6: базовый снимок карты (`teeth_history`, src 'base') и метка
+    начала истории. Вопрос набора — переживает ли «сравнить с визитом» то, что
+    клиника уже записала: снимок = строки зубов поле в поле, рисунок «было»
+    после обновления — тот же, что экран показывал до правки, визит раньше
+    обновления — «нет данных», повторный старт снимок не дублирует.
+
+    ⚠️ Таблиц истории у клиники на v5 нет: фикстура собрана сегодняшней схемой
+    и снимает их, чтобы их создал init — как при обновлении."""
+    work = pathlib.Path(tempfile.mkdtemp(prefix="dp_mig_hist_"))
+    try:
+        dbfile = work / "dental.db"
+        con = _base_db(dbfile)
+        con.execute("DROP TABLE teeth_history")
+        con.execute("DROP TABLE bridges_removed")
+        _patients(con, "Ion Test")
+        for coldef in ("doctor TEXT NOT NULL DEFAULT ''", "surfaces TEXT NOT NULL DEFAULT ''",
+                       "surface_states TEXT NOT NULL DEFAULT ''", "marks TEXT NOT NULL DEFAULT ''"):
+            con.execute(f"ALTER TABLE teeth ADD COLUMN {coldef}")
+        teeth = ((16, "obturatie", "canal", "Dr. Vechi", "MO", "M:carie,O:obturatie", ""),
+                 (26, "ok", "", "", "", "", "tratament"),
+                 (24, "coroana", "", "", "MOD", "", "devital"),
+                 (55, "carie", "", "", "O", "", ""))
+        for row in teeth:
+            con.execute("INSERT INTO teeth(patient_id, tooth, state, note, doctor, surfaces, "
+                        "surface_states, marks, updated_at) VALUES(1, ?, ?, ?, ?, ?, ?, ?, "
+                        "'2026-09-01T09:00:00+00:00')", row)
+        # строка «из будущего»: часы машины когда-то шли вперёд
+        con.execute("INSERT INTO teeth(patient_id, tooth, state, note, surfaces, updated_at) "
+                    "VALUES(1, 27, 'obturatie', '', 'O', '2099-01-01T09:00:00+00:00')")
+        con.execute("INSERT INTO bridges(patient_id, teeth, material, doctor, created_at) "
+                    "VALUES(1, '46:stalp,45:corp,44:stalp', 'zirconiu', '', '2026-09-01T09:00:00+00:00')")
+        yday = datetime.combine(clinic_today() - timedelta(days=1), datetime.min.time().replace(hour=10),
+                                tzinfo=TZ)
+        con.execute(_APPT_SQL, (1, "Dr. Activ Doi", yday.astimezone(timezone.utc).isoformat(timespec="seconds"),
+                                "done", "d2"))
+        con.execute("INSERT INTO schema_meta(key, value) VALUES('version', '5')")
+        con.execute("INSERT INTO schema_meta(key, value) VALUES('act_backfill', '1')")
+        con.commit()
+        con.close()
+
+        cols = "tooth, state, note, doctor, surfaces, surface_states, marks"
+
+        def rows(sql: str) -> list:
+            c2 = sqlite3.connect(str(dbfile))
+            try:
+                return c2.execute(sql).fetchall()
+            finally:
+                c2.close()
+
+        day0 = clinic_today()
+        with Clock(clinic_now()) as clock, Server(dir_=work) as s:
+            c = Client(s.url).login()
+            odo = "/api/patients/1/odontogram"
+            before = json.loads(c.get(odo).body)["data"]
+            res.check(f"версия схемы доведена до {_VER}", _meta(dbfile, "version"), _VER)
+            res.check("базовый снимок = строки зубов поле в поле",
+                      rows(f"SELECT {cols} FROM teeth_history ORDER BY tooth"),
+                      rows(f"SELECT {cols} FROM teeth ORDER BY tooth"))
+            since = _meta(dbfile, "teeth_hist_since")
+            res.check("снимок помечен базовым и датирован последней записью зуба, но не позже метки",
+                      rows("SELECT tooth, src, at FROM teeth_history ORDER BY tooth"),
+                      [(n, "base", since if n == 27 else "2026-09-01T09:00:00+00:00")
+                       for n in (16, 24, 26, 27, 55)])
+            vis = before["visits"]
+            res.check("визит до обновления — в списке, но без данных",
+                      [(v["date"], v["known"]) for v in vis], [(yday.strftime("%d.%m.%Y"), False)])
+            r = json.loads(c.get(f"{odo}/compare?visit={vis[0]['id']}").body)["data"]
+            res.check("сравнение с ним — «нет данных», без догадки",
+                      (r["known"], r["changes"], r["teeth"]), (False, [], {}))
+
+            # визит ПОСЛЕ обновления, потом правка: «было» = базовый снимок
+            clock.set(datetime.combine(day0 + timedelta(days=1), datetime.min.time().replace(hour=10), tzinfo=TZ))
+            res.check("визит после обновления записан",
+                      add_appt(c, (day0 + timedelta(days=1)).isoformat(), "09:00", "Ion Test", "060000001").msg,
+                      "ok")
+            clock.set(datetime.combine(day0 + timedelta(days=3), datetime.min.time().replace(hour=10), tzinfo=TZ))
+            c.post_json("/api/patients/1/teeth/16", {"state": "coroana", "surfaces": {}, "marks": []})
+            c.post_json("/api/patients/1/teeth/55", {"state": "extras", "surfaces": {}, "marks": []})
+            vis = json.loads(c.get(odo).body)["data"]["visits"]
+            res.check("визит после обновления — с данными", vis[0]["known"], True)
+            r = json.loads(c.get(f"{odo}/compare?visit={vis[0]['id']}").body)["data"]
+            # 27 «из будущего» в карте визита стоит — иначе показался бы здоровым
+            res.check("изменились ровно правленые зубы, было — словами записи клиники",
+                      [(x["n"], x["was"]) for x in r["changes"]],
+                      [(16, "Carie (M), Obturație (O)"), (55, "Carie (O)")])
+            res.ok("рисунок «было» = экран до правки (смесь поверхностей и молочный зуб)",
+                   all(r["teeth"][k] == before["teeth"][k] for k in ("16", "55")),
+                   ", ".join(k for k in ("16", "55") if r["teeth"][k] != before["teeth"][k]))
+            res.check("мост клиники стоит и на карте визита", r["bridges"], before["bridges"])
+            n_base = rows("SELECT COUNT(*) FROM teeth_history WHERE src = 'base'")
+
+        with Server(dir_=work):
+            pass
+        res.check("повторный старт снимок не дублирует",
+                  rows("SELECT COUNT(*) FROM teeth_history WHERE src = 'base'"), n_base)
+        res.check("и метку не переписывает", _meta(dbfile, "teeth_hist_since"), since)
     finally:
         _rmtree_settled(work)

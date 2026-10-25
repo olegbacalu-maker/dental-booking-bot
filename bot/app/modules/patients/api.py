@@ -885,6 +885,9 @@ async def _odontogram(pid: int, p: dict) -> dict:
     # тот же осмотр числами — слой пародонта в 3D (06.10): край по рецессии,
     # полоса кармана, кровоточивость, таблица точек в инспекторе
     m["perio_layer"] = pperio.layer(exam, prows)
+    # прошлые визиты для «Compară» (25.10): выбор — экрана, разница — своим GET
+    m["visits"] = podo.compare_visits(await db.patient_appointments(pid, 1000), today,
+                                      await db.teeth_hist_since())
     return m
 
 
@@ -1049,6 +1052,38 @@ async def api_odontogram_preview(request: Request, pid: int):
     tmap = await db.preview_teeth(pid, items)
     return msg_json(True, data={"teeth": podo.preview(tmap, await db.bridges(pid),
                                                       [it["tooth"] for it in items])})
+
+
+@router.get("/api/patients/{pid}/odontogram/compare")
+async def api_odontogram_compare(request: Request, pid: int):
+    """«Сравнить с визитом» (волна 2 одонтограммы, 25.10): `?visit=ID` →
+    {visit, known, since, changes, teeth, bridges, milk_open}. Визит — из
+    списка модели (`odontogram.compare_visits`): чужой, будущий, отменённый —
+    404. `known` — есть ли история зубов на конец дня визита; нет — разницы
+    нет, экран говорит «нет данных» (догадки по летописи не делаем).
+    ⛔ Ничего не пишет: ни «Fișa deschisă» (закон 195), ни строки зуба — это
+    вид экрана, как GET одонтограммы."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    deny, p = await _owned(pid)
+    if deny is not None:
+        return deny
+    raw = request.query_params.get("visit", "")
+    aid = int(raw) if raw.isdecimal() else -1
+    since = await db.teeth_hist_since()
+    today = datetime.now(eng.TZ).date()
+    v = next((x for x in await db.patient_appointments(pid, 1000) if x["id"] == aid), None)
+    picked = podo.compare_visits([v], today, since) if v else []
+    if not picked:
+        return msg_json(False, status=404)
+    out = {"visit": picked[0], "known": picked[0]["known"],
+           "since": since.astimezone(eng.TZ).strftime("%d.%m.%Y") if since else "",
+           "changes": [], "teeth": {}, "bridges": [], "milk_open": False}
+    if out["known"]:
+        cut = podo.visit_cutoff(v["starts_at"])
+        out.update(podo.compare(await db.teeth_map(pid), await db.bridges(pid),
+                                await db.teeth_map_at(pid, cut), await db.bridges_at(pid, cut)))
+    return msg_json(True, data=out)
 
 
 @router.post("/api/patients/{pid}/bridges")

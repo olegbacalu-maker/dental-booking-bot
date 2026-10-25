@@ -14,9 +14,12 @@ Carie · MO» на одном экране и «11 Carie» на другом, р
 """
 from __future__ import annotations
 
+from datetime import date, datetime, time, timedelta
+
 from ... import db
 from ... import engine as eng
 from ... import teeth_svg as tsvg
+from .visit import NO_FORM_STATUSES
 
 FDI_UPPER = [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28]
 FDI_LOWER = [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38]
@@ -330,12 +333,6 @@ def model(tmap: dict, tooth_acts: list, bridges: list | None,
         return [int(f"{arc_offset(i, len(row), lower=lower, milk=milk):.0f}")
                 for i in range(len(row))]
 
-    rows = []
-    for b in bridges or ():
-        t = tsvg.parse_bridge(b["teeth"])
-        if t:
-            rows.append({"id": b["id"], "teeth": t, "material": b.get("material") or "",
-                         "doctor": b.get("doctor") or ""})
     return {
         "teeth": teeth, "history": hist,
         # план ЗУБА — вкладка «Tratament» панели (24.10); у зуба без позиций ключа нет
@@ -350,7 +347,7 @@ def model(tmap: dict, tooth_acts: list, bridges: list | None,
         # детская фиша не должна требовать лишнего клика, взрослая — видеть
         # лишний ряд
         "milk_open": any(n in tmap for n in FDI_MILK_UPPER + FDI_MILK_LOWER),
-        "bridges": rows,
+        "bridges": bridge_rows(bridges),
         "legend": {"frontal": legend_items(False), "occlusal": legend_items(True)},
         "states": dict(STATES), "marks": dict(MARKS),
         # состояния, сказанные про ВЕСЬ зуб (прототип кисти, 11.10): `carie` и
@@ -367,3 +364,100 @@ def model(tmap: dict, tooth_acts: list, bridges: list | None,
         "modes": modes(),
     }
 
+
+
+def bridge_rows(bridges: list | None) -> list[dict]:
+    """Мосты для модели экрана: роли по зубам, материал, врач. Один вид на
+    модель и на карту «на визит» (`compare`) — сцена рисует их одинаково."""
+    rows = []
+    for b in bridges or ():
+        t = tsvg.parse_bridge(b["teeth"])
+        if t:
+            rows.append({"id": b["id"], "teeth": t, "material": b.get("material") or "",
+                         "doctor": b.get("doctor") or ""})
+    return rows
+
+
+# ---------- сравнить с визитом (волна 2 одонтограммы, 25.10) ----------
+# Врач выбирает прошлый визит и видит, какие зубы с тех пор изменились: было →
+# стало, в 2D и 3D. Карту «на визит» строит СЕРВЕР из `teeth_history` тем же
+# `tooth_entry`, что модель, — второго рисовальщика нет. Слой — свойство
+# экрана: ни в запись, ни в 043/e, ни в печать. История копится с шага 6
+# миграции (`db.teeth_hist_since`); визит раньше — «нет данных», а не
+# догадка по словам летописи.
+
+COMPARE_VISITS_MAX = 50
+
+
+def visit_cutoff(starts_at: datetime) -> datetime:
+    """Мгновение «на визит»: конец ДНЯ визита по часам клиники. Не конец
+    приёма: врач заносит зубы и после пациента, и записанное в тот же день —
+    работа этого визита, а не «изменилось после»."""
+    day = starts_at.astimezone(eng.TZ).date() + timedelta(days=1)
+    return datetime.combine(day, time(0), tzinfo=eng.TZ)
+
+
+def compare_visits(visits: list, today: date, since: datetime | None) -> list[dict]:
+    """Визиты для выбора: прошлые ДНИ (сегодняшний — та же карта, что
+    сейчас), без отменённых и неявок — то же правило «визит состоялся», что у
+    консультации (`visit.NO_FORM_STATUSES`) и у дня врача. `visits` — свежие
+    первыми (`db.patient_appointments`). `known` — есть ли на тот день история
+    (`since` — её начало, None — её нет)."""
+    out: list[dict] = []
+    for v in visits:
+        if v["status"] in NO_FORM_STATUSES:
+            continue
+        local = v["starts_at"].astimezone(eng.TZ)
+        if local.date() >= today:
+            continue
+        out.append({"id": v["id"], "date": local.strftime("%d.%m.%Y"),
+                    "label": f"{local:%d.%m.%Y} · {v['service']} · {v['doctor']}",
+                    "known": since is not None and visit_cutoff(v["starts_at"]) >= since})
+        if len(out) >= COMPARE_VISITS_MAX:
+            break
+    return out
+
+
+def _clinic_key(n: int, tmap: dict, bmap: dict) -> tuple:
+    """Что считается ИЗМЕНЕНИЕМ зуба: состояние, карта поверхностей, отметки,
+    роль в мосте. Заметка и врач — нет: это подпись записи, а не зуб."""
+    f = tsvg.tooth_fields(tmap.get(n))
+    return (f["state"], tuple(sorted((k, v) for k, v in f["sfst"].items() if v)),
+            tuple(sorted(f["mk"])), bmap.get(n))
+
+
+def tooth_words(n: int, tmap: dict, bmap: dict) -> str:
+    """Зуб словами для строки «было → стало»: «Carie (M), Obturație (OD) · În
+    tratament · Punte: Stâlp». Слова — те же словари, что у подписи зуба и
+    летописи (`STATES`, `MARKS`, `sf_text`, `BRIDGE_RO`)."""
+    t = tmap.get(n)
+    f = tsvg.tooth_fields(t)
+    sf = sf_text(f["sfst"], (t["surfaces"] or "") if t else "")
+    txt = (sf if len(tsvg.surface_summary(f["sfst"])) > 1
+           else STATES.get(f["state"], f["state"]) + (f" ({sf})" if sf else ""))
+    txt += "".join(f" · {MARKS[m]}" for m in f["mk"])
+    br = bmap.get(n)
+    if br:
+        txt += f" · Punte: {tsvg.BRIDGE_RO[br[0]]}"
+    return txt
+
+
+def compare(now_tmap: dict, now_bridges: list | None,
+            was_tmap: dict, was_bridges: list | None) -> dict:
+    """Разница карты «на визит» с нынешней: `changes` — изменившиеся зубы в
+    порядке экрана со словами было → стало; `teeth` — эти зубы такими, какими
+    были (тот же `tooth_entry`, что у модели: экран кладёт их поверх
+    сохранённой модели, как предпросмотр черновика); `bridges` — мосты на ту
+    дату (вид `model.bridges`); `milk_open` — молочный ряд нужен хоть одной
+    из двух карт."""
+    bnow, bwas = _bmap(now_bridges or []), _bmap(was_bridges or [])
+    changes, teeth = [], {}
+    for n in FDI_ALL:
+        if _clinic_key(n, was_tmap, bwas) == _clinic_key(n, now_tmap, bnow):
+            continue
+        changes.append({"n": n, "was": tooth_words(n, was_tmap, bwas),
+                        "now": tooth_words(n, now_tmap, bnow)})
+        teeth[str(n)] = tooth_entry(n, was_tmap, bwas)
+    milk = FDI_MILK_UPPER + FDI_MILK_LOWER
+    return {"changes": changes, "teeth": teeth, "bridges": bridge_rows(was_bridges),
+            "milk_open": any(n in was_tmap or n in now_tmap for n in milk)}
