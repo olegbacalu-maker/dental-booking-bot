@@ -135,6 +135,7 @@ varying float vDpLobe;
 uniform float uDpTip;
 uniform float uDpEdge;
 uniform float uDpNatural;
+uniform float uDpLive;
 const vec3 DP_TRANS = ${v3(c.trans)};
 const vec3 DP_HALO = ${v3(c.halo)};
 const vec3 DP_CEMENT = ${v3(c.cement)};
@@ -144,14 +145,15 @@ const vec3 DP_CEMENT = ${v3(c.cement)};
 function fragColor(): string {
   return `
   float dpCe = 0.0;
-  if (uDpNatural > 0.001) {
-    dpCe = (1.0 - smoothstep(vDpCej - ${f(CEJ_SOFT)}, vDpCej + ${f(CEJ_SOFT)}, vDpY)) * uDpNatural;
+  float dpNat = uDpNatural * uDpLive;
+  if (dpNat > 0.001) {
+    dpCe = (1.0 - smoothstep(vDpCej - ${f(CEJ_SOFT)}, vDpCej + ${f(CEJ_SOFT)}, vDpY)) * dpNat;
     if (uDpEdge > 0.0) {
       float dpD = uDpTip - vDpY;
       float dpD0 = ${f(EDGE.zone)} - ${f(EDGE.lobe)} * vDpLobe;
-      float dpTr = (1.0 - smoothstep(dpD0 - ${f(EDGE.soft)}, dpD0, dpD)) * uDpEdge * uDpNatural;
+      float dpTr = (1.0 - smoothstep(dpD0 - ${f(EDGE.soft)}, dpD0, dpD)) * uDpEdge * dpNat;
       diffuseColor.rgb = mix(diffuseColor.rgb, DP_TRANS, dpTr);
-      float dpRim = (1.0 - smoothstep(${f(EDGE.rim[0])}, ${f(EDGE.rim[1])}, dpD)) * ${f(EDGE.rimK)} * uDpEdge * uDpNatural;
+      float dpRim = (1.0 - smoothstep(${f(EDGE.rim[0])}, ${f(EDGE.rim[1])}, dpD)) * ${f(EDGE.rimK)} * uDpEdge * dpNat;
       diffuseColor.rgb = mix(diffuseColor.rgb, DP_HALO, dpRim);
     }
     diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * DP_CEMENT, dpCe);
@@ -185,10 +187,21 @@ export function patchEnamelShader(vs: string, fs: string, cement: Pick<Finish, '
  *  `look.setFinish`, как остальную отделку). */
 export type EnamelMaterial = T3.MeshPhysicalMaterial & { natural: number }
 
+/** Живая эмаль сцены целиком: один объект uniform'а на сцену, общий у всех
+ *  коронок. В «Rădăcini» (25.10, координатор волны 3) край и линия выключены:
+ *  режим диагностический — корни сквозь прозрачную десну, — а эмаль там
+ *  шейдится по всей коронке и стоила +2 мс кадра на Intel UHD. Выключение —
+ *  ЧИСЛОМ, не define: программа шейдера та же (16 в «Rădăcini», как у main). */
+export interface EnamelLive { value: number }
+
+/** Доля живой эмали сцены: 0 в «Rădăcini», 1 в остальных видах. */
+export const enamelLive = (xray: boolean): number => (xray ? 0 : 1)
+
 /** Подключить живую эмаль к материалу коронки. Программа шейдера одна на все
  *  коронки (ключ кэша общий), числа зуба — в uniform'ах, доля `natural` читается
- *  с материала на каждом кадре (геттер), поэтому твин отделки ведёт и её. */
-export function attachEnamel(m: EnamelMaterial, t: EnamelTooth): void {
+ *  с материала на каждом кадре (геттер), поэтому твин отделки ведёт и её;
+ *  `live` — общий для сцены (`enamelLive`). */
+export function attachEnamel(m: EnamelMaterial, t: EnamelTooth, live: EnamelLive): void {
   m.onBeforeCompile = (sh) => {
     const p = patchEnamelShader(sh.vertexShader, sh.fragmentShader)
     sh.vertexShader = p.vs
@@ -197,6 +210,7 @@ export function attachEnamel(m: EnamelMaterial, t: EnamelTooth): void {
     sh.uniforms['uDpEdge'] = { value: t.edge }
     sh.uniforms['uDpCej'] = { value: t.cej }
     sh.uniforms['uDpNatural'] = { get value() { return m.natural } }
+    sh.uniforms['uDpLive'] = live
   }
   m.customProgramCacheKey = () => 'dp-enamel'
 }

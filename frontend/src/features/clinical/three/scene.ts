@@ -3,7 +3,7 @@ import type { Odontogram, ToothGeom, ToothInfo } from '../chart'
 import { archCurve, GAP, GAP_CLOSED, layoutArch, type ArchLayout, type PlacedTooth } from './arch'
 import { focusOcclusal, focusOrbit, nearestTheta } from './focus'
 import type { Three } from './loadThree'
-import { attachEnamel, enamelTooth, type EnamelMaterial } from './enamel'
+import { attachEnamel, enamelLive, enamelTooth, type EnamelLive, type EnamelMaterial } from './enamel'
 import { COLOR, FINISH, finishOf, hex, lerpHex, mixFinish, physOf, sameFinish, sameLook, setFinish, setTransparent, structChanged, targetLook, type Finish, type Look } from './look'
 import type { RawMesh } from './mesh'
 import { buildDashedLoop, buildRoots, buildScrew, SURF, toCls, type Letter } from './toothGeometry'
@@ -281,6 +281,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   let dimmed: ReadonlySet<number> = new Set()
   const DIM = 0.16
   const togs: Record<Toggle, boolean> = { xray: false, labels: labelsFor('frontal'), upper: true, lower: true, closed: false, rotate: false }
+  // живая эмаль сцены: один uniform на все коронки, в «Rădăcini» — выключена (`enamel.ts`)
+  const live: EnamelLive = { value: enamelLive(togs.xray) }
 
   const geomOf = (info: ToothInfo | undefined, upper: boolean): ToothGeom => info?.geom ?? { ...FALLBACK, upper }
 
@@ -499,7 +501,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
         sheenColor: new THREE.Color(COLOR.sheenEnamel), sheenRoughness: 0.45,
         emissive: new THREE.Color(COLOR.glow), emissiveIntensity: 0,
       }), { natural: FINISH.enamel.natural })
-      attachEnamel(m, tooth)
+      attachEnamel(m, tooth, live)
       return m
     })
     const crownGeo = toGeometry(THREE, cm.mesh)
@@ -1267,6 +1269,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     setToggle(k, on) {
       togs[k] = on
       if (k === 'xray') {
+        live.value = enamelLive(on)
         setTransparent(gumMat, on)
         gumMat.opacity = on ? 0.28 : 1
         gumMat.depthWrite = !on

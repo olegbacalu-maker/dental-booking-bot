@@ -1,6 +1,6 @@
 import { ShaderLib } from 'three'
 import { describe, expect, it } from 'vitest'
-import { CEJ_RISE, cejHeight, edgeStrength, enamelColors, HOOKS, patchEnamelShader } from './enamel'
+import { attachEnamel, CEJ_RISE, cejHeight, edgeStrength, enamelColors, enamelLive, enamelTooth, HOOKS, patchEnamelShader, type EnamelMaterial } from './enamel'
 import { anchorsFor, marginH } from './gum'
 import { COLOR, FINISH, finishFor, physOf } from './look'
 import type { Cls } from './toothGeometry'
@@ -106,5 +106,31 @@ describe('enamel: только живая эмаль', () => {
 
   it('в конструктор материала отделка идёт без natural (three отверг бы поле предупреждением)', () => {
     for (const f of Object.values(FINISH)) expect(Object.keys(physOf(f))).not.toContain('natural')
+  })
+})
+
+describe('enamel: «Rădăcini» без края и линии', () => {
+  it('⛔ выключение — числом общего uniform\'а сцены, не define: программа та же', () => {
+    expect(enamelLive(true)).toBe(0)
+    expect(enamelLive(false)).toBe(1)
+    const p = patchEnamelShader(ShaderLib.physical.vertexShader, ShaderLib.physical.fragmentShader)
+    expect(p.fs).toContain('float dpNat = uDpNatural * uDpLive;')
+    expect(p.fs).not.toMatch(/#(if|ifdef)[^\n]*Dp/)
+  })
+
+  it('все коронки сцены держат ОДИН объект uniform\'а: смена вида доходит до каждой без пересборки', () => {
+    const live = { value: 1 }
+    const shaders = [0, 1].map(() => {
+      const m = { natural: 1 } as unknown as EnamelMaterial
+      attachEnamel(m, enamelTooth('incisor_c', true, 10), live)
+      const sh = { vertexShader: ShaderLib.physical.vertexShader, fragmentShader: ShaderLib.physical.fragmentShader, uniforms: {} as Record<string, { value: unknown }> }
+      ;(m.onBeforeCompile as unknown as (s: typeof sh) => void)(sh)
+      expect(m.customProgramCacheKey()).toBe('dp-enamel')
+      return sh
+    })
+    expect(shaders[0]?.uniforms['uDpLive']).toBe(live)
+    expect(shaders[1]?.uniforms['uDpLive']).toBe(live)
+    live.value = enamelLive(true)
+    expect(shaders[0]?.uniforms['uDpLive']?.value).toBe(0)
   })
 })
