@@ -2663,6 +2663,17 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .dp-vp-ovr { margin-left: auto; display: flex; align-items: flex-start; gap: 6px; pointer-events: none; }
 .dp-react-root .dp-vp-pl { background: var(--surface); border: 1px solid var(--glass-edge); border-radius: var(--r-ctl); box-shadow: var(--sh); }
 .dp-react-root .dp-seg.dp-vp-pl > button { height: 36px; padding: 0 12px; font-size: var(--fs-s); }
+/* ракурсы значками (Олег 24.10 «ракурсы значками»): значок и подпись, как в
+   макете B, пока сцена широкая; уже — только значок (имя в подсказке и
+   aria-label). С подписями плашка видов 588 px, с правой группой и полями —
+   ~912 px сцены (Inter; Segoe UI уже), порог 1000 — с запасом; на 1366 сцена
+   886. У «2D» слово остаётся всегда — оно короче любого значка-загадки */
+.dp-react-root .dp-views.dp-vp-pl > button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.dp-react-root .dp-views.dp-vp-pl > button svg { flex: none; width: 20px; height: 20px; stroke-width: 1.6; }
+@container vp (max-width: 999px) {
+  .dp-react-root .dp-views.dp-vp-pl > button:not([data-v3="2d"]) { padding: 0 8px; }
+  .dp-react-root .dp-views.dp-vp-pl > button:not([data-v3="2d"]) > span { display: none; }
+}
 .dp-react-root .dp-zoom.dp-vp-pl { gap: 2px; padding: 3px; }
 .dp-react-root .dp-vp-pl .dp-ibtn { width: 36px; height: 36px; border-color: transparent; background: none; }
 .dp-react-root .dp-vp-pl .dp-ibtn.on { background: var(--teal-soft); color: var(--teal-d); }
@@ -2697,6 +2708,7 @@ dialog.dp-about { width: 460px; }
 @media (pointer: coarse) {
   .dp-react-root .dp-seg.dp-vp-pl > button, .dp-react-root .dp-vp-pl .dp-ibtn, .dp-react-root .dp-vp-pop .dp-lay { min-height: 44px; }
   .dp-react-root .dp-vp-pl .dp-ibtn { width: 44px; }
+  .dp-react-root .dp-views.dp-vp-pl > button { min-width: 44px; }
   .dp-react-root .dp-vp-legend button.lg { min-height: var(--h-ctl); }
 }
 /* портрет пальцем: шторка панели снизу (52 %) — рабочий стол ужимается над ней,

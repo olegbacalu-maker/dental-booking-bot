@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ICONS } from '../../components/icons'
 import type { ApiResult } from '../../services/api'
 import { openScreen } from '../../test/openScreen'
 import { ApiError } from '../../types/api'
@@ -708,6 +709,31 @@ describe('вид 3D (B7)', () => {
     expect(map.closest('.odop-main')).toBeTruthy()
     // «Punte nouă» — значком с именем: подпись прячет узкая шапка, имя кнопки остаётся
     expect(screen.getByRole('button', { name: 'Punte nouă' }).getAttribute('title')).toBe('Punte nouă')
+  })
+
+  it('ракурсы значками (Олег 24.10): у каждого вида свой значок из layout._I, имя — в aria-label и подсказке; «2D» — значок и слово', async () => {
+    localStorage.setItem('dp_odo_view', '3d')
+    open(16)
+    await screen.findByText(/3D nu s-a încărcat/)
+    const group = screen.getByRole('group', { name: 'Vedere 3D' })
+    // разметка значка, прочитанная тем же разбором, что и у кнопки (кавычки атрибутов он меняет)
+    const glyph = (name: keyof typeof ICONS) => {
+      const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      s.innerHTML = ICONS[name]
+      return s.innerHTML
+    }
+    const want = [['frontal', 'Frontal', 'arch-front'], ['sus', 'Ocluzal sus', 'arch-up'], ['jos', 'Ocluzal jos', 'arch-down'],
+      ['dreapta', 'Dreapta', 'arch-right'], ['stanga', 'Stânga', 'arch-left']] as const
+    expect(within(group).getAllByRole('button').map((b) => b.getAttribute('data-v3'))).toEqual([...want.map(([v]) => v), '2d'])
+    for (const [v, name, icon] of want) {
+      const b = within(group).getByRole('button', { name })
+      expect(b.getAttribute('data-v3')).toBe(v)
+      expect(b.getAttribute('title')).toBe(name)
+      expect(b.querySelector('svg')?.innerHTML).toBe(glyph(icon))
+    }
+    expect(within(group).getByRole('button', { name: 'Frontal' }).getAttribute('aria-pressed')).toBe('true')
+    expect(within(group).getByRole('button', { name: '2D' }).querySelector('svg')?.innerHTML).toBe(glyph('arch-flat'))
+    localStorage.removeItem('dp_odo_view')
   })
 })
 

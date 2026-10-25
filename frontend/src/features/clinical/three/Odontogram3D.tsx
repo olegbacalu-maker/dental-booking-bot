@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { Icon } from '../../../components/Icon'
+import type { IconName } from '../../../components/icons'
 import { useMenuDismiss } from '../../../components/menu'
 import type { Odontogram, PerioLayer } from '../chart'
 import { load3d } from './loadTeeth'
@@ -19,7 +20,8 @@ import type { Letter } from './toothGeometry'
    Раскладка B (Олег 24.10 «da давай вариант B», волна 2 — 25.10; до того —
    полоса сверху и колонка «Straturi» слева по макету 08.10): сцена — во всю
    карточку, управление ПЛАШКАМИ поверх неё. Слева сверху — сегмент пяти
-   видов и кнопка «2D» назад к рисункам сервера; справа сверху — «Straturi»
+   видов значками (подпись рядом — только на широкой сцене, имя — в
+   aria-label и подсказке) и кнопка «2D» назад к рисункам сервера; справа сверху — «Straturi»
    (поповер: челюсти «Arcade» и слои) и группа зума «− 100% +», камера к
    зубу, сброс. Высоту сцене даёт рабочий стол (окно минус шапка, ряд зубов
    и легенда), отдельной полосы над ней нет. Плашки — сплошные, без размытия
@@ -73,6 +75,11 @@ export type Mode = 'stare' | 'paro'
 const toInput = (l: PerioLayer): PerioInput => ({ rows: l.rows, limits: l.limits, colors: l.colors })
 
 const VIEW_ORDER: ViewName[] = ['frontal', 'sus', 'jos', 'dreapta', 'stanga']
+/* значки ракурсов (Олег 24.10 «ракурсы значками») — из layout._I; подпись рядом
+   прячет CSS на узкой сцене, имя остаётся в aria-label и подсказке */
+const VIEW_ICON: Record<ViewName, IconName> = {
+  frontal: 'arch-front', sus: 'arch-up', jos: 'arch-down', dreapta: 'arch-right', stanga: 'arch-left',
+}
 /* поповер «Straturi»: челюсти отдельной группой «Arcade», потом слои */
 const ARCH_TOGS: Toggle[] = ['upper', 'lower']
 const LAYER_TOGS: Toggle[] = ['xray', 'labels', 'closed', 'rotate']
@@ -246,10 +253,12 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
           <div className="dp-seg dp-views dp-vp-pl" role="group" aria-label={T.group}>
             {VIEW_ORDER.map((v) => (
               <button key={v} type="button" data-v3={v} className={view === v ? 'on' : ''} aria-pressed={view === v}
-                disabled={!ready} onClick={() => pickView(v)}>{T.views[v]}</button>
+                aria-label={T.views[v]} title={T.views[v]} disabled={!ready} onClick={() => pickView(v)}>
+                <Icon name={VIEW_ICON[v]} /><span>{T.views[v]}</span>
+              </button>
             ))}
             <span className="dp-seg-sep" />
-            <button type="button" data-v3="2d" title={T.flatTitle} onClick={onFlat}>{T.flat}</button>
+            <button type="button" data-v3="2d" title={T.flatTitle} onClick={onFlat}><Icon name="arch-flat" />{T.flat}</button>
           </div>
           <div className="dp-vp-ovr">
             {/* Esc закрывает поповер и дальше не идёт: рабочий стол по Esc снял бы кисть или черновик */}
