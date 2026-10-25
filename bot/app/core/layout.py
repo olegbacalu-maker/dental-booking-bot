@@ -288,6 +288,10 @@ MSG_BANNER = {
                          "aceeași arcadă, cu cel puțin un stâlp"),
     "dup_punte": ("err", "Un dinte face deja parte din altă punte — "
                          "ștergeți-o întâi pe aceea"),
+    # запись пачкой одонтограммы (волна 2, 25.10): зуб изменился с тех пор,
+    # как экран начал его править; `{n}` — номер, подставляет маршрут
+    "odo_conflict": ("err", "Dintele {n} a fost modificat între timp pe alt calculator. "
+                            "Nimic nu a fost salvat — verificați dintele și salvați din nou."),
     "ok_perio": ("ok", "Parodontograma a fost salvată"),
     # ⚠️ Записано ВСЁ и ничего не потеряно — правило `covers` не даёт стереть
     # чужое. Это предупреждение, а не отказ: осмотр под записывающим успело

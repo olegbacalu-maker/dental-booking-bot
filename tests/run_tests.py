@@ -327,6 +327,7 @@ SUITES = [
     ("Одонтограмма: JSON API", test_odontogram_api.suite_api),
     ("Одонтограмма: узел React экрана", test_odontogram_api.suite_switch),
     ("Одонтограмма: план зуба в модели (вкладка Tratament)", test_odontogram_api.suite_plan),
+    ("Одонтограмма: предпросмотр черновика и запись пачкой", test_odontogram_api.suite_batch),
     ("Живой журнал: конверт состояния без сервера", test_api.suite_live_envelope),
     ("Живой журнал: состояние канала детерминировано между запросами",
      test_admin.suite_live_stable),

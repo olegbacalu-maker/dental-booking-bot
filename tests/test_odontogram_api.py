@@ -34,12 +34,12 @@ def _pid(c: Client, phone: str) -> int:
     return pid_by_phone(c, phone)
 
 
-def _seed(c: Client) -> dict:
+def _seed(c: Client, name: str = "Odonto Pin", phone: str = "069300300") -> dict:
     """Пациент с зубами в каждом состоянии: кариес с поверхностями, смесь
     состояний поверхностей, пломба, коронка, имплант, удалён, отсутствует,
     здоровый в работе (отметка), молочный с кариесом; мост 47–45 с ролями."""
-    c.post_json("/api/patients", {"name": "Odonto Pin", "phone": "069300300"})
-    pid = _pid(c, "069300300")
+    c.post_json("/api/patients", {"name": name, "phone": phone})
+    pid = _pid(c, phone)
     t = f"/api/patients/{pid}/teeth"
     c.post_json(f"{t}/11", {"state": "carie", "note": "distal <b>", "doctor": "Dr. Activ Doi",
                            "surfaces": ["M", "O"]})
@@ -475,3 +475,150 @@ def suite_switch(res: Result) -> None:
         res.ok("?msg= — плашка сервера", "dp_toast" in c.get(f"/admin/patient/{pid}/odontograma?msg=ok_punte").body, "нет")
         res.check("чужая фиша — на список", c.get("/admin/patient/9999/odontograma").status, 303)
         res.check("без входа закрыта", Client(s.url).get(f"/admin/patient/{pid}/odontograma").status, 303)
+
+
+def _tooth_acts(dbfile, pid: int) -> list:
+    """Строки летописи зубов пациента по порядку: (зуб, текст)."""
+    con = sqlite3.connect(str(dbfile))
+    try:
+        return con.execute("SELECT tooth, text FROM activity WHERE patient_id = ? AND kind = 'tooth' "
+                           "ORDER BY id", (pid,)).fetchall()
+    finally:
+        con.close()
+
+
+def _base(t: dict) -> dict:
+    """`base` зуба — каким его показала модель (так шлёт экран)."""
+    return {"state": t["state"], "sfst": t["sfst"], "marks": t["mk"], "doctor": t["doctor"], "note": t["note"]}
+
+
+def _drafts(teeth: dict) -> list:
+    """Черновики пяти зубов — каждый на своё правило записи: имплант поверх
+    смеси поверхностей (карта стирается, буквы держатся), новая смесь,
+    «Sănătos» с кариесом на поверхности (состояние ВЫЧИСЛЯЕТСЯ), отметка и
+    заметка на коронке, зуб в работе становится здоровым (строка удаляется)."""
+    def d(n: int, **kw) -> dict:
+        t = teeth[str(n)]
+        return {"n": n, "state": t["state"], "state0": t["state"], "note": t["note"], "doctor": t["doctor"],
+                "surfaces": t["sfst"], "marks": t["mk"], **kw}
+    return [d(16, state="implant"),
+            d(11, surfaces={"M": "carie", "O": "obturatie", "D": "carie"}),
+            d(22, state="ok", surfaces={"O": "carie"}),
+            d(24, marks=["devital"], note="refăcută"),
+            d(31, marks=[], note="")]
+
+
+def suite_batch(res: Result) -> None:
+    """«Salvează tot» и предпросмотр черновика (волна 2, 25.10).
+
+    Предпросмотр ничего не пишет (ни строки зуба, ни летописи, ни «Fișa
+    deschisă») и рисует РОВНО то, что потом запишется: предпросмотр каждого
+    зуба совпадает с его записью поле в поле (рисунки, подписи, данные).
+    Запись пачкой — то же, что те же черновики по одному у пациента-двойника:
+    те же зубы и те же строки летописи. Конфликт (зуб изменился с тех пор,
+    как экран начал правку) и негодный зуб — отказ, НЕ записано ничего."""
+    with Server() as s:
+        c = Client(s.url).login()
+        pid = _seed(c)["pid"]
+        twin = _seed(c, "Odonto Geaman", "069300303")["pid"]
+        dbf = s.dir / "dental.db"
+        odo = f"/api/patients/{pid}/odontogram"
+        teeth0 = _j(c.get(odo))["data"]["teeth"]
+        drafts = _drafts(teeth0)
+        nums = [d["n"] for d in drafts]
+
+        acts0, views0 = _tooth_acts(dbf, pid), _views(dbf)
+        r = c.post_json(f"{odo}/preview", {"teeth": drafts})
+        res.check("предпросмотр: 200", r.status, 200)
+        pv = _j(r)["data"]["teeth"]
+        res.check("предпросмотр — только присланные зубы", sorted(pv), sorted(str(n) for n in nums))
+        res.check("предпросмотр не пишет летопись", _tooth_acts(dbf, pid), acts0)
+        res.check("предпросмотр не пишет «Fișa deschisă»", _views(dbf), views0)
+        res.ok("предпросмотр не трогает зубы", _j(c.get(odo))["data"]["teeth"] == teeth0, "модель сменилась")
+        res.check("предпросмотр: «Sănătos» + кариес на O → состояние вычислено, как у записи",
+                  (pv["22"]["state"], pv["22"]["sfst"]), ("carie", {"O": "carie"}))
+        res.check("предпросмотр: имплант стирает карту поверхностей", pv["16"]["sfst"], {})
+        res.ok("предпросмотр: рисунок черновика, не сохранённый",
+               pv["16"]["svg"]["frontal"] != teeth0["16"]["svg"]["frontal"], "рисунок прежний")
+
+        items = [{**d, "base": _base(teeth0[str(d["n"])])} for d in drafts]
+        r = c.post_json(f"/api/patients/{pid}/teeth", {"teeth": items})
+        res.check("запись пачкой: ok_card", (r.status, r.msg), (200, "ok_card"))
+        m1 = _j(r)["data"]
+        res.ok("ответ — модель, без фиши (её не просили)", "teeth" in m1 and "card" not in m1, "не то")
+        res.ok("зубы вне пачки не тронуты",
+               all(m1["teeth"][k] == teeth0[k] for k in teeth0 if int(k) not in nums), "чужой зуб сменился")
+        for n in nums:
+            res.check(f"зуб {n}: предпросмотр = записанное поле в поле", pv[str(n)], m1["teeth"][str(n)])
+        acts1 = _tooth_acts(dbf, pid)[len(acts0):]
+        res.check("летопись: строка на каждый зуб, в порядке пачки", [t for t, _x in acts1], nums)
+
+        tw = f"/api/patients/{twin}/teeth"
+        for d in drafts:
+            r = c.post_json(f"{tw}/{d['n']}", {k: v for k, v in d.items() if k != "n"})
+            assert r.msg == "ok_card", r.body[:200]
+        mt = _j(c.get(f"/api/patients/{twin}/odontogram"))["data"]
+        res.ok("пачка = те же черновики по одному: зубы", mt["teeth"] == m1["teeth"], "разошлись")
+        res.check("пачка = те же черновики по одному: строки летописи",
+                  [x for _t, x in acts1], [x for _t, x in _tooth_acts(dbf, twin)[-len(drafts):]])
+
+        # фиша рядом — тем же хвостом, что у записи зуба; открытием она не пишется
+        t21 = m1["teeth"]["21"]
+        views1 = _views(dbf)
+        r = c.post_json(f"/api/patients/{pid}/teeth?card=1&views=1",
+                        {"teeth": [{"n": 21, "state": "coroana", "state0": t21["state"], "note": "", "doctor": "",
+                                    "surfaces": t21["sfst"], "marks": t21["mk"], "base": _base(t21)}]})
+        d = _j(r)["data"]
+        res.ok("?card=1 — свежая фиша рядом с моделью", r.msg == "ok_card" and "card" in d
+               and d["teeth"]["21"]["state"] == "coroana", r.body[:200])
+        res.check("фиша в ответе — не открытие", _views(dbf), views1)
+
+        # конфликт: 36 изменили «на другом компьютере», пока экран правил 21 и 36
+        m2 = _j(c.get(odo))["data"]["teeth"]
+        stale = [{"n": 21, "state": "implant", "state0": m2["21"]["state"], "note": "", "doctor": "",
+                  "surfaces": {}, "marks": [], "base": _base(m2["21"])},
+                 {"n": 36, "state": "extras", "state0": m2["36"]["state"], "note": "", "doctor": "",
+                  "surfaces": {}, "marks": [], "base": _base(m2["36"])}]
+        r = c.post_json(f"/api/patients/{pid}/teeth/36", {"state": "implant", "note": "alt calculator",
+                                                         "doctor": m2["36"]["doctor"], "surfaces": {}, "marks": []})
+        assert r.msg == "ok_card", r.body[:200]
+        before, acts2 = _j(c.get(odo))["data"]["teeth"], _tooth_acts(dbf, pid)
+        r = c.post_json(f"/api/patients/{pid}/teeth", {"teeth": stale})
+        body = _j(r)
+        res.check("конфликт: 409 odo_conflict, поле — номер зуба", (r.status, body.get("code"), body.get("field")),
+                  (409, "odo_conflict", "36"))
+        res.ok("конфликт: текст называет зуб и говорит, что не сохранено ничего",
+               "Dintele 36" in body.get("text", "") and "Nimic nu a fost salvat" in body.get("text", ""),
+               body.get("text", ""))
+        res.ok("конфликт: НЕ записано ничего — и годный 21 тоже", _j(c.get(odo))["data"]["teeth"] == before,
+               "часть пачки записалась")
+        res.check("конфликт: летопись не тронута", _tooth_acts(dbf, pid), acts2)
+        res.check("конфликт: удалённая строка — тоже изменение (31 был в работе, стал здоров)",
+                  c.post_json(f"/api/patients/{pid}/teeth", {"teeth": [
+                      {"n": 31, "state": "ok", "state0": "ok", "note": "", "doctor": "", "surfaces": {},
+                       "marks": ["tratament"], "base": _base(teeth0["31"])}]}).status, 409)
+
+        # негодная пачка — 422, и тоже ничего
+        ok21 = {"n": 21, "state": "implant", "state0": "", "note": "", "doctor": "", "surfaces": {}, "marks": [],
+                "base": _base(before["21"])}
+        for why, payload, field in (
+                ("чужое состояние", [ok21, {**ok21, "n": 22, "state": "tratament", "base": _base(before["22"])}], "22"),
+                ("без base", [{k: v for k, v in ok21.items() if k != "base"}], "21"),
+                ("чужой номер", [{**ok21, "n": 99}], "99"),
+                ("номер строкой", [{**ok21, "n": "21"}], "teeth"),
+                ("повтор зуба", [ok21, ok21], "teeth"),
+                ("пустая пачка", [], "teeth")):
+            r = c.post_json(f"/api/patients/{pid}/teeth", {"teeth": payload})
+            res.check(f"негодная пачка ({why}): 422 bad_card, поле {field}",
+                      (r.status, r.msg, _j(r).get("field")), (422, "bad_card", field))
+        res.ok("негодные пачки ничего не записали", _j(c.get(odo))["data"]["teeth"] == before
+               and _tooth_acts(dbf, pid) == acts2, "запись прошла")
+        res.check("предпросмотр негодного зуба — 422",
+                  c.post_json(f"{odo}/preview", {"teeth": [{**ok21, "state": "tratament"}]}).status, 422)
+
+        out = Client(s.url)
+        res.check("без входа: запись пачкой закрыта (JSON 401)",
+                  out.post_json(f"/api/patients/{pid}/teeth", {"teeth": [ok21]}).status, 401)
+        res.check("без входа: предпросмотр закрыт (JSON 401)",
+                  out.post_json(f"{odo}/preview", {"teeth": [ok21]}).status, 401)
+        res.check("чужая фиша — 404", c.post_json("/api/patients/9999/teeth", {"teeth": [ok21]}).status, 404)

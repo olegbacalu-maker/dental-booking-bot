@@ -1034,6 +1034,20 @@ def surface_map(state: str, surfaces: str = "", packed: str = "") -> dict:
     return {}
 
 
+def tooth_fields(row) -> dict:
+    """Зуб так, как его видит экран: состояние, карта поверхностей, отметки,
+    врач, заметка — из строки `teeth` (None — нетронутый зуб). Одна выжимка
+    на модель экрана (`odontogram.tooth_info`) и на сверку записи пачкой
+    (`db.set_teeth`): «зуб не менялся» обязано значить «экран показал бы его
+    так же», а вторая выжимка рядом разошлась бы с моделью молча."""
+    if not row:
+        return {"state": "ok", "sfst": {}, "mk": [], "doctor": "", "note": ""}
+    return {"state": row["state"],
+            "sfst": surface_map(row["state"], row["surfaces"] or "", row["surface_states"] or ""),
+            "mk": mark_list(row["marks"] or ""),
+            "doctor": row["doctor"] or "", "note": row["note"] or ""}
+
+
 def tooth_state_of(sfmap: dict, fallback: str) -> str:
     """Как зуб называется целиком, когда поверхности разные: по самой тяжёлой.
 

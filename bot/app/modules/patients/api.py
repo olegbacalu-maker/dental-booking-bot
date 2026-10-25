@@ -33,7 +33,7 @@ from ... import engine as eng
 from ... import teeth_svg as tsvg
 from ...core.api import api_body, api_guard, api_own_doctor, api_require
 from ...core.auth import PERM_MONEY, can, request_user
-from ...core.layout import ALERT_KINDS, STATUS_LABEL, _initials, msg_json
+from ...core.layout import ALERT_KINDS, STATUS_LABEL, _initials, msg_json, msg_text
 from ...core.visits import my_scope
 from . import anamneza as panam
 from . import card as pcard
@@ -50,7 +50,7 @@ from .routes import (_PL_BADGE, _PL_CANAL, _PL_PER, _PL_SORTS, _add_alert,
                      _pl_status, _pl_trend, _plan_del, _plan_status,
                      _save_anamneza, _save_perio, _save_profile, _save_tooth,
                      _save_visit, _set_doctor, _sf_letters, _sf_map, _store_bytes,
-                     _store_doc, _visit_back, _visit_ctx)
+                     _store_doc, _tooth_args, _visit_back, _visit_ctx)
 
 router = APIRouter()
 
@@ -939,6 +939,16 @@ async def api_tooth_save(request: Request, pid: int, tooth: int):
     body = await api_body(request)
     if body is None:
         return msg_json(False, "bad_card", field="state", status=422)
+    code = await _save_tooth(pid, tooth, _s(body, "state"), _s(body, "note"),
+                             _s(body, "doctor"), **_tooth_body(body))
+    return await _odo_reply(pid, code, ok={"ok_card"}, field="state" if code == "bad_card" else "",
+                            card_for=request if request.query_params.get("card") == "1" else None)
+
+
+def _tooth_body(body: dict) -> dict:
+    """Поверхности, отметки и `state0` зуба из тела — один разбор на запись
+    зуба, запись пачкой и предпросмотр. Намерение — явным полем (прайор
+    08-16): нет поля — «не сообщали», а не «пусто»."""
     raw = body.get("surfaces")
     sf, sfmap = None, None
     if isinstance(raw, dict):
@@ -946,13 +956,99 @@ async def api_tooth_save(request: Request, pid: int, tooth: int):
     elif isinstance(raw, (list, str)):
         sf = _sf_letters(raw)
     marks = body.get("marks")
-    marks = [str(x) for x in marks] if isinstance(marks, list) else None
     st0 = body.get("state0")
-    code = await _save_tooth(pid, tooth, _s(body, "state"), _s(body, "note"),
-                             _s(body, "doctor"), sf=sf, sfmap=sfmap,
-                             state0=str(st0) if isinstance(st0, str) else None, marks=marks)
-    return await _odo_reply(pid, code, ok={"ok_card"}, field="state" if code == "bad_card" else "",
+    return {"sf": sf, "sfmap": sfmap, "state0": str(st0) if isinstance(st0, str) else None,
+            "marks": [str(x) for x in marks] if isinstance(marks, list) else None}
+
+
+def _tooth_base(raw) -> dict | None:
+    """`base` зуба из тела записи пачкой — каким экран ПОКАЗАЛ зуб, когда начал
+    правку; поля — как у `teeth_svg.tooth_fields` (сверяет `db.set_teeth`)."""
+    if not isinstance(raw, dict):
+        return None
+    sfst = raw.get("sfst")
+    marks = raw.get("marks")
+    if not isinstance(sfst, dict) or not isinstance(marks, list):
+        return None
+    return {"state": _s(raw, "state"), "sfst": _sf_map(sfst), "marks": [str(x) for x in marks],
+            "doctor": _s(raw, "doctor"), "note": _s(raw, "note")}
+
+
+_TEETH_MAX = 52   # все постоянные и молочные — больше зубов у пациента нет
+
+
+def _teeth_items(body: dict | None, *, base: bool) -> tuple[list | None, str]:
+    """Зубы пачки из тела `{teeth: [{n, state, …}]}` — по правилу записи зуба
+    (`_tooth_args`). (None, поле) — пачка негодна целиком: номер зуба
+    виновника или «teeth», если негодна сама пачка (пусто, повтор, сверх
+    `_TEETH_MAX`). `base` — требовать ли у каждого зуба `base`."""
+    raw = (body or {}).get("teeth")
+    if not isinstance(raw, list) or not raw or len(raw) > _TEETH_MAX:
+        return None, "teeth"
+    items, seen = [], set()
+    for it in raw:
+        if not isinstance(it, dict):
+            return None, "teeth"
+        n = it.get("n")
+        if not isinstance(n, int) or isinstance(n, bool) or n in seen:
+            return None, "teeth"
+        seen.add(n)
+        a = _tooth_args(n, _s(it, "state"), _s(it, "note"), _s(it, "doctor"), **_tooth_body(it))
+        b = _tooth_base(it.get("base")) if base else None
+        if a is None or (base and b is None):
+            return None, str(n)
+        items.append({**a, "base": b} if base else a)
+    return items, ""
+
+
+@router.post("/api/patients/{pid}/teeth")
+async def api_teeth_save(request: Request, pid: int):
+    """«Salvează tot» (волна 2 одонтограммы, 25.10): черновики НЕСКОЛЬКИХ
+    зубов одной записью — {teeth: [{n, state, state0, note, doctor, surfaces,
+    marks, base}]}. Поля зуба — как у `POST …/teeth/{n}`, `base` — каким экран
+    показал зуб, когда начал правку.
+
+    Всё или ничего: негодный зуб — 422 `bad_card` (поле — его номер), зуб,
+    изменившийся с тех пор (другой компьютер, другая вкладка), — 409
+    `odo_conflict` с номером в тексте; в обоих случаях НЕ записано ничего.
+    Удача — свежая модель (+ фиша при `?card=1`, как у записи зуба); строка
+    летописи на каждый зуб — та же, что у записи по одному."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    deny, p = await _owned(pid)
+    if deny is not None:
+        return deny
+    items, bad = _teeth_items(await api_body(request), base=True)
+    if items is None:
+        return msg_json(False, "bad_card", field=bad, status=422)
+    n = await db.set_teeth(pid, items)
+    if n is not None:
+        return msg_json(False, "odo_conflict", field=str(n), status=409,
+                        text=msg_text("odo_conflict").format(n=n))
+    return await _odo_reply(pid, "ok_card", ok={"ok_card"},
                             card_for=request if request.query_params.get("card") == "1" else None)
+
+
+@router.post("/api/patients/{pid}/odontogram/preview")
+async def api_odontogram_preview(request: Request, pid: int):
+    """Черновик зубов РИСУНКОМ до записи (волна 2 одонтограммы, 25.10):
+    {teeth: [{n, state, state0, note, doctor, surfaces, marks}]} → {teeth:
+    {"16": зуб модели}} — только присланные. Правило записи и построитель
+    зуба — те же, что у записи и модели (`db.preview_teeth`,
+    `odontogram.preview`), поэтому экран до записи и после неё один и тот же.
+    ⛔ Ничего не пишет: ни строки зуба, ни летописи, ни «Fișa deschisă» — это
+    не открытие фиши и не действие, а вид черновика."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    deny, p = await _owned(pid)
+    if deny is not None:
+        return deny
+    items, bad = _teeth_items(await api_body(request), base=False)
+    if items is None:
+        return msg_json(False, "bad_card", field=bad, status=422)
+    tmap = await db.preview_teeth(pid, items)
+    return msg_json(True, data={"teeth": podo.preview(tmap, await db.bridges(pid),
+                                                      [it["tooth"] for it in items])})
 
 
 @router.post("/api/patients/{pid}/bridges")

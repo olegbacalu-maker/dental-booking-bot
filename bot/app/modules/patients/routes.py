@@ -536,12 +536,26 @@ async def _save_tooth(pid: int, tooth: int, state: str, note: str, doctor: str, 
     данных); `state0` — состояние, как его показал экран. Врач — только из
     справочника: свободный текст тут — будущий «Иванов»/«Иванова» в истории
     зуба."""
-    if tooth not in _FDI_ALL or state not in TOOTH_STATES:
+    a = _tooth_args(tooth, state, note, doctor, sf=sf, sfmap=sfmap, state0=state0, marks=marks)
+    if a is None:
         return "bad_card"
-    doc = doctor.strip() if doctor.strip() in set(eng.DOCTORS.values()) else ""
-    await db.set_tooth(pid, tooth, state, note.strip()[:120], doc, sf, sfmap=sfmap,
-                       state0=state0 if state0 in TOOTH_STATES else None, marks=marks)
+    await db.set_tooth(pid, **a)
     return "ok_card"
+
+
+def _tooth_args(tooth: int, state: str, note: str, doctor: str, *,
+                sf: str | None, sfmap: dict | None, state0: str | None,
+                marks: list | None) -> dict | None:
+    """Правило записи зуба без самой записи — одно на запись зуба
+    (`_save_tooth`), запись пачкой и предпросмотр черновика (волна 2
+    одонтограммы, 25.10). None — номер или состояние чужие (`bad_card`).
+    Ответ — аргументы `db.set_tooth` / `db._tooth_next` по имени."""
+    if tooth not in _FDI_ALL or state not in TOOTH_STATES:
+        return None
+    doc = doctor.strip() if doctor.strip() in set(eng.DOCTORS.values()) else ""
+    return {"tooth": tooth, "state": state, "note": note.strip()[:120], "doctor": doc,
+            "surfaces": sf, "sfmap": sfmap,
+            "state0": state0 if state0 in TOOTH_STATES else None, "marks": marks}
 
 
 async def _add_plan(pid: int, tooth: str, procedure: str, doctor: str,

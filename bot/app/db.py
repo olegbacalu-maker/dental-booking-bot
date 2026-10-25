@@ -2507,7 +2507,127 @@ async def set_tooth(pid: int, tooth: int, state: str, note: str,
                     doctor: str = "", surfaces: str | None = None,
                     sfmap: dict | None = None, state0: str | None = None,
                     marks: list | None = None) -> None:
-    """'ok' без заметки и без врача = зуб здоров → строка удаляется (карта sparse).
+    """Запись одного зуба (`POST /api/patients/{pid}/teeth/{n}`). Что ляжет в
+    строку и в летопись, решает `_tooth_next`; замок — тот же, что у записи
+    пачкой (`set_teeth`): иначе одиночная запись вклинилась бы между её
+    сверкой и записью, и пачка молча переписала бы чужое."""
+    async with _slot_lock():
+        rows = await _fetch(
+            """SELECT state, note, doctor, surfaces, surface_states, marks FROM teeth
+               WHERE patient_id = ? AND tooth = ?""", pid, tooth)
+        row, txt = _tooth_next(rows[0] if rows else None, tooth, state, note, doctor,
+                               surfaces, sfmap, state0, marks)
+        await _put_tooth(pid, tooth, row, _utcnow_iso())
+        await _CONN.commit()
+    await log_event(pid, "tooth", txt, tooth=tooth)
+
+
+async def _put_tooth(pid: int, tooth: int, row: dict | None, at: str) -> None:
+    """Строка зуба по решению `_tooth_next` — БЕЗ commit: его делает
+    вызывающий (одна запись или вся пачка разом)."""
+    if row is None:
+        await _CONN.execute("DELETE FROM teeth WHERE patient_id = ? AND tooth = ?",
+                            (pid, tooth))
+        return
+    await _CONN.execute(
+        """INSERT INTO teeth(patient_id, tooth, state, note, doctor, surfaces,
+                             surface_states, marks, updated_at)
+           VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(patient_id, tooth) DO UPDATE
+             SET state = excluded.state, note = excluded.note,
+                 doctor = excluded.doctor, surfaces = excluded.surfaces,
+                 surface_states = excluded.surface_states,
+                 marks = excluded.marks,
+                 updated_at = excluded.updated_at""",
+        (pid, tooth, row["state"], row["note"], row["doctor"], row["surfaces"],
+         row["surface_states"], row["marks"], at))
+
+
+async def set_teeth(pid: int, items: list[dict]) -> int | None:
+    """Запись НЕСКОЛЬКИХ зубов одним действием («Salvează tot», волна 2
+    одонтограммы, 25.10): None — записаны все; номер — зуб, который изменился
+    с тех пор, как экран начал его править, и тогда НЕ записано НИЧЕГО.
+
+    `items` — те же поля, что у `set_tooth` (`tooth`, `state`, `note`,
+    `doctor`, `surfaces`, `sfmap`, `state0`, `marks`), плюс `base` — каким
+    экран ПОКАЗАЛ зуб, когда начал правку (`state`, `sfst`, `marks`,
+    `doctor`, `note`). Сверка — с той же выжимкой строки, что едет экрану
+    (`teeth_svg.tooth_fields`), поэтому «не менялся» значит «выглядел бы так
+    же», а не «тот же updated_at».
+
+    Сверка и запись — под ОДНИМ `_slot_lock` (его берёт и `set_tooth`):
+    иначе чужая запись встала бы между ними. Строки — одной транзакцией, один
+    commit в конце, при исключении rollback.
+    ⚠️ Принятый риск (тот же, что у `delete_patient_fully`): соединение
+    aiosqlite общее, и чужой `_execute` между нашими await может закоммитить
+    часть пачки раньше; разорвать её может только ошибка диска посреди записи.
+    Откаты чужих операций в рабочем пути идут под тем же замком или после
+    упавшей операции. Отдельное соединение ради этого окна не заводим.
+    Летопись — как у одиночной записи: строка на зуб через `log_event` после
+    commit (журнал не роняет запись)."""
+    from .teeth_svg import tooth_fields
+    nums = [it["tooth"] for it in items]
+    async with _slot_lock():
+        rows = await _fetch(
+            f"""SELECT tooth, state, note, doctor, surfaces, surface_states, marks
+                FROM teeth WHERE patient_id = ? AND tooth IN ({','.join('?' * len(nums))})""",
+            pid, *nums)
+        prev = {r["tooth"]: r for r in rows}
+        for it in items:
+            if not _same_tooth(tooth_fields(prev.get(it["tooth"])), it["base"]):
+                return it["tooth"]
+        plan = [(it["tooth"], *_tooth_next(prev.get(it["tooth"]), it["tooth"], it["state"],
+                                           it["note"], it["doctor"], it["surfaces"], it["sfmap"],
+                                           it["state0"], it["marks"]))
+                for it in items]
+        at = _utcnow_iso()
+        try:
+            for tooth, row, _txt in plan:
+                await _put_tooth(pid, tooth, row, at)
+            await _CONN.commit()
+        except Exception:
+            await _CONN.rollback()
+            raise
+        for tooth, _row, txt in plan:
+            await log_event(pid, "tooth", txt, tooth=tooth)
+    return None
+
+
+def _same_tooth(cur: dict, base: dict) -> bool:
+    """Выжимка строки (`tooth_fields`) против того, что экран прислал как
+    `base`: отметки — набором, поверхности — без пустых значений."""
+    return (cur["state"] == base["state"] and cur["note"] == base["note"]
+            and cur["doctor"] == base["doctor"]
+            and sorted(cur["mk"]) == sorted(base["marks"])
+            and {k: v for k, v in cur["sfst"].items() if v}
+            == {k: v for k, v in base["sfst"].items() if v})
+
+
+async def preview_teeth(pid: int, items: list[dict]) -> dict:
+    """Карта зубов (`teeth_map`) такой, какой её сделала бы запись `items`, —
+    БЕЗ записи: ни строки зуба, ни летописи. Решает тот же `_tooth_next`, что
+    у записи, поэтому предпросмотр экрана и записанное не расходятся."""
+    tmap = await teeth_map(pid)
+    now = datetime.now(timezone.utc)
+    for it in items:
+        n = it["tooth"]
+        row, _txt = _tooth_next(tmap.get(n), n, it["state"], it["note"], it["doctor"],
+                                it["surfaces"], it["sfmap"], it["state0"], it["marks"])
+        if row is None:
+            tmap.pop(n, None)
+        else:
+            tmap[n] = {"tooth": n, **row, "updated_at": now}
+    return tmap
+
+
+def _tooth_next(prev: dict | None, tooth: int, state: str, note: str, doctor: str,
+                surfaces: str | None, sfmap: dict | None, state0: str | None,
+                marks: list | None) -> tuple[dict | None, str]:
+    """(строка зуба | None — строку удалить, строка летописи) — чистое решение
+    записи по прежней строке `prev`. Его зовут запись (`set_tooth`,
+    `set_teeth`) и предпросмотр (`preview_teeth`).
+
+    'ok' без заметки и без врача = зуб здоров → строка удаляется (карта sparse).
     doctor — СНАПШОТ имени на момент записи, как в plan_items: переименование
     врача не должно переписывать историю зуба.
     surfaces — буквы поверхностей одной строкой («MOD»); проверяет маршрут.
@@ -2537,10 +2657,6 @@ async def set_tooth(pid: int, tooth: int, state: str, note: str,
     from .teeth_svg import (MARK_RO, STATE_RO, SURFACE_ORDER, SURFACE_STATES,
                             mark_list, pack_marks, pack_surfaces, surface_map,
                             surface_summary, tooth_state_of)
-    rows = await _fetch(
-        """SELECT state, surfaces, surface_states, marks FROM teeth
-           WHERE patient_id = ? AND tooth = ?""", pid, tooth)
-    prev = rows[0] if rows else None
     if surfaces is None:
         surfaces = (prev["surfaces"] or "") if prev else ""
     # ⚠️ То же правило, что у поверхностей: «поля нет» ≠ «снято». Экран, не
@@ -2606,29 +2722,13 @@ async def set_tooth(pid: int, tooth: int, state: str, note: str,
     # сразу после сохранения, и экран отвечал бы «сохранено» (грабля карты
     # «303 не отличает успех от отказа»).
     if state == "ok" and not note and not doctor and not marks:
-        await _execute("DELETE FROM teeth WHERE patient_id = ? AND tooth = ?", pid, tooth)
-        await log_event(pid, "tooth", f"Dinte {tooth}: {STATE_RO['ok']}",
-                        tooth=tooth)
-        return
+        return None, f"Dinte {tooth}: {STATE_RO['ok']}"
     if state in SURFACE_STATES:
         # у поверхностного состояния буквы и карта — одно знание, поэтому буквы
         # ВЫЧИСЛЯЮТСЯ: сняли поражение с поверхности — ушла и буква
         surfaces = "".join(k for k in SURFACE_ORDER if k in sfmap)
-    packed = pack_surfaces(sfmap)
-    mk = pack_marks(marks)
-
-    lt = """INSERT INTO teeth(patient_id, tooth, state, note, doctor, surfaces,
-                              surface_states, marks, updated_at)
-            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(patient_id, tooth) DO UPDATE
-              SET state = excluded.state, note = excluded.note,
-                  doctor = excluded.doctor, surfaces = excluded.surfaces,
-                  surface_states = excluded.surface_states,
-                  marks = excluded.marks,
-                  updated_at = excluded.updated_at"""
-    await _execute(lt,
-                   pid, tooth, state, note, doctor, surfaces, packed, mk,
-                   _utcnow_iso())
+    row = {"state": state, "note": note, "doctor": doctor, "surfaces": surfaces,
+           "surface_states": pack_surfaces(sfmap), "marks": pack_marks(marks)}
     txt = f"Dinte {tooth}: {STATE_RO.get(state, state)}"
     # ⚠️ Летопись хранит ГОТОВУЮ строку, поэтому смесь разворачивается СЕЙЧАС:
     # «Carie (M), Obturație (OD)». Однородный случай даёт ровно прежний вид —
@@ -2648,7 +2748,7 @@ async def set_tooth(pid: int, tooth: int, state: str, note: str,
         txt += f" · {doctor}"
     if note:
         txt += f" · {note}"
-    await log_event(pid, "tooth", txt, tooth=tooth)
+    return row, txt
 
 
 # ---------- мосты (punte, 08-21, просьба пилота) ----------

@@ -114,35 +114,42 @@ def tooth_info(tmap: dict, tooth_acts: list) -> tuple[dict, dict]:
     расходиться с полями, залитыми на самом зубе, причём только у половины
     челюсти.
     """
-    def info(n: int) -> dict:
-        t = tmap.get(n)
-        base = {"jaw": "sus" if tsvg.is_upper(n) else "jos",
-                "mez": "right" if tsvg.mesial_right(n) else "left"}
-        if not t:
-            return {**base, "state": "ok", "note": "", "doctor": "", "at": "",
-                    "sf": "", "sfx": "", "sfst": {}, "mk": [], "mkx": ""}
-        sfmap = tsvg.surface_map(t["state"], t["surfaces"] or "",
-                                 (t["surface_states"] or ""))
-        mk = tsvg.mark_list(t["marks"] or "")
-        return {**base, "state": t["state"], "note": t["note"] or "",
-                "doctor": t["doctor"] or "", "sf": t["surfaces"] or "",
-                "sfst": sfmap, "mk": mk,
-                # готовая подпись отметок — по той же причине, что и `sfx`:
-                # слова живут в MARK_RO, второй копии в JS быть не должно
-                "mkx": ", ".join(MARKS[m] for m in mk),
-                # ⚠️ Готовая подпись, а не голые буквы: плавающая подсказка
-                # печатает её как есть. Собирает её СЕРВЕР (`sf_text`) — порядок
-                # тяжести и слова живут в одном месте, второй копии в JS нет
-                "sfx": sf_text(sfmap, t["surfaces"] or ""),
-                "at": t["updated_at"].astimezone(eng.TZ).strftime("%d.%m.%Y")
-                      if t["updated_at"] else ""}
+    return {str(n): _info(n, tmap) for n in FDI_ALL}, _history(tooth_acts)
 
+
+def _history(tooth_acts: list) -> dict:
     hist: dict[str, list] = {}
     for a in tooth_acts:
         at = a["at"].astimezone(eng.TZ) if hasattr(a["at"], "astimezone") else None
         hist.setdefault(str(a["tooth"]), []).append(
             {"at": at.strftime("%d.%m.%Y") if at else "", "text": a["text"]})
-    return {str(n): info(n) for n in FDI_ALL}, hist
+    return hist
+
+
+def _info(n: int, tmap: dict) -> dict:
+    """Данные зуба n (без рисунков) — см. `tooth_info`."""
+    t = tmap.get(n)
+    base = {"jaw": "sus" if tsvg.is_upper(n) else "jos",
+            "mez": "right" if tsvg.mesial_right(n) else "left"}
+    if not t:
+        return {**base, "state": "ok", "note": "", "doctor": "", "at": "",
+                "sf": "", "sfx": "", "sfst": {}, "mk": [], "mkx": ""}
+    # состояние, карта, отметки, врач, заметка — та же выжимка строки, что
+    # сверяет запись пачкой (`db.set_teeth`): «зуб не менялся» = «тот же вид»
+    f = tsvg.tooth_fields(t)
+    sfmap, mk = f["sfst"], f["mk"]
+    return {**base, "state": f["state"], "note": f["note"],
+            "doctor": f["doctor"], "sf": t["surfaces"] or "",
+            "sfst": sfmap, "mk": mk,
+            # готовая подпись отметок — по той же причине, что и `sfx`:
+            # слова живут в MARK_RO, второй копии в JS быть не должно
+            "mkx": ", ".join(MARKS[m] for m in mk),
+            # ⚠️ Готовая подпись, а не голые буквы: плавающая подсказка
+            # печатает её как есть. Собирает её СЕРВЕР (`sf_text`) — порядок
+            # тяжести и слова живут в одном месте, второй копии в JS нет
+            "sfx": sf_text(sfmap, t["surfaces"] or ""),
+            "at": t["updated_at"].astimezone(eng.TZ).strftime("%d.%m.%Y")
+                  if t["updated_at"] else ""}
 
 
 # Анатомическое название по позиции в квадранте (последняя цифра FDI) и
@@ -274,6 +281,40 @@ def tooth_plan(items: list) -> dict:
     return out
 
 
+def tooth_entry(n: int, tmap: dict, bmap: dict) -> dict:
+    """Зуб модели экрана целиком: данные (`_info`), подписи, мост, размеры 3D
+    и оба рисунка с целями поверхностей. Один построитель на модель и на
+    предпросмотр черновика (`preview`)."""
+    t = tmap.get(n)
+    st = t["state"] if t else "ok"
+    f = tsvg.tooth_fields(t)
+    milk = n in FDI_MILK_UPPER or n in FDI_MILK_LOWER
+    br = bmap.get(n)
+    return {
+        **_info(n, tmap), "milk": milk, "title": tooth_title(n, tmap, bmap),
+        # подпись панели зуба (08.10): название и сторона — словами сервера
+        "name": tooth_name(n), "side": tooth_side(n),
+        "bridge": {"role": br[0], "material": br[1]} if br else None,
+        # размеры для объёмного вида (B7): сервер владеет ими, клиент рендерит
+        "geom": tsvg.tooth_geom(n),
+        "svg": {
+            "frontal": tsvg.tooth_svg(n, st, width=28 if milk else 38, interactive=True,
+                                      surfaces=f["sfst"], marks=f["mk"], hit=True),
+            "occlusal": tsvg.occlusal_svg(n, st, width=38 if milk else 52, interactive=True,
+                                          surfaces=f["sfst"], marks=f["mk"], hit=True),
+        },
+    }
+
+
+def preview(tmap: dict, bridges: list | None, teeth: list[int]) -> dict:
+    """Зубы `teeth` по карте, которую ВЕРНУЛ БЫ запись черновика
+    (`db.preview_teeth`, волна 2 одонтограммы, 25.10): экран рисует черновик
+    в 3D и 2D до записи, и рисунок обязан быть тем же, что после неё, —
+    поэтому строит его тот же `tooth_entry`, что и модель."""
+    bmap = _bmap(bridges or [])
+    return {str(n): tooth_entry(n, tmap, bmap) for n in teeth}
+
+
 def model(tmap: dict, tooth_acts: list, bridges: list | None,
           plan: list | None = None) -> dict:
     """Одонтограмма данными для React (C21, docs/dentpilot-2/clinical-chart.md):
@@ -281,31 +322,9 @@ def model(tmap: dict, tooth_acts: list, bridges: list | None,
     позиции плана по зубам, дуги и подъём вида сверху, мосты, легенда и
     словари. Всё считает сервер — у клиента нет ни геометрии, ни второго
     словаря состояний. `plan` — строки плана фиши (`api._plan_item`)."""
-    infos, hist = tooth_info(tmap, tooth_acts)
+    hist = _history(tooth_acts)
     bmap = _bmap(bridges or [])
-    teeth: dict = {}
-    for n in FDI_ALL:
-        t = tmap.get(n)
-        st = t["state"] if t else "ok"
-        sfmap = tsvg.surface_map(st, (t["surfaces"] if t else "") or "",
-                                 (t["surface_states"] if t else "") or "")
-        mk = tsvg.mark_list((t["marks"] if t else "") or "")
-        milk = n in FDI_MILK_UPPER or n in FDI_MILK_LOWER
-        br = bmap.get(n)
-        teeth[str(n)] = {
-            **infos[str(n)], "milk": milk, "title": tooth_title(n, tmap, bmap),
-            # подпись панели зуба (08.10): название и сторона — словами сервера
-            "name": tooth_name(n), "side": tooth_side(n),
-            "bridge": {"role": br[0], "material": br[1]} if br else None,
-            # размеры для объёмного вида (B7): сервер владеет ими, клиент рендерит
-            "geom": tsvg.tooth_geom(n),
-            "svg": {
-                "frontal": tsvg.tooth_svg(n, st, width=28 if milk else 38, interactive=True,
-                                          surfaces=sfmap, marks=mk, hit=True),
-                "occlusal": tsvg.occlusal_svg(n, st, width=38 if milk else 52, interactive=True,
-                                              surfaces=sfmap, marks=mk, hit=True),
-            },
-        }
+    teeth = {str(n): tooth_entry(n, tmap, bmap) for n in FDI_ALL}
 
     def arcs(row: list, *, lower: bool, milk: bool) -> list[int]:
         return [int(f"{arc_offset(i, len(row), lower=lower, milk=milk):.0f}")
