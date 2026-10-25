@@ -509,7 +509,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     const rootMat = new THREE.MeshPhysicalMaterial({
       color: COLOR.dentin, ...physOf(FINISH.dentin), sheenColor: new THREE.Color(COLOR.sheenDentin), sheenRoughness: 0.5,
     })
-    const rootsGeo = toGeometry(THREE, buildRoots(g, cm.neck))
+    // корни своей модели (25.10) — по таблице; без неё (молочные, старая таблица) — формула
+    const rootsGeo = toGeometry(THREE, cm.roots ?? buildRoots(g, cm.neck))
     const roots = new THREE.Mesh(rootsGeo, rootMat)
     roots.raycast = () => undefined
     const screwGeo = toGeometry(THREE, buildScrew(Math.min(hmd, hbl) * 0.9))

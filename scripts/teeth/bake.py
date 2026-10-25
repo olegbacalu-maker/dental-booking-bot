@@ -8,6 +8,10 @@
 Таблицы считаются четырьмя процессами (по четыре типа), потом проверка: стенка
 без выбросов по углу, вершина там, где эталон, жевательная поверхность внутри
 контура. Таблица — мм эталона, три знака (0,001 мм) — с запасом.
+
+Корни (25.10, `roots.py`) считаются при записи по шейке готовой таблицы — быстро
+и тем же путём в `--js-only`; у корней два знака (0,01 мм): форма корня мягкая,
+а третий знак стоил бы ~30 % веса файла.
 """
 import json
 import pathlib
@@ -15,6 +19,8 @@ import subprocess
 import sys
 
 import numpy as np
+
+import roots as R
 
 HERE = pathlib.Path(__file__).resolve().parent
 ALL = ["U1", "U2", "U3", "U4", "U5", "U6", "U7", "U8", "L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8"]
@@ -41,20 +47,20 @@ def check(tab):
     return spike, tip
 
 
-def rnd(v):
+def rnd(v, nd=3):
     if isinstance(v, list):
-        return [rnd(x) for x in v]
+        return [rnd(x, nd) for x in v]
     if isinstance(v, dict):
-        return {k: rnd(x) for k, x in v.items()}
+        return {k: rnd(x, nd) for k, x in v.items()}
     if isinstance(v, float):
-        return round(v, 3)
+        return round(v, nd)
     return v
 
 
 def write_js(out):
     lines = [
-        "/* Свои модели зубов — таблицы всех 16 типов постоянных зубов (07.10).",
-        "   Генератор — scripts/teeth (gen_teeth.py + family.py), запись — bake.py.",
+        "/* Свои модели зубов — таблицы всех 16 типов постоянных зубов (07.10), с корнями (25.10).",
+        "   Генератор — scripts/teeth (gen_teeth.py + family.py, корни — roots.py), запись — bake.py.",
         "   ⛔ Не править руками. На сборке клиента копируется в bot/app/static/js/teeth.js",
         "   (vite.config.ts), в программе грузится при открытии 3D (loadTeeth.ts).",
         "   Типы — teeth.d.ts рядом. */",
@@ -63,8 +69,14 @@ def write_js(out):
     for nm in ALL:
         tab = json.loads((HERE / f"table_{nm}.json").read_text(encoding="utf-8"))
         spike, tip = check(tab)
-        print(f"{nm}: вершина {tip:.2f} (эталон {tab['ref']['crown']}), выброс стенки {spike:.3f} мм")
-        lines.append(f"  {nm}: {json.dumps(rnd(tab), separators=(',', ':'))},")
+        rs = R.root_set(nm, tab)
+        rspike = R.check(nm, rs)
+        n_roots = len(rs["list"]) or 1
+        print(f"{nm}: вершина {tip:.2f} (эталон {tab['ref']['crown']}), выброс стенки {spike:.3f} мм; "
+              f"корней {n_roots}, длина {rs['len']}, выброс корня {rspike:.3f}")
+        out_tab = rnd(tab)
+        out_tab["roots"] = rnd(rs, 2)
+        lines.append(f"  {nm}: {json.dumps(out_tab, separators=(',', ':'))},")
     lines.append("}")
     lines.append("")
     pairs = []

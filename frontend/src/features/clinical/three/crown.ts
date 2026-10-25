@@ -150,6 +150,8 @@ export interface CrownModel {
   surf: (th: number, h: number) => [number, number]
   /** контур шейки из n точек — пунктир пустого места */
   outline: (n: number) => [number, number][]
+  /** корни по таблице своей модели (25.10, `sculpt.ts`); нет — их строит формула `buildRoots` */
+  roots?: RawMesh
 }
 
 export function crownModel(g: CrownInput): CrownModel {

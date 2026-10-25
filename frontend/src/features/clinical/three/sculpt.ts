@@ -1,4 +1,6 @@
+import type { ToothGeom } from '../chart'
 import type { CrownInput, CrownModel } from './crown'
+import { oneGroup, type RawMesh } from './mesh'
 import { SURF, toCls, type Letter } from './toothGeometry'
 
 /* Коронка по СВОЕЙ вылепленной модели (06.10, слово Олега «сделаем свои
@@ -32,7 +34,51 @@ export interface SculptTable {
    *  нет — кольца поровну, как в образце 06.10 */
   capS?: number[]
   capCenter: number
+  /** корни (25.10, `scripts/teeth/roots.py`); нет — корни-формула, как до 25.10 */
+  roots?: RootSet
 }
+
+/** Ствол корня от шейки: глубины (мм эталона, вниз), сдвиг центра от центра
+ *  шейки и множитель радиуса ШЕЙКИ на каждом угле — первая строка ровно 1, так
+ *  что корень продолжает шейку без шва по построению. */
+export interface RootTrunk {
+  d: number[]
+  ox: number[]
+  oz: number[]
+  w: number[][]
+}
+
+/** Корень многокорневого зуба: глубины, центр и радиусы сечения (мм эталона);
+ *  начинается внутри ствола, последняя строка — апекс. */
+export interface RootWall {
+  d: number[]
+  cx: number[]
+  cz: number[]
+  r: number[][]
+}
+
+export interface RootSet {
+  /** глубина апекса самого длинного корня под шейкой, мм эталона: к длине сервера */
+  len: number
+  /** глубина фуркации (у однокорневого — `len`: ствол и есть корень) */
+  fur: number
+  /** углов у ствола и у корней */
+  theta: number
+  rt: number
+  trunk: RootTrunk
+  /** корни многокорневого; у однокорневого пусто */
+  list: RootWall[]
+}
+
+/** Корней по таблице: у однокорневого список пуст — корень один, это ствол. */
+export const rootCount = (rs: RootSet): number => rs.list.length || 1
+
+/** Глубина апекса самого длинного корня = шеечный переход формулы (1,5 мм) +
+ *  длина корня сервера: та же, что у формулы `buildRoots`, — под неё рассчитана
+ *  глубина тела десны (`gum.ts`: 1,5 + 1,05·root + 1,8). */
+export const ROOT_NECK = 1.5
+
+type SculptInput = CrownInput & Partial<Pick<ToothGeom, 'root' | 'roots'>>
 
 /** Набор своих моделей: таблицы по типу (`U1`…`L8`) и номер FDI → тип.
  *  Едет отдельным файлом `/static/js/teeth.js` (`loadTeeth.ts`), не в бандле. */
@@ -58,7 +104,7 @@ const smooth = (e0: number, e1: number, x: number): number => {
  *  точка на выпуклой стенке, и щель видна. +3 % по ширине её закрывают. */
 const CONTACT = 1.03
 
-export function sculptModel(tab: SculptTable, g: CrownInput): CrownModel {
+export function sculptModel(tab: SculptTable, g: SculptInput): CrownModel {
   const sx = (g.md / tab.ref.md) * CONTACT
   const sz = g.bl / tab.ref.bl
   const sy = g.crown / tab.ref.crown
@@ -195,8 +241,52 @@ export function sculptModel(tab: SculptTable, g: CrownInput): CrownModel {
     return [(q0[0] + (q1[0] - q0[0]) * fk) * sx, (q0[1] + (q1[1] - q0[1]) * fk) * sz]
   }
   const neck = (th: number): [number, number] => wallAt(th, 0)
+  // корни по таблице (25.10) — только если их столько же, сколько у сервера:
+  // иначе (старая таблица, чужой номер) корни и стенка ниже шейки — формула
+  const rs = tab.roots
+  const root = g.root
+  const roots = rs && root !== undefined && rootCount(rs) === (g.roots ?? 1) ? rs : null
+  const sd = roots ? (ROOT_NECK + (root ?? 0)) / roots.len : 1
+  const c0x = (tab.cx[0] ?? 0) * sx
+  const c0z = (tab.cz[0] ?? 0) * sz
+  /** точка ствола: строка k (до k+1 — доля fk), угол th */
+  const trunkPt = (rr: RootSet, k: number, fk: number, th: number): [number, number] => {
+    const tr = rr.trunk
+    const T = rr.theta
+    let a = th % (2 * Math.PI)
+    if (a < 0) a += 2 * Math.PI
+    const fj = (a / (2 * Math.PI)) * T
+    const j0 = Math.floor(fj) % T
+    const tj = fj - Math.floor(fj)
+    const wAt = (kk: number): number => {
+      const row = tr.w[kk] ?? []
+      return (row[j0] ?? 1) + ((row[(j0 + 1) % T] ?? 1) - (row[j0] ?? 1)) * tj
+    }
+    const k1 = Math.min(k + 1, tr.d.length - 1)
+    const w = wAt(k) + (wAt(k1) - wAt(k)) * fk
+    const ox = (tr.ox[k] ?? 0) + ((tr.ox[k1] ?? 0) - (tr.ox[k] ?? 0)) * fk
+    const oz = (tr.oz[k] ?? 0) + ((tr.oz[k1] ?? 0) - (tr.oz[k] ?? 0)) * fk
+    const [nx, nz] = neck(th)
+    return [c0x + (nx - c0x) * w + ox * sx, c0z + (nz - c0z) * w + oz * sz]
+  }
+  /** стенка ствола на глубине d мм эталона */
+  const trunkAt = (rr: RootSet, th: number, d: number): [number, number] => {
+    const D = rr.trunk.d
+    let k = 0
+    while (k < D.length - 2 && d > (D[k + 1] ?? Infinity)) k++
+    const d0 = D[k] ?? 0
+    const d1 = D[k + 1] ?? d0
+    return trunkPt(rr, k, d1 > d0 ? clamp((d - d0) / (d1 - d0), 0, 1) : 0, th)
+  }
   const surf = (th: number, h: number): [number, number] => {
     if (h >= 0) return wallAt(th, Math.min(h / sy, tab.hCap))
+    if (roots) {
+      // корень по таблице — ТА ЖЕ стенка, что у сетки корня: десна при рецессии
+      // садится на неё; у многокорневого ниже фуркации — сечение у фуркации
+      // (тело десны глубже 3 мм рецессии не опускается, `gum.ts › REC_BODY`)
+      const lim = roots.list.length ? roots.fur : 0.9 * roots.len
+      return trunkAt(roots, th, Math.min(-h / sd, lim))
+    }
     // корень — то же правило, что у `buildRoots`: сечение шейки сужается к корню
     const d = -h
     const w = d <= 2.4 ? 1 - 0.14 * smooth(0, 2.4, d) : Math.max(0.7, 0.86 - 0.03 * (d - 2.4))
@@ -206,5 +296,61 @@ export function sculptModel(tab: SculptTable, g: CrownInput): CrownModel {
   const outline = (n: number): [number, number][] => Array.from({ length: n }, (_v, j) => neck((2 * Math.PI * j) / n))
   let tip = 0
   for (let i = 1; i < pos.length; i += 3) tip = Math.max(tip, pos[i] ?? 0)
-  return { mesh: { positions: pos, index, groups, colors: col }, tip, neck, surf, outline }
+  const model: CrownModel = { mesh: { positions: pos, index, groups, colors: col }, tip, neck, surf, outline }
+  if (roots) model.roots = rootsMesh(roots, sx, sz, sd, (k, th) => trunkPt(roots, k, 0, th), [c0x, c0z])
+  return model
+}
+
+/** Сетка корней по таблице: ствол кольцами от шейки (тот же обход, что у формулы
+ *  `buildRoots`, — нормали наружу), у однокорневого он сходится в апекс, у
+ *  многокорневого закрыт сводом у фуркации; корни — кольцами до апекса. Одна
+ *  группа — один материал (дентин). */
+function rootsMesh(rs: RootSet, sx: number, sz: number, sd: number,
+  trunkPt: (k: number, th: number) => [number, number], c0: [number, number]): RawMesh {
+  const pos: number[] = []
+  const idx: number[] = []
+  /** кольца (rows × n) + вершина, к которой сходится последнее кольцо */
+  const rings = (rows: number, n: number, ring: (k: number, j: number) => [number, number, number], tip: [number, number, number]): void => {
+    const base = pos.length / 3
+    for (let k = 0; k < rows; k++) {
+      for (let j = 0; j < n; j++) pos.push(...ring(k, j))
+    }
+    for (let k = 0; k < rows - 1; k++) {
+      for (let j = 0; j < n; j++) {
+        const jn = (j + 1) % n
+        const a = base + k * n + j
+        const b = base + k * n + jn
+        const c = base + (k + 1) * n + jn
+        const d = base + (k + 1) * n + j
+        idx.push(a, b, c, a, c, d)
+      }
+    }
+    const t = pos.length / 3
+    pos.push(...tip)
+    const o = base + (rows - 1) * n
+    for (let j = 0; j < n; j++) idx.push(o + j, o + ((j + 1) % n), t)
+  }
+  const tr = rs.trunk
+  const K = tr.d.length
+  const multi = rs.list.length > 0
+  const dep = (d: number | undefined): number => -(d ?? 0) * sd
+  // однокорневой: последняя строка ствола — апекс (множитель 0), её место занимает
+  // вершина; многокорневой: ствол закрыт сводом на 0,3 мм ниже фуркации
+  const lastT = multi ? K - 1 : K - 2
+  const apexT: [number, number, number] = multi
+    ? [c0[0] + (tr.ox[K - 1] ?? 0) * sx, dep((tr.d[K - 1] ?? 0) + 0.3), c0[1] + (tr.oz[K - 1] ?? 0) * sz]
+    : (() => { const [x, z] = trunkPt(K - 1, 0); return [x, dep(tr.d[K - 1]), z] as [number, number, number] })()
+  rings(lastT + 1, rs.theta, (k, j) => {
+    const [x, z] = trunkPt(k, (2 * Math.PI * j) / rs.theta)
+    return [x, dep(tr.d[k]), z]
+  }, apexT)
+  for (const q of rs.list) {
+    const L = q.d.length - 1
+    rings(L, rs.rt, (k, j) => {
+      const a = (2 * Math.PI * j) / rs.rt
+      const r = q.r[k]?.[j] ?? 0
+      return [((q.cx[k] ?? 0) + r * Math.cos(a)) * sx, dep(q.d[k]), ((q.cz[k] ?? 0) + r * Math.sin(a)) * sz]
+    }, [(q.cx[L] ?? 0) * sx, dep(q.d[L]), (q.cz[L] ?? 0) * sz])
+  }
+  return oneGroup(pos, idx)
 }
