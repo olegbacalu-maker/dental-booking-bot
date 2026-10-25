@@ -390,7 +390,9 @@ describe('C22: поверхность как первичный жест, чер
   it('клавиатура: стрелки — сосед по ряду и та же позиция другой челюсти, буквы — поверхность, P только сверху', async () => {
     open(16)
     await waitFor(() => expect(btn(16)).toBeTruthy())
-    expect(document.activeElement).toBe(btn(16))           // зуб из адреса — в фокусе, клавиши работают сразу
+    // зуб из адреса — в фокусе, клавиши работают сразу; фокус ставит эффект после
+    // кадра с дугой — под нагрузкой полного прогона ждать его, а не сверять мгновенно
+    await waitFor(() => expect(document.activeElement).toBe(btn(16)))
     key('ArrowRight')
     expect(btn(15).className).toContain('sel')
     expect(document.activeElement).toBe(btn(15))
