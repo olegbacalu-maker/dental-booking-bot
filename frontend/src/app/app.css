@@ -695,19 +695,23 @@
 }
 .dp-react-root .st-palette .stp i { width: 12px; height: 12px; border-radius: 50%; flex: none; }
 .dp-react-root .st-palette .stp.on { border-color: var(--teal); background: var(--teal-glow); color: var(--teal-d); font-weight: 600; }
-@media (pointer: coarse) {
-  .dp-react-root .odop-grid { grid-template-columns: minmax(0, 1fr); }
+/* Раскладка B (25.10): в АЛЬБОМЕ панель — колонкой рабочего стола, как мышью
+   (прежняя панель поверх карты закрывала вкладки Implant / Proteză); в
+   ПОРТРЕТЕ — шторка снизу (52 % высоты), а рабочий стол над ней ужимается
+   (секция odo:layout), легенда на это время уходит — сцене остаётся место. */
+@media (pointer: coarse) and (orientation: portrait) {
   .dp-react-root .odop:not([data-sel]) .odop-side { display: none; }
-  .dp-react-root .odop[data-sel] { padding-bottom: 56vh; }
   .dp-react-root .odop[data-sel] .odop-side {
     position: fixed; z-index: 40; left: 0; right: 0; top: auto; bottom: 0;
-    max-height: 56vh; overflow: auto; overscroll-behavior: contain;
+    max-height: 52vh; overflow: auto; overscroll-behavior: contain;
     background: var(--surface-live); border-top: 1px solid var(--glass-edge);
     -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
     border-radius: var(--r-block) var(--r-block) 0 0; box-shadow: 0 -8px 24px rgba(15, 23, 42, .14);
     padding: 8px 12px calc(12px + env(safe-area-inset-bottom));
   }
   .dp-react-root .odop[data-sel] .odop-side .insp { border: none; box-shadow: none; margin: 0; }
+}
+@media (pointer: coarse) {
   .dp-react-root .insp .insp-t:first-child { display: flex; align-items: center; justify-content: space-between; }
   .dp-react-root .insp-close {
     display: inline-grid; place-items: center; width: 44px; height: 44px; margin: -8px -8px -8px 0;
@@ -716,21 +720,6 @@
   .dp-react-root .tooth-btn { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
   .dp-react-root .viewsw button, .dp-react-root .odo-more, .dp-react-root .odo-3d-togs .odo-more { min-height: 44px; }
   .dp-cmenu .dp-cmenu-i { min-height: 44px; }
-}
-@media (pointer: coarse) and (orientation: landscape) {
-  /* панель поверх дуги, дуга своего размера: сторона — напротив выбранного зуба */
-  .dp-react-root .odop[data-sel] { padding-bottom: 0; }
-  .dp-react-root .odop[data-sel] .odop-side {
-    top: 0; left: auto; right: 0; width: min(360px, 38vw); max-height: none;
-    border-top: none; border-left: 1px solid var(--line);
-    border-radius: var(--r-block) 0 0 var(--r-block); box-shadow: -8px 0 24px rgba(15, 23, 42, .14);
-    padding: 12px calc(12px + env(safe-area-inset-right)) 12px 12px;
-  }
-  .dp-react-root .odop[data-sel][data-side="left"] .odop-side {
-    left: 0; right: auto; border-left: none; border-right: 1px solid var(--line);
-    border-radius: 0 var(--r-block) var(--r-block) 0; box-shadow: 8px 0 24px rgba(15, 23, 42, .14);
-    padding: 12px 12px 12px calc(12px + env(safe-area-inset-left));
-  }
 }
 
 /* ---- «Stare sistem» (C10) ---- */
@@ -1774,9 +1763,11 @@ dialog.dp-about { width: 460px; }
   display: block; font-size: var(--fs-xs); line-height: 16px; font-weight: 600; letter-spacing: .06em;
   text-transform: uppercase; color: var(--text3);
 }
-/* шапка: вкладки-подчёркивания и справа счётчик с действиями */
+/* шапка (раскладка B, 25.10): ОДНОЙ строкой — имя пациента, режимы вкладками
+   (подчёркивание ложится на черту шапки), справа значки; ряд режимов при
+   нехватке места прокручивается вбок, а не переносит шапку во вторую строку */
 .dp-react-root .dp-odo-head {
-  display: flex; align-items: flex-end; justify-content: space-between; gap: 12px 16px; flex-wrap: wrap;
+  flex: none; display: flex; align-items: flex-end; gap: 12px; flex-wrap: nowrap; min-height: 52px;
   border-bottom: 1px solid var(--line);
 }
 .dp-react-root .dp-tabs { display: flex; }
@@ -1787,7 +1778,16 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .dp-tab.on { color: var(--text); border-bottom-color: var(--teal); }
 .dp-react-root .dp-tab:disabled { opacity: .5; cursor: default; }
 .dp-react-root .dp-tab:focus-visible { outline: none; box-shadow: var(--ring); border-radius: var(--r-xs); }
-.dp-react-root .dp-odo-headr { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-bottom: 8px; }
+.dp-react-root .dp-odo-head .dp-odo-modes { flex: 0 1 auto; }
+.dp-react-root .dp-odo-headr { flex: none; margin-left: auto; align-self: center; display: flex; align-items: center; gap: 8px; }
+/* имя пациента — заголовок страницы и ссылка в фишу; длинное режется многоточием */
+.dp-react-root .dp-odo-who { flex: 0 1 auto; min-width: 128px; max-width: 280px; align-self: center; }
+.dp-react-root .dp-odo-who .dp-odo-lnk {
+  max-width: 100%; padding: 0 4px 0 0; border: 0; background: none; font-size: var(--fs-l); font-weight: 700;
+}
+.dp-react-root .dp-odo-who .dp-odo-lnk span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dp-react-root .dp-odo-who .dp-odo-lnk svg { flex: none; color: var(--text3); }
+.dp-react-root .dp-odo-who .dp-odo-lnk:hover { background: none; color: var(--teal-d); }
 .dp-react-root .dp-odo-count { font-size: var(--fs-m); color: var(--text3); margin-right: 8px; }
 .dp-react-root .dp-odo-count b { color: var(--text); font-weight: 600; }
 .dp-react-root .dp-odo-lnk {
@@ -1810,14 +1810,23 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .dp-ibtn.on { background: var(--teal-soft); border-color: var(--teal); color: var(--teal-d); }
 .dp-react-root .dp-ibtn svg { width: 18px; height: 18px; }
 
-/* две колонки: вьюпорт с картой и панель зуба */
-.dp-react-root .dp-odo .odop-grid { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
-.dp-react-root .dp-odo .odop-main { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
-.dp-react-root .dp-odo .odop-side { flex: 1 1 380px; min-width: 0; max-width: 440px; position: sticky; top: 16px; }
-@media (max-width: 1100px) { .dp-react-root .dp-odo .odop-side { position: static; max-width: none; } }
+/* две колонки (раскладка B): слева ряд зубов над вьюпортом, справа панель зуба
+   360 px (400 — на рабочем столе от 1600 px); высоту обеим даёт рабочий стол,
+   панель прокручивается сама — секция odo:layout */
+.dp-react-root .dp-odo .odop-grid {
+  flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 14px; align-items: stretch;
+}
+.dp-react-root .dp-odo .odop-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.dp-react-root .dp-odo .odop-side {
+  min-width: 0; min-height: 0; max-width: none; position: static; overflow: auto; overscroll-behavior: contain;
+  border-radius: var(--r-card);
+}
 
-/* карточка вьюпорта: полоса видов и зума, тело со слоями и сценой, легенда */
+/* карточка вьюпорта: сцена (виды, зум и слои — плашками поверх неё, секция
+   odo:layout) или рисунки сервера с полосой видов, легенда внизу */
 .dp-react-root .dp-vp { overflow: hidden; }
+.dp-react-root .dp-odo .dp-vp { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.dp-react-root .dp-odo .dp-vp .odo-3d { flex: 1 1 auto; min-height: 0; gap: 0; }
 .dp-react-root .dp-vp-bar {
   display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
   padding: 12px 14px; border-bottom: 1px solid var(--line);
@@ -1834,12 +1843,10 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .dp-zoom { display: flex; align-items: center; gap: 6px; }
 .dp-react-root .dp-zoom-l { min-width: 48px; text-align: center; font-size: var(--fs-m); font-weight: 600; font-variant-numeric: tabular-nums; }
 .dp-react-root .dp-vp-body {
-  display: flex; flex-wrap: wrap; align-items: stretch;
+  position: relative; flex: 1 1 auto; min-height: 0; display: flex; align-items: stretch;
   background: linear-gradient(180deg, var(--panel), var(--line2));
 }
-.dp-react-root .dp-vp-2d { padding: 18px 16px; display: block; }
-.dp-react-root .dp-layers { width: 150px; flex: none; display: flex; flex-direction: column; gap: 6px; padding: 14px; }
-.dp-react-root .dp-layers .dp-lbl { margin-bottom: 4px; }
+.dp-react-root .dp-vp-2d { padding: 18px 16px; display: block; overflow: auto; }
 .dp-react-root .dp-lay {
   display: flex; align-items: center; gap: 8px; min-height: var(--h-ctl); padding: 0 12px;
   border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--panel);
@@ -1854,21 +1861,18 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .dp-lay.on .box { background: var(--teal); border-color: var(--teal); color: var(--on-teal); }
 .dp-react-root .dp-lay:disabled { opacity: .5; cursor: default; }
 .dp-react-root .dp-lay:focus-visible { outline: none; box-shadow: var(--ring); }
-/* сцена 500px (макет), без переходов — высота не зависит от наведения */
-/* сцена 500px по макету; на широком окне растёт (11.10): камера подгоняет
-   дугу под высоту кадра, и при 500px на мониторе 1920 дуга висела мелкой
-   посреди широкой сцены — высота идёт за шириной окна до 720px, но не выше
-   64 % окна, чтобы карта зубов оставалась видна под сценой */
-.dp-react-root .dp-vp-body .odo-stage { flex: 1 1 300px; min-width: 0; height: clamp(500px, min(36vw, 64vh), 720px); }
-@media (max-width: 880px) { .dp-react-root .dp-vp-body .odo-stage { height: 400px; } }
-@media (max-width: 760px) { .dp-react-root .dp-layers { width: auto; flex-basis: 100%; flex-direction: row; flex-wrap: wrap; } }
+/* сцена — весь остаток карточки (раскладка B, 25.10; до того 500–720 px по
+   окну и страница прокручивалась): камера подгоняет дугу под кадр сама
+   (`fit.ts` + ResizeObserver сцены), без переходов — высота не зависит от
+   наведения */
+.dp-react-root .dp-vp-body .odo-stage { flex: 1 1 auto; min-width: 0; min-height: 0; height: auto; }
 .dp-react-root .dp-vp-milk { padding: 8px 14px; }
 .dp-react-root .dp-vp .odo-paro-leg { padding: 8px 14px 0; }
 /* легенда чипами: квадрат палитры, подпись, счётчик; нажатый — подложкой и кромкой */
-.dp-react-root .dp-vp-legend { display: flex; align-items: center; gap: 4px 8px; flex-wrap: wrap; padding: 8px 10px; border-top: 1px solid var(--line); margin: 0; }
+.dp-react-root .dp-vp-legend { flex: none; display: flex; align-items: center; gap: 2px 6px; flex-wrap: wrap; padding: 4px 8px; border-top: 1px solid var(--line); margin: 0; }
 .dp-react-root .dp-vp-legend button.lg {
-  display: inline-flex; align-items: center; gap: 8px; min-height: var(--h-ctl); padding: 0 12px;
-  border: 1px solid transparent; border-radius: var(--r-ctl); background: none; font: inherit; font-size: var(--fs-m);
+  display: inline-flex; align-items: center; gap: 6px; min-height: var(--h-ctl-s); padding: 0 8px;
+  border: 1px solid transparent; border-radius: var(--r-ctl); background: none; font: inherit; font-size: var(--fs-s);
   color: var(--text2); cursor: pointer;
 }
 .dp-react-root .dp-vp-legend button.lg:hover, .dp-react-root .dp-vp-legend button.lg:focus-visible { background: var(--fill); color: var(--text); outline: none; }
@@ -1876,30 +1880,32 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .dp-vp-legend .sw { width: 12px; height: 12px; border-radius: var(--r-xs); flex: none; }
 .dp-react-root .dp-vp-legend .lg-n { font-style: normal; font-weight: 600; color: var(--text); min-width: 8px; margin: 0; }
 
-/* карта зубов */
-.dp-react-root .dp-tm { padding: 16px 16px 18px; }
-.dp-react-root .dp-tm-h { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-.dp-react-root .dp-tm-hint { font-size: var(--fs-s); color: var(--text3); }
+/* ряд зубов над сценой (раскладка B, 25.10; до того — карточка «Harta dinților»
+   под сценой с шапкой и подписями сторон): без шапки, ячейка тянется по ширине
+   колонки, на телефоне ряд прокручивается вбок. Наверх его ставит `order`: в
+   разметке он после сцены, чтобы фокус клавиатуры шёл на дугу 2D (рабочий стол) */
+.dp-react-root .dp-tm { flex: none; order: -1; padding: 6px 10px 8px; }
 .dp-react-root .dp-tm-scroll { overflow-x: auto; }
-.dp-react-root .dp-tm-rows { min-width: 680px; display: flex; flex-direction: column; gap: 8px; }
-.dp-react-root .dp-tm-cap { display: flex; justify-content: space-between; font-size: var(--fs-s); color: var(--text3); }
-.dp-react-root .dp-tm-cap.bottom { justify-content: center; }
-.dp-react-root .dp-tm-row { display: flex; gap: 14px; }
-.dp-react-root .dp-tm-q { flex: 1; display: grid; gap: 4px; }
+.dp-react-root .dp-tm-rows { display: flex; flex-direction: column; gap: 4px; }
+@media (max-width: 600px) { .dp-react-root .dp-tm-rows { min-width: 560px; } }
+.dp-react-root .dp-tm-row { display: flex; gap: 10px; }
+.dp-react-root .dp-tm-q { flex: 1; display: grid; gap: 3px; }
 .dp-react-root .dp-tm-mid { width: 1px; background: var(--line); }
 .dp-react-root .dp-tm-row.milk .dp-tm-q { padding: 0 12%; }
-/* кнопка карты (11.10): номер со стороны корней и коронка — SVG сервера вида
-   «ocluzal», сжатый до ширины ячейки (не больше 40px); на 1366 ячейка 46px,
-   коронка 40. Тень рисунка панорамы здесь снята: в 40px она читается грязью. */
+/* кнопка ряда (11.10; плотнее — 25.10): номер со стороны корней и коронка —
+   SVG сервера вида «ocluzal», сжатый до ширины ячейки: 34 px, на низком окне
+   мышью (1366×656) 26 px — высоту окна отдаём сцене. Тень рисунка панорамы
+   здесь снята: в 34 px она читается грязью. */
 .dp-react-root .dp-tm-btn {
   position: relative; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 1px;
-  padding: 3px 2px 4px; border: 1px solid var(--line); border-radius: var(--r-ctl);
-  background: var(--panel); font: inherit; font-size: var(--fs-s); line-height: 16px; font-weight: 600; color: var(--text);
+  padding: 1px 1px 2px; border: 1px solid var(--line); border-radius: var(--r-ctl);
+  background: var(--panel); font: inherit; font-size: var(--fs-xs); line-height: 14px; font-weight: 600; color: var(--text);
   font-variant-numeric: tabular-nums; cursor: pointer;
   transition: background-color var(--dur) ease, box-shadow var(--dur) ease, opacity var(--dur) ease;
 }
 .dp-react-root .dp-tm-btn.low { flex-direction: column-reverse; }
-.dp-react-root .dp-tm-btn .pic { display: block; width: 100%; max-width: 40px; }
+.dp-react-root .dp-tm-btn .pic { display: block; width: 100%; max-width: 34px; }
+@media (max-height: 760px) and (pointer: fine) { .dp-react-root .dp-tm-btn .pic { max-width: 26px; } }
 .dp-react-root .dp-tm-btn .tooth-svg { width: 100%; height: auto; max-width: none; filter: none; }
 .dp-react-root .dp-tm-btn:hover { border-color: var(--text3); }
 .dp-react-root .dp-tm-btn:focus-visible { outline: none; box-shadow: var(--ring); }
@@ -2596,7 +2602,119 @@ dialog.dp-about { width: 460px; }
 @media (pointer: coarse) {
   .dp-react-root .dp-pt-b { height: 44px; }
   .dp-react-root .dp-sfl-r { min-height: 44px; }
+}
+/* отступы липких полос — под поля шторки (8 сверху, 12 снизу); шторка — только
+   в портрете (раскладка B, 25.10), в альбоме панель колонкой без полей */
+@media (pointer: coarse) and (orientation: portrait) {
   .dp-react-root .odop[data-sel] .odop-side .dp-pt { position: sticky; top: -8px; z-index: 1; background: var(--surface); }
   .dp-react-root .odop[data-sel] .odop-side .dp-tp-foot { bottom: calc(-12px - env(safe-area-inset-bottom)); border-radius: 0; }
   .dp-react-root .odop[data-sel] .odop-side .dp-tp-body :where(button, a, input, select, textarea) { scroll-margin-top: 56px; }
+}
+
+/* ---- odo:layout — раскладка B рабочего стола одонтограммы (Олег 24.10 «da давай вариант B»; волна 2, 25.10) ----
+   Макет и замеры — design/odonto-redesign (README, sheet_desktop/tablet), кадры
+   ветки — design/odonto-layout. Рабочий стол = высота окна: шапка одной
+   строкой, ниже две колонки — ряд зубов над сценой и панель зуба. Страница не
+   прокручивается — прокручивается панель («Salvează» внизу видна всегда).
+   ⚠️ Высота считается от окна: системный баннер над экраном (лицензия, копия)
+   добавит странице прокрутку на свою высоту — принято. */
+/* детальная страница: заголовок оболочки (имя пациента) и подпись «odontogramă · #N»
+   уходят — имя стоит в шапке рабочего стола ссылкой в фишу (+~100 px сцене на 1366×656) */
+.content:has(> .dp-react-root > .dp-odo[data-page]) { padding-bottom: 16px; }
+.content:has(> .dp-react-root > .dp-odo[data-page]) > h1,
+.content:has(> .dp-react-root > .dp-odo[data-page]) > .sub { display: none; }
+.dp-react-root .dp-odo { container: odo / inline-size; height: calc(100dvh - var(--h-top) - 40px); min-height: 520px; gap: 10px; }
+/* узкий рабочий стол (1366, вкладка фиши): счётчик записанных уходит, кнопки шапки — значками с подсказкой */
+.dp-react-root .dp-odo-ic { flex: none; }
+@container odo (max-width: 1499px) {
+  .dp-react-root .dp-odo-headr .dp-odo-count { display: none; }
+  .dp-react-root .dp-odo-ic { width: var(--h-ctl); padding: 0; justify-content: center; }
+  .dp-react-root .dp-odo-ic > span { display: none; }
+}
+@container odo (min-width: 1600px) {
+  .dp-react-root .dp-odo .odop-grid { grid-template-columns: minmax(0, 1fr) 400px; }
+}
+/* ещё уже (вкладка фиши на 1366, iPad в альбоме): у вкладок режимов без меток
+   цвета — цвета называет легенда под сценой, и все восемь вкладок встают в ряд */
+@container odo (max-width: 1199px) {
+  .dp-react-root .dp-odo-modes .dp-mode-sw { display: none; }
+  .dp-react-root .dp-odo-modes .dp-tab { margin-right: 8px; }
+  .dp-react-root .dp-odo-who { max-width: 200px; }
+}
+/* панель зуба заполняет колонку: тело тянется, подвал «Salvează» — внизу колонки;
+   вкладки панели при прокрутке колонки остаются наверху (в шторке портрета —
+   своё правило секции odo:panel, под её поля) */
+.dp-react-root .dp-odo .odop-side > .dp-tp { min-height: 100%; box-sizing: border-box; }
+.dp-react-root .dp-odo .odop-side .dp-tp-body { flex: 1 0 auto; }
+@media (pointer: fine), (pointer: coarse) and (orientation: landscape) {
+  .dp-react-root .dp-odo .odop-side .dp-pt { position: sticky; top: 0; z-index: 1; background: var(--surface); }
+}
+
+/* плашки поверх сцены: слева виды и «2D», справа «Straturi» и зум. Сплошные —
+   размытие разрешено только над прокруткой (test_structure). При нехватке
+   ширины правая группа уходит второй строкой вправо, а не наезжает. */
+.dp-react-root .dp-odo .dp-vp { container: vp / inline-size; }
+.dp-react-root .dp-vp-ov {
+  position: absolute; inset: 10px; z-index: 2; display: flex; flex-wrap: wrap;
+  align-items: flex-start; align-content: flex-start; gap: 8px; pointer-events: none;
+}
+.dp-react-root .dp-vp-ov > *, .dp-react-root .dp-vp-ovr > * { pointer-events: auto; }
+.dp-react-root .dp-vp-ovr { margin-left: auto; display: flex; align-items: flex-start; gap: 6px; pointer-events: none; }
+.dp-react-root .dp-vp-pl { background: var(--surface); border: 1px solid var(--glass-edge); border-radius: var(--r-ctl); box-shadow: var(--sh); }
+.dp-react-root .dp-seg.dp-vp-pl > button { height: 36px; padding: 0 12px; font-size: var(--fs-s); }
+.dp-react-root .dp-zoom.dp-vp-pl { gap: 2px; padding: 3px; }
+.dp-react-root .dp-vp-pl .dp-ibtn { width: 36px; height: 36px; border-color: transparent; background: none; }
+.dp-react-root .dp-vp-pl .dp-ibtn.on { background: var(--teal-soft); color: var(--teal-d); }
+.dp-react-root .dp-vp-pl .dp-zoom-l { min-width: 44px; font-size: var(--fs-s); }
+.dp-react-root .dp-vp-lay { position: relative; }
+.dp-react-root .dp-vp-layb {
+  display: inline-flex; align-items: center; gap: 6px; height: 44px; padding: 0 12px; font: inherit; font-size: var(--fs-s);
+  font-weight: 600; color: var(--text2); cursor: pointer;
+}
+.dp-react-root .dp-vp-layb svg { width: 14px; height: 14px; transform: rotate(90deg); transition: transform var(--dur) ease; }
+.dp-react-root .dp-vp-layb:hover { color: var(--text); }
+.dp-react-root .dp-vp-layb:focus-visible { outline: none; box-shadow: var(--ring); }
+.dp-react-root .dp-vp-layb.on { border-color: var(--teal); background: var(--teal-soft); color: var(--teal-d); }
+.dp-react-root .dp-vp-layb.on svg { transform: rotate(-90deg); }
+.dp-react-root .dp-vp-layb:disabled { opacity: .5; cursor: default; }
+.dp-react-root .dp-vp-pop {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 3; width: 220px; padding: 10px;
+  display: flex; flex-direction: column; gap: 6px;
+  background: var(--surface); border: 1px solid var(--glass-edge); border-radius: var(--r-card); box-shadow: var(--sh3);
+}
+.dp-react-root .dp-vp-pop .dp-lay { min-height: 36px; }
+/* узкая сцена (iPad, вкладка фиши): виды — сверху, «Straturi» и зум — в правый
+   нижний угол (второй строкой сверху они легли бы на верхнюю дугу); поповер
+   тогда раскрывается вверх */
+@container vp (max-width: 799px) {
+  .dp-react-root .dp-vp-ovr { position: absolute; right: 0; bottom: 0; align-items: flex-end; }
+  .dp-react-root .dp-vp-pop { top: auto; bottom: calc(100% + 6px); }
+}
+@media (pointer: coarse) {
+  .dp-react-root .dp-seg.dp-vp-pl > button, .dp-react-root .dp-vp-pl .dp-ibtn, .dp-react-root .dp-vp-pop .dp-lay { min-height: 44px; }
+  .dp-react-root .dp-vp-pl .dp-ibtn { width: 44px; }
+  .dp-react-root .dp-vp-legend button.lg { min-height: var(--h-ctl); }
+}
+/* портрет пальцем: шторка панели снизу (52 %) — рабочий стол ужимается над ней,
+   легенда на это время уходит (сцене остаётся место); без зуба — всё окно */
+@media (pointer: coarse) and (orientation: portrait) {
+  .dp-react-root .dp-odo .odop-grid { grid-template-columns: minmax(0, 1fr); }
+  .dp-react-root .dp-odo[data-sel] { height: calc(48dvh - var(--h-top) - 32px); min-height: 0; }
+  .dp-react-root .dp-odo[data-sel] .dp-vp-legend { display: none; }
+}
+@media (pointer: coarse) and (orientation: landscape) {
+  .dp-react-root .dp-odo .odop-grid { grid-template-columns: minmax(0, 1fr) 340px; }
+}
+/* узкое окно мышью (второй ПК, браузер): одна колонка, страница прокручивается */
+@media (max-width: 899px) and (pointer: fine) {
+  .dp-react-root .dp-odo { height: auto; min-height: 0; }
+  .dp-react-root .dp-odo .odop-grid { grid-template-columns: minmax(0, 1fr); }
+  .dp-react-root .dp-odo .odop-side { overflow: visible; }
+  .dp-react-root .dp-odo .dp-vp-body { flex: none; height: 420px; }
+}
+@media print {
+  .dp-react-root .dp-odo { height: auto; container-type: normal; }
+  .dp-react-root .dp-odo .odop-grid { display: block; }
+  .dp-react-root .dp-odo .dp-vp-body { height: 500px; }
+  .dp-react-root .dp-vp-ov { display: none; }
 }

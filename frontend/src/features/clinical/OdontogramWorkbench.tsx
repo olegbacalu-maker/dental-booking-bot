@@ -14,7 +14,6 @@ import { ToothMenu, type MenuAt } from './ToothMenu'
 import { ToothPanel } from './ToothPanel'
 import { chart, legendCounts, modeSet, neighbour, screenDim, shownTeeth, type Arrow, type Odontogram, type PlanAdd } from './chart'
 import { Odontogram3D, type Mode } from './three/Odontogram3D'
-import { useCoarse } from './touch'
 import { useChart } from './useChart'
 
 /* Рабочий стол одонтограммы (C21–C22; с 26.09 ОДИН на два места): вьюпорт
@@ -24,13 +23,20 @@ import { useChart } from './useChart'
    сервер), вкладка Odontogramă фиши — внутри рабочего места (B6, шаг 2):
    инструмент один, а не «компактный» и «детальный» с разными возможностями.
 
-   Вид — по макету Олега (08.10, design/redesign-2026-10, промпт 3): вкладки
-   (с 24.10 — режимы, см. ниже) и счётчик записанных зубов в шапке; карточка
-   вьюпорта (полоса видов и зума, слои слева, сцена, легенда чипами); новая
-   карточка «Harta dinților» — плоская карта кнопками, тот же выбор, что в
-   сцене; панель зуба — `ToothPanel`. Рисунки сервера (frontal / ocluzal)
-   остались за кнопкой «2D» в той же полосе. Логика, API и движок не
-   менялись: `useChart`, `scene.ts` (плюс один метод зума).
+   Раскладка B (Олег 24.10 «da давай вариант B», волна 2 — 25.10; макет и
+   замеры — design/odonto-redesign, кадры — design/odonto-layout): рабочий
+   стол = высота окна, страница не прокручивается. Шапка — ОДНОЙ строкой: имя
+   пациента (ссылка в фишу; на детальной странице оно и есть заголовок —
+   `h1` оболочки снимает CSS по `data-page`), режимы вкладками, справа
+   значки «Punte nouă» / «Pe tot ecranul» / печать (подписи — на широком окне).
+   Под шапкой две колонки: слева ряд зубов «Harta dinților» НАД сценой и
+   карточка вьюпорта (сцена во всю карточку, виды/зум/слои — плашками поверх,
+   легенда чипами внизу), справа панель зуба (`ToothPanel`) 360 px, 400 на
+   ≥1700; панель прокручивается сама, «Salvează» внизу видна всегда. Рисунки
+   сервера (frontal / ocluzal) — за кнопкой «2D». Планшет: в альбоме панель —
+   той же колонкой, в портрете — шторка снизу, и рабочий стол на это время
+   ужимается над ней (сцена не уходит под шторку). Логика, API и движок не
+   менялись: `useChart`, `scene.ts`.
 
    C22 — клавиатура ТОЛЬКО когда карта в фокусе (контейнер .odop с
    tabIndex): стрелки — соседний зуб / другая челюсть, M O D V L —
@@ -198,27 +204,11 @@ export function OdontogramWorkbench({
   }
   useEffect(() => { if (open) focusTooth(open.n) }, [open, focusTooth])
 
-  /* B7 · планшет: пальцем панель — шторка снизу (портрет) или панель справа
-     (альбом), поверх карты. Выбранный зуб прокручивается в видимую часть: в
-     портрете — над шторкой (она до 56 % высоты). Мышью ничего не меняется. */
-  const coarse = useCoarse()
-  const sel = c.selected
-  /* в альбоме панель ложится ПОВЕРХ карты с той стороны, где выбранного зуба нет */
-  const [side, setSide] = useState<'left' | 'right'>('right')
-  useEffect(() => {
-    if (!coarse || sel === null) return
-    const el = root.current?.querySelector<HTMLElement>(`.arch .tooth-btn[data-n="${sel}"], .dp-tm-btn[data-n="${sel}"]`)
-    if (!el) return
-    const r = el.getBoundingClientRect()
-    const box = (root.current?.querySelector('.odop-main') ?? root.current)?.getBoundingClientRect()
-    if (box) setSide(r.left + r.width / 2 < box.left + box.width / 2 ? 'right' : 'left')
-    const portrait = window.innerHeight > window.innerWidth
-    const bottom = portrait ? window.innerHeight * 0.44 : window.innerHeight
-    const top = 72
-    if (r.top >= top && r.bottom <= bottom - 8) return
-    const reduced = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    window.scrollBy({ top: r.top - Math.max(top, (bottom - r.height) / 2), behavior: reduced ? 'auto' : 'smooth' })
-  }, [coarse, sel])
+  /* Планшет (B7; с 25.10 — раскладка B): прокрутки к выбранному зубу и
+     выбора стороны панели больше нет — страница не прокручивается, ряд зубов
+     всегда над сценой, в альбоме панель — колонкой (не поверх карты: прежняя
+     закрывала вкладки Implant / Proteză), в портрете шторка снизу, а рабочий
+     стол над ней ужимается (`data-sel` + CSS). */
 
   const base = `/admin/patient/${pid}`
   const onSelect = (n: number) => {
@@ -294,21 +284,27 @@ export function OdontogramWorkbench({
 
   return (
     <>
-      <div ref={root} className="odop odo dp-odo" id="odo" data-view={c.view} data-sel={c.selected ?? undefined} data-side={side}
-        data-brush={c.brush ?? undefined} tabIndex={0} onKeyDown={onKey}>
+      <div ref={root} className="odop odo dp-odo" id="odo" data-page={embedded ? undefined : ''} data-view={c.view}
+        data-sel={c.selected ?? undefined} data-brush={c.brush ?? undefined} tabIndex={0} onKeyDown={onKey}>
         <div className="dp-odo-head">
+          {/* имя — заголовок детальной страницы и дорога назад в фишу; во вкладке фиши имя уже в её шапке */}
+          {!embedded && (
+            <div className="dp-odo-who">
+              <AppLink className="dp-odo-lnk" href={`${base}?tab=odonto`} title={T.back}><Icon name="pat" /> <span>{model.patient.name}</span></AppLink>
+            </div>
+          )}
           <ModeTabs model={model} value={mode?.key ?? ''} onPick={pickMode} />
           <div className="dp-odo-headr">
             <span className="dp-odo-count"><b>{recorded}</b> {T.recorded}</span>
-            {!embedded && (
-              <AppLink className="dp-odo-lnk" href={`${base}?tab=odonto`} title={T.back}><Icon name="pat" /> {model.patient.name}</AppLink>
-            )}
-            <button type="button" className="dp-odo-lnk" onClick={() => { setBrMode(true); setPicked([]) }}>
-              <Icon name="plus" /> {T.newBridge}
+            <button type="button" className="dp-odo-lnk dp-odo-ic" aria-label={T.newBridge} title={T.newBridge}
+              onClick={() => { setBrMode(true); setPicked([]) }}>
+              <Icon name="plus" /> <span>{T.newBridge}</span>
             </button>
             {/* «Parodontogramă» здесь снята (09.10, разбор): к листу ведут вкладка
-                фиши и режим «Parodont» выше — третий вход только путал. */}
-            {embedded && <AppLink className="dp-odo-lnk" href={`${base}/odontograma`}><Icon name="eye" /> {T.full}</AppLink>}
+                фиши и режим «Parodonțiu» шапки — третий вход только путал. */}
+            {embedded && (
+              <AppLink className="dp-odo-lnk dp-odo-ic" href={`${base}/odontograma`} title={T.full}><Icon name="eye" /> <span>{T.full}</span></AppLink>
+            )}
             <button type="button" className="dp-ibtn" aria-label={T.print} title={T.print} onClick={() => window.print()}><Icon name="print" /></button>
           </div>
         </div>
@@ -353,6 +349,9 @@ export function OdontogramWorkbench({
                 <LegendFilter items={legendItems} palette={model.palette} active={filter} counts={counts} onPick={pickLegend} />
               </div>
             </div>
+            {/* ряд зубов стоит НАД сценой (CSS `order`), а в разметке — после неё:
+                первая кнопка зуба в документе — на дуге 2D, туда и уходит фокус
+                клавиатуры (`focusTooth`) */}
             <ToothMap model={model} selected={brMode ? null : c.selected} picked={pickedSet} dirty={c.dirtyTeeth}
               dim={dim} onSelect={onSelect} onMenu={onMenu} />
           </div>

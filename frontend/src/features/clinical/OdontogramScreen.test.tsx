@@ -651,11 +651,58 @@ describe('вид 3D (B7)', () => {
     localStorage.setItem('dp_odo_view', '3d')
     open()
     await screen.findByText(/3D nu s-a încărcat/)
+    // слои — в поповере «Straturi» у зума (раскладка B, 25.10)
+    fireEvent.click(screen.getByRole('button', { name: 'Straturi' }))
     const tog = (k: string) => document.querySelector(`[data-tog="${k}"]`)?.getAttribute('aria-pressed')
     expect(tog('labels')).toBe('false')
     expect(tog('upper')).toBe('true')
     expect(tog('lower')).toBe('true')
     expect(tog('xray')).toBe('false')
+    localStorage.removeItem('dp_odo_view')
+  })
+
+  it('раскладка B (25.10): «Straturi» — поповер у зума; открывается и без сцены, закрывают повтор, Esc и нажатие мимо; Esc не снимает черновик', async () => {
+    localStorage.setItem('dp_odo_view', '3d')
+    open(16)
+    await screen.findByText(/3D nu s-a încărcat/)
+    const lay = () => screen.getByRole('button', { name: 'Straturi' })
+    const pop = () => screen.queryByRole('group', { name: 'Straturi' })
+    expect(pop()).toBeNull()                                 // закрыт — переключателей нет
+    expect(lay().getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(lay())
+    expect(lay().getAttribute('aria-expanded')).toBe('true')
+    expect(within(pop() as HTMLElement).getAllByRole('button').map((b) => b.getAttribute('data-tog')))
+      .toEqual(['upper', 'lower', 'xray', 'labels', 'closed', 'rotate'])
+    // сцены нет — переключатели выключены, но их состояние видно
+    expect((document.querySelector('[data-tog="upper"]') as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(lay())
+    expect(pop()).toBeNull()
+    /* черновик зуба + открытый поповер: Esc на поповере закрывает его — и только его */
+    fireEvent.click(within(inspector()).getByRole('tab', { name: /Diagnostic/ }))
+    fireEvent.click(within(inspector()).getByRole('button', { name: 'Coroană' }))
+    expect(document.querySelector('.dp-draft')).toBeTruthy()
+    fireEvent.click(lay())
+    fireEvent.keyDown(lay(), { key: 'Escape' })
+    expect(pop()).toBeNull()
+    expect(document.querySelector('.dp-draft')).toBeTruthy()
+    /* нажатие мимо — закрывает */
+    fireEvent.click(lay())
+    fireEvent.pointerDown(document.body)
+    expect(pop()).toBeNull()
+    localStorage.removeItem('dp_odo_view')
+  })
+
+  it('раскладка B (25.10): на странице — имя пациента ссылкой в фишу и метка страницы; ряд зубов — группа «Harta dinților»', async () => {
+    open(16)
+    await waitFor(() => expect(btn(16)).toBeTruthy())
+    expect(root().hasAttribute('data-page')).toBe(true)
+    const who = document.querySelector('.dp-odo-who a') as HTMLAnchorElement
+    expect(who.getAttribute('href')).toBe('/admin/patient/5?tab=odonto')
+    expect(who.textContent).toContain(MODEL.patient.name)
+    const map = screen.getByRole('group', { name: 'Harta dinților' })
+    expect(map.closest('.odop-main')).toBeTruthy()
+    // «Punte nouă» — значком с именем: подпись прячет узкая шапка, имя кнопки остаётся
+    expect(screen.getByRole('button', { name: 'Punte nouă' }).getAttribute('title')).toBe('Punte nouă')
   })
 })
 

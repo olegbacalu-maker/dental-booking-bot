@@ -1,11 +1,14 @@
 import type { Odontogram, ToothInfo } from './chart'
 import { useLongPress } from './touch'
 
-/* «Harta dinților» (08.10, макет; коронки — 11.10): плоская карта зубов
-   кнопками под вьюпортом — верхний ряд 18…11 | 21…28, нижний 48…41 | 31…38,
-   по середине разделитель; молочный ряд, когда он раскрыт, — своими рядами
-   между ними. Она решает то, чего не решает 3D: номера 14/15/16 на дуге
-   наезжают друг на друга, а здесь каждый зуб — своя кнопка.
+/* «Harta dinților» (08.10, макет; коронки — 11.10; с 25.10 — ряд зубов НАД
+   сценой, раскладка B Олега): плоская карта зубов кнопками — верхний ряд
+   18…11 | 21…28, нижний 48…41 | 31…38, по середине разделитель; молочный
+   ряд, когда он раскрыт, — своими рядами между ними. Она решает то, чего не
+   решает 3D: номера 14/15/16 на дуге наезжают друг на друга, а здесь каждый
+   зуб — своя кнопка. Шапки и подписей сторон у ряда нет (макет B: высота
+   окна 1366×768 уходит сцене): сторону и челюсть называет подсказка
+   половины ряда, имя карты — подпись группы.
    Кнопка — маленькая коронка с окклюзионной стороны и номер со стороны корней
    (сверху у верхних, снизу у нижних, как в панораме 2D). Рисунок — ТОТ ЖЕ SVG
    сервера, что в виде «2D» (`info.svg.occlusal`): поверхности окрашены по
@@ -25,7 +28,6 @@ import { useLongPress } from './touch'
    пациента — слева), подпись кнопки — `title` сервера. */
 const T = {
   title: 'Harta dinților',
-  hint: 'Alege un dinte pentru a-l edita',
   right: 'Dreapta pacientului',
   left: 'Stânga pacientului',
   upper: 'Maxilar',
@@ -69,8 +71,9 @@ export function ToothMap({ model, selected, picked, dirty, dim, onSelect, onMenu
   const a = model.arches
   const row = (teeth: number[], upper: boolean, milk = false) => {
     const cut = Math.ceil(teeth.length / 2)
-    const half = (xs: number[]) => (
-      <div className="dp-tm-q" style={{ gridTemplateColumns: `repeat(${xs.length}, minmax(0, 1fr))` }}>
+    const jaw = milk ? T.milk : upper ? T.upper : T.lower
+    const half = (xs: number[], side: string) => (
+      <div className="dp-tm-q" title={`${side} · ${jaw}`} style={{ gridTemplateColumns: `repeat(${xs.length}, minmax(0, 1fr))` }}>
         {xs.map((n) => {
           const info = model.teeth[String(n)]
           if (!info) return null
@@ -83,31 +86,24 @@ export function ToothMap({ model, selected, picked, dirty, dim, onSelect, onMenu
     )
     return (
       <div className={`dp-tm-row${milk ? ' milk' : ''}`}>
-        {half(teeth.slice(0, cut))}
+        {half(teeth.slice(0, cut), T.right)}
         <i className="dp-tm-mid" />
-        {half(teeth.slice(cut))}
+        {half(teeth.slice(cut), T.left)}
       </div>
     )
   }
   return (
-    <div className="dp-card dp-tm">
-      <div className="dp-tm-h">
-        <span className="dp-lbl">{T.title}</span>
-        <span className="dp-tm-hint">{T.hint}</span>
-      </div>
+    <div className="dp-card dp-tm" role="group" aria-label={T.title}>
       <div className="dp-tm-scroll">
         <div className="dp-tm-rows">
-          <div className="dp-tm-cap"><span>{T.right}</span><span>{T.upper}</span><span>{T.left}</span></div>
           {row(a.upper, true)}
           {model.milk_open && (
             <>
-              <div className="dp-tm-cap"><span /><span>{T.milk}</span><span /></div>
               {row(a.milk_upper, true, true)}
               {row(a.milk_lower, false, true)}
             </>
           )}
           {row(a.lower, false)}
-          <div className="dp-tm-cap bottom"><span /><span>{T.lower}</span><span /></div>
         </div>
       </div>
     </div>

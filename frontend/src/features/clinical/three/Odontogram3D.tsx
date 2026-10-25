@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { Icon } from '../../../components/Icon'
+import { useMenuDismiss } from '../../../components/menu'
 import type { Odontogram, PerioLayer } from '../chart'
 import { load3d } from './loadTeeth'
 import { PerioLegend } from './PerioLegend'
@@ -15,10 +16,16 @@ import type { Letter } from './toothGeometry'
    текст, 2D под рукой на соседней кнопке. Молочный ряд в 3D не
    показывается (решение 6): при открытом молочном ряде — надпись.
 
-   Раскладка по макету Олега (08.10, «Stare dinți»): полоса сверху — сегмент
-   пяти видов (и кнопка «2D» назад к рисункам сервера) и группа зума
-   «− 100% +», сброс и камера к зубу; слева от сцены колонка «Straturi» —
-   шесть переключателей чекбоксами; сцена 500px. Зум — `scene.zoomTo`:
+   Раскладка B (Олег 24.10 «da давай вариант B», волна 2 — 25.10; до того —
+   полоса сверху и колонка «Straturi» слева по макету 08.10): сцена — во всю
+   карточку, управление ПЛАШКАМИ поверх неё. Слева сверху — сегмент пяти
+   видов и кнопка «2D» назад к рисункам сервера; справа сверху — «Straturi»
+   (поповер: челюсти «Arcade» и слои) и группа зума «− 100% +», камера к
+   зубу, сброс. Высоту сцене даёт рабочий стол (окно минус шапка, ряд зубов
+   и легенда), отдельной полосы над ней нет. Плашки — сплошные, без размытия
+   (`test_structure`: размытие только над прокруткой). Поповер — состояние
+   этого компонента, закрывается нажатием мимо и Esc (`useMenuDismiss`); его
+   кнопки живут, только пока он открыт. Зум — `scene.zoomTo`:
    радиус орбиты от радиуса вида (или фокуса), вид и фокус возвращают 100%.
    100 % вида — не число, а подгонка под окно (11.10, `three/fit.ts`): дуга
    занимает ~80 % кадра по ограничивающей оси и пересчитывается при смене
@@ -52,6 +59,7 @@ const T = {
   flat: '2D',
   flatTitle: 'Desenele frontal și ocluzal',
   layers: 'Straturi',
+  arch: 'Arcade',
   zoom: 'Apropiere',
   zoomIn: 'Apropie',
   zoomOut: 'Depărtează',
@@ -65,7 +73,9 @@ export type Mode = 'stare' | 'paro'
 const toInput = (l: PerioLayer): PerioInput => ({ rows: l.rows, limits: l.limits, colors: l.colors })
 
 const VIEW_ORDER: ViewName[] = ['frontal', 'sus', 'jos', 'dreapta', 'stanga']
-const TOG_ORDER: Toggle[] = ['xray', 'labels', 'upper', 'lower', 'closed', 'rotate']
+/* поповер «Straturi»: челюсти отдельной группой «Arcade», потом слои */
+const ARCH_TOGS: Toggle[] = ['upper', 'lower']
+const LAYER_TOGS: Toggle[] = ['xray', 'labels', 'closed', 'rotate']
 const ZOOM_STEP = 20
 const ZOOM_MIN = 60
 const ZOOM_MAX = 200
@@ -112,6 +122,10 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
   const [togs, setTogs] = useState<Record<Toggle, boolean>>({ xray: false, labels: labelsFor('frontal'), upper: true, lower: true, closed: false, rotate: false })
   const togsRef = useRef(togs)
   const [zoom, setZoom] = useState(100)
+  /* поповер «Straturi» — свойство экрана, не сцены */
+  const [layOpen, setLayOpen] = useState(false)
+  const layBox = useRef<HTMLDivElement | null>(null)
+  const closeLay = useCallback(() => setLayOpen(false), [])
   const layer = model.perio_layer ?? null
   // осмотра нет (или его сняли) — режим пародонта сам возвращается к состоянию зубов
   const paro = mode === 'paro' && layer !== null
@@ -212,48 +226,73 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
   }
   const ready = status === 'ready'
 
+  const togBtn = (k: Toggle) => (
+    <button key={k} type="button" className={`dp-lay${togs[k] ? ' on' : ''}`} data-tog={k} aria-pressed={togs[k]}
+      disabled={!ready} onClick={() => flip(k)}>
+      <span className="box"><Icon name="check" /></span>{T.togs[k]}
+    </button>
+  )
+
   return (
     <div className="odo-3d" data-focus={focus ?? undefined}>
-      <div className="dp-vp-bar">
-        <div className="dp-seg dp-views" role="group" aria-label={T.group}>
-          {VIEW_ORDER.map((v) => (
-            <button key={v} type="button" data-v3={v} className={view === v ? 'on' : ''} aria-pressed={view === v}
-              disabled={!ready} onClick={() => pickView(v)}>{T.views[v]}</button>
-          ))}
-          <span className="dp-seg-sep" />
-          <button type="button" data-v3="2d" title={T.flatTitle} onClick={onFlat}>{T.flat}</button>
-        </div>
-        <div className="dp-zoom" role="group" aria-label={T.zoom}>
-          <button type="button" className="dp-ibtn" aria-label={T.zoomOut} title={T.zoomOut} disabled={!ready || zoom <= ZOOM_MIN}
-            onClick={() => zoomTo(zoom - ZOOM_STEP)}><Icon name="minus" /></button>
-          <span className="dp-zoom-l" aria-live="polite">{zoom}%</span>
-          <button type="button" className="dp-ibtn" aria-label={T.zoomIn} title={T.zoomIn} disabled={!ready || zoom >= ZOOM_MAX}
-            onClick={() => zoomTo(zoom + ZOOM_STEP)}><Icon name="plus" /></button>
-          <button type="button" className={`dp-ibtn odo-focus${focus !== null ? ' on' : ''}`} data-v3="focus"
-            aria-pressed={focus !== null} aria-label={T.focus} title={T.focusTitle}
-            disabled={!ready || selected === null} onClick={() => onZoom(focus === null)}><Icon name="search" /></button>
-          <button type="button" className="dp-ibtn" aria-label={T.reset} title={T.reset} disabled={!ready}
-            onClick={reset}><Icon name="refresh" /></button>
-        </div>
-      </div>
       {paro && layer && <PerioLegend at={layer.exam.at} limits={layer.limits} colors={layer.colors} />}
       <div className="dp-vp-body">
-        <div className="dp-layers" role="group" aria-label={T.layers}>
-          <span className="dp-lbl">{T.layers}</span>
-          {TOG_ORDER.map((k) => (
-            <button key={k} type="button" className={`dp-lay${togs[k] ? ' on' : ''}`} data-tog={k} aria-pressed={togs[k]}
-              disabled={!ready} onClick={() => flip(k)}>
-              <span className="box"><Icon name="check" /></span>{T.togs[k]}
-            </button>
-          ))}
-        </div>
         <div ref={host} className="odo-stage" data-status={status} data-mode={paro ? 'paro' : 'stare'}>
           {status === 'loading' && <p className="hint odo-3d-msg" aria-busy="true">{T.loading}</p>}
           {status === 'failed' && <p className="hint odo-3d-msg">{T.failed}</p>}
           {status === 'nogl' && <p className="hint odo-3d-msg">{T.nogl}</p>}
         </div>
+        <div className="dp-vp-ov">
+          <div className="dp-seg dp-views dp-vp-pl" role="group" aria-label={T.group}>
+            {VIEW_ORDER.map((v) => (
+              <button key={v} type="button" data-v3={v} className={view === v ? 'on' : ''} aria-pressed={view === v}
+                disabled={!ready} onClick={() => pickView(v)}>{T.views[v]}</button>
+            ))}
+            <span className="dp-seg-sep" />
+            <button type="button" data-v3="2d" title={T.flatTitle} onClick={onFlat}>{T.flat}</button>
+          </div>
+          <div className="dp-vp-ovr">
+            {/* Esc закрывает поповер и дальше не идёт: рабочий стол по Esc снял бы кисть или черновик */}
+            <div className="dp-vp-lay" ref={layBox}
+              onKeyDown={(e) => { if (e.key === 'Escape' && layOpen) { e.stopPropagation(); setLayOpen(false) } }}>
+              {/* открывается и без сцены: состояние слоёв видно, переключатели внутри выключены */}
+              <button type="button" className={`dp-vp-pl dp-vp-layb${layOpen ? ' on' : ''}`} aria-expanded={layOpen}
+                aria-haspopup="true" onClick={() => setLayOpen((o) => !o)}>
+                {T.layers} <Icon name="chev-r" />
+              </button>
+              {layOpen && <LayerPop box={layBox} onClose={closeLay} arch={ARCH_TOGS.map(togBtn)} layers={LAYER_TOGS.map(togBtn)} />}
+            </div>
+            <div className="dp-zoom dp-vp-pl" role="group" aria-label={T.zoom}>
+              <button type="button" className="dp-ibtn" aria-label={T.zoomOut} title={T.zoomOut} disabled={!ready || zoom <= ZOOM_MIN}
+                onClick={() => zoomTo(zoom - ZOOM_STEP)}><Icon name="minus" /></button>
+              <span className="dp-zoom-l" aria-live="polite">{zoom}%</span>
+              <button type="button" className="dp-ibtn" aria-label={T.zoomIn} title={T.zoomIn} disabled={!ready || zoom >= ZOOM_MAX}
+                onClick={() => zoomTo(zoom + ZOOM_STEP)}><Icon name="plus" /></button>
+              <button type="button" className={`dp-ibtn odo-focus${focus !== null ? ' on' : ''}`} data-v3="focus"
+                aria-pressed={focus !== null} aria-label={T.focus} title={T.focusTitle}
+                disabled={!ready || selected === null} onClick={() => onZoom(focus === null)}><Icon name="search" /></button>
+              <button type="button" className="dp-ibtn" aria-label={T.reset} title={T.reset} disabled={!ready}
+                onClick={reset}><Icon name="refresh" /></button>
+            </div>
+          </div>
+        </div>
       </div>
       {model.milk_open && <p className="hint dp-m0 dp-vp-milk"><Icon name="tooth" /> {T.milk}</p>}
+    </div>
+  )
+}
+
+/** Поповер «Straturi»: закрывается нажатием мимо и Esc — тот же хук, что у меню зуба. */
+function LayerPop({ box, onClose, arch, layers }: {
+  box: RefObject<HTMLDivElement | null>; onClose: () => void; arch: ReactNode; layers: ReactNode
+}) {
+  useMenuDismiss(box, onClose)
+  return (
+    <div className="dp-vp-pop" role="group" aria-label={T.layers}>
+      <span className="dp-lbl">{T.arch}</span>
+      {arch}
+      <span className="dp-lbl">{T.layers}</span>
+      {layers}
     </div>
   )
 }
