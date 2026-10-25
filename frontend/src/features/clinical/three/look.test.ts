@@ -178,7 +178,8 @@ describe('отделка по смыслу', () => {
     const l = targetLook(tooth('ok', { O: 'carie' }), PALETTE)
     expect(l.cols[0]).toBe(lerpHex(COLOR.enamel, 0xef4444, 0.6))
     for (const f of Object.values(FINISH)) {
-      expect(Object.keys(f).sort()).toEqual(['clearcoat', 'clearcoatRoughness', 'ior', 'metalness', 'roughness', 'sheen', 'specularIntensity'])
+      // `natural` — доля живой эмали (край, линия эмаль–цемент, `enamel.ts`), тоже не цвет
+      expect(Object.keys(f).sort()).toEqual(['clearcoat', 'clearcoatRoughness', 'ior', 'metalness', 'natural', 'roughness', 'sheen', 'specularIntensity'])
     }
   })
 

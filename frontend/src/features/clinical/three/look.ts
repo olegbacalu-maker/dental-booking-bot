@@ -53,7 +53,11 @@ export function lerpHex(a: number, b: number, k: number): number {
  *  Олега «да уже лучше»; в продукте с 24.10): шероховатость, металл, лак,
  *  бархат, показатель преломления, сила блика. ЦВЕТА здесь нет — его даёт
  *  палитра сервера, отделка меняет только то, как поверхность ловит свет.
- *  Поля — те же имена, что у `MeshPhysicalMaterial`. */
+ *  Поля — те же имена, что у `MeshPhysicalMaterial`, кроме `natural`: это доля
+ *  ЖИВОЙ эмали (25.10, волна 3) — полупрозрачный край и линия эмаль–цемент
+ *  (`enamel.ts`); шейдер коронки читает её со своего материала. В конструктор
+ *  материала отделка идёт через `physOf` — неизвестное поле three отверг бы
+ *  предупреждением. */
 export interface Finish {
   roughness: number
   metalness: number
@@ -62,26 +66,35 @@ export interface Finish {
   sheen: number
   ior: number
   specularIntensity: number
+  /** 1 — живая эмаль (край, линия эмаль–цемент), 0 — реставрация или находка */
+  natural: number
 }
 
 export const FINISH = {
   /** эмаль: лак и бархат, ior эмали 1,62 */
-  enamel: { roughness: 0.4, metalness: 0, clearcoat: 0.7, clearcoatRoughness: 0.12, sheen: 0.35, ior: 1.62, specularIntensity: 0.7 },
+  enamel: { roughness: 0.4, metalness: 0, clearcoat: 0.7, clearcoatRoughness: 0.12, sheen: 0.35, ior: 1.62, specularIntensity: 0.7, natural: 1 },
   /** пломба — полированный композит, глаже эмали */
-  fill: { roughness: 0.2, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.05, sheen: 0, ior: 1.55, specularIntensity: 0.9 },
+  fill: { roughness: 0.2, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.05, sheen: 0, ior: 1.55, specularIntensity: 0.9, natural: 0 },
   /** кариес — мел: матовый, почти без лака */
-  caries: { roughness: 0.78, metalness: 0, clearcoat: 0.05, clearcoatRoughness: 0.6, sheen: 0.15, ior: 1.5, specularIntensity: 0.35 },
+  caries: { roughness: 0.78, metalness: 0, clearcoat: 0.05, clearcoatRoughness: 0.6, sheen: 0.15, ior: 1.5, specularIntensity: 0.35, natural: 0 },
   /** коронка и тело моста — металлокерамика с глазурью: металл под лаком */
-  crown: { roughness: 0.24, metalness: 0.55, clearcoat: 1, clearcoatRoughness: 0.04, sheen: 0, ior: 1.6, specularIntensity: 1 },
+  crown: { roughness: 0.24, metalness: 0.55, clearcoat: 1, clearcoatRoughness: 0.04, sheen: 0, ior: 1.6, specularIntensity: 1, natural: 0 },
   /** коронка импланта — цирконий: плотный, белый, ior 2,15 */
-  zirconia: { roughness: 0.16, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.03, sheen: 0.1, ior: 2.15, specularIntensity: 1 },
+  zirconia: { roughness: 0.16, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.03, sheen: 0.1, ior: 2.15, specularIntensity: 1, natural: 0 },
   /** корень — дентин с лёгким бархатом, без лака */
-  dentin: { roughness: 0.58, metalness: 0, clearcoat: 0, clearcoatRoughness: 0, sheen: 0.3, ior: 1.5, specularIntensity: 1 },
+  dentin: { roughness: 0.58, metalness: 0, clearcoat: 0, clearcoatRoughness: 0, sheen: 0.3, ior: 1.5, specularIntensity: 1, natural: 0 },
   /** винт импланта — титан, чистый металл: отражает карту окружения */
-  titanium: { roughness: 0.26, metalness: 1, clearcoat: 0.3, clearcoatRoughness: 0.2, sheen: 0, ior: 1.5, specularIntensity: 1 },
+  titanium: { roughness: 0.26, metalness: 1, clearcoat: 0.3, clearcoatRoughness: 0.2, sheen: 0, ior: 1.5, specularIntensity: 1, natural: 0 },
 } as const satisfies Record<string, Finish>
 
-const FIN_KEYS = ['roughness', 'metalness', 'clearcoat', 'clearcoatRoughness', 'sheen', 'ior', 'specularIntensity'] as const
+const FIN_KEYS = ['roughness', 'metalness', 'clearcoat', 'clearcoatRoughness', 'sheen', 'ior', 'specularIntensity', 'natural'] as const
+
+/** Отделка для конструктора `MeshPhysicalMaterial` — без `natural` (его three не
+ *  знает и отверг бы предупреждением): материал коронки получает долю отдельно. */
+export function physOf(f: Finish): Omit<Finish, 'natural'> {
+  const { roughness, metalness, clearcoat, clearcoatRoughness, sheen, ior, specularIntensity } = f
+  return { roughness, metalness, clearcoat, clearcoatRoughness, sheen, ior, specularIntensity }
+}
 
 /** Отделка поверхности коронки по смыслу: коронка и имплант — целиком, у живого
  *  зуба — по состоянию ЭТОЙ поверхности (`surface`: carie / obturatie / нет). */

@@ -3,7 +3,8 @@ import type { Odontogram, ToothGeom, ToothInfo } from '../chart'
 import { archCurve, GAP, GAP_CLOSED, layoutArch, type ArchLayout, type PlacedTooth } from './arch'
 import { focusOcclusal, focusOrbit, nearestTheta } from './focus'
 import type { Three } from './loadThree'
-import { COLOR, FINISH, finishOf, hex, lerpHex, mixFinish, sameFinish, sameLook, setFinish, setTransparent, structChanged, targetLook, type Finish, type Look } from './look'
+import { attachEnamel, enamelTooth, type EnamelMaterial } from './enamel'
+import { COLOR, FINISH, finishOf, hex, lerpHex, mixFinish, physOf, sameFinish, sameLook, setFinish, setTransparent, structChanged, targetLook, type Finish, type Look } from './look'
 import type { RawMesh } from './mesh'
 import { buildDashedLoop, buildRoots, buildScrew, SURF, toCls, type Letter } from './toothGeometry'
 import { crownModel, type CrownModel } from './crown'
@@ -151,7 +152,7 @@ interface ToothNodes {
   place: PlacedTooth
   group: T3.Group
   crown: T3.Mesh
-  mats: T3.MeshPhysicalMaterial[]
+  mats: EnamelMaterial[]
   roots: T3.Mesh
   rootMat: T3.MeshStandardMaterial
   screw: T3.Mesh
@@ -489,23 +490,30 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     const hbl = g.bl / 2
     // эмаль с лаком и тёплым бархатом: блик по форме коронки; цвет вершин — оттенок по высоте
     // (`crown.ts`); отделку поверхности по смыслу (пломба, кариес, коронка, цирконий) ставит `applyLook`
-    const mats = SURF.map(() => new THREE.MeshPhysicalMaterial({
-      color: COLOR.enamel, vertexColors: true, ...FINISH.enamel,
-      sheenColor: new THREE.Color(COLOR.sheenEnamel), sheenRoughness: 0.45,
-      emissive: new THREE.Color(COLOR.glow), emissiveIntensity: 0,
-    }))
+    // живая эмаль (25.10): полупрозрачный край и линия эмаль–цемент в шейдере (`enamel.ts`),
+    // доля `natural` — часть отделки, её ставит `applyLook` вместе с остальной
+    const tooth = enamelTooth(toCls(g.cls), upper, cm.tip)
+    const mats = SURF.map(() => {
+      const m = Object.assign(new THREE.MeshPhysicalMaterial({
+        color: COLOR.enamel, vertexColors: true, ...physOf(FINISH.enamel),
+        sheenColor: new THREE.Color(COLOR.sheenEnamel), sheenRoughness: 0.45,
+        emissive: new THREE.Color(COLOR.glow), emissiveIntensity: 0,
+      }), { natural: FINISH.enamel.natural })
+      attachEnamel(m, tooth)
+      return m
+    })
     const crownGeo = toGeometry(THREE, cm.mesh)
     const crown = new THREE.Mesh(crownGeo, mats)
     crown.userData['n'] = p.n
     crowns.push(crown)
     const rootMat = new THREE.MeshPhysicalMaterial({
-      color: COLOR.dentin, ...FINISH.dentin, sheenColor: new THREE.Color(COLOR.sheenDentin), sheenRoughness: 0.5,
+      color: COLOR.dentin, ...physOf(FINISH.dentin), sheenColor: new THREE.Color(COLOR.sheenDentin), sheenRoughness: 0.5,
     })
     const rootsGeo = toGeometry(THREE, buildRoots(g, cm.neck))
     const roots = new THREE.Mesh(rootsGeo, rootMat)
     roots.raycast = () => undefined
     const screwGeo = toGeometry(THREE, buildScrew(Math.min(hmd, hbl) * 0.9))
-    const screwMat = new THREE.MeshPhysicalMaterial({ color: COLOR.screw, ...FINISH.titanium })
+    const screwMat = new THREE.MeshPhysicalMaterial({ color: COLOR.screw, ...physOf(FINISH.titanium) })
     const screw = new THREE.Mesh(screwGeo, screwMat)
     screw.raycast = () => undefined
     // винт виден ВСЕГДА, даже сквозь десну: та же геометрия поверх всего, полупрозрачная, со свечением состояния
