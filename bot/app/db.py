@@ -495,7 +495,7 @@ def _parse_dt(value):
 # patients_visits: у выражения нет типа колонки, и SQLite отдаёт его строкой.
 _DT_COLS = {"starts_at", "created_at", "uploaded_at", "updated_at", "at",
             "last_at", "next_at", "done_at", "waiting_at", "arrived_at",
-            "state_at", "until_at", "visit_at"}
+            "state_at", "until_at", "visit_at", "removed_at"}
 
 
 def _rowdict(row) -> dict:
@@ -2623,6 +2623,22 @@ async def teeth_map_at(pid: int, before: datetime) -> dict:
                         WHERE patient_id = ? AND at < ? GROUP BY tooth)
              AND state IS NOT NULL""", pid, _iso(before))
     return {r["tooth"]: r for r in rows}
+
+
+async def teeth_history_rows(pid: int) -> list:
+    """История зубов пациента целиком, по порядку записи — выгрузка по 195-му
+    (состав выгрузки = состав удаления, `_PATIENT_CHILD_TABLES`). `state`
+    None — строки зуба не было (здоров); `src` 'base' — снимок шага 6."""
+    return await _fetch(
+        """SELECT tooth, at, state, note, doctor, surfaces, surface_states, marks, src
+           FROM teeth_history WHERE patient_id = ? ORDER BY id""", pid)
+
+
+async def bridges_removed_rows(pid: int) -> list:
+    """Снятые мосты пациента — выгрузка по 195-му, как `teeth_history_rows`."""
+    return await _fetch(
+        """SELECT bridge_id, teeth, material, doctor, created_at, removed_at
+           FROM bridges_removed WHERE patient_id = ? ORDER BY id""", pid)
 
 
 async def bridges_at(pid: int, before: datetime) -> list:

@@ -107,6 +107,11 @@ async def collect(pid: int) -> dict | None:
         # мосты — конструкции ПОВЕРХ зубов (08-21): машинная копия несёт
         # строку teeth как есть, человеку роли разворачивает render_html
         "punti": await db.bridges(pid),
+        # история зубов СОСТОЯНИЯМИ и снятые мосты (25.10, «сравнить с
+        # визитом») — те же таблицы, что стирает удаление: строка на каждую
+        # запись зуба, `state` None — зуба в карте не было (здоров)
+        "istoric_dinti": await db.teeth_history_rows(pid),
+        "punti_scoase": await db.bridges_removed_rows(pid),
         # пародонтограмма — датированные ОСМОТРЫ; в машинную копию едут все,
         # каждый со своими измерениями: право на доступ означает и историю
         "parodont": await _perio_dump(pid),
@@ -234,6 +239,23 @@ def render_html(data: dict) -> str:
                      for n, r in tsvg.parse_bridge(b["teeth"])),
           _esc(b["material"]) or "—", _esc(b["doctor"]) or "—",
           _dt(b["created_at"])] for b in data.get("punti", [])])
+    # история зубов — теми же словами, что «Starea dinților»: строка без
+    # состояния (зуб ушёл из карты) — «Sănătos», снимок шага 6 назван словами
+    istoric_dinti = _table(
+        ["Data", "Dinte", "Stare", "Suprafețe", "Marcaje", "Medic", "Notă"],
+        [[_dt(h["at"]) + (" (stare la actualizarea programului)" if h.get("src") == "base" else ""),
+          _esc(h["tooth"]), _word(tsvg.STATE_RO, h["state"] or "ok"),
+          _esc(_surfaces_ro({**h, "state": h["state"] or "ok"})) or "—",
+          _esc(", ".join(tsvg.MARK_RO[m]
+                         for m in tsvg.mark_list(h.get("marks") or ""))) or "—",
+          _esc(h["doctor"]) or "—", _esc(h["note"]) or "—"]
+         for h in data.get("istoric_dinti", [])])
+    punti_scoase = _table(
+        ["Dinți și roluri", "Material", "Medic", "Pusă", "Scoasă"],
+        [[" · ".join(f"{n} {tsvg.BRIDGE_RO[r]}"
+                     for n, r in tsvg.parse_bridge(b["teeth"])),
+          _esc(b["material"]) or "—", _esc(b["doctor"]) or "—",
+          _dt(b["created_at"]), _dt(b["removed_at"])] for b in data.get("punti_scoase", [])])
     # пародонтограмма: по строке на ЗУБ каждого осмотра — так её читает
     # человек, а не «3,2,3,3,2,4» позиционным кодом
     parodont_rows = []
@@ -345,6 +367,8 @@ def render_html(data: dict) -> str:
 <h2>Anamneză</h2>{anamneza}
 <h2>Starea dinților ({len(data['dinti'])})</h2>{dinti}
 <h2>Punți dentare ({len(data.get('punti', []))})</h2>{punti}
+<h2>Istoricul stării dinților ({len(data.get('istoric_dinti', []))})</h2>{istoric_dinti}
+<h2>Punți scoase ({len(data.get('punti_scoase', []))})</h2>{punti_scoase}
 <h2>Parodontogramă ({len(data.get('parodont', []))} examene)</h2>{parodont}
 <h2>Plan de tratament ({len(data['plan_tratament'])})</h2>{plan}
 <h2>Consultații ({len(data['consultatii'])})</h2>{consultatii}

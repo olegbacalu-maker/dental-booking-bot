@@ -10,9 +10,11 @@
 одонтограмма, `suite_pin`); они сняты, и записанные руками ожидания живут в
 `suite_api` значениями. Контракт — docs/dentpilot-2/clinical-chart.md.
 """
+import io
 import json
 import re
 import sqlite3
+import zipfile
 from datetime import datetime, time, timedelta
 
 from harness import (TZ, Client, Clock, Result, Server, add_appt, appt_id, clinic_now,
@@ -794,6 +796,21 @@ def suite_compare(res: Result) -> None:
         res.check("чужая фиша — 404", c.get(f"/api/patients/{other + 1000}/odontogram/compare?visit=1").status, 404)
         res.check("без входа — JSON 401", Client(s.url).get(cmp + str(ids[dmy(1)])).status, 401)
 
+        # выгрузка по 195-му: состав выгрузки = состав удаления — обе таблицы в
+        # машинной копии как есть, в читаемой — словами
+        z = zipfile.ZipFile(io.BytesIO(c.get(f"/admin/patient/{pid}/export").raw))
+        data = json.loads(z.read("date-pacient.json"))
+        page = z.read("fisa-pacient.html").decode("utf-8")
+        hist = _hist_rows(dbf, pid)
+        res.check("выгрузка несёт историю зубов целиком, по порядку записи",
+                  [(h["tooth"], h["state"]) for h in data["istoric_dinti"]], [(n, st) for n, _a, st, _s in hist])
+        res.check("и снятый мост — с датой снятия",
+                  [(b["bridge_id"], bool(b["removed_at"])) for b in data["punti_scoase"]], [(bid, True)])
+        res.ok("читаемая копия: разделы истории и снятых мостов, «строки нет» — словом «Sănătos»",
+               f"Istoricul stării dinților ({len(hist)})" in page and "Punți scoase (1)" in page
+               and "<td>36</td><td>Sănătos</td>" in page and "<td>None</td>" not in page,
+               "раздела нет или состояние осталось кодом")
+
         # стирание: контакт без лечения, у которого зуб был записан и снят, уходит
         # целиком — вместе с историей зубов и снятыми мостами
         c.post_json("/api/patients", {"name": "Odonto Sters", "phone": "069300406"})
@@ -808,3 +825,9 @@ def suite_compare(res: Result) -> None:
                   "ok_del")
         res.check("после стирания — ни истории, ни снятого моста",
                   (_count(dbf, "teeth_history", gone), _count(dbf, "bridges_removed", gone)), (0, 0))
+        # у пациента с лечением стирание = обезличивание: история зубов — медзапись, остаётся
+        n_hist, n_br = _count(dbf, "teeth_history", pid), _count(dbf, "bridges_removed", pid)
+        res.check("пациент с лечением — обезличен", c.post_json(f"/api/patients/{pid}/erase", {"confirm": "STERG"}).msg,
+                  "ok_anon")
+        res.check("обезличивание историю зубов и снятые мосты не трёт",
+                  (_count(dbf, "teeth_history", pid), _count(dbf, "bridges_removed", pid)), (n_hist, n_br))
