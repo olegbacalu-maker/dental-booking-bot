@@ -15,7 +15,8 @@ describe('enamel: патч шейдера', () => {
     // не нашлась — `replace` молча ничего не делает: ни края, ни линии, ни ошибки
     const p = patchEnamelShader(ShaderLib.physical.vertexShader, ShaderLib.physical.fragmentShader)
     expect(p.missing).toEqual([])
-    expect(p.vs).toContain('vDpTooth = position;')
+    expect(p.vs).toContain('vDpCej = uDpCej * pow(abs(cos(dpTh)), 2.0);')
+    expect(p.fs).not.toContain('atan(')
     expect(p.fs).toContain('DP_CEMENT')
     expect(p.fs).toContain('roughnessFactor = mix(roughnessFactor')
     expect(p.fs).toContain('material.clearcoat = mix(material.clearcoat')

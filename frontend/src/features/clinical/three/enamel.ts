@@ -98,35 +98,57 @@ export const HOOKS = {
   fLights: '#include <lights_physical_fragment>',
 } as const
 
-function fragHead(): string {
-  const c = enamelColors()
+/* Что зависит только от УГЛА вокруг оси зуба — высота линии эмаль–цемент и
+   доли мамелонов — считается на вершине: обе гладкие по углу (cos², гауссы
+   шириной 14° против шага сетки 3,75°), интерполяция их не портит, а
+   atan/pow/exp на каждом пикселе коронки стоили +1,4 мс кадра на Intel UHD
+   при холсте 2061×1015. Во фрагментном — только высота и смешения. */
+function vertHead(): string {
   return `
-varying vec3 vDpTooth;
-uniform float uDpTip;
-uniform float uDpEdge;
+varying float vDpY;
+varying float vDpCej;
+varying float vDpLobe;
 uniform float uDpCej;
-uniform float uDpNatural;
-const vec3 DP_TRANS = ${v3(c.trans)};
-const vec3 DP_HALO = ${v3(c.halo)};
-const vec3 DP_CEMENT = ${v3(c.cement)};
 float dpLobe(float deg, float c) { float x = (deg - c) / ${f(EDGE.lobeW)}; return exp(-x * x); }
 `
 }
 
-function fragColor(): string {
+function vertBody(): string {
   const [l0, l1, l2] = EDGE.lobes
+  return `
+  {
+    float dpTh = atan(position.z, position.x);
+    vDpY = position.y;
+    // линия эмаль–цемент (та же формула, что cejHeight)
+    vDpCej = uDpCej * pow(abs(cos(dpTh)), ${f(CEJ_POW)});
+    float dpDeg = degrees(dpTh);
+    vDpLobe = sin(dpTh) > 0.3 ? max(max(dpLobe(dpDeg, ${f(l0)}), dpLobe(dpDeg, ${f(l1)})), dpLobe(dpDeg, ${f(l2)})) : 0.3;
+  }`
+}
+
+function fragHead(): string {
+  const c = enamelColors()
+  return `
+varying float vDpY;
+varying float vDpCej;
+varying float vDpLobe;
+uniform float uDpTip;
+uniform float uDpEdge;
+uniform float uDpNatural;
+const vec3 DP_TRANS = ${v3(c.trans)};
+const vec3 DP_HALO = ${v3(c.halo)};
+const vec3 DP_CEMENT = ${v3(c.cement)};
+`
+}
+
+function fragColor(): string {
   return `
   float dpCe = 0.0;
   if (uDpNatural > 0.001) {
-    float dpTh = atan(vDpTooth.z, vDpTooth.x);
-    // линия эмаль–цемент (та же формула, что cejHeight)
-    float dpC = uDpCej * pow(abs(cos(dpTh)), ${f(CEJ_POW)});
-    dpCe = (1.0 - smoothstep(dpC - ${f(CEJ_SOFT)}, dpC + ${f(CEJ_SOFT)}, vDpTooth.y)) * uDpNatural;
+    dpCe = (1.0 - smoothstep(vDpCej - ${f(CEJ_SOFT)}, vDpCej + ${f(CEJ_SOFT)}, vDpY)) * uDpNatural;
     if (uDpEdge > 0.0) {
-      float dpD = uDpTip - vDpTooth.y;
-      float dpDeg = degrees(dpTh);
-      float dpM = sin(dpTh) > 0.3 ? max(max(dpLobe(dpDeg, ${f(l0)}), dpLobe(dpDeg, ${f(l1)})), dpLobe(dpDeg, ${f(l2)})) : 0.3;
-      float dpD0 = ${f(EDGE.zone)} - ${f(EDGE.lobe)} * dpM;
+      float dpD = uDpTip - vDpY;
+      float dpD0 = ${f(EDGE.zone)} - ${f(EDGE.lobe)} * vDpLobe;
       float dpTr = (1.0 - smoothstep(dpD0 - ${f(EDGE.soft)}, dpD0, dpD)) * uDpEdge * uDpNatural;
       diffuseColor.rgb = mix(diffuseColor.rgb, DP_TRANS, dpTr);
       float dpRim = (1.0 - smoothstep(${f(EDGE.rim[0])}, ${f(EDGE.rim[1])}, dpD)) * ${f(EDGE.rimK)} * uDpEdge * uDpNatural;
@@ -149,8 +171,8 @@ export function patchEnamelShader(vs: string, fs: string, cement: Pick<Finish, '
     }
     return src.replace(hook, `${hook}\n${add}`)
   }
-  let v = put(vs, 'vCommon', 'varying vec3 vDpTooth;')
-  v = put(v, 'vBegin', 'vDpTooth = position;')
+  let v = put(vs, 'vCommon', vertHead())
+  v = put(v, 'vBegin', vertBody())
   let g = put(fs, 'fCommon', fragHead())
   g = put(g, 'fColor', fragColor())
   // ниже линии — отделка цемента (корня): матовее, без лака
