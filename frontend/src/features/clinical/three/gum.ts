@@ -66,6 +66,9 @@ export interface GumInput {
   /** +1 нижняя челюсть (окклюзионно = +y), −1 верхняя */
   occ: 1 | -1
   teeth: GumTooth[]
+  /** для проверок: сколько раз огибающая тела ушла в запасную ветку — у рёбер
+   *  вокруг нет ни «лиц» зубов, ни гребня (25.10: должно быть 0, сцена не передаёт) */
+  probe?: { fallback: number }
 }
 
 // ---------------------------------------------------------------- опоры
@@ -580,7 +583,9 @@ export function buildGum(inp: GumInput): RawMesh {
       sw += g
       s += g * val(q)
     }
-    return sw > 1e-6 ? s / sw : fb(r)
+    if (sw > 1e-6) return s / sw
+    if (inp.probe) inp.probe.fallback++
+    return fb(r)
   })
   const eB = env((r) => (r.face ? r.B.w : r.B.w + RIDGE_OUT), (r) => r.B.w + RIDGE_OUT)
   const eL = env((r) => (r.face ? -r.L.w : -r.L.w + RIDGE_OUT), (r) => -r.L.w + RIDGE_OUT)

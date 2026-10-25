@@ -41,8 +41,9 @@ function jaw(list: number[], upper: boolean, o: Opts = {}) {
       anchors: anchorsFor(toCls(g.cls), o.rec?.[p0.n] ?? null, false, false), stripe: stripesFor(sites),
     }
   })
-  const gum = buildGum({ A: lay.A, D: lay.D, apex: lay.apex, yBase: lay.yBase, occ: upper ? -1 : 1, teeth })
-  return { lay, teeth, gum }
+  const probe = { fallback: 0 }
+  const gum = buildGum({ A: lay.A, D: lay.D, apex: lay.apex, yBase: lay.yBase, occ: upper ? -1 : 1, teeth, probe })
+  return { lay, teeth, gum, probe }
 }
 
 /** Сумма z-составляющих площадных нормалей треугольников впереди дуги. */
@@ -248,7 +249,11 @@ describe('десна по краю', () => {
     // до 25.10 огибающая тела в дыре и за крайним зубом СКАЧКОМ брала значение своего
     // ребра: 80–86° излома в дырах, 54–56° у целой челюсти за 18/28 и 48/38
     for (const [list, upper, kinds] of [[LO, false, GAPS_LO], [UP, true, GAPS_UP], [LO, false, {}], [UP, true, {}]] as const) {
-      expect(seam(jaw(list, upper, { kinds }).gum.positions)).toBeLessThan(15)
+      const { gum, probe } = jaw(list, upper, { kinds })
+      // после правки: 12,0° / 10,9° у дыр, 8,9° / 8,8° у целых челюстей
+      expect(seam(gum.positions)).toBeLessThan(15)
+      // запасная ветка огибающей — только страховка: ни одно ребро её не берёт
+      expect(probe.fallback).toBe(0)
     }
     // шов 16|15 и 46|45 (отчёт odo-look 19.10): переход тела от широкого моляра к узкому
     // премоляру ложился в ~4 мм у стыка — 11,5–12,2° через всю высоту десны
