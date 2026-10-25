@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { SCULPT, SCULPT_OF } from '../../../../models/teeth.js'
-import { ROOT_NECK, rootCount, sculptModel, type RootSet, type SculptTable } from './sculpt'
+import { layoutArch } from './arch'
+import { anchorsFor, buildGum, marginPoint, stripesFor, type GumTooth } from './gum'
+import { finite } from './mesh'
+import { posed } from './pose'
+import { ROOT_NECK, rootCount, sculptModel, surfDepth, SURF_W_MIN, type RootSet, type SculptTable } from './sculpt'
+import { toCls } from './toothGeometry'
 
 /* Свои модели зубов (07.10): таблицы, которые пишет scripts/teeth/bake.py, и
    постройка коронки по ним. Таблицы бандл не везёт (`loadTeeth`) — значит,
@@ -115,7 +120,7 @@ describe('корни по таблице (25.10)', () => {
       const cm = sculptModel(tab, geom(name, tab))
       const rs = tab.roots as RootSet
       const sd = (ROOT_NECK + 12) / rs.len
-      const lim = rs.list.length ? rs.fur : 0.9 * rs.len
+      const lim = surfDepth(rs)
       rs.trunk.d.forEach((d, k) => {
         if (k === 0 || d > lim) return
         for (let j = 0; j < rs.theta; j += 6) {
@@ -191,5 +196,60 @@ describe('корни по таблице (25.10)', () => {
     const [x, z] = other.surf(1, -2.4)
     expect(x / nx).toBeCloseTo(0.86, 6)
     expect(z / nz).toBeCloseTo(0.86, 6)
+  })
+
+  it('стенка ниже шейки не уже 0,7 шейки (как у формулы): глубже край десны держится этой глубины', () => {
+    for (const [name, tab] of Object.entries(SCULPT)) {
+      const rs = tab.roots as RootSet
+      const lim = surfDepth(rs)
+      expect(lim, name).toBeGreaterThan(2)
+      const cm = sculptModel(tab, geom(name, tab))
+      const sd = (ROOT_NECK + 12) / rs.len
+      for (let j = 0; j < 24; j++) {
+        const th = (2 * Math.PI * j) / 24
+        const [nx, nz] = cm.neck(th)
+        const [x, z] = cm.surf(th, -40)
+        // самое глубокое, куда садится край, — сечение на глубине lim
+        const [lx, lz] = cm.surf(th, -lim * sd)
+        expect(Math.hypot(x - lx, z - lz), `${name} ${j}`).toBeLessThan(1e-9)
+        expect(Math.hypot(x, z) / Math.hypot(nx, nz), `${name} ${j}`).toBeGreaterThan(SURF_W_MIN - 0.25)
+      }
+    }
+  })
+
+  it('⛔ десна на своих моделях: при рецессии до предела (31 — 15 мм, 41 — 8 мм) край лежит на десне', () => {
+    // та же проверка, что `gum.test` › «рецессия до предела», но на СВОИХ коронках с
+    // корнями по таблице: `gum.test` строит десну на формулах и этот путь не проходит
+    const LO = [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38]
+    const rec: Record<number, number[]> = { 41: [0, 8, 0, 0, 0, 0], 31: [0, 15, 0, 0, 0, 0] }
+    const g = (n: number) => {
+      const name = SCULPT_OF[n] as string
+      const tab = SCULPT[name] as SculptTable
+      return { tab, geo: { ...geom(name, tab), md: tab.ref.md, bl: tab.ref.bl, crown: tab.ref.crown, upper: false } }
+    }
+    const lay = layoutArch(LO.map((n) => ({ n, md: g(n).geo.md })), false)
+    const models = new Map(LO.map((n) => [n, sculptModel(g(n).tab, g(n).geo)]))
+    const ref = models.get(36)?.tip ?? 9
+    const teeth: GumTooth[] = lay.teeth.map((p0) => {
+      const { geo } = g(p0.n)
+      const c = models.get(p0.n) as ReturnType<typeof sculptModel>
+      const p = posed(p0, toCls(geo.cls), false, c.tip, ref)
+      return {
+        n: p0.n, kind: 'tooth', s: p.s, md: geo.md, bl: geo.bl, root: geo.root,
+        position: p.position, xAxis: p.xAxis, yAxis: p.yAxis, zAxis: p.zAxis, surf: c.surf,
+        anchors: anchorsFor(toCls(geo.cls), rec[p0.n] ?? null, false, false), stripe: stripesFor(null),
+      }
+    })
+    const gum = buildGum({ A: lay.A, D: lay.D, apex: lay.apex, yBase: lay.yBase, occ: 1, teeth })
+    expect(finite(gum)).toBe(true)
+    for (const n of [31, 41]) {
+      const t = teeth.find((x) => x.n === n) as GumTooth
+      const e = marginPoint(t, Math.PI / 2)
+      let best = Infinity
+      for (let i = 0; i < gum.positions.length; i += 3) {
+        best = Math.min(best, Math.hypot((gum.positions[i] ?? 0) - (e[0] ?? 0), (gum.positions[i + 1] ?? 0) - (e[1] ?? 0), (gum.positions[i + 2] ?? 0) - (e[2] ?? 0)))
+      }
+      expect(best, `край ${n}`).toBeLessThan(0.3)
+    }
   })
 })

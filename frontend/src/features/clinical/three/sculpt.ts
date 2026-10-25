@@ -73,6 +73,27 @@ export interface RootSet {
 /** Корней по таблице: у однокорневого список пуст — корень один, это ствол. */
 export const rootCount = (rs: RootSet): number => rs.list.length || 1
 
+/** Самое узкое сечение ствола, на которое ещё садится край десны: 0,7 шейки —
+ *  та же граница, что у формулы (`w ≥ 0,7`). Глубже (рецессия 8–15 мм) край
+ *  держится сечения на этой глубине: у апекса однокорневого корень вдвое уже,
+ *  и тело десны (`gum.ts`) за таким краем не успевает — край повисал в 1 мм от
+ *  десны (проверка «рецессия до предела» на своих моделях, 25.10). */
+export const SURF_W_MIN = 0.7
+
+/** Глубина ствола (мм эталона), до которой `surf` идёт по самому стволу: строки,
+ *  пока средний множитель не меньше `SURF_W_MIN`, у многокорневого — не глубже фуркации. */
+export function surfDepth(rs: RootSet): number {
+  const D = rs.trunk.d
+  let lim = 0
+  for (let k = 0; k < D.length; k++) {
+    const row = rs.trunk.w[k] ?? []
+    const mean = row.reduce((a, b) => a + b, 0) / Math.max(1, row.length)
+    if (mean < SURF_W_MIN) break
+    lim = D[k] ?? lim
+  }
+  return rs.list.length ? Math.min(lim, rs.fur) : lim
+}
+
 /** Глубина апекса самого длинного корня = шеечный переход формулы (1,5 мм) +
  *  длина корня сервера: та же, что у формулы `buildRoots`, — под неё рассчитана
  *  глубина тела десны (`gum.ts`: 1,5 + 1,05·root + 1,8). */
@@ -247,6 +268,7 @@ export function sculptModel(tab: SculptTable, g: SculptInput): CrownModel {
   const root = g.root
   const roots = rs && root !== undefined && rootCount(rs) === (g.roots ?? 1) ? rs : null
   const sd = roots ? (ROOT_NECK + (root ?? 0)) / roots.len : 1
+  const surfLim = roots ? surfDepth(roots) : 0
   const c0x = (tab.cx[0] ?? 0) * sx
   const c0z = (tab.cz[0] ?? 0) * sz
   /** точка ствола: строка k (до k+1 — доля fk), угол th */
@@ -282,10 +304,9 @@ export function sculptModel(tab: SculptTable, g: SculptInput): CrownModel {
     if (h >= 0) return wallAt(th, Math.min(h / sy, tab.hCap))
     if (roots) {
       // корень по таблице — ТА ЖЕ стенка, что у сетки корня: десна при рецессии
-      // садится на неё; у многокорневого ниже фуркации — сечение у фуркации
-      // (тело десны глубже 3 мм рецессии не опускается, `gum.ts › REC_BODY`)
-      const lim = roots.list.length ? roots.fur : 0.9 * roots.len
-      return trunkAt(roots, th, Math.min(-h / sd, lim))
+      // садится на неё; глубже `surfDepth` (корень уже 0,7 шейки, у многокорневого
+      // — фуркация) — сечение на этой глубине
+      return trunkAt(roots, th, Math.min(-h / sd, surfLim))
     }
     // корень — то же правило, что у `buildRoots`: сечение шейки сужается к корню
     const d = -h
