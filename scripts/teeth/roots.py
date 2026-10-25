@@ -87,35 +87,35 @@ def _r(x, z, a, b, ln, ax, az, curve, conc=(0.0, 0.0), n=2.0):
     return dict(x=x, z=z, a=a, b=b, len=ln, ax=ax, az=az, curve=curve, conc=conc, n=n)
 
 
-# многокорневые: длина самого длинного корня, глубина фуркации, входы фуркации
-# (угол, глубина бороздки), корни
+# многокорневые: длина самого длинного корня, глубина фуркации, корни (входы
+# фуркации даёт оболочка корней — `_hull`)
 MULTI = {
     # верхние моляры: мезиощёчный, дистощёчный, нёбный — нёбный длиннее
-    "U6": dict(L=13.0, fur=4.0, entries=((90, 0.12), (200, 0.1), (340, 0.1)), roots=[
+    "U6": dict(L=13.0, fur=4.0, roots=[
         _r(-0.42, 0.40, 0.36, 0.44, 0.92, -0.30, 0.30, 0.5, conc=(0.1, 0.1)),
         _r(0.44, 0.42, 0.34, 0.36, 0.86, 0.32, 0.28, 0.5),
         _r(0.03, -0.42, 0.44, 0.36, 1.0, 0.05, -0.42, 0.2)]),
-    "U7": dict(L=12.0, fur=4.5, entries=((90, 0.1), (200, 0.08), (340, 0.08)), roots=[
+    "U7": dict(L=12.0, fur=4.5, roots=[
         _r(-0.38, 0.38, 0.35, 0.42, 0.92, -0.18, 0.18, 0.6, conc=(0.08, 0.08)),
         _r(0.40, 0.40, 0.33, 0.35, 0.87, 0.18, 0.16, 0.6),
         _r(0.02, -0.38, 0.42, 0.35, 1.0, 0.03, -0.25, 0.3)]),
-    "U8": dict(L=11.0, fur=5.0, entries=((90, 0.08), (200, 0.06), (340, 0.06)), roots=[
+    "U8": dict(L=11.0, fur=5.0, roots=[
         _r(-0.34, 0.34, 0.34, 0.40, 0.9, -0.06, 0.06, 0.8),
         _r(0.36, 0.36, 0.32, 0.34, 0.85, 0.06, 0.05, 0.8),
         _r(0.02, -0.34, 0.40, 0.34, 1.0, 0.02, -0.08, 0.5)]),
     # нижние моляры: мезиальный (широкий щёчно-язычно, с вогнутостями) и дистальный
-    "L6": dict(L=14.0, fur=3.0, entries=((90, 0.14), (270, 0.14)), roots=[
+    "L6": dict(L=14.0, fur=3.0, roots=[
         _r(-0.50, 0.0, 0.36, 0.82, 1.0, -0.12, 0.0, 0.9, conc=(0.16, 0.16), n=2.4),
         _r(0.50, 0.0, 0.34, 0.74, 0.93, 0.22, 0.0, 0.3, conc=(0.08, 0.08), n=2.2)]),
-    "L7": dict(L=13.0, fur=3.5, entries=((90, 0.12), (270, 0.12)), roots=[
+    "L7": dict(L=13.0, fur=3.5, roots=[
         _r(-0.46, 0.0, 0.35, 0.80, 1.0, -0.05, 0.0, 0.8, conc=(0.14, 0.14), n=2.4),
         _r(0.46, 0.0, 0.33, 0.72, 0.94, 0.12, 0.0, 0.4, conc=(0.08, 0.08), n=2.2)]),
-    "L8": dict(L=11.0, fur=4.5, entries=((90, 0.1), (270, 0.1)), roots=[
+    "L8": dict(L=11.0, fur=4.5, roots=[
         _r(-0.42, 0.0, 0.34, 0.76, 1.0, 0.05, 0.0, 1.0, conc=(0.1, 0.1), n=2.3),
         _r(0.42, 0.0, 0.32, 0.70, 0.95, -0.02, 0.0, 0.8, conc=(0.06, 0.06), n=2.2)]),
     # верхний первый премоляр: щёчный и нёбный, раздвоение в средней трети;
     # мезиальная вогнутость ствола (у 14/24 она видна и на шейке)
-    "U4": dict(L=14.0, fur=6.3, entries=((0, 0.1), (180, 0.14)), mesial=0.12, roots=[
+    "U4": dict(L=14.0, fur=6.3, mesial=0.12, roots=[
         _r(0.0, 0.45, 0.55, 0.42, 1.0, 0.0, 0.12, 0.4, conc=(0.06, 0.08)),
         _r(0.0, -0.45, 0.50, 0.40, 0.96, 0.0, -0.15, 0.3, conc=(0.06, 0.06))]),
 }
@@ -158,19 +158,59 @@ def single(name, tab):
             "rt": N_ROOT, "list": []}
 
 
+def _root_at(q, p, cx0, cz0, an, bn, fur, tk):
+    """Центр и полуоси корня q на доле длины tk (у фуркации корень шире — переход
+    ствола в корень, дальше — профиль моляра)."""
+    k = taper(tk, end=0.25, p=2.6) * (1.0 + 0.18 * (1.0 - smoothstep(0.0, 0.25, tk)))
+    cx = cx0 + q["x"] * an + q["ax"] * an * tk ** 1.5 + q["curve"] * tk ** 2.5
+    cz = cz0 + q["z"] * bn + q["az"] * bn * tk ** 1.5
+    return cx, cz, q["a"] * an * k, q["b"] * bn * k
+
+
+ROOT_TOP = 1.6        # верх корня — на столько выше фуркации, внутри ствола: стык не виден
+
+
+def _hull(p, cx0, cz0, th, rn, an, bn, fur):
+    """Оболочка сечений корней на глубине фуркации, видимая из центра шейки: на
+    каждом угле ствола — дальняя точка корней по лучу (между корнями луч их не
+    задевает — там вход фуркации, ствол уходит внутрь до 0,55 шейки). Ствол к
+    фуркации сходит к ней — без «плеч» над корнями."""
+    out = np.empty(len(th))
+    ss = np.arange(0.0, 9.0, 0.01)
+    for j, a in enumerate(th):
+        px = cx0 + ss * np.cos(a)
+        pz = cz0 + ss * np.sin(a)
+        far = 0.0
+        for q in p["roots"]:
+            L = p["L"] * q["len"]
+            tk = (fur - (fur - ROOT_TOP)) / (L - (fur - ROOT_TOP))
+            cx, cz, ra, rb = _root_at(q, p, cx0, cz0, an, bn, fur, tk)
+            phi = np.arctan2(pz - cz, px - cx)
+            rr = section(phi, ra, rb, n=q["n"], conc=q["conc"])
+            inside = np.hypot(px - cx, pz - cz) <= rr
+            if inside.any():
+                far = max(far, float(ss[inside].max()))
+        out[j] = far
+    w = np.clip(out / rn, 0.55, 1.0)
+    # без зубцов по углу: круговое сглаживание по трём соседям
+    for _ in range(3):
+        w = (np.roll(w, 1) + 2 * w + np.roll(w, -1)) / 4
+    return w
+
+
 def multi(name, tab):
     p = MULTI[name]
     cx0, cz0, th, rn, an, bn = neck_of(tab)
     fur = p["fur"]
-    # ствол: шейка сужается к фуркации, у входов фуркации — бороздки
+    # ствол: от шейки к оболочке корней у фуркации (между корнями — входы
+    # фуркации); у 14/24 ещё мезиальная вогнутость
+    w_fur = _hull(p, cx0, cz0, th, rn, an, bn, fur)
     K = 9
     d = fur * np.linspace(0.0, 1.0, K)
     rows = []
     for dk in d:
         s = smoothstep(0.0, fur, dk)
-        w = 1.0 - 0.18 * s
-        for deg, depth in p["entries"]:
-            w = w - depth * smoothstep(0.25 * fur, fur, dk) * np.exp(-(_adist(th, np.radians(deg)) / 0.35) ** 2)
+        w = 1.0 + (w_fur - 1.0) * s
         if p.get("mesial"):
             w = w - p["mesial"] * smoothstep(0.0, 0.3 * fur, dk) * np.exp(-(_adist(th, np.pi) / 0.45) ** 2)
         rows.append(np.asarray(w, float))
@@ -179,28 +219,25 @@ def multi(name, tab):
     # (их закрывают корни; плоское дно давало уступ у фуркации)
     for dd, k in ((0.35, 0.8), (0.7, 0.5)):
         d = np.append(d, fur + dd)
-        rows.append(rows[-1] * k if dd == 0.35 else rows[-2] * k)
+        rows.append(rows[K - 1] * k)
     K = len(d)
     trunk = {"d": d.tolist(), "ox": [0.0] * K, "oz": [0.0] * K, "w": [r.tolist() for r in rows]}
-    # корни: верх внутри ствола (на 1,6 мм выше фуркации), до своего апекса
+    # корни: верх внутри ствола, до своего апекса
     th_r = 2 * np.pi * np.arange(N_ROOT) / N_ROOT
     out = []
     R = 18
     u = np.arange(R) / (R - 1)
     t = 1.0 - (1.0 - u) ** 1.3
     for q in p["roots"]:
-        top = fur - 1.6                                  # верх корня глубоко внутри ствола: стык не виден
+        top = fur - ROOT_TOP
         L = p["L"] * q["len"]
         dk = top + (L - top) * t
-        x0, z0 = cx0 + q["x"] * an, cz0 + q["z"] * bn
-        ax, az = q["ax"] * an, q["az"] * bn
         cx, cz, rr = [], [], []
         for tk in t:
-            # у фуркации корень шире (переход ствола в корень), дальше — профиль моляра
-            k = taper(tk, end=0.25, p=2.6) * (1.0 + 0.18 * (1.0 - smoothstep(0.0, 0.25, tk)))
-            cx.append(x0 + ax * tk ** 1.5 + q["curve"] * tk ** 2.5)
-            cz.append(z0 + az * tk ** 1.5)
-            rr.append(section(th_r, q["a"] * an * k, q["b"] * bn * k, n=q["n"], conc=q["conc"]))
+            x, z, ra, rb = _root_at(q, p, cx0, cz0, an, bn, fur, tk)
+            cx.append(x)
+            cz.append(z)
+            rr.append(section(th_r, ra, rb, n=q["n"], conc=q["conc"]))
         rr[-1] = np.zeros(N_ROOT)
         out.append({"d": dk.tolist(), "cx": cx, "cz": cz, "r": [r.tolist() for r in rr]})
     return {"len": p["L"], "fur": fur, "theta": N_TRUNK, "trunk": trunk, "rt": N_ROOT, "list": out}
