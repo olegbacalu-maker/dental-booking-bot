@@ -266,8 +266,8 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
               onKeyDown={(e) => { if (e.key === 'Escape' && layOpen) { e.stopPropagation(); setLayOpen(false) } }}>
               {/* открывается и без сцены: состояние слоёв видно, переключатели внутри выключены */}
               <button type="button" className={`dp-vp-pl dp-vp-layb${layOpen ? ' on' : ''}`} aria-expanded={layOpen}
-                aria-haspopup="true" onClick={() => setLayOpen((o) => !o)}>
-                {T.layers} <Icon name="chev-r" />
+                aria-haspopup="true" aria-label={T.layers} title={T.layers} onClick={() => setLayOpen((o) => !o)}>
+                <Icon name="layers" />
               </button>
               {layOpen && <LayerPop box={layBox} onClose={closeLay} arch={ARCH_TOGS.map(togBtn)} layers={LAYER_TOGS.map(togBtn)} />}
             </div>

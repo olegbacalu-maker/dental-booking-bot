@@ -733,6 +733,10 @@ describe('вид 3D (B7)', () => {
     }
     expect(within(group).getByRole('button', { name: 'Frontal' }).getAttribute('aria-pressed')).toBe('true')
     expect(within(group).getByRole('button', { name: '2D' }).querySelector('svg')?.innerHTML).toBe(glyph('arch-flat'))
+    // «Straturi» — тоже значком, как в макете B: имя в aria-label и подсказке
+    const lay = screen.getByRole('button', { name: 'Straturi' })
+    expect(lay.getAttribute('title')).toBe('Straturi')
+    expect(lay.querySelector('svg')?.innerHTML).toBe(glyph('layers'))
     localStorage.removeItem('dp_odo_view')
   })
 })

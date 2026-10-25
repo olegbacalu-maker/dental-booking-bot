@@ -2665,9 +2665,10 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .dp-seg.dp-vp-pl > button { height: 36px; padding: 0 12px; font-size: var(--fs-s); }
 /* ракурсы значками (Олег 24.10 «ракурсы значками»): значок и подпись, как в
    макете B, пока сцена широкая; уже — только значок (имя в подсказке и
-   aria-label). С подписями плашка видов 588 px, с правой группой и полями —
-   ~912 px сцены (Inter; Segoe UI уже), порог 1000 — с запасом; на 1366 сцена
-   886. У «2D» слово остаётся всегда — оно короче любого значка-загадки */
+   aria-label). С подписями весь ряд (плашка, «Straturi» значком, зум, поля) —
+   875 px сцены на Inter, самом широком шрифте темы (Segoe UI — 855); на 1366
+   сцена 886 — впритык, поэтому порог 1000 и на 1366 значки. У «2D» слово
+   остаётся всегда — оно короче любого значка-загадки */
 .dp-react-root .dp-views.dp-vp-pl > button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .dp-react-root .dp-views.dp-vp-pl > button svg { flex: none; width: 20px; height: 20px; stroke-width: 1.6; }
 @container vp (max-width: 999px) {
@@ -2679,15 +2680,16 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .dp-vp-pl .dp-ibtn.on { background: var(--teal-soft); color: var(--teal-d); }
 .dp-react-root .dp-vp-pl .dp-zoom-l { min-width: 44px; font-size: var(--fs-s); }
 .dp-react-root .dp-vp-lay { position: relative; }
+/* «Straturi» — значком, как в макете B (имя — в aria-label и подсказке): квадрат
+   высотой с плашку зума */
 .dp-react-root .dp-vp-layb {
-  display: inline-flex; align-items: center; gap: 6px; height: 44px; padding: 0 12px; font: inherit; font-size: var(--fs-s);
-  font-weight: 600; color: var(--text2); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0;
+  font: inherit; color: var(--text2); cursor: pointer;
 }
-.dp-react-root .dp-vp-layb svg { width: 14px; height: 14px; transform: rotate(90deg); transition: transform var(--dur) ease; }
+.dp-react-root .dp-vp-layb svg { width: 20px; height: 20px; stroke-width: 1.6; }
 .dp-react-root .dp-vp-layb:hover { color: var(--text); }
 .dp-react-root .dp-vp-layb:focus-visible { outline: none; box-shadow: var(--ring); }
 .dp-react-root .dp-vp-layb.on { border-color: var(--teal); background: var(--teal-soft); color: var(--teal-d); }
-.dp-react-root .dp-vp-layb.on svg { transform: rotate(-90deg); }
 .dp-react-root .dp-vp-layb:disabled { opacity: .5; cursor: default; }
 /* поповер в две колонки: шесть переключателей столбиком (~330 px) не влезали в
    сцену 1366×656 (313 px) — низ резала карточка */
