@@ -2763,3 +2763,50 @@ dialog.dp-about { width: 460px; }
   .dp-react-root .odop:not([data-sel])[data-pending] .odop-side .dp-tp > :not(.dp-tp-foot) { display: none; }
   .dp-react-root .dp-odo:not([data-sel])[data-pending] { height: calc(100dvh - var(--h-top) - 40px - 112px); min-height: 0; }
 }
+
+/* odo:compare — «Compară» рабочего стола (волна 2 одонтограммы, 25.10). Кнопка
+   шапки выключена при черновиках, в режиме моста и без прошлых визитов
+   (причина — в title). Колонка сравнения стоит на месте панели зуба: список
+   было → стало, «Era / Acum» тем же сегментом, что виды 2D. Слой — свойство
+   экрана: в печать не идёт (рабочий стол закрывает его до печати). */
+.dp-react-root .dp-odo-lnk:disabled { opacity: .5; cursor: default; }
+.dp-react-root .dp-odo-lnk:disabled:hover { background: var(--panel); }
+.dp-react-root .dp-odo-lnk[aria-pressed="true"] { border-color: var(--teal); background: var(--teal-glow); color: var(--teal-d); }
+.dp-react-root .dp-cmp-ic { display: grid; place-items: center; }
+.dp-react-root .dp-cmp-ic svg { width: 24px; height: 24px; }
+.dp-react-root .dp-cmp .dp-tp-who .dp-fld { margin-top: 4px; width: 100%; min-width: 0; }
+.dp-react-root .dp-cmp-side .dp-seg { align-self: flex-start; }
+.dp-react-root .dp-cmp-body { flex: 1; }
+.dp-react-root .dp-cmp-none { margin: 0; color: var(--text2); line-height: 1.45; }
+.dp-react-root .dp-cmp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.dp-react-root .dp-cmp-row {
+  display: grid; grid-template-columns: 32px minmax(0, 1fr) 14px minmax(0, 1fr); align-items: center; gap: 8px;
+  width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-ctl);
+  background: var(--panel); color: var(--text); font: inherit; font-size: var(--fs-m); text-align: left; cursor: pointer;
+}
+.dp-react-root .dp-cmp-row:hover { background: var(--fill); }
+.dp-react-root .dp-cmp-row:focus-visible { outline: none; box-shadow: var(--ring); }
+.dp-react-root .dp-cmp-row[aria-current="true"] { border-color: var(--teal); background: var(--teal-glow); }
+.dp-react-root .dp-cmp-row svg { width: 14px; height: 14px; color: var(--text3); }
+.dp-react-root .dp-cmp-n { font-variant-numeric: tabular-nums; }
+.dp-react-root .dp-cmp-was { color: var(--text3); overflow-wrap: anywhere; }
+.dp-react-root .dp-cmp-now { font-weight: 600; overflow-wrap: anywhere; }
+.dp-react-root .dp-cmp-foot { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+@media (pointer: coarse) {
+  .dp-react-root .dp-cmp-row { min-height: 44px; }
+}
+/* портрет пальцем: колонка сравнения — той же шторкой, что панель зуба
+   (сплошной фон: размытие — только над прокруткой), рабочий стол над ней ужат */
+@media (pointer: coarse) and (orientation: portrait) {
+  .dp-react-root .odop[data-cmp] .odop-side {
+    display: block; position: fixed; z-index: 40; left: 0; right: 0; top: auto; bottom: 0;
+    max-height: 52vh; overflow: auto; overscroll-behavior: contain;
+    background: var(--surface); border-top: 1px solid var(--line);
+    border-radius: var(--r-block) var(--r-block) 0 0; box-shadow: 0 -8px 24px rgba(15, 23, 42, .14);
+    padding: 8px 12px calc(12px + env(safe-area-inset-bottom));
+  }
+  .dp-react-root .odop[data-cmp] .odop-side .insp { border: none; box-shadow: none; margin: 0; }
+  .dp-react-root .odop[data-cmp] .odop-side .dp-tp-foot { bottom: calc(-12px - env(safe-area-inset-bottom)); border-radius: 0; }
+  .dp-react-root .dp-odo[data-cmp] { height: calc(48dvh - var(--h-top) - 32px); min-height: 0; }
+  .dp-react-root .dp-odo[data-cmp] .dp-vp-legend { display: none; }
+}

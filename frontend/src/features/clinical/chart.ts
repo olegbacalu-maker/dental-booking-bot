@@ -175,9 +175,46 @@ export interface Odontogram {
   /** Позиции плана по зубам (24.10, вкладка «Tratament» панели зуба). У зуба
    *  без позиций ключа нет; позиция «на весь рот» (без зуба) сюда не едет. */
   plan?: Record<string, ToothPlanItem[]>
+  /** Прошлые визиты для «Compară» (25.10), свежие первыми; старые засевы
+   *  проверок их не несут — кнопка тогда выключена. */
+  visits?: CompareVisit[]
   /** Свежая фиша — ТОЛЬКО в ответе записи зуба, которая её попросила
    *  (`?card=1`, см. `saveTooth`). Её тип знает фиша, а не этот модуль. */
   card?: unknown
+}
+
+/** Прошлый визит для сравнения (волна 2, 25.10): прошлые ДНИ без отменённых
+ *  и неявок — правило сервера (`odontogram.compare_visits`); `known` — есть ли
+ *  история зубов на конец дня визита (она копится с обновления). */
+export interface CompareVisit {
+  id: number
+  /** dd.mm.yyyy */
+  date: string
+  /** «12.09.2026 · Consultație · Dr. X» — слова сервера */
+  label: string
+  known: boolean
+}
+
+/** Зуб, изменившийся с визита: было → стало словами сервера. */
+export interface CompareChange {
+  n: number
+  was: string
+  now: string
+}
+
+/** Разница с визитом (`GET …/odontogram/compare`). `teeth` — изменившиеся зубы
+ *  ТАКИМИ, КАКИМИ БЫЛИ (тот же построитель, что у модели: экран кладёт их
+ *  поверх сохранённой, как предпросмотр черновика), `bridges` — мосты той
+ *  даты. `known: false` — истории на ту дату нет: ни разницы, ни рисунка. */
+export interface Compare {
+  visit: CompareVisit
+  known: boolean
+  /** начало истории dd.mm.yyyy; пусто — истории нет */
+  since: string
+  changes: CompareChange[]
+  teeth: Record<string, ToothInfo>
+  bridges: Bridge[]
+  milk_open: boolean
 }
 
 /** Запись зуба — намерение явным полем: `surfaces` всегда карта (форма
@@ -279,6 +316,10 @@ export const chart = {
    *  летописи и без «Fișa deschisă» (`api_odontogram_preview`). */
   preview: (pid: number, teeth: TeethItem[], signal?: AbortSignal) =>
     api.post<{ teeth: Record<string, ToothInfo> }>(`${P(pid)}/odontogram/preview`, { teeth }, signal ? { signal } : {}),
+  /** «Compară» (25.10): что изменилось у зубов с визита `visit` — ничего не
+   *  пишет, ни «Fișa deschisă» (`api_odontogram_compare`). */
+  compare: (pid: number, visit: number, signal?: AbortSignal) =>
+    api.get<Compare>(`${P(pid)}/odontogram/compare?visit=${visit}`, signal ? { signal } : {}),
   addBridge: (pid: number, body: BridgeSave) =>
     api.post<Odontogram>(`${P(pid)}/bridges`, body),
   delBridge: (pid: number, bid: number) =>

@@ -7,6 +7,7 @@ import type { ToastState } from '../../components/Toast'
 import { defaultReload } from '../../hooks/useLive'
 import { asApiError } from '../../services/api'
 import { BridgeBar, BridgeDialog } from './BridgeTool'
+import { ComparePanel } from './ComparePanel'
 import { DentalArch } from './DentalArch'
 import { LegendFilter } from './LegendFilter'
 import { ModeTabs } from './ModeTabs'
@@ -16,6 +17,7 @@ import { ToothMenu, type MenuAt } from './ToothMenu'
 import { ToothPanel } from './ToothPanel'
 import { chart, legendCounts, modeSet, neighbour, screenDim, shownTeeth, type Arrow, type Odontogram, type PlanAdd } from './chart'
 import { Odontogram3D, type Mode } from './three/Odontogram3D'
+import { useCompare } from './useCompare'
 import { unsavedTeeth, useChart } from './useChart'
 
 /* Рабочий стол одонтограммы (C21–C22; с 26.09 ОДИН на два места): вьюпорт
@@ -95,7 +97,15 @@ import { unsavedTeeth, useChart } from './useChart'
      бумагу ушло бы несохранённое как записанное.
    Фокус на кнопку зуба — без прокрутки (`preventScroll`): выбор в сцене или
    меню уводил страницу к «Harta dinților» (Олег 25.10: «экран прыгает на
-   зуб»; 14.10: без прыжков страницы). */
+   зуб»; 14.10: без прыжков страницы).
+
+   «Compară» (волна 2, 25.10; `useCompare`): виды рисуют `cmp.shown` — карту
+   выбранного визита поверх `shown`, неизменившиеся зубы гаснут вместе с
+   гашением режима и легенды, в колонке вместо панели зуба — `ComparePanel`.
+   ⛔ С черновиками не смешивается: при черновиках (и в режиме моста) кнопка
+   выключена, пока сравнение открыто — правки нет (щелчок по зубу только
+   подсвечивает его, меню и клавиши правки молчат, Esc закрывает). Печать
+   закрывает сравнение и печатает сохранённое: слой — свойство экрана. */
 const T = {
   recorded: 'dinți cu stare înregistrată',
   back: 'Înapoi la fișă',
@@ -111,6 +121,11 @@ const T = {
   reloadOk: 'Reîncarcă',
   printAsk: 'Pe foaie ajunge doar ce e salvat. Salvați acum și tipăriți?',
   printOk: 'Salvează și tipărește',
+  compare: 'Compară',
+  compareTip: 'Compară dinții cu o vizită anterioară',
+  cmpDirty: 'Salvați sau renunțați la modificări înainte de a compara',
+  cmpBridge: 'Terminați puntea înainte de a compara',
+  cmpNone: 'Nicio vizită anterioară cu care să comparați',
 } as const
 
 const FIELD = new Set(['INPUT', 'TEXTAREA', 'SELECT'])
@@ -150,8 +165,11 @@ export function OdontogramWorkbench({
   pid, model, replace, fail, say, initial = null, saveQuery = '', open = null, embedded = false, onDirty,
 }: Props) {
   const c = useChart(pid, model, replace, fail, say, initial, saveQuery)
-  /* что рисуют виды: сохранённое + черновики в предпросмотре сервера */
-  const shown = c.shown ?? model
+  /* что рисуют виды: сохранённое + черновики в предпросмотре сервера, а при
+     сравнении — карта выбранного визита поверх него */
+  const cmp = useCompare(pid, model, fail)
+  const cmpOn = cmp.open
+  const shown = cmp.shown ?? c.shown ?? model
   const [brMode, setBrMode] = useState(false)
   const [picked, setPicked] = useState<number[]>([])
   const [brOpen, setBrOpen] = useState(false)
@@ -165,7 +183,9 @@ export function OdontogramWorkbench({
   const [planBad, setPlanBad] = useState(false)
   const planFrom = (n: number) => { setMenu(null); setPlanBad(false); setPlan(n) }
   const [zoom, setZoom] = useState(false)
-  const focus3d = zoom && !brMode && c.view === '3d' ? c.selected : null
+  /* выбранный зуб видов: при сравнении — подсвеченный в его списке */
+  const sel = brMode ? null : cmpOn ? cmp.focus : c.selected
+  const focus3d = zoom && c.view === '3d' ? sel : null
   const [filter, setFilter] = useState<string | null>(null)
   /* режим экрана: с «всё видно»; «Parodonțiu» живёт в 3D и только при осмотре —
      в 2D (или без осмотра) экран показывает «всё видно», как прежний «Parodont» */
@@ -177,7 +197,14 @@ export function OdontogramWorkbench({
   const mode = chosen?.kind === 'perio' && !(c.view === '3d' && layer) ? allMode : chosen
   const scene: Mode = mode?.kind === 'perio' ? 'paro' : 'stare'
   const legendItems = c.view === 'ocluzal' ? model.legend.occlusal : model.legend.frontal
-  const dim = useMemo(() => screenDim(shown, mode, filter), [shown, mode, filter])
+  const cmpDim = cmp.dim
+  const dim = useMemo(() => {
+    const d = screenDim(shown, mode, filter)
+    if (!cmpDim) return d
+    const out = new Set(d)
+    for (const n of cmpDim) out.add(n)
+    return out
+  }, [shown, mode, filter, cmpDim])
   const counts = useMemo(() => legendCounts(shown, legendItems, modeSet(shown, mode)), [shown, legendItems, mode])
   const recorded = useMemo(() => recordedCount(model), [model])
   const pickLegend = (k: string) => setFilter((f) => (f === k ? null : k))
@@ -188,7 +215,7 @@ export function OdontogramWorkbench({
     setModeKey(k)
     setFilter(null)
   }
-  const onDouble = (n: number) => { if (!brMode) { c.select(n); setZoom(true) } }
+  const onDouble = (n: number) => { if (!brMode && !cmpOn) { c.select(n); setZoom(true) } }
   const closePlan = useCallback(() => setPlan(null), [])
   /* «Salvat: dinții …» — зубы последней удачной записи; строка живёт, пока
      нет новых черновиков */
@@ -201,6 +228,10 @@ export function OdontogramWorkbench({
   /* печать при черновиках: экран рисует несохранённое, и бумага выдала бы его
      за записанное — сперва запись, печать после того, как экран её отрисовал */
   const printChart = async () => {
+    if (cmpOn) {
+      cmp.close()
+      await new Promise<void>((done) => requestAnimationFrame(() => setTimeout(done, 0)))
+    }
     if (c.pending.length) {
       if (!await ask({ text: `${unsavedTeeth(c.pending)} ${T.printAsk}`, ok: T.printOk })) return
       if (!await doSave()) return
@@ -272,6 +303,7 @@ export function OdontogramWorkbench({
 
   const base = `/admin/patient/${pid}`
   const onSelect = (n: number) => {
+    if (cmpOn) { cmp.setFocus(cmp.focus === n ? null : n); return }
     if (brMode) {
       if (n > 50) return                    // молочных мостов не бывает (врач, 08-21)
       setPicked((p) => (p.includes(n) ? p.filter((x) => x !== n) : [...p, n]))
@@ -280,14 +312,14 @@ export function OdontogramWorkbench({
     c.select(n)
   }
   const onSurface = (n: number, letter: string) => {
-    if (brMode) { onSelect(n); return }
+    if (brMode || cmpOn) { onSelect(n); return }
     c.pickSurface(n, letter)
   }
   const stopBridge = () => { setBrMode(false); setPicked([]); setBrOpen(false) }
   const bridgeFrom = (n: number) => { setMenu(null); setBrMode(true); setPicked([n]); setBrOpen(false) }
   /* меню зуба у точки: правая кнопка мыши, долгое нажатие пальцем — на карте, дуге и в 3D */
   const onMenu = (n: number, x: number, y: number) => {
-    if (brMode) return
+    if (brMode || cmpOn) return
     setMenu({ n, x, y })
   }
   const menuState = (n: number, st: string) => { c.setState(n, st); setMenu(null); focusTooth(n) }
@@ -301,6 +333,10 @@ export function OdontogramWorkbench({
     if (menu) {
       setMenu(null)
       if (e.key === 'Escape') { e.preventDefault(); return }
+    }
+    if (cmpOn) {
+      if (e.key === 'Escape') { e.preventDefault(); cmp.close() }
+      return
     }
     if (e.key === 'Escape') {
       e.preventDefault()
@@ -341,12 +377,14 @@ export function OdontogramWorkbench({
   const menuCurrent = menu && menu.n === c.selected && c.draft ? c.draft.state : (menuInfo?.state ?? '')
   const menuMarks = menu && menu.n === c.selected && c.draft ? c.draft.marks : (menuInfo?.mk ?? [])
   const pickedSet = new Set(picked)
+  /* почему «Compară» выключена: черновики, режим моста, нет прошлых визитов */
+  const cmpOff = c.pending.length ? T.cmpDirty : brMode ? T.cmpBridge : !model.visits?.length ? T.cmpNone : ''
 
   return (
     <>
       <div ref={root} className="odop odo dp-odo" id="odo" data-page={embedded ? undefined : ''} data-view={c.view}
-        data-sel={c.selected ?? undefined} data-brush={c.brush ?? undefined}
-        data-pending={c.pending.length ? '' : undefined} tabIndex={0} onKeyDown={onKey}>
+        data-sel={cmpOn ? undefined : c.selected ?? undefined} data-brush={c.brush ?? undefined}
+        data-pending={c.pending.length ? '' : undefined} data-cmp={cmpOn ? '' : undefined} tabIndex={0} onKeyDown={onKey}>
         <div className="dp-odo-head">
           {/* имя — заголовок детальной страницы и дорога назад в фишу; во вкладке фиши имя уже в её шапке */}
           {!embedded && (
@@ -357,8 +395,13 @@ export function OdontogramWorkbench({
           <ModeTabs model={shown} value={mode?.key ?? ''} onPick={pickMode} />
           <div className="dp-odo-headr">
             <span className="dp-odo-count"><b>{recorded}</b> {T.recorded}</span>
+            <button type="button" className="dp-odo-lnk dp-odo-ic" aria-label={T.compare} aria-pressed={cmpOn}
+              title={cmpOff || T.compareTip} disabled={!cmpOn && cmpOff !== ''}
+              onClick={() => { if (cmpOn) cmp.close(); else cmp.start() }}>
+              <Icon name="clock" /> <span>{T.compare}</span>
+            </button>
             <button type="button" className="dp-odo-lnk dp-odo-ic" aria-label={T.newBridge} title={T.newBridge}
-              onClick={() => { setBrMode(true); setPicked([]) }}>
+              disabled={cmpOn} onClick={() => { setBrMode(true); setPicked([]) }}>
               <Icon name="plus" /> <span>{T.newBridge}</span>
             </button>
             {/* «Parodontogramă» здесь снята (09.10, разбор): к листу ведут вкладка
@@ -376,7 +419,7 @@ export function OdontogramWorkbench({
               {c.view === '3d' ? (
                 /* B7: объёмный вид — тот же контроллер, те же действия; выбор,
                    поверхность и меню идут в панель, как из карты */
-                <Odontogram3D model={shown} selected={brMode ? null : c.selected} onSurface={onSurface} onMenu={onMenu}
+                <Odontogram3D model={shown} selected={sel} onSurface={onSurface} onMenu={onMenu}
                   focus={focus3d} onZoom={setZoom} onDouble={onDouble} dim={dim} mode={scene}
                   onFlat={() => c.setView('frontal')} />
               ) : (
@@ -395,7 +438,7 @@ export function OdontogramWorkbench({
                     <DentalArch
                       model={shown}
                       view={c.view}
-                      selected={brMode ? null : c.selected}
+                      selected={sel}
                       picked={pickedSet}
                       dirty={c.dirtyTeeth}
                       dim={dim}
@@ -413,11 +456,11 @@ export function OdontogramWorkbench({
             {/* ряд зубов стоит НАД сценой (CSS `order`), а в разметке — после неё:
                 первая кнопка зуба в документе — на дуге 2D, туда и уходит фокус
                 клавиатуры (`focusTooth`) */}
-            <ToothMap model={shown} selected={brMode ? null : c.selected} picked={pickedSet} dirty={c.dirtyTeeth}
+            <ToothMap model={shown} selected={sel} picked={pickedSet} dirty={c.dirtyTeeth}
               dim={dim} onSelect={onSelect} onMenu={onMenu} />
           </div>
           <aside className="odop-side dp-odo-side">
-            <ToothPanel
+            {cmpOn ? <ComparePanel model={model} cmp={cmp} /> : <ToothPanel
               model={model}
               n={c.selected}
               busy={c.busy}
@@ -436,7 +479,7 @@ export function OdontogramWorkbench({
               onPlan={planFrom}
               onClose={() => c.select(null)}
               saved={savedN}
-            />
+            />}
           </aside>
         </div>
       </div>
