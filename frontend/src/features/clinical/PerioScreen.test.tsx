@@ -1,12 +1,14 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createMemoryRouter } from 'react-router'
 import { RouterProvider } from 'react-router/dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screenRoute } from '../../hooks/useRouteLoad'
 import type { ApiResult } from '../../services/api'
 import { openScreen } from '../../test/openScreen'
+import { ICONS } from '../../components/icons'
 import { loadPerio, PerioScreen } from './PerioScreen'
 import { hasData, roundLikeServer, rowOf, summarize, type PerioEdit, type PerioModel, type PerioSave } from './perio'
+import { VIEW_ICON } from './three/viewIcons'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
 const { get, post } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
@@ -113,6 +115,20 @@ describe('3D над листом (06.10)', () => {
     expect(document.querySelector('.perio-3d')).toBeTruthy()
     expect(localStorage.getItem('dp_perio_3d')).toBe('1')
     await waitFor(() => expect(screen.getByText(/3D nu s-a încărcat/)).toBeTruthy())
+    // виды — те же значки, что у одонтограммы (25.10), имя — в aria-label и подсказке
+    const views = within(screen.getByRole('group', { name: 'Vedere 3D a parodontogramei' }))
+    const glyph = (name: keyof typeof ICONS) => {   // разметка значка тем же разбором, что у кнопки
+      const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      s.innerHTML = ICONS[name]
+      return s.innerHTML
+    }
+    for (const [v, name] of [['frontal', 'Frontal'], ['sus', 'Ocluzal sus'], ['jos', 'Ocluzal jos'],
+      ['dreapta', 'Dreapta'], ['stanga', 'Stânga']] as const) {
+      const vb = views.getByRole('button', { name })
+      expect(vb.getAttribute('data-v3')).toBe(v)
+      expect(vb.getAttribute('title')).toBe(name)
+      expect(vb.querySelector('svg')?.innerHTML).toBe(glyph(VIEW_ICON[v]))
+    }
     // курсор в клетке и цифра — лист работает при открытом 3D
     cell(11, 'pd', 0).focus()
     fireEvent.change(cell(11, 'pd', 0), { target: { value: '5' } })

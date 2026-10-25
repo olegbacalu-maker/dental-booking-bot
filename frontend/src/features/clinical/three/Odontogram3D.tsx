@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { Icon } from '../../../components/Icon'
-import type { IconName } from '../../../components/icons'
 import { useMenuDismiss } from '../../../components/menu'
 import type { Odontogram, PerioLayer } from '../chart'
 import { load3d } from './loadTeeth'
 import { PerioLegend } from './PerioLegend'
 import { createArchScene, labelsFor, type ArchScene, type CameraProbe, type Hit, type PerioInput, type Toggle, type ToothProbe, type ViewName } from './scene'
 import type { Letter } from './toothGeometry'
+import { VIEW_ICON } from './viewIcons'
 
 /* Объёмный вид одонтограммы (B7, ступень 4): React владеет узлом и жизненным
    циклом, three — картинкой. ⛔ Дерево компонента статично: движение мыши,
@@ -75,11 +75,6 @@ export type Mode = 'stare' | 'paro'
 const toInput = (l: PerioLayer): PerioInput => ({ rows: l.rows, limits: l.limits, colors: l.colors })
 
 const VIEW_ORDER: ViewName[] = ['frontal', 'sus', 'jos', 'dreapta', 'stanga']
-/* значки ракурсов (Олег 24.10 «ракурсы значками») — из layout._I; подпись рядом
-   прячет CSS на узкой сцене, имя остаётся в aria-label и подсказке */
-const VIEW_ICON: Record<ViewName, IconName> = {
-  frontal: 'arch-front', sus: 'arch-up', jos: 'arch-down', dreapta: 'arch-right', stanga: 'arch-left',
-}
 /* поповер «Straturi»: челюсти отдельной группой «Arcade», потом слои */
 const ARCH_TOGS: Toggle[] = ['upper', 'lower']
 const LAYER_TOGS: Toggle[] = ['xray', 'labels', 'closed', 'rotate']

@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
+import { Icon } from '../../../components/Icon'
 import { chart, type Odontogram } from '../chart'
 import { load3d } from './loadTeeth'
 import { PerioLegend } from './PerioLegend'
 import { createArchScene, type ArchScene, type CameraProbe, type PerioInput, type ToothProbe, type ViewName } from './scene'
+import { VIEW_ICON } from './viewIcons'
 
 /* 3D над листом пародонтограммы (06.10, ступень 4 плана — слово Олега «да»).
    Та же сцена, что у одонтограммы, но данные — ЧЕРНОВИК листа: врач диктует
@@ -146,7 +148,9 @@ export function Perio3D({ pid, rows, limits, colors, active, onPickTooth }: Prop
         <div className="viewsw">
           {VIEW_ORDER.map((v) => (
             <button key={v} type="button" data-v3={v} className={view === v ? 'on' : ''} aria-pressed={view === v}
-              disabled={status !== 'ready'} onClick={() => pickView(v)}>{T.views[v]}</button>
+              aria-label={T.views[v]} title={T.views[v]} disabled={status !== 'ready'} onClick={() => pickView(v)}>
+              <Icon name={VIEW_ICON[v]} /><span>{T.views[v]}</span>
+            </button>
           ))}
         </div>
         <div className="odo-3d-togs">

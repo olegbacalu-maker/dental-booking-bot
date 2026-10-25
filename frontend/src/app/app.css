@@ -681,6 +681,10 @@
 .dp-react-root .perio-3d-card { margin-bottom: 14px; }
 .dp-react-root .perio-3d .odo-stage { height: 360px; }
 @media (max-width: 880px) { .dp-react-root .perio-3d .odo-stage { height: 300px; } }
+/* виды — значок и подпись, те же значки, что у одонтограммы (полоса над сценой,
+   места хватает; узкая — переносится) */
+.dp-react-root .perio-3d .viewsw button { display: inline-flex; align-items: center; gap: 6px; }
+.dp-react-root .perio-3d .viewsw button svg { flex: none; width: 18px; height: 18px; stroke-width: 1.6; }
 
 /* ---- B7 · планшет: одонтограмма под палец (26.09; раскладка B — 25.10) ----
    Только (pointer: coarse): мышью рабочий стол прежний. Панель зуба всегда на
