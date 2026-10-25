@@ -356,6 +356,15 @@ const NA = NS - 1 - NF // рядов прикреплённой десны
 const SQUEEZE = 0.1 // доля тела под входом края, куда поджимаются ряды выше него
 const REC_BODY = 3 // мм рецессии, до которых край ведёт за собой тело десны; глубже — расщелина
 const EXT = 4.5 // десна за последним зубом, мм
+// беззубый гребень (25.10): перепад купола от середины к краю — доля ширины верха;
+// «лицо» гребня для огибающей тела — на столько наружу и вниз от края его верха
+const RIDGE_DOME = 0.25
+const RIDGE_OUT = 0.4
+const RIDGE_DOWN = 0.6
+/** Ширина гаусса огибающей тела по длине дуги, мм. До 25.10 — 2,2: переход тела
+ *  от широкого моляра к узкому премоляру (0,8 мм) ложился в ~4 мм у стыка, и через
+ *  всю высоту десны шла складка — шов 16|15 и 46|45 (отчёт odo-look 19.10). */
+const ENV_SIGMA = 3.0
 /** Ребро по кругу: B + щёчный скат + боковая + низ + боковая + язычный скат + L + M1 C M2.
  *  Наружу — для проверок формы (`gum.test.ts`). */
 export const RIB = {
@@ -426,30 +435,43 @@ export function buildGum(inp: GumInput): RawMesh {
     if (!stations.length || u - (stations[stations.length - 1] ?? 0) > 0.02) stations.push(u)
   }
 
-  const crestOf = (u: number): { v: number; W: number; flat: number } => {
-    // ближайший беззубый зуб под станцией; за концом дуги — спуск от последнего зуба
-    let best: { t: GumTooth; u: number; v: number } | null = null
-    let dist = Infinity
+  /* Гребень беззубого места — ОДНОЙ гладкой формулой по всем зубам (25.10). До 25.10
+     ветки «ближайший беззубый зуб» и «конец дуги» сменяли друг друга скачком: на
+     стыке двух отсутствующих подряд, у края дыры и за крайним зубом высота и ширина
+     гребня прыгали, и тело десны под ними шло вертикальным швом до низа (кадр Олега
+     25.10). Теперь вес каждого зуба — гаусс по длине дуги от его середины, у
+     беззубых — свой гребень, у стоящих — спуск к торцу; за концом дуги гребень
+     опускается от крайнего зуба. `slope` — наклон плоскости шейки поставленного
+     зуба поперёк дуги (dv/dw): лунка «extras» — круг в этой плоскости (`scene.ts`),
+     и плоский гребень под ней обязан наклониться вместе с зубом, иначе нижний
+     моляр (torque −12°) прятал щёчную половину лунки под десну. */
+  const crestOf = (u: number, fr: Frame): { v: number; W: number; flat: number; slope: number; sock: number } => {
+    let sw = 0
+    let v = 0
+    let W = 0
+    let flat = 0
+    let slope = 0
+    let sock = 0
+    const first = neckV[0]
+    const last = neckV[neckV.length - 1]
     for (const x of neckV) {
-      if (x.t.kind === 'tooth') continue
-      const d = Math.abs(u - x.u)
-      if (d < dist) { dist = d; best = x }
+      const gone = x.t.kind !== 'tooth'
+      const k = x.t.kind
+      const d = (u - x.u) / (0.35 * x.t.md)
+      const g = Math.exp(-d * d) + 1e-9
+      const Y = x.t.yAxis
+      const yy = Y[1] * occ
+      const sl = gone && Math.abs(yy) > 0.2 ? -(fr.nx * Y[0] + fr.nz * Y[2]) / yy : 0
+      sw += g
+      v += g * (x.v + (!gone ? -0.4 : k === 'socket' ? 0.0 : k === 'pontic' ? 0.15 : -0.4))
+      W += g * (!gone ? 0.6 : k === 'socket' ? 0.88 : k === 'pontic' ? 0.7 : 0.62) * x.t.bl
+      flat += g * (!gone ? 0.3 : k === 'socket' ? 1 : k === 'pontic' ? 0.7 : 0.4)
+      slope += g * sl
+      sock += g * (k === 'socket' ? 1 : 0)
     }
-    if (best && dist <= best.t.md / 2 + 0.6) {
-      const k = best.t.kind
-      const off = k === 'socket' ? 0.0 : k === 'pontic' ? 0.15 : -0.4
-      const W = (k === 'socket' ? 0.88 : k === 'pontic' ? 0.7 : 0.62) * best.t.bl
-      return { v: best.v + off, W, flat: k === 'socket' ? 1 : 0.4 }
-    }
-    // конец дуги: ближайший зуб любой
-    let near = neckV[0]
-    let dn = Infinity
-    for (const x of neckV) {
-      const d = Math.abs(u - x.u)
-      if (d < dn) { dn = d; near = x }
-    }
-    const bl = near?.t.bl ?? 9
-    return { v: (near?.v ?? 0) - 0.4 - 0.25 * Math.max(0, dn - (near?.t.md ?? 8) / 2), W: 0.6 * bl, flat: 0.3 }
+    // за концом дуги — спуск от крайнего зуба (до 25.10 тот же, но отдельной веткой)
+    const beyond = Math.max(0, (first ? first.u - first.t.md / 2 - u : 0), (last ? u - last.u - last.t.md / 2 : 0))
+    return { v: v / sw - 0.25 * beyond, W: W / sw, flat: flat / sw, slope: slope / sw, sock: sock / sw }
   }
   const widthAt = (u: number): number => {
     let sw = 0
@@ -467,8 +489,10 @@ export function buildGum(inp: GumInput): RawMesh {
   const pos: number[] = []
   const col: number[] = []
   const R = 1.6 // длина перехода от зуба к беззубому гребню
-  /** `neck` — высота шейки зуба ребра-«лица» (у прочих 0, огибающая их не берёт) */
-  interface Rib { u: number; B: TopPt; L: TopPt; mid: TopPt[]; crestness: number; face: boolean; neck: number }
+  /** `neck` — высота шейки зуба ребра-«лица»; `fw` — вес ребра в огибающей тела:
+   *  1 у «лица» зуба, у беззубого гребня — его crestness (0 у соседа, 1 в дыре),
+   *  у сосочка 0 */
+  interface Rib { u: number; B: TopPt; L: TopPt; mid: TopPt[]; crestness: number; face: boolean; neck: number; fw: number }
 
   // --- проход 1: верх каждого ребра — B (щёчно), M1 C M2, L (язычно) в координатах (w, v)
   const ribs: Rib[] = stations.map((u) => {
@@ -480,8 +504,9 @@ export function buildGum(inp: GumInput): RawMesh {
         w: Lp.w + (B.w - Lp.w) * f, v: Lp.v + (B.v - Lp.v) * f, c: Lp.c.map((x, i) => x + ((B.c[i] ?? x) - x) * f),
       }))
       // «лицо» зуба — середина щёчной/язычной стороны: по ней строится огибающая скатов
+      const face = Math.abs(u - L.u0) < 0.3 * L.tooth.md
       return {
-        u, B, L: Lp, mid, crestness: 0, face: Math.abs(u - L.u0) < 0.3 * L.tooth.md,
+        u, B, L: Lp, mid, crestness: 0, face, fw: face ? 1 : 0,
         neck: (L.tooth.position[1] - yBase) * occ,
       }
     }
@@ -501,56 +526,68 @@ export function buildGum(inp: GumInput): RawMesh {
         v: pa.v + (pb.v - pa.v) * f - dip,
         c: pa.c.map((x, i) => (i < 3 ? x + ((pb.c[i] ?? x) - x) * f : Math.max(x, pb.c[i] ?? 0))),
       }
-      return { u, B: q, L: q, mid: [q, q, q], crestness: 0, face: false, neck: 0 }
+      return { u, B: q, L: q, mid: [q, q, q], crestness: 0, face: false, neck: 0, fw: 0 }
     }
     // беззубый участок или конец дуги: округлый гребень, у зуба сходится в его крайнюю точку
-    const cr = crestOf(u)
+    const cr = crestOf(u, F.at(u))
     let v = cr.v
     let W = cr.W
     let wc = 0
     let c: number[] = [0, 0, 0, 0]
     let k = 1
+    // у лунки переход к соседу короче (`sock` — её доля в гребне): её круг (0,85
+    // ширины зуба) почти упирается в соседей, и подъём гребня за 1,6 мм прятал его
+    // концы под десну (25.10)
+    const Rr = R - 0.6 * smooth(0.15, 1, cr.sock)
     if (left) {
       const pa = extreme(left, true)
-      const kk = smooth(left.uMax, left.uMax + R, u)
+      const kk = smooth(left.uMax, left.uMax + Rr, u)
       if (kk < 1) { v = pa.v + (v - pa.v) * kk; W *= kk; wc = pa.w * (1 - kk); c = pa.c.map((x, i) => (i === 3 ? x * (1 - kk) : x)); k = Math.min(k, kk) }
     }
     if (right) {
       const pb = extreme(right, false)
-      const kk = smooth(right.uMin, right.uMin - R, u)
+      const kk = smooth(right.uMin, right.uMin - Rr, u)
       if (kk < 1) { v = pb.v + (v - pb.v) * kk; W *= kk; wc = pb.w * (1 - kk) + wc * kk; c = pb.c.map((x, i) => (i === 3 ? x * (1 - kk) : x)); k = Math.min(k, kk) }
     }
-    const drop = (1 - cr.flat) * Math.min(1, W / 3) * 0.9
+    // ⭐ вершина — купол, а не плита (25.10, «полка» Олега): до 25.10 перепад от
+    // середины к краю был ≤ 0,54 мм на ширине 4–7 мм, ниже край шагал наружу к телу —
+    // профиль коробкой. У лунки (flat = 1) верх плоский: на нём лежит её круг; у тела
+    // моста (flat 0,7) перепад прежний, ~0,5 мм: на гребень опирается коронка
+    const drop = (1 - cr.flat) * W * RIDGE_DOME
+    const at = (f: number): TopPt => ({ w: wc + (W / 2) * f, v: v - drop * f * f + cr.slope * (W / 2) * f, c })
     return {
-      u, crestness: k, face: false, neck: 0,
-      B: { w: wc + W / 2, v: v - drop, c },
-      L: { w: wc - W / 2, v: v - drop, c },
-      mid: [{ w: wc - W / 4, v: v - drop * 0.25, c }, { w: wc, v, c }, { w: wc + W / 4, v: v - drop * 0.25, c }],
+      u, crestness: k, face: false, neck: 0, fw: k,
+      B: at(1), L: at(-1), mid: [at(-0.5), at(0), at(0.5)],
     }
   })
 
   // --- проход 2: огибающая по серединам зубов. Ниже края скат идёт по ней, а не от
   // верхней точки ребра: иначе у каждого сосочка скат уходил бы внутрь до самого низа,
   // и десна вышла бы «шторой» с вертикальными складками.
+  // ⛔ Без переключателя (25.10): беззубый гребень — тоже «лицо» со своими значениями
+  // и весом `fw` (0 у соседа → 1 в дыре). До 25.10 в дыре и за крайним зубом, где вес
+  // зубов падал ниже 0,05, огибающая СКАЧКОМ брала значение своего ребра — тело
+  // прыгало, и через десну шли вертикальные швы от края до низа (кадр Олега 25.10).
+  // Держит `gum.test` › «тело без швов вдоль дуги».
   const env = (val: (r: Rib) => number, fb: (r: Rib) => number): number[] => ribs.map((r) => {
     let sw = 0
     let s = 0
     for (const q of ribs) {
-      if (!q.face) continue
+      if (!q.fw) continue
       const d = q.u - r.u
-      if (d > 7 || d < -7) continue
-      const g = Math.exp(-((d / 2.2) ** 2))
+      if (d > 10 || d < -10) continue
+      const g = Math.exp(-((d / ENV_SIGMA) ** 2)) * q.fw
       sw += g
       s += g * val(q)
     }
-    return sw > 0.05 ? s / sw : fb(r)
+    return sw > 1e-6 ? s / sw : fb(r)
   })
-  const eB = env((r) => r.B.w, (r) => r.B.w + 0.4)
-  const eL = env((r) => -r.L.w, (r) => -r.L.w + 0.4)
+  const eB = env((r) => (r.face ? r.B.w : r.B.w + RIDGE_OUT), (r) => r.B.w + RIDGE_OUT)
+  const eL = env((r) => (r.face ? -r.L.w : -r.L.w + RIDGE_OUT), (r) => -r.L.w + RIDGE_OUT)
   // ⚠️ глубже REC_BODY рецессия тело не тянет: одна точка в 10 мм опускала огибающую
   // у всего зуба и соседнего сосочка, и бок десны над ним шёл крутой складкой (07.10)
-  const vB = env((r) => Math.max(r.B.v, r.neck - REC_BODY), (r) => r.B.v - 0.6)
-  const vL = env((r) => Math.max(r.L.v, r.neck - REC_BODY), (r) => r.L.v - 0.6)
+  const vB = env((r) => (r.face ? Math.max(r.B.v, r.neck - REC_BODY) : r.B.v - RIDGE_DOWN), (r) => r.B.v - RIDGE_DOWN)
+  const vL = env((r) => (r.face ? Math.max(r.L.v, r.neck - REC_BODY) : r.L.v - RIDGE_DOWN), (r) => r.L.v - RIDGE_DOWN)
 
   // --- проход 3: тело десны (прикреплённая, слизистая, низ) — ТОЛЬКО по огибающей.
   // ⭐ Край ребра в тело ВХОДИТ на своей высоте, а не тащит его за собой: глубокая
@@ -569,9 +606,12 @@ export function buildGum(inp: GumInput): RawMesh {
     const Wi = smax(Wb, EL + 0.8)
     const wc0 = (Wo - Wi) / 2
     const rw = (Wo + Wi) / 2
-    // свободная десна кончается чуть ниже края — там и вход в тело
-    const veB = smin(vAB, B.v - 0.3)
-    const veL = smin(vAL, Lp.v - 0.3)
+    // свободная десна кончается чуть ниже края — там и вход в тело.
+    // ⚠️ Мягкость 0,3 и сдвиг 0,2 (25.10): с прежней smin(vA, B.v − 0,3) мягкостью 0,6
+    // вход гулял на ~0,17 мм, пока край у каждого сосочка поднимается и опускается,
+    // и верхние ряды тела ломались складкой у каждого стыка зубов (шов 46|47, 16|15)
+    const veB = smin(vAB - 0.2, B.v - 0.3, 0.3)
+    const veL = smin(vAL - 0.2, Lp.v - 0.3, 0.3)
     return {
       b: { E: EB, W: Wo, vA: vAB, vS, c: wc0, rw, rv: 0, pS: 0, pe: 0, ve: veB },
       l: { E: EL, W: Wi, vA: vAL, vS, c: -wc0, rw, rv: 0, pS: 0, pe: 0, ve: veL },
