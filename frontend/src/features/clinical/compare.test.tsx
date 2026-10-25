@@ -77,8 +77,15 @@ const CMP7: Compare = {
     '21': tooth(21, 'sus', { state: 'coroana', title: '21 · Coroană', svg: { frontal: svgOf(21, 'was'), occlusal: svgOf(21, 'was') } }),
   },
   bridges: [{ id: 4, teeth: [[21, 'stalp'], [22, 'corp'], [23, 'stalp']], material: 'zirconiu', doctor: '' }],
+  records: [],
 }
-const CMP3: Compare = { visit: VISITS[1]!, known: false, since: '20.09.2026', milk_open: false, changes: [], teeth: {}, bridges: [] }
+/* визит 3 — до начала истории: состояния нет, есть строки летописи после него */
+const CMP3: Compare = {
+  visit: VISITS[1]!, known: false, since: '20.09.2026', milk_open: false, changes: [], teeth: {}, bridges: [],
+  records: [{ n: 16, at: '03.10.2026', text: 'Dinte 16: Carie (M)' },
+    { n: null, at: '02.10.2026', text: 'Punte dentară 21–23 ștearsă' },
+    { n: 21, at: '01.10.2026', text: 'Dinte 21: Sănătos' }],
+}
 
 const ok = <T,>(data: T): ApiResult<T> => ({ data, code: '', text: '', tone: 'ok' })
 let model = MODEL
@@ -172,16 +179,22 @@ describe('Compară: выбор визита и слой «было/стало»'
     expect((document.querySelector('.odo-stage') as HTMLElement).dataset.dim).toBe('')
   })
 
-  it('визит без истории — «нет данных» с датой начала, ни отметок, ни рисунка «было»', async () => {
+  it('визит без истории — «нет данных» с датой начала; строки летописи после визита дословно, их зубы отмечены; рисунка «было» нет', async () => {
     open()
     await ready()
     await opened()
     fireEvent.change(within(panel()!).getByLabelText('Vizita'), { target: { value: '3' } })
     expect(await within(panel()!).findByText(
-      'Nu există date despre starea dinților la 01.09.2026: istoricul formulei dentare se păstrează din 20.09.2026.')).toBeTruthy()
+      'Nu există stare salvată a dinților pentru 01.09.2026: istoricul formulei dentare se păstrează din 20.09.2026.')).toBeTruthy()
     expect(compares().at(-1)).toBe('/patients/5/odontogram/compare?visit=3')
-    expect(pic(16)).toBe('saved')
-    expect(btn(11).className).not.toContain('dim')
+    expect(within(panel()!).getByText('Înregistrări după vizită (3)')).toBeTruthy()
+    expect([...panel()!.querySelectorAll('.dp-cmp-rec')].map((li) => li.textContent))
+      .toEqual(['03.10.2026Dinte 16: Carie (M)', '02.10.2026Punte dentară 21–23 ștearsă', '01.10.2026Dinte 21: Sănătos'])
+    expect(pic(16)).toBe('saved')                                             // картинки «было» нет
+    expect(pic(21)).toBe('saved')
+    expect(btn(16).className).not.toContain('dim')                            // зубы со строками отмечены
+    expect(btn(21).className).not.toContain('dim')
+    expect(btn(11).className).toContain('dim')
     expect(within(panel()!).queryByRole('button', { name: /^Acum/ })).toBeNull()
     /* в списке визит без данных подписан */
     expect(within(panel()!).getByRole('option', { name: /01\.09\.2026.*fără date/ })).toBeTruthy()
@@ -194,9 +207,9 @@ describe('Compară: выбор визита и слой «было/стало»'
     fireEvent.click(cmpBtn())
     await waitFor(() => expect(held[7]).toBeTruthy())
     fireEvent.change(within(panel()!).getByLabelText('Vizita'), { target: { value: '3' } })
-    expect(await within(panel()!).findByText(/Nu există date/)).toBeTruthy()
+    expect(await within(panel()!).findByText(/Nu există stare salvată/)).toBeTruthy()
     await act(async () => { held[7]!() })
-    expect(within(panel()!).getByText(/Nu există date/)).toBeTruthy()
+    expect(within(panel()!).getByText(/Nu există stare salvată/)).toBeTruthy()
     expect(pic(16)).toBe('saved')
   })
 })

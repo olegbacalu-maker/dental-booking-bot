@@ -418,6 +418,19 @@ def compare_visits(visits: list, today: date, since: datetime | None) -> list[di
     return out
 
 
+def records_after(rows: list) -> list[dict]:
+    """Строки летописи после визита (`db.tooth_records_since`) для экрана:
+    {n — номер зуба или None у моста, at — дата клиники, text — ДОСЛОВНО}.
+    ⛔ Это факт ЗАПИСИ, не состояние зуба на ту дату: строку не разбираем и
+    картинку «было» из неё не строим (обрезка 200 знаков, « · » общий у
+    отметок, врача и заметки, слова менялись между версиями)."""
+    out = []
+    for r in rows:
+        at = r["at"].astimezone(eng.TZ).strftime("%d.%m.%Y") if hasattr(r["at"], "astimezone") else ""
+        out.append({"n": r["tooth"], "at": at, "text": r["text"]})
+    return out
+
+
 def _clinic_key(n: int, tmap: dict, bmap: dict) -> tuple:
     """Что считается ИЗМЕНЕНИЕМ зуба: состояние, карта поверхностей, отметки,
     роль в мосте. Заметка и врач — нет: это подпись записи, а не зуб."""

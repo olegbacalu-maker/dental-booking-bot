@@ -2538,6 +2538,18 @@ async def tooth_activity(pid: int) -> list:
            WHERE patient_id = ? AND tooth IS NOT NULL ORDER BY at DESC, id DESC""", pid)
 
 
+async def tooth_records_since(pid: int, since: datetime) -> list:
+    """Строки летописи по зубам и мостам С мгновения `since`, свежие первыми, —
+    «сравнить с визитом» для даты раньше начала истории зубов (25.10): там
+    состояния на ту дату нет, и экран показывает ДОСЛОВНО, что записывали
+    после, а не догадку о том, каким зуб был. Мосты в летописи без номера
+    зуба (`kind` 'bridge'), поэтому идут отдельным условием."""
+    return await _fetch(
+        """SELECT at, tooth, text FROM activity
+           WHERE patient_id = ? AND (tooth IS NOT NULL OR kind = 'bridge') AND at >= ?
+           ORDER BY at DESC, id DESC""", pid, _iso(since))
+
+
 async def _backfill_activity() -> None:
     """Разовый перенос уже существующих визитов в журнал: иначе у клиники,
     которая работает полгода, таймлайн стартует с пустого места, хотя история

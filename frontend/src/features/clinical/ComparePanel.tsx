@@ -7,7 +7,8 @@ import type { CompareState } from './useCompare'
    виды), список изменившихся зубов было → стало словами сервера. Щелчок по
    строке подсвечивает зуб в видах; правки здесь нет — пока сравнение открыто,
    рабочий стол её выключает. Визит без истории зубов (до обновления) —
-   «нет данных», а не догадка. */
+   «нет данных», а не догадка: вместо разницы — строки летописи по зубам после
+   визита ДОСЛОВНО («Înregistrări după vizită»), факт записи, не состояние. */
 const T = {
   title: 'Comparație cu vizita',
   visit: 'Vizita',
@@ -17,8 +18,10 @@ const T = {
   now: 'Acum',
   loading: 'Se încarcă…',
   none: (d: string, since: string) => since
-    ? `Nu există date despre starea dinților la ${d}: istoricul formulei dentare se păstrează din ${since}.`
-    : `Nu există date despre starea dinților la ${d}.`,
+    ? `Nu există stare salvată a dinților pentru ${d}: istoricul formulei dentare se păstrează din ${since}.`
+    : `Nu există stare salvată a dinților pentru ${d}.`,
+  records: 'Înregistrări după vizită',
+  noRecords: 'Nicio înregistrare a dinților după vizită.',
   same: (d: string) => `Nicio modificare a dinților față de vizita din ${d}.`,
   changed: (k: number, d: string) => `${k === 1 ? 'Un dinte modificat' : `${k} dinți modificați`} de la vizita din ${d}`,
   readOnly: 'Cât timp comparați, formula nu se modifică.',
@@ -58,7 +61,24 @@ export function ComparePanel({ model, cmp }: Props) {
       )}
       <div className="dp-tp-sec dp-tp-body dp-cmp-body" aria-live="polite" aria-busy={cmp.busy}>
         {!d ? <p className="hint dp-m0">{T.loading}</p>
-          : !d.known ? <p className="dp-cmp-none">{T.none(date, d.since)}</p>
+          : !d.known ? (
+            <>
+              <p className="dp-cmp-none">{T.none(date, d.since)}</p>
+              {d.records.length ? (
+                <>
+                  <p className="dp-lbl dp-m0">{T.records} ({d.records.length})</p>
+                  <ul className="dp-cmp-list dp-cmp-recs">
+                    {d.records.map((r, i) => (
+                      <li key={i} className="dp-cmp-rec" data-n={r.n ?? undefined}>
+                        <span className="dp-cmp-at">{r.at}</span>
+                        <span>{r.text}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : <p className="hint dp-m0">{T.noRecords}</p>}
+            </>
+          )
             : !d.changes.length ? <p className="hint dp-m0">{T.same(date)}</p>
               : (
                 <>

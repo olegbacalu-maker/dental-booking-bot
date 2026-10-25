@@ -215,6 +215,10 @@ export interface Compare {
   teeth: Record<string, ToothInfo>
   bridges: Bridge[]
   milk_open: boolean
+  /** только при `known: false` — строки летописи по зубам после дня визита,
+   *  ДОСЛОВНО, свежие первыми: факт записи, не состояние на ту дату;
+   *  `n` — номер зуба, null у моста */
+  records: { n: number | null; at: string; text: string }[]
 }
 
 /** Запись зуба — намерение явным полем: `surfaces` всегда карта (форма

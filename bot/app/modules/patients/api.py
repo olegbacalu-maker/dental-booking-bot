@@ -1057,10 +1057,11 @@ async def api_odontogram_preview(request: Request, pid: int):
 @router.get("/api/patients/{pid}/odontogram/compare")
 async def api_odontogram_compare(request: Request, pid: int):
     """«Сравнить с визитом» (волна 2 одонтограммы, 25.10): `?visit=ID` →
-    {visit, known, since, changes, teeth, bridges, milk_open}. Визит — из
-    списка модели (`odontogram.compare_visits`): чужой, будущий, отменённый —
-    404. `known` — есть ли история зубов на конец дня визита; нет — разницы
-    нет, экран говорит «нет данных» (догадки по летописи не делаем).
+    {visit, known, since, changes, teeth, bridges, milk_open, records}. Визит —
+    из списка модели (`odontogram.compare_visits`): чужой, будущий, отменённый
+    — 404. `known` — есть ли история зубов на конец дня визита; нет — разницы
+    нет, экран говорит «нет данных», а `records` несёт ДОСЛОВНО строки летописи
+    по зубам после дня визита: факт записи, не догадка о состоянии.
     ⛔ Ничего не пишет: ни «Fișa deschisă» (закон 195), ни строки зуба — это
     вид экрана, как GET одонтограммы."""
     if (deny := api_guard(request)) is not None:
@@ -1078,11 +1079,14 @@ async def api_odontogram_compare(request: Request, pid: int):
         return msg_json(False, status=404)
     out = {"visit": picked[0], "known": picked[0]["known"],
            "since": since.astimezone(eng.TZ).strftime("%d.%m.%Y") if since else "",
-           "changes": [], "teeth": {}, "bridges": [], "milk_open": False}
+           "changes": [], "teeth": {}, "bridges": [], "milk_open": False, "records": []}
+    cut = podo.visit_cutoff(v["starts_at"])
     if out["known"]:
-        cut = podo.visit_cutoff(v["starts_at"])
         out.update(podo.compare(await db.teeth_map(pid), await db.bridges(pid),
                                 await db.teeth_map_at(pid, cut), await db.bridges_at(pid, cut)))
+    else:
+        # истории на ту дату нет: дословно, что записывали ПОСЛЕ дня визита
+        out["records"] = podo.records_after(await db.tooth_records_since(pid, cut))
     return msg_json(True, data=out)
 
 

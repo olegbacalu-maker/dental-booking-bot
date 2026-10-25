@@ -49,10 +49,15 @@ export function compareShown(model: Odontogram, data: Compare | null, side: CmpS
   return { ...model, teeth: { ...model.teeth, ...data.teeth }, bridges: data.bridges, milk_open: milk }
 }
 
-/** Неизменившиеся зубы экрана — их гасит сравнение. */
+/** Неизменившиеся зубы экрана — их гасит сравнение. Без истории на ту дату —
+ *  зубы без строк летописи после визита (есть строки — есть что смотреть;
+ *  нет строк — не гаснет никто). */
 export function compareDim(model: Odontogram, data: Compare | null): ReadonlySet<number> | null {
-  if (!data?.known) return null
-  const changed = new Set(data.changes.map((c) => c.n))
+  if (!data) return null
+  const marked = data.known ? data.changes.map((c) => c.n)
+    : data.records.flatMap((r) => (r.n === null ? [] : [r.n]))
+  if (!data.known && !marked.length) return null
+  const changed = new Set(marked)
   return new Set(shownTeeth({ ...model, milk_open: model.milk_open || data.milk_open }).filter((n) => !changed.has(n)))
 }
 

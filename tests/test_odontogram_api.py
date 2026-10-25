@@ -768,6 +768,16 @@ def suite_compare(res: Result) -> None:
         res.check("визит до начала истории — «нет данных», без разницы и без рисунка",
                   (r0["known"], r0["changes"], r0["teeth"], r0["bridges"]), (False, [], {}, []))
         res.check("начало истории названо датой", r0["since"], dmy(0))
+        # (в): вместо догадки — ДОСЛОВНО, что записывали после дня визита: по зубам и
+        # мостам (у моста номера нет), свежие первыми; пачка — строка на зуб
+        res.check("нет данных: строки летописи после визита — зуб и дата, свежие первыми",
+                  [(x["n"], x["at"]) for x in r0["records"]],
+                  [(11, dmy(15)), (None, dmy(10)), (11, dmy(10)), (21, dmy(10)), (36, dmy(10)),
+                   (16, dmy(10)), (None, dmy(1)), (26, dmy(1)), (36, dmy(1)), (16, dmy(1))])
+        res.check("строки — дословно, как в летописи (зуб и мост)",
+                  (r0["records"][0]["text"], r0["records"][1]["text"]),
+                  ("Dinte 11: Carie (D) · Dr. Activ Doi", "Punte dentară 46–44 ștearsă"))
+        res.check("с данными строк летописи нет — есть разница", (r1["records"], r2["records"]), ([], []))
 
         res.check("GET сравнения не пишет «Fișa deschisă» (закон 195)", _views(dbf), views0)
         res.check("GET сравнения не пишет летопись", _tooth_acts(dbf, pid), acts0)
