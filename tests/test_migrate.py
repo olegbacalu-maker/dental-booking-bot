@@ -1616,17 +1616,27 @@ def suite_v6_history(res: Result) -> None:
             clock.set(datetime.combine(day0 + timedelta(days=3), datetime.min.time().replace(hour=10), tzinfo=TZ))
             c.post_json("/api/patients/1/teeth/16", {"state": "coroana", "surfaces": {}, "marks": []})
             c.post_json("/api/patients/1/teeth/55", {"state": "extras", "surfaces": {}, "marks": []})
+            # после визита: мост клиники снят, поставлен новый 15–14
+            res.check("мост клиники снят",
+                      c.post_json(f"/api/patients/1/bridges/{before['bridges'][0]['id']}/delete", {}).msg,
+                      "ok_punte_del")
+            res.check("новый мост поставлен",
+                      c.post_json("/api/patients/1/bridges", {"teeth": [[15, "stalp"], [14, "stalp"]]}).msg,
+                      "ok_punte")
             vis = json.loads(c.get(odo).body)["data"]["visits"]
             res.check("визит после обновления — с данными", vis[0]["known"], True)
             r = json.loads(c.get(f"{odo}/compare?visit={vis[0]['id']}").body)["data"]
             # 27 «из будущего» в карте визита стоит — иначе показался бы здоровым
-            res.check("изменились ровно правленые зубы, было — словами записи клиники",
+            res.check("изменились ровно правленые зубы и зубы обоих мостов, было — словами записи клиники",
                       [(x["n"], x["was"]) for x in r["changes"]],
-                      [(16, "Carie (M), Obturație (O)"), (55, "Carie (O)")])
+                      [(16, "Carie (M), Obturație (O)"), (15, "Sănătos"), (14, "Sănătos"),
+                       (46, "Sănătos · Punte: Stâlp"), (45, "Sănătos · Punte: Corp de punte"),
+                       (44, "Sănătos · Punte: Stâlp"), (55, "Carie (O)")])
             res.ok("рисунок «было» = экран до правки (смесь поверхностей и молочный зуб)",
                    all(r["teeth"][k] == before["teeth"][k] for k in ("16", "55")),
                    ", ".join(k for k in ("16", "55") if r["teeth"][k] != before["teeth"][k]))
-            res.check("мост клиники стоит и на карте визита", r["bridges"], before["bridges"])
+            res.check("на карте визита — мост клиники (снят ПОСЛЕ визита) и нет нового (поставлен после)",
+                      r["bridges"], before["bridges"])
             n_base = rows("SELECT COUNT(*) FROM teeth_history WHERE src = 'base'")
 
         with Server(dir_=work):
@@ -1634,5 +1644,41 @@ def suite_v6_history(res: Result) -> None:
         res.check("повторный старт снимок не дублирует",
                   rows("SELECT COUNT(*) FROM teeth_history WHERE src = 'base'"), n_base)
         res.check("и метку не переписывает", _meta(dbfile, "teeth_hist_since"), since)
+    finally:
+        _rmtree_settled(work)
+
+    # база клиники БЕЗ единого зуба: снимка нет, метка есть — с неё история полная
+    work = pathlib.Path(tempfile.mkdtemp(prefix="dp_mig_hist0_"))
+    try:
+        dbfile = work / "dental.db"
+        con = _base_db(dbfile)
+        con.execute("DROP TABLE teeth_history")
+        con.execute("DROP TABLE bridges_removed")
+        _patients(con, "Ion Gol")
+        for coldef in ("doctor TEXT NOT NULL DEFAULT ''", "surfaces TEXT NOT NULL DEFAULT ''",
+                       "surface_states TEXT NOT NULL DEFAULT ''", "marks TEXT NOT NULL DEFAULT ''"):
+            con.execute(f"ALTER TABLE teeth ADD COLUMN {coldef}")
+        con.execute("INSERT INTO schema_meta(key, value) VALUES('version', '5')")
+        con.execute("INSERT INTO schema_meta(key, value) VALUES('act_backfill', '1')")
+        con.commit()
+        con.close()
+        with Server(dir_=work) as s:
+            c = Client(s.url).login()
+            res.check(f"пустая карта: версия схемы доведена до {_VER}", _meta(dbfile, "version"), _VER)
+            res.ok("пустая карта: метка начала истории стоит", bool(_meta(dbfile, "teeth_hist_since")),
+                   "метки нет — сравнение никогда не узнало бы ни одной даты")
+            c2 = sqlite3.connect(str(dbfile))
+            try:
+                empty = c2.execute("SELECT COUNT(*) FROM teeth_history").fetchone()[0]
+            finally:
+                c2.close()
+            res.check("пустая карта: снимок пуст", empty, 0)
+            c.post_json("/api/patients/1/teeth/11", {"state": "carie", "surfaces": {"M": "carie"}})
+            c2 = sqlite3.connect(str(dbfile))
+            try:
+                after = c2.execute("SELECT tooth, state, src FROM teeth_history").fetchall()
+            finally:
+                c2.close()
+            res.check("пустая карта: первая запись зуба — первый снимок", after, [(11, "carie", "")])
     finally:
         _rmtree_settled(work)
