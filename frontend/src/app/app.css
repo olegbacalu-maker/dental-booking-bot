@@ -2678,12 +2678,15 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .dp-vp-layb.on { border-color: var(--teal); background: var(--teal-soft); color: var(--teal-d); }
 .dp-react-root .dp-vp-layb.on svg { transform: rotate(-90deg); }
 .dp-react-root .dp-vp-layb:disabled { opacity: .5; cursor: default; }
+/* поповер в две колонки: шесть переключателей столбиком (~330 px) не влезали в
+   сцену 1366×656 (313 px) — низ резала карточка */
 .dp-react-root .dp-vp-pop {
-  position: absolute; right: 0; top: calc(100% + 6px); z-index: 3; width: 220px; padding: 10px;
-  display: flex; flex-direction: column; gap: 6px;
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 3; width: 300px; padding: 10px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
   background: var(--surface); border: 1px solid var(--glass-edge); border-radius: var(--r-card); box-shadow: var(--sh3);
 }
-.dp-react-root .dp-vp-pop .dp-lay { min-height: 36px; }
+.dp-react-root .dp-vp-pop .dp-lbl { grid-column: 1 / -1; }
+.dp-react-root .dp-vp-pop .dp-lay { min-height: 36px; padding: 0 10px; }
 /* узкая сцена (iPad, вкладка фиши): виды — сверху, «Straturi» и зум — в правый
    нижний угол (второй строкой сверху они легли бы на верхнюю дугу); поповер
    тогда раскрывается вверх */
