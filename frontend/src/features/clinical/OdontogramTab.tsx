@@ -39,9 +39,11 @@ interface Props {
   open?: { n: number; k: number } | null
   /** Модель, приехавшая с фишей (загрузчик); `null` — грузить самой. */
   initial?: Odontogram | null
+  /** Зубы с несохранённой правкой — фише, у которой блокер ухода (волна 2). */
+  onDirty?: ((teeth: number[]) => void) | undefined
 }
 
-export function OdontogramTab({ pid, views, say, onFail, onChanged, open = null, initial = null }: Props) {
+export function OdontogramTab({ pid, views, say, onFail, onChanged, open = null, initial = null, onDirty }: Props) {
   const [got, setGot] = useState<{ pid: number; model: Odontogram | null; failed: boolean } | null>(null)
   /* Своё состояние (ответ записи, свой запрос) главнее засева; засев — только
      для ЭТОГО пациента: после перехода на другую фишу старый не годится. */
@@ -81,6 +83,6 @@ export function OdontogramTab({ pid, views, say, onFail, onChanged, open = null,
   if (!model) return <div className="fcard dp-odo-wait" aria-busy="true"><p className="hint dp-m0">{T.loading}</p></div>
   return (
     <OdontogramWorkbench pid={pid} model={model} replace={replace} fail={fail} say={say} open={open}
-      saveQuery={`?card=1${views ? '&views=1' : ''}`} embedded />
+      saveQuery={`?card=1${views ? '&views=1' : ''}`} embedded onDirty={onDirty} />
   )
 }

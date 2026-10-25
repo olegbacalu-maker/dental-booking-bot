@@ -1,11 +1,11 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { asApiError, type ApiResult } from '../../services/api'
 import type { ToastState } from '../../components/Toast'
-import { chart, rememberView, savedView, type BridgeSave, type Odontogram, type ToothInfo, type ToothSave, type View } from './chart'
+import { chart, rememberView, savedView, type BridgeSave, type Odontogram, type TeethItem, type ToothInfo, type View } from './chart'
 
 /* Состояние клинической карты — одно на детальную страницу и компактную
    карточку: выбранный зуб и поверхность, вид, ЧЕРНОВИКИ зубов, действия
-   (зуб, мост) с подменой модели и плашкой сервера. Загрузка модели — у
+   (зубы, мост) с подменой модели и плашкой сервера. Загрузка модели — у
    экрана (useLoad или тихая загрузка внутри фиши), сюда она приходит уже
    готовой.
 
@@ -15,7 +15,26 @@ import { chart, rememberView, savedView, type BridgeSave, type Odontogram, type 
    был в модели, когда его начали править (`base`): клик по соседу правку
    не теряет (зуб остаётся помечен «нет записи»), а удачная запись меняет
    base — и черновик отпадает сам, без эффекта и без счётчика сохранений.
-   Отказ сервера модель не трогает, поэтому ввод остаётся. */
+   Отказ сервера модель не трогает, поэтому ввод остаётся.
+
+   Волна 2 (Олег 25.10: «сначала всю работу и потом сохранить»):
+   - запись — ВСЕХ черновиков разом (`saveAll`, «Salvează tot», Enter), всё
+     или ничего; `base` уезжает на сервер, и зуб, изменённый с тех пор на
+     другом компьютере, даёт отказ 409: модель перечитывается, черновики
+     прочих зубов переживают (их base совпал), черновик конфликтного уходит
+     как устаревший — плашка сервера называет зуб;
+   - черновик виден СРАЗУ: сервер рисует зубы такими, какими их сделала бы
+     запись (`chart.preview`, то же правило и тот же построитель — второго
+     рисовальщика и второго нормализатора у клиента нет), и виды получают
+     `shown` — сохранённую модель с этими зубами. Сцена 3D играет смену
+     состояния в момент выбора; после записи зуб в модели тот же, что в
+     предпросмотре, и второй раз она не играет. Пока идёт новый
+     предпросмотр, виден прежний: иначе сцена отыграла бы назад к
+     сохранённому и вперёд снова. Черновик снят (отмена, запись, правка
+     вернула зуб к записанному) — его предпросмотр забыт, а запрос, ещё
+     идущий за ним, оборван: эффект предпросмотра снимается при любой смене
+     того, что нужно рисовать. Ответ, всё же успевший лечь после записи,
+     вида не меняет: предпросмотр годен только грязному зубу с тем же `base`. */
 export interface ToothDraft {
   state: string
   sfst: Record<string, string>
@@ -43,7 +62,35 @@ export function defaultSurface(info: ToothInfo, order: string[]): string {
   return order.find((k) => info.sfst[k]) ?? 'O'
 }
 
+/** «Dintele 16 are» / «Dinții 16, 21 au» — подлежащее вопросов о несохранённом
+ *  (уход, «Reîncarcă», печать); вопрос дописывает место, которое спрашивает. */
+export function unsavedTeeth(teeth: readonly number[]): string {
+  return teeth.length === 1
+    ? `Dintele ${teeth[0]} are modificări nesalvate în formula dentară.`
+    : `Dinții ${teeth.join(', ')} au modificări nesalvate în formula dentară.`
+}
+
+/** Черновик строкой — каноном (поверхности без пустых, по букве; отметки по
+ *  порядку): ключ предпросмотра. Строка — JSON самого черновика, поэтому
+ *  запрос предпросмотра собирается из ключа, без второго источника. */
+function keyOf(d: ToothDraft): string {
+  const sfst: Record<string, string> = {}
+  for (const k of Object.keys(d.sfst).filter((x) => d.sfst[x]).sort()) sfst[k] = d.sfst[k]!
+  return JSON.stringify({ state: d.state, sfst, marks: [...d.marks].sort(), doctor: d.doctor, note: d.note })
+}
+
+/** Зуб записи (и предпросмотра): поля записи зуба — намерение явным полем, как
+ *  было у записи по одному (`state0` — каким зуб показан), плюс `base`. */
+function itemOf(n: number, base: ToothDraft, d: ToothDraft): TeethItem {
+  return {
+    n, state: d.state, state0: base.state, note: d.note, doctor: d.doctor, surfaces: d.sfst, marks: d.marks,
+    base: { state: base.state, sfst: base.sfst, marks: base.marks, doctor: base.doctor, note: base.note },
+  }
+}
+
 interface Box { base: ToothDraft; d: ToothDraft }
+interface Preview { base: string; key: string; info: ToothInfo }
+interface Pending { n: number; base: ToothDraft; d: ToothDraft }
 
 export interface ChartApi {
   view: View
@@ -71,6 +118,12 @@ export interface ChartApi {
   dirty: boolean
   /** Все зубы с незаписанной правкой — для пометки на дуге. */
   dirtyTeeth: ReadonlySet<number>
+  /** Те же зубы по возрастанию — подвал, вопросы, запись. */
+  pending: readonly number[]
+  /** Что рисуют виды (3D, дуга, карта): сохранённая модель с зубами черновиков
+   *  в предпросмотре сервера. Панель, меню и счётчик записанного читают
+   *  сохранённую модель. */
+  shown: Odontogram | null
   edit: (patch: Partial<ToothDraft>) => void
   /** Состояние зуба из контекстного меню: выбирает зуб и правит черновик. */
   setState: (n: number, state: string) => void
@@ -80,8 +133,9 @@ export interface ChartApi {
   /** Сброс черновика выбранного зуба (Esc, «Renunță»). */
   discard: () => void
   busy: boolean
-  /** Запись черновика выбранного зуба (Save, Enter). */
-  save: () => Promise<boolean>
+  /** Запись черновиков ВСЕХ зубов («Salvează tot», Enter): записанные номера
+   *  или null (нечего писать, отказ). */
+  saveAll: () => Promise<number[] | null>
   addBridge: (body: BridgeSave) => Promise<boolean>
   delBridge: (bid: number) => Promise<boolean>
 }
@@ -93,13 +147,14 @@ export function useChart(
   fail: (e: unknown) => void,
   say: (t: ToastState) => void,
   initial: number | null = null,
-  /** Хвост адреса записи зуба (`chart.saveTooth`): фиша просит им себя в ответ. */
+  /** Хвост адреса записи (`chart.saveTeeth`): фиша просит им себя в ответ. */
   saveQuery = '',
 ): ChartApi {
   const [view, setViewState] = useState<View>(() => savedView())
   const [selected, setSelected] = useState<number | null>(initial)
   const [pick, setPick] = useState<{ n: number; sel: string } | null>(null)
   const [boxes, setBoxes] = useState<Record<number, Box>>({})
+  const [previews, setPreviews] = useState<Record<number, Preview>>({})
   const [busy, setBusy] = useState(false)
   const [brush, setBrushState] = useState<string | null>(null)
   const setBrush = useCallback((k: string | null) => setBrushState((cur) => (k === null || k === cur ? null : k)), [])
@@ -122,14 +177,81 @@ export function useChart(
   const cur = selected !== null ? draftFor(selected) : null
   const draft = cur ? cur.d : null
   const dirty = Boolean(cur && !sameDraft(cur.d, cur.base))
-  const dirtyTeeth = new Set<number>()
-  for (const k of Object.keys(boxes)) {
-    const n = Number(k)
-    const x = draftFor(n)
-    if (x && !sameDraft(x.d, x.base)) dirtyTeeth.add(n)
+
+  /* грязные зубы и вид экрана — от модели, черновиков и предпросмотров: без
+     них вид — та же модель (тот же объект, сцене нечего перекрашивать) */
+  const { pending, shown, want } = useMemo(() => {
+    const out: Pending[] = []
+    for (const k of Object.keys(boxes)) {
+      const n = Number(k)
+      const t = model?.teeth[k]
+      const b = boxes[n]
+      if (!t || !b) continue
+      const base = draftOf(t)
+      if (sameDraft(b.base, base) && !sameDraft(b.d, base)) out.push({ n, base, d: b.d })
+    }
+    out.sort((a, b) => a.n - b.n)
+    let teeth: Record<string, ToothInfo> | null = null
+    const ask: [number, string, string][] = []
+    for (const p of out) {
+      const bk = keyOf(p.base)
+      const dk = keyOf(p.d)
+      const pv = previews[p.n]
+      if (pv && pv.base === bk) {
+        teeth ??= { ...model!.teeth }
+        teeth[String(p.n)] = pv.info
+      }
+      if (!pv || pv.base !== bk || pv.key !== dk) ask.push([p.n, bk, dk])
+    }
+    return {
+      pending: out,
+      shown: model && teeth ? { ...model, teeth } : model,
+      want: ask.length ? JSON.stringify(ask) : '',
+    }
+  }, [model, boxes, previews])
+  const dirtyTeeth = useMemo(() => new Set(pending.map((p) => p.n)), [pending])
+  const pendingNums = useMemo(() => pending.map((p) => p.n), [pending])
+
+  /* предпросмотр: зубы, чей черновик сервер ещё не рисовал, — одним запросом;
+     новый черновик обрывает прежний запрос, ответ снятого — не применяется */
+  useEffect(() => {
+    if (!want) return
+    const rows = JSON.parse(want) as [number, string, string][]
+    const ctl = new AbortController()
+    const items = rows.map(([n, bk, dk]) => {
+      const it = itemOf(n, JSON.parse(bk) as ToothDraft, JSON.parse(dk) as ToothDraft)
+      delete it.base                              // предпросмотру сверять нечего
+      return it
+    })
+    /* предпросмотр — не главное: что бы с ним ни случилось, экран остаётся
+       (виды рисуют сохранённое, черновик отмечен кольцом и в панели) */
+    Promise.resolve().then(() => chart.preview(pid, items, ctl.signal)).then((r) => {
+      if (ctl.signal.aborted) return
+      const fresh = rows.filter(([n]) => r.data.teeth[String(n)])
+      if (!fresh.length) return
+      setPreviews((prev) => {
+        const next = { ...prev }
+        for (const [n, bk, dk] of fresh) next[n] = { base: bk, key: dk, info: r.data.teeth[String(n)]! }
+        return next
+      })
+    }).catch(() => {})
+    return () => ctl.abort()
+  }, [pid, want])
+
+  /** Черновики этих зубов сняты: предпросмотр забыть — к следующему черновику
+   *  того же зуба он не прилипнет. */
+  const forget = (ns: readonly number[]) => {
+    setPreviews((prev) => {
+      if (!ns.some((n) => n in prev)) return prev
+      const next = { ...prev }
+      for (const n of ns) delete next[n]
+      return next
+    })
   }
 
   const put = (n: number, base: ToothDraft, d: ToothDraft) => {
+    const clean = sameDraft(d, base)          // правка вернула зуб к записанному
+    if (clean) forget([n])
     setBoxes((prev) => {
       const next: Record<number, Box> = {}
       for (const k of Object.keys(prev)) {           // протухшие (зуб в модели сменился) — долой
@@ -137,7 +259,8 @@ export function useChart(
         const b = prev[Number(k)]
         if (t && b && sameDraft(b.base, draftOf(t))) next[Number(k)] = b
       }
-      next[n] = { base, d }
+      if (clean) delete next[n]
+      else next[n] = { base, d }
       return next
     })
   }
@@ -176,10 +299,12 @@ export function useChart(
   }
   const discard = () => {
     if (selected === null) return
+    const n = selected
+    forget([n])
     setBoxes((prev) => {
-      if (!(selected in prev)) return prev
+      if (!(n in prev)) return prev
       const next = { ...prev }
-      delete next[selected]
+      delete next[n]
       return next
     })
   }
@@ -199,17 +324,46 @@ export function useChart(
     }
   }, [replace, fail, say])
 
-  const save = () => {
-    if (selected === null || !info || !cur) return Promise.resolve(false)
-    const n = selected
-    const d = cur.d
-    const body: ToothSave = { state: d.state, state0: info.state, note: d.note, doctor: d.doctor, surfaces: d.sfst, marks: d.marks }
-    return act(() => chart.saveTooth(pid, n, body, saveQuery))
+  const saveAll = async (): Promise<number[] | null> => {
+    if (!pending.length) return null
+    const ns = pending.map((p) => p.n)
+    const items = pending.map((p) => itemOf(p.n, p.base, p.d))
+    setBusy(true)
+    try {
+      const r = await chart.saveTeeth(pid, items, saveQuery)
+      // записанное снимает черновики само (base сменился), но и явно: зуб, чья
+      // запись совпала с прежней строкой (заметка из одних пробелов), иначе
+      // остался бы «несохранённым» навсегда
+      forget(ns)
+      setBoxes((prev) => {
+        const next = { ...prev }
+        for (const n of ns) delete next[n]
+        return next
+      })
+      replace(r.data)
+      if (r.text) say({ tone: r.tone, text: r.text })
+      return ns
+    } catch (e) {
+      const err = asApiError(e)
+      fail(err)
+      // зуб изменили на другом компьютере: свежая модель — черновики прочих
+      // переживают, черновик этого зуба уходит как устаревший (плашка его назвала)
+      if (err.code === 'odo_conflict') {
+        try {
+          replace((await chart.get(pid)).data)
+        } catch {
+          /* не перечиталась — плашка конфликта уже на экране */
+        }
+      }
+      return null
+    } finally {
+      setBusy(false)
+    }
   }
 
   return {
     view, setView, selected, info, select, sel, setSel, brush, setBrush, pickSurface,
-    draft, dirty, dirtyTeeth, edit, setState, toggleMark, discard, busy, save,
+    draft, dirty, dirtyTeeth, pending: pendingNums, shown, edit, setState, toggleMark, discard, busy, saveAll,
     addBridge: (body) => act(() => chart.addBridge(pid, body)),
     delBridge: (bid) => act(() => chart.delBridge(pid, bid)),
   }

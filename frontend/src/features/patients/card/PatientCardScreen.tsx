@@ -21,6 +21,7 @@ import { FinanceCard } from './FinanceCard'
 import { HeroKpi } from './HeroKpi'
 import { chart, type Odontogram } from '../../clinical/chart'
 import { OdontogramTab } from '../../clinical/OdontogramTab'
+import { unsavedTeeth } from '../../clinical/useChart'
 import { PerioTab } from '../../clinical/PerioTab'
 import { VisitTab } from '../../visits/VisitTab'
 import { examOf, perio, type PerioModel } from '../../clinical/perio'
@@ -52,7 +53,9 @@ const T = {
   notFound: 'Fișa nu există sau a fost ștearsă.',
   offline: 'Programul nu răspunde. Reîncercați.',
   unsaved: 'Anamneză nesalvată',
-  leaveUnsaved: 'Anamneza are modificări nesalvate. Părăsiți fișa fără să le salvați?',
+  anUnsaved: 'Anamneza are modificări nesalvate.',
+  leaveCard: 'Părăsiți fișa fără să le salvați?',
+  leaveOdo: 'Părăsiți formula dentară fără să le salvați?',
   leave: 'Părăsește',
 } as const
 
@@ -216,15 +219,30 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
   /* «Încarcă exemplarul semnat» из плана: вкладка Documente с нужной категорией */
   const [docsPick, setDocsPick] = useState<DocsPick | null>(null)
   const dirty = state.status === 'ready' && anDirty(anDraft, state.data.anamneza)
-  const blocker = useBlocker(({ currentLocation, nextLocation }) =>
-    dirty && currentLocation.pathname !== nextLocation.pathname)
+  /* ⭐ Черновики одонтограммы (волна 2, 25.10) — зубы, о которых сообщает
+     рабочий стол вкладки (`onDirty`). Их охраняет ЭТОТ же блокер: роутер
+     держит один, и второй во вкладке молча выключил бы вопрос анамнеза.
+     Вкладка Odontogramă при смене вкладки размонтируется, и черновик зубов
+     пропал бы молча, — поэтому для неё блокирует и смена `?tab=`; черновик
+     анамнеза живёт у экрана и переживает вкладки — для него только уход с
+     фиши. Грязны оба — вопрос называет оба. */
+  const [odoDirty, setOdoDirty] = useState<number[]>([])
+  const onOdoDirty = useCallback((t: number[]) => setOdoDirty(t), [])
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => {
+    const away = currentLocation.pathname !== nextLocation.pathname
+    return (dirty && away)
+      || (odoDirty.length > 0 && (away || tabOf(new URLSearchParams(nextLocation.search)) !== 'odonto'))
+  })
   useEffect(() => {
     if (blocker.state !== 'blocked') return
-    void ask({ text: T.leaveUnsaved, ok: T.leave, danger: true }).then((yes) => {
+    const away = blocker.location.pathname !== pathname
+    const text = [dirty && away ? T.anUnsaved : '', odoDirty.length ? unsavedTeeth(odoDirty) : '',
+      away ? T.leaveCard : T.leaveOdo].filter(Boolean).join(' ')
+    void ask({ text, ok: T.leave, danger: true }).then((yes) => {
       if (yes) blocker.proceed()
       else blocker.reset()
     })
-  }, [blocker])
+  }, [blocker, dirty, odoDirty, pathname])
 
   const fail = useCallback((e: unknown): ApiError => {
     const err = asApiError(e)
@@ -430,6 +448,7 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
         )}
         {tab === 'odonto' && (
           <OdontogramTab pid={pid} views={views} say={say} onFail={failCb} onChanged={onToothSaved} open={toothReq}
+            onDirty={onOdoDirty}
             initial={perioStale === card ? null : card.odontogram ?? null} />
         )}
         {tab === 'perio' && (

@@ -74,6 +74,9 @@ const MODEL: Odontogram = {
 }
 
 const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, text, tone: 'ok' })
+/* предпросмотр черновика (волна 2) — тоже `post`: проверки записи смотрят только на запись */
+const isPreview = (url: unknown) => String(url).endsWith('/odontogram/preview')
+const saves = () => post.mock.calls.filter((c) => !isPreview(c[0]))
 const btn = (n: number) => document.querySelector(`.odop .arch .tooth-btn[data-n="${n}"]`) as HTMLButtonElement
 const inspector = () => document.querySelector('.insp') as HTMLElement
 const root = () => document.querySelector('.odop') as HTMLElement
@@ -213,10 +216,12 @@ describe('OdontogramScreen', () => {
     fireEvent.click(within(insp).getByText('Salvează'))
     expect(await screen.findByText('Fișa pacientului a fost actualizată')).toBeTruthy()
     // состояние зуба форма показала как есть («carie» из модели) — state0 = state, карта — намерение
-    expect(post).toHaveBeenCalledWith('/patients/5/teeth/16', {
-      state: 'carie', state0: 'carie', note: 'distal', doctor: 'Dr. Activ Doi',
+    // запись — пачкой (волна 2): зуб с намерением явным полем и `base` — каким его показали
+    expect(saves()).toEqual([['/patients/5/teeth', { teeth: [{
+      n: 16, state: 'carie', state0: 'carie', note: 'distal', doctor: 'Dr. Activ Doi',
       surfaces: { M: 'carie', O: 'obturatie', D: 'carie' }, marks: ['tratament'],
-    })
+      base: { state: 'carie', sfst: { M: 'carie', O: 'obturatie' }, marks: [], doctor: 'Dr. Activ Doi', note: 'distal' },
+    }] }]])
     expect(btn(16).getAttribute('title')).toBe('16 · Carie · MOD')
     expect(unsaved()).toBeNull()                       // свежая модель — черновика нет
     expect(btn(16).className).not.toContain('dirty')
@@ -422,12 +427,12 @@ describe('C22: поверхность как первичный жест, чер
     open(16)
     await waitFor(() => expect(btn(16)).toBeTruthy())
     key('Enter')
-    expect(post).not.toHaveBeenCalled()                    // нечего записывать
+    expect(saves()).toEqual([])                            // нечего записывать
     fireEvent.click(brushBtn('Obturație'))
     fireEvent.click(hitOf(16, 'O'))                        // та же кисть по O: obturatie → снято
     expect(unsaved()).toBeTruthy()
     fireEvent.keyDown(noteFld(), { key: 'Enter' })
-    expect(post).not.toHaveBeenCalled()                    // в поле ввода Enter — браузерный
+    expect(saves()).toEqual([])                            // в поле ввода Enter — браузерный
     fireEvent.keyDown(within(inspector()).getByLabelText('Medic'), { key: 'Escape' })
     expect(unsaved()).toBeTruthy()                         // и Esc в списке черновик не трогает
     key('Escape')                                          // первый Esc отпускает кисть
@@ -440,9 +445,9 @@ describe('C22: поверхность как первичный жест, чер
     fireEvent.click(hitOf(16, 'O'))                        // снова снять O
     expect(unsaved()).toBeTruthy()
     fireEvent.keyDown(btn(16), { key: 'Enter' })           // фокус на зубе внутри карты
-    expect(post).toHaveBeenCalledWith('/patients/5/teeth/16', {
-      state: 'carie', state0: 'carie', note: 'distal', doctor: 'Dr. Activ Doi', surfaces: { M: 'carie' }, marks: [],
-    })
+    expect(saves()).toEqual([['/patients/5/teeth', { teeth: [expect.objectContaining({
+      n: 16, state: 'carie', state0: 'carie', note: 'distal', doctor: 'Dr. Activ Doi', surfaces: { M: 'carie' }, marks: [],
+    })] }]])
     expect(await screen.findByText('Fișa pacientului a fost actualizată')).toBeTruthy()
     expect(unsaved()).toBeNull()
     expect(btn(16).className).not.toContain('dirty')
@@ -743,7 +748,7 @@ describe('карта зубов коронками (11.10)', () => {
 })
 
 describe('B7 · планшет: инспектор — шторка', () => {
-  it('выбранный зуб — в data-sel рабочего стола (по нему CSS пальцем показывает шторку); «Închide» снимает выбор и черновик', async () => {
+  it('выбранный зуб — в data-sel рабочего стола (по нему CSS пальцем показывает шторку); «Închide» снимает выбор, черновик остаётся (волна 2)', async () => {
     open()
     await waitFor(() => expect(btn(16)).toBeTruthy())
     expect(root().getAttribute('data-sel')).toBeNull()
@@ -753,11 +758,15 @@ describe('B7 · планшет: инспектор — шторка', () => {
     expect(unsaved()).toBeTruthy()
     fireEvent.click(within(inspector()).getByRole('button', { name: 'Închide' }))
     expect(root().getAttribute('data-sel')).toBeNull()
-    expect(unsaved()).toBeNull()
     expect(within(inspector()).queryByRole('button', { name: 'Închide' })).toBeNull()
-    // снова тот же зуб — черновика нет, заметка прежняя
+    // до 25.10 «Închide» выбрасывал черновик молча; теперь зуб помечен, а
+    // записать его можно и без выбранного зуба — подвал остаётся
+    expect(btn(16).className).toContain('dirty')
+    expect(within(inspector()).getByText('Nesalvat: dintele 16')).toBeTruthy()
+    expect(within(inspector()).getByRole('button', { name: 'Salvează' })).toBeTruthy()
     fireEvent.click(btn(16))
-    expect(noteFld().value).not.toBe('ciornă')
+    expect(noteFld().value).toBe('ciornă')
+    expect(unsaved()).toBeTruthy()
   })
 })
 

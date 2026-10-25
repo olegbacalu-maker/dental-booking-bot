@@ -211,9 +211,15 @@ function act(b: Bridge, id: string): void {
   /* «Programare nouă» здесь не разбирается: её исполняет кнопка шапки
      (`useCommand` в `Topbar`) — окно оболочки на месте или окно дня журнала */
   switch (id) {
-    case 'act:reload':
-      defaultReload()
+    case 'act:reload': {
+      /* экран с несохранённым (рабочий стол одонтограммы, волна 2) заявляет
+         «Reîncarcă» сам и спрашивает своим окном: в окне оболочки F5 — эта
+         команда, а не перезагрузка браузера, и `beforeunload` тут не ставят */
+      const own = top(id)
+      if (own) own.run()
+      else defaultReload()
       return
+    }
     case 'act:back':
       void b.router.navigate(-1)
       return

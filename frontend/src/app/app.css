@@ -2722,3 +2722,13 @@ dialog.dp-about { width: 460px; }
   .dp-react-root .dp-odo .dp-vp-body { height: 500px; }
   .dp-react-root .dp-vp-ov { display: none; }
 }
+
+/* odo:draft — подвал «Salvează tot» (волна 2 одонтограммы, 25.10). Рядом с
+   черновиком выбранного зуба строка называет и прочие несохранённые зубы
+   («și dinții 21, 36») — в панели 320 px она переносится, а не вылезает */
+.dp-react-root .dp-tp-status { flex-wrap: wrap; row-gap: 2px; text-align: center; }
+.dp-react-root .dp-tp-status .dp-tp-also { font-weight: 500; }
+/* Плашка ответа (panel.css: внизу справа, 24 px) ложилась на липкий подвал
+   панели (93 px) — после отказа записи «Salvează tot» было не нажать, пока
+   плашку не закроешь крестиком (ошибка висит до него; стенд, 1366×656) */
+.dp-react-root:has(.odop .dp-tp-foot) .toastbox { bottom: calc(128px + env(safe-area-inset-bottom)); }

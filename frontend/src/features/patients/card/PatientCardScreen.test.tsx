@@ -641,7 +641,7 @@ describe('PatientCardScreen', () => {
     await screen.findByText('Pin Test', { selector: 'h2' })
     await saveTooth11()
     expect(opens()).toBe(1)
-    expect(post).toHaveBeenCalledWith('/patients/5/teeth/11?card=1', expect.objectContaining({ state: 'ok', state0: 'ok', surfaces: { O: 'carie' } }))
+    expect(post).toHaveBeenCalledWith('/patients/5/teeth?card=1', { teeth: [expect.objectContaining({ n: 11, state: 'ok', state0: 'ok', surfaces: { O: 'carie' } })] })
     await waitFor(() => expect(pills()).toContain('2 implante'))
     expect(opens()).toBe(1)
     /* режим ленты адреса едет и в запись: фиша в ответе — с просмотрами */
@@ -651,7 +651,7 @@ describe('PatientCardScreen', () => {
     post.mockResolvedValueOnce(ok({ ...ODO, card: { ...after, activity: feed(after, true) } }, 'ok_card', 'Fișa pacientului a fost actualizată'))
     open('/admin/patient/5?tab=odonto&views=1')
     await saveTooth11()
-    expect(post).toHaveBeenCalledWith('/patients/5/teeth/11?card=1&views=1', expect.anything())
+    expect(post).toHaveBeenCalledWith('/patients/5/teeth?card=1&views=1', expect.anything())
     await waitFor(() => expect(pills()).toContain('2 implante'))
     /* лента из ответа записи — с просмотрами: видно на Rezumat, без нового открытия */
     await tabTo('Rezumat')
@@ -1364,6 +1364,43 @@ describe('PatientCardScreen', () => {
     expect(post).toHaveBeenCalledWith('/patients/5/anamneza', expect.objectContaining({ flags: ['cardio'] }))
     expect(screen.queryByText('modificări nesalvate')).toBeNull()
     expect(strip().getByRole('tab', { name: /Date pacient/ }).querySelector('.wtab-dot')).toBeNull()
+  })
+
+  it('волна 2: черновик зубов — вопрос и при смене вкладки, и при уходе; анамнез и зубы грязны — вопрос называет оба (один блокер)', async () => {
+    /* ⚠️ Роутер держит ОДИН блокер: второй во вкладке молча выключил бы
+       вопрос анамнеза — поэтому обе ветки живут в блокере фиши */
+    serve()
+    post.mockImplementation(() => Promise.reject(new Error('предпросмотр в этой проверке не нужен')))
+    const { router } = open()
+    await settled()
+    await tabTo('Date pacient')
+    fireEvent.click(screen.getByLabelText('Diabet zaharat'))              // анамнез грязный
+    await tabTo('Odontogramă')                                            // его черновик живёт у экрана — вопроса нет
+    await odoReady()
+    fireEvent.click(document.querySelector('#odo .tooth-btn[data-n="11"]') as HTMLElement)
+    const insp = document.querySelector('.insp') as HTMLElement
+    fireEvent.click(within(insp).getByRole('tab', { name: /^Notițe/ }))
+    fireEvent.change(within(insp).getByLabelText('Notiță (opțional)'), { target: { value: 'ciornă' } })
+    const odoQ = 'Dintele 11 are modificări nesalvate în formula dentară.'
+    /* уход с фиши — вопрос называет оба черновика; отказ — на месте */
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
+    fireEvent.click(screen.getByRole('link', { name: /Pacienți/ }))
+    await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(
+      `Anamneza are modificări nesalvate. ${odoQ} Părăsiți fișa fără să le salvați?`))
+    expect(router.state.location.pathname).toBe('/admin/patient/5')
+    /* смена вкладки — только про зубы (анамнез вкладки переживает); отказ — вкладка и черновик те же */
+    confirm.mockReturnValueOnce(false)
+    fireEvent.click(strip().getByRole('tab', { name: 'Rezumat' }))
+    await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(`${odoQ} Părăsiți formula dentară fără să le salvați?`))
+    expect(tabOn()).toContain('Odontogramă')
+    expect(document.querySelector('#odo .tooth-btn[data-n="11"]')?.className).toContain('dirty')
+    /* согласие — вкладка сменилась, черновик зубов ушёл; уход с фиши снова спрашивает про анамнез */
+    confirm.mockReturnValueOnce(true)
+    await tabTo('Rezumat')
+    confirm.mockReturnValueOnce(false)
+    fireEvent.click(screen.getByRole('link', { name: /Pacienți/ }))
+    await waitFor(() => expect(confirm).toHaveBeenLastCalledWith('Anamneza are modificări nesalvate. Părăsiți fișa fără să le salvați?'))
+    expect(router.state.location.pathname).toBe('/admin/patient/5')
   })
 })
 

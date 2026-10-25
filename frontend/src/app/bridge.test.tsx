@@ -4,7 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { ShellModel } from '../layouts/shell'
 import { ApiError } from '../types/api'
 import { App, appHydration, appRoutes, type MountNode } from './App'
-import { installShellBridge, type DpShell } from './bridge'
+import { installShellBridge, useCommand, type DpShell } from './bridge'
 import type { MenuEntry, MenuItem } from './commands'
 
 /* Мост к оболочке Tauri (Т7) на живом App: меню строится по модели документа и
@@ -297,6 +297,26 @@ describe('клавиши окна', () => {
     await act(() => router.navigate('/admin/medici'))
     await act(async () => { press('ArrowLeft', { key: 'ArrowLeft', altKey: true }) })
     await waitFor(() => expect(router.state.location.pathname).toBe('/admin/settings'))
+  })
+
+  it('F5: экран заявил «Reîncarcă» (несохранённое, волна 2) — исполняет он; снял заявку — снова перезагрузка', () => {
+    serve()
+    open('/admin/settings', node('settings_hub'))
+    const mine = vi.fn()
+    function Guard({ on }: { on: boolean }) {
+      useCommand('act:reload', on && mine)
+      return null
+    }
+    const g = render(<Guard on />)
+    expect(press('F5', { key: 'F5' })).toBe(false)
+    expect(mine).toHaveBeenCalledTimes(1)
+    expect(reload).not.toHaveBeenCalled()
+    expect(window.dpRun?.('act:reload')).toBe(true)
+    expect(mine).toHaveBeenCalledTimes(2)
+    g.rerender(<Guard on={false} />)
+    expect(press('F5', { key: 'F5' })).toBe(false)
+    expect(reload).toHaveBeenCalledTimes(1)
+    expect(mine).toHaveBeenCalledTimes(2)
   })
 
   it('⛔ Ctrl+Z/C/V/A в поле — родные: страница их не трогает', () => {

@@ -192,6 +192,24 @@ export interface ToothSave {
   marks: string[]
 }
 
+/** Каким экран ПОКАЗАЛ зуб, когда начал его править (волна 2, 25.10): сервер
+ *  сверяет его с записью (`db.set_teeth`) — зуб, изменённый с тех пор на
+ *  другом компьютере, даёт отказ 409 `odo_conflict`, и не пишется ничего. */
+export interface ToothBase {
+  state: string
+  sfst: Record<string, string>
+  marks: string[]
+  doctor: string
+  note: string
+}
+
+/** Зуб пачки «Salvează tot» и предпросмотра — поля записи зуба плюс номер;
+ *  `base` нужен записи, предпросмотр его не читает. */
+export interface TeethItem extends ToothSave {
+  n: number
+  base?: ToothBase
+}
+
 export interface BridgeSave {
   teeth: [number, string][]
   material: string
@@ -249,11 +267,18 @@ const P = (pid: number) => `/patients/${pid}`
 export const chart = {
   get: (pid: number, signal?: AbortSignal) =>
     api.get<Odontogram>(`${P(pid)}/odontogram`, signal ? { signal } : {}),
-  /** `q` дописывается к адресу: фиша шлёт `?card=1…` и получает рядом с
-   *  моделью свежую себя — перечитывать её открытием (а это строка журнала
-   *  доступа) не нужно (`api_tooth_save`). */
-  saveTooth: (pid: number, n: number, body: ToothSave, q = '') =>
-    api.post<Odontogram>(`${P(pid)}/teeth/${n}${q}`, body),
+  /** «Salvează tot» (волна 2, 25.10): черновики всех зубов одной записью — всё
+   *  или ничего (`api_teeth_save`). `q` дописывается к адресу: фиша шлёт
+   *  `?card=1…` и получает рядом с моделью свежую себя — перечитывать её
+   *  открытием (а это строка журнала доступа) не нужно. Запись по одному
+   *  зубу (`POST …/teeth/{n}`) на сервере осталась, экран её больше не зовёт. */
+  saveTeeth: (pid: number, teeth: TeethItem[], q = '') =>
+    api.post<Odontogram>(`${P(pid)}/teeth${q}`, { teeth }),
+  /** Черновик РИСУНКОМ до записи: зубы такими, какими их сделала бы запись
+   *  (то же правило и тот же построитель на сервере), — без записи, без
+   *  летописи и без «Fișa deschisă» (`api_odontogram_preview`). */
+  preview: (pid: number, teeth: TeethItem[], signal?: AbortSignal) =>
+    api.post<{ teeth: Record<string, ToothInfo> }>(`${P(pid)}/odontogram/preview`, { teeth }, signal ? { signal } : {}),
   addBridge: (pid: number, body: BridgeSave) =>
     api.post<Odontogram>(`${P(pid)}/bridges`, body),
   delBridge: (pid: number, bid: number) =>

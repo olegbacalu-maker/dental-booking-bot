@@ -256,9 +256,9 @@ describe('панель: крупный зуб вместо креста MODVL', 
     expect(save().disabled).toBe(false)
     fireEvent.click(save())
     expect(await screen.findByText('Fișa pacientului a fost actualizată')).toBeTruthy()
-    expect(post).toHaveBeenCalledWith('/patients/5/teeth/16', {
-      state: 'carie', state0: 'carie', note: 'distal, verificat', doctor: 'Dr. Activ Doi',
+    expect(post).toHaveBeenCalledWith('/patients/5/teeth', { teeth: [expect.objectContaining({
+      n: 16, state: 'carie', state0: 'carie', note: 'distal, verificat', doctor: 'Dr. Activ Doi',
       surfaces: { M: 'carie', O: 'obturatie' }, marks: [],
-    })
+    })] })
   })
 })

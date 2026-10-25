@@ -32,10 +32,20 @@ const T = {
   note: 'Notiță (opțional)',
   noHistory: '— fără înregistrări —',
   save: 'Salvează',
+  saveAll: 'Salvează tot ({n})',
   discard: 'Renunță',
   unsaved: 'Modificări nesalvate',
-  saved: 'Salvat pentru dintele',
+  also1: 'și dintele {t}',
+  alsoN: 'și dinții {t}',
+  pend1: 'Nesalvat: dintele {t}',
+  pendN: 'Nesalvat: dinții {t}',
+  saved1: 'Salvat: dintele {t}',
+  savedN: 'Salvat: dinții {t}',
 } as const
+
+/** «dintele 16» или «dinții 16, 21» — по числу зубов */
+const teethWords = (one: string, many: string, t: readonly number[]) =>
+  (t.length === 1 ? one : many).replace('{t}', t.join(', '))
 
 interface Props {
   model: Odontogram
@@ -51,7 +61,11 @@ interface Props {
   draft: ToothDraft | null
   dirty: boolean
   onEdit: (patch: Partial<ToothDraft>) => void
+  /** Все зубы с несохранённой правкой (по возрастанию): подвал пишет их разом. */
+  pending: readonly number[]
+  /** Запись ВСЕХ черновиков («Salvează tot», волна 2). */
   onSave: () => void
+  /** Сброс черновика выбранного зуба. */
   onDiscard: () => void
   onDelBridge: (bid: number) => void
   onBridgeFrom?: ((n: number) => void) | undefined
@@ -59,12 +73,12 @@ interface Props {
   onPlan?: ((n: number) => void) | undefined
   /** Закрыть панель (пальцем она — шторка поверх карты); мышью кнопки не видно. */
   onClose?: (() => void) | undefined
-  /** Зуб, записанный последним нажатием «Salvează», — для строки состояния. */
-  saved: number | null
+  /** Зубы, записанные последним нажатием «Salvează», — для строки состояния. */
+  saved: readonly number[] | null
 }
 
 export function ToothPanel({
-  model, n, busy, sel, onSurface, brush, onBrush, draft: d, dirty, onEdit: edit, onSave, onDiscard, onDelBridge,
+  model, n, busy, sel, onSurface, brush, onBrush, draft: d, dirty, onEdit: edit, pending, onSave, onDiscard, onDelBridge,
   onBridgeFrom, onPlan, onClose, saved,
 }: Props) {
   /* вкладка — свойство экрана: держится, пока врач ходит от зуба к зубу */
@@ -139,23 +153,53 @@ export function ToothPanel({
               </div>
             )}
           </div>
-          <div className="dp-tp-sec dp-tp-foot">
-            {/* без правки записывать нечего (как у Enter рабочего стола): сервер
-                пишет строку летописи на КАЖДУЮ запись зуба, и пустое
-                пересохранение оставляло бы в истории «Dinte N: …» ни о чём */}
-            <button className="dp-btn pri" disabled={busy || !dirty}><Icon name="save" /> {T.save}</button>
-            <div className="dp-tp-status" aria-live="polite">
-              {dirty ? (
-                <>
-                  <span className="dp-draft">{T.unsaved}</span>
-                  <button type="button" className="dp-link" onClick={onDiscard}>{T.discard}</button>
-                </>
-              ) : saved === n ? <span className="dp-saved">{T.saved} {n}</span> : null}
-            </div>
-          </div>
+          <Foot n={n} busy={busy} dirty={dirty} pending={pending} saved={saved} onDiscard={onDiscard} />
         </form>
       )}
       {n === null && <div className="dp-tp-empty"><Icon name="tooth" /></div>}
+      {/* зуб не выбран (шторку закрыли), а черновики есть — записать их можно и так */}
+      {n === null && pending.length > 0 && (
+        <Foot n={n} busy={busy} dirty={false} pending={pending} saved={saved} onDiscard={onDiscard} onSave={onSave} />
+      )}
+    </div>
+  )
+}
+
+/* Подвал панели (волна 2, 25.10; Олег: «сначала всю работу и потом
+   сохранить»): одна кнопка пишет черновики ВСЕХ зубов — «Salvează» при одном,
+   «Salvează tot (N)» при нескольких; поштучной записи нет. Без черновиков
+   кнопка выключена (как Enter рабочего стола): сервер пишет строку летописи на
+   КАЖДУЮ запись зуба, и пустое пересохранение оставляло бы «Dinte N: …» ни о
+   чём. «Renunță» — черновик выбранного зуба (как Esc); прочие несохранённые
+   зубы названы рядом. В форме кнопка — submit; без выбранного зуба (`onSave`)
+   — обычная кнопка. */
+function Foot({ n, busy, dirty, pending, saved, onDiscard, onSave }: {
+  n: number | null
+  busy: boolean
+  dirty: boolean
+  pending: readonly number[]
+  saved: readonly number[] | null
+  onDiscard: () => void
+  onSave?: () => void
+}) {
+  const others = pending.filter((x) => x !== n)
+  return (
+    <div className="dp-tp-sec dp-tp-foot">
+      <button className="dp-btn pri" type={onSave ? 'button' : 'submit'} disabled={busy || !pending.length} onClick={onSave}>
+        <Icon name="save" /> {pending.length > 1 ? T.saveAll.replace('{n}', String(pending.length)) : T.save}
+      </button>
+      <div className="dp-tp-status" aria-live="polite">
+        {dirty && (
+          <>
+            <span className="dp-draft">{T.unsaved}</span>
+            <button type="button" className="dp-link" onClick={onDiscard}>{T.discard}</button>
+          </>
+        )}
+        {others.length > 0 && (
+          <span className="dp-draft dp-tp-also">{dirty ? teethWords(T.also1, T.alsoN, others) : teethWords(T.pend1, T.pendN, others)}</span>
+        )}
+        {!pending.length && saved?.length ? <span className="dp-saved">{teethWords(T.saved1, T.savedN, saved)}</span> : null}
+      </div>
     </div>
   )
 }

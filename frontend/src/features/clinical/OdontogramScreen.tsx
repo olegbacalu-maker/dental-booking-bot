@@ -1,5 +1,6 @@
-import { useCallback, useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { useCallback, useEffect, useState } from 'react'
+import { useBlocker, useSearchParams } from 'react-router'
+import { ask } from '../../components/confirm'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
@@ -9,6 +10,7 @@ import {
 import { asApiError } from '../../services/api'
 import { OdontogramWorkbench } from './OdontogramWorkbench'
 import { chart, type Odontogram } from './chart'
+import { unsavedTeeth } from './useChart'
 
 /* Детальная одонтограмма (C21) на всю ширину: сайдбар узкий — рамку с rail=True
    даёт сервер. Сам инструмент (дуга, инспектор, мосты, клавиатура) — в
@@ -17,6 +19,8 @@ import { chart, type Odontogram } from './chart'
 const T = {
   notFound: 'Fișa nu există sau a fost ștearsă.',
   offline: 'Programul nu răspunde. Reîncercați.',
+  leaveOdo: 'Părăsiți formula dentară fără să le salvați?',
+  leave: 'Părăsește',
 } as const
 
 interface Props {
@@ -49,6 +53,19 @@ export function OdontogramScreen({ pid, navigate = defaultNavigate }: Props) {
     if (!leaveIfSignedOut(err)) setToast({ tone: 'err', text: err.text || T.offline })
   }, [leaveIfSignedOut])
   const model = state.status === 'ready' ? state.data : null
+  /* черновики зубов (волна 2, 25.10): рабочий стол сообщает, блокер — здесь,
+     у владельца (у роутера один блокер на всех); смена `?t=` — не уход */
+  const [dirty, setDirty] = useState<number[]>([])
+  const onDirty = useCallback((t: number[]) => setDirty(t), [])
+  const blocker = useBlocker(({ currentLocation, nextLocation }) =>
+    dirty.length > 0 && currentLocation.pathname !== nextLocation.pathname)
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
+    void ask({ text: `${unsavedTeeth(dirty)} ${T.leaveOdo}`, ok: T.leave, danger: true }).then((yes) => {
+      if (yes) blocker.proceed()
+      else blocker.reset()
+    })
+  }, [blocker, dirty])
 
   if (state.status === 'leaving') return null
   if (state.status === 'failed') {
@@ -63,7 +80,7 @@ export function OdontogramScreen({ pid, navigate = defaultNavigate }: Props) {
 
   return (
     <section className="dp-react-root">
-      <OdontogramWorkbench pid={pid} model={model} replace={replace} fail={fail} say={say} initial={t} />
+      <OdontogramWorkbench pid={pid} model={model} replace={replace} fail={fail} say={say} initial={t} onDirty={onDirty} />
       {toast && <Toast tone={toast.tone} text={toast.text} onClose={closeToast} />}
     </section>
   )
