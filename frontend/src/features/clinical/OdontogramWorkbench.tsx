@@ -345,7 +345,8 @@ export function OdontogramWorkbench({
   return (
     <>
       <div ref={root} className="odop odo dp-odo" id="odo" data-page={embedded ? undefined : ''} data-view={c.view}
-        data-sel={c.selected ?? undefined} data-brush={c.brush ?? undefined} tabIndex={0} onKeyDown={onKey}>
+        data-sel={c.selected ?? undefined} data-brush={c.brush ?? undefined}
+        data-pending={c.pending.length ? '' : undefined} tabIndex={0} onKeyDown={onKey}>
         <div className="dp-odo-head">
           {/* имя — заголовок детальной страницы и дорога назад в фишу; во вкладке фиши имя уже в её шапке */}
           {!embedded && (

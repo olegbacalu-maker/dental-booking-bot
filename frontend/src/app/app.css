@@ -2732,3 +2732,16 @@ dialog.dp-about { width: 460px; }
    панели (93 px) — после отказа записи «Salvează tot» было не нажать, пока
    плашку не закроешь крестиком (ошибка висит до него; стенд, 1366×656) */
 .dp-react-root:has(.odop .dp-tp-foot) .toastbox { bottom: calc(128px + env(safe-area-inset-bottom)); }
+/* Портрет пальцем: зуб не выбран («Închide» шторки), а черновики есть
+   (data-pending) — шторки нет, но подвал «Salvează tot» остаётся полосой
+   внизу, рабочий стол над ним ужимается: записать можно, не выбирая зуб */
+@media (pointer: coarse) and (orientation: portrait) {
+  .dp-react-root .odop:not([data-sel])[data-pending] .odop-side {
+    display: block; position: fixed; z-index: 40; left: 0; right: 0; top: auto; bottom: 0;
+    background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -8px 24px rgba(15, 23, 42, .14);
+    padding: 0 12px env(safe-area-inset-bottom);
+  }
+  .dp-react-root .odop:not([data-sel])[data-pending] .odop-side .insp { border: none; box-shadow: none; margin: 0; min-height: 0; }
+  .dp-react-root .odop:not([data-sel])[data-pending] .odop-side .dp-tp > :not(.dp-tp-foot) { display: none; }
+  .dp-react-root .dp-odo:not([data-sel])[data-pending] { height: calc(100dvh - var(--h-top) - 40px - 112px); min-height: 0; }
+}

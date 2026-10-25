@@ -162,6 +162,7 @@ describe('волна 2: запись всех зубов разом', () => {
     note(21, 'verificat')
     setState(16, 'Coroană')
     expect(saveBtn().textContent).toContain('Salvează tot (3)')
+    expect(root().hasAttribute('data-pending')).toBe(true)          // портрет пальцем: полоса подвала и без зуба
     expect(within(inspector()).getByText('și dinții 21, 36')).toBeTruthy()
     fireEvent.click(saveBtn())
     expect(await screen.findByText(SAVED)).toBeTruthy()
@@ -174,6 +175,7 @@ describe('волна 2: запись всех зубов разом', () => {
     expect(post.mock.calls.some((c) => /\/teeth\/\d+/.test(String(c[0])))).toBe(false)   // поштучной записи нет
     await waitFor(() => expect(document.querySelectorAll('.odop .dirty').length).toBe(0))
     expect(within(inspector()).getByText('Salvat: dinții 16, 21, 36')).toBeTruthy()
+    expect(root().hasAttribute('data-pending')).toBe(false)
     expect(saveBtn().disabled).toBe(true)
     /* Enter — та же запись всех */
     setState(24, 'Coroană')
