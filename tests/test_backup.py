@@ -424,9 +424,15 @@ def suite_schedule(res: Result) -> None:
                     (dest / f"dentpilot-auto-2020010{i}_0000.zip").write_bytes(b"old")
                 (dest / "dentpilot-backup-manual.zip").write_bytes(b"manual")
                 clock.set(start + timedelta(hours=50))
-                _wait(lambda: not (dest / "dentpilot-auto-20200100_0000.zip").exists())
-                res.ok("ротация держит не больше KEEP_EXT своих архивов",
-                       len(_ext(dest)) <= 7, f"{len(_ext(dest))}")
+                # ⚠️ Ждать ТОГО, что проверяется (26.10): ротация удаляет лишние
+                # по одному, и ожидание ухода только самого старого попадало в
+                # её середину — под нагрузкой полного прогона красное «: 7»
+                # (условие считало 8+, подпись — уже 7). Число — один раз.
+                def _rotated() -> int:
+                    n = len(_ext(dest))        # меньше 7 не бывает: 0 = «ещё идёт»
+                    return n if n <= 7 else 0
+                n_rot = _wait(_rotated) or len(_ext(dest))
+                res.ok("ротация держит не больше KEEP_EXT своих архивов", n_rot <= 7, f"{n_rot}")
                 res.ok("ручной архив в той же папке ротация не трогает",
                        (dest / "dentpilot-backup-manual.zip").exists())
                 # -- выключение --
