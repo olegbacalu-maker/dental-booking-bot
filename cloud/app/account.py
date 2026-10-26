@@ -242,14 +242,18 @@ def link(con: sqlite3.Connection, acc: sqlite3.Row, clinic_id: str, how: str) ->
 
 def link_by_email(con: sqlite3.Connection, acc: sqlite3.Row, email: str) -> None:
     """Запись без клиник — вход во ВСЕ живые клиники с этим ящиком (у филиала он бывает тот же,
-    что у главной); открыта первая по дате. Сравнение ящиков — trial.canonical."""
+    что у главной); открыта — ГЛАВНАЯ, первая по дате, а в одну секунду — по порядку заведения
+    (rowid: id случаен, и при равной секунде «первая по id» — случайная клиника). Открытая
+    ставится явно, а не «какая привязалась последней». Сравнение ящиков — trial.canonical."""
     want = trial.canonical(email)
     domain = want.partition("@")[2]
-    rows = con.execute("SELECT * FROM clinics WHERE declined_at IS NULL AND lower(email) LIKE ? "
-                       "ORDER BY created_at DESC, id DESC", ("%@" + domain,)).fetchall()
-    for r in rows:                              # первая по дате привязывается последней — она и открыта
-        if r["email"] and trial.canonical(r["email"]) == want:
-            link(con, acc, r["id"], f"по e-mail {email}")
+    rows = [r for r in con.execute("SELECT * FROM clinics WHERE declined_at IS NULL AND lower(email) LIKE ? "
+                                   "ORDER BY created_at, rowid", ("%@" + domain,)).fetchall()
+            if r["email"] and trial.canonical(r["email"]) == want]
+    for r in rows:
+        link(con, acc, r["id"], f"по e-mail {email}")
+    if rows:
+        con.execute("UPDATE accounts SET clinic_id=? WHERE id=?", (rows[0]["id"], acc["id"]))
 
 
 def detach(con: sqlite3.Connection, acc: sqlite3.Row, who: str) -> None:

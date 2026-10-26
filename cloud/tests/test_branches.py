@@ -127,6 +127,51 @@ def suite_rules(res: Result) -> None:
     res.ok("в общей ноте — не больше GROUP_MAX клиник (cont de plată — одна страница)", pay.GROUP_MAX == 10)
 
 
+def suite_order(res: Result) -> None:
+    """Главная кабинета детерминирована при ОДИНАКОВОЙ секунде заведения: второй ключ — порядок
+    заведения (rowid), не случайный id. id подобраны НАОБОРОТ порядку заведения (главная — «c_f…»,
+    филиалы — «c_0…»), метки времени равны: порядок по id дал бы филиал — красное всегда."""
+    from app import cabinet, sms  # noqa: PLC0415 — нужны только этому набору
+    con = sqlite3.connect(":memory:", isolation_level=None)
+    con.row_factory = sqlite3.Row
+    con.execute("CREATE TABLE schema_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    for step in range(1, db.SCHEMA_VERSION + 1):
+        for sql in db.MIGRATIONS[step]:
+            con.execute(sql)
+    at = "2026-10-26T10:00:00Z"
+    main, b1, b2 = "c_ffffffffffff", "c_000000000001", "c_000000000000"
+    for cid, name, mail_ in ((main, "Principala", "office@zambet.md"), (b1, "Filiala 1", "f1@zambet.md"),
+                             (b2, "Filiala 2", "office@zambet.md")):
+        con.execute("INSERT INTO clinics(id, name, email, created_at) VALUES(?,?,?,?)", (cid, name, mail_, at))
+    con.execute("INSERT INTO accounts(id, provider, subject, email, clinic_id, created_at) "
+                "VALUES('a_dir', 'google', 's', 'dir@zambet.md', ?, ?)", (b2, at))
+    for cid in (b2, b1, main):                   # входы — в обратном порядке, тоже не в счёт
+        con.execute("INSERT INTO account_clinics(account_id, clinic_id, added_at) VALUES('a_dir', ?, ?)", (cid, at))
+    res.check("кабинет по порядку заведения: главная первой, хотя id у неё «наибольший»",
+              [r["id"] for r in cabinet.of(con, b2)], [main, b1, b2])
+    res.ok("главная одна и та же, с какой клиники ни спроси",
+           all(cabinet.main_of(con, x)["id"] == main for x in (main, b1, b2)))
+    res.check("клиники учётной записи — в том же порядке", [r["id"] for r in cabinet.of_account(con, "a_dir")],
+              [main, b1, b2])
+    res.check("имя SMS филиала — у главной", sms.name_owner(con, b1), main)
+    con.execute("INSERT INTO accounts(id, provider, subject, email, created_at) "
+                "VALUES('a_new', 'email', 'office@zambet.md', 'office@zambet.md', ?)", (at,))
+    acc = con.execute("SELECT * FROM accounts WHERE id='a_new'").fetchone()
+    account.link_by_email(con, acc, "office@zambet.md")
+    res.check("вход по ящику: обе клиники с ящиком, открыта главная",
+              ({r["clinic_id"] for r in con.execute("SELECT clinic_id FROM account_clinics WHERE account_id='a_new'")},
+               con.execute("SELECT clinic_id FROM accounts WHERE id='a_new'").fetchone()[0]),
+              ({main, b2}, main))
+    con.execute("INSERT INTO payments(clinic_id, amount, method, status, reference, created_at, kind) "
+                "VALUES(?, 3, 'transfer', 'pending', 'DP-2026-000001', ?, 'cabinet')", (main, at))
+    for cid in (b2, main, b1):
+        con.execute("INSERT INTO payment_lines(payment_id, clinic_id, tier, months, amount) VALUES(1, ?, 'plus', 1, 1)",
+                    (cid,))
+    res.check("строки общей ноты — в порядке клиник кабинета", [r["clinic_id"] for r in pay.lines_of(con, 1)],
+              [main, b1, b2])
+    con.close()
+
+
 def suite_cabinet(res: Result) -> None:
     """Кабинет: несколько клиник у входа, «Adaugă clinică», форма несёт свою клинику, чужой IDNO."""
     with Server(env={**BANK_ENV, "DP_TRIAL_MODE": "auto", "DP_TRIAL_NOTIFY": "oleg@example.md"}) as s:
@@ -231,6 +276,9 @@ def suite_cabinet(res: Result) -> None:
         res.ok("отвязка записи: её входы во все клиники уходят вместе с ней",
                not _sql(s, "SELECT 1 FROM account_clinics WHERE account_id=?", aid)
                and c.get("/cont").location == "/cont/login")
+        # одна секунда у всех трёх — главная всё равно та, что заведена первой
+        _sql(s, "UPDATE clinics SET created_at='2026-10-26T10:00:00Z' WHERE name IN "
+                "('Clinica Zambet', 'Zambet Botanica SRL', 'Zambet Balti')")
         again = _enter(s, DIRECTOR.upper())
         naid = _sql(s, "SELECT id FROM accounts WHERE email=?", DIRECTOR)[0][0]
         got = {r[0] for r in _sql(s, "SELECT c.name FROM account_clinics x JOIN clinics c ON c.id=x.clinic_id "
