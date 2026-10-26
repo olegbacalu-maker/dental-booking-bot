@@ -97,7 +97,7 @@ MSG = {
     "tier_bad": ("err", "Вариант — DentPilot Basic или DentPilot Plus"),
     "tier_trial": ("err", "Пробный — всегда Plus: вариант клиника выберет при оплате"),
     "tier_no_sub": ("err", "У клиники нет подписки — сперва выдайте файл"),
-    "tier_price": ("err", "Цена месяца — целое число лей; у варианта нет прайса в cloud.env — впишите цену"),
+    "tier_price": ("err", "У варианта нет прайса в cloud.env — он не продаётся"),
     "tier_not_sold": ("err", "У варианта нет цены (DP_PRICE_* в cloud.env) — впишите сумму руками или выберите другой"),
 }
 
@@ -1262,8 +1262,9 @@ def _pay_pane(c, sub, st: str, payments: list, reminders: list, now: datetime) -
                        f"оплате (Basic с конца оплаченного Plus).</p>"
                        f"<form method='post' action='/admin/clinics/{cid}/tier' class='actions'>"
                        f"<select name='tier' style='width:auto'>{msel}</select>"
-                       f"<input name='price' inputmode='numeric' placeholder='цена / мес. (пусто = прайс)' "
-                       f"style='width:200px'><button>Сменить вариант</button></form>")
+                       f"<button>Сменить вариант</button></form>"
+                       f"<p class='muted' style='margin:8px 0 0'>Цена — прайс варианта; разовая скидка — суммой "
+                       f"ноты в «Выставить ноту».</p>")
     return (f"<div class='tiles'>{term}{wait}{tariff}</div>"
             f"<div class='acts'>{_drop('Выставить ноту', form, primary=True)}{manual}</div>{table}")
 

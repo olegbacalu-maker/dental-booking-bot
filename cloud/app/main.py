@@ -1063,7 +1063,7 @@ def payment_new(request: Request, cid: str, months: str = Form("1"), amount: str
             except ValueError:
                 return RedirectResponse(f"/admin/clinics/{cid}?msg=bad_amount", status_code=303)
             if a <= 0 and not amount.strip():
-                # вариант без цены в cloud.env и без своей цены подписки — сумму только руками
+                # вариант без цены в cloud.env — сумму только руками
                 return RedirectResponse(f"/admin/clinics/{cid}?msg=tier_not_sold", status_code=303)
             # вторая ожидающая нота не выставляется (03.10): кабинет, страница оплаты и
             # ежедневная задача её не плодят — админка тоже; письмо с прежней — по галочке
@@ -1457,20 +1457,18 @@ def clinic_issue(request: Request, cid: str, kind: str = Form("trial"), valid_un
 
 
 @app.post("/admin/clinics/{cid}/tier")
-def clinic_tier(request: Request, cid: str, tier: str = Form(""), price: str = Form("")) -> Response:
+def clinic_tier(request: Request, cid: str, tier: str = Form("")) -> Response:
     """Вариант абонемента вручную — для исключений (Олег 23.10): сразу, без оплаты, строкой
-    в журнале (tier_set). Обычный путь — выбор клиники при оплате (payments.choose)."""
+    в журнале (tier_set). Обычный путь — выбор клиники при оплате (payments.choose). Цены
+    здесь нет: цена варианта — всегда прайс (Олег 26.10: «600 везде»)."""
     if (deny := _guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
-    raw = price.strip()
-    if raw and not raw.isdigit():
-        return RedirectResponse(f"/admin/clinics/{cid}?msg=tier_price", status_code=303)
     with db.connect() as con:
         if _clinic(con, cid) is None:
             return Response(status_code=404)
-        code = payments.set_tier(con, cid, tier, int(raw) if raw else None, auth.current_user(request))
+        code = payments.set_tier(con, cid, tier, auth.current_user(request))
     return RedirectResponse(f"/admin/clinics/{cid}?msg={code or 'tier_set'}", status_code=303)
 
 

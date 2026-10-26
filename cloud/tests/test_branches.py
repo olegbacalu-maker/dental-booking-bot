@@ -459,7 +459,7 @@ def suite_group(res: Result) -> None:
         res.ok("одна ожидающая нота — общая: у плательщика (главная), сумма строк, вид cabinet",
                len(g) == 1 and g[0][2] == want and g[0][3] == main and g[0][4] == "cabinet" and g[0][5] == 0, repr(g))
         gid, gref = g[0][0], g[0][1]
-        res.check("строки: клиника, вариант, срок, сумма по своей цене",
+        res.check("строки: клиника, вариант, срок, сумма по прайсу варианта",
                   sorted(_sql(s, "SELECT clinic_id, tier, months, amount FROM payment_lines WHERE payment_id=?", gid)),
                   sorted([(main, "plus", 1, pay.amount(1, tiers.list_price("plus"))),
                           (bid, "basic", 12, pay.amount(12, tiers.list_price("basic")))]))

@@ -258,7 +258,7 @@ def check() -> list[tuple[str, str]]:
             out.append((OK, f"{tiers.NAME[t]}: {tiers.list_price(t)} MDL / мес., год {payments.amount(12, tiers.list_price(t))} MDL"))
         else:
             out.append((WARN, f"DP_PRICE_{t.upper()} пуст: {tiers.NAME[t]} не продаётся (страница оплаты его не "
-                              f"предлагает; продления в нём — по своей цене подписки)"))
+                              f"предлагает и ноту за 14 дней в нём не выставить)"))
     if maib.enabled():
         try:
             maib.token()

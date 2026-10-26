@@ -54,10 +54,12 @@ def suite_rules(res: Result) -> None:
     res.check("вариант: нет подписки и пробный — Plus (условия § 3), иначе — свой",
               [tiers.current(None), tiers.current(_sub("trial", B)), tiers.current(_sub(tier=B)),
                tiers.current(_sub(tier="gold"))], [P, P, B, P])
-    res.check("цена: свой вариант — своя цена подписки, другой и пробный — прайс",
+    res.check("⛔ цена варианта — всегда прайс: и у оплаченной подписки по 444, и у пробного (Олег 26.10: "
+              "«600 везде»)",
               [tiers.price(_sub(tier=P, price=444), P), tiers.price(_sub(tier=P, price=444), B),
-               tiers.price(_sub("trial", P, 444), P), tiers.price(None, B)], [444, pb, pp, pb])
-    res.check("сумма ноты: год — 11 месячных своей цены", pay.amount_for(_sub(tier=P, price=444), P, 12), 11 * 444)
+               tiers.price(_sub("trial", P, 444), P), tiers.price(None, B)], [pp, pb, pp, pb])
+    res.check("сумма ноты: год — 11 месячных прайса, не цены подписки", pay.amount_for(_sub(tier=P, price=444), P, 12),
+              11 * pp)
     res.check("выбор по умолчанию: названный, иначе текущий", [tiers.pick(_sub("trial", B)), tiers.pick(_sub(tier=B)),
                                                                 tiers.pick(_sub(tier=B), P), tiers.pick(None, "x")],
               [P, B, P, P])
@@ -79,14 +81,14 @@ def suite_rules(res: Result) -> None:
     res.ok("Plus → Basic после конца срока (льгота): модуль гаснет сразу",
            (t, until) == (B, None) and "выключен сразу" in why, repr((t, until, why)))
     keep = now + timedelta(days=9)
-    res.check("Basic → Basic: прежний конец модуля, своя цена",
+    res.check("Basic → Basic: прежний конец модуля, цена — прайс Basic",
               pay.tier_after(_sub(tier=B, price=300, valid=end, sms_until=keep), _note(B, amount=300), now)[:3],
-              (B, 300, keep.strftime(db.TS)))
+              (B, pb, keep.strftime(db.TS)))
     t, price, until, why = pay.tier_after(_sub(tier=B, price=300, valid=end), _note(P), now)
     res.ok("Basic → Plus: модуль сразу, цена — прайс Plus",
            (t, price, until) == (P, pp, None) and "модуль SMS сразу" in why, repr((t, price, until, why)))
-    res.check("Plus → Plus: цена существующей подписки не меняется",
-              pay.tier_after(_sub(tier=P, price=444, valid=end), _note(P, amount=444), now), (P, 444, None, ""))
+    res.check("Plus → Plus по 444: в подписку записан прайс, не 444",
+              pay.tier_after(_sub(tier=P, price=444, valid=end), _note(P, amount=444), now), (P, pp, None, ""))
     res.check("нота без варианта (до шага 15) — Plus", pay.tier_after(_sub(tier=P, price=444), _note(None), now)[0], P)
     saved = dict(config.PRICES)
     try:
@@ -238,11 +240,10 @@ def suite_flow(res: Result) -> None:
                any("DentPilot Plus → DentPilot Basic" in d for (d,) in
                    _sql(s, "SELECT detail FROM audit WHERE what='tier_set' AND clinic_id=?", cid)))
         admin.post(f"/admin/clinics/{cid}/tier", tier="plus", price="123")
-        res.check("Plus вручную со своей ценой", _subrow(s, cid)[1:3], ("plus", 123))
-        res.check("кривая цена — tier_price", admin.post(f"/admin/clinics/{cid}/tier", tier="plus", price="12a").location,
-                  f"/admin/clinics/{cid}?msg=tier_price")
-        res.check("продление в своём варианте — по своей цене",
-                  views._mdl(123) + " MDL <small>/ lună</small>" in anon.get(path).body, True)
+        res.check("Plus вручную: цена — прайс; цена из формы (старой) не принимается", _subrow(s, cid)[1:3],
+                  ("plus", pp))
+        res.ok("у «Вариант вручную» нет поля цены", "placeholder='цена / мес." not in admin.get(f"/admin/clinics/{cid}").body)
+        res.check("продление — по прайсу", views._mdl(pp) + " MDL <small>/ lună</small>" in anon.get(path).body, True)
         cid2 = cid_from(admin.post("/admin/clinics", name="Clinica Proba", idno="4444444444444").location)
         admin.post(f"/admin/clinics/{cid2}/issue", kind="trial")
         res.check("пробный вручную не меняется — tier_trial",
@@ -355,13 +356,13 @@ def _migrated(res: Result, path: pathlib.Path, tok: str) -> None:
         anon = Client(s.url)
         url = "/plata/" + _link(anon, tok)[1].rsplit("/", 1)[1]
         page = anon.get(url).body
-        res.ok("страница: Plus по своей цене подписки, Basic — по прайсу",
-               f"{views._mdl(444)} MDL <small>/ lună</small>" in page
+        res.ok("страница: и Plus оплаченной по 444 подписки, и Basic — по прайсу (Олег 26.10: «600 везде»)",
+               f"{views._mdl(tiers.list_price(P))} MDL <small>/ lună</small>" in page
                and f"{views._mdl(tiers.list_price(B))} MDL <small>/ lună</small>" in page
-               and "value='plus' checked" in page, page[-2500:])
+               and f"{views._mdl(444)} MDL" not in page and "value='plus' checked" in page, page[-2500:])
         anon.post(url, tier="plus", months="12", method="transfer", terms="1")
-        res.check("продление Plus на год — 11 × своя цена",
-                  _sql(s, "SELECT tier, amount FROM payments WHERE status='pending'"), [("plus", 11 * 444)])
+        res.check("оплаченная подписка по 444 — следующая нота (год) по прайсу: 11 × прайс Plus",
+                  _sql(s, "SELECT tier, amount FROM payments WHERE status='pending'"), [("plus", 11 * tiers.list_price(P))])
 
 
 def suite_card(res: Result) -> None:

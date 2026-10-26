@@ -504,7 +504,7 @@ def _prolong(con: sqlite3.Connection, clinic: sqlite3.Row, line: sqlite3.Row, pa
 def tier_after(sub: sqlite3.Row | None, payment: sqlite3.Row, now: datetime) -> tuple[str, int, str | None, str]:
     """Подписка после оплаты ноты абонемента: (вариант, цена месяца, sms_until, строка для журнала).
 
-    Цена — по правилу tiers.price (свой вариант — своя цена, другой — прайс); прайса
+    Цена — прайс варианта (tiers.price; Олег 26.10: «600 везде»), записью в подписку; прайса
     нет (вариант сняли с продажи после ноты) — цена из суммы ноты. Модуль SMS (§ 4.2):
     Plus — работает сразу (`sms_until` пуст); переход на Basic с Plus или пробного —
     работает до конца периода, который идёт сейчас, и гаснет; Basic → Basic — как было."""
@@ -524,12 +524,13 @@ def tier_after(sub: sqlite3.Row | None, payment: sqlite3.Row, now: datetime) -> 
                                 else f"переход {what} → {tiers.NAME[tier]}: модуль SMS выключен сразу")
 
 
-def set_tier(con: sqlite3.Connection, clinic_id: str, tier: str, price: int | None, who: str) -> str:
+def set_tier(con: sqlite3.Connection, clinic_id: str, tier: str, who: str) -> str:
     """Карточка › «Вариант вручную» — для исключений (Олег 23.10): вариант сразу, без оплаты.
     Plus — модуль SMS сразу; Basic — модуль гаснет сразу (переход «с конца периода» даёт
-    только оплата). Цена месяца — названная, иначе по правилу tiers.price. '' или код
-    отказа: tier_bad, tier_trial (пробный — всегда Plus, вариант выбирают при оплате),
-    tier_no_sub (подписки нет), tier_price (цены нет ни в форме, ни в прайсе)."""
+    только оплата). Цена — прайс варианта: своей цены у подписки нет (Олег 26.10: «600
+    везде»), разовая скидка — суммой ноты в «Выставить ноту». '' или код отказа: tier_bad,
+    tier_trial (пробный — всегда Plus, вариант выбирают при оплате), tier_no_sub (подписки
+    нет), tier_price (у варианта нет прайса в cloud.env — не продаётся)."""
     if tier not in tiers.TIERS:
         return "tier_bad"
     sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (clinic_id,)).fetchone()
@@ -537,7 +538,7 @@ def set_tier(con: sqlite3.Connection, clinic_id: str, tier: str, price: int | No
         return "tier_no_sub"
     if sub["plan"] == "trial":
         return "tier_trial"
-    p = price if price and price > 0 else tiers.price(sub, tier)
+    p = tiers.price(sub, tier)
     if p <= 0:
         return "tier_price"
     before = tiers.current(sub)
