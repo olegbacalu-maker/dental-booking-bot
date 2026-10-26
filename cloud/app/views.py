@@ -2104,9 +2104,12 @@ def tier_form(sub, action: str, card_on: bool, now: datetime, tier: str = "", mo
                 "plată noi.</p>")
     t = tiers.pick(sub, tier)
     cards = "".join(_tier_card(sub, x, x == t) for x in sold)
+    # ⛔ срок — только из ряда: нота SMS (months = 0), принятая за ноту абонемента, давала форму без
+    # отмеченного срока и «0 MDL» (кадр Олега 26.10, живой кабинет); не из ряда — месяц
+    months = months if months in pay.MONTHS else 1
 
     def seg(m: int, text: str, gift: str = "") -> str:
-        return (f"<label><input type='radio' name='months' value='{m}'{' checked' if m == months else ''}> {text}"
+        return (f"<label><input type='radio' name='months' value='{m}'{' checked' if m == months else ''} required> {text}"
                 f"{(' <span class=gift>' + gift + '</span>') if gift else ''}</label>")
     when = "un an (12 luni)" if months == 12 else "o lună"
     total = (f"<div class='total'><span class='t'><b>{esc(tiers.NAME[t])}</b> · {when}</span>"
@@ -2170,8 +2173,13 @@ def _cont_payments(c, sub, payments: list, q: str = "", group=None) -> str:
     (форма несёт свою клинику); `group` — открытая общая нота, где клиника строкой (26.10):
     своя нота тогда не выставляется — ссылка на общую."""
     now = datetime.now(timezone.utc)
+    # ⛔ нота абонемента — только вида license: нота SMS (пакет, имя; months = 0), принятая за неё,
+    # давала «Altă variantă» без срока и «0 MDL» (кадр Олега 26.10, живой кабинет). Ноты SMS — своими
+    # строками с реквизитами (_cont_sms_due)
     pending = [p for p in payments if p["status"] == "pending" and p["clinic_id"] == c["id"]
                and (p["kind"] or "license") == "license"]
+    sms_due = [p for p in payments if p["status"] == "pending" and p["clinic_id"] == c["id"]
+               and (p["kind"] or "license") in ("sms", "sms_name")]
     if group is not None:
         top = (f"<p>Abonamentul acestei clinici este în <b>nota comună {esc(group['reference'])}</b> — "
                f"<b>{_mdl(group['amount'])} MDL</b> pentru toate clinicile din ea "
@@ -2201,7 +2209,24 @@ def _cont_payments(c, sub, payments: list, q: str = "", group=None) -> str:
     table = (f"<div class='tscroll'><table><tr><th>Referința</th><th>Suma</th><th>Termen</th><th>Data</th><th>Stare</th>"
              f"<th>Document</th></tr>"
              f"{rows or '<tr><td colspan=6 class=muted>Nu sunt note de plată</td></tr>'}</table></div>") if payments else ""
-    return top + table
+    return top + _cont_sms_due(sms_due) + table
+
+
+def _cont_sms_due(notes: list) -> str:
+    """Ожидающие ноты SMS в кабинете: что, сумма, реквизиты перевода; карта — со страницы оплаты
+    из письма или из программы (Setări › SMS)."""
+    out = []
+    for p in notes:
+        what = pay.subject(p)
+        try:
+            ways = f"<pre class='pay'>{esc(mail.ways_to_pay(p['reference'], p['amount'], None))}</pre>"
+        except RuntimeError:
+            ways = "<p class='muted'>Datele pentru transfer bancar le primiți pe e-mail.</p>"
+        out.append(f"<div class='terms'><p><b>Nota de plată {esc(p['reference'])}</b> — {esc(what)}: "
+                   f"<b>{_mdl(p['amount'])} MDL</b> <span class='tag warn'>în așteptare</span></p>{ways}"
+                   f"<p class='muted' style='margin:0'>Cu cardul — din linkul din e-mailul cu nota sau din program, "
+                   f"Setări › SMS.</p></div>")
+    return "".join(out)
 
 
 def _cont_term(p) -> str:
@@ -2591,9 +2616,12 @@ def group_form(rows: list, card_on: bool, replace: str = "") -> str:
     """Выбор общей ноты: у каждой клиники вариант (или «nu se include») и срок, итог, галочка
     условий, кнопки. `rows` — [(клиника, подписка, держит ли её своя нота)]."""
     trs = []
+    total, picked = 0, 0
     for c, sub, _ in rows:
         cid = esc(c["id"])
         sold = tiers.offered(sub)
+        if tiers.pick(sub) in sold:            # выбор по умолчанию: вариант клиники, месяц
+            total, picked = total + pay.amount_for(sub, tiers.pick(sub), 1), picked + 1
         opts = "<option value=''>— nu se include —</option>" + "".join(
             f"<option value='{t}'{' selected' if t == tiers.pick(sub) else ''} "
             f"data-m='{pay.amount_for(sub, t, 1)}' data-y='{pay.amount_for(sub, t, 12)}'>"
@@ -2610,8 +2638,11 @@ def group_form(rows: list, card_on: bool, replace: str = "") -> str:
                        online_prefix="Înlocuiește și " if replace else "")
     return (f"<form method='post' action='/cont/nota-comuna' class='group'><div class='tscroll'><table>"
             f"<tr><th>Clinica</th><th>Varianta</th><th>Termen</th></tr>{''.join(trs)}</table></div>"
-            f"<div class='total'><span class='t'><b>Notă comună</b> · <span id='gn'></span></span>"
-            f"<span class='s' id='gs'></span></div>{note}{_terms_box()}{buttons}</form><script>{_GROUP_JS}</script>")
+            # итог — сразу сервером (без скрипта тоже верный), скрипт пересчитывает при выборе
+            f"<div class='total'><span class='t'><b>Notă comună</b> · <span id='gn'>{picked} "
+            f"{'clinică' if picked == 1 else 'clinici'}</span></span>"
+            f"<span class='s' id='gs'>{_mdl(total)} MDL</span></div>{note}{_terms_box()}{buttons}</form>"
+            f"<script>{_GROUP_JS}</script>")
 
 
 def cont_group_page(acc, rows: list, pending, lines: list, msg: str = "", card_on: bool = False) -> str:

@@ -172,6 +172,48 @@ def suite_order(res: Result) -> None:
     con.close()
 
 
+def suite_forms(res: Result) -> None:
+    """«0 MDL» (кадр Олега 26.10, живой кабинет): нота SMS (months = 0) принималась за ноту
+    абонемента — «Altă variantă» без отмеченного срока и сумма 0. Форма выбора: срок только из
+    ряда (иначе месяц) и обязателен; сумма — сервером, без скрипта; общая нота — тоже; в кабинете
+    ноты SMS — своими строками с реквизитами."""
+    import re as _re  # noqa: PLC0415
+    from datetime import datetime, timezone  # noqa: PLC0415
+    from app import views  # noqa: PLC0415 — нужны только этому набору
+    now = datetime.now(timezone.utc)
+    trial = {"plan": "trial", "tier": "plus", "price": 0, "grace_days": 7, "valid_until": None, "sms_until": None}
+    plus = tiers.list_price("plus")
+    form0 = views.tier_form(trial, "/x", False, now, months=0)
+    res.ok("срок не из ряда (0 — как у ноты SMS) — отмечен месяц, сумма месяца, не 0",
+           "name='months' value='1' checked required" in form0
+           and f"<span class='s'>{views._mdl(plus)} MDL</span>" in form0 and "<span class='s'>0 MDL</span>" not in form0,
+           form0[-900:])
+    form12 = views.tier_form(trial, "/x", False, now, months=12)
+    res.ok("год — отмечен год, сумма года сразу", "name='months' value='12' checked required" in form12
+           and f"<span class='s'>{views._mdl(pay.amount(12, plus))} MDL</span>" in form12)
+    res.check("выбор срока обязателен: у обоих вариантов required",
+              len(_re.findall(r"name='months' value='(?:1|12)'[^>]*required", form0)), 2)
+    rows = [({"id": "c_a", "name": "A", "address": ""}, trial, None),
+            ({"id": "c_b", "name": "B", "address": ""}, dict(trial, plan="standard", tier="basic"), None)]
+    g = views.group_form(rows, False)
+    want = plus + tiers.list_price("basic")
+    res.ok("общая нота: итог сервером (вариант клиники, месяц), без скрипта тоже верный",
+           f"id='gs'>{views._mdl(want)} MDL<" in g and "id='gn'>2 clinici<" in g, g[-700:])
+    with Server(env={**BANK_ENV, "DP_TRIAL_MODE": "auto"}) as s:
+        c = _enter(s, DIRECTOR)
+        main = _register(s, c)
+        _sql(s, "INSERT INTO payments(clinic_id, amount, method, status, reference, months, kind, sms_units, created_at) "
+                "VALUES(?, 300, 'transfer', 'pending', 'DP-2026-000777', 0, 'sms', 100, '2026-10-26T10:00:00Z')", main)
+        home = c.get("/cont").body
+        res.ok("кабинет с ожидающей нотой SMS: она — своей строкой с реквизитами, не «нота абонемента»",
+               "DP-2026-000777" in home and "pachet 100 SMS" in home and "MD00TEST" in home
+               and "Altă variantă sau alt termen?" not in home and "<span class='s'>0 MDL</span>" not in home,
+               home[-3500:])
+        res.ok("форма абонемента рядом — с отмеченным месяцем и суммой месяца",
+               "name='months' value='1' checked required" in home
+               and f"<span class='s'>{views._mdl(plus)} MDL</span>" in home)
+
+
 def suite_cabinet(res: Result) -> None:
     """Кабинет: несколько клиник у входа, «Adaugă clinică», форма несёт свою клинику, чужой IDNO."""
     with Server(env={**BANK_ENV, "DP_TRIAL_MODE": "auto", "DP_TRIAL_NOTIFY": "oleg@example.md"}) as s:
