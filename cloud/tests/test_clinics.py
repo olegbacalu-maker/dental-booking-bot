@@ -192,7 +192,7 @@ def suite_menu(res: Result) -> None:
         for path in ("/admin", "/admin/payments", "/admin/fleet", "/admin/sms", "/admin/audit", f"/admin/clinics/{a}"):
             body = c.get(path).body
             res.ok(f"счётчик шапки «Платежи (1)» на {path}", "href='/admin/payments'>Платежи (1)</a>" in body)
-        keys = ("list", "requests", "wait", "paid", "rejected", "all", "behind", "silent",
+        keys = ("list", "requests", "wait", "paid", "rejected", "all", "behind", "silent", "multi",
                 "summary", "names", "failures", "tools")
         bodies = [c.get(p).body for p in ("/admin", "/admin/payments", "/admin/fleet", "/admin/sms")]
         res.ok("разделы меню: ни одного id с именем вкладки (метка адреса не прокручивает страницу)",

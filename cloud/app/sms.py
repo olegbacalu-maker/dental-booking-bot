@@ -24,6 +24,11 @@ Rejected. ⛔ 9 Undelivered не возвращается: SMS ушла опер
 
 ⛔ Номер и текст не пишутся никуда — ни в базу (колонок нет), ни в журнал, ни
 в лог: они живут в памяти запроса. Ошибки называют код и поле, не значение.
+
+⭐ Имя отправителя — ОБЩЕЕ на клиники кабинета (Олег 26.10: «Имя SMS — общее»): заявка,
+заявление и оплаченный год живут у главной клиники кабинета (cabinet.main_of), филиалы шлют
+от её имени — `name_owner`, `sender_for`. Остаток, пакеты, потолок, модуль (Basic / Plus) —
+у каждой клиники свои. Клиника, у которой своё имя было ДО кабинета, его не теряет.
 """
 from __future__ import annotations
 
@@ -33,7 +38,7 @@ import re
 import sqlite3
 from datetime import date, datetime, time, timedelta, timezone
 
-from . import config, db, license, mail, sms_rule, smsmd, tiers
+from . import cabinet, config, db, license, mail, sms_rule, smsmd, tiers
 
 log = logging.getLogger("cloud.sms")
 UTC = timezone.utc
@@ -243,6 +248,21 @@ def sender_now(acc: sqlite3.Row | None, now: datetime | None = None) -> str:
     return config.SMS_COMMON if config.SMS_COMMON_OK else ""
 
 
+def name_owner(con: sqlite3.Connection, clinic_id: str) -> str:
+    """Чьё имя отправителя у клиники: своё, если своё у неё уже есть (заявка, одобренное имя —
+    до кабинета), иначе главной клиники кабинета (26.10). Без кабинета — она сама."""
+    own = account(con, clinic_id)
+    if own is not None and (own["sender_state"] != S_NONE or own["sender_live"]):
+        return clinic_id
+    main = cabinet.main_of(con, clinic_id)
+    return main["id"] if main is not None else clinic_id
+
+
+def sender_for(con: sqlite3.Connection, clinic_id: str, now: datetime | None = None) -> str:
+    """От какого имени SMS ЭТОЙ клиники уходят сейчас — имя её кабинета (name_owner)."""
+    return sender_now(account(con, name_owner(con, clinic_id)), now)
+
+
 def offered(acc: sqlite3.Row | None) -> bool:
     """Показывать ли пакет этой клинике: токен есть и (всем — DP_SMS_OFFERED, или ей
     одной — отметка «пилот» Олега). Так S7 включается по одной клинике без релиза."""
@@ -275,7 +295,7 @@ def blocked(con: sqlite3.Connection, clinic_id: str, acc: sqlite3.Row, now: date
         return "sms_plan"
     if not tiers.module_on(sub, now):
         return "sms_basic"
-    if not sender_now(acc, now):
+    if not sender_for(con, clinic_id, now):
         return "sms_sender"
     return ""
 
@@ -288,10 +308,15 @@ def view(con: sqlite3.Connection, clinic_id: str, now: datetime | None = None) -
     """GET /v1/sms/account — что видит программа в Setări › SMS."""
     now = now or datetime.now(UTC)
     acc = ensure(con, clinic_id)
-    return {"ok": True, "offered": offered(acc), "enabled": bool(acc["enabled"]), "sender": acc["sender"],
-            "sender_state": acc["sender_state"], "sender_note": acc["sender_note"],
-            "sender_until": acc["sender_until"], "sender_prepaid": acc["sender_prepaid"],
-            "from": sender_now(acc, now), "balance": balance(con, clinic_id), "packs": packs(),
+    # имя — кабинета (name_owner): у филиала поля имени — главной клиники
+    na = account(con, name_owner(con, clinic_id))
+    return {"ok": True, "offered": offered(acc), "enabled": bool(acc["enabled"]),
+            "sender": na["sender"] if na is not None else "",
+            "sender_state": na["sender_state"] if na is not None else S_NONE,
+            "sender_note": na["sender_note"] if na is not None else "",
+            "sender_until": na["sender_until"] if na is not None else None,
+            "sender_prepaid": na["sender_prepaid"] if na is not None else 0,
+            "from": sender_now(na, now), "balance": balance(con, clinic_id), "packs": packs(),
             "name_price": config.SMS_NAME_PRICE, "name_days": config.SMS_NAME_DAYS,
             "daily_cap": acc["daily_cap"], "used_today": used_today(con, clinic_id, now),
             "blocked": blocked(con, clinic_id, acc, now), "custom": custom_texts(acc)}
@@ -431,7 +456,7 @@ def submit(clinic_id: str, to_raw, text, kind, idem, now: datetime | None = None
                 return answer("sms_balance", balance=have, segments=segs)
             if used_today(con, clinic_id, now) + segs > int(acc["daily_cap"]):
                 return answer("sms_cap", daily_cap=acc["daily_cap"])
-            sender, stamp = sender_now(acc, now), now.strftime(db.TS)
+            sender, stamp = sender_for(con, clinic_id, now), now.strftime(db.TS)
             if row is None:
                 con.execute("INSERT INTO sms_messages(clinic_id, idem, kind, sender, segments, state, "
                             "sent_at, state_at) VALUES(?,?,?,?,?,?,?,?)",
@@ -612,10 +637,12 @@ def name_holder(con: sqlite3.Connection, clinic_id: str, name: str) -> str:
 def request_sender(con: sqlite3.Connection, clinic_id: str, name: str, who: str) -> str:
     """Заявка на имя (клиника из программы или Олег): '' или код отказа. Прежнее
     одобренное имя работает, пока новое не станет active. Имя, которое держит или
-    просит другая клиника (или общее DentPilot), — отказ sms_name_taken."""
+    просит другая клиника (или общее DentPilot), — отказ sms_name_taken. Заявка филиала —
+    заявка его кабинета: ложится главной клинике (name_owner, 26.10)."""
     name = " ".join((name or "").split())
     if not SENDER_RE.match(name):
         return "sms_name"
+    clinic_id = name_owner(con, clinic_id)
     acc = ensure(con, clinic_id)
     if acc["sender"] == name and acc["sender_state"] in (S_REQUESTED, S_SUBMITTED, S_ACTIVE):
         return ""

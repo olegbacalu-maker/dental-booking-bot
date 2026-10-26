@@ -114,7 +114,7 @@ def suite_devices(res: Result) -> None:
         res.ok("JSON: latest, оба компьютера, counts, behind и state",
                data.get("ok") is True and data["data"]["latest"] == "1.35.3"
                and {d["device"] for d in data["data"]["devices"]} == {DEV1, DEV2}
-               and data["data"]["counts"] == {"devices": 2, "clinics": 1, "behind": 1, "silent": 0}
+               and data["data"]["counts"] == {"devices": 2, "clinics": 1, "behind": 1, "silent": 0, "multi_clinics": 1}
                and all(d["state"] == "active" and d["clinic"] == "Clinica Flotă" for d in data["data"]["devices"])
                and [d["behind"] for d in sorted(data["data"]["devices"], key=lambda d: d["device"])] == [False, True],
                json.dumps(data)[:600])

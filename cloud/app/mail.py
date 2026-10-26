@@ -202,6 +202,24 @@ def sms_low_letter(clinic: str, balance: int) -> tuple[str, str]:
     return subject, body
 
 
+def group_letter(payer: str, reference: str, amount: int, lines: list, pay_url: str | None = None,
+                 page: str | None = None) -> tuple[str, str]:
+    """Письмо с общей нотой кабинета (26.10): строки — клиника, вариант, срок, сумма; одна сумма и
+    один reference; реквизиты и карта — как у обычной ноты. Идёт плательщику (первой клинике)."""
+    ways = ways_to_pay(reference, amount, pay_url)
+    rows = "\n".join(f"  · {ln['name']} — {tier_line(ln['tier'])}, {luni(int(ln['months']))}: {ln['amount']} MDL"
+                     for ln in lines)
+    subject = f"DentPilot: nota comună de plată {reference} ({len(lines)} clinici)"
+    body = (f"Bună ziua,\n\n"
+            f"Nota comună de plată pentru abonamentele clinicilor din contul {payer}:\n\n{rows}\n\n"
+            f"Total de achitat: {amount} MDL\n\n"
+            f"{ways}\n\n"
+            f"După confirmarea plății fiecare clinică primește termenul ei, iar programul fiecăreia îl preia "
+            f"singur. Altă alegere sau anularea notei — din contul clinicii, {CONT_URL}.\n\n"
+            f"{FOOTER}")
+    return subject, body
+
+
 def offer_line() -> str:
     """Варианты, которые продаются, с ценой месяца — для пробной клиники (прайс из cloud.env)."""
     sold = [f"{tiers.NAME[t]}, {tiers.WHAT[t]} — {tiers.list_price(t)} MDL pe lună"
@@ -221,6 +239,9 @@ def how_to_pay(pay: dict | None) -> str:
                 f"prelungește automat în program. Sau răspundeți la acest e-mail / sunați la "
                 f"{config.SUPPORT_PHONE}, indicând IDNO-ul clinicii și varianta — vă trimitem nota de plată noi.")
     what = f"{tier_line(pay.get('tier'))}, {luni(pay['months'])}"
+    if pay.get("clinics"):
+        # общая нота кабинета (26.10): одна сумма за все клиники строки
+        what = f"nota comună pentru {len(pay['clinics'])} clinici ({', '.join(pay['clinics'])})"
     try:
         ways = ways_to_pay(pay["reference"], pay["amount"], pay.get("url"))
         text = (f"Pentru a continua — {what}, {pay['amount']} MDL:\n\n{ways} "
@@ -311,6 +332,12 @@ def trial_received(clinic: str, days: int, origin: str = "form") -> tuple[str, s
         rest = (f"Perioada de probă de {zile(days)} se activează în cel mult o zi lucrătoare — vă "
                 f"confirmăm pe acest e-mail. Programul îl descărcați din contul clinicii, {CONT_URL}; la "
                 f"prima pornire introduceți aceleași date și codul pe care îl trimitem pe acest e-mail.")
+    elif origin == "cont_add":
+        # ещё одна клиника кабинета (филиал, 26.10): компьютер — кодом из кабинета, не из письма
+        rest = (f"Perioada de probă de {zile(days)} se activează în cel mult o zi lucrătoare — vă "
+                f"confirmăm pe acest e-mail. Programul îl puteți instala chiar acum: pe calculatorul "
+                f"clinicii se activează cu codul de activare din contul clinicii, {CONT_URL} (7 cifre), și "
+                f"pornește singur după aprobare.")
     else:
         rest = (f"Perioada de probă de {zile(days)} se activează în cel mult o zi lucrătoare — vă "
                 f"confirmăm pe acest e-mail. Programul îl descărcați de pe {config.SITE_URL.rstrip('/')}/descarca.html; "
@@ -327,8 +354,11 @@ def trial_notice(clinic, outcome: str, ip: str, fields: dict | None = None,
     """Олегу: заявка с формы или из программы — кто, что вышло, ссылка на карточку.
     По-русски: письмо своё. При повторе `clinic` — та, что уже есть, а `fields` —
     что написали в заявке."""
-    program, cont = origin == "program", origin == "cont"
-    if cont:
+    program, cont = origin == "program", origin in ("cont", "cont_add")
+    if origin == "cont_add":
+        dup = ("ПОВТОР из кабинета: «Adaugă clinică» с IDNO или e-mail ЧУЖОЙ клиники (не этого кабинета) — "
+               "ничего не заведено, кабинету ответили «scrieți-ne»; ответьте клинике сами")
+    elif cont:
         dup = ("ПОВТОР из кабинета: клиника с этим IDNO уже есть, а вошедший Google-ящик — другой; "
                "на ящик клиники ушёл код для подключения этого аккаунта (как у программы на новом "
                "компьютере) — верный код привязывает его к клинике. Кода в журнале нет (у клиники "
@@ -347,9 +377,11 @@ def trial_notice(clinic, outcome: str, ip: str, fields: dict | None = None,
                          + (" — программа активируется сама, как только файл выдан" if program else ""),
             "duplicate": dup}.get(outcome, outcome)
     f = fields or {}
-    source = {"program": "из программы", "cont": "из кабинета (вход через Google)"}.get(origin, "с формы /proba")
+    source = {"program": "из программы", "cont": "из кабинета (вход через Google)",
+              "cont_add": "из кабинета: ещё одна клиника кабинета (филиал)"}.get(origin, "с формы /proba")
     subject = f"DentPilot Cloud: заявка на пробный — {f.get('name') or clinic['name']}"
-    body = (f"Заявка {source} ({ip}):\n\n"
+    cab = f"  Кабинет: {f['cabinet']}\n" if f.get("cabinet") else ""
+    body = (f"Заявка {source} ({ip}):\n\n{cab}"
             f"  Клиника: {f.get('name') or clinic['name']}\n  IDNO: {f.get('idno') or clinic['idno'] or '—'}\n"
             f"  Контакт: {f.get('contact_name') or clinic['contact_name'] or '—'}\n"
             f"  E-mail: {f.get('email') or clinic['email']}\n"
@@ -454,6 +486,8 @@ def activation_code(clinic: str, code: str, minutes: int) -> tuple[str, str]:
             f"{code}\n\n"
             f"Introduceți-l pe pagina de activare a programului. Codul este valabil {minutes} minute "
             f"și se folosește o singură dată.\n\n"
+            f"Dacă activați o clinică nouă (filială), folosiți codul din contul clinicii, {CONT_URL} — "
+            f"acela leagă calculatorul de filială; acest cod îl leagă de {clinic}.\n\n"
             f"Dacă nu ați cerut acest cod, ignorați mesajul: fără el nimeni nu poate activa "
             f"programul în numele clinicii.\n\n{FOOTER}")
     return subject, body

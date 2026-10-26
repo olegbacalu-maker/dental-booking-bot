@@ -95,8 +95,9 @@ def open_payment(con: sqlite3.Connection, clinic: sqlite3.Row, who: str = WHO) -
     в варианте, в котором идёт подписка (условия § 4.5: «în varianta în curs»; сменить его
     клиника может на странице оплаты — нота заменится). Один reference на всю серию писем
     периода: второго ожидающего платежа задача не заводит. `clinic` — строка _SUBS
-    (клиника и её подписка). Цены у варианта нет — ValueError('amount') от create."""
-    p = payments.open_of(con, clinic["id"])
+    (клиника и её подписка). Цены у варианта нет — ValueError('amount') от create.
+    Клиника в открытой общей ноте кабинета (26.10) — эта нота: своей ей не выставляется."""
+    p = payments.debt_of(con, clinic["id"])
     if p is not None:
         return p
     last = con.execute("SELECT months FROM payments WHERE clinic_id=? AND status=? AND kind=? "
@@ -130,6 +131,10 @@ def _one(con: sqlite3.Connection, row: sqlite3.Row, now: datetime, send, who: st
         page = paylink.for_mail(con, row, who)
         pay = {"reference": p["reference"], "amount": int(p["amount"]), "months": int(p["months"]),
                "url": page if maib.enabled() else None, "page": page, "tier": p["tier"]}
+        if p["kind"] == payments.CABINET:
+            # общая нота: письмо называет её всю — сумма за все клиники, клиники поимённо
+            lines = payments.lines_of(con, p["id"])
+            pay["clinics"] = [ln["name"] for ln in lines]
     subject, body = mail.reminder_letter(kind, row["name"], row["plan"], valid, grace,
                                          int(row["grace_days"]), pay)
     try:

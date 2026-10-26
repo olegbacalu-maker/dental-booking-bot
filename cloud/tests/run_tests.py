@@ -13,6 +13,7 @@ sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import test_account  # noqa: E402
+import test_branches  # noqa: E402
 import test_admin  # noqa: E402
 import test_clinics  # noqa: E402
 import test_contract  # noqa: E402
@@ -88,6 +89,17 @@ SUITES = [
     ("Кабинет: регистрация, файл, нота, продление, админка, отвязка, вход по ящику", test_account.suite_cabinet),
     ("Кабинет: клиника из админки, повтор по IDNO, approve, скрытые", test_account.suite_link_and_duplicate),
     ("Сайт: /descarca — установщик последнего выпуска, память, API молчит", test_account.suite_download),
+    ("Филиалы: чистые правила — код кабинета 7 цифр, хеш, потолок общей ноты", test_branches.suite_rules),
+    ("Филиалы: несколько клиник у входа, «Adaugă clinică», форма несёт клинику, чужой IDNO, вход по ящику",
+     test_branches.suite_cabinet),
+    ("Филиалы: код компьютера из кабинета — провод программы, свой кабинет, ошибки, срок, переезд",
+     test_branches.suite_code),
+    ("Филиалы: общая нота — строки, замена, долг один, свои файлы, один документ, отмена, зачёт",
+     test_branches.suite_group),
+    ("Филиалы: /plata клиники в общей ноте", test_branches.suite_plata),
+    ("Филиалы: имя отправителя SMS общее на кабинет, остаток свой", test_branches.suite_sms_name),
+    ("Филиалы: админка — клиники кабинета, «Добавить клинику», подсказка флота", test_branches.suite_admin),
+    ("Филиалы: шаг 16 на данных шага 15", test_branches.suite_migration),
     ("Флот: чистые правила — заголовки, версии", test_fleet.suite_rules),
     ("Флот: компьютеры из запросов программы, страница, карточка, JSON, кабинет", test_fleet.suite_devices),
     ("Флот: активация из программы и кодом привязывает компьютер", test_fleet.suite_activation),

@@ -16,6 +16,11 @@ esc = html.escape
 
 MSG = {
     "clinic_ok": ("ok", "Клиника заведена"),
+    # клиника в кабинет (26.10): «Добавить клинику в кабинет» в карточке
+    "sibling_added": ("ok", "Клиника добавлена в кабинет — пробный выдаётся кнопкой во вкладке «Лицензия» её карточки"),
+    "sibling_duplicate": ("err", "IDNO или e-mail чужой клиники (не этого кабинета) — клиника не заведена"),
+    "sibling_no_cabinet": ("err", "В кабинет этой клиники ещё никто не входил — добавлять некуда"),
+    "need_address": ("err", "Адрес обязателен: по нему клиники кабинета различают в списке"),
     "saved": ("ok", "Сохранено"),
     "issued": ("ok", "Файл выдан"),
     "issued_mailed": ("ok", "Файл выдан, письмо о лицензии отправлено (без файла: программа забирает его сама)"),
@@ -300,7 +305,8 @@ def _renew_short(r) -> str:
 
 
 ORIGIN_RU = {"form": ("форма", "заявка с формы"), "program": ("программа", "заявка из программы"),
-             "cont": ("кабинет", "заявка из кабинета")}
+             "cont": ("кабинет", "заявка из кабинета"),
+             "cont_add": ("кабинет +", "клиника, добавленная в кабинете")}
 
 
 def _requests_block(requests: list) -> str:
@@ -475,6 +481,8 @@ def _term(p) -> str:
         return f"SMS ×{p['sms_units']}"
     if kind == "sms_name":
         return "имя SMS, год"
+    if kind == "cabinet":
+        return "абонементы клиник кабинета (общая нота)"
     tier = p["tier"] if "tier" in p.keys() else None
     return f"{p['months']} мес.{(' · ' + tiers.NAME[tier].split()[-1]) if tier in tiers.TIERS else ''}"
 
@@ -667,13 +675,22 @@ def _device_rows(devices: list, latest: str = "") -> str:
     return "".join(out)
 
 
+def _multi_tag(n: int) -> str:
+    """Подсказка флота (26.10): у клиники больше одного активного компьютера за 30 дней."""
+    if n < 2:
+        return ""
+    return (f" <span class='tag warn' title='возможно, второй пункт на одной лицензии: у одного места работы "
+            f"обычно один компьютер с программой, остальные ходят к нему по сети'>{n} активных за 30 дн.</span>")
+
+
 def fleet_page(rep: dict, user: str, msg: str = "", pending: int = 0, names: int = 0) -> str:
     """Флот (02.10; 17.10 — вкладки): все компьютеры, кто отстал от выпуска, кто молчит неделю."""
     c = rep["counts"]
     latest = rep["latest"]
     head = (f"<p style='margin:0 0 4px'>Последний выпуск: <b>{esc(latest) or 'API GitHub не ответил'}</b>"
             f" · компьютеров {c['devices']} у {c['clinics']} клиник · отстают {c['behind']}"
-            f" · молчат дольше недели {c['silent']}</p>"
+            f" · молчат дольше недели {c['silent']}"
+            f" · клиник с 2+ активными за 30 дн.: {c.get('multi_clinics', 0)}</p>"
             f"<p class='muted' style='margin:0 0 16px'>Программа называет себя при каждом запросе файла (раз в сутки) "
             f"и при активации; сервер только слушает. JSON того же: <a href='/admin/api/fleet'>/admin/api/fleet</a>.</p>")
 
@@ -682,7 +699,8 @@ def fleet_page(rep: dict, user: str, msg: str = "", pending: int = 0, names: int
         for d in devices:
             tags = (" <span class='tag warn'>отстаёт</span>" if d["behind"] else "") + \
                    (" <span class='tag bad'>молчит</span>" if d["silent"] else "")
-            rows.append(f"<tr><td><a href='/admin/clinics/{esc(d['clinic_id'])}'>{esc(d['clinic'])}</a> {_tag(d['state'])}</td>"
+            rows.append(f"<tr><td><a href='/admin/clinics/{esc(d['clinic_id'])}'>{esc(d['clinic'])}</a> {_tag(d['state'])}"
+                        f"{_multi_tag(d.get('clinic_active', 0))}</td>"
                         f"<td class='mono'>{esc(d['device'])}</td><td>{esc(d['version'] or '—')}{tags}</td>"
                         f"<td>{esc(d['channel'] or '—')}</td><td>{esc(d['os'] or '—')}</td>"
                         f"<td>{esc((d['last_seen_at'] or '')[:16].replace('T', ' '))}"
@@ -694,11 +712,18 @@ def fleet_page(rep: dict, user: str, msg: str = "", pending: int = 0, names: int
     devs = rep["devices"]
     behind = [d for d in devs if d["behind"]]
     silent = [d for d in devs if d["silent"]]
+    multi = [d for d in devs if d.get("multi")]
+    why = ("<p class='muted' style='margin:0 0 12px'>У одного места работы обычно один компьютер с программой — "
+           "остальные ходят к нему по сети. Два и больше активных за 30 дней у одной клиники — повод спросить, "
+           "не второй ли это пункт на одной лицензии (филиал — своя клиника в кабинете). Только подсказка: "
+           "ничего не запрещается.</p>")
     body = head + _tabbed([
         ("all", f"Все компьютеры <span class='c'>{len(devs)}</span>",
          table(devs, "Ни один компьютер ещё не выходил на связь"), 0),
         ("behind", "Отстают от выпуска", table(behind, "Все на последнем выпуске"), len(behind)),
-        ("silent", "Молчат больше недели", table(silent, "Все выходили на связь за последнюю неделю"), len(silent))])
+        ("silent", "Молчат больше недели", table(silent, "Все выходили на связь за последнюю неделю"), len(silent)),
+        ("multi", "Несколько компьютеров", why + table(multi, "Ни у одной клиники нет двух активных компьютеров"),
+         rep["counts"].get("multi_clinics", 0))])
     return page("Флот", body, user, msg, pending=pending, active="fleet", names=names,
                 lead="Кто на какой версии и когда программа выходила на связь в последний раз.")
 
@@ -828,7 +853,13 @@ def _sync_btn(rep: dict) -> str:
 
 def _sender_card(c, det: dict) -> str:
     """SMS › имя отправителя шагами (17.10): заявка → заявление → подано → одобрено; где стоим
-    и одна кнопка следующего шага. Отказ и другое имя — за кнопками."""
+    и одна кнопка следующего шага. Отказ и другое имя — за кнопками. Имя общее на кабинет (26.10):
+    у филиала — ссылка на главную, шаги там."""
+    if det.get("name_from"):
+        return (f"<div class='card'>{_chead('message', 'Имя отправителя', 'общее на клиники кабинета')}"
+                f"<p style='margin:0'>SMS этой клиники уходят от «{esc(det['from'] or '—')}» — имени главной клиники "
+                f"кабинета, <a href='/admin/clinics/{esc(det['name_from'])}#sms'>{esc(det['name_from_name'])}</a>: "
+                f"заявка, заявление и оплаченный год — там.</p></div>")
     cid = esc(c["id"])
     act = f"/admin/clinics/{cid}/sms"
     state, name = det["sender_state"], det["sender"]
@@ -1048,6 +1079,9 @@ AUDIT_RU = {
     "code_ok": ("код активации принят", "prog"), "code_bad": ("код активации неверный", "prog"),
     "code_limit": ("коды активации: лимит", "prog"), "download": ("скачивание программы", "prog"),
     "account_new": ("кабинет: новая запись", "cab"), "account_login": ("вход в кабинет", "cab"),
+    "clinic_added": ("клиника добавлена в кабинет", "cab"),
+    "cont_code": ("код кабинета выдан", "prog"), "cont_code_ok": ("код кабинета принят", "prog"),
+    "device_moved": ("компьютер перешёл от другой клиники", "prog"),
     "account_link": ("кабинет привязан", "cab"), "account_detach": ("кабинет отвязан", "cab"),
     "login_code_sent": ("код входа отправлен", "cab"), "login_code_ok": ("вход по коду", "cab"),
     "login_code_bad": ("код входа неверный", "cab"), "login_code_limit": ("коды входа: лимит", "cab"),
@@ -1134,7 +1168,7 @@ def _ver_key(v: str) -> list:
 
 
 def _clinic_tiles(c, sub, st: str, issues: list, devices: list, accounts: list, smsinfo: dict | None,
-                  now: datetime) -> str:
+                  now: datetime, cabinet: list = (), active: int = 0) -> str:
     """Обзор › четыре плитки: лицензия, программа, SMS, кабинет; каждая ведёт в свою вкладку."""
     vu = _ts(sub["valid_until"]) if sub else None
     left = f" · осталось {(vu - now).days} дн." if st == "active" and vu else ""
@@ -1144,7 +1178,8 @@ def _clinic_tiles(c, sub, st: str, issues: list, devices: list, accounts: list, 
     vers = sorted({d["version"] for d in devices if d["version"]}, key=_ver_key, reverse=True)
     many = f" · компьютеров: {len(devices)}" if devices else ""
     prog = _tile("access", "monitor", "Программа", esc(", ".join(vers)) if vers else "не выходила на связь",
-                 f"Программа спрашивала {_renew_info(c, max((i['seq'] for i in issues), default=0))}{many}")
+                 f"Программа спрашивала {_renew_info(c, max((i['seq'] for i in issues), default=0))}{many}"
+                 f"{('<br>' + _multi_tag(active).strip()) if active > 1 else ''}")
     if smsinfo is None:
         sms_t = _tile("sms", "message", "SMS", "не подключено", "счёта нет: программа не спрашивала, пакет не трогали")
     else:
@@ -1154,9 +1189,10 @@ def _clinic_tiles(c, sub, st: str, issues: list, devices: list, accounts: list, 
     last = max(((a["last_login_at"] or "") for a in accounts), default="")
     who = (esc(accounts[0]["email"]) if len(accounts) == 1
            else (f"записей: {len(accounts)}" if accounts else "никто не входил"))
+    many_c = f"клиник в кабинете: {len(cabinet)} · " if len(cabinet) > 1 else ""
     cab = _tile("access", "user", "Кабинет", who,
-                f"последний вход {esc(last[:16].replace('T', ' '))} UTC" if last
-                else "вход через Google или кодом на e-mail")
+                many_c + (f"последний вход {esc(last[:16].replace('T', ' '))} UTC" if last
+                          else "вход через Google или кодом на e-mail"))
     return f"<div class='tiles'>{lic}{prog}{sms_t}{cab}</div>"
 
 
@@ -1250,6 +1286,41 @@ def _module_word(sub, now: datetime) -> str:
     return "Basic: модуль SMS выключен (sms_basic)"
 
 
+def _cabinet_card(c, cabinet: list, accounts: list) -> str:
+    """Обзор › «Клиники того же кабинета» (26.10): филиал = ещё одна клиника кабинета, своя
+    лицензия и оплата; «Добавить клинику в кабинет» — входы те же, пробный — кнопкой в её карточке.
+    `cabinet` — [(клиника, подписка, число компьютеров)] без этой."""
+    cid = esc(c["id"])
+    now = datetime.now(timezone.utc)
+    trs = []
+    for r, sub, n in cabinet:
+        st = license.state(_ts(sub["valid_until"]) if sub else None, sub["grace_days"] if sub else 0, now)
+        plan = ((("пробный · " if sub["plan"] == "trial" else "") + esc(tiers.NAME[tiers.current(sub)]))
+                if sub else "без файла")
+        trs.append(f"<tr><td><a href='/admin/clinics/{esc(r['id'])}'>{esc(r['name'])}</a> {_tag(st)}"
+                   f"<div class='muted'>{esc(r['address'] or '—')}</div></td><td class='mono'>{esc(r['idno'] or '—')}</td>"
+                   f"<td>{plan}</td><td>{_d(sub['valid_until']) if sub else '—'}</td><td>{n or '—'}</td>"
+                   f"<td>{esc((r['created_at'] or '')[:10])}</td></tr>")
+    who = ", ".join(esc(a["email"]) for a in accounts) or "—"
+    form = (f"<p class='muted'>новая клиника получит те же входы кабинета, что у этой ({who}); пробный — кнопкой "
+            f"«Выдать вручную» в её карточке, код активации компьютера — в кабинете клиники</p>"
+            f"<form method='post' action='/admin/clinics/{cid}/sibling'><div class='grid'>"
+            f"<div><label>Название *</label><input name='name' required maxlength='{trial.NAME_MAX}'></div>"
+            f"<div><label>Адрес *</label><input name='address' required maxlength='200'></div>"
+            f"<div><label>Телефон</label><input name='phone' maxlength='{trial.PHONE_MAX}'></div>"
+            f"<div><label>E-mail</label><input name='email' value='{esc(c['email'])}' maxlength='{trial.EMAIL_MAX}'></div>"
+            f"<div><label>IDNO</label><input name='idno' value='{esc(c['idno'])}' maxlength='13'></div>"
+            f"<div><label>Контакт</label><input name='contact_name' value='{esc(c['contact_name'])}' maxlength='{trial.CONTACT_MAX}'></div></div>"
+            f"<p style='margin:12px 0 0'><button class='primary'>Добавить в кабинет</button></p></form>")
+    table = (f"<table><tr><th>Клиника</th><th>IDNO</th><th>Вариант</th><th>Срок до</th><th>Компьютеры</th>"
+             f"<th>Добавлена</th></tr>{''.join(trs)}</table>" if trs else
+             "<p class='muted' style='margin:0'>Других клиник в кабинете нет.</p>")
+    add = (_drop("Добавить клинику в кабинет", form) if accounts else
+           "<p class='muted' style='margin:0'>В кабинет этой клиники ещё никто не входил — добавлять некуда.</p>")
+    return (f"<div class='card'>{_chead('building', 'Клиники того же кабинета', 'один вход — несколько клиник; у каждой своя лицензия, пробный и оплата')}"
+            f"{table}<div class='acts' style='margin:14px 0 0'>{add}</div></div>")
+
+
 def _lic_pane(c, issues: list, devices: list) -> str:
     """Вкладка «Лицензия»: какой файл действует и какой у программы; письмо; выдача вручную; файлы."""
     cid = esc(c["id"])
@@ -1306,7 +1377,7 @@ def _log_pane(cid: str, audit: list, log: str, by_what: dict) -> str:
 def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
                 payments: list = (), pending: int = 0, reminders: list = (), accounts: list = (),
                 devices: list = (), smsinfo: dict | None = None, names: int = 0,
-                log: str = "", log_counts: dict | None = None) -> str:
+                log: str = "", log_counts: dict | None = None, cabinet: list = (), active: int = 0) -> str:
     now = datetime.now(timezone.utc)
     issues, payments, accounts, devices, audit = list(issues), list(payments), list(accounts), list(devices), list(audit)
     st = license.state(_ts(sub["valid_until"]) if sub else None, sub["grace_days"] if sub else 0, now)
@@ -1324,7 +1395,9 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
                 f"<div><label>IDNO</label><div class='v mono'>{esc(c['idno'] or '—')}</div></div>"
                 f"<div><label>Идентификатор</label><div class='v mono'>{cid}</div></div>"
                 f"</div></div>")
-    overview = todo_html + _clinic_tiles(c, sub, st, issues, devices, accounts, smsinfo, now) + contacts
+    overview = (todo_html + _clinic_tiles(c, sub, st, issues, devices, accounts, smsinfo, now,
+                                          cabinet=[c, *cabinet], active=active)
+                + (_cabinet_card(c, list(cabinet), accounts) if cabinet or accounts else "") + contacts)
     edit = (f"<div class='card'>{_chead('building', 'Реквизиты', 'название, IDNO и контакты: на них уходят ноты и письма')}"
             f"<form method='post' action='/admin/clinics/{cid}/edit'><div class='grid'>"
             f"<div><label>Название *</label><input name='name' value='{esc(c['name'])}' required></div>"
@@ -1423,9 +1496,32 @@ CONT_MSG = {
     "sms_paper_big": "Fișierul este prea mare: cererea semnată se încarcă PDF, până la 5 MB.",
     "sms_paper_pdf": "Fișierul nu este PDF. Încărcați cererea semnată ca PDF (scanată sau semnată electronic).",
     "sms_paper_empty": "Alegeți fișierul PDF al cererii semnate.",
+    # clinicile contului (26.10, filiale)
+    "clinic_added_requested": "Clinica a fost adăugată în cont. Cererea de probă a fost primită — o aprobăm de "
+                              "obicei în aceeași zi lucrătoare; între timp puteți instala programul cu codul de mai jos.",
+    "clinic_added_issued": "Clinica a fost adăugată în cont, perioada de probă este activă. Instalați programul pe "
+                           "calculatorul ei cu codul de mai jos.",
+    "need_address": "Indicați adresa clinicii — după ea deosebiți clinicile în listă.",
+    "clinics_max": "În cont sunt deja prea multe clinici — scrieți-ne.",
+    "add_duplicate": "O clinică cu acest IDNO sau e-mail este deja înregistrată la DentPilot și nu este în contul "
+                     "dvs. — scrieți-ne.",
+    "pick_clinic": "Pagina era deschisă pentru altă clinică — reîncărcați pagina și încercați din nou.",
+    "code_limit": "Prea multe coduri cerute pentru această clinică — încercați peste o oră.",
+    "in_group": "Abonamentul acestei clinici este în nota comună — plătiți nota comună sau anulați-o, apoi faceți "
+                "o notă separată.",
+    "group_created": "Nota comună a fost creată: datele pentru plată sunt mai jos și pe e-mail.",
+    "group_replaced": "Nota comună a fost creată și înlocuiește notele în așteptare ale clinicilor incluse — pe "
+                      "acelea nu le mai plătiți.",
+    "group_cancelled": "Nota comună a fost anulată — clinicile se pot plăti separat sau într-o notă comună nouă.",
+    "group_empty": "Alegeți varianta pentru cel puțin o clinică.",
+    "group_too_many": f"Într-o notă comună intră cel mult {pay.GROUP_MAX} clinici.",
+    "need_idno_payer": "Pentru nota comună completați IDNO-ul primei clinici din notă (13 cifre): ea apare ca "
+                       "beneficiar în contul de plată.",
+    "group_gone": "Nota comună nu mai așteaptă plata — reîncărcați pagina.",
 }
 _CONT_OK = {"logged_out", "registered_issued", "registered_requested", "saved", "note_created", "note_exists",
-            "note_replaced", "card_paid",
+            "note_replaced", "card_paid", "clinic_added_requested", "clinic_added_issued", "group_created",
+            "group_replaced", "group_cancelled",
             "linked", "sms_requested", "sms_paper_ok"}
 SENDER_RO = {"none": ("mute", "fără nume propriu"), "requested": ("warn", "cerere în lucru"),
              "submitted": ("warn", "la operatori"), "active": ("ok", "aprobat"), "rejected": ("bad", "respins")}
@@ -1555,6 +1651,29 @@ label.tier input{position:absolute;top:16px;right:16px;width:18px;height:18px;ma
 .btns{margin:14px 0 0;display:flex;gap:10px;flex-wrap:wrap}.lbl{display:block;font-size:13px;color:var(--muted);margin:16px 0 8px;font-weight:500}
 details.more summary{cursor:pointer;color:var(--teal-d);font-size:14px;font-weight:600}details.more{margin:16px 0 0}
 .ok-list{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:14.5px;margin:14px 0}.ok-list dt{color:var(--muted)}.ok-list dd{margin:0;font-weight:600}.ok-list dd.plain{font-weight:400}
+/* clinicile contului (26.10, filiale): rând = clinică, cea deschisă — cu bara turcoaz */
+.clist{border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.crow{display:grid;grid-template-columns:minmax(0,1fr) 190px 200px 100px 236px;gap:14px;align-items:center;padding:14px 16px;border-top:1px solid #EEF2F1;background:#fff}
+.crow:first-child{border-top:0}
+.crow.on{background:linear-gradient(90deg,#F2FBF8,#fff 70%);box-shadow:inset 3px 0 0 var(--teal)}
+.crow .nm{font-weight:700;font-size:15px;color:var(--ink);text-decoration:none}.crow a.nm:hover{color:var(--teal-d)}
+.crow .ad{display:block;font-size:13px;color:var(--muted);margin-top:2px}
+.crow .k{display:block;font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin:0 0 2px}
+.crow .v{font-size:14px;line-height:1.4}.crow .v .tag{margin-left:4px}
+.crow .act{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}.crow .act form{margin:0}
+.crow .here{font-size:12.5px;font-weight:600;color:var(--teal-d);background:var(--teal-soft);border-radius:999px;padding:4px 10px;white-space:nowrap}
+a.btn.sm,button.sm{padding:8px 14px;font-size:14px;border-radius:9px}
+.addline{display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap;border-top:1px solid var(--line);margin-top:16px;padding-top:14px}
+.addline p{margin:0;font-size:14px;color:var(--muted);line-height:1.5;max-width:38em}.addline b{color:var(--ink)}
+.code{display:flex;gap:8px;justify-content:center;margin:20px 0 8px}
+.code span{width:52px;height:64px;border:1.5px solid var(--teal);border-radius:12px;display:inline-flex;align-items:center;justify-content:center;font:700 32px/1 ui-monospace,Consolas,monospace;color:var(--ink);background:#F2FBF8}
+.code-sub{text-align:center;font-size:14px;color:var(--muted);margin:0 0 18px}
+.warnbox{background:#FFFBEB;border:1px solid #FDE68A;color:#78350F;border-radius:12px;padding:12px 14px;font-size:14px;line-height:1.5;margin:16px 0 0}
+.hint{font-size:13px;color:var(--muted);margin:4px 0 0}
+.side-code{margin:0}.side-code button{width:100%;background:transparent;color:#fff;border-color:rgba(255,255,255,.55);font-weight:600}
+.side-code button:hover{background:rgba(255,255,255,.12);border-color:#fff}
+.gsel{width:100%;font-size:14px;padding:9px 10px}
+@media (max-width:720px){.crow{grid-template-columns:1fr 1fr;gap:10px 14px}.crow .who{grid-column:1/-1}.crow .act{grid-column:1/-1;justify-content:stretch}.crow .act>*{flex:1}.crow .act a.btn,.crow .act button{width:100%}.code{gap:5px}.code span{width:40px;height:52px;font-size:26px}}
 @media (max-width:900px){.hero{grid-template-columns:1fr}.grid2{grid-template-columns:1fr}.split{grid-template-columns:1fr}.auth{grid-template-columns:1fr}.auth .brand{padding:28px 22px}.auth .form{padding:26px 22px}}
 @media (max-width:720px){.seg{display:grid;grid-template-columns:1fr}.seg label{padding:10px 12px}.total .s{font-size:20px}.chead .right{margin-left:0;flex-basis:100%}.price{white-space:normal}.wrap{padding:22px 16px 48px}.top-in{padding:0 16px;height:60px}.logo .sub{display:none}.acc .em{display:none}.card{padding:18px 16px;border-radius:16px}.hero .main{padding:20px 18px}.hero .side{padding:20px 18px}button.primary,a.btn,a.gbtn{width:100%}}
 """
@@ -1807,6 +1926,13 @@ def _lic_parts(c, sub, issue, st: str, now: datetime) -> dict:
     if issue is None:
         if c["declined_at"]:
             return {"text": esc(CONT_MSG["closed"]), "check": "", "bar": ""}
+        if c["origin"] == "cont_add":
+            # клиника, добавленная в кабинете (26.10): компьютер — кодом из кабинета, заявки с него не было
+            return {"text": (f"Cererea de probă pentru această clinică a fost primită la "
+                             f"{_ro(c['requested_at'] or c['created_at'])}. O aprobăm de obicei în aceeași zi "
+                             f"lucrătoare și vă anunțăm pe e-mail. Programul îl puteți instala chiar acum: pe "
+                             f"calculatorul clinicii se activează cu codul din acest cont și pornește singur după "
+                             f"aprobare."), "check": "", "bar": ""}
         return {"text": (f"Cererea de probă a fost primită la {_ro(c['requested_at'] or c['created_at'])}. "
                          f"O aprobăm de obicei în aceeași zi lucrătoare și vă anunțăm pe e-mail. Programul de pe "
                          f"calculatorul din care ați trimis cererea se activează singur; pe alt calculator — cu "
@@ -2041,13 +2167,24 @@ def sms_notes_block(notes: list, action: str, card_on: bool) -> str:
     return "".join(out)
 
 
-def _cont_payments(c, sub, payments: list) -> str:
+def _cont_payments(c, sub, payments: list, q: str = "", group=None) -> str:
+    """Абонемент и ноты клиники в кабинете. `q` — «?c=…» у кабинета с несколькими клиниками
+    (форма несёт свою клинику); `group` — открытая общая нота, где клиника строкой (26.10):
+    своя нота тогда не выставляется — ссылка на общую."""
     now = datetime.now(timezone.utc)
-    pending = [p for p in payments if p["status"] == "pending"]
-    if pending:
-        top = pending_note(pending[0], sub, "/cont/nota", maib.enabled(), now)
+    pending = [p for p in payments if p["status"] == "pending" and p["clinic_id"] == c["id"]
+               and (p["kind"] or "license") == "license"]
+    if group is not None:
+        top = (f"<p>Abonamentul acestei clinici este în <b>nota comună {esc(group['reference'])}</b> — "
+               f"<b>{_mdl(group['amount'])} MDL</b> pentru toate clinicile din ea "
+               f"<span class='tag warn'>în așteptare</span>.</p>"
+               f"<p class='btns'><a class='btn' href='/cont/nota-comuna'>Vezi nota comună</a></p>"
+               f"<p class='muted'>Altă variantă sau o notă separată pentru această clinică — după anularea notei "
+               f"comune, pe pagina ei.</p>")
+    elif pending:
+        top = pending_note(pending[0], sub, f"/cont/nota{q}", maib.enabled(), now)
     elif len(c["idno"] or "") == 13:
-        top = (f"{_steps(maib.enabled())}{tier_form(sub, '/cont/nota', maib.enabled(), now)}"
+        top = (f"{_steps(maib.enabled())}{tier_form(sub, '/cont/nota' + q, maib.enabled(), now)}"
                f"<p class='muted'>Nota de plată cu referința și datele pentru plată apare aici și vine pe e-mail; "
                f"după confirmarea plății termenul se prelungește, iar programul îl preia singur.</p>")
     else:
@@ -2058,7 +2195,7 @@ def _cont_payments(c, sub, payments: list) -> str:
                f"— nota de plată apare aici.</p>")
     rows = "".join(
         f"<tr><td class='mono'>{esc(p['reference'])}</td><td>{p['amount']} MDL</td>"
-        f"<td>{esc((tiers.NAME[p['tier']] + ', ') if p['tier'] in tiers.TIERS else '')}{esc(mail.luni(p['months']))}</td>"
+        f"<td>{_cont_term(p)}</td>"
         f"<td>{_ro(p['created_at'])}</td>"
         f"<td>{_pay_tag_ro(p['status'])}{(' · ' + _ro(p['paid_at'])) if p['paid_at'] else ''}"
         f"</td><td>{_receipt_link_ro(p)}</td></tr>" for p in payments)
@@ -2067,6 +2204,13 @@ def _cont_payments(c, sub, payments: list) -> str:
              f"<th>Document</th></tr>"
              f"{rows or '<tr><td colspan=6 class=muted>Nu sunt note de plată</td></tr>'}</table></div>") if payments else ""
     return top + table
+
+
+def _cont_term(p) -> str:
+    """Что за нота в таблице кабинета: вариант и срок; общая — «notă comună»."""
+    if (p["kind"] or "license") == "cabinet":
+        return "notă comună (mai multe clinici)"
+    return esc((tiers.NAME[p['tier']] + ', ') if p['tier'] in tiers.TIERS else '') + esc(mail.luni(p['months']))
 
 
 def _cont_devices(devices: list, latest: str) -> str:
@@ -2085,7 +2229,28 @@ def _cont_devices(devices: list, latest: str) -> str:
     return f"<ul class='dev'>{rows}</ul>"
 
 
-def pay_link_page(c, sub, pending, pid: str, msg: str = "", card_on: bool = False, sms_notes: list = ()) -> str:
+def group_note(p, lines: list, action: str, card_on: bool) -> str:
+    """Открытая общая нота кабинета (26.10) на /plata клиники-строки: строки, итог, карта за
+    галочкой (поле `ref`), реквизиты. Сменить выбор или отменить — в кабинете."""
+    trs = "".join(f"<tr><td><b>{esc(ln['name'])}</b><div class='muted'>{esc(ln['address'] or '—')}</div></td>"
+                  f"<td>{esc(tiers.NAME.get(ln['tier'], ln['tier']))}</td><td>{esc(mail.luni(int(ln['months'])))}</td>"
+                  f"<td>{_mdl(ln['amount'])} MDL</td></tr>" for ln in lines)
+    try:
+        ways = f"<pre class='pay'>{esc(mail.ways_to_pay(p['reference'], p['amount'], None))}</pre>"
+    except RuntimeError:
+        ways = "<p>Datele pentru transfer bancar le primiți pe e-mail.</p>"
+    card = (f"<form method='post' action='{action}'><input type='hidden' name='ref' value='{esc(p['reference'])}'>"
+            f"{_terms_box()}{_buttons(card_on)}</form>") if _online(card_on) else ""
+    return (f"<p>Abonamentul acestei clinici este în <b>nota comună {esc(p['reference'])}</b>: "
+            f"<b>{_mdl(p['amount'])} MDL</b> <span class='tag warn'>în așteptare</span></p>"
+            f"<div class='tscroll'><table><tr><th>Clinica</th><th>Varianta</th><th>Termen</th><th>Suma</th></tr>"
+            f"{trs}</table></div>{card}{ways}"
+            f"<p class='muted' style='margin:0'>Altă alegere sau anularea notei comune — din contul clinicii, "
+            f"{esc(config.BASE_URL.rstrip('/'))}/cont/nota-comuna.</p>")
+
+
+def pay_link_page(c, sub, pending, pid: str, msg: str = "", card_on: bool = False, sms_notes: list = (),
+                  lines: list = ()) -> str:
     """Страница оплаты по ссылке из программы или письма (02.10, paylink.py): срок клиники,
     выбор варианта (Basic / Plus) и срока с галочкой условий — или ожидающая нота с
     реквизитами и заменой (23.10); ниже — ожидающие ноты SMS. Без входа: ссылка
@@ -2101,7 +2266,10 @@ def pay_link_page(c, sub, pending, pid: str, msg: str = "", card_on: bool = Fals
                 f"<b>{_ro(sub['valid_until'])}</b> <span class='tag {cls}'>{esc(tag)}</span>")
     else:
         term = "Licența nu este încă activată."
-    if pending is not None:
+    if pending is not None and pending["kind"] == "cabinet":
+        head = _chead("card", esc(c["name"]), f"notă comună pentru {len(lines)} clinici")
+        body = f"<p class='lic'>{term}</p>{group_note(pending, list(lines), action, card_on)}"
+    elif pending is not None:
         tier = pending["tier"] if pending["tier"] in tiers.TIERS else tiers.PLUS
         head = _chead("card", esc(c["name"]), f"{esc(tiers.NAME[tier])} · "
                                               f"{'un an (12 luni)' if int(pending['months']) == 12 else 'o lună'}")
@@ -2128,11 +2296,14 @@ def pay_link_expired_page() -> str:
     return _cont_shell("Linkul a expirat", inner, eyebrow="DentPilot · plata din program")
 
 
-def _cont_sms(c, info: dict) -> str:
+def _cont_sms(c, info: dict, q: str = "") -> str:
     """Кабинет › SMS: имя отправителя клиники и заявление на него (бланк sms.md):
     заявка на имя → заполненное заявление (PDF) → подписанное обратно → подача
-    Олегом → одобрение операторов. Только когда пакет клинике предложен."""
+    Олегом → одобрение операторов. Только когда пакет клинике предложен. Имя общее на
+    кабинет (26.10): `c` и счёт — главной клиники; `info['shared']` — её название, когда
+    открыт филиал; формы несут открытую клинику (`q`), сервер ведёт их к главной."""
     sa = info["acc"]
+    shared = info.get("shared") or ""
     state = sa["sender_state"] if sa is not None else "none"
     name = sa["sender"] if sa is not None else ""
     cls, word = SENDER_RO.get(state, ("mute", state))
@@ -2143,7 +2314,7 @@ def _cont_sms(c, info: dict) -> str:
             "«DentPilot». Anul numelui propriu se comandă din program: Setări › SMS.</p>")
 
     def ask(label: str) -> str:
-        return (f"<form method='post' action='/cont/sms/nume'><label>Numele expeditorului</label>"
+        return (f"<form method='post' action='/cont/sms/nume{q}'><label>Numele expeditorului</label>"
                 f"<input name='name' value='{esc(name or info['suggest'])}' maxlength='11' required style='max-width:320px'>"
                 f"{hint}<p style='margin:14px 0 0'><button class='primary'>{label}</button></p></form>")
 
@@ -2151,16 +2322,16 @@ def _cont_sms(c, info: dict) -> str:
         paper = info["paper"]
         miss = info["missing"]
         if miss:
-            step1 = (f"<p class='muted' style='margin:6px 0 0'>Lipsesc din <a href='#date'>datele clinicii</a>: "
+            step1 = (f"<p class='muted' style='margin:6px 0 0'>Lipsesc din <a href='{esc(info.get('data_href') or '#date')}'>datele clinicii</a>: "
                      f"{esc(', '.join(miss))}. Completați-le și cererea se poate descărca.</p>")
         else:
-            step1 = (f"<form method='post' action='/cont/sms/cerere.pdf' style='margin:6px 0 0'>"
+            step1 = (f"<form method='post' action='/cont/sms/cerere.pdf{q}' style='margin:6px 0 0'>"
                      f"<label>Reprezentantul legal care semnează (nume, prenume)</label>"
                      f"<input name='rep' value='{esc(c['contact_name'])}' maxlength='80' required style='max-width:420px'>"
                      f"<p style='margin:10px 0 0'><button class='primary'>{_ic('download')} Descarcă cererea (PDF)</button></p></form>")
         have = (f"<p class='muted' style='margin:6px 0 0'>Primită la {_ro(paper['uploaded_at'])}, "
                 f"{max(1, paper['size'] // 1024)} KB. O puteți înlocui cu alt fișier.</p>") if paper else ""
-        step3 = (f"<form method='post' action='/cont/sms/cerere' enctype='multipart/form-data' style='margin:6px 0 0'>"
+        step3 = (f"<form method='post' action='/cont/sms/cerere{q}' enctype='multipart/form-data' style='margin:6px 0 0'>"
                  f"<input type='file' name='file' accept='application/pdf,.pdf' required style='max-width:420px'>"
                  f"<p style='margin:10px 0 0'><button>Încarcă cererea semnată</button></p></form>{have}")
         body = (f"<p style='margin:0 0 12px'>Numele cerut: <b>{esc(name)}</b> {tag}</p>"
@@ -2185,11 +2356,63 @@ def _cont_sms(c, info: dict) -> str:
                 "<p style='margin:0 0 4px'>Clinica nu are încă nume propriu de expeditor: pacienții primesc "
                 "memento-urile de la «DentPilot».</p>")
         body = note + ask("Cere numele")
+    if shared:
+        body = (f"<p class='muted' style='margin:0 0 12px'>Numele expeditorului este comun pentru clinicile din acest "
+                f"cont: cererea, documentul semnat și anul numelui sunt la <b>{esc(shared)}</b>.</p>") + body
     return f"<div class='card' id='sms'>{_chead('message', 'SMS · numele expeditorului', sub)}{body}</div>"
 
 
+def _crow(x: dict, on: bool, now: datetime) -> str:
+    """Строка списка «Clinicile mele»: название и адрес, вариант и цена, срок с состоянием,
+    компьютеры, действия (открыть, оплатить, код для компьютера)."""
+    c, sub, issue, n = x["c"], x["sub"], x["issue"], x["devices"]
+    cid = esc(c["id"])
+    if issue is None:
+        tier, until = "—", "—"
+        tag = ("<span class='tag bad'>închisă</span>" if c["declined_at"]
+               else "<span class='tag mute'>cerere de probă în lucru</span>")
+    else:
+        st = license.state(_ts(sub["valid_until"]) if sub else None, sub["grace_days"] if sub else 0, now)
+        cur = tiers.current(sub)
+        tier = (f"{tiers.NAME[cur]} · probă" if sub is None or sub["plan"] == "trial"
+                else f"{tiers.NAME[cur]} · {_mdl(tiers.price(sub, cur))} MDL / lună")
+        until = _ro(sub["valid_until"]) if sub else "—"
+        cls, word = STATE_RO.get(st, ("mute", st))
+        tag = f"<span class='tag {cls}'>{esc(word)}</span>"
+    opn = f"<a class='btn second sm' href='/cont?c={cid}'>Deschide</a>"
+    if on:
+        act = "<span class='here'>deschisă mai jos</span>"
+    elif not n and not c["declined_at"]:
+        act = (f"<form method='post' action='/cont/cod?c={cid}'><button class='primary sm'>Cod de activare</button>"
+               f"</form>{opn}")
+    elif x["group"] is not None:
+        act = f"<a class='btn second sm' href='/cont/nota-comuna'>În nota comună</a>{opn}"
+    else:
+        act = f"<a class='btn second sm' href='/cont?c={cid}#plati'>Plătește</a>{opn}"
+    return (f"<div class='crow{' on' if on else ''}'>"
+            f"<div class='who'><a class='nm' href='/cont?c={cid}'>{esc(c['name'])}</a>"
+            f"<span class='ad'>{esc(c['address'] or '—')}</span></div>"
+            f"<div><span class='k'>Varianta</span><span class='v'>{esc(tier)}</span></div>"
+            f"<div><span class='k'>Valabil până la</span><span class='v'>{until} {tag}</span></div>"
+            f"<div><span class='k'>Calculatoare</span><span class='v'>{n or 'niciunul'}</span></div>"
+            f"<div class='act'>{act}</div></div>")
+
+
+def _clinics_card(cab: list, cur: str, now: datetime) -> str:
+    """«Clinicile mele» (26.10): клиники кабинета над дашбордом открытой."""
+    add = f"<a class='btn sm' href='/cont/clinica-noua?c={esc(cur)}'>{_ic('plus')} Adaugă clinică</a>"
+    common = "<a class='btn second sm' href='/cont/nota-comuna'>Notă comună</a>"
+    sub = f"{len(cab)} clinici în acest cont · fiecare are licența, perioada de probă și abonamentul ei"
+    return (f"<div class='card' id='clinici'>{_chead('building', 'Clinicile mele', sub, common + ' ' + add)}"
+            f"<div class='clist'>{''.join(_crow(x, x['c']['id'] == cur, now) for x in cab)}</div></div>")
+
+
 def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", devices: list = (),
-              smsinfo: dict | None = None) -> str:
+              smsinfo: dict | None = None, cab: list = (), group=None) -> str:
+    """Дашборд клиники в кабинете. `cab` — клиники учётной записи для списка (26.10): больше
+    одной — список «Clinicile mele» сверху, формы несут клинику (?c=), код компьютера на
+    панели программы; одна — как прежде, плюс строка «Adaugă clinică». `group` — открытая
+    общая нота, где эта клиника."""
     now = datetime.now(timezone.utc)
     st = license.state(_ts(sub["valid_until"]) if sub else None, sub["grace_days"] if sub else 0, now)
     site = config.SITE_URL.rstrip("/")
@@ -2197,9 +2420,15 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
     ver = f" {esc(release.version)}" if release else ""
     setup = f"DentPilot-Setup{('-' + esc(release.version)) if release else ''}.exe"
     payments = list(payments)
-    pending = any(p["status"] == "pending" for p in payments)
+    cab = list(cab)
+    multi = len(cab) > 1
+    q = f"?c={esc(c['id'])}" if multi else ""
+    pending = any(p["status"] == "pending" and p["clinic_id"] == c["id"] and (p["kind"] or "license") == "license"
+                  for p in payments)
     # действие по оплате на панели программы — те же условия, что у формы ноты ниже
-    if pending:
+    if group is not None:
+        act = "<a class='btn ghost' href='/cont/nota-comuna'>Vezi nota comună</a>"
+    elif pending:
         act = "<a class='btn ghost' href='#plati'>Vezi nota de plată</a>"
     elif len(c["idno"] or "") == 13 and issue is not None:
         act = f"<a class='btn ghost' href='#plati'>{_subscribe_label(sub)}</a>"
@@ -2210,13 +2439,24 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
     how = (f"<p class='muted' style='margin:14px 0 0'>La prima pornire programul cere datele clinicii și "
            f"codul pe care îl trimitem pe e-mailul clinicii — așa se activează pe orice calculator al ei. "
            f"Înainte de instalare citiți <a href='{esc(site)}/descarca.html'>ce cere Legea 195</a>.</p>")
+    code_btn = ""
+    if multi:
+        # клиник несколько (26.10): код из письма привязывает к главной (её находит заявка) —
+        # компьютер ЭТОЙ клиники активируется кодом из кабинета
+        how = (f"<p class='muted' style='margin:14px 0 0'>Pe un calculator nou al acestei clinici: la prima pornire "
+               f"programul cere datele clinicii, apoi un cod — introduceți codul din acest cont («Cod de activare», "
+               f"în panoul Programul). Codul de 6 cifre din e-mail leagă calculatorul de prima clinică a contului, "
+               f"{esc(cab[0]['c']['name'])}. Înainte de instalare citiți "
+               f"<a href='{esc(site)}/descarca.html'>ce cere Legea 195</a>.</p>")
+        code_btn = (f"<form class='side-code' method='post' action='/cont/cod{q}'>"
+                    f"<button>Cod de activare pentru un calculator</button></form>")
     hero = (f"<div class='card hero'><div class='main'><p class='eyebrow'>Licența</p>"
             f"<p class='lic'>{lic['text']}</p>{lic['bar']}"
             f"{('<p class=' + chr(39) + 'muted' + chr(39) + ' style=' + chr(39) + 'margin:14px 0 0' + chr(39) + '>' + lic['check'] + '</p>') if lic['check'] else ''}"
             f"{how}</div><div class='side'><p class='eyebrow'>Programul</p>"
             f"<div class='big'>DentPilot{ver}</div>"
             f"<p class='small'>Instalator semnat digital — arhivă zip cu {setup}.</p>"
-            f"<div class='actions'><a class='btn' href='/descarca'>{_ic('download')} Descarcă DentPilot{ver}</a>{act}</div>"
+            f"<div class='actions'><a class='btn' href='/descarca'>{_ic('download')} Descarcă DentPilot{ver}</a>{code_btn}{act}</div>"
             f"</div></div>")
     devs = (f"<div class='card'>{_chead('monitor', 'Calculatoare cu DentPilot', 'versiunea programului și ultima verificare a licenței')}"
             f"{_cont_devices(list(devices), release.version if release else '')}</div>")
@@ -2229,15 +2469,20 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
         who = (f"<p style='margin:0 0 6px'>Autentificat prin e-mail: <b>{esc(acc['email'])}</b>.</p>"
                f"<p class='muted' style='margin:0 0 14px'>Intrarea se face cu un cod trimis pe acest e-mail; parolă "
                f"nu există — <a href='{esc(site)}/privacy.html'>Politica de confidențialitate</a>, § 5.</p>")
-    acct = (f"<div class='card'>{_chead('user', 'Contul')}{who}"
-            f"<form method='post' action='/cont/iesire' style='margin-top:auto'><button>Ieșire</button></form></div>")
+    addline = "" if multi else (
+        f"<div class='addline'><p><b>Clinica are și alte sedii?</b> Adăugați fiecare filială ca o clinică nouă în "
+        f"acest cont: cu licența și abonamentul ei, aceeași intrare.</p>"
+        f"<a class='btn second sm' href='/cont/clinica-noua'>{_ic('plus')} Adaugă clinică</a></div>")
+    acct = (f"<div class='card'>{_chead('user', 'Contul')}{who}{addline}"
+            f"<form method='post' action='/cont/iesire' style='margin-top:{'16px' if addline else 'auto'}'>"
+            f"<button>Ieșire</button></form></div>")
     cur = tiers.current(sub)
     chip = (f"<span class='price'>perioada de probă · {tiers.NAME[cur]}</span>" if sub is None or sub["plan"] == "trial"
             else f"<span class='price'>{tiers.NAME[cur]} · {_mdl(tiers.price(sub, cur))} MDL / lună</span>")
-    pays = (f"<div class='card' id='plati'>{_chead('card', 'Abonament și plăți', 'un singur abonament pentru toată clinica', chip)}"
-            f"{_cont_payments(c, sub, payments)}</div>")
+    pays = (f"<div class='card' id='plati'>{_chead('card', 'Abonament și plăți', 'abonamentul acestei clinici' if multi else 'un singur abonament pentru toată clinica', chip)}"
+            f"{_cont_payments(c, sub, payments, q, group)}</div>")
     data = (f"<div class='card' id='date'>{_chead('building', 'Datele clinicii', 'apar în nota de plată și în licență')}"
-            f"<form method='post' action='/cont/date'><div class='grid'>"
+            f"<form method='post' action='/cont/date{q}'><div class='grid'>"
             f"<div><label>Denumirea clinicii *</label><input name='name' value='{esc(c['name'])}' required maxlength='{trial.NAME_MAX}'></div>"
             f"<div><label>IDNO (13 cifre)</label><input name='idno' value='{esc(c['idno'])}' maxlength='13' inputmode='numeric'></div>"
             f"<div><label>Persoana de contact</label><input name='contact_name' value='{esc(c['contact_name'])}' maxlength='{trial.CONTACT_MAX}'></div>"
@@ -2246,5 +2491,160 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
             f"<div><label>E-mail</label><div class='mono' style='padding:8px 0'>{esc(c['email'] or '—')}</div>"
             f"<span class='muted'>pentru schimbare scrieți-ne</span></div></div>"
             f"<p style='margin:16px 0 0'><button class='primary'>Salvează</button></p></form></div>")
-    sms_card = _cont_sms(c, smsinfo) if smsinfo is not None else ""
-    return _cont_shell(c["name"], hero + f"<div class='grid2'>{devs}{acct}</div>" + pays + sms_card + data, acc, msg)
+    sms_card = _cont_sms(smsinfo.get("clinic") or c, smsinfo, q) if smsinfo is not None else ""
+    top = _clinics_card(cab, c["id"], now) if multi else ""
+    eyebrow = f"Contul clinicii · {len(cab)} clinici" if multi else "Contul clinicii"
+    return _cont_shell(c["name"], top + hero + f"<div class='grid2'>{devs}{acct}</div>" + pays + sms_card + data,
+                       acc, msg, eyebrow=eyebrow)
+
+
+# ---------- кабинет: клиника в кабинет, код компьютера, общая нота (26.10) ----------
+
+
+def cont_add_page(acc, cur, msg: str = "", values: dict | None = None) -> str:
+    """«Adaugă o clinică»: данные новой клиники кабинета (e-mail и IDNO — открытой, «можно тот
+    же») и что она получает; галочка условий — как у заявки на пробный."""
+    v = values or {}
+    site = config.SITE_URL.rstrip("/")
+
+    def val(k: str, default: str = "") -> str:
+        return esc(v.get(k, default) or "")
+    sold = [f"{tiers.NAME[t]} — {_mdl(tiers.list_price(t))} MDL" for t in tiers.TIERS if tiers.list_price(t) > 0]
+    price = (", ".join(sold) + " pe lună" if sold else "la prețul din oferta de pe dentpilot.md")
+    perks = _perks([
+        "<b>Licența ei</b>: programul de pe calculatorul filialei are baza lui de date, separată de celelalte "
+        "clinici.",
+        f"<b>O lună de probă</b> {esc(tiers.NAME[tiers.PLUS])}, ca orice clinică nouă.",
+        f"Apoi <b>abonamentul ei</b>: {esc(price)}; fiecare clinică se plătește din lista «Clinicile mele» sau "
+        f"toate odată, cu o notă comună.",
+        "<b>Aceeași intrare</b> în cont pentru toate clinicile — Google sau codul pe e-mail.",
+        f"<b>Activarea</b> pe calculatorul filialei — cu un cod din acest cont, din {CODE_DIGITS} cifre.",
+    ])
+    form = (f"<div class='card'>{_chead('building', 'Datele clinicii noi', 'apar în licența ei, în notele de plată și în scrisori')}"
+            f"<form method='post' action='/cont/clinica-noua?c={esc(cur['id'])}'><div class='grid'>"
+            f"<div><label>Denumirea clinicii *</label><input name='name' value='{val('name')}' "
+            f"placeholder='ex.: {esc(cur['name'][:60])} — filiala Centru' required maxlength='{trial.NAME_MAX}'></div>"
+            f"<div><label>Adresa *</label><input name='address' value='{val('address')}' placeholder='strada, numărul, orașul' "
+            f"required maxlength='200'></div>"
+            f"<div><label>Telefon</label><input name='phone' value='{val('phone')}' maxlength='{trial.PHONE_MAX}'></div>"
+            f"<div><label>Persoana de contact</label><input name='contact_name' value='{val('contact_name', cur['contact_name'])}' "
+            f"maxlength='{trial.CONTACT_MAX}'></div>"
+            f"<div><label>E-mail *</label><input name='email' value='{val('email', cur['email'])}' required "
+            f"maxlength='{trial.EMAIL_MAX}'><p class='hint'>Poate fi același ca la {esc(cur['name'])}. Pe el vin notele "
+            f"de plată și scrisorile acestei clinici.</p></div>"
+            f"<div><label>IDNO (13 cifre)</label><input name='idno' value='{val('idno', cur['idno'])}' maxlength='13' "
+            f"inputmode='numeric'><p class='hint'>Același IDNO este permis pentru clinicile din contul dvs.</p></div></div>"
+            f"<label class='chk'><input type='checkbox' name='consent' value='1' required> <span>Am citit și accept "
+            f"<a href='{esc(site)}/termeni.html' target='_blank' rel='noopener'>Termenii și condițiile</a> și "
+            f"<a href='{esc(site)}/privacy.html' target='_blank' rel='noopener'>Politica de confidențialitate</a> "
+            f"pentru clinica nouă.</span></label>"
+            f"<p style='margin:18px 0 0'><button class='primary'>Adaugă clinica și primește codul</button></p></form></div>")
+    side = f"<div class='card'>{_chead('list', 'Ce primește clinica nouă')}{perks}</div>"
+    return _cont_shell("Adaugă o clinică", f"<div class='split'>{form}{side}</div>", acc, msg,
+                       eyebrow="Contul clinicii · clinică nouă",
+                       lead=f"Filiala sau al doilea sediu se adaugă aici, ca o clinică nouă în același cont. "
+                            f"<a href='/cont?c={esc(cur['id'])}'>Înapoi la clinicile mele</a>")
+
+
+CODE_DIGITS = 7           # = account.CODE_DIGITS (account не импортируется сюда: views — только разметка)
+
+
+def cont_activation_page(acc, c, code: str, until: str, main, release, msg: str = "") -> str:
+    """Код компьютера клиники из кабинета — показывается один раз: цифры клетками (без пробела:
+    поле программы — 7 знаков), срок, три шага, предупреждение о коде из письма."""
+    boxes = "".join(f"<span>{esc(ch)}</span>" for ch in code)
+    ver = f" {esc(release.version)}" if release else ""
+    idno = f"IDNO <b>{esc(c['idno'])}</b> și " if c["idno"] else ""
+    steps = ("<ol class='steps'>"
+             "<li><b>Instalați DentPilot</b> pe calculatorul clinicii — butonul de mai jos.</li>"
+             f"<li><b>La prima pornire</b> completați datele clinicii cu {idno}e-mailul <b>{esc(c['email'])}</b>. "
+             "Programul răspunde că clinica este deja înregistrată și arată câmpul pentru cod.</li>"
+             f"<li><b>Introduceți codul de mai sus</b>, cele {len(code)} cifre, în câmpul «Codul din e-mail» și apăsați "
+             f"«Activează programul». Calculatorul se leagă de <b>{esc(c['name'])}</b>, cu licența ei.</li></ol>")
+    warn = ""
+    if main is not None and main["id"] != c["id"]:
+        warn = (f"<div class='warnbox'>În același timp pe e-mailul <b>{esc(main['email'] or '—')}</b> vine un cod de 6 "
+                f"cifre — acela activează calculatorul pentru prima clinică a contului, {esc(main['name'])}. Pentru "
+                f"această clinică folosiți codul de aici.</div>")
+    card = (f"<div class='card narrow' style='max-width:640px'>"
+            f"{_chead('key', esc(c['name']), 'codul de activare pentru un calculator al acestei clinici')}"
+            f"<div class='code' aria-label='Codul de activare'>{boxes}</div>"
+            f"<p class='code-sub'>Valabil până la <b style='color:var(--ink)'>{_ro(until)}</b> · o singură dată · "
+            f"un singur calculator</p>{steps}{warn}"
+            f"<div class='btns' style='margin-top:18px'><a class='btn' href='/descarca'>{_ic('download')} Descarcă "
+            f"DentPilot{ver}</a><a class='btn second' href='/cont?c={esc(c['id'])}'>Înapoi la clinicile mele</a></div>"
+            f"<p class='note'>Codul nu se mai poate vedea după ce închideți pagina. Pentru încă un calculator sau dacă "
+            f"l-ați pierdut — «Cod de activare» din nou; codul vechi nefolosit nu mai este valabil.</p></div>")
+    return _cont_shell("Codul de activare", card, acc, msg, eyebrow="Contul clinicii · cod de activare")
+
+
+_GROUP_JS = ("(function(){var f=document.querySelector('form.group');if(!f)return;"
+             "function sp(v){return String(v).replace(/\\B(?=(\\d{3})+(?!\\d))/g,' ')}"
+             "function up(){var s=0,n=0;f.querySelectorAll('tr[data-c]').forEach(function(r){"
+             "var t=r.querySelector('select.t'),m=r.querySelector('select.m');var o=t.options[t.selectedIndex];"
+             "if(!o||!o.value)return;n++;s+=+o.getAttribute(m.value=='12'?'data-y':'data-m')});"
+             "document.getElementById('gs').textContent=sp(s)+' MDL';"
+             "document.getElementById('gn').textContent=n+(n==1?' clinică':' clinici')}"
+             "f.addEventListener('change',up);up()})();")
+
+
+def group_form(rows: list, card_on: bool, replace: str = "") -> str:
+    """Выбор общей ноты: у каждой клиники вариант (или «nu se include») и срок, итог, галочка
+    условий, кнопки. `rows` — [(клиника, подписка, держит ли её своя нота)]."""
+    trs = []
+    for c, sub, _ in rows:
+        cid = esc(c["id"])
+        sold = tiers.offered(sub)
+        opts = "<option value=''>— nu se include —</option>" + "".join(
+            f"<option value='{t}'{' selected' if t == tiers.pick(sub) else ''} "
+            f"data-m='{pay.amount_for(sub, t, 1)}' data-y='{pay.amount_for(sub, t, 12)}'>"
+            f"{esc(tiers.NAME[t])} — {_mdl(pay.amount_for(sub, t, 1))} MDL / lună</option>" for t in sold)
+        months = ("<option value='1'>o lună</option><option value='12'>un an (12 luni) — o lună gratuită</option>")
+        trs.append(f"<tr data-c='{cid}'><td><b>{esc(c['name'])}</b><div class='muted'>{esc(c['address'] or '—')}</div></td>"
+                   f"<td><select class='gsel t' name='t_{cid}'>{opts}</select></td>"
+                   f"<td><select class='gsel m' name='m_{cid}'>{months}</select></td></tr>")
+    note = (f"<p class='note'>Nota {esc(replace)} se anulează și primiți una nouă, cu altă referință — nu mai plătiți "
+            f"nota veche.</p>" if replace else
+            "<p class='note'>Notele în așteptare ale clinicilor incluse se înlocuiesc cu nota comună: datoria fiecărei "
+            "clinici rămâne una. Varianta o alegeți la fiecare plată; SMS-urile se plătesc separat, în pachete.</p>")
+    buttons = _buttons(card_on, "Înlocuiește nota comună" if replace else "Transfer bancar — primesc nota comună",
+                       online_prefix="Înlocuiește și " if replace else "")
+    return (f"<form method='post' action='/cont/nota-comuna' class='group'><div class='tscroll'><table>"
+            f"<tr><th>Clinica</th><th>Varianta</th><th>Termen</th></tr>{''.join(trs)}</table></div>"
+            f"<div class='total'><span class='t'><b>Notă comună</b> · <span id='gn'></span></span>"
+            f"<span class='s' id='gs'></span></div>{note}{_terms_box()}{buttons}</form><script>{_GROUP_JS}</script>")
+
+
+def cont_group_page(acc, rows: list, pending, lines: list, msg: str = "", card_on: bool = False) -> str:
+    """Общая нота на клиники кабинета (Олег 26.10: «Нужен и общий счёт»). Открытая — строки
+    (клиника, вариант, срок, сумма), итог, карта за галочкой, реквизиты, отмена и замена; нет —
+    выбор. Одна нота, один reference; после оплаты каждая клиника — своим файлом."""
+    if pending is not None:
+        trs = "".join(f"<tr><td><b>{esc(ln['name'])}</b><div class='muted'>{esc(ln['address'] or '—')}</div></td>"
+                      f"<td>{esc(tiers.NAME.get(ln['tier'], ln['tier']))}</td><td>{esc(mail.luni(int(ln['months'])))}</td>"
+                      f"<td>{_mdl(ln['amount'])} MDL</td></tr>" for ln in lines)
+        try:
+            ways = f"<pre class='pay'>{esc(mail.ways_to_pay(pending['reference'], pending['amount'], None))}</pre>"
+        except RuntimeError:
+            ways = "<p>Datele pentru transfer bancar le primiți pe e-mail.</p>"
+        card = (f"<form method='post' action='/cont/nota-comuna'><input type='hidden' name='ref' "
+                f"value='{esc(pending['reference'])}'>{_terms_box()}{_buttons(card_on)}</form>") if _online(card_on) else ""
+        cancel = (f"<form method='post' action='/cont/nota-comuna/anuleaza' style='margin:0'>"
+                  f"<input type='hidden' name='ref' value='{esc(pending['reference'])}'>"
+                  f"<button>Anulează nota comună</button></form>")
+        body = (f"<p><b>Nota comună {esc(pending['reference'])}</b>: <b>{_mdl(pending['amount'])} MDL</b> "
+                f"<span class='tag warn'>în așteptare</span></p>"
+                f"<div class='tscroll'><table><tr><th>Clinica</th><th>Varianta</th><th>Termen</th><th>Suma</th></tr>"
+                f"{trs}</table></div>{card}{ways}"
+                f"<p class='muted' style='margin:0'>După confirmarea plății fiecare clinică primește termenul ei — "
+                f"programul fiecăreia îl preia singur; contul de plată este unul, cu un rând pentru fiecare clinică.</p>"
+                f"<details class='more'><summary>Altă alegere?</summary>"
+                f"{group_form(rows, card_on, replace=pending['reference'])}</details>"
+                f"<p class='btns'>{cancel}</p>")
+    else:
+        body = ("<p class='muted' style='margin:0 0 12px'>O singură notă și o singură plată pentru mai multe clinici "
+                "din cont: alegeți varianta și termenul fiecăreia. După plată fiecare clinică primește termenul ei.</p>"
+                + group_form(rows, card_on))
+    card_html = f"<div class='card'>{_chead('card', 'Nota comună', 'pentru clinicile din acest cont')}{body}</div>"
+    return _cont_shell("Notă comună de plată", card_html, acc, msg, eyebrow="Contul clinicii · notă comună",
+                       lead="<a href='/cont'>Înapoi la clinicile mele</a>")

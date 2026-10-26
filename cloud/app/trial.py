@@ -54,12 +54,13 @@ from datetime import datetime, timedelta, timezone
 from . import config, db, license, mail
 
 MODE_AUTO, MODE_APPROVE = "auto", "approve"
-# clinics.origin: откуда пришла заявка — форма /proba, программа, кабинет (вход Google, 01.10)
-ORIGIN_FORM, ORIGIN_PROGRAM, ORIGIN_CONT = "form", "program", "cont"
-ORIGINS = (ORIGIN_FORM, ORIGIN_PROGRAM, ORIGIN_CONT)
+# clinics.origin: откуда пришла заявка — форма /proba, программа, кабинет (вход Google, 01.10),
+# «Adaugă clinică» в кабинете (ещё одна клиника кабинета — филиал, 26.10)
+ORIGIN_FORM, ORIGIN_PROGRAM, ORIGIN_CONT, ORIGIN_CONT_ADD = "form", "program", "cont", "cont_add"
+ORIGINS = (ORIGIN_FORM, ORIGIN_PROGRAM, ORIGIN_CONT, ORIGIN_CONT_ADD)
 # основание выдачи пробного — словами того входа, откуда заявка
 REASON = {ORIGIN_FORM: "formular de probă", ORIGIN_PROGRAM: "cerere din program",
-          ORIGIN_CONT: "cerere din contul clinicii"}
+          ORIGIN_CONT: "cerere din contul clinicii", ORIGIN_CONT_ADD: "clinică nouă în contul clinicii"}
 API_PATH = "/v1/trial"           # заявка из программы (JSON), ответ — токен для /v1/license
 VERIFY_PATH = "/v1/verify"       # код из письма → токен клиники (новый компьютер)
 CODE_TTL = timedelta(minutes=15)
@@ -154,15 +155,16 @@ def canonical(email: str) -> str:
     return f"{local}@{domain}"
 
 
-def existing(con: sqlite3.Connection, idno: str, email: str) -> sqlite3.Row | None:
+def existing(con: sqlite3.Connection, idno: str, email: str, allow: set | frozenset = frozenset()) -> sqlite3.Row | None:
     """Клиника с тем же IDNO или тем же ящиком — заявка, пробный или абонемент.
-    Скрытая заявка не считается: «Скрыть» освобождает IDNO и e-mail."""
+    Скрытая заявка не считается: «Скрыть» освобождает IDNO и e-mail. `allow` — id клиник,
+    совпадение с которыми повтором не считается: свой кабинет добавляет филиал (26.10)."""
     want = canonical(email)
     domain = want.partition("@")[2]
     rows = con.execute("SELECT * FROM clinics WHERE declined_at IS NULL AND ((? <> '' AND idno = ?) "
-                       "OR lower(email) LIKE ?) ORDER BY created_at", (idno, idno, "%@" + domain)).fetchall()
+                       "OR lower(email) LIKE ?) ORDER BY created_at, rowid", (idno, idno, "%@" + domain)).fetchall()
     for r in rows:
-        if (idno and r["idno"] == idno) or canonical(r["email"]) == want:
+        if r["id"] not in allow and ((idno and r["idno"] == idno) or canonical(r["email"]) == want):
             return r
     return None
 
@@ -171,11 +173,12 @@ def existing(con: sqlite3.Connection, idno: str, email: str) -> sqlite3.Row | No
 
 
 def submit(con: sqlite3.Connection, f: dict, ip: str, who: str = "form",
-           origin: str = ORIGIN_FORM) -> tuple[str, sqlite3.Row]:
+           origin: str = ORIGIN_FORM, allow: set | frozenset = frozenset()) -> tuple[str, sqlite3.Row]:
     """Заявка → (исход, клиника). Исход: DUPLICATE — уже есть, ничего не сделано;
     REQUESTED — заведена, ждёт админа; ISSUED — пробный выдан и отправлен.
-    `origin` — форма сайта или программа: заявки из обеих ждут в одном списке."""
-    old = existing(con, f["idno"], f["email"])
+    `origin` — форма сайта или программа: заявки из обеих ждут в одном списке.
+    `allow` — клиники своего кабинета (existing); адрес — `f['address']`, если есть."""
+    old = existing(con, f["idno"], f["email"], allow)
     if old is not None:
         # без clinic_id: чужой текст не должен ложиться в карточку клиники
         db.audit(con, who, "trial_duplicate", None,
@@ -185,7 +188,8 @@ def submit(con: sqlite3.Connection, f: dict, ip: str, who: str = "form",
     now = db.now_iso()
     con.execute("INSERT INTO clinics(id, name, idno, contact_name, email, phone, address, created_at, "
                 "origin, requested_at, consent_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                (cid, f["name"], f["idno"], f["contact_name"], f["email"], f["phone"], "", now, origin, now, now))
+                (cid, f["name"], f["idno"], f["contact_name"], f["email"], f["phone"], f.get("address", ""), now,
+                 origin, now, now))
     db.audit(con, who, "trial_request", cid, f"{f['name']}, IDNO {f['idno'] or '—'}, {f['email']}, {ip}")
     clinic = con.execute("SELECT * FROM clinics WHERE id=?", (cid,)).fetchone()
     if mode() != MODE_AUTO:

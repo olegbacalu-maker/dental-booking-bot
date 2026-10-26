@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 TS = "%Y-%m-%dT%H:%M:%SZ"
 
 MIGRATIONS = {
@@ -234,6 +234,33 @@ MIGRATIONS = {
            SELECT provider_id, id, COALESCE(pay_url, ''), created_at, provider_status,
                   CASE WHEN paid_via='card' THEN 1 ELSE 0 END, CASE WHEN paid_via='card' THEN 1 ELSE 0 END
            FROM payments WHERE provider_id IS NOT NULL""",
+    ],
+    # 16 (26.10): филиал = ещё одна клиника в том же кабинете (Олег 26.10, cabinet.py).
+    # `account_clinics` — к каким клиникам у учётной записи кабинета вход; каждой прежней записи —
+    # её нынешняя клиника. `accounts.clinic_id` остаётся: клиника, открытая в кабинете последней.
+    # `cabinet_codes` — код активации компьютера из кабинета (7 цифр: поле кода программы 2.0.9 —
+    # maxlength 7), хешем; одноразовый, срок account.CODE_TTL. `payment_lines` — строки общей ноты
+    # кабинета (payments.kind='cabinet'): клиника, вариант, срок и сумма строки.
+    16: [
+        """CREATE TABLE IF NOT EXISTS account_clinics(
+            account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+            clinic_id TEXT NOT NULL REFERENCES clinics(id),
+            added_at TEXT NOT NULL, how TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY(account_id, clinic_id))""",
+        "CREATE INDEX IF NOT EXISTS ix_account_clinics_clinic ON account_clinics(clinic_id)",
+        """INSERT OR IGNORE INTO account_clinics(account_id, clinic_id, added_at, how)
+           SELECT id, clinic_id, created_at, 'clinica contului' FROM accounts WHERE clinic_id IS NOT NULL""",
+        """CREATE TABLE IF NOT EXISTS cabinet_codes(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, clinic_id TEXT NOT NULL REFERENCES clinics(id),
+            code_hash TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+            used_at TEXT, device TEXT NOT NULL DEFAULT '', who TEXT NOT NULL)""",
+        "CREATE INDEX IF NOT EXISTS ix_cabinet_codes_hash ON cabinet_codes(code_hash, expires_at)",
+        "CREATE INDEX IF NOT EXISTS ix_cabinet_codes_clinic ON cabinet_codes(clinic_id, created_at)",
+        """CREATE TABLE IF NOT EXISTS payment_lines(
+            payment_id INTEGER NOT NULL REFERENCES payments(id), clinic_id TEXT NOT NULL REFERENCES clinics(id),
+            tier TEXT NOT NULL, months INTEGER NOT NULL, amount INTEGER NOT NULL,
+            PRIMARY KEY(payment_id, clinic_id))""",
+        "CREATE INDEX IF NOT EXISTS ix_payment_lines_clinic ON payment_lines(clinic_id)",
     ],
 }
 

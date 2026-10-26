@@ -22,7 +22,9 @@ ACHITAT, без TVA и без претензии быть фискальным �
 - платежи, оплаченные ДО этой таблицы, получают снимок при первом запросе
   (`ensure`) — из того, что известно сейчас; ссылка на PDF у оплаченного платежа
   поэтому ведёт на документ всегда.
-⛔ Константы видов платежа здесь — строки, равные payments.LICENSE/SMS/SMS_NAME:
+- общая нота кабинета (26.10, kind «cabinet») — ОДИН документ со строками по клиникам
+  (`items`: клиника, вариант, срок и период, сумма строки); покупатель — плательщик.
+⛔ Константы видов платежа здесь — строки, равные payments.LICENSE/SMS/SMS_NAME/CABINET:
 импорт payments отсюда замкнул бы круг (payments импортирует этот модуль).
 """
 from __future__ import annotations
@@ -87,6 +89,25 @@ def item_for(con: sqlite3.Connection, p: sqlite3.Row, period: tuple[datetime, da
     return {"title": f"Abonament {tiers.NAME[tier]} ({tiers.WHAT[tier]})", "detail": detail}
 
 
+def line_item(clinic: sqlite3.Row, line: sqlite3.Row, period: tuple[datetime, datetime] | None = None) -> dict:
+    """Строка общей ноты строкой документа: вариант, клиника и адрес, срок и период, сумма."""
+    tier = line["tier"] if line["tier"] in tiers.TIERS else tiers.PLUS
+    months = int(line["months"] or 0)
+    detail = f"{clinic['name']}" + (f", {clinic['address']}" if clinic["address"] else "")
+    detail += f" — {months} {'lună' if months == 1 else 'luni'}"
+    if period:
+        detail += (f", perioada {sms.local(period[0]).strftime('%d.%m.%Y')} – "
+                   f"{sms.local(period[1]).strftime('%d.%m.%Y')}")
+    return {"title": f"Abonament {tiers.NAME[tier]} ({tiers.WHAT[tier]})", "detail": detail,
+            "amount": int(line["amount"])}
+
+
+def _group_items(con: sqlite3.Connection, payment_id: int) -> list[dict]:
+    rows = con.execute("SELECT l.*, c.name, c.address FROM payment_lines l JOIN clinics c ON c.id = l.clinic_id "
+                       "WHERE l.payment_id=? ORDER BY c.created_at, c.rowid", (payment_id,)).fetchall()
+    return [line_item(r, r) for r in rows]
+
+
 def summary(row: sqlite3.Row) -> str:
     """Оплата строками для письма после оплаты — из того же снимка, что PDF: № заказа,
     предмет и период, сумма и валюта, дата, способ, поставщик и сайт (требование maib к
@@ -95,9 +116,11 @@ def summary(row: sqlite3.Row) -> str:
     s, it = d["seller"], d["item"]
     seller = ", ".join(x for x in (s.get("name"), SELLER_FORM) if x)
     site = config.SITE_URL.rstrip("/").split("//", 1)[-1]
+    lines = "".join(f"    · {x['title']} — {x['detail']}: {money(x['amount'])} {d['currency']}\n"
+                    for x in d.get("items") or [])
     return ("Plata a fost primită:\n"
             f"  Comanda nr.: {d['number']}\n"
-            f"  Ce ați plătit: {it['title']}, {it['detail']}\n"
+            f"  Ce ați plătit: {it['title']}, {it['detail']}\n{lines}"
             f"  Suma: {money(d['amount'])} {d['currency']}\n"
             f"  Data plății: {_d(d['paid_at'])}\n"
             f"  Plătit prin: {METHOD.get(d['paid_via'], d['paid_via'])}\n"
@@ -115,8 +138,9 @@ def by_number(con: sqlite3.Connection, number: str) -> sqlite3.Row | None:
 
 
 def create(con: sqlite3.Connection, payment_id: int, who: str,
-           period: tuple[datetime, datetime] | None = None) -> sqlite3.Row:
-    """Снимок оплаченного платежа — один раз; повтор возвращает прежний.
+           period: tuple[datetime, datetime] | None = None, items: list[dict] | None = None) -> sqlite3.Row:
+    """Снимок оплаченного платежа — один раз; повтор возвращает прежний. `items` — строки
+    общей ноты с периодами (из confirm); без них — из payment_lines, без периодов.
     ⛔ Неоплаченный — ValueError('not_paid'): документа об оплате без оплаты нет."""
     have = get(con, payment_id)
     if have is not None:
@@ -126,17 +150,24 @@ def create(con: sqlite3.Connection, payment_id: int, who: str,
         raise ValueError("not_paid")
     c = con.execute("SELECT * FROM clinics WHERE id=?", (p["clinic_id"],)).fetchone()
     b = config.BANK
+    group = (p["kind"] if "kind" in p.keys() else "") == "cabinet"
+    if group:
+        items = items if items is not None else _group_items(con, payment_id)
     data = {
         "number": p["reference"], "issued_at": p["paid_at"] or db.now_iso(),
         "seller": {"name": b["beneficiary"], "form": SELLER_FORM, "idno": b["code"], "iban": b["iban"],
                    "bank": b["bank"], "address": config.SELLER_ADDRESS,
                    "email": config.SUPPORT_EMAIL, "phone": config.SUPPORT_PHONE},
         "buyer": {"name": c["name"], "idno": c["idno"], "address": c["address"], "email": c["email"]},
-        "item": item_for(con, p, period),
+        "item": ({"title": "Abonament DentPilot — notă comună",
+                  "detail": f"{len(items)} {'clinică' if len(items) == 1 else 'clinici'}"} if group
+                 else item_for(con, p, period)),
         "amount": int(p["amount"]), "currency": p["currency"] or "MDL",
         "paid_at": p["paid_at"], "paid_via": p["paid_via"] or "transfer", "reference": p["reference"],
         "kind": p["kind"] if "kind" in p.keys() else "license",
     }
+    if group:
+        data["items"] = items
     # без строки в журнале: документ — следствие payment_paid, а не отдельное действие
     # (test_payments держит последовательность журнала оплаты)
     con.execute("INSERT INTO receipts(payment_id, clinic_id, number, issued_at, data) VALUES(?,?,?,?,?)",
@@ -200,14 +231,19 @@ def render(row: sqlite3.Row) -> bytes:
     doc.text(sum_r, y + 2, "Suma, MDL", 8.5, bold=True, color=GREY, align="right")
     y += 26
     amount = money(d["amount"])
-    doc.text(L + 4, y, "1", 10, color=INK)
-    doc.text(qty_r, y, "1", 10, color=INK, align="right")
-    doc.text(price_r, y, amount, 10, color=INK, align="right")
-    doc.text(sum_r, y, amount, 10, bold=True, color=INK, align="right")
-    y = doc.paragraph(name_x, y, it["title"], 10, name_end - name_x, bold=True, color=INK)
-    y = doc.paragraph(name_x, y, it["detail"], 9, name_end - name_x, color=GREY)
-    y += 4
-    doc.line(L, y, R, y, 0.6, (0.8, 0.82, 0.85))
+    # строки: общая нота кабинета — по клинике на строку, иначе одна
+    rows = d.get("items") or [{"title": it["title"], "detail": it["detail"], "amount": d["amount"]}]
+    for n, x in enumerate(rows, 1):
+        each = money(x["amount"])
+        doc.text(L + 4, y, str(n), 10, color=INK)
+        doc.text(qty_r, y, "1", 10, color=INK, align="right")
+        doc.text(price_r, y, each, 10, color=INK, align="right")
+        doc.text(sum_r, y, each, 10, bold=True, color=INK, align="right")
+        y = doc.paragraph(name_x, y, x["title"], 10, name_end - name_x, bold=True, color=INK)
+        y = doc.paragraph(name_x, y, x["detail"], 9, name_end - name_x, color=GREY)
+        y += 4
+        doc.line(L, y, R, y, 0.6, (0.8, 0.82, 0.85))
+        y += 18 if n < len(rows) else 0
     y += 22
     total = f"{amount} {d['currency']}"
     doc.text(sum_r, y, total, 13, bold=True, color=INK, align="right")

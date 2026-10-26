@@ -30,6 +30,16 @@ reference как следующий период (`credit_again`) — карто
 страницу; у ноты может быть несколько попыток — все в `pay_attempts`, и любая
 узнаётся (`by_pay_id`), чтобы оплата во вкладке со старой ссылкой не потерялась.
 
+Общая нота кабинета (26.10, филиалы; Олег: «Нужен и общий счёт на все клиники кабинета»):
+вид CABINET — одна строка payments у ПЛАТЕЛЬЩИКА (первая клиника кабинета среди строк, её
+реквизиты — покупатель в cont de plată) со строками `payment_lines` (клиника, вариант, срок,
+сумма строки по правилу цены ЭТОЙ клиники). Путь денег (maib, попытки, settle, зачёт) видит
+одну ноту; `confirm` продлевает каждую клинику строки своим файлом, тем же `_prolong`, что
+обычную ноту. ⭐ Правило одно: у клиники не больше одного открытого долга за абонемент — своя
+нота ИЛИ строка открытой общей. Общая ЗАМЕНЯЕТ открытые ноты своих клиник и прежнюю общую с
+любой из них (`create_group`); клинике в открытой общей своя нота не выставляется
+(`choose` — ValueError(HELD)), до отмены общей (`reject`). `debt_of` — тот долг, какой есть.
+
 Варианты абонемента (23.10, tiers.py): нота абонемента знает свой вариант
 (`payments.tier`), клиника выбирает его при каждой оплате (`choose`); открытая нота
 другого варианта или срока ЗАМЕНЯЕТСЯ (отклоняется с причиной, выставляется новая),
@@ -51,6 +61,10 @@ TRANSFER, CARD = "transfer", "card"
 # имени `months` = 0 и `sms_units` пуст. Открытый платёж каждого вида у клиники
 # один — запросы о «ожидающей ноте» всюду называют вид.
 LICENSE, SMS, SMS_NAME = "license", "sms", "sms_name"
+# Общая нота кабинета (26.10): `months` = 0 и `tier` пуст — срок и вариант у каждой строки.
+CABINET = "cabinet"
+GROUP_MAX = 10            # клиник в общей ноте: cont de plată со строками — одна страница A4
+HELD = "held"             # ValueError: у клиники открытая общая нота — своя не выставляется
 # Сроки — как на сайте: месяц или год (решение Олега 26.09; 3 и 6 месяцев нет).
 # Год стоит 11 месячных — «o lună gratuită» в карточке цены сайта.
 MONTHS = (1, 12)
@@ -140,6 +154,8 @@ def choose(con: sqlite3.Connection, clinic: sqlite3.Row, tier: str, months: int,
     ⛔ Вариант не продаётся (цены нет) — ValueError('tier'), срок не из ряда — ValueError('months')."""
     if months not in MONTHS:
         raise ValueError("months")
+    if group_of(con, clinic["id"]) is not None:
+        raise ValueError(HELD)
     sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (clinic["id"],)).fetchone()
     a = amount_for(sub, tier, months) if tier in tiers.TIERS else 0
     if a <= 0:
@@ -188,9 +204,87 @@ def open_of(con: sqlite3.Connection, clinic_id: str, kind: str = LICENSE) -> sql
                        (clinic_id, PENDING, kind)).fetchone()
 
 
+# ---------- общая нота кабинета (26.10) ----------
+
+
+def lines_of(con: sqlite3.Connection, payment_id: int) -> list:
+    """Строки общей ноты с названием и адресом клиники — порядок клиник кабинета."""
+    return con.execute("SELECT l.*, c.name, c.address FROM payment_lines l JOIN clinics c ON c.id = l.clinic_id "
+                       "WHERE l.payment_id=? ORDER BY c.created_at, c.rowid", (payment_id,)).fetchall()
+
+
+def group_of(con: sqlite3.Connection, clinic_id: str) -> sqlite3.Row | None:
+    """Открытая общая нота, в которой есть эта клиника."""
+    return con.execute("SELECT p.* FROM payments p JOIN payment_lines l ON l.payment_id = p.id "
+                       "WHERE l.clinic_id=? AND p.status=? AND p.kind=? ORDER BY p.id DESC LIMIT 1",
+                       (clinic_id, PENDING, CABINET)).fetchone()
+
+
+def debt_of(con: sqlite3.Connection, clinic_id: str) -> sqlite3.Row | None:
+    """Открытый долг клиники за абонемент: своя нота или общая, где она есть (одно из двух)."""
+    return open_of(con, clinic_id) or group_of(con, clinic_id)
+
+
+def of_clinic(con: sqlite3.Connection, clinic_id: str) -> list:
+    """Ноты клиники для таблицы: свои и общие, где она строкой, — новые сверху."""
+    return con.execute("SELECT * FROM payments WHERE clinic_id=? OR id IN "
+                       "(SELECT payment_id FROM payment_lines WHERE clinic_id=?) ORDER BY id DESC",
+                       (clinic_id, clinic_id)).fetchall()
+
+
+def create_group(con: sqlite3.Connection, payer: sqlite3.Row, picks: list, who: str,
+                 terms: bool = True) -> tuple[sqlite3.Row, list[str]]:
+    """Общая нота: `picks` — [(клиника, вариант, срок)], плательщик — `payer` (первая клиника
+    среди строк) → (нота, reference заменённых нот). Сумма строки — по правилу цены её клиники
+    (tiers.price), нота — их сумма. Открытые ноты этих клиник и прежние открытые общие с любой из
+    них отклоняются «заменена общей нотой» (долг у клиники один). ⛔ ValueError: 'empty',
+    'too_many' (GROUP_MAX), 'months', 'tier' (вариант не продаётся этой клинике)."""
+    if not picks:
+        raise ValueError("empty")
+    if len(picks) > GROUP_MAX:
+        raise ValueError("too_many")
+    rows = []
+    for clinic, tier, months in picks:
+        if months not in MONTHS:
+            raise ValueError("months")
+        sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (clinic["id"],)).fetchone()
+        a = amount_for(sub, tier, months) if tier in tiers.TIERS else 0
+        if a <= 0:
+            raise ValueError("tier")
+        rows.append((clinic, tier, months, a))
+    now = datetime.now(timezone.utc)
+    ref = next_reference(con, now)
+    replaced = []
+    olds = {}
+    for clinic, *_ in rows:
+        for p in (group_of(con, clinic["id"]), open_of(con, clinic["id"])):
+            if p is not None:
+                olds[p["id"]] = p
+    for p in olds.values():
+        reject(con, p, f"заменена общей нотой {ref}", who)
+        replaced.append(p["reference"])
+    total = sum(a for *_, a in rows)
+    con.execute("""INSERT INTO payments(clinic_id, amount, currency, method, status, reference, months, kind,
+                                        terms_at, created_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (payer["id"], total, "MDL", TRANSFER, PENDING, ref, 0, CABINET,
+                 db.now_iso() if terms else None, db.now_iso()))
+    p = con.execute("SELECT * FROM payments WHERE reference=?", (ref,)).fetchone()
+    for clinic, tier, months, a in rows:
+        con.execute("INSERT INTO payment_lines(payment_id, clinic_id, tier, months, amount) VALUES(?,?,?,?,?)",
+                    (p["id"], clinic["id"], tier, months, a))
+    what = "; ".join(f"{c['name']} — {tiers.NAME[t]}, {m} мес., {a} MDL" for c, t, m, a in rows)
+    db.audit(con, who, "payment_new", payer["id"],
+             f"{ref}: {total} MDL, общая нота ({len(rows)} клиник: {what}), перевод"
+             + (", условия приняты" if terms else "") + (f"; взамен {', '.join(replaced)}" if replaced else ""))
+    return p, replaced
+
+
 def notify_paid(con: sqlite3.Connection, payment: sqlite3.Row, who: str) -> str:
     """Письмо после оплаты — по виду: пакет SMS → «pachetul a fost activat»,
-    абонемент → письмо о лицензии (license.mail_latest). Код для ?msg= или ''."""
+    абонемент → письмо о лицензии (license.mail_latest). Код для ?msg= или ''.
+    Общая нота — письмо о лицензии КАЖДОЙ клинике строки на её ящик; cont de plată и строки
+    оплаты — в письме плательщику; код — его письма."""
     clinic = con.execute("SELECT * FROM clinics WHERE id=?", (payment["clinic_id"],)).fetchone()
     fresh = con.execute("SELECT * FROM payments WHERE id=?", (payment["id"],)).fetchone()
     # cont de plată (17.10) — вложением в то же письмо, что говорит об оплате; строки оплаты
@@ -198,15 +292,28 @@ def notify_paid(con: sqlite3.Connection, payment: sqlite3.Row, who: str) -> str:
     receipt = receipts.attachment(con, fresh, who)
     row = receipts.get(con, fresh["id"]) if receipt else None
     summary = receipts.summary(row) if row is not None else ""
+    if payment["kind"] == CABINET:
+        code = ""
+        for ln in lines_of(con, payment["id"]):
+            c = con.execute("SELECT * FROM clinics WHERE id=?", (ln["clinic_id"],)).fetchone()
+            payer = c["id"] == payment["clinic_id"]
+            out = license.mail_latest(con, c, who, receipt=receipt if payer else None,
+                                      summary=summary if payer else "")
+            code = out if payer else code
+        return code
     if payment["kind"] in (SMS, SMS_NAME):
         return (sms.mail_pack if payment["kind"] == SMS else sms.mail_name)(con, clinic, fresh, who,
                                                                             receipt=receipt, summary=summary)
     return license.mail_latest(con, clinic, who, receipt=receipt, summary=summary)
 
 
-def subject(p: sqlite3.Row) -> str:
-    """Что оплачивается — одной строкой по-румынски (описание у maib, страница возврата)."""
+def subject(p: sqlite3.Row, con: sqlite3.Connection | None = None) -> str:
+    """Что оплачивается — одной строкой по-румынски (описание у maib, страница возврата).
+    Общая нота с `con` — с числом клиник."""
     kind = p["kind"] or LICENSE
+    if kind == CABINET:
+        n = len(lines_of(con, p["id"])) if con is not None else 0
+        return f"abonament DentPilot, notă comună pentru {n} clinici" if n else "abonament DentPilot, notă comună"
     if kind == SMS:
         return f"pachet {p['sms_units']} SMS"
     if kind == SMS_NAME:
@@ -241,7 +348,7 @@ def attach_card(con: sqlite3.Connection, payment: sqlite3.Row, clinic: sqlite3.R
     if payment["status"] != PENDING:
         raise ValueError("not_pending")
     pay_id, pay_url = maib.create(int(payment["amount"]), payment["reference"],
-                                  f"DentPilot {payment['reference']}: {subject(payment)} — {clinic['name']}",
+                                  f"DentPilot {payment['reference']}: {subject(payment, con)} — {clinic['name']}",
                                   clinic["email"] or "", client_ip)
     con.execute("UPDATE payments SET method=?, provider_id=?, pay_url=?, provider_status='' WHERE id=?",
                 (CARD, pay_id, pay_url, payment["id"]))
@@ -352,27 +459,46 @@ def confirm(con: sqlite3.Connection, payment: sqlite3.Row, who: str,
         (sms.credit_pack if payment["kind"] == SMS else sms.credit_name)(con, payment, who)
         receipts.create(con, payment["id"], who)
         return 0, ""
+    con.execute("UPDATE payments SET status=?, paid_at=?, confirmed_by=?, paid_via=? WHERE id=? AND status=?",
+                (PAID, db.now_iso(), who, via, payment["id"], PENDING))
+    if payment["kind"] == CABINET:
+        # общая нота (26.10): каждая клиника строки — своим продлением и своим файлом
+        first, items = None, []
+        for ln in lines_of(con, payment["id"]):
+            c = con.execute("SELECT * FROM clinics WHERE id=?", (ln["clinic_id"],)).fetchone()
+            issued, period = _prolong(con, c, ln, payment, who, note=" (общая нота)")
+            first = first or issued
+            items.append(receipts.line_item(c, ln, period))
+        receipts.create(con, payment["id"], who, items=items)
+        return first or (0, "")
+    issued, period = _prolong(con, clinic, payment, payment, who)
+    # cont de plată (17.10): снимок оплаты с оплаченным сроком — от начала периода до нового конца
+    receipts.create(con, payment["id"], who, period=period)
+    return issued
+
+
+def _prolong(con: sqlite3.Connection, clinic: sqlite3.Row, line: sqlite3.Row, payment: sqlite3.Row, who: str,
+             note: str = "") -> tuple[tuple[int, str], tuple[datetime, datetime]]:
+    """Продление клиники по оплаченной строке (`line` — своя нота или строка общей: вариант,
+    срок, сумма): срок от большей из дат с якорем, файл, вариант и цена подписки, модуль SMS.
+    → (выдача, (начало периода, новый конец)) — период для cont de plată."""
     sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (clinic["id"],)).fetchone()
     now = datetime.now(timezone.utc).replace(microsecond=0)
     current = db.parse_ts(sub["valid_until"]) if sub else None
     day = anchor_day(current, now, sub["anchor_day"] if sub else None)
-    valid = extend_from(current, int(payment["months"]), now, day)
+    valid = extend_from(current, int(line["months"]), now, day)
     grace = valid + timedelta(days=license.GRACE_DAYS)
-    tier, price, sms_until, switch = tier_after(sub, payment, now)
-    con.execute("UPDATE payments SET status=?, paid_at=?, confirmed_by=?, paid_via=? WHERE id=? AND status=?",
-                (PAID, db.now_iso(), who, via, payment["id"], PENDING))
+    tier, price, sms_until, switch = tier_after(sub, line, now)
     db.audit(con, who, "payment_paid", clinic["id"],
-             f"{payment['reference']}: {payment['amount']} MDL, {tiers.NAME[tier]}, срок до {valid.strftime(db.TS)}"
+             f"{payment['reference']}{note}: {line['amount']} MDL, {tiers.NAME[tier]}, срок до {valid.strftime(db.TS)}"
              + (f"; {switch}" if switch else ""))
     issued = license.issue(con, clinic, "standard", valid, grace,
                            f"платёж {payment['reference']}", who)
     # якорь и вариант — после выдачи: она заводит строку подписки, если её ещё не было
     con.execute("UPDATE subscriptions SET anchor_day=?, tier=?, price=?, sms_until=? WHERE clinic_id=?",
                 (day, tier, price, sms_until, clinic["id"]))
-    # cont de plată (17.10): снимок оплаты с оплаченным сроком — от начала периода до нового конца
     start = now if current is None or current < now else current
-    receipts.create(con, payment["id"], who, period=(start, valid))
-    return issued
+    return issued, (start, valid)
 
 
 def tier_after(sub: sqlite3.Row | None, payment: sqlite3.Row, now: datetime) -> tuple[str, int, str | None, str]:
@@ -449,6 +575,10 @@ def credit_again(con: sqlite3.Connection, payment: sqlite3.Row, via: str, who: s
                  payment["months"], provider_id, pay_url, db.now_iso(), payment["kind"], payment["sms_units"],
                  payment["tier"]))
     new = con.execute("SELECT * FROM payments WHERE reference=?", (ref,)).fetchone()
+    # общая нота зачитывается вся, с теми же строками
+    con.execute("INSERT INTO payment_lines(payment_id, clinic_id, tier, months, amount) "
+                "SELECT ?, clinic_id, tier, months, amount FROM payment_lines WHERE payment_id=?",
+                (new["id"], payment["id"]))
     if att is not None:
         con.execute("UPDATE pay_attempts SET payment_id=? WHERE provider_id=?", (new["id"], provider_id))
     db.audit(con, who, "payment_repeat", payment["clinic_id"],

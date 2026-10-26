@@ -88,6 +88,14 @@ def _failures(con: sqlite3.Connection, start: datetime, end: datetime) -> list[d
     return out
 
 
+def _name_from(con: sqlite3.Connection, cid: str) -> dict:
+    owner = sms.name_owner(con, cid)
+    if owner == cid:
+        return {"name_from": "", "name_from_name": ""}
+    row = con.execute("SELECT name FROM clinics WHERE id=?", (owner,)).fetchone()
+    return {"name_from": owner, "name_from_name": row["name"] if row else owner}
+
+
 def _item(con: sqlite3.Connection, a: sqlite3.Row, start: datetime, end: datetime, now: datetime) -> dict:
     cid = a["cid"]
     last = con.execute("SELECT MAX(sent_at) FROM sms_messages WHERE clinic_id=? AND state NOT IN (?, ?)",
@@ -97,7 +105,9 @@ def _item(con: sqlite3.Connection, a: sqlite3.Row, start: datetime, end: datetim
             "enabled": bool(a["enabled"]), "pilot": bool(a["pilot"]), "offered": sms.offered(a),
             "sender": a["sender"], "sender_state": a["sender_state"], "sender_note": a["sender_note"],
             "sender_paper": bool(a["sender_paper_at"]), "sender_paper_file": bool(a["sender_paper_id"]), "sender_until": a["sender_until"],
-            "sender_prepaid": a["sender_prepaid"], "from": sms.sender_now(a, now),
+            "sender_prepaid": a["sender_prepaid"], "from": sms.sender_for(con, cid, now),
+            # имя общее на кабинет (26.10): у филиала — главной клиники; '' — своё
+            **_name_from(con, cid),
             "balance": sms.balance(con, cid), "daily_cap": a["daily_cap"],
             "used_today": sms.used_today(con, cid, now), "last_sent_at": last, **_counts(con, cid, start, end)}
 

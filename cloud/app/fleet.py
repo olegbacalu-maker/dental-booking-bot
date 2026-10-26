@@ -10,6 +10,12 @@
 выход на связь, версия, канал, ОС, последний seq файла у программы. Никаких
 данных пациентов и имён пользователей — политика сайта § 5.
 
+Подсказка «несколько компьютеров» (26.10, филиалы): у одного места работы обычно один
+компьютер с программой — остальные ходят к нему по сети. Больше одного АКТИВНОГО за
+ACTIVE_DAYS у одной клиники — повод спросить, не второй ли это пункт на одной лицензии.
+Только подсказка: ничего не запрещается. Переезд компьютера от одной клиники к другой
+(код кабинета, заявка) — строкой `device_moved` в журнале новой.
+
 ⛔ Канал односторонний (plan-fleet-admin): сервер слушает и записывает,
 программой не командует. «Отстаёт» — сравнение с последним выпуском GitHub
 (download.latest), а не команда обновиться; «молчит» — давно не выходил на
@@ -22,7 +28,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from . import db, download, license
 
@@ -31,6 +37,7 @@ AGENT_RE = re.compile(r"^DentPilot/(\d+\.\d+\.\d+)")
 CHANNELS = ("stable", "beta", "draft")
 OS_MAX = 60
 SILENT_DAYS = 7          # дольше без связи — «молчит» (программа ходит раз в сутки)
+ACTIVE_DAYS = 30         # «активный» компьютер — выходил на связь за этот срок (подсказка «несколько»)
 HEADER_DEVICE, HEADER_CHANNEL, HEADER_OS = "x-dentpilot-device", "x-dentpilot-channel", "x-dentpilot-os"
 
 
@@ -53,6 +60,11 @@ def touch(con: sqlite3.Connection, clinic_id: str, info: dict | None, seq: int |
     if not info:
         return
     now = db.now_iso()
+    was = con.execute("SELECT clinic_id FROM devices WHERE id=?", (info["id"],)).fetchone()
+    if was is not None and was["clinic_id"] != clinic_id:
+        old = con.execute("SELECT name FROM clinics WHERE id=?", (was["clinic_id"],)).fetchone()
+        db.audit(con, "program", "device_moved", clinic_id,
+                 f"{info['id']} — был у {old['name'] if old else was['clinic_id']} ({was['clinic_id']})")
     con.execute("""INSERT INTO devices(id, clinic_id, version, channel, os, first_seen_at, last_seen_at, last_seq)
                    VALUES(?,?,?,?,?,?,?,?)
                    ON CONFLICT(id) DO UPDATE SET clinic_id=excluded.clinic_id, version=excluded.version,
@@ -64,6 +76,14 @@ def touch(con: sqlite3.Connection, clinic_id: str, info: dict | None, seq: int |
 def of_clinic(con: sqlite3.Connection, clinic_id: str) -> list:
     return con.execute("SELECT * FROM devices WHERE clinic_id=? ORDER BY last_seen_at DESC",
                        (clinic_id,)).fetchall()
+
+
+def active(con: sqlite3.Connection, now: datetime | None = None) -> dict[str, int]:
+    """Сколько компьютеров клиники выходили на связь за ACTIVE_DAYS: {clinic_id: n}."""
+    now = now or datetime.now(timezone.utc)
+    since = (now - timedelta(days=ACTIVE_DAYS)).strftime(db.TS)
+    return dict(con.execute("SELECT clinic_id, count(*) FROM devices WHERE last_seen_at>=? GROUP BY clinic_id",
+                            (since,)).fetchall())
 
 
 def _ver(s: str) -> tuple:
@@ -92,6 +112,7 @@ def report(con: sqlite3.Connection, now: datetime | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     rel = download.latest()
     latest = rel.version if rel else ""
+    act = active(con, now)
     items = []
     for r in con.execute(_ROWS).fetchall():
         seen = db.parse_ts(r["last_seen_at"])
@@ -103,9 +124,11 @@ def report(con: sqlite3.Connection, now: datetime | None = None) -> dict:
             "last_seq": r["last_seq"], "silent_days": silent,
             "behind": behind(r["version"], latest),
             "silent": silent is not None and silent > SILENT_DAYS,
-            "plan": r["plan"] or "",
+            "plan": r["plan"] or "", "clinic_active": act.get(r["clinic_id"], 0),
+            "multi": act.get(r["clinic_id"], 0) > 1,
             "state": license.state(db.parse_ts(r["valid_until"]), r["grace_days"] or 0, now),
         })
     return {"latest": latest, "devices": items,
             "counts": {"devices": len(items), "clinics": len({i["clinic_id"] for i in items}),
-                       "behind": sum(i["behind"] for i in items), "silent": sum(i["silent"] for i in items)}}
+                       "behind": sum(i["behind"] for i in items), "silent": sum(i["silent"] for i in items),
+                       "multi_clinics": sum(1 for n in act.values() if n > 1)}}

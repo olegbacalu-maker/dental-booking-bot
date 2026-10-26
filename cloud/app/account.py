@@ -12,6 +12,13 @@ Google; нам приходят только идентификатор акка
 к которой запись привязана (`clinic_id`), и у одной клиники записей может
 быть несколько (директор и администратор).
 
+С 26.10 у учётной записи может быть НЕСКОЛЬКО клиник (филиал = ещё одна клиника в том же
+кабинете, cabinet.py): вход — `account_clinics`, `accounts.clinic_id` — клиника, открытая
+последней. «Adaugă clinică» (`add_clinic`) — заявка на пробный теми же правилами, что
+регистрация, но тот же IDNO и тот же ящик разрешены, если совпавшая клиника — своя.
+Компьютер новой клиники активируется кодом из кабинета (`new_code` / `use_code`): 7 цифр —
+поле кода программы 2.0.9 принимает не больше 7 знаков.
+
 Входит обычно ДИРЕКТОР своим личным Google-аккаунтом (слово Олега 01.10:
 «у клиник своего аккаунта нет»), поэтому ящик Google и ящик клиники — чаще
 всего разные. Привязка: клиника с тем же подтверждённым ящиком (в
@@ -40,6 +47,7 @@ JWKS — слой, который однажды разошёлся бы с пе
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 import secrets
@@ -49,8 +57,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
-from . import auth, config, db, trial
+from . import auth, cabinet, config, db, trial
 
 log = logging.getLogger("cloud.account")
 
@@ -192,11 +201,9 @@ def login(con: sqlite3.Connection, ident: Identity, ip: str) -> sqlite3.Row:
         con.execute("UPDATE accounts SET email=?, name=?, last_login_at=? WHERE id=?",
                     (ident.email, ident.name, now, aid))
     acc = get(con, aid)
-    if not acc["clinic_id"]:
-        same = trial.existing(con, "", ident.email)
-        if same is not None:
-            link(con, acc, same["id"], f"по e-mail {ident.email}")
-            acc = get(con, aid)
+    if not clinics(con, acc):
+        link_by_email(con, acc, ident.email)
+        acc = get(con, aid)
     db.audit(con, ident.email, "account_login", acc["clinic_id"], ip)
     return acc
 
@@ -218,28 +225,61 @@ def login_email(con: sqlite3.Connection, email: str, ip: str) -> sqlite3.Row:
         aid = acc["id"]
         con.execute("UPDATE accounts SET last_login_at=? WHERE id=?", (now, aid))
     acc = get(con, aid)
-    if not acc["clinic_id"]:
-        same = trial.existing(con, "", email)
-        if same is not None:
-            link(con, acc, same["id"], f"по e-mail {email}")
-            acc = get(con, aid)
+    if not clinics(con, acc):
+        link_by_email(con, acc, email)
+        acc = get(con, aid)
     db.audit(con, email, "account_login", acc["clinic_id"], f"e-mail, {ip}")
     return acc
 
 
 def link(con: sqlite3.Connection, acc: sqlite3.Row, clinic_id: str, how: str) -> None:
+    """Вход учётной записи в клинику; она же становится открытой (accounts.clinic_id)."""
+    con.execute("INSERT OR IGNORE INTO account_clinics(account_id, clinic_id, added_at, how) VALUES(?,?,?,?)",
+                (acc["id"], clinic_id, db.now_iso(), how[:200]))
     con.execute("UPDATE accounts SET clinic_id=? WHERE id=?", (clinic_id, acc["id"]))
     db.audit(con, acc["email"], "account_link", clinic_id, how)
 
 
+def link_by_email(con: sqlite3.Connection, acc: sqlite3.Row, email: str) -> None:
+    """Запись без клиник — вход во ВСЕ живые клиники с этим ящиком (у филиала он бывает тот же,
+    что у главной); открыта первая по дате. Сравнение ящиков — trial.canonical."""
+    want = trial.canonical(email)
+    domain = want.partition("@")[2]
+    rows = con.execute("SELECT * FROM clinics WHERE declined_at IS NULL AND lower(email) LIKE ? "
+                       "ORDER BY created_at DESC, id DESC", ("%@" + domain,)).fetchall()
+    for r in rows:                              # первая по дате привязывается последней — она и открыта
+        if r["email"] and trial.canonical(r["email"]) == want:
+            link(con, acc, r["id"], f"по e-mail {email}")
+
+
 def detach(con: sqlite3.Connection, acc: sqlite3.Row, who: str) -> None:
-    """Отвязать и удалить запись: следующий вход этого аккаунта — как первый."""
+    """Отвязать и удалить запись: следующий вход этого аккаунта — как первый. Вход во все её
+    клиники уходит вместе с ней."""
+    con.execute("DELETE FROM account_clinics WHERE account_id=?", (acc["id"],))
     con.execute("DELETE FROM accounts WHERE id=?", (acc["id"],))
     db.audit(con, who, "account_detach", acc["clinic_id"], f"{acc['email']} ({acc['id']})")
 
 
 def of_clinic(con: sqlite3.Connection, clinic_id: str) -> list:
-    return con.execute("SELECT * FROM accounts WHERE clinic_id=? ORDER BY created_at", (clinic_id,)).fetchall()
+    return cabinet.accounts_of(con, clinic_id)
+
+
+def clinics(con: sqlite3.Connection, acc: sqlite3.Row) -> list:
+    """Клиники учётной записи по дате заведения (главная первой)."""
+    return cabinet.of_account(con, acc["id"])
+
+
+def pick(con: sqlite3.Connection, acc: sqlite3.Row, c: str, post: bool = False) -> sqlite3.Row | None:
+    """Какая клиника у этого запроса кабинета. Названа (`?c=`) — только своя. Не названа:
+    страница — открытая последней (иначе первая); ⛔ форма — только если клиника у записи
+    ОДНА: вкладка, открытая на одной клинике, не должна записать в другую (намерение — из
+    формы, а не из того, что открыто сейчас). None — нет такой или не своя."""
+    mine = clinics(con, acc)
+    if c:
+        return next((r for r in mine if r["id"] == c), None)
+    if post:
+        return mine[0] if len(mine) == 1 else None
+    return next((r for r in mine if r["id"] == acc["clinic_id"]), mine[0] if mine else None)
 
 
 def register(con: sqlite3.Connection, acc: sqlite3.Row, f: dict, ip: str) -> tuple[str, sqlite3.Row]:
@@ -259,10 +299,14 @@ def request_link(con: sqlite3.Connection, acc: sqlite3.Row, clinic: sqlite3.Row,
 
 
 def confirm_link(con: sqlite3.Connection, acc: sqlite3.Row, vid: str, code: str, ip: str) -> sqlite3.Row | None:
-    """Верный код → запись привязана к клинике кода; None — код не подошёл."""
+    """Верный код → запись привязана к клинике кода и к остальным клиникам её кабинета (кто
+    читает почту клиники, тот и решает — 26.10); None — код не подошёл."""
     clinic = trial.check_code(con, vid, code, ip, who=acc["email"])
     if clinic is None:
         return None
+    for r in reversed(cabinet.of(con, clinic["id"])):
+        if r["id"] != clinic["id"] and r["declined_at"] is None:
+            link(con, acc, r["id"], f"clinica din același cont cu {clinic['name']}")
     link(con, acc, clinic["id"], f"cod pe e-mailul clinicii, Google {acc['email']}")
     return clinic
 
@@ -282,8 +326,143 @@ def clean_edit(fields: dict) -> tuple[dict, str]:
 
 
 def idno_taken(con: sqlite3.Connection, idno: str, clinic_id: str) -> bool:
-    """Тот же IDNO у другой живой клиники — кабинету его не присвоить."""
+    """Тот же IDNO у другой живой клиники — кабинету его не присвоить. Клиники своего
+    кабинета не в счёт: у филиалов IDNO общий (26.10)."""
     if not idno:
         return False
-    return con.execute("SELECT 1 FROM clinics WHERE idno=? AND id<>? AND declined_at IS NULL",
-                       (idno, clinic_id)).fetchone() is not None
+    own = cabinet.ids(con, clinic_id)
+    return any(r["id"] not in own for r in
+               con.execute("SELECT id FROM clinics WHERE idno=? AND id<>? AND declined_at IS NULL",
+                           (idno, clinic_id)).fetchall())
+
+
+# ---------- клиника в кабинет: «Adaugă clinică» (26.10) ----------
+
+CLINICS_MAX = 20          # клиник у одной записи: потолок от ошибки и спама, не тариф
+
+
+def clean_new(fields: dict) -> tuple[dict, str]:
+    """Новая клиника кабинета: поля и правила заявки на пробный (trial.clean) плюс адрес — по
+    нему филиалы различают в списке, поэтому обязателен."""
+    f, code = trial.clean(fields)
+    f["address"] = " ".join((fields.get("address") or "").split())
+    if code:
+        return f, code
+    if not f["address"]:
+        return f, "need_address"
+    if len(f["address"]) > ADDRESS_MAX:
+        return f, "too_long"
+    return f, ""
+
+
+def add_clinic(con: sqlite3.Connection, current: sqlite3.Row, f: dict, ip: str, who: str,
+               origin: str = trial.ORIGIN_CONT_ADD) -> tuple[str, sqlite3.Row]:
+    """Ещё одна клиника кабинета `current` → (исход trial.submit, клиника). Заявка на пробный
+    теми же правилами и тем же режимом (approve/auto), что у любой новой клиники; тот же IDNO
+    или ящик разрешены, если совпавшая клиника — этого кабинета, чужая — DUPLICATE, ничего не
+    заведено. Вход в новую — у всех записей кабинета `current`: директор и администратор видят
+    одно и то же."""
+    own = cabinet.ids(con, current["id"])
+    outcome, clinic = trial.submit(con, f, ip, who=who, origin=origin, allow=own)
+    if outcome == trial.DUPLICATE:
+        return outcome, clinic
+    marks = ",".join("?" * len(own))
+    con.execute(f"INSERT OR IGNORE INTO account_clinics(account_id, clinic_id, added_at, how) "
+                f"SELECT DISTINCT account_id, ?, ?, ? FROM account_clinics WHERE clinic_id IN ({marks})",
+                (clinic["id"], db.now_iso(), f"adăugată lângă {current['name']}"[:200], *sorted(own)))
+    db.audit(con, who, "clinic_added", clinic["id"], f"{clinic['name']} — в кабинет {current['name']} ({current['id']})")
+    return outcome, con.execute("SELECT * FROM clinics WHERE id=?", (clinic["id"],)).fetchone()
+
+
+def add_sibling(con: sqlite3.Connection, current: sqlite3.Row, f: dict, who: str) -> tuple[str, sqlite3.Row]:
+    """Админка › «Добавить клинику в кабинет» (Олег 26.10: «и владелец и я в админке»): клиника
+    как из админки (без заявки и пробного — его выдаёт кнопка карточки), входы кабинета `current`.
+    → ('created', клиника) или (trial.DUPLICATE, чужая клиника с этим IDNO или ящиком)."""
+    own = cabinet.ids(con, current["id"])
+    if f["idno"] or f["email"]:
+        # ящика нет — сверка только по IDNO: пустой ящик совпал бы с любой клиникой без ящика
+        old = trial.existing(con, f["idno"], f["email"] or "-@-", own)
+        if old is not None:
+            return trial.DUPLICATE, old
+    cid = "c_" + secrets.token_hex(6)
+    con.execute("INSERT INTO clinics(id, name, idno, contact_name, email, phone, address, created_at) "
+                "VALUES(?,?,?,?,?,?,?,?)", (cid, f["name"], f["idno"], f["contact_name"], f["email"], f["phone"],
+                                            f["address"], db.now_iso()))
+    marks = ",".join("?" * len(own))
+    con.execute(f"INSERT OR IGNORE INTO account_clinics(account_id, clinic_id, added_at, how) "
+                f"SELECT DISTINCT account_id, ?, ?, ? FROM account_clinics WHERE clinic_id IN ({marks})",
+                (cid, db.now_iso(), f"adăugată de DentPilot lângă {current['name']}"[:200], *sorted(own)))
+    db.audit(con, who, "clinic_added", cid, f"{f['name']} — в кабинет {current['name']} ({current['id']}), из админки")
+    return "created", con.execute("SELECT * FROM clinics WHERE id=?", (cid,)).fetchone()
+
+
+# ---------- код активации из кабинета (26.10) ----------
+#
+# Компьютер клиники кабинета активируется обычным путём программы: заявка с тем же IDNO →
+# «клиника известна» → поле кода. Код из письма (6 цифр) привязывает компьютер к клинике,
+# которую нашла заявка (главной: она старше); код кабинета (7 цифр) — к той, для которой его
+# выдали. ⛔ 7, не больше и не буквы: поле кода программы 2.0.9 — maxlength 7, inputmode numeric
+# (bot/app/core/layout.py, _CODE_FORM). Перебор держат: живой verify_id обязателен (его даёт
+# только заявка, кодов на клинику — trial.CODES_PER_HOUR), ошибки считаются этому verify_id
+# (trial.CODE_ATTEMPTS), проверок с адреса — trial.VERIFY_PER_HOUR; живые коды не совпадают.
+
+CODE_DIGITS = 7
+CODE_TTL = timedelta(days=7)
+CODES_PER_HOUR = 10       # кодов одной клинике из кабинета в час
+
+
+def is_cabinet_code(code: str) -> bool:
+    return len(code) == CODE_DIGITS and code.isdigit()
+
+
+def _hash(code: str) -> str:
+    return hashlib.sha256(f"cabinet:{code}".encode("ascii")).hexdigest()
+
+
+def new_code(con: sqlite3.Connection, clinic: sqlite3.Row, who: str) -> tuple[str, str]:
+    """Код для компьютера клиники → (код, срок ISO) или ('', '') — лимит в час. Прежний
+    неиспользованный код этой клиники гаснет: живой у клиники один."""
+    now = datetime.now(timezone.utc)
+    stamp = now.strftime(db.TS)
+    hour_ago = (now - timedelta(hours=1)).strftime(db.TS)
+    if con.execute("SELECT count(*) FROM cabinet_codes WHERE clinic_id=? AND created_at>?",
+                   (clinic["id"], hour_ago)).fetchone()[0] >= CODES_PER_HOUR:
+        db.audit(con, who, "code_limit", clinic["id"], "код кабинета")
+        return "", ""
+    con.execute("UPDATE cabinet_codes SET expires_at=? WHERE clinic_id=? AND used_at IS NULL AND expires_at>?",
+                (stamp, clinic["id"], stamp))
+    while True:                                  # живые коды разных клиник не совпадают
+        code = f"{secrets.randbelow(10 ** CODE_DIGITS):0{CODE_DIGITS}d}"
+        if not con.execute("SELECT 1 FROM cabinet_codes WHERE code_hash=? AND used_at IS NULL AND expires_at>?",
+                           (_hash(code), stamp)).fetchone():
+            break
+    until = (now + CODE_TTL).strftime(db.TS)
+    con.execute("INSERT INTO cabinet_codes(clinic_id, code_hash, created_at, expires_at, who) VALUES(?,?,?,?,?)",
+                (clinic["id"], _hash(code), stamp, until, who))
+    db.audit(con, who, "cont_code", clinic["id"], f"код компьютера из кабинета, до {until[:10]}")
+    return code, until
+
+
+def use_code(con: sqlite3.Connection, vid: str, code: str, ip: str, device: str = "") -> sqlite3.Row | None:
+    """Код кабинета с verify_id программы → клиника кода (код и verify_id погашены) или None:
+    verify_id не живой, кода нет или он чужого кабинета — тогда ошибка засчитана verify_id, как
+    неверный код из письма."""
+    row = con.execute("SELECT * FROM activation_codes WHERE id=?", (vid,)).fetchone()
+    now = datetime.now(timezone.utc)
+    stamp = now.strftime(db.TS)
+    if (row is None or row["used_at"] or row["attempts"] >= trial.CODE_ATTEMPTS
+            or (db.parse_ts(row["expires_at"]) or now) <= now):
+        return None
+    own = cabinet.ids(con, row["clinic_id"])
+    hit = next((x for x in con.execute("SELECT * FROM cabinet_codes WHERE code_hash=? AND used_at IS NULL "
+                                       "AND expires_at>?", (_hash(code), stamp)).fetchall()
+                if x["clinic_id"] in own), None)
+    if hit is None:
+        con.execute("UPDATE activation_codes SET attempts = attempts + 1 WHERE id=?", (vid,))
+        db.audit(con, "program", "code_bad", row["clinic_id"], f"код кабинета, {ip}")
+        return None
+    con.execute("UPDATE cabinet_codes SET used_at=?, device=? WHERE id=?", (stamp, device[:40], hit["id"]))
+    con.execute("UPDATE activation_codes SET used_at=? WHERE id=?", (stamp, vid))
+    db.audit(con, "program", "cont_code_ok", hit["clinic_id"],
+             f"компьютер {device or '—'} активирован кодом кабинета, {ip}")
+    return con.execute("SELECT * FROM clinics WHERE id=? AND declined_at IS NULL", (hit["clinic_id"],)).fetchone()
