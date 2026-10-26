@@ -370,6 +370,15 @@
 .dp-react-root .vmeta { color: var(--text3); font-size: var(--fs-s); margin-top: 6px; }
 .dp-react-root .vsec { margin: 6px 0 0; font-size: var(--fs-m); }
 .dp-react-root .fform .dlab { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-s); font-weight: 600; color: var(--text3); }
+/* прикус (26.10): сводка словами листа над свёрнутой формой; поля парами
+   (dreapta/stânga, overjet/overbite, мм/spre); поле, названное в отказе
+   сервера или не число, — красная рамка */
+.dp-react-root .ocsum { margin: 0 0 6px; font-size: var(--fs-s); color: var(--text2); line-height: 1.4; }
+.dp-react-root .ocform .ocrow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin: 0 0 8px; padding: 0; border: none; min-width: 0; }
+.dp-react-root .ocform .ocrow legend { font-size: var(--fs-s); font-weight: 600; color: var(--text3); padding: 0; margin-bottom: 2px; }
+.dp-react-root .ocform .dlab { margin-bottom: 8px; }
+.dp-react-root .ocform .ocrow .dlab { margin-bottom: 0; }
+.dp-react-root .ocform .dlab.is-bad input, .dp-react-root .ocform .dlab.is-bad select { border-color: var(--red); box-shadow: 0 0 0 2px var(--red-soft); }
 
 /* ---- клинический модуль (C21): рисунок выбранного зуба в инспекторе — тот же
    Tooth, но без кнопочного оформления и номера ---- */

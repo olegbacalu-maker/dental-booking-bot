@@ -199,6 +199,8 @@ export interface Options {
   /** «Niciuna dintre afecțiunile de mai sus» — последняя строка списка, взаимоисключающая с двенадцатью. */
   anamneza_none: { id: string; label: string }
   anamneza_texts: { id: string; label: string; placeholder: string }[]
+  /** Классы Энгля («neevaluat» = '') и стороны средней линии — белые списки сервера. */
+  ocluzie: { angle: { id: string; label: string }[]; sides: { id: string; label: string }[] }
   doc_categories: { id: string; label: string }[]
   max_doc_mb: number
   pay_methods: { id: string; icon: string }[]
@@ -207,6 +209,17 @@ export interface Options {
   teeth: number[]
   milk: number[]
   doctors: string[]
+}
+
+/** Прикус — графа «Ocluzia» 043/e (26.10): поля как в базе, `summary` —
+ *  та же строка, что печатает лист (одно правило на сервере). Пусто = не
+ *  записано, не «норма»; `filled` — запись есть (даже снятая до пустой). */
+export interface Ocluzie {
+  filled: boolean
+  fields: Record<string, string>
+  summary: string
+  when: string
+  author: string
 }
 
 export interface PatientCard {
@@ -220,6 +233,7 @@ export interface PatientCard {
   kpi: Kpi
   alerts: Alert[]
   anamneza: Anamneza
+  ocluzie: Ocluzie
   plan: Plan
   finance: Finance
   documents: Doc[]
@@ -299,6 +313,9 @@ export const patientCard = {
     api.post<PatientCard>(`${P(pid)}/alerts/${aid}/delete${V(views)}`, {}),
   saveAnamneza: (pid: number, views: boolean, flags: string[], texts: Record<string, string>) =>
     api.post<PatientCard>(`${P(pid)}/anamneza${V(views)}`, { flags, ...texts }),
+  /** Все поля формы разом: отсутствующий ключ сервер читает как «не сообщали». */
+  saveOcluzie: (pid: number, views: boolean, fields: Record<string, string>) =>
+    api.post<PatientCard>(`${P(pid)}/ocluzie${V(views)}`, fields),
   addPlan: (pid: number, views: boolean, form: PlanForm) =>
     api.post<PatientCard>(`${P(pid)}/plan${V(views)}`, form),
   planStatus: (pid: number, views: boolean, iid: number, to: string, motiv = '') =>

@@ -15,6 +15,7 @@ import type { ApiError } from '../../../types/api'
 import { ActivityCard } from './ActivityCard'
 import { AlertsCard } from './AlertsCard'
 import { AnamnezaCard, anDirty, type AnDraft } from './AnamnezaCard'
+import { OcluziaCard, ocDirty, type OcDraft } from './OcluziaCard'
 import { AppointDialog } from './AppointDialog'
 import { DocumentsCard, type DocsPick } from './DocumentsCard'
 import { FinanceCard } from './FinanceCard'
@@ -54,6 +55,8 @@ const T = {
   offline: 'Programul nu răspunde. Reîncercați.',
   unsaved: 'Anamneză nesalvată',
   anUnsaved: 'Anamneza are modificări nesalvate.',
+  ocUnsavedTab: 'Ocluzie nesalvată',
+  ocUnsaved: 'Ocluzia are modificări nesalvate.',
   leaveCard: 'Părăsiți fișa fără să le salvați?',
   leaveOdo: 'Părăsiți formula dentară fără să le salvați?',
   leave: 'Părăsește',
@@ -213,12 +216,18 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
      размонтируется при переходе, и набранное пропадало молча. Здесь он
      переживает вкладки; уход с ФИШИ с несохранённым — через вопрос. */
   const [anDraft, setAnDraft] = useState<AnDraft | null>(null)
+  /* черновик прикуса (26.10) — та же грабля размонтирования, тот же дом */
+  const [ocDraft, setOcDraft] = useState<OcDraft | null>(null)
   /* `?anamneza=1` (кнопка «Anamneză» в повестке панели, 09.10): фиша
      открывается сразу с раскрытым опросником — та же просьба, что из шапки */
   const [anTick, setAnTick] = useState(q.get('anamneza') ? 1 : 0)
   /* «Încarcă exemplarul semnat» из плана: вкладка Documente с нужной категорией */
   const [docsPick, setDocsPick] = useState<DocsPick | null>(null)
-  const dirty = state.status === 'ready' && anDirty(anDraft, state.data.anamneza)
+  const anIsDirty = state.status === 'ready' && anDirty(anDraft, state.data.anamneza)
+  const ocIsDirty = state.status === 'ready' && ocDirty(ocDraft, state.data.ocluzie)
+  /* несохранённое во вкладке «Date pacient» — анамнез или прикус: точка на
+     вкладке и вопрос при уходе с фиши общие */
+  const dirty = anIsDirty || ocIsDirty
   /* ⭐ Черновики одонтограммы (волна 2, 25.10) — зубы, о которых сообщает
      рабочий стол вкладки (`onDirty`). Их охраняет ЭТОТ же блокер: роутер
      держит один, и второй во вкладке молча выключил бы вопрос анамнеза.
@@ -236,13 +245,14 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
   useEffect(() => {
     if (blocker.state !== 'blocked') return
     const away = blocker.location.pathname !== pathname
-    const text = [dirty && away ? T.anUnsaved : '', odoDirty.length ? unsavedTeeth(odoDirty) : '',
+    const text = [anIsDirty && away ? T.anUnsaved : '', ocIsDirty && away ? T.ocUnsaved : '',
+      odoDirty.length ? unsavedTeeth(odoDirty) : '',
       away ? T.leaveCard : T.leaveOdo].filter(Boolean).join(' ')
     void ask({ text, ok: T.leave, danger: true }).then((yes) => {
       if (yes) blocker.proceed()
       else blocker.reset()
     })
-  }, [blocker, dirty, odoDirty, pathname])
+  }, [blocker, anIsDirty, ocIsDirty, odoDirty, pathname])
 
   const fail = useCallback((e: unknown): ApiError => {
     const err = asApiError(e)
@@ -415,7 +425,7 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
         {TABS.map(([k, label]) => (
           <button key={k} id={`wtab-${k}`} type="button" role="tab" aria-selected={tab === k}
             aria-controls="wpanel" tabIndex={tab === k ? 0 : -1} className={tab === k ? 'on' : ''}
-            title={k === 'date' && dirty ? T.unsaved : undefined}
+            title={k === 'date' && dirty ? [anIsDirty ? T.unsaved : '', ocIsDirty ? T.ocUnsavedTab : ''].filter(Boolean).join(' · ') : undefined}
             onClick={() => goTab(k)}>
             {label}
             {/* точка — только глазу: имя вкладки для читалки и проверок остаётся прежним */}
@@ -483,6 +493,9 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
               {/* пометки — тут же, под опросником (09.10, Олег: «в той же вкладке Anamneza»):
                   врач заполняет анамнез и ставит пометки в одном месте */}
               <AlertsCard card={card} a={a} withAnamneza={false} />
+              {/* прикус (26.10) — графа «Ocluzia» 043/e, под пометками
+                  (координатор 26.10: порядок «пометки под опросником» не трогать) */}
+              <OcluziaCard card={card} a={a} draft={ocDraft} onDraft={setOcDraft} />
             </div>
           </div>
         )}

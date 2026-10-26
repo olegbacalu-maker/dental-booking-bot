@@ -99,6 +99,7 @@ const CARD: PatientCard = {
     free: [{ label: 'Alergii (medicamente, materiale)', text: 'latex', short: 'Alergii' }],
     when: '18.09.2026', author: 'Director',
   },
+  ocluzie: { filled: false, fields: { angle_dr: '', angle_st: '', overjet: '', overbite: '', incrucisata: '', deschisa: '', mediana_mm: '', mediana_spre: '', nota: '', doctor: '' }, summary: '', when: '', author: '' },
   plan: {
     items: [
       { id: 1, tooth: 11, procedure: 'Coroană 11', doctor: 'Dr. Activ Doi', status: 'in_lucru', label: 'În lucru', price: 1200, due: '', overdue: false, done: '', motiv: '', next: 'finalizat', refusable: true, deletable: false },
@@ -153,6 +154,7 @@ const CARD: PatientCard = {
     anamneza_flags: [{ id: 'cardio', label: 'Boli cardiovasculare / hipertensiune' }, { id: 'diabet', label: 'Diabet zaharat' }],
     anamneza_none: { id: 'niciuna', label: 'Niciuna dintre afecțiunile de mai sus' },
     anamneza_texts: [{ id: 'alergii', label: 'Alergii (medicamente, materiale)', placeholder: 'ex. penicilină' }],
+    ocluzie: { angle: [{ id: '', label: 'neevaluat' }, { id: 'I', label: 'I' }, { id: 'II/1', label: 'II/1' }], sides: [{ id: '', label: '—' }, { id: 'dreapta', label: 'dreapta' }] },
     doc_categories: [{ id: 'radiografie', label: 'Radiografie' }, { id: 'acord_plan', label: 'Acord informat la plan — semnat' }, { id: 'alt', label: 'Alt document' }],
     max_doc_mb: 25,
     pay_methods: [{ id: 'numerar', icon: 'cash' }, { id: 'card', icon: 'card' }],
@@ -1364,6 +1366,44 @@ describe('PatientCardScreen', () => {
     expect(post).toHaveBeenCalledWith('/patients/5/anamneza', expect.objectContaining({ flags: ['cardio'] }))
     expect(screen.queryByText('modificări nesalvate')).toBeNull()
     expect(strip().getByRole('tab', { name: /Date pacient/ }).querySelector('.wtab-dot')).toBeNull()
+  })
+
+  it('прикус (26.10): черновик переживает смену вкладки, вкладка помечена, уход спрашивает и называет прикус; сохранение шлёт все поля', async () => {
+    serve()
+    const { router } = open()
+    await settled()
+    await tabTo('Date pacient')
+    const oj = () => screen.getByLabelText('Overjet (mm)') as HTMLInputElement
+    expect(oj().value).toBe('')
+    fireEvent.change(oj(), { target: { value: '3' } })
+    expect(within(document.querySelector('#ocluzia') as HTMLElement).getByText('modificări nesalvate')).toBeTruthy()
+    await tabTo('Rezumat')
+    const tab = () => strip().getByRole('tab', { name: /Date pacient/ })
+    expect(tab().querySelector('.wtab-dot')).toBeTruthy()
+    expect(tab().getAttribute('title')).toBe('Ocluzie nesalvată')
+    await tabTo('Date pacient')
+    expect(oj().value).toBe('3')
+    /* уход с фиши — вопрос называет прикус (анамнез чист); отказ оставляет на месте */
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    fireEvent.click(screen.getByRole('link', { name: /Pacienți/ }))
+    await waitFor(() => expect(confirm).toHaveBeenLastCalledWith('Ocluzia are modificări nesalvate. Părăsiți fișa fără să le salvați?'))
+    expect(router.state.location.pathname).toBe('/admin/patient/5')
+    /* оба грязны — вопрос называет оба, анамнез первым */
+    fireEvent.click(screen.getByLabelText('Diabet zaharat'))
+    expect(tab().getAttribute('title')).toBe('Anamneză nesalvată · Ocluzie nesalvată')
+    fireEvent.click(screen.getByRole('link', { name: /Pacienți/ }))
+    await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(
+      'Anamneza are modificări nesalvate. Ocluzia are modificări nesalvate. Părăsiți fișa fără să le salvați?'))
+    /* сохранили прикус — ВСЕ поля разом (отсутствующий ключ сервер читал бы как «не сообщали»), черновика нет */
+    const saved = { ...CARD.ocluzie, filled: true, fields: { ...CARD.ocluzie.fields, overjet: '3' }, summary: 'overjet 3 mm', when: '26.10.2026', author: 'Director' }
+    post.mockResolvedValueOnce(ok({ ...CARD, ocluzie: saved }, 'ok_occl', 'Ocluzia a fost salvată'))
+    fireEvent.click(screen.getByRole('button', { name: /Salvează ocluzia/ }))
+    expect(await screen.findByText('Ocluzia a fost salvată')).toBeTruthy()
+    expect(post).toHaveBeenCalledWith('/patients/5/ocluzie', { ...CARD.ocluzie.fields, overjet: '3' })
+    expect(document.querySelector('#ocluzia .ocsum')?.textContent).toBe('overjet 3 mm')
+    expect(within(document.querySelector('#ocluzia') as HTMLElement).queryByText('modificări nesalvate')).toBeNull()
+    /* анамнез всё ещё грязен — точка остаётся, подпись только его */
+    expect(tab().getAttribute('title')).toBe('Anamneză nesalvată')
   })
 
   it('волна 2: черновик зубов — вопрос и при смене вкладки, и при уходе; анамнез и зубы грязны — вопрос называет оба (один блокер)', async () => {
