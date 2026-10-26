@@ -358,10 +358,10 @@ def clean_new(fields: dict) -> tuple[dict, str]:
 def add_clinic(con: sqlite3.Connection, current: sqlite3.Row, f: dict, ip: str, who: str,
                origin: str = trial.ORIGIN_CONT_ADD) -> tuple[str, sqlite3.Row]:
     """Ещё одна клиника кабинета `current` → (исход trial.submit, клиника). Заявка на пробный
-    теми же правилами и тем же режимом (approve/auto), что у любой новой клиники; тот же IDNO
-    или ящик разрешены, если совпавшая клиника — этого кабинета, чужая — DUPLICATE, ничего не
-    заведено. Вход в новую — у всех записей кабинета `current`: директор и администратор видят
-    одно и то же."""
+    теми же правилами, что у любой новой клиники, но ждёт одобрения Олега при любом режиме
+    (trial.APPROVE_ALWAYS); тот же IDNO или ящик разрешены, если совпавшая клиника — этого
+    кабинета, чужая — DUPLICATE, ничего не заведено. Вход в новую — у всех записей кабинета
+    `current`: директор и администратор видят одно и то же."""
     own = cabinet.ids(con, current["id"])
     outcome, clinic = trial.submit(con, f, ip, who=who, origin=origin, allow=own)
     if outcome == trial.DUPLICATE:

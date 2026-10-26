@@ -105,6 +105,13 @@ def _known(c: Client, device: str, mail_to: str = DIRECTOR) -> str:
     return d["verify_id"]
 
 
+def _approve(s: Server, cid: str) -> None:
+    """Олег одобряет пробный клиники кнопкой карточки — клиника из кабинета ждёт его всегда."""
+    r = Client(s.url).login().post(f"/admin/clinics/{cid}/issue", kind="trial", valid_until="", grace_days="7",
+                                   reason="")
+    assert "msg=issued" in r.location, f"выдать пробный {cid}: {r.location}"
+
+
 def _token_of(s: Server, cid: str) -> str:
     return _sql(s, "SELECT renew_token FROM clinics WHERE id=?", cid)[0][0]
 
@@ -148,9 +155,22 @@ def suite_cabinet(res: Result) -> None:
                r.status == 200 and len(branch) == 1 and branch[0][1:] == (IDNO, BRANCH["email"], BRANCH["address"],
                                                                          "cont_add"), repr(branch))
         bid = branch[0][0]
-        res.ok("пробный выдан, как любой новой клинике (auto): новый файл у новой клиники",
-               len(_sql(s, "SELECT 1 FROM issues")) == n_trials + 1
-               and _sql(s, "SELECT count(*) FROM issues WHERE clinic_id=?", bid)[0][0] == 1)
+        res.ok("⛔ пробный клинике из кабинета НЕ выдан и при DP_TRIAL_MODE=auto — ждёт Олега "
+               "(у главной, регистрации, он выдан по режиму)",
+               len(_sql(s, "SELECT 1 FROM issues")) == n_trials
+               and _sql(s, "SELECT count(*) FROM issues WHERE clinic_id=?", main)[0][0] == 1
+               and _sql(s, "SELECT requested_at IS NOT NULL, declined_at IS NULL FROM clinics WHERE id=?", bid)
+               == [(1, 1)])
+        queue = Client(s.url).login().get("/admin").body
+        res.ok("заявка ждёт в админке, с меткой «кабинет +»", "кабинет +" in queue and BRANCH["name"] in queue,
+               queue[-1500:])
+        ack = [b for to, _s, b, _a in _letters(s) if to == BRANCH["email"]]
+        res.ok("клинике — письмо «заявка принята»: программу ставить сейчас, кодом из кабинета, включится после "
+               "одобрения", any("codul de activare din contul clinicii" in b and "după aprobare" in b for b in ack),
+               repr(ack)[:500])
+        _approve(s, bid)
+        res.check("Олег выдал пробный кнопкой — у клиники файл",
+                  _sql(s, "SELECT count(*) FROM issues WHERE clinic_id=?", bid)[0][0], 1)
         res.ok("ответ — страница кода: 7 цифр клетками, предупреждение про код из письма для главной",
                len(code) == 7 and code.isdigit() and "Codul de activare" in r.body
                and "vine un cod de 6 cifre" in r.body and "Clinica Zambet" in r.body, r.body[-1800:])
@@ -159,8 +179,9 @@ def suite_cabinet(res: Result) -> None:
                _sql(s, "SELECT count(*) FROM account_clinics")[0][0] == 2
                and _sql(s, "SELECT clinic_id FROM accounts WHERE email=?", DIRECTOR)[0][0] == bid)
         oleg = [b for to, _s, b, _a in _letters(s) if to == "oleg@example.md"]
-        res.ok("Олегу письмо: заявка из кабинета — ещё одна клиника кабинета, с именем главной",
-               any("ещё одна клиника кабинета" in b and "Кабинет: Clinica Zambet" in b for b in oleg))
+        res.ok("Олегу письмо: заявка из кабинета — ещё одна клиника кабинета, с именем главной, ждёт его всегда",
+               any("ещё одна клиника кабинета" in b and "Кабинет: Clinica Zambet" in b
+                   and "при ЛЮБОМ режиме" in b for b in oleg))
 
         home = c.get(f"/cont?c={main}")
         res.ok("две клиники: список «Clinicile mele» над дашбордом, открытая подсвечена, у другой — «Deschide»",
@@ -250,10 +271,14 @@ def suite_code(res: Result) -> None:
         st, d = _api(prog, "/v1/verify", {"verify_id": vid, "code": code}, DEV1)
         res.ok("код кабинета: токен НОВОЙ клиники, не главной",
                st == 200 and d.get("token") == _token_of(s, bid) and d.get("token") != _token_of(s, main), repr(d))
+        res.check("до одобрения Олега файла нет: программа ждёт (204)",
+                  prog.get("/v1/license?seq=0", headers={"Authorization": f"Bearer {d.get('token', '')}"}).status,
+                  204)
+        _approve(s, bid)
         r = prog.get("/v1/license?seq=0", headers={"Authorization": f"Bearer {d.get('token', '')}"})
         _code, claim = rv.open_envelope(r.body, KEYS) if r.status == 200 else ("нет", None)
-        res.ok("по нему — файл новой клиники (её название)", claim is not None and claim.clinic == BRANCH["name"],
-               f"{r.status} {_code}")
+        res.ok("после одобрения — по тому же токену файл новой клиники (её название)",
+               claim is not None and claim.clinic == BRANCH["name"], f"{r.status} {_code}")
         res.check("компьютер привязан к новой клинике (флот)",
                   _sql(s, "SELECT clinic_id FROM devices WHERE id=?", DEV1), [(bid,)])
         res.ok("код погашен вместе с verify_id: второй раз — 400, у кода отмечен компьютер",
@@ -320,6 +345,7 @@ def suite_group(res: Result) -> None:
         main = _register(s, c)
         _add(c, main)
         bid = _sql(s, "SELECT id FROM clinics WHERE name=?", BRANCH["name"])[0][0]
+        _approve(s, bid)
         # своя нота у главной — до общей
         r = c.post(f"/cont/nota?c={main}", months="1", tier="plus", terms="1")
         res.ok("своя нота главной создана", r.location == f"/cont?c={main}&msg=note_created", r.location)
@@ -441,6 +467,7 @@ def suite_plata(res: Result) -> None:
         main = _register(s, c)
         _add(c, main)
         bid = _sql(s, "SELECT id FROM clinics WHERE name=?", BRANCH["name"])[0][0]
+        _approve(s, bid)
         c.post("/cont/nota-comuna", terms="1", **{f"t_{main}": "plus", f"m_{main}": "1", f"t_{bid}": "plus",
                                                  f"m_{bid}": "1"})
         gref = _sql(s, "SELECT reference FROM payments WHERE status='pending'")[0][0]
@@ -466,6 +493,7 @@ def suite_sms_name(res: Result) -> None:
         main = _register(s, c)
         _add(c, main)
         bid = _sql(s, "SELECT id FROM clinics WHERE name=?", BRANCH["name"])[0][0]
+        _approve(s, bid)
         r = c.post(f"/cont/sms/nume?c={bid}", name="Zambet")
         res.ok("заявка на имя со страницы филиала ложится главной клинике",
                r.location == f"/cont?c={bid}&msg=sms_requested"

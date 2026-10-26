@@ -61,6 +61,11 @@ ORIGINS = (ORIGIN_FORM, ORIGIN_PROGRAM, ORIGIN_CONT, ORIGIN_CONT_ADD)
 # основание выдачи пробного — словами того входа, откуда заявка
 REASON = {ORIGIN_FORM: "formular de probă", ORIGIN_PROGRAM: "cerere din program",
           ORIGIN_CONT: "cerere din contul clinicii", ORIGIN_CONT_ADD: "clinică nouă în contul clinicii"}
+# Ждут одобрения Олега при ЛЮБОМ DP_TRIAL_MODE (Олег 26.10: «пробный новой клинике из кабинета —
+# только после моего одобрения в админке»): клиника, добавленная в уже знакомый кабинет, — решение,
+# а не автомат, иначе каждый «филиал» был бы ещё месяцем бесплатно. Код компьютера ей выдаётся сразу,
+# файл — кнопкой «Выдать пробный». Регистрация (форма, программа, кабинет без клиник) — по режиму.
+APPROVE_ALWAYS = (ORIGIN_CONT_ADD,)
 API_PATH = "/v1/trial"           # заявка из программы (JSON), ответ — токен для /v1/license
 VERIFY_PATH = "/v1/verify"       # код из письма → токен клиники (новый компьютер)
 CODE_TTL = timedelta(minutes=15)
@@ -192,7 +197,7 @@ def submit(con: sqlite3.Connection, f: dict, ip: str, who: str = "form",
                  origin, now, now))
     db.audit(con, who, "trial_request", cid, f"{f['name']}, IDNO {f['idno'] or '—'}, {f['email']}, {ip}")
     clinic = con.execute("SELECT * FROM clinics WHERE id=?", (cid,)).fetchone()
-    if mode() != MODE_AUTO:
+    if mode() != MODE_AUTO or origin in APPROVE_ALWAYS:
         return REQUESTED, clinic
     valid, grace = license.trial_dates()
     try:

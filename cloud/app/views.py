@@ -1499,8 +1499,6 @@ CONT_MSG = {
     # clinicile contului (26.10, filiale)
     "clinic_added_requested": "Clinica a fost adăugată în cont. Cererea de probă a fost primită — o aprobăm de "
                               "obicei în aceeași zi lucrătoare; între timp puteți instala programul cu codul de mai jos.",
-    "clinic_added_issued": "Clinica a fost adăugată în cont, perioada de probă este activă. Instalați programul pe "
-                           "calculatorul ei cu codul de mai jos.",
     "need_address": "Indicați adresa clinicii — după ea deosebiți clinicile în listă.",
     "clinics_max": "În cont sunt deja prea multe clinici — scrieți-ne.",
     "add_duplicate": "O clinică cu acest IDNO sau e-mail este deja înregistrată la DentPilot și nu este în contul "
@@ -1520,7 +1518,7 @@ CONT_MSG = {
     "group_gone": "Nota comună nu mai așteaptă plata — reîncărcați pagina.",
 }
 _CONT_OK = {"logged_out", "registered_issued", "registered_requested", "saved", "note_created", "note_exists",
-            "note_replaced", "card_paid", "clinic_added_requested", "clinic_added_issued", "group_created",
+            "note_replaced", "card_paid", "clinic_added_requested", "group_created",
             "group_replaced", "group_cancelled",
             "linked", "sms_requested", "sms_paper_ok"}
 SENDER_RO = {"none": ("mute", "fără nume propriu"), "requested": ("warn", "cerere în lucru"),
@@ -2514,7 +2512,8 @@ def cont_add_page(acc, cur, msg: str = "", values: dict | None = None) -> str:
     perks = _perks([
         "<b>Licența ei</b>: programul de pe calculatorul filialei are baza lui de date, separată de celelalte "
         "clinici.",
-        f"<b>O lună de probă</b> {esc(tiers.NAME[tiers.PLUS])}, ca orice clinică nouă.",
+        f"<b>O lună de probă</b> {esc(tiers.NAME[tiers.PLUS])}, ca orice clinică nouă — o aprobăm de obicei în "
+        f"aceeași zi lucrătoare.",
         f"Apoi <b>abonamentul ei</b>: {esc(price)}; fiecare clinică se plătește din lista «Clinicile mele» sau "
         f"toate odată, cu o notă comună.",
         "<b>Aceeași intrare</b> în cont pentru toate clinicile — Google sau codul pe e-mail.",
