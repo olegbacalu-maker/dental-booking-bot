@@ -40,6 +40,7 @@ from . import anamneza as panam
 from . import card as pcard
 from . import export as pexport
 from . import fisa043 as pfisa
+from . import ocluzie as poccl
 from . import odontogram as podo
 from . import perio as pperio
 from . import plan_acord as pplan
@@ -295,6 +296,47 @@ async def _save_anamneza(pid: int, checked: set[str], fields: dict) -> str:
             return "bad_anam"
     await db.save_anamneza(pid, flags, fields)
     return "ok_anam"
+
+
+async def _save_ocluzie(pid: int, body: dict | None) -> tuple[str, str]:
+    """Запись прикуса (графа «Ocluzia» 043/e, 26.10). Возвращает (код, поле).
+
+    ⛔ Отсутствие ключа в теле = «не сообщали», а НЕ «стереть» (прайор 08-16):
+    присланное сливается ПОВЕРХ прежней записи, и пересохранение без правки
+    тождественно. Присланная пустая строка — стирание поля (снятие
+    ошибочного). Классы Энгля и сторона — белые списки, мм — число как
+    прислали («3», «3,5», «-2»); незнакомое → отказ с полем, ничего не
+    пишется. Пустая форма на ПУСТОЙ записи — промах (`bad_occl`), на
+    существующей — законное снятие. Прежняя запись при перезаписи уходит в
+    летопись строкой (`poccl.line`): история не пропадает молча."""
+    body = body or {}
+    prev = await db.ocluzie(pid)
+    merged = {k: (prev.get(k) if prev else "") or "" for k in db.OCLUZIE_FIELDS}
+    for k in db.OCLUZIE_FIELDS:
+        if k not in body:
+            continue
+        v = body.get(k)
+        v = "" if v is None else str(v).strip()
+        if k in ("angle_dr", "angle_st"):
+            if v and v not in poccl.ANGLE:
+                return "bad_occl_val", k
+        elif k == "mediana_spre":
+            if v and v not in poccl.SIDES:
+                return "bad_occl_val", k
+        elif k in ("overjet", "overbite", "mediana_mm"):
+            v = poccl.norm_mm(v)
+            if v is None:
+                return "bad_occl_val", k
+        elif k == "doctor":
+            # как у зуба: имя из справочника или пусто; чужое не пишем
+            v = v if v in set(eng.DOCTORS.values()) else ""
+        else:
+            v = v[:poccl.TEXT_MAX.get(k, 500)]
+        merged[k] = v
+    if poccl.is_empty(merged) and not prev:
+        return "bad_occl", ""
+    await db.save_ocluzie(pid, merged, poccl.line(prev)[:120] if prev else "")
+    return "ok_occl", ""
 
 
 @router.get("/admin/patient/{pid}/odontograma", response_class=HTMLResponse)
@@ -998,6 +1040,7 @@ async def patient_fisa043(request: Request, pid: int, lang: str = "", back: str 
     rx = sum(1 for d in docs if d["category"] == "radiografie")
     anam = await db.anamneza(pid)
     punti = await db.bridges(pid)
+    occl = await db.ocluzie(pid)
     # ⚠️ Строка пародонта — из ПОСЛЕДНЕГО осмотра С ИЗМЕРЕНИЯМИ, и на языке
     # листа: бланк бывает русским, а слова итога живут в perio._SUM_WORDS.
     p_exam, p_rows = await db.perio_last(pid)
@@ -1008,7 +1051,7 @@ async def patient_fisa043(request: Request, pid: int, lang: str = "", back: str 
     return pfisa.render(p, alerts, teeth, plan, list(reversed(recs)), rx,
                         _p_age(p), anam, panam.labels(doc_lang), doc_lang,
                         punti, pperio.summary_line(p_exam, p_rows, doc_lang),
-                        _back_to_card(pid, back))
+                        _back_to_card(pid, back), occl)
 
 
 @router.get("/admin/patient/{pid}/export")

@@ -1702,3 +1702,58 @@ def suite_v6_history(res: Result) -> None:
             res.check("пустая карта: первая запись зуба — первый снимок", after, [(11, "carie", "")])
     finally:
         _rmtree_settled(work)
+
+
+def suite_v7_ocluzie(res: Result) -> None:
+    """Шаг 7 (26.10): таблица прикуса `ocluzie` у клиники на v6 — её нет
+    (схема её ещё не знала). После обновления: версия 7, таблица есть, запись
+    и печать работают, повторный старт не падает (IF NOT EXISTS) и версию не
+    трогает. Свежая база получает таблицу схемой — это держит
+    `test_ocluzie.suite_schema` (DDL один)."""
+    work = pathlib.Path(tempfile.mkdtemp(prefix="dp_mig_occl_"))
+    try:
+        dbfile = work / "dental.db"
+        con = _base_db(dbfile)
+        con.execute("DROP TABLE ocluzie")
+        _patients(con, "Ion Ocluzie")
+        for coldef in ("doctor TEXT NOT NULL DEFAULT ''", "surfaces TEXT NOT NULL DEFAULT ''",
+                       "surface_states TEXT NOT NULL DEFAULT ''", "marks TEXT NOT NULL DEFAULT ''"):
+            con.execute(f"ALTER TABLE teeth ADD COLUMN {coldef}")
+        con.execute("INSERT INTO schema_meta(key, value) VALUES('version', '6')")
+        con.execute("INSERT INTO schema_meta(key, value) VALUES('teeth_hist_since', "
+                    "'2026-10-25T10:00:00+00:00')")
+        con.execute("INSERT INTO schema_meta(key, value) VALUES('act_backfill', '1')")
+        con.commit()
+        con.close()
+
+        def table_sql() -> str:
+            c2 = sqlite3.connect(str(dbfile))
+            try:
+                row = c2.execute("SELECT sql FROM sqlite_master WHERE type='table' "
+                                 "AND name='ocluzie'").fetchone()
+                return row[0] if row else ""
+            finally:
+                c2.close()
+
+        with Server(dir_=work) as s:
+            c = Client(s.url).login()
+            res.check(f"версия схемы доведена до {_VER}", _meta(dbfile, "version"), _VER)
+            res.ok("таблица прикуса появилась", "angle_dr" in table_sql(), "таблицы нет")
+            res.check("фиша открывается, прикус не записан",
+                      json.loads(c.get("/api/patients/1").body)["data"]["ocluzie"]["filled"], False)
+            res.check("запись прикуса проходит",
+                      c.post_json("/api/patients/1/ocluzie", {"angle_dr": "I", "overjet": "3"}).msg,
+                      "ok_occl")
+            res.ok("и печатается в 043/e",
+                   "Ocluzia: Angle dr. I · overjet 3 mm" in c.get("/admin/patient/1/fisa043").body,
+                   "графа на листе пуста после миграции")
+            sql = table_sql()
+        with Server(dir_=work) as s:
+            c = Client(s.url).login()
+            res.check("повторный старт: версия та же", _meta(dbfile, "version"), _VER)
+            res.check("таблица не пересоздана, запись цела",
+                      (table_sql() == sql,
+                       json.loads(c.get("/api/patients/1").body)["data"]["ocluzie"]["fields"]["overjet"]),
+                      (True, "3"))
+    finally:
+        _rmtree_settled(work)

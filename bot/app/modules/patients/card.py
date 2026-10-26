@@ -24,6 +24,7 @@ from ... import engine as eng
 from ...core.layout import LIVE_STATUSES, _age
 from ...core.risks import ALERT_ICON, ALERT_TONE  # noqa: F401 — api.py берёт pcard.ALERT_ICON
 from . import anamneza as panam
+from . import ocluzie as poccl
 
 # ---------- словари фиши (переехали из routes.py 18.09, там остались псевдонимы) ----------
 
@@ -120,6 +121,8 @@ ACT_ICON = {"appt_new": "cal", "appt_status": "check", "appt_cancel": "ban",
             "export": "download", "acord": "clipboard", "plan_acord": "clipboard",
             "consult": "med", "fisa043": "print", "anamneza": "note",
             "anamneza_print": "print",
+            # прикус (26.10) — запись объективного осмотра
+            "ocluzie": "tooth",
             # звонок-подтверждение с главной (01.10)
             "call": "phone",
             # SMS-напоминание (S5): ушло / доставлено / не дошло или не ушло;
@@ -353,6 +356,19 @@ def anamneza_view(anam: dict | None) -> dict:
         "denies": panam.NONE_KEY in flags,
         "when": when, "author": (anam.get("author") or "") if anam else "",
     }
+
+
+def ocluzie_view(rec: dict | None) -> dict:
+    """Прикус над свёрнутой формой (26.10): поля как в базе — форме, строка
+    `summary` — та же, что печатает 043/e (одно правило `poccl.line`), дата и
+    автор последней записи. `filled` — запись есть (даже снятая до пустой:
+    врач осматривал и записал «ничего не вписал» — это отличимо от «не
+    осматривали» только датой)."""
+    fields = {k: ((rec.get(k) if rec else "") or "") for k in db.OCLUZIE_FIELDS}
+    when = (rec.get("updated_at") or rec.get("created_at")) if rec else None
+    return {"filled": bool(rec), "fields": fields,
+            "summary": poccl.line(rec) if rec else "",
+            "when": when, "author": (rec.get("author") or "") if rec else ""}
 
 
 # ---------- шапка, деньги, летопись, запись ----------

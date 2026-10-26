@@ -10,7 +10,7 @@
 (числовая решётка с легендой — печатная форма традиционно буквенная, а не
 цветная), план лечения, дневник приёмов (visit_records, ХРОНОЛОГИЧЕСКИ).
 Чего в данных нет — печатается жёлтым пропуском на дозаполнение ручкой
-(anamneza, mucoasa, ocluzia): приём тот же, что в acord.py, — на бумаге
+(mucoasa; anamneza и ocluzia — пока не записаны в фише): приём тот же, что в acord.py, — на бумаге
 видно, что дописать. Мы НЕ утверждаем пиксельного совпадения с типографским
 бланком: заголовок называет формуляр и приказ, разделы — те же, а проверку
 интересует состав записей, не вёрстка.
@@ -28,6 +28,7 @@ from ...core import theme
 from ...core.layout import _ic
 from . import acord as pacord
 from . import anamneza as panam
+from . import ocluzie as poccl
 from . import visit as pvisit
 
 # буквенные коды одонтограммы; пустая клетка = sănătos / neexaminat.
@@ -327,9 +328,10 @@ def render(p: dict, alerts: list, teeth: dict, plan: list, recs: list,
            rx_count: int, age: int | None, anam: dict | None = None,
            flag_labels: dict | None = None, lang: str = "ro",
            punti: list | None = None, perio_line: str = "",
-           back: str = "") -> str:
+           back: str = "", occl: dict | None = None) -> str:
     """`recs` — записи приёмов ХРОНОЛОГИЧЕСКИ (дневник читается сверху вниз).
-    `anam` — опросник анамнеза, `flag_labels` — подписи его отметок."""
+    `anam` — опросник анамнеза, `flag_labels` — подписи его отметок,
+    `occl` — запись прикуса (графа «Ocluzia», 26.10)."""
     e = html.escape
     # ⛔ Приём, чей визит отменён или отмечен «неявка», в дневник не идёт: сама
     # программа такую консультацию заполнять отказывается (visit.py), а здесь
@@ -446,6 +448,19 @@ def render(p: dict, alerts: list, teeth: dict, plan: list, recs: list,
 
     rx_note = (f" <small>({t['rx_note'].format(n=rx_count)})</small>"
                if rx_count else "")
+    # «Ocluzia» (26.10): строка записи на языке листа — только вписанное
+    # врачом, с датой и врачом записи в скобках: лист, напечатанный до
+    # обновления, не меняется, а на новом видно, когда прикус смотрели.
+    # Пусто (нет записи или снята до пустой) — прежняя черта под ручку.
+    occl_line = poccl.line(occl, lang)
+    if occl_line:
+        when = (occl or {}).get("updated_at") or (occl or {}).get("created_at")
+        tail = ", ".join(x for x in (
+            _dt(when).split(" ")[0] if when else "",
+            (occl or {}).get("doctor") or "") if x)
+        occl_html = e(occl_line) + (f" <small>({e(tail)})</small>" if tail else "")
+    else:
+        occl_html = _fill("", "_" * 30)
 
     return f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -494,7 +509,7 @@ def render(p: dict, alerts: list, teeth: dict, plan: list, recs: list,
 
 <h2>{t["s4"]}</h2>
 <p class="line">{t["mucosa"]}: {_fill("", "_" * 40)}</p>
-<p class="line">{t["occl"]}: {_fill("", "_" * 30)} ·
+<p class="line">{t["occl"]}: {occl_html} ·
 {t["rx"]}:{rx_note} {_fill("", "_" * 20)}</p>
 <p class="line">{t["diag"]}: {_fill(diag, "_" * 56)}</p>
 {f'<p class="line"><b>{t["perio"]}:</b> {e(perio_line)}</p>' if perio_line else ""}

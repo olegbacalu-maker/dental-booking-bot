@@ -10,7 +10,7 @@
 
 Фиша (`GET /api/patients/{pid}` и `POST …/{pid}/…`) — расчёты из `card.py`;
 правила действий — функции `routes._save_profile`, `_appoint`, `_add_alert`,
-`_save_anamneza`, `_add_plan`, `_plan_status`, `_plan_del`, `_add_pay`,
+`_save_anamneza`, `_save_ocluzie`, `_add_plan`, `_plan_status`, `_plan_del`, `_add_pay`,
 `_store_doc`, `_drop_doc`, `_open_doc`, `_erase` (до 13.10 те же правила
 звали и формы старой фиши). Удача действия возвращает СВЕЖУЮ фишу целиком:
 почти каждое действие двигает сразу несколько секций (план → KPI, сальдо,
@@ -38,6 +38,7 @@ from ...core.visits import my_scope
 from . import anamneza as panam
 from . import card as pcard
 from . import fisa043 as pfisa
+from . import ocluzie as poccl
 from . import odontogram as podo
 from . import perio as pperio
 from . import scan as pscan
@@ -48,7 +49,7 @@ from .routes import (_PL_BADGE, _PL_CANAL, _PL_PER, _PL_SORTS, _add_alert,
                      _p_age, _peek_html, _perio_absent, _perio_ctx, _perio_del,
                      _pl_canal, _pl_dmy, _pl_money, _pl_new_foot, _pl_select,
                      _pl_status, _pl_trend, _plan_del, _plan_status,
-                     _save_anamneza, _save_perio, _save_profile, _save_tooth,
+                     _save_anamneza, _save_ocluzie, _save_perio, _save_profile, _save_tooth,
                      _save_visit, _set_doctor, _sf_letters, _sf_map, _store_bytes,
                      _store_doc, _tooth_args, _visit_back, _visit_ctx)
 
@@ -206,8 +207,8 @@ async def api_patient_new(request: Request):
 # мимо журнала доступа (закон 195).
 _CONFLICT = {"bad_pdel", "bad_off", "past", "dup", "conflict"}
 _GONE = {"alert_gone", "plan_gone", "doc_gone", "pay_gone"}
-_OK = {"", "ok", "ok_card", "ok_tel_dup", "ok_arh", "ok_unarh", "ok_anam", "ok_pay",
-       "pay_del", "ok_doc", "ok_anon", "ok_del", "ok_refuz", "ok_scan"}
+_OK = {"", "ok", "ok_card", "ok_tel_dup", "ok_arh", "ok_unarh", "ok_anam", "ok_occl",
+       "ok_pay", "pay_del", "ok_doc", "ok_anon", "ok_del", "ok_refuz", "ok_scan"}
 
 
 def _reply(code: str, data=None, field: str = "", *, conflict: bool = False):
@@ -274,6 +275,9 @@ def _options() -> dict:
         "anamneza_none": {"id": panam.NONE_KEY, "label": panam.NONE_LABEL["card"]},
         "anamneza_texts": [{"id": k, "label": lab, "placeholder": ph}
                            for k, lab, ph in panam.TEXTS],
+        # прикус (26.10): классы Энгля и стороны — те же белые списки, что у
+        # правила записи; «neevaluat» = пусто
+        "ocluzie": poccl.FORM,
         "doc_categories": [{"id": k, "label": v} for k, v in pcard.DOC_CATEGORIES.items()],
         "max_doc_mb": pcard.MAX_DOC_MB,
         "pay_methods": [{"id": m, "icon": pcard.PAY_ICON[m]} for m in db.PAY_METHODS],
@@ -300,6 +304,7 @@ async def _card(pid: int, p: dict, *, views: bool, log_view: bool) -> dict:
     visits = await db.patient_appointments(pid, 1000)
     recs = await db.visit_records_map(pid)
     anam = await db.anamneza(pid)
+    occl = await db.ocluzie(pid)
     acts = await db.patient_activity(pid, 60, include_views=views)
     erasure = await db.erasure_kind(pid)
     last = await db.last_events(pid, pcard.FORM_KINDS)
@@ -311,6 +316,7 @@ async def _card(pid: int, p: dict, *, views: bool, log_view: bool) -> dict:
     nextv, lastv = vv["next"], vv["last"]
     debt = pcard.debt_of(fin)
     av = pcard.anamneza_view(anam)
+    ov = pcard.ocluzie_view(occl)
     sv = pcard.sold_view(fin)
     # окно записи фиши — только к своему врачу у врача (22.10, права врача)
     ap = pcard.appoint_view(p, my_scope())
@@ -362,6 +368,10 @@ async def _card(pid: int, p: dict, *, views: bool, log_view: bool) -> dict:
             "when": av["when"].astimezone(eng.TZ).strftime("%d.%m.%Y") if av["when"] else "",
             "author": av["author"],
         },
+        # прикус (26.10): поля формы как в базе + та же строка, что печатает
+        # 043/e (сводка над свёрнутой формой); пусто = не записано
+        "ocluzie": {**ov, "when": ov["when"].astimezone(eng.TZ).strftime("%d.%m.%Y")
+                    if ov["when"] else ""},
         "plan": {
             "items": [_plan_item(it, now.date()) for it in pv["items"]],
             "counts": pv["cnt"], "n_act": pv["n_act"], "default_tab": pv["default_tab"],
@@ -576,6 +586,21 @@ async def api_patient_anamneza(request: Request, pid: int):
     checked = {str(x) for x in raw} if isinstance(raw, list) else set()
     code = await _save_anamneza(pid, checked, {k: _s(body, k) for k, *_ in panam.TEXTS})
     return await _card_reply(request, pid, code)
+
+
+@router.post("/api/patients/{pid}/ocluzie")
+async def api_patient_ocluzie(request: Request, pid: int):
+    """{angle_dr, angle_st, overjet, overbite, incrucisata, deschisa, mediana_mm,
+    mediana_spre, nota, doctor} — строками; отсутствующий ключ — «не
+    сообщали» (прежнее значение цело), пустая строка — стирание поля."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    deny, p = await _owned(pid)
+    if deny is not None:
+        return deny
+    body = await api_body(request)
+    code, field = await _save_ocluzie(pid, body if isinstance(body, dict) else None)
+    return await _card_reply(request, pid, code, field)
 
 
 @router.post("/api/patients/{pid}/plan")

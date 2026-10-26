@@ -23,7 +23,7 @@ log = logging.getLogger("db")
 # идёт range(have+1, SCHEMA_VERSION+1) и до него не дойдёт (так шаг 4 с
 # 'waiting' в uq-индексах не исполнялся ни у одной клиники; держит
 # test_structure).
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 # Записи, которые ЗАНИМАЮТ слот врача. 'waiting' (пациент пришёл, ждёт в
 # приёмной, 08-13) стоит между confirmed и arrived: физически человек уже в
@@ -139,6 +139,30 @@ def _uq_slot_sql(act_sql: str, names: tuple = ()) -> list[str]:
 # _migrate и обязан упасть, если не сделал своё дело; для CREATE UNIQUE INDEX
 # «упасть» значит «клиника больше не открывает программу», а развести двойную
 # бронь может только человек.
+# Прикус («Ocluzia», 26.10): одна запись на пациента — графа раздела 4 формы
+# 043/e, до того жёлтый пропуск. Пусто = «не записано», никогда не «норма»:
+# печатается только то, что врач вписал. Классы по Энглю, стороны — белые
+# списки сервера (modules/patients/ocluzie.py); мм — строкой как прислали
+# (нормализованная запятая), overbite бывает отрицательным. Медзапись: держит
+# фишу от стирания, обезличивание не трёт, едет в выгрузку по 195-му.
+# ⚠️ Текст ниже стоит и в SQLITE_CARD_SCHEMA — оба обязаны совпадать.
+OCLUZIE_DDL = """CREATE TABLE IF NOT EXISTS ocluzie(
+  patient_id INTEGER PRIMARY KEY REFERENCES patients(id),
+  angle_dr TEXT NOT NULL DEFAULT '',
+  angle_st TEXT NOT NULL DEFAULT '',
+  overjet TEXT NOT NULL DEFAULT '',
+  overbite TEXT NOT NULL DEFAULT '',
+  incrucisata TEXT NOT NULL DEFAULT '',
+  deschisa TEXT NOT NULL DEFAULT '',
+  mediana_mm TEXT NOT NULL DEFAULT '',
+  mediana_spre TEXT NOT NULL DEFAULT '',
+  nota TEXT NOT NULL DEFAULT '',
+  doctor TEXT NOT NULL DEFAULT '',
+  author TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT
+)"""
+
 MIGRATIONS = {
     1: [
         "CREATE INDEX IF NOT EXISTS ix_appt_starts ON appointments(starts_at)",
@@ -188,6 +212,14 @@ MIGRATIONS = {
     # ⚠️ Список ПУСТ, но НЕ мёртв — как у 4: _migrate исполняет его после
     # `_teeth_hist_base`.
     6: [],
+    # 7 (26.10, «Ocluzia» в 043/e, волна 3): таблица прикуса `ocluzie` — одна
+    # запись на пациента, как `anamneza`. Тот же DDL стоит и в
+    # SQLITE_CARD_SCHEMA (свежая база получает таблицу схемой); здесь — веха в
+    # schema_meta: по версии базы видно, что у клиники графа прикуса уже есть.
+    # Идемпотентно (IF NOT EXISTS), строго: DDL, упавший на старте, — повод
+    # падать, а не писать версию как выполненную. Совпадение текста с схемой
+    # держит `test_ocluzie.suite_schema`.
+    7: [OCLUZIE_DDL],
 }
 # Шаг, который кладёт базовый снимок истории зубов. В отличие от
 # UQ_GUARD_STEP — СТРОГИЙ: он меняет данные, и недописанный снимок не имеет
@@ -281,6 +313,24 @@ CREATE TABLE IF NOT EXISTS anamneza(
   medicamente TEXT NOT NULL DEFAULT '',
   alergii TEXT NOT NULL DEFAULT '',
   anestezie TEXT NOT NULL DEFAULT '',
+  author TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT
+);
+-- Прикус (26.10, «Ocluzia» 043/e): одна запись на пациента, как anamneza.
+-- Тот же текст стоит в OCLUZIE_DDL (шаг миграции 7); менять оба.
+CREATE TABLE IF NOT EXISTS ocluzie(
+  patient_id INTEGER PRIMARY KEY REFERENCES patients(id),
+  angle_dr TEXT NOT NULL DEFAULT '',
+  angle_st TEXT NOT NULL DEFAULT '',
+  overjet TEXT NOT NULL DEFAULT '',
+  overbite TEXT NOT NULL DEFAULT '',
+  incrucisata TEXT NOT NULL DEFAULT '',
+  deschisa TEXT NOT NULL DEFAULT '',
+  mediana_mm TEXT NOT NULL DEFAULT '',
+  mediana_spre TEXT NOT NULL DEFAULT '',
+  nota TEXT NOT NULL DEFAULT '',
+  doctor TEXT NOT NULL DEFAULT '',
   author TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT
@@ -3367,6 +3417,45 @@ async def save_anamneza(pid: int, flags: str, fields: dict) -> str:
     return "updated" if existed else "created"
 
 
+# Поля записи прикуса — в порядке колонок; маршрут принимает только их.
+OCLUZIE_FIELDS = ("angle_dr", "angle_st", "overjet", "overbite", "incrucisata",
+                  "deschisa", "mediana_mm", "mediana_spre", "nota", "doctor")
+
+
+async def ocluzie(pid: int) -> dict | None:
+    rows = await _fetch(
+        f"""SELECT patient_id, {", ".join(OCLUZIE_FIELDS)}, author, created_at,
+                   updated_at
+            FROM ocluzie WHERE patient_id = ?""", pid)
+    return rows[0] if rows else None
+
+
+async def save_ocluzie(pid: int, fields: dict, prev_line: str = "") -> str:
+    """Upsert записи прикуса; возвращает 'created' | 'updated'. `fields` —
+    УЖЕ слитые с прежней записью значения всех OCLUZIE_FIELDS (правило
+    «не сообщали ≠ стереть» живёт у маршрута, здесь пишется всё).
+    `prev_line` — прежняя запись готовой строкой: при перезаписи она уходит
+    в летопись, чтобы история прикуса не пропадала молча (летопись хранит
+    готовое, разбирать её назад никто не будет)."""
+    vals = tuple((fields.get(k) or "") for k in OCLUZIE_FIELDS)
+    actor = _actor_now()
+    existed = await _fetchval("SELECT 1 FROM ocluzie WHERE patient_id = ?", pid)
+    sets = ", ".join(f"{k} = excluded.{k}" for k in OCLUZIE_FIELDS)
+    await _execute(
+        f"""INSERT INTO ocluzie(patient_id, {", ".join(OCLUZIE_FIELDS)}, author,
+                                created_at)
+            VALUES(?, {", ".join("?" * len(OCLUZIE_FIELDS))}, ?, ?)
+            ON CONFLICT(patient_id) DO UPDATE SET {sets},
+              author = excluded.author, updated_at = ?""",
+        pid, *vals, actor, _utcnow_iso(), _utcnow_iso(),
+    )
+    text = "Ocluzia actualizată" if existed else "Ocluzia înregistrată"
+    if existed and prev_line:
+        text += f" (anterior: {prev_line})"
+    await log_event(pid, "ocluzie", text)
+    return "updated" if existed else "created"
+
+
 async def visit_records_map(pid: int) -> dict[int, dict]:
     """appointment_id → запись приёма: фиша красит историю визитов одним
     запросом, а не по одному на строку."""
@@ -3511,6 +3600,9 @@ async def erasure_kind(pid: int) -> str:
     # осмотр с измерениями держит фишу от физического стирания
     perio = await _n("SELECT COUNT(*) FROM perio_exams WHERE patient_id = ?",
                      pid)
+    # прикус (26.10) — запись объективного осмотра, графа 043/e: медзапись,
+    # как анамнез
+    occl = await _n("SELECT COUNT(*) FROM ocluzie WHERE patient_id = ?", pid)
     now = datetime.now(timezone.utc)
     happened = await _n(
         """SELECT COUNT(*) FROM appointments WHERE patient_id = ?
@@ -3518,7 +3610,7 @@ async def erasure_kind(pid: int) -> str:
                 OR (status = 'confirmed' AND starts_at < ?))""",
         pid, _iso(now))
     return ("anon" if (teeth or plan or docs or happened or pays or consult
-                       or anam or punti or perio) else "delete")
+                       or anam or punti or perio or occl) else "delete")
 
 
 # Таблицы, ссылающиеся на пациента, — в порядке удаления: дети раньше родителя
@@ -3527,7 +3619,7 @@ async def erasure_kind(pid: int) -> str:
 # с export.py — обе стороны отвечают «где в базе лежит этот человек».
 _PATIENT_CHILD_TABLES = ("payments", "activity", "patient_alerts", "teeth",
                          "teeth_history", "plan_items", "documents", "anamneza",
-                         "bridges", "bridges_removed",
+                         "ocluzie", "bridges", "bridges_removed",
                          "perio_exams", "visit_records", "sms_log", "appointments")
 
 # ⚠️ Внуки: таблицы, которые висят НЕ на пациенте, а на его записи. У

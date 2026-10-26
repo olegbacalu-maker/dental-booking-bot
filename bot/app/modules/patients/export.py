@@ -30,6 +30,7 @@ from ... import engine as eng
 from ... import teeth_svg as tsvg
 from ...core.layout import ALERT_KINDS, SOURCE_LABEL, STATUS_LABEL
 from . import anamneza as panam
+from . import ocluzie as poccl
 from . import fisa043 as pfisa
 
 # Пределы выборок сняты намеренно. У карточки они есть и уместны (боковому
@@ -117,6 +118,9 @@ async def collect(pid: int) -> dict | None:
         "parodont": await _perio_dump(pid),
         "plan_tratament": await db.plan_items(pid),
         "anamneza": await db.anamneza(pid),
+        # прикус (26.10): запись графы «Ocluzia» 043/e — та же таблица, что
+        # стирает удаление
+        "ocluzie": await db.ocluzie(pid),
         "consultatii": await db.patient_visit_records(pid),
         "plati": await db.payments(pid),
         "documente": await db.documents_with_paths(pid),
@@ -317,6 +321,27 @@ def render_html(data: dict) -> str:
               ["Înregistrată de", _esc(an.get("author")) or "—"]]
     ) if an else "<p class='gol'>— nu există înregistrări —</p>"
 
+    oc = dict(data.get("ocluzie") or {})
+    # прикус — полями, как в фише, плюс строка листа 043/e (poccl.line —
+    # одно правило на бумагу и копию)
+    ocluzie = _table(
+        ["Câmp", "Valoare"],
+        [[_esc(lbl), _esc(oc.get(key)) or "—"] for key, lbl in (
+            ("angle_dr", "Clasa Angle, dreapta"),
+            ("angle_st", "Clasa Angle, stânga"),
+            ("overjet", "Overjet (mm)"),
+            ("overbite", "Overbite (mm)"),
+            ("incrucisata", "Ocluzie încrucișată"),
+            ("deschisa", "Ocluzie deschisă"),
+            ("mediana_mm", "Linia mediană, deviere (mm)"),
+            ("mediana_spre", "Linia mediană, spre"),
+            ("nota", "Notă"),
+            ("doctor", "Medic"),
+        )] + [["Pe fișa 043/e", _esc(poccl.line(oc)) or "—"],
+              ["Înregistrată", _dt(oc.get("updated_at") or oc.get("created_at"))],
+              ["Înregistrată de", _esc(oc.get("author")) or "—"]]
+    ) if oc else "<p class='gol'>— nu există înregistrări —</p>"
+
     # четыре текстовых графы дневника — одной ячейкой: девять колонок
     # в 960px нечитаемы, а пустые графы просто не печатаются
     def _consemnari(c: dict) -> str:
@@ -365,6 +390,7 @@ def render_html(data: dict) -> str:
 <h2>Programări ({len(data['programari'])})</h2>{programari}
 <h2>Atenționări medicale ({len(data['atentionari'])})</h2>{atentionari}
 <h2>Anamneză</h2>{anamneza}
+<h2>Ocluzia</h2>{ocluzie}
 <h2>Starea dinților ({len(data['dinti'])})</h2>{dinti}
 <h2>Punți dentare ({len(data.get('punti', []))})</h2>{punti}
 <h2>Istoricul stării dinților ({len(data.get('istoric_dinti', []))})</h2>{istoric_dinti}

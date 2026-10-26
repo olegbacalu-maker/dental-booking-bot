@@ -445,6 +445,11 @@ MSG_BANNER = {
                         "sau completați cel puțin un câmp"),
     "bad_anam_none": ("err", "Anamneza nu a fost salvată — «Niciuna dintre afecțiunile "
                              "de mai sus» nu se bifează împreună cu o afecțiune din listă"),
+    # прикус — графа «Ocluzia» 043/e (26.10)
+    "ok_occl": ("ok", "Ocluzia a fost salvată"),
+    "bad_occl": ("err", "Ocluzia nu a fost salvată — completați cel puțin un câmp"),
+    "bad_occl_val": ("err", "Ocluzia nu a fost salvată — verificați câmpul marcat "
+                            "(clasa Angle din listă, milimetrii ca număr: 3, 2,5, -1)"),
     "ok_visit": ("ok", "Consultația a fost salvată"),
     "bad_visit": ("err", "Consultația nu a fost salvată — completați cel puțin "
                          "un câmp"),
