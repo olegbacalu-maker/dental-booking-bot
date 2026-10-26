@@ -141,8 +141,8 @@ def suite_api(res: Result) -> None:
         d = _card(c, pid)
         res.check("состав ответа", sorted(d),
                   sorted(["id", "name", "initials", "archived", "erasure", "profile", "hero",
-                          "kpi", "alerts", "anamneza", "plan", "finance", "documents",
-                          "forms", "visits", "activity", "appoint", "options"]))
+                          "kpi", "alerts", "anamneza", "ocluzie", "plan", "finance",
+                          "documents", "forms", "visits", "activity", "appoint", "options"]))
         res.check("пилюли: активен, ТРИ первых предупреждения, страховка, долг, импланты",
                   [(pl["tone"], pl["text"]) for pl in d["hero"]["pills"]],
                   [("green", "Pacient activ"), ("orange", "Penicilină"),
