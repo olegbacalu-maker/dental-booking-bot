@@ -1512,6 +1512,7 @@ a.gbtn:hover{border-color:var(--teal);color:var(--teal-d)}
 table{border-collapse:collapse;width:100%;font-size:14px}th,td{text-align:left;padding:10px;border-bottom:1px solid #EEF2F1;vertical-align:top}
 th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.05em}
 tr:last-child td{border-bottom:0}
+.tscroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
 pre.pay{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:16px 18px;font:inherit;font-size:14.5px;white-space:pre-wrap;margin:12px 0;line-height:1.55}
 .price{display:inline-flex;gap:6px;align-items:baseline;background:var(--teal-soft);color:var(--teal-d);border-radius:10px;padding:6px 12px;font-size:13.5px;font-weight:600;white-space:nowrap}
 .steps{margin:0 0 16px;padding:0 0 0 22px;color:var(--muted);font-size:14px;line-height:1.5}.steps li{margin:0 0 6px}.steps b{color:var(--ink)}
@@ -2061,9 +2062,10 @@ def _cont_payments(c, sub, payments: list) -> str:
         f"<td>{_ro(p['created_at'])}</td>"
         f"<td>{_pay_tag_ro(p['status'])}{(' · ' + _ro(p['paid_at'])) if p['paid_at'] else ''}"
         f"</td><td>{_receipt_link_ro(p)}</td></tr>" for p in payments)
-    table = (f"<table><tr><th>Referința</th><th>Suma</th><th>Termen</th><th>Data</th><th>Stare</th>"
+    # ⚠️ шесть столбцов не входят в 390 px телефона: без обёртки таблица раздвигала ВСЮ страницу вбок
+    table = (f"<div class='tscroll'><table><tr><th>Referința</th><th>Suma</th><th>Termen</th><th>Data</th><th>Stare</th>"
              f"<th>Document</th></tr>"
-             f"{rows or '<tr><td colspan=6 class=muted>Nu sunt note de plată</td></tr>'}</table>") if payments else ""
+             f"{rows or '<tr><td colspan=6 class=muted>Nu sunt note de plată</td></tr>'}</table></div>") if payments else ""
     return top + table
 
 

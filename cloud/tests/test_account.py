@@ -493,6 +493,8 @@ def suite_cabinet(res: Result) -> None:
                ref in home.body and "MD00TEST" in home.body and "Treci la abonament" not in home.body
                and "Prelungește abonamentul" not in home.body
                and "în așteptare" in home.body, home.body[-2500:])
+        res.ok("таблица нот — в обёртке с прокруткой: на телефоне не раздвигает страницу",
+               "<div class='tscroll'><table>" in home.body and ".tscroll{overflow-x:auto" in home.body)
         res.check("тот же выбор — note_exists, вторая нота не плодится",
                   c.post("/cont/nota", months="12", tier="plus", terms="1").location, "/cont?msg=note_exists")
         pid = _sql(s, "SELECT id FROM payments WHERE reference=?", ref)[0][0]
