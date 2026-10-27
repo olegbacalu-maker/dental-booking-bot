@@ -122,6 +122,17 @@ def current_account_id(request: Request) -> str | None:
     return _read("account", request.cookies.get(ACCOUNT_COOKIE, ""))
 
 
+def clinic_cookie(cid: str) -> str:
+    """Кука кабинета по кнопке программы (27.10, contlink.py): тело — клиника, вид «clinic».
+    Имя то же (ACCOUNT_COOKIE) — вход один, выход один; вид другой — в поле учётной записи
+    она не пройдёт, и наоборот."""
+    return _token("clinic", cid, ACCOUNT_TTL)
+
+
+def current_clinic_id(request: Request) -> str | None:
+    return _read("clinic", request.cookies.get(ACCOUNT_COOKIE, ""))
+
+
 def oauth_cookie(body: str) -> str:
     return _token("oauth", body, OAUTH_TTL)
 

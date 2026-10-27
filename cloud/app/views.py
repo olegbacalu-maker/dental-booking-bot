@@ -1129,6 +1129,7 @@ AUDIT_RU = {
     "code_ok": ("код активации принят", "prog"), "code_bad": ("код активации неверный", "prog"),
     "code_limit": ("коды активации: лимит", "prog"), "download": ("скачивание программы", "prog"),
     "account_new": ("кабинет: новая запись", "cab"), "account_login": ("вход в кабинет", "cab"),
+    "cont_program": ("вход в кабинет из программы", "cab"),
     "clinic_added": ("клиника добавлена в кабинет", "cab"),
     "cont_code": ("код кабинета выдан", "prog"), "cont_code_ok": ("код кабинета принят", "prog"),
     "device_moved": ("компьютер перешёл от другой клиники", "prog"),
@@ -1575,6 +1576,10 @@ CONT_MSG = {
     "need_idno_payer": "Pentru nota comună completați IDNO-ul primei clinici din notă (13 cifre): ea apare ca "
                        "beneficiar în contul de plată.",
     "group_gone": "Nota comună nu mai așteaptă plata — reîncărcați pagina.",
+    # intrarea din program (27.10, contlink.py): doar clinica acestui program
+    "cont_program_only": "Ați intrat din programul clinicii: vedeți doar această clinică. Celelalte clinici ale "
+                         "contului, nota comună și adăugarea unei clinici — după intrarea cu Google sau cu codul "
+                         "pe e-mail.",
 }
 _CONT_OK = {"logged_out", "registered_issued", "registered_requested", "saved", "note_created", "note_exists",
             "note_replaced", "card_paid", "clinic_added_requested", "group_created",
@@ -2227,7 +2232,7 @@ def sms_notes_block(notes: list, action: str, card_on: bool) -> str:
     return "".join(out)
 
 
-def _cont_payments(c, sub, payments: list, q: str = "", group=None) -> str:
+def _cont_payments(c, sub, payments: list, q: str = "", group=None, group_link: bool = True) -> str:
     """Абонемент и ноты клиники в кабинете. `q` — «?c=…» у кабинета с несколькими клиниками
     (форма несёт свою клинику); `group` — открытая общая нота, где клиника строкой (26.10):
     своя нота тогда не выставляется — ссылка на общую."""
@@ -2243,9 +2248,11 @@ def _cont_payments(c, sub, payments: list, q: str = "", group=None) -> str:
         top = (f"<p>Abonamentul acestei clinici este în <b>nota comună {esc(group['reference'])}</b> — "
                f"<b>{_mdl(group['amount'])} MDL</b> pentru toate clinicile din ea "
                f"<span class='tag warn'>în așteptare</span>.</p>"
-               f"<p class='btns'><a class='btn' href='/cont/nota-comuna'>Vezi nota comună</a></p>"
-               f"<p class='muted'>Altă variantă sau o notă separată pentru această clinică — după anularea notei "
-               f"comune, pe pagina ei.</p>")
+               + ("<p class='btns'><a class='btn' href='/cont/nota-comuna'>Vezi nota comună</a></p>"
+                  "<p class='muted'>Altă variantă sau o notă separată pentru această clinică — după anularea notei "
+                  "comune, pe pagina ei.</p>" if group_link else
+                  "<p class='muted'>Nota comună se vede și se plătește după intrarea în cont cu Google sau cu codul "
+                  "pe e-mail.</p>"))
     elif pending:
         top = pending_note(pending[0], sub, f"/cont/nota{q}", maib.enabled(), now)
     elif len(c["idno"] or "") == 13:
@@ -2378,6 +2385,15 @@ def pay_link_expired_page() -> str:
     return _cont_shell("Linkul a expirat", inner, eyebrow="DentPilot · plata din program")
 
 
+def cont_link_expired_page() -> str:
+    """Ответ /cont/intra/<id> на погашенную или истёкшую ссылку (27.10, contlink.py)."""
+    sub = "linkul din program se deschide o singură dată, în 5 minute"
+    inner = (f"<div class='card narrow'>{_chead('clock', 'Linkul de intrare a expirat', sub)}"
+             f"<p>Apăsați din nou «Deschide contul clinicii» în program (pagina Licență) — primiți un link nou. "
+             f"Sau <a href='/cont/login'>intrați în contul clinicii</a> cu Google sau cu codul pe e-mail.</p></div>")
+    return _cont_shell("Linkul a expirat", inner, eyebrow="DentPilot · intrarea din program")
+
+
 def _cont_sms(c, info: dict, q: str = "") -> str:
     """Кабинет › SMS: имя отправителя клиники и заявление на него (бланк sms.md):
     заявка на имя → заполненное заявление (PDF) → подписанное обратно → подача
@@ -2490,8 +2506,11 @@ def _clinics_card(cab: list, cur: str, now: datetime) -> str:
 
 
 def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", devices: list = (),
-              smsinfo: dict | None = None, cab: list = (), group=None) -> str:
-    """Дашборд клиники в кабинете. `cab` — клиники учётной записи для списка (26.10): больше
+              smsinfo: dict | None = None, cab: list = (), group=None, scoped: bool = False,
+              branch: bool = False) -> str:
+    """Дашборд клиники в кабинете. `scoped` — вошли кнопкой программы (27.10, contlink.py): одна
+    клиника, без общей ноты и «Adaugă clinică»; `branch` — она в кабинете с другими (код компьютера —
+    из кабинета, как у нескольких клиник, но без их имён). `cab` — клиники учётной записи для списка (26.10): больше
     одной — список «Clinicile mele» сверху, формы несут клинику (?c=), код компьютера на
     панели программы; одна — как прежде, плюс строка «Adaugă clinică». `group` — открытая
     общая нота, где эта клиника."""
@@ -2509,7 +2528,7 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
                   for p in payments)
     # действие по оплате на панели программы — те же условия, что у формы ноты ниже
     if group is not None:
-        act = "<a class='btn ghost' href='/cont/nota-comuna'>Vezi nota comună</a>"
+        act = "" if scoped else "<a class='btn ghost' href='/cont/nota-comuna'>Vezi nota comună</a>"
     elif pending:
         act = "<a class='btn ghost' href='#plati'>Vezi nota de plată</a>"
     elif len(c["idno"] or "") == 13 and issue is not None:
@@ -2532,6 +2551,13 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
                f"<a href='{esc(site)}/descarca.html'>ce cere Legea 195</a>.</p>")
         code_btn = (f"<form class='side-code' method='post' action='/cont/cod{q}'>"
                     f"<button>Cod de activare pentru un calculator</button></form>")
+    elif branch:
+        how = (f"<p class='muted' style='margin:14px 0 0'>Pe un calculator nou al acestei clinici: la prima pornire "
+               f"programul cere datele clinicii, apoi un cod — introduceți codul din acest cont («Cod de activare», "
+               f"în panoul Programul). Codul de 6 cifre din e-mail leagă calculatorul de prima clinică a contului. "
+               f"Înainte de instalare citiți <a href='{esc(site)}/descarca.html'>ce cere Legea 195</a>.</p>")
+        code_btn = ("<form class='side-code' method='post' action='/cont/cod'>"
+                    "<button>Cod de activare pentru un calculator</button></form>")
     hero = (f"<div class='card hero'><div class='main'><p class='eyebrow'>Licența</p>"
             f"<p class='lic'>{lic['text']}</p>{lic['bar']}"
             f"{('<p class=' + chr(39) + 'muted' + chr(39) + ' style=' + chr(39) + 'margin:14px 0 0' + chr(39) + '>' + lic['check'] + '</p>') if lic['check'] else ''}"
@@ -2542,7 +2568,12 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
             f"</div></div>")
     devs = (f"<div class='card'>{_chead('monitor', 'Calculatoare cu DentPilot', 'versiunea programului și ultima verificare a licenței')}"
             f"{_cont_devices(list(devices), release.version if release else '')}</div>")
-    if acc["provider"] == "google":
+    if scoped:
+        who = ("<p style='margin:0 0 6px'>Ați intrat din <b>programul DentPilot al acestei clinici</b>, fără cod.</p>"
+               "<p class='muted' style='margin:0 0 14px'>Vedeți doar această clinică. Celelalte clinici ale contului, "
+               "nota comună și adăugarea unei clinici — după <a href='/cont/login'>intrarea cu Google sau cu codul pe "
+               "e-mail</a>.</p>")
+    elif acc["provider"] == "google":
         who = (f"<p style='margin:0 0 6px'>Autentificat cu Google: <b>{esc(acc['email'])}</b>"
                f"{(' (' + esc(acc['name']) + ')') if acc['name'] else ''}.</p>"
                f"<p class='muted' style='margin:0 0 14px'>De la Google avem doar e-mailul, numele și identificatorul "
@@ -2551,7 +2582,7 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
         who = (f"<p style='margin:0 0 6px'>Autentificat prin e-mail: <b>{esc(acc['email'])}</b>.</p>"
                f"<p class='muted' style='margin:0 0 14px'>Intrarea se face cu un cod trimis pe acest e-mail; parolă "
                f"nu există — <a href='{esc(site)}/privacy.html'>Politica de confidențialitate</a>, § 5.</p>")
-    addline = "" if multi else (
+    addline = "" if multi or scoped else (
         f"<div class='addline'><p><b>Clinica are și alte sedii?</b> Adăugați fiecare filială ca o clinică nouă în "
         f"acest cont: cu licența și abonamentul ei, aceeași intrare.</p>"
         f"<a class='btn second sm' href='/cont/clinica-noua'>{_ic('plus')} Adaugă clinică</a></div>")
@@ -2562,7 +2593,7 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
     chip = (f"<span class='price'>perioada de probă · {tiers.NAME[cur]}</span>" if sub is None or sub["plan"] == "trial"
             else f"<span class='price'>{tiers.NAME[cur]} · {_mdl(tiers.price(sub, cur))} MDL / lună</span>")
     pays = (f"<div class='card' id='plati'>{_chead('card', 'Abonament și plăți', 'abonamentul acestei clinici' if multi else 'un singur abonament pentru toată clinica', chip)}"
-            f"{_cont_payments(c, sub, payments, q, group)}</div>")
+            f"{_cont_payments(c, sub, payments, q, group, group_link=not scoped)}</div>")
     data = (f"<div class='card' id='date'>{_chead('building', 'Datele clinicii', 'apar în nota de plată și în licență')}"
             f"<form method='post' action='/cont/date{q}'><div class='grid'>"
             f"<div><label>Denumirea clinicii *</label><input name='name' value='{esc(c['name'])}' required maxlength='{trial.NAME_MAX}'></div>"

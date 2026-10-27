@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 TS = "%Y-%m-%dT%H:%M:%SZ"
 
 MIGRATIONS = {
@@ -285,6 +285,15 @@ MIGRATIONS = {
            SELECT email_confirmed_at, 'migration', 'email_confirmed', id,
                   email || ' — din jurnal: cod pe al doilea calculator sau intrare în cont'
            FROM clinics WHERE email_confirmed_at IS NOT NULL""",
+    ],
+    # 18 (27.10): вход в кабинет кнопкой программы «Deschide contul clinicii» (contlink.py). Строка —
+    # одноразовая ссылка: хеш её id (сам id живёт только в ответе программе), срок 5 минут, когда
+    # погашена и с какого адреса (только для журнала: к IP вход не привязан).
+    18: [
+        """CREATE TABLE IF NOT EXISTS cont_links(
+            id_hash TEXT PRIMARY KEY, clinic_id TEXT NOT NULL REFERENCES clinics(id),
+            created_at TEXT NOT NULL, expires_at TEXT NOT NULL, used_at TEXT, used_ip TEXT NOT NULL DEFAULT '')""",
+        "CREATE INDEX IF NOT EXISTS ix_cont_links_clinic ON cont_links(clinic_id, created_at)",
     ],
 }
 

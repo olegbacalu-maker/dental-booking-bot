@@ -272,8 +272,19 @@ def of_clinic(con: sqlite3.Connection, clinic_id: str) -> list:
 
 
 def clinics(con: sqlite3.Connection, acc: sqlite3.Row) -> list:
-    """Клиники учётной записи по дате заведения (главная первой)."""
+    """Клиники учётной записи по дате заведения (главная первой). Сессия кнопки программы
+    (contlink.py) — только своя клиника."""
+    if scoped(acc):
+        return con.execute("SELECT * FROM clinics WHERE id=?", (acc["clinic_id"],)).fetchall()
     return cabinet.of_account(con, acc["id"])
+
+
+PROGRAM = "program"       # provider сессии кнопки «Deschide contul clinicii» (27.10, contlink.py)
+
+
+def scoped(acc) -> bool:
+    """Вошли ли кнопкой программы: такой сессии — одна клиника, без кабинета вокруг."""
+    return acc is not None and acc["provider"] == PROGRAM
 
 
 def pick(con: sqlite3.Connection, acc: sqlite3.Row, c: str, post: bool = False) -> sqlite3.Row | None:

@@ -16,6 +16,7 @@ import test_account  # noqa: E402
 import test_branches  # noqa: E402
 import test_admin  # noqa: E402
 import test_clinics  # noqa: E402
+import test_contlink  # noqa: E402
 import test_contract  # noqa: E402
 import test_deploy  # noqa: E402
 import test_email  # noqa: E402
@@ -111,6 +112,11 @@ SUITES = [
     ("Филиалы: имя отправителя SMS общее на кабинет, остаток свой", test_branches.suite_sms_name),
     ("Филиалы: админка — клиники кабинета, «Добавить клинику», подсказка флота", test_branches.suite_admin),
     ("Филиалы: шаг 16 на данных шага 15", test_branches.suite_migration),
+    ("Кабинет из программы: маршруты /cont разобраны, срок и лимит", test_contlink.suite_rules),
+    ("Кабинет из программы: ссылка по токену, одноразовый вход, журнал, лимит, скрытая клиника",
+     test_contlink.suite_link),
+    ("Кабинет из программы: только своя клиника — филиал не видит главную, общую ноту, «Adaugă»",
+     test_contlink.suite_scope),
     ("Флот: чистые правила — заголовки, версии", test_fleet.suite_rules),
     ("Флот: компьютеры из запросов программы, страница, карточка, JSON, кабинет", test_fleet.suite_devices),
     ("Флот: активация из программы и кодом привязывает компьютер", test_fleet.suite_activation),

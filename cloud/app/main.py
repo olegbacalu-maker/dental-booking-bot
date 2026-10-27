@@ -21,8 +21,8 @@ from fastapi import BackgroundTasks, FastAPI, Form, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import (account, auth, cabinet, config, db, download, fleet, jobs, license, logmask, maib, mail, payments, paylink,
-               receipts, robots, sms, sms_paper, sms_rule, smsmd, smsreport, tiers, trial, updates, views)
+from . import (account, auth, cabinet, config, contlink, db, download, fleet, jobs, license, logmask, maib, mail,
+               payments, paylink, receipts, robots, sms, sms_paper, sms_rule, smsmd, smsreport, tiers, trial, updates, views)
 from . import login as elogin  # ⚠️ не `login`: так зовётся маршрут входа админки ниже, он затенил бы модуль
 from . import emailconf  # подтверждение ящика клиники (27.10)
 
@@ -31,6 +31,19 @@ log = logging.getLogger("cloud")
 # секрет уведомлений sms.md стоит в пути запроса — журнал доступа его не видит (logmask.py)
 logmask.install()
 app = FastAPI(title="DentPilot Cloud", docs_url=None, redoc_url=None)
+
+
+@app.middleware("http")
+async def _cont_program_only(request: Request, call_next):
+    """Вход кнопкой программы (27.10, contlink.py) — одна клиника: разделы кабинета обо всех его
+    клиниках (contlink.DENY) закрыты ему целиком, до маршрута. Вид куки читается без базы."""
+    if contlink.closed(request.url.path) and auth.current_clinic_id(request):
+        return RedirectResponse(f"/cont?msg={contlink.DENIED_MSG}", status_code=303)
+    return await call_next(request)
+
+
+# ⚠️ NoIndex — последним: Starlette первым исполняет добавленный последним, и ранний ответ
+# посредника выше без него ушёл бы без заголовка
 # каждый ответ облака — мимо поисковой выдачи; почему заголовком, а не robots.txt, — robots.py
 app.add_middleware(robots.NoIndex)
 
@@ -131,6 +144,26 @@ def pay_link_api(request: Request) -> Response:
         fleet.touch(con, c["id"], fleet.from_request(request))          # флот: компьютер вышел на связь
         link = paylink.create(con, c, "program")
     return JSONResponse({"ok": True, "url": paylink.url_for(link["id"]), "expires_at": link["expires_at"]})
+
+
+@app.post(contlink.API_PATH)
+def cont_link_api(request: Request) -> Response:
+    """Программа просит вход в кабинет (27.10, «Deschide contul clinicii»): тот же Bearer, что у
+    /v1/license. Ответ — одноразовая ссылка /cont/intra/<id> на contlink.TTL; каждое нажатие —
+    новая; больше contlink.PER_HOUR за час — 429."""
+    token = _bearer(request)
+    if not token:
+        return JSONResponse({"ok": False, "code": "token_missing"}, status_code=401)
+    with db.connect(immediate=True) as con:
+        c = con.execute("SELECT * FROM clinics WHERE renew_token=? AND renew_token<>'' AND declined_at IS NULL",
+                        (token,)).fetchone()
+        if c is None:
+            return JSONResponse({"ok": False, "code": "token_unknown"}, status_code=401)
+        fleet.touch(con, c["id"], fleet.from_request(request))          # флот: компьютер вышел на связь
+        made = contlink.create(con, c)
+    if made is None:
+        return JSONResponse({"ok": False, "code": "limited"}, status_code=429)
+    return JSONResponse({"ok": True, "url": contlink.url_for(made[0]), "expires_at": made[1]})
 
 
 # ---------- SMS-пакет (S3): программа → сервер → sms.md (docs/dentpilot-2/sms.md › «Сервер») ----------
@@ -1668,7 +1701,15 @@ def _cookie_args() -> dict:
 def _current_account(con, request: Request):
     """Учётная запись из куки кабинета — строкой из базы (отвязанная не пускает)."""
     aid = auth.current_account_id(request)
-    return account.get(con, aid) if aid else None
+    if aid:
+        return account.get(con, aid)
+    return contlink.session(con, request)          # вход кнопкой программы (27.10): одна клиника
+
+
+def _full_account(con, request: Request) -> bool:
+    """Вошёл ли в кабинет целиком (Google или код на e-mail), а не кнопкой программы."""
+    acc = _current_account(con, request)
+    return acc is not None and not account.scoped(acc)
 
 
 def _cont_login_redirect() -> Response:
@@ -1726,7 +1767,12 @@ def cont_home(request: Request, msg: str = "", c: str = "") -> Response:
         cab = [_cont_row(con, r) for r in mine] if len(mine) > 1 else []
         sa = con.execute("SELECT * FROM sms_accounts WHERE clinic_id=?", (cl["id"],)).fetchone()
         smsinfo = None
-        if sms.offered(sa):
+        # вход кнопкой программы (27.10): одна клиника; в кабинете ли она с другими — только для
+        # текста о коде компьютера, без их имён
+        scoped = account.scoped(acc)
+        branch = scoped and len(cabinet.of(con, cl["id"])) > 1
+        if sms.offered(sa) and not (scoped and sms.name_owner(con, cl["id"]) != cl["id"]):
+            # ⛔ имя SMS филиала — у главной клиники: сессии кнопки филиала оно не открывается
             # имя общее на кабинет (26.10): заявка, заявление и год — у главной клиники; строка счёта
             # не заводится просмотром: без неё — «имени нет»
             owner = _clinic(con, sms.name_owner(con, cl["id"]))
@@ -1738,13 +1784,36 @@ def cont_home(request: Request, msg: str = "", c: str = "") -> Response:
                        "data_href": "#date" if mine_name else f"/cont?c={owner['id']}#date"}
     # последний выпуск — из памяти или одним запросом к API; вне транзакции
     return HTMLResponse(views.cont_page(acc, cl, sub, issue, pays, download.latest(), msg, devices=devices,
-                                        smsinfo=smsinfo, cab=cab, group=group))
+                                        smsinfo=smsinfo, cab=cab, group=group, scoped=scoped, branch=branch))
+
+
+@app.get(contlink.PATH + "/{lid}", response_class=HTMLResponse)
+def cont_from_program(request: Request, lid: str) -> Response:
+    """Одноразовый вход из программы (27.10, contlink.py): ссылка жива и не открыта — гаснет, кука
+    кабинета «только эта клиника» → /cont. Уже вошедший во весь кабинет с этой клиникой — остаётся
+    при своём входе (ссылка всё равно гаснет). Иначе — 410 словами: нажать кнопку снова."""
+    ip = _ip(request)
+    with db.connect(immediate=True) as con:
+        c = contlink.use(con, lid, ip)
+        if c is None:
+            return HTMLResponse(views.cont_link_expired_page(), status_code=410)
+        db.audit(con, "program", "cont_program", c["id"], f"вход кнопкой программы, {ip}")
+        acc = _current_account(con, request)
+        keep = acc is not None and not account.scoped(acc) and any(
+            r["id"] == c["id"] for r in account.clinics(con, acc))
+    if keep:
+        return RedirectResponse(f"/cont?c={c['id']}", status_code=303)
+    resp = RedirectResponse("/cont", status_code=303)
+    resp.set_cookie(auth.ACCOUNT_COOKIE, auth.clinic_cookie(c["id"]), max_age=auth.ACCOUNT_TTL, path="/",
+                    **_cookie_args())
+    return resp
 
 
 @app.get("/cont/login", response_class=HTMLResponse)
 def cont_login(request: Request, msg: str = "") -> Response:
     with db.connect() as con:
-        if _current_account(con, request) is not None:
+        # вошедший кнопкой программы (одна клиника) может войти во весь кабинет — страница входа ему открыта
+        if _full_account(con, request):
             return RedirectResponse("/cont", status_code=303)
     return HTMLResponse(views.cont_login_page(msg, enabled=account.enabled()))
 
@@ -1756,7 +1825,7 @@ def cont_login_email(request: Request, email: str = Form("")) -> Response:
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     with db.connect() as con:
-        if _current_account(con, request) is not None:
+        if _full_account(con, request):
             return RedirectResponse("/cont", status_code=303)
     email = "".join(email.split()).lower()
     on = account.enabled()
@@ -2026,9 +2095,9 @@ def cont_receipt(request: Request, number: str) -> Response:
             return _cont_login_redirect()
         own = {r["id"] for r in account.clinics(con, acc)}
         p = con.execute("SELECT * FROM payments WHERE reference=?", (number,)).fetchone()
-        if p is not None and p["clinic_id"] not in own and not any(
-                ln["clinic_id"] in own for ln in payments.lines_of(con, p["id"])):
-            p = None
+        if p is not None and p["clinic_id"] not in own and (account.scoped(acc) or not any(
+                ln["clinic_id"] in own for ln in payments.lines_of(con, p["id"]))):
+            p = None                  # общая нота называет все клиники кабинета: кнопке программы — нет
         row = receipts.ensure(con, p, acc["email"]) if p is not None else None
     if row is None:
         return Response(status_code=404)
@@ -2052,6 +2121,8 @@ def _cont_sms(request: Request, con):
     sa = con.execute("SELECT * FROM sms_accounts WHERE clinic_id=?", (cl["id"],)).fetchone()
     if not sms.offered(sa):
         return acc, cl, cl, None
+    if account.scoped(acc) and sms.name_owner(con, cl["id"]) != cl["id"]:
+        return acc, cl, cl, None          # вход кнопкой программы филиала: имя кабинета не его (27.10)
     owner = _clinic(con, sms.name_owner(con, cl["id"]))
     return acc, cl, owner, sms.ensure(con, owner["id"])
 
