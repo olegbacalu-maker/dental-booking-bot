@@ -21,7 +21,7 @@ from harness import CLOUD, Client, Result, Server
 sys.path.insert(0, str(CLOUD))
 from app import auth, contlink  # noqa: E402
 from app import license as srv_license  # noqa: E402
-from test_branches import (BANK_ENV, BRANCH, DIRECTOR, MAIN, _add, _approve, _enter, _register,  # noqa: E402
+from test_branches import (BANK_ENV, BRANCH, DIRECTOR, MAIN, _add, _enter, _register,  # noqa: E402
                            _sql, _token_of)
 from test_renew import rn  # noqa: E402
 
@@ -192,7 +192,7 @@ def suite_scope(res: Result) -> None:
         main = _register(s, c)
         _add(c, main)
         bid = _sql(s, "SELECT id FROM clinics WHERE name=?", BRANCH["name"])[0][0]
-        _approve(s, bid)
+        # филиал из «Adaugă clinică» включается сам, без одобрения (27.10, branches-paid)
         c.post(f"/cont/sms/nume?c={main}", name="Zambet")          # имя SMS кабинета — у главной
         prog = Client(s.url)
         _, url = _link(prog, _token_of(s, bid))
