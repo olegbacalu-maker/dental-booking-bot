@@ -404,6 +404,23 @@ def add_clinic(con: sqlite3.Connection, current: sqlite3.Row, f: dict, ip: str, 
     return outcome, con.execute("SELECT * FROM clinics WHERE id=?", (clinic["id"],)).fetchone()
 
 
+def overdue_first(con: sqlite3.Connection, clinic_id: str) -> tuple[sqlite3.Row, sqlite3.Row | None] | None:
+    """Клиника кабинета, чей срок на оплату первой ноты (payments.ADVANCE) уже прошёл, а нота не
+    оплачена → (клиника, её открытая нота или None) — иначе None. Пока такая есть, «Adaugă
+    clinică» новую не заводит (координатор 27.10): иначе кабинет добавлял бы клинику за клиникой,
+    и каждая жила бы 14 дней срока на оплату и 14 льготы бесплатно. Несколько клиник подряд,
+    пока сроки идут, — можно."""
+    now = datetime.now(timezone.utc)
+    for r in cabinet.of(con, clinic_id):
+        if r["declined_at"] or payments.advance_start(con, r["id"]) is None:
+            continue
+        sub = con.execute("SELECT valid_until FROM subscriptions WHERE clinic_id=?", (r["id"],)).fetchone()
+        until = db.parse_ts(sub["valid_until"]) if sub else None
+        if until is not None and until <= now:
+            return r, payments.debt_of(con, r["id"])
+    return None
+
+
 def start_paid(con: sqlite3.Connection, clinic: sqlite3.Row, tier: str, months: int, who: str) -> bool:
     """Клиника из «Adaugă clinică» — сразу на абонементе (Олег 27.10): нота за первый период
     (вариант и срок — выбор формы) и файл `standard` на срок её оплаты — тот же

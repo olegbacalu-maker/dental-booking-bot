@@ -667,6 +667,11 @@ def suite_paid(res: Result) -> None:
         home = c.get(f"/cont?c={bid}").body
         res.ok("кабинет новой клиники: абонемент Basic и нота в ожидании, не «perioada de probă»",
                nota[0][1] in home and "DentPilot Basic" in home and "perioada de probă ·" not in home, home[-3000:])
+        res.ok("срок на оплату — не «valabil până la»: «achitați nota de plată până la», янтарная «nota de plată» "
+               "(блок «Licența» и строка «Clinicile mele»)",
+               "achitați nota de plată până la" in home and "Activă — achitați nota până la" in home
+               and "<span class='tag warn'>nota de plată</span>" in home
+               and "Abonamentul DentPilot Basic este valabil până la" not in home, home[:6000])
         # оплата в срок: период — от дня заведения, а не от конца срока на оплату
         admin = Client(s.url).login()
         r = admin.post(f"/admin/payments/{nota[0][0]}/confirm")
@@ -677,6 +682,10 @@ def suite_paid(res: Result) -> None:
                and got[0][1] != pay.ADVANCE, f"{r.location} {got} от {iss[0][1]}")
         res.check("якорь подписки — число дня заведения",
                   _sql(s, "SELECT anchor_day FROM subscriptions WHERE clinic_id=?", bid), [(start.day,)])
+        home = c.get(f"/cont?c={bid}").body
+        res.ok("после оплаты — обычное «valabil până la», зелёная «activă»",
+               "Abonamentul DentPilot Basic este valabil până la" in home and "achitați nota de plată până la" not in home,
+               home[:6000])
         # поздняя оплата: срок на оплату прошёл — как любая поздняя, от сегодня
         _add(c, main, name="Zambet Balti", address="str. Independentei 5, Balti", email="balti@zambet.md")
         bal = _sql(s, "SELECT id FROM clinics WHERE name='Zambet Balti'")[0][0]
@@ -691,6 +700,24 @@ def suite_paid(res: Result) -> None:
         want = pay.add_months(datetime.now(timezone.utc), 1)
         res.ok("поздняя оплата: месяц — от сегодня", late is not None and abs((late - want).total_seconds()) < 120,
                f"{late} ~ {want}")
+        # сторож «бесконечных 28 дней» (координатор 27.10): пока первая нота клиники кабинета просрочена — не добавлять
+        r1, _ = _add(c, main, name="Zambet Ciocana", address="str. Ciocana 1", email="ciocana@zambet.md")
+        r2, _ = _add(c, main, name="Zambet Riscani", address="str. Riscani 2", email="riscani@zambet.md")
+        res.ok("две клиники подряд, пока сроки на оплату идут, — можно", r1.status == 200 and r2.status == 200,
+               f"{r1.status} {r2.status}")
+        cio = _sql(s, "SELECT id FROM clinics WHERE name='Zambet Ciocana'")[0][0]
+        cref = _sql(s, "SELECT reference FROM payments WHERE clinic_id=? AND status='pending'", cio)[0][0]
+        _sql(s, "UPDATE subscriptions SET valid_until=? WHERE clinic_id=?",
+             (datetime.now(timezone.utc) - timedelta(days=1)).strftime(db.TS), cio)
+        want_txt = f"Achitați mai întâi nota clinicii Zambet Ciocana ({cref}), apoi puteți adăuga o clinică nouă."
+        form = c.get(f"/cont/clinica-noua?c={main}").body
+        res.ok("форма: срок первой ноты прошёл — сразу словами, какую ноту оплатить", want_txt in form, form[:3000])
+        r, code = _add(c, main, name="Zambet Durlesti", address="str. Durlesti 3", email="durlesti@zambet.md")
+        res.ok("⛔ «Adaugă clinică» при просроченной первой ноте — 409 словами, ничего не заведено",
+               r.status == 409 and want_txt in r.body and not code
+               and not _sql(s, "SELECT 1 FROM clinics WHERE name='Zambet Durlesti'"), r.body[:3000])
+        admin.post(f"/admin/payments/{_sql(s, 'SELECT id FROM payments WHERE reference=?', cref)[0][0]}/confirm")
+        res.ok("нота оплачена — форма снова открыта", "Achitați mai întâi" not in c.get(f"/cont/clinica-noua?c={main}").body)
 
     with Server(env={**BANK_ENV, "DP_TRIAL_MODE": "auto", "DP_LICENSE_KEY": ""}) as s:
         c = _enter(s, DIRECTOR)

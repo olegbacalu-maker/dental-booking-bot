@@ -1562,6 +1562,7 @@ CONT_MSG = {
     "clinic_added_wait": "Clinica a fost adăugată în cont, iar nota de plată pentru prima perioadă este gata. "
                          "Licența o activăm noi, de obicei în aceeași zi lucrătoare; între timp puteți instala "
                          "programul cu codul de mai jos.",
+    "add_unpaid": "Achitați mai întâi nota clinicii {name} ({ref}), apoi puteți adăuga o clinică nouă.",
     "add_need_idno": "Indicați IDNO-ul clinicii noi (13 cifre) — fără el nu se emite licența abonamentului. Poate fi "
                      "același ca la celelalte clinici din cont.",
     "need_address": "Indicați adresa clinicii — după ea deosebiți clinicile în listă.",
@@ -1594,6 +1595,8 @@ SENDER_RO = {"none": ("mute", "fără nume propriu"), "requested": ("warn", "cer
              "submitted": ("warn", "la operatori"), "active": ("ok", "aprobat"), "rejected": ("bad", "respins")}
 STATE_RO = {"active": ("ok", "activă"), "grace": ("warn", "expirată — perioada de plată"),
             "readonly": ("bad", "regim de citire"), "none": ("mute", "neactivată")}
+# срок на оплату первой ноты клиники из кабинета (payments.ADVANCE): активна, но не оплачена
+ADVANCE_TAG = ("warn", "nota de plată")
 PAY_RO = {"pending": ("warn", "în așteptare"), "paid": ("ok", "plătită"), "rejected": ("bad", "respinsă")}
 # Кабинет клиники — СВОЙ стиль по токенам сайта dentpilot.md (Inter с сайта: шрифты
 # Pages отдаются с CORS *, бирюза, карточки с мягкой тенью, липкая шапка). 02.10,
@@ -2009,7 +2012,13 @@ def _lic_parts(c, sub, issue, st: str, now: datetime) -> dict:
     what = "Perioada de probă" if plan == "trial" else f"Abonamentul {tiers.NAME[tiers.current(sub)]}"
     d, g = _ro(issue["valid_until"]), _ro(issue["grace_until"])
     cls, tag = STATE_RO.get(st, ("mute", st))
-    if st == "active":
+    advance = st == "active" and issue["reason"] == pay.ADVANCE
+    if advance:
+        # срок на оплату первой ноты клиники из кабинета (27.10) — не оплаченный период
+        cls, tag = ADVANCE_TAG
+        text = (f"{what} este activ — achitați nota de plată până la <b>{d}</b>; perioada plătită se numără din "
+                f"ziua adăugării clinicii.")
+    elif st == "active":
         text = f"{what} {'este valabilă' if plan == 'trial' else 'este valabil'} până la <b>{d}</b>."
     elif st == "grace":
         text = (f"{what} a expirat la {d}. Programul funcționează complet până la <b>{g}</b>, apoi trece în "
@@ -2035,7 +2044,7 @@ def _lic_parts(c, sub, issue, st: str, now: datetime) -> dict:
             left = max(0, -(-(end - now).total_seconds() // 86400))      # дни до конца, вверх
             pct = round(passed / total * 100)
             l_text = "Începută azi" if passed == 0 else f"Au trecut {mail.zile(passed)}"
-            r_text = f"Mai sunt {mail.zile(int(left))} — până la {d}"
+            r_text = f"Mai sunt {mail.zile(int(left))}{' pentru plată' if advance else ''} — până la {d}"
             bar = (f"<div class='bar'><span style='width:{pct}%'></span></div>"
                    f"<div class='days'><span>{l_text}</span><span>{r_text}</span></div>")
         elif st == "grace":
@@ -2482,6 +2491,9 @@ def _crow(x: dict, on: bool, now: datetime) -> str:
                 else f"{tiers.NAME[cur]} · {_mdl(tiers.price(sub, cur))} MDL / lună")
         until = _ro(sub["valid_until"]) if sub else "—"
         cls, word = STATE_RO.get(st, ("mute", st))
+        if st == "active" and issue["reason"] == pay.ADVANCE:
+            # срок на оплату первой ноты (27.10): не «valabil», а «achitați nota până la»
+            until, (cls, word) = f"Activă — achitați nota până la {until}", ADVANCE_TAG
         tag = f"<span class='tag {cls}'>{esc(word)}</span>"
     opn = f"<a class='btn second sm' href='/cont?c={cid}'>Deschide</a>"
     if on:

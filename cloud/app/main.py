@@ -2255,6 +2255,7 @@ def cont_add_form(request: Request, c: str = "", msg: str = "") -> Response:
         if cl is None:
             return RedirectResponse("/cont/inregistrare" if not account.clinics(con, acc) else "/cont",
                                     status_code=303)
+        msg = msg or _add_unpaid(con, cl)      # сразу на форме: не заполнять её зря
     return HTMLResponse(views.cont_add_page(acc, cl, msg))
 
 
@@ -2285,6 +2286,9 @@ def cont_add_submit(request: Request, c: str = "", name: str = Form(""), address
     if months not in ("1", "12") or tiers.list_price(tier) <= 0:
         return HTMLResponse(views.cont_add_page(acc, cl, "tier_not_sold" if tiers.list_price(tier) <= 0 else "bad_months",
                                                 f), status_code=400)
+    with db.connect() as con:
+        if (late := _add_unpaid(con, cl)):
+            return HTMLResponse(views.cont_add_page(acc, cl, late, f), status_code=409)
     if trial.limited(ip):
         return HTMLResponse(views.cont_add_page(acc, cl, "limited", f), status_code=429)
     trial.note(ip)
@@ -2308,6 +2312,16 @@ def cont_add_submit(request: Request, c: str = "", name: str = Form(""), address
         return HTMLResponse(views.cont_add_page(acc, cl, "add_duplicate", f), status_code=409)
     return HTMLResponse(views.cont_activation_page(acc, new, act, until, main, download.latest(),
                                                    "clinic_added" if outcome == trial.ADDED else "clinic_added_wait"))
+
+
+def _add_unpaid(con, cl) -> str:
+    """Текст отказа «Adaugă clinică», пока у клиники кабинета просрочена первая нота
+    (account.overdue_first), или ''. Заявкой не считается: лимит заявок не тратит."""
+    late = account.overdue_first(con, cl["id"])
+    if late is None:
+        return ""
+    clinic, nota = late
+    return views.cont_text("add_unpaid").format(name=clinic["name"], ref=nota["reference"] if nota else "—")
 
 
 def _send_added_letter(con, c, p, who: str) -> None:
