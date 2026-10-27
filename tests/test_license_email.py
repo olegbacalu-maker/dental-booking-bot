@@ -13,9 +13,11 @@ cloud/tests/test_email.py.
 """
 import json
 import pathlib
+import sqlite3
 import tempfile
+from datetime import datetime, timedelta, timezone
 
-from harness import Client, Result, Server, _rmtree_settled
+from harness import Client, Result, Server, _rmtree_settled, shell_signal
 from test_license_renew import KEY_ENV, TOKEN, Stand, _api, _events, _file, _log, _until, _wait_renew, rn
 from test_paylink import _hint, _tile
 
@@ -60,6 +62,15 @@ def suite_wire(res: Result) -> None:
     res.check("сервера нет: OFFLINE", rn.email_call(url, TOKEN, {}, timeout=2), (rn.OFFLINE, {}))
 
 
+def _meta(d: pathlib.Path, key: str) -> str | None:
+    con = sqlite3.connect(d / "dental.db")
+    try:
+        row = con.execute("SELECT value FROM schema_meta WHERE key=?", (key,)).fetchone()
+        return row[0] if row else None
+    finally:
+        con.close()
+
+
 def _block(page: str) -> bool:
     return "E-mail neconfirmat" in page and "/admin/license/email/confirm" in page
 
@@ -93,6 +104,25 @@ def suite_page(res: Result) -> None:
                    _block(lp) and "clinica@gmial.com" in lp and "/admin/license/email/code" in lp
                    and "/admin/license/email/change" in lp and "funcționează și fără confirmare" in lp, lp[-2500:])
             res.ok("блок e-mail — после оплаты и срока", 0 < lp.find("Plătește acum") < lp.find("E-mail neconfirmat"))
+
+            # баннер каркаса: в сигнале license, вслед за баннером режима чтения
+            sig = shell_signal(c.get("/admin").body, "license")["html"]
+            res.ok("баннер директору: ящик, ссылка на лицензию, «Mai târziu» — после баннера чтения",
+                   0 < sig.find("regim de citire") < sig.find("nu este confirmată")
+                   and "clinica@gmial.com" in sig and "href='/admin/license'><b>Confirmați" in sig
+                   and "action='/admin/license/email/later'" in sig, sig[-900:])
+            r = c.post("/admin/license/email/later")
+            res.check("«Mai târziu» (в режиме чтения тоже) — назад в журнал", r.location, "/admin")
+            sig = shell_signal(c.get("/admin").body, "license")["html"]
+            res.ok("после «Mai târziu» баннера e-mail нет, баннер чтения на месте",
+                   "nu este confirmată" not in sig and "regim de citire" in sig, sig[-600:])
+            later = _meta(d, "lic_mail_later")
+            res.ok("«Mai târziu» — на неделю, в schema_meta (переживает перезапуск)",
+                   later is not None and timedelta(days=6, hours=23) < datetime.strptime(
+                       later, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc) - datetime.now(timezone.utc)
+                   <= timedelta(days=7), repr(later))
+            res.ok("напоминание на плитке и странице «Mai târziu» не гасит",
+                   "e-mail neconfirmat" in _hint(_tile(c)) and _block(c.get("/admin/license").body))
 
             # «Schimbă adresa»: отказ сервера словами, потом удача
             stand.answer(409, {"ok": False, "code": "email_taken", "text": "Adresa aparține altei clinici"},
@@ -145,6 +175,9 @@ def suite_page(res: Result) -> None:
             res.ok("активная лицензия, ящик не подтверждён — запись работает (ничего не заперто)",
                    _until(lambda: (_api(c).get("mailbox") or {}).get("confirmed") is False)
                    and c.post_json("/api/patients", {"name": "Mail Test", "phone": "069000778"}).status == 200)
+            sig = shell_signal(c.get("/admin").body, "license")
+            res.ok("при активной лицензии сигнал license несёт только баннер e-mail",
+                   sig["shown"] and "nu este confirmată" in sig["html"] and "abonament" not in sig["html"], repr(sig))
             c.post_json("/api/settings/users", {"uid": "ana", "name": "Ana R", "role": "receptie", "pin": "3333"})
             ana = Client(s.url)
             ana.post("/admin/login", password="3333", next="/admin")
@@ -153,6 +186,10 @@ def suite_page(res: Result) -> None:
             res.ok("регистратуре: блока нет, действие — no_access, на сервер ничего не ушло",
                    not _block(ana.get("/admin/license").body) and r.location == "/admin?msg=no_access"
                    and len(stand.posts) == n, repr(r))
+            res.ok("регистратуре баннера нет, «Mai târziu» — no_access",
+                   not shell_signal(ana.get("/admin").body, "license")["shown"]
+                   and ana.post("/admin/license/email/later").location == "/admin?msg=no_access"
+                   and _meta(d, "lic_mail_later") is None)
     finally:
         stand.close()
         _rmtree_settled(d)

@@ -304,3 +304,8 @@ def suite_parts(res: Result) -> None:
            body.split("\n\n")[2].startswith("Confirmați adresa") and "7 zile" in body, body)
     res.ok("ссылка письма — под BASE_URL, путь /confirma/",
            urlsplit(emailconf.url_for("k")).path == "/confirma/k")
+    # текст — тоже поведение: политика § 5 называет срок и состав ссылки подтверждения
+    pol = " ".join((CLOUD.parent / "docs" / "site" / "privacy.html").read_text(encoding="utf-8").split())
+    res.ok("privacy.html: подтверждение ящика — link și cod de 6 cifre, срок emailconf.LINK_TTL",
+           "Confirmarea adresei de e-mail:" in pol and "un cod de 6 cifre" in pol
+           and f"(valabile {emailconf.LINK_TTL.days} zile, o singură dată)" in pol, pol[:0])

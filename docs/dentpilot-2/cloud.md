@@ -1100,9 +1100,18 @@ Windows, идентификатор; без пользователя и паци
   `mailbox` в `/api/license`. Состояние — в памяти процесса: суточный запрос
   идёт на старте; «не знаем» (старый сервер, нет связи) ≠ «не подтверждён» —
   ни строки, ни блока.
+- **Баннер каркаса** (Олег через координатора, 27.10): `layout._mail_banner` —
+  янтарная строка директору на каждом экране, едет в сигнале `license` вслед
+  за его баннером (своего места в модели оболочки не заводили, React не
+  тронут); «Mai târziu» (POST `/admin/license/email/later`, в `READONLY_ALLOW`)
+  прячет его на 7 дней для всей клиники — метка `lic_mail_later` в
+  `schema_meta`. Плитку и блок страницы «Mai târziu» не гасит.
+- **Политика § 5** (`docs/site/privacy.html`, 27.10.2026): пункт
+  «Confirmarea adresei de e-mail»; срок ссылки сверяет `test_email.suite_parts`
+  с `emailconf.LINK_TTL`. На сайт — в день выкатки сервера.
 
 Наборы: `cloud/tests/test_email.py`, `tests/test_license_email.py`; пары —
-`design/email-confirm/tools/mutate_email.py` (21 из 21 красные).
+`design/email-confirm/tools/mutate_email.py`.
 
 ## Порядок работ
 

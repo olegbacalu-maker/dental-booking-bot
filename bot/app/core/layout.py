@@ -1020,6 +1020,28 @@ def _license_banner() -> str:
     return f"<div class='banner {cls}' style='margin-bottom:14px'>{_ic('key')} {text}</div>"
 
 
+def _mail_banner() -> str:
+    """E-mail клиники не подтверждён (27.10, Олег через координатора): короткая янтарная строка
+    ДИРЕКТОРУ на каждом экране, ссылка на страницу лицензии и «Mai târziu» — неделя тишины
+    (`lic.mail_later`). Едет в сигнале `license` вслед за его баннером: тот же предмет, своего места
+    в каркасе не заводим. Не знаем состояния — молчим (`lic.mail_banner_due`). ⛔ Ничего не запирает."""
+    if not lic.mail_banner_due() or demo.on():
+        return ""
+    me = request_user()
+    if me is not None and not can(me, PERM_SETTINGS):
+        return ""
+    box = lic.mailbox() or {}
+    return (f"<div class='banner warn' style='margin-bottom:14px'>{_ic('mail')} "
+            f"Adresa de e-mail a clinicii <b>{html.escape(box.get('email') or '')}</b> nu este "
+            f"confirmată: pe ea vin codurile și notele de plată. "
+            f"<a href='/admin/license'><b>Confirmați în Licență</b></a>"
+            f"<form method='post' action='/admin/license/email/later' "
+            f"style='display:inline;margin-left:12px'>"
+            f"<button style='background:none;border:1px solid currentColor;"
+            f"border-radius:8px;padding:4px 12px;cursor:pointer;color:inherit;"
+            f"font-size:13px'>Mai târziu</button></form></div>")
+
+
 def _split_banner() -> str:
     """На машине ДВЕ картотеки — вопрос к директору, но НЕ стена.
 
@@ -1522,7 +1544,7 @@ def shell_model(active: str, sub: str, rail: bool = False,
         # лицензией (L5 строился до B1): тесты зелёные — харнесс держит
         # старый интерфейс, — а клиника видела бы отказ записи без баннера.
         # Держит `test_structure` («каждый баннер каркаса — сигнал оболочки»).
-        "signals": {"license": _sig(_license_banner()),
+        "signals": {"license": _sig(_license_banner() + _mail_banner()),
                     "tamper": _sig(_tamper_banner()), "split": _sig(_split_banner()),
                     "slot": _sig(_slot_banner()), "setup": _sig(_setup_hint()),
                     "demo": _sig(_demo_banner()), "backup": _sig(_backup_banner())},

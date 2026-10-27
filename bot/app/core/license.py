@@ -126,6 +126,10 @@ PAY_OK, PAY_NONE, PAY_OFFLINE, PAY_REFUSED = "ok", "none", "offline", "refused"
 EMAIL_PATHS = {"code": "/v1/email/code", "confirm": "/v1/email/confirm", "change": "/v1/email/change"}
 EMAIL_SENT, EMAIL_CONFIRMED, EMAIL_CHANGED = "license_email_sent", "license_email_confirmed", "license_email_changed"
 EMAIL_REFUSED, EMAIL_OFFLINE = "license_email_refused", "license_email_offline"
+# Баннер «e-mail neconfirmat» (Олег 27.10, через координатора): «Mai târziu» прячет его на неделю
+# для всей клиники — метка в schema_meta (переживает перезапуск), читается при первом запросе файла
+META_MAIL_LATER = "lic_mail_later"
+MAIL_LATER = timedelta(days=7)
 
 _dir: pathlib.Path | None = None
 _result: tuple[str, object | None] | None = None
@@ -146,6 +150,7 @@ _tickets: dict[str, datetime] = {}     # ключи ссылки «Plătește ac
 # Ящик клиники, как его назвал сервер последним ответом: email, confirmed (None — не знаем:
 # сервер не сказал или не спрашивали); text — отказ последнего действия словами сервера
 _mailbox: dict = {"email": "", "confirmed": None, "text": ""}
+_mail_later: dict = {"until": None, "loaded": False}   # «Mai târziu» баннера: до какого момента молчать
 
 
 def folder() -> pathlib.Path | None:
@@ -589,6 +594,25 @@ def mailbox() -> dict | None:
     return dict(_mailbox)
 
 
+def mail_banner_due() -> bool:
+    """Показывать ли баннер «e-mail neconfirmat»: ящик не подтверждён и «Mai târziu» не действует."""
+    u = _mail_later["until"]
+    return email_unconfirmed() and (u is None or _now() >= u)
+
+
+async def mail_later() -> None:
+    """«Mai târziu» баннера: молчать MAIL_LATER — в памяти и в schema_meta."""
+    until = _now() + MAIL_LATER
+    _mail_later.update(until=until, loaded=True)
+    await db.set_meta(META_MAIL_LATER, st.fmt(until))
+
+
+async def _mail_later_load() -> None:
+    if _mail_later["loaded"]:
+        return
+    _mail_later.update(until=st.parse(await db.get_meta(META_MAIL_LATER)), loaded=True)
+
+
 def email_unconfirmed() -> bool:
     """Напоминать ли директору: сервер сказал, что ящик не подтверждён."""
     box = mailbox()
@@ -681,6 +705,7 @@ async def renew_once() -> str:
     Сеть — в потоке, чтобы не держать цикл событий; замок — чтобы суточный
     запрос и кнопка не писали файл наперегонки."""
     global _renew_lock
+    await _mail_later_load()
     target = renew_target()
     # Файла ещё нет, но заявка отправлена: тот же запрос по токену заявки
     pend = pending() if target is None else None

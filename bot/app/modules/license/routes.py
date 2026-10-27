@@ -127,6 +127,16 @@ async def license_email_change(request: Request, email: str = Form("")) -> Respo
     return await _email(request, "change", email)
 
 
+@router.post("/admin/license/email/later")
+async def license_email_later(request: Request) -> Response:
+    """«Mai târziu» баннера «e-mail neconfirmat» (27.10): молчать неделю. Только директору — ему одному
+    баннер и показывается; назад в журнал, как «Am luat la cunoștință» сигнализации."""
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    await lic.mail_later()
+    return RedirectResponse("/admin", status_code=303)
+
+
 @router.get("/plata/{ticket}")
 async def license_pay(ticket: str) -> Response:
     """«Plătește acum» (02.10): ссылка из баннера и со страницы лицензии.
