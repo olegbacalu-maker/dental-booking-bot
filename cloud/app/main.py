@@ -2327,7 +2327,9 @@ def _add_unpaid(con, cl) -> str:
 def _send_added_letter(con, c, p, who: str) -> None:
     """Клинике из «Adaugă clinică» — одно письмо: включена, срок на оплату, нота первого периода с
     реквизитами. Ушло — напоминание «нота» за этот срок задача уже не шлёт (jobs.INVOICE: у срока
-    на оплату его окно открыто с первого дня); не ушло — пришлёт задача."""
+    на оплату его окно открыто с первого дня); не ушло — пришлёт задача. Ящик не подтверждён (не
+    совпал со входом кабинета, emailconf.on_new_clinic) — в том же письме «Confirmă adresa» и
+    код, как в письме о лицензии (license.mail_latest): одно письмо, не два."""
     sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (c["id"],)).fetchone()
     if p is None or sub is None or not c["email"]:
         return
@@ -2337,6 +2339,9 @@ def _send_added_letter(con, c, p, who: str) -> None:
         subject, body = mail.clinic_added_letter(c["name"], valid, valid + timedelta(days=int(sub["grace_days"])),
                                                  p["reference"], p["amount"], p["months"], p["tier"],
                                                  pay_url=page if maib.enabled() else None, page=page)
+        confirm = emailconf.for_letter(con, c, who)
+        if confirm:
+            body = mail.with_confirm(body, *confirm, emailconf.LINK_TTL.days)
         where = mail.send(c["email"], subject, body)
     except (RuntimeError, OSError, ValueError) as e:
         log.error("письмо новой клинике кабинета %s не отправлено: %r", c["id"], e)

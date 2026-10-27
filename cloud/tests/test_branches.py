@@ -250,6 +250,10 @@ def suite_cabinet(res: Result) -> None:
         res.ok("клинике — одно письмо: включена, нота первого периода с реквизитами, пробный — только у первой",
                len(ack) == 1 and "a fost adăugată în cont" in ack[0][0] and "IBAN" in ack[0][1]
                and "doar pentru prima clinică" in ack[0][1] and "cererea de probă" not in ack[0][0], repr(ack)[:800])
+        res.ok("ящик новой клиники не совпал со входом кабинета — в том же письме «Confirmă adresa»: ссылка "
+               "/confirma/ и код (стык с В, 27.10); ящик не подтверждён",
+               len(ack) == 1 and "/confirma/" in ack[0][1] and re.search(r"codul: \d{6}\b", ack[0][1]) is not None
+               and _sql(s, "SELECT email_confirmed_at IS NULL FROM clinics WHERE id=?", bid) == [(1,)], repr(ack)[:900])
         res.ok("ответ — страница кода: 7 цифр клетками, «licența ei este activă», предупреждение про код из письма "
                "для главной",
                len(code) == 7 and code.isdigit() and "Codul de activare" in r.body and "licența ei este activă" in r.body
@@ -286,6 +290,11 @@ def suite_cabinet(res: Result) -> None:
 
         r, code = _add(c, main, email=DIRECTOR, name="Zambet Balti", address="str. Independentei 5, Balti")
         res.ok("тот же ящик, что у главной, — тоже можно", r.status == 200 and len(code) == 7, r.body[-400:])
+        same = [b for to, subj, b, _a in _letters(s) if to == DIRECTOR and "Zambet Balti a fost adăugată" in subj]
+        res.ok("ящик = вход кабинета: подтверждён сразу, в письме новой клиники блока подтверждения нет",
+               len(same) == 1 and "/confirma/" not in same[0] and "codul:" not in same[0]
+               and _sql(s, "SELECT email_confirmed_at IS NOT NULL FROM clinics WHERE name='Zambet Balti'") == [(1,)],
+               repr(same)[:900])
         # чужая клиника с другим IDNO — заведена программой другого человека
         other = Client(s.url)
         st, _d = _api(other, "/v1/trial", dict(name="Clinica Straina", idno="2000000000001", contact_name="X",
