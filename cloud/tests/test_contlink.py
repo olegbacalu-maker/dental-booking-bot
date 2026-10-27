@@ -175,6 +175,10 @@ def suite_link(res: Result) -> None:
         codes = [_link(prog, tok)[0].status for _ in range(contlink.PER_HOUR)]
         res.ok("21-я ссылка за час — 429", codes.count(200) == contlink.PER_HOUR - 3 and codes[-3:] == [429] * 3,
                repr(codes))
+        # скрытая при живом токене (так скрытие не делает, но условие держит API само) — ссылки нет
+        _sql(s, "UPDATE clinics SET declined_at='2026-10-27T00:00:00Z' WHERE id=?", main)
+        res.check("скрытая клиника при живом токене: ссылки нет", _link(prog, tok)[0].status, 401)
+        _sql(s, "UPDATE clinics SET declined_at=NULL WHERE id=?", main)
         # Олег скрыл клинику — ссылки нет, и вошедшая кнопкой сессия перестаёт пускать
         Client(s.url).login().post(f"/admin/clinics/{main}/decline")
         res.check("скрытая клиника: ссылки нет (токен погашен)", _link(prog, tok)[0].status, 401)
