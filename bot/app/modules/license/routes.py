@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from ...core import license as lic
 from ...core.auth import PERM_SETTINGS, _guard, can, current_user, require
-from ...core.layout import license_page, license_pay_page
+from ...core.layout import license_cont_page, license_page, license_pay_page
 
 router = APIRouter()
 
@@ -154,3 +154,20 @@ async def license_pay(ticket: str) -> Response:
     if outcome == lic.PAY_OK:
         return RedirectResponse(url, status_code=303)
     return HTMLResponse(license_pay_page(outcome), status_code=503)
+
+
+@router.get("/cont/{ticket}")
+async def license_cont(ticket: str) -> Response:
+    """«Deschide contul clinicii» (27.10): кабинет СВОЕЙ клиники на сервере лицензий без кода.
+
+    ⛔ Без `_guard`, как /plata: ссылка уходит СИСТЕМНОМУ браузеру, у которого нет куки входа
+    программы, — пропуском служит тот же ключ `lic.pay_ticket`, который рисуют только
+    директору. Отсюда — одноразовая ссылка у сервера, выдавшего файл (5 минут, гаснет при
+    открытии), и переход туда; неудача — страница словами в том же браузере.
+    ⚠️ GET ничего не меняет в программе; у сервера заводит одноразовую ссылку (лимит — его)."""
+    if not lic.applies() or not lic.pay_ticket_ok(ticket):
+        return HTMLResponse(license_cont_page("ticket"), status_code=404)
+    outcome, url = await lic.cont_link()
+    if outcome == lic.PAY_OK:
+        return RedirectResponse(url, status_code=303)
+    return HTMLResponse(license_cont_page(outcome), status_code=503)

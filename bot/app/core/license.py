@@ -130,6 +130,12 @@ EMAIL_REFUSED, EMAIL_OFFLINE = "license_email_refused", "license_email_offline"
 # для всей клиники — метка в schema_meta (переживает перезапуск), читается при первом запросе файла
 META_MAIL_LATER = "lic_mail_later"
 MAIL_LATER = timedelta(days=7)
+# «Deschide contul clinicii» (27.10, сервер — cloud/app/contlink.py): вход в кабинет СВОЕЙ
+# клиники без кода — тот же путь, что у «Plătește acum», и те же исходы PAY_*: origin
+# `renew.url` + CONT_PATH, Bearer файла, ответ — только CONT_PAGE того же сервера (одноразовая
+# ссылка на 5 минут); ключ в странице — тот же pay_ticket, его рисуют только директору.
+CONT_PATH = "/v1/cont-link"
+CONT_PAGE = "/cont/intra/"
 
 _dir: pathlib.Path | None = None
 _result: tuple[str, object | None] | None = None
@@ -649,6 +655,52 @@ async def email_action(kind: str, value: str = "", actor: str = "director") -> s
                                              f"{email[:120]}", actor=actor)
         return EMAIL_CONFIRMED
     return EMAIL_CONFIRMED if ok else EMAIL_SENT
+
+
+def cont_endpoint() -> tuple[str, str] | None:
+    """(адрес /v1/cont-link, токен) у сервера, выдавшего файл, или None — как pay_endpoint."""
+    t = renew_target()
+    if t is None:
+        return None
+    u = urllib.parse.urlsplit(t[0])
+    url = f"{u.scheme}://{u.netloc}{CONT_PATH}"
+    return (url, t[1]) if rsa_verify.renew_url_ok(url) else None
+
+
+def cont_available() -> bool:
+    """Есть ли кабинет, куда войти кнопкой: лицензия применяется, и файл знает свой сервер."""
+    return applies() and cont_endpoint() is not None
+
+
+def _cont_page_ok(page, endpoint: str) -> bool:
+    """Адрес из ответа сервера — его же одноразовый вход в кабинет, и ничего другого."""
+    if not isinstance(page, str) or len(page) > 300:
+        return False
+    a, b = urllib.parse.urlsplit(page), urllib.parse.urlsplit(endpoint)
+    return ((a.scheme, a.netloc) == (b.scheme, b.netloc) and a.path.startswith(CONT_PAGE)
+            and len(a.path) > len(CONT_PAGE) and "/" not in a.path[len(CONT_PAGE):]
+            and not a.query and not a.fragment)
+
+
+async def cont_link() -> tuple[str, str]:
+    """«Deschide contul clinicii»: одноразовый вход в кабинет у сервера лицензий →
+    (PAY_*, адрес или ''). Провод — тот же POST с Bearer, что у оплаты (rn.pay_link): сервер
+    отвечает {url, expires_at}. Частого запроса файла не заводит — в кабинете не платят сразу."""
+    ep = cont_endpoint()
+    if ep is None or not applies():
+        return PAY_NONE, ""
+    url, token = ep
+    outcome, data = await asyncio.to_thread(rn.pay_link, url, token, RENEW_TIMEOUT, _agent(),
+                                            identity())
+    if outcome == rn.REFUSED:
+        result, page = PAY_REFUSED, ""
+    elif outcome == rn.ACCEPTED and _cont_page_ok(data.get("url"), url):
+        result, page = PAY_OK, data["url"]
+    else:
+        result, page = PAY_OFFLINE, ""
+    # ⚠️ ASCII, как в _log: строку ищет тест в логе сервера на Windows
+    log.warning("license: cont=%s", result)
+    return result, page
 
 
 def _agent() -> str:

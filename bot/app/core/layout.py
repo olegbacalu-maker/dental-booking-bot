@@ -1801,6 +1801,9 @@ LICENSE_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
        background:#FFFBEB;border:1px solid #FDE68A}
  .mail .t{color:#B45309;font-weight:600}
  button.alt{background:#fff;color:__ACCENT_D__;border:1px solid #E7EDF5}
+ a.cont{display:flex;align-items:center;justify-content:center;gap:8px;border:1px solid #E7EDF5;
+        color:__ACCENT_D__;border-radius:12px;height:42px;font-size:14.5px;font-weight:600;
+        text-decoration:none}
 </style></head><body>
 <div class="box">
   <h1>__ICON__ __TITLE__</h1>
@@ -1920,6 +1923,43 @@ def _pay_block() -> str:
             f"Plătește acum</a>{note}")
 
 
+def _cont_block() -> str:
+    """«Deschide contul clinicii» на странице лицензии (27.10, сервер — cloud/app/contlink.py):
+    кабинет СВОЕЙ клиники в системном браузере без кода — тот же ключ, что у «Plătește acum»
+    (`lic.pay_ticket`), маршрут /cont/<ключ>. Только директору (зовёт license_page)."""
+    if not lic.cont_available():
+        return ""
+    return (f"<a class='cont' href='/cont/{lic.pay_ticket()}' target='_blank' rel='noopener'>"
+            f"{_ic('user')} Deschide contul clinicii</a>"
+            "<p>Contul clinicii DentPilot se deschide în browser, fără cod: abonamentul, notele și "
+            "contul de plată, calculatoarele și datele acestei clinici.</p>")
+
+
+# Страница-ответ маршрута /cont, когда до кабинета дойти не вышло: как у /plata, системный
+# браузер без входа программы — что случилось и что сделать в окне программы.
+_CONT_FAIL = {
+    "ticket": ("Linkul a expirat",
+               "Apăsați din nou «Deschide contul clinicii» în program, pe pagina Licență."),
+    lic.PAY_NONE: ("Contul clinicii nu se deschide din program",
+                   "Licența de pe acest calculator nu are un server DentPilot. Intrați în contul clinicii "
+                   "de pe dentpilot.md, cu Google sau cu codul pe e-mail."),
+    lic.PAY_OFFLINE: ("Serverul DentPilot nu a răspuns",
+                      "Verificați conexiunea la internet și apăsați din nou «Deschide contul clinicii» "
+                      "în program. Dacă se repetă, așteptați câteva minute."),
+    lic.PAY_REFUSED: ("Serverul DentPilot nu a recunoscut licența",
+                      "Licența acestui calculator nu este recunoscută de serverul DentPilot. Scrieți-ne."),
+}
+
+
+def license_cont_page(code: str) -> str:
+    title, text = _CONT_FAIL.get(code, _CONT_FAIL[lic.PAY_OFFLINE])
+    return (standalone(LICENSE_TMPL)
+            .replace("__REFRESH__", "").replace("__TITLE__", title).replace("__TONE__", "bad")
+            .replace("__TEXT__", text).replace("__DETAILS__", "").replace("__ERR__", "")
+            .replace("__FORM__", "<p>Puteți închide această filă.</p>").replace("__BACK__", "")
+            .replace("__EMAIL__", FEEDBACK_EMAIL).replace("__PHONE__", SUPPORT_PHONE))
+
+
 # Страница-ответ маршрута /plata, когда до страницы оплаты дойти не вышло. Её
 # видит СИСТЕМНЫЙ браузер, где у программы нет входа, — поэтому ни ссылки «в
 # журнал», ни кнопок: что случилось и что сделать в окне программы.
@@ -1966,6 +2006,7 @@ def license_page(msg: str = "", *, director: bool, walled: bool) -> str:
     elif s.claim is not None:
         c = s.claim
         pay = _pay_block() if director else ""
+        pay += _cont_block() if director else ""      # кабинет клиники — после оплаты (27.10)
         details = (f"<dl><dt>Clinica</dt><dd>{html.escape(c.clinic)}</dd>"
                    f"<dt>Abonament</dt><dd>{html.escape(c.plan)}</dd>"
                    f"<dt>Valabil până la</dt><dd>{_lic_date(c.valid_until)}</dd>"

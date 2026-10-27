@@ -428,6 +428,8 @@ def entries() -> list[dict]:
         # подписи страницы оплаты — cloud/app/views.py (pay_link_page). Карта
         # появляется на той странице только с договором maib — отсюда «dacă».
         # Cont de plată «achitat» — cloud/app/receipts.py (письмо и кабинет).
+        # «Deschide contul clinicii» (27.10) — та же страница лицензии, только директору; кабинет
+        # по ней — только эта клиника (cloud/app/contlink.py).
         # Варианты Basic / Plus и когда включается модуль SMS — условия § 4.1–4.2.
         _q("card", "Cum plătesc abonamentul?",
            f"{p}Din program: <b>Setări › Licența</b> și butonul <b>Plătește acum</b> — "
@@ -449,6 +451,10 @@ def entries() -> list[dict]:
            f"{p}După plată primiți pe e-mail <b>contul de plată</b> cu mențiunea "
            f"«achitat» (PDF), pentru contabilitatea clinicii; îl puteți descărca "
            f"oricând și din contul clinicii DentPilot.{end}"
+           f"{p}Contul clinicii se deschide și din program, fără cod: pe aceeași pagină "
+           f"a licenței, butonul <b>Deschide contul clinicii</b> (doar pentru director). "
+           f"Așa vedeți doar clinica acestui program; celelalte clinici ale contului — "
+           f"după intrarea cu Google sau cu codul pe e-mail.{end}"
            f"{p}Dacă abonamentul a expirat, programul lucrează în continuare până la data "
            f"din banner, apoi trece în regim de citire: datele se pot consulta, tipări și "
            f"exporta, iar copia de rezervă funcționează; programări și înregistrări noi se "
