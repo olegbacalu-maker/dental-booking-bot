@@ -78,6 +78,7 @@ import test_panel_model  # noqa: E402
 import test_patient_card  # noqa: E402
 import test_patients_api  # noqa: E402
 import test_paylink  # noqa: E402
+import test_license_email  # noqa: E402
 import test_schedule_api  # noqa: E402
 import test_settings_api  # noqa: E402
 import test_notices  # noqa: E402
@@ -175,6 +176,8 @@ SUITES = [
     ("Лицензия: «Plătește acum» — провод к /v1/pay-link", test_paylink.suite_wire),
     ("Лицензия: «Plătește acum» — ключ, страница оплаты, новый срок сам", test_paylink.suite_pay),
     ("Лицензия: «Plătește acum» — платить некому: ссылки нет", test_paylink.suite_off),
+    ("Лицензия: e-mail клиники — провод к /v1/email/* и заголовки /v1/license", test_license_email.suite_wire),
+    ("Лицензия: e-mail клиники — напоминание, код, «Retrimite», «Schimbă adresa»", test_license_email.suite_page),
     ("Обновления: сервер DentPilot — провод не верит ответу на слово", test_update_server.suite_wire),
     ("Обновления: сервер первым, его молчание — путь к GitHub", test_update_server.suite_decision),
     ("Обновления: живой сервер спрашивает при старте, харнесс — нет", test_update_server.suite_live),

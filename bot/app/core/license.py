@@ -39,6 +39,14 @@
 ссылка в системный браузер на `/plata/<ключ>` программы; та спрашивает у сервера,
 выдавшего файл, страницу оплаты (`/v1/pay-link`), переводит туда браузер и на
 два часа учащает запрос файла, чтобы оплата картой дошла до программы за минуты.
+
+E-mail клиники (27.10, план В): сервер включает программу сразу, а ящик просит
+подтвердить ссылкой или кодом из письма. Подтверждён ли он, программа узнаёт из
+ответа суточного запроса (заголовки рядом с файлом, `rn.mailbox`) и из ответов
+трёх действий директора на странице лицензии — код, «Retrimite», «Schimbă
+adresa» (`email_action`, `/v1/email/*` у сервера, выдавшего файл). Состояние —
+только в памяти процесса: суточный запрос идёт на старте. ⛔ Неподтверждённый
+ящик ничего не запирает — строка плитки и блок страницы лицензии, и только.
 """
 from __future__ import annotations
 
@@ -113,6 +121,11 @@ PAY_PAGE = "/plata/"
 PAY_WATCH = timedelta(hours=2)        # после нажатия спрашивать файл каждые PENDING_EVERY
 PAY_TICKET_TTL = timedelta(hours=2)   # ключ ссылки «Plătește acum» в странице программы
 PAY_OK, PAY_NONE, PAY_OFFLINE, PAY_REFUSED = "ok", "none", "offline", "refused"
+# Подтверждение e-mail клиники (27.10): пути у ТОГО ЖЕ сервера, что выдал файл (как PAY_PATH),
+# и коды ответа для ?msg= (MSG_BANNER в layout); отказ сервера страница дописывает его словами
+EMAIL_PATHS = {"code": "/v1/email/code", "confirm": "/v1/email/confirm", "change": "/v1/email/change"}
+EMAIL_SENT, EMAIL_CONFIRMED, EMAIL_CHANGED = "license_email_sent", "license_email_confirmed", "license_email_changed"
+EMAIL_REFUSED, EMAIL_OFFLINE = "license_email_refused", "license_email_offline"
 
 _dir: pathlib.Path | None = None
 _result: tuple[str, object | None] | None = None
@@ -130,6 +143,9 @@ _wake: asyncio.Event | None = None          # будит суточный цик
 _request: dict = {"text": "", "fields": {}, "declined": False, "verify_id": ""}
 _pay: dict = {"until": None}           # частый опрос после «Plătește acum» — до этого момента
 _tickets: dict[str, datetime] = {}     # ключи ссылки «Plătește acum» → срок
+# Ящик клиники, как его назвал сервер последним ответом: email, confirmed (None — не знаем:
+# сервер не сказал или не спрашивали); text — отказ последнего действия словами сервера
+_mailbox: dict = {"email": "", "confirmed": None, "text": ""}
 
 
 def folder() -> pathlib.Path | None:
@@ -552,6 +568,65 @@ async def pay_link() -> tuple[str, str]:
     return result, page
 
 
+# ---------- e-mail клиники (27.10) ----------
+
+
+def _email_endpoint(kind: str) -> tuple[str, str] | None:
+    """(адрес /v1/email/<…>, токен) у сервера, выдавшего файл, — как `pay_endpoint`."""
+    t = renew_target()
+    if t is None:
+        return None
+    u = urllib.parse.urlsplit(t[0])
+    url = f"{u.scheme}://{u.netloc}{EMAIL_PATHS[kind]}"
+    return (url, t[1]) if rsa_verify.renew_url_ok(url) else None
+
+
+def mailbox() -> dict | None:
+    """Ящик клиники для страницы, плитки и /api/license: {email, confirmed, text} или None —
+    лицензия не применяется, у файла нет сервера или сервер о ящике ещё не сказал."""
+    if not applies() or renew_target() is None or _mailbox["confirmed"] is None:
+        return None
+    return dict(_mailbox)
+
+
+def email_unconfirmed() -> bool:
+    """Напоминать ли директору: сервер сказал, что ящик не подтверждён."""
+    box = mailbox()
+    return box is not None and box["confirmed"] is False
+
+
+async def email_action(kind: str, value: str = "", actor: str = "director") -> str:
+    """Действие директора на странице лицензии → код для ?msg=: `code` — «Retrimite», `confirm` —
+    код из письма (`value`), `change` — «Schimbă adresa» (`value` — новый ящик)."""
+    ep = _email_endpoint(kind) if kind in EMAIL_PATHS and applies() else None
+    if ep is None:
+        return EMAIL_OFFLINE
+    url, token = ep
+    payload = {"code": "".join(value.split())[:12]} if kind == "confirm" else (
+        {"email": "".join(value.split())[:200]} if kind == "change" else {})
+    outcome, data = await asyncio.to_thread(rn.email_call, url, token, payload, RENEW_TIMEOUT, _agent(),
+                                            identity())
+    _mailbox["text"] = ""
+    if outcome == rn.REJECTED:
+        _mailbox["text"] = str(data.get("text"))[:300]
+        return EMAIL_REFUSED
+    email, ok = data.get("email"), data.get("confirmed")
+    if outcome != rn.ACCEPTED or not isinstance(email, str) or "@" not in email or not isinstance(ok, bool):
+        return EMAIL_OFFLINE
+    was = dict(_mailbox)
+    _mailbox.update(email=email[:200], confirmed=ok)
+    log.warning("license: email=%s confirmed=%s", kind, ok)   # ⚠️ ASCII, как в _log
+    if kind == "change":
+        await db.log_clinic_event("license", f"Adresa de e-mail a clinicii la DentPilot a fost schimbată în "
+                                             f"{email[:120]} (era {was['email'] or '—'})", actor=actor)
+        return EMAIL_CHANGED
+    if ok and was["confirmed"] is not True:
+        await db.log_clinic_event("license", f"Adresa de e-mail a clinicii la DentPilot a fost confirmată: "
+                                             f"{email[:120]}", actor=actor)
+        return EMAIL_CONFIRMED
+    return EMAIL_CONFIRMED if ok else EMAIL_SENT
+
+
 def _agent() -> str:
     from .. import engine as eng   # как в folder(): на уровне модуля замкнул бы круг
     return f"DentPilot/{eng.APP_VERSION}"
@@ -618,8 +693,11 @@ async def renew_once() -> str:
     async with _renew_lock:
         url, token = target
         had = _mem.accepted_seq
+        meta: dict = {}
         outcome, text = await asyncio.to_thread(rn.fetch, url, token, had, RENEW_TIMEOUT, _agent(),
-                                                identity())
+                                                identity(), meta)
+        if "mailbox" in meta:
+            _mailbox.update(email=meta["mailbox"]["email"], confirmed=meta["mailbox"]["confirmed"])
         result = {rn.SAME: RENEW_SAME, rn.REFUSED: RENEW_REFUSED}.get(outcome, RENEW_OFFLINE)
         if outcome == rn.NEWER:
             code, claim = rsa_verify.open_envelope(text, keys())
@@ -717,7 +795,8 @@ def as_json() -> dict:
             "grace_until": st.fmt(s.grace_until) if s.grace_until else None,
             "clinic": c.clinic if c else "", "plan": c.plan if c else "",
             "seq": _mem.accepted_seq, "renew": renew,
-            "pay": pay_available(), "paying_until": st.fmt(watch) if watch else None}
+            "pay": pay_available(), "paying_until": st.fmt(watch) if watch else None,
+            "mailbox": mailbox()}
 
 
 def current() -> st.Status | None:

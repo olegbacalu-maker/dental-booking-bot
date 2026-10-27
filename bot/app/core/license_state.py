@@ -202,6 +202,8 @@ READONLY_ALLOW = (
     "/admin/login", "/admin/setup", "/admin/license", "/admin/recover",
     "/api/auth/login", "/api/auth/logout",
     "/admin/license/renew", "/admin/license/request", "/admin/license/verify",
+    # подтверждение e-mail клиники (27.10): ящик чинят и в режиме чтения — на него идут ноты
+    "/admin/license/email/code", "/admin/license/email/confirm", "/admin/license/email/change",
     "/admin/security/ack",
     "/admin/backup/export",
     "/admin/settings/crypt/confirm",

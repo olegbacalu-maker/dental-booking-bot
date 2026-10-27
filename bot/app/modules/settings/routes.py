@@ -152,6 +152,14 @@ def _lic_hint(s) -> list[dict]:
     return [{"icon": "ban", "t": "regim de citire — Plătește acum", "tone": "red"}]
 
 
+def _lic_mail_hint() -> list[dict]:
+    """E-mail клиники не подтверждён (27.10) — напоминание в строке плитки, янтарным; ничего не
+    запирает. Подтверждён или неизвестно — ничего."""
+    if not lic.email_unconfirmed():
+        return []
+    return [{"t": " · "}, {"icon": "sos", "t": "e-mail neconfirmat", "tone": "amber"}]
+
+
 def _lan_available() -> bool:
     """Секция сети — только под лаунчером: слушающий адрес он выбирает по
     dental.env, а без файла (прогон, песочница, демо) переключать нечего."""
@@ -208,7 +216,8 @@ def _hub_tiles() -> list[dict]:
     # туда. Только где лицензия применяется (`lic.applies`): у песочницы, демо и
     # облака срока нет, и плитка обещала бы пустую страницу.
     if (ls := lic.current()) is not None and lic.applies():
-        tiles.insert(1, tile("/admin/license", "key", "g", "Licența", _lic_hint(ls)))
+        tiles.insert(1, tile("/admin/license", "key", "g", "Licența",
+                             _lic_hint(ls) + _lic_mail_hint()))
     if _lan_available():
         # Telegram заморожен (08-08): плитку видят только клиники с уже
         # настроенным токеном — grandfather, как секция в сайдбаре.

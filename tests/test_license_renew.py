@@ -35,7 +35,7 @@ from harness import BOT, ROOT, Client, Result, Server, _rmtree_settled
 FIX = ROOT / "tests" / "fixtures" / "license"
 KEY_ENV = {"DENTART_LICENSE_KEYS": str(FIX / "test-key.json")}
 MODULE = BOT / "app" / "core" / "license_renew.py"
-ALLOWED_IMPORTS = {"__future__", "http.client", "json", "urllib.error", "urllib.request"}
+ALLOWED_IMPORTS = {"__future__", "http.client", "json", "urllib.error", "urllib.parse", "urllib.request"}
 TS = "%Y-%m-%dT%H:%M:%SZ"
 TOKEN = "stand-token-" + "x" * 32
 
@@ -75,6 +75,7 @@ class Stand:
         self.reply = {"status": 204, "body": "", "delay": 0.0}
         self.requests: list[dict] = []
         self.post_replies: dict[str, dict] = {}          # путь → ответ: /v1/trial, /v1/verify, /v1/pay-link
+        self.get_headers: dict[str, str] = {}            # заголовки ответа GET: ящик клиники (27.10)
         self.posts: list[dict] = []
         stand = self
 
@@ -94,6 +95,8 @@ class Stand:
                 if r["status"] in (301, 302):
                     self.send_header("Location", stand.base + "/trap")
                 self.send_header("Content-Type", "application/json")
+                for k, v in stand.get_headers.items():
+                    self.send_header(k, v)
                 if r["status"] != 204:
                     self.send_header("Content-Length", str(len(body)))
                 self.end_headers()

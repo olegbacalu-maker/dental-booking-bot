@@ -81,7 +81,15 @@ def suite_tabs(res: Result) -> None:
                and f"/admin/clinics/{cid}/edit" not in _pane(card, "overview"))
         c.post(f"/admin/clinics/{cid}/issue", kind="trial")
         card = c.get(f"/admin/clinics/{cid}").body
-        res.ok("пробный выдан, ноты нет, e-mail есть: «Ничего не ждёт»",
+        res.ok("пробный выдан, ящик не подтверждён (27.10): в «Ждёт вас» одна строка — о e-mail",
+               _pane(card, "overview").count("<li>") == 1 and "не подтверждён" in _pane(card, "overview"),
+               _pane(card, "overview")[:1500])
+        con = sqlite3.connect(s.dir / "cloud.db")
+        con.execute("UPDATE clinics SET email_confirmed_at='2026-10-27T09:00:00Z' WHERE id=?", (cid,))
+        con.commit()
+        con.close()
+        card = c.get(f"/admin/clinics/{cid}").body
+        res.ok("пробный выдан, ноты нет, e-mail подтверждён: «Ничего не ждёт»",
                "Ничего не ждёт" in card and "Ждёт вас" not in card, _pane(card, "overview")[:1500])
         c.post(f"/admin/clinics/{cid}/payments", months="1", amount="", method="transfer")
         card = c.get(f"/admin/clinics/{cid}").body

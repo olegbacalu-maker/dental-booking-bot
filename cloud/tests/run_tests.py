@@ -18,6 +18,7 @@ import test_admin  # noqa: E402
 import test_clinics  # noqa: E402
 import test_contract  # noqa: E402
 import test_deploy  # noqa: E402
+import test_email  # noqa: E402
 import test_fleet  # noqa: E402
 import test_issue  # noqa: E402
 import test_jobs  # noqa: E402
@@ -81,6 +82,13 @@ SUITES = [
     ("Сервер: форма пробного — approve, кнопки, скрыть", test_trial.suite_approve),
     ("Сервер: заявка из программы — токен, выдача, повтор, скрыть, auto", test_trial.suite_program),
     ("Сервер: новый компьютер — код на e-mail клиники, код → токен → файл", test_trial.suite_code),
+    ("E-mail клиники: письмо о пробном, ссылка, страница с кнопкой (GET не пишет)", test_email.suite_letter),
+    ("E-mail клиники: программа — код, «Retrimite», «Schimbă adresa», лимит", test_email.suite_program),
+    ("E-mail клиники: ошибки кода и ссылка из письма", test_email.suite_attempts),
+    ("E-mail клиники: вход в кабинет и регистрация из кабинета — подтверждение", test_email.suite_login),
+    ("E-mail клиники: метка и «Ждёт вас» в админке, смена ящика Олегом", test_email.suite_admin),
+    ("E-mail клиники: шаг 17 на базе шага 16", test_email.suite_migration),
+    ("E-mail клиники: заголовки /v1/license и текст письма", test_email.suite_parts),
     ("Кабинет: чистые правила — claim'ы токена, реквизиты, куки по видам", test_account.suite_rules),
     ("Кабинет: вход через Google — стенд, state, кука, отказы токена, выход", test_account.suite_login),
     ("Кабинет: вход кодом на e-mail — без Google, лимиты, регистрация, известная клиника", test_account.suite_email_login),

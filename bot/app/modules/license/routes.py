@@ -99,6 +99,34 @@ async def license_renew(request: Request) -> Response:
     return RedirectResponse(f"/admin/license?msg={lic.RENEW_CODES[outcome]}", status_code=303)
 
 
+async def _email(request: Request, kind: str, value: str = "") -> Response:
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    me = current_user(request)
+    code = await lic.email_action(kind, value, actor=(me or {}).get("name") or "director")
+    return RedirectResponse(f"/admin/license?msg={code}", status_code=303)
+
+
+@router.post("/admin/license/email/code")
+async def license_email_code(request: Request) -> Response:
+    """«Retrimite» (27.10): письмо со ссылкой и кодом подтверждения на ящик клиники. Право
+    директора, как у «Verifică acum»; в белом списке ворот: на ящик идут и ноты."""
+    return await _email(request, "code")
+
+
+@router.post("/admin/license/email/confirm")
+async def license_email_confirm(request: Request, code: str = Form("")) -> Response:
+    """Код из письма → ящик клиники подтверждён (сервер решает, страница говорит его словами)."""
+    return await _email(request, "confirm", code)
+
+
+@router.post("/admin/license/email/change")
+async def license_email_change(request: Request, email: str = Form("")) -> Response:
+    """«Schimbă adresa» (27.10): лечение опечатки. Сервер меняет ящик, только пока он не
+    подтверждён, и шлёт код на новый."""
+    return await _email(request, "change", email)
+
+
 @router.get("/plata/{ticket}")
 async def license_pay(ticket: str) -> Response:
     """«Plătește acum» (02.10): ссылка из баннера и со страницы лицензии.

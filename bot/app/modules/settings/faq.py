@@ -455,6 +455,21 @@ def entries() -> list[dict]:
            f"pot face din nou imediat după plată. Întrebări: "
            f"<a href='mailto:{FEEDBACK_EMAIL}'>{FEEDBACK_EMAIL}</a>.{end}"),
 
+        # Подтверждение ящика (27.10): слова — блока страницы лицензии (layout._email_block) и
+        # письма облака (cloud/app/mail.py, confirm_lines); ссылка живёт 7 дней (emailconf.LINK_TTL).
+        # Подтверждённый ящик программа не меняет — только кабинет или DentPilot.
+        _q("mail", "Ce înseamnă «E-mail neconfirmat» la Licența?",
+           f"{p}Adresa de e-mail a clinicii, înregistrată la DentPilot, încă nu a fost confirmată. Pe ea "
+           f"vin codul pentru un calculator nou, intrarea în contul clinicii și notele de plată — de "
+           f"aceea o greșeală de tastare se vede abia când codul nu mai ajunge. Programul "
+           f"<b>funcționează și fără confirmare</b>; nimic nu se blochează.{end}"
+           f"{p}Confirmați din e-mailul de la DentPilot: butonul <b>Confirmă adresa</b> (linkul este "
+           f"valabil 7 zile) sau codul din 6 cifre, introdus în <b>Setări › Licența</b>. Intrarea în "
+           f"contul clinicii cu aceeași adresă confirmă și ea adresa. Nu găsiți e-mailul? Verificați "
+           f"dosarul Spam sau apăsați <b>Retrimite e-mailul</b>.{end}"
+           f"{p}Adresa este greșită? Tot acolo, <b>Schimbă adresa</b>: codul pleacă pe adresa nouă. "
+           f"După confirmare adresa se schimbă doar din contul clinicii sau scriindu-ne.{end}"),
+
         # «PIN», как на экране входа («Ați uitat PIN-ul?»). Сброс при пропавшем
         # auth.json — только с подтверждением администратора Windows
         # (`privileged._auth_reset`), учётки заводятся заново; счётчик неудач —

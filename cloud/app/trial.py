@@ -196,6 +196,9 @@ def submit(con: sqlite3.Connection, f: dict, ip: str, who: str = "form",
                 (cid, f["name"], f["idno"], f["contact_name"], f["email"], f["phone"], f.get("address", ""), now,
                  origin, now, now))
     db.audit(con, who, "trial_request", cid, f"{f['name']}, IDNO {f['idno'] or '—'}, {f['email']}, {ip}")
+    # из кабинета на ящик вошедшего — ящик доказан входом: письмо о пробном не просит подтверждать
+    from . import emailconf   # emailconf → trial: на уровне модуля замкнул бы круг
+    emailconf.on_new_clinic(con, cid, who)
     clinic = con.execute("SELECT * FROM clinics WHERE id=?", (cid,)).fetchone()
     if mode() != MODE_AUTO or origin in APPROVE_ALWAYS:
         return REQUESTED, clinic

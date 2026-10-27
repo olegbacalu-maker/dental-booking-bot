@@ -10,6 +10,7 @@ import html
 from datetime import datetime, timedelta, timezone
 
 from . import config, license, maib, mail, sms, tiers, trial
+from . import emailconf  # подтверждение ящика (27.10)
 from . import payments as pay  # ⚠️ не `payments`: так зовётся параметр карточки клиники (список строк)
 
 esc = html.escape
@@ -333,6 +334,14 @@ def _requests_block(requests: list) -> str:
             f"<th>Подана</th><th></th></tr>{trs}</table></div>")
 
 
+def _email_tag(c) -> str:
+    """Метка «e-mail neconfirmat» (27.10, emailconf.py) — в списке клиник и в карточке. Нет ящика —
+    метки нет: об этом своя строка «Ждёт вас»."""
+    if not c["email"] or c["email_confirmed_at"]:
+        return ""
+    return " <span class='tag warn' title='ящик не подтверждён ни ссылкой, ни кодом, ни входом в кабинет'>e-mail neconfirmat</span>"
+
+
 def clinics_page(rows: list, user: str, msg: str = "", requests: list = (), state: str = "",
                  pending: int = 0, names: int = 0) -> str:
     """Клиники (17.10 — вкладки): «Клиники» со счётчиками-фильтрами состояний и «+ Новая клиника»
@@ -346,7 +355,7 @@ def clinics_page(rows: list, user: str, msg: str = "", requests: list = (), stat
     state = state if state in STATE_RU else ""
     shown = [r for r in rows if not state or states[r["id"]] == state]
     trs = "".join(
-        f"<tr><td><a href='/admin/clinics/{esc(r['id'])}'>{esc(r['name'])}</a></td>"
+        f"<tr><td><a href='/admin/clinics/{esc(r['id'])}'>{esc(r['name'])}</a>{_email_tag(r)}</td>"
         f"<td class='mono'>{esc(r['idno'] or '—')}</td><td>{esc(r['plan'] or '—')}</td>"
         f"<td>{_d(r['valid_until'])}</td><td>{_tag(states[r['id']])}</td>"
         f"<td>{r['seq'] or 0}{_renew_short(r)}</td></tr>"
@@ -397,6 +406,17 @@ TRIAL_MSG = {
     "code_limited": "Prea multe încercări — încercați peste o oră sau scrieți-ne.",
     "bad_json": "Cererea nu a putut fi citită — actualizați programul sau scrieți-ne.",
     "no_renew": "Activarea automată nu este disponibilă acum — încercați mai târziu sau scrieți-ne.",
+    # Подтверждение ящика из программы (27.10, emailconf.py)
+    "email_bad_code": "Codul nu este corect sau a expirat — verificați e-mailul sau apăsați „Retrimite” "
+                      "pentru un cod nou.",
+    "email_limited": "Am trimis deja mai multe e-mailuri în ultima oră — verificați și dosarul Spam sau "
+                     "încercați peste o oră.",
+    "email_locked": "Adresa de e-mail a clinicii este deja confirmată: o schimbați din contul clinicii "
+                    "sau scriindu-ne.",
+    "email_same": "Aceasta este deja adresa clinicii — apăsați „Retrimite” pentru un cod nou.",
+    "email_taken": "Adresa aparține altei clinici înregistrate la DentPilot — indicați adresa clinicii "
+                   "dvs. sau scrieți-ne.",
+    "email_mail_failed": "E-mailul nu a putut fi trimis acum — încercați mai târziu sau scrieți-ne.",
 }
 
 
@@ -453,6 +473,36 @@ def trial_done_page(outcome: str, email: str) -> str:
                        f"cu confirmarea perioadei de probă de {mail.zile(license.TRIAL_DAYS)} și pașii de "
                        f"instalare.")
     return _public(title, f"<div class='card'><h1>{esc(title)}</h1><p>{esc(text)}</p></div>")
+
+
+# ---------- подтверждение ящика клиники (27.10, emailconf.py): публичная страница ссылки ----------
+
+CONFIRM_STATES = {
+    "ask": ("Confirmați adresa de e-mail", ""),
+    "done": ("Adresa de e-mail este confirmată",
+             "Mulțumim. Pe această adresă vin codurile pentru un calculator nou, intrarea în contul clinicii și "
+             "notele de plată. Programul afișează confirmarea în cel mult o zi; pe pagina Setări › Licența "
+             "o vedeți imediat după „Verifică acum”."),
+    "already": ("Adresa este deja confirmată", "Nu mai trebuie făcut nimic. Puteți închide această filă."),
+    "dead": ("Linkul nu mai este valabil",
+             "Linkul a expirat, a fost deja folosit sau adresa clinicii s-a schimbat între timp. Cereți un "
+             "link nou din program: Setări › Licența › „Retrimite”."),
+}
+
+
+def confirm_page(state: str, clinic: str = "", email: str = "", token: str = "") -> str:
+    """`ask` — кнопка POST (GET ничего не пишет: почтовые сканеры открывают ссылки сами);
+    остальные — итог словами. Ключ ссылки — только в action формы."""
+    title, text = CONFIRM_STATES.get(state, CONFIRM_STATES["dead"])
+    if state == "ask":
+        inner = (f"<div class='card'><h1>{esc(title)}</h1>"
+                 f"<p>Confirmați că <b>{esc(email)}</b> este adresa de e-mail a clinicii <b>{esc(clinic)}</b> "
+                 f"la DentPilot.</p><p>{esc(mail.CONFIRM_WHY)}</p>"
+                 f"<form method='post' action='{emailconf.PAGE}/{esc(token)}'>"
+                 f"<button class='primary'>Confirmă adresa</button></form></div>")
+    else:
+        inner = f"<div class='card'><h1>{esc(title)}</h1><p>{esc(text)}</p></div>"
+    return _public(title, inner)
 
 
 def _ts(s):
@@ -1088,6 +1138,10 @@ AUDIT_RU = {
     "login_ok": ("вход в админку", "adm"), "login_fail": ("неудачный вход в админку", "adm"),
     "clinic_new": ("клиника заведена", "adm"), "clinic_edit": ("реквизиты изменены", "adm"),
     "daily": ("ежедневная задача", "adm"),
+    # подтверждение ящика клиники (27.10, emailconf.py)
+    "email_confirmed": ("e-mail подтверждён", "cab"), "email_code_sent": ("код подтверждения e-mail", "mail"),
+    "email_code_bad": ("код подтверждения неверный", "prog"), "email_change": ("e-mail сменён из программы", "prog"),
+    "email_reset": ("e-mail сменён — снова не подтверждён", "adm"),
 }
 AUDIT_CATS = (("pay", "Оплата"), ("lic", "Лицензия"), ("sms", "SMS"), ("mail", "Письма"),
               ("prog", "Программа"), ("cab", "Кабинет"), ("adm", "Админка"))
@@ -1155,6 +1209,10 @@ def _clinic_todo(c, sub, st: str, issues: list, payments: list, smsinfo: dict | 
     if not c["email"]:
         out.append(_todo_li("У клиники нет e-mail: ноты и письма о лицензии некуда отправлять",
                             "<a href='#profile'>Вписать</a>"))
+    elif not c["email_confirmed_at"]:
+        out.append(_todo_li(f"E-mail <span class='mono'>{esc(c['email'])}</span> не подтверждён: опечатка — и код "
+                            f"второго компьютера, вход в кабинет и ноты уйдут в пустоту. Директор видит "
+                            f"напоминание в программе", "<a href='#profile'>Реквизиты</a>"))
     return out
 
 
@@ -1391,7 +1449,7 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
                 f"<div class='kv'>"
                 f"<div><label>Контакт</label><div class='v'>{esc(c['contact_name'] or '—')}</div></div>"
                 f"<div><label>Телефон</label><div class='v'>{esc(c['phone'] or '—')}</div></div>"
-                f"<div><label>E-mail</label><div class='v'>{esc(c['email'] or '—')}</div></div>"
+                f"<div><label>E-mail</label><div class='v'>{esc(c['email'] or '—')}{_email_tag(c)}</div></div>"
                 f"<div><label>Адрес</label><div class='v'>{esc(c['address'] or '—')}</div></div>"
                 f"<div><label>IDNO</label><div class='v mono'>{esc(c['idno'] or '—')}</div></div>"
                 f"<div><label>Идентификатор</label><div class='v mono'>{cid}</div></div>"

@@ -168,6 +168,16 @@ MSG_BANNER = {
                                  "contactați DentPilot"),
     "license_renew_none": ("err", "Licența activată nu are adresă de reînnoire — "
                                   "contactați DentPilot"),
+    # E-mail клиники (27.10): ответы блока «Adresa de e-mail» на странице лицензии;
+    # коды — license.EMAIL_*. Отказ сервера страница дописывает его словами.
+    "license_email_sent": ("ok", "Am trimis un e-mail nou cu linkul și codul de confirmare — "
+                                 "verificați și dosarul Spam"),
+    "license_email_confirmed": ("ok", "Adresa de e-mail a clinicii este confirmată"),
+    "license_email_changed": ("ok", "Adresa de e-mail a fost schimbată — am trimis pe ea linkul și "
+                                    "codul de confirmare"),
+    "license_email_refused": ("err", "DentPilot nu a acceptat cererea"),
+    "license_email_offline": ("err", "Serverul DentPilot nu a răspuns — verificați conexiunea "
+                                     "la internet și încercați din nou"),
     "ok": ("ok", "Programare adăugată"),
     "conflict": ("err", "Intervalul este deja ocupat la acest medic"),
     "dup": ("err", "Pacientul are deja o programare la această oră"),
@@ -1765,6 +1775,10 @@ LICENSE_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
  details[open]>summary{margin-bottom:12px}
  a.pay{display:flex;align-items:center;justify-content:center;background:__ACCENT__;color:__ON__;
        border-radius:12px;height:44px;font-size:15px;font-weight:600;text-decoration:none}
+ .mail{display:flex;flex-direction:column;gap:12px;padding:14px 16px;border-radius:12px;
+       background:#FFFBEB;border:1px solid #FDE68A}
+ .mail .t{color:#B45309;font-weight:600}
+ button.alt{background:#fff;color:__ACCENT_D__;border:1px solid #E7EDF5}
 </style></head><body>
 <div class="box">
   <h1>__ICON__ __TITLE__</h1>
@@ -1841,6 +1855,33 @@ def _pending_text(p: dict) -> str:
             f"lucrătoare; pagina se actualizează singură.")
 
 
+def _email_block(director: bool) -> str:
+    """E-mail клиники (27.10, план В): пока сервер не подтвердил ящик — напоминание директору и три
+    действия: код из письма, «Retrimite», «Schimbă adresa». Подтверждён — одна строка. ⛔ Ничего не
+    запирает: программа работает и с неподтверждённым ящиком."""
+    box = lic.mailbox()
+    if box is None or not director:
+        return ""
+    email = html.escape(box["email"])
+    if box["confirmed"]:
+        return f"<p>Adresa de e-mail a clinicii la DentPilot: <b>{email}</b> — confirmată.</p>"
+    return (f"<div class='mail'><p class='t'>E-mail neconfirmat: {email}</p>"
+            f"<p>Pe această adresă vin codul pentru un calculator nou, intrarea în contul clinicii și "
+            f"notele de plată. Deschideți e-mailul de la DentPilot și apăsați „Confirmă adresa” sau "
+            f"introduceți aici codul din 6 cifre. Programul funcționează și fără confirmare.</p>"
+            f"<form class='req' method='post' action='/admin/license/email/confirm'>"
+            f"<label for='m-code'>Codul din e-mail</label>"
+            f"<input id='m-code' name='code' required maxlength='7' inputmode='numeric' "
+            f"autocomplete='one-time-code'><button>Confirmă adresa</button></form>"
+            f"<form method='post' action='/admin/license/email/code'><button class='alt'>Retrimite "
+            f"e-mailul</button></form>"
+            f"<details><summary>Adresa este greșită? Schimbă adresa</summary>"
+            f"<form class='req' method='post' action='/admin/license/email/change'>"
+            f"<label for='m-email'>Adresa corectă de e-mail a clinicii</label>"
+            f"<input id='m-email' name='email' type='email' required maxlength='120'>"
+            f"<button class='alt'>Schimbă adresa și trimite codul</button></form></details></div>")
+
+
 def _pay_block() -> str:
     """«Plătește acum» на странице лицензии (02.10): ссылка в системный браузер
     (target=_blank), где у программы нет входа, — поэтому с ключом
@@ -1910,6 +1951,7 @@ def license_page(msg: str = "", *, director: bool, walled: bool) -> str:
         # при льготе и чтении оплата — главное действие страницы, при активной —
         # продление заранее, после срока и «Verifică acum»
         details = (pay + details) if s.state != lic.st.ACTIVE else (details + pay)
+        details += _email_block(director)          # e-mail клиники (27.10) — последним блоком
         if s.state == lic.st.ACTIVE:
             title, tone, text = "Licența programului", "ok", "Abonamentul este activ."
         elif s.state == lic.st.GRACE:
@@ -1946,6 +1988,8 @@ def license_page(msg: str = "", *, director: bool, walled: bool) -> str:
         err = f"{err}: {req['text']}"          # словами сервера: поле, повтор, лимит
     elif msg in (lic.REQUEST_CODE, lic.CODE_BAD) and req["text"]:
         err = req["text"]                      # словами сервера: срок кода, попытки
+    elif msg == lic.EMAIL_REFUSED and (lic.mailbox() or {}).get("text"):
+        err = lic.mailbox()["text"]            # словами сервера: код, лимит, ящик занят
     elif not msg and activate and pend is None and req["declined"]:
         err = MSG_BANNER[lic.REQUEST_DECLINED][1]
     if not director:

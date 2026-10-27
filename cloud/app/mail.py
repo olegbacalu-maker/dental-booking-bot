@@ -494,3 +494,38 @@ def activation_code(clinic: str, code: str, minutes: int) -> tuple[str, str]:
             f"programul în numele clinicii.\n\n{FOOTER}")
     return subject, body
 
+
+
+# ---------- подтверждение ящика клиники (27.10, emailconf.py) ----------
+
+# Зачем подтверждать — словами клиники: на этот ящик идут коды и ноты. Один текст на письмо о
+# лицензии и на отдельное письмо «Retrimite» из программы.
+CONFIRM_WHY = ("Pe această adresă trimitem codurile pentru un calculator nou, codul de intrare în contul "
+               "clinicii, notele de plată și înștiințările despre termenul licenței.")
+
+
+def confirm_lines(url: str, code: str, days: int) -> str:
+    return (f"Confirmați adresa de e-mail a clinicii: deschideți linkul și apăsați „Confirmă adresa”:\n"
+            f"{url}\n"
+            f"sau introduceți în program, la Setări › Licența, codul: {code}\n"
+            f"Linkul și codul sunt valabile {zile(days)}. {CONFIRM_WHY}")
+
+
+def with_confirm(body: str, url: str, code: str, days: int) -> str:
+    """Письмо о лицензии неподтверждённой клинике: просьба подтвердить ящик — сразу после первого
+    абзаца (срок), до остального: письмо о пробном и есть то, которое клиника откроет первым."""
+    parts = body.split("\n\n", 2)
+    if len(parts) < 3:
+        return body + "\n\n" + confirm_lines(url, code, days)
+    return "\n\n".join([parts[0], parts[1], confirm_lines(url, code, days), parts[2]])
+
+
+def confirm_letter(clinic: str, url: str, code: str, days: int) -> tuple[str, str]:
+    """«Retrimite» и «Schimbă adresa» из программы: только подтверждение ящика."""
+    subject = f"DentPilot: confirmați adresa de e-mail pentru {clinic}"
+    body = (f"Bună ziua,\n\n"
+            f"Programul DentPilot pentru {clinic} a cerut confirmarea acestei adrese de e-mail.\n\n"
+            f"{confirm_lines(url, code, days)}\n\n"
+            f"Dacă nu lucrați cu DentPilot, ignorați mesajul: adresa nu se confirmă fără linkul sau "
+            f"codul de mai sus.\n\n{FOOTER}")
+    return subject, body

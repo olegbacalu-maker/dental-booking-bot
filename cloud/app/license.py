@@ -173,6 +173,13 @@ def mail_latest(con: sqlite3.Connection, clinic: sqlite3.Row, who: str,
                                         sms_until=sub["sms_until"] if sub else None)
     # Файла в письме нет (02.10): клиник без интернета нет, программа забирает его
     # сама (L13/L16/L17); письмо — про срок, вложение — только декларация
+    # Ящик не подтверждён (emailconf, 27.10) — в том же письме ссылка «Confirmă adresa» и код:
+    # одно письмо, не два. Строка кода заводится и тогда, когда письмо потом не уйдёт: живой код
+    # без письма никому не виден и гаснет сам
+    from . import emailconf   # emailconf → trial → license: на уровне модуля замкнул бы круг
+    confirm = emailconf.for_letter(con, clinic, who)
+    if confirm:
+        body = mail.with_confirm(body, *confirm, emailconf.LINK_TTL.days)
     files = [decl] if decl else []
     if receipt:
         files.append(receipt)
@@ -184,7 +191,8 @@ def mail_latest(con: sqlite3.Connection, clinic: sqlite3.Row, who: str,
         return "mail_failed"
     db.audit(con, who, "mail", clinic["id"],
              f"письмо о сроке seq {row['seq']}{' + декларация' if decl else ''}"
-             f"{' + cont de plată' if receipt else ''} на {clinic['email']} ({where})")
+             f"{' + cont de plată' if receipt else ''}{' + подтверждение ящика' if confirm else ''}"
+             f" на {clinic['email']} ({where})")
     return ""
 
 

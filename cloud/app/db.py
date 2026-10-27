@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 TS = "%Y-%m-%dT%H:%M:%SZ"
 
 MIGRATIONS = {
@@ -261,6 +261,30 @@ MIGRATIONS = {
             tier TEXT NOT NULL, months INTEGER NOT NULL, amount INTEGER NOT NULL,
             PRIMARY KEY(payment_id, clinic_id))""",
         "CREATE INDEX IF NOT EXISTS ix_payment_lines_clinic ON payment_lines(clinic_id)",
+    ],
+    # 17 (27.10, план В): подтверждение e-mail клиники (emailconf.py). `email_confirmed_at` — когда
+    # ящик доказан (ссылка или код из письма, вход в кабинет на него); пусто — не подтверждён,
+    # директору напоминание, Олегу метка. `email_confirms` — ссылка (`id` = хеш ключа) и код (хешем)
+    # на АДРЕС `email`: после смены ящика старые не подтверждают новый. Клиники, заведённые до
+    # шага, подтверждены, если журнал знает доказательство ящика: код второго компьютера ушёл на
+    # него и был введён (`code_ok`), или в кабинет вошли учётной записью с этим ящиком.
+    17: [
+        "ALTER TABLE clinics ADD COLUMN email_confirmed_at TEXT",
+        """CREATE TABLE IF NOT EXISTS email_confirms(
+            id TEXT PRIMARY KEY, clinic_id TEXT NOT NULL REFERENCES clinics(id),
+            email TEXT NOT NULL, code_hash TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0, used_at TEXT, who TEXT NOT NULL DEFAULT '')""",
+        "CREATE INDEX IF NOT EXISTS ix_email_confirms_clinic ON email_confirms(clinic_id, created_at)",
+        """UPDATE clinics SET email_confirmed_at = COALESCE(
+               (SELECT MIN(at) FROM audit WHERE what='code_ok' AND audit.clinic_id = clinics.id),
+               (SELECT MIN(COALESCE(a.last_login_at, a.created_at)) FROM accounts a
+                  JOIN account_clinics ac ON ac.account_id = a.id
+                 WHERE ac.clinic_id = clinics.id AND lower(a.email) = lower(clinics.email)))
+           WHERE email <> ''""",
+        """INSERT INTO audit(at, who, what, clinic_id, detail)
+           SELECT email_confirmed_at, 'migration', 'email_confirmed', id,
+                  email || ' — din jurnal: cod pe al doilea calculator sau intrare în cont'
+           FROM clinics WHERE email_confirmed_at IS NOT NULL""",
     ],
 }
 

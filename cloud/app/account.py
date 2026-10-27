@@ -60,6 +60,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from . import auth, cabinet, config, db, trial
+from . import emailconf  # подтверждение ящика входом (27.10)
 
 log = logging.getLogger("cloud.account")
 
@@ -204,6 +205,7 @@ def login(con: sqlite3.Connection, ident: Identity, ip: str) -> sqlite3.Row:
     if not clinics(con, acc):
         link_by_email(con, acc, ident.email)
         acc = get(con, aid)
+    emailconf.by_mailbox(con, ident.email, ident.email)   # Google подтвердил ящик (email_verified)
     db.audit(con, ident.email, "account_login", acc["clinic_id"], ip)
     return acc
 
@@ -228,6 +230,7 @@ def login_email(con: sqlite3.Connection, email: str, ip: str) -> sqlite3.Row:
     if not clinics(con, acc):
         link_by_email(con, acc, email)
         acc = get(con, aid)
+    emailconf.by_mailbox(con, email, email)               # код пришёл на этот ящик
     db.audit(con, email, "account_login", acc["clinic_id"], f"e-mail, {ip}")
     return acc
 

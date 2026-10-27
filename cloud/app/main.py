@@ -24,6 +24,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from . import (account, auth, cabinet, config, db, download, fleet, jobs, license, logmask, maib, mail, payments, paylink,
                receipts, robots, sms, sms_paper, sms_rule, smsmd, smsreport, tiers, trial, updates, views)
 from . import login as elogin  # ⚠️ не `login`: так зовётся маршрут входа админки ниже, он затенил бы модуль
+from . import emailconf  # подтверждение ящика клиники (27.10)
 
 APP_VERSION = "0.1.0"
 log = logging.getLogger("cloud")
@@ -96,10 +97,11 @@ def license_renew(request: Request, seq: int = 0) -> Response:
         con.execute("UPDATE clinics SET renew_at=?, renew_seq=? WHERE id=?",
                     (db.now_iso(), max(0, seq), c["id"]))
         fleet.touch(con, c["id"], fleet.from_request(request), max(0, seq))   # флот (02.10)
+        mailbox = emailconf.headers(c)      # подтверждён ли ящик — рядом с файлом, не в нём (27.10)
         if row is None or row["seq"] <= seq:
-            return Response(status_code=204)
+            return Response(status_code=204, headers=mailbox)
         db.audit(con, "program", "renew", c["id"], f"файл {row['seq']} забран программой (у неё был {seq})")
-    return Response(license.issue_text(row), media_type="application/json")
+    return Response(license.issue_text(row), media_type="application/json", headers=mailbox)
 
 
 @app.get(updates.API_PATH)
@@ -657,6 +659,138 @@ async def trial_verify(request: Request) -> Response:
     if not token:
         return _api_err("bad_code", 400)
     return JSONResponse({"ok": True, "url": license.renew_url(), "token": token})
+
+
+# ---------- подтверждение ящика клиники (27.10, план В; emailconf.py) ----------
+#
+# Программа (Bearer — токен файла, как у /v1/license и /v1/pay-link): «Retrimite», код, «Schimbă
+# adresa». Отказы — `_api_err`: код и румынский текст, программа показывает его как есть. Письмо —
+# после транзакции, как у кода активации.
+
+EMAIL_BODY_MAX = 4 * 1024
+
+
+def _email_answer(c, sent: bool = False) -> Response:
+    return JSONResponse({"ok": True, **emailconf.view(c), "sent": sent})
+
+
+def _email_send(token: str, ip: str, new_email: str = "") -> Response:
+    """Новый код на ящик клиники; `new_email` — сперва сменить ящик («Schimbă adresa»). В потоке."""
+    with db.connect(immediate=True) as con:
+        c = con.execute("SELECT * FROM clinics WHERE renew_token=? AND renew_token<>''", (token,)).fetchone()
+        if c is None:
+            return JSONResponse({"ok": False, "code": "token_unknown"}, status_code=401)
+        if not new_email and emailconf.confirmed(c):
+            return _email_answer(c)
+        if emailconf.limited(con, c):
+            db.audit(con, "program", "code_limit", c["id"], f"подтверждение e-mail, {ip}")
+            return _api_err("email_limited", 429)
+        if new_email:
+            code = emailconf.change(con, c, new_email, ip)
+            if code:
+                return _api_err(code, 409)
+            c = con.execute("SELECT * FROM clinics WHERE id=?", (c["id"],)).fetchone()
+        if not c["email"]:
+            return _api_err("bad_email", 400)
+        key, code = emailconf.issue(con, c, "program")
+        db.audit(con, "program", "email_code_sent", c["id"], f"на {c['email']}, {ip}")
+    subject, body = mail.confirm_letter(c["name"], emailconf.url_for(key), code, emailconf.LINK_TTL.days)
+    try:
+        mail.send(c["email"], subject, body)
+    except (RuntimeError, OSError, ValueError) as e:
+        log.error("подтверждение ящика клинике %s не отправлено: %r", c["id"], e)
+        return _api_err("email_mail_failed", 502)
+    return _email_answer(c, sent=True)
+
+
+async def _email_json(request: Request) -> dict | None:
+    try:
+        body = json.loads((await request.body())[:EMAIL_BODY_MAX] or b"{}")
+    except ValueError:
+        return None
+    return body if isinstance(body, dict) else None
+
+
+@app.post(emailconf.API_CODE)
+async def email_code_api(request: Request) -> Response:
+    """«Retrimite»: письмо со ссылкой и кодом на ящик клиники. Подтверждённому — ответ без письма.
+    Лимиты: запросов с адреса — как у входа кодом, писем клинике — emailconf.CODES_PER_HOUR."""
+    token, ip = _bearer(request), _ip(request)
+    if not token:
+        return JSONResponse({"ok": False, "code": "token_missing"}, status_code=401)
+    if elogin.request_limited(ip):
+        return _api_err("limited", 429)
+    return await run_in_threadpool(_email_send, token, ip)
+
+
+@app.post(emailconf.API_CHANGE)
+async def email_change_api(request: Request) -> Response:
+    """«Schimbă adresa»: лечение опечатки — новый ящик и код на него. ⛔ Только пока ящик не
+    подтверждён (emailconf.change): подтверждённый меняет кабинет или Олег."""
+    token, ip = _bearer(request), _ip(request)
+    if not token:
+        return JSONResponse({"ok": False, "code": "token_missing"}, status_code=401)
+    if elogin.request_limited(ip):
+        return _api_err("limited", 429)
+    body = await _email_json(request)
+    if body is None:
+        return _api_err("bad_json", 400)
+    email = "".join(str(body.get("email") or "").split())
+    if not elogin.email_ok(email):
+        return _api_err("bad_email", 400)
+    return await run_in_threadpool(_email_send, token, ip, email)
+
+
+def _email_check(token: str, code: str, ip: str) -> Response:
+    with db.connect(immediate=True) as con:
+        c = con.execute("SELECT * FROM clinics WHERE renew_token=? AND renew_token<>''", (token,)).fetchone()
+        if c is None:
+            return JSONResponse({"ok": False, "code": "token_unknown"}, status_code=401)
+        if not emailconf.confirmed(c) and not emailconf.check_code(con, c, code, ip):
+            return _api_err("email_bad_code", 400)
+        return _email_answer(con.execute("SELECT * FROM clinics WHERE id=?", (c["id"],)).fetchone())
+
+
+@app.post(emailconf.API_CONFIRM)
+async def email_confirm_api(request: Request) -> Response:
+    """Код из письма, введённый в программе → ящик подтверждён. Проверок с адреса — как у кода
+    активации (trial.VERIFY_PER_HOUR), ошибок на коды клиники — emailconf.CODE_ATTEMPTS."""
+    token, ip = _bearer(request), _ip(request)
+    if not token:
+        return JSONResponse({"ok": False, "code": "token_missing"}, status_code=401)
+    if trial.verify_limited(ip):
+        return _api_err("code_limited", 429)
+    body = await _email_json(request)
+    if body is None:
+        return _api_err("bad_json", 400)
+    code = "".join(str(body.get("code") or "").split())[:12]
+    return await run_in_threadpool(_email_check, token, code, ip)
+
+
+@app.get(emailconf.PAGE + "/{key}", response_class=HTMLResponse)
+def email_confirm_page(key: str) -> Response:
+    """Ссылка из письма: страница с кнопкой. ⛔ GET ничего не пишет — почтовые сканеры открывают
+    ссылки сами, и подтверждал бы сканер, а не человек."""
+    with db.connect() as con:
+        _, c = emailconf.by_link(con, key)
+    if c is None:
+        return HTMLResponse(views.confirm_page("dead"), status_code=404)
+    if emailconf.confirmed(c):
+        return HTMLResponse(views.confirm_page("already"))
+    return HTMLResponse(views.confirm_page("ask", c["name"], c["email"], key))
+
+
+@app.post(emailconf.PAGE + "/{key}", response_class=HTMLResponse)
+def email_confirm_submit(request: Request, key: str) -> Response:
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    with db.connect(immediate=True) as con:
+        _, c = emailconf.by_link(con, key)
+        if c is None:
+            return HTMLResponse(views.confirm_page("dead"), status_code=404)
+        if not emailconf.mark(con, c["id"], emailconf.VIA_LINK, c["email"]):
+            return HTMLResponse(views.confirm_page("already"))
+    return HTMLResponse(views.confirm_page("done"))
 
 
 @app.post("/admin/clinics/{cid}/decline")
@@ -1401,12 +1535,18 @@ def clinic_edit(request: Request, cid: str, name: str = Form(""), idno: str = Fo
     if (code := _clean(name, idno)):
         return RedirectResponse(f"/admin/clinics/{cid}?msg={code}", status_code=303)
     with db.connect() as con:
-        if _clinic(con, cid) is None:
+        if (old := _clinic(con, cid)) is None:
             return Response(status_code=404)
         con.execute("UPDATE clinics SET name=?, idno=?, contact_name=?, email=?, phone=?, address=? WHERE id=?",
                     (name.strip(), idno.strip(), contact_name.strip(), email.strip(), phone.strip(),
                      address.strip(), cid))
         db.audit(con, auth.current_user(request), "clinic_edit", cid, name.strip())
+        # другой ящик — снова не подтверждён (27.10): доказан был прежний
+        if trial.canonical(email.strip() or "-@-") != trial.canonical(old["email"] or "-@-"):
+            con.execute("UPDATE clinics SET email_confirmed_at=NULL WHERE id=?", (cid,))
+            if old["email_confirmed_at"]:
+                db.audit(con, auth.current_user(request), "email_reset", cid,
+                         f"{old['email']} → {email.strip() or '—'}")
     return RedirectResponse(f"/admin/clinics/{cid}?msg=saved", status_code=303)
 
 
