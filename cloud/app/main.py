@@ -517,7 +517,7 @@ _CLINICS_SQL = """SELECT c.*, s.plan, s.valid_until, s.grace_days,
 
 
 # происхождения заявок — из trial.ORIGINS, а не перечислением: «Adaugă clinică» (cont_add, 26.10) иначе
-# не попала бы в очередь, а её пробный ждёт Олега всегда (trial.APPROVE_ALWAYS)
+# не попала бы в очередь, а без ключа выдачи (account.start_paid) её файл ждёт Олега
 _REQUESTS_SQL = (f"SELECT c.* FROM clinics c WHERE c.origin IN ({', '.join(repr(o) for o in trial.ORIGINS)}) "
                  "AND c.declined_at IS NULL AND NOT EXISTS (SELECT 1 FROM issues i WHERE i.clinic_id = c.id) "
                  "ORDER BY c.requested_at DESC")
@@ -2261,12 +2261,15 @@ def cont_add_form(request: Request, c: str = "", msg: str = "") -> Response:
 @app.post("/cont/clinica-noua", response_class=HTMLResponse)
 def cont_add_submit(request: Request, c: str = "", name: str = Form(""), address: str = Form(""),
                     phone: str = Form(""), contact_name: str = Form(""), email: str = Form(""),
-                    idno: str = Form(""), consent: str = Form("")) -> Response:
-    """Ещё одна клиника кабинета: заявка на пробный теми же правилами и лимитом, что регистрация,
-    но ⛔ всегда ждёт одобрения Олега, при любом DP_TRIAL_MODE (trial.APPROVE_ALWAYS); тот же IDNO
-    и ящик разрешены внутри кабинета, чужой клинике — «add_duplicate» и письмо Олегу. Ответ —
-    страница с кодом компьютера новой клиники (виден один раз; программа активируется им сразу,
-    файл придёт после одобрения), вход в неё — у всех записей кабинета; она же открыта."""
+                    idno: str = Form(""), consent: str = Form(""), tier: str = Form(""),
+                    months: str = Form("")) -> Response:
+    """Ещё одна клиника кабинета теми же правилами и лимитом, что регистрация, но без пробного и
+    без одобрения Олега (Олег 27.10, trial.NO_TRIAL): сразу на абонементе выбранного варианта и
+    срока — нота за первый период и файл на срок её оплаты (account.start_paid); нота — письмом
+    на ящик новой клиники. Тот же IDNO и ящик разрешены внутри кабинета, чужой клинике —
+    «add_duplicate» и письмо Олегу. Ответ — страница с кодом компьютера новой клиники (виден один
+    раз; программа активируется им и сразу получает файл), вход в неё — у всех записей кабинета;
+    она же открыта."""
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     with db.connect() as con:
@@ -2276,27 +2279,57 @@ def cont_add_submit(request: Request, c: str = "", name: str = Form(""), address
     ip = _ip(request)
     f, code = account.clean_new({"name": name, "address": address, "phone": phone, "contact_name": contact_name,
                                  "email": email, "idno": idno, "consent": consent})
+    f.update(tier=tier, months=months)          # выбор возвращается в форму вместе с полями
     if code:
         return HTMLResponse(views.cont_add_page(acc, cl, code, f), status_code=400)
+    if months not in ("1", "12") or tiers.list_price(tier) <= 0:
+        return HTMLResponse(views.cont_add_page(acc, cl, "tier_not_sold" if tiers.list_price(tier) <= 0 else "bad_months",
+                                                f), status_code=400)
     if trial.limited(ip):
         return HTMLResponse(views.cont_add_page(acc, cl, "limited", f), status_code=429)
     trial.note(ip)
     act = until = ""
-    main = None
+    main = nota = None
     with db.connect(immediate=True) as con:
         if len(account.clinics(con, acc)) >= account.CLINICS_MAX:
             return HTMLResponse(views.cont_add_page(acc, cl, "clinics_max", f), status_code=409)
-        outcome, new = account.add_clinic(con, cl, f, ip, acc["email"])
+        outcome, new = account.add_clinic(con, cl, f, ip, acc["email"], tier, int(months))
         if outcome != trial.DUPLICATE:
             con.execute("UPDATE accounts SET clinic_id=? WHERE id=?", (new["id"], acc["id"]))
             act, until = account.new_code(con, new, acc["email"])
             main = cabinet.main_of(con, new["id"])
-    trial.notify(new, outcome, ip, dict(f, cabinet=f"{cl['name']} ({cl['id']})"), trial.ORIGIN_CONT_ADD)
+            nota = payments.debt_of(con, new["id"])
+            if outcome == trial.ADDED:
+                _send_added_letter(con, new, nota, acc["email"])
+    trial.notify(new, outcome, ip, dict(f, cabinet=f"{cl['name']} ({cl['id']})",
+                                        nota=f"{nota['reference']}, {nota['amount']} MDL" if nota else ""),
+                 trial.ORIGIN_CONT_ADD)
     if outcome == trial.DUPLICATE:
         return HTMLResponse(views.cont_add_page(acc, cl, "add_duplicate", f), status_code=409)
-    trial.acknowledge(new)
     return HTMLResponse(views.cont_activation_page(acc, new, act, until, main, download.latest(),
-                                                   "clinic_added_requested"))
+                                                   "clinic_added" if outcome == trial.ADDED else "clinic_added_wait"))
+
+
+def _send_added_letter(con, c, p, who: str) -> None:
+    """Клинике из «Adaugă clinică» — одно письмо: включена, срок на оплату, нота первого периода с
+    реквизитами. Ушло — напоминание «нота» за этот срок задача уже не шлёт (jobs.INVOICE: у срока
+    на оплату его окно открыто с первого дня); не ушло — пришлёт задача."""
+    sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (c["id"],)).fetchone()
+    if p is None or sub is None or not c["email"]:
+        return
+    page = paylink.for_mail(con, c, who)
+    valid = db.parse_ts(sub["valid_until"])
+    try:
+        subject, body = mail.clinic_added_letter(c["name"], valid, valid + timedelta(days=int(sub["grace_days"])),
+                                                 p["reference"], p["amount"], p["months"], p["tier"],
+                                                 pay_url=page if maib.enabled() else None, page=page)
+        where = mail.send(c["email"], subject, body)
+    except (RuntimeError, OSError, ValueError) as e:
+        log.error("письмо новой клинике кабинета %s не отправлено: %r", c["id"], e)
+        return
+    con.execute("INSERT OR IGNORE INTO reminders(subscription_id, kind, period, sent_at) VALUES(?,?,?,?)",
+                (c["id"], jobs.INVOICE, sub["valid_until"], db.now_iso()))
+    db.audit(con, who, "mail", c["id"], f"клиника добавлена, нота {p['reference']} на {c['email']} ({where})")
 
 
 @app.post("/cont/cod", response_class=HTMLResponse)

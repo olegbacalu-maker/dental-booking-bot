@@ -61,11 +61,13 @@ ORIGINS = (ORIGIN_FORM, ORIGIN_PROGRAM, ORIGIN_CONT, ORIGIN_CONT_ADD)
 # основание выдачи пробного — словами того входа, откуда заявка
 REASON = {ORIGIN_FORM: "formular de probă", ORIGIN_PROGRAM: "cerere din program",
           ORIGIN_CONT: "cerere din contul clinicii", ORIGIN_CONT_ADD: "clinică nouă în contul clinicii"}
-# Ждут одобрения Олега при ЛЮБОМ DP_TRIAL_MODE (Олег 26.10: «пробный новой клинике из кабинета —
-# только после моего одобрения в админке»): клиника, добавленная в уже знакомый кабинет, — решение,
-# а не автомат, иначе каждый «филиал» был бы ещё месяцем бесплатно. Код компьютера ей выдаётся сразу,
-# файл — кнопкой «Выдать пробный». Регистрация (форма, программа, кабинет без клиник) — по режиму.
-APPROVE_ALWAYS = (ORIGIN_CONT_ADD,)
+# Без пробного при ЛЮБОМ DP_TRIAL_MODE (Олег 27.10: «оставим бесплатный месяц только главной клинике,
+# а добавление я бы сделал сразу платным»; «меня может не быть на месте, а им надо работать»):
+# клиника, добавленная в кабинет, включается сама и сразу на абонементе (account.start_paid) —
+# без одобрения и без бесплатного месяца, иначе каждый «филиал» был бы ещё месяцем бесплатно (до
+# 27.10 это держало одобрение Олега). Пробный — только у первой клиники кабинета: регистрация
+# (форма, программа, кабинет без клиник) — по режиму.
+NO_TRIAL = (ORIGIN_CONT_ADD,)
 API_PATH = "/v1/trial"           # заявка из программы (JSON), ответ — токен для /v1/license
 VERIFY_PATH = "/v1/verify"       # код из письма → токен клиники (новый компьютер)
 CODE_TTL = timedelta(minutes=15)
@@ -79,6 +81,7 @@ _hits: dict[str, list[float]] = {}
 _all: list[float] = []
 HONEYPOT = "website"             # поле, которого нет для человека
 ISSUED, ISSUED_UNMAILED, REQUESTED, DUPLICATE = "issued", "issued_unmailed", "requested", "duplicate"
+ADDED = "added"                  # заведена без пробного (NO_TRIAL): абонемент ставит вызывающий
 NAME_MAX, EMAIL_MAX, CONTACT_MAX, PHONE_MAX = 120, 120, 80, 40
 # Голый адрес: одна «@», без пробелов и знаков, которыми в заголовке письма
 # отделяют имя от адреса или один адрес от другого.
@@ -180,7 +183,8 @@ def existing(con: sqlite3.Connection, idno: str, email: str, allow: set | frozen
 def submit(con: sqlite3.Connection, f: dict, ip: str, who: str = "form",
            origin: str = ORIGIN_FORM, allow: set | frozenset = frozenset()) -> tuple[str, sqlite3.Row]:
     """Заявка → (исход, клиника). Исход: DUPLICATE — уже есть, ничего не сделано;
-    REQUESTED — заведена, ждёт админа; ISSUED — пробный выдан и отправлен.
+    REQUESTED — заведена, ждёт админа; ISSUED — пробный выдан и отправлен; ADDED — заведена
+    без пробного (NO_TRIAL), абонемент ставит вызывающий (account.start_paid).
     `origin` — форма сайта или программа: заявки из обеих ждут в одном списке.
     `allow` — клиники своего кабинета (existing); адрес — `f['address']`, если есть."""
     old = existing(con, f["idno"], f["email"], allow)
@@ -200,7 +204,9 @@ def submit(con: sqlite3.Connection, f: dict, ip: str, who: str = "form",
     from . import emailconf   # emailconf → trial: на уровне модуля замкнул бы круг
     emailconf.on_new_clinic(con, cid, who)
     clinic = con.execute("SELECT * FROM clinics WHERE id=?", (cid,)).fetchone()
-    if mode() != MODE_AUTO or origin in APPROVE_ALWAYS:
+    if origin in NO_TRIAL:
+        return ADDED, clinic
+    if mode() != MODE_AUTO:
         return REQUESTED, clinic
     valid, grace = license.trial_dates()
     try:

@@ -59,7 +59,7 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from . import auth, cabinet, config, db, trial
+from . import auth, cabinet, config, db, jobs, license, payments, tiers, trial
 from . import emailconf  # подтверждение ящика входом (27.10)
 
 log = logging.getLogger("cloud.account")
@@ -361,11 +361,14 @@ CLINICS_MAX = 20          # клиник у одной записи: потол�
 
 def clean_new(fields: dict) -> tuple[dict, str]:
     """Новая клиника кабинета: поля и правила заявки на пробный (trial.clean) плюс адрес — по
-    нему филиалы различают в списке, поэтому обязателен."""
+    нему филиалы различают в списке, поэтому обязателен — и IDNO: клиника сразу на абонементе
+    (start_paid), а файл абонемента без IDNO не выдаётся (license.issue)."""
     f, code = trial.clean(fields)
     f["address"] = " ".join((fields.get("address") or "").split())
     if code:
         return f, code
+    if not f["idno"]:
+        return f, "add_need_idno"
     if not f["address"]:
         return f, "need_address"
     if len(f["address"]) > ADDRESS_MAX:
@@ -374,22 +377,54 @@ def clean_new(fields: dict) -> tuple[dict, str]:
 
 
 def add_clinic(con: sqlite3.Connection, current: sqlite3.Row, f: dict, ip: str, who: str,
-               origin: str = trial.ORIGIN_CONT_ADD) -> tuple[str, sqlite3.Row]:
-    """Ещё одна клиника кабинета `current` → (исход trial.submit, клиника). Заявка на пробный
-    теми же правилами, что у любой новой клиники, но ждёт одобрения Олега при любом режиме
-    (trial.APPROVE_ALWAYS); тот же IDNO или ящик разрешены, если совпавшая клиника — этого
-    кабинета, чужая — DUPLICATE, ничего не заведено. Вход в новую — у всех записей кабинета
-    `current`: директор и администратор видят одно и то же."""
+               tier: str, months: int, origin: str = trial.ORIGIN_CONT_ADD) -> tuple[str, sqlite3.Row]:
+    """Ещё одна клиника кабинета `current` → (исход, клиника). Заводится теми же правилами, что
+    любая новая клиника (trial.submit), но без пробного (trial.NO_TRIAL) и сразу на абонементе
+    варианта `tier` за `months` (start_paid) — без одобрения Олега, при любом режиме. Исход:
+    trial.ADDED — включена; trial.REQUESTED — нота есть, а файла нет (нет ключа выдачи);
+    trial.DUPLICATE — IDNO или ящик чужой клиники, ничего не заведено (тот же IDNO или ящик
+    клиники этого кабинета разрешены). ⛔ ValueError('tier' | 'months') до заведения: вариант
+    не продаётся или срок не из ряда. Вход в новую — у всех записей кабинета `current`:
+    директор и администратор видят одно и то же."""
+    if months not in payments.MONTHS:
+        raise ValueError("months")
+    if tiers.list_price(tier) <= 0:
+        raise ValueError("tier")
     own = cabinet.ids(con, current["id"])
     outcome, clinic = trial.submit(con, f, ip, who=who, origin=origin, allow=own)
     if outcome == trial.DUPLICATE:
         return outcome, clinic
+    if not start_paid(con, clinic, tier, months, who):
+        outcome = trial.REQUESTED
     marks = ",".join("?" * len(own))
     con.execute(f"INSERT OR IGNORE INTO account_clinics(account_id, clinic_id, added_at, how) "
                 f"SELECT DISTINCT account_id, ?, ?, ? FROM account_clinics WHERE clinic_id IN ({marks})",
                 (clinic["id"], db.now_iso(), f"adăugată lângă {current['name']}"[:200], *sorted(own)))
     db.audit(con, who, "clinic_added", clinic["id"], f"{clinic['name']} — в кабинет {current['name']} ({current['id']})")
     return outcome, con.execute("SELECT * FROM clinics WHERE id=?", (clinic["id"],)).fetchone()
+
+
+def start_paid(con: sqlite3.Connection, clinic: sqlite3.Row, tier: str, months: int, who: str) -> bool:
+    """Клиника из «Adaugă clinică» — сразу на абонементе (Олег 27.10): нота за первый период
+    (вариант и срок — выбор формы) и файл `standard` на срок её оплаты — тот же
+    jobs.INVOICE_DAYS, за который до конца срока выставляется нота следующего периода, и обычная
+    льгота license.GRACE_DAYS. Не оплатили — дальше обычный путь неоплаченного абонемента:
+    напоминания задачи, льгота, «только чтение». Первый оплаченный период — от дня заведения
+    (payments.ADVANCE). → выдан ли файл; нет ключа выдачи — False, нота остаётся, клиника ждёт
+    Олега в очереди заявок (add_no_key в журнале)."""
+    payments.choose(con, clinic, tier, months, who)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    valid = now + timedelta(days=jobs.INVOICE_DAYS)
+    try:
+        license.issue(con, clinic, "standard", valid, valid + timedelta(days=license.GRACE_DAYS),
+                      payments.ADVANCE, who)
+    except RuntimeError as e:
+        db.audit(con, who, "add_no_key", clinic["id"], str(e)[:200])
+        return False
+    # вариант — выбранный: модуль SMS у Basic выключен с первого дня (tiers.module_on)
+    con.execute("UPDATE subscriptions SET tier=?, price=? WHERE clinic_id=?",
+                (tier, tiers.list_price(tier), clinic["id"]))
+    return True
 
 
 def add_sibling(con: sqlite3.Connection, current: sqlite3.Row, f: dict, who: str) -> tuple[str, sqlite3.Row]:

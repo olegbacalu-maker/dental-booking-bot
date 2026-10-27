@@ -293,6 +293,26 @@ def reminder_letter(kind: str, clinic: str, plan: str, valid_until: datetime, gr
     return subject, f"Bună ziua,\n\n{intro}\n\n{how_to_pay(pay)}\n\n{FOOTER}"
 
 
+def clinic_added_letter(clinic: str, valid_until: datetime, grace_until: datetime, reference: str,
+                        amount: int, months: int, tier: str | None, pay_url: str | None = None,
+                        page: str | None = None) -> tuple[str, str]:
+    """Клинике из «Adaugă clinică» (Олег 27.10: пробный только у главной, добавленная — сразу
+    платная и включается сама): включена, до какого дня работает без оплаты, что после, и нота
+    первого периода — одно письмо; напоминание «нота» за этот срок задача уже не шлёт."""
+    d, g = valid_until.strftime("%d.%m.%Y"), grace_until.strftime("%d.%m.%Y")
+    subject = f"DentPilot: {clinic} a fost adăugată în cont — nota de plată {reference}"
+    intro = (f"Clinica {clinic} a fost adăugată în contul clinicii și licența ei este activă: programul se "
+             f"activează pe calculatorul clinicii cu codul de activare din cont ({CONT_URL}, 7 cifre) și "
+             f"pornește imediat. Perioada gratuită de probă este doar pentru prima clinică din cont, așa că "
+             f"abonamentul acestei clinici începe de azi.\n\n"
+             f"Nota de plată pentru prima perioadă este mai jos — vă rugăm s-o achitați până la {d}. Fără "
+             f"plată programul funcționează complet până la {g}, apoi trece în regim de citire. {_READONLY} "
+             f"Perioada plătită se numără de azi, nu de la {d}.")
+    pay = {"reference": reference, "amount": int(amount), "months": int(months), "tier": tier, "url": pay_url,
+           "page": page}
+    return subject, f"Bună ziua,\n\n{intro}\n\n{how_to_pay(pay)}\n\n{FOOTER}"
+
+
 # Файл лицензии клинике не показывается (решение Олега 02.10: клиник без
 # интернета нет): письмо говорит про СРОК, а файл программа забирает сама по
 # суточному запросу (L13) или при активации (L16/L17). В админке файл остаётся —
@@ -322,7 +342,8 @@ def with_receipt(body: str, number: str, summary: str = "") -> str:
 def trial_received(clinic: str, days: int, origin: str = "form") -> tuple[str, str]:
     """Клинике: заявка принята (режим approve). С формы — файл придёт письмом; из
     программы — программа активируется сама, письмо с файлом — запасное; из
-    кабинета — файл и программа ждут в кабинете."""
+    кабинета — файл и программа ждут в кабинете. Клинике из «Adaugă clinică» пробного
+    нет (27.10) — ей clinic_added_letter."""
     subject = f"DentPilot: cererea de probă pentru {clinic} a fost primită"
     if origin == "program":
         rest = (f"Programul DentPilot se activează singur pentru {zile(days)} imediat ce aprobăm "
@@ -332,12 +353,6 @@ def trial_received(clinic: str, days: int, origin: str = "form") -> tuple[str, s
         rest = (f"Perioada de probă de {zile(days)} se activează în cel mult o zi lucrătoare — vă "
                 f"confirmăm pe acest e-mail. Programul îl descărcați din contul clinicii, {CONT_URL}; la "
                 f"prima pornire introduceți aceleași date și codul pe care îl trimitem pe acest e-mail.")
-    elif origin == "cont_add":
-        # ещё одна клиника кабинета (филиал, 26.10): компьютер — кодом из кабинета, не из письма
-        rest = (f"Perioada de probă de {zile(days)} se activează în cel mult o zi lucrătoare — vă "
-                f"confirmăm pe acest e-mail. Programul îl puteți instala chiar acum: pe calculatorul "
-                f"clinicii se activează cu codul de activare din contul clinicii, {CONT_URL} (7 cifre), și "
-                f"pornește singur după aprobare.")
     else:
         rest = (f"Perioada de probă de {zile(days)} se activează în cel mult o zi lucrătoare — vă "
                 f"confirmăm pe acest e-mail. Programul îl descărcați de pe {config.SITE_URL.rstrip('/')}/descarca.html; "
@@ -373,16 +388,20 @@ def trial_notice(clinic, outcome: str, ip: str, fields: dict | None = None,
                       + (" — программа забирает его сама" if program else "")
                       + (" — файл и программа ждут в кабинете" if cont else ""),
             "issued_unmailed": "файл выдан, но письмо клинике НЕ ушло — в карточке «Отправить последний файл письмом»",
-            "requested": "ждёт решения: выдать пробный кнопкой в админке"
-                         + (" — программа активируется сама, как только файл выдан" if program else "")
-                         + (" — клиника кабинета ждёт вас при ЛЮБОМ режиме пробного; код компьютера у неё "
-                            "уже есть, программа получит файл после выдачи" if origin == "cont_add" else ""),
+            "requested": ("файл НЕ выдан: нет ключа выдачи — клиника кабинета без пробного, нота за первый "
+                          "период выставлена; выдайте «standard» до срока оплаты ноты кнопкой в карточке"
+                          if origin == "cont_add" else "ждёт решения: выдать пробный кнопкой в админке"
+                          + (" — программа активируется сама, как только файл выдан" if program else "")),
+            "added": ("включена сама, без пробного и без вашего одобрения (Олег 27.10): файл «standard» на "
+                      "срок оплаты ноты, нота за первый период — письмом клинике; делать ничего не нужно"),
             "duplicate": dup}.get(outcome, outcome)
     f = fields or {}
     source = {"program": "из программы", "cont": "из кабинета (вход через Google)",
               "cont_add": "из кабинета: ещё одна клиника кабинета (филиал)"}.get(origin, "с формы /proba")
-    subject = f"DentPilot Cloud: заявка на пробный — {f.get('name') or clinic['name']}"
+    subject = (f"DentPilot Cloud: {'новая клиника в кабинете' if origin == 'cont_add' else 'заявка на пробный'} — "
+               f"{f.get('name') or clinic['name']}")
     cab = f"  Кабинет: {f['cabinet']}\n" if f.get("cabinet") else ""
+    cab += f"  Нота: {f['nota']}\n" if f.get("nota") else ""
     body = (f"Заявка {source} ({ip}):\n\n{cab}"
             f"  Клиника: {f.get('name') or clinic['name']}\n  IDNO: {f.get('idno') or clinic['idno'] or '—'}\n"
             f"  Контакт: {f.get('contact_name') or clinic['contact_name'] or '—'}\n"

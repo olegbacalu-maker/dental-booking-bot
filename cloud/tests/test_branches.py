@@ -2,9 +2,11 @@
 значит пускай платит … на каждый отдельная лицензия, один кабинет админ».
 
 Что держит набор:
-- один вход → несколько клиник; «Adaugă clinică» — заявка на пробный теми же правилами, тот же
-  IDNO и ящик разрешены ВНУТРИ кабинета, чужой клинике — отказ; форма несёт свою клинику (?c=),
-  форма без неё при нескольких клиниках не пишет ни в одну;
+- один вход → несколько клиник; «Adaugă clinică» — клиника теми же правилами, тот же IDNO и ящик
+  разрешены ВНУТРИ кабинета, чужой клинике — отказ; форма несёт свою клинику (?c=), форма без неё
+  при нескольких клиниках не пишет ни в одну;
+- клиника из «Adaugă clinică» без пробного и без одобрения (Олег 27.10): нота первого периода и
+  файл на срок её оплаты, оплата в срок — период от дня заведения;
 - код компьютера из кабинета — 7 цифр (поле кода программы 2.0.9 — maxlength 7): привязывает
   компьютер к своей клинике, код из письма — к той, что нашла заявка; одноразовый, свой кабинет,
   ошибки считаются verify_id;
@@ -36,7 +38,7 @@ IDNO = "1003600012345"
 DIRECTOR = "director@zambet.md"
 MAIN = dict(name="Clinica Zambet", idno=IDNO, contact_name="Ion Rusu", phone="022123456", consent="1")
 BRANCH = dict(name="Zambet Botanica", address="bd. Dacia 27, Chisinau", phone="022555010",
-              contact_name="Ion Rusu", email="botanica@zambet.md", idno=IDNO, consent="1")
+              contact_name="Ion Rusu", email="botanica@zambet.md", idno=IDNO, consent="1", tier="plus", months="1")
 DEV1, DEV2, DEV3 = "d_0000000000a1", "d_0000000000b2", "d_0000000000c3"
 
 
@@ -103,13 +105,6 @@ def _known(c: Client, device: str, mail_to: str = DIRECTOR) -> str:
                                       phone="", consent="1"), device)
     assert st == 409 and d.get("verify_id"), f"заявка-повтор: {st} {d}"
     return d["verify_id"]
-
-
-def _approve(s: Server, cid: str) -> None:
-    """Олег одобряет пробный клиники кнопкой карточки — клиника из кабинета ждёт его всегда."""
-    r = Client(s.url).login().post(f"/admin/clinics/{cid}/issue", kind="trial", valid_until="", grace_days="7",
-                                   reason="")
-    assert "msg=issued" in r.location, f"выдать пробный {cid}: {r.location}"
 
 
 def _token_of(s: Server, cid: str) -> str:
@@ -242,33 +237,31 @@ def suite_cabinet(res: Result) -> None:
                r.status == 200 and len(branch) == 1 and branch[0][1:] == (IDNO, BRANCH["email"], BRANCH["address"],
                                                                          "cont_add"), repr(branch))
         bid = branch[0][0]
-        res.ok("⛔ пробный клинике из кабинета НЕ выдан и при DP_TRIAL_MODE=auto — ждёт Олега "
-               "(у главной, регистрации, он выдан по режиму)",
-               len(_sql(s, "SELECT 1 FROM issues")) == n_trials
-               and _sql(s, "SELECT count(*) FROM issues WHERE clinic_id=?", main)[0][0] == 1
-               and _sql(s, "SELECT requested_at IS NOT NULL, declined_at IS NULL FROM clinics WHERE id=?", bid)
-               == [(1, 1)])
+        res.ok("⛔ пробного у клиники из кабинета нет: сразу «standard» на срок оплаты ноты, без Олега "
+               "(у главной, регистрации, пробный выдан по режиму)",
+               len(_sql(s, "SELECT 1 FROM issues")) == n_trials + 1
+               and _sql(s, "SELECT plan FROM subscriptions WHERE clinic_id=?", main) == [("trial",)]
+               and _sql(s, "SELECT plan FROM subscriptions WHERE clinic_id=?", bid) == [("standard",)]
+               and _sql(s, "SELECT reason FROM issues WHERE clinic_id=?", bid) == [(pay.ADVANCE,)])
         queue = Client(s.url).login().get("/admin").body
-        res.ok("заявка ждёт в админке, с меткой «кабинет +»", "кабинет +" in queue and BRANCH["name"] in queue,
-               queue[-1500:])
-        ack = [b for to, _s, b, _a in _letters(s) if to == BRANCH["email"]]
-        res.ok("клинике — письмо «заявка принята»: программу ставить сейчас, кодом из кабинета, включится после "
-               "одобрения", any("codul de activare din contul clinicii" in b and "după aprobare" in b for b in ack),
-               repr(ack)[:500])
-        _approve(s, bid)
-        res.check("Олег выдал пробный кнопкой — у клиники файл",
-                  _sql(s, "SELECT count(*) FROM issues WHERE clinic_id=?", bid)[0][0], 1)
-        res.ok("ответ — страница кода: 7 цифр клетками, предупреждение про код из письма для главной",
-               len(code) == 7 and code.isdigit() and "Codul de activare" in r.body
+        res.ok("в очереди заявок админки пусто — ждать нечего (у главной файл, у новой тоже)",
+               "Новых заявок на пробный период нет" in queue, queue[-1500:])
+        ack = [(subj, b) for to, subj, b, _a in _letters(s) if to == BRANCH["email"]]
+        res.ok("клинике — одно письмо: включена, нота первого периода с реквизитами, пробный — только у первой",
+               len(ack) == 1 and "a fost adăugată în cont" in ack[0][0] and "IBAN" in ack[0][1]
+               and "doar pentru prima clinică" in ack[0][1] and "cererea de probă" not in ack[0][0], repr(ack)[:800])
+        res.ok("ответ — страница кода: 7 цифр клетками, «licența ei este activă», предупреждение про код из письма "
+               "для главной",
+               len(code) == 7 and code.isdigit() and "Codul de activare" in r.body and "licența ei este activă" in r.body
                and "vine un cod de 6 cifre" in r.body and "Clinica Zambet" in r.body, r.body[-1800:])
         res.ok("в базе кода открытым текстом нет", not _sql(s, "SELECT 1 FROM cabinet_codes WHERE code_hash=?", code))
         res.ok("вход в новую клинику — у учётной записи, она же открыта",
                _sql(s, "SELECT count(*) FROM account_clinics")[0][0] == 2
                and _sql(s, "SELECT clinic_id FROM accounts WHERE email=?", DIRECTOR)[0][0] == bid)
         oleg = [b for to, _s, b, _a in _letters(s) if to == "oleg@example.md"]
-        res.ok("Олегу письмо: заявка из кабинета — ещё одна клиника кабинета, с именем главной, ждёт его всегда",
-               any("ещё одна клиника кабинета" in b and "Кабинет: Clinica Zambet" in b
-                   and "при ЛЮБОМ режиме" in b for b in oleg))
+        res.ok("Олегу письмо остаётся: новая клиника кабинета, с именем главной и нотой, включена сама",
+               any("ещё одна клиника кабинета" in b and "Кабинет: Clinica Zambet" in b and "Нота: DP-" in b
+                   and "включена сама" in b for b in oleg), repr(oleg)[-800:])
 
         home = c.get(f"/cont?c={main}")
         res.ok("две клиники: список «Clinicile mele» над дашбордом, открытая подсвечена, у другой — «Deschide»",
@@ -361,14 +354,11 @@ def suite_code(res: Result) -> None:
         st, d = _api(prog, "/v1/verify", {"verify_id": vid, "code": code}, DEV1)
         res.ok("код кабинета: токен НОВОЙ клиники, не главной",
                st == 200 and d.get("token") == _token_of(s, bid) and d.get("token") != _token_of(s, main), repr(d))
-        res.check("до одобрения Олега файла нет: программа ждёт (204)",
-                  prog.get("/v1/license?seq=0", headers={"Authorization": f"Bearer {d.get('token', '')}"}).status,
-                  204)
-        _approve(s, bid)
         r = prog.get("/v1/license?seq=0", headers={"Authorization": f"Bearer {d.get('token', '')}"})
         _code, claim = rv.open_envelope(r.body, KEYS) if r.status == 200 else ("нет", None)
-        res.ok("после одобрения — по тому же токену файл новой клиники (её название)",
-               claim is not None and claim.clinic == BRANCH["name"], f"{r.status} {_code}")
+        res.ok("без одобрения Олега — по тому же токену сразу файл новой клиники (её название, «standard»)",
+               claim is not None and claim.clinic == BRANCH["name"] and claim.plan == "standard",
+               f"{r.status} {_code}")
         res.check("компьютер привязан к новой клинике (флот)",
                   _sql(s, "SELECT clinic_id FROM devices WHERE id=?", DEV1), [(bid,)])
         res.ok("код погашен вместе с verify_id: второй раз — 400, у кода отмечен компьютер",
@@ -435,7 +425,6 @@ def suite_group(res: Result) -> None:
         main = _register(s, c)
         _add(c, main)
         bid = _sql(s, "SELECT id FROM clinics WHERE name=?", BRANCH["name"])[0][0]
-        _approve(s, bid)
         # своя нота у главной — до общей
         r = c.post(f"/cont/nota?c={main}", months="1", tier="plus", terms="1")
         res.ok("своя нота главной создана", r.location == f"/cont?c={main}&msg=note_created", r.location)
@@ -557,7 +546,6 @@ def suite_plata(res: Result) -> None:
         main = _register(s, c)
         _add(c, main)
         bid = _sql(s, "SELECT id FROM clinics WHERE name=?", BRANCH["name"])[0][0]
-        _approve(s, bid)
         c.post("/cont/nota-comuna", terms="1", **{f"t_{main}": "plus", f"m_{main}": "1", f"t_{bid}": "plus",
                                                  f"m_{bid}": "1"})
         gref = _sql(s, "SELECT reference FROM payments WHERE status='pending'")[0][0]
@@ -583,7 +571,6 @@ def suite_sms_name(res: Result) -> None:
         main = _register(s, c)
         _add(c, main)
         bid = _sql(s, "SELECT id FROM clinics WHERE name=?", BRANCH["name"])[0][0]
-        _approve(s, bid)
         r = c.post(f"/cont/sms/nume?c={bid}", name="Zambet")
         res.ok("заявка на имя со страницы филиала ложится главной клинике",
                r.location == f"/cont?c={bid}&msg=sms_requested"
@@ -612,6 +599,112 @@ def suite_sms_name(res: Result) -> None:
         card = admin.get(f"/admin/clinics/{bid}").body
         res.ok("админка филиала › SMS: имя общее на кабинет, ссылка на главную",
                "общее на клиники кабинета" in card and f"/admin/clinics/{main}#sms" in card)
+
+
+def _run_daily(s: Server) -> str:
+    """Ежедневная задача как из cron, на сегодня (UTC), окружением сервера."""
+    import subprocess  # noqa: PLC0415
+    from datetime import datetime, timezone  # noqa: PLC0415
+    p = subprocess.run([sys.executable, "-m", "app.jobs", "daily", "--at",
+                        f"{datetime.now(timezone.utc):%Y-%m-%d}T06:00:00Z"], cwd=str(CLOUD), env=s.env,
+                       capture_output=True, text=True, encoding="utf-8", timeout=60)
+    return p.stdout + p.stderr
+
+
+def suite_paid(res: Result) -> None:
+    """Клиника из «Adaugă clinică» — сразу платная и включается сама (Олег 27.10: «оставим бесплатный
+    месяц только главной клинике, а добавление я бы сделал сразу платным»; «меня может не быть на
+    месте, а им надо работать»): вариант и срок — в форме, нота первого периода и файл на срок её
+    оплаты при ЛЮБОМ режиме пробного; оплата в срок — период от дня заведения, поздняя — от сегодня;
+    без ключа выдачи — нота есть, клиника ждёт Олега."""
+    from datetime import datetime, timedelta, timezone  # noqa: PLC0415
+    env = {**BANK_ENV, "DP_TRIAL_MODE": "approve", "DP_TRIAL_NOTIFY": "oleg@example.md"}
+    with Server(env=env) as s:
+        c = _enter(s, DIRECTOR)
+        main = _register(s, c)
+        page = c.get(f"/cont/clinica-noua?c={main}").body
+        res.ok("форма: вариант (Basic, Plus) и срок — как у ноты, IDNO обязателен, пробного не обещает",
+               "name='tier' value='basic'" in page and "name='tier' value='plus'" in page
+               and "name='months' value='12'" in page and "inputmode='numeric' required" in page
+               and "doar pentru prima clinică" in page and "O lună de probă" not in page
+               and "aprobăm" not in page, page[-3000:])
+        r, _ = _add(c, main, idno="")
+        res.ok("без IDNO — 400 словами (файл абонемента без IDNO не выдаётся), ничего не заведено",
+               r.status == 400 and "Indicați IDNO-ul clinicii noi" in r.body
+               and not _sql(s, "SELECT 1 FROM clinics WHERE name=?", BRANCH["name"]), r.body[-600:])
+        r, _ = _add(c, main, months="3")
+        res.ok("срок не из ряда — 400, выбор подставлен обратно", r.status == 400 and "Alegeți o lună sau un an" in r.body)
+        r, _ = _add(c, main, tier="gold")
+        res.ok("вариант, которого нет, — 400 «nu se poate plăti»",
+               r.status == 400 and "Varianta aleasă nu se poate plăti" in r.body, r.body[-600:])
+        r, code = _add(c, main, tier="basic", months="12")
+        bid = _sql(s, "SELECT id FROM clinics WHERE name=?", BRANCH["name"])[0][0]
+        iss = _sql(s, "SELECT reason, issued_at, valid_until, grace_until FROM issues WHERE clinic_id=?", bid)
+        ok_dates = False
+        if len(iss) == 1:
+            at, vu, gu = (db.parse_ts(x) for x in iss[0][1:])
+            ok_dates = vu - at == timedelta(days=14) and gu - vu == timedelta(days=14)
+        res.ok("⛔ DP_TRIAL_MODE=approve: главная ждёт Олега, а новая клиника кабинета включена сама — файл на "
+               "14 дней оплаты (jobs.INVOICE_DAYS) и льгота 14 (license.GRACE_DAYS)",
+               r.status == 200 and len(code) == 7 and not _sql(s, "SELECT 1 FROM issues WHERE clinic_id=?", main)
+               and len(iss) == 1 and iss[0][0] == pay.ADVANCE and ok_dates, repr(iss))
+        res.check("подписка: «standard» в выбранном варианте",
+                  _sql(s, "SELECT plan, tier, price FROM subscriptions WHERE clinic_id=?", bid),
+                  [("standard", "basic", tiers.list_price("basic"))])
+        nota = _sql(s, "SELECT id, reference, tier, months, amount, kind FROM payments WHERE clinic_id=? "
+                       "AND status='pending'", bid)
+        res.ok("нота первого периода: выбранный вариант и срок, сумма по прайсу",
+               len(nota) == 1 and nota[0][2:] == ("basic", 12, pay.amount(12, tiers.list_price("basic")), "license"),
+               repr(nota))
+        mine = [x for x in _letters(s) if x[0] == BRANCH["email"]]
+        res.ok("письмо клинике — одно, с нотой и сроком оплаты", len(mine) == 1 and nota[0][1] in mine[0][1]
+               and iss[0][2][8:10] + "." + iss[0][2][5:7] in mine[0][2], repr(mine)[:600])
+        out = _run_daily(s)
+        again = [x for x in _letters(s) if x[0] == BRANCH["email"]]
+        res.ok("ежедневная задача в тот же день второй ноты не шлёт (напоминание «нота» за этот срок отмечено)",
+               len(again) == 1 and _sql(s, "SELECT kind FROM reminders WHERE subscription_id=?", bid) == [("invoice",)],
+               out[-600:] + repr([x[1] for x in again]))
+        home = c.get(f"/cont?c={bid}").body
+        res.ok("кабинет новой клиники: абонемент Basic и нота в ожидании, не «perioada de probă»",
+               nota[0][1] in home and "DentPilot Basic" in home and "perioada de probă ·" not in home, home[-3000:])
+        # оплата в срок: период — от дня заведения, а не от конца срока на оплату
+        admin = Client(s.url).login()
+        r = admin.post(f"/admin/payments/{nota[0][0]}/confirm")
+        start = db.parse_ts(iss[0][1])
+        got = _sql(s, "SELECT valid_until, reason FROM issues WHERE clinic_id=? ORDER BY seq DESC LIMIT 1", bid)
+        res.ok("оплата в срок: год — от дня заведения (не + 14 дней сверх оплаченного)",
+               "payment_confirmed" in r.location and got[0][0] == pay.add_months(start, 12).strftime(db.TS)
+               and got[0][1] != pay.ADVANCE, f"{r.location} {got} от {iss[0][1]}")
+        res.check("якорь подписки — число дня заведения",
+                  _sql(s, "SELECT anchor_day FROM subscriptions WHERE clinic_id=?", bid), [(start.day,)])
+        # поздняя оплата: срок на оплату прошёл — как любая поздняя, от сегодня
+        _add(c, main, name="Zambet Balti", address="str. Independentei 5, Balti", email="balti@zambet.md")
+        bal = _sql(s, "SELECT id FROM clinics WHERE name='Zambet Balti'")[0][0]
+        # заведена 20 дней назад, срок на оплату кончился 6 дней назад (идёт льгота)
+        _sql(s, "UPDATE issues SET issued_at=? WHERE clinic_id=?",
+             (datetime.now(timezone.utc) - timedelta(days=20)).strftime(db.TS), bal)
+        _sql(s, "UPDATE subscriptions SET valid_until=? WHERE clinic_id=?",
+             (datetime.now(timezone.utc) - timedelta(days=6)).strftime(db.TS), bal)
+        pid = _sql(s, "SELECT id FROM payments WHERE clinic_id=? AND status='pending'", bal)[0][0]
+        admin.post(f"/admin/payments/{pid}/confirm")
+        late = db.parse_ts(_sql(s, "SELECT valid_until FROM issues WHERE clinic_id=? ORDER BY seq DESC LIMIT 1", bal)[0][0])
+        want = pay.add_months(datetime.now(timezone.utc), 1)
+        res.ok("поздняя оплата: месяц — от сегодня", late is not None and abs((late - want).total_seconds()) < 120,
+               f"{late} ~ {want}")
+
+    with Server(env={**BANK_ENV, "DP_TRIAL_MODE": "auto", "DP_LICENSE_KEY": ""}) as s:
+        c = _enter(s, DIRECTOR)
+        main = _register(s, c)
+        r, code = _add(c, main)
+        bid = _sql(s, "SELECT id FROM clinics WHERE name=?", BRANCH["name"])[0][0]
+        res.ok("без ключа выдачи: клиника заведена, код есть, нота выставлена, файла нет — «licența o activăm noi»",
+               r.status == 200 and len(code) == 7 and "Licența o activăm noi" in r.body
+               and not _sql(s, "SELECT 1 FROM issues WHERE clinic_id=?", bid)
+               and _sql(s, "SELECT count(*) FROM payments WHERE clinic_id=? AND status='pending'", bid) == [(1,)]
+               and _sql(s, "SELECT count(*) FROM audit WHERE what='add_no_key' AND clinic_id=?", bid) == [(1,)],
+               r.body[-1500:])
+        queue = Client(s.url).login().get("/admin").body
+        res.ok("…и ждёт Олега в очереди заявок", "Zambet Botanica" in queue and "кабинет +" in queue)
 
 
 def suite_admin(res: Result) -> None:
@@ -644,7 +737,7 @@ def suite_admin(res: Result) -> None:
         other = Client(s.url)
         _api(other, "/v1/trial", dict(name="Clinica Straina", idno="2000000000001", contact_name="X",
                                       email="straina@example.md", phone="", consent="1"))
-        r, code = _add(c, main, idno="", email="straina@example.md", name="Furt2")
+        r, code = _add(c, main, email="straina@example.md", name="Furt2")
         res.ok("«Adaugă clinică» с ящиком чужой клиники — 409, ничего не заведено",
                r.status == 409 and not code and not _sql(s, "SELECT 1 FROM clinics WHERE name='Furt2'"), r.status)
         lone = "c_lone00000001"

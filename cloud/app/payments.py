@@ -69,6 +69,11 @@ HELD = "held"             # ValueError: у клиники открытая об�
 # Год стоит 11 месячных — «o lună gratuită» в карточке цены сайта.
 MONTHS = (1, 12)
 BILLED = {1: 1, 12: 11}
+# Срок на оплату первой ноты у клиники из «Adaugă clinică» (Олег 27.10: пробный только у главной,
+# добавленная — сразу платная, account.start_paid): основание её первой выдачи. По нему `_prolong`
+# считает первый оплаченный период от дня заведения клиники, а не от конца этого срока — иначе
+# срок на оплату стал бы бесплатными днями сверх оплаченного.
+ADVANCE = "clinică nouă în cont: până la plata primei note"
 # Исходы settle: подтверждён сейчас · уже не в ожидании · maib ещё ждёт · не прошёл
 SETTLED_PAID, SETTLED_ALREADY, SETTLED_WAITING, SETTLED_FAILED = "paid", "already", "waiting", "failed"
 
@@ -485,8 +490,15 @@ def _prolong(con: sqlite3.Connection, clinic: sqlite3.Row, line: sqlite3.Row, pa
     sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (clinic["id"],)).fetchone()
     now = datetime.now(timezone.utc).replace(microsecond=0)
     current = db.parse_ts(sub["valid_until"]) if sub else None
-    day = anchor_day(current, now, sub["anchor_day"] if sub else None)
-    valid = extend_from(current, int(line["months"]), now, day)
+    first = advance_start(con, clinic["id"])
+    if first is not None and current is not None and current >= now:
+        # первая нота клиники из кабинета оплачена в срок: период — от дня заведения (ADVANCE);
+        # опоздала (срок на оплату прошёл) — как любая поздняя оплата, от сегодня
+        day = first.day
+        valid = add_months(first, int(line["months"]), day)
+    else:
+        day = anchor_day(current, now, sub["anchor_day"] if sub else None)
+        valid = extend_from(current, int(line["months"]), now, day)
     grace = valid + timedelta(days=license.GRACE_DAYS)
     tier, price, sms_until, switch = tier_after(sub, line, now)
     db.audit(con, who, "payment_paid", clinic["id"],
@@ -497,8 +509,16 @@ def _prolong(con: sqlite3.Connection, clinic: sqlite3.Row, line: sqlite3.Row, pa
     # якорь и вариант — после выдачи: она заводит строку подписки, если её ещё не было
     con.execute("UPDATE subscriptions SET anchor_day=?, tier=?, price=?, sms_until=? WHERE clinic_id=?",
                 (day, tier, price, sms_until, clinic["id"]))
-    start = now if current is None or current < now else current
+    start = first if first is not None and current is not None and current >= now else (
+        now if current is None or current < now else current)
     return issued, (start, valid)
+
+
+def advance_start(con: sqlite3.Connection, clinic_id: str) -> datetime | None:
+    """Начало срока на оплату первой ноты (ADVANCE) — пока он последняя выдача клиники; иначе None."""
+    row = con.execute("SELECT reason, issued_at FROM issues WHERE clinic_id=? ORDER BY seq DESC LIMIT 1",
+                      (clinic_id,)).fetchone()
+    return db.parse_ts(row["issued_at"]) if row is not None and row["reason"] == ADVANCE else None
 
 
 def tier_after(sub: sqlite3.Row | None, payment: sqlite3.Row, now: datetime) -> tuple[str, int, str | None, str]:

@@ -110,6 +110,7 @@ SUITES = [
      test_branches.suite_group),
     ("Филиалы: /plata клиники в общей ноте", test_branches.suite_plata),
     ("Филиалы: имя отправителя SMS общее на кабинет, остаток свой", test_branches.suite_sms_name),
+    ("Филиалы: клиника из кабинета — сразу платная, без пробного и без одобрения", test_branches.suite_paid),
     ("Филиалы: админка — клиники кабинета, «Добавить клинику», подсказка флота", test_branches.suite_admin),
     ("Филиалы: шаг 16 на данных шага 15", test_branches.suite_migration),
     ("Кабинет из программы: маршруты /cont разобраны, срок и лимит", test_contlink.suite_rules),

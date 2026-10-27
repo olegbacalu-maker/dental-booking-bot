@@ -1120,7 +1120,7 @@ AUDIT_RU = {
     "tier_set": ("вариант вручную", "pay"),
     "issue": ("файл выдан", "lic"), "trial_request": ("заявка на пробный", "lic"),
     "trial_declined": ("заявка скрыта", "lic"), "trial_duplicate": ("повторная заявка", "lic"),
-    "trial_no_key": ("пробный не выдан", "lic"),
+    "trial_no_key": ("пробный не выдан", "lic"), "add_no_key": ("файл новой клинике не выдан", "lic"),
     "sms_sender": ("имя SMS", "sms"), "sms_toggle": ("SMS вкл./выкл.", "sms"), "sms_cap": ("потолок SMS", "sms"),
     "sms_credit": ("SMS начислены", "sms"), "sms_custom": ("свой текст SMS", "sms"), "sms_pack": ("пакет SMS", "sms"),
     "sms_name": ("год имени SMS", "sms"), "sms_test": ("тестовая SMS", "sms"), "sms_export": ("выгрузка SMS", "sms"),
@@ -1155,7 +1155,7 @@ def audit_codes(cat: str) -> list[str]:
 
 def _what(code: str) -> str:
     cls = {"payment_paid": "ok", "payment_rejected": "bad", "card_failed": "bad", "mail_failed": "bad",
-           "login_fail": "bad", "trial_no_key": "bad"}.get(code, "mute")
+           "login_fail": "bad", "trial_no_key": "bad", "add_no_key": "bad"}.get(code, "mute")
     return f"<span class='tag {cls}' title='{esc(code)}'>{esc(AUDIT_RU.get(code, (code, ''))[0])}</span>"
 
 
@@ -1557,8 +1557,13 @@ CONT_MSG = {
     "sms_paper_pdf": "Fișierul nu este PDF. Încărcați cererea semnată ca PDF (scanată sau semnată electronic).",
     "sms_paper_empty": "Alegeți fișierul PDF al cererii semnate.",
     # clinicile contului (26.10, filiale)
-    "clinic_added_requested": "Clinica a fost adăugată în cont. Cererea de probă a fost primită — o aprobăm de "
-                              "obicei în aceeași zi lucrătoare; între timp puteți instala programul cu codul de mai jos.",
+    "clinic_added": "Clinica a fost adăugată în cont și licența ei este activă. Instalați programul cu codul de mai "
+                    "jos; nota de plată pentru prima perioadă este în contul clinicii și pe e-mailul ei.",
+    "clinic_added_wait": "Clinica a fost adăugată în cont, iar nota de plată pentru prima perioadă este gata. "
+                         "Licența o activăm noi, de obicei în aceeași zi lucrătoare; între timp puteți instala "
+                         "programul cu codul de mai jos.",
+    "add_need_idno": "Indicați IDNO-ul clinicii noi (13 cifre) — fără el nu se emite licența abonamentului. Poate fi "
+                     "același ca la celelalte clinici din cont.",
     "need_address": "Indicați adresa clinicii — după ea deosebiți clinicile în listă.",
     "clinics_max": "În cont sunt deja prea multe clinici — scrieți-ne.",
     "add_duplicate": "O clinică cu acest IDNO sau e-mail este deja înregistrată la DentPilot și nu este în contul "
@@ -1582,7 +1587,7 @@ CONT_MSG = {
                          "pe e-mail.",
 }
 _CONT_OK = {"logged_out", "registered_issued", "registered_requested", "saved", "note_created", "note_exists",
-            "note_replaced", "card_paid", "clinic_added_requested", "group_created",
+            "note_replaced", "card_paid", "clinic_added", "clinic_added_wait", "group_created",
             "group_replaced", "group_cancelled",
             "linked", "sms_requested", "sms_paper_ok"}
 SENDER_RO = {"none": ("mute", "fără nume propriu"), "requested": ("warn", "cerere în lucru"),
@@ -1989,12 +1994,13 @@ def _lic_parts(c, sub, issue, st: str, now: datetime) -> dict:
         if c["declined_at"]:
             return {"text": esc(CONT_MSG["closed"]), "check": "", "bar": ""}
         if c["origin"] == "cont_add":
-            # клиника, добавленная в кабинете (26.10): компьютер — кодом из кабинета, заявки с него не было
-            return {"text": (f"Cererea de probă pentru această clinică a fost primită la "
-                             f"{_ro(c['requested_at'] or c['created_at'])}. O aprobăm de obicei în aceeași zi "
-                             f"lucrătoare și vă anunțăm pe e-mail. Programul îl puteți instala chiar acum: pe "
-                             f"calculatorul clinicii se activează cu codul din acest cont și pornește singur după "
-                             f"aprobare."), "check": "", "bar": ""}
+            # клиника, добавленная в кабинете (27.10: без пробного, сразу на абонементе): файла нет
+            # только без ключа выдачи на сервере — нота есть, лицензию выдаёт Олег
+            return {"text": (f"Clinica a fost adăugată în cont la {_ro(c['requested_at'] or c['created_at'])}. "
+                             f"Licența ei o activăm noi, de obicei în aceeași zi lucrătoare, și vă anunțăm pe "
+                             f"e-mail. Programul îl puteți instala chiar acum: pe calculatorul clinicii se "
+                             f"activează cu codul din acest cont și pornește singur după activare."),
+                    "check": "", "bar": ""}
         return {"text": (f"Cererea de probă a fost primită la {_ro(c['requested_at'] or c['created_at'])}. "
                          f"O aprobăm de obicei în aceeași zi lucrătoare și vă anunțăm pe e-mail. Programul de pe "
                          f"calculatorul din care ați trimis cererea se activează singur; pe alt calculator — cu "
@@ -2500,7 +2506,7 @@ def _clinics_card(cab: list, cur: str, now: datetime) -> str:
     """«Clinicile mele» (26.10): клиники кабинета над дашбордом открытой."""
     add = f"<a class='btn sm' href='/cont/clinica-noua?c={esc(cur)}'>{_ic('plus')} Adaugă clinică</a>"
     common = "<a class='btn second sm' href='/cont/nota-comuna'>Notă comună</a>"
-    sub = f"{len(cab)} clinici în acest cont · fiecare are licența, perioada de probă și abonamentul ei"
+    sub = f"{len(cab)} clinici în acest cont · fiecare are licența și abonamentul ei"
     return (f"<div class='card' id='clinici'>{_chead('building', 'Clinicile mele', sub, common + ' ' + add)}"
             f"<div class='clist'>{''.join(_crow(x, x['c']['id'] == cur, now) for x in cab)}</div></div>")
 
@@ -2614,28 +2620,55 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
 # ---------- кабинет: клиника в кабинет, код компьютера, общая нота (26.10) ----------
 
 
+ADD_PAY_DAYS = 14         # = jobs.INVOICE_DAYS: срок на оплату первой ноты клиники из кабинета (jobs сюда не импортируется)
+
+
+def _add_tier_pick(tier: str, months: str) -> str:
+    """Вариант и срок абонемента новой клиники кабинета — карточки и сегмент той же формы, что у
+    ноты (tier_form), с итогом; цена — прайс варианта (у новой клиники подписки нет)."""
+    sold = tiers.offered(None)
+    if not sold:
+        return ("<p class='empty'>Abonamentul nu se poate plăti acum online — scrieți-ne și adăugăm clinica "
+                "noi.</p>")
+    t = tiers.pick(None, tier)
+    m = 12 if months == "12" else 1
+
+    def seg(n: int, text: str, gift: str = "") -> str:
+        return (f"<label><input type='radio' name='months' value='{n}'{' checked' if n == m else ''} required> {text}"
+                f"{(' <span class=gift>' + gift + '</span>') if gift else ''}</label>")
+    return (f"<span class='lbl'>Abonamentul clinicii noi</span>"
+            f"<div class='tiers'>{''.join(_tier_card(None, x, x == t) for x in sold)}</div>"
+            f"<span class='lbl'>Termen</span><div class='seg'>{seg(1, 'O lună')}"
+            f"{seg(12, 'Un an (12 luni)', 'o lună gratuită')}</div>"
+            f"<div class='total'><span class='t'><b>{esc(tiers.NAME[t])}</b> · {'un an (12 luni)' if m == 12 else 'o lună'}"
+            f"</span><span class='s'>{_mdl(pay.amount_for(None, t, m))} MDL</span></div>"
+            f"<p class='note'>Nota de plată vine pe e-mailul clinicii noi imediat după adăugare. Varianta și termenul "
+            f"le puteți schimba până la plată.</p>")
+
+
 def cont_add_page(acc, cur, msg: str = "", values: dict | None = None) -> str:
     """«Adaugă o clinică»: данные новой клиники кабинета (e-mail и IDNO — открытой, «можно тот
-    же») и что она получает; галочка условий — как у заявки на пробный."""
+    же»), вариант и срок абонемента — она сразу платная (Олег 27.10: пробный только у главной;
+    нота первого периода выставляется по этому выбору) — и что она получает; галочка условий —
+    как у заявки на пробный."""
     v = values or {}
     site = config.SITE_URL.rstrip("/")
 
     def val(k: str, default: str = "") -> str:
         return esc(v.get(k, default) or "")
-    sold = [f"{tiers.NAME[t]} — {_mdl(tiers.list_price(t))} MDL" for t in tiers.TIERS if tiers.list_price(t) > 0]
-    price = (", ".join(sold) + " pe lună" if sold else "la prețul din oferta de pe dentpilot.md")
     perks = _perks([
         "<b>Licența ei</b>: programul de pe calculatorul filialei are baza lui de date, separată de celelalte "
         "clinici.",
-        f"<b>O lună de probă</b> {esc(tiers.NAME[tiers.PLUS])}, ca orice clinică nouă — o aprobăm de obicei în "
-        f"aceeași zi lucrătoare.",
-        f"Apoi <b>abonamentul ei</b>: {esc(price)}; fiecare clinică se plătește din lista «Clinicile mele» sau "
-        f"toate odată, cu o notă comună.",
+        "<b>Pornește imediat</b>, fără să aștepte aprobarea noastră. Luna gratuită de probă este doar pentru "
+        "prima clinică din cont — clinica nouă intră direct pe abonament.",
+        f"<b>Nota pentru prima perioadă</b> vine imediat, cu {ADD_PAY_DAYS} zile pentru plată; perioada plătită se "
+        f"numără din ziua adăugării. Apoi fiecare clinică se plătește din lista «Clinicile mele» sau toate odată, "
+        f"cu o notă comună.",
         "<b>Aceeași intrare</b> în cont pentru toate clinicile — Google sau codul pe e-mail.",
         f"<b>Activarea</b> pe calculatorul filialei — cu un cod din acest cont, din {CODE_DIGITS} cifre.",
     ])
     form = (f"<div class='card'>{_chead('building', 'Datele clinicii noi', 'apar în licența ei, în notele de plată și în scrisori')}"
-            f"<form method='post' action='/cont/clinica-noua?c={esc(cur['id'])}'><div class='grid'>"
+            f"<form method='post' action='/cont/clinica-noua?c={esc(cur['id'])}' class='pick'><div class='grid'>"
             f"<div><label>Denumirea clinicii *</label><input name='name' value='{val('name')}' "
             f"placeholder='ex.: {esc(cur['name'][:60])} — filiala Centru' required maxlength='{trial.NAME_MAX}'></div>"
             f"<div><label>Adresa *</label><input name='address' value='{val('address')}' placeholder='strada, numărul, orașul' "
@@ -2646,13 +2679,15 @@ def cont_add_page(acc, cur, msg: str = "", values: dict | None = None) -> str:
             f"<div><label>E-mail *</label><input name='email' value='{val('email', cur['email'])}' required "
             f"maxlength='{trial.EMAIL_MAX}'><p class='hint'>Poate fi același ca la {esc(cur['name'])}. Pe el vin notele "
             f"de plată și scrisorile acestei clinici.</p></div>"
-            f"<div><label>IDNO (13 cifre)</label><input name='idno' value='{val('idno', cur['idno'])}' maxlength='13' "
-            f"inputmode='numeric'><p class='hint'>Același IDNO este permis pentru clinicile din contul dvs.</p></div></div>"
+            f"<div><label>IDNO (13 cifre) *</label><input name='idno' value='{val('idno', cur['idno'])}' maxlength='13' "
+            f"inputmode='numeric' required><p class='hint'>Același IDNO este permis pentru clinicile din contul dvs.</p>"
+            f"</div></div>{_add_tier_pick(v.get('tier', ''), v.get('months', ''))}"
             f"<label class='chk'><input type='checkbox' name='consent' value='1' required> <span>Am citit și accept "
             f"<a href='{esc(site)}/termeni.html' target='_blank' rel='noopener'>Termenii și condițiile</a> și "
             f"<a href='{esc(site)}/privacy.html' target='_blank' rel='noopener'>Politica de confidențialitate</a> "
             f"pentru clinica nouă.</span></label>"
-            f"<p style='margin:18px 0 0'><button class='primary'>Adaugă clinica și primește codul</button></p></form></div>")
+            f"<p style='margin:18px 0 0'><button class='primary'>Adaugă clinica și primește codul</button></p></form>"
+            f"<script>{_TOTAL_JS}</script></div>")
     side = f"<div class='card'>{_chead('list', 'Ce primește clinica nouă')}{perks}</div>"
     return _cont_shell("Adaugă o clinică", f"<div class='split'>{form}{side}</div>", acc, msg,
                        eyebrow="Contul clinicii · clinică nouă",
