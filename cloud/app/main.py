@@ -1788,16 +1788,32 @@ def cont_home(request: Request, msg: str = "", c: str = "") -> Response:
 
 
 @app.get(contlink.PATH + "/{lid}", response_class=HTMLResponse)
+def cont_from_program_page(lid: str) -> Response:
+    """Вход из программы, шаг 1: страница с кнопкой «Intră în contul clinicii» (POST сюда же).
+    ⛔ GET ничего не гасит (канарейка 2.3.0, 27.10): окно программы открывало адрес само, прежде
+    чем отдать его браузеру Windows, — и тот получал 410. Мёртвая или истёкшая — 410 словами."""
+    with db.connect() as con:
+        c = contlink.peek(con, lid)
+    if c is None:
+        return HTMLResponse(views.cont_link_expired_page(), status_code=410)
+    return HTMLResponse(views.cont_link_enter_page(c["name"], f"{contlink.PATH}/{lid}"))
+
+
+@app.post(contlink.PATH + "/{lid}", response_class=HTMLResponse)
 def cont_from_program(request: Request, lid: str) -> Response:
-    """Одноразовый вход из программы (27.10, contlink.py): ссылка жива и не открыта — гаснет, кука
-    кабинета «только эта клиника» → /cont. Уже вошедший во весь кабинет с этой клиникой — остаётся
-    при своём входе (ссылка всё равно гаснет). Иначе — 410 словами: нажать кнопку снова."""
+    """Одноразовый вход из программы, шаг 2 (27.10, contlink.py): ссылка жива и не открыта — гаснет,
+    кука кабинета «только эта клиника» → /cont. Уже вошедший во весь кабинет с этой клиникой —
+    остаётся при своём входе (ссылка всё равно гаснет). Иначе — 410 словами: нажать кнопку снова.
+    В журнал — адрес и браузер (User-Agent): кто вошёл, разбирается без гаданий."""
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
     ip = _ip(request)
+    ua = " ".join((request.headers.get("user-agent") or "?").split())[:160]
     with db.connect(immediate=True) as con:
         c = contlink.use(con, lid, ip)
         if c is None:
             return HTMLResponse(views.cont_link_expired_page(), status_code=410)
-        db.audit(con, "program", "cont_program", c["id"], f"вход кнопкой программы, {ip}")
+        db.audit(con, "program", "cont_program", c["id"], f"вход кнопкой программы, {ip}, {ua}")
         acc = _current_account(con, request)
         keep = acc is not None and not account.scoped(acc) and any(
             r["id"] == c["id"] for r in account.clinics(con, acc))

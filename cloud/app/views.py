@@ -2400,6 +2400,18 @@ def pay_link_expired_page() -> str:
     return _cont_shell("Linkul a expirat", inner, eyebrow="DentPilot · plata din program")
 
 
+def cont_link_enter_page(clinic: str, action: str) -> str:
+    """Ответ GET /cont/intra/<id> на живую ссылку (27.10, contlink.py): кнопка POST, которая и входит.
+    GET ничего не гасит — окно программы и предзагрузка браузера открывают адреса сами."""
+    sub = "linkul din program se deschide o singură dată, în 5 minute"
+    inner = (f"<div class='card narrow'>{_chead('user', 'Contul clinicii ' + esc(clinic), sub)}"
+             f"<p>Intrați în contul clinicii DentPilot din programul clinicii: vedeți abonamentul, notele și "
+             f"contul de plată, calculatoarele și datele acestei clinici.</p>"
+             f"<form method='post' action='{esc(action)}'><p style='margin:16px 0 0'>"
+             f"<button class='primary'>Intră în contul clinicii</button></p></form></div>")
+    return _cont_shell("Contul clinicii", inner, eyebrow="DentPilot · intrarea din program")
+
+
 def cont_link_expired_page() -> str:
     """Ответ /cont/intra/<id> на погашенную или истёкшую ссылку (27.10, contlink.py)."""
     sub = "linkul din program se deschide o singură dată, în 5 minute"

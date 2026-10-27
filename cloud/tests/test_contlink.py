@@ -46,7 +46,7 @@ ROUTES = {
     ("GET", "/cont/clinica-noua"): "deny", ("POST", "/cont/clinica-noua"): "deny",
     ("GET", "/cont/nota-comuna"): "deny", ("POST", "/cont/nota-comuna"): "deny",
     ("POST", "/cont/nota-comuna/anuleaza"): "deny",
-    ("GET", contlink.PATH + "/{lid}"): "login",
+    ("GET", contlink.PATH + "/{lid}"): "login", ("POST", contlink.PATH + "/{lid}"): "login",
 }
 
 
@@ -56,7 +56,12 @@ def _link(c: Client, token: str):
 
 
 def _open(c: Client, url: str):
-    return c.get(urlsplit(url).path)
+    """Как человек в браузере: GET — страница с кнопкой, POST её формы — вход. Страницы нет — её ответ."""
+    page = c.get(urlsplit(url).path)
+    if page.status != 200:
+        return page
+    action = re.search(r"<form method='post' action='([^']+)'", page.body).group(1)
+    return c.post(action)
 
 
 def _kinds(c: Client) -> list:
@@ -150,16 +155,33 @@ def suite_link(res: Result) -> None:
         res.ok("компьютер программы записан во флот",
                _sql(s, "SELECT clinic_id FROM devices WHERE id=?", HDR["X-DentPilot-Device"]) == [(main,)])
 
+        # ⛔ канарейка 2.3.0 (27.10): окно программы (WebView2) открывало адрес раньше браузера Windows,
+        # и GET, гасивший ссылку, оставлял браузеру 410. GET теперь только показывает кнопку.
+        path = urlsplit(url).path
+        win = Client(s.url)
+        pages = [win.get(path) for _ in range(3)]
+        res.ok("GET ссылки (окно программы, предзагрузка, браузер) — страница с кнопкой POST, ссылку не гасит",
+               all(p.status == 200 and f"<form method='post' action='{path}'>" in p.body
+                   and "Intră în contul clinicii" in p.body and MAIN["name"] in p.body for p in pages)
+               and _sql(s, "SELECT count(*) FROM cont_links WHERE used_at IS NOT NULL")[0][0] == 0
+               and _kinds(win) == [], pages[0].body[-800:])
+        evil = Client(s.url).post(path, headers={"Origin": "http://evil.example", "Host": f"127.0.0.1:{s.port}"})
+        nul = Client(s.url).post(path, headers={"Origin": "null", "Host": f"127.0.0.1:{s.port}"})
+        same = (evil.status, nul.status,
+                _sql(s, "SELECT count(*) FROM cont_links WHERE used_at IS NOT NULL")[0][0])
+        res.check("POST с чужим Origin и с Origin: null — 403, ссылка цела", same, (403, 403, 0))
         b = Client(s.url)                                     # системный браузер: куки кабинета нет
-        r = _open(b, url)
+        page = b.get(path)
+        r = b.post(path, headers={"Origin": f"http://127.0.0.1:{s.port}", "Host": f"127.0.0.1:{s.port}"})
         res.ok("вход: 303 в кабинет, кука кабинета вида «clinic»",
                r.status == 303 and r.location == "/cont" and _kinds(b) == ["clinic"], f"{r.status} {r.location}")
         res.ok("ссылка погашена, адрес записан (к IP вход не привязан)",
                _sql(s, "SELECT used_at IS NOT NULL, used_ip FROM cont_links WHERE clinic_id=? AND used_at IS NOT NULL",
                     main) == [(1, "127.0.0.1")])
-        res.ok("журнал клиники: «вход в кабинет из программы»",
-               _sql(s, "SELECT who, what FROM audit WHERE clinic_id=? AND what='cont_program'", main)
-               == [("program", "cont_program")])
+        res.ok("журнал клиники: «вход в кабинет из программы» с адресом и браузером (User-Agent)",
+               [(w, x, "Python-urllib" in d) for w, x, d in
+                _sql(s, "SELECT who, what, detail FROM audit WHERE clinic_id=? AND what='cont_program'", main)]
+               == [("program", "cont_program", True)])
         home = b.get("/cont")
         res.ok("кабинет открыт: своя клиника, пометка «из программы»",
                home.status == 200 and MAIN["name"] in home.body and "Ați intrat din" in home.body,
@@ -167,9 +189,16 @@ def suite_link(res: Result) -> None:
         again = _open(Client(s.url), url)
         res.ok("⛔ второе открытие той же ссылки — 410 словами, без куки",
                again.status == 410 and "Linkul de intrare a expirat" in again.body)
+        twice = Client(s.url)
+        r2nd = twice.post(path)
+        res.ok("⛔ второй POST погашенной ссылки (мимо страницы) — 410, без куки",
+               r2nd.status == 410 and _kinds(twice) == [], f"{r2nd.status} {r2nd.location}")
         _sql(s, "UPDATE cont_links SET expires_at='2000-01-01T00:00:00Z' WHERE used_at IS NULL")
         late = Client(s.url)
         res.ok("⛔ истекшая (5 минут) — 410, без куки", _open(late, url2).status == 410 and _kinds(late) == [])
+        late2 = Client(s.url)
+        res.ok("⛔ истекшая — POST мимо страницы тоже 410, без куки",
+               late2.post(urlsplit(url2).path).status == 410 and _kinds(late2) == [])
         res.check("выдуманная — 410", Client(s.url).get(contlink.PATH + "/nope").status, 410)
         # лимит: 20 в час на клинику (уже выдано 3)
         codes = [_link(prog, tok)[0].status for _ in range(contlink.PER_HOUR)]

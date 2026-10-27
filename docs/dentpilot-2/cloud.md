@@ -1037,7 +1037,10 @@ intrare)», карточка «Autentificat prin e-mail», письмо о по�
 2. маршрут программы с Bearer `renew_token` → `POST /v1/cont-link` (`contlink.API_PATH`) →
    `{url, expires_at}`; программа принимает только адрес того же origin, что `renew.url`, с
    путём `/cont/intra/<id>` (без запроса, без глубже) — иначе страница словами;
-3. `/cont/intra/<id>` (`contlink.use`): 5 минут, гаснет при первом открытии условным UPDATE,
+3. GET `/cont/intra/<id>` — страница с кнопкой «Intră în contul clinicii» (`contlink.peek`, ничего не
+   гасит); POST на тот же адрес (`contlink.use`, `same_origin_post`): 5 минут, гаснет при первом входе
+   условным UPDATE. ⛔ Не гасить по GET (канарейка 2.3.0, 27.10: окно программы открывало адрес раньше
+   браузера Windows, и тот получал 410 «Linkul a expirat» на каждое нажатие); в журнале — и User-Agent,
    в базе только sha256 id (`cont_links`, схема 18); строка журнала `cont_program`; к IP не
    привязан (только пишется); 20 ссылок в час на клинику — 429;
 4. кука `dp_cont` вида **«clinic»** (`auth.clinic_cookie`, тот же срок и имя, другой вид в

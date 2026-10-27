@@ -3,8 +3,11 @@
 
 Тот же путь, что у «Plătește acum» (paylink.py): программа с Bearer-токеном файла
 (`renew_token`) просит у сервера ссылку (`POST /v1/cont-link`) и отправляет туда системный
-браузер. Отличие — ссылка ОДНОРАЗОВАЯ и короткая (TTL, 5 минут): `/cont/intra/<id>` гасит её
-при первом открытии и ставит куку кабинета вида «clinic» (auth.clinic_cookie).
+браузер. Отличие — ссылка ОДНОРАЗОВАЯ и короткая (TTL, 5 минут): GET `/cont/intra/<id>` — страница
+с кнопкой «Intră în contul clinicii», POST на тот же адрес гасит ссылку и ставит куку кабинета вида
+«clinic» (auth.clinic_cookie). ⛔ Гасит только POST (27.10, канарейка 2.3.0: GET гасил, и окно
+программы, открывшее адрес раньше браузера Windows, оставляло тому 410) — как подтверждение
+ящика у В: сканеры и предзагрузка не отправляют форм.
 
 ⛔ Вход по кнопке — ТОЛЬКО СВОЯ КЛИНИКА (рекомендация, принятая Олегом 27.10 «можешь
 приступать»): кабинет с 26.10 держит несколько клиник, а программа филиала — не владелец
@@ -59,6 +62,19 @@ def create(con: sqlite3.Connection, clinic: sqlite3.Row) -> tuple[str, str] | No
     con.execute("INSERT INTO cont_links(id_hash, clinic_id, created_at, expires_at) VALUES(?,?,?,?)",
                 (_hash(lid), clinic["id"], now.strftime(db.TS), until))
     return lid, until
+
+
+def peek(con: sqlite3.Connection, lid: str) -> sqlite3.Row | None:
+    """Клиника живой неоткрытой ссылки или None — только чтение (GET страницы входа).
+    ⛔ GET ссылку не гасит (27.10, канарейка 2.3.0): окно программы (WebView2) успевало сходить
+    по ней само, прежде чем отдать адрес браузеру Windows, и тот приходил вторым — к 410."""
+    if not lid or len(lid) > 64:
+        return None
+    row = con.execute("SELECT clinic_id FROM cont_links WHERE id_hash=? AND used_at IS NULL AND expires_at > ?",
+                      (_hash(lid), db.now_iso())).fetchone()
+    if row is None:
+        return None
+    return con.execute("SELECT * FROM clinics WHERE id=? AND declined_at IS NULL", (row["clinic_id"],)).fetchone()
 
 
 def use(con: sqlite3.Connection, lid: str, ip: str) -> sqlite3.Row | None:
