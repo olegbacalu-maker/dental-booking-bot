@@ -275,7 +275,7 @@ def suite_migration(res: Result) -> None:
         ver = con.execute("SELECT value FROM schema_meta WHERE key='version'").fetchone()[0]
         log = con.execute("SELECT clinic_id FROM audit WHERE what='email_confirmed' ORDER BY clinic_id").fetchall()
         con.close()
-        res.check("схема — 17", ver, "17")
+        res.check("схема — последняя (шаг 17 и всё, что после)", ver, str(db.SCHEMA_VERSION))
         res.check("код второго ПК — подтверждён временем кода", got["c_code"], "2026-10-02T10:00:00Z")
         res.check("вход в кабинет с ящиком клиники (регистр не важен) — подтверждён", got["c_cont"],
                   "2026-10-03T08:00:00Z")
