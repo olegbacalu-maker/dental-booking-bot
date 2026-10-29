@@ -50,7 +50,14 @@ export interface RecallData {
   /** Право на настройки у вошедшего (решает сервер): пустой экран без срока
    *  ведёт директора в Setări › Servicii, регистратуре говорит словом. */
   can_settings: boolean
+  /** Статистика одной строкой (Олег 29.10, В4 → Б): за текущий и прошлый
+   *  календарный месяц — пациенты с отметкой «sunat»/«e-mail» и из них те,
+   *  у кого после отметки появилась запись на ту же услугу. Считает сервер;
+   *  `null` — ни одной такой отметки: строки нет (нули не рисуются). */
+  stats: { month: RecallStat; prev: RecallStat } | null
 }
+
+export interface RecallStat { contacted: number; booked: number }
 
 export const recallApi = {
   get: (signal?: AbortSignal): Promise<ApiResult<RecallData>> =>

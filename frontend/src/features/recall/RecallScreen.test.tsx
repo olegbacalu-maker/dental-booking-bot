@@ -45,6 +45,7 @@ const DATA: RecallData = {
   counts: { due: 3, snoozed: 1, stop: 1 },
   clinic: { name: 'Clinica Test', phone: '+373 60 000 000' },
   can_settings: true,
+  stats: { month: { contacted: 4, booked: 1 }, prev: { contacted: 0, booked: 0 } },
 }
 
 const open = (navigate?: (url: string) => void) => openScreen(
@@ -80,6 +81,9 @@ describe('RecallScreen', () => {
     expect(v.className).toContain('dim')
     expect(v.querySelector('.rc-pill.amber')?.textContent).toContain('nu răspunde ×2 · 28.10 Ana')
     expect(screen.getByText(/Servicii urmărite: Igienizare \(6 luni\) · Consultație \(12 luni\)/)).toBeTruthy()
+    /* статистика одной строкой (В4 → Б): цифры сервера, прошлый месяц рядом */
+    expect(document.querySelector('.rc-stats')?.textContent)
+      .toBe('Luna aceasta: contactați 4 · programați 1 · luna trecută: 0 · 0')
   })
 
   it('вкладки «Amânate» и «Nu mai reaminti»; фильтр по услуге', async () => {
@@ -111,10 +115,11 @@ describe('RecallScreen', () => {
     expect(screen.getByText(/Cereți directorului/)).toBeTruthy()
   })
 
-  it('пусто: срок есть, звонить некому — откуда берётся список', async () => {
-    get.mockResolvedValueOnce(ok({ ...DATA, rows: [], counts: { due: 0, snoozed: 0, stop: 0 } }))
+  it('пусто: срок есть, звонить некому — откуда берётся список; пустой журнал — строки статистики нет', async () => {
+    get.mockResolvedValueOnce(ok({ ...DATA, rows: [], counts: { due: 0, snoozed: 0, stop: 0 }, stats: null }))
     open()
     expect(await screen.findByText('Nimeni de sunat acum.')).toBeTruthy()
+    expect(document.querySelector('.rc-stats')).toBeNull()
     expect(screen.getByText(/Vizita a avut loc/)).toBeTruthy()
     expect(screen.getAllByRole('tab').length).toBe(3)
   })

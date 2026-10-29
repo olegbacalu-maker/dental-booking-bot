@@ -37,6 +37,8 @@ async def api_recall(request: Request):
     # пустой экран ведёт в Setări › Servicii только того, кому они открыты;
     # право решает сервер, клиент его не вычисляет
     d["can_settings"] = can(request_user(), PERM_SETTINGS)
+    # статистика одной строкой (В4 → Б, Олег 29.10): то же право, что у списка
+    d["stats"] = await recall.stats(_today())
     return msg_json(True, data=d)
 
 

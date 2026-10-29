@@ -35,7 +35,13 @@
   }],
   counts: {due, snoozed, stop},
   clinic: {name, phone},                        // для текста письма
-  can_settings: bool                            // пустой экран: кнопка в Setări › Servicii (директор) или слово
+  can_settings: bool,                           // пустой экран: кнопка в Setări › Servicii (директор) или слово
+  stats: {month: {contacted, booked}, prev: {contacted, booked}} | null
+    // В4 → Б (Олег 29.10 ~18:55): одной строкой «Luna aceasta: contactați N · programați M»
+    // за текущий и прошлый календарный месяц (день клиники). N — пациенты с отметкой
+    // contacted/emailed в периоде, M — из них те, у кого ПОСЛЕ отметки создана запись
+    // на ту же услугу (живая или done). null — ни одной такой отметки за оба месяца:
+    // строки нет, нули не рисуются (Олег: у новой клиники экран был бы в нулях).
 }}
 ```
 

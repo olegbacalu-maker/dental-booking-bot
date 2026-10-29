@@ -22,6 +22,10 @@ const T = {
   tabs: { due: 'De sunat', snoozed: 'Amânate', stop: 'Nu mai reaminti' } as Record<RecallTab, string>,
   tracked: 'Servicii urmărite',
   months: 'luni',
+  statMonth: 'Luna aceasta',
+  statPrev: 'luna trecută',
+  statContacted: 'contactați',
+  statBooked: 'programați',
   all: 'Toate serviciile',
   last: 'ultima',
   booked: 'vine pe',
@@ -156,6 +160,14 @@ export function RecallScreen({ navigate = defaultNavigate }: Props) {
             </select>
           )}
         </div>
+        {/* статистика одной строкой (В4 → Б, Олег 29.10): цифры — сервера;
+            без единой отметки сервер шлёт null — нулей не рисуем */}
+        {d.stats && (
+          <p className="hint rc-stats">
+            <b>{T.statMonth}:</b> {T.statContacted} {d.stats.month.contacted} · {T.statBooked} {d.stats.month.booked}
+            {' · '}{T.statPrev}: {d.stats.prev.contacted} · {d.stats.prev.booked}
+          </p>
+        )}
       </div>
 
       {!rows.length ? (

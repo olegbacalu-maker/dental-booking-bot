@@ -29,7 +29,7 @@ review/plan-crm-rechemari-2026-10-29.md.
 from __future__ import annotations
 
 import calendar
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from .. import db
 from .. import engine as eng
@@ -237,6 +237,55 @@ async def patient_lines(pid: int, today: date, can_clear: bool) -> list[dict]:
                     "stop": tab == "stop", "can_clear": tab == "stop" and can_clear,
                     "mark": mk})
     out.sort(key=lambda x: x["service"])
+    return out
+
+
+def month_start(d: date, back: int = 0) -> date:
+    """Первое число месяца `d` минус `back` месяцев."""
+    y, m = divmod(d.month - 1 - back, 12)
+    return date(d.year + y, m + 1, 1)
+
+
+def count_stats(contacts: list[dict], bookings: list[dict], start: date, end: date) -> dict:
+    """«Contactați N · programați M» за [start, end) по дню клиники: N —
+    пациенты с отметкой contacted/emailed в периоде (пациент, не пара), M — из
+    них те, у кого ПОСЛЕ отметки создана запись на ту же услугу (живая или
+    done). Чистая функция; `at`/`created_at` — datetime из `_DT_COLS`."""
+    booked_at: dict[tuple[int, str], datetime] = {
+        (b["patient_id"], b["service_id"]): b["created_at"] for b in bookings
+        if isinstance(b.get("created_at"), datetime)}
+    contacted: set[int] = set()
+    booked: set[int] = set()
+    for c in contacts:
+        at = c.get("at")
+        if not isinstance(at, datetime):
+            continue
+        local = at.astimezone(eng.TZ).date()
+        if not start <= local < end:
+            continue
+        contacted.add(c["patient_id"])
+        b = booked_at.get((c["patient_id"], c["service_id"]))
+        # строго ПОСЛЕ: визит, заведённый задним числом в ту же секунду, что
+        # отметка, записью «после звонка» не является
+        if b is not None and b > at:
+            booked.add(c["patient_id"])
+    return {"contacted": len(contacted), "booked": len(booked)}
+
+
+async def stats(today: date) -> dict | None:
+    """Статистика одной строкой (Олег 29.10, В4 → Б): текущий и прошлый
+    календарный месяц. Окно выборки — с начала прошлого месяца; бакеты
+    считает Python по дню клиники. ⛔ Без единой отметки «sunat»/«e-mail» за
+    оба месяца — None, строки нет (Олег: у новой клиники экран был бы в
+    нулях); пустой ОДИН месяц рядом с живым — нули."""
+    prev0, cur0, next0 = month_start(today, 1), month_start(today), add_months(month_start(today), 1)
+    since = _day_start(prev0).astimezone(timezone.utc).isoformat(timespec="seconds")
+    contacts = await db.recall_contacts_since(since)
+    bookings = await db.recall_bookings_since(since)
+    out = {"month": count_stats(contacts, bookings, cur0, next0),
+           "prev": count_stats(contacts, bookings, prev0, cur0)}
+    if not out["month"]["contacted"] and not out["prev"]["contacted"]:
+        return None
     return out
 
 

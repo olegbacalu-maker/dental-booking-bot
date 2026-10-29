@@ -279,6 +279,7 @@ SUITES = [
     ("Rechemări: «Vizita a avut loc» в окне записи", test_recall.suite_past_done),
     ("Rechemări: права — врач не видит, стойка и директор видят", test_recall.suite_rights),
     ("Rechemări: закон 195 — выгрузка, стирание, обезличивание", test_recall.suite_195),
+    ("Rechemări: статистика одной строкой — contactați · programați", test_recall.suite_stats),
     ("Rechemări: DDL шага 8 = схема", test_recall.suite_schema),
     ("Одонтограмма: поверхности", test_teeth.suite_surfaces),
     ("Одонтограмма: молочный прикус", test_teeth.suite_milk),

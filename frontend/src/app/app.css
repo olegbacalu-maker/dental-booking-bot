@@ -2842,6 +2842,8 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .rc-n.hot { background: var(--teal); color: var(--on-teal); }
 .dp-react-root .rc-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .dp-react-root .rc-tracked { margin: 0; }
+.dp-react-root .rc-stats { flex-basis: 100%; margin: 0; }
+.dp-react-root .rc-stats b { color: var(--text); font-weight: 600; }
 .dp-react-root .rc-list { padding: 4px 0; }
 .dp-react-root .rc-row { display: grid; grid-template-columns: minmax(160px, 1.1fr) minmax(190px, 1.3fr) 130px minmax(150px, 1.2fr) auto;
   gap: 14px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line2); }

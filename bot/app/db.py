@@ -2197,6 +2197,29 @@ async def recall_marks(patient_id: int | None = None) -> list:
                         patient_id)
 
 
+async def recall_contacts_since(since_iso: str) -> list:
+    """Отметки «sunat — revine»/«e-mail trimis» с момента `since_iso` (UTC ISO):
+    пара (пациент, услуга) и её ПЕРВАЯ такая отметка в окне — для статистики
+    «contactați · programați» (журнал читается, не интерпретируется)."""
+    return await _fetch(
+        """SELECT patient_id, service_id, MIN(at) AS at
+             FROM recall_marks WHERE result IN ('contacted', 'emailed') AND at >= ?
+            GROUP BY patient_id, service_id""", since_iso)
+
+
+async def recall_bookings_since(since_iso: str) -> list:
+    """Записи (живые или завершённые), СОЗДАННЫЕ с `since_iso`, по парам
+    (пациент, услуга) с ПОСЛЕДНЕЙ датой создания: «после отметки создана
+    запись» ⇔ последняя созданная позже отметки (первая была бы визитом,
+    который сам список и завёл). Сравнивает core/recall, не SQL."""
+    return await _fetch(
+        f"""SELECT patient_id, service_id, MAX(created_at) AS created_at
+              FROM appointments
+             WHERE patient_id IS NOT NULL AND created_at >= ?
+               AND status IN ('confirmed', 'waiting', 'arrived', 'done')
+             GROUP BY patient_id, service_id""", since_iso)
+
+
 async def add_recall_mark(patient_id: int, service_id: str, cycle: int | None,
                           result: str, until: str = "") -> None:
     """Дописать отметку (журнал, не состояние). Автор — вошедший

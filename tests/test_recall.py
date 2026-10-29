@@ -392,6 +392,51 @@ def suite_195(res: Result) -> None:
                   c.post_json(f"/api/patients/{pid2}/erase", {"confirm": "STERG"}).msg, "ok_del")
 
 
+def suite_stats(res: Result) -> None:
+    """Статистика одной строкой (В4 → Б, Олег 29.10): отметка → запись на ту
+    же услугу → счёт; на другую — не считается; пустой месяц — нули;
+    чистая функция по дню клиники; тело детерминировано в пределах дня."""
+    ct = lambda **k: {"patient_id": 1, "service_id": "hygiene", "at": datetime(2026, 10, 3, 9, 0, tzinfo=TZ), **k}  # noqa: E731
+    bk = lambda **k: {"patient_id": 1, "service_id": "hygiene", "created_at": datetime(2026, 10, 3, 12, 0, tzinfo=TZ), **k}  # noqa: E731
+    cur, nxt, prev = date(2026, 10, 1), date(2026, 11, 1), date(2026, 9, 1)
+    res.check("начала месяцев", (recall.month_start(TODAY), recall.month_start(TODAY, 1), recall.month_start(date(2026, 1, 15), 1)),
+              (cur, prev, date(2025, 12, 1)))
+    res.check("пусто — нули", recall.count_stats([], [], cur, nxt), {"contacted": 0, "booked": 0})
+    res.check("отметка без записи — contactați 1", recall.count_stats([ct()], [], cur, nxt), {"contacted": 1, "booked": 0})
+    res.check("запись после отметки на ту же услугу — programați 1",
+              recall.count_stats([ct()], [bk()], cur, nxt), {"contacted": 1, "booked": 1})
+    res.check("запись ДО отметки — не считается",
+              recall.count_stats([ct()], [bk(created_at=datetime(2026, 10, 3, 8, 0, tzinfo=TZ))], cur, nxt), {"contacted": 1, "booked": 0})
+    res.check("запись на другую услугу — не считается",
+              recall.count_stats([ct()], [bk(service_id="consult")], cur, nxt), {"contacted": 1, "booked": 0})
+    res.check("пациент с двумя услугами — один раз",
+              recall.count_stats([ct(), ct(service_id="consult")], [bk()], cur, nxt), {"contacted": 1, "booked": 1})
+    res.check("отметка прошлого месяца — в prev, не в month",
+              (recall.count_stats([ct(at=datetime(2026, 9, 30, 23, 30, tzinfo=TZ))], [], cur, nxt),
+               recall.count_stats([ct(at=datetime(2026, 9, 30, 23, 30, tzinfo=TZ))], [], prev, cur)),
+              ({"contacted": 0, "booked": 0}, {"contacted": 1, "booked": 0}))
+    res.check("граница месяца — по дню клиники (01.10 00:30 Кишинёв = 30.09 UTC)",
+              recall.count_stats([ct(at=datetime(2026, 10, 1, 0, 30, tzinfo=TZ))], [], cur, nxt), {"contacted": 1, "booked": 0})
+
+    with Clock(AT) as clock, Server() as s:
+        c = Client(s.url).login()
+        _set_recall(c, {"hygiene": 6})
+        res.check("сервер: пустой журнал — stats null (строки нет, нули не рисуются)", _rows(c)["stats"], None)
+        p1 = _visit(c, date(2026, 4, 2), "Stat Unu", "069850001")
+        p2 = _visit(c, date(2026, 4, 2), "Stat Doi", "069850002", time="10:00")
+        p3 = _visit(c, date(2026, 4, 2), "Stat Trei", "069850003", time="11:00")
+        for pid, resu in ((p1, "contacted"), (p2, "emailed"), (p3, "noanswer")):
+            c.post_json(MARK, {"pid": pid, "service_id": "hygiene", "result": resu})
+        res.check("contactați — только sunat/e-mail (noanswer не считается)", _rows(c)["stats"]["month"], {"contacted": 2, "booked": 0})
+        # запись ПОСЛЕ отметки — часы вперёд на минуту (в одну секунду с отметкой «после» нет)
+        clock.set(AT + timedelta(minutes=1))
+        add_appt(c, "2026-11-03", "09:00", "Stat Unu", "069850001", doctor="d3", service="hygiene")
+        add_appt(c, "2026-11-03", "10:00", "Stat Doi", "069850002", doctor="d2", service="long")
+        res.check("записался на ту же услугу — programați 1; на другую — нет", _rows(c)["stats"]["month"], {"contacted": 2, "booked": 1})
+        res.check("прошлый месяц рядом с живым — нули", _rows(c)["stats"]["prev"], {"contacted": 0, "booked": 0})
+        res.check("два запроса подряд — то же", _rows(c)["stats"], _rows(c)["stats"])
+
+
 def suite_schema(res: Result) -> None:
     """DDL шага 8 и схемы — один текст; версия схемы 8."""
     res.ok("RECALL_DDL дословно в SQLITE_CARD_SCHEMA",
