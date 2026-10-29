@@ -352,6 +352,9 @@ export interface SmsSettingsForm {
   day_before: { on: boolean; hour: number; variant: string }
   same_day: { on: boolean; hours: number; variant: string }
   phone_line: boolean
+  /** Кнопка «SMS» в «Rechemări» (30.10): включена по умолчанию; вариант текста
+   *  из `options.recall_variants`, предпросмотр — `previews.recall`. */
+  recall: { on: boolean; variant: string }
 }
 
 export interface SmsPreview {
@@ -399,7 +402,10 @@ export interface SmsData {
   blocked: string
   account: SmsAccount | null
   settings: SmsSettingsForm
-  options: { hours: number[]; leads: number[]; variants: { key: string; label: string }[] }
+  options: {
+    hours: number[]; leads: number[]; variants: { key: string; label: string }[]
+    recall_variants: { key: string; label: string }[]
+  }
   /** Предпросмотр: событие → вариант → язык → текст с данными клиники. */
   previews: Record<string, Record<string, Record<string, SmsPreview>>>
   forecast: { visits: number; month: number; daily: number; days_left: number | null }

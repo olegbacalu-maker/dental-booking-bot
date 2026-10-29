@@ -4,19 +4,32 @@ import { api, type ApiResult } from '../../services/api'
    контракт — docs/dentpilot-2/recall-api.md. Правило списка считает сервер
    (core/recall.py); здесь только форма, письмо и адрес `mailto:`. */
 
-export type RecallResult = 'contacted' | 'emailed' | 'noanswer' | 'later' | 'stop' | 'clear'
+export type RecallResult = 'contacted' | 'emailed' | 'sms' | 'noanswer' | 'later' | 'stop' | 'clear'
 export type RecallTab = 'due' | 'snoozed' | 'stop'
 
 export interface RecallMark {
   result: Exclude<RecallResult, 'clear'>
   /** Слово сервера («nu răspunde», «amânat»…) — одно на список, главную, фишу. */
   word: string
-  /** Голая дата ISO (`later`, или конец тишины у contacted/emailed) или пусто. */
+  /** Голая дата ISO (`later`, или конец тишины у contacted/emailed/sms) или пусто. */
   until: string
   n_noanswer: number
   /** «DD.MM» — день отметки по часам клиники. */
   at: string
   actor: string
+  /** У отметки `sms` (30.10): состояние доставки из sms_log и его слово
+   *  («SMS trimis / livrat / nelivrat / eșuat» — словарь сервера). */
+  sms?: { state: string; word: string }
+}
+
+/** Кнопка «SMS» строки (30.10): данные сервера; `why` — почему нельзя
+ *  (`sms_off` — пациент отказался, `phone` — не мобильный РМ,
+ *  `no_clinic_phone` — нет телефона клиники); тихие часы — `RecallData.sms.quiet`. */
+export interface RecallSms {
+  can: boolean
+  why: '' | 'sms_off' | 'phone' | 'no_clinic_phone'
+  text: string
+  segments: number
 }
 
 export interface RecallRow {
@@ -38,6 +51,9 @@ export interface RecallRow {
   booked: { date: string; service: string } | null
   mark: RecallMark | null
   tab: RecallTab
+  /** null — пакет не пускает (тогда и `RecallData.sms` null) или SMS этого
+   *  цикла уже ушла (её состояние — в `mark.sms`); у строк главной текста нет. */
+  sms?: Partial<RecallSms> | null
 }
 
 export interface RecallService { id: string; ro: string; months: number; since: string }
@@ -55,6 +71,10 @@ export interface RecallData {
    *  у кого после отметки появилась запись на ту же услугу. Считает сервер;
    *  `null` — ни одной такой отметки: строки нет (нули не рисуются). */
   stats: { month: RecallStat; prev: RecallStat } | null
+  /** Кнопка «SMS» доступна клинике (`sms_loop.recall_on()`: Plus или пробный,
+   *  галочка в Setări › SMS): остаток и тихие часы (21:00–08:00). null — ни
+   *  слова об SMS на экране (Basic: список, звонок, e-mail). */
+  sms: { on: true; balance: number; quiet: boolean } | null
 }
 
 export interface RecallStat { contacted: number; booked: number }
@@ -64,6 +84,10 @@ export const recallApi = {
     api.get<RecallData>('/recall', signal ? { signal } : {}),
   mark: (pid: number, service_id: string, result: RecallResult, until = '') =>
     api.post<null>('/recall/mark', until ? { pid, service_id, result, until } : { pid, service_id, result }),
+  /** SMS пациенту из строки: текст, ключ и отправку делает сервер; ответ —
+   *  слово (`ok_recall_sms` или отказ своими словами), экран перечитывает список. */
+  sms: (pid: number, service_id: string) =>
+    api.post<{ state: string; balance: number | null }>('/recall/sms', { pid, service_id }),
 }
 
 /** «2026-10-02» → «02.10.2026»; чужую строку отдаёт как есть. */

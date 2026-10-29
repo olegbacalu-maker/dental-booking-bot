@@ -17,7 +17,11 @@ import { dmy, letter, mailto, recallApi, type RecallData, type RecallResult, typ
    вкладки, фильтр и действия. Экран не живой поверхности (как Statistici):
    после отметки перечитывает `GET /api/recall` (`retry`). Письмо — только
    `mailto:` + «Copiază»: без настроенной почты Windows может не открыть
-   ничего, и копирование — рабочий путь, не запасной (план § 3). */
+   ничего, и копирование — рабочий путь, не запасной (план § 3).
+   SMS (30.10, план review/plan-recall-sms, Олег «все А»): кнопка в строке
+   только при `d.sms` (Plus/пробный + галочка в Setări › SMS — решает
+   сервер), текст и сегменты — сервера, окно подтверждения с остатком, одна
+   SMS на цикл (вторую сервер не шлёт), после ответа — перечитать. */
 const T = {
   tabs: { due: 'De sunat', snoozed: 'Amânate', stop: 'Nu mai reaminti' } as Record<RecallTab, string>,
   tracked: 'Servicii urmărite',
@@ -33,6 +37,22 @@ const T = {
   call: 'Sună',
   mail: 'E-mail',
   noMail: 'fără e-mail',
+  sms: 'SMS',
+  smsWhy: {
+    sms_off: 'pacientul a refuzat memento-urile SMS',
+    phone: 'numărul nu este un mobil din Moldova',
+    no_clinic_phone: 'completați telefonul clinicii în Setări › Clinica',
+    quiet: 'SMS-urile se trimit între 08:00 și 21:00',
+  } as Record<string, string>,
+  smsTitle: 'SMS pacientului',
+  smsTo: 'Către',
+  smsText: 'Textul',
+  smsSeg1: '1 SMS',
+  smsSegN: '{n} SMS',
+  smsLeft: 'rămân {n} în pachet',
+  smsHint: 'Textul este stabilit de DentPilot — fără numele pacientului, serviciu sau prețuri. '
+    + 'Se trimite un singur SMS pentru acest termen; pentru a doua reamintire sunați.',
+  smsSend: 'Trimite SMS',
   mark: 'Marchează',
   m: {
     contacted: 'Sunat — revine',
@@ -82,6 +102,7 @@ export function RecallScreen({ navigate = defaultNavigate }: Props) {
   const [svc, setSvc] = useState('')
   const [menu, setMenu] = useState<string | null>(null)
   const [mailRow, setMailRow] = useState<RecallRow | null>(null)
+  const [smsRow, setSmsRow] = useState<RecallRow | null>(null)
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<ToastState | null>(null)
 
@@ -117,6 +138,26 @@ export function RecallScreen({ navigate = defaultNavigate }: Props) {
       const err = asApiError(e)
       if (leaveIfSignedOut(err)) return
       setToast({ tone: 'err', text: err.text || T.offline })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /* SMS: отметку ставит сервер после ответа; отказ — его словами; список
+     перечитывается и при отказе (dup/quiet значат, что экран устарел) */
+  async function sendSms(r: RecallRow) {
+    setBusy(true)
+    try {
+      const res = await recallApi.sms(r.pid, r.service_id)
+      if (res.text) setToast({ tone: res.tone, text: res.text })
+      setSmsRow(null)
+      retry()
+    } catch (e) {
+      const err = asApiError(e)
+      if (leaveIfSignedOut(err)) return
+      setSmsRow(null)
+      setToast({ tone: 'err', text: err.text || T.offline })
+      retry()
     } finally {
       setBusy(false)
     }
@@ -209,6 +250,15 @@ export function RecallScreen({ navigate = defaultNavigate }: Props) {
                   {r.phone && <AppLink className="rc-btn" href={`tel:${r.phone}`}><Icon name="phone" /> {T.call}</AppLink>}
                   <button type="button" className="rc-btn" disabled={!r.email} title={r.email ? '' : T.noMail}
                     onClick={() => setMailRow(r)}><Icon name="mail" /> {T.mail}</button>
+                  {/* кнопка SMS — только когда сервер дал блок (Plus и галочка) и
+                      SMS этого цикла ещё не ушла; причина отказа — подсказкой */}
+                  {d.sms && r.sms && (() => {
+                    const why = !r.sms.can ? (r.sms.why ?? '') : d.sms.quiet ? 'quiet' : ''
+                    return (
+                      <button type="button" className="rc-btn" disabled={!!why} title={why ? T.smsWhy[why] ?? why : ''}
+                        onClick={() => setSmsRow(r)}><Icon name="chat" /> {T.sms}</button>
+                    )
+                  })()}
                   <span className="rc-mk">
                     <button type="button" className="rc-btn pri" aria-expanded={menu === key} aria-haspopup="menu"
                       onClick={() => setMenu(menu === key ? null : key)}>{T.mark} <Icon name="caret-d" /></button>
@@ -222,22 +272,66 @@ export function RecallScreen({ navigate = defaultNavigate }: Props) {
       )}
       <MailDialog row={mailRow} clinic={d.clinic} onClose={() => setMailRow(null)}
         onSent={(r) => { setMailRow(null); void mark(r, 'emailed') }} />
+      {d.sms && <SmsDialog row={smsRow} balance={d.sms.balance} busy={busy} onClose={() => setSmsRow(null)}
+        onSend={(r) => { void sendSms(r) }} />}
       {toast && <Toast tone={toast.tone} text={toast.text} onClose={() => setToast(null)} />}
     </section>
   )
 }
 
 function MarkPill({ mark }: { mark: NonNullable<RecallRow['mark']> }) {
-  const tone = mark.result === 'noanswer' ? 'amber' : mark.result === 'stop' ? 'grey' : 'green'
+  /* отметка sms: слово доставки сервера; недоставленная — янтарная (строка
+     уже вернулась в «De sunat», сервер решил) */
+  const bad = mark.result === 'sms' && (mark.sms?.state === 'undelivered' || mark.sms?.state === 'failed')
+  const tone = mark.result === 'noanswer' || bad ? 'amber' : mark.result === 'stop' ? 'grey' : 'green'
   const icon = mark.result === 'noanswer' ? 'phone-off' : mark.result === 'emailed' ? 'mail'
-    : mark.result === 'stop' ? 'ban' : mark.result === 'later' ? 'clock' : 'check'
+    : mark.result === 'sms' ? 'chat' : mark.result === 'stop' ? 'ban' : mark.result === 'later' ? 'clock' : 'check'
+  const word = mark.result === 'sms' && mark.sms?.word ? mark.sms.word : mark.word
   return (
     <span className={`rc-pill ${tone}`}>
       <Icon name={icon} />
-      {' '}{mark.word}{mark.result === 'noanswer' && mark.n_noanswer > 1 ? ` ${T.times}${mark.n_noanswer}` : ''}
-      {mark.until && mark.result !== 'noanswer' ? ` · ${T.until} ${dmy(mark.until)}` : ''}
+      {' '}{word}{mark.result === 'noanswer' && mark.n_noanswer > 1 ? ` ${T.times}${mark.n_noanswer}` : ''}
+      {mark.until && mark.result !== 'noanswer' && !bad ? ` · ${T.until} ${dmy(mark.until)}` : ''}
       {' · '}{mark.at}{mark.actor ? ` ${mark.actor}` : ''}
     </span>
+  )
+}
+
+/** Окно SMS (30.10): кому, текст сервера, сколько SMS и сколько останется,
+ *  «Trimite SMS». Текст не правится: его пишет DentPilot. */
+function SmsDialog({ row, balance, busy, onClose, onSend }: {
+  row: RecallRow | null; balance: number; busy: boolean; onClose: () => void; onSend: (r: RecallRow) => void
+}) {
+  const ref = useRef<HTMLDialogElement>(null)
+  useEffect(() => {
+    if (row) showDialog(ref.current)
+    else hideDialog(ref.current)
+  }, [row])
+  const s = row?.sms ?? null
+  const segs = s?.segments ?? 1
+  return (
+    <dialog ref={ref} className="rc-mail rc-sms" onClose={onClose}>
+      <div className="dlg-head">
+        <span><Icon name="chat" /> {T.smsTitle}</span>
+        <button type="button" onClick={onClose} aria-label={T.close}><Icon name="close" /></button>
+      </div>
+      {row && s && (
+        <div className="rc-mail-b">
+          <dl className="rc-mail-f">
+            <dt>{T.smsTo}</dt><dd><b>{row.name}</b> {row.phone}</dd>
+            <dt>{T.smsText}</dt><dd className="hint">{segs <= 1 ? T.smsSeg1 : T.smsSegN.replace('{n}', String(segs))}
+              {' · '}{T.smsLeft.replace('{n}', String(Math.max(0, balance - segs)))}</dd>
+          </dl>
+          <pre className="rc-mail-t">{s.text}</pre>
+          <p className="hint">{T.smsHint}</p>
+          <div className="rc-mail-a">
+            <button type="button" className="dp-btn pri" disabled={busy} onClick={() => onSend(row)}>
+              <Icon name="chat" /> {T.smsSend}</button>
+            <button type="button" className="rc-btn" disabled={busy} onClick={onClose}>{T.close}</button>
+          </div>
+        </div>
+      )}
+    </dialog>
   )
 }
 

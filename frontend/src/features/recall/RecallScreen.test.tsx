@@ -46,6 +46,26 @@ const DATA: RecallData = {
   clinic: { name: 'Clinica Test', phone: '+373 60 000 000' },
   can_settings: true,
   stats: { month: { contacted: 4, booked: 1 }, prev: { contacted: 0, booked: 0 } },
+  sms: null,
+}
+
+/* Plus с кнопкой SMS (30.10): текст и сегменты — сервера; причины — кодами */
+const SMS_TEXT = 'Buna ziua! Clinica Test va reaminteste ca a venit timpul pentru controlul periodic. Pentru programare: +373 60 000 000. O zi buna!'
+const DATA_SMS: RecallData = {
+  ...DATA,
+  rows: [
+    row({ sms: { can: true, why: '', text: SMS_TEXT, segments: 1 } }),
+    row({ pid: 8, name: 'Elena Rotari', phone: '022 123 456', sms: { can: false, why: 'phone', text: SMS_TEXT, segments: 1 } }),
+    row({ pid: 9, name: 'Victor Bodiu', sms: { can: false, why: 'sms_off', text: SMS_TEXT, segments: 1 } }),
+    row({ pid: 12, name: 'Trimis Deja', tab: 'snoozed', sms: null,
+      mark: { result: 'sms', word: 'SMS trimis', until: '2026-11-12', n_noanswer: 0, at: '29.10', actor: 'Ana',
+        sms: { state: 'delivered', word: 'SMS livrat' } } }),
+    row({ pid: 13, name: 'Nelivrat Ion', sms: null,
+      mark: { result: 'sms', word: 'SMS trimis', until: '', n_noanswer: 0, at: '29.10', actor: 'Ana',
+        sms: { state: 'undelivered', word: 'SMS nelivrat' } } }),
+  ],
+  counts: { due: 4, snoozed: 1, stop: 0 },
+  sms: { on: true, balance: 42, quiet: false },
 }
 
 const open = (navigate?: (url: string) => void) => openScreen(
@@ -194,6 +214,51 @@ describe('RecallScreen', () => {
     expect((write.mock.calls[1] as unknown as string[])[0]).toContain('Control periodic — Clinica Test\n\nBună ziua, Maria.')
     fireEvent.click(within(dlg).getByRole('button', { name: /Am trimis/ }))
     await waitFor(() => expect(post).toHaveBeenCalledWith('/recall/mark', { pid: 7, service_id: 'hygiene', result: 'emailed' }))
+  })
+
+  it('Basic (sms null): ни кнопки, ни слова SMS в строках', async () => {
+    get.mockResolvedValueOnce(ok(DATA))
+    open()
+    await screen.findByRole('tab', { name: /De sunat/ })
+    expect(screen.queryByRole('button', { name: /^SMS$/ })).toBeNull()
+    expect(document.querySelector('dialog.rc-sms')).toBeNull()
+  })
+
+  it('Plus: кнопка SMS по данным строки — можно / не мобильный / отказался; окно с текстом и остатком; POST и перечитывание', async () => {
+    get.mockResolvedValue(ok(DATA_SMS))
+    post.mockResolvedValue(ok({ state: 'sent', balance: 41 }, 'ok_recall_sms', 'SMS trimis'))
+    open()
+    await screen.findByRole('tab', { name: /De sunat/ })
+    const btn = (i: number) => within(rows()[i]!).getByRole('button', { name: /^SMS$/ }) as HTMLButtonElement
+    expect(btn(0).disabled).toBe(false)
+    expect(btn(1).disabled).toBe(true)
+    expect(btn(1).title).toBe('numărul nu este un mobil din Moldova')
+    expect(btn(2).disabled).toBe(true)
+    expect(btn(2).title).toBe('pacientul a refuzat memento-urile SMS')
+    /* SMS этого цикла уже ушла — кнопки нет, пилюля со словом доставки; недоставленная — янтарная */
+    expect(within(rows()[3]!).queryByRole('button', { name: /^SMS$/ })).toBeNull()
+    expect(rows()[3]!.querySelector('.rc-pill.amber')?.textContent).toContain('SMS nelivrat')
+    fireEvent.click(btn(0))
+    const dlg = document.querySelector('dialog.rc-sms') as HTMLDialogElement
+    expect(dlg.textContent).toContain('Maria Ceban')
+    expect(dlg.querySelector('.rc-mail-t')?.textContent).toBe(SMS_TEXT)
+    expect(dlg.textContent).toContain('1 SMS · rămân 41 în pachet')
+    fireEvent.click(within(dlg).getByRole('button', { name: /Trimite SMS/ }))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/recall/sms', { pid: 7, service_id: 'hygiene' }))
+    expect(await screen.findByText('SMS trimis')).toBeTruthy()
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2))
+  })
+
+  it('тихие часы: кнопка выключена с подсказкой; «Amânate» показывает доставленную SMS', async () => {
+    get.mockResolvedValue(ok({ ...DATA_SMS, sms: { on: true, balance: 42, quiet: true } }))
+    open()
+    await screen.findByRole('tab', { name: /De sunat/ })
+    const b = within(rows()[0]!).getByRole('button', { name: /^SMS$/ }) as HTMLButtonElement
+    expect(b.disabled).toBe(true)
+    expect(b.title).toBe('SMS-urile se trimit între 08:00 și 21:00')
+    fireEvent.click(screen.getByRole('tab', { name: /Amânate/ }))
+    expect(rows()[0]!.querySelector('.rc-pill.green')?.textContent).toContain('SMS livrat')
+    expect(rows()[0]!.textContent).toContain('până la 12.11.2026')
   })
 
   it('отказ загрузки — «Reîncearcă»', async () => {

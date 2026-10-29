@@ -45,6 +45,11 @@ const T = {
   variant: 'textul',
   phoneLine: 'adaugă rândul „Anulare: {phone}" cu telefonul clinicii',
   phoneLineNoPhone: 'rândul cu telefonul clinicii — completați telefonul în Setări › Clinica',
+  recallTitle: 'Rechemări',
+  recall: 'Buton „SMS” în lista Rechemări',
+  recallHint: 'recepția trimite, la apăsare, o singură reamintire a controlului periodic pentru fiecare termen; '
+    + 'textul conține doar denumirea și telefonul clinicii',
+  recallNoPhone: 'butonul apare după ce completați telefonul clinicii în Setări › Clinica',
   previewRo: 'română',
   previewRu: 'русский',
   segments1: '1 SMS',
@@ -285,6 +290,26 @@ export function SmsSettingsScreen({ navigate = defaultNavigate }: Props) {
             </div>
           </div>
           <p className="hint">{T.previewHint}</p>
+
+          {/* «Rechemări» (30.10): кнопка SMS в списке — галочка (по умолчанию
+              включена, Олег 30.10) и вариант текста; предпросмотр тем же путём */}
+          <h3>{T.recallTitle}</h3>
+          <div className="dp-sms-events">
+            <div className="dp-sms-ev">
+              <label>
+                <input type="checkbox" checked={s.recall.on} disabled={busy}
+                  onChange={(e) => save((f) => ({ ...f, recall: { ...f.recall, on: e.target.checked } }))} />
+                {' '}<b>{T.recall}</b>
+              </label>
+              <span className="dp-muted">{T.variant}</span>
+              <select value={s.recall.variant} disabled={busy} aria-label={T.recall + ' — textul'}
+                onChange={(e) => save((f) => ({ ...f, recall: { ...f.recall, variant: e.target.value } }))}>
+                {data.options.recall_variants.map((v) => <option key={v.key} value={v.key}>{v.label}</option>)}
+              </select>
+            </div>
+            <p className="hint">{data.clinic.phone ? T.recallHint : T.recallNoPhone}</p>
+            {s.recall.on && preview('recall', s.recall.variant)}
+          </div>
 
           <h3>{T.forecastTitle}</h3>
           <p className="hint">

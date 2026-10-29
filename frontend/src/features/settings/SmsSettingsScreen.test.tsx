@@ -30,14 +30,26 @@ const BASE: SmsData = {
     day_before: { on: true, hour: 10, variant: 'standard' },
     same_day: { on: false, hours: 2, variant: 'standard' },
     phone_line: false,
+    recall: { on: true, variant: 'standard' },
   },
   options: {
     hours: [8, 9, 10, 11, 12], leads: [1, 2, 3],
     variants: [{ key: 'standard', label: 'Standard' }, { key: 'scurt', label: 'Scurt' }],
+    recall_variants: [{ key: 'standard', label: 'Standard' }, { key: 'scurt', label: 'Scurt' }],
   },
   previews: {
     day_before: { standard: PV('maine'), scurt: PV('maine') },
     same_day: { standard: PV('astazi'), scurt: PV('astazi') },
+    recall: {
+      standard: {
+        ro: { text: 'Buna ziua! Clinica Test va reaminteste ca a venit timpul pentru controlul periodic. Pentru programare: +373 60 000 000. O zi buna!', segments: 1 },
+        ru: { text: 'Клиника Test: пора на плановый осмотр. Тел. +373 60 000 000', segments: 1 },
+      },
+      scurt: {
+        ro: { text: 'Clinica Test: e timpul pentru controlul periodic. Programari: +373 60 000 000.', segments: 1 },
+        ru: { text: 'Клиника Test: плановый осмотр. Тел. +373 60 000 000', segments: 1 },
+      },
+    },
   },
   forecast: { visits: 120, month: 120, daily: 4, days_left: 10 },
   low: null,
@@ -64,7 +76,7 @@ describe('SmsSettingsScreen', () => {
     expect(await screen.findByText('42')).toBeTruthy()
     expect(screen.getByText('DentPilot')).toBeTruthy()
     expect(screen.getByText(/Clinica Test va reaminteste ca maine/)).toBeTruthy()
-    expect(screen.getAllByText('română · 1 SMS').length).toBe(1)
+    expect(screen.getAllByText('română · 1 SMS').length).toBe(2)   // накануне + Rechemări (30.10)
     expect(screen.getByText(/~120 SMS pe lună/)).toBeTruthy()
     expect(screen.getByText(/restul ajunge pentru ~10 zile/)).toBeTruthy()
     const day = screen.getByLabelText('Cu o zi înainte') as HTMLInputElement
@@ -84,10 +96,27 @@ describe('SmsSettingsScreen', () => {
       day_before: { on: true, hour: 10, variant: 'standard' },
       same_day: { on: true, hours: 2, variant: 'standard' },
       phone_line: false,
+      recall: { on: true, variant: 'standard' },
     })
     expect(await screen.findByText('Setări SMS salvate')).toBeTruthy()
     expect(screen.getByText(/Clinica Test va reaminteste ca astazi/)).toBeTruthy()
     expect((screen.getByLabelText('În ziua vizitei') as HTMLInputElement).checked).toBe(true)
+  })
+
+  it('Rechemări (30.10): галочка «Buton SMS» включена, предпросмотр без услуги; снятие шлёт полную форму', async () => {
+    get.mockResolvedValueOnce(ok(BASE))
+    const after: SmsData = { ...BASE, settings: { ...BASE.settings, recall: { on: false, variant: 'standard' } } }
+    post.mockResolvedValueOnce(ok(after, 'ok_sms', 'Setări SMS salvate'))
+    open()
+    await screen.findByText('42')
+    const box = screen.getByLabelText('Buton „SMS” în lista Rechemări') as HTMLInputElement
+    expect(box.checked).toBe(true)
+    expect(screen.getByText(/a venit timpul pentru controlul periodic/)).toBeTruthy()
+    expect(screen.getByText(/пора на плановый осмотр/)).toBeTruthy()
+    fireEvent.click(box)
+    expect(post).toHaveBeenCalledWith('/settings/sms', { ...BASE.settings, recall: { on: false, variant: 'standard' } })
+    expect(await screen.findByText('Setări SMS salvate')).toBeTruthy()
+    expect(screen.queryByText(/a venit timpul pentru controlul periodic/)).toBeNull()
   })
 
   it('вариант текста и час — тем же сохранением', async () => {
