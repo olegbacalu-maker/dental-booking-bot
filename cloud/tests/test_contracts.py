@@ -14,13 +14,15 @@ import sys
 import tempfile
 import time
 
+import subprocess
+
 from harness import CLOUD, ROOT, Client, Result, Server, cid_from
 from test_deploy import _tools
 from test_receipts import _letters, _raw
 from test_sms_paper import _cabinet
 
 sys.path.insert(0, str(CLOUD))
-from app import contracts, mail, pdf  # noqa: E402 — чистые функции сервера
+from app import contracts, db, mail, pdf, terms  # noqa: E402 — чистые функции сервера
 
 DEPLOY = CLOUD / "deploy"
 
@@ -158,13 +160,24 @@ def suite_cabinet(res: Result) -> None:
                    and "/cont/documente/dpa.pdf" in home and "/cont/documente/declaratie.pdf" in home
                    and "versiunea 29.10.2026" in home and "href='/cont/documente'" in home, home[-4000:])
             page = cab.get("/cont/documente").body
-            res.ok("раздел: три документа, акцепт — общая строка (модуля terms нет), форма загрузки",
+            res.ok("раздел: три документа, блок актов — фрагмент terms (актов нет: совет из программы), форма загрузки",
                    all(contracts.DOCS[k]["title"] in page for k in contracts.DOCS)
-                   and "Acceptarea termenilor" in page and "înregistrată la activarea programului" in page
+                   and "Acceptarea termenilor" in page and "Acceptarea a fost înregistrată local" in page
+                   and f"href='/cont/acceptari'>Toate actele</a>" in page
+                   and "înregistrată la activarea programului" not in page
                    and "action='/cont/documente/incarca'" in page and "enctype='multipart/form-data'" in page
                    and "<option value='contract'>" in page and "<option value='dpa'>" in page
                    and "<option value='declaratie'>" not in page, page[-5000:])
             res.ok("раздел: ещё нет загруженных — таблицы нет", "/clinica.pdf" not in page)
+            # акт акцепта (terms.py, 29.10) — та же страница показывает его строкой с ссылкой на печатный акт
+            aid = "a_" + "ab" * 8
+            _sql_w(s, "INSERT INTO terms_acceptances(id, clinic_id, version, actor, at, ip, source) VALUES(?,?,?,?,?,?,?)",
+                   aid, cid, terms.CURRENT, "Ion Popescu", db.now_iso(), "203.0.113.5", terms.SRC_PAY)
+            page = cab.get("/cont/documente").body
+            res.ok("акт акцепта виден в разделе: версия, кто, ссылка на печатный акт своей клиники",
+                   terms.CURRENT in page and "Ion Popescu" in page and f"href='/cont/acceptari/{aid}'" in page
+                   and "Acceptarea a fost înregistrată local" not in page, page[-4000:])
+            res.check("печатный акт из раздела открывается", cab.get(f"/cont/acceptari/{aid}").status, 200)
             for k in ("contract", "dpa", "declaratie"):
                 st, h, body = _raw(cab, f"/cont/documente/{k}.pdf")
                 res.ok(f"PDF поставщика «{k}»: 200, байт в байт, в окно, имя с версией",
@@ -239,6 +252,44 @@ def suite_cabinet(res: Result) -> None:
             res.check("файл с диска пропал — 404, а не 500", _raw(cab, "/cont/documente/1/clinica.pdf")[0], 404)
             files["contract"].write_bytes(b"not a pdf at all")
             res.check("файл поставщика подменён не-PDF — 404 (без перезапуска)", _raw(cab, "/cont/documente/contract.pdf")[0], 404)
+
+
+def _sql_w(s: Server, sql: str, *args) -> None:
+    con = sqlite3.connect(s.dir / "cloud.db")
+    try:
+        con.execute(sql, args)
+        con.commit()         # без commit UPDATE откатился бы при close (cloud.md)
+    finally:
+        con.close()
+
+
+def suite_migration(res: Result) -> None:
+    """Схема 18 → 20 одним init: шаг 19 (terms_acceptances + хеш idem функцией) и шаг 20 (clinic_contracts)
+    на базе с живой sms_messages; повтор init ничего не ломает; загрузка после миграции работает."""
+    with Server() as s:
+        admin = Client(s.url).login()
+        cid = _clinic(admin, "Clinica Veche", "veche@example.md")
+        raw = "appt:17:day_before:2026-11-03T08:00:00Z"
+        _sql_w(s, "INSERT INTO sms_messages(clinic_id, idem, kind, sender, segments, state, sent_at, state_at) "
+                  "VALUES(?,?,?,?,?,?,?,?)", cid, raw, "day_before", "DentPilot", 1, "sent", db.now_iso(), db.now_iso())
+        # как база до 29.10: обеих таблиц нет, версия 18
+        _sql_w(s, "DROP TABLE clinic_contracts")
+        _sql_w(s, "DROP TABLE terms_acceptances")
+        _sql_w(s, "UPDATE schema_meta SET value='18' WHERE key='version'")
+        p = subprocess.run([sys.executable, "-c", "from app import db; db.init(); db.init(); print('twice')"],
+                           cwd=str(CLOUD), env=s.env, capture_output=True, text=True, encoding="utf-8", timeout=60)
+        res.ok("init дважды с версии 18: шаги 19 и 20 через apply_step, без ошибки",
+               p.returncode == 0 and "twice" in p.stdout, p.stdout + p.stderr)
+        res.check("версия схемы 20", _one(s, "SELECT value FROM schema_meta WHERE key='version'"), "20")
+        res.check("обе таблицы на месте", _one(s, "SELECT count(*) FROM sqlite_master WHERE name IN "
+                                                "('terms_acceptances', 'clinic_contracts')"), 2)
+        import hashlib
+        res.check("шаг 19 захешировал idem один раз", _one(s, "SELECT idem FROM sms_messages"),
+                  hashlib.sha256(raw.encode()).hexdigest())
+        res.check("db.SCHEMA_VERSION = 20 и шаг 19 держит функцию", (db.SCHEMA_VERSION, any(callable(x) for x in db.MIGRATIONS[19])),
+                  (20, True))
+        cab = _cabinet(s, "veche@example.md")
+        res.check("после миграции экземпляр загружается", _msg(_upload(cab, b"%PDF-1.4\n%%EOF\n")), "doc_ok")
 
 
 def suite_without(res: Result) -> None:

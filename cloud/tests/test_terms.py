@@ -245,7 +245,8 @@ def suite_idem_and_audit(res: Result) -> None:
                            cwd=str(CLOUD), env=s.env, capture_output=True, text=True, encoding="utf-8", timeout=60)
         res.ok("init дважды с версии 18: шаг 19 прошёл и повторился без ошибки", p.returncode == 0 and "twice" in p.stdout,
                p.stdout + p.stderr)
-        res.check("версия схемы 19", _sql(s, "SELECT value FROM schema_meta WHERE key='version'")[0][0], "19")
+        res.check("версия схемы — текущая db.SCHEMA_VERSION (19 здесь, 20 после посадки contract-sign)",
+                  _sql(s, "SELECT value FROM schema_meta WHERE key='version'")[0][0], str(db.SCHEMA_VERSION))
         idem = _sql(s, "SELECT idem FROM sms_messages")[0][0]
         import hashlib
         res.check("старая строка захеширована один раз (повтор шага не хеширует хеш)", idem,

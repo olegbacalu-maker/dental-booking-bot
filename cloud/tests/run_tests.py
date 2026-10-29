@@ -150,6 +150,8 @@ SUITES = [
      test_contracts.suite_cabinet),
     ("Документы в кабинете: без DP_CONTRACT / DP_DPA — «ещё не выложен», check предупреждает",
      test_contracts.suite_without),
+    ("Документы в кабинете: схема 18 → 20 одним init (шаг 19 функцией, шаг 20), загрузка после",
+     test_contracts.suite_migration),
     ("Поисковики: noindex на каждом ответе, robots.txt обход не закрывает", test_robots.suite),
 ]
 
