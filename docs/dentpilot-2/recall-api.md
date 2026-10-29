@@ -12,6 +12,14 @@
 Всё вычисляется при каждом запросе из визитов и конфига (`core/recall.py`);
 хранится только отметка регистратуры (`recall_marks`, шаг схемы 8).
 
+**SMS из списка (30.10.2026, план `review/plan-recall-sms-2026-10-29.md`,
+Олег 30.10: «все А»)** — кнопка «SMS» в строке, одна SMS на цикл услуги,
+текст без услуги и месяцев, синхронная отправка с записью в `sms_log`
+(`kind = recall`, `appt_id NULL`), отметка `sms` в `recall_marks`,
+недоставленная возвращает строку в «De sunat», галочка «Buton SMS în
+Rechemări» в Setări › SMS (включена по умолчанию), SMS считается в
+«contactați». Раздел «SMS из списка» ниже.
+
 ## Право
 
 `PERM_RECALL` в `PERMS` — директор и регистратура. Без права: `/api/recall*`
@@ -30,12 +38,18 @@
     due: "YYYY-MM-DD", late_days: int,          // срок; >0 просрочен, <0 ещё не наступил
     late: "întârziere 3 săpt." | "peste 9 zile" | "azi" | "mâine",   // слово сервера
     booked: {date: "DD.MM", service} | null,    // записан вперёд на ДРУГУЮ услугу
-    mark: {result, word, until: "YYYY-MM-DD" | "", n_noanswer, at: "DD.MM", actor} | null,
-    tab: "due" | "snoozed" | "stop"
+    mark: {result, word, until: "YYYY-MM-DD" | "", n_noanswer, at: "DD.MM", actor,
+           sms: {state, word} | null} | null,   // у отметки `sms`: состояние доставки (sms_log) и его слово
+    tab: "due" | "snoozed" | "stop",
+    sms: {can: bool, why: "" | "phone" | "sms_off" | "no_clinic_phone" | "quiet",
+          text, segments} | null             // кнопка «SMS»: null — пакет не пускает (`sms` ниже null)
+                                             // или SMS этого цикла уже ушла (тогда смотри mark.sms)
   }],
   counts: {due, snoozed, stop},
   clinic: {name, phone},                        // для текста письма
   can_settings: bool,                           // пустой экран: кнопка в Setări › Servicii (директор) или слово
+  sms: {on: true, balance: int, quiet: bool} | null,   // null — `sms_loop.recall_on()` false:
+                                                        // Basic, выключено, без лицензии, галочка снята
   stats: {month: {contacted, booked}, prev: {contacted, booked}} | null
     // В4 → Б (Олег 29.10 ~18:55): одной строкой «Luna aceasta: contactați N · programați M»
     // за текущий и прошлый календарный месяц (день клиники). N — пациенты с отметкой
@@ -46,12 +60,16 @@
 ```
 
 Порядок `rows`: без отметки сверху, самые просроченные первыми; «nu răspunde»
-— вниз. Тело детерминировано в пределах дня (ни одного «сейчас»).
+— вниз. Тело детерминировано в пределах дня (ни одного «сейчас»); ⚠️ блок
+`sms` (тихие часы `quiet`) — единственное, что зависит от часа, и он есть
+ТОЛЬКО у экрана: `desk.recall` и модель фиши его не несут.
 
 ## `POST /api/recall/mark`
 
 Тело `{pid, service_id, result, until?}`; `result` ∈ `contacted` («Sunat —
-revine», прячет 14 дней) · `emailed` («E-mail trimis», 14 дней) · `noanswer`
+revine», прячет 14 дней) · `emailed` («E-mail trimis», 14 дней) · `sms`
+(ставит только `POST /api/recall/sms` после ответа сервера, руками не
+ставится — 422; 14 дней, а при `undelivered`/`failed` строка сразу в `due`) · `noanswer`
 (остаётся, считает попытки) · `later` (`until` — голая дата ISO, прячет до
 неё) · `stop` («Nu mai reaminti», навсегда для услуги) · `clear` (отменяет
 последнюю отметку). Ответ — `msg_json`: `ok_recall` / 422 `bad_recall`
@@ -86,3 +104,46 @@ recall: [{service, service_id, last: "DD.MM.YYYY", next: "DD.MM.YYYY",
 `POST /api/schedule/appointments` принимает `done: true` — только на
 прошедший день (`eng.is_past_day`) визит ложится сразу `done`; ответ
 `ok_past_done`. На день не в прошлом поле игнорируется.
+
+## SMS из списка (30.10.2026)
+
+Гейт — `sms_loop.recall_on()` = `enabled()` (сервер лицензий пускает:
+предлагается, включён, не Basic, имя одобрено, план активен — ⛔ не
+`offered()`: у Basic он тоже `true`) ∧ галочка `clinic.json › sms.recall.on`.
+Без гейта `sms: null` в конверте и ни слова об SMS на экране.
+
+### `POST /api/recall/sms`
+
+Тело `{pid, service_id}`. Сервер программы сам строит текст
+(`sms_plan.recall_text(lang, variant, clinic, phone)` — язык из фиши,
+вариант из настроек, подстановки только `{clinica}` и `{telefon}`), ключ
+`recall:{pid}:{service_id}:{cycle_appt_id}` (`sms_plan.recall_idem`), шлёт
+синхронно (`wire.send`, в потоке, таймаут 10 с) мимо очереди напоминаний и
+на `OK` пишет: строку `sms_log` (`kind recall`, `appt_id NULL`, `state
+sent`, `cloud_id`), отметку `recall_marks(result='sms')`, летопись «SMS
+trimis (rechemare <услуга>)» от имени вошедшего. Доставку опрашивает
+штатный цикл (`_poll_status`), слова состояния — `sms_loop.EVENT`.
+
+Ответы (`msg_json`): `ok_recall_sms` + `data: {state: "sent", balance}`;
+422 `bad_recall`; 409 `recall_gone` (нет done-визита); 409 `recall_sms_off`
+(гейт); 409 `recall_sms_refused` (`patients.sms_off`); 409 `recall_sms_phone`
+(не мобильный РМ); 409 `recall_no_phone` (пустой телефон клиники); 409
+`recall_sms_quiet` (21:00–08:00 по часам клиники, `sms_plan.awake`); 409
+`recall_sms_dup` (строка `sms_log` с этим ключом уже есть — экран устарел);
+409 `sms_denied` + `text` словами `sms_loop.WHY` по коду сервера
+(`sms_balance`, `sms_cap`, `sms_quiet`…); 503 `sms_offline` / `sms_token`.
+При любом отказе ни строки, ни отметки не пишется.
+
+### `clinic.json › sms.recall`
+
+`{on: bool, variant: "standard" | "scurt"}` в нормализаторе
+`sms_plan.settings` (умолчание `on: true`, `standard`); экран Setări › SMS
+получает `settings.recall`, `options.recall_variants`, `previews.recall`
+(вариант → язык → `{text, segments}`). `sms_loop.active()` = `enabled()` ∧
+(событие включено ∨ `recall.on`): лист acord, точка меню и галочка окна
+записи следуют и за рекламациями.
+
+### Сервер лицензий
+
+`cloud/app/sms.KINDS` получает `recall`; остальное без изменений (ключ,
+баланс, потолок, тихие часы, дедупликация по `(clinic_id, idem)`).
