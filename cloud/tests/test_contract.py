@@ -218,6 +218,13 @@ def suite(res: Result) -> None:
            and "GitHub, Inc." in flows and "maib" in flows and "Rock Soft S.R.L. (SMS.MD)" in flows
            and "Ce rămâne pe calculatorul clinicii" in flows)
     res.ok("Anexa 2: код активации — со сроком сервера", f"expiră în {minutes} minute" in flows)
+    # SMS из «Rechemări» (30.10): reamintirea controlului periodic названа в § 16,
+    # DPA (предмет, субъекты, текст, инструкция — кнопка), Anexa 2, декларации и
+    # политике одними словами; текст — только название и телефон клиники
+    res.ok("§ 16, DPA, Anexa 2, декларация, политика: reamintirea controlului periodic из Rechemări — везде",
+           all("reamintirea controlului periodic" in x and "Rechemări" in x for x in (s16, dpa, flows, decl, flat_privacy))
+           and "butonului „SMS” din lista Rechemări" in s16 and "butonului „SMS” din lista Rechemări" in dpa
+           and "doar denumirea și telefonul clinicii" in s16 and "doar denumirea și telefonul clinicii" in dpa)
     res.ok("политика § 5: обновления на GitHub, кнопки оплаты/кабинета, опрос SMS, maib, внутренние уведомления",
            all(x in flat_privacy for x in ("Verificarea actualizărilor", "GitHub, Inc.", "Deschide contul clinicii",
                                            "soldul de SMS", "maib", "notificările interne ale furnizorului")))

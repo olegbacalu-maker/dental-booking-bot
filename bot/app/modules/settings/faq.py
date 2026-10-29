@@ -431,7 +431,14 @@ def entries() -> list[dict]:
            f"text pregătit (fără prețuri sau oferte); dacă nu se deschide nimic, "
            f"folosiți <b>Copiază adresa</b> și <b>Copiază textul</b>. DentPilot "
            f"nu trimite mesaje prin internet și nu transmite nimănui datele "
-           f"pacienților. Medicii nu văd lista — doar rândul din fișă.{end}"),
+           f"pacienților. Medicii nu văd lista — doar rândul din fișă.{end}"
+           f"{p}Cu modulul SMS (DentPilot Plus și luna de probă) rândul are și "
+           f"butonul <b>SMS</b>: trimite pacientului o singură reamintire a "
+           f"controlului periodic pentru termenul curent — textul conține doar "
+           f"denumirea și telefonul clinicii, fără serviciu sau prețuri — și "
+           f"consumă un SMS din pachet. Dacă SMS-ul nu ajunge, pacientul revine "
+           f"în «De sunat». Butonul se pornește și se oprește în "
+           f"<b>Setări › SMS</b>.{end}"),
 
         _q("refresh", "Actualizarea programului șterge datele?",
            f"{p}<b>Nu.</b> Actualizarea înlocuiește doar fișierele "

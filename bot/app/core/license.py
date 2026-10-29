@@ -97,7 +97,7 @@ TERMS_CODE = "license_terms"               # импорт без галочки 
 # actualizare» страницы. `test_structure` сверяет оба значения с
 # docs/site/termeni.html — поменялись условия, меняется и дата здесь.
 TERMS_URL = "https://dentpilot.md/termeni.html"
-TERMS_VERSION = "29.10.2026"        # договор в кабинете (§ 1), обновления 6 ч и GitHub (§ 8), техданные ПК (§ 9), Asistență rapidă (§ 10), адрес (§ 15), счёт SMS 10 мин (§ 16); было 27.10.2026
+TERMS_VERSION = "30.10.2026"        # § 16: reamintirea controlului periodic по кнопке из Rechemări (SMS из списка); было 29.10.2026 (договор в кабинете, обновления 6 ч, техданные ПК, Asistență rapidă, адрес, счёт SMS 10 мин)
 # Активация без файла (26.09): заявка на пробный уходит на сервер лицензий.
 # Боевой адрес — здесь (тот же, что умолчание DP_BASE_URL сервера, сверяет
 # cloud/tests/test_renew.py); окружение — только для стенда тестов и только
