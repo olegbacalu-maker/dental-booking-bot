@@ -626,8 +626,9 @@ def suite_code(res: Result) -> None:
             r = c.post("/admin/license/verify", code=" 123 456 ")
             res.check("неверный код: license_code_bad", r.location, "/admin/license?msg=license_code_bad")
             sent = stand.posts[-1] if stand.posts else {}
-            res.ok("код ушёл JSON-ом на /v1/verify: verify_id заявки, цифры без пробелов",
-                   sent.get("path") == "/v1/verify" and sent.get("json") == {"verify_id": vid, "code": "123456"},
+            res.ok("код ушёл JSON-ом на /v1/verify: verify_id заявки, цифры без пробелов, версия условий и кто (29.10)",
+                   sent.get("path") == "/v1/verify" and sent.get("json") == {"verify_id": vid, "code": "123456",
+                                                                              "terms": _terms(), "actor": "Director"},
                    repr(sent))
             page = c.get("/admin/license?msg=license_code_bad").body
             res.ok("страница: слова сервера, поле кода на месте",

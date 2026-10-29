@@ -79,6 +79,7 @@ import test_patient_card  # noqa: E402
 import test_patients_api  # noqa: E402
 import test_paylink  # noqa: E402
 import test_license_email  # noqa: E402
+import test_license_terms  # noqa: E402
 import test_cont_link  # noqa: E402
 import test_schedule_api  # noqa: E402
 import test_settings_api  # noqa: E402
@@ -179,6 +180,9 @@ SUITES = [
     ("Лицензия: «Plătește acum» — платить некому: ссылки нет", test_paylink.suite_off),
     ("Лицензия: e-mail клиники — провод к /v1/email/* и заголовки /v1/license", test_license_email.suite_wire),
     ("Лицензия: e-mail клиники — напоминание, код, «Retrimite», «Schimbă adresa»", test_license_email.suite_page),
+    ("Лицензия: акт акцепта условий — провод к /v1/terms/accept и заголовок", test_license_terms.suite_wire),
+    ("Лицензия: акт акцепта условий — квитанция в contract, досылка", test_license_terms.suite_receipts),
+    ("Лицензия: акт акцепта условий — баннер новой версии, «Accept», слово сервера", test_license_terms.suite_banner),
     ("Лицензия: «Deschide contul clinicii» — ключ, вход на сервере, только директору, отказы словами",
      test_cont_link.suite_cont),
     ("Лицензия: «Deschide contul clinicii» — кабинета нет: кнопки нет, FAQ", test_cont_link.suite_off),

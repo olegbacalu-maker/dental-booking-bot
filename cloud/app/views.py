@@ -389,6 +389,7 @@ def clinics_page(rows: list, user: str, msg: str = "", requests: list = (), stat
 # ---------- форма пробного периода (L14): публичные страницы, по-румынски ----------
 
 TRIAL_MSG = {
+    "bad_terms": "Versiunea termenilor lipsește sau nu este o dată (zz.ll.aaaa).",
     "bad_name": "Indicați denumirea clinicii (2–120 de caractere).",
     "bad_idno": "IDNO are exact 13 cifre — sau lăsați câmpul gol pentru perioada de probă.",
     "bad_email": "Indicați o adresă de e-mail valabilă: pe ea primiți confirmarea și codurile de activare.",
@@ -1143,6 +1144,7 @@ AUDIT_RU = {
     "email_confirmed": ("e-mail подтверждён", "cab"), "email_code_sent": ("код подтверждения e-mail", "mail"),
     "email_code_bad": ("код подтверждения неверный", "prog"), "email_change": ("e-mail сменён из программы", "prog"),
     "email_reset": ("e-mail сменён — снова не подтверждён", "adm"),
+    "terms_accept": ("условия приняты (акт)", "lic"),       # акт акцепта условий (29.10, terms.py)
 }
 AUDIT_CATS = (("pay", "Оплата"), ("lic", "Лицензия"), ("sms", "SMS"), ("mail", "Письма"),
               ("prog", "Программа"), ("cab", "Кабинет"), ("adm", "Админка"))
@@ -1437,7 +1439,9 @@ def _log_pane(cid: str, audit: list, log: str, by_what: dict) -> str:
 def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
                 payments: list = (), pending: int = 0, reminders: list = (), accounts: list = (),
                 devices: list = (), smsinfo: dict | None = None, names: int = 0,
-                log: str = "", log_counts: dict | None = None, cabinet: list = (), active: int = 0) -> str:
+                log: str = "", log_counts: dict | None = None, cabinet: list = (), active: int = 0,
+                terms_html: str = "") -> str:
+    """`terms_html` — акты акцепта условий (terms.admin_fragment, 29.10) под вкладкой «Лицензия»."""
     now = datetime.now(timezone.utc)
     issues, payments, accounts, devices, audit = list(issues), list(payments), list(accounts), list(devices), list(audit)
     st = license.state(_ts(sub["valid_until"]) if sub else None, sub["grace_days"] if sub else 0, now)
@@ -1491,7 +1495,7 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
     count = {"overview": len(todo), "pay": sum(1 for p in payments if p["status"] == "pending"),
              "sms": 1 if smsinfo and smsinfo["sender_state"] in ("requested", "submitted") else 0}
     panes = {"overview": overview, "pay": _pay_pane(c, sub, st, payments, list(reminders), now),
-             "lic": _lic_pane(c, issues, devices), "sms": sms_block(c, smsinfo, _module_word(sub, now)), "access": dev_html + acc_html,
+             "lic": _lic_pane(c, issues, devices) + terms_html, "sms": sms_block(c, smsinfo, _module_word(sub, now)), "access": dev_html + acc_html,
              "profile": edit, "log": _log_pane(cid, audit, log, log_counts)}
     body = _tabbed([(k, t, panes[k], count.get(k, 0)) for k, t in CLINIC_TABS])
     plan_txt = (esc(sub["plan"]) + ("" if sub["plan"] == "trial" else " · " + esc(tiers.NAME[tiers.current(sub)]))

@@ -165,6 +165,13 @@ def write_encrypted(data_dir: pathlib.Path, clinic_json: pathlib.Path | None,
     auth = data_dir / "auth.json"
     if auth.exists():                     # хеши PIN, не сам PIN — можно
         files.append((auth, "data/auth.json"))
+    # квитанции акцепта условий (29.10, license.receipts): бумага клиники к договору — поимённо
+    # по маске, из папки рядом с clinic.json; секретов в них нет (версия, имя, дата, id акта)
+    cdir = paths.contract_dir(clinic_json.parent) if clinic_json else None
+    if cdir is not None and cdir.is_dir():
+        for f in sorted(cdir.glob("acceptare-*.json")):
+            if f.is_file():
+                files.append((f, f"contract/{f.name}"))
     fdir = data_dir / "files"
     if fdir.is_dir():
         for f in sorted(fdir.rglob("*")):

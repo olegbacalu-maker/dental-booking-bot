@@ -17,6 +17,14 @@ services:
     # попыток входа запирал бы всех разом.
     command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8090",
               "--proxy-headers", "--forwarded-allow-ips", "*"]
+    # Журнал контейнера (access-log uvicorn: IP и пути) — не навсегда: политика § 5 обещает, что
+    # технические журналы стираются сами (29.10). Числа = config.LOG_MAX_SIZE × LOG_MAX_FILE
+    # (compose config.py не читает — равенство держит cloud/tests/test_terms.py).
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)"]
       interval: 60s

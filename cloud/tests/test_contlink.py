@@ -47,6 +47,8 @@ ROUTES = {
     ("GET", "/cont/nota-comuna"): "deny", ("POST", "/cont/nota-comuna"): "deny",
     ("POST", "/cont/nota-comuna/anuleaza"): "deny",
     ("GET", contlink.PATH + "/{lid}"): "login", ("POST", contlink.PATH + "/{lid}"): "login",
+    # акты акцепта условий (29.10, terms.py): своя клиника, печатная страница акта — тоже своя
+    ("GET", "/cont/acceptari"): "own", ("GET", "/cont/acceptari/{aid}"): "own",
 }
 
 

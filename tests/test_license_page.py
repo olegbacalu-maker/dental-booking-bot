@@ -208,8 +208,12 @@ def suite_banner(res: Result) -> None:
         shutil.copy(FIX / "valid.json", d / "license.json")
         with Server(dir_=d, env=KEY_ENV) as s:
             c = Client(s.url).login()
+            sig = shell_signal(c.get("/admin").body, "license")["html"]
             res.ok("active: баннера лицензии нет",
-                   not shell_signal(c.get("/admin").body, "license")["shown"])
+                   "Abonamentul" not in sig and "regim de citire" not in sig and "Licența" not in sig, sig[-600:])
+            # условия (29.10): файл есть, а принятой версии — ни квитанции, ни слова сервера:
+            # клиника, активированная до акта, — баннер «s-au actualizat» в том же сигнале
+            res.ok("active без квитанций: в сигнале только баннер условий", "s-au actualizat" in sig, sig[-600:])
             # «Despre DentPilot» окна Tauri (Т7) — та же дата, что «Valabil până
             # la» страницы лицензии: срок ФАЙЛА, в поясе клиники
             res.check("active: срок файла в модели оболочки (Despre)",

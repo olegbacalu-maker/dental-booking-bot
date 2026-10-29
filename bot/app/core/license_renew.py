@@ -36,6 +36,12 @@
 занят); 401/403 — токен не признан. Суточный ответ `/v1/license` (200 и 204)
 несёт то же двумя заголовками — `fetch(meta=…)` их читает: в подписанный файл
 состояние ящика не входит.
+
+Шестой (29.10) — акт акцепта условий: POST JSON `{terms, actor}` на `/v1/terms/accept` с тем же
+Bearer — повторное принятие новой версии условий из программы (и досылка квитанции, записанной
+без сервера). 200 с `ok` — квитанция `{id, version, at}`; исходы — как у e-mail. Суточный ответ
+`/v1/license` несёт заголовок `X-DentPilot-Terms` — старшую версию, которую клиника уже приняла
+(с любого своего компьютера); `fetch(meta=…)` кладёт её в `meta["terms"]`.
 """
 from __future__ import annotations
 
@@ -56,6 +62,8 @@ ACCEPTED = "accepted"           # заявка: 200 {"ok": true, "token", "url",
 REJECTED = "rejected"           # заявка: 4xx/503 с `text` — отказ словами сервера
 # Заголовки ответа /v1/license о ящике клиники (27.10): «1»/«0» и адрес в %-кодировке
 H_EMAIL_CONFIRMED, H_EMAIL = "X-DentPilot-Email-Confirmed", "X-DentPilot-Email"
+# Заголовок ответа /v1/license (29.10): последняя принятая клиникой версия условий — дата dd.mm.yyyy
+H_TERMS = "X-DentPilot-Terms"
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -81,6 +89,16 @@ def mailbox(headers) -> dict | None:
     return {"email": email, "confirmed": flag == "1"} if "@" in email else None
 
 
+def terms_version(headers) -> str:
+    """Версия условий из заголовка ответа /v1/license: дата dd.mm.yyyy или '' — сервер не сказал
+    (старый сервер, акта у клиники нет) или прислал не дату."""
+    raw = (headers.get(H_TERMS) or "").strip()
+    parts = raw.split(".")
+    ok = (len(raw) == 10 and len(parts) == 3 and all(x.isdigit() for x in parts)
+          and len(parts[0]) == 2 and len(parts[1]) == 2 and len(parts[2]) == 4)
+    return raw if ok else ""
+
+
 def fetch(url: str, token: str, seq: int, timeout: float = TIMEOUT,
           agent: str = "DentPilot", extra: dict | None = None,
           meta: dict | None = None) -> tuple[str, str]:
@@ -95,6 +113,8 @@ def fetch(url: str, token: str, seq: int, timeout: float = TIMEOUT,
         with _opener.open(req, timeout=timeout) as r:
             if meta is not None and r.status in (200, 204) and (box := mailbox(r.headers)) is not None:
                 meta["mailbox"] = box
+            if meta is not None and r.status in (200, 204) and (tv := terms_version(r.headers)):
+                meta["terms"] = tv
             if r.status == 204:
                 return SAME, ""
             if r.status != 200:
@@ -131,9 +151,10 @@ def request_trial(url: str, fields: dict, timeout: float = TIMEOUT,
 
 
 def verify_code(url: str, verify_id: str, code: str, timeout: float = TIMEOUT,
-                agent: str = "DentPilot", extra: dict | None = None) -> tuple[str, dict]:
-    """Код из письма: POST JSON на `url` (/v1/verify). Исходы — как у заявки."""
-    return _post_json(url, {"verify_id": verify_id, "code": code}, timeout, agent, extra)
+                agent: str = "DentPilot", extra: dict | None = None, more: dict | None = None) -> tuple[str, dict]:
+    """Код из письма: POST JSON на `url` (/v1/verify). Исходы — как у заявки. `more` — ещё поля тела:
+    версия условий и кто принял (`terms`, `actor`, 29.10) — акт акцепта на сервере."""
+    return _post_json(url, {"verify_id": verify_id, "code": code, **(more or {})}, timeout, agent, extra)
 
 
 def pay_link(url: str, token: str, timeout: float = TIMEOUT, agent: str = "DentPilot",
@@ -177,6 +198,14 @@ def email_call(url: str, token: str, payload: dict, timeout: float = TIMEOUT, ag
         return OFFLINE, {}
     except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError):
         return OFFLINE, {}
+
+
+def terms_accept(url: str, token: str, payload: dict, timeout: float = TIMEOUT, agent: str = "DentPilot",
+                 extra: dict | None = None) -> tuple[str, dict]:
+    """Акт акцепта условий (29.10): POST JSON `{terms, actor}` на `url` (/v1/terms/accept) с Bearer-токеном
+    файла. Тот же провод, что у e-mail: ACCEPTED — квитанция {id, version, at}; REJECTED — отказ словами
+    сервера (версия не дата, лимит); REFUSED — 401/403; OFFLINE — всё остальное."""
+    return email_call(url, token, payload, timeout, agent, extra)
 
 
 def _post_json(url: str, payload: dict, timeout: float, agent: str,

@@ -131,8 +131,7 @@ def suite_order(res: Result) -> None:
     con.row_factory = sqlite3.Row
     con.execute("CREATE TABLE schema_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
     for step in range(1, db.SCHEMA_VERSION + 1):
-        for sql in db.MIGRATIONS[step]:
-            con.execute(sql)
+        db.apply_step(con, step)          # шаг схемы бывает функцией (19) — не голый execute
     at = "2026-10-26T10:00:00Z"
     main, b1, b2 = "c_ffffffffffff", "c_000000000001", "c_000000000000"
     for cid, name, mail_ in ((main, "Principala", "office@zambet.md"), (b1, "Filiala 1", "f1@zambet.md"),

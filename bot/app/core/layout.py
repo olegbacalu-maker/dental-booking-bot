@@ -178,6 +178,9 @@ MSG_BANNER = {
     "license_email_refused": ("err", "DentPilot nu a acceptat cererea"),
     "license_email_offline": ("err", "Serverul DentPilot nu a răspuns — verificați conexiunea "
                                      "la internet și încercați din nou"),
+    # Акт акцепта условий (29.10): ответ «Accept» баннера и страницы лицензии — license.TERMS_OK
+    "license_terms_ok": ("ok", "Ați acceptat versiunea actualizată a Termenilor și condițiilor DentPilot — "
+                               "actul este păstrat în folderul de date al clinicii și la DentPilot"),
     "ok": ("ok", "Programare adăugată"),
     "conflict": ("err", "Intervalul este deja ocupat la acest medic"),
     "dup": ("err", "Pacientul are deja o programare la această oră"),
@@ -1042,6 +1045,29 @@ def _mail_banner() -> str:
             f"font-size:13px'>Mai târziu</button></form></div>")
 
 
+def _terms_banner() -> str:
+    """Условия обновились (29.10, план § 3.2): TERMS_VERSION программы новее принятой клиникой — янтарная
+    строка ДИРЕКТОРУ с ссылкой на текст, галочкой и «Accept» (`/admin/license/terms`). Едет в сигнале
+    `license` вслед за его баннерами — тот же предмет. ⛔ Уведомление, не замок (условия § 13): запись
+    работает и без ответа; `lic.terms_due` молчит без лицензии и в режиме чтения."""
+    if not lic.terms_due() or demo.on():
+        return ""
+    me = request_user()
+    if me is not None and not can(me, PERM_SETTINGS):
+        return ""
+    was = lic.terms_accepted()
+    before = f" (versiunea acceptată de clinică: {html.escape(was)})" if was else ""
+    return (f"<div class='banner warn' style='margin-bottom:14px'>{_ic('key')} "
+            f"Termenii și condițiile DentPilot s-au actualizat ({html.escape(lic.TERMS_VERSION)}){before}. "
+            f"<a href='{lic.TERMS_URL}' target='_blank' rel='noopener'><b>Citiți versiunea nouă</b></a>"
+            f"<form method='post' action='/admin/license/terms' "
+            f"style='display:inline-flex;align-items:center;gap:8px;margin-left:12px'>"
+            f"<label style='display:inline-flex;align-items:center;gap:6px;cursor:pointer'>"
+            f"<input type='checkbox' name='terms' value='1' required style='margin:0'> Am citit și accept</label>"
+            f"<button style='background:none;border:1px solid currentColor;border-radius:8px;padding:4px 12px;"
+            f"cursor:pointer;color:inherit;font-size:13px'>Accept</button></form></div>")
+
+
 def _split_banner() -> str:
     """На машине ДВЕ картотеки — вопрос к директору, но НЕ стена.
 
@@ -1544,7 +1570,7 @@ def shell_model(active: str, sub: str, rail: bool = False,
         # лицензией (L5 строился до B1): тесты зелёные — харнесс держит
         # старый интерфейс, — а клиника видела бы отказ записи без баннера.
         # Держит `test_structure` («каждый баннер каркаса — сигнал оболочки»).
-        "signals": {"license": _sig(_license_banner() + _mail_banner()),
+        "signals": {"license": _sig(_license_banner() + _mail_banner() + _terms_banner()),
                     "tamper": _sig(_tamper_banner()), "split": _sig(_split_banner()),
                     "slot": _sig(_slot_banner()), "setup": _sig(_setup_hint()),
                     "demo": _sig(_demo_banner()), "backup": _sig(_backup_banner())},
@@ -1907,6 +1933,32 @@ def _email_block(director: bool) -> str:
             f"<button class='alt'>Schimbă adresa și trimite codul</button></form></details></div>")
 
 
+def _terms_block(director: bool) -> str:
+    """Условия на странице лицензии (29.10): какую версию клиника приняла; версия программы новее —
+    директору галочка и «Accept» (возврат на эту же страницу, `back=license`). Без квитанций и слова
+    сервера — «înregistrată local la activare»: активация до 29.10, акт тогда на сервер не уходил."""
+    t = lic.terms_state()
+    acc = t["accepted"]
+    link = f"<a href='{lic.TERMS_URL}' target='_blank' rel='noopener'>Termenii și condițiile</a>"
+    if not t["due"]:
+        if acc:
+            where = " · actul este la DentPilot" if t["receipt_id"] else ""
+            return f"<p>{link}: versiunea din <b>{html.escape(acc)}</b> este acceptată{where}.</p>"
+        return (f"<p>{link}: acceptarea a fost înregistrată local, la activare (versiunea actuală "
+                f"{html.escape(lic.TERMS_VERSION)}).</p>")
+    if not director:
+        return (f"<p>{link} s-au actualizat ({html.escape(lic.TERMS_VERSION)}) — versiunea nouă o acceptă "
+                f"directorul clinicii.</p>")
+    was = f" Clinica a acceptat versiunea din {html.escape(acc)}." if acc else ""
+    return (f"<div class='mail'><p class='t'>Termenii și condițiile s-au actualizat ({html.escape(lic.TERMS_VERSION)})</p>"
+            f"<p>{link} DentPilot au o versiune nouă.{was} Programul funcționează și fără acceptare; "
+            f"citiți versiunea nouă și confirmați.</p>"
+            f"<form method='post' action='/admin/license/terms'><input type='hidden' name='back' value='license'>"
+            f"<label class='terms'><input type='checkbox' name='terms' value='1' required>"
+            f"<span>Am citit și accept Termenii și condițiile DentPilot (versiunea din "
+            f"{html.escape(lic.TERMS_VERSION)})</span></label><button>Accept</button></form></div>")
+
+
 def _pay_block() -> str:
     """«Plătește acum» на странице лицензии (02.10): ссылка в системный браузер
     (target=_blank), где у программы нет входа, — поэтому с ключом
@@ -2015,6 +2067,7 @@ def license_page(msg: str = "", *, director: bool, walled: bool) -> str:
         # продление заранее, после срока и «Verifică acum»
         details = (pay + details) if s.state != lic.st.ACTIVE else (details + pay)
         details += _email_block(director)          # e-mail клиники (27.10) — последним блоком
+        details += _terms_block(director)          # условия: принятая версия, повторный акцепт (29.10)
         if s.state == lic.st.ACTIVE:
             title, tone, text = "Licența programului", "ok", "Abonamentul este activ."
         elif s.state == lic.st.GRACE:

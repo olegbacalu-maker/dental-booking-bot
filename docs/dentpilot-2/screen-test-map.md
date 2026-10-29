@@ -5,7 +5,7 @@
 Пересобрать — `python scripts/screen_map.py`.
 
 
-Маршрутов **184** · наборов **72** · мест вызова `res.ok`/`res.check` в исходниках — **4965**.
+Маршрутов **186** · наборов **73** · мест вызова `res.ok`/`res.check` в исходниках — **5011**.
 
 
 ⚠️ Это статические МЕСТА ВЫЗОВА, а живой прогон даёт больше: часть
@@ -145,8 +145,8 @@
 | `GET /admin/search` | HTML | 21 | admin, anamneza, demo, patient_card, patients_api, pin | 908 | patients_search |
 | `GET /admin/visit/{appt_id}` | HTML | 19 | patient_card, visit, visit_api | 239 | visit |
 | `POST /api/documents/{doc_id}/open` | JSON | 8 | hardening, license_gate, patient_card | 257 | — |
-| `GET /api/patients` | JSON | 27 | admin, anamneza, backup, booking, bot, dbcrypt, demo, license_email, license_existing, license_gate, license_page, license_renew, odontogram_api, patient_card, patients_api, paylink, perio, perio_api, pin, plan_acord, privacy, react_default, review2, scan, stats_api, teeth | 2178 | — |
-| `POST /api/patients` | JSON | 18 | admin, anamneza, backup, booking, bot, dbcrypt, demo, license_email, license_existing, license_gate, license_page, license_renew, odontogram_api, patient_card, patients_api, paylink, perio, perio_api, pin, plan_acord, privacy, react_default, review2, scan, stats_api, teeth | 2178 | — |
+| `GET /api/patients` | JSON | 27 | admin, anamneza, backup, booking, bot, dbcrypt, demo, license_email, license_existing, license_gate, license_page, license_renew, license_terms, odontogram_api, patient_card, patients_api, paylink, perio, perio_api, pin, plan_acord, privacy, react_default, review2, scan, stats_api, teeth | 2224 | — |
+| `POST /api/patients` | JSON | 18 | admin, anamneza, backup, booking, bot, dbcrypt, demo, license_email, license_existing, license_gate, license_page, license_renew, license_terms, odontogram_api, patient_card, patients_api, paylink, perio, perio_api, pin, plan_acord, privacy, react_default, review2, scan, stats_api, teeth | 2224 | — |
 | `GET /api/patients/summary` | JSON | 34 | admin, bot, patients_api | 421 | — |
 | `GET /api/patients/{pid}` | JSON | 10 | activity, admin, anamneza, backup, booking, bot, day_actions, day_forms, demo, desk, doctor_rights, hardening, license_existing, license_gate, migrate, ocluzie, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, react_default, review2, scan, schedule_api, sms, stats_api, teeth, visit, visit_api | 2827 | — |
 | `GET /api/patients/{pid}/activity` | JSON | 10 | activity, admin, anamneza, backup, booking, bot, day_actions, day_forms, demo, desk, doctor_rights, hardening, license_existing, license_gate, migrate, ocluzie, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, react_default, review2, scan, schedule_api, sms, stats_api, teeth, visit, visit_api | 2827 | — |
@@ -192,7 +192,7 @@
 
 | Маршрут | Тип | стр | Наборы | Проверок | Экран React |
 |---|---|---|---|---|---|
-| `GET /admin` | HTML | 28 | admin, admin_canvas, api, backup, cont_link, dbcrypt, demo, desk, doctor_rights, doctors, hardening, license_email, license_existing, license_gate, license_page, license_renew, migrate, notices, patient_card, patients_api, paylink, pin, react_default, review3_auth, schedule_api, settings_api, sms, split, stats_api, structure, theme, update_server, visit_api | 2936 | schedule_dash |
+| `GET /admin` | HTML | 28 | admin, admin_canvas, api, backup, cont_link, dbcrypt, demo, desk, doctor_rights, doctors, hardening, license_email, license_existing, license_gate, license_page, license_renew, license_terms, migrate, notices, patient_card, patients_api, paylink, pin, react_default, review3_auth, schedule_api, settings_api, sms, split, stats_api, structure, theme, update_server, visit_api | 2982 | schedule_dash |
 | `GET /admin/all` | HTML | 17 | admin, admin_canvas, demo, doctor_rights, doctors, pin, schedule_api, visit_api | 1070 | schedule_all |
 | `GET /admin/cabinet` | HTML | 10 | chair, doctor_rights | 117 | chair |
 | `GET /admin/doctor/{dk}` | HTML | 16 | admin, doctor_rights, pin, schedule_api | 787 | schedule_doctor |
@@ -221,15 +221,16 @@
 
 | Маршрут | Тип | стр | Наборы | Проверок | Экран React |
 |---|---|---|---|---|---|
-| `GET /` | HTML | 6 | admin, admin_canvas, anamneza, api, backup, booking, bot, chair, cont_link, dbcrypt, demo, desk, dev, doctor_rights, doctor_windows, doctors, guards, hardening, harness_clock, harness_tmp, installer, launcher, legacy, license_email, license_existing, license_format, license_gate, license_page, license_renew, license_state, license_verify, migrate, netcheck, notices, ocluzie, odontogram_api, panel_model, patient_card, patients_api, paylink, perio, perio_api, pin, plan_acord, privacy, privileged, react_default, relocate, restart, review2, review3, review3_auth, review3_bot, scan, schedule_api, settings_api, sms, sms_rule, split, srcpin, structure, teeth, theme, update_server, update_setup, visit_api | 4732 | — |
-| `GET /admin/license` | HTML | 9 | cont_link, demo, license_email, license_existing, license_page, license_renew, notices, paylink | 376 | — |
-| `POST /admin/license` | 303 | 22 | cont_link, demo, license_email, license_existing, license_page, license_renew, notices, paylink | 376 | — |
+| `GET /` | HTML | 6 | admin, admin_canvas, anamneza, api, backup, booking, bot, chair, cont_link, dbcrypt, demo, desk, dev, doctor_rights, doctor_windows, doctors, guards, hardening, harness_clock, harness_tmp, installer, launcher, legacy, license_email, license_existing, license_format, license_gate, license_page, license_renew, license_state, license_terms, license_verify, migrate, netcheck, notices, ocluzie, odontogram_api, panel_model, patient_card, patients_api, paylink, perio, perio_api, pin, plan_acord, privacy, privileged, react_default, relocate, restart, review2, review3, review3_auth, review3_bot, scan, schedule_api, settings_api, sms, sms_rule, split, srcpin, structure, teeth, theme, update_server, update_setup, visit_api | 4778 | — |
+| `GET /admin/license` | HTML | 9 | cont_link, demo, license_email, license_existing, license_page, license_renew, license_terms, notices, paylink | 422 | — |
+| `POST /admin/license` | 303 | 22 | cont_link, demo, license_email, license_existing, license_page, license_renew, license_terms, notices, paylink | 422 | — |
 | `POST /admin/license/email/change` | other | 4 | license_email | 39 | — |
 | `POST /admin/license/email/code` | other | 4 | license_email | 39 | — |
 | `POST /admin/license/email/confirm` | other | 3 | license_email | 39 | — |
 | `POST /admin/license/email/later` | 303 | 7 | license_email | 39 | — |
-| `POST /admin/license/renew` | 303 | 10 | license_email, license_renew, paylink | 178 | — |
-| `POST /admin/license/request` | 303 | 19 | license_page, license_renew | 147 | — |
+| `POST /admin/license/renew` | 303 | 10 | license_email, license_renew, license_terms, paylink | 224 | — |
+| `POST /admin/license/request` | 303 | 19 | license_page, license_renew, license_terms | 193 | — |
+| `POST /admin/license/terms` | 303 | 13 | license_terms | 46 | — |
 | `POST /admin/license/verify` | 303 | 12 | license_renew | 101 | — |
 | `GET /admin/login` | HTML | 34 | admin, api, chair, cont_link, demo, desk, doctor_rights, doctors, hardening, license_email, license_gate, license_page, license_renew, migrate, netcheck, patient_card, patients_api, paylink, pin, review3_auth, settings_api, sms, stats_api, theme, visit_api | 2381 | — |
 | `POST /admin/login` | 303 | 21 | admin, api, chair, cont_link, demo, desk, doctor_rights, doctors, hardening, license_email, license_gate, license_page, license_renew, migrate, netcheck, patient_card, patients_api, paylink, pin, review3_auth, settings_api, sms, stats_api, theme, visit_api | 2381 | — |
@@ -243,6 +244,7 @@
 | `POST /api/auth/login` | JSON | 29 | hardening, license_gate, pin, structure | 386 | — |
 | `POST /api/auth/logout` | JSON | 11 | license_gate, pin | 232 | — |
 | `GET /api/license` | JSON | 6 | demo, license_existing, license_page, license_renew | 215 | — |
+| `POST /api/license/terms` | JSON | 11 | license_terms | 46 | — |
 | `POST /chat` | other | 13 | admin, bot, hardening, license_gate, review3_bot | 505 | — |
 | `GET /clinic-logo` | other | 20 | settings_api, theme | 376 | — |
 | `GET /cont/{ticket}` | HTML | 14 | cont_link | 19 | — |

@@ -32,7 +32,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
-from . import db, license, mail, maib, paylink, payments, sms, smsmd, tiers
+from . import config, db, license, mail, maib, paylink, payments, sms, smsmd, tiers
 
 log = logging.getLogger("cloud.jobs")
 
@@ -78,10 +78,12 @@ class Report:
     failed: list[tuple[str, str]] = field(default_factory=list)    # (clinic_id, ошибка)
     cards: list[tuple[str, str]] = field(default_factory=list)     # (clinic_id, reference) — maib сказал OK
     sms: str = ""                                                   # итог SMS-части (S3) словами
+    purged: int = 0                                                 # строк журнала старше срока снято
 
     def line(self) -> str:
         return (f"писем: {len(self.sent)}, пропущено: {len(self.skipped)}, ошибок: {len(self.failed)}, "
-                f"картой оплачено: {len(self.cards)}" + (f"; SMS: {self.sms}" if self.sms else ""))
+                f"картой оплачено: {len(self.cards)}" + (f"; SMS: {self.sms}" if self.sms else "")
+                + (f"; журнал: снято {self.purged} строк старше {config.AUDIT_KEEP_DAYS} дн." if self.purged else ""))
 
 
 _SUBS = """SELECT c.*, s.plan, s.price, s.tier, s.sms_until, s.valid_until, s.grace_days
@@ -222,12 +224,26 @@ def sms_daily(rep: Report, now: datetime, send, who: str) -> None:
     rep.sms = ", ".join(parts)
 
 
+def purge_audit(con: sqlite3.Connection, now: datetime) -> int:
+    """Срок хранения журнала (29.10, план § 2.4 п. 3): строки `audit` старше config.AUDIT_KEEP_DAYS
+    снимаются — в них IP заявок, кодов и входов, а политика § 5 обещает, что технические журналы
+    стираются сами. Строка `daily` об этом проходе остаётся (её пишет сам проход, после)."""
+    edge = (now - timedelta(days=config.AUDIT_KEEP_DAYS)).strftime(db.TS)
+    return con.execute("DELETE FROM audit WHERE at < ?", (edge,)).rowcount
+
+
 def daily(now: datetime | None = None, send=mail.send, who: str = WHO) -> Report:
     """Один проход по всем подпискам. `now` подставляется в тестах; письма — через `send`."""
     now = now or datetime.now(timezone.utc)
     rep = Report(at=now.strftime(db.TS))
     settle_cards(who, rep)     # сперва оплаты: продлённая подписка сегодня писем не ждёт
     sms_daily(rep, now, send, who)
+    try:
+        with db.connect(immediate=True) as con:
+            rep.purged = purge_audit(con, now)
+    except Exception as e:  # noqa: BLE001 — срок журнала не останавливает письма о подписках
+        log.error("срок журнала: %r", e)
+        rep.failed.append(("_audit", repr(e)))
     with db.connect() as con:
         subs = con.execute(_SUBS).fetchall()
     for row in subs:

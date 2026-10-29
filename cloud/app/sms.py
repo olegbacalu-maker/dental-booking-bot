@@ -377,8 +377,18 @@ def set_custom(con: sqlite3.Connection, clinic_id: str, ro: str, ru: str, on: bo
 # ---------- отправка ----------
 
 
+def idem_key(idem: str) -> str:
+    """Ключ программы — в базе ХЕШЕМ (29.10, план § 2.4 п. 1): `appt:<id визита>:<kind>:<начало UTC>`
+    нёс время приёма пациента, а условия, политика и декларация обещают «только идентификатор».
+    Дедупликация и повтор сравнивают только этот столбец, поэтому хеш ей не мешает; старые строки
+    захешировала миграция 19 (db._hash_idem). Сторож: cloud/tests/test_sms.py — строки `appt:` в базе нет."""
+    import hashlib
+    return hashlib.sha256(idem.encode("utf-8")).hexdigest()
+
+
 def _row(con, clinic_id: str, idem: str):
-    return con.execute("SELECT * FROM sms_messages WHERE clinic_id=? AND idem=?", (clinic_id, idem)).fetchone()
+    return con.execute("SELECT * FROM sms_messages WHERE clinic_id=? AND idem=?",
+                       (clinic_id, idem_key(idem))).fetchone()
 
 
 def _ok(con, row) -> tuple[int, dict]:
@@ -460,7 +470,7 @@ def submit(clinic_id: str, to_raw, text, kind, idem, now: datetime | None = None
             if row is None:
                 con.execute("INSERT INTO sms_messages(clinic_id, idem, kind, sender, segments, state, "
                             "sent_at, state_at) VALUES(?,?,?,?,?,?,?,?)",
-                            (clinic_id, idem, kind, sender, segs, UNANSWERED, stamp, stamp))
+                            (clinic_id, idem_key(idem), kind, sender, segs, UNANSWERED, stamp, stamp))
                 row = _row(con, clinic_id, idem)
             else:
                 _set(con, row["id"], sender=sender, segments=segs, state=UNANSWERED, error="",

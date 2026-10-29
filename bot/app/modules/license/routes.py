@@ -137,6 +137,22 @@ async def license_email_later(request: Request) -> Response:
     return RedirectResponse("/admin", status_code=303)
 
 
+@router.post("/admin/license/terms")
+async def license_terms(request: Request, terms: str = Form(""), back: str = Form("")) -> Response:
+    """«Accept» баннера «Termenii și condițiile s-au actualizat» и блока страницы лицензии (29.10):
+    квитанция текущей версии в папку contract, летопись, акт на сервер (сейчас или суточным запросом).
+    Только директору — ему одному баннер и показывается; без галочки — тот же `license_terms`, что у
+    активации. Назад — в журнал, со страницы лицензии (`back=license`) — на неё."""
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    dest = "/admin/license" if back == "license" else "/admin"
+    if terms != "1":
+        return RedirectResponse(f"/admin/license?msg={lic.TERMS_CODE}", status_code=303)
+    me = current_user(request)
+    code = await lic.accept_terms((me or {}).get("name") or "director")
+    return RedirectResponse(f"{dest}?msg={code}", status_code=303)
+
+
 @router.get("/plata/{ticket}")
 async def license_pay(ticket: str) -> Response:
     """«Plătește acum» (02.10): ссылка из баннера и со страницы лицензии.

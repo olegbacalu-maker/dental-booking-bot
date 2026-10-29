@@ -47,6 +47,18 @@ E-mail клиники (27.10, план В): сервер включает про
 adresa» (`email_action`, `/v1/email/*` у сервера, выдавшего файл). Состояние —
 только в памяти процесса: суточный запрос идёт на старте. ⛔ Неподтверждённый
 ящик ничего не запирает — строка плитки и блок страницы лицензии, и только.
+
+Акт акцепта условий (29.10, план § 3.2 A/C; сервер — cloud/app/terms.py): галочка
+условий при активации уходит серверу ВЕРСИЕЙ (`terms` = TERMS_VERSION) и именем
+(`actor`), сервер пишет акт и отвечает квитанцией `{id, version, at}`; программа кладёт
+квитанцию в `contract\\acceptare-<версия>.json` папки данных (`paths.contract_dir`) —
+вне `dental.db` и её шифра, это бумага клиники к договору. Импорт файла (без сервера)
+даёт квитанцию без id, и первый удачный `renew_once` досылает её (`/v1/terms/accept`),
+как `license.pending`. Суточный ответ несёт `X-DentPilot-Terms` — старшую принятую
+версию клиники с любого её компьютера. Версия новее принятой (или квитанций нет у
+клиники с лицензией — активированные до 29.10) — баннер «Termenii și condițiile s-au
+actualizat» директору с галочкой и «Accept» (`accept_terms`): ⛔ уведомление, не замок
+(условия § 13), в режиме чтения не показывается — там и принимать нечем.
 """
 from __future__ import annotations
 
@@ -136,6 +148,11 @@ MAIL_LATER = timedelta(days=7)
 # ссылка на 5 минут); ключ в странице — тот же pay_ticket, его рисуют только директору.
 CONT_PATH = "/v1/cont-link"
 CONT_PAGE = "/cont/intra/"
+# Акт акцепта условий (29.10): путь у ТОГО ЖЕ сервера, что выдал файл (как PAY_PATH), имя файла
+# квитанции в папке contract и код ответа «принято» (MSG_BANNER в layout)
+TERMS_PATH = "/v1/terms/accept"
+RECEIPT_PREFIX = "acceptare-"
+TERMS_OK = "license_terms_ok"
 
 _dir: pathlib.Path | None = None
 _result: tuple[str, object | None] | None = None
@@ -157,6 +174,9 @@ _tickets: dict[str, datetime] = {}     # ключи ссылки «Plătește ac
 # сервер не сказал или не спрашивали); text — отказ последнего действия словами сервера
 _mailbox: dict = {"email": "", "confirmed": None, "text": ""}
 _mail_later: dict = {"until": None, "loaded": False}   # «Mai târziu» баннера: до какого момента молчать
+# Старшая принятая версия условий по словам сервера (заголовок X-DentPilot-Terms суточного ответа):
+# второй компьютер клиники не держит квитанций первого, а сервер помнит акты всех
+_terms: dict = {"server": ""}
 
 
 def folder() -> pathlib.Path | None:
@@ -330,6 +350,8 @@ async def install(text: str, actor: str = "sistem") -> str:
             "license", f"Licența a fost activată: valabilă până la "
                        f"{s.claim.valid_until.strftime('%d.%m.%Y')} (fișier {s.claim.seq}); "
                        f"acceptați Termenii și condițiile din {TERMS_VERSION}", actor=actor)
+        # квитанция акцепта без сервера (29.10): досылается первым удачным renew_once
+        _receipt_write(TERMS_VERSION, actor, s.claim.clinic, None)
     return ""
 
 
@@ -409,7 +431,9 @@ async def request_trial(fields: dict, actor: str) -> str:
             for k in ("name", "idno", "contact_name", "email", "phone")}
     body["consent"] = "1"
     _request.update(text="", fields=body, declined=False, verify_id="")
-    outcome, data = await asyncio.to_thread(rn.request_trial, server_url() + TRIAL_PATH, body,
+    # акт акцепта (29.10): серверу — версия условий и кто принял; старый сервер лишние поля не читает
+    payload = dict(body, terms=TERMS_VERSION, actor=actor[:60])
+    outcome, data = await asyncio.to_thread(rn.request_trial, server_url() + TRIAL_PATH, payload,
                                             RENEW_TIMEOUT, _agent(), identity())
     if outcome == rn.REJECTED:
         _request["text"] = str(data.get("text"))[:300]
@@ -423,6 +447,7 @@ async def request_trial(fields: dict, actor: str) -> str:
     if (outcome != rn.ACCEPTED or not rsa_verify.renew_url_ok(url)
             or not isinstance(token, str) or len(token) < 32):
         return REQUEST_OFFLINE
+    _receipt_write(TERMS_VERSION, actor, body["name"], _server_receipt(data.get("terms")))
     if not _pending_write({"v": 1, "url": url, "token": token, "at": st.fmt(_now()),
                            "actor": actor, "terms": TERMS_VERSION,
                            "clinic": body["name"], "email": body["email"]}):
@@ -448,7 +473,7 @@ async def verify_code(code: str, actor: str) -> str:
         return CODE_BAD
     outcome, data = await asyncio.to_thread(rn.verify_code, server_url() + VERIFY_PATH, vid,
                                             "".join(str(code).split())[:12], RENEW_TIMEOUT, _agent(),
-                                            identity())
+                                            identity(), {"terms": TERMS_VERSION, "actor": actor[:60]})
     if outcome == rn.REJECTED:
         _request["text"] = str(data.get("text"))[:300]
         return CODE_BAD
@@ -457,6 +482,7 @@ async def verify_code(code: str, actor: str) -> str:
             or not isinstance(token, str) or len(token) < 32):
         return REQUEST_OFFLINE
     f = _request["fields"]
+    _receipt_write(TERMS_VERSION, actor, f.get("name", ""), _server_receipt(data.get("terms")))
     if not _pending_write({"v": 1, "url": url, "token": token, "at": st.fmt(_now()),
                            "actor": actor, "terms": TERMS_VERSION,
                            "clinic": f.get("name", ""), "email": f.get("email", "")}):
@@ -703,6 +729,137 @@ async def cont_link() -> tuple[str, str]:
     return result, page
 
 
+# ---------- акт акцепта условий (29.10) ----------
+
+
+def contract_dir() -> pathlib.Path | None:
+    """Папка документов договора клиники: `paths.contract_dir` от папки данных, без неё — от папки
+    `clinic.json` (прогон, исходники). None — писать некуда, квитанции не будет."""
+    return paths.contract_dir(folder())
+
+
+def _tv(v) -> tuple:
+    """Порядок версий условий — по дате dd.mm.yyyy; пусто или не дата — раньше всех."""
+    parts = str(v or "").split(".")
+    if len(parts) == 3 and all(x.isdigit() for x in parts) and len(parts[2]) == 4:
+        return int(parts[2]), int(parts[1]), int(parts[0])
+    return (0, 0, 0)
+
+
+def _server_receipt(data) -> dict | None:
+    """Квитанция сервера из ответа заявки/кода: {id, version, at} или None (старый сервер)."""
+    if not isinstance(data, dict) or not isinstance(data.get("id"), str) or not data.get("at"):
+        return None
+    return {"id": data["id"][:40], "version": str(data.get("version") or "")[:10], "at": str(data["at"])[:20]}
+
+
+def _receipt_path(version: str) -> pathlib.Path | None:
+    d = contract_dir()
+    return d / f"{RECEIPT_PREFIX}{version}.json" if d is not None else None
+
+
+def receipts() -> list[dict]:
+    """Квитанции акцепта на этом компьютере, по версии: негодный файл пропускается."""
+    d = contract_dir()
+    if d is None or not d.is_dir():
+        return []
+    out = []
+    for p in sorted(d.glob(f"{RECEIPT_PREFIX}*.json")):
+        try:
+            r = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(r, dict) and _tv(r.get("terms")) != (0, 0, 0):
+            out.append(r)
+    return out
+
+
+def _receipt_write(version: str, actor: str, clinic: str, server: dict | None) -> bool:
+    """Квитанция `contract\\acceptare-<версия>.json`: версия, кто, когда, клиника, ответ сервера
+    (id, at) — или `server: null`, пока сервера не было (досылка — `_receipts_flush`). Квитанция
+    той же версии, уже подтверждённая сервером, новой без сервера не затирается."""
+    p = _receipt_path(version)
+    if p is None:
+        return False
+    old = next((r for r in receipts() if r.get("terms") == version), None)
+    if old is not None and old.get("server") and not server:
+        return True
+    rec = {"v": 1, "terms": version, "url": TERMS_URL, "actor": actor[:60], "at": st.fmt(_now()),
+           "clinic": clinic[:120], "program": _agent(), "server": server}
+    tmp = p.with_name(p.name + ".tmp")
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(json.dumps(rec, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp, p)
+        return True
+    except OSError as e:
+        log.warning("лицензия: квитанция %s не записана: %r", p.name, e)
+        return False
+
+
+async def _receipts_flush(renew_url: str, token: str) -> None:
+    """Квитанции без ответа сервера → POST /v1/terms/accept у сервера, выдавшего файл (origin
+    `renew.url`, как PAY_PATH); удача — ответ ложится в квитанцию, отказ словами (версия не дата) —
+    тоже, чтобы не слать вечно; сеть молчит — следующий раз."""
+    todo = [r for r in receipts() if not r.get("server")]
+    if not todo:
+        return
+    u = urllib.parse.urlsplit(renew_url)
+    url = f"{u.scheme}://{u.netloc}{TERMS_PATH}"
+    if not rsa_verify.renew_url_ok(url):
+        return
+    for r in todo:
+        outcome, data = await asyncio.to_thread(rn.terms_accept, url, token,
+                                                {"terms": r["terms"], "actor": r.get("actor") or ""},
+                                                RENEW_TIMEOUT, _agent(), identity())
+        if outcome == rn.ACCEPTED and (got := _server_receipt(data)) is not None:
+            _receipt_write(r["terms"], r.get("actor") or "", r.get("clinic") or "", got)
+            _terms["server"] = max(_terms["server"], r["terms"], key=_tv)
+            log.warning("license: terms=sent version=%s", r["terms"])        # ⚠️ ASCII, как в _log
+        elif outcome == rn.REJECTED:
+            _receipt_write(r["terms"], r.get("actor") or "", r.get("clinic") or "",
+                           {"error": str(data.get("text"))[:200], "at": st.fmt(_now())})
+            log.warning("license: terms=rejected version=%s", r["terms"])
+
+
+def terms_accepted() -> str:
+    """Старшая принятая версия: квитанции этого компьютера и слово сервера; '' — ничего не известно."""
+    return max([r["terms"] for r in receipts()] + [_terms["server"]], key=_tv, default="")
+
+
+def terms_due() -> bool:
+    """Просить ли принять условия заново: лицензия есть и действует (активна или льгота), а
+    TERMS_VERSION новее всего, что принято. ⛔ Не замок: только баннер и блок страницы лицензии;
+    в режиме чтения не просим — ворота всё равно не пропустят ответ."""
+    s = current()
+    if s is None or not applies() or s.claim is None or s.state not in (st.ACTIVE, st.GRACE):
+        return False
+    return _tv(TERMS_VERSION) > _tv(terms_accepted())
+
+
+def terms_state() -> dict:
+    """Для /api/license и страницы: версия программы, что принято, нужен ли повторный акцепт,
+    есть ли квитанция текущей версии и подтверждена ли она сервером."""
+    rec = next((r for r in receipts() if r.get("terms") == TERMS_VERSION), None)
+    srv = rec.get("server") if rec else None
+    return {"version": TERMS_VERSION, "accepted": terms_accepted() or None, "due": terms_due(),
+            "receipt": rec is not None, "receipt_id": (srv or {}).get("id") if isinstance(srv, dict) else None}
+
+
+async def accept_terms(actor: str) -> str:
+    """«Accept» баннера или страницы лицензии: квитанция текущей версии (без сервера), летопись,
+    и сразу попытка дослать серверу, выдавшему файл; сервера нет — дошлёт суточный запрос."""
+    s = current()
+    clinic = s.claim.clinic if s is not None and s.claim is not None else ""
+    _receipt_write(TERMS_VERSION, actor, clinic, None)
+    await db.log_clinic_event("license", f"Acceptați Termenii și condițiile DentPilot din {TERMS_VERSION} "
+                                         f"(versiune actualizată)", actor=actor[:60])
+    t = renew_target()
+    if t is not None and applies():
+        await _receipts_flush(t[0], t[1])
+    return TERMS_OK
+
+
 def _agent() -> str:
     from .. import engine as eng   # как в folder(): на уровне модуля замкнул бы круг
     return f"DentPilot/{eng.APP_VERSION}"
@@ -775,6 +932,8 @@ async def renew_once() -> str:
                                                 identity(), meta)
         if "mailbox" in meta:
             _mailbox.update(email=meta["mailbox"]["email"], confirmed=meta["mailbox"]["confirmed"])
+        if "terms" in meta:
+            _terms["server"] = meta["terms"]      # старшая принятая версия с любого ПК клиники (29.10)
         result = {rn.SAME: RENEW_SAME, rn.REFUSED: RENEW_REFUSED}.get(outcome, RENEW_OFFLINE)
         if outcome == rn.NEWER:
             code, claim = rsa_verify.open_envelope(text, keys())
@@ -808,6 +967,9 @@ async def renew_once() -> str:
             _request["declined"] = True
             await db.log_clinic_event("license", "Cererea de perioadă de probă nu mai este activă "
                                                  "(respinsă sau anulată de DentPilot)")
+        if result in (RENEW_SAME, RENEWED):
+            # сервер отвечает по этому токену — квитанции, записанные без сервера, досылаются
+            await _receipts_flush(url, token)
         _renew.update(at=_now(), outcome=result, seq=_mem.accepted_seq)
         # ⚠️ ASCII, как в _log: строку ищет тест в логе сервера на Windows.
         # «Новее нет» — суточная рутина, info; замена файла и всякий отказ —
@@ -873,7 +1035,7 @@ def as_json() -> dict:
             "clinic": c.clinic if c else "", "plan": c.plan if c else "",
             "seq": _mem.accepted_seq, "renew": renew,
             "pay": pay_available(), "paying_until": st.fmt(watch) if watch else None,
-            "mailbox": mailbox()}
+            "mailbox": mailbox(), "terms": terms_state()}
 
 
 def current() -> st.Status | None:

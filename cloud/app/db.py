@@ -15,8 +15,22 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 TS = "%Y-%m-%dT%H:%M:%SZ"
+
+
+def _hash_idem(con: sqlite3.Connection) -> None:
+    """Шаг 19: `sms_messages.idem` — хешем. Ключ программы `appt:<id визита>:<kind>:<начало UTC>`
+    нёс время приёма пациента, а тексты обещают «только идентификатор» (план 29.10 § 2.4 п. 1).
+    Дедупликация — по тому же столбцу, поэтому хешируются и старые строки; SQLite sha256 не знает —
+    Python. Строка, уже похожая на хеш (64 hex), не трогается: шаг переживает повтор."""
+    import hashlib
+    rows = con.execute("SELECT id, idem FROM sms_messages").fetchall()
+    for mid, idem in rows:
+        if len(idem) == 64 and all(ch in "0123456789abcdef" for ch in idem):
+            continue
+        con.execute("UPDATE sms_messages SET idem=? WHERE id=?",
+                    (hashlib.sha256(idem.encode("utf-8")).hexdigest(), mid))
 
 MIGRATIONS = {
     1: [
@@ -295,6 +309,21 @@ MIGRATIONS = {
             created_at TEXT NOT NULL, expires_at TEXT NOT NULL, used_at TEXT, used_ip TEXT NOT NULL DEFAULT '')""",
         "CREATE INDEX IF NOT EXISTS ix_cont_links_clinic ON cont_links(clinic_id, created_at)",
     ],
+    # 19 (29.10, terms.py): акт акцепта условий — клиника, версия (дата «Ultima actualizare»), кто
+    # принял, когда, адрес, компьютер и версия программы, откуда (заявка, код, оплата, повтор из
+    # программы), хеш текста, если клиент его назвал. До шага сервер знал только `consent_at`.
+    # Тем же шагом `sms_messages.idem` становится хешем (`_hash_idem`) — шаг со строкой-функцией:
+    # init() зовёт её с соединением (SQLite sha256 не знает).
+    19: [
+        """CREATE TABLE IF NOT EXISTS terms_acceptances(
+            id TEXT PRIMARY KEY, clinic_id TEXT NOT NULL REFERENCES clinics(id),
+            version TEXT NOT NULL, actor TEXT NOT NULL DEFAULT '', at TEXT NOT NULL,
+            ip TEXT NOT NULL DEFAULT '', device TEXT NOT NULL DEFAULT '', app_version TEXT NOT NULL DEFAULT '',
+            source TEXT NOT NULL CHECK(source IN ('trial','verify','pay','program')),
+            terms_sha256 TEXT NOT NULL DEFAULT '')""",
+        "CREATE INDEX IF NOT EXISTS ix_terms_acceptances_clinic ON terms_acceptances(clinic_id, at)",
+        _hash_idem,
+    ],
 }
 
 
@@ -331,6 +360,16 @@ def connect(immediate: bool = False):
         con.close()
 
 
+def apply_step(con: sqlite3.Connection, step: int) -> None:
+    """Один шаг схемы: строки — SQL, функция — шаг, которому мало SQL (хеш строк, шаг 19).
+    ⭐ Кто воспроизводит схему сам (тесты на `:memory:`), зовёт это, а не `con.execute` по списку."""
+    for sql in MIGRATIONS[step]:
+        if callable(sql):
+            sql(con)
+        else:
+            con.execute(sql)
+
+
 def init() -> None:
     config.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(config.DB_PATH, isolation_level=None)
@@ -341,8 +380,7 @@ def init() -> None:
         have = int(row[0]) if row else 0
         for step in range(have + 1, SCHEMA_VERSION + 1):
             con.execute("BEGIN")
-            for sql in MIGRATIONS[step]:
-                con.execute(sql)
+            apply_step(con, step)
             con.execute("INSERT INTO schema_meta(key, value) VALUES('version', ?) "
                         "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(step),))
             con.execute("COMMIT")

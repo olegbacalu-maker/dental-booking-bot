@@ -25,6 +25,8 @@ from . import (account, auth, cabinet, config, contlink, db, download, fleet, jo
                payments, paylink, receipts, robots, sms, sms_paper, sms_rule, smsmd, smsreport, tiers, trial, updates, views)
 from . import login as elogin  # ⚠️ не `login`: так зовётся маршрут входа админки ниже, он затенил бы модуль
 from . import emailconf  # подтверждение ящика клиники (27.10)
+from . import terms  # акт акцепта условий (29.10)
+from . import terms as terms_mod  # то же — внутри маршрутов, где `terms` — поле формы (страница оплаты)
 
 APP_VERSION = "0.1.0"
 log = logging.getLogger("cloud")
@@ -111,6 +113,7 @@ def license_renew(request: Request, seq: int = 0) -> Response:
                     (db.now_iso(), max(0, seq), c["id"]))
         fleet.touch(con, c["id"], fleet.from_request(request), max(0, seq))   # флот (02.10)
         mailbox = emailconf.headers(c)      # подтверждён ли ящик — рядом с файлом, не в нём (27.10)
+        mailbox.update(terms.headers(con, c))   # последняя принятая версия условий (29.10, terms.py)
         if row is None or row["seq"] <= seq:
             return Response(status_code=204, headers=mailbox)
         db.audit(con, "program", "renew", c["id"], f"файл {row['seq']} забран программой (у неё был {seq})")
@@ -405,6 +408,9 @@ def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method:
             return RedirectResponse(f"{back}?msg=bad_months", status_code=303)
         if terms != "1":
             return RedirectResponse(f"{back}?msg=need_terms", status_code=303)
+        # акт акцепта (29.10, terms.py): галочка страницы оплаты — строка с версией CURRENT; кто —
+        # контакт клиники (страница имени не спрашивает); `payments.terms_at` остаётся как был
+        terms_mod.record(con, c["id"], terms_mod.CURRENT, c["contact_name"] or "", terms_mod.SRC_PAY, ip)
         if ref:
             note = con.execute("SELECT * FROM payments WHERE reference=? AND clinic_id=? AND status=? AND kind IN (?,?)",
                                (ref, c["id"], payments.PENDING, payments.SMS, payments.SMS_NAME)).fetchone()
@@ -583,19 +589,25 @@ def _api_err(code: str, status: int) -> Response:
                         status_code=status)
 
 
-def _trial_program(f: dict, ip: str, ident: dict | None = None) -> tuple[str, str, str]:
-    """Заявка из программы → (исход, токен или '', verify_id или ''). В потоке: база
+def _trial_program(f: dict, ip: str, ident: dict | None = None,
+                   accept: tuple[str, str] = ("", "")) -> tuple[str, str, str, dict | None]:
+    """Заявка из программы → (исход, токен или '', verify_id или '', акт или None). В потоке: база
     и письма блокируют. На повтор — код на e-mail, который у клиники уже записан.
     `ident` — личность машины из заголовков (флот): компьютер привязывается к
     новой клинике сразу, при повторе — только после кода (чужой IDNO в заявке
-    не должен приписать чужой компьютер клинике)."""
+    не должен приписать чужой компьютер клинике). `accept` — (версия условий, кто принял) из
+    тела заявки (29.10, terms.py): новой клинике — строка акта и квитанция в ответе; без версии
+    (старая программа) — как раньше, с одним `consent_at`."""
     vid = code = ""
+    act = None
     with db.connect(immediate=True) as con:
         outcome, clinic = trial.submit(con, f, ip, who="program", origin=trial.ORIGIN_PROGRAM)
         token = ""
         if outcome == trial.DUPLICATE:
             vid, code = trial.new_code(con, clinic, ip)
         else:
+            if accept[0]:
+                act = terms.view(terms.record(con, clinic["id"], accept[0], accept[1], terms.SRC_TRIAL, ip, ident))
             # ⚠️ Строка клиники — ЗАНОВО: в режиме auto submit уже выдал файл, и токен
             # родился внутри выдачи. По старой строке renew_token завёл бы второй и
             # переписал первый — файл в руках программы перестал бы узнаваться (401).
@@ -613,7 +625,7 @@ def _trial_program(f: dict, ip: str, ident: dict | None = None) -> tuple[str, st
     trial.notify(clinic, outcome, ip, f, trial.ORIGIN_PROGRAM)
     if outcome == trial.REQUESTED:
         trial.acknowledge(clinic)
-    return outcome, token, vid
+    return outcome, token, vid, act
 
 
 @app.post(trial.API_PATH)
@@ -642,30 +654,37 @@ async def trial_api(request: Request) -> Response:
     if code:
         return _api_err(code, 400)
     trial.note(ip)
-    outcome, token, vid = await run_in_threadpool(_trial_program, f, ip, fleet.from_request(request))
+    outcome, token, vid, act = await run_in_threadpool(_trial_program, f, ip, fleet.from_request(request),
+                                                       terms.from_body(body))
     if outcome == trial.DUPLICATE:
         if not vid:
             return _api_err("duplicate", 409)
         return JSONResponse({"ok": False, "code": "duplicate", "verify_id": vid,
                              "text": views.TRIAL_MSG["duplicate_code"]}, status_code=409)
-    return JSONResponse({"ok": True,
-                         "state": "issued" if outcome in (trial.ISSUED, trial.ISSUED_UNMAILED) else "requested",
-                         "url": license.renew_url(), "token": token})
+    out = {"ok": True, "state": "issued" if outcome in (trial.ISSUED, trial.ISSUED_UNMAILED) else "requested",
+           "url": license.renew_url(), "token": token}
+    if act is not None:
+        out["terms"] = act                   # квитанция акта (29.10): программа кладёт её в папку contract
+    return JSONResponse(out)
 
 
-def _verify_program(vid: str, code: str, ip: str, ident: dict | None = None) -> str:
-    """Код → токен клиники или ''. Строка клиники — свежая: токен мог родиться только что.
-    Верный код — и компьютер привязан к клинике (флот). 6 цифр — код из письма (клиника, которую
-    нашла заявка); 7 цифр — код кабинета (26.10): клиника, для которой код выдан."""
+def _verify_program(vid: str, code: str, ip: str, ident: dict | None = None,
+                    accept: tuple[str, str] = ("", "")) -> tuple[str, dict | None]:
+    """Код → (токен клиники или '', акт или None). Строка клиники — свежая: токен мог родиться
+    только что. Верный код — и компьютер привязан к клинике (флот). 6 цифр — код из письма (клиника,
+    которую нашла заявка); 7 цифр — код кабинета (26.10): клиника, для которой код выдан.
+    `accept` — (версия условий, кто принял) из тела (29.10): верный код — строка акта source=verify."""
     with db.connect(immediate=True) as con:
         if account.is_cabinet_code(code):
             clinic = account.use_code(con, vid, code, ip, (ident or {}).get("id", ""))
         else:
             clinic = trial.check_code(con, vid, code, ip)
         if clinic is None:
-            return ""
+            return "", None
         fleet.touch(con, clinic["id"], ident)
-        return license.renew_token(con, clinic)
+        act = (terms.view(terms.record(con, clinic["id"], accept[0], accept[1], terms.SRC_VERIFY, ip, ident))
+               if accept[0] else None)
+        return license.renew_token(con, clinic), act
 
 
 @app.post(trial.VERIFY_PATH)
@@ -687,11 +706,14 @@ async def trial_verify(request: Request) -> Response:
         return _api_err("bad_json", 400)
     vid = str(body.get("verify_id") or "")[:64]
     code = "".join(str(body.get("code") or "").split())[:12]
-    token = (await run_in_threadpool(_verify_program, vid, code, ip, fleet.from_request(request))
-             if vid and code else "")
+    token, act = (await run_in_threadpool(_verify_program, vid, code, ip, fleet.from_request(request),
+                                          terms.from_body(body)) if vid and code else ("", None))
     if not token:
         return _api_err("bad_code", 400)
-    return JSONResponse({"ok": True, "url": license.renew_url(), "token": token})
+    out = {"ok": True, "url": license.renew_url(), "token": token}
+    if act is not None:
+        out["terms"] = act
+    return JSONResponse(out)
 
 
 # ---------- подтверждение ящика клиники (27.10, план В; emailconf.py) ----------
@@ -906,11 +928,12 @@ def clinic_card(request: Request, cid: str, msg: str = "", log: str = "") -> Res
         cab = [(r, con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (r["id"],)).fetchone(),
                 con.execute("SELECT count(*) FROM devices WHERE clinic_id=?", (r["id"],)).fetchone()[0])
                for r in cabinet.of(con, cid) if r["id"] != cid]
+        acts = terms.admin_fragment(terms.of_clinic(con, cid))        # акты акцепта условий (29.10)
     return HTMLResponse(views.clinic_page(c, sub, issues, audit, auth.current_user(request), msg,
                                           payments=pays, pending=pending, reminders=rems, accounts=accounts,
                                           devices=devices, smsinfo=smsinfo, names=names,
                                           log=log if codes else "", log_counts=log_counts,
-                                          cabinet=cab, active=active.get(cid, 0)))
+                                          cabinet=cab, active=active.get(cid, 0), terms_html=acts))
 
 
 @app.post("/admin/clinics/{cid}/sibling")
@@ -2491,3 +2514,73 @@ def descarca(request: Request) -> Response:
     with db.connect() as con:
         db.audit(con, "site", "download", None, f"{rel.asset if rel else 'pagina GitHub'} {_ip(request)}")
     return RedirectResponse(url, status_code=302)
+
+
+# ---------- акт акцепта условий (29.10, terms.py) ----------
+#
+# Программа (Bearer — токен файла, как у /v1/license): повторное принятие новой версии условий —
+# баннер «Termenii și condițiile s-au actualizat» в программе. Кабинет: список актов своей клиники
+# и печатная страница акта (экземпляр клиники к общему договору). Разбор — terms.py.
+
+
+def _terms_accept(token: str, ip: str, body: dict, ident: dict | None) -> Response:
+    with db.connect(immediate=True) as con:
+        c = con.execute("SELECT * FROM clinics WHERE renew_token=? AND renew_token<>'' AND declined_at IS NULL",
+                        (token,)).fetchone()
+        if c is None:
+            return JSONResponse({"ok": False, "code": "token_unknown"}, status_code=401)
+        version, actor = terms.from_body(body)
+        if not version:
+            return _api_err("bad_terms", 400)
+        fleet.touch(con, c["id"], ident)
+        act = terms.view(terms.record(con, c["id"], version, actor, terms.SRC_PROGRAM, ip, ident))
+    return JSONResponse({"ok": True, **act})
+
+
+@app.post(terms.API_ACCEPT)
+async def terms_accept_api(request: Request) -> Response:
+    """{terms, actor} → строка акта source=program, ответ — квитанция {id, version, at}.
+    Версия — дата dd.mm.yyyy (bad_terms иначе); актов одной версии может быть несколько
+    (второй компьютер, повтор после сбоя записи квитанции) — это история, не состояние."""
+    token, ip = _bearer(request), _ip(request)
+    if not token:
+        return JSONResponse({"ok": False, "code": "token_missing"}, status_code=401)
+    if elogin.request_limited(ip):
+        return _api_err("limited", 429)
+    body = await _email_json(request)
+    if body is None:
+        return _api_err("bad_json", 400)
+    return await run_in_threadpool(_terms_accept, token, ip, body, fleet.from_request(request))
+
+
+@app.get("/cont/acceptari", response_class=HTMLResponse)     # = terms.PAGE; литерал — его читает test_contlink.ROUTES
+def cont_terms_list(request: Request, msg: str = "", c: str = "") -> Response:
+    """Кабинет: акты акцепта открытой клиники (`?c=` — какой). Сессии кнопки программы — своя."""
+    with db.connect() as con:
+        acc = _current_account(con, request)
+        if acc is None:
+            return _cont_login_redirect()
+        cl = account.pick(con, acc, c)
+        if cl is None:
+            return RedirectResponse("/cont", status_code=303)
+        multi = len(account.clinics(con, acc)) > 1
+        return HTMLResponse(terms.cont_list_page(acc, cl, con, msg, multi=multi))
+
+
+@app.get("/cont/acceptari/{aid}", response_class=HTMLResponse)
+def cont_terms_act(request: Request, aid: str, c: str = "") -> Response:
+    """Печатная страница акта — только СВОЕЙ клиники: чужой id — 404 словами, без разницы с несуществующим."""
+    with db.connect() as con:
+        acc = _current_account(con, request)
+        if acc is None:
+            return _cont_login_redirect()
+        cl = account.pick(con, acc, c)
+        if cl is None:
+            return RedirectResponse("/cont", status_code=303)
+        row = terms.get(con, cl["id"], aid)
+        if row is None:
+            return HTMLResponse(views._cont_shell("Actul nu există", "<div class='card'><p>Actul cerut nu există "
+                                                  "sau nu aparține acestei clinici.</p></div>", acc,
+                                                  lead=f"<a href='{terms.PAGE}'>Toate actele</a>"), status_code=404)
+        multi = len(account.clinics(con, acc)) > 1
+        return HTMLResponse(terms.cont_act_page(acc, cl, row, multi=multi))

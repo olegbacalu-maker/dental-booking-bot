@@ -36,6 +36,7 @@ import test_sms_admin  # noqa: E402
 import test_sms_paper  # noqa: E402
 import test_sms_client  # noqa: E402
 import test_sms_rule  # noqa: E402
+import test_terms  # noqa: E402
 import test_tiers  # noqa: E402
 import test_trial  # noqa: E402
 from harness import run  # noqa: E402
@@ -139,6 +140,10 @@ SUITES = [
     ("Прод: проверка окружения", test_deploy.suite_check),
     ("Прод: файлы развёртывания согласованы", test_deploy.suite_files),
     ("Договор и сайт: страницы говорят то же, что сервер и письма", test_contract.suite),
+    ("Акт акцепта условий: одна версия на троих, провод, compose", test_terms.suite_pure),
+    ("Акт акцепта условий: заявка, код, /v1/terms/accept, заголовок, карточка", test_terms.suite_program),
+    ("Акт акцепта условий: страница оплаты, кабинет, печатная страница акта", test_terms.suite_pay_and_cabinet),
+    ("Акт акцепта условий: idem хешем (миграция 19), срок журнала", test_terms.suite_idem_and_audit),
     ("Поисковики: noindex на каждом ответе, robots.txt обход не закрывает", test_robots.suite),
 ]
 

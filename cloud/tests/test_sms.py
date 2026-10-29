@@ -529,6 +529,13 @@ def suite_send(res: Result) -> None:
             res.ok("цифр номера и текста SMS нет в логе сервера", DIGITS not in log and "reaminteste" not in log, log[-1500:])
             res.ok("в журнале нет строк на сообщения",
                    _one(s, "SELECT count(*) FROM audit WHERE what LIKE 'sms_%'") == 3)   # sms_sender, sms_name, sms_pack
+            # ключ программы несёт id и время визита — в базе он только хешем (29.10, план § 2.4 п. 1)
+            idems = [i for (i,) in _sql(s, "SELECT idem FROM sms_messages")]
+            res.ok("в базе нет строки вида appt: — ключи хешированы (64 hex)",
+                   idems and not any(i.startswith("appt:") for i in idems)
+                   and all(len(i) == 64 and all(ch in "0123456789abcdef" for ch in i) for i in idems), repr(idems[:3]))
+            res.ok("ключ программы с id и временем визита не лежит в базе словами",
+                   "appt:" not in dump and ":day_before:" not in dump)
             # год имени истёк — снова от DentPilot, без блокировки
             _sql(s, "UPDATE sms_accounts SET sender_until='2026-01-01T00:00:00Z' WHERE clinic_id=?", cid)
             st, acc = prog.get("/v1/sms/account")

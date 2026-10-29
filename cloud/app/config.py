@@ -138,3 +138,11 @@ SMS_LOW = 50               # «Au rămas N SMS» — письмо клинике
 # Себестоимость сегмента у sms.md (их ответ 16.10, с НДС) — только для сверки
 # «продано и не потрачено» против их баланса в админке; это не наша цена.
 SMSMD_SEGMENT_COST = "0.30"
+
+# Сроки хранения (29.10, план § 2.4 п. 3; политика § 5 обещает автоудаление журналов): строки
+# `audit` старше AUDIT_KEEP_DAYS снимает ежедневная задача (jobs.purge_audit) — в них IP заявок,
+# кодов, входов; журнал контейнера режет Docker — `logging.options` в deploy/docker-compose.yml
+# повторяют LOG_MAX_SIZE × LOG_MAX_FILE (compose читает не config, равенство держит test_terms).
+AUDIT_KEEP_DAYS = 365
+LOG_MAX_SIZE = "50m"
+LOG_MAX_FILE = 5

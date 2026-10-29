@@ -100,3 +100,20 @@ def db_file() -> pathlib.Path | None:
     if not url.startswith("sqlite"):
         return None
     return pathlib.Path(url.split("///", 1)[1])
+
+
+CONTRACT_DIR = "contract"
+
+
+def contract_dir(base: pathlib.Path | None = None) -> pathlib.Path | None:
+    """Папка документов договора клиники (29.10): квитанции акцепта условий
+    `contract\\acceptare-<версия>.json`, рядом с `clinic.json`, `license.json`,
+    `device.json` — и так же НЕ в `dental.db` и не под её шифром (SQLCipher):
+    это бумага клиники к договору, она читается и без программы.
+
+    Место — папка данных клиники (`data_root()`), её назначает лаунчер. Без
+    переменной (прогон, исходники, облако) — `base`: папка `clinic.json`, которую
+    знает `license.folder()`; у настольного издания это одно и то же место.
+    Ни то ни другое — `None`, и вызывающий обязан обойтись без квитанции."""
+    root = data_root() or base
+    return root / CONTRACT_DIR if root is not None else None

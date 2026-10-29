@@ -430,7 +430,7 @@ MUTATIONS = [
     # Ровно то, что было до посадки: баннер лицензии печатает старая страница,
     # а в модель React-оболочки его не положили.
     ("каждый баннер каркаса — сигнал оболочки", "app/core/layout.py",
-     ('"signals": {"license": _sig(_license_banner() + _mail_banner()),', '"signals": {')),
+     ('"signals": {"license": _sig(_license_banner() + _mail_banner() + _terms_banner()),', '"signals": {')),
     # Сервер сигнал отдаёт, а оболочка его не рисует — вторая половина той же дыры.
     ("каждый баннер каркаса — сигнал оболочки", "_frontend/layouts/AppShell.tsx",
      ("sig.demo, sig.license, sig.tamper,", "sig.demo, sig.tamper,")),
