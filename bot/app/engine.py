@@ -304,6 +304,9 @@ def apply_config(cfg: dict) -> None:
             SERVICE_COLOR[svc["id"]] = svc["color"]
         if svc.get("duration"):
             entry["duration"] = svc["duration"]
+        # «Rechemări» (29.10): срок отзыва {months, since} — читает core/recall
+        if isinstance(svc.get("recall"), dict) and svc["recall"].get("months"):
+            entry["recall"] = dict(svc["recall"])
         SERVICES[svc["id"]] = entry
         avg = _price_avg(svc.get("price", ""))
         SERVICE_PRICE[svc["ro"]] = avg

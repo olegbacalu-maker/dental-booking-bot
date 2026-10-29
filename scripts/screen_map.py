@@ -210,6 +210,7 @@ FLAG = {"/admin/settings/clinic": "settings_clinic",
         "/admin/settings/system": "settings_system",
         "/admin/settings/sms": "settings_sms",
         "/admin/stats": "stats",
+        "/admin/rechemari": "recall",
         "/admin/search": "patients_search",
         "/admin/patient/{pid}": "patient_card",
         "/admin/visit/{appt_id}": "visit",
@@ -264,6 +265,7 @@ B2 = {
     "/admin/settings/system": ("—", "GET /api/settings/system", ""),
     "/admin/settings/sms": ("—", "GET /api/settings/sms", ""),
     "/admin/stats": ("from, to", "GET /api/stats", ""),
+    "/admin/rechemari": ("—", "GET /api/recall", ""),
 }
 
 

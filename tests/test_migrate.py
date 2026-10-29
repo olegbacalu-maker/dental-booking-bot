@@ -1757,3 +1757,50 @@ def suite_v7_ocluzie(res: Result) -> None:
                       (True, "3"))
     finally:
         _rmtree_settled(work)
+
+
+def suite_v8_recall(res: Result) -> None:
+    """Шаг 8 (29.10): журнал отметок `recall_marks` у клиники на v7 — его нет.
+    После обновления: версия 8, таблица и индекс есть, список и фиша
+    открываются, повторный старт не падает (IF NOT EXISTS) и версию не
+    трогает. Свежая база получает таблицу схемой — держит
+    `test_recall.suite_schema`."""
+    work = pathlib.Path(tempfile.mkdtemp(prefix="dp_mig_recall_"))
+    try:
+        dbfile = work / "dental.db"
+        con = _base_db(dbfile)
+        con.execute("DROP INDEX ix_recall_pat")
+        con.execute("DROP TABLE recall_marks")
+        _patients(con, "Ion Recall")
+        for coldef in ("doctor TEXT NOT NULL DEFAULT ''", "surfaces TEXT NOT NULL DEFAULT ''",
+                       "surface_states TEXT NOT NULL DEFAULT ''", "marks TEXT NOT NULL DEFAULT ''"):
+            con.execute(f"ALTER TABLE teeth ADD COLUMN {coldef}")
+        con.execute("INSERT INTO schema_meta(key, value) VALUES('version', '7')")
+        con.execute("INSERT INTO schema_meta(key, value) VALUES('teeth_hist_since', "
+                    "'2026-10-25T10:00:00+00:00')")
+        con.execute("INSERT INTO schema_meta(key, value) VALUES('act_backfill', '1')")
+        con.commit()
+        con.close()
+
+        def objects() -> list:
+            c2 = sqlite3.connect(str(dbfile))
+            try:
+                return sorted(r[0] for r in c2.execute(
+                    "SELECT name FROM sqlite_master WHERE name IN ('recall_marks', 'ix_recall_pat')"))
+            finally:
+                c2.close()
+
+        with Server(dir_=work) as s:
+            c = Client(s.url).login()
+            res.check(f"версия схемы доведена до {_VER}", _meta(dbfile, "version"), _VER)
+            res.check("таблица и индекс появились", objects(), ["ix_recall_pat", "recall_marks"])
+            res.check("список открывается (без услуг со сроком — пусто)",
+                      json.loads(c.get("/api/recall").body)["data"]["rows"], [])
+            res.check("фиша открывается, строк срока нет",
+                      json.loads(c.get("/api/patients/1").body)["data"]["recall"], [])
+        with Server(dir_=work) as s:
+            c = Client(s.url).login()
+            res.check("повторный старт: версия та же, объекты на месте",
+                      (_meta(dbfile, "version"), objects()), (_VER, ["ix_recall_pat", "recall_marks"]))
+    finally:
+        _rmtree_settled(work)

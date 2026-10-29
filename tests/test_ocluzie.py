@@ -228,4 +228,5 @@ def suite_schema(res: Result) -> None:
            appdb.OCLUZIE_DDL in appdb.SQLITE_CARD_SCHEMA,
            "текст таблицы в схеме и в шаге 7 разошёлся")
     res.check("шаг 7 кладёт именно его", appdb.MIGRATIONS[7], [appdb.OCLUZIE_DDL])
-    res.check("версия схемы — 7", appdb.SCHEMA_VERSION, 7)
+    res.ok("версия схемы не ниже 7 (шаг 8 — Rechemări, 29.10)", appdb.SCHEMA_VERSION >= 7,
+           f"{appdb.SCHEMA_VERSION}")

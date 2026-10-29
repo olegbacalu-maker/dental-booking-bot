@@ -48,7 +48,7 @@ router = APIRouter()
 # Коды удачи и коды спора с состоянием — как у фиши пациента (`patients/api`),
 # чтобы клиент разбирал ответы журнала и фиши одинаково.
 # ⚠️ Пустой код — это удача: так отвечает смена статуса, у которой баннера нет.
-_OK = {"", "ok", "ok_note", "part_note", "ok_move", "ok_comment", "ok_past",
+_OK = {"", "ok", "ok_note", "part_note", "ok_move", "ok_comment", "ok_past", "ok_past_done",
        "ok_other", "ok_svc"}
 _CONFLICT = {"conflict", "dup", "bad_off", "mv_gone", "mv_closed", "past", "bad_step",
              "svc_closed", "svc_doc"}
@@ -273,7 +273,8 @@ async def api_add(request: Request, date_q: str = Query("", alias="date"),
     code = await _add_appt(_s(body, "date"), _s(body, "time"), _s(body, "doctor"),
                            _s(body, "service"), _s(body, "name"), _s(body, "phone"),
                            "1" if body.get("nophone") else "", _s(body, "birth"),
-                           sms if isinstance(sms, bool) else None)
+                           sms if isinstance(sms, bool) else None,
+                           body.get("done") is True)
     return await _done(code, _screen(date_q), doctor, f=f, screen=screen)
 
 

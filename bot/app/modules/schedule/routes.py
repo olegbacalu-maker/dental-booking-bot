@@ -504,11 +504,16 @@ async def admin_doctor(request: Request, dk: str,
 
 async def _add_appt(adate: str, atime: str, adoctor: str, aservice: str,
                     aname: str, aphone: str = "", anophone: str = "",
-                    abirth: str = "", asms: bool | None = None) -> str:
+                    abirth: str = "", asms: bool | None = None,
+                    adone: bool = False) -> str:
     """Ручная запись (окно «Programare nouă»): код ответа — из `MSG_BANNER`.
 
     `asms` — галочка «SMS reminder»: True/False — что сказал пациент, None —
     галочки в окне не было (разбор у `_apply_sms`).
+    `adone` — галочка «Vizita a avut loc» (29.10, «Rechemări», В3 = А):
+    история с бумаги одним шагом — запись на ПРОШЕДШИЙ день ложится сразу
+    «finalizată» и заводит часы отзыва. На день не в прошлом галочка
+    игнорируется: сегодняшний визит закрывают из карточки, как всегда.
 
     Правило живёт здесь, а не в маршруте `api.py`: его зовут и окно записи
     «Programări», и диалог часа на панели, и проверок у маршрута своих нет —
@@ -605,6 +610,10 @@ async def _add_appt(adate: str, atime: str, adoctor: str, aservice: str,
     # уже прошедший час сегодня — обычная работа регистратуры, а не ошибка
     if msg == "ok" and eng.is_past_day(dt.date()):
         msg = "ok_past"
+        # визит с бумаги: сразу «finalizată», той же сменой статуса, что
+        # кнопка (летопись получает строку статуса)
+        if adone and isinstance(r, int) and not await db.set_status(r, "done"):
+            msg = "ok_past_done"
     return msg
 
 

@@ -32,7 +32,8 @@ from ... import db
 from ... import engine as eng
 from ... import teeth_svg as tsvg
 from ...core.api import api_body, api_guard, api_own_doctor, api_require
-from ...core.auth import PERM_MONEY, can, request_user
+from ...core import recall
+from ...core.auth import PERM_MONEY, PERM_RECALL, can, request_user
 from ...core.layout import ALERT_KINDS, STATUS_LABEL, _initials, msg_json, msg_text
 from ...core.visits import my_scope
 from . import anamneza as panam
@@ -346,6 +347,10 @@ async def _card(pid: int, p: dict, *, views: bool, log_view: bool) -> dict:
                      if nextv else None),
             "days_ago": pcard.days_ago(lastv, now),
         },
+        # «Rechemări» (29.10): срок по каждой услуге с отзывом, где есть
+        # done-визит; считает тот же core/recall, что список — клиент не
+        # считает. Строку видит любая роль, снять «nu mai reamintim» — право.
+        "recall": await recall.patient_lines(pid, now.date(), can(request_user(), PERM_RECALL)),
         "kpi": {"visits": len(vv["live"]), "active": pv["n_act"],
                 "done": pv["cnt"]["finalizat"], "canc": vv["canc"]},
         "alerts": [{"id": a["id"], "kind": a["kind"],

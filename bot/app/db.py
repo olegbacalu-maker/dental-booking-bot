@@ -23,7 +23,7 @@ log = logging.getLogger("db")
 # идёт range(have+1, SCHEMA_VERSION+1) и до него не дойдёт (так шаг 4 с
 # 'waiting' в uq-индексах не исполнялся ни у одной клиники; держит
 # test_structure).
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 # Записи, которые ЗАНИМАЮТ слот врача. 'waiting' (пациент пришёл, ждёт в
 # приёмной, 08-13) стоит между confirmed и arrived: физически человек уже в
@@ -163,6 +163,30 @@ OCLUZIE_DDL = """CREATE TABLE IF NOT EXISTS ocluzie(
   updated_at TEXT
 )"""
 
+# «Rechemări» (29.10, мини-CRM регистратуры): отметки обзвона по паре
+# (пациент, услуга) — ЖУРНАЛ, только дописывается (append-only). Сам список
+# «кому пора» не хранится: он считается при каждом запросе из done-визитов и
+# срока у услуги (`core/recall.py`), поэтому пересчёт отметку не трогает —
+# только читает. `cycle_appt_id` — последний done-визит на момент отметки:
+# отметки прошлого цикла (кроме `stop`) перестают действовать сами, как
+# только пациент пришёл снова. `until_date` — ГОЛАЯ дата (только `later`),
+# `at` — UTC (псевдоним уже в _DT_COLS). Свободного текста нет намеренно: он
+# стал бы личностью, которую нужно стирать при обезличивании.
+# ⚠️ Текст ниже стоит и в SQLITE_CARD_SCHEMA — оба обязаны совпадать
+# (`test_recall.suite_schema`).
+RECALL_DDL = """CREATE TABLE IF NOT EXISTS recall_marks(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  patient_id INTEGER NOT NULL REFERENCES patients(id),
+  service_id TEXT NOT NULL,
+  cycle_appt_id INTEGER,
+  result TEXT NOT NULL,
+  until_date TEXT,
+  actor TEXT NOT NULL DEFAULT '',
+  at TEXT NOT NULL
+)"""
+RECALL_IDX_DDL = ("CREATE INDEX IF NOT EXISTS ix_recall_pat "
+                  "ON recall_marks(patient_id, service_id, id)")
+
 MIGRATIONS = {
     1: [
         "CREATE INDEX IF NOT EXISTS ix_appt_starts ON appointments(starts_at)",
@@ -220,6 +244,10 @@ MIGRATIONS = {
     # падать, а не писать версию как выполненную. Совпадение текста с схемой
     # держит `test_ocluzie.suite_schema`.
     7: [OCLUZIE_DDL],
+    # 8 (29.10, «Rechemări»): журнал отметок обзвона `recall_marks` + индекс
+    # по паре. Таблица новая и аддитивная — данных, которым она противоречит,
+    # нет, падать нечему; строго, как 7. Тот же DDL — в SQLITE_CARD_SCHEMA.
+    8: [RECALL_DDL, RECALL_IDX_DDL],
 }
 # Шаг, который кладёт базовый снимок истории зубов. В отличие от
 # UQ_GUARD_STEP — СТРОГИЙ: он меняет данные, и недописанный снимок не имеет
@@ -335,6 +363,19 @@ CREATE TABLE IF NOT EXISTS ocluzie(
   created_at TEXT NOT NULL,
   updated_at TEXT
 );
+-- «Rechemări» (29.10): журнал отметок обзвона по паре пациент–услуга.
+-- Тот же текст стоит в RECALL_DDL / RECALL_IDX_DDL (шаг миграции 8); менять оба.
+CREATE TABLE IF NOT EXISTS recall_marks(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  patient_id INTEGER NOT NULL REFERENCES patients(id),
+  service_id TEXT NOT NULL,
+  cycle_appt_id INTEGER,
+  result TEXT NOT NULL,
+  until_date TEXT,
+  actor TEXT NOT NULL DEFAULT '',
+  at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_recall_pat ON recall_marks(patient_id, service_id, id);
 -- Мост (punte, 08-21, просьба пилота): конструкция ПОВЕРХ зубов, своя строка.
 -- teeth — «47:stalp,46:corp,…» в порядке дуги (канон и разбор — teeth_svg,
 -- роль у КАЖДОГО зуба: опора бывает и в середине); material — подпись под
@@ -2105,6 +2146,68 @@ async def set_appt_call(aid: int, result: str) -> None:
         aid, result, _actor_now(), _iso(now))
 
 
+# ---------- «Rechemări» (29.10): выборки для core/recall ----------
+#
+# Правило списка живёт в `core/recall.py` чистой функцией; здесь только
+# выборки, каждая — одним запросом на всю картотеку (раздел едет в конверте
+# живого канала главной, опрос постоянный).
+
+async def recall_done_last(service_ids: list, patient_id: int | None = None) -> list:
+    """Последний ЗАВЕРШЁННЫЙ визит каждой пары (пациент, услуга) по услугам со
+    сроком: `aid` — его id (цикл отметок), `last_at` — его начало (псевдоним
+    в _DT_COLS: иначе SQLite отдал бы строку). Только `done`: неявка, отмена и
+    «programată» часы отзыва не заводят. Архивные (и обезличенные — у них
+    archived=1) не участвуют.
+    ⚠️ Голые колонки при MAX() SQLite берёт из строки максимума — это
+    документированное поведение, на нём и держится `aid`/`doctor`."""
+    if not service_ids:
+        return []
+    lite = ",".join("?" for _ in service_ids)
+    one = " AND a.patient_id = ?" if patient_id is not None else ""
+    args = [*service_ids] + ([patient_id] if patient_id is not None else [])
+    return await _fetch(
+        f"""SELECT a.patient_id, a.service_id, a.id AS aid, a.doctor,
+                   MAX(a.starts_at) AS last_at,
+                   p.name, p.phone, p.email, COALESCE(p.lang, 'ro') AS lang
+              FROM appointments a JOIN patients p ON p.id = a.patient_id
+             WHERE a.status = 'done' AND a.service_id IN ({lite})
+               AND COALESCE(p.archived, 0) = 0{one}
+             GROUP BY a.patient_id, a.service_id""", *args)
+
+
+async def recall_future(day_start: datetime) -> list:
+    """Ближайшая будущая ЖИВАЯ запись каждой пары (пациент, услуга) от начала
+    дня: записанный вперёд на ту же услугу из списка уходит, на другую —
+    получает пометку. Граница — начало дня, не «сейчас» (конверт живого канала
+    обязан быть одинаковым весь день)."""
+    return await _fetch(
+        f"""SELECT patient_id, service_id, service, MIN(starts_at) AS next_at
+              FROM appointments
+             WHERE patient_id IS NOT NULL AND status IN {_ACT_SQL} AND starts_at >= ?
+             GROUP BY patient_id, service_id""", _iso(day_start))
+
+
+async def recall_marks(patient_id: int | None = None) -> list:
+    """Все отметки обзвона по порядку записи (одного пациента или всей
+    картотеки): действующую выбирает `core/recall` по последней строке и
+    циклу, здесь ничего не интерпретируется."""
+    if patient_id is None:
+        return await _fetch("SELECT * FROM recall_marks ORDER BY id")
+    return await _fetch("SELECT * FROM recall_marks WHERE patient_id = ? ORDER BY id",
+                        patient_id)
+
+
+async def add_recall_mark(patient_id: int, service_id: str, cycle: int | None,
+                          result: str, until: str = "") -> None:
+    """Дописать отметку (журнал, не состояние). Автор — вошедший
+    (ACTOR_HOOK), как у отметки звонка; время — UTC программы."""
+    await _execute(
+        """INSERT INTO recall_marks(patient_id, service_id, cycle_appt_id, result,
+                                    until_date, actor, at) VALUES(?, ?, ?, ?, ?, ?, ?)""",
+        patient_id, service_id, cycle, result, until or None, _actor_now(),
+        _iso(datetime.now(timezone.utc)))
+
+
 # ---------- список пациентов: поиск, фильтры, порядок и страница — в SQL ----------
 #
 # Экран «Pacienți» (`/api/patients`) и книга `/admin/patients.xlsx` отбирают
@@ -3619,7 +3722,7 @@ async def erasure_kind(pid: int) -> str:
 # с export.py — обе стороны отвечают «где в базе лежит этот человек».
 _PATIENT_CHILD_TABLES = ("payments", "activity", "patient_alerts", "teeth",
                          "teeth_history", "plan_items", "documents", "anamneza",
-                         "ocluzie", "bridges", "bridges_removed",
+                         "ocluzie", "bridges", "bridges_removed", "recall_marks",
                          "perio_exams", "visit_records", "sms_log", "appointments")
 
 # ⚠️ Внуки: таблицы, которые висят НЕ на пациенте, а на его записи. У

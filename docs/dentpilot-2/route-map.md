@@ -14,7 +14,7 @@
 ради роутера.
 
 
-Поверхностей **25**.
+Поверхностей **26**.
 
 
 | адрес FastAPI | маршрут React | экран | параметры узла | загрузчик |
@@ -23,6 +23,7 @@
 | `/admin/all` | `/admin/all` | `schedule_all` | date, f? | GET /api/schedule/day |
 | `/admin/cabinet` | `/admin/cabinet` | `chair` | doctor? | GET /api/chair |
 | `/admin/medici` | `/admin/medici` | `doctors_list` | — | GET /api/doctors |
+| `/admin/rechemari` | `/admin/rechemari` | `recall` | — | GET /api/recall |
 | `/admin/search` | `/admin/search` | `patients_search` | q?, med?, st?, ch?, dat?, sort?, page?, per? | GET /api/patients/summary + GET /api/patients |
 | `/admin/settings` | `/admin/settings` | `settings_hub` | — | GET /api/settings/hub |
 | `/admin/stats` | `/admin/stats` | `stats` | from, to | GET /api/stats |

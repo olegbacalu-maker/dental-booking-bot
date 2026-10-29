@@ -49,6 +49,8 @@ from .modules.settings import lan as settings_lan
 from .modules.settings import routes as settings
 from .modules.stats import api as stats_api
 from .modules.stats import routes as stats
+from .modules.recall import api as recall_api
+from .modules.recall import routes as recall
 
 # ⛔ Без /docs, /redoc и /openapi.json (17.10): это карта всех адресов
 # программы, и отдавалась она без входа — в том числе любому в сети клиники.
@@ -69,6 +71,8 @@ app.include_router(settings.router)
 app.include_router(settings_api.router)   # JSON API раздела (DentPilot 2.0)
 app.include_router(stats.router)
 app.include_router(stats_api.router)      # JSON API раздела (DentPilot 2.0)
+app.include_router(recall.router)         # «Rechemări» (29.10): экран списка отзыва
+app.include_router(recall_api.router)     # JSON API раздела
 app.include_router(qr.router)
 app.include_router(entry.router)          # вход, установка PIN, выход
 app.include_router(entry_api.router)      # JSON-дверь: смена человека без перезагрузки

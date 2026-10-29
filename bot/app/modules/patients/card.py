@@ -125,6 +125,8 @@ ACT_ICON = {"appt_new": "cal", "appt_status": "check", "appt_cancel": "ban",
             "ocluzie": "tooth",
             # звонок-подтверждение с главной (01.10)
             "call": "phone",
+            # отметка обзвона «Rechemări» (29.10)
+            "recall": "refresh",
             # SMS-напоминание (S5): ушло / доставлено / не дошло или не ушло;
             # отказ пациента от SMS — отметка фиши
             "sms": "chat", "sms_ok": "check", "sms_fail": "ban", "sms_off": "phone-off",

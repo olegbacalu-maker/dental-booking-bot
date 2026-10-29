@@ -26,6 +26,7 @@ import test_admin  # noqa: E402
 import test_admin_canvas  # noqa: E402
 import test_anamneza  # noqa: E402
 import test_ocluzie  # noqa: E402
+import test_recall  # noqa: E402
 import test_api  # noqa: E402
 import test_backup  # noqa: E402
 import test_booking  # noqa: E402
@@ -273,6 +274,12 @@ SUITES = [
     ("Прикус: графа «Ocluzia» 043/e на двух языках", test_ocluzie.suite_print),
     ("Прикус: закон 195 — выгрузка, стирание, обезличивание", test_ocluzie.suite_195),
     ("Прикус: DDL шага 7 = схема", test_ocluzie.suite_schema),
+    ("Rechemări: правило списка чистой функцией", test_recall.suite_rule),
+    ("Rechemări: срок у услуги, бумажная история, отметки, фиша, главная", test_recall.suite_server),
+    ("Rechemări: «Vizita a avut loc» в окне записи", test_recall.suite_past_done),
+    ("Rechemări: права — врач не видит, стойка и директор видят", test_recall.suite_rights),
+    ("Rechemări: закон 195 — выгрузка, стирание, обезличивание", test_recall.suite_195),
+    ("Rechemări: DDL шага 8 = схема", test_recall.suite_schema),
     ("Одонтограмма: поверхности", test_teeth.suite_surfaces),
     ("Одонтограмма: молочный прикус", test_teeth.suite_milk),
     ("Одонтограмма: форма зуба", test_teeth.suite_shape),
@@ -478,6 +485,7 @@ SUITES = [
     ("Миграции базы: «в лечении» стало отметкой", test_migrate.suite_v5_marks),
     ("Миграции базы: базовый снимок истории зубов", test_migrate.suite_v6_history),
     ("Миграции базы: таблица прикуса шагом 7", test_migrate.suite_v7_ocluzie),
+    ("Миграции базы: журнал отметок Rechemări шагом 8", test_migrate.suite_v8_recall),
     ("Летопись: backfill в часах клиники", test_migrate.suite_backfill_tz),
     ("Шифрование базы: код восстановления", test_dbcrypt.suite_key),
     ("Шифрование базы: переезд", test_dbcrypt.suite_convert),

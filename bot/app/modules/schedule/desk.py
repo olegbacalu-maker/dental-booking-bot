@@ -28,7 +28,8 @@ from datetime import date, datetime, timedelta
 
 from ... import db
 from ... import engine as eng
-from ...core.auth import PERM_MONEY, can, request_user
+from ...core import recall
+from ...core.auth import PERM_MONEY, PERM_RECALL, can, request_user
 from ...core.layout import status_view
 from ...core.visits import mine
 
@@ -205,4 +206,7 @@ async def desk_model(now: datetime, scope: str | None = None) -> dict:
         "unscheduled": await _unscheduled(now),
         "collect": await _collect(today) if money else None,
         "free": await _free(today, scope),
+        # «Rechemări» (29.10, В5 = А — после «Plan fără programare»): счётчик
+        # «De sunat» и первые строки; без права (врач) — null, как collect
+        "recall": await recall.desk(today) if can(request_user(), PERM_RECALL) else None,
     }

@@ -25,7 +25,7 @@ from . import demo
 from . import license as lic
 from . import backup_loop, sms_loop
 from . import theme
-from .auth import (PERM_DOCTORS, PERM_MONEY, PERM_SCHEDULE_ALL, PERM_SETTINGS, PERM_SMS,
+from .auth import (PERM_DOCTORS, PERM_MONEY, PERM_RECALL, PERM_SCHEDULE_ALL, PERM_SETTINGS, PERM_SMS,
                    PIN_MAX, PIN_MIN_LAN, ROLE_LABEL, _pin_rec, can,
                    request_user, schedule_scope, tamper_alert)
 
@@ -229,6 +229,15 @@ MSG_BANNER = {
     "svc_doc": ("err", "Medicul acestei programări nu face procedura aleasă — "
                        "alegeți altă procedură sau mutați programarea la alt medic"),
     "ok_set": ("ok", "Setări salvate"),
+    # «Rechemări» (29.10): отметка обзвона (`/api/recall/mark`) и визит с бумаги
+    "ok_recall": ("ok", "Marcaj salvat"),
+    "bad_recall": ("err", "Marcajul nu a putut fi salvat — verificați data și încercați din nou"),
+    "recall_gone": ("err", "Pacientul nu mai este în lista de rechemări — "
+                           "reîmprospătați pagina"),
+    # галочка «Vizita a avut loc» в окне записи на прошедший день (В3 = А):
+    # запись ложится сразу «finalizată» — история с бумаги, одним шагом
+    "ok_past_done": ("ok", "Vizita a fost adăugată ca finalizată pe o zi trecută — "
+                           "intră în istoric și în Rechemări"),
     # SMS-пакет (S6): Setări › SMS — ответы JSON API; отказ сервера едет его же
     # словами (`msg_json(text=…)`: словарь CODES облака — один на обе стороны)
     "ok_sms": ("ok", "Setări SMS salvate"),
@@ -1362,7 +1371,7 @@ def _who_chip() -> str:
 # ушли шагом 6 (13.10).
 # Имена остаются здесь как список реализованных поверхностей (карта экранов,
 # `parity_audit`, стенд монтажа `mount_sweep`).
-REACT_SCREENS = frozenset({"settings_clinic", "doctors_list", "doctor_card",
+REACT_SCREENS = frozenset({"recall", "settings_clinic", "doctors_list", "doctor_card",
                            "settings_hub", "settings_lan", "settings_faq",
                            "settings_hours", "settings_services", "settings_theme",
                            "settings_security", "settings_backup",
@@ -1453,6 +1462,8 @@ else{{document.documentElement.classList.add('anim');}}}}catch(e){{document.docu
 # «Panoul principal», не «Dashboard» — слово Олега 26.09 при показе заголовков.
 SECTION_TITLE = {"dash": "Panoul principal", "prog": "Programări", "pat": "Pacienți",
                  "med": "Medici", "stat": "Statistici", "set": "Setări",
+                 # «Rechemări» (29.10): список отзыва пациентов, сразу после «Pacienți»
+                 "rec": "Rechemări",
                  # SMS-пакет (S6): пункт секции «Sincronizări», когда сервер предлагает пакет
                  "sms": "SMS pacienți"}
 
@@ -1489,12 +1500,17 @@ def shell_model(active: str, sub: str, rail: bool = False,
     # «Programare nouă» учётке, которой записывать некуда
     show_sched = can(me, PERM_SCHEDULE_ALL) or me is None
     show_sms = can(me, PERM_SMS) or me is None
+    # «Rechemări» (29.10): стойка и директор; врачу пункта нет (В1 = А)
+    show_recall = can(me, PERM_RECALL) or me is None
     tg_on, tg_user = _tg_state()
     th = theme.current()
 
     items = [{"key": "dash", "href": "/admin", "icon": "home", "label": SECTION_TITLE["dash"]},
              {"key": "prog", "href": "/admin/all", "icon": "cal", "label": SECTION_TITLE["prog"]},
              {"key": "pat", "href": "/admin/search", "icon": "pat", "label": SECTION_TITLE["pat"]}]
+    if show_recall:
+        items.append({"key": "rec", "href": "/admin/rechemari", "icon": "refresh",
+                      "label": SECTION_TITLE["rec"]})
     if show_docs:
         items.append({"key": "med", "href": "/admin/medici", "icon": "med",
                       "label": SECTION_TITLE["med"]})
@@ -1535,7 +1551,8 @@ def shell_model(active: str, sub: str, rail: bool = False,
                       "role_label": ROLE_LABEL.get(me["role"], me["role"]),
                       "initials": _initials(me["name"]),
                       "can": {"money": show_money, "settings": show_set,
-                              "doctors": show_docs, "schedule_all": show_sched},
+                              "doctors": show_docs, "schedule_all": show_sched,
+                              "recall": show_recall},
                       # ключ СВОЕГО врача у журнала, суженного до него
                       # (`auth.schedule_scope`); пусто — журнал всех или ничей
                       "doctor": schedule_scope(me, eng.DOCTORS) or ""} if me else None),

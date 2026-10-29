@@ -32,6 +32,7 @@ from ... import engine as eng
 from ... import privileged
 from ... import update as upd
 from ...core import backup_loop, dbkey, notices, restore, sms_loop, theme
+from ...core import recall as crecall
 from ...core import sms_plan as splan
 from ...core.api import api_body, api_guard, api_require
 from ...core.auth import (PERM_SETTINGS, PERM_SMS, PERM_USERS, PIN_MAX, PIN_MIN_LAN, ROLE_LABEL,
@@ -406,11 +407,14 @@ def _services_data() -> dict:
             "color": s.get("color", "") if s.get("color") in SVC_PALETTE else "",
             "urgent": bool(s.get("urgent")),
             "docs": list(s.get("docs") or []),
+            # «Rechemări» (29.10): срок отзыва в месяцах, 0 — не участвует
+            "recall": int((s.get("recall") or {}).get("months") or 0),
         })
     return {
         "services": rows,
         "palette": dict(_PALETTE_RO),
         "durations": list(_DURATIONS),
+        "recalls": [0, *crecall.MONTHS],
         "doctors": [{"id": d["id"], "name": d["name"]} for d in cfg["doctors"]],
     }
 

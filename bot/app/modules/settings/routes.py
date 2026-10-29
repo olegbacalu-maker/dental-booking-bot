@@ -35,6 +35,7 @@ from ...core.layout import (_DOW_ORDER, _ic,
                             react_shell, shell_model, _shell, standalone,
                             tg_configured, tg_status)
 from ...core import bitlocker, dbkey, demo, theme
+from ...core import recall as crecall
 from ...core import license as lic
 from ...core import backup_loop, sms_loop
 from ...core.storage import _data_dir
@@ -719,6 +720,26 @@ def _val_services(data: dict) -> tuple[list, dict]:
                 if tok in doc_ids]
         if docs:
             entry["docs"] = docs
+        # «Rechemări» (29.10): срок отзыва {months, since}. ⛔ Нет ключа в
+        # строке — «не сообщали» (прайор 08-16): вкладка, открытая до
+        # обновления, пришлёт строки без поля, и пересохранение обязано быть
+        # тождественным — берётся из текущего конфига по id. `since` (дата
+        # включения — горизонт списка) ставит сервер, когда срок появляется;
+        # смена месяцев её не трогает, 0 снимает обе. Число вне белого списка
+        # — отказ, не молчаливое «нет срока».
+        prev = next((x.get("recall") or {} for x in eng.CONFIG.get("services", [])
+                     if x.get("id") == sid), {})
+        if "recall" in s:
+            raw = s.get("recall")
+            months = int(raw) if str(raw).strip().isdecimal() else -1
+            if months and months not in crecall.MONTHS:
+                raise ValueError("recall")
+        else:
+            months = int(prev.get("months") or 0)
+        if months:
+            entry["recall"] = {"months": months,
+                               "since": str(prev.get("since")
+                                            or datetime.now(eng.TZ).date().isoformat())}
         services.append(entry)
     if not services:
         raise ValueError("services")

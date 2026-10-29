@@ -28,6 +28,7 @@ from datetime import date, datetime
 from ... import db
 from ... import engine as eng
 from ... import teeth_svg as tsvg
+from ...core import recall as crecall
 from ...core.layout import ALERT_KINDS, SOURCE_LABEL, STATUS_LABEL
 from . import anamneza as panam
 from . import ocluzie as poccl
@@ -121,6 +122,9 @@ async def collect(pid: int) -> dict | None:
         # прикус (26.10): запись графы «Ocluzia» 043/e — та же таблица, что
         # стирает удаление
         "ocluzie": await db.ocluzie(pid),
+        # отметки обзвона «Rechemări» (29.10): обработка его данных — та же
+        # таблица, что стирает удаление
+        "rechemari": await db.recall_marks(pid),
         "consultatii": await db.patient_visit_records(pid),
         "plati": await db.payments(pid),
         "documente": await db.documents_with_paths(pid),
@@ -196,6 +200,12 @@ def render_html(data: dict) -> str:
 
     profil = _table(["Câmp", "Valoare"],
                     [[_esc(lbl), _field(key)] for key, lbl in _PROFILE_RO])
+    rechemari = _table(
+        ["Data", "Serviciu", "Marcaj", "Până la", "Operator"],
+        [[_dt(m["at"]), _esc(eng.SERVICES.get(m["service_id"], {}).get("ro") or m["service_id"]),
+          _esc(crecall.WORD.get(m["result"], m["result"])),
+          _esc(m.get("until_date")) or "—", _esc(m["actor"]) or "—"]
+         for m in data.get("rechemari", [])])
     programari = _table(
         ["Data", "Serviciu", "Medic", "Stare", "Sursa", "Comentariu"],
         [[_dt(v["starts_at"]), _esc(v["service"]), _esc(v["doctor"]),
@@ -388,6 +398,7 @@ def render_html(data: dict) -> str:
 
 <h2>Fișa pacientului</h2>{profil}
 <h2>Programări ({len(data['programari'])})</h2>{programari}
+<h2>Rechemări ({len(data.get('rechemari', []))})</h2>{rechemari}
 <h2>Atenționări medicale ({len(data['atentionari'])})</h2>{atentionari}
 <h2>Anamneză</h2>{anamneza}
 <h2>Ocluzia</h2>{ocluzie}
