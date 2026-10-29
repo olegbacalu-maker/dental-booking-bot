@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from harness import CLOUD, ROOT, Result
 
 sys.path.insert(0, str(CLOUD))
-from app import auth, config, license, mail, payments, sms, sms_rule, trial  # noqa: E402
+from app import auth, config, license, mail, payments, receipts, sms, sms_rule, trial  # noqa: E402
 
 SITE = ROOT / "docs" / "site"
 
@@ -163,3 +163,66 @@ def suite(res: Result) -> None:
         res.ok(f"{name}: кнопка ведёт на /descarca сервера, кабинет назван, плейсхолдера нет",
                f'href="https://{host}/descarca"' in page and f"https://{host}/cont" in page
                and "[LINK-DESCARCARE]" not in page)
+    # Договор при активации (29.10): docs/dentpilot-2/contract/ — ОБЩИЕ документы,
+    # подписанные поставщиком (как декларация): contract.html (Anexa 1 — условия
+    # в версии акта акцепта, Anexa 2 — потоки, Anexa 3 — DPA). Сторож держит: ни
+    # одного плейсхолдера (клиника — через акт), одна версия-дата у всех трёх,
+    # числа и фразы — те же, что у условий и кода, DPA не называет медданные
+    # предметом, субобработчик — как в § 16, политика и декларация называют
+    # каждый канал, что код шлёт. Интервалы программы (6 ч, 10 мин) держит
+    # tests/test_structure.py движка — у облака нет его исходников.
+    folder = ROOT / "docs" / "dentpilot-2" / "contract"
+    docs = {name: " ".join((folder / name).read_text(encoding="utf-8").split())
+            if (folder / name).exists() else ""
+            for name in ("contract.html", "dpa.html", "anexa-2.html")}
+    c, dpa, flows = docs["contract.html"], docs["dpa.html"], docs["anexa-2.html"]
+    readme = (folder / "README.md").read_text(encoding="utf-8") if (folder / "README.md").exists() else ""
+    res.ok("договор: папка на месте — три документа и README", all(docs.values()) and bool(readme))
+    res.ok("договор: документы общие — ни одного плейсхолдера {{…}}", not any("{{" in t for t in docs.values()))
+    versions = {(m.group(1) if (m := re.search(r"Versiunea documentului: (\d\d\.\d\d\.\d{4})", t)) else None)
+                for t in docs.values()}
+    res.ok("договор: у всех трёх документов одна «Versiunea documentului»",
+           len(versions) == 1 and None not in versions, str(versions))
+    res.ok("договор и DPA: клиника — через акт акцепта, её подпись необязательна",
+           "actul de acceptare" in c and "actul de acceptare" in dpa and "semnătura ei este opțională" in c)
+    res.ok("договор: цена — из оферты на дату платежа, сумм нет",
+           "oferta în vigoare la data plății" in c and not re.search(r"\d\s*(?:lei|MDL|bani)\b", c, re.I))
+    res.ok("договор: пробный, оформление, период оплаты — числами сервера",
+           f"perioadă de probă de {license.TRIAL_DAYS} de zile" in c
+           and f"încă {license.TRIAL_GRACE_DAYS} zile (perioada pentru abonare)" in c
+           and f"încă {license.GRACE_DAYS} zile (perioada de plată)" in c)
+    res.ok("договор: режим чтения — словами условий § 6, «anumite funcții» нет",
+           "regim de citire" in c and "nu se pierd și nu se blochează" in c
+           and "nu se pierd și nu se blochează" in flat_terms and "anumite funcții" not in c)
+    limits = ("ultimele 12 luni", "preaviz de 30 de zile", "fără penalități și fără preaviz")
+    res.ok("договор: предел ответственности и расторжение — как § 11–12 условий",
+           all(x in c for x in limits) and all(x in flat_terms for x in limits))
+    res.ok("договор: документ оплаты — cont de plată «achitat», без factura fiscală, форма продавца как у receipts",
+           "nu emite factură fiscală" in c and receipts.SELLER_FORM in c
+           and "contul de plată cu mențiunea „achitat”" in c)
+    res.ok("договор и DPA: удалённая помощь — Asistență rapidă, представитель присутствует, без копирования",
+           all("Asistență rapidă" in t for t in (c, dpa)) and "prezent la calculator" in c
+           and "nu copiază" in c and "nu copiază" in dpa)
+    res.ok("договор: Anexa 1 — условия по адресу страницы; Anexa 2 и 3 названы",
+           "https://dentpilot.md/termeni.html" in c and "Anexa 2" in c and "Anexa 3" in c)
+    res.ok("DPA: предмет — номер и текст SMS и сеанс помощи, «două și numai două»; медданных в категориях нет",
+           "numărul de telefon mobil" in dpa and "textul memento-ului" in dpa
+           and "două și numai două" in dpa and "anamnez" not in dpa.lower())
+    res.ok("DPA, § 16, политика, декларация: субобработчик, «что остаётся» и 3 luni — одними словами",
+           "Rock Soft S.R.L. (SMS.MD" in dpa and keep in dpa and "3 luni" in dpa and "3 luni" in s16)
+    res.ok("DPA: зарубежные провайдеры — только данные учётной записи, поставщик там оператор",
+           all(x in dpa for x in ("Contabo GmbH", "GitHub, Inc.", "maib", "Gmail"))
+           and "operator în nume propriu" in dpa)
+    res.ok("Anexa 2: тихие часы SMS — quiet_window; SMS.MD 3 luni; maib и GitHub; что остаётся на ПК",
+           f"între {quiet_to:02d}:00 și {quiet_from:02d}:00" in flows and "3 luni" in flows
+           and "GitHub, Inc." in flows and "maib" in flows and "Rock Soft S.R.L. (SMS.MD)" in flows
+           and "Ce rămâne pe calculatorul clinicii" in flows)
+    res.ok("Anexa 2: код активации — со сроком сервера", f"expiră în {minutes} minute" in flows)
+    res.ok("политика § 5: обновления на GitHub, кнопки оплаты/кабинета, опрос SMS, maib, внутренние уведомления",
+           all(x in flat_privacy for x in ("Verificarea actualizărilor", "GitHub, Inc.", "Deschide contul clinicii",
+                                           "soldul de SMS", "maib", "notificările interne ale furnizorului")))
+    res.ok("декларация п. 2–3: обновления на GitHub, кнопки, опрос SMS, удалённая помощь",
+           all(x in decl for x in ("GitHub, Inc.", "Deschide contul clinicii", "soldului de SMS", "Asistență rapidă")))
+    res.ok("README папки договора: три файла, условия, версия = дата, DP_CONTRACT",
+           all(x in readme for x in ("contract.html", "dpa.html", "anexa-2.html", "termeni.html",
+                                     "DP_CONTRACT", "Versiunea documentului")))

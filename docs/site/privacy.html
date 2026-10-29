@@ -35,7 +35,7 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
 </div></div>
 <div class="wrap">
   <h1>Politica de confidențialitate</h1>
-  <p class="upd">Ultima actualizare: 27.10.2026</p>
+  <p class="upd">Ultima actualizare: 29.10.2026</p>
 
   <h2>1. Cine suntem</h2>
   <p>Site-ul dentpilot.md este gestionat de Oleg Bacalu, antreprenor
@@ -134,14 +134,38 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     internet, întreabă serverul o dată pe zi dacă există un fișier de licență
     mai nou. Cererea conține cheia fișierului de licență și numărul lui de
     ordine, versiunea programului, canalul de actualizare, versiunea de Windows
-    și un identificator tehnic al calculatorului (fără nume de utilizator și
+    (numărul complet al versiunii, de exemplu „Windows 11 (10.0.26300)”)
+    și un identificator tehnic al calculatorului (un număr aleatoriu generat la
+    instalare, fără nume de calculator, fără nume de utilizator și
     fără date ale pacienților); serverul reține data ultimei verificări pentru
     fiecare calculator — așa vedem ce clinici au programul actualizat și le
-    putem ajuta. După o cerere de probă
+    putem ajuta. Aceleași date tehnice însoțesc orice cerere a programului
+    către server, enumerate mai jos. După o cerere de probă
     trimisă din program, până la aprobarea ei, programul întreabă serverul o
     dată pe minut, cu cheia primită la trimiterea cererii. La fel, o dată pe
     minut timp de 2 ore, după ce plata este deschisă din program (butonul
     „Plătește acum”), ca noul termen să ajungă imediat după plată.</li>
+    <li><b>Verificarea actualizărilor:</b> la pornire și apoi la fiecare 6 ore
+    programul întreabă serverul furnizorului dacă există o versiune nouă;
+    cererea conține versiunea programului, canalul de actualizare și datele
+    tehnice de mai sus, iar serverul nu le păstrează în baza sa. Dacă serverul
+    nu răspunde, programul întreabă direct GitHub, iar fișierele actualizării
+    se descarcă întotdeauna de pe GitHub (GitHub, Inc.), unde furnizorul
+    publică versiunile programului: GitHub vede adresa IP a clinicii, fără
+    identificatorul calculatorului și fără cheia de licență, conform
+    <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" target="_blank" rel="noopener">politicii sale de confidențialitate</a>.
+    Fișierul descărcat este verificat înainte de instalare (amprenta și
+    semnătura digitală a furnizorului).</li>
+    <li><b>Butoanele „Plătește acum” și „Deschide contul clinicii”:</b>
+    programul cere serverului un link de unică folosință (cererea conține
+    doar datele tehnice de mai sus) și îl deschide în browserul
+    calculatorului; la intrarea în cont din program serverul reține adresa IP
+    și browserul folosit.</li>
+    <li><b>Modulul SMS (DentPilot™ Plus):</b> cât timp modulul este pornit,
+    programul citește soldul de SMS al clinicii la fiecare 10 minute și, după
+    fiecare memento trimis, starea livrării la fiecare 5 minute, cel mult 30 de
+    ore; aceste cereri conțin doar datele tehnice de mai sus și identificatorii
+    mesajelor.</li>
     <li><b>Confirmarea adresei de e-mail:</b> după înregistrare, pe e-mailul
     clinicii pleacă un link și un cod de 6 cifre (valabile 7 zile, o singură
     dată); serverul păstrează doar amprenta lor, adresa la care au plecat și
@@ -180,11 +204,19 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     șterg automat.</li>
     <li><b>Cine le vede:</b> doar furnizorul. Datele nu se transmit terților,
     cu excepția furnizorului de găzduire a serverului (Contabo GmbH) și a
-    furnizorului de e-mail prin care se trimit notificările (Google, serviciul
-    Gmail), care le prelucrează doar pentru a presta aceste servicii, și,
-    pentru clinicile cu modulul SMS (DentPilot™ Plus), a operatorului SMS Rock Soft S.R.L.
-    (SMS.MD), căruia furnizorul îi transmite cererea clinicii pentru numele
-    expeditorului (denumirea, IDNO, datele reprezentantului).</li>
+    furnizorului de e-mail prin care se trimit notificările către clinică și
+    notificările interne ale furnizorului (Google, serviciul Gmail; de
+    exemplu, cererea de probă ajunge la furnizor prin e-mail, cu datele de
+    contact și adresa IP), care le prelucrează doar pentru a presta aceste
+    servicii; la plata cu cardul, dacă pagina de plată o oferă, a băncii
+    maib (B.C. „Maib” S.A.), care primește suma, descrierea plății
+    (referința și denumirea clinicii), e-mailul clinicii și adresa IP a
+    browserului — datele cardului le introduceți pe pagina băncii și nu
+    ajung la furnizor; la actualizări, a GitHub, Inc. (adresa IP, punctul de
+    mai sus); și, pentru clinicile cu modulul SMS (DentPilot™ Plus), a
+    operatorului SMS Rock Soft S.R.L. (SMS.MD), căruia furnizorul îi
+    transmite cererea clinicii pentru numele expeditorului (denumirea, IDNO,
+    datele reprezentantului).</li>
   </ul>
 
   <h2 id="demo">6. Versiunea demonstrativă online (demo.dentpilot.md)</h2>

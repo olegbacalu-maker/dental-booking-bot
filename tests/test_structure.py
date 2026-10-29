@@ -1619,6 +1619,45 @@ def suite(res: Result) -> None:
         if want not in pol:
             bad.append(f"privacy.html не говорит «{want}»: программа спрашивает сервер раз в "
                        f"{minutes[-1]} мин., пока заявка ждёт")
+    # Договор при активации (29.10): политика § 5, декларация п. 3 и Anexa 2
+    # договора (docs/dentpilot-2/contract/anexa-2.html) называют, как часто
+    # программа ходит наружу помимо лицензии: обновления — `_schedule(… N * 3600)`
+    # в app/update.py, счёт SMS — ACCOUNT_EVERY в app/core/sms_loop.py. Текст,
+    # разошедшийся с кодом, — обещание, которого программа не держит, и
+    # подписанный PDF с ним хуже, чем никакой (декларация подписывается КЭП).
+    # ⚠️ Берётся НАИБОЛЬШИЙ множитель 3600 среди вызовов _schedule: короткие
+    # повторы (ожидание ассета) считаются секундами, не часами.
+    texts = {"privacy.html": pol}
+    for rel in ("docs/site/declaratie-195.html", "docs/dentpilot-2/contract/anexa-2.html"):
+        path = ROOT / rel
+        texts[rel] = " ".join(path.read_text(encoding="utf-8").split()) if path.exists() else ""
+        if not texts[rel]:
+            bad.append(f"{rel} не найден — потоки данных описывать негде")
+    empty = ast.Module(body=[], type_ignores=[])
+    hours = [b.left.value for n in ast.walk(by_path.get("app/update.py") or empty)
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "_schedule"
+             for b in ast.walk(n)
+             if isinstance(b, ast.BinOp) and isinstance(b.op, ast.Mult)
+             and isinstance(b.left, ast.Constant) and isinstance(b.right, ast.Constant)
+             and b.right.value == 3600]
+    if not hours:
+        bad.append("app/update.py: нет _schedule(… N * 3600) — якорь периода обновлений пропал")
+    else:
+        want = f"la fiecare {max(hours)} ore"
+        bad += [f"{name} не говорит «{want}»: программа проверяет обновления раз в {max(hours)} ч"
+                for name, text in texts.items() if want not in text]
+    every = [kw.value.value for n in ast.walk(by_path.get("app/core/sms_loop.py") or empty)
+             if isinstance(n, ast.Assign) and isinstance(n.value, ast.Call)
+             and any(isinstance(t, ast.Name) and t.id == "ACCOUNT_EVERY" for t in n.targets)
+             for kw in n.value.keywords if kw.arg == "minutes" and isinstance(kw.value, ast.Constant)]
+    if not every:
+        bad.append("app/core/sms_loop.py: нет ACCOUNT_EVERY = timedelta(minutes=N) — якорь пропал")
+    else:
+        # «la fiecare N minute», не «o dată la N minute»: вторая фраза — у опроса
+        # заявки (PENDING_EVERY), и одинаковые слова глушили бы ту мутацию.
+        want = "în fiecare minut" if every[-1] == 1 else f"la fiecare {every[-1]} minute"
+        bad += [f"{name} не говорит «{want}»: счёт SMS читается раз в {every[-1]} мин."
+                for name, text in texts.items() if want not in text]
     res.ok("договор согласован с программой дословно", not bad,
            "сайт обещает не то, что делает программа: " + "; ".join(bad))
 

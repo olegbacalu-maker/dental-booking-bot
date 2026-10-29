@@ -79,24 +79,38 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     are acces la fișele, programările, documentele și tratamentele pacienților
     și nu le prelucrează. În sensul Legii nr. 195/2024, operator pentru datele
     pacienților este clinica, iar furnizorul nu este persoană împuternicită
-    de operator. Singura excepție este Pachetul SMS (punctul 4), doar pentru
-    clinicile care îl activează.</li>
+    de operator. Excepțiile sunt două, ambele la inițiativa clinicii: Modulul
+    SMS (punctul 4), doar pentru clinicile care îl folosesc, și sesiunile de
+    asistență la distanță cerute de clinică, prin aplicația „Asistență
+    rapidă” din Windows: furnizorul vede ecranul clinicii doar în timpul
+    sesiunii, cu acordul și în prezența reprezentantului ei, și nu copiază
+    și nu păstrează date ale pacienților.</li>
     <li><b>Ce primește furnizorul de la program.</b> În afara memento-urilor
     SMS, programul nu transmite furnizorului nicio informație despre
     pacienți, programări sau tratamente. Legăturile programului cu
-    furnizorul sunt patru:
+    furnizorul sunt următoarele și numai acestea:
       <ul>
-        <li>actualizările — programul descarcă fișierele programului publicate
-        de furnizor;</li>
         <li>activarea din program (cererea de perioadă de probă sau activarea
         pe încă un calculator al clinicii) — programul trimite datele contului
         clinicii: denumirea, IDNO, persoana de contact, e-mailul și telefonul,
+        acceptarea Termenilor și condițiilor,
         iar pe încă un calculator și codul primit pe e-mailul clinicii;</li>
-        <li>verificarea licenței — programul trimite serverului furnizorului
+        <li>verificarea licenței — la pornire și o dată pe zi programul trimite
+        serverului furnizorului
         cheia și numărul de ordine al fișierului de licență, versiunea programului,
         canalul de actualizare, versiunea de Windows și un identificator tehnic al
-        calculatorului (fără nume de utilizator și fără date ale pacienților);</li>
-        <li>memento-urile SMS — doar dacă clinica activează Pachetul SMS:
+        calculatorului (fără nume de utilizator și fără date ale pacienților);
+        aceleași date tehnice însoțesc cererile programului de a deschide
+        pagina de plată și contul clinicii (butoanele „Plătește acum” și
+        „Deschide contul clinicii”) și, la clinicile cu Modulul SMS, citirea
+        soldului de SMS la fiecare 10 minute și a stării livrării;</li>
+        <li>actualizările — la pornire și apoi la fiecare 6 ore programul
+        întreabă serverul furnizorului dacă există o versiune nouă (cu
+        versiunea programului, canalul de actualizare și datele tehnice de
+        mai sus) și descarcă fișierele programului publicate de furnizor pe
+        GitHub (GitHub, Inc.), care vede astfel adresa IP a clinicii;
+        fișierul descărcat este verificat înainte de instalare;</li>
+        <li>memento-urile SMS — doar dacă clinica folosește Modulul SMS:
         pentru fiecare memento programul trimite serverului furnizorului
         numărul de telefon mobil al pacientului și textul memento-ului
         (denumirea clinicii, ziua, data și ora vizitei și, dacă clinica alege,
@@ -105,7 +119,7 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
       </ul>
     Fișierul de licență conține doar denumirea clinicii, IDNO, tipul și
     termenul abonamentului.</li>
-    <li><b>Pachetul SMS.</b> Pentru datele de la punctul 3 care servesc
+    <li><b>Modulul SMS.</b> Pentru datele de la punctul 3 care servesc
     memento-urilor SMS furnizorul este persoană împuternicită a clinicii, în
     condițiile secțiunii 16 din <a href="termeni.html">Termeni și
     condiții</a>. Serverul furnizorului transmite numărul și textul
@@ -131,7 +145,7 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
 
   <div class="sign">
     <div>
-      <p>Data: 16.10.2026</p>
+      <p>Data: 29.10.2026</p>
     </div>
     <div>
       <p>Oleg Bacalu, antreprenor independent</p>

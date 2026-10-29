@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Acord privind prelucrarea datelor cu caracter personal — DentPilot</title>
+<!--
+  Anexa 3 к договору (29.10.2026): DPA, суженный до фактов. Предмет — ТОЛЬКО
+  номер мобильного пациента и текст напоминания (SMS, § 16 условий) и сеанс
+  удалённой помощи. Категорий медданных из docx (§ 2.2: анамнез и прочие
+  данные о здоровье) здесь нет намеренно: подписав их, поставщик стал бы на
+  бумаге обработчиком медданных, которых он не получает; сторож облака
+  требует, чтобы румынского слова для анамнеза в файле не было вовсе. Субобработчик по данным
+  пациентов один — Rock Soft S.R.L. (SMS.MD); зарубежные провайдеры названы
+  только как получатели данных учётной записи, где поставщик — оператор.
+  ОБЩИЙ документ, как contract.html: подписывает только поставщик, клиника
+  названа через акт акцепта; версия = дата внизу.
+-->
+<style>
+body{margin:0;background:#fff;color:#111;font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;font-size:14.5px;line-height:1.55}
+.wrap{max-width:800px;margin:0 auto;padding:40px 24px 64px}
+h1{font-size:20px;text-align:center;margin:0 0 4px;letter-spacing:-0.01em}
+.sub{text-align:center;color:#555;font-size:13.5px;margin:0 0 24px}
+h2{font-size:15px;margin:22px 0 6px}
+p{margin:0 0 8px}
+.cl{margin:0 0 8px;padding-left:2.6em;text-indent:-2.6em}
+.cl b.n{display:inline-block;width:2.6em;text-indent:0}
+ul{margin:0 0 8px;padding-left:40px}
+li{margin:0 0 4px}
+.sign{margin-top:36px;display:grid;grid-template-columns:1fr 1fr;gap:32px}
+.sign p{margin:0 0 4px}
+.line{border-bottom:1px solid #111;height:32px;margin:14px 0 4px}
+@page{size:A4;margin:16mm 18mm}
+@media print{
+  body{font-size:10.5pt;line-height:1.42;-webkit-font-smoothing:auto}
+  .wrap{max-width:none;padding:0}
+  h1{font-size:15pt}
+  h2{font-size:11.5pt;margin-top:12pt;page-break-after:avoid}
+  .sign{page-break-inside:avoid}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>ACORD PRIVIND PRELUCRAREA DATELOR CU CARACTER PERSONAL</h1>
+<p class="sub">Anexa 3 la Contractul de licență și utilizare a programului
+DentPilot · versiunea din 29.10.2026 · document comun pentru toate
+clinicile, semnat de furnizor</p>
+
+<p>Prezentul acord („acordul”) se aplică între clinica identificată în
+actul de acceptare din contul clinicii („clinica”, operator de date) și
+Oleg Bacalu, antreprenor independent (Legea nr. 228/2025), IDNO
+1026023148339 („furnizorul”, persoană împuternicită de operator), în sensul
+Legii nr. 195/2024 privind protecția datelor cu caracter personal. Acordul
+face parte din contract și se aplică din momentul încheierii lui (contractul,
+clauza 11.1).</p>
+
+<h2>1. Obiectul și domeniul de aplicare</h2>
+<p class="cl"><b class="n">1.1.</b> Acordul se aplică numai operațiunilor în
+care furnizorul prelucrează date cu caracter personal în numele și la
+instrucțiunile clinicii. Acestea sunt două și numai două:</p>
+<ul>
+  <li><b>memento-urile SMS</b> (Termeni și condiții, secțiunea 16): numărul
+  de telefon mobil al pacientului și textul memento-ului, pe care programul
+  le trimite serverului furnizorului pentru a fi predate operatorului SMS;</li>
+  <li><b>sesiunea de asistență la distanță</b> (contractul, clauza 7):
+  datele pacienților vizibile pe ecranul clinicii în timpul unei sesiuni
+  „Asistență rapidă” cerute de clinică.</li>
+</ul>
+<p class="cl"><b class="n">1.2.</b> Pentru orice alte date ale pacienților
+furnizorul nu este persoană împuternicită: nu are acces la fișele,
+programările, documentele și tratamentele pacienților, nu le primește și nu
+le prelucrează. Baza de date a clinicii rămâne pe calculatoarele clinicii
+(contractul, clauza 5, și Anexa 2). Acordul nu transformă furnizorul în
+persoană împuternicită pentru aceste date.</p>
+<p class="cl"><b class="n">1.3.</b> Datele contului clinicii (denumirea,
+IDNO, persoana de contact, e-mailul, telefonul, adresa, licențele, plățile,
+datele tehnice ale calculatoarelor) sunt prelucrate de furnizor în calitate
+de operator în nume propriu, pentru executarea contractului; ele nu fac
+obiectul acordului și sunt descrise în Politica de confidențialitate
+(https://dentpilot.md/privacy.html) și în Anexa 2.</p>
+
+<h2>2. Persoanele vizate și categoriile de date</h2>
+<p class="cl"><b class="n">2.1.</b> Persoanele vizate: pacienții clinicii
+cu o vizită programată și, dacă numărul de telefon din fișă aparține
+reprezentantului pacientului, acel reprezentant.</p>
+<p class="cl"><b class="n">2.2.</b> Datele memento-urilor SMS: numărul de
+telefon mobil (număr din Republica Moldova), textul memento-ului —
+denumirea clinicii, ziua, data și ora vizitei și, la alegerea clinicii,
+telefonul clinicii — și identificatorul tehnic al mesajului. Textul nu
+conține numele pacientului, medicul, serviciul sau alte informații despre
+tratament; textele sunt alcătuite de furnizor, iar clinica alege dintre
+variantele propuse.</p>
+<p class="cl"><b class="n">2.3.</b> Datele sesiunii de asistență la
+distanță: ceea ce se află pe ecranul clinicii în momentul sesiunii —
+de regulă agenda și programările, iar dacă problema semnalată o cere,
+elemente ale fișei pacientului. Furnizorul le vizualizează; nu le
+colectează, nu le copiază și nu le păstrează.</p>
+<p class="cl"><b class="n">2.4.</b> În afara sesiunii de asistență la
+distanță furnizorul nu primește și nu prelucrează fișa medicală,
+diagnosticele, tratamentele, odontograma, documentele pacienților sau alte
+date privind sănătatea. Acordul nu autorizează transmiterea unor astfel de
+date către furnizor, iar clinica nu le transmite pentru suport tehnic
+(contractul, clauza 5.6).</p>
+
+<h2>3. Scopul, durata și instrucțiunile</h2>
+<p class="cl"><b class="n">3.1.</b> Memento-urile SMS se prelucrează numai
+pentru a fi trimise pacienților, conform setărilor alese de clinică în
+program (Setări › SMS): ce memento-uri se trimit, la ce oră, în ce variantă
+de text, pentru care pacienți. Aceste setări, împreună cu marcarea
+refuzului în fișa pacientului, sunt instrucțiunile documentate ale clinicii.
+Sesiunea de asistență la distanță servește numai rezolvării problemei
+semnalate de clinică; cererea clinicii și acordul ei pentru sesiune sunt
+instrucțiunea.</p>
+<p class="cl"><b class="n">3.2.</b> Durata: memento-urile — cât timp
+modulul SMS este pornit, fiecare număr și text — doar pe durata transmiterii
+către operatorul SMS, după care nu se păstrează pe serverul furnizorului
+(rămân doar identificatorul mesajului, numărul de segmente și starea
+livrării); sesiunea de asistență — durata sesiunii.</p>
+<p class="cl"><b class="n">3.3.</b> Furnizorul nu folosește datele pentru
+publicitate, profilare, vânzare sau orice alt scop propriu.</p>
+<p class="cl"><b class="n">3.4.</b> Dacă furnizorul consideră că o
+instrucțiune a clinicii încalcă legislația, o informează înainte de a o
+executa.</p>
+
+<h2>4. Obligațiile furnizorului</h2>
+<p class="cl"><b class="n">4.1.</b> Prelucrează datele numai la
+instrucțiunile clinicii (clauza 3.1) și nu acordă acces la ele altor
+persoane; singura altă persoană împuternicită este operatorul SMS de la
+clauza 6.</p>
+<p class="cl"><b class="n">4.2.</b> Transmite numărul și textul numai prin
+conexiune criptată și nu le păstrează pe serverul său; nu le scrie în
+jurnalele serverului.</p>
+<p class="cl"><b class="n">4.3.</b> Menține serverul cloud.dentpilot.md
+sub administrarea sa, cu acces numai prin chei criptografice, cu jurnal al
+operațiilor și cu copii de rezervă zilnice ale bazei serverului, care nu
+conțin numere de telefon și texte ale memento-urilor.</p>
+<p class="cl"><b class="n">4.4.</b> În sesiunea de asistență la distanță
+respectă clauza 7 a contractului: lucrează numai cu acordul și în prezența
+reprezentantului clinicii, nu copiază, nu exportă, nu fotografiază și nu
+păstrează date ale pacienților, nu deschide fișe care nu sunt necesare.</p>
+<p class="cl"><b class="n">4.5.</b> Ajută clinica să răspundă cererilor
+pacienților, în limita informațiilor pe care le are: la cererea clinicii
+cere operatorului SMS ștergerea mesajelor ei și transmite clinicii fără
+întârziere cererile pacienților primite direct.</p>
+<p class="cl"><b class="n">4.6.</b> Anunță clinica fără întârziere
+nejustificată despre orice încălcare a securității care atinge datele de la
+clauza 1.1, cu informațiile disponibile; notificarea CNPDCP și a
+pacienților o decide și o face clinica, ca operator.</p>
+<p class="cl"><b class="n">4.7.</b> La o cerere rezonabilă pune la
+dispoziția clinicii informațiile necesare pentru a demonstra respectarea
+acordului; un audit se organizează cu notificare prealabilă rezonabilă, în
+timpul programului de lucru, fără a compromite securitatea altor clinici.</p>
+<p class="cl"><b class="n">4.8.</b> La oprirea modulului SMS, la trecerea
+la DentPilot Basic sau la încetarea contractului încetează prelucrarea;
+numere și texte de returnat sau de șters nu există (clauza 3.2), iar la
+cererea clinicii furnizorul cere operatorului SMS ștergerea mesajelor
+ei.</p>
+
+<h2>5. Obligațiile clinicii</h2>
+<p class="cl"><b class="n">5.1.</b> Clinica informează pacienții despre
+memento-urile SMS, stabilește temeiul legal și respectă refuzul
+pacientului: pacientului marcat în fișă ca refuzând memento-urile programul
+nu le trimite.</p>
+<p class="cl"><b class="n">5.2.</b> Clinica răspunde de exactitatea
+numerelor de telefon, de conturile și codurile PIN ale personalului, de
+securitatea calculatoarelor și de copiile de rezervă.</p>
+<p class="cl"><b class="n">5.3.</b> Clinica cere o sesiune de asistență la
+distanță numai printr-un reprezentant autorizat și închide, înainte de
+sesiune, fișele care nu au legătură cu problema semnalată, dacă este
+posibil.</p>
+
+<h2>6. Persoanele împuternicite ulterioare și transferurile</h2>
+<p class="cl"><b class="n">6.1.</b> Singura persoană împuternicită
+ulterioară pentru datele pacienților este operatorul SMS <b>Rock Soft
+S.R.L. (SMS.MD)</b>, Republica Moldova: primește numărul de telefon și
+textul fiecărui memento, le păstrează pe servere din Republica Moldova timp
+de 3 luni și le șterge mai devreme la cerere. Clinica autorizează această
+persoană împuternicită prin acceptarea contractului. Furnizorul anunță
+clinica cu 30 de zile înainte de a o schimba; clinica poate atunci opri
+memento-urile sau trece la DentPilot Basic.</p>
+<p class="cl"><b class="n">6.2.</b> Numărul și textul tranzitează serverul
+furnizorului (cloud.dentpilot.md), găzduit de Contabo GmbH (Germania) într-un
+centru de date din Uniunea Europeană, fără a fi păstrate acolo; Contabo
+furnizează doar infrastructura serverului, nu prelucrează conținutul și este
+ținut de propriile condiții de protecție a datelor. În afara acestui tranzit
+datele pacienților nu părăsesc Republica Moldova.</p>
+<p class="cl"><b class="n">6.3.</b> Ceilalți furnizori folosiți de furnizor
+— Contabo GmbH (găzduirea serverului), Google (serviciul Gmail: e-mailurile
+către clinică și notificările interne ale furnizorului), GitHub, Inc.
+(publicarea versiunilor programului) și maib (plata cu cardul) — prelucrează
+numai datele contului clinicii și datele tehnice descrise în Anexa 2, pentru
+care furnizorul este operator în nume propriu. Ei nu primesc numere de
+telefon sau texte ale memento-urilor și nu sunt persoane împuternicite în
+sensul prezentului acord.</p>
+
+<h2>7. Răspunderea și dispoziții finale</h2>
+<p class="cl"><b class="n">7.1.</b> Fiecare parte răspunde pentru
+obligațiile care îi revin potrivit rolului ei și legii. Limitarea
+răspunderii din contract (clauza 8) se aplică și acordului, în limitele
+permise de lege.</p>
+<p class="cl"><b class="n">7.2.</b> Pentru protecția datelor, în caz de
+contradicție cu contractul, prevalează prezentul acord; secțiunea 16 din
+Termeni și condiții rămâne aplicabilă în tot ce nu este reglementat
+aici.</p>
+<p class="cl"><b class="n">7.3.</b> Acordul se încheie odată cu contractul
+(prin acceptarea Termenilor și condițiilor), pe durata lui, și este guvernat
+de legislația Republicii Moldova. Textul este semnat în prealabil de furnizor
+cu semnătură electronică calificată; clinica îl poate semna, dacă dorește,
+în condițiile clauzei 11.2 din contract. O versiune nouă se publică și se
+anunță ca la clauza 10.2 din contract.</p>
+
+<div class="sign">
+  <div>
+    <p><b>Furnizorul</b> (persoană împuternicită)</p>
+    <p>Oleg Bacalu, antreprenor independent</p>
+    <p>IDNO 1026023148339</p>
+    <div class="line"></div>
+    <p>Semnătura (electronică calificată)</p>
+  </div>
+  <div>
+    <p>Versiunea documentului: 29.10.2026</p>
+    <p>Clinica (operator): identificată în actul de acceptare din contul
+    clinicii; semnătura ei este opțională.</p>
+  </div>
+</div>
+
+</div>
+</body>
+</html>
