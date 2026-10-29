@@ -1068,7 +1068,7 @@ _TABS_JS = ("(function(){var r=document.querySelector('.tabbed');if(!r)return;"
             "var tabs=r.querySelectorAll('[data-tab]'),panes=r.querySelectorAll('[data-pane]');"
             "function show(){var k=location.hash.slice(1),ok=false;"
             "panes.forEach(function(p){if(p.getAttribute('data-pane')===k)ok=true});"
-            "if(!ok)k=panes[0].getAttribute('data-pane');"
+            "if(!ok)k=r.getAttribute('data-default')||panes[0].getAttribute('data-pane');"
             "panes.forEach(function(p){p.classList.toggle('on',p.getAttribute('data-pane')===k)});"
             "tabs.forEach(function(t){var on=t.getAttribute('data-tab')===k;t.classList.toggle('on',on);"
             "t.setAttribute('aria-selected',on?'true':'false')})}"
@@ -1781,6 +1781,20 @@ a.btn.sm,button.sm{padding:8px 14px;font-size:14px;border-radius:9px}
 .gsel{width:100%;font-size:14px;padding:9px 10px}
 @media (max-width:720px){.crow{grid-template-columns:1fr 1fr;gap:10px 14px}.crow .who{grid-column:1/-1}.crow .act{grid-column:1/-1;justify-content:stretch}.crow .act>*{flex:1}.crow .act a.btn,.crow .act button{width:100%}.code{gap:5px}.code span{width:40px;height:52px;font-size:26px}}
 @media (max-width:900px){.hero{grid-template-columns:1fr}.grid2{grid-template-columns:1fr}.split{grid-template-columns:1fr}.auth{grid-template-columns:1fr}.auth .brand{padding:28px 22px}.auth .form{padding:26px 22px}}
+/* вкладки кабинета (29.10, вариант 1 Олега): полоса под заголовком, метка адреса, без перезагрузки */
+.ctabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:0 0 20px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+.ctabs a{display:inline-flex;align-items:center;gap:8px;padding:11px 16px;margin-bottom:-1px;border-bottom:2px solid transparent;color:var(--muted);text-decoration:none;font-weight:600;font-size:14.5px;white-space:nowrap}
+.ctabs a svg{opacity:.75}.ctabs a:hover{color:var(--ink)}.ctabs a.on{color:var(--teal-d);border-bottom-color:var(--teal)}.ctabs a.on svg{opacity:1}
+.ctabs .n{min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:#FFF3D6;color:#B45309;font-size:12px;display:inline-flex;align-items:center;justify-content:center}
+.tabbed:not(.js) .ctabs{display:none}.tabbed.js .pane{display:none}.tabbed.js .pane.on{display:block}
+.pane>.card:last-child,.pane>.grid2:last-child{margin-bottom:0}
+/* клиники кабинета под заголовком: чипы, на телефоне — список */
+.cpick{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:-6px 0 18px}
+.cpick a{display:inline-flex;align-items:center;gap:8px;padding:7px 12px 7px 10px;border-radius:999px;border:1px solid #D8E2DF;background:#fff;color:var(--ink);text-decoration:none;font-size:14px;font-weight:600}
+.cpick a .tag{font-size:11.5px;padding:2px 8px}.cpick a.on{border-color:var(--teal);background:var(--teal-soft);color:var(--teal-d)}
+.cpick a.add{color:var(--teal-d);border-style:dashed}.cpick .k{font-size:13px;color:var(--muted);margin-right:4px}
+.cpick-sel{display:none;margin:-6px 0 18px}
+@media (max-width:720px){.ctabs{margin:0 -16px 18px;padding:0 16px}.ctabs a{padding:10px 12px;font-size:14px}.cpick{display:none}.cpick-sel{display:block}}
 @media (max-width:720px){.seg{display:grid;grid-template-columns:1fr}.seg label{padding:10px 12px}.total .s{font-size:20px}.chead .right{margin-left:0;flex-basis:100%}.price{white-space:normal}.wrap{padding:22px 16px 48px}.top-in{padding:0 16px;height:60px}.logo .sub{display:none}.acc .em{display:none}.card{padding:18px 16px;border-radius:16px}.hero .main{padding:20px 18px}.hero .side{padding:20px 18px}button.primary,a.btn,a.gbtn{width:100%}}
 """
 # Знак DentPilot v2 (05.10.2026): зуб с лентой и стрелкой-«пилотом». ⛔ Облако
@@ -2483,7 +2497,7 @@ def _cont_sms(c, info: dict, q: str = "") -> str:
         paper = info["paper"]
         miss = info["missing"]
         if miss:
-            step1 = (f"<p class='muted' style='margin:6px 0 0'>Lipsesc din <a href='{esc(info.get('data_href') or '#date')}'>datele clinicii</a>: "
+            step1 = (f"<p class='muted' style='margin:6px 0 0'>Lipsesc din <a href='{esc(info.get('data_href') or '#clinica')}'>datele clinicii</a>: "
                      f"{esc(', '.join(miss))}. Completați-le și cererea se poate descărca.</p>")
         else:
             step1 = (f"<form method='post' action='/cont/sms/cerere.pdf{q}' style='margin:6px 0 0'>"
@@ -2520,7 +2534,7 @@ def _cont_sms(c, info: dict, q: str = "") -> str:
     if shared:
         body = (f"<p class='muted' style='margin:0 0 12px'>Numele expeditorului este comun pentru clinicile din acest "
                 f"cont: cererea, documentul semnat și anul numelui sunt la <b>{esc(shared)}</b>.</p>") + body
-    return f"<div class='card' id='sms'>{_chead('message', 'SMS · numele expeditorului', sub)}{body}</div>"
+    return f"<div class='card'>{_chead('message', 'SMS · numele expeditorului', sub)}{body}</div>"
 
 
 def _crow(x: dict, on: bool, now: datetime) -> str:
@@ -2545,7 +2559,7 @@ def _crow(x: dict, on: bool, now: datetime) -> str:
         tag = f"<span class='tag {cls}'>{esc(word)}</span>"
     opn = f"<a class='btn second sm' href='/cont?c={cid}'>Deschide</a>"
     if on:
-        act = "<span class='here'>deschisă mai jos</span>"
+        act = "<span class='here'>deschisă acum</span>"
     elif not n and not c["declined_at"]:
         act = (f"<form method='post' action='/cont/cod?c={cid}'><button class='primary sm'>Cod de activare</button>"
                f"</form>{opn}")
@@ -2567,7 +2581,7 @@ def _clinics_card(cab: list, cur: str, now: datetime) -> str:
     add = f"<a class='btn sm' href='/cont/clinica-noua?c={esc(cur)}'>{_ic('plus')} Adaugă clinică</a>"
     common = "<a class='btn second sm' href='/cont/nota-comuna'>Notă comună</a>"
     sub = f"{len(cab)} clinici în acest cont · fiecare are licența și abonamentul ei"
-    return (f"<div class='card' id='clinici'>{_chead('building', 'Clinicile mele', sub, common + ' ' + add)}"
+    return (f"<div class='card'>{_chead('building', 'Clinicile mele', sub, common + ' ' + add)}"
             f"<div class='clist'>{''.join(_crow(x, x['c']['id'] == cur, now) for x in cab)}</div></div>")
 
 
@@ -2581,18 +2595,10 @@ def _doc_line(d: dict, q: str = "") -> str:
     return f"<li><b>{esc(d['title'])}</b>{ver} — {link}<br><span class='muted'>{esc(d['what'])}</span></li>"
 
 
-def _cont_docs_card(c, docs: list, q: str = "") -> str:
-    """Дашборд › «Documente»: три подписанных поставщиком PDF и дверь в раздел."""
-    btn = f"<a class='btn second sm' href='/cont/documente{q}'>Documente</a>"
-    items = "".join(_doc_line(d, q) for d in docs)
-    return (f"<div class='card' id='documente'>{_chead('file', 'Documente', 'contractul, acordul de prelucrare și declarația — semnate de furnizor', btn)}"
-            f"<ul class='steps' style='margin:0'>{items}</ul></div>")
-
-
-def cont_documents_page(acc, c, docs: list, mine: list, fragment: str = "", msg: str = "", q: str = "") -> str:
-    """Кабинет › «Documente» (29.10, contracts.py): подписанные поставщиком PDF — скачать; акты акцепта
-    условий — фрагмент terms-evidence (`fragment`) или общая строка; загрузка экземпляра клиники со
-    своей подписью (по желанию) и список загруженных."""
+def _cont_docs_body(c, docs: list, mine: list, fragment: str = "", q: str = "") -> str:
+    """Вкладка «Documente» (29.10, contracts.py): подписанные поставщиком PDF — скачать; акты акцепта
+    условий — фрагмент terms (`fragment`) или общая строка; загрузка экземпляра клиники со своей
+    подписью (по желанию) и список загруженных."""
     mine = list(mine)
     items = "".join(_doc_line(d, q) for d in docs)
     about = ("<p class='muted' style='margin:0 0 12px'>Documentele sunt semnate electronic de furnizor (semnătură "
@@ -2622,14 +2628,47 @@ def cont_documents_page(acc, c, docs: list, mine: list, fragment: str = "", msg:
               f"părți: descărcați PDF-ul de mai sus, semnați-l cu semnătura electronică a clinicii (MSign) sau tipăriți-l, "
               f"semnați-l și scanați-l, apoi încărcați-l aici. Rămâne în contul clinicii; furnizorul îl vede în fișa clinicii.</p>"
               f"{form}{have}</div>")
-    back = f"<p style='margin:0 0 16px'><a href='/cont{q}'>‹ Înapoi în contul clinicii</a></p>"
-    return _cont_shell("Documente", back + prov + accept + upload, acc, msg, eyebrow=f"Contul clinicii · {c['name']}")
+    return prov + accept + upload
+
+
+# Вкладки кабинета (29.10, вариант 1 Олега): ключ, значок, подпись. ⛔ Ключ не равен ни одному id
+# страницы — иначе метка адреса прокрутит к элементу (то же правило, что у карточки админки);
+# прежние якоря блоков #plati и #date ведут на вкладку (data_href → #clinica). Держит test_cont_tabs.
+CONT_TABS = (("licenta", "shield", "Licență și program"), ("plati", "card", "Abonament și plăți"),
+             ("clinica", "building", "Clinica"), ("sms", "message", "SMS"), ("documente", "file", "Documente"))
+
+
+def _cpick(cab: list, cur: str, now: datetime) -> str:
+    """Клиники кабинета под заголовком: чипы с состоянием (открытая — бирюзой) и «Adaugă clinică»;
+    на телефоне вместо чипов — список `<select>` (переход — страницей, вкладка остаётся меткой)."""
+    chips, opts = ["<span class='k'>Clinicile contului:</span>"], []
+    for x in cab:
+        c, sub, issue = x["c"], x["sub"], x["issue"]
+        if issue is None:
+            cls, word = ("bad", "închisă") if c["declined_at"] else ("mute", "în lucru")
+        else:
+            st = license.state(_ts(sub["valid_until"]) if sub else None, sub["grace_days"] if sub else 0, now)
+            cls, word = STATE_RO.get(st, ("mute", st))
+            if st == "active" and issue["reason"] == pay.ADVANCE:
+                cls, word = ADVANCE_TAG
+        on = c["id"] == cur
+        chips.append(f"<a class='{'on' if on else ''}' href='/cont?c={esc(c['id'])}'>{esc(c['name'])} "
+                     f"<span class='tag {cls}'>{esc(word)}</span></a>")
+        opts.append(f"<option value='/cont?c={esc(c['id'])}'{' selected' if on else ''}>{esc(c['name'])} · {esc(word)}</option>")
+    chips.append(f"<a class='add' href='/cont/clinica-noua?c={esc(cur)}'>{_ic('plus', 15)} Adaugă clinică</a>")
+    opts.append(f"<option value='/cont/clinica-noua?c={esc(cur)}'>+ Adaugă clinică</option>")
+    return (f"<div class='cpick'>{''.join(chips)}</div>"
+            f"<div class='cpick-sel'><label>Clinica</label><select class='gsel' onchange='location.href=this.value'>"
+            f"{''.join(opts)}</select></div>")
 
 
 def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", devices: list = (),
               smsinfo: dict | None = None, cab: list = (), group=None, scoped: bool = False,
-              branch: bool = False, docs: list = ()) -> str:
-    """Дашборд клиники в кабинете. `scoped` — вошли кнопкой программы (27.10, contlink.py): одна
+              branch: bool = False, docs: list = (), docs_mine: list = (), docs_fragment: str = "",
+              tab: str = "") -> str:
+    """Дашборд клиники в кабинете — по вкладкам (29.10): Licență și program · Abonament și plăți · Clinica
+    · SMS (когда пакет предложен) · Documente; `tab` — вкладка по умолчанию без метки адреса
+    (/cont/documente открывает «Documente»), иначе первая. `scoped` — вошли кнопкой программы (27.10, contlink.py): одна
     клиника, без общей ноты и «Adaugă clinică»; `branch` — она в кабинете с другими (код компьютера —
     из кабинета, как у нескольких клиник, но без их имён). `cab` — клиники учётной записи для списка (26.10): больше
     одной — список «Clinicile mele» сверху, формы несут клинику (?c=), код компьютера на
@@ -2703,19 +2742,21 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
         who = (f"<p style='margin:0 0 6px'>Autentificat prin e-mail: <b>{esc(acc['email'])}</b>.</p>"
                f"<p class='muted' style='margin:0 0 14px'>Intrarea se face cu un cod trimis pe acest e-mail; parolă "
                f"nu există — <a href='{esc(site)}/privacy.html'>Politica de confidențialitate</a>, § 5.</p>")
-    addline = "" if multi or scoped else (
-        f"<div class='addline'><p><b>Clinica are și alte sedii?</b> Adăugați fiecare filială ca o clinică nouă în "
-        f"acest cont: cu licența și abonamentul ei, aceeași intrare.</p>"
-        f"<a class='btn second sm' href='/cont/clinica-noua'>{_ic('plus')} Adaugă clinică</a></div>")
-    acct = (f"<div class='card'>{_chead('user', 'Contul')}{who}{addline}"
-            f"<form method='post' action='/cont/iesire' style='margin-top:{'16px' if addline else 'auto'}'>"
-            f"<button>Ieșire</button></form></div>")
+    acct = (f"<div class='card'>{_chead('user', 'Contul')}{who}"
+            f"<form method='post' action='/cont/iesire' style='margin-top:auto'><button>Ieșire</button></form></div>")
+    # одна клиника: «Adaugă clinică» — карточкой «Filiale» во вкладке Clinica (у кабинета с несколькими —
+    # список «Clinicile mele» там же, кнопка в нём и в чипах под заголовком)
+    branches = "" if multi or scoped else (
+        f"<div class='card'>{_chead('building', 'Filiale', 'fiecare sediu — o clinică în acest cont')}"
+        f"<div class='addline' style='border-top:0;margin-top:0;padding-top:0'><p><b>Clinica are și alte sedii?</b> "
+        f"Adăugați fiecare filială ca o clinică nouă în acest cont: cu licența și abonamentul ei, aceeași intrare.</p>"
+        f"<a class='btn second sm' href='/cont/clinica-noua'>{_ic('plus')} Adaugă clinică</a></div></div>")
     cur = tiers.current(sub)
     chip = (f"<span class='price'>perioada de probă · {tiers.NAME[cur]}</span>" if sub is None or sub["plan"] == "trial"
             else f"<span class='price'>{tiers.NAME[cur]} · {_mdl(tiers.price(sub, cur))} MDL / lună</span>")
-    pays = (f"<div class='card' id='plati'>{_chead('card', 'Abonament și plăți', 'abonamentul acestei clinici' if multi else 'un singur abonament pentru toată clinica', chip)}"
+    pays = (f"<div class='card'>{_chead('card', 'Abonament și plăți', 'abonamentul acestei clinici' if multi else 'un singur abonament pentru toată clinica', chip)}"
             f"{_cont_payments(c, sub, payments, q, group, group_link=not scoped)}</div>")
-    data = (f"<div class='card' id='date'>{_chead('building', 'Datele clinicii', 'apar în nota de plată și în licență')}"
+    data = (f"<div class='card'>{_chead('building', 'Datele clinicii', 'apar în nota de plată și în licență')}"
             f"<form method='post' action='/cont/date{q}'><div class='grid'>"
             f"<div><label>Denumirea clinicii *</label><input name='name' value='{esc(c['name'])}' required maxlength='{trial.NAME_MAX}'></div>"
             f"<div><label>IDNO (13 cifre)</label><input name='idno' value='{esc(c['idno'])}' maxlength='13' inputmode='numeric'></div>"
@@ -2726,11 +2767,23 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
             f"<span class='muted'>pentru schimbare scrieți-ne</span></div></div>"
             f"<p style='margin:16px 0 0'><button class='primary'>Salvează</button></p></form></div>")
     sms_card = _cont_sms(smsinfo.get("clinic") or c, smsinfo, q) if smsinfo is not None else ""
-    docs_card = _cont_docs_card(c, list(docs), q) if docs else ""
-    top = _clinics_card(cab, c["id"], now) if multi else ""
+    panes = {"licenta": hero + f"<div class='grid2'>{devs}{acct}</div>", "plati": pays,
+             "clinica": data + (_clinics_card(cab, c["id"], now) if multi else "") + branches,
+             "sms": sms_card, "documente": _cont_docs_body(c, list(docs), docs_mine, docs_fragment, q)}
+    # счётчик «ждёт вас» у вкладки: открытая нота (своя или общая); имя SMS запрошено, заявление не загружено
+    counts = {"plati": 1 if (pending or group is not None) else 0,
+              "sms": 1 if (smsinfo is not None and smsinfo["acc"] is not None
+                           and smsinfo["acc"]["sender_state"] == "requested" and not smsinfo.get("paper")) else 0}
+    tabs = [(k, i, t) for k, i, t in CONT_TABS if panes[k]]
+    nav = "".join(f"<a href='#{k}' data-tab='{k}' role='tab'>{_ic(i, 17)}<span>{t}</span>{_n(counts.get(k, 0))}</a>"
+                  for k, i, t in tabs)
+    body = "".join(f"<section class='pane' data-pane='{k}'>{panes[k]}</section>" for k, _, _ in tabs)
+    default = f" data-default='{tab}'" if tab in panes and panes[tab] else ""
+    inner = (f"<div class='tabbed'{default}><nav class='ctabs' role='tablist'>{nav}</nav>{body}</div>"
+             f"<script>{_TABS_JS}</script>")
+    top = _cpick(cab, c["id"], now) if multi else ""
     eyebrow = f"Contul clinicii · {len(cab)} clinici" if multi else "Contul clinicii"
-    return _cont_shell(c["name"], top + hero + f"<div class='grid2'>{devs}{acct}</div>" + pays + sms_card + docs_card + data,
-                       acc, msg, eyebrow=eyebrow)
+    return _cont_shell(c["name"], top + inner, acc, msg, eyebrow=eyebrow)
 
 
 # ---------- кабинет: клиника в кабинет, код компьютера, общая нота (26.10) ----------

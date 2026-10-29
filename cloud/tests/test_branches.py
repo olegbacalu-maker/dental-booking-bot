@@ -267,8 +267,8 @@ def suite_cabinet(res: Result) -> None:
                    and "включена сама" in b for b in oleg), repr(oleg)[-800:])
 
         home = c.get(f"/cont?c={main}")
-        res.ok("две клиники: список «Clinicile mele» над дашбордом, открытая подсвечена, у другой — «Deschide»",
-               "Clinicile mele" in home.body and "deschisă mai jos" in home.body and f"href='/cont?c={bid}'" in home.body
+        res.ok("две клиники: список «Clinicile mele» (вкладка Clinica), открытая подсвечена, у другой — «Deschide»",
+               "Clinicile mele" in home.body and "deschisă acum" in home.body and f"href='/cont?c={bid}'" in home.body
                and "Notă comună" in home.body and "2 clinici" in home.body, home.body[:4000])
         res.ok("две клиники: формы несут свою клинику (?c=)",
                f"action='/cont/date?c={main}'" in home.body and f"action='/cont/nota?c={main}'" in home.body

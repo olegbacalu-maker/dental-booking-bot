@@ -1788,10 +1788,10 @@ def _cont_row(con, c) -> dict:
             "group": payments.group_of(con, c["id"])}
 
 
-@app.get("/cont", response_class=HTMLResponse)
-def cont_home(request: Request, msg: str = "", c: str = "") -> Response:
-    """Кабинет: дашборд открытой клиники (`?c=` — какой; без него — открытой последней), у
-    записи с несколькими клиниками — список «Clinicile mele» сверху (26.10)."""
+def _cont_dashboard(request: Request, msg: str, c: str, tab: str = "") -> Response:
+    """Кабинет: дашборд открытой клиники по вкладкам (`?c=` — какой; без него — открытой последней),
+    у записи с несколькими клиниками — чипы клиник под заголовком (26.10, 29.10). `tab` — вкладка
+    по умолчанию (/cont/documente)."""
     with db.connect() as con:
         acc = _current_account(con, request)
         if acc is None:
@@ -1811,6 +1811,7 @@ def cont_home(request: Request, msg: str = "", c: str = "") -> Response:
         devices = fleet.of_clinic(con, cl["id"])
         group = payments.group_of(con, cl["id"])
         cab = [_cont_row(con, r) for r in mine] if len(mine) > 1 else []
+        q = f"?c={cl['id']}" if len(mine) > 1 else ""
         sa = con.execute("SELECT * FROM sms_accounts WHERE clinic_id=?", (cl["id"],)).fetchone()
         smsinfo = None
         # вход кнопкой программы (27.10): одна клиника; в кабинете ли она с другими — только для
@@ -1827,11 +1828,20 @@ def cont_home(request: Request, msg: str = "", c: str = "") -> Response:
             smsinfo = {"acc": osa, "from": sms.sender_for(con, cl["id"]), "suggest": sms.suggest(owner["name"]),
                        "paper": sms_paper.current(con, owner["id"]), "missing": sms_paper.missing(owner),
                        "clinic": owner, "shared": "" if mine_name else owner["name"],
-                       "data_href": "#date" if mine_name else f"/cont?c={owner['id']}#date"}
+                       "data_href": "#clinica" if mine_name else f"/cont?c={owner['id']}#clinica"}
+        # вкладка «Documente» (29.10, contracts.py): экземпляры клиники и акты акцепта (terms.py)
+        docs_mine = contracts.of_clinic(con, cl["id"])
+        docs_fragment = contracts.terms_fragment(con, cl, q)
     # последний выпуск — из памяти или одним запросом к API; вне транзакции
     return HTMLResponse(views.cont_page(acc, cl, sub, issue, pays, download.latest(), msg, devices=devices,
                                         smsinfo=smsinfo, cab=cab, group=group, scoped=scoped, branch=branch,
-                                        docs=contracts.statuses()))
+                                        docs=contracts.statuses(), docs_mine=docs_mine, docs_fragment=docs_fragment,
+                                        tab=tab))
+
+
+@app.get("/cont", response_class=HTMLResponse)
+def cont_home(request: Request, msg: str = "", c: str = "") -> Response:
+    return _cont_dashboard(request, msg, c)
 
 
 @app.get(contlink.PATH + "/{lid}", response_class=HTMLResponse)
@@ -2352,16 +2362,8 @@ def _cont_docs_back(request: Request, code: str) -> str:
 
 @app.get("/cont/documente", response_class=HTMLResponse)
 def cont_documents(request: Request, msg: str = "", c: str = "") -> Response:
-    with db.connect() as con:
-        acc, cl = _cont_clinic(request, con, c, post=False)
-        if acc is None:
-            return _cont_login_redirect()
-        if cl is None:
-            return RedirectResponse("/cont", status_code=303)
-        mine = contracts.of_clinic(con, cl["id"])
-        q = f"?c={cl['id']}" if len(account.clinics(con, acc)) > 1 else ""
-        fragment = contracts.terms_fragment(con, cl, q)      # акты акцепта (terms.py, 29.10) — в том же разделе
-    return HTMLResponse(views.cont_documents_page(acc, cl, contracts.statuses(), mine, fragment, msg, q=q))
+    """Раздел «Documente» — кабинет, открытый на этой вкладке (29.10): адрес живёт в письмах и в акте."""
+    return _cont_dashboard(request, msg, c, tab="documente")
 
 
 @app.get("/cont/documente/{doc}.pdf")

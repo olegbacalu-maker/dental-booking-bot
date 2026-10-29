@@ -19,6 +19,7 @@ import test_clinics  # noqa: E402
 import test_contlink  # noqa: E402
 import test_contract  # noqa: E402
 import test_contracts  # noqa: E402
+import test_cont_tabs  # noqa: E402
 import test_deploy  # noqa: E402
 import test_email  # noqa: E402
 import test_fleet  # noqa: E402
@@ -106,6 +107,8 @@ SUITES = [
      test_branches.suite_forms),
     ("Филиалы: несколько клиник у входа, «Adaugă clinică», форма несёт клинику, чужой IDNO, вход по ящику",
      test_branches.suite_cabinet),
+    ("Кабинет по вкладкам: пять вкладок, ключи без id, счётчики, чипы клиник, /cont/documente на вкладке",
+     test_cont_tabs.suite_tabs),
     ("Филиалы: код компьютера из кабинета — провод программы, свой кабинет, ошибки, срок, переезд",
      test_branches.suite_code),
     ("Филиалы: общая нота — строки, замена, долг один, свои файлы, один документ, отмена, зачёт",

@@ -155,11 +155,13 @@ def suite_cabinet(res: Result) -> None:
 
             cab = _cabinet(s, "docs@example.md")
             home = cab.get("/cont").body
-            res.ok("дашборд: карточка «Documente» с тремя PDF и версиями",
-                   "id='documente'" in home and "/cont/documente/contract.pdf" in home
+            res.ok("дашборд: вкладка «Documente» с тремя PDF и версиями (29.10: вкладка, не карточка-дверь)",
+                   "data-pane='documente'" in home and "/cont/documente/contract.pdf" in home
                    and "/cont/documente/dpa.pdf" in home and "/cont/documente/declaratie.pdf" in home
-                   and "versiunea 29.10.2026" in home and "href='/cont/documente'" in home, home[-4000:])
+                   and "versiunea 29.10.2026" in home and "data-tab='documente'" in home, home[-4000:])
             page = cab.get("/cont/documente").body
+            res.ok("/cont/documente — кабинет, открытый на вкладке «Documente» (адрес из писем и акта)",
+                   "data-default='documente'" in page and "data-tab='licenta'" in page, page[:3000])
             res.ok("раздел: три документа, блок актов — фрагмент terms (актов нет: совет из программы), форма загрузки",
                    all(contracts.DOCS[k]["title"] in page for k in contracts.DOCS)
                    and "Acceptarea termenilor" in page and "Acceptarea a fost înregistrată local" in page

@@ -146,7 +146,7 @@ def suite_cabinet(res: Result) -> None:
             res.ok("кабинет: шаги — скачать, подписать, загрузить; не хватает адреса и телефона",
                    "cerere în lucru" in home and "Descărcați cererea completată" in home
                    and "Încarcă cererea semnată" in home and "enctype='multipart/form-data'" in home
-                   and "Lipsesc din <a href='#date'>datele clinicii</a>: adresa, telefonul" in home, home[-4000:])
+                   and "Lipsesc din <a href='#clinica'>datele clinicii</a>: adresa, telefonul" in home, home[-4000:])
             res.check("без адреса и телефона заявление не скачать — sms_paper_data",
                       _msg(cab.post("/cont/sms/cerere.pdf", rep="Ion Popescu")), "sms_paper_data")
             cab.post("/cont/date", name="Zambet Dent", idno="1234567890123", contact_name="Ion Popescu",
