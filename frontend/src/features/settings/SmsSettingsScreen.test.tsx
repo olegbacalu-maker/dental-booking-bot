@@ -121,7 +121,7 @@ describe('SmsSettingsScreen', () => {
 
   it('шесть пакетов с сервера: экран рисует все, в порядке сервера (по units), без своего списка', async () => {
     // цены — только с сервера (cloud.env DP_SMS_PACKS; в Git цен нет): число кнопок = число пакетов
-    const packs = [100, 200, 300, 400, 500, 1000].map((units, i) => ({ units, price: [1, 2, 3, 4, 5, 7][i] * 10 }))
+    const packs = [100, 200, 300, 400, 500, 1000].map((units, i) => ({ units, price: ([1, 2, 3, 4, 5, 7][i] ?? 0) * 10 }))
     get.mockResolvedValueOnce(ok({ ...BASE, account: { ...BASE.account!, packs } }))
     open()
     await screen.findByText('42')
