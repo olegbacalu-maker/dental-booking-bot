@@ -82,12 +82,17 @@ export interface ServiceEntry {
   urgent: boolean
   /** id врачей; пусто = все. */
   docs: string[]
+  /** «Rechemări» (29.10): срок отзыва, месяцев; 0 — не участвует. Нет ключа в
+   *  строке — «не сообщали», сервер берёт из конфига (прайор 08-16). */
+  recall?: number
 }
 
 export interface ServicesData {
   services: ServiceEntry[]
   palette: Record<string, string>
   durations: number[]
+  /** Белый список сроков отзыва с нулём впереди (`core/recall.MONTHS`). */
+  recalls: number[]
   doctors: { id: string; name: string }[]
 }
 

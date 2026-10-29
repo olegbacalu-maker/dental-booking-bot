@@ -100,6 +100,7 @@ const CARD: PatientCard = {
     when: '18.09.2026', author: 'Director',
   },
   ocluzie: { filled: false, fields: { angle_dr: '', angle_st: '', overjet: '', overbite: '', incrucisata: '', deschisa: '', mediana_mm: '', mediana_spre: '', nota: '', doctor: '' }, summary: '', when: '', author: '' },
+  recall: [],
   plan: {
     items: [
       { id: 1, tooth: 11, procedure: 'Coroană 11', doctor: 'Dr. Activ Doi', status: 'in_lucru', label: 'În lucru', price: 1200, due: '', overdue: false, done: '', motiv: '', next: 'finalizat', refusable: true, deletable: false },
@@ -969,6 +970,49 @@ describe('PatientCardScreen', () => {
     expect(risk().textContent).toContain('Alergii: latex')
     await tabTo('Plan și plăți')
     expect(risk().textContent).toContain('Alergii: latex')
+  })
+
+  it('29.10: строка срока «Rechemări» под полосой рисков: просрочено красным, скоро янтарным, «nu reamintim · Anulează» только с правом', async () => {
+    const line = { service: 'Igienizare', service_id: 'hygiene', last: '02.04.2026', next: '02.10.2026', late_days: 4,
+      late: 'întârziere 4 zile', stop: false, can_clear: false, mark: null }
+    serve({ ...CARD, recall: [line, { ...line, service: 'Consultație', service_id: 'consult', late_days: -9, late: 'peste 9 zile' }] })
+    open()
+    await settled()
+    const note = screen.getByRole('note', { name: 'Rechemări' })
+    const spans = Array.from(note.querySelectorAll(':scope > span'))
+    expect(spans.map((s) => s.textContent)).toEqual([
+      'Igienizare: ultima 02.04.2026 · următoarea ~02.10.2026 · întârziere 4 zile',
+      'Consultație: ultima 02.04.2026 · următoarea ~02.10.2026 · peste 9 zile'])
+    expect(spans[0]?.className).toBe('late')
+    expect(spans[1]?.className).toBe('')
+    cleanup()
+    /* stop без права (врач) — серым, без «Anulează»; с правом — кнопка шлёт clear и перечитывает фишу */
+    serve({ ...CARD, recall: [{ ...line, stop: true, can_clear: false,
+      mark: { result: 'stop', word: 'nu mai reamintim', at: '20.10', actor: 'Director' } }] })
+    open()
+    await settled()
+    expect(screen.getByRole('note', { name: 'Rechemări' }).querySelector('span')?.className).toBe('off')
+    expect(screen.queryByRole('button', { name: 'Anulează' })).toBeNull()
+    cleanup()
+    const stopped = { ...CARD, recall: [{ ...line, stop: true, can_clear: true,
+      mark: { result: 'stop', word: 'nu mai reamintim', at: '20.10', actor: 'Director' } }] }
+    serve(stopped)
+    post.mockResolvedValueOnce(ok(null, 'ok_recall', 'Marcaj salvat'))
+    open()
+    await settled()
+    expect(screen.getByRole('note', { name: 'Rechemări' }).textContent).toContain('nu reamintim')
+    get.mockImplementation((path: string) => (path === '/patients/5'
+      ? Promise.resolve(ok({ ...CARD, recall: [line] })) : Promise.resolve(ok(CARD))))
+    fireEvent.click(screen.getByRole('button', { name: 'Anulează' }))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/recall/mark', { pid: 5, service_id: 'hygiene', result: 'clear' }))
+    expect(await screen.findByText('Marcaj salvat')).toBeTruthy()
+    await waitFor(() => expect(screen.getByRole('note', { name: 'Rechemări' }).textContent).toContain('întârziere 4 zile'))
+    cleanup()
+    /* без услуг со сроком строки нет */
+    serve(CARD)
+    open()
+    await settled()
+    expect(screen.queryByRole('note', { name: 'Rechemări' })).toBeNull()
   })
 
   it('шапка: без рисков полосы нет; анамнез не собирали — мягкое напоминание с кнопкой', async () => {

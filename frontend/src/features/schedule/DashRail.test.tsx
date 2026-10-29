@@ -98,6 +98,7 @@ const DESK: Desk = {
     cash: { total_s: '1 700', parts: [{ method: 'numerar', sum_s: '1 200' }, { method: 'card', sum_s: '500' }] },
     casa_href: '/admin/casa?d=2026-09-19',
   },
+  recall: null,
   free: [
     { dk: 'd2', name: 'Dr. Ion', when: 'azi 11:00', today: true, href: '/admin?date=2026-09-19' },
     { dk: 'd3', name: 'Dr. Ana', when: 'mâine 09:00', today: false, href: '/admin?date=2026-09-21' },
@@ -380,6 +381,55 @@ describe('03.10: поток пациента — вкладки над пове�
     expect(document.querySelector('.fl-empty')?.textContent).toBe('Nimeni nu întârzie')
     open('În cabinet')
     expect(document.querySelector('.fl-empty')?.textContent).toBe('Nimeni în cabinet')
+  })
+})
+
+describe('29.10: «Rechemări» в «La recepție» (В5 = А: последним)', () => {
+  const RC = { n: 5, items: [
+    { pid: 31, name: 'Maria Ceban', phone: '069 123 456', email: 'maria@example.md', lang: 'ro', service_id: 'hygiene',
+      service: 'Igienizare', months: 6, last_at: '2026-03-20', doctor: 'Dr. Ion', due: '2026-09-20', late_days: -1,
+      late: 'mâine', booked: null, mark: null, tab: 'due' as const },
+    { pid: 32, name: 'Elena Rotari', phone: '', email: '', lang: 'ro', service_id: 'hygiene',
+      service: 'Igienizare', months: 6, last_at: '2026-02-10', doctor: 'Dr. Ion', due: '2026-08-10', late_days: 40,
+      late: 'întârziere 5 săpt.', booked: { date: '03.11', service: 'Plombă' }, mark: null, tab: 'due' as const },
+    { pid: 33, name: 'Victor Bodiu', phone: '069 000 001', email: '', lang: 'ro', service_id: 'hygiene',
+      service: 'Igienizare', months: 6, last_at: '2026-02-01', doctor: 'Dr. Ion', due: '2026-08-01', late_days: 49,
+      late: 'întârziere 7 săpt.', booked: null,
+      mark: { result: 'noanswer' as const, word: 'nu răspunde', until: '', n_noanswer: 2, at: '18.09', actor: 'Ana' }, tab: 'due' as const },
+  ] }
+
+  it('раздел последним в карточке стойки: счётчик, три строки, телефон и конверт, «încă N · toată lista»', () => {
+    show({ desk: { ...DESK, recall: RC } })
+    const secs = Array.from(document.querySelectorAll('.desk .dk-sec')).map((s) => s.getAttribute('data-fold'))
+    expect(secs[secs.length - 1]).toBe('desk:recall')
+    const sec = screen.getByText('Rechemări').closest('.dk-sec') as HTMLElement
+    expect(sec.querySelector('.dk-cnt')?.textContent).toBe('5')
+    expect(sec.querySelector('.dk-ico')?.className).toContain('teal')
+    const rows = Array.from(sec.querySelectorAll('.dk-row'))
+    expect(rows.map((r) => r.querySelector('b')?.textContent)).toEqual(['Maria Ceban', 'Elena Rotari', 'Victor Bodiu'])
+    expect(rows[0]?.querySelector('a')?.getAttribute('href')).toBe('/admin/patient/31')
+    expect(rows[0]?.querySelector('small')?.textContent).toBe('Igienizare · mâine')
+    expect(rows[1]?.querySelector('small')?.textContent).toBe('Igienizare · întârziere 5 săpt. · programat 03.11')
+    expect(rows[2]?.querySelector('.dk-no')?.textContent).toContain('nu răspunde ×2 18.09')
+    expect(within(rows[0] as HTMLElement).getByRole('link', { name: 'Sună: Maria Ceban' }).getAttribute('href')).toBe('tel:069 123 456')
+    expect(within(rows[0] as HTMLElement).getByRole('link', { name: 'E-mail: Maria Ceban' }).getAttribute('href')).toBe('/admin/rechemari?mail=31')
+    expect(within(rows[1] as HTMLElement).queryByRole('link', { name: /Sună/ })).toBeNull()
+    const more = sec.querySelector('.dk-more') as HTMLAnchorElement
+    expect(more.textContent).toBe('încă 2 · toată lista ›')
+    expect(more.getAttribute('href')).toBe('/admin/rechemari')
+  })
+
+  it('null (нет права) или пусто — раздела нет; один раздел держит карточку', () => {
+    show()
+    expect(screen.queryByText('Rechemări')).toBeNull()
+    cleanup()
+    show({ desk: { ...DESK, recall: { n: 0, items: [] } } })
+    expect(screen.queryByText('Rechemări')).toBeNull()
+    cleanup()
+    show({ desk: { ...DESK, collect: null, unscheduled: { items: [], n: 0, sum_s: '0' },
+      confirm: { ...DESK.confirm, n: 0, items: [] }, recall: { n: 1, items: [RC.items[0]!] } } })
+    expect(document.querySelector('.desk')).toBeTruthy()
+    expect(screen.getByText('Rechemări').closest('.dk-sec')?.querySelector('.dk-more')?.textContent).toBe('toată lista ›')
   })
 })
 

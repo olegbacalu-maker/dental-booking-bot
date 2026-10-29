@@ -457,6 +457,43 @@ describe('окно записи «Programare nouă»', () => {
     expect(addForm()).toBeNull()
   })
 
+  it('29.10: дата в прошлом — янтарная строка и включённая галочка «Vizita a avut loc»; в теле `done`; снятая — `done: false`; сегодня и позже — ничего', async () => {
+    get.mockImplementation(dayOfUrl)
+    post.mockResolvedValue(ok(MODEL))
+    await openAdd('2026-09-10')
+    const past = () => addForm()?.querySelector('.dp-past') as HTMLElement | null
+    expect(past()?.textContent).toContain('Data este în trecut.')
+    const box = past()?.querySelector('input[type="checkbox"]') as HTMLInputElement
+    expect(box.checked).toBe(true)
+    expect(past()?.textContent).toContain('Vizita a avut loc — intră direct ca finalizată')
+    fireEvent.change(field('Nume pacient'), { target: { value: 'Hartie Veche' } })
+    fireEvent.change(field('Telefon'), { target: { value: '069112233' } })
+    fireEvent.submit(addForm() as HTMLFormElement)
+    await waitFor(() => expect(post).toHaveBeenCalled())
+    expect((post.mock.calls[0] as unknown[])[1]).toMatchObject({ date: '2026-09-10', done: true })
+    cleanup()
+    post.mockClear()
+    await openAdd('2026-09-10')
+    fireEvent.click(addForm()?.querySelector('.dp-past input[type="checkbox"]') as HTMLInputElement)
+    fireEvent.change(field('Nume pacient'), { target: { value: 'Hartie Noua' } })
+    fireEvent.change(field('Telefon'), { target: { value: '069112244' } })
+    fireEvent.submit(addForm() as HTMLFormElement)
+    await waitFor(() => expect(post).toHaveBeenCalled())
+    expect((post.mock.calls[0] as unknown[])[1]).toMatchObject({ done: false })
+    cleanup()
+    post.mockClear()
+    /* сегодня (birth_max формы) и будущее — ни строки, ни поля */
+    await openAdd('2026-09-19')
+    expect(past()).toBeNull()
+    await openAdd('2026-09-23')
+    expect(past()).toBeNull()
+    fireEvent.change(field('Nume pacient'), { target: { value: 'Azi Nu' } })
+    fireEvent.change(field('Telefon'), { target: { value: '069112255' } })
+    fireEvent.submit(addForm() as HTMLFormElement)
+    await waitFor(() => expect(post).toHaveBeenCalled())
+    expect((post.mock.calls[0] as unknown[])[1]).not.toHaveProperty('done')
+  })
+
   it('#addform открывает окно на дне экрана; «Închide» закрывает его и убирает якорь', async () => {
     get.mockImplementation(dayOfUrl)
     const { router } = await openAdd('2026-09-22')

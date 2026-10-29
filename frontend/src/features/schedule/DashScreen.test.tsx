@@ -62,6 +62,7 @@ function model(over: Partial<DashModel> = {}): DashModel {
       unscheduled: { items: [], n: 0, sum_s: '0' },
       collect: null,
       free: [{ dk: 'd2', name: 'Dr. Ion', when: 'azi 11:00', today: true, href: `/admin?date=${TODAY}` }],
+      recall: null,
     },
     slotform: { services: [{ id: 'consult', label: 'Consultație' }], birth_max: TODAY,
       sms: false },

@@ -25,6 +25,7 @@ import { loadSettingsHub, SettingsHubScreen } from '../features/settings/Setting
 import { loadSmsSettings, SmsSettingsScreen } from '../features/settings/SmsSettingsScreen'
 import { loadThemeSettings, ThemeSettingsScreen } from '../features/settings/ThemeSettingsScreen'
 import { loadStats, StatsScreen } from '../features/stats/StatsScreen'
+import { loadRecall, RecallScreen } from '../features/recall/RecallScreen'
 import { loadVisit, VisitScreen } from '../features/visits/VisitScreen'
 import { loadOdontogram, OdontogramScreen } from '../features/clinical/OdontogramScreen'
 import { loadPerio, PerioScreen } from '../features/clinical/PerioScreen'
@@ -77,6 +78,7 @@ export const SCREENS: Record<ScreenName, Draw> = {
   settings_system: () => <SystemSettingsScreen />,
   settings_sms: () => <SmsSettingsScreen />,
   stats: () => <StatsScreen />,
+  recall: () => <RecallScreen />,
   patients_search: () => <PatientsSearchScreen />,
   patient_card: (p) => <PatientCardScreen pid={Number(p.pid)} />,
   // ⚠️ Параметр пути — `appt_id`, как у сервера. Ключ узла `aid` здесь больше
@@ -121,6 +123,7 @@ const LOADS: Partial<Record<ScreenName, ScreenData>> = {
   schedule_all: loadDay,
   schedule_doctor: loadDay,
   stats: loadStats,
+  recall: loadRecall,
   perio: loadPerio,
   patient_card: loadPatientCard,
   visit: loadVisit,

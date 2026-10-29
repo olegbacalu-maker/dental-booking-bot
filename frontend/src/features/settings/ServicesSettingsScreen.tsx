@@ -10,7 +10,11 @@ import { settings, type ServiceEntry, type ServicesData } from './settings'
 const T = {
   title: 'Servicii',
   cols: { ro: 'Denumire (RO)', ru: 'Denumire (RU)', price: 'Preț', dur: 'Durată',
-    color: 'Culoare', docs: 'Medici' },
+    color: 'Culoare', docs: 'Medici', recall: 'Rechemare' },
+  noRecall: '—',
+  months: 'luni',
+  hintR: 'Coloana «Rechemare»: după cât timp pacientul cu serviciul finalizat apare în '
+    + '«Rechemări» (de sunat sau de scris). «—» = serviciul nu se urmărește.',
   auto: 'auto',
   allDocs: 'gol = toți',
   add: '+ Adaugă serviciu',
@@ -24,7 +28,7 @@ const T = {
   offline: 'Programul nu răspunde. Reîncercați.',
 } as const
 
-const EMPTY: ServiceEntry = { id: '', ro: '', ru: '', price: '', duration: 60, color: '', urgent: false, docs: [] }
+const EMPTY: ServiceEntry = { id: '', ro: '', ru: '', price: '', duration: 60, color: '', urgent: false, docs: [], recall: 0 }
 
 interface Props {
   navigate?: (url: string) => void
@@ -87,7 +91,8 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
           <thead>
             <tr>
               <th>{T.cols.ro}</th><th>{T.cols.ru}</th><th style={{ width: 150 }}>{T.cols.price}</th>
-              <th style={{ width: 90 }}>{T.cols.dur}</th><th style={{ width: 100 }}>{T.cols.color}</th>
+              <th style={{ width: 90 }}>{T.cols.dur}</th><th style={{ width: 100 }}>{T.cols.recall}</th>
+              <th style={{ width: 100 }}>{T.cols.color}</th>
               <th style={{ width: 40 }}><Icon name="sos" /></th><th style={{ width: 140 }}>{T.cols.docs}</th><th />
             </tr>
           </thead>
@@ -104,6 +109,14 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
                   <select value={s.duration} aria-label={`${T.cols.dur} ${i + 1}`} disabled={saving}
                     onChange={(e) => patch(i, { duration: Number(e.target.value) })}>
                     {data.durations.map((d) => <option key={d} value={d}>{d} min</option>)}
+                  </select>
+                </td>
+                <td>
+                  {/* кадр К6: заданный срок — бирюзой; белый список — сервера */}
+                  <select value={s.recall ?? 0} aria-label={`${T.cols.recall} ${i + 1}`} disabled={saving}
+                    className={s.recall ? 'dp-rc-set' : ''}
+                    onChange={(e) => patch(i, { recall: Number(e.target.value) })}>
+                    {data.recalls.map((m) => <option key={m} value={m}>{m ? `${m} ${T.months}` : T.noRecall}</option>)}
                   </select>
                 </td>
                 <td>
@@ -139,6 +152,7 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
         </table>
         <button type="button" className="addrow" onClick={add} disabled={data === null || saving}>{T.add}</button>
         <p className="hint">{T.hintA}<Icon name="sos" />{T.hintB}</p>
+        <p className="hint">{T.hintR}</p>
         <button className="savebtn" disabled={data === null || saving}><Icon name="save" /> {T.save}</button>
       </form>
       {toast && <Toast tone={toast.tone} text={toast.text} onClose={closeToast} />}

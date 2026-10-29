@@ -46,6 +46,10 @@ const T = {
   close: 'Închide',
   // та же фраза, что у канвы закрытого дня (`DashCanvas`)
   closed: 'Zi liberă — clinica este închisă',
+  // визит с бумаги (29.10, «Rechemări», В3 = А; кадр К8): дата в прошлом
+  pastWarn: 'Data este în trecut.',
+  happened: 'Vizita a avut loc — intră direct ca finalizată',
+  happenedHint: 'Pentru istoricul de pe hârtie: vizita contează pentru Rechemări de la această dată.',
 } as const
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
@@ -87,6 +91,13 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd }: Props)
   const [birth, setBirth] = useState('')
   const [fail, setFail] = useState('')
   const sms = useSmsBox(form.sms, phone, noPhone)
+  /* «Сегодня» — `birth_max` формы (день клиники, его дал сервер), не часы
+     браузера. Галочка включена сразу (решение Олега 29.10): визит задним
+     числом заводят ради бумажной истории, а забытая галочка оставила бы его
+     «programată», и часы отзыва не пошли бы. Правду всё равно говорит
+     сервер: на день не в прошлом поле игнорируется. */
+  const past = ISO_DAY.test(at) && at < form.birth_max
+  const [happened, setHappened] = useState(true)
 
   const other = at !== date && ISO_DAY.test(at)
   /* пока ответ в пути — последний пришедший список, а кнопка ждёт */
@@ -122,7 +133,8 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd }: Props)
     e.preventDefault()
     setFail('')
     const ok = await onAdd({ date: at, time, doctor, service, name,
-      phone: noPhone ? '' : phone, nophone: noPhone, birth, ...sms.field }, setFail)
+      phone: noPhone ? '' : phone, nophone: noPhone, birth, ...sms.field,
+      ...(past ? { done: happened } : {}) }, setFail)
     if (ok) onClose()
   }
 
@@ -173,6 +185,15 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd }: Props)
           <input type="date" value={birth} max={form.birth_max}
                  onChange={(e) => setBirth(e.target.value)} />
         </label>
+        {past && (
+          <div className="dp-past">
+            <span className="dp-past-w"><Icon name="clock" /> {T.pastWarn}</span>
+            <label className="nophone">
+              <input type="checkbox" checked={happened} onChange={(e) => setHappened(e.target.checked)} /> <b>{T.happened}</b>
+            </label>
+            <small className="hint">{T.happenedHint}</small>
+          </div>
+        )}
         {fail ? <div className="banner err" role="alert">{fail}</div> : null}
         <button disabled={busy || pending || !times.length}>{T.go}</button>
       </form>

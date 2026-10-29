@@ -30,6 +30,14 @@ const T = {
   proc: 'proc.',
   days: 'zile',
   mdl: 'MDL',
+  // «Rechemări» (29.10, В5 = А): раздел последним в «La recepție»
+  recall: 'Rechemări',
+  recallHint: 'e timpul pentru controlul periodic',
+  recallAll: 'toată lista',
+  booked: 'programat',
+  noanswer: 'nu răspunde',
+  call: 'Sună',
+  mail: 'E-mail',
 } as const
 
 interface Props {
@@ -44,7 +52,9 @@ export function DeskCard({ desk, busy, onCall }: Props) {
   /* Пустые списки не рисуются — и пустая карточка тоже: в тихий день колонка
      кончается на «Primul loc liber», как в макете. */
   const ct = desk.confirm_today
+  const rc = desk.recall
   const any = (desk.collect !== null && desk.collect.n > 0) || c.n > 0 || ct.n > 0 || desk.unscheduled.n > 0
+    || (rc !== null && rc.n > 0)
   if (!any) return null
   return (
     <div className="desk">
@@ -82,6 +92,30 @@ export function DeskCard({ desk, busy, onCall }: Props) {
               {T.more} {desk.unscheduled.n - desk.unscheduled.items.length} ›
             </AppLink>
           )}
+        </Section>
+      )}
+
+      {rc && rc.n > 0 && (
+        /* кадр К4-А: первые строки «De sunat», телефон и конверт, «toată lista» */
+        <Section id="recall" icon="refresh" title={T.recall} count={`${rc.n}`} hint={T.recallHint} tone="teal">
+          {rc.items.map((it) => (
+            <div key={`${it.pid}:${it.service_id}`} className="dk-row">
+              <div className="dk-b">
+                <AppLink href={`/admin/patient/${it.pid}`}><b>{it.name}</b></AppLink>
+                <small>{it.service} · {it.late}{it.booked ? ` · ${T.booked} ${it.booked.date}` : ''}</small>
+                {it.mark && it.mark.result === 'noanswer' && (
+                  <small className="dk-no"><Icon name="phone-off" /> {T.noanswer}{it.mark.n_noanswer > 1 ? ` ×${it.mark.n_noanswer}` : ''} {it.mark.at}</small>
+                )}
+              </div>
+              <span className="dk-act">
+                {it.phone && <AppLink className="dk-btn" href={`tel:${it.phone}`} title={T.call} aria-label={`${T.call}: ${it.name}`}><Icon name="phone" /></AppLink>}
+                {it.email && <AppLink className="dk-btn" href={`/admin/rechemari?mail=${it.pid}`} title={T.mail} aria-label={`${T.mail}: ${it.name}`}><Icon name="mail" /></AppLink>}
+              </span>
+            </div>
+          ))}
+          <AppLink className="dk-more" href="/admin/rechemari">
+            {rc.n > rc.items.length ? `${T.more} ${rc.n - rc.items.length} · ` : ''}{T.recallAll} ›
+          </AppLink>
         </Section>
       )}
     </div>

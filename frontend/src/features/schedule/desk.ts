@@ -1,3 +1,5 @@
+import type { RecallRow } from '../recall/recall'
+
 /* «La recepție» (01.10): рабочие списки регистратуры — форма куска `desk`
    живого конверта панели (`bot/app/modules/schedule/desk.py`). Своего GET у
    них нет: состояние панели едет одной дверью, отметка звонка — командой. */
@@ -60,6 +62,9 @@ export interface Desk {
     casa_href: string
   } | null
   free: DeskFree[]
+  /** «Rechemări» (29.10): счётчик «De sunat» и первые строки той же формы,
+   *  что у экрана; `null` — у роли нет права (врач): раздела нет вовсе. */
+  recall: { n: number; items: RecallRow[] } | null
 }
 
 export type CallResult = '' | 'ok' | 'noanswer'

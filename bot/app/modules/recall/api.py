@@ -16,7 +16,7 @@ from ... import db
 from ... import engine as eng
 from ...core import recall
 from ...core.api import api_body, api_require
-from ...core.auth import PERM_RECALL
+from ...core.auth import PERM_RECALL, PERM_SETTINGS, can, request_user
 from ...core.layout import msg_json
 
 router = APIRouter()
@@ -34,6 +34,9 @@ async def api_recall(request: Request):
         return deny
     d = await recall.model(_today())
     d["clinic"] = {"name": eng.CLINIC_NAME, "phone": eng.CLINIC_PHONE}
+    # пустой экран ведёт в Setări › Servicii только того, кому они открыты;
+    # право решает сервер, клиент его не вычисляет
+    d["can_settings"] = can(request_user(), PERM_SETTINGS)
     return msg_json(True, data=d)
 
 

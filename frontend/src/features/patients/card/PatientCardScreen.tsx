@@ -20,6 +20,7 @@ import { AppointDialog } from './AppointDialog'
 import { DocumentsCard, type DocsPick } from './DocumentsCard'
 import { FinanceCard } from './FinanceCard'
 import { HeroKpi } from './HeroKpi'
+import { recallApi } from '../../recall/recall'
 import { chart, type Odontogram } from '../../clinical/chart'
 import { OdontogramTab } from '../../clinical/OdontogramTab'
 import { unsavedTeeth } from '../../clinical/useChart'
@@ -420,7 +421,12 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
       {nav}
       <HeroKpi card={card} back={here} onBook={() => setBooking(true)} onPlan={() => goTab('plan')}
         onAnamneza={() => { setAnTick((t) => t + 1); goTab('date') }}
-        onDoctor={(name) => act(() => patientCard.setDoctor(pid, views, name))} busy={busy} />
+        onDoctor={(name) => act(() => patientCard.setDoctor(pid, views, name))} busy={busy}
+        onRecallClear={(sid) => act(async () => {
+          /* отметка — командой «Rechemări», фиша перечитывается той же моделью */
+          const m = await recallApi.mark(pid, sid, 'clear')
+          return { ...(await patientCard.get(pid, views)), code: m.code, text: m.text, tone: m.tone }
+        })} />
       <div ref={strip} className="wtabs" role="tablist" aria-label={T.tabs} onKeyDown={onTabKey}>
         {TABS.map(([k, label]) => (
           <button key={k} id={`wtab-${k}`} type="button" role="tab" aria-selected={tab === k}

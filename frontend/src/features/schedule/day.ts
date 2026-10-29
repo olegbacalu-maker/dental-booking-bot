@@ -332,6 +332,9 @@ export interface NewAppt {
   /** Галочка «SMS reminder» — только ТРОНУТАЯ (`SmsBox`); нет поля —
    *  `sms_off` пациента сервер не трогает. */
   sms?: boolean
+  /** Галочка «Vizita a avut loc» (29.10, Rechemări, В3 = А): только на
+   *  прошедший день — визит ложится сразу «finalizată». Нет поля — нет. */
+  done?: boolean
 }
 
 export interface NewNote {

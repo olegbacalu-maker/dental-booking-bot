@@ -20,6 +20,7 @@ const DATA: ServicesData = {
   ],
   palette: { green: 'verde', red: 'roșu' },
   durations: [15, 30, 45, 60, 90, 120],
+  recalls: [0, 3, 4, 6, 9, 12, 24],
   doctors: [{ id: 'd2', name: 'Dr. Doi' }, { id: 'd3', name: 'Dr. Trei' }],
 }
 
@@ -71,10 +72,34 @@ describe('ServicesSettingsScreen', () => {
     expect(await screen.findByText('Setări salvate')).toBeTruthy()
     expect(post).toHaveBeenCalledWith('/settings/services', { services: [
       DATA.services[1],
-      { id: '', ro: 'Albire', ru: '', price: '1500 MDL', duration: 90, color: 'green', urgent: false, docs: ['d3'] },
+      { id: '', ro: 'Albire', ru: '', price: '1500 MDL', duration: 90, color: 'green', urgent: false, docs: ['d3'], recall: 0 },
     ] })
     expect(input('Denumire (RO) 2').value).toBe('Albire')
     expect(screen.queryByDisplayValue('Consultație')).toBeNull()
+  })
+
+  it('29.10: колонка «Rechemare» — белый список сервера, заданный срок бирюзой, значение переживает соседнюю правку', async () => {
+    get.mockResolvedValueOnce(ok({ ...DATA, services: [{ ...DATA.services[0]!, recall: 6 }, DATA.services[1]!] }))
+    post.mockResolvedValueOnce(ok(DATA, 'ok_set', 'Setări salvate'))
+    open()
+    await screen.findByDisplayValue('Consultație')
+    const rc1 = screen.getByLabelText('Rechemare 1') as HTMLSelectElement
+    expect(rc1.value).toBe('6')
+    expect(rc1.className).toContain('dp-rc-set')
+    expect(Array.from(rc1.options).map((o) => o.textContent)).toEqual(['—', '3 luni', '4 luni', '6 luni', '9 luni', '12 luni', '24 luni'])
+    const rc2 = screen.getByLabelText('Rechemare 2') as HTMLSelectElement
+    expect(rc2.value).toBe('0')
+    expect(rc2.className).not.toContain('dp-rc-set')
+    expect(screen.getByText(/Coloana «Rechemare»/)).toBeTruthy()
+    /* соседняя правка цены — срок в теле запроса остаётся; у второй строки ключа не было, и его нет */
+    fireEvent.change(input('Preț 1'), { target: { value: '1200 MDL' } })
+    fireEvent.change(rc2, { target: { value: '12' } })
+    fireEvent.click(screen.getByRole('button', { name: /Salvează serviciile/ }))
+    expect(await screen.findByText('Setări salvate')).toBeTruthy()
+    expect(post).toHaveBeenCalledWith('/settings/services', { services: [
+      { ...DATA.services[0], price: '1200 MDL', recall: 6 },
+      { ...DATA.services[1], recall: 12 },
+    ] })
   })
 
   it('отказ сервера — текст в плашке, правки остаются', async () => {

@@ -34,7 +34,8 @@
     tab: "due" | "snoozed" | "stop"
   }],
   counts: {due, snoozed, stop},
-  clinic: {name, phone}                         // для текста письма
+  clinic: {name, phone},                        // для текста письма
+  can_settings: bool                            // пустой экран: кнопка в Setări › Servicii (директор) или слово
 }}
 ```
 

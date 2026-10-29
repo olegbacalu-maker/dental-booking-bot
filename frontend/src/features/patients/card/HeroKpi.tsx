@@ -70,6 +70,12 @@ const T = {
   bookNow: 'Programează acum',
   tooth: 'dinte',
   close: 'Închide',
+  // строка срока «Rechemări» (29.10, кадр К5)
+  rcLast: 'ultima',
+  rcNext: 'următoarea',
+  rcOff: 'nu reamintim',
+  rcUndo: 'Anulează',
+  rcGo: 'Rechemări',
 } as const
 
 type PanelKey = 'visits' | 'active' | 'last' | 'next' | 'done'
@@ -87,6 +93,8 @@ interface Props {
   busy: boolean
   /** Адрес фиши с текущей вкладкой — «назад» на печатном листе. */
   back: string
+  /** «Anulează» у строки «nu reamintim» (Rechemări): снять отметку stop. */
+  onRecallClear: (service_id: string) => void
 }
 
 /** Давность последнего визита словами: «azi» / «ieri» / «acum N zile».
@@ -121,7 +129,7 @@ function PlanRow({ it, labels }: { it: PlanItem; labels: Record<string, string> 
   )
 }
 
-export function HeroKpi({ card, onBook, onPlan, onAnamneza, onDoctor, busy, back }: Props) {
+export function HeroKpi({ card, onBook, onPlan, onAnamneza, onDoctor, busy, back, onRecallClear }: Props) {
   const { profile: p, hero, kpi, plan } = card
   /* ⭐ Риски — ОДНОЙ полосой под шапкой, на всех вкладках (01.10). До B6
      анамнез стоял под предупреждениями на одной длинной странице; с вкладками
@@ -296,6 +304,22 @@ export function HeroKpi({ card, onBook, onPlan, onAnamneza, onDoctor, busy, back
           <button type="button" className="hero-risk-go" onClick={onAnamneza}>{T.anamneza} ›</button>
         </div>
       ) : null}
+      {card.recall.length > 0 && (
+        /* строка срока отзыва (кадр К5): по каждой услуге со сроком; слова
+           просрочки — сервера; «nu reamintim · Anulează» — только с правом */
+        <div className="hero-rc" role="note" aria-label={T.rcGo}>
+          <Icon name="refresh" />
+          {card.recall.map((r) => (
+            <span key={r.service_id} className={r.stop ? 'off' : r.late_days > 0 ? 'late' : ''}>
+              <b>{r.service}</b>: {T.rcLast} {r.last} · {T.rcNext} ~{r.next}
+              {r.stop
+                ? <em> · {T.rcOff}{r.can_clear && <> · <button type="button" className="hero-rc-undo" disabled={busy}
+                    onClick={() => onRecallClear(r.service_id)}>{T.rcUndo}</button></>}</em>
+                : r.late_days > -15 ? <em> · {r.late}</em> : null}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="kpi5">
         {kpis.map((k) => (
           <button key={k.key} type="button" className="kpi" title={`${k.label} — ${T.clickHint}`} onClick={() => open(k.key)}>

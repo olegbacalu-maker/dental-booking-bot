@@ -222,6 +222,18 @@ export interface Ocluzie {
   author: string
 }
 
+export interface RecallLine {
+  service: string
+  service_id: string
+  last: string
+  next: string
+  late_days: number
+  late: string
+  stop: boolean
+  can_clear: boolean
+  mark: { result: string; word: string; at: string; actor: string } | null
+}
+
 export interface PatientCard {
   id: number
   name: string
@@ -234,6 +246,9 @@ export interface PatientCard {
   alerts: Alert[]
   anamneza: Anamneza
   ocluzie: Ocluzie
+  /** «Rechemări» (29.10): срок по каждой услуге с отзывом, где есть
+   *  done-визит; считает сервер. `can_clear` — вправе ли снять «nu mai reamintim». */
+  recall: RecallLine[]
   plan: Plan
   finance: Finance
   documents: Doc[]
