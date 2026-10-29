@@ -194,6 +194,15 @@ def suite_seed(res: Result) -> None:
             res.ok("«La recepție» не пуста: подтверждения и план без записи",
                    bool(desk.get("confirm")) and bool(desk.get("unscheduled")),
                    str({k: len(v) if isinstance(v, list) else v for k, v in desk.items()}))
+            # «Rechemări» (29.10): срок у гигиены в clinic.json + визиты 5–7 мес. назад
+            res.ok("«Rechemări» на засеве не пуста (срок у гигиены, визиты полгода назад)",
+                   (desk.get("recall") or {}).get("n", 0) >= 5 and counts["recall"] >= 10,
+                   f"{desk.get('recall')} / {counts.get('recall')}")
+            rc = _j(c.get("/api/recall"))["data"]
+            res.ok("в списке есть записанный на другую услугу и «nu răspunde ×2»",
+                   any(r["booked"] for r in rc["rows"])
+                   and any(r["mark"] and r["mark"]["n_noanswer"] == 2 for r in rc["rows"]),
+                   str([(r["name"], r["booked"], r["mark"]) for r in rc["rows"]])[:300])
             pats = _j(c.get("/api/patients?q=Popescu"))["data"]
             rows = pats.get("rows") or pats.get("patients") or pats.get("items") or []
             pid = next((r["id"] for r in rows if r.get("name") == "Maria Popescu"), None)

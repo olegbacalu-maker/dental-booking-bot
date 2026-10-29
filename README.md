@@ -300,6 +300,26 @@ the logged-in employee; and an Excel export. No chart library: the program works
 one would have to be bundled into the exe wholesale, and the figures are plain markup in the
 clinic's own colours.
 
+### Recalls
+
+`/admin/rechemari` — the desk's list of patients due for a repeat procedure (hygiene,
+check-ups). The interval lives **on the service** (Settings › Services, column *Rechemare*:
+3 / 4 / 6 / 9 / 12 / 24 months), nothing is hard-coded, and only services with an interval take
+part. The list is computed on every request from *finished* visits — a no-show, a cancellation
+or a visit still "programată" starts no clock — and a patient appears fourteen days before the
+due date, stays until booked again for the same service, and shows "vine pe …" when booked for
+a different one. The only thing stored is the desk's mark, as an append-only journal
+(*Sunat — revine* and *E-mail trimis* hide the row for two weeks, *Nu răspunde* keeps it and
+counts the attempts, *Amânat până la* hides it until a date, *Nu mai reaminti* for good);
+a new finished visit resets everything except the last one. Paper history goes in through
+*Programare nouă* on a past date with the *Vizita a avut loc* box, which files the visit as
+finished in one step. E-mail is a `mailto:` plus *Copy address / Copy text* — nothing leaves the
+clinic's computer — and the text is clinical (no prices, no offers). The first three rows and
+the count sit at the bottom of *La recepție*; the patient card carries one line per service.
+Doctors do not see the list, only the line in the card. No statistics yet, by decision: the
+marks are kept as a journal so that "contacted N · booked M" can be counted later without a
+migration.
+
 ### Accounts and roles
 
 Asked for by the first pilot clinic. Three roles: **director** (money, settings, accounts,

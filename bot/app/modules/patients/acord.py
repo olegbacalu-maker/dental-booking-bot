@@ -101,7 +101,8 @@ _T = {
                 "executarea <b>contractului de servicii medicale</b>;"),
         "li3": ("întocmirea și păstrarea documentației medicale — "
                 "<b>obligație legală</b> a instituției medicale;"),
-        "li4": ("remindere despre vizita programată — <b>interesul legitim</b> "
+        "li4": ("remindere despre vizita programată și reamintirea controlului "
+                "periodic (telefon sau e-mail) — <b>interesul legitim</b> "
                 "al clinicii; puteți renunța oricând, la recepție."),
         "h_store": "3. Unde se păstrează și cui se pot transmite",
         "store": ("Fișele electronice se păstrează <b>local, pe calculatorul "
@@ -155,7 +156,8 @@ _T = {
                 "<b>договора об оказании медицинских услуг</b>;"),
         "li3": ("ведение и хранение медицинской документации — "
                 "<b>обязанность по закону</b> для медицинского учреждения;"),
-        "li4": ("напоминания о назначенном визите — <b>законный интерес</b> "
+        "li4": ("напоминания о назначенном визите и о плановом контроле "
+                "(по телефону или e-mail) — <b>законный интерес</b> "
                 "клиники; вы можете отказаться в любой момент на стойке."),
         "h_store": "3. Где хранятся и кому могут быть переданы",
         "store": ("Электронные карты хранятся <b>локально, на компьютере "
@@ -205,7 +207,8 @@ LANGS = ("ro", "ru")
 # что в clinics\lege-195\1-informare-pacienti.html (SMS-раздел по галочке).
 _T_SMS = {
     "ro": {
-        "li4": ("remindere despre vizita programată (prin SMS) — <b>interesul legitim</b> "
+        "li4": ("remindere despre vizita programată (prin SMS) și reamintirea "
+                "controlului periodic (telefon sau e-mail) — <b>interesul legitim</b> "
                 "al clinicii; puteți renunța oricând, la recepție."),
         "store": ("Fișele electronice se păstrează <b>local, pe calculatorul "
                   "clinicii</b> (programul DentPilot) și nu sunt transmise "
@@ -218,7 +221,8 @@ _T_SMS = {
                   "medicală se păstrează pe durata prevăzută de legislație."),
     },
     "ru": {
-        "li4": ("напоминания о назначенном визите (по SMS) — <b>законный интерес</b> "
+        "li4": ("напоминания о назначенном визите (по SMS) и о плановом контроле "
+                "(по телефону или e-mail) — <b>законный интерес</b> "
                 "клиники; вы можете отказаться в любой момент на стойке."),
         "store": ("Электронные карты хранятся <b>локально, на компьютере "
                   "клиники</b> (программа DentPilot) и не передаются "

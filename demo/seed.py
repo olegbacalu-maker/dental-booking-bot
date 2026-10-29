@@ -185,9 +185,9 @@ def seed(db_path, clinic_json, now: datetime | None = None) -> dict:
     docs, svcs, hours = _profile(pathlib.Path(clinic_json))
     c = sqlite3.connect(str(db_path))
     c.execute("PRAGMA foreign_keys=OFF")
-    tables = ("appt_calls", "perio_teeth", "perio_exams", "bridges", "teeth", "visit_records",
-              "documents", "payments", "plan_items", "activity", "patient_alerts", "anamneza",
-              "appointments", "patients")
+    tables = ("appt_calls", "recall_marks", "perio_teeth", "perio_exams", "bridges", "teeth",
+              "visit_records", "documents", "payments", "plan_items", "activity", "patient_alerts",
+              "anamneza", "appointments", "patients")
     for t in tables:
         c.execute(f"DELETE FROM {t}")
     c.execute("DELETE FROM sqlite_sequence WHERE name IN (%s)" % ",".join("?" * len(tables)), tables)
@@ -308,6 +308,67 @@ def seed(db_path, clinic_json, now: datetime | None = None) -> dict:
                 t += timedelta(minutes=dur)
         d += timedelta(days=1)
 
+    # --- «Rechemări» (29.10): гигиена 5–7 месяцев назад у ~16 пациентов —
+    # иначе на demo.dentpilot.md экран пуст (срок у hygiene — 6 месяцев,
+    # clinic.json). Двое записаны вперёд на ДРУГУЮ услугу («vine pe …»), у
+    # одного два «nu răspunde», у одного «amânat»: список живой, как у стойки.
+    n_recall = 0
+    if "hygiene" in svcs:
+        hy_label, hy_docs = svcs["hygiene"]
+        hy_docs = [dk for dk in hy_docs if dk in docs] or list(docs)
+        # ⚠️ без недавней гигиены из основного цикла: более свежий done той же
+        # услуги сдвинул бы срок на полгода вперёд, и строка выпала бы
+        used = {r[0] for r in c.execute("SELECT DISTINCT patient_id FROM appointments "
+                                        "WHERE service_id = 'hygiene'")}
+        pool = [x for x in pats[len(show_ids):] if x not in used]
+        for i, pid in enumerate(rnd.sample(pool, min(16, len(pool)))):
+            d0 = today - timedelta(days=rnd.randint(150, 215))
+            while not hours.get(_DOW[d0.weekday()]):
+                d0 -= timedelta(days=1)
+            dk = rnd.choice(hy_docs)
+            t0 = local(d0, rnd.choice([9, 10, 11, 13, 14, 15]), rnd.choice([0, 30]))
+            try:
+                cur = c.execute(
+                    "INSERT INTO appointments(patient_id, service, doctor, starts_at, status, "
+                    "source, reminded_day, reminded_2h, comment, created_at, doctor_id, "
+                    "service_id, duration_min) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (pid, hy_label, docs[dk], iso(t0), "done", "manual", 0, 0, "",
+                     iso(t0 - timedelta(days=3)), dk, "hygiene", SERVICE_META["hygiene"][0]))
+            except sqlite3.IntegrityError:
+                continue
+            aid = cur.lastrowid
+            n_appt += 1
+            n_recall += 1
+            if i < 2 and "filling" in svcs:
+                f_label, f_docs = svcs["filling"]
+                fdk = next((x for x in f_docs if x in docs), dk)
+                t1 = local(today + timedelta(days=5 + i), 10 + i)
+                try:
+                    c.execute(
+                        "INSERT INTO appointments(patient_id, service, doctor, starts_at, status, "
+                        "source, reminded_day, reminded_2h, comment, created_at, doctor_id, "
+                        "service_id, duration_min) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (pid, f_label, docs[fdk], iso(t1), "confirmed", "manual", 0, 0, "",
+                         iso(now - timedelta(days=2)), fdk, "filling", SERVICE_META["filling"][0]))
+                    n_appt += 1
+                except sqlite3.IntegrityError:
+                    pass
+            elif i == 2:
+                for days in (4, 1):
+                    at = now - timedelta(days=days, hours=1)
+                    c.execute("INSERT INTO recall_marks(patient_id, service_id, cycle_appt_id, result, "
+                              "until_date, actor, at) VALUES(?,?,?,?,?,?,?)",
+                              (pid, "hygiene", aid, "noanswer", None, "Recepție", iso(at)))
+                    act(pid, "recall", f"Rechemare {hy_label}: nu răspunde", at)
+            elif i == 3:
+                at = now - timedelta(days=2, hours=2)
+                until = (today + timedelta(days=30)).isoformat()
+                c.execute("INSERT INTO recall_marks(patient_id, service_id, cycle_appt_id, result, "
+                          "until_date, actor, at) VALUES(?,?,?,?,?,?,?)",
+                          (pid, "hygiene", aid, "later", until, "Recepție", iso(at)))
+                act(pid, "recall", f"Rechemare {hy_label}: amânat până la "
+                                   f"{(today + timedelta(days=30)).strftime('%d.%m.%Y')}", at)
+
     # --- активный план у ~40 обычных пациентов ---
     for pid in rnd.sample(pats[len(show_ids):], 40):
         for _ in range(rnd.choice([1, 1, 2, 2, 3])):
@@ -396,6 +457,7 @@ def seed(db_path, clinic_json, now: datetime | None = None) -> dict:
                          f"{'confirmat' if res == 'ok' else 'nu răspunde'}", at)
     c.commit()
     counts = {"patients": len(pats), "appointments": n_appt, "payments": n_pay, "plan_items": n_plan,
+              "recall": n_recall,
               "today": dict(c.execute("SELECT status, COUNT(*) FROM appointments WHERE starts_at >= ? "
                                       "AND starts_at < ? GROUP BY 1",
                                       (iso(local(today, 0)), iso(local(today + timedelta(days=1), 0)))).fetchall())}

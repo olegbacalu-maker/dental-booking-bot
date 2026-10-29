@@ -93,7 +93,11 @@
     "d3",
     "d1"
    ],
-   "price": "1000–1200 MDL"
+   "price": "1000–1200 MDL",
+   "recall": {
+    "months": 6,
+    "since": "2026-10-29"
+   }
   },
   {
    "id": "filling",

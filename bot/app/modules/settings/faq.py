@@ -410,6 +410,29 @@ def entries() -> list[dict]:
 
         # С переезда в Program Files обновление ставит подписанный установщик
         # за UAC (`update._update_by_setup`) и перезапускается само.
+        _q("refresh", "Cum funcționează «Rechemări»?",
+           f"{p}«Rechemări» este lista recepției cu pacienții cărora le-a venit "
+           f"timpul pentru o procedură repetată (de regulă igienizarea). Termenul "
+           f"se alege <b>la serviciu</b>: în <b>Setări › Servicii</b>, coloana "
+           f"<b>Rechemare</b> — de exemplu Igienizare, 6 luni. Serviciile fără "
+           f"termen nu intră în listă.{end}"
+           f"{p}Lista se calculează singură din <b>vizitele finalizate</b>: "
+           f"pacientul apare cu 14 zile înainte de termen și rămâne până când "
+           f"este programat din nou la același serviciu sau până la un marcaj "
+           f"al recepției (<b>Sunat — revine</b>, <b>Nu răspunde</b>, "
+           f"<b>Amânat până la</b>, <b>Nu mai reaminti</b>). Programarea la "
+           f"alt serviciu nu îl scoate din listă — rândul spune «vine pe …», ca "
+           f"să vorbiți cu el la recepție. Rândul din fișa pacientului arată "
+           f"ultima vizită și termenul următor.{end}"
+           f"{p}Istoricul de pe hârtie se introduce din <b>Programare nouă</b> "
+           f"pe data vizitei trecute, cu bifa <b>Vizita a avut loc</b>: vizita "
+           f"intră direct ca finalizată și pornește termenul. Butonul "
+           f"<b>E-mail</b> deschide programul de e-mail al calculatorului cu un "
+           f"text pregătit (fără prețuri sau oferte); dacă nu se deschide nimic, "
+           f"folosiți <b>Copiază adresa</b> și <b>Copiază textul</b>. DentPilot "
+           f"nu trimite mesaje prin internet și nu transmite nimănui datele "
+           f"pacienților. Medicii nu văd lista — doar rândul din fișă.{end}"),
+
         _q("refresh", "Actualizarea programului șterge datele?",
            f"{p}<b>Nu.</b> Actualizarea înlocuiește doar fișierele "
            f"programului; baza de date, documentele și setările rămân "
