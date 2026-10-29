@@ -463,8 +463,8 @@ def license_letter(clinic: str, valid_until: str, plan: str, renew: bool = False
             f"Licența este emisă pentru clinica dumneavoastră și nu se transmite altora. "
             f"Datele pacienților rămân pe calculatorul clinicii; noi nu avem acces la ele."
             + (f" {DECLARATION_NOTE}" if declaration else "") + "\n\n"
-            f"{documents_note()}\n\n"
-            f"{FOOTER}")
+            + (f"{note}\n\n" if (note := documents_note()) else "")
+            + f"{FOOTER}")
     return subject, body
 
 
@@ -558,7 +558,10 @@ DOCUMENTS_URL = CONT_URL + "/documente"
 
 def documents_note() -> str:
     """Строка письма о лицензии: договор и соглашение, подписанные поставщиком, лежат в кабинете.
-    Функция, не константа: текст один и тот же, но так его можно сверять из тестов и страниц."""
+    '' — пока DP_CONTRACT не указывает на файл: письмо не обещает документ, которого в кабинете нет
+    (Олег подписывает PDF и кладёт на сервер; проверяется при каждом письме, как декларация)."""
+    if not config.CONTRACT or not pathlib.Path(config.CONTRACT).is_file():
+        return ""
     return (f"Contractul de licență și Acordul de prelucrare a datelor, semnate de furnizor, le găsiți în contul "
             f"clinicii: {DOCUMENTS_URL} — de descărcat pentru contabilitatea clinicii; acolo puteți încărca și "
             f"exemplarul semnat de clinică.")

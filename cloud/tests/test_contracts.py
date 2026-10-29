@@ -88,9 +88,29 @@ def suite_rules(res: Result) -> None:
     res.ok("PDF — по сигнатуре в первом КБ, не по имени",
            contracts.is_pdf(b"%PDF-1.7 x") and contracts.is_pdf(b"\xef\xbb\xbf junk %PDF-1.4")
            and not contracts.is_pdf(b"<html>%PDF") and not contracts.is_pdf(b"PK\x03\x04"))
-    res.ok("письмо о лицензии ведёт в раздел документов кабинета",
-           mail.DOCUMENTS_URL.endswith("/cont/documente") and mail.DOCUMENTS_URL in mail.documents_note()
-           and mail.DOCUMENTS_URL in mail.license_letter("C", "2026-12-01", "standard")[1])
+    # строка о документах — только когда договор на сервере есть (координатор 29.10): письмо не обещает
+    # документ, которого в кабинете нет; config читается при каждом письме — подменяется прямо здесь
+    with tempfile.TemporaryDirectory() as d:
+        f = pathlib.Path(d) / "contract-2026-10-29.pdf"
+        f.write_bytes(b"%PDF-1.4\n")
+        keep = mail.config.CONTRACT
+        try:
+            mail.config.CONTRACT = str(f)
+            with_doc = mail.license_letter("C", "2026-12-01", "standard")[1]
+            mail.config.CONTRACT = ""
+            without = mail.license_letter("C", "2026-12-01", "standard")[1]
+            mail.config.CONTRACT = str(pathlib.Path(d) / "nu-exista.pdf")
+            gone = mail.license_letter("C", "2026-12-01", "standard")[1]
+        finally:
+            mail.config.CONTRACT = keep
+    res.ok("письмо о лицензии ведёт в раздел документов, когда договор на сервере есть",
+           mail.DOCUMENTS_URL.endswith("/cont/documente") and mail.DOCUMENTS_URL in with_doc
+           and with_doc.index(mail.DOCUMENTS_URL) < with_doc.index(mail.FOOTER))
+    res.ok("без DP_CONTRACT или без файла — строки о документах нет, подвал на месте",
+           mail.DOCUMENTS_URL not in without and mail.DOCUMENTS_URL not in gone
+           and "\n\n\n" not in without and without.endswith(mail.FOOTER))
+    res.ok("закон о персональных данных в описании соглашения — 195/2024, не 133/2011",
+           "195/2024" in contracts.DOCS[contracts.DPA]["what"] and "133/2011" not in contracts.DOCS[contracts.DPA]["what"])
     res.ok("письмо без DP_DECLARATION не называет декларацию и после строки о документах",
            "Declarația furnizorului" not in mail.license_letter("C", "2026-12-01", "standard")[1])
     pull = (DEPLOY / "pull-backups.ps1").read_bytes()
@@ -238,6 +258,11 @@ def suite_without(res: Result) -> None:
         card = admin.get(f"/admin/clinics/{cid}").body
         res.ok("админка: документы помечены «не выложен» с именем переменной",
                card.count("не выложен") == 3 and "DP_CONTRACT" in card and "DP_DPA" in card)
+        before = len(_letters(s))
+        admin.post(f"/admin/clinics/{cid}/issue", kind="trial", send="1")
+        letters = _letters(s)
+        res.ok("письмо о лицензии без договора на сервере — без строки о документах",
+               len(letters) == before + 1 and mail.DOCUMENTS_URL not in letters[-1][2], letters[-1][2] if letters else "")
         rc, out = _tools(s, "check")
         res.ok("check: DP_CONTRACT и DP_DPA пусты — предупреждения, не препятствия",
                rc == 0 and "DP_CONTRACT пуст" in out and "DP_DPA пуст" in out, out)

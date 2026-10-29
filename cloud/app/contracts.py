@@ -42,7 +42,7 @@ DOCS = {
     CONTRACT: {"title": "Contract de licență DentPilot", "env": "CONTRACT", "file": "Contract-licenta-DentPilot",
                "what": "condițiile de utilizare a programului, semnat de furnizor"},
     DPA: {"title": "Acord de prelucrare a datelor", "env": "DPA", "file": "Acord-prelucrare-date-DentPilot",
-          "what": "ce date ajung la furnizor și în ce scop (Legea 133/2011), semnat de furnizor"},
+          "what": "ce date ajung la furnizor și în ce scop (Legea 195/2024), semnat de furnizor"},
     DECLARATION: {"title": "Declarația furnizorului (Legea 195/2024)", "env": "DECLARATION",
                   "file": "Declaratie-furnizor-DentPilot-Legea-195",
                   "what": "datele pacienților rămân pe calculatorul clinicii, semnată de furnizor"},
