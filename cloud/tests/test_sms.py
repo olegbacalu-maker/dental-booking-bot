@@ -560,6 +560,13 @@ def suite_send(res: Result) -> None:
                    and _sql(s, "SELECT reason, note FROM sms_ledger WHERE clinic_id=?", cid_t) == [("bonus", "perioada de probă")])
             st, r = prog_t.send("appt:1:day_before:x")
             res.ok("пробный шлёт от DentPilot", st == 200 and fake.sent[-1]["from"] == "DentPilot" and r["balance"] == 29)
+            # «Rechemări» (30.10): вид recall принят, ключ программы `recall:<pid>:<sid>:<cycle>`
+            # проходит IDEM_RE; списание и дедупликация — те же, что у напоминаний
+            st, r = prog_t.send("recall:7:hygiene:41", kind="recall")
+            res.ok("вид recall принят: 200, сегмент списан (28)", st == 200 and r["ok"] and r["balance"] == 28, repr(r))
+            st2, r2 = prog_t.send("recall:7:hygiene:41", kind="recall")
+            res.ok("повтор ключа recall — тот же id, без второго списания",
+                   st2 == 200 and r2["id"] == r["id"] and r2["balance"] == 28, repr(r2))
             # второй сервер: тихие часы вокруг текущего часа Кишинёва
         h = sms.local(datetime.now(timezone.utc)).hour
         with Server(env=fake.env(DP_SMS_QUIET=f"{h}-{(h + 1) % 24}")) as s2:

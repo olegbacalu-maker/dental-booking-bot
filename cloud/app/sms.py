@@ -121,8 +121,11 @@ BUSY = timedelta(seconds=60)        # первая попытка моложе �
 FIND_BACK = timedelta(minutes=2)    # поиск у sms.md — с запасом на расхождение часов
 
 # Вид события (sms.md › «Программа (bot/)» › «События»); свободный текст сюда
-# не попадает — в базу едет только имя из списка.
-KINDS = ("day_before", "same_day", "booked", "changed", "test")
+# не попадает — в базу едет только имя из списка. `recall` (30.10) —
+# reamintirea controlului periodic из списка «Rechemări»: кнопка в программе,
+# одна SMS на цикл услуги (ключ `recall:<pid>:<sid>:<cycle>`); сервер
+# различает его только здесь — правило ключа, остатка и потолка общее.
+KINDS = ("day_before", "same_day", "booked", "changed", "recall", "test")
 IDEM_RE = re.compile(r"^[A-Za-z0-9:._+\-]{1,120}$")
 MAX_SEGMENTS = 3
 IDS_MAX = 200
