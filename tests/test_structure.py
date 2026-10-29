@@ -1865,7 +1865,8 @@ def suite(res: Result) -> None:
     # (сервер лицензий, sms.md): «extracție la 10:30» или имя врача — уже данные
     # о здоровье. Готовые тексты держат только `{clinica}`, `{ziua}`, `{data}`,
     # `{ora}`, `{telefon}` — список PLACEHOLDERS в core/sms_plan.py, и каждая
-    # подстановка в текстах TEXTS / PHONE_LINE обязана быть из него.
+    # подстановка в текстах TEXTS / PHONE_LINE / RECALL_TEXTS («Rechemări»,
+    # 30.10 — второй словарь, тот же список) обязана быть из него.
     # ⚠️ Полярность: список ВКЛЮЧАЮЩИЙ — отсюда вторая проверка: в нём самом нет
     # врача, услуги и имени (иначе «{medic}» легализуется одной строкой).
     bad, allowed, seen = [], set(), set()
@@ -1885,7 +1886,7 @@ def suite(res: Result) -> None:
                   and isinstance(t.value, ast.Subscript) and isinstance(t.value.value, ast.Name)}
         if "PLACEHOLDERS" in names:
             allowed = _texts_of(n.value)
-        if names & {"TEXTS", "PHONE_LINE"}:
+        if names & {"TEXTS", "PHONE_LINE", "RECALL_TEXTS"}:
             for text in _texts_of(n.value):
                 for hole in re.findall(r"\{([a-z_]+)\}", text):
                     seen.add(hole)
@@ -1897,6 +1898,9 @@ def suite(res: Result) -> None:
         bad.append("core/sms_plan.py: списка PLACEHOLDERS не найдено — якорь правила пропал")
     if not seen & allowed:
         bad.append("в текстах TEXTS/PHONE_LINE нет ни одной подстановки — якорь правила пропал")
+    if plan_tree and not any(isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "RECALL_TEXTS"
+                                                               for t in n.targets) for n in ast.walk(plan_tree)):
+        bad.append("core/sms_plan.py: словаря RECALL_TEXTS не найдено — тексты Rechemări ушли из-под правила")
     res.ok("подстановки SMS — белый список", not bad,
            "в тексте SMS появились данные, которых в нём быть не может: " + "; ".join(bad))
     forbidden = {"medic", "doctor", "serviciu", "service", "nume", "name", "pacient",

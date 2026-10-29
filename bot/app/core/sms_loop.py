@@ -108,7 +108,8 @@ EVENT = {db.SMS_SENT: ("sms", "SMS trimis"), db.SMS_DELIVERED: ("sms_ok", "SMS l
 # состояние сервера (cloud/app/sms.py) → наше; прочие («в пути») ждут опроса
 CLOUD_FINAL = {"delivered": db.SMS_DELIVERED, "undelivered": db.SMS_UNDELIVERED,
                "failed": db.SMS_FAILED, "rejected": db.SMS_FAILED, "refused": db.SMS_FAILED}
-KIND_LABEL = {plan.DAY_BEFORE: "cu o zi înainte", plan.SAME_DAY: "în ziua vizitei"}
+KIND_LABEL = {plan.DAY_BEFORE: "cu o zi înainte", plan.SAME_DAY: "în ziua vizitei",
+              plan.RECALL: "rechemare"}
 
 _task: asyncio.Task | None = None
 _wake: asyncio.Event | None = None
@@ -174,9 +175,18 @@ def enabled() -> bool:
 
 def active() -> bool:
     """Пакет РАБОТАЕТ у этой клиники: сервер пускает и хоть одно событие
-    включено. Это же состояние решает текст листа на стойке (acord.py):
+    включено — или кнопка «SMS» в Rechemări (30.10). Это же состояние решает
+    текст листа на стойке (acord.py), точку меню и галочку окна записи:
     бумага обязана совпадать с тем, что делает программа."""
-    return enabled() and plan.any_on(settings())
+    s = settings()
+    return enabled() and (plan.any_on(s) or plan.recall_on(s))
+
+
+def recall_on() -> bool:
+    """Кнопка «SMS» в «Rechemări» нажимается: сервер пускает отправку
+    (`enabled()` — ⛔ не `offered()`: у Basic он тоже true, Basic — это
+    `blocked = sms_basic`) и галочка `sms.recall.on` стоит."""
+    return enabled() and plan.recall_on(settings())
 
 
 def custom_texts() -> dict:
@@ -373,14 +383,21 @@ async def _enqueue_due(now: datetime, s: dict) -> int:
     return added
 
 
-async def _log(row: dict, state: str, code: str = "") -> None:
+async def _log(row: dict, state: str, code: str = "", *, actor: str | None = "sistem",
+               label: str = "") -> None:
+    """Строка летописи готовой строкой. `actor=None` — вошедший (кнопка в
+    Rechemări: SMS послал человек, не цикл); `label` — слово вида вместо
+    `KIND_LABEL` («rechemare Igienizare» — услуга в летописи, не в SMS)."""
     kind, word = EVENT[state]
     visit = row.get("visit_at")
     when = visit.astimezone(eng.TZ).strftime("%d.%m.%Y %H:%M") if visit else ""
-    text = f"{word} ({KIND_LABEL.get(row['kind'], row['kind'])})" + (f" — vizita {when}" if when else "")
+    text = f"{word} ({label or KIND_LABEL.get(row['kind'], row['kind'])})" + (f" — vizita {when}" if when else "")
     if code:
         text += f": {WHY.get(code, code)}"
-    await db.log_event(row["patient_id"], kind, text, actor="sistem")
+    if actor is None:
+        await db.log_event(row["patient_id"], kind, text)
+    else:
+        await db.log_event(row["patient_id"], kind, text, actor=actor)
 
 
 async def _expire(now: datetime) -> int:
@@ -570,6 +587,73 @@ async def send_test(phone: str) -> tuple[str, dict]:
     return await _command(wire.send, number, text, "test", f"test:{now.strftime('%Y%m%dT%H%M%S')}")
 
 
+# ---------- «Rechemări»: SMS по кнопке (30.10) ----------
+
+# отказы ДО сервера — коды ответа API (MSG_BANNER), не коды сервера
+RECALL_NO_PHONE = "recall_no_phone"          # у клиники нет телефона: тексту нечего обещать
+RECALL_BAD_PHONE = "recall_sms_phone"        # номер пациента — не мобильный РМ
+RECALL_QUIET = "recall_sms_quiet"            # 21:00–08:00 по часам клиники
+RECALL_DUP = "recall_sms_dup"                # строка с этим ключом уже есть
+RECALL_OFF = "recall_sms_off"                # гейт recall_on() закрыт
+
+
+def recall_preview(lang: str) -> tuple[str, int]:
+    """Текст и число сегментов для кнопки — тем же правилом, что уйдёт серверу."""
+    text = plan.recall_text(lang, settings()[plan.RECALL]["variant"],
+                            clinic=eng.CLINIC_NAME, phone=eng.CLINIC_PHONE)
+    return text, rule.parts(text)[2]
+
+
+async def send_recall(patient_id: int, service_id: str, cycle_appt_id: int, phone_raw: str,
+                      lang: str, label: str) -> tuple[str, dict]:
+    """Одна SMS из списка «Rechemări» — синхронно, мимо очереди (как `send_test`),
+    но С ЗАПИСЬЮ: строка `sms_log` (`kind recall`, `appt_id NULL` — колокольчик
+    прошлого визита её не зажжёт), летопись от имени вошедшего, остаток из
+    ответа. Доставку дальше опрашивает штатный цикл (`_poll_status`).
+    Исход — `wire.*`; у DENIED в теле `code`: свой (`RECALL_*`) или сервера.
+    При любом отказе ни строки, ни отметки — отмечать нечего."""
+    if not recall_on():
+        return wire.DENIED, {"code": RECALL_OFF}
+    t = target()
+    if t is None:
+        return wire.OFFLINE, {}
+    if not (eng.CLINIC_PHONE or "").strip():
+        return wire.DENIED, {"code": RECALL_NO_PHONE}
+    number, why = rule.phone(phone_raw)
+    if why:
+        return wire.DENIED, {"code": RECALL_BAD_PHONE, "reason": why}
+    if not plan.awake(datetime.now(eng.TZ)):
+        return wire.DENIED, {"code": RECALL_QUIET}
+    key = plan.recall_idem(patient_id, service_id, cycle_appt_id)
+    if await db.sms_by_idem(key) is not None:
+        return wire.DENIED, {"code": RECALL_DUP}
+    text, segs = recall_preview(lang)
+    outcome, body = await asyncio.to_thread(wire.send, t[0], t[1], number, text, plan.RECALL, key,
+                                            wire.TIMEOUT, _agent(), lic.identity())
+    if outcome == wire.OK:
+        segs = int(body.get("segments") or segs)
+        row_id = await db.sms_log_sent(patient_id, plan.RECALL, number, text, segs, key,
+                                       int(body.get("id") or 0) or None)
+        if row_id is None:
+            return wire.DENIED, {"code": RECALL_DUP}       # гонка двух нажатий: первая записала
+        if _account is not None and isinstance(body.get("balance"), int):
+            _account["balance"] = body["balance"]
+            await _save_low()
+        await _log({"patient_id": patient_id, "kind": plan.RECALL}, db.SMS_SENT,
+                   actor=None, label=f"{KIND_LABEL[plan.RECALL]} {label}".strip())
+        log.info("sms: recall sent row=%s cloud=%s", row_id, body.get("id"))
+        return wire.OK, {"state": db.SMS_SENT, "balance": _account.get("balance") if _account else None,
+                         "segments": segs}
+    if outcome == wire.DENIED:
+        code = str(body.get("code") or "sms_refused")
+        _last["error"] = code
+        if code in RECHECK:
+            await refresh_account(force=True)
+        return wire.DENIED, {"code": code, "text": str(body.get("text") or "")}
+    _last["error"] = outcome
+    return outcome, {}
+
+
 def _previews(s: dict) -> dict:
     """Предпросмотры: событие → вариант → язык → {text, segments} с названием
     и телефоном клиники; накануне — «maine», в день визита — «astazi»."""
@@ -589,6 +673,13 @@ def _previews(s: dict) -> dict:
                                  phone_line=s[plan.PHONE_LINE_KEY], starts=starts, on_day=now.date(),
                                  custom=custom)
                 out[ev][v][lang] = {"text": text, "segments": rule.parts(text)[2]}
+    # «Rechemări»: вариант → язык, без события и часа
+    out[plan.RECALL] = {}
+    for v in plan.RECALL_VARIANTS:
+        out[plan.RECALL][v] = {}
+        for lang in plan.LANGS:
+            text = plan.recall_text(lang, v, clinic=eng.CLINIC_NAME, phone=eng.CLINIC_PHONE)
+            out[plan.RECALL][v][lang] = {"text": text, "segments": rule.parts(text)[2]}
     return out
 
 
@@ -619,7 +710,8 @@ def screen() -> dict:
         "settings": s,
         "options": {"hours": list(plan.HOURS_X), "leads": list(plan.LEAD_HOURS),
                     "variants": [{"key": v, "label": plan.VARIANT_LABEL[v]} for v in plan.VARIANTS]
-                    + ([{"key": plan.CUSTOM, "label": plan.VARIANT_LABEL[plan.CUSTOM]}] if custom else [])},
+                    + ([{"key": plan.CUSTOM, "label": plan.VARIANT_LABEL[plan.CUSTOM]}] if custom else []),
+                    "recall_variants": [{"key": v, "label": plan.VARIANT_LABEL[v]} for v in plan.RECALL_VARIANTS]},
         "previews": _previews(s) if available() else {},
         "forecast": {**fc, "days_left": (int(int((acc or {}).get("balance") or 0) // daily)
                                          if acc and daily > 0 else None)},

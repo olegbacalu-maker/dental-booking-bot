@@ -1881,6 +1881,39 @@ async def sms_rows(appt_id: int) -> list:
         "SELECT * FROM sms_log WHERE appt_id = ? ORDER BY id", appt_id)
 
 
+async def sms_by_idem(idem: str) -> dict | None:
+    """Строка по ключу повтора — есть ли уже такая SMS (любое состояние)."""
+    rows = await _fetch("SELECT * FROM sms_log WHERE idem = ?", idem)
+    return rows[0] if rows else None
+
+
+async def sms_log_sent(patient_id: int, kind: str, phone: str, text: str, segments: int,
+                       idem: str, cloud_id: int | None) -> int | None:
+    """Уже ОТПРАВЛЕННАЯ мимо очереди SMS («Rechemări», 30.10): строка сразу
+    `sent`, без визита (`appt_id NULL` — колокольчик `_SMS_REMINDED_SQL`
+    смотрит по визиту и её не видит), окно = момент отправки. Повтор ключа —
+    None: первая запись выиграла. Доставку опрашивает штатный цикл."""
+    now = _utcnow_iso()
+    n = await _execute(
+        """INSERT OR IGNORE INTO sms_log(appt_id, patient_id, kind, phone, text, segments,
+                                       idem, cloud_id, state, until_at, created_at, state_at)
+           VALUES(NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        patient_id, kind, phone, text, segments, idem, cloud_id, SMS_SENT, now, now, now)
+    if n <= 0:
+        return None
+    rows = await _fetch("SELECT id FROM sms_log WHERE idem = ?", idem)
+    return int(rows[0]["id"]) if rows else None
+
+
+async def sms_states_by_kind(kind: str, patient_id: int | None = None) -> list:
+    """Ключ, состояние и момент состояния всех SMS вида — `core/recall` сводит
+    их со строками списка по ключу (одна выборка на картотеку)."""
+    if patient_id is None:
+        return await _fetch("SELECT idem, state, state_at FROM sms_log WHERE kind = ?", kind)
+    return await _fetch("SELECT idem, state, state_at FROM sms_log WHERE kind = ? AND patient_id = ?",
+                        kind, patient_id)
+
+
 async def sms_counts(day_start: datetime) -> dict:
     """Цифры экрана Setări › SMS: в очереди; ушло и доставлено с начала дня."""
     row = await _fetch(
@@ -2168,7 +2201,8 @@ async def recall_done_last(service_ids: list, patient_id: int | None = None) -> 
     return await _fetch(
         f"""SELECT a.patient_id, a.service_id, a.id AS aid, a.doctor,
                    MAX(a.starts_at) AS last_at,
-                   p.name, p.phone, p.email, COALESCE(p.lang, 'ro') AS lang
+                   p.name, p.phone, p.email, COALESCE(p.lang, 'ro') AS lang,
+                   COALESCE(p.sms_off, 0) AS sms_off
               FROM appointments a JOIN patients p ON p.id = a.patient_id
              WHERE a.status = 'done' AND a.service_id IN ({lite})
                AND COALESCE(p.archived, 0) = 0{one}
@@ -2198,12 +2232,13 @@ async def recall_marks(patient_id: int | None = None) -> list:
 
 
 async def recall_contacts_since(since_iso: str) -> list:
-    """Отметки «sunat — revine»/«e-mail trimis» с момента `since_iso` (UTC ISO):
-    пара (пациент, услуга) и её ПЕРВАЯ такая отметка в окне — для статистики
-    «contactați · programați» (журнал читается, не интерпретируется)."""
+    """Отметки «sunat — revine»/«e-mail trimis»/«SMS trimis» (30.10, В7 = А) с
+    момента `since_iso` (UTC ISO): пара (пациент, услуга) и её ПЕРВАЯ такая
+    отметка в окне — для статистики «contactați · programați» (журнал
+    читается, не интерпретируется)."""
     return await _fetch(
         """SELECT patient_id, service_id, MIN(at) AS at
-             FROM recall_marks WHERE result IN ('contacted', 'emailed') AND at >= ?
+             FROM recall_marks WHERE result IN ('contacted', 'emailed', 'sms') AND at >= ?
             GROUP BY patient_id, service_id""", since_iso)
 
 

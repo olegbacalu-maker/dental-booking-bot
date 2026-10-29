@@ -491,6 +491,13 @@ MUTATIONS = [
     # Текст, дописанный МИМО словаря, — тот же текст.
     ("подстановки SMS — белый список", "app/core/sms_plan.py",
      "\nTEXTS[\"ro\"][\"mut\"] = \"{clinica}: {serviciu} {data} {ora}\"\n"),
+    # Услуга в тексте Rechemări (30.10) — тот же белый список, второй словарь.
+    ("подстановки SMS — белый список", "app/core/sms_plan.py",
+     ("controlul periodic. Pentru programare: {telefon}. O zi buna!",
+      "controlul periodic ({serviciu}). Pentru programare: {telefon}. O zi buna!")),
+    # ЯКОРЬ: словарь переименовали — правило перестало бы его читать.
+    ("подстановки SMS — белый список", "app/core/sms_plan.py",
+     ("RECALL_TEXTS = {", "RECALL_TEXTS_ = {")),
     # Список расширили врачом — первое правило довольно, второе краснеет.
     ("белый список SMS без врача", "app/core/sms_plan.py",
      ('PLACEHOLDERS = ("clinica", "ziua", "data", "ora", "telefon")',

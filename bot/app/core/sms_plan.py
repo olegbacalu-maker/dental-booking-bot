@@ -36,6 +36,9 @@ EVENTS = (DAY_BEFORE, SAME_DAY)
 HOURS_X = tuple(range(8, 21))       # час напоминания накануне: 08:00…20:00
 LEAD_HOURS = (1, 2, 3)              # «în ziua vizitei» — за 1, 2 или 3 часа
 PHONE_LINE_KEY = "phone_line"
+# «Rechemări» (30.10): reamintirea controlului periodic — не событие очереди, а
+# кнопка в строке списка (Олег 30.10, В1 = А); галочка — можно ли её нажимать.
+RECALL = "recall"
 
 # ---------- настройки клиники: clinic.json › sms ----------
 
@@ -49,7 +52,9 @@ VARIANT_LABEL = {STANDARD: "Standard", SCURT: "Scurt", OFICIAL: "Oficial", CALD:
 # за 2 часа выключено, строки телефона нет.
 DEFAULTS = {DAY_BEFORE: {"on": True, "hour": 10, "variant": STANDARD},
             SAME_DAY: {"on": False, "hours": 2, "variant": STANDARD},
-            PHONE_LINE_KEY: False}
+            PHONE_LINE_KEY: False,
+            # кнопка «SMS» в Rechemări — включена по умолчанию (Олег 30.10, В5 = А)
+            RECALL: {"on": True, "variant": STANDARD}}
 
 
 def _int_in(value, allowed, default: int) -> int:
@@ -74,11 +79,23 @@ def settings(raw) -> dict:
             entry["hours"] = _int_in(d.get("hours"), LEAD_HOURS, base["hours"])
         out[ev] = entry
     out[PHONE_LINE_KEY] = bool(raw.get(PHONE_LINE_KEY, DEFAULTS[PHONE_LINE_KEY]))
+    # ⚠️ Ключ, которого здесь нет, экран SMS сотрёт при первом сохранении
+    # (форма сохраняется целиком): recall нормализуется, как события
+    rc = raw.get(RECALL) if isinstance(raw.get(RECALL), dict) else {}
+    variant = rc.get("variant")
+    out[RECALL] = {"on": bool(rc.get("on", DEFAULTS[RECALL]["on"])),
+                   "variant": variant if variant in RECALL_VARIANTS else DEFAULTS[RECALL]["variant"]}
     return out
 
 
 def any_on(s: dict) -> bool:
+    """Хоть одно СОБЫТИЕ очереди включено (кнопка Rechemări — не событие)."""
     return any(s[ev]["on"] for ev in EVENTS)
+
+
+def recall_on(s: dict) -> bool:
+    """Галочка «Buton SMS în Rechemări»."""
+    return bool(s.get(RECALL, {}).get("on"))
 
 
 # ---------- тексты ----------
@@ -113,6 +130,27 @@ TEXTS = {
 CLINIC_WORD = {"ro": "Clinica", "ru": "Клиника"}
 # строка «телефон для отмены» — галочкой клиники, у готовых вариантов
 PHONE_LINE = {"ro": "\nAnulare: {telefon}", "ru": "\nОтмена: {telefon}"}
+
+# «Rechemări» (30.10, план § 2, Олег: вариант А — без услуги и месяцев):
+# клинический текст, «controlul periodic» нейтрален к услуге (гигиена,
+# имплант, ортодонтия); телефон клиники ОБЯЗАТЕЛЕН — без него у SMS нет
+# действия, поэтому `{telefon}` стоит в самом тексте, а не строкой по галочке.
+# ⛔ Подстановки — те же PLACEHOLDERS (держит test_structure, якорь
+# RECALL_TEXTS); ни `{serviciu}`, ни `{luni}`: услуга — данные о здоровье,
+# число месяцев стоило бы правки белого списка в пяти местах. Цен, скидок и
+# акций нет и не будет — это грань заботы и маркетинга (test_sms.suite_plan).
+RECALL_VARIANTS = (STANDARD, SCURT)
+RECALL_TEXTS = {
+    "ro": {
+        STANDARD: ("Buna ziua! {clinica} va reaminteste ca a venit timpul pentru "
+                   "controlul periodic. Pentru programare: {telefon}. O zi buna!"),
+        SCURT: "{clinica}: e timpul pentru controlul periodic. Programari: {telefon}.",
+    },
+    "ru": {
+        STANDARD: "{clinica}: пора на плановый осмотр. Тел. {telefon}",
+        SCURT: "{clinica}: плановый осмотр. Тел. {telefon}",
+    },
+}
 
 TODAY = {"ro": "astazi", "ru": "сегодня"}
 TOMORROW = {"ro": "maine", "ru": "завтра"}
@@ -211,6 +249,26 @@ def text(lang: str, variant: str, *, clinic: str, phone: str, phone_line: bool,
     return render(tpl, {"clinica": name, "ziua": day_word(lang, starts.date(), on_day),
                         "data": starts.strftime("%d.%m"), "ora": starts.strftime("%H:%M"),
                         "telefon": tel})
+
+
+def recall_text(lang: str, variant: str, *, clinic: str, phone: str) -> str:
+    """SMS из «Rechemări»: подпись клиники и её телефон, без даты и часа (срока
+    у рекламации в тексте нет намеренно — он подсказка стойке, не обещание
+    пациенту). Румынский — без диакритики (`fold`)."""
+    lang = lang if lang in LANGS else "ro"
+    tpl = RECALL_TEXTS[lang].get(variant) or RECALL_TEXTS[lang][STANDARD]
+    name, tel = clinic_label(clinic, lang), (phone or "").strip()
+    if lang == "ro":
+        name, tel = fold(name), fold(tel)
+    return render(tpl, {"clinica": name, "telefon": tel})
+
+
+def recall_idem(patient_id: int, service_id: str, cycle_appt_id: int) -> str:
+    """Ключ повтора рекламации: `recall:{pid}:{service_id}:{cycle}` — одна SMS
+    на цикл услуги (цикл = последний done-визит пары): второе нажатие, вторая
+    вкладка или второй ПК получают первый ответ сервера; новый done — новый
+    ключ. Укладывается в `IDEM_RE` сервера (id услуг — `[a-z0-9_]{1,20}`)."""
+    return f"recall:{int(patient_id)}:{service_id}:{int(cycle_appt_id)}"
 
 
 def idem(appt_id: int, kind: str, starts_utc: str) -> str:

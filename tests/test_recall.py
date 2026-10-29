@@ -11,12 +11,14 @@
 """
 import io
 import json
+import pathlib
 import sqlite3
 import sys
+import tempfile
 import zipfile
 from datetime import date, datetime, timedelta
 
-from harness import BOT, Client, Clock, Result, Server, TZ, add_appt, appt_id, new_patient
+from harness import BOT, Client, Clock, Result, Server, TZ, _rmtree_settled, add_appt, appt_id, day_model, new_patient
 from test_api import NO_KEY
 
 sys.path.insert(0, str(BOT))
@@ -25,6 +27,7 @@ from app.core import recall  # noqa: E402
 
 API = "/api/recall"
 MARK = "/api/recall/mark"
+SMS = "/api/recall/sms"
 SVC_API = "/api/settings/services"
 # вторник 06.10.2026, 10:00 — рабочий день фикстуры (часы 7–21)
 AT = datetime(2026, 10, 6, 10, 0, tzinfo=TZ)
@@ -350,7 +353,9 @@ def suite_rights(res: Result) -> None:
             x.post("/admin/login", password=pin, next="/admin")
             return x
         med, rec = login("2222"), login("4444")
-        res.check("врач: список и отметка — 403", (med.get(API).status, med.post_json(MARK, {"pid": pid, "service_id": "hygiene", "result": "clear"}).status), (403, 403))
+        res.check("врач: список, отметка и SMS — 403",
+                  (med.get(API).status, med.post_json(MARK, {"pid": pid, "service_id": "hygiene", "result": "clear"}).status,
+                   med.post_json(SMS, {"pid": pid, "service_id": "hygiene"}).status), (403, 403, 403))
         res.check("врач: страница — отказ", med.get("/admin/rechemari").status in (303, 403), True)
         res.check("врач: desk.recall = null", _j(med.get("/api/schedule/live?screen=panel"))["data"]["desk"]["recall"], None)
         from harness import shell_model
@@ -448,3 +453,180 @@ def suite_schema(res: Result) -> None:
         res.check("чистая установка: таблица и индекс есть",
                   sorted(_sql(s, "SELECT name FROM sqlite_master WHERE name IN ('recall_marks', 'ix_recall_pat')")),
                   ["ix_recall_pat", "recall_marks"])
+
+
+def suite_sms(res: Result) -> None:
+    """SMS из списка (30.10, Олег «все А»): гейт — `enabled()`, не `offered()`
+    (у Basic offered тоже true); кнопка по данным строки; отправка синхронно
+    с записью в sms_log (kind recall, appt_id NULL), отметкой `sms` и
+    летописью от вошедшего; повтор — dup; отказы сервера словами, без записи;
+    недоставленная возвращает в due; SMS в «contactați»; галочка в Setări › SMS
+    переживает пересохранение; `active()` следует за ней."""
+    import test_license_renew as lr
+    from test_sms import KEY_ENV, TICK, TOKEN, Stand, _at, _clinic_weekdays, _events, _sms_log, _wait
+
+    # чистые куски: кнопка по данным, недоставленная — в due, ключ
+    base = {"patient_id": 1, "phone": "069 123 456", "sms_off": 0}
+    ctx = {"on": True, "clinic_phone": True}
+    res.check("кнопка: мобильный — can", recall.sms_button(base, 5, "hygiene", ctx, {}), {"can": True, "why": ""})
+    res.check("кнопка: отказ пациента", recall.sms_button({**base, "sms_off": 1}, 5, "hygiene", ctx, {}),
+              {"can": False, "why": "sms_off"})
+    res.check("кнопка: стационарный", recall.sms_button({**base, "phone": "022 123 456"}, 5, "hygiene", ctx, {}),
+              {"can": False, "why": "phone"})
+    res.check("кнопка: без телефона клиники", recall.sms_button(base, 5, "hygiene", {"on": True, "clinic_phone": False}, {}),
+              {"can": False, "why": "no_clinic_phone"})
+    res.check("кнопка: гейт закрыт — None; SMS цикла уже есть — None",
+              (recall.sms_button(base, 5, "hygiene", None, {}),
+               recall.sms_button(base, 5, "hygiene", ctx, {"recall:1:hygiene:5": {"state": "sent"}})), (None, None))
+    key = recall.splan.recall_idem(1, "hygiene", 1)
+    res.check("ключ", key, "recall:1:hygiene:1")
+    ev = [_mk("sms")]
+    res.check("отметка sms, SMS sent — snoozed со словом «SMS trimis»",
+              recall.mark_state(ev, 1, TODAY, {key: {"state": "sent"}}),
+              ("snoozed", {"result": "sms", "word": "SMS trimis", "until": "2026-10-15", "n_noanswer": 0, "at": "01.10",
+                           "actor": "Ana", "sms": {"state": "sent", "word": "SMS trimis"}}))
+    res.check("отметка sms, SMS undelivered — сразу due, слово «SMS nelivrat»",
+              recall.mark_state(ev, 1, TODAY, {key: {"state": "undelivered"}})[0:1]
+              + (recall.mark_state(ev, 1, TODAY, {key: {"state": "undelivered"}})[1]["sms"],),
+              ("due", {"state": "undelivered", "word": "SMS nelivrat"}))
+    res.check("отметка sms, failed — due", recall.mark_state(ev, 1, TODAY, {key: {"state": "failed"}})[0], "due")
+    res.check("отметка sms прошлого цикла не действует", recall.mark_state(ev, 2, TODAY, {})[0], "due")
+
+    stand = Stand()
+    stand.account["blocked"] = "sms_basic"          # Basic: предложен, но не пускает
+    renew = {"url": stand.url, "token": TOKEN}
+    d = pathlib.Path(tempfile.mkdtemp(prefix="dp_rcsms_"))
+    env = {**KEY_ENV, **TICK}
+    try:
+        _clinic_weekdays(d)
+        (d / "license.json").write_text(lr._file(5, renew), encoding="utf-8")
+        with Clock(AT) as clock, Server(dir_=d, env=env) as s:
+            c = Client(s.url).login()
+            _set_recall(c, {"hygiene": 6})
+            pid = _visit(c, date(2026, 4, 2), "Sms Rechem", "069870001")
+            pid_fix = _visit(c, date(2026, 4, 2), "Sms Fix", "022123456", time="10:00")
+            pid_ref = _visit(c, date(2026, 4, 2), "Sms Refuz", "069870003", time="11:00")
+            pid4 = _visit(c, date(2026, 4, 2), "Sms Patru", "069870004", time="12:00")
+            pid5 = _visit(c, date(2026, 4, 2), "Sms Cinci", "069870005", time="13:00")
+            c.post_json(f"/api/patients/{pid_ref}/sms-off", {"on": True})
+            acc = _wait(lambda: (lambda x: x if x.get("offered") else None)(_j(c.get("/api/settings/sms"))["data"]))
+            res.ok("стенд: счёт прочитан, offered true, blocked sms_basic", acc and acc["blocked"] == "sms_basic", repr(acc)[:300])
+            d0 = _rows(c)
+            res.check("Basic: sms null, у строк кнопки нет — гейт enabled(), не offered()",
+                      (d0["sms"], [r["sms"] for r in d0["rows"]]), (None, [None] * 5))
+            res.check("Basic: POST — recall_sms_off", c.post_json(SMS, {"pid": pid, "service_id": "hygiene"}).msg, "recall_sms_off")
+            res.ok("pure: recall_on false, active false (события по умолчанию: накануне вкл. — но сервер не пускает)",
+                   not _j(c.get("/api/settings/sms"))["data"]["active"])
+
+            # Plus
+            stand.account["blocked"] = ""
+            c.post_json("/api/settings/sms/refresh", {})
+            d1 = _rows(c)
+            res.check("Plus: блок sms — остаток 100, не тихие часы", d1["sms"], {"on": True, "balance": 100, "quiet": False})
+            by = {x["name"]: x for x in d1["rows"]}
+            res.check("кнопки по данным: мобильный — can; стационарный — phone; отказ — sms_off",
+                      (by["Sms Rechem"]["sms"]["can"], by["Sms Fix"]["sms"]["why"], by["Sms Refuz"]["sms"]["why"]),
+                      (True, "phone", "sms_off"))
+            t = by["Sms Rechem"]["sms"]
+            res.ok("текст строки: клиника и телефон, без услуги, даты и цен; один сегмент",
+                   "Clinica Test" in t["text"] and "+373 60 000 000" in t["text"] and "Igienizare" not in t["text"]
+                   and "controlul periodic" in t["text"] and t["segments"] == 1 and "%" not in t["text"], repr(t))
+            live = _j(c.get("/api/schedule/live?screen=panel"))["data"]["desk"]["recall"]
+            res.ok("главная: строки без текста SMS и без «сейчас» (блок данных, не часа)",
+                   live["items"] and all("text" not in (it.get("sms") or {}) for it in live["items"]), repr(live)[:300])
+
+            # отказы до сервера
+            clock.set(_at(2026, 10, 6, 21, 30))
+            res.check("тихие часы: quiet true в конверте, POST — recall_sms_quiet",
+                      (_rows(c)["sms"]["quiet"], c.post_json(SMS, {"pid": pid, "service_id": "hygiene"}).msg),
+                      (True, "recall_sms_quiet"))
+            clock.set(AT + timedelta(minutes=1))      # вперёд, не назад: отметки позже визитов
+            res.check("отказ пациента — recall_sms_refused", c.post_json(SMS, {"pid": pid_ref, "service_id": "hygiene"}).msg, "recall_sms_refused")
+            res.check("стационарный — recall_sms_phone", c.post_json(SMS, {"pid": pid_fix, "service_id": "hygiene"}).msg, "recall_sms_phone")
+            res.check("пары без визита — recall_gone", c.post_json(SMS, {"pid": pid, "service_id": "consult"}).msg, "recall_gone")
+            res.check("кривое тело — 422", c.post_json(SMS, {"pid": "x"}).status, 422)
+            res.check("отметку sms руками — 422", c.post_json(MARK, {"pid": pid, "service_id": "hygiene", "result": "sms"}).status, 422)
+            res.check("без входа — 401", Client(s.url).post_json(SMS, {"pid": pid, "service_id": "hygiene"}).status, 401)
+
+            # отказы сервера — словами, без записи
+            stand.send_mode = "balance"
+            r = c.post_json(SMS, {"pid": pid, "service_id": "hygiene"})
+            res.ok("нет остатка: sms_denied словами WHY, ни строки, ни отметки",
+                   r.msg == "sms_denied" and r.status == 409 and "pachetul SMS s-a terminat" in _j(r)["text"]
+                   and _sms_log(d) == [] and _sql(s, "SELECT COUNT(*) FROM recall_marks") == [0], r.body[:300])
+            stand.send_mode = "down"
+            r = c.post_json(SMS, {"pid": pid, "service_id": "hygiene"})
+            res.check("сервер молчит — sms_offline 503, записи нет", (r.msg, r.status, _sms_log(d)), ("sms_offline", 503, []))
+            stand.send_mode = "ok"
+
+            # отправка
+            r = c.post_json(SMS, {"pid": pid, "service_id": "hygiene"})
+            res.check("ok_recall_sms: sent, остаток 99", (r.msg, _j(r)["data"]), ("ok_recall_sms", {"state": "sent", "balance": 99}))
+            aid = appt_id(c, "2026-04-02", "Sms Rechem")
+            sent = stand.sends[-1]["json"]
+            res.ok("серверу: kind recall, ключ recall:<pid>:hygiene:<aid>, восемь цифр, текст строки",
+                   sent["kind"] == "recall" and sent["idem"] == f"recall:{pid}:hygiene:{aid}" and sent["to"] == "69870001"
+                   and sent["text"] == t["text"], repr(sent))
+            rows = _sms_log(d)
+            res.ok("sms_log: одна строка kind recall, appt_id NULL, sent, cloud_id",
+                   len(rows) == 1 and rows[0]["kind"] == "recall" and rows[0]["appt_id"] is None
+                   and rows[0]["state"] == "sent" and rows[0]["cloud_id"] == 1 and rows[0]["patient_id"] == pid, repr(rows))
+            row = _by(c, "Sms Rechem")
+            res.check("строка: отметка sms, слово доставки, snoozed, кнопки нет",
+                      (row["mark"]["result"], row["mark"]["word"], row["mark"]["sms"], row["tab"], row["sms"], row["mark"]["actor"]),
+                      ("sms", "SMS trimis", {"state": "sent", "word": "SMS trimis"}, "snoozed", None, "Director"))
+            feed = _j(c.get(f"/api/patients/{pid}/activity"))["data"]["items"]
+            hit = next((a for a in feed if str(a.get("text", "")).startswith("SMS trimis (rechemare Igienizare)")), None)
+            res.ok("летопись: «SMS trimis (rechemare Igienizare)» от имени вошедшего, не sistem",
+                   hit is not None and hit.get("who") == "Director", repr(feed[:3]))
+            res.ok("колокольчик прошлого визита не горит (appt_id NULL)",
+                   not next(x for x in day_model(c, "2026-04-02")["list"] if x["name"] == "Sms Rechem")["reminded"])
+            res.ok("остаток на экране SMS — 99", _j(c.get("/api/settings/sms"))["data"]["account"]["balance"] == 99)
+            # повтор
+            r = c.post_json(SMS, {"pid": pid, "service_id": "hygiene"})
+            res.check("второе нажатие — recall_sms_dup, у стенда одна SMS", (r.msg, len(stand._by_idem)), ("recall_sms_dup", 1))
+            c.post_json(MARK, {"pid": pid, "service_id": "hygiene", "result": "clear"})
+            row = _by(c, "Sms Rechem")
+            res.check("«Anulează marcajul»: строка в due, кнопки всё равно нет — решает sms_log",
+                      (row["tab"], row["mark"], row["sms"]), ("due", None, None))
+
+            # доставка: undelivered возвращает в due, delivered — тишина
+            c.post_json(SMS, {"pid": pid4, "service_id": "hygiene"})
+            c.post_json(SMS, {"pid": pid5, "service_id": "hygiene"})
+            aid4, aid5 = appt_id(c, "2026-04-02", "Sms Patru"), appt_id(c, "2026-04-02", "Sms Cinci")
+            stand.states = {stand._by_idem[f"recall:{pid4}:hygiene:{aid4}"]: "undelivered",
+                            stand._by_idem[f"recall:{pid5}:hygiene:{aid5}"]: "delivered"}
+            clock.set(AT + timedelta(minutes=6))
+            got = _wait(lambda: (lambda x: x if x and x["mark"] and x["mark"]["sms"]["state"] == "undelivered" else None)(_by(c, "Sms Patru")))
+            res.ok("недоставленная: строка снова в «De sunat» с «SMS nelivrat», кнопки нет",
+                   got is not None and got["tab"] == "due" and got["mark"]["sms"]["word"] == "SMS nelivrat" and got["sms"] is None,
+                   repr(got))
+            r5 = _by(c, "Sms Cinci")
+            res.check("доставленная: snoozed, «SMS livrat»", (r5["tab"], r5["mark"]["sms"]), ("snoozed", {"state": "delivered", "word": "SMS livrat"}))
+            res.ok("летопись pid4: SMS nelivrat (rechemare) от sistem",
+                   any(t_.startswith("SMS nelivrat (rechemare)") for t_ in _events(d, pid4)), repr(_events(d, pid4)))
+            card = _j(c.get(f"/api/patients/{pid4}"))["data"]["recall"][0]
+            res.check("фиша: отметка sms со словом доставки", (card["mark"]["result"], card["mark"]["sms"]["word"]), ("sms", "SMS nelivrat"))
+            res.check("статистика: SMS — в contactați (3 пациента, clear не вычитает)",
+                      _rows(c)["stats"]["month"], {"contacted": 3, "booked": 0})
+
+            # галочка в Setări › SMS
+            s0 = _j(c.get("/api/settings/sms"))["data"]["settings"]
+            c.post_json("/api/settings/sms", {**s0, "recall": {"on": False, "variant": "standard"}})
+            res.check("галочка снята: sms null, POST — recall_sms_off",
+                      (_rows(c)["sms"], c.post_json(SMS, {"pid": pid_fix, "service_id": "hygiene"}).msg), (None, "recall_sms_off"))
+            s1 = _j(c.get("/api/settings/sms"))["data"]["settings"]
+            c.post_json("/api/settings/sms", s1)
+            res.check("пересохранение без правки — тождественно (ключ recall не стёрт)", _j(c.get("/api/settings/sms"))["data"]["settings"], s1)
+            c.post_json("/api/settings/sms", {**s1, "day_before": {**s1["day_before"], "on": False}})
+            res.ok("события и галочка выключены — active false (точка меню off)", not _j(c.get("/api/settings/sms"))["data"]["active"])
+            c.post_json("/api/settings/sms", {**s1, "day_before": {**s1["day_before"], "on": False}, "recall": {"on": True, "variant": "scurt"}})
+            res.ok("галочка стоит, события выключены — active true (лист acord с SMS)",
+                   _j(c.get("/api/settings/sms"))["data"]["active"])
+            res.ok("вариант scurt — короткий текст в строке",
+                   _by(c, "Sms Fix")["sms"]["text"].startswith("Clinica Test: e timpul pentru controlul periodic"),
+                   repr(_by(c, "Sms Fix")["sms"]))
+            res.check("два запроса подряд — то же", _rows(c), _rows(c))
+    finally:
+        stand.close()
+        _rmtree_settled(d)

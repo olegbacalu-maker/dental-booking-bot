@@ -208,12 +208,14 @@ LANGS = ("ro", "ru")
 _T_SMS = {
     "ro": {
         "li4": ("remindere despre vizita programată (prin SMS) și reamintirea "
-                "controlului periodic (telefon sau e-mail) — <b>interesul legitim</b> "
+                "controlului periodic (telefon, e-mail sau SMS) — <b>interesul legitim</b> "
                 "al clinicii; puteți renunța oricând, la recepție."),
         "store": ("Fișele electronice se păstrează <b>local, pe calculatorul "
                   "clinicii</b> (programul DentPilot) și nu sunt transmise "
                   "dezvoltatorului programului. Pentru memento-urile SMS se transmit "
-                  "doar numărul de telefon și data și ora vizitei, prin serverul "
+                  "doar numărul de telefon și textul mesajului (data și ora vizitei sau, "
+                  "la reamintirea controlului periodic, denumirea și telefonul "
+                  "clinicii), prin serverul "
                   "dezvoltatorului (care nu le păstrează), operatorului SMS.MD "
                   "(Rock Soft S.R.L.), care le păstrează 3 luni. Datele pot fi transmise "
                   "doar instituțiilor abilitate, la cererea legală a acestora, sau "
@@ -222,12 +224,14 @@ _T_SMS = {
     },
     "ru": {
         "li4": ("напоминания о назначенном визите (по SMS) и о плановом контроле "
-                "(по телефону или e-mail) — <b>законный интерес</b> "
+                "(по телефону, e-mail или SMS) — <b>законный интерес</b> "
                 "клиники; вы можете отказаться в любой момент на стойке."),
         "store": ("Электронные карты хранятся <b>локально, на компьютере "
                   "клиники</b> (программа DentPilot) и не передаются "
                   "разработчику программы. Для SMS-напоминаний передаются только "
-                  "номер телефона, дата и время визита — через сервер разработчика "
+                  "номер телефона и текст сообщения (дата и время визита или, при "
+                  "напоминании о плановом контроле, название и телефон клиники) — "
+                  "через сервер разработчика "
                   "(он их не хранит) оператору SMS.MD (Rock Soft S.R.L.), который "
                   "хранит их 3 месяца. Данные могут быть переданы только "
                   "уполномоченным органам по их законному запросу либо другому "

@@ -711,9 +711,17 @@ def suite_screen(res: Result) -> None:
                 res.ok("экран: доступен, предложен, включён, остаток 100, от DentPilot, директору можно заказывать",
                        data["available"] and data["offered"] and data["enabled"] and data["account"]["balance"] == 100
                        and data["account"]["from"] == "DentPilot" and data["can_order"] and data["why"] == "", repr(data)[:600])
-                res.check("настройки — умолчания", data["settings"],
+                res.check("настройки — умолчания (кнопка Rechemări включена, Олег 30.10)", data["settings"],
                           {"day_before": {"on": True, "hour": 10, "variant": "standard"},
-                           "same_day": {"on": False, "hours": 2, "variant": "standard"}, "phone_line": False})
+                           "same_day": {"on": False, "hours": 2, "variant": "standard"}, "phone_line": False,
+                           "recall": {"on": True, "variant": "standard"}})
+                pr = data["previews"]["recall"]["standard"]
+                res.ok("предпросмотр Rechemări: клиника и телефон, без даты и услуги, один сегмент RO и RU",
+                       "Clinica Test" in pr["ro"]["text"] and "+373 60 000 000" in pr["ro"]["text"]
+                       and "controlul periodic" in pr["ro"]["text"] and pr["ro"]["segments"] == 1
+                       and pr["ru"]["segments"] == 1 and "осмотр" in pr["ru"]["text"], repr(pr))
+                res.check("варианты Rechemări — Standard и Scurt",
+                          [v["key"] for v in data["options"]["recall_variants"]], ["standard", "scurt"])
                 pv = data["previews"]["day_before"]["standard"]
                 res.ok("предпросмотр накануне: «maine», название клиники, один сегмент, RO и RU",
                        "maine" in pv["ro"]["text"] and "Clinica Test" in pv["ro"]["text"] and pv["ro"]["segments"] == 1
@@ -736,9 +744,10 @@ def suite_screen(res: Result) -> None:
                                                       "phone_line": True})
                 res.ok("сохранение — ok_sms с данными", r.msg == "ok_sms" and _j(r)["data"]["settings"]["same_day"]["on"], r.body[:300])
                 cfg = json.loads((d / "clinic.json").read_text(encoding="utf-8"))
-                res.check("clinic.json › sms", cfg.get("sms"),
+                res.check("clinic.json › sms (ключ recall — умолчание, не стёрт: прайор 08-16)", cfg.get("sms"),
                           {"day_before": {"on": True, "hour": 11, "variant": "cald"},
-                           "same_day": {"on": True, "hours": 3, "variant": "scurt"}, "phone_line": True})
+                           "same_day": {"on": True, "hours": 3, "variant": "scurt"}, "phone_line": True,
+                           "recall": {"on": True, "variant": "standard"}})
                 data = _j(c.get("/api/settings/sms"))["data"]
                 res.ok("предпросмотр со строкой телефона клиники",
                        data["previews"]["day_before"]["cald"]["ro"]["text"].endswith("\nAnulare: +373 60 000 000"))
@@ -784,9 +793,16 @@ def suite_screen(res: Result) -> None:
                        "(prin SMS)" in sheet and "operatorului SMS.MD" in sheet, sheet[-2500:])
                 sheet_ru = c.get(f"/admin/patient/{pid}/acord?lang=ru").body
                 res.ok("acord RU: то же", "(по SMS)" in sheet_ru and "оператору SMS.MD" in sheet_ru)
+                # кнопка «SMS» в Rechemări (30.10) — тоже SMS: пока её галочка стоит
+                # (умолчание), лист говорит про SMS и при выключенных событиях
                 c.post_json("/api/settings/sms", {"day_before": {"on": False}, "same_day": {"on": False}})
                 sheet = c.get(f"/admin/patient/{pid}/acord").body
-                res.ok("события выключены — лист прежний, без SMS",
+                res.ok("события выключены, галочка Rechemări стоит — лист всё ещё с SMS (active по ней)",
+                       "(prin SMS)" in sheet and "telefon, e-mail sau SMS" in sheet, sheet[-2500:])
+                c.post_json("/api/settings/sms", {"day_before": {"on": False}, "same_day": {"on": False},
+                                                  "recall": {"on": False}})
+                sheet = c.get(f"/admin/patient/{pid}/acord").body
+                res.ok("события и галочка Rechemări выключены — лист прежний, без SMS",
                        "(prin SMS)" not in sheet and "operatorului SMS.MD" not in sheet)
                 res.ok("плитка: «oprit», пункт меню с точкой off",
                        any(t["href"] == "/admin/settings/sms" and t["hint"][0]["t"] == "oprit"
@@ -969,9 +985,14 @@ def suite_box(res: Result) -> None:
                        == [b"Remindere SMS oprite \xe2\x80\x94 la cererea pacientului",
                            b"Remindere SMS pornite din nou"], repr(_events(d, cc)))
 
-                # пакет выключен — галочки нет, присланное не пишется
+                # пакет выключен — галочки нет, присланное не пишется. Кнопка «SMS» в
+                # Rechemări (30.10) — тоже SMS: пока её галочка стоит, пакет активен
                 boss.post_json("/api/settings/sms", {"day_before": {"on": False}, "same_day": {"on": False}})
-                res.ok("события выключены — галочки нет ни в форме дня, ни у панели",
+                res.ok("события выключены, галочка Rechemări стоит — пакет активен, галочка окна есть",
+                       day_model(rec, mon)["form"]["sms"] is True)
+                boss.post_json("/api/settings/sms", {"day_before": {"on": False}, "same_day": {"on": False},
+                                                     "recall": {"on": False}})
+                res.ok("события и галочка Rechemări выключены — галочки нет ни в форме дня, ни у панели",
                        day_model(rec, mon)["form"]["sms"] is False
                        and panel_live(rec, mon)["slotform"]["sms"] is False)
                 res.check("A: запись со снятой галочкой при выключенном пакете",

@@ -234,6 +234,19 @@ MSG_BANNER = {
     "bad_recall": ("err", "Marcajul nu a putut fi salvat — verificați data și încercați din nou"),
     "recall_gone": ("err", "Pacientul nu mai este în lista de rechemări — "
                            "reîmprospătați pagina"),
+    # кнопка «SMS» в строке «Rechemări» (30.10, В1 = А): отказы ДО сервера —
+    # свои слова; код сервера едет его словами через `sms_denied` + text
+    "ok_recall_sms": ("ok", "SMS trimis"),
+    "recall_sms_dup": ("err", "SMS-ul pentru acest termen a fost deja trimis — "
+                              "reîmprospătați pagina"),
+    "recall_sms_off": ("err", "Butonul SMS din Rechemări este oprit — porniți-l în Setări › SMS"),
+    "recall_sms_refused": ("err", "Pacientul a refuzat memento-urile SMS (bifa din fișă) — "
+                                  "sunați sau scrieți"),
+    "recall_sms_phone": ("err", "Numărul pacientului nu este un mobil din Moldova — sunați sau scrieți"),
+    "recall_no_phone": ("err", "Completați telefonul clinicii în Setări › Clinica — "
+                               "el intră în textul SMS-ului"),
+    "recall_sms_quiet": ("err", f"SMS-urile se trimit între {sms_loop.plan.QUIET_END:02d}:00 și "
+                                f"{sms_loop.plan.QUIET_START:02d}:00 — reveniți dimineața"),
     # галочка «Vizita a avut loc» в окне записи на прошедший день (В3 = А):
     # запись ложится сразу «finalizată» — история с бумаги, одним шагом
     "ok_past_done": ("ok", "Vizita a fost adăugată ca finalizată pe o zi trecută — "
