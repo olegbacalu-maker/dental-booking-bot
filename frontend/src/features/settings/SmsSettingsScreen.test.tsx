@@ -119,6 +119,18 @@ describe('SmsSettingsScreen', () => {
       .toBe('https://cloud.dentpilot.md/plata/x')
   })
 
+  it('шесть пакетов с сервера: экран рисует все, в порядке сервера (по units), без своего списка', async () => {
+    // цены — только с сервера (cloud.env DP_SMS_PACKS; в Git цен нет): число кнопок = число пакетов
+    const packs = [100, 200, 300, 400, 500, 1000].map((units, i) => ({ units, price: [1, 2, 3, 4, 5, 7][i] * 10 }))
+    get.mockResolvedValueOnce(ok({ ...BASE, account: { ...BASE.account!, packs } }))
+    open()
+    await screen.findByText('42')
+    const labels = screen.getAllByRole('button', { name: /^\d+ SMS — \d+ MDL$/ }).map((b) => b.textContent?.trim())
+    expect(labels).toEqual(packs.map((p) => `${p.units} SMS — ${p.price} MDL`))
+    expect(labels[5]).toBe('1000 SMS — 70 MDL')
+    expect(screen.queryByText('Pachetele nu sunt încă disponibile.')).toBeNull()
+  })
+
   it('отказ в вопросе — ничего не шлёт; заявка на имя — POST sender', async () => {
     get.mockResolvedValueOnce(ok(BASE))
     post.mockResolvedValueOnce(ok({ ...BASE, account: { ...BASE.account!, sender: 'ZambetDent', sender_state: 'requested' } }))

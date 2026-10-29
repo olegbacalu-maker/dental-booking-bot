@@ -1626,8 +1626,9 @@ def suite(res: Result) -> None:
     # разошедшийся с кодом, — обещание, которого программа не держит, и
     # подписанный PDF с ним хуже, чем никакой (декларация подписывается КЭП).
     # ⚠️ Берётся НАИБОЛЬШИЙ множитель 3600 среди вызовов _schedule: короткие
-    # повторы (ожидание ассета) считаются секундами, не часами.
-    texts = {"privacy.html": pol}
+    # повторы (ожидание ассета) считаются секундами, не часами. С 29.10 те же
+    # интервалы называют и условия (§ 8, § 16) — дата условий = TERMS_VERSION.
+    texts = {"privacy.html": pol, "termeni.html": page}
     for rel in ("docs/site/declaratie-195.html", "docs/dentpilot-2/contract/anexa-2.html"):
         path = ROOT / rel
         texts[rel] = " ".join(path.read_text(encoding="utf-8").split()) if path.exists() else ""

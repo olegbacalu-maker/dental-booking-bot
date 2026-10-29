@@ -226,3 +226,30 @@ def suite(res: Result) -> None:
     res.ok("README папки договора: три файла, условия, версия = дата, DP_CONTRACT",
            all(x in readme for x in ("contract.html", "dpa.html", "anexa-2.html", "termeni.html",
                                      "DP_CONTRACT", "Versiunea documentului")))
+    # Условия 29.10 (terms-250): то, что договор уже обещал, названо и в них — договор
+    # и акт в кабинете (§ 1), cont de plată без factura fiscală (§ 4), обновления на
+    # сервере и GitHub (§ 8), техданные ПК в данных учётной записи (§ 9), Asistență
+    # rapidă словами договора кл. 7 (§ 10), адрес поставщика как в договоре (§ 15),
+    # счёт SMS и «что остаётся» (§ 16). Пересказа договора нет — отсылка в кабинет.
+    addr = re.compile(r"MD-\d{4}, or\. [^,<]+, str\. [^,<]+? \d+")
+    res.ok("условия § 1 и § 10: договор, акт и условия помощи — в кабинете клиники, раздел «Documente» как у акта",
+           "secțiunea „Documente”" in flat_terms and "act de acceptare" in flat_terms
+           and "contractul semnat de furnizor, în contul clinicii (clauza 7)" in flat_terms
+           and "secțiunea «Documente»" in " ".join((CLOUD / "app" / "terms.py").read_text(encoding="utf-8").split()))
+    res.ok("условия § 4: cont de plată «achitat», без factura fiscală и TVA — как договор 2.5",
+           "nu emite factură fiscală" in flat_terms and "nu este plătitor de TVA" in flat_terms
+           and "contul de plată cu mențiunea „achitat”" in flat_terms)
+    res.ok("условия § 8: проверка на сервере поставщика, файлы с GitHub, Inc., IP, подпись файла",
+           all(x in flat_terms for x in ("la pornire și apoi la fiecare", "GitHub (GitHub, Inc.)", "adresa IP a clinicii",
+                                         "semnătura digitală a furnizorului")))
+    res.ok("условия § 9.2: техданные ПК в данных учётной записи — словами политики (без данных пациентов)",
+           all(x in flat_terms for x in ("datele tehnice ale calculatoarelor", "versiunea programului", "canalul de actualizare",
+                                         "identificator tehnic al calculatorului", "fără date ale pacienților")))
+    res.ok("условия § 10: Asistență rapidă — по просьбе, код вводит клиника, представитель присутствует, без копирования",
+           all(x in flat_terms for x in ("Asistență rapidă", "codul sesiunii îl introduce clinica", "prezent la calculator",
+                                         "nu copiază", "niciun mijloc de acces de la distanță")))
+    res.ok("условия § 15 и договор: адрес поставщика один", bool(addr.search(flat_terms)) and bool(addr.search(c))
+           and addr.search(flat_terms).group(0) == addr.search(c).group(0), repr((addr.search(flat_terms), addr.search(c))))
+    res.ok("условия § 16: счёт SMS читается с сервера; идентификатор — amprentă без пациента и визита",
+           "soldul de SMS al clinicii de pe serverul furnizorului" in s16 and "amprentă tehnică" in s16
+           and "nu se pot afla pacientul, numărul de telefon sau vizita" in s16)

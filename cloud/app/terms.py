@@ -41,7 +41,7 @@ from . import config, db
 API_ACCEPT = "/v1/terms/accept"          # повторное принятие из программы (Bearer — токен файла)
 H_TERMS = "X-DentPilot-Terms"            # заголовок ответа /v1/license: последняя принятая версия
 PAGE = "/cont/acceptari"                 # кабинет: список актов; /<id> — печатная страница акта
-CURRENT = "27.10.2026"                   # = license.TERMS_VERSION программы = termeni.html (test_terms)
+CURRENT = "29.10.2026"                   # = license.TERMS_VERSION программы = termeni.html (test_terms)
 SRC_TRIAL, SRC_VERIFY, SRC_PAY, SRC_PROGRAM = "trial", "verify", "pay", "program"
 SOURCES = (SRC_TRIAL, SRC_VERIFY, SRC_PAY, SRC_PROGRAM)
 SOURCE_RO = {SRC_TRIAL: "cererea de perioadă de probă, din program",
