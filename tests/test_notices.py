@@ -259,10 +259,17 @@ def suite_sms(res: Result) -> None:
                 res.ok("0 — «s-a terminat» во всех трёх",
                        low is not None and "s-a terminat" in low["text"] and "s-a terminat" in alert
                        and "s-a terminat" in it.get("body", ""), repr((low, alert)))
+                # кнопка «SMS» в Rechemări (30.10) — тоже SMS: пока её галочка стоит
+                # (умолчание), пакет активен и «мало» видно; снята и она — пакет не работает
                 c.post_json("/api/settings/sms", {"day_before": {"on": False}, "same_day": {"on": False}})
                 low, alert, it = _three(c, s)
-                res.ok("события выключены (пакет не работает) — не «мало»", low is None and not alert and not it,
-                       repr((low, alert, it)))
+                res.ok("события выключены, галочка Rechemări стоит — пакет активен, «мало» видно",
+                       low is not None and bool(alert), repr((low, alert)))
+                c.post_json("/api/settings/sms", {"day_before": {"on": False}, "same_day": {"on": False},
+                                                  "recall": {"on": False}})
+                low, alert, it = _three(c, s)
+                res.ok("события и галочка Rechemări выключены (пакет не работает) — не «мало»",
+                       low is None and not alert and not it, repr((low, alert, it)))
         d2 = pathlib.Path(tempfile.mkdtemp(prefix="dp_notice_smstrial_"))
         try:
             ts._clinic_weekdays(d2)
