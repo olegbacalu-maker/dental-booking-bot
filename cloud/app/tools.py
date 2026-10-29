@@ -44,7 +44,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-from . import account, auth, config, db, keys, license, mail, maib, payments, pdf, smsmd, tiers, trial
+from . import account, auth, config, contracts, db, keys, license, mail, maib, payments, pdf, smsmd, tiers, trial
 
 OK, WARN, BAD = "ok", "⚠", "✗"
 PULL_MAX_DAYS = 3        # отметка вывоза копий старше — предупреждение (ПК выключен)
@@ -333,6 +333,13 @@ def check() -> list[tuple[str, str]]:
                           "письма с файлом лицензии уйдут без декларации"))
     else:
         out.append((OK, f"декларация поставщика {config.DECLARATION} едет в каждое письмо с файлом"))
+    # документы поставщика в кабинете (29.10, contracts.py): договор и соглашение — как декларация;
+    # папка экземпляров клиник — рядом с базой, её увозит pull-backups.ps1
+    for ok, line in contracts.check_lines():
+        out.append((OK if ok else WARN, line))
+    why = contracts.folder_ok()
+    out.append((OK, f"папка экземпляров клиник {contracts.folder()} пишется") if not why
+               else (WARN, f"папка экземпляров клиник {contracts.folder()} недоступна: {why} — загрузка в кабинете упадёт"))
     # cont de plată (17.10): без шрифта документ уходит без диакритики — молча, потому здесь
     embedded, line = pdf.font_status()
     out.append((OK if embedded else WARN, line))

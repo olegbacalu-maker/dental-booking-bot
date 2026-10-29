@@ -463,6 +463,7 @@ def license_letter(clinic: str, valid_until: str, plan: str, renew: bool = False
             f"Licența este emisă pentru clinica dumneavoastră și nu se transmite altora. "
             f"Datele pacienților rămân pe calculatorul clinicii; noi nu avem acces la ele."
             + (f" {DECLARATION_NOTE}" if declaration else "") + "\n\n"
+            f"{documents_note()}\n\n"
             f"{FOOTER}")
     return subject, body
 
@@ -548,3 +549,17 @@ def confirm_letter(clinic: str, url: str, code: str, days: int) -> tuple[str, st
             f"Dacă nu lucrați cu DentPilot, ignorați mesajul: adresa nu se confirmă fără linkul sau "
             f"codul de mai sus.\n\n{FOOTER}")
     return subject, body
+
+
+# ---------- документы поставщика в кабинете (29.10, contracts.py) ----------
+
+DOCUMENTS_URL = CONT_URL + "/documente"
+
+
+def documents_note() -> str:
+    """Строка письма о лицензии: договор и соглашение, подписанные поставщиком, лежат в кабинете.
+    Функция, не константа: текст один и тот же, но так его можно сверять из тестов и страниц."""
+    return (f"Contractul de licență și Acordul de prelucrare a datelor, semnate de furnizor, le găsiți în contul "
+            f"clinicii: {DOCUMENTS_URL} — de descărcat pentru contabilitatea clinicii; acolo puteți încărca și "
+            f"exemplarul semnat de clinică.")
+

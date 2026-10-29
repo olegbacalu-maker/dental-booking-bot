@@ -21,8 +21,9 @@ from fastapi import BackgroundTasks, FastAPI, Form, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import (account, auth, cabinet, config, contlink, db, download, fleet, jobs, license, logmask, maib, mail,
-               payments, paylink, receipts, robots, sms, sms_paper, sms_rule, smsmd, smsreport, tiers, trial, updates, views)
+from . import (account, auth, cabinet, config, contlink, contracts, db, download, fleet, jobs, license, logmask, maib,
+               mail, payments, paylink, receipts, robots, sms, sms_paper, sms_rule, smsmd, smsreport, tiers, trial,
+               updates, views)
 from . import login as elogin  # ⚠️ не `login`: так зовётся маршрут входа админки ниже, он затенил бы модуль
 from . import emailconf  # подтверждение ящика клиники (27.10)
 from . import terms  # акт акцепта условий (29.10)
@@ -929,11 +930,12 @@ def clinic_card(request: Request, cid: str, msg: str = "", log: str = "") -> Res
                 con.execute("SELECT count(*) FROM devices WHERE clinic_id=?", (r["id"],)).fetchone()[0])
                for r in cabinet.of(con, cid) if r["id"] != cid]
         acts = terms.admin_fragment(terms.of_clinic(con, cid))        # акты акцепта условий (29.10)
+        docs = contracts.of_clinic(con, cid)
     return HTMLResponse(views.clinic_page(c, sub, issues, audit, auth.current_user(request), msg,
                                           payments=pays, pending=pending, reminders=rems, accounts=accounts,
                                           devices=devices, smsinfo=smsinfo, names=names,
                                           log=log if codes else "", log_counts=log_counts,
-                                          cabinet=cab, active=active.get(cid, 0), terms_html=acts))
+                                          cabinet=cab, active=active.get(cid, 0), terms_html=acts, docs=docs))
 
 
 @app.post("/admin/clinics/{cid}/sibling")
@@ -1149,6 +1151,27 @@ def clinic_sms_paper(request: Request, cid: str) -> Response:
     return Response(p["body"], media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{sms_paper.filename(p["sender"])[:-4]}-semnata.pdf"',
                              "X-Content-Type-Options": "nosniff"})
+
+# ---------- документы (29.10, contracts.py): экземпляр, подписанный клиникой — файлом ----------
+
+
+@app.get("/admin/clinics/{cid}/documente/{rid}.pdf")
+def clinic_document_file(request: Request, cid: str, rid: int) -> Response:
+    """⚠️ Файл прислала клиника: вложением с nosniff, не в окно админки. Нет строки или файла — 404."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    with db.connect() as con:
+        r = contracts.get(con, rid)
+        c = _clinic(con, cid)
+    if r is None or c is None or r["clinic_id"] != cid:
+        return Response(status_code=404)
+    data = contracts.read_file(r)
+    if data is None:
+        return Response(status_code=404)
+    return Response(data, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{contracts.clinic_filename(c, r)}"',
+                             "X-Content-Type-Options": "nosniff"})
+
 
 # ---------- ежедневная задача и журнал (L9) ----------
 
@@ -1807,7 +1830,8 @@ def cont_home(request: Request, msg: str = "", c: str = "") -> Response:
                        "data_href": "#date" if mine_name else f"/cont?c={owner['id']}#date"}
     # последний выпуск — из памяти или одним запросом к API; вне транзакции
     return HTMLResponse(views.cont_page(acc, cl, sub, issue, pays, download.latest(), msg, devices=devices,
-                                        smsinfo=smsinfo, cab=cab, group=group, scoped=scoped, branch=branch))
+                                        smsinfo=smsinfo, cab=cab, group=group, scoped=scoped, branch=branch,
+                                        docs=contracts.statuses()))
 
 
 @app.get(contlink.PATH + "/{lid}", response_class=HTMLResponse)
@@ -2277,6 +2301,129 @@ async def cont_sms_upload(request: Request) -> Response:
     if code == "login":
         return _cont_login_redirect()
     return await back(code)
+
+
+# ---------- кабинет › документы (29.10, contracts.py): подписанные поставщиком PDF, экземпляр клиники ----------
+#
+# Документы поставщика общие: нужен только вход; экземпляр клиники — только СВОИХ клиник (как cont de
+# plată). Сессии кнопки программы (contlink) раздел открыт в пределах её клиники.
+
+
+async def _read_upload(request: Request, limit: int) -> tuple[str, bytes, dict]:
+    """Файл формы multipart с потолком — тем же приёмом, что cont_sms_upload: тело читает сам маршрут,
+    лишнее сверх потолка дочитывается вхолостую (до DRAIN), чтобы браузер получил ответ, а не RST.
+    → ('', байты файла, остальные поля формы) или ('big' | 'empty', b'', {})."""
+    drain = 32 * 1024 * 1024
+    try:
+        declared = int(request.headers.get("content-length") or "0")
+    except ValueError:
+        declared = 0
+    if declared > drain:
+        return "big", b"", {}
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > drain:
+            break
+        if size <= limit + 64 * 1024:
+            chunks.append(chunk)
+    if size > limit + 64 * 1024:
+        return "big", b"", {}
+    raw = b"".join(chunks)
+
+    async def replay() -> dict:
+        return {"type": "http.request", "body": raw, "more_body": False}
+
+    try:
+        form = await Request(request.scope, replay).form(max_files=1, max_fields=8)
+    except Exception:                         # кривой multipart: тот же ответ, что пустой файл
+        return "empty", b"", {}
+    up = form.get("file")
+    if up is None or not hasattr(up, "read"):
+        return "empty", b"", {}
+    body = await up.read(limit + 1)
+    return "", body, {k: v for k, v in form.multi_items() if isinstance(v, str)}
+
+
+def _cont_docs_back(request: Request, code: str) -> str:
+    c = request.query_params.get("c", "")
+    return f"/cont/documente?msg={code}" + (f"&c={c}" if c else "")
+
+
+@app.get("/cont/documente", response_class=HTMLResponse)
+def cont_documents(request: Request, msg: str = "", c: str = "") -> Response:
+    with db.connect() as con:
+        acc, cl = _cont_clinic(request, con, c, post=False)
+        if acc is None:
+            return _cont_login_redirect()
+        if cl is None:
+            return RedirectResponse("/cont", status_code=303)
+        mine = contracts.of_clinic(con, cl["id"])
+        q = f"?c={cl['id']}" if len(account.clinics(con, acc)) > 1 else ""
+        fragment = contracts.terms_fragment(con, cl, q)      # акты акцепта (terms.py, 29.10) — в том же разделе
+    return HTMLResponse(views.cont_documents_page(acc, cl, contracts.statuses(), mine, fragment, msg, q=q))
+
+
+@app.get("/cont/documente/{doc}.pdf")
+def cont_document_pdf(request: Request, doc: str) -> Response:
+    """Подписанный поставщиком PDF — в окно браузера; документ общий, нужен только вход в кабинет."""
+    with db.connect() as con:
+        if _current_account(con, request) is None:
+            return _cont_login_redirect()
+    data = contracts.provider_pdf(doc) if doc in contracts.DOCS else None
+    if data is None:
+        return Response(status_code=404)
+    return Response(data, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="{contracts.filename(doc)}"'})
+
+
+@app.get("/cont/documente/{rid}/clinica.pdf")
+def cont_document_mine(request: Request, rid: int) -> Response:
+    """Экземпляр клиники — только своих клиник; чужой или без файла — 404, без входа — на вход."""
+    with db.connect() as con:
+        acc = _current_account(con, request)
+        if acc is None:
+            return _cont_login_redirect()
+        own = {r["id"] for r in account.clinics(con, acc)}
+        r = contracts.get(con, rid)
+        if r is None or r["clinic_id"] not in own:
+            return Response(status_code=404)
+        cl = _clinic(con, r["clinic_id"])
+    data = contracts.read_file(r)
+    if data is None:
+        return Response(status_code=404)
+    return Response(data, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{contracts.clinic_filename(cl, r)}"',
+                             "X-Content-Type-Options": "nosniff"})
+
+
+def _cont_docs_save(request: Request, doc: str, body: bytes) -> str:
+    with db.connect(immediate=True) as con:
+        acc, cl = _cont_clinic(request, con, request.query_params.get("c", ""))
+        if acc is None:
+            return "login"
+        if cl is None:
+            return "pick_clinic"
+        return contracts.attach(con, cl["id"], doc, body, acc["email"]) or "doc_ok"
+
+
+@app.post("/cont/documente/incarca")
+async def cont_document_upload(request: Request) -> Response:
+    """Экземпляр, подписанный клиникой (PDF) → файл и строка. Вход — ДО чтения тела (как у заявления SMS)."""
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    if not await run_in_threadpool(_cont_known, request):
+        return _cont_login_redirect()
+    kind, body, fields = await _read_upload(request, contracts.MAX_BYTES)
+    if kind:
+        code = "doc_" + kind
+    else:
+        code = await run_in_threadpool(_cont_docs_save, request, fields.get("doc", ""), body)
+    if code == "login":
+        return _cont_login_redirect()
+    if code == "pick_clinic":
+        return RedirectResponse("/cont?msg=pick_clinic", status_code=303)
+    return RedirectResponse(await run_in_threadpool(_cont_docs_back, request, code), status_code=303)
 
 
 # ---------- кабинет › клиники кабинета (26.10): «Adaugă clinică», код компьютера, общая нота ----------

@@ -9,7 +9,7 @@ from __future__ import annotations
 import html
 from datetime import datetime, timedelta, timezone
 
-from . import config, license, maib, mail, sms, tiers, trial
+from . import config, contracts, license, maib, mail, sms, tiers, trial
 from . import emailconf  # подтверждение ящика (27.10)
 from . import payments as pay  # ⚠️ не `payments`: так зовётся параметр карточки клиники (список строк)
 
@@ -1145,6 +1145,8 @@ AUDIT_RU = {
     "email_code_bad": ("код подтверждения неверный", "prog"), "email_change": ("e-mail сменён из программы", "prog"),
     "email_reset": ("e-mail сменён — снова не подтверждён", "adm"),
     "terms_accept": ("условия приняты (акт)", "lic"),       # акт акцепта условий (29.10, terms.py)
+    # документы поставщика в кабинете (29.10, contracts.py)
+    "doc_signed": ("экземпляр документа, подписанный клиникой", "lic"),
 }
 AUDIT_CATS = (("pay", "Оплата"), ("lic", "Лицензия"), ("sms", "SMS"), ("mail", "Письма"),
               ("prog", "Программа"), ("cab", "Кабинет"), ("adm", "Админка"))
@@ -1425,6 +1427,27 @@ def _lic_pane(c, issues: list, devices: list) -> str:
             f"<div class='acts'>{mail_btn}{_drop('Выдать вручную', form, primary=not issues)}</div>{files}")
 
 
+def documents_block(c, rows: list) -> str:
+    """Вкладка «Лицензия» › «Документы» (29.10, contracts.py): какие подписанные Олегом PDF выложены
+    (DP_CONTRACT, DP_DPA, DP_DECLARATION) и экземпляры, которые клиника загрузила со своей подписью."""
+    cid = esc(c["id"])
+    docs = "".join(
+        f"<li>{esc(d['title'])}: " + (f"версия {esc(d['version'])}" if d["ok"] else
+                                      "<span class='tag warn'>не выложен</span> — путь в cloud.env (DP_"
+                                      f"{esc(contracts.DOCS[d['key']]['env'])})") + "</li>" for d in contracts.statuses())
+    trs = "".join(
+        f"<tr><td>{esc(contracts.DOCS[r['doc']]['title'])}</td><td class='mono'>{esc(r['version'] or '—')}</td>"
+        f"<td>{esc(r['uploaded_at'][:16].replace('T', ' '))}</td><td>{esc(r['who'])}</td>"
+        f"<td>{max(1, (r['size'] or 0) // 1024)} КБ</td>"
+        f"<td><a href='/admin/clinics/{cid}/documente/{r['id']}.pdf'>PDF</a></td></tr>" for r in rows)
+    table = (f"<table><tr><th>Документ</th><th>Версия</th><th>Загружен (UTC)</th><th>Кто</th><th>Размер</th><th></th></tr>"
+             f"{trs}</table>" if rows else
+             "<p class='muted' style='margin:0'>Клиника своих подписанных экземпляров не загружала — это не обязательно: "
+             "документы подписаны поставщиком, акцепт условий фиксируется при активации.</p>")
+    return (f"<div class='card'>{_chead('file', 'Документы', 'подписанные поставщиком PDF в кабинете клиники и экземпляры, подписанные клиникой')}"
+            f"<ul class='muted' style='margin:0 0 12px 18px;padding:0'>{docs}</ul>{table}</div>")
+
+
 def _log_pane(cid: str, audit: list, log: str, by_what: dict) -> str:
     """Вкладка «Журнал»: события клиники словами, фильтры по разделам (ссылкой, страница отбирает сама)."""
     href = (lambda k: f"/admin/clinics/{cid}?log={k}#log" if k else f"/admin/clinics/{cid}#log")
@@ -1440,8 +1463,9 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
                 payments: list = (), pending: int = 0, reminders: list = (), accounts: list = (),
                 devices: list = (), smsinfo: dict | None = None, names: int = 0,
                 log: str = "", log_counts: dict | None = None, cabinet: list = (), active: int = 0,
-                terms_html: str = "") -> str:
-    """`terms_html` — акты акцепта условий (terms.admin_fragment, 29.10) под вкладкой «Лицензия»."""
+                terms_html: str = "", docs: list = ()) -> str:
+    """`terms_html` — акты акцепта условий (terms.admin_fragment, 29.10) под вкладкой «Лицензия»;
+    `docs` — экземпляры документов, подписанные клиникой (contracts.of_clinic), там же, ниже."""
     now = datetime.now(timezone.utc)
     issues, payments, accounts, devices, audit = list(issues), list(payments), list(accounts), list(devices), list(audit)
     st = license.state(_ts(sub["valid_until"]) if sub else None, sub["grace_days"] if sub else 0, now)
@@ -1495,7 +1519,8 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
     count = {"overview": len(todo), "pay": sum(1 for p in payments if p["status"] == "pending"),
              "sms": 1 if smsinfo and smsinfo["sender_state"] in ("requested", "submitted") else 0}
     panes = {"overview": overview, "pay": _pay_pane(c, sub, st, payments, list(reminders), now),
-             "lic": _lic_pane(c, issues, devices) + terms_html, "sms": sms_block(c, smsinfo, _module_word(sub, now)), "access": dev_html + acc_html,
+             "lic": _lic_pane(c, issues, devices) + terms_html + documents_block(c, list(docs)),
+             "sms": sms_block(c, smsinfo, _module_word(sub, now)), "access": dev_html + acc_html,
              "profile": edit, "log": _log_pane(cid, audit, log, log_counts)}
     body = _tabbed([(k, t, panes[k], count.get(k, 0)) for k, t in CLINIC_TABS])
     plan_txt = (esc(sub["plan"]) + ("" if sub["plan"] == "trial" else " · " + esc(tiers.NAME[tiers.current(sub)]))
@@ -1590,11 +1615,18 @@ CONT_MSG = {
     "cont_program_only": "Ați intrat din programul clinicii: vedeți doar această clinică. Celelalte clinici ale "
                          "contului, nota comună și adăugarea unei clinici — după intrarea cu Google sau cu codul "
                          "pe e-mail.",
+    # documente (29.10, contracts.py)
+    "doc_ok": "Exemplarul semnat de clinică a fost primit și păstrat în contul clinicii.",
+    "doc_kind": "Alegeți documentul: contractul de licență sau acordul de prelucrare a datelor.",
+    "doc_empty": "Alegeți fișierul PDF al exemplarului semnat.",
+    "doc_pdf": "Fișierul nu este PDF. Încărcați exemplarul semnat ca PDF (semnat electronic sau scanat).",
+    "doc_big": f"Fișierul este prea mare: exemplarul semnat se încarcă PDF, până la {contracts.MAX_BYTES // (1024 * 1024)} MB.",
+    "doc_missing": "Acest document nu este încă publicat de furnizor — reveniți mai târziu sau scrieți-ne.",
 }
 _CONT_OK = {"logged_out", "registered_issued", "registered_requested", "saved", "note_created", "note_exists",
             "note_replaced", "card_paid", "clinic_added", "clinic_added_wait", "group_created",
             "group_replaced", "group_cancelled",
-            "linked", "sms_requested", "sms_paper_ok"}
+            "linked", "sms_requested", "sms_paper_ok", "doc_ok"}
 SENDER_RO = {"none": ("mute", "fără nume propriu"), "requested": ("warn", "cerere în lucru"),
              "submitted": ("warn", "la operatori"), "active": ("ok", "aprobat"), "rejected": ("bad", "respins")}
 STATE_RO = {"active": ("ok", "activă"), "grace": ("warn", "expirată — perioada de plată"),
@@ -2539,9 +2571,64 @@ def _clinics_card(cab: list, cur: str, now: datetime) -> str:
             f"<div class='clist'>{''.join(_crow(x, x['c']['id'] == cur, now) for x in cab)}</div></div>")
 
 
+def _doc_line(d: dict, q: str = "") -> str:
+    """Строка документа поставщика: название, версия, ссылка на PDF или «ещё не выложен»."""
+    if d["ok"]:
+        link = f"<a href='/cont/documente/{d['key']}.pdf{q}'>{_ic('download', 14)} PDF</a>"
+        ver = f" <span class='muted'>· versiunea {esc(d['version'])}</span>" if d["version"] else ""
+    else:
+        link, ver = "<span class='tag mute'>încă nepublicat</span>", ""
+    return f"<li><b>{esc(d['title'])}</b>{ver} — {link}<br><span class='muted'>{esc(d['what'])}</span></li>"
+
+
+def _cont_docs_card(c, docs: list, q: str = "") -> str:
+    """Дашборд › «Documente»: три подписанных поставщиком PDF и дверь в раздел."""
+    btn = f"<a class='btn second sm' href='/cont/documente{q}'>Documente</a>"
+    items = "".join(_doc_line(d, q) for d in docs)
+    return (f"<div class='card' id='documente'>{_chead('file', 'Documente', 'contractul, acordul de prelucrare și declarația — semnate de furnizor', btn)}"
+            f"<ul class='steps' style='margin:0'>{items}</ul></div>")
+
+
+def cont_documents_page(acc, c, docs: list, mine: list, fragment: str = "", msg: str = "", q: str = "") -> str:
+    """Кабинет › «Documente» (29.10, contracts.py): подписанные поставщиком PDF — скачать; акты акцепта
+    условий — фрагмент terms-evidence (`fragment`) или общая строка; загрузка экземпляра клиники со
+    своей подписью (по желанию) и список загруженных."""
+    mine = list(mine)
+    items = "".join(_doc_line(d, q) for d in docs)
+    about = ("<p class='muted' style='margin:0 0 12px'>Documentele sunt semnate electronic de furnizor (semnătură "
+             "calificată, MoldSign) și sunt aceleași pentru toate clinicile; clinica este identificată prin acceptarea "
+             "Termenilor și condițiilor la activarea programului și la plată. Prețurile sunt cele din "
+             f"<a href='{esc(config.SITE_URL.rstrip('/'))}/termeni.html'>Termeni și condiții</a>.</p>")
+    prov = (f"<div class='card'>{_chead('file', 'Documentele furnizorului', 'de descărcat și păstrat în evidența clinicii')}"
+            f"{about}<ul class='steps' style='margin:0'>{items}</ul></div>")
+    acts = fragment or ("<p class='muted' style='margin:0'>Acceptarea Termenilor și condițiilor este înregistrată la "
+                        "activarea programului și la fiecare plată; istoricul acceptărilor va apărea aici.</p>")
+    all_acts = f"<a class='btn second sm' href='/cont/acceptari{q}'>Toate actele</a>" if fragment else ""
+    accept = f"<div class='card'>{_chead('shield', 'Acceptarea termenilor', 'cine și când a acceptat condițiile, în numele clinicii', all_acts)}{acts}</div>"
+    opts = "".join(f"<option value='{k}'>{esc(contracts.DOCS[k]['title'])}</option>" for k in contracts.UPLOAD_DOCS)
+    form = (f"<form method='post' action='/cont/documente/incarca{q}' enctype='multipart/form-data' style='margin:6px 0 0'>"
+            f"<div class='grid'><div><label>Documentul</label><select name='doc'>{opts}</select></div>"
+            f"<div><label>Fișierul PDF (până la {contracts.MAX_BYTES // (1024 * 1024)} MB)</label>"
+            f"<input type='file' name='file' accept='application/pdf,.pdf' required></div></div>"
+            f"<p style='margin:12px 0 0'><button class='primary'>Încarcă exemplarul semnat de clinică</button></p></form>")
+    trs = "".join(
+        f"<tr><td>{esc(contracts.DOCS[r['doc']]['title'])}</td><td class='mono'>{esc(r['version'] or '—')}</td>"
+        f"<td>{_ro(r['uploaded_at'])}</td><td>{max(1, (r['size'] or 0) // 1024)} KB</td>"
+        f"<td><a href='/cont/documente/{r['id']}/clinica.pdf'>{_ic('download', 14)} PDF</a></td></tr>" for r in mine)
+    have = (f"<table style='margin-top:14px'><tr><th>Documentul</th><th>Versiunea</th><th>Încărcat</th><th>Mărime</th><th></th></tr>"
+            f"{trs}</table>" if mine else "")
+    upload = (f"<div class='card'>{_chead('user', 'Exemplarul semnat de clinică', 'opțional: același document, semnat și de clinică')}"
+              f"<p class='muted' style='margin:0 0 6px'>Dacă contabilitatea clinicii are nevoie de un exemplar semnat de ambele "
+              f"părți: descărcați PDF-ul de mai sus, semnați-l cu semnătura electronică a clinicii (MSign) sau tipăriți-l, "
+              f"semnați-l și scanați-l, apoi încărcați-l aici. Rămâne în contul clinicii; furnizorul îl vede în fișa clinicii.</p>"
+              f"{form}{have}</div>")
+    back = f"<p style='margin:0 0 16px'><a href='/cont{q}'>‹ Înapoi în contul clinicii</a></p>"
+    return _cont_shell("Documente", back + prov + accept + upload, acc, msg, eyebrow=f"Contul clinicii · {c['name']}")
+
+
 def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", devices: list = (),
               smsinfo: dict | None = None, cab: list = (), group=None, scoped: bool = False,
-              branch: bool = False) -> str:
+              branch: bool = False, docs: list = ()) -> str:
     """Дашборд клиники в кабинете. `scoped` — вошли кнопкой программы (27.10, contlink.py): одна
     клиника, без общей ноты и «Adaugă clinică»; `branch` — она в кабинете с другими (код компьютера —
     из кабинета, как у нескольких клиник, но без их имён). `cab` — клиники учётной записи для списка (26.10): больше
@@ -2639,9 +2726,10 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
             f"<span class='muted'>pentru schimbare scrieți-ne</span></div></div>"
             f"<p style='margin:16px 0 0'><button class='primary'>Salvează</button></p></form></div>")
     sms_card = _cont_sms(smsinfo.get("clinic") or c, smsinfo, q) if smsinfo is not None else ""
+    docs_card = _cont_docs_card(c, list(docs), q) if docs else ""
     top = _clinics_card(cab, c["id"], now) if multi else ""
     eyebrow = f"Contul clinicii · {len(cab)} clinici" if multi else "Contul clinicii"
-    return _cont_shell(c["name"], top + hero + f"<div class='grid2'>{devs}{acct}</div>" + pays + sms_card + data,
+    return _cont_shell(c["name"], top + hero + f"<div class='grid2'>{devs}{acct}</div>" + pays + sms_card + docs_card + data,
                        acc, msg, eyebrow=eyebrow)
 
 

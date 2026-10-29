@@ -18,6 +18,7 @@ import test_admin  # noqa: E402
 import test_clinics  # noqa: E402
 import test_contlink  # noqa: E402
 import test_contract  # noqa: E402
+import test_contracts  # noqa: E402
 import test_deploy  # noqa: E402
 import test_email  # noqa: E402
 import test_fleet  # noqa: E402
@@ -144,6 +145,11 @@ SUITES = [
     ("Акт акцепта условий: заявка, код, /v1/terms/accept, заголовок, карточка", test_terms.suite_program),
     ("Акт акцепта условий: страница оплаты, кабинет, печатная страница акта", test_terms.suite_pay_and_cabinet),
     ("Акт акцепта условий: idem хешем (миграция 19), срок журнала", test_terms.suite_idem_and_audit),
+    ("Документы в кабинете: версия из имени, письмо, вывоз — без сервера", test_contracts.suite_rules),
+    ("Документы в кабинете: три PDF поставщика, экземпляр клиники, чужая клиника, админка, check",
+     test_contracts.suite_cabinet),
+    ("Документы в кабинете: без DP_CONTRACT / DP_DPA — «ещё не выложен», check предупреждает",
+     test_contracts.suite_without),
     ("Поисковики: noindex на каждом ответе, robots.txt обход не закрывает", test_robots.suite),
 ]
 

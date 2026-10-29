@@ -28,6 +28,7 @@ param(
     [string]$Server      = "root@79.143.180.16",
     [string]$RemoteDir   = "/srv/dentpilot/data/backups",
     [string]$Marker      = "/srv/dentpilot/data/last-pull",
+    [string]$ContractsDir = "/srv/dentpilot/data/contracts",
     [string]$CloudDir    = "D:\DentProject\app\cloud",
     [int]$KeepLocal      = 60
 )
@@ -80,6 +81,20 @@ foreach ($line in ($remoteSizes -split "`n" | Where-Object { $_ -match '\S' })) 
         Remove-Item $local -Force
         Say "ОШИБКА: $name пришёл как $actual байт, сервер говорит $expected — удалён, повтор завтра"; exit 1
     }
+}
+
+# ---- экземпляры документов, подписанные клиниками (29.10, contracts.py): файлы лежат рядом с базой, ----
+# ---- не в ней — без этой папки копия базы ссылается на файлы, которых нет ----
+$contractsLocal = Join-Path $Destination "contracts"
+if (-not (Test-Path $contractsLocal)) { New-Item -ItemType Directory -Path $contractsLocal | Out-Null }
+ssh -o BatchMode=yes $Server "test -d $ContractsDir"
+if ($LASTEXITCODE -eq 0) {
+    # «/.» — содержимое папки в $contractsLocal, а не вложенная contracts\contracts; повтор перезаписывает те же имена
+    scp -o BatchMode=yes -q -r "${Server}:${ContractsDir}/." $contractsLocal
+    if ($LASTEXITCODE -ne 0) { Say "ОШИБКА: папка contracts не скопирована"; exit 1 }
+    Say ("экземпляры клиник: {0} файлов локально" -f (Get-ChildItem $contractsLocal -Recurse -File).Count)
+} else {
+    Say "папки contracts на сервере ещё нет — клиники экземпляров не загружали"
 }
 
 # ---- cloud.env и ключ выдачи: две другие вещи для восстановления (DEPLOY.md § 6) ----

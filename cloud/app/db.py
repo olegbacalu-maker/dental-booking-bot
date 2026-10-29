@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 TS = "%Y-%m-%dT%H:%M:%SZ"
 
 
@@ -323,6 +323,21 @@ MIGRATIONS = {
             terms_sha256 TEXT NOT NULL DEFAULT '')""",
         "CREATE INDEX IF NOT EXISTS ix_terms_acceptances_clinic ON terms_acceptances(clinic_id, at)",
         _hash_idem,
+    ],
+    # 20 (29.10, contracts.py; Олег: «не слишком сложно — в кабинете бумаги, подписанные мною»): договор
+    # лицензии и соглашение об обработке — ОБЩИЕ PDF, подписанные Олегом один раз на версию и положенные на
+    # сервер как декларация (DP_CONTRACT, DP_DPA); клиника в тексте не именуется, её акцепт — у terms-evidence
+    # (шаг 19). Здесь — только экземпляр, который клиника ПО ЖЕЛАНИЮ подписала своей КЭП (или скан) и
+    # загрузила в кабинете: строка на загрузку, файл на диске data/contracts/<clinic_id>/<id>.pdf
+    # (contracts.folder(); подписанный КЭП PDF — мегабайты, в ежедневной копии базы ему не место — папку
+    # увозит pull-backups.ps1), в базе имя и sha256. Без состояний и без подписи поставщика в ответ.
+    20: [
+        """CREATE TABLE IF NOT EXISTS clinic_contracts(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, clinic_id TEXT NOT NULL REFERENCES clinics(id),
+            doc TEXT NOT NULL CHECK(doc IN ('contract','dpa')), version TEXT NOT NULL DEFAULT '',
+            file TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL DEFAULT 0,
+            uploaded_at TEXT NOT NULL, who TEXT NOT NULL)""",
+        "CREATE INDEX IF NOT EXISTS ix_clinic_contracts_clinic ON clinic_contracts(clinic_id, id)",
     ],
 }
 

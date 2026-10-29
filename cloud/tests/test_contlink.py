@@ -43,6 +43,9 @@ ROUTES = {
     ("POST", "/cont/date"): "own", ("POST", "/cont/nota"): "own", ("GET", "/cont/plati/{number}.pdf"): "own",
     ("POST", "/cont/sms/nume"): "own", ("POST", "/cont/sms/cerere.pdf"): "own", ("POST", "/cont/sms/cerere"): "own",
     ("POST", "/cont/cod"): "own",
+    # документы (29.10, contracts.py): общие PDF — любому вошедшему, экземпляр — своей клиники
+    ("GET", "/cont/documente"): "own", ("GET", "/cont/documente/{doc}.pdf"): "own",
+    ("GET", "/cont/documente/{rid}/clinica.pdf"): "own", ("POST", "/cont/documente/incarca"): "own",
     ("GET", "/cont/clinica-noua"): "deny", ("POST", "/cont/clinica-noua"): "deny",
     ("GET", "/cont/nota-comuna"): "deny", ("POST", "/cont/nota-comuna"): "deny",
     ("POST", "/cont/nota-comuna/anuleaza"): "deny",

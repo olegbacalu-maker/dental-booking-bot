@@ -50,6 +50,13 @@ TRIAL_NOTIFY = env("DP_TRIAL_NOTIFY") or SUPPORT_EMAIL
 # docs/site/declaratie-195.html). Едет вложением в каждое письмо с файлом
 # лицензии; пусто или не PDF — письма уходят без неё, и `tools check` это говорит.
 DECLARATION = env("DP_DECLARATION")
+# Договор лицензии и соглашение об обработке данных (29.10, contracts.py) — PDF, подписанные Олегом (КЭП
+# MoldSign) ОДИН раз на версию текста, как декларация: клиника скачивает их в кабинете (/cont/documente)
+# и, если хочет, загружает экземпляр со своей подписью. Версия документа — дата в имени файла
+# (contract-licenta-2026-10-29.pdf), иначе дата изменения файла. Пусто или не PDF — раздел говорит
+# «документ ещё не выложен», `tools check` предупреждает.
+CONTRACT = env("DP_CONTRACT")
+DPA = env("DP_DPA")
 # Кабинет клиники (шаг 3, 01.10): вход через Google — OAuth-клиент «Web
 # application» из консоли Google Cloud, redirect URI = DP_BASE_URL/auth/google/callback
 # (DEPLOY.md § 3). Оба пусты = кабинет закрыт: /cont говорит об этом словами.
