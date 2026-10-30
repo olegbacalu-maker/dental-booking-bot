@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { COLOR, effState, FINISH, finishFor, finishOf, hex, lerpHex, mixFinish, sameFinish, sameLook, setFinish, setTransparent, structChanged, targetLook, type Finish, type Look } from './look'
+import { COLOR, crownSealsScrew, effState, FINISH, finishFor, finishOf, hex, lerpHex, mixFinish, sameFinish, sameLook, setFinish, setTransparent, STENCIL_IMPLANT_CROWN, structChanged, targetLook, type Finish, type Look } from './look'
 
 /* Вид зуба — таблица состояний → видимость и цвета, с палитрой сервера. */
 
@@ -62,6 +62,14 @@ describe('вид по состоянию', () => {
     expect([l.screw, l.cap, l.roots, l.crown, l.implant]).toEqual([true, true, false, false, false])
     expect(targetLook(tooth('implant'), PALETTE).cap).toBe(false)
     expect(structChanged(l, targetLook(tooth('implant'), PALETTE))).toBe(true)
+  })
+
+  it('метку трафарета пишет только коронка готового импланта: сквозной винт не ложится на неё, а десну проходит', () => {
+    expect(crownSealsScrew(targetLook(tooth('implant'), PALETTE))).toBe(true)
+    for (const st of ['implant_fc', 'ok', 'coroana', 'carie', 'extras', 'lipsa']) {
+      expect(crownSealsScrew(targetLook(tooth(st), PALETTE)), st).toBe(false)
+    }
+    expect(STENCIL_IMPLANT_CROWN).toBeGreaterThan(0)
   })
 
   it('коронка и тело моста — золото без корней у тела; опора моста корни оставляет', () => {

@@ -4,7 +4,7 @@ import { archCurve, GAP, GAP_CLOSED, layoutArch, type ArchLayout, type PlacedToo
 import { focusOcclusal, focusOrbit, nearestTheta } from './focus'
 import type { Three } from './loadThree'
 import { attachEnamel, enamelLive, enamelTooth, type EnamelLive, type EnamelMaterial } from './enamel'
-import { COLOR, FINISH, finishOf, hex, lerpHex, mixFinish, physOf, sameFinish, sameLook, setFinish, setTransparent, structChanged, targetLook, type Finish, type Look } from './look'
+import { COLOR, crownSealsScrew, FINISH, finishOf, hex, lerpHex, mixFinish, physOf, sameFinish, sameLook, setFinish, setTransparent, STENCIL_IMPLANT_CROWN, structChanged, targetLook, type Finish, type Look } from './look'
 import type { RawMesh } from './mesh'
 import { buildDashedLoop, buildRoots, buildScrew, SURF, toCls, type Letter } from './toothGeometry'
 import { crownModel, type CrownModel } from './crown'
@@ -214,7 +214,8 @@ function labelTexture(THREE: Three, n: number, on: boolean): T3.CanvasTexture {
 
 export function createArchScene(opts: SceneOptions): ArchScene {
   const { THREE, container } = opts
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' })
+  // stencil — для метки коронки импланта (`look.STENCIL_IMPLANT_CROWN`); с r163 по умолчанию выключен
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, stencil: true, powerPreference: 'high-performance' })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
   renderer.outputColorSpace = THREE.SRGBColorSpace
   renderer.toneMapping = THREE.ACESFilmicToneMapping
@@ -527,6 +528,9 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     const screwXMat = new THREE.MeshStandardMaterial({
       color: COLOR.titan, roughness: 0.35, metalness: 0.6, transparent: true, opacity: 0.62, depthTest: false, depthWrite: false,
       emissive: new THREE.Color(COLOR.ringImplant), emissiveIntensity: 0.35,
+      // …кроме собственной коронки импланта: там стоит её метка трафарета (`crownSealsScrew`)
+      stencilWrite: true, stencilRef: STENCIL_IMPLANT_CROWN, stencilFunc: THREE.NotEqualStencilFunc,
+      stencilFail: THREE.KeepStencilOp, stencilZFail: THREE.KeepStencilOp, stencilZPass: THREE.KeepStencilOp,
     })
     const screwX = new THREE.Mesh(screwGeo, screwXMat)
     screwX.raycast = () => undefined
@@ -604,6 +608,14 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     t.screw.visible = look.screw
     t.screwX.visible = look.screw
     t.cap.visible = look.cap
+    // коронка готового импланта метит свои пиксели — сквозная копия винта их не трогает
+    const seal = crownSealsScrew(look)
+    for (const m of t.mats) {
+      m.stencilWrite = seal
+      m.stencilRef = STENCIL_IMPLANT_CROWN
+      m.stencilFunc = THREE.AlwaysStencilFunc
+      m.stencilZPass = THREE.ReplaceStencilOp
+    }
     t.crown.position.y = 0
     t.roots.position.y = 0
     screwY(t, 0)

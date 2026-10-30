@@ -213,6 +213,17 @@ export function targetLook(t: Info, palette: Record<string, string>): Look {
   }
 }
 
+/** Метка трафарета коронки готового импланта (30.10). Сквозная копия винта
+ *  (`scene.ts`, depthTest false — винт виден сквозь десну) рисуется поверх ВСЕГО,
+ *  в том числе собственной коронки: сверху коронка 46 выглядела бледной, будто
+ *  под дымкой. Коронка импланта пишет эту метку, копия винта не рисуется там, где
+ *  метка стоит; десна метку не пишет — сквозь неё винт виден, как раньше. */
+export const STENCIL_IMPLANT_CROWN = 1
+
+/** Пишет ли коронка метку трафарета: только у готового импланта — у прочих зубов
+ *  винта нет, а у имплантата без коронки нечему закрывать винт. */
+export const crownSealsScrew = (look: Look): boolean => look.implant && look.crown
+
 /** Смена состояния, которая заслуживает сцены (ступень 6), а не плавной покраски. */
 export function structChanged(prev: Look | null, next: Look): boolean {
   return prev !== null && (prev.st !== next.st || prev.pontic !== next.pontic)
