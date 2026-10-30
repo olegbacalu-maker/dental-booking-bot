@@ -153,9 +153,18 @@ def issue_text(row: sqlite3.Row) -> str:
 
 def mail_latest(con: sqlite3.Connection, clinic: sqlite3.Row, who: str,
                 receipt: tuple[str, bytes] | None = None, summary: str = "") -> str:
-    """Последний выданный файл письмом: админка, callback maib и ежедневная задача —
-    одной функцией. Возвращает код для ?msg= или '' — ушло. `receipt` — (имя файла,
-    PDF) cont de plată после оплаты (receipts.py): вложением и фразой в письме;
+    """Последний выданный файл письмом — собрать и отправить в транзакции `con` (админка,
+    пробный из формы). Код для ?msg= или '' — ушло. После оплаты так не зовут: письмо
+    собирает `letter_latest`, а уходит оно после commit (payments.notify_paid)."""
+    out = letter_latest(con, clinic, who, receipt, summary)
+    return out if isinstance(out, str) else mail.deliver(out, con)
+
+
+def letter_latest(con: sqlite3.Connection, clinic: sqlite3.Row, who: str,
+                  receipt: tuple[str, bytes] | None = None, summary: str = "") -> mail.Letter | str:
+    """Письмо о последнем выданном файле: админка, оплата и ежедневная задача — одной
+    функцией. Собранное письмо или код отказа (`no_issue`, `bad_email`). `receipt` — (имя
+    файла, PDF) cont de plată после оплаты (receipts.py): вложением и фразой в письме;
     `summary` — строки оплаты из того же снимка (receipts.summary, требование maib)."""
     row = con.execute("SELECT * FROM issues WHERE clinic_id=? ORDER BY seq DESC LIMIT 1",
                       (clinic["id"],)).fetchone()
@@ -184,16 +193,10 @@ def mail_latest(con: sqlite3.Connection, clinic: sqlite3.Row, who: str,
     if receipt:
         files.append(receipt)
         body = mail.with_receipt(body, receipt[0][len("Cont-de-plata-"):-len(".pdf")], summary)
-    try:
-        where = mail.send(clinic["email"], subject, body, *files)
-    except (RuntimeError, OSError, ValueError) as e:
-        log.error("письмо клинике %s не отправлено: %r", clinic["id"], e)
-        return "mail_failed"
-    db.audit(con, who, "mail", clinic["id"],
-             f"письмо о сроке seq {row['seq']}{' + декларация' if decl else ''}"
-             f"{' + cont de plată' if receipt else ''}{' + подтверждение ящика' if confirm else ''}"
-             f" на {clinic['email']} ({where})")
-    return ""
+    return mail.Letter(clinic["email"], subject, body, clinic["id"], who,
+                       f"письмо о сроке seq {row['seq']}{' + декларация' if decl else ''}"
+                       f"{' + cont de plată' if receipt else ''}{' + подтверждение ящика' if confirm else ''}",
+                       f"письмо клинике {clinic['id']}", files)
 
 
 def trial_dates(now: datetime | None = None) -> tuple[datetime, datetime]:

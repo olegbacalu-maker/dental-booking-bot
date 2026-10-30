@@ -13,11 +13,13 @@ from __future__ import annotations
 import logging
 import pathlib
 import smtplib
+import sqlite3
 import time
+from dataclasses import dataclass, field
 from datetime import datetime
 from email.message import EmailMessage
 
-from . import config, tiers
+from . import config, db, tiers
 
 log = logging.getLogger("cloud.mail")
 
@@ -48,6 +50,45 @@ def send(to: str, subject: str, body: str, *attachments: tuple[str, bytes]) -> s
         p.write_bytes(bytes(msg))
         return str(p)
     raise RuntimeError("ни DP_SMTP_HOST, ни DP_MAIL_OUTBOX: письмо отправить некуда")
+
+
+@dataclass
+class Letter:
+    """Собранное письмо клинике (30.10, ревью транзакций оплаты): всё, что сборка пишет в
+    базу (код подтверждения ящика, снимок cont de plată), уже сделано в её транзакции;
+    отправка — `deliver`, ПОСЛЕ commit: SMTP до 30 с под замком записи валил соседние записи
+    через 10 с ожидания."""
+    to: str
+    subject: str
+    body: str
+    clinic_id: str
+    who: str
+    detail: str                 # строка журнала `mail` до « на <ящик> (<куда>)»
+    what: str                   # о чём письмо — для лога, если SMTP отказал
+    files: list[tuple[str, bytes]] = field(default_factory=list)
+
+
+def deliver(letter: Letter, con: sqlite3.Connection | None = None) -> str:
+    """Отправить собранное письмо и записать `mail` в журнал. Код для ?msg=: '' — ушло,
+    'mail_failed' — SMTP отказал (лог; то, ради чего письмо, не откатывается).
+    Без `con` журнал пишет своей короткой транзакцией — так зовут после commit оплаты;
+    с `con` — в транзакции вызывающего (обёртки «собрать + отправить» вне оплаты)."""
+    try:
+        where = send(letter.to, letter.subject, letter.body, *letter.files)
+    except (RuntimeError, OSError, ValueError) as e:
+        log.error("%s не отправлено: %r", letter.what, e)
+        return "mail_failed"
+    line = f"{letter.detail} на {letter.to} ({where})"
+    if con is not None:
+        db.audit(con, letter.who, "mail", letter.clinic_id, line)
+        return ""
+    try:
+        with db.connect(immediate=True) as own:
+            db.audit(own, letter.who, "mail", letter.clinic_id, line)
+    except sqlite3.Error as e:
+        # письмо ушло, оплата закоммичена — без строки журнала ответ не должен стать 500
+        log.error("письмо ушло, строка журнала не записана (%s): %r", line, e)
+    return ""
 
 
 FOOTER = f"Întrebări: {config.SUPPORT_EMAIL} · {config.SUPPORT_PHONE}\n\nDentPilot"

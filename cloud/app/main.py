@@ -401,7 +401,7 @@ def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method:
     m = _months(months)
     idno = "".join(idno.split())
     card = method == payments.CARD and maib.enabled()
-    with db.connect(immediate=True) as con:
+    with payments.outbox() as box, db.connect(immediate=True) as con:
         c = paylink.lookup(con, pid)
         if c is None:
             return HTMLResponse(views.pay_link_expired_page(), status_code=410)
@@ -422,7 +422,7 @@ def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method:
                 return RedirectResponse(f"{back}?msg=note_gone", status_code=303)
             if not card:
                 return RedirectResponse(f"{back}?msg=no_card", status_code=303)
-            return _card_go(con, note, c, "program", ip, back)
+            return _card_go(con, note, c, "program", ip, back, box)
         if idno and idno != (c["idno"] or ""):
             if not trial.IDNO_RE.match(idno):
                 return RedirectResponse(f"{back}?msg=bad_idno", status_code=303)
@@ -443,14 +443,15 @@ def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method:
             # новая нота — письмом и при карте: не дойдёт клиника до оплаты — реквизиты у неё есть
             _send_payment_letter(con, c, p, "program")
         if card:
-            return _card_go(con, p, c, "program", ip, back)
+            return _card_go(con, p, c, "program", ip, back, box)
     code = {payments.CREATED: "note_created", payments.REPLACED: "note_replaced"}.get(outcome, "note_exists")
     return RedirectResponse(f"{back}?msg={code}", status_code=303)
 
 
-def _card_go(con, p, c, who: str, ip: str, back: str) -> Response:
+def _card_go(con, p, c, who: str, ip: str, back: str, box: payments.Outbox) -> Response:
     """Клик «Plătește cu cardul» → браузер на страницу maib (ссылка по клику, payments.card_link)
-    или назад с card_paid, если maib уже сказал «оплачено» (тогда и письмо об оплате)."""
+    или назад с card_paid, если maib уже сказал «оплачено» (тогда и письмо об оплате — в `box`
+    вызывающего: зовут внутри его транзакции, письмо уходит после её commit)."""
     try:
         outcome, url = payments.card_link(con, p, c, who, ip)
     except maib.MaibError as e:
@@ -458,7 +459,7 @@ def _card_go(con, p, c, who: str, ip: str, back: str) -> Response:
         return RedirectResponse(f"{back}{'&' if '?' in back else '?'}msg=maib_failed", status_code=303)
     sep = "&" if "?" in back else "?"
     if outcome == payments.SETTLED_PAID:
-        payments.notify_paid(con, p, who)
+        box.add(payments.notify_paid(con, p, who))
         return RedirectResponse(f"{back}{sep}msg=card_paid", status_code=303)
     return RedirectResponse(url, status_code=303)
 
@@ -1341,12 +1342,13 @@ def _send_payment_letter(con, c, p, who: str) -> str:
 # ---------- карта: maib (L12) ----------
 
 
-def _settle_now(con, p, truth: dict, who: str) -> str:
+def _settle_now(con, p, truth: dict, who: str, box: payments.Outbox) -> str:
     """Применить уже полученный ответ maib: код для ?msg=. Истина — статус checkout, не
-    callback и не кнопка. `con` — под замком записи, `p` перечитан под ним."""
+    callback и не кнопка. `con` — под замком записи, `p` перечитан под ним; письмо об
+    оплате — в `box`, уходит после commit."""
     outcome = payments.settle(con, p, truth, who)
     if outcome == payments.SETTLED_PAID:
-        payments.notify_paid(con, p, who)
+        box.add(payments.notify_paid(con, p, who))
         return "card_paid"
     return {payments.SETTLED_ALREADY: "payment_not_pending", payments.SETTLED_WAITING: "card_waiting"
             }.get(outcome, "card_failed")
@@ -1373,8 +1375,8 @@ def payment_check(request: Request, pid: int) -> Response:
     except maib.MaibError as e:
         log.error("maib: статус %s не получен: %s", p["reference"], e)
         return RedirectResponse(f"{back}?msg=maib_failed", status_code=303)
-    with db.connect(immediate=True) as con:
-        code = _settle_now(con, _payment(con, pid), truth, auth.current_user(request))
+    with payments.outbox() as box, db.connect(immediate=True) as con:
+        code = _settle_now(con, _payment(con, pid), truth, auth.current_user(request), box)
     return RedirectResponse(f"{back}?msg={code}", status_code=303)
 
 
@@ -1437,11 +1439,11 @@ def _maib_callback(raw: bytes, signature: str, timestamp: str) -> Response:
         return JSONResponse({"ok": False, "code": "maib_unavailable"}, status_code=503)
     # замок записи с начала: возврат браузера (/pay/ok) приходит почти тем же мигом, и
     # отложенная транзакция, прочитавшая до его коммита, при записи сразу «database is locked»
-    with db.connect(immediate=True) as con:
+    with payments.outbox() as box, db.connect(immediate=True) as con:     # письмо — после commit
         p = _payment(con, p["id"])
         outcome = payments.settle(con, p, truth, "maib")
         if outcome == payments.SETTLED_PAID:
-            payments.notify_paid(con, p, "maib")
+            box.add(payments.notify_paid(con, p, "maib"))
     log.info("maib callback: %s → %s", p["reference"], outcome)
     return JSONResponse({"ok": True, "outcome": outcome})
 
@@ -1471,10 +1473,11 @@ def _returned(pay_id: str):
     except maib.MaibError as e:
         log.warning("maib о возврате %s не ответил: %s", p["reference"], e)
         return p
-    with db.connect(immediate=True) as con:     # callback того же платежа — в тот же миг
+    # callback того же платежа — в тот же миг; письмо — после commit
+    with payments.outbox() as box, db.connect(immediate=True) as con:
         fresh = _payment(con, p["id"])
         if payments.settle(con, fresh, truth, "maib") == payments.SETTLED_PAID:
-            payments.notify_paid(con, fresh, "maib")
+            box.add(payments.notify_paid(con, fresh, "maib"))
         return payments.by_pay_id(con, pay_id)
 
 
@@ -1531,7 +1534,7 @@ def payment_confirm(request: Request, pid: int) -> Response:
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     who = auth.current_user(request)
-    with db.connect() as con:
+    with payments.outbox() as box, db.connect() as con:     # письмо — после commit
         p = _payment(con, pid)
         if p is None:
             return Response(status_code=404)
@@ -1542,7 +1545,8 @@ def payment_confirm(request: Request, pid: int) -> Response:
             return RedirectResponse(f"{back}?msg=payment_not_pending", status_code=303)
         except RuntimeError:
             return RedirectResponse(f"{back}?msg=no_key", status_code=303)
-        code = "payment_confirmed" if payments.notify_paid(con, p, who) else "payment_confirmed_mailed"
+        box.add(payments.notify_paid(con, p, who))
+    code = "payment_confirmed" if box.code else "payment_confirmed_mailed"
     return RedirectResponse(f"{back}?msg={code}", status_code=303)
 
 
@@ -1558,7 +1562,7 @@ def payment_repeat(request: Request, pid: int, sure: str = Form("")) -> Response
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     who = auth.current_user(request)
-    with db.connect() as con:
+    with payments.outbox() as box, db.connect() as con:     # письмо — после commit
         p = _payment(con, pid)
         if p is None:
             return Response(status_code=404)
@@ -1572,7 +1576,8 @@ def payment_repeat(request: Request, pid: int, sure: str = Form("")) -> Response
             return RedirectResponse(f"{back}?msg={code}", status_code=303)
         except RuntimeError:
             return RedirectResponse(f"{back}?msg=no_key", status_code=303)
-        code = "payment_repeat" if payments.notify_paid(con, new, who) else "payment_repeat_mailed"
+        box.add(payments.notify_paid(con, new, who))
+    code = "payment_repeat" if box.code else "payment_repeat_mailed"
     return RedirectResponse(f"{back}?msg={code}", status_code=303)
 
 
@@ -2140,7 +2145,7 @@ def cont_note(request: Request, months: str = Form("1"), method: str = Form(paym
     m = _months(months)
     card = method == payments.CARD and maib.enabled()
     try:
-        with db.connect(immediate=True) as con:
+        with payments.outbox() as box, db.connect(immediate=True) as con:
             acc, cl = _cont_clinic(request, con, c)
             if cl is None:
                 return _cont_deny(acc)
@@ -2160,7 +2165,7 @@ def cont_note(request: Request, months: str = Form("1"), method: str = Form(paym
             if outcome != payments.EXISTS:
                 _send_payment_letter(con, cl, p, acc["email"])
             if card:
-                return _card_go(con, p, cl, acc["email"], _ip(request), _cont_to(con, acc, cl["id"]))
+                return _card_go(con, p, cl, acc["email"], _ip(request), _cont_to(con, acc, cl["id"]), box)
             if outcome == payments.EXISTS:
                 return RedirectResponse(_cont_to(con, acc, cl["id"], "note_exists"), status_code=303)
             back = _cont_to(con, acc, cl["id"], "note_replaced" if outcome == payments.REPLACED else "note_created")
@@ -2596,7 +2601,7 @@ def _group_submit(request: Request, form: dict, ip: str) -> Response:
     back = "/cont/nota-comuna"
     card = form.get("method") == payments.CARD and maib.enabled()
     try:
-        with db.connect(immediate=True) as con:
+        with payments.outbox() as box, db.connect(immediate=True) as con:
             acc = _current_account(con, request)
             if acc is None:
                 return _cont_login_redirect()
@@ -2610,7 +2615,7 @@ def _group_submit(request: Request, form: dict, ip: str) -> Response:
                     return RedirectResponse(f"{back}?msg=group_gone", status_code=303)
                 if not card:
                     return RedirectResponse(f"{back}?msg=no_card", status_code=303)
-                return _card_go(con, pending, _clinic(con, pending["clinic_id"]), acc["email"], ip, back)
+                return _card_go(con, pending, _clinic(con, pending["clinic_id"]), acc["email"], ip, back, box)
             picks = []
             for r, _, _ in rows:
                 t = form.get(f"t_{r['id']}") or ""
@@ -2628,7 +2633,7 @@ def _group_submit(request: Request, form: dict, ip: str) -> Response:
                 return RedirectResponse(f"{back}?msg={why}", status_code=303)
             _send_payment_letter(con, payer, p, acc["email"])
             if card:
-                return _card_go(con, p, payer, acc["email"], ip, back)
+                return _card_go(con, p, payer, acc["email"], ip, back, box)
     except maib.MaibError as e:
         log.error("maib: общая нота из кабинета не создана: %s", e)
         return RedirectResponse(f"{back}?msg=maib_failed", status_code=303)

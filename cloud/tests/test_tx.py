@@ -114,3 +114,186 @@ def suite_settle_lock(res: Result) -> None:
         _, _, mbad = check(_strip(trees, func))
         res.ok(f"пара: без immediate у {func} — сторож красный",
                any(b.endswith(" " + func) for b in mbad), repr(mbad))
+
+
+# ---------- письма — после commit (шаг 3) ----------
+# SMTP держит до 30 с (mail.send, timeout=30); внутри транзакции это время замка записи, и
+# соседние записи (callback, лицензия) падают через 10 с ожидания. Отправка — только вне
+# `with db.connect`: письмо собирается в транзакции (payments.notify_paid, license.letter_latest,
+# sms.letter_*), уходит после commit (payments.outbox → send_paid → mail.deliver).
+
+SCOPE = ("main.py", "jobs.py", "payments.py")
+# Отправляющие сами по себе; `send` без модуля — mail.send, переданный параметром (jobs, sms)
+SEND_BASE = {"mail.send", "mail.deliver"}
+
+# Где письма об оплате собираются в транзакции и уходят через outbox — 7 мест решения Р4:
+# callback, возврат браузера, ежедневная задача, «Проверить» (_settle_now), «Подтвердить»,
+# «Зачесть повторный», кнопка карты (_card_go у страницы оплаты, кабинета и общей ноты).
+# Список ВКЛЮЧАЕТ требование — переименуют, и «найдены» покраснеет, а не позеленеет тихо.
+OUTBOX_HOLDERS = {"_maib_callback", "_returned", "settle_cards", "payment_check", "payment_confirm",
+                  "payment_repeat", "pay_link_submit", "cont_note", "_group_submit"}
+
+# Отправка внутри транзакции, оставленная НАМЕРЕННО: не письмо об оплате (решение Олега Р4 —
+# в эту ветку не берём, список в отчёт) или следующий шаг ветки. Ключ — «файл:функция → вызов».
+MAIL_IN_TX = {
+    # письмо с нотой при выставлении (_send_payment_letter) — шаг 4, три фазы (С3)
+    "main.py:pay_link_submit → main._send_payment_letter": "нота со страницы оплаты — С3",
+    "main.py:cont_note → main._send_payment_letter": "нота из кабинета — С3",
+    "main.py:_group_submit → main._send_payment_letter": "общая нота кабинета — С3",
+    "main.py:payment_new → main._send_payment_letter": "нота из админки — С3 (Р1)",
+    "main.py:payment_link → main._send_payment_letter": "ссылка на карту из админки — С3",
+    "main.py:payment_mail → main._send_payment_letter": "«письмо с нотой ещё раз» из админки — С3",
+    # не оплата (Р4): в эту ветку не берём, список — в отчёт
+    "main.py:_sms_order → mail.send": "нота SMS из программы (main.py ~327)",
+    "main.py:_trial_program → trial.submit": "пробный из программы: выдача и письмо (trial.py:218)",
+    "main.py:trial_submit → trial.submit": "пробный с /proba: выдача и письмо (trial.py:218)",
+    "main.py:cont_register_submit → account.register": "регистрация кабинета → trial.submit (trial.py:218)",
+    "main.py:cont_add_submit → account.add_clinic": "«Adaugă clinică» → trial.submit (trial.py:218)",
+    "main.py:cont_add_submit → main._send_added_letter": "письмо новой клинике кабинета (нота + ящик)",
+    "main.py:clinic_issue → main._send_latest": "файл письмом из админки после выдачи (main.py ~1650)",
+    "main.py:clinic_email → main._send_latest": "файл письмом из админки, кнопка «отправить»",
+    "jobs.py:daily → jobs._one": "напоминания о сроке ежедневной задачи (send параметром)",
+}
+
+
+def _key(call: ast.Call, stem: str, mods: set) -> str | None:
+    f = call.func
+    if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id in mods:
+        return f"{f.value.id}.{f.attr}"
+    if isinstance(f, ast.Name):
+        return f"{stem}.{f.id}"
+    return None
+
+
+_DEFS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+
+
+def _walk(node: ast.AST, w, out: list) -> None:
+    """(вызов, ближайший `with db.connect` или None), без вложенных def. Элементы `with` ПОСЛЕ
+    db.connect выходят РАНЬШЕ commit — они внутри транзакции; до него — снаружи (outbox)."""
+    if isinstance(node, _DEFS):
+        return
+    if isinstance(node, ast.With) and (conn := _connect(node)) is not None:
+        after = False
+        for item in node.items:
+            _walk(item.context_expr, node if after else w, out)
+            after = after or item.context_expr is conn
+        for stmt in node.body:
+            _walk(stmt, node, out)
+        return
+    if isinstance(node, ast.Call):
+        out.append((node, w))
+    for child in ast.iter_child_nodes(node):
+        _walk(child, w, out)
+
+
+def mail_check(trees: dict[str, ast.Module]) -> tuple[set, dict, list]:
+    """(отправляющие функции «модуль.имя», {функция: [строки with, где outbox раньше
+    db.connect]}, нарушения «файл:функция → вызов» в SCOPE). Отправляющая — та, что зовёт
+    отправляющую где угодно (в своей транзакции или после неё): её вызов внутри чужой
+    транзакции — SMTP под замком."""
+    mods = {f[:-3] for f in trees}
+    funcs = []
+    for fname, tree in trees.items():
+        stem = fname[:-3]
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                found: list = []
+                for stmt in node.body:
+                    _walk(stmt, None, found)
+                funcs.append((fname, stem, node, [(c, w, _key(c, stem, mods)) for c, w in found]))
+    senders = SEND_BASE | {f"{m}.send" for m in mods}
+    while True:
+        more = {f"{stem}.{fn.name}" for _, stem, fn, found in funcs if any(k in senders for _, _, k in found)}
+        if more <= senders:
+            break
+        senders |= more
+    boxed: dict = {}
+    bad = []
+    for fname, stem, fn, found in funcs:
+        for node in ast.walk(fn):
+            if isinstance(node, ast.With) and (conn := _connect(node)) is not None:
+                first = node.items[0].context_expr
+                if first is not conn and isinstance(first, ast.Call) and _key(first, stem, mods) == "payments.outbox":
+                    boxed.setdefault(fn.name, []).append(node.lineno)
+        if fname not in SCOPE:
+            continue
+        for c, w, k in found:
+            if w is not None and k in senders:
+                bad.append(f"{fname}:{fn.name} → {k}")
+    return senders, boxed, sorted(set(bad))
+
+
+def _func(tree: ast.Module, func: str) -> ast.FunctionDef:
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == func:
+            return node
+    raise AssertionError(f"нет функции {func}")
+
+
+def _inject(trees: dict, fname: str, func: str, src: str) -> dict:
+    """Копия деревьев: `src` первой строкой в первый `with db.connect` функции — мутация."""
+    out = copy.deepcopy(trees)
+    for w in ast.walk(_func(out[fname], func)):
+        if isinstance(w, ast.With) and _connect(w) is not None:
+            w.body.insert(0, ast.parse(src).body[0])
+            return out
+    raise AssertionError(f"{fname}:{func} без with db.connect")
+
+
+def _swap(trees: dict, fname: str, func: str) -> dict:
+    """Копия: `with payments.outbox(), db.connect()` функции наоборот — письма ушли бы до commit."""
+    out = copy.deepcopy(trees)
+    for w in ast.walk(_func(out[fname], func)):
+        if isinstance(w, ast.With) and _connect(w) is not None and len(w.items) == 2:
+            w.items.reverse()
+    return out
+
+
+def _prepend(trees: dict, fname: str, func: str, src: str) -> dict:
+    """Копия: `src` первой строкой тела функции (сборка письма начала отправлять)."""
+    out = copy.deepcopy(trees)
+    _func(out[fname], func).body.insert(0, ast.parse(src).body[0])
+    return out
+
+
+def suite_mail_after_commit(res: Result) -> None:
+    """Письма об оплате — после commit: ни mail.send, ни отправляющей функции внутри
+    `with db.connect` в main.py, jobs.py, payments.py, кроме названных исключений; и пары."""
+    trees = _trees()
+    need = {"main.py", "jobs.py", "payments.py", "license.py", "sms.py", "mail.py"}
+    res.ok("исходники нашлись: main.py, jobs.py, payments.py, license.py, sms.py, mail.py",
+           need <= set(trees), sorted(need - set(trees)))
+    senders, boxed, bad = mail_check(trees)
+    want = {"mail.send", "mail.deliver", "payments.send_paid", "payments.outbox", "license.mail_latest",
+            "sms.mail_pack", "sms.mail_name", "main._send_payment_letter"}
+    res.ok("отправляющие найдены: mail.send/deliver, send_paid, outbox, обёртки mail_latest/mail_pack/mail_name",
+           want <= senders, sorted(want - senders))
+    builders = {"payments.notify_paid", "license.letter_latest", "sms.letter_pack", "sms.letter_name",
+                "main._card_go", "main._settle_now"}
+    res.ok("сборка писем ничего не отправляет: notify_paid, letter_*, _card_go, _settle_now",
+           not (builders & senders), sorted(builders & senders))
+    res.ok("outbox раньше db.connect у всех 7 мест оплаты (9 транзакций)",
+           OUTBOX_HOLDERS <= set(boxed), sorted(OUTBOX_HOLDERS - set(boxed)))
+    res.check("отправка внутри with db.connect — только названные исключения",
+              [b for b in bad if b not in MAIL_IN_TX], [])
+    res.check("исключения живые (нет устаревших строк)", sorted(set(MAIL_IN_TX) - set(bad)), [])
+    # пары: каждая поломка краснеет
+    _, _, m = mail_check(_inject(trees, "main.py", "_maib_callback", "mail.send('a', 'b', 'c')"))
+    res.ok("пара: mail.send в транзакции callback — красный", "main.py:_maib_callback → mail.send" in m, repr(m))
+    _, _, m = mail_check(_inject(trees, "jobs.py", "settle_cards", "payments.send_paid([])"))
+    res.ok("пара: send_paid в транзакции ежедневной задачи — красный",
+           "jobs.py:settle_cards → payments.send_paid" in m, repr(m))
+    _, _, m = mail_check(_swap(trees, "main.py", "payment_confirm"))
+    res.ok("пара: connect раньше outbox («Подтвердить») — красный",
+           "main.py:payment_confirm → payments.outbox" in m, repr(m))
+    _, _, m = mail_check(_prepend(trees, "payments.py", "notify_paid", "mail.deliver(None)"))
+    hit = {"main.py:_maib_callback → payments.notify_paid", "main.py:_returned → payments.notify_paid",
+           "jobs.py:settle_cards → payments.notify_paid", "main.py:payment_confirm → payments.notify_paid",
+           "main.py:payment_repeat → payments.notify_paid", "main.py:payment_check → main._settle_now",
+           "main.py:pay_link_submit → main._card_go"}
+    res.ok("пара: notify_paid начал отправлять — красные все места оплаты", hit <= set(m), sorted(hit - set(m)))
+    _, _, m = mail_check(_prepend(trees, "main.py", "_card_go", "license.mail_latest(con, c, who)"))
+    hit = {f"main.py:{h} → main._card_go" for h in ("pay_link_submit", "cont_note", "_group_submit")}
+    res.ok("пара: _card_go отправляет сам — красные страница оплаты, кабинет, общая нота",
+           hit <= set(m), sorted(hit - set(m)))

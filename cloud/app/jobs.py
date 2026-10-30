@@ -179,12 +179,13 @@ def settle_cards(who: str, rep: Report) -> None:
             rep.skipped.append((p["clinic_id"], f"maib не ответил про {p['reference']}"))
             continue
         try:
-            with db.connect(immediate=True) as con:     # callback и /pay/ok пишут ту же строку
+            # callback и /pay/ok пишут ту же строку; письмо — после commit
+            with payments.outbox() as box, db.connect(immediate=True) as con:
                 # попытка могла переехать на другую строку (зачёт повторного платежа) — платёж по ней
                 fresh = payments.by_pay_id(con, p["provider_id"])
                 outcome = payments.settle(con, fresh, truth, who)
                 if outcome == payments.SETTLED_PAID:
-                    payments.notify_paid(con, fresh, who)
+                    box.add(payments.notify_paid(con, fresh, who))
                     rep.cards.append((p["clinic_id"], p["reference"]))
         except Exception as e:  # noqa: BLE001 — один платёж не останавливает остальных
             log.error("платёж картой %s: %r", p["reference"], e)

@@ -47,6 +47,7 @@ from harness import run  # noqa: E402
 SUITES = [
     ("Сервер: без импортов движка, одни версии", test_pure.suite),
     ("Оплата картой: settle только под замком записи (immediate)", test_tx.suite_settle_lock),
+    ("Оплата картой: письма об оплате — после commit", test_tx.suite_mail_after_commit),
     ("SMS: сегменты и номер — общий вектор с программой", test_sms_rule.suite_vectors),
     ("SMS: копия сервера и копия программы отвечают одинаково", test_sms_rule.suite_twins),
     ("SMS: белый список личного текста — копия сервера против sms_plan программы", test_sms_rule.suite_custom_twins),

@@ -49,6 +49,7 @@ SMS: Plus — сразу, Basic — до конца периода, шедшег
 from __future__ import annotations
 
 import calendar
+import contextlib
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
@@ -285,11 +286,12 @@ def create_group(con: sqlite3.Connection, payer: sqlite3.Row, picks: list, who: 
     return p, replaced
 
 
-def notify_paid(con: sqlite3.Connection, payment: sqlite3.Row, who: str) -> str:
-    """Письмо после оплаты — по виду: пакет SMS → «pachetul a fost activat»,
-    абонемент → письмо о лицензии (license.mail_latest). Код для ?msg= или ''.
-    Общая нота — письмо о лицензии КАЖДОЙ клинике строки на её ящик; cont de plată и строки
-    оплаты — в письме плательщику; код — его письма."""
+def notify_paid(con: sqlite3.Connection, payment: sqlite3.Row, who: str) -> list[tuple[bool, mail.Letter | str]]:
+    """Письма после оплаты — СОБРАТЬ в транзакции оплаты (снимок cont de plată, код ящика —
+    записи в базу), отправить после её commit (`send_paid`, `outbox`). По виду: пакет SMS →
+    «pachetul a fost activat», абонемент → письмо о лицензии (license.letter_latest).
+    Список (плательщик?, письмо или код отказа). Общая нота — письмо о лицензии КАЖДОЙ
+    клинике строки на её ящик; cont de plată и строки оплаты — в письме плательщику."""
     clinic = con.execute("SELECT * FROM clinics WHERE id=?", (payment["clinic_id"],)).fetchone()
     fresh = con.execute("SELECT * FROM payments WHERE id=?", (payment["id"],)).fetchone()
     # cont de plată (17.10) — вложением в то же письмо, что говорит об оплате; строки оплаты
@@ -298,18 +300,50 @@ def notify_paid(con: sqlite3.Connection, payment: sqlite3.Row, who: str) -> str:
     row = receipts.get(con, fresh["id"]) if receipt else None
     summary = receipts.summary(row) if row is not None else ""
     if payment["kind"] == CABINET:
-        code = ""
+        out = []
         for ln in lines_of(con, payment["id"]):
             c = con.execute("SELECT * FROM clinics WHERE id=?", (ln["clinic_id"],)).fetchone()
             payer = c["id"] == payment["clinic_id"]
-            out = license.mail_latest(con, c, who, receipt=receipt if payer else None,
-                                      summary=summary if payer else "")
-            code = out if payer else code
-        return code
+            out.append((payer, license.letter_latest(con, c, who, receipt=receipt if payer else None,
+                                                     summary=summary if payer else "")))
+        return out
     if payment["kind"] in (SMS, SMS_NAME):
-        return (sms.mail_pack if payment["kind"] == SMS else sms.mail_name)(con, clinic, fresh, who,
-                                                                            receipt=receipt, summary=summary)
-    return license.mail_latest(con, clinic, who, receipt=receipt, summary=summary)
+        return [(True, (sms.letter_pack if payment["kind"] == SMS else sms.letter_name)(
+            con, clinic, fresh, who, receipt=receipt, summary=summary))]
+    return [(True, license.letter_latest(con, clinic, who, receipt=receipt, summary=summary))]
+
+
+def send_paid(letters: list[tuple[bool, mail.Letter | str]]) -> str:
+    """Отправить письма `notify_paid` — только ПОСЛЕ commit оплаты, вне транзакции: SMTP до
+    30 с под замком записи валил соседние записи. Код письма плательщика для ?msg= ('' —
+    ушло); отказ SMTP — лог, оплата не откатывается."""
+    code = ""
+    for payer, letter in letters:
+        out = mail.deliver(letter) if isinstance(letter, mail.Letter) else letter
+        code = out if payer else code
+    return code
+
+
+class Outbox:
+    """Письма об оплате, собранные в транзакции; `code` — после выхода из `outbox`."""
+
+    def __init__(self) -> None:
+        self.letters: list[tuple[bool, mail.Letter | str]] = []
+        self.code = ""
+
+    def add(self, letters: list[tuple[bool, mail.Letter | str]]) -> None:
+        self.letters += letters
+
+
+@contextlib.contextmanager
+def outbox():
+    """`with payments.outbox() as box, db.connect(immediate=True) as con:` — письма, собранные
+    в транзакции (`box.add(notify_paid(...))`), уходят после её commit. ⛔ Порядок важен:
+    выходы идут справа налево — connect раньше outbox, иначе SMTP снова под замком. Исключение
+    в транзакции — откат, и письма не уходят; `return` из блока — commit, потом письма."""
+    box = Outbox()
+    yield box
+    box.code = send_paid(box.letters)
 
 
 def subject(p: sqlite3.Row, con: sqlite3.Connection | None = None) -> str:

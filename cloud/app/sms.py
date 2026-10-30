@@ -779,7 +779,15 @@ def credit_name(con: sqlite3.Connection, payment: sqlite3.Row, who: str) -> str 
 
 def mail_name(con: sqlite3.Connection, clinic: sqlite3.Row, payment: sqlite3.Row, who: str,
               receipt: tuple[str, bytes] | None = None, summary: str = "") -> str:
-    """Письмо об оплаченном имени; код для ?msg= ('' — ушло). `receipt` — cont de
+    """Письмо об оплаченном имени — собрать и отправить в транзакции `con`; код для ?msg=
+    ('' — ушло). После оплаты письмо уходит после commit (payments.notify_paid)."""
+    out = letter_name(con, clinic, payment, who, receipt, summary)
+    return out if isinstance(out, str) else mail.deliver(out, con)
+
+
+def letter_name(con: sqlite3.Connection, clinic: sqlite3.Row, payment: sqlite3.Row, who: str,
+                receipt: tuple[str, bytes] | None = None, summary: str = "") -> mail.Letter | str:
+    """Письмо об оплаченном имени: собранное или код отказа (`bad_email`). `receipt` — cont de
     plată (имя, PDF) вложением, как у письма о лицензии; `summary` — строки оплаты."""
     if not clinic["email"]:
         return "bad_email"
@@ -788,13 +796,8 @@ def mail_name(con: sqlite3.Connection, clinic: sqlite3.Row, payment: sqlite3.Row
     subject, body = mail.sms_name_letter(clinic["name"], acc["sender"] if acc else "", until, payment["reference"])
     if receipt:
         body = mail.with_receipt(body, payment["reference"], summary)
-    try:
-        where = mail.send(clinic["email"], subject, body, *([receipt] if receipt else []))
-    except (RuntimeError, OSError) as e:
-        log.error("письмо об имени %s не отправлено: %r", payment["reference"], e)
-        return "mail_failed"
-    db.audit(con, who, "mail", clinic["id"], f"имя SMS {payment['reference']} на {clinic['email']} ({where})")
-    return ""
+    return mail.Letter(clinic["email"], subject, body, clinic["id"], who, f"имя SMS {payment['reference']}",
+                       f"письмо об имени {payment['reference']}", [receipt] if receipt else [])
 
 
 def credit(con: sqlite3.Connection, clinic_id: str, delta: int, reason: str, note: str, who: str) -> str:
@@ -839,21 +842,24 @@ def set_cap(con: sqlite3.Connection, clinic_id: str, cap: int, who: str) -> str:
 
 def mail_pack(con: sqlite3.Connection, clinic: sqlite3.Row, payment: sqlite3.Row, who: str,
               receipt: tuple[str, bytes] | None = None, summary: str = "") -> str:
-    """Письмо «pachetul de N SMS a fost activat»; код для ?msg= ('' — ушло). `receipt` —
-    cont de plată вложением, `summary` — строки оплаты."""
+    """Письмо «pachetul de N SMS a fost activat» — собрать и отправить в транзакции `con`;
+    код для ?msg= ('' — ушло). После оплаты письмо уходит после commit (payments.notify_paid)."""
+    out = letter_pack(con, clinic, payment, who, receipt, summary)
+    return out if isinstance(out, str) else mail.deliver(out, con)
+
+
+def letter_pack(con: sqlite3.Connection, clinic: sqlite3.Row, payment: sqlite3.Row, who: str,
+                receipt: tuple[str, bytes] | None = None, summary: str = "") -> mail.Letter | str:
+    """Письмо «pachetul de N SMS a fost activat»: собранное или код отказа (`bad_email`).
+    `receipt` — cont de plată вложением, `summary` — строки оплаты."""
     if not clinic["email"]:
         return "bad_email"
     subject, body = mail.sms_pack_letter(clinic["name"], int(payment["sms_units"] or 0),
                                          balance(con, clinic["id"]), payment["reference"])
     if receipt:
         body = mail.with_receipt(body, payment["reference"], summary)
-    try:
-        where = mail.send(clinic["email"], subject, body, *([receipt] if receipt else []))
-    except (RuntimeError, OSError) as e:
-        log.error("письмо о пакете SMS %s не отправлено: %r", payment["reference"], e)
-        return "mail_failed"
-    db.audit(con, who, "mail", clinic["id"], f"пакет SMS {payment['reference']} на {clinic['email']} ({where})")
-    return ""
+    return mail.Letter(clinic["email"], subject, body, clinic["id"], who, f"пакет SMS {payment['reference']}",
+                       f"письмо о пакете SMS {payment['reference']}", [receipt] if receipt else [])
 
 
 ALARM_TO = "_sms"       # строка reminders для писем Олегу: раз в сутки на вид
