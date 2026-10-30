@@ -189,6 +189,11 @@ def recall_on() -> bool:
     return enabled() and plan.recall_on(settings())
 
 
+def recall_auto_on() -> bool:
+    """Цикл шлёт рекламации сам: гейт кнопки и вторая галочка `sms.recall.auto`."""
+    return enabled() and plan.recall_auto(settings())
+
+
 def custom_texts() -> dict:
     """Личный текст клиники по языкам — из счёта сервера, годный по белому списку."""
     raw = (_account or {}).get("custom") or {}
@@ -513,6 +518,7 @@ async def tick() -> str:
             if plan.awake(now.astimezone(eng.TZ)):
                 _last["error"] = ""
                 sent = await _send_queued(base, token, now)
+                sent += await _send_recall_auto(now)
             await _poll_status(base, token, now)
         outcome = "sent" if sent else ("queued" if added else ("idle" if offered() else "off"))
         _last.update(at=now, outcome=outcome, sent=sent)
@@ -604,8 +610,12 @@ def recall_preview(lang: str) -> tuple[str, int]:
     return text, rule.parts(text)[2]
 
 
+AUTO_ACTOR = "sistem"                        # подпись отметки и летописи у автоматической SMS
+AUTO_WORD = "automat"                        # пометка в летописи: «SMS trimis (rechemare X, automat)»
+
+
 async def send_recall(patient_id: int, service_id: str, cycle_appt_id: int, phone_raw: str,
-                      lang: str, label: str) -> tuple[str, dict]:
+                      lang: str, label: str, *, auto: bool = False) -> tuple[str, dict]:
     """Одна SMS из списка «Rechemări» — синхронно, мимо очереди (как `send_test`),
     но С ЗАПИСЬЮ: строка `sms_log` (`kind recall`, `appt_id NULL` — колокольчик
     прошлого визита её не зажжёт), летопись от имени вошедшего, остаток из
@@ -639,9 +649,10 @@ async def send_recall(patient_id: int, service_id: str, cycle_appt_id: int, phon
         if _account is not None and isinstance(body.get("balance"), int):
             _account["balance"] = body["balance"]
             await _save_low()
+        word = f"{KIND_LABEL[plan.RECALL]} {label}".strip() + (f", {AUTO_WORD}" if auto else "")
         await _log({"patient_id": patient_id, "kind": plan.RECALL}, db.SMS_SENT,
-                   actor=None, label=f"{KIND_LABEL[plan.RECALL]} {label}".strip())
-        log.info("sms: recall sent row=%s cloud=%s", row_id, body.get("id"))
+                   actor=AUTO_ACTOR if auto else None, label=word)
+        log.info("sms: recall sent row=%s cloud=%s auto=%s", row_id, body.get("id"), auto)
         return wire.OK, {"state": db.SMS_SENT, "balance": _account.get("balance") if _account else None,
                          "segments": segs}
     if outcome == wire.DENIED:
@@ -652,6 +663,40 @@ async def send_recall(patient_id: int, service_id: str, cycle_appt_id: int, phon
         return wire.DENIED, {"code": code, "text": str(body.get("text") or "")}
     _last["error"] = outcome
     return outcome, {}
+
+
+async def _send_recall_auto(now: datetime) -> int:
+    """Автоматическая рекламация (30.10, В1 → В): строки «De sunat» с живой
+    кнопкой (данные те же, что у кнопки — не отказался, мобильный РМ, SMS
+    цикла ещё нет), самые просроченные первыми, не больше RECALL_AUTO_DAILY за
+    день клиники (считаются отметки `sms` с подписью цикла — ручные не в
+    счёт). Тихие часы решает вызывающий (`tick`). Отметка и летопись — с
+    пометкой «automat». Возвращает число принятых сервером."""
+    if not recall_auto_on():
+        return 0
+    from . import recall                     # отложенно: recall импортирует этот модуль
+    local = now.astimezone(eng.TZ)
+    day_start = local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+    quota = plan.RECALL_AUTO_DAILY - await db.recall_auto_sent(day_start.isoformat(timespec="seconds"), AUTO_ACTOR)
+    if quota <= 0:
+        return 0
+    rows = [r for r in (await recall.model(local.date()))["rows"]
+            if r["tab"] == "due" and r.get("sms") and r["sms"].get("can")]
+    sent = 0
+    for r in rows[:quota]:
+        cycle = await recall.cycle_of(r["pid"], r["service_id"])
+        if cycle is None:
+            continue
+        outcome, body = await send_recall(r["pid"], r["service_id"], cycle, r["phone"], r["lang"],
+                                          r["service"], auto=True)
+        if outcome == wire.OK:
+            await db.add_recall_mark(r["pid"], r["service_id"], cycle, "sms", actor=AUTO_ACTOR)
+            sent += 1
+            continue
+        if outcome == wire.DENIED and str(body.get("code") or "") in (RECALL_DUP, RECALL_BAD_PHONE):
+            continue                         # эта строка — дальше; остальные пробуем
+        break                                # отказ уровня клиники или тишина сервера — следующий тик
+    return sent
 
 
 def _previews(s: dict) -> dict:
@@ -711,7 +756,8 @@ def screen() -> dict:
         "options": {"hours": list(plan.HOURS_X), "leads": list(plan.LEAD_HOURS),
                     "variants": [{"key": v, "label": plan.VARIANT_LABEL[v]} for v in plan.VARIANTS]
                     + ([{"key": plan.CUSTOM, "label": plan.VARIANT_LABEL[plan.CUSTOM]}] if custom else []),
-                    "recall_variants": [{"key": v, "label": plan.VARIANT_LABEL[v]} for v in plan.RECALL_VARIANTS]},
+                    "recall_variants": [{"key": v, "label": plan.VARIANT_LABEL[v]} for v in plan.RECALL_VARIANTS],
+                    "recall_auto_daily": plan.RECALL_AUTO_DAILY},
         "previews": _previews(s) if available() else {},
         "forecast": {**fc, "days_left": (int(int((acc or {}).get("balance") or 0) // daily)
                                          if acc and daily > 0 else None)},

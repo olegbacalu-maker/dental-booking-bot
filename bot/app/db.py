@@ -2256,14 +2256,24 @@ async def recall_bookings_since(since_iso: str) -> list:
 
 
 async def add_recall_mark(patient_id: int, service_id: str, cycle: int | None,
-                          result: str, until: str = "") -> None:
+                          result: str, until: str = "", actor: str | None = None) -> None:
     """Дописать отметку (журнал, не состояние). Автор — вошедший
-    (ACTOR_HOOK), как у отметки звонка; время — UTC программы."""
+    (ACTOR_HOOK), как у отметки звонка, или названный (`sistem` у
+    автоматической SMS); время — UTC программы."""
     await _execute(
         """INSERT INTO recall_marks(patient_id, service_id, cycle_appt_id, result,
                                     until_date, actor, at) VALUES(?, ?, ?, ?, ?, ?, ?)""",
-        patient_id, service_id, cycle, result, until or None, _actor_now(),
+        patient_id, service_id, cycle, result, until or None, actor or _actor_now(),
         _iso(datetime.now(timezone.utc)))
+
+
+async def recall_auto_sent(since_iso: str, actor: str) -> int:
+    """Сколько SMS отправил ЦИКЛ сам с момента `since_iso` (начало дня
+    клиники, UTC ISO) — отметки `sms` с его подписью; ручные (подпись
+    вошедшего) в дневной лимит не входят."""
+    rows = await _fetch("SELECT COUNT(*) AS n FROM recall_marks WHERE result = 'sms' AND actor = ? AND at >= ?",
+                        actor, since_iso)
+    return int(rows[0]["n"]) if rows else 0
 
 
 # ---------- список пациентов: поиск, фильтры, порядок и страница — в SQL ----------

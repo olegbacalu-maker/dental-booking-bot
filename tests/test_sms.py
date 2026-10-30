@@ -714,7 +714,8 @@ def suite_screen(res: Result) -> None:
                 res.check("настройки — умолчания (кнопка Rechemări включена, Олег 30.10)", data["settings"],
                           {"day_before": {"on": True, "hour": 10, "variant": "standard"},
                            "same_day": {"on": False, "hours": 2, "variant": "standard"}, "phone_line": False,
-                           "recall": {"on": True, "variant": "standard"}})
+                           "recall": {"on": True, "variant": "standard", "auto": False}})
+                res.check("лимит автоматических рекламаций в день — число экрану", data["options"]["recall_auto_daily"], 20)
                 pr = data["previews"]["recall"]["standard"]
                 res.ok("предпросмотр Rechemări: клиника и телефон, без даты и услуги, один сегмент RO и RU",
                        "Clinica Test" in pr["ro"]["text"] and "+373 60 000 000" in pr["ro"]["text"]
@@ -747,7 +748,7 @@ def suite_screen(res: Result) -> None:
                 res.check("clinic.json › sms (ключ recall — умолчание, не стёрт: прайор 08-16)", cfg.get("sms"),
                           {"day_before": {"on": True, "hour": 11, "variant": "cald"},
                            "same_day": {"on": True, "hours": 3, "variant": "scurt"}, "phone_line": True,
-                           "recall": {"on": True, "variant": "standard"}})
+                           "recall": {"on": True, "variant": "standard", "auto": False}})
                 data = _j(c.get("/api/settings/sms"))["data"]
                 res.ok("предпросмотр со строкой телефона клиники",
                        data["previews"]["day_before"]["cald"]["ro"]["text"].endswith("\nAnulare: +373 60 000 000"))

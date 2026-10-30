@@ -18,6 +18,8 @@ import tempfile
 import zipfile
 from datetime import date, datetime, timedelta
 
+import time
+
 from harness import BOT, Client, Clock, Result, Server, TZ, _rmtree_settled, add_appt, appt_id, day_model, new_patient
 from test_api import NO_KEY
 
@@ -626,6 +628,116 @@ def suite_sms(res: Result) -> None:
             res.ok("вариант scurt — короткий текст в строке",
                    _by(c, "Sms Fix")["sms"]["text"].startswith("Clinica Test: e timpul pentru controlul periodic"),
                    repr(_by(c, "Sms Fix")["sms"]))
+            res.check("два запроса подряд — то же", _rows(c), _rows(c))
+    finally:
+        stand.close()
+        _rmtree_settled(d)
+
+
+def suite_auto(res: Result) -> None:
+    """Автоматическая рекламация (Олег 30.10 утром, В1 → В): галочка выключена
+    — цикл молчит; Basic — молчит и с галочкой; тихие часы — ждёт; включена —
+    шлёт только «De sunat» с живой кнопкой, самых просроченных первыми, не
+    больше RECALL_AUTO_DAILY за день (первый день у клиники с историей);
+    кнопка лимитом не ограничена и с авто не дублируется (один ключ);
+    отметка и летопись — «automat», подпись sistem; остальные — назавтра."""
+    import test_license_renew as lr
+    from test_sms import KEY_ENV, TICK, TOKEN, Stand, _at, _clinic_weekdays, _events, _sms_log, _wait
+    from app.core import sms_plan as splan
+    s0 = splan.settings(None)
+    res.check("умолчание: кнопка включена, авто выключено", (splan.recall_on(s0), splan.recall_auto(s0)), (True, False))
+    res.ok("auto без on не действует", not splan.recall_auto(splan.settings({"recall": {"on": False, "auto": True}})))
+    res.check("лимит в день — константа sms_plan", splan.RECALL_AUTO_DAILY, 20)
+
+    stand = Stand()
+    stand.account["blocked"] = "sms_basic"
+    renew = {"url": stand.url, "token": TOKEN}
+    d = pathlib.Path(tempfile.mkdtemp(prefix="dp_rcauto_"))
+    env = {**KEY_ENV, **TICK}
+    N = splan.RECALL_AUTO_DAILY
+    try:
+        _clinic_weekdays(d)
+        (d / "license.json").write_text(lr._file(5, renew), encoding="utf-8")
+        with Clock(_at(2026, 10, 6, 21, 30)) as clock, Server(dir_=d, env=env) as s:
+            c = Client(s.url).login()
+            _set_recall(c, {"hygiene": 6})
+            # N+2 должников: самые просроченные — раньше (визиты раньше)
+            names, day = [], date(2026, 3, 2)              # понедельник; выходные фикстуры — сб, вс
+            for i in range(N + 2):
+                nm = f"Auto P{i + 1:02d}"
+                while day.weekday() >= 5:
+                    day += timedelta(days=1)
+                _visit(c, day, nm, f"0698{i + 1:05d}", time="09:00")
+                names.append(nm)
+                day += timedelta(days=1)
+            pid_ref = _visit(c, date(2026, 3, 2), "Auto Refuz", "069870003", time="10:00")
+            c.post_json(f"/api/patients/{pid_ref}/sms-off", {"on": True})
+            _visit(c, date(2026, 3, 2), "Auto Fix", "022123456", time="11:00")
+            pid_stop = _visit(c, date(2026, 3, 2), "Auto Stop", "069870005", time="12:00")
+            c.post_json(MARK, {"pid": pid_stop, "service_id": "hygiene", "result": "stop"})
+            pid_sn = _visit(c, date(2026, 3, 2), "Auto Sunat", "069870006", time="13:00")
+            c.post_json(MARK, {"pid": pid_sn, "service_id": "hygiene", "result": "contacted"})
+            _wait(lambda: (lambda x: x if x.get("offered") else None)(_j(c.get("/api/settings/sms"))["data"]))
+            s1 = _j(c.get("/api/settings/sms"))["data"]["settings"]
+            # Basic + галочка — ничего
+            r = c.post_json("/api/settings/sms", {**s1, "recall": {**s1["recall"], "auto": True}})
+            res.check("галочка auto сохраняется", _j(r)["data"]["settings"]["recall"]["auto"], True)
+            time.sleep(1.2)
+            res.check("Basic: авто молчит", (stand.sends, _sms_log(d)), ([], []))
+            # Plus, но тихие часы (21:30) — ждёт
+            stand.account["blocked"] = ""
+            c.post_json("/api/settings/sms/refresh", {})
+            time.sleep(1.2)
+            res.check("тихие часы: авто молчит", stand.sends, [])
+            # утро следующего дня — первый тик: ровно N, самые просроченные
+            clock.set(_at(2026, 10, 7, 10, 0))
+            got = _wait(lambda: len(stand.sends) >= N)
+            time.sleep(1.5)
+            res.ok(f"первый день: ровно {N} SMS, не больше (защита первого дня)", got and len(stand.sends) == N, str(len(stand.sends)))
+            sent_to = [x["json"]["to"] for x in stand.sends]
+            res.ok("самые просроченные первыми; отказ, стационарный, stop, snoozed — мимо",
+                   sent_to == [f"698{i + 1:05d}" for i in range(N)], repr(sent_to))
+            res.ok("все — kind recall с ключом recall:", all(x["json"]["kind"] == "recall" and x["json"]["idem"].startswith("recall:")
+                                                              for x in stand.sends))
+            dd = _rows(c)
+            by = {x["name"]: x for x in dd["rows"]}
+            res.check("отправленные — snoozed с отметкой sms, подпись sistem, кнопки нет",
+                      (by["Auto P01"]["tab"], by["Auto P01"]["mark"]["result"], by["Auto P01"]["mark"]["actor"], by["Auto P01"]["sms"]),
+                      ("snoozed", "sms", "sistem", None))
+            res.check("двое последних ждут назавтра с живой кнопкой",
+                      (by[names[-1]]["tab"], by[names[-1]]["sms"]["can"], by[names[-2]]["sms"]["can"]), ("due", True, True))
+            pid1 = by["Auto P01"]["pid"]
+            res.ok("летопись: «SMS trimis (rechemare Igienizare, automat)»",
+                   any(t.startswith("SMS trimis (rechemare Igienizare, automat)") for t in _events(d, pid1)), repr(_events(d, pid1)))
+            who = next((a.get("who") for a in _j(c.get(f"/api/patients/{pid1}/activity"))["data"]["items"]
+                        if str(a.get("text", "")).startswith("SMS trimis")), None)
+            res.check("автор строки — sistem", who, "sistem")
+            res.check("кнопка по уже отправленной — dup", c.post_json(SMS, {"pid": pid1, "service_id": "hygiene"}).msg, "recall_sms_dup")
+            # кнопка лимитом не ограничена: ручная на предпоследнего проходит
+            pre = by[names[-2]]
+            res.check("ручная SMS сверх лимита — ok", c.post_json(SMS, {"pid": pre["pid"], "service_id": "hygiene"}).msg, "ok_recall_sms")
+            time.sleep(1.0)
+            res.check("авто после ручной в тот же день — по-прежнему N своих", len(stand.sends), N + 1)
+            res.check("статистика: авто и ручная — в contactați (плюс «Auto Sunat» со звонком)",
+                      _rows(c)["stats"]["month"]["contacted"], N + 2)
+            # следующий день — последний должник, и только он (ручная не повторяется)
+            clock.set(_at(2026, 10, 8, 10, 0))
+            got = _wait(lambda: len(stand.sends) >= N + 2)
+            time.sleep(1.2)
+            res.ok("второй день: одна SMS — последний должник", got and len(stand.sends) == N + 2
+                   and stand.sends[-1]["json"]["to"] == f"698{N + 2:05d}", repr([x["json"]["to"] for x in stand.sends[-3:]]))
+            res.check("sms_log: N+2 строк recall, у стенда N+2 ключей", (len([r for r in _sms_log(d) if r["kind"] == "recall"]), len(stand._by_idem)),
+                      (N + 2, N + 2))
+            res.check("лимит по дню: сегодня у цикла 1, вчера N",
+                      (len(_sql(s, "SELECT id FROM recall_marks WHERE result='sms' AND actor='sistem'")),
+                       len(_sql(s, "SELECT id FROM recall_marks WHERE result='sms' AND actor<>'sistem'"))), (N + 1, 1))
+            # галочка снята — цикл молчит и при новых должниках
+            s2 = _j(c.get("/api/settings/sms"))["data"]["settings"]
+            c.post_json("/api/settings/sms", {**s2, "recall": {**s2["recall"], "auto": False}})
+            _visit(c, date(2026, 3, 2), "Auto Tarziu", "069870009", time="14:00")
+            time.sleep(1.2)
+            res.check("галочка снята — новых авто нет, кнопка у нового есть",
+                      (len(stand.sends), _by(c, "Auto Tarziu")["sms"]["can"]), (N + 2, True))
             res.check("два запроса подряд — то же", _rows(c), _rows(c))
     finally:
         stand.close()

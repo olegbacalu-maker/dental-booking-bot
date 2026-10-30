@@ -38,7 +38,15 @@ LEAD_HOURS = (1, 2, 3)              # «în ziua vizitei» — за 1, 2 или 
 PHONE_LINE_KEY = "phone_line"
 # «Rechemări» (30.10): reamintirea controlului periodic — не событие очереди, а
 # кнопка в строке списка (Олег 30.10, В1 = А); галочка — можно ли её нажимать.
+# Утром 30.10 (В1 → В, «у нас просто ещё нет клиник»): вторая галочка `auto`
+# — цикл шлёт сам строки «De sunat», ВЫКЛЮЧЕНА по умолчанию (у клиники с
+# историей включённая дала бы десятки SMS в первый день) и не больше
+# RECALL_AUTO_DAILY в день: первый тик после включения берёт самых
+# просроченных до лимита, остальные — в следующие дни. Кнопка лимитом не
+# ограничена; ключ у обеих один — вторую SMS на цикл не даст ни сервер, ни
+# `sms_log`.
 RECALL = "recall"
+RECALL_AUTO_DAILY = 20
 
 # ---------- настройки клиники: clinic.json › sms ----------
 
@@ -53,8 +61,9 @@ VARIANT_LABEL = {STANDARD: "Standard", SCURT: "Scurt", OFICIAL: "Oficial", CALD:
 DEFAULTS = {DAY_BEFORE: {"on": True, "hour": 10, "variant": STANDARD},
             SAME_DAY: {"on": False, "hours": 2, "variant": STANDARD},
             PHONE_LINE_KEY: False,
-            # кнопка «SMS» в Rechemări — включена по умолчанию (Олег 30.10, В5 = А)
-            RECALL: {"on": True, "variant": STANDARD}}
+            # кнопка «SMS» в Rechemări — включена по умолчанию (Олег 30.10, В5 = А);
+            # автоматическая отправка — выключена
+            RECALL: {"on": True, "variant": STANDARD, "auto": False}}
 
 
 def _int_in(value, allowed, default: int) -> int:
@@ -84,7 +93,8 @@ def settings(raw) -> dict:
     rc = raw.get(RECALL) if isinstance(raw.get(RECALL), dict) else {}
     variant = rc.get("variant")
     out[RECALL] = {"on": bool(rc.get("on", DEFAULTS[RECALL]["on"])),
-                   "variant": variant if variant in RECALL_VARIANTS else DEFAULTS[RECALL]["variant"]}
+                   "variant": variant if variant in RECALL_VARIANTS else DEFAULTS[RECALL]["variant"],
+                   "auto": bool(rc.get("auto", DEFAULTS[RECALL]["auto"]))}
     return out
 
 
@@ -96,6 +106,11 @@ def any_on(s: dict) -> bool:
 def recall_on(s: dict) -> bool:
     """Галочка «Buton SMS în Rechemări»."""
     return bool(s.get(RECALL, {}).get("on"))
+
+
+def recall_auto(s: dict) -> bool:
+    """Галочка «Trimite SMS automat…» — действует только вместе с `recall_on`."""
+    return recall_on(s) and bool(s.get(RECALL, {}).get("auto"))
 
 
 # ---------- тексты ----------

@@ -281,6 +281,7 @@ SUITES = [
     ("Rechemări: закон 195 — выгрузка, стирание, обезличивание", test_recall.suite_195),
     ("Rechemări: статистика одной строкой — contactați · programați", test_recall.suite_stats),
     ("Rechemări: SMS из списка — гейт, кнопка, отправка, повтор, доставка, галочка", test_recall.suite_sms),
+    ("Rechemări: SMS автоматически — галочка, лимит в день, тихие часы, не дублирует кнопку", test_recall.suite_auto),
     ("Rechemări: DDL шага 8 = схема", test_recall.suite_schema),
     ("Одонтограмма: поверхности", test_teeth.suite_surfaces),
     ("Одонтограмма: молочный прикус", test_teeth.suite_milk),
