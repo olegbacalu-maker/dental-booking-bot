@@ -3,15 +3,18 @@ import type { Look } from './look'
 /* Какая сцена играется при смене состояния зуба (B7, ступень 6) — чистый
    выбор по двум видам, чтобы сцена (`scene.ts`, WebGL) была лишь исполнением.
    Сцены — из макета: имплант вкручивается сверху и коронка садится на него;
+   имплантат без коронки (30.10) — только винт с формирователем, а «Implant» после
+   него — вторая половина той же сцены: формирователь снят, коронка садится;
    удалённый зуб выходит из лунки и растворяется; отсутствующий тает целиком,
    остаётся пунктир шейки; коронка (и тело моста) садится или «вдыхает»; живой зуб
    возвращается из лунки, из-под импланта или из призрака. Ничего не движется
    само — только вслед за действием человека, и при reduced-motion твины
    мгновенны (это решает `tween.ts`). */
 
-export type Scene = 'implant' | 'extract' | 'ghost' | 'gold' | 'alive'
+export type Scene = 'screw' | 'implant' | 'extract' | 'ghost' | 'gold' | 'alive'
 
 export function sceneFor(next: Look): Scene {
+  if (next.cap) return 'screw'
   if (next.implant) return 'implant'
   if (next.gone) return 'extract'
   if (next.ghost) return 'ghost'
@@ -25,7 +28,7 @@ export type From = 'gone' | 'implant' | 'ghost' | null
 
 export function comesFrom(prev: Look): From {
   if (prev.gone) return 'gone'
-  if (prev.implant) return 'implant'
+  if (prev.implant || prev.cap) return 'implant'
   if (prev.ghost) return 'ghost'
   return null
 }

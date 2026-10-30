@@ -972,7 +972,7 @@ def suite_marks(res: Result) -> None:
         res.ok("у импланта, удалённого и отсутствующего каналов нет",
                not any(dv in tsvg.tooth_svg(16, st, marks=("devital",))
                        or dv in tsvg.occlusal_svg(16, st, marks=("devital",))
-                       for st in ("implant", "extras", "lipsa")),
+                       for st in ("implant", "implant_fc", "extras", "lipsa")),
                "каналы нарисованы там, где нет ни зуба, ни корней")
         both = tsvg.tooth_svg(16, "carie", marks=("tratament", "devital"))
         res.ok("две отметки не мешают друг другу в рисунке",
@@ -1185,3 +1185,68 @@ def suite_geom(res: Result) -> None:
                all(g["md"] > 0 and g["bl"] > 0 and g["crown"] > 0 and g["root"] > 0 for g in every)),
               (52, True, True))
     res.check("пропорция — та же, что у рисунка: 36,3 ед. = 10,5 мм", round(tsvg.MM_PER_UNIT * 36.3, 6), 10.5)
+
+
+def suite_implant_stage(res: Result) -> None:
+    """«Implant fără coroană» (30.10, выбор Олега по кадрам `design/odo-implant`):
+    этап 1 — винт в кости и формирователь десны, коронки нет; `implant` остаётся
+    готовым зубом. Ломается молча: рисунок «без коронки», похожий на готовый
+    имплант, врач не отличит — и коронку на этапе 2 не отметит; новый код 043/e,
+    затёрший прежний `Imp`, переписал бы подписанные бланки (инвариант карты)."""
+    import sys
+    sys.path.insert(0, str(__import__("harness").BOT))
+    from app import teeth_svg as tsvg          # noqa: E402
+    from app.modules.patients import card as pcard          # noqa: E402
+    from app.modules.patients import fisa043 as f43          # noqa: E402
+    from app.modules.patients import odontogram as podo          # noqa: E402
+
+    res.check("слова состояний: прежний «Implant» и новый «Implant fără coroană»",
+              (tsvg.STATE_RO["implant"], tsvg.STATE_RO["implant_fc"]), ("Implant", "Implant fără coroană"))
+    res.ok("цвет этапа 1 свой и не цвет готового импланта",
+           tsvg.COLORS["implant_fc"] == "#A78BFA" and tsvg.COLORS["implant"] == "#8B5CF6", str(tsvg.COLORS))
+
+    every = [11, 13, 14, 16, 21, 24, 31, 36, 46, 48, 51, 55, 75, 83]
+    col = tsvg.COLORS["implant_fc"]
+    dashed = f"stroke='{col}' stroke-opacity='.45' stroke-width='1.4' stroke-dasharray='3 3'"
+    bad = []
+    for n in every:
+        fr, oc = tsvg.tooth_svg(n, "implant_fc"), tsvg.occlusal_svg(n, "implant_fc")
+        screw = tsvg._implant_screw(n)[0]
+        if not (screw in fr and tsvg.TITAN_FILL in fr and dashed in fr and "url(#dpg-" not in fr
+                and tsvg.TITAN_FILL in oc and dashed in oc and "<ellipse" not in oc):
+            bad.append(n)
+    res.ok("без коронки: тот же винт, формирователь, коронка пунктиром — в обоих видах", not bad,
+           f"рисунок этапа 1 не тот: {bad}")
+    same = [n for n in every if tsvg.tooth_svg(n, "implant_fc") == tsvg.tooth_svg(n, "implant")
+            or tsvg.TITAN_FILL in tsvg.tooth_svg(n, "implant")
+            or "url(#dpg-" not in tsvg.tooth_svg(n, "implant")]
+    res.ok("готовый имплант нарисован как прежде: эмалевая коронка, без формирователя", not same, str(same))
+    res.ok("зеркало и переворот — общие с прочими состояниями",
+           all(("scale(-1,1)" in tsvg.tooth_svg(n, "implant_fc")) == tsvg.mirrored(n)
+               and ("scale(1,-1)" in tsvg.tooth_svg(n, "implant_fc")) == tsvg.is_upper(n)
+               and ("scale(1,-1)" in tsvg.occlusal_svg(n, "implant_fc")) == (not tsvg.is_upper(n))
+               for n in every), "этап 1 рисуется мимо канона")
+    halo = tsvg.MARK_COLORS["tratament"]
+    res.ok("отметка «в работе» видна на этапе 1 в обоих видах",
+           halo in tsvg.tooth_svg(36, "implant_fc", marks=("tratament",))
+           and halo in tsvg.occlusal_svg(36, "implant_fc", marks=("tratament",)), "ореола нет")
+    res.ok("поверхностей у этапа 1 нет, цели клика остаются",
+           "sfz" in tsvg.tooth_svg(36, "implant_fc", hit=True)
+           and "sfz" in tsvg.occlusal_svg(36, "implant_fc", hit=True)
+           and tsvg.surface_map("implant_fc", "MO") == {}, "цели или поля поверхностей не те")
+
+    res.check("043/e: «ImpF» новым кодом, «Imp» прежний — подписанные бланки не меняются",
+              (f43._STATE_ABBR["implant_fc"], f43._STATE_ABBR["implant"]), ("ImpF", "Imp"))
+    res.ok("у каждого состояния есть код 043/e", set(tsvg.STATE_RO) <= set(f43._STATE_ABBR),
+           str(set(tsvg.STATE_RO) - set(f43._STATE_ABBR)))
+    res.ok("легенда 043/e расшифровывает ImpF на обоих языках",
+           "ImpF — implant fără coroană" in f43._LEGEND["ro"]
+           and "ImpF — имплант без коронки" in f43._LEGEND["ru"], "строки легенды нет")
+    mode = next(m for m in podo.MODES if m["key"] == "implant")
+    res.check("режим «Implant» показывает оба этапа", mode["keys"], ("implant", "implant_fc"))
+    res.ok("легенда экрана — настоящим зубом этапа 1",
+           any(x["key"] == "implant_fc" and tsvg.TITAN_FILL in x["svg"] for x in podo.legend_items(False))
+           and any(x["key"] == "implant_fc" and tsvg.TITAN_FILL in x["svg"] for x in podo.legend_items(True)),
+           "в легенде нет этапа 1")
+    res.check("фиша считает имплантаты обоих этапов",
+              pcard.implants({1: {"state": "implant"}, 2: {"state": "implant_fc"}, 3: {"state": "coroana"}}), 2)

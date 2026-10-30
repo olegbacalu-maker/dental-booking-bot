@@ -57,6 +57,13 @@ describe('вид по состоянию', () => {
     expect(l.fin.every((f) => f === FINISH.zirconia)).toBe(true)
   })
 
+  it('имплантат без коронки (30.10): винт и формирователь, ни коронки, ни корней; готовый имплант формирователя не имеет', () => {
+    const l = targetLook(tooth('implant_fc'), PALETTE)
+    expect([l.screw, l.cap, l.roots, l.crown, l.implant]).toEqual([true, true, false, false, false])
+    expect(targetLook(tooth('implant'), PALETTE).cap).toBe(false)
+    expect(structChanged(l, targetLook(tooth('implant'), PALETTE))).toBe(true)
+  })
+
   it('коронка и тело моста — золото без корней у тела; опора моста корни оставляет', () => {
     const crown = targetLook(tooth('coroana'), PALETTE)
     expect([crown.gold, crown.roots, crown.fin[0]]).toEqual([true, true, FINISH.crown])

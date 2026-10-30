@@ -831,3 +831,72 @@ def suite_compare(res: Result) -> None:
                   "ok_anon")
         res.check("обезличивание историю зубов и снятые мосты не трёт",
                   (_count(dbf, "teeth_history", pid), _count(dbf, "bridges_removed", pid)), (n_hist, n_br))
+
+
+def suite_implant_stage(res: Result) -> None:
+    """«Implant fără coroană» (30.10): этап 1 имплантации записью — та же дорога,
+    что у любого состояния. Ожидания руками: модель и сетка панели, летопись,
+    клетка 043/e рядом с прежним `Imp`, выгрузка по 195-му словом, черновик
+    этапа 2 рисует сервер, «Compară» называет переход «без коронки → Implant».
+    Существующий `implant` остаётся готовым зубом — миграции нет."""
+    day0 = clinic_today()
+
+    def at(days: int, hh: int = 14) -> datetime:
+        return datetime.combine(day0 + timedelta(days=days), time(hh, 0), tzinfo=TZ)
+
+    name, phone = "Odonto Implant", "069300407"
+    with Clock(clinic_now()) as clock, Server() as s:
+        c = Client(s.url).login()
+        dbf = s.dir / "dental.db"
+        c.post_json("/api/patients", {"name": name, "phone": phone})
+        pid = _pid(c, phone)
+        t = f"/api/patients/{pid}/teeth"
+        odo = f"/api/patients/{pid}/odontogram"
+
+        clock.set(at(1))
+        res.check("этап 1 записан", c.post_json(f"{t}/36", {"state": "implant_fc", "surfaces": []}).msg, "ok_card")
+        res.check("готовый имплант рядом", c.post_json(f"{t}/46", {"state": "implant", "surfaces": []}).msg,
+                  "ok_card")
+        m = _j(c.get(odo))["data"]
+        t36 = m["teeth"]["36"]
+        res.check("модель: состояние и подпись", (t36["state"], t36["title"].startswith("36 · Implant fără coroană")),
+                  ("implant_fc", True))
+        res.ok("сетка панели и легенда знают этап 1, цвет — палитры сервера",
+               m["tooth_states"].get("implant_fc") == "Implant fără coroană"
+               and any(x["key"] == "implant_fc" for x in m["legend"]["frontal"])
+               and m["palette"]["implant_fc"] == "#A78BFA", str(m["tooth_states"]))
+        res.ok("рисунок модели — формирователь, не коронка",
+               "#E2E8F0" in t36["svg"]["frontal"] and "url(#dpg-" not in t36["svg"]["frontal"]
+               and "url(#dpg-" in m["teeth"]["46"]["svg"]["frontal"], "рисунок этапа 1 не тот")
+        res.check("летопись словом", _tooth_acts(dbf, pid)[0], (36, "Dinte 36: Implant fără coroană"))
+        f043 = c.get(f"/admin/patient/{pid}/fisa043").body
+        res.ok("043/e: клетка ImpF у 36, Imp у 46, легенда расшифровывает",
+               ">ImpF</td>" in f043 and ">Imp</td>" in f043 and "ImpF — implant fără coroană" in f043,
+               "клетки или легенды нет")
+        z = zipfile.ZipFile(io.BytesIO(c.get(f"/admin/patient/{pid}/export").raw))
+        res.ok("выгрузка по 195-му: машинная копия ключом, читаемая — словом",
+               any(x["tooth"] == 36 and x["state"] == "implant_fc"
+                   for x in json.loads(z.read("date-pacient.json"))["dinti"])
+               and "<td>36</td><td>Implant fără coroană</td>" in z.read("fisa-pacient.html").decode("utf-8"),
+               "в выгрузке нет этапа 1")
+        clock.set(at(1, 16))
+        res.check("визит дня этапа 1", add_appt(c, (day0 + timedelta(days=1)).isoformat(), "09:00", name, phone).msg,
+                  "ok")
+
+        clock.set(at(10))
+        cur = _j(c.get(odo))["data"]["teeth"]
+        draft = {"n": 36, "state": "implant", "state0": "implant_fc", "note": "", "doctor": "", "surfaces": {},
+                 "marks": [], "base": _base(cur["36"])}
+        pv = c.post_json(f"{odo}/preview", {"teeth": [draft]})
+        res.ok("черновик этапа 2 рисует сервер: коронка на винте",
+               _j(pv).get("ok") is True and "url(#dpg-36-implant)" in json.dumps(_j(pv)["data"]),
+               pv.body[:200])
+        res.check("этап 2 записан пачкой", c.post_json(t, {"teeth": [draft]}).msg, "ok_card")
+        res.check("снимки истории: этап 1, имплант 46, этап 2",
+                  [(n, st) for n, _a, st, _s in _hist_rows(dbf, pid)], [(36, "implant_fc"), (46, "implant"),
+                                                                          (36, "implant")])
+        vis = _j(c.get(odo))["data"]["visits"]
+        r = _j(c.get(f"{odo}/compare?visit={vis[0]['id']}"))["data"]
+        res.check("«Compară»: переход назван словами было → стало",
+                  [(x["n"], x["was"], x["now"]) for x in r["changes"]],
+                  [(36, "Implant fără coroană", "Implant")])

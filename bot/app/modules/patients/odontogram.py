@@ -248,7 +248,7 @@ MODES = (
     {"key": "paro", "label": "Parodonțiu", "kind": "perio", "keys": (), "bridges": False},
     {"key": "chirurgie", "label": "Chirurgie", "kind": "keys", "keys": ("extras", "lipsa"),
      "bridges": False},
-    {"key": "implant", "label": "Implant", "kind": "keys", "keys": ("implant",), "bridges": False},
+    {"key": "implant", "label": "Implant", "kind": "keys", "keys": ("implant", "implant_fc"), "bridges": False},
     {"key": "proteza", "label": "Proteză", "kind": "keys", "keys": ("coroana",), "bridges": True},
 )
 

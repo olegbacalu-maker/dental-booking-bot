@@ -168,6 +168,8 @@ export interface Look {
   crown: boolean
   roots: boolean
   screw: boolean
+  /** «Implant fără coroană» (30.10): винт в кости и формирователь десны над ним, коронки нет */
+  cap: boolean
   socket: boolean
   /** пустое место отсутствующего зуба: пунктирный контур шейки, как в 2D */
   gap: boolean
@@ -180,6 +182,7 @@ export function targetLook(t: Info, palette: Record<string, string>): Look {
   const ghost = st === 'lipsa' && !pontic
   const gold = st === 'coroana' || pontic
   const implant = st === 'implant'
+  const bare = st === 'implant_fc'
   const sf = surfaceStates(t)
   const whole = (st === 'carie' || st === 'obturatie') && Object.keys(sf).length === 0
   const base = gold ? COLOR.gold : implant ? COLOR.ceramic : COLOR.enamel
@@ -201,9 +204,10 @@ export function targetLook(t: Info, palette: Record<string, string>): Look {
     opacity: 1,
     // ⭐ отсутствующий зуб НЕ рисуется (26.09, Олег: «удаление не убирает зуб»):
     // призрак 0,22 на белом фоне читался сплошным белым зубом без корней
-    crown: !gone && !ghost,
-    roots: !gone && !implant && !ghost && !pontic,
-    screw: implant,
+    crown: !gone && !ghost && !bare,
+    roots: !gone && !implant && !bare && !ghost && !pontic,
+    screw: implant || bare,
+    cap: bare,
     socket: gone,
     gap: ghost,
   }

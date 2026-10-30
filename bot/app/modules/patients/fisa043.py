@@ -34,7 +34,7 @@ from . import visit as pvisit
 # буквенные коды одонтограммы; пустая клетка = sănătos / neexaminat.
 # Легенда печатается НА листе — расшифровка всегда перед глазами читающего
 _STATE_ABBR = {"ok": "", "carie": "C", "obturatie": "O",
-               "coroana": "Cor", "implant": "Imp", "extras": "E", "lipsa": "A"}
+               "coroana": "Cor", "implant": "Imp", "implant_fc": "ImpF", "extras": "E", "lipsa": "A"}
 # Отметки печатаются ТЕМИ ЖЕ буквами, но отдельным словарём: «T» с 08-17 не
 # состояние, а отметка поверх находки, и в клетке она ДОПИСЫВАЕТСЯ — «C MO T»,
 # а не заменяет собой кариес. Легенда ниже расшифровывает обе группы разом:
@@ -58,14 +58,14 @@ _BRIDGE_ABBR = {"stalp": "Co", "corp": "D"}
 _LEGEND = {
     "ro": ("C — carie · O — obturație · T — în tratament · "
            "Dv — devital (nerv extras) · Cor — coroană · "
-           "Imp — implant · E — extras · A — absent · (gol) — sănătos / "
+           "Imp — implant · ImpF — implant fără coroană · E — extras · A — absent · (gol) — sănătos / "
            "neexaminat. Suprafețe: M — mezial, O — ocluzal, D — distal, "
            "V — vestibular, L — lingual. "
            "Punte: Co — dinte stâlp, D — corp de punte (primul cod din "
            "celulă, doar la dinții enumerați la «Punte dentară»)"),
     "ru": ("C — кариес · O — пломба · T — в лечении · "
            "Dv — депульпирован (нерв удалён) · Cor — коронка · "
-           "Imp — имплант · E — удалён · A — отсутствует · (пусто) — здоров / "
+           "Imp — имплант · ImpF — имплант без коронки · E — удалён · A — отсутствует · (пусто) — здоров / "
            "не осмотрен. Поверхности: M — медиальная, O — окклюзионная, "
            "D — дистальная, V — вестибулярная, L — язычная. "
            "Мост: Co — опорный зуб, D — тело моста (первый код клетки; "

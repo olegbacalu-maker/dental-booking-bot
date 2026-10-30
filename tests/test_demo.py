@@ -170,6 +170,11 @@ def suite_seed(res: Result) -> None:
     правки засева краснеет здесь, а не у посетителя сайта."""
     sys.path.insert(0, str(ROOT))
     from demo import seed as dseed  # noqa: E402 — пакет демо лежит в корне репозитория
+    sys.path.insert(0, str(__import__("harness").BOT))
+    from app import teeth_svg as tsvg  # noqa: E402
+    # копия словаря состояний в засеве (пакет `app` засев не импортирует):
+    # новое состояние без строки там уронило бы засев KeyError на летописи
+    res.check("засев: словарь состояний зуба = программы (STATE_RO)", dseed.STATE_RO, tsvg.STATE_RO)
     work = pathlib.Path(tempfile.mkdtemp(prefix="dp_demo_"))
     try:
         shutil.copy(ROOT / "demo" / "clinic.json", work / "clinic.json")

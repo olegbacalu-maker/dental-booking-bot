@@ -376,7 +376,7 @@ def ocluzie_view(rec: dict | None) -> dict:
 # ---------- шапка, деньги, летопись, запись ----------
 
 def implants(tmap: dict) -> int:
-    return sum(1 for t in tmap.values() if t["state"] == "implant")
+    return sum(1 for t in tmap.values() if t["state"] in ("implant", "implant_fc"))
 
 
 def debt_of(fin: dict) -> int:

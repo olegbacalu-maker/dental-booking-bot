@@ -52,6 +52,9 @@ const R_MAX = 420
 /** Размер спрайта номера, мм: обычный и у выбранного зуба (он виден всегда). */
 const LABEL = 3.9
 const LABEL_SEL = 5.6
+// формирователь десны имплантата без коронки, мм по оси зуба (шейка = 0, десна закрывает её на 0,7)
+const CAP_H = 4
+const CAP_Y = 1.6
 
 export interface Hit { n: number; letter: Letter }
 
@@ -157,6 +160,7 @@ interface ToothNodes {
   rootMat: T3.MeshStandardMaterial
   screw: T3.Mesh
   screwX: T3.Mesh
+  cap: T3.Mesh
   ringT: T3.Mesh
   ringD: T3.Mesh
   ringI: T3.Mesh
@@ -527,6 +531,17 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     const screwX = new THREE.Mesh(screwGeo, screwXMat)
     screwX.raycast = () => undefined
     screwX.renderOrder = 5
+    // формирователь десны — короткий титановый цилиндр над винтом (имплантат без коронки)
+    const capR = Math.min(hmd, hbl) * 0.9 * 0.82
+    const capGeo = new THREE.CylinderGeometry(capR * 0.92, capR, CAP_H, 32)
+    // свой материал: темнее винта и ПОСЛЕ его полупрозрачной копии (renderOrder 6, прозрачный проход),
+    // иначе сквозная копия винта (depthTest false) закрывает формирователь сверху
+    const capMat = new THREE.MeshPhysicalMaterial({ color: 0x8a94a3, ...physOf(FINISH.titanium), transparent: true, opacity: 1 })
+    const cap = new THREE.Mesh(capGeo, capMat)
+    cap.renderOrder = 6
+    cap.raycast = () => undefined
+    cap.position.y = CAP_Y
+    disposables.push(capGeo, capMat)
     const mkRing = (color: number, y: number): T3.Mesh => {
       const geo = new THREE.TorusGeometry(hbl * 1.06, 0.34, 8, 48)
       const mat = new THREE.MeshBasicMaterial({ color })
@@ -565,7 +580,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     sprite.position.set(0, -2.4, 8.8)
     sprite.raycast = () => undefined
     const group = new THREE.Group()
-    group.add(crown, roots, screw, screwX, ringT, ringD, ringI, ringS, socket, gap, sprite)
+    group.add(crown, roots, screw, screwX, cap, ringT, ringD, ringI, ringS, socket, gap, sprite)
     group.matrixAutoUpdate = false
     group.matrix.makeBasis(
       new THREE.Vector3(...p.xAxis), new THREE.Vector3(...p.yAxis), new THREE.Vector3(...p.zAxis),
@@ -573,7 +588,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     grp.add(group)
     disposables.push(crownGeo, rootsGeo, screwGeo, rootMat, screwMat, screwXMat, socketGeo, socketMat, gapGeo, gapMat, spriteMat, tex[0], tex[1], ...mats)
     teeth.set(p.n, {
-      n: p.n, place: p, group, crown, mats, roots, rootMat, screw, screwX, ringT, ringD, ringI, ringS, socket, gap, gapMat, sprite, tex, sx: hmd / hbl, look: null,
+      n: p.n, place: p, group, crown, mats, roots, rootMat, screw, screwX, cap, ringT, ringD, ringI, ringS, socket, gap, gapMat, sprite, tex, sx: hmd / hbl, look: null,
     })
   }
 
@@ -588,6 +603,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     t.rootMat.color.setHex(look.devital ? lerpHex(COLOR.dentin, COLOR.ringDevital, 0.4) : COLOR.dentin)
     t.screw.visible = look.screw
     t.screwX.visible = look.screw
+    t.cap.visible = look.cap
     t.crown.position.y = 0
     t.roots.position.y = 0
     screwY(t, 0)
@@ -660,6 +676,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   const screwY = (t: ToothNodes, y: number): void => {
     t.screw.position.y = y
     t.screwX.position.y = y
+    t.cap.position.y = y + CAP_Y
   }
   const screwSpin = (t: ToothNodes, a: number): void => {
     t.screw.rotation.y = a
@@ -704,7 +721,40 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       })
     }
     switch (sceneFor(look)) {
+      case 'screw': {
+        // имплантат без коронки: винт вкручивается, формирователь едет с ним; коронка, если была, уходит вверх и тает
+        if (t.roots.visible) fadeRoots(t, false)
+        t.cap.visible = true
+        const crownOut = t.crown.visible
+        if (crownOut) {
+          const op0 = t.mats[0]?.opacity ?? 1
+          // винт уже стоял (коронку сняли) — сцена кончается вместе с коронкой
+          tweens.add(MS.ghost, (k) => { t.crown.position.y = 6 * k; setOpacity(t, op0 * (1 - k)) }, prev.screw ? finish : null, 0, t)
+        }
+        if (prev.screw) {
+          if (!crownOut) finish()
+          return
+        }
+        t.screw.visible = true
+        t.screwX.visible = true
+        screwY(t, 16)
+        screwSpin(t, 0)
+        tweens.add(MS.screwIn, (k) => { screwY(t, 16 * (1 - k)); screwSpin(t, k * Math.PI * 6) }, finish, 0, t)
+        return
+      }
       case 'implant': {
+        if (prev.cap) {
+          // этап 2: винт уже в кости — формирователь снимается, садится коронка
+          t.cap.visible = false
+          paintCols()
+          setOpacity(t, 0)
+          tweens.add(MS.crownSeat, (k) => {
+            t.crown.visible = true
+            t.crown.position.y = 12 * (1 - k)
+            setOpacity(t, k)
+          }, finish, 0, t)
+          return
+        }
         if (t.roots.visible) fadeRoots(t, false)
         t.crown.visible = false
         t.screw.visible = true
@@ -840,8 +890,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       }
       t.ringT.visible = !look.gone && look.mark && !dim
       // у импланта каналов нет — кольцо «nerv extras» там не показывается (и стояло бы вплотную к кольцу импланта)
-      t.ringD.visible = !look.gone && !look.implant && look.devital && !dim
-      t.ringI.visible = look.implant && !dim
+      t.ringD.visible = !look.gone && !look.implant && !look.cap && look.devital && !dim
+      t.ringI.visible = (look.implant || look.cap) && !dim
       const selNow = t.n === selected && !look.gone
       if (selNow && !t.ringS.visible) {
         t.ringS.visible = true
@@ -1189,7 +1239,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       const t = teeth.get(n)
       if (!t) return null
       return {
-        look: t.look, crown: t.crown.visible, roots: t.roots.visible, screw: t.screw.visible, socket: t.socket.visible,
+        look: t.look, crown: t.crown.visible, roots: t.roots.visible, screw: t.screw.visible, cap: t.cap.visible, socket: t.socket.visible,
         opacity: t.mats[0]?.opacity ?? 1, y: t.crown.position.y, busy: tweens.has(t),
         label: t.sprite.visible, labelScale: t.sprite.scale.x,
         fin: t.mats.map(finishOf), transparent: t.mats[0]?.transparent ?? false, depthWrite: t.mats[0]?.depthWrite ?? true,

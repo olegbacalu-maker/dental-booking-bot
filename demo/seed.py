@@ -52,8 +52,12 @@ LAST = ["Popescu", "Rusu", "Ciobanu", "Munteanu", "Balan", "Rotaru", "Cara",
         "Donos", "Lungu", "Cebotari", "Moraru", "Turcan", "Sirbu", "Guțu",
         "Bodrug", "Ursu", "Crudu", "Cojocaru", "Plămădeală", "Zaharia", "Vieru",
         "Gheorghiță", "Negru", "Țurcanu", "Popa", "Scutaru", "Mereuță", "Olaru"]
+# Копия `teeth_svg.STATE_RO` программы: засев пишет в SQLite сам и пакет `app`
+# не импортирует (шлюз берёт его из DEMO_APP_DIR). Равенство держит
+# `test_demo.suite_seed` — новое состояние без строки здесь краснеет там.
 STATE_RO = {"ok": "Sănătos", "carie": "Carie", "obturatie": "Obturație",
-            "coroana": "Coroană", "implant": "Implant", "extras": "Extras", "lipsa": "Lipsă"}
+            "coroana": "Coroană", "implant": "Implant", "implant_fc": "Implant fără coroană",
+            "extras": "Extras", "lipsa": "Lipsă"}
 
 # Витринные пациенты: фиша «как у живой клиники». Поля — те, что печатают
 # 043/e и acord (IDNP, адрес, дата рождения). Все данные вымышленные.
@@ -149,7 +153,7 @@ SHOWCASE = [
     {"name": "Sergiu Balan", "gender": "m", "born": "1969-07-23", "phone": "069 890 123",
      "idnp": "2001069072377", "email": "", "address": "str. Bogdan Petriceicu Hasdeu 7, Cahul",
      "insurance": "", "doc": "d4", "lang": "ro",
-     "teeth": [(11, "coroana", "", "", ""), (12, "coroana", "", "", ""), (21, "implant", "", "", ""),
+     "teeth": [(11, "coroana", "", "", ""), (12, "coroana", "", "", ""), (21, "implant_fc", "", "", ""),
                (16, "obturatie", "O", "", ""), (46, "coroana", "", "", "")],
      "alerts": [("medication", "Antihipertensive — a lua dimineața")],
      "anam": ("cardio", "Hipertensiune arterială", "Amlodipină 5 mg", "", ""), "perio": False,

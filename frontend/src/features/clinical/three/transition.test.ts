@@ -12,6 +12,7 @@ const look = (state: string, bridge: { role: string; material: string } | null =
 describe('сцена по виду', () => {
   it('имплант, удаление, отсутствие, золото, живой', () => {
     expect(sceneFor(look('implant'))).toBe('implant')
+    expect(sceneFor(look('implant_fc'))).toBe('screw')
     expect(sceneFor(look('extras'))).toBe('extract')
     expect(sceneFor(look('lipsa'))).toBe('ghost')
     expect(sceneFor(look('coroana'))).toBe('gold')
@@ -23,6 +24,8 @@ describe('сцена по виду', () => {
   it('откуда возвращается: лунка, имплант, призрак или ниоткуда', () => {
     expect(comesFrom(look('extras'))).toBe('gone')
     expect(comesFrom(look('implant'))).toBe('implant')
+    // из-под имплантата без коронки зуб возвращается так же — винт выкручивается
+    expect(comesFrom(look('implant_fc'))).toBe('implant')
     expect(comesFrom(look('lipsa'))).toBe('ghost')
     expect(comesFrom(look('coroana'))).toBeNull()
     expect(comesFrom(look('ok'))).toBeNull()

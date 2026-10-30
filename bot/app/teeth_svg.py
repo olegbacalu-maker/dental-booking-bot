@@ -14,6 +14,8 @@
 """
 from __future__ import annotations
 
+import math
+
 VB_W, VB_H = 44.0, 90.0
 CX = VB_W / 2
 
@@ -59,6 +61,7 @@ COLORS = {
     "obturatie": "#3B82F6",
     "coroana": "#F59E0B",
     "implant": "#8B5CF6",
+    "implant_fc": "#A78BFA",
     "extras": "#64748B",
     "lipsa": "#CBD5E1",
 }
@@ -67,6 +70,7 @@ FILLS = {          # мягкая заливка под цвет состоян�
     "obturatie": "#EFF6FF",
     "coroana": "#FFF7ED",
     "implant": "#F5F3FF",
+    "implant_fc": "#F5F3FF",
     "extras": "#E2E8F0",
 }
 # Заливка МЕТКИ поверхности — тот же цвет смысла, разбавленный до 45%: метка
@@ -449,6 +453,29 @@ def _implant_screw(fdi: int) -> str:
     return body, threads
 
 
+# «Implant fără coroană» (30.10, Олег: «перед имплантом ставят сначала саморез…
+# и потом накладывают сам зуб»): этап 1 — имплантат в кости, заживление 3–6 мес.,
+# сверху формирователь десны, коронки нет. Тот же винт, что у `implant`, над ним
+# формирователь, а коронка — ПУНКТИРОМ цвета состояния (выбор Олега по кадрам,
+# `design/odo-implant`): без контура дуга рвалась, а серый пунктир читался бы
+# «Lipsă». Заливка формирователя — титан, как у винта в 3D.
+# ⚠️ Существующее `implant` остаётся «с коронкой»: миграции нет, клетка `Imp`
+# подписанных 043/e не меняется (инвариант карты про подписываемый документ).
+TITAN_FILL = "#E2E8F0"
+
+
+def _healing_cap(fdi: int, col: str) -> list:
+    """Формирователь десны над винтом: короткий цилиндр на уровне шейки и
+    шлиц сверху (по нему он и узнаётся рядом с коронкой)."""
+    k = _width_k(fdi)
+    s = lambda x: _sx(x, k)  # noqa: E731
+    x0, x1 = s(16.2), s(27.8)
+    return [f"<rect x='{min(x0, x1):.1f}' y='31.5' width='{abs(x1 - x0):.1f}' height='9' rx='2' "
+            f"fill='{TITAN_FILL}' stroke='{col}' stroke-width='1.6'/>",
+            f"<path d='M {_p(s(20), 31.5)} L {_p(s(20), 34)} L {_p(s(24), 34)} L {_p(s(24), 31.5)}' "
+            f"fill='none' stroke='{col}' stroke-width='1.2'/>"]
+
+
 # ------------------------------------------------------- вид сверху (окклюзионный)
 #
 # Зачем он вообще. Поверхности зуба клиника отмечает буквами MODVL, но в
@@ -693,6 +720,21 @@ def occlusal_svg(fdi: int, state: str = "ok", *, width: int = 44,
             body.append(surface_hits(fdi, occ=True, clip_id=cid))
         return _occ_wrap(fdi, state, defs, body, width, interactive, extra_class)
 
+    # имплантат без коронки сверху — пунктир будущей коронки и формирователь
+    # с шестигранником; как и «lipsă», уходит своим return (долек и полей нет)
+    if state == "implant_fc":
+        body.append(f"<path d='{outline}' fill='none' stroke='{col}' stroke-opacity='.45' "
+                    f"stroke-width='1.4' stroke-dasharray='3 3'/>")
+        r = min(hw, hd) * 0.5
+        body.append(f"<circle cx='{cx:.1f}' cy='{cy:.1f}' r='{r:.1f}' "
+                    f"fill='{TITAN_FILL}' stroke='{col}' stroke-width='1.6'/>")
+        hx = " L ".join(_p(cx + r * 0.42 * math.cos(math.pi / 3 * i),
+                           cy + r * 0.42 * math.sin(math.pi / 3 * i)) for i in range(6))
+        body.append(f"<path d='M {hx} Z' fill='none' stroke='{col}' stroke-width='1.3'/>")
+        if hit:
+            body.append(surface_hits(fdi, occ=True, clip_id=cid))
+        return _occ_wrap(fdi, state, defs, body, width, interactive, extra_class)
+
     if state == "coroana":
         defs += _enamel_defs(gid, CROWN_GOLD)
         fill, line = CROWN_GOLD[2], "#D97706"
@@ -789,6 +831,7 @@ def occlusal_svg(fdi: int, state: str = "ok", *, width: int = 44,
 STATE_RO = {
     "ok": "Sănătos", "carie": "Carie", "obturatie": "Obturație",
     "coroana": "Coroană", "implant": "Implant",
+    "implant_fc": "Implant fără coroană",
     "extras": "Extras", "lipsa": "Lipsă",
 }
 
@@ -1147,6 +1190,15 @@ def tooth_svg(fdi: int, state: str = "ok", *, width: int = 44,
         for r in roots:
             body.append(f"<path d='{r}' fill='none' stroke='{COLORS['lipsa']}' "
                         f"stroke-width='1.6' stroke-dasharray='3 3'/>")
+    elif state == "implant_fc":
+        screw, threads = _implant_screw(fdi)
+        body.append(f"<path d='{screw}' fill='{fill}' stroke='{col}' stroke-width='1.8'/>")
+        for t in threads:
+            body.append(f"<path d='{t}' fill='none' stroke='{col}' stroke-width='1.4' "
+                        f"opacity='.75'/>")
+        body.extend(_healing_cap(fdi, col))
+        body.append(f"<path d='{crown}' fill='none' stroke='{col}' stroke-opacity='.45' "
+                    f"stroke-width='1.4' stroke-dasharray='3 3'/>")
     elif state == "implant":
         screw, threads = _implant_screw(fdi)
         body.append(f"<path d='{screw}' fill='{fill}' stroke='{col}' stroke-width='1.8'/>")
@@ -1215,7 +1267,7 @@ def tooth_svg(fdi: int, state: str = "ok", *, width: int = 44,
 
     # «nerv extras» — линии каналов по корням: ПОСЛЕ корней и коронки (корень
     # закрыл бы их) и только там, где корни есть — см. `_canal_lines`
-    if "devital" in mk and state not in ("lipsa", "implant", "extras"):
+    if "devital" in mk and state not in ("lipsa", "implant", "implant_fc", "extras"):
         for cnl in _canal_lines(fdi):
             body.append(f"<path d='{cnl}' fill='none' stroke='{MARK_COLORS['devital']}' "
                         f"stroke-width='2.2' stroke-linecap='round' opacity='.92'/>")
