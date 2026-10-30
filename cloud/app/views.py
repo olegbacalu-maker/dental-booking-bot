@@ -1865,10 +1865,13 @@ def cont_text(code: str) -> str:
 
 
 def _ro(s: str | None) -> str:
-    """ISO-дата сервера → как пишут в Молдове: 17.10.2026."""
-    if not s or len(s) < 10:
-        return "—"
-    return f"{s[8:10]}.{s[5:7]}.{s[0:4]}"
+    """ISO-дата сервера → как пишут в Молдове: 17.10.2026 (тот же формат, что в письмах)."""
+    return mail.ro_date(s)
+
+
+def _ro_time(s: str | None) -> str:
+    """Отметка сервера → «30.10.2026 08:12» (UTC, как хранится; пояс пишет вызывающий)."""
+    return f"{_ro(s)} {s[11:16]}" if s and len(s) >= 16 else _ro(s)
 
 
 def _initials(acc) -> str:
@@ -2080,7 +2083,7 @@ def _lic_parts(c, sub, issue, st: str, now: datetime) -> dict:
     text += f" <span class='tag {cls}'>{esc(tag)}</span>"
     if c["renew_at"]:
         behind = (c["renew_seq"] or 0) < issue["seq"]
-        check = (f"Programul a verificat licența ultima dată la {esc(c['renew_at'][:16].replace('T', ' '))} UTC"
+        check = (f"Programul a verificat licența ultima dată la {_ro_time(c['renew_at'])} UTC"
                  + (" — noul termen ajunge la următoarea verificare (o dată pe zi)." if behind else "."))
     else:
         check = ("Programul instalat nu a verificat încă licența; activat și cu acces la internet, o face o "
@@ -2379,7 +2382,7 @@ def _cont_devices(devices: list, latest: str) -> str:
         f"<li><span class='dot{' old' if (d['version'] and latest and fleet.behind(d['version'], latest)) else ''}'></span>"
         f"<div><div>{esc(d['os'] or 'Windows')} — DentPilot {esc(d['version'] or '?')}"
         f"{' <span class=tag warn>versiune veche</span>' if d['version'] and latest and fleet.behind(d['version'], latest) else ''}"
-        f"</div><div class='when'>ultima verificare {esc((d['last_seen_at'] or '')[:16].replace('T', ' '))} UTC</div></div></li>"
+        f"</div><div class='when'>ultima verificare {_ro_time(d['last_seen_at'])} UTC</div></div></li>"
         for d in devices)
     return f"<ul class='dev'>{rows}</ul>"
 

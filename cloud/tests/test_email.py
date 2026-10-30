@@ -289,6 +289,39 @@ def suite_migration(res: Result) -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+ISO_DAY = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+
+
+def suite_dates(res: Result) -> None:
+    """Даты для человека — dd.mm.yyyy в письмах и в кабинете (30.10: письмо о лицензии писало
+    «până la 2026-12-29», а нота рядом — 29.12.2026). Сервер хранит ISO; клиника его не видит."""
+    from datetime import datetime, timezone
+    from app import mail, tiers, views
+    res.check("ro_date: ISO-отметка сервера → 29.12.2026", mail.ro_date("2026-12-29T21:00:00Z"), "29.12.2026")
+    res.check("ro_date: пусто → «—»", (mail.ro_date(None), mail.ro_date("")), ("—", "—"))
+    res.check("кабинет и письма — один формат", views._ro("2026-12-29"), mail.ro_date("2026-12-29"))
+    vu, gu = datetime(2026, 12, 29, tzinfo=timezone.utc), datetime(2027, 1, 12, tzinfo=timezone.utc)
+    letters = {
+        "license_letter, пробный": mail.license_letter("C", "2026-12-29T21:00:00Z", "trial", renew=True),
+        "license_letter, Basic с модулем SMS": mail.license_letter("C", "2026-12-29T21:00:00Z", "standard",
+                                                                   tier=tiers.BASIC, sms_until="2026-11-15T10:00:00Z"),
+        "sms_name_letter": mail.sms_name_letter("C", "CLINICA", "2027-10-30T08:00:00Z", "DP-1"),
+        "reminder_letter": mail.reminder_letter("expiring", "C", "trial", vu, gu, 14, None),
+        "clinic_added_letter": mail.clinic_added_letter("C", vu, gu, "DP-2", 600, 1, tiers.PLUS),
+    }
+    for name, (subject, body) in letters.items():
+        res.check(f"{name}: ни одной ISO-даты в теме и тексте", ISO_DAY.findall(subject + body), [])
+    res.ok("license_letter: «până la 29.12.2026», модуль SMS — «până la 15.11.2026»",
+           "până la 29.12.2026." in letters["license_letter, Basic с модулем SMS"][1]
+           and "până la 15.11.2026 și" in letters["license_letter, Basic с модулем SMS"][1],
+           letters["license_letter, Basic с модулем SMS"][1])
+    res.ok("sms_name_letter: «până la 30.10.2027»", "până la 30.10.2027." in letters["sms_name_letter"][1])
+    dev = views._cont_devices([{"os": "Windows 11", "version": "2.6.0", "last_seen_at": "2026-10-30T08:12:05Z"}],
+                              "2.6.0")
+    res.ok("кабинет, «Calculatoare»: ultima verificare 30.10.2026 08:12 UTC",
+           "ultima verificare 30.10.2026 08:12 UTC" in dev and not ISO_DAY.search(dev), dev)
+
+
 def suite_parts(res: Result) -> None:
     """Чистые части: заголовки ответа и их разбор проводом программы, текст письма."""
     from app import mail

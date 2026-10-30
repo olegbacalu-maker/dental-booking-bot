@@ -93,6 +93,7 @@ SUITES = [
     ("E-mail клиники: метка и «Ждёт вас» в админке, смена ящика Олегом", test_email.suite_admin),
     ("E-mail клиники: шаг 17 на базе шага 16", test_email.suite_migration),
     ("E-mail клиники: заголовки /v1/license и текст письма", test_email.suite_parts),
+    ("Письма и кабинет: даты для человека — dd.mm.yyyy, не ISO", test_email.suite_dates),
     ("Кабинет: чистые правила — claim'ы токена, реквизиты, куки по видам", test_account.suite_rules),
     ("Кабинет: вход через Google — стенд, state, кука, отказы токена, выход", test_account.suite_login),
     ("Кабинет: вход кодом на e-mail — без Google, лимиты, регистрация, известная клиника", test_account.suite_email_login),

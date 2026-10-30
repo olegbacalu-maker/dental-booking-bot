@@ -21,7 +21,9 @@
 # старые локальные, и ставит отметку /srv/dentpilot/data/last-pull на
 # сервере — `app.tools check` предупреждает, когда отметка старше трёх дней:
 # выключенный ПК заметен, а не обнаруживается в день аварии.
-# Задача планировщика: «DentPilot Cloud backup pull», 09:45 ежедневно.
+# Задача планировщика: «DentPilot Cloud backup pull», ежедневно в 06:45 UTC —
+# 09:45 Кишинёв летом / 08:45 зимой (триггер со смещением +02:00, за переводом
+# часов не идёт; проверено 30.10 Get-ScheduledTask).
 
 param(
     [string]$Destination = "D:\DentProject\backups\cloud",

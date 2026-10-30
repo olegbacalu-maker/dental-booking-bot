@@ -57,6 +57,14 @@ def luni(months: int) -> str:
     return f"{months} {'lună' if months == 1 else 'luni'}"
 
 
+def ro_date(s: str | None) -> str:
+    """ISO-дата сервера → как пишут в Молдове: 29.12.2026 (30.10: письмо о лицензии писало
+    «până la 2026-12-29» рядом с датами ноты 29.12.2026). Один формат на письма и кабинет."""
+    if not s or len(s) < 10:
+        return "—"
+    return f"{s[8:10]}.{s[5:7]}.{s[0:4]}"
+
+
 def zile(n: int) -> str:
     """«3 zile», но «30 de zile»: от двадцати румынский ставит «de» между числом
     и словом (и снова после ста — 120, но не 115). Пробный месяц (30) это и
@@ -173,7 +181,7 @@ def sms_name_note_letter(clinic: str, reference: str, amount: int, name: str,
 def sms_name_letter(clinic: str, name: str, until: str | None, reference: str) -> tuple[str, str]:
     """Клинике: год имени оплачен — с датой, если имя уже одобрено, иначе «от одобрения»."""
     subject = f"DentPilot: numele de expeditor «{name}» este plătit ({clinic})"
-    when = (f"SMS-urile pleacă de la «{name}» până la {until[:10]}." if until else
+    when = (f"SMS-urile pleacă de la «{name}» până la {ro_date(until)}." if until else
             f"Anul începe din ziua în care operatorii aprobă numele «{name}» (1–2 zile lucrătoare după "
             f"depunerea cererii); până atunci SMS-urile pleacă de la «DentPilot».")
     body = (f"Bună ziua,\n\n"
@@ -450,12 +458,12 @@ def license_letter(clinic: str, valid_until: str, plan: str, renew: bool = False
     trial = plan == "trial"
     what = "Perioada de probă DentPilot" if trial else f"Abonamentul {tiers.NAME.get(tier or '', 'DentPilot')}"
     valid = "este valabilă" if trial else "este valabil"
-    module = (f" Modulul SMS rămâne pornit până la {sms_until[:10]} și se oprește apoi (DentPilot Basic); "
+    module = (f" Modulul SMS rămâne pornit până la {ro_date(sms_until)} și se oprește apoi (DentPilot Basic); "
               f"SMS-urile rămase nu se pierd." if sms_until and not trial and tier == tiers.BASIC else "")
     site = config.SITE_URL.rstrip("/")
     subject = f"DentPilot: licența pentru {clinic}"
     body = (f"Bună ziua,\n\n"
-            f"{what} pentru {clinic} {valid} până la {valid_until[:10]}.{module}\n\n"
+            f"{what} pentru {clinic} {valid} până la {ro_date(valid_until)}.{module}\n\n"
             + (f"{RENEW_NOTE}\n\n" if renew else "") +
             f"Programul îl descărcați de pe {site}/descarca.html sau din contul clinicii ({CONT_URL}). "
             f"Pe un calculator nou, la prima pornire, introduceți datele clinicii: primiți un cod pe "

@@ -204,7 +204,7 @@ def suite_flow(res: Result) -> None:
                and "Furnizor: Oleg Bacalu, antreprenor independent" in body and "dentpilot.md" in body, body[:1500])
         res.ok("письмо о лицензии: вариант и до какого дня работает модуль SMS",
                "Abonamentul DentPilot Basic pentru Clinica Variante" in body
-               and f"Modulul SMS rămâne pornit până la {trial_end[:10]}" in body, body[:600])
+               and f"Modulul SMS rămâne pornit până la {mail.ro_date(trial_end)}" in body, body[:600])
         acc = _account(anon, tok)
         res.ok("Basic до конца пробного: модуль ещё работает", acc.get("blocked") == "", repr(acc))
         _sql(s, "UPDATE subscriptions SET sms_until='2020-01-01T00:00:00Z' WHERE clinic_id=?", cid)
