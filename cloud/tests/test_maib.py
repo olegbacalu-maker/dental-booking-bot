@@ -468,7 +468,9 @@ def suite_flow(res: Result) -> None:
                     ("тело изменено после подписи", raw.replace(b'"amount":', b'"amount": '), heads),
                     ("подпись не ASCII (заголовок — latin-1)", raw, dict(heads, **{"X-Signature": "sha256=é" + heads["X-Signature"][8:]})),
                     ("без заголовков подписи", raw, {}),
-                    ("метка не число", raw, dict(heads, **{"X-Signature-Timestamp": "abc"}))):
+                    ("метка не число", raw, dict(heads, **{"X-Signature-Timestamp": "abc"})),
+                    # Python 3.13: int() строки длиннее 4300 цифр — ValueError, был анонимный 500
+                    ("метка из 5000 цифр", raw, dict(heads, **{"X-Signature-Timestamp": "1" * 5000}))):
                 r = c._do(CALLBACK, data, {"Content-Type": "application/json", **h})
                 res.check(f"битый callback — {label}: 400", r.status, 400)
             ts = str(int(time.time() * 1000))
@@ -949,6 +951,117 @@ def suite_slow(res: Result) -> None:
         fake.close()
 
 
+# 5c: confirm по строке, прочитанной до чужого коммита — подпроцесс на базе сервера
+_STALE = """
+import json, sys
+from app import db, payments
+class Undo(Exception):
+    pass
+try:
+    with db.connect(immediate=True) as con:
+        p = con.execute("SELECT * FROM payments WHERE id=?", (int(sys.argv[1]),)).fetchone()
+        con.execute("UPDATE payments SET status='paid' WHERE id=?", (p["id"],))   # «закрыл другой»
+        try:
+            payments.confirm(con, p, "test")
+            out = "confirmed"
+        except ValueError as e:
+            out = str(e)
+        n = con.execute("SELECT count(*) FROM issues").fetchone()[0]
+        raise Undo                                                               # откатить
+except Undo:
+    pass
+print(json.dumps([out, n]))
+"""
+
+
+def suite_mismatch(res: Result) -> None:
+    """Р2 (30.10): maib сказал OK, а сумма или валюта не наши — не подтверждать, журнал
+    card_mismatch один раз на попытку; поля нет — подтверждать с предупреждением в логе.
+    И 5c: confirm по устаревшей строке — not_pending до продления."""
+    fake = FakeMaib()
+    try:
+        with Server(env={**BANK_ENV, **fake.env}) as s:
+            c = Client(s.url).login()
+            v = datetime.now(timezone.utc).date() + 60 * D
+
+            def note(name: str) -> tuple[str, sqlite3.Row]:
+                n = len(fake.pays)
+                cid = _clinic(c, name=name, idno=str(1000000000000 + n), email=f"c{n}@example.md")
+                c.post(f"/admin/clinics/{cid}/issue", kind="dates", valid_until=f"{v:%Y-%m-%d}", grace_days="14")
+                c.post(f"/admin/clinics/{cid}/payments", months="1", amount="", send="", method="card")
+                p = _payment(s, cid)
+                fake.set_status(p["provider_id"], "Completed")
+                return cid, p
+
+            def until(cid: str) -> str:
+                return _sql(s, "SELECT valid_until FROM subscriptions WHERE clinic_id=?", cid)[0][0][:10]
+
+            def lines(cid: str) -> list:
+                return _sql(s, "SELECT who, detail FROM audit WHERE what='card_mismatch' AND clinic_id=?", cid)
+
+            # сумма у maib другая
+            cid, p = note("Clinica Suma")
+            fake.pays[p["provider_id"]]["payment"]["amount"] = float(p["amount"]) - 1
+            issues = _sql(s, "SELECT count(*) FROM issues")[0][0]
+            r = fake.post(c, p["provider_id"])
+            res.ok("сумма не та: callback 200, исход waiting", r.status == 200
+                   and json.loads(r.body).get("outcome") == "waiting", f"{r.status} {r.body}")
+            res.ok("нота ждёт, срок не продлён, файла нет",
+                   _payment(s, cid)["status"] == "pending" and until(cid) == f"{v:%Y-%m-%d}"
+                   and _sql(s, "SELECT count(*) FROM issues")[0][0] == issues, dict(_payment(s, cid)))
+            ln = lines(cid)
+            res.ok("журнал: card_mismatch с обеими суммами", len(ln) == 1 and ln[0][0] == "maib"
+                   and p["provider_id"] in ln[0][1] and f"{float(p['amount']) - 1!r}" in ln[0][1]
+                   and f"{p['amount']} MDL" in ln[0][1], repr(ln))
+            res.ok("лог: ошибка о несовпадении", "оплата не совпала с нотой" in s.log(), s.log()[-600:])
+            # спросят ещё — повтор callback, возврат браузера, «Проверить», ежедневная задача
+            fake.post(c, p["provider_id"])
+            Client(s.url).get(f"/pay/ok?checkoutId={p['provider_id']}")
+            r = c.post(f"/admin/payments/{p['id']}/check")
+            res.check("«Проверить»: ждёт (не оплачено)", r.location, f"/admin/clinics/{cid}?msg=card_waiting")
+            asked = fake.calls["info"]
+            code, out = _run(s, datetime.now(timezone.utc).date())
+            res.ok("ежедневная задача прошла и попытку не спрашивала (OK закрыл её)",
+                   code == 0 and fake.calls["info"] == asked, out[-600:])
+            res.check("строка card_mismatch по-прежнему одна", len(lines(cid)), 1)
+            res.ok("и нота всё ещё ждёт, срок прежний",
+                   _payment(s, cid)["status"] == "pending" and until(cid) == f"{v:%Y-%m-%d}")
+            res.ok("журнал словами: card_mismatch показан словом",
+                   "сумма или валюта не те" in c.get(f"/admin/clinics/{cid}").body)
+
+            # валюта у maib другая
+            cid, p = note("Clinica Valuta")
+            fake.pays[p["provider_id"]]["body"]["currency"] = "EUR"
+            r = fake.post(c, p["provider_id"])
+            res.ok("валюта EUR: исход waiting, нота ждёт, card_mismatch",
+                   json.loads(r.body).get("outcome") == "waiting" and _payment(s, cid)["status"] == "pending"
+                   and len(lines(cid)) == 1 and "'EUR'" in lines(cid)[0][1], f"{r.body} {lines(cid)!r}")
+
+            # полей нет — подтверждаем как раньше, предупреждение в лог
+            cid, p = note("Clinica Fara Suma")
+            fake.pays[p["provider_id"]]["payment"]["amount"] = None
+            fake.pays[p["provider_id"]]["body"]["currency"] = None
+            r = fake.post(c, p["provider_id"])
+            res.ok("суммы и валюты нет: оплачено, срок продлён, без card_mismatch",
+                   json.loads(r.body).get("outcome") == "paid" and _payment(s, cid)["status"] == "paid"
+                   and until(cid) > f"{v:%Y-%m-%d}" and not lines(cid), r.body)
+            res.ok("лог: предупреждение «без сверки»", "подтверждаю без сверки" in s.log(), s.log()[-600:])
+
+            # 5c: строка прочитана до чужого коммита — confirm не продлевает
+            cid = _clinic(c, name="Clinica Snapshot", idno="1999999999999", email="snap@example.md")
+            c.post(f"/admin/clinics/{cid}/issue", kind="dates", valid_until=f"{v:%Y-%m-%d}", grace_days="14")
+            c.post(f"/admin/clinics/{cid}/payments", months="1", amount="", send="", method="transfer")
+            q = _payment(s, cid)
+            issues = _sql(s, "SELECT count(*) FROM issues")[0][0]
+            pr = subprocess.run([sys.executable, "-c", _STALE, str(q["id"])], cwd=str(CLOUD), env=s.env,
+                                capture_output=True, text=True, encoding="utf-8", timeout=60)
+            res.check("confirm по устаревшей строке: not_pending, выдачи не прибавилось",
+                      json.loads(pr.stdout or "null") if pr.returncode == 0 else pr.stderr[-600:],
+                      ["not_pending", issues])
+    finally:
+        fake.close()
+
+
 def suite_off(res: Result) -> None:
     """Без DP_MAIB_*: карт нет, всё остальное как в шаге 1."""
     with Server(env={**BANK_ENV, "DP_MAIB_PROJECT_ID": "v1-project"}) as s:
@@ -1005,6 +1118,9 @@ def suite_wire(res: Result) -> None:
         res.ok("verify: подпись без префикса sha256= тоже принята", maib.verify(DOC_BODY, DOC_SIGNATURE, DOC_TS, now=at))
         res.ok("verify: метка в секундах понята",
                maib.verify(DOC_BODY, _php_sign(DOC_BODY, DOC_TS[:-3], DOC_KEY), DOC_TS[:-3], now=at))
+        res.ok("verify: метка длиннее 16 цифр — False до int(), без исключения",
+               maib.verify(DOC_BODY, "sha256=" + DOC_SIGNATURE, "9" * 5000, now=at) is False
+               and maib.verify(DOC_BODY, "sha256=" + DOC_SIGNATURE, "0" * 4 + DOC_TS, now=at) is False)
         res.ok("verify: подпись не ASCII — False, без исключения",
                maib.verify(DOC_BODY, "sha256=mtFkCMxfwj9t2wvY/7JASHLw+K/du4mY8azf1lV0ttș=", DOC_TS, now=at) is False)
         res.ok("verify: чужой ключ — False", maib.verify(DOC_BODY, _php_sign(DOC_BODY, DOC_TS, "alt"), DOC_TS, now=at)

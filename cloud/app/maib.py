@@ -313,7 +313,9 @@ def verify(raw: bytes, header: str, timestamp: str, now: float | None = None) ->
     if sig[:7].lower() == "sha256=":
         sig = sig[7:]
     ts = (timestamp or "").strip()
-    if not sig or not ts.isdigit() or not ts.isascii():
+    # метка в мс — 13 цифр; длиннее 16 — мусор, и до int(): Python 3.13 бросает ValueError
+    # на строке длиннее 4300 цифр — анонимный 500 вместо 400
+    if not sig or not ts.isdigit() or not ts.isascii() or len(ts) > 16:
         log.warning("maib: callback без подписи или метки (X-Signature %s, метка %r)",
                     "есть" if sig else "нет", ts[:20])
         return False

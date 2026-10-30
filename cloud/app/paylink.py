@@ -34,6 +34,7 @@ API_PATH = "/v1/pay-link"        # программа → ссылка (Bearer =
 TTL = timedelta(hours=24)
 POSTS_PER_HOUR = 20              # отправок формы с одного адреса в час
 _hits: dict[str, list[float]] = {}
+_swept = [0.0]                    # когда в последний раз выметали ключи, которые больше не приходят
 
 
 def url_for(pid: str) -> str:
@@ -85,6 +86,12 @@ def limited(ip: str) -> bool:
     """Больше POSTS_PER_HOUR отправок формы с адреса за час — отказ."""
     now = time.time()
     key = trial.bucket(ip)
+    if now - _swept[0] >= 60:
+        # ключ чистится только своим адресом — адреса, что больше не приходят, копились бы
+        # навсегда (ротация IPv6 /64): раз в минуту выметаем всех, чья последняя отметка старше часа
+        for k in [k for k, v in _hits.items() if not v or now - v[-1] >= 3600]:
+            del _hits[k]
+        _swept[0] = now
     stamps = [t for t in _hits.get(key, []) if now - t < 3600]
     _hits[key] = stamps + [now]
     return len(stamps) >= POSTS_PER_HOUR

@@ -428,6 +428,10 @@ def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method:
             plan = payments.card_plan(con, note, c, ip)
         else:
             if idno and idno != (c["idno"] or ""):
+                # ссылку оплаты открывает любой, у кого она есть: IDNO здесь только ЗАПОЛНЯЕТСЯ;
+                # записанный меняет кабинет клиники (cont_edit) — за входом
+                if c["idno"]:
+                    return RedirectResponse(f"{back}?msg=idno_locked", status_code=303)
                 if not trial.IDNO_RE.match(idno):
                     return RedirectResponse(f"{back}?msg=bad_idno", status_code=303)
                 if account.idno_taken(con, idno, c["id"]):
@@ -1556,7 +1560,9 @@ def payment_confirm(request: Request, pid: int) -> Response:
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     who = auth.current_user(request)
-    with payments.outbox() as box, db.connect() as con:     # письмо — после commit
+    # замок записи с начала, как у settle: callback по той же ноте, закоммиченный между нашим
+    # чтением и записью, сделал бы отложенную транзакцию «database is locked» — админу 500
+    with payments.outbox() as box, db.connect(immediate=True) as con:     # письмо — после commit
         p = _payment(con, pid)
         if p is None:
             return Response(status_code=404)
@@ -1584,7 +1590,9 @@ def payment_repeat(request: Request, pid: int, sure: str = Form("")) -> Response
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     who = auth.current_user(request)
-    with payments.outbox() as box, db.connect() as con:     # письмо — после commit
+    # замок записи с начала, как у settle: callback по той же ноте, закоммиченный между нашим
+    # чтением и записью, сделал бы отложенную транзакцию «database is locked» — админу 500
+    with payments.outbox() as box, db.connect(immediate=True) as con:     # письмо — после commit
         p = _payment(con, pid)
         if p is None:
             return Response(status_code=404)

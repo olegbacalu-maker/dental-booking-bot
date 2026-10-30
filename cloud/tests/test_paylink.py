@@ -127,6 +127,18 @@ def suite_paylink(res: Result) -> None:
         res.ok("IDNO сохранён (пробелы сняты) и нота создана",
                r.location == f"{path2}?msg=note_created"
                and _sql(s, "SELECT idno FROM clinics WHERE id=?", cid2) == [("7777777777777",)], r.location)
+        # ссылку открывает любой, у кого она есть: записанный IDNO отсюда не меняется (30.10)
+        res.check("другой IDNO при записанном — idno_locked",
+                  anon.post(path2, months="1", method="transfer", idno="7777777777778", terms="1").location,
+                  f"{path2}?msg=idno_locked")
+        res.ok("IDNO прежний, строки clinic_edit не прибавилось",
+               _sql(s, "SELECT idno FROM clinics WHERE id=?", cid2) == [("7777777777777",)]
+               and _sql(s, "SELECT count(*) FROM audit WHERE who='program' AND what='clinic_edit'")[0][0] == 1)
+        res.ok("idno_locked — словами: изменить можно в кабинете клиники",
+               "contul clinicii" in anon.get(f"{path2}?msg=idno_locked").body)
+        res.check("тот же IDNO при записанном — как без поля: нота есть",
+                  anon.post(path2, months="1", method="transfer", idno="7777777777777", terms="1").location,
+                  f"{path2}?msg=note_exists")
         # срок жизни
         _sql(s, "UPDATE pay_links SET expires_at='2020-01-01T00:00:00Z' WHERE clinic_id=?", cid2)
         r = anon.get(path2)
@@ -169,3 +181,35 @@ def suite_paylink(res: Result) -> None:
                    r.status == 303 and r.location == p[0][1] and len(fake.pays) == 1, f"{r.location} {fake.pays}")
     finally:
         fake.close()
+
+
+def suite_hits_sweep(res: Result) -> None:
+    """Лимиты в памяти (Р3, 30.10): ключ адреса, который больше не приходит, выметается,
+    когда его последняя отметка старше часа; живой ключ и сам лимит в час — как были."""
+    import time
+    from app import login
+    for mod, fn, cap in ((paylink, paylink.limited, paylink.POSTS_PER_HOUR),
+                         (login, login.request_limited, login.REQUESTS_PER_HOUR)):
+        name = mod.__name__.rsplit(".", 1)[1]
+        saved = dict(mod._hits), list(mod._swept)
+        try:
+            now = time.time()
+            mod._hits.clear()
+            mod._hits.update({f"10.0.0.{i}": [now - 7200, now - 3700] for i in range(500)})
+            mod._hits["10.9.9.9"] = [now - 4000, now - 600]           # живой: последняя отметка 10 мин назад
+            mod._swept[0] = now                                          # только что выметали — ждём минуту
+            fn("192.0.2.1")
+            res.check(f"{name}: раньше минуты после уборки ключи не трогаются", len(mod._hits), 502)
+            mod._swept[0] = now - 61
+            fn("192.0.2.1")
+            res.check(f"{name}: уборка — остались живой и спрашивающий", sorted(mod._hits),
+                      ["10.9.9.9", "192.0.2.1"])
+            res.check(f"{name}: отметки живого ключа целы", len(mod._hits["10.9.9.9"]), 2)
+            mod._hits.clear()
+            got = [fn("192.0.2.7") for _ in range(cap + 1)]
+            res.check(f"{name}: лимит в час прежний — {cap} проходят, следующий нет",
+                      got, [False] * cap + [True])
+        finally:
+            mod._hits.clear()
+            mod._hits.update(saved[0])
+            mod._swept[:] = saved[1]

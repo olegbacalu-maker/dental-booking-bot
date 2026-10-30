@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import base64
 import json
-import logging
 import re
 import secrets
 import sqlite3
@@ -27,8 +26,6 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 
 from . import config, db, keys, mail, tiers
-
-log = logging.getLogger("cloud.license")
 
 TRIAL_DAYS = 30        # «Prima lună — gratuită» на сайте (решение Олега 26.09; до того 14)
 TRIAL_GRACE_DAYS = 3

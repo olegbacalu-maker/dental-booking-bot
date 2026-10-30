@@ -1118,6 +1118,7 @@ AUDIT_RU = {
     "payment_new": ("нота выставлена", "pay"), "payment_paid": ("оплата подтверждена", "pay"),
     "payment_rejected": ("нота отклонена", "pay"), "payment_repeat": ("повторный перевод", "pay"),
     "card_link": ("ссылка на карту", "pay"), "card_failed": ("карта: отказ", "pay"),
+    "card_mismatch": ("карта: сумма или валюта не те — не подтверждено", "pay"),
     "paylink_new": ("ссылка оплаты из программы", "pay"), "reminder": ("напоминание о сроке", "pay"),
     "tier_set": ("вариант вручную", "pay"),
     "issue": ("файл выдан", "lic"), "trial_request": ("заявка на пробный", "lic"),
@@ -1159,7 +1160,7 @@ def audit_codes(cat: str) -> list[str]:
 
 
 def _what(code: str) -> str:
-    cls = {"payment_paid": "ok", "payment_rejected": "bad", "card_failed": "bad", "mail_failed": "bad",
+    cls = {"payment_paid": "ok", "payment_rejected": "bad", "card_failed": "bad", "card_mismatch": "bad", "mail_failed": "bad",
            "login_fail": "bad", "trial_no_key": "bad", "add_no_key": "bad"}.get(code, "mute")
     return f"<span class='tag {cls}' title='{esc(code)}'>{esc(AUDIT_RU.get(code, (code, ''))[0])}</span>"
 
@@ -1572,6 +1573,8 @@ CONT_MSG = {
     "login_limited": "Prea multe coduri cerute — încercați peste o oră sau scrieți-ne.",
     # страница оплаты из программы (02.10)
     "pay_need_idno": "Pentru abonament indicați IDNO-ul clinicii (13 cifre) — îl puteți completa chiar aici.",
+    "idno_locked": "IDNO-ul clinicii este deja înregistrat și nu se schimbă de aici — îl puteți modifica în "
+                   "contul clinicii.",
     "mail_failed": "Nu am putut trimite e-mailul cu codul — încercați din nou peste un minut sau scrieți-ne.",
     # SMS › numele expeditorului și cererea (17.10, sms_paper.py)
     "sms_requested": "Cererea pentru numele expeditorului a fost înregistrată. Descărcați cererea completată, "

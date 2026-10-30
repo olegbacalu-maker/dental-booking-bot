@@ -777,14 +777,6 @@ def credit_name(con: sqlite3.Connection, payment: sqlite3.Row, who: str) -> str 
     return None
 
 
-def mail_name(con: sqlite3.Connection, clinic: sqlite3.Row, payment: sqlite3.Row, who: str,
-              receipt: tuple[str, bytes] | None = None, summary: str = "") -> str:
-    """Письмо об оплаченном имени — собрать и отправить в транзакции `con`; код для ?msg=
-    ('' — ушло). После оплаты письмо уходит после commit (payments.notify_paid)."""
-    out = letter_name(con, clinic, payment, who, receipt, summary)
-    return out if isinstance(out, str) else mail.deliver(out, con)
-
-
 def letter_name(con: sqlite3.Connection, clinic: sqlite3.Row, payment: sqlite3.Row, who: str,
                 receipt: tuple[str, bytes] | None = None, summary: str = "") -> mail.Letter | str:
     """Письмо об оплаченном имени: собранное или код отказа (`bad_email`). `receipt` — cont de
@@ -838,14 +830,6 @@ def set_cap(con: sqlite3.Connection, clinic_id: str, cap: int, who: str) -> str:
                 (cap, db.now_iso(), clinic_id))
     db.audit(con, who, "sms_cap", clinic_id, f"потолок {cap} сегм. в сутки")
     return ""
-
-
-def mail_pack(con: sqlite3.Connection, clinic: sqlite3.Row, payment: sqlite3.Row, who: str,
-              receipt: tuple[str, bytes] | None = None, summary: str = "") -> str:
-    """Письмо «pachetul de N SMS a fost activat» — собрать и отправить в транзакции `con`;
-    код для ?msg= ('' — ушло). После оплаты письмо уходит после commit (payments.notify_paid)."""
-    out = letter_pack(con, clinic, payment, who, receipt, summary)
-    return out if isinstance(out, str) else mail.deliver(out, con)
 
 
 def letter_pack(con: sqlite3.Connection, clinic: sqlite3.Row, payment: sqlite3.Row, who: str,

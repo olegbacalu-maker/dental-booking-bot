@@ -50,11 +50,14 @@ from __future__ import annotations
 
 import calendar
 import contextlib
+import logging
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from . import db, license, maib, mail, receipts, sms, tiers
+
+log = logging.getLogger("cloud.payments")
 
 PENDING, PAID, REJECTED = "pending", "paid", "rejected"
 TRANSFER, CARD = "transfer", "card"
@@ -503,6 +506,8 @@ def settle(con: sqlite3.Connection, payment: sqlite3.Row, result: dict, who: str
         con.execute("UPDATE pay_attempts SET status=?, final=? WHERE provider_id=?",
                     (detail[:120], 0 if status in maib.WAITING else 1, pay_id))
     counted = bool(att["counted"]) if att is not None else payment["paid_via"] == CARD
+    if status == maib.STATUS_OK and _mismatch(con, payment, result, who):
+        return SETTLED_WAITING
     if payment["status"] != PENDING:
         # ⭐ Нота уже закрыта ДРУГИМ путём (перевод подтверждён, нота отклонена, другая
         # попытка картой), а maib говорит, что ЭТА карта прошла: деньги клиники у нас
@@ -524,6 +529,45 @@ def settle(con: sqlite3.Connection, payment: sqlite3.Row, result: dict, who: str
     return SETTLED_FAILED
 
 
+def _mismatch(con: sqlite3.Connection, payment: sqlite3.Row, result: dict, who: str) -> bool:
+    """maib сказал OK, а сумма или валюта не наши (решение Р2, 30.10): не подтверждать — деньги
+    разбирает человек по журналу `card_mismatch`. Блокирует только «есть и не совпало»: какие поля
+    отдаёт боевой checkout, видели лишь на песочнице, и отсутствие поля заморозило бы каждую оплату —
+    его нет — предупреждение в лог, подтверждаем как раньше.
+    Строка журнала — одна на попытку: OK закрывает попытку (`final`), ежедневная задача её больше
+    не спрашивает, а callback, возврат браузера, клик и «Проверить» спросят снова — повтор не пишется."""
+    amount, currency = result.get("amount"), result.get("currency")
+    if amount is None or currency is None:
+        log.warning("maib: в ответе о %s нет %s — подтверждаю без сверки", payment["reference"],
+                    " и ".join(k for k, v in (("суммы", amount), ("валюты", currency)) if v is None))
+    try:
+        same_amount = amount is None or round(float(amount) * 100) == int(payment["amount"]) * 100
+    except (TypeError, ValueError):
+        same_amount = False
+    same_currency = currency is None or str(currency).upper() == "MDL"
+    if same_amount and same_currency:
+        return False
+    detail = (f"{payment['reference']}: maib {result.get('payId')} — у maib {amount!r} {currency!r}, "
+              f"у нас {payment['amount']} MDL")
+    log.error("maib: оплата не совпала с нотой, не подтверждаю: %s", detail)
+    head = f"{payment['reference']}: maib {result.get('payId')} "
+    seen = con.execute("SELECT 1 FROM audit WHERE what='card_mismatch' AND clinic_id IS ? AND substr(detail, 1, ?)=?",
+                       (payment["clinic_id"], len(head), head)).fetchone()
+    if seen is None:
+        db.audit(con, who, "card_mismatch", payment["clinic_id"], detail)
+    return True
+
+
+def _close(con: sqlite3.Connection, payment: sqlite3.Row, who: str, via: str) -> None:
+    """pending → paid, один раз. Строка `payment` могла быть прочитана до чужого коммита (другая
+    транзакция закрыла ноту): UPDATE тогда ничего не меняет — ValueError('not_pending') ДО продления
+    и начисления SMS, а не второй срок по старому снимку."""
+    cur = con.execute("UPDATE payments SET status=?, paid_at=?, confirmed_by=?, paid_via=? WHERE id=? AND status=?",
+                      (PAID, db.now_iso(), who, via, payment["id"], PENDING))
+    if cur.rowcount != 1:
+        raise ValueError("not_pending")
+
+
 def confirm(con: sqlite3.Connection, payment: sqlite3.Row, who: str,
             via: str = TRANSFER) -> tuple[int, str]:
     """Подтвердить поступление: продлить и выдать файл. Возвращает (seq, текст файла).
@@ -534,15 +578,13 @@ def confirm(con: sqlite3.Connection, payment: sqlite3.Row, who: str,
     clinic = con.execute("SELECT * FROM clinics WHERE id=?", (payment["clinic_id"],)).fetchone()
     if payment["kind"] in (SMS, SMS_NAME):
         # SMS (S3): начисление или год имени вместо продления и файла; один раз — по тому же AND status
-        con.execute("UPDATE payments SET status=?, paid_at=?, confirmed_by=?, paid_via=? WHERE id=? AND status=?",
-                    (PAID, db.now_iso(), who, via, payment["id"], PENDING))
+        _close(con, payment, who, via)
         what = f"пакет {payment['sms_units']} SMS" if payment["kind"] == SMS else "год имени отправителя"
         db.audit(con, who, "payment_paid", clinic["id"], f"{payment['reference']}: {payment['amount']} MDL, {what}")
         (sms.credit_pack if payment["kind"] == SMS else sms.credit_name)(con, payment, who)
         receipts.create(con, payment["id"], who)
         return 0, ""
-    con.execute("UPDATE payments SET status=?, paid_at=?, confirmed_by=?, paid_via=? WHERE id=? AND status=?",
-                (PAID, db.now_iso(), who, via, payment["id"], PENDING))
+    _close(con, payment, who, via)
     if payment["kind"] == CABINET:
         # общая нота (26.10): каждая клиника строки — своим продлением и своим файлом
         first, items = None, []

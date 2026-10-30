@@ -14,7 +14,10 @@ from harness import CLOUD, Result
 # Кто держит settle своей транзакцией — по ним видно, что обход нашёл то, что должен
 # (список ВКЛЮЧАЕТ требование: переименуют — красное «найдены», а не тихий ноль)
 HOLDERS = {"_maib_callback", "_returned", "payment_check", "settle_cards",
-           "_card_go", "payment_new", "payment_link"}
+           "_card_go", "payment_new", "payment_link", "payment_confirm", "payment_repeat"}
+# Кто делает ноту `paid`: settle (карта) и confirm / credit_again («Подтвердить», «Зачесть
+# повторный» админки) — у всех одна гонка с callback, и замок нужен один
+PAID_WRITERS = {"settle", "confirm", "credit_again"}
 
 
 def _name(call: ast.Call) -> str:
@@ -51,9 +54,9 @@ def _calls(node: ast.AST, inside_with: bool, out: list) -> None:
 
 
 def check(trees: dict[str, ast.Module]) -> tuple[set, dict, list]:
-    """(обёртки settle, {функция: [(файл, строка, immediate)]} — её `with db.connect`, в
-    которых зовётся settle или обёртка, нарушения «файл:строка функция»).
-    Обёртка — функция, которая зовёт settle (или обёртку) ВНЕ своего `with db.connect`, то
+    """(обёртки, {функция: [(файл, строка, immediate)]} — её `with db.connect`, в которых
+    зовётся пишущий paid (PAID_WRITERS) или обёртка, нарушения «файл:строка функция»).
+    Обёртка — функция, которая зовёт пишущего (или обёртку) ВНЕ своего `with db.connect`, то
     есть на чужом `con`: card_record, _settle_now. Её вызовы требуют того же замка."""
     funcs = []
     for fname, tree in trees.items():
@@ -62,10 +65,10 @@ def check(trees: dict[str, ast.Module]) -> tuple[set, dict, list]:
                 found: list = []
                 _calls(node, None, found)
                 funcs.append((fname, node, found))
-    wrappers = {"settle"}
+    wrappers = set(PAID_WRITERS)
     while True:
         more = {fn.name for _, fn, found in funcs
-                if fn.name != "settle" and any(w is None and _name(c) in wrappers for c, w in found)}
+                if fn.name not in PAID_WRITERS and any(w is None and _name(c) in wrappers for c, w in found)}
         if more <= wrappers:
             break
         wrappers |= more
@@ -81,7 +84,7 @@ def check(trees: dict[str, ast.Module]) -> tuple[set, dict, list]:
             held.setdefault(fn.name, []).append((fname, w.lineno, imm))
             if not imm:
                 bad.append(f"{fname}:{w.lineno} {fn.name}")
-    return wrappers - {"settle"}, held, bad
+    return wrappers - PAID_WRITERS, held, bad
 
 
 def _trees() -> dict[str, ast.Module]:
@@ -101,16 +104,19 @@ def _strip(trees: dict, func: str) -> dict:
 
 
 def suite_settle_lock(res: Result) -> None:
-    """settle — только под db.connect(immediate=True), и пара: снятый immediate краснеет."""
+    """settle, confirm, credit_again — только под db.connect(immediate=True), и пара: снятый
+    immediate краснеет."""
     trees = _trees()
     res.ok("исходники нашлись: main.py, jobs.py, payments.py",
            {"main.py", "jobs.py", "payments.py"} <= set(trees), sorted(trees))
     wrappers, held, bad = check(trees)
     res.ok("обёртки settle найдены: card_record, _settle_now",
            {"card_record", "_settle_now"} <= wrappers, sorted(wrappers))
-    res.ok("транзакции с settle найдены у callback, возврата, «Проверить», ежедневной задачи, "
-           "кнопки карты, ноты и ссылки из админки", HOLDERS <= set(held), sorted(held))
-    res.check("каждый with db.connect, где зовётся settle (или обёртка), — immediate=True", bad, [])
+    res.ok("транзакции с settle / confirm / credit_again найдены у callback, возврата, «Проверить», "
+           "ежедневной задачи, кнопки карты, ноты и ссылки из админки, «Подтвердить», «Зачесть повторный»",
+           HOLDERS <= set(held), sorted(held))
+    res.check("каждый with db.connect, где зовётся settle / confirm / credit_again (или обёртка), — "
+              "immediate=True", bad, [])
     for func in sorted(HOLDERS):
         _, _, mbad = check(_strip(trees, func))
         res.ok(f"пара: без immediate у {func} — сторож красный",
@@ -272,9 +278,8 @@ def suite_mail_after_commit(res: Result) -> None:
     res.ok("исходники нашлись: main.py, jobs.py, payments.py, license.py, sms.py, mail.py",
            need <= set(trees), sorted(need - set(trees)))
     senders, boxed, bad = mail_check(trees)
-    want = {"mail.send", "mail.deliver", "payments.send_paid", "payments.outbox", "license.mail_latest",
-            "sms.mail_pack", "sms.mail_name"}
-    res.ok("отправляющие найдены: mail.send/deliver, send_paid, outbox, обёртки mail_latest/mail_pack/mail_name",
+    want = {"mail.send", "mail.deliver", "payments.send_paid", "payments.outbox", "license.mail_latest"}
+    res.ok("отправляющие найдены: mail.send/deliver, send_paid, outbox, обёртка mail_latest",
            want <= senders, sorted(want - senders))
     builders = {"payments.notify_paid", "license.letter_latest", "sms.letter_pack", "sms.letter_name",
                 "main._payment_letter", "main._settle_now", "payments.card_plan", "payments.card_record"}
