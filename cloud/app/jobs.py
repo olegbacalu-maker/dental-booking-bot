@@ -179,7 +179,7 @@ def settle_cards(who: str, rep: Report) -> None:
             rep.skipped.append((p["clinic_id"], f"maib не ответил про {p['reference']}"))
             continue
         try:
-            with db.connect() as con:
+            with db.connect(immediate=True) as con:     # callback и /pay/ok пишут ту же строку
                 # попытка могла переехать на другую строку (зачёт повторного платежа) — платёж по ней
                 fresh = payments.by_pay_id(con, p["provider_id"])
                 outcome = payments.settle(con, fresh, truth, who)

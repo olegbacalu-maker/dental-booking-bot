@@ -41,10 +41,12 @@ import test_sms_rule  # noqa: E402
 import test_terms  # noqa: E402
 import test_tiers  # noqa: E402
 import test_trial  # noqa: E402
+import test_tx  # noqa: E402
 from harness import run  # noqa: E402
 
 SUITES = [
     ("Сервер: без импортов движка, одни версии", test_pure.suite),
+    ("Оплата картой: settle только под замком записи (immediate)", test_tx.suite_settle_lock),
     ("SMS: сегменты и номер — общий вектор с программой", test_sms_rule.suite_vectors),
     ("SMS: копия сервера и копия программы отвечают одинаково", test_sms_rule.suite_twins),
     ("SMS: белый список личного текста — копия сервера против sms_plan программы", test_sms_rule.suite_custom_twins),
@@ -79,6 +81,7 @@ SUITES = [
     ("Сервер: карта maib — ссылка, четыре callback, проверка, новая ссылка", test_maib.suite_flow),
     ("Сервер: карта maib — ежедневная задача, maib молчит", test_maib.suite_daily),
     ("Сервер: карта maib — второй платёж по закрытой ноте зачитывается", test_maib.suite_duplicate),
+    ("Сервер: карта maib — callback и возврат браузера разом: одна оплата, без 500", test_maib.suite_race),
     ("Сервер: карта maib — без DP_MAIB_* всё как в шаге 1", test_maib.suite_off),
     ("Провод maib Checkout: подпись по образцу документации, поля checkout, статусы, токен, 403, возврат", test_maib.suite_wire),
     ("Сервер: форма пробного — правила: ящик, поля, лимиты", test_trial.suite_rules),

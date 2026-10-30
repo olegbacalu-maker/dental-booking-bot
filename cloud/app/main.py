@@ -1341,9 +1341,9 @@ def _send_payment_letter(con, c, p, who: str) -> str:
 # ---------- карта: maib (L12) ----------
 
 
-def _settle_now(con, p, who: str) -> str:
-    """Спросить maib и применить: код для ?msg=. Истина — статус checkout, не callback и не кнопка."""
-    truth = maib.info(p["provider_id"])
+def _settle_now(con, p, truth: dict, who: str) -> str:
+    """Применить уже полученный ответ maib: код для ?msg=. Истина — статус checkout, не
+    callback и не кнопка. `con` — под замком записи, `p` перечитан под ним."""
     outcome = payments.settle(con, p, truth, who)
     if outcome == payments.SETTLED_PAID:
         payments.notify_paid(con, p, who)
@@ -1354,23 +1354,27 @@ def _settle_now(con, p, who: str) -> str:
 
 @app.post("/admin/payments/{pid}/check")
 def payment_check(request: Request, pid: int) -> Response:
-    """Кнопка «Проверить»: тот же вопрос maib, что задают callback и ежедневная задача."""
+    """Кнопка «Проверить»: тот же вопрос maib, что задают callback и ежедневная задача.
+    Короткое чтение → вопрос maib вне транзакции → замок записи, перечитать, settle: callback
+    и возврат браузера могли закрыть ноту, пока maib отвечал."""
     if (deny := _guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     with db.connect() as con:
         p = _payment(con, pid)
-        if p is None:
-            return Response(status_code=404)
-        back = _back(request, p)
-        if not p["provider_id"]:
-            return RedirectResponse(f"{back}?msg=card_none", status_code=303)
-        try:
-            code = _settle_now(con, p, auth.current_user(request))
-        except maib.MaibError as e:
-            log.error("maib: статус %s не получен: %s", p["reference"], e)
-            code = "maib_failed"
+    if p is None:
+        return Response(status_code=404)
+    back = _back(request, p)
+    if not p["provider_id"]:
+        return RedirectResponse(f"{back}?msg=card_none", status_code=303)
+    try:
+        truth = maib.info(p["provider_id"])
+    except maib.MaibError as e:
+        log.error("maib: статус %s не получен: %s", p["reference"], e)
+        return RedirectResponse(f"{back}?msg=maib_failed", status_code=303)
+    with db.connect(immediate=True) as con:
+        code = _settle_now(con, _payment(con, pid), truth, auth.current_user(request))
     return RedirectResponse(f"{back}?msg={code}", status_code=303)
 
 
@@ -1431,7 +1435,9 @@ def _maib_callback(raw: bytes, signature: str, timestamp: str) -> Response:
     except maib.MaibError as e:
         log.error("maib callback: статус %s не получен: %s", p["reference"], e)
         return JSONResponse({"ok": False, "code": "maib_unavailable"}, status_code=503)
-    with db.connect() as con:
+    # замок записи с начала: возврат браузера (/pay/ok) приходит почти тем же мигом, и
+    # отложенная транзакция, прочитавшая до его коммита, при записи сразу «database is locked»
+    with db.connect(immediate=True) as con:
         p = _payment(con, p["id"])
         outcome = payments.settle(con, p, truth, "maib")
         if outcome == payments.SETTLED_PAID:
@@ -1465,7 +1471,7 @@ def _returned(pay_id: str):
     except maib.MaibError as e:
         log.warning("maib о возврате %s не ответил: %s", p["reference"], e)
         return p
-    with db.connect() as con:
+    with db.connect(immediate=True) as con:     # callback того же платежа — в тот же миг
         fresh = _payment(con, p["id"])
         if payments.settle(con, fresh, truth, "maib") == payments.SETTLED_PAID:
             payments.notify_paid(con, fresh, "maib")

@@ -27,6 +27,7 @@ import hmac
 import http.server
 import json
 import logging
+import socketserver
 import sqlite3
 import subprocess
 import sys
@@ -707,6 +708,141 @@ def suite_daily(res: Result) -> None:
             res.ok("check: maib не отвечает — препятствие", out.returncode == 1 and "maib не отвечает" in out.stdout,
                    out.stdout[-400:])
     finally:
+        fake.close()
+
+
+class SlowSmtp:
+    """Стенд SMTP: приветствие через `delay` секунд, STARTTLS не умеет — mail.send бросает
+    SMTPNotSupportedError, письмо уходит в `mail_failed`, оплата не откатывается. Так письмо
+    после оплаты становится заметной паузой ровно там, где сервер его шлёт: сервер теста —
+    отдельный процесс, подменить в нём mail.send нечем (и не нужно)."""
+
+    def __init__(self, delay: float = 0.8):
+        self.delay = delay
+        self.sessions = 0
+        self._lock = threading.Lock()
+        stand = self
+
+        class H(socketserver.StreamRequestHandler):
+            def handle(self):
+                with stand._lock:
+                    stand.sessions += 1
+                time.sleep(stand.delay)
+                self.wfile.write(b"220 stand ESMTP\r\n")
+                for line in self.rfile:
+                    verb = line[:4].upper()
+                    if verb == b"EHLO":
+                        self.wfile.write(b"250-stand\r\n250 SIZE 1000000\r\n")
+                    elif verb == b"HELO":
+                        self.wfile.write(b"250 stand\r\n")
+                    elif verb == b"QUIT":
+                        self.wfile.write(b"221 bye\r\n")
+                        return
+                    else:
+                        self.wfile.write(b"502 not implemented\r\n")
+
+        class S(socketserver.ThreadingTCPServer):
+            daemon_threads = True
+            allow_reuse_address = True
+
+            def handle_error(self, request, client_address):
+                pass
+
+        self.srv = S(("127.0.0.1", 0), H)
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+
+    @property
+    def env(self) -> dict:
+        return {"DP_SMTP_HOST": "127.0.0.1", "DP_SMTP_PORT": str(self.srv.server_address[1]),
+                "DP_SMTP_USER": "", "DP_SMTP_PASS": ""}
+
+    def close(self) -> None:
+        self.srv.shutdown()
+        self.srv.server_close()
+
+
+def _together(*calls) -> list:
+    """Вызовы из своих потоков, отпущенные разом (Barrier); ответ или исключение — по порядку."""
+    gate = threading.Barrier(len(calls))
+    out: list = [None] * len(calls)
+
+    def go(i, fn):
+        gate.wait()
+        try:
+            out[i] = fn()
+        except Exception as e:  # noqa: BLE001 — исключение тоже ответ
+            out[i] = e
+
+    threads = [threading.Thread(target=go, args=(i, fn), daemon=True) for i, fn in enumerate(calls)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=90)
+    return out
+
+
+def suite_race(res: Result) -> None:
+    """maib почти одновременно шлёт callback и возвращает браузер на /pay/ok (30.10, ревью):
+    обе ветки читают платёж и зовут settle. В отложенной транзакции WAL та, что прочитала
+    до коммита соседки, при записи сразу получает «database is locked» (busy timeout не
+    ждёт устаревший снимок) — 500. settle обязан идти под замком записи с начала
+    (db.connect(immediate=True)): вторая ждёт первую, перечитывает и видит «уже оплачено».
+    Пауза внутри первой транзакции — письмо после оплаты на медленный стенд SMTP.
+    Второй круг — то же втроём, с кнопкой «Проверить» админки."""
+    fake, smtp = FakeMaib(), SlowSmtp()
+    try:
+        with Server(env={**BANK_ENV, **fake.env, **smtp.env}) as s:
+            c = Client(s.url).login()
+            for n, name, admin in ((1, "Clinica Cursa", False), (2, "Clinica Cursa Trei", True)):
+                cid = _clinic(c, name=name, email=f"cursa{n}@example.md")
+                v = datetime.now(timezone.utc).date() + 60 * D
+                c.post(f"/admin/clinics/{cid}/issue", kind="dates", valid_until=f"{v:%Y-%m-%d}", grace_days="14")
+                c.post(f"/admin/clinics/{cid}/payments", months="1", amount="", send="", method="card")
+                p = _payment(s, cid)
+                fake.set_status(p["provider_id"], "Completed")
+                issues = _sql(s, "SELECT count(*) FROM issues WHERE clinic_id=?", cid)[0][0]
+                sessions = smtp.sessions
+                maib_cb, browser = Client(s.url), Client(s.url)
+                calls = [lambda: fake.post(maib_cb, p["provider_id"]),
+                         lambda: browser.get(f"/pay/ok?checkoutId={p['provider_id']}&checkoutStatus=Completed"
+                                             f"&orderId={p['reference']}")]
+                if admin:
+                    calls.append(lambda: c.post(f"/admin/payments/{p['id']}/check"))
+                got = _together(*calls)
+                cb, ok = got[0], got[1]
+                tag = f"круг {n}"
+                res.ok(f"{tag}: callback — 200, исход paid или already",
+                       getattr(cb, "status", None) == 200
+                       and json.loads(cb.body).get("outcome") in ("paid", "already"),
+                       repr(cb) if isinstance(cb, Exception) else f"{cb.status} {cb.body[:300]}")
+                res.ok(f"{tag}: /pay/ok — 200 и «plătită»",
+                       getattr(ok, "status", None) == 200 and "plătită" in ok.body,
+                       repr(ok) if isinstance(ok, Exception) else f"{ok.status} {ok.body[:300]}")
+                if admin:
+                    ch = got[2]
+                    res.ok(f"{tag}: «Проверить» — 303 card_paid или payment_not_pending",
+                           getattr(ch, "status", None) == 303
+                           and ch.location.split("msg=")[-1] in ("card_paid", "payment_not_pending"),
+                           repr(ch) if isinstance(ch, Exception) else f"{ch.status} {ch.location} {ch.body[:300]}")
+                rows = _sql(s, "SELECT id, status FROM payments WHERE clinic_id=?", cid)
+                res.check(f"{tag}: нота одна и оплачена", [r[1] for r in rows], ["paid"])
+                res.check(f"{tag}: выдача по ней ровно одна новая",
+                          _sql(s, "SELECT count(*) FROM issues WHERE clinic_id=?", cid)[0][0], issues + 1)
+                res.check(f"{tag}: cont de plată — одна строка",
+                          _sql(s, "SELECT count(*) FROM receipts WHERE payment_id=?", p["id"])[0][0], 1)
+                res.check(f"{tag}: журнал — один payment_paid",
+                          _sql(s, "SELECT count(*) FROM audit WHERE what='payment_paid' AND clinic_id=?", cid)[0][0], 1)
+                v2 = pay.add_months(datetime(v.year, v.month, v.day, tzinfo=timezone.utc), 1).date()
+                res.check(f"{tag}: срок продлён ровно на месяц",
+                          _sql(s, "SELECT valid_until FROM subscriptions WHERE clinic_id=?", cid)[0][0][:10],
+                          f"{v2:%Y-%m-%d}")
+                res.ok(f"{tag}: письмо после оплаты дошло до медленного стенда SMTP (пауза была)",
+                       smtp.sessions > sessions, f"{smtp.sessions} > {sessions}")
+            log_ = s.log()
+            res.ok("в логе сервера ни «database is locked», ни трейсбека",
+                   "database is locked" not in log_ and "Traceback" not in log_, log_[-1500:])
+    finally:
+        smtp.close()
         fake.close()
 
 
