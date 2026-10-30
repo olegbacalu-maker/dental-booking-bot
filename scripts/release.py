@@ -282,9 +282,18 @@ def ci_verdict(check_runs: list[dict]) -> tuple[str, list[str]]:
     """Что сказала автоматическая проверка (GitHub Actions) о коммите:
     `green` — все работы завершились успехом; `red` — хоть одна упала;
     `pending` — ещё идёт или отменена (то есть коммит НЕ проверен);
-    `none` — работ нет. Второе — строки для человека."""
-    lines, verdict = [], "none"
+    `none` — работ нет. Второе — строки для человека.
+    ⚠️ У одного коммита работа может лежать НЕСКОЛЬКО раз (прогон push, отменённый
+    cancel-in-progress следующим пушем, и `workflow run --ref` на теге): считается
+    НОВЕЙШАЯ запись каждой работы — 30.10 (2.6.0) отменённый дубль рядом с зелёным
+    перезапуском держал publish как «не проверен»."""
+    newest: dict[str, dict] = {}
     for r in check_runs:
+        name = r.get("name")
+        if name not in newest or (r.get("id") or 0) > (newest[name].get("id") or 0):
+            newest[name] = r
+    lines, verdict = [], "none"
+    for r in newest.values():
         st, concl = r.get("status"), (r.get("conclusion") or "")
         lines.append(f"   {r.get('name')}: {concl or st}")
         if st != "completed" or concl in ("cancelled", "timed_out", "action_required",
