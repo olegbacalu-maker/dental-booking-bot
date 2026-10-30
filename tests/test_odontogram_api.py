@@ -163,14 +163,14 @@ def suite_api(res: Result) -> None:
                   ([-5, -10, -22, -22, -5], [5, 22, 22]))
         res.check("легенда: состояния без «здоров», потом отметки",
                   [x["label"] for x in d["legend"]["frontal"]],
-                  ["Carie", "Obturație", "Coroană", "Implant", "Extras", "Lipsă",
+                  ["Carie", "Obturație", "Coroană", "Implant", "Implant fără coroană", "Extras", "Lipsă",
                    "În tratament", "Nerv extras"])
         res.ok("легенда: рисунок зуба на каждый пункт", all("<svg" in x["svg"] for x in d["legend"]["occlusal"]), "нет")
         res.check("молочный ряд раскрыт", d["milk_open"], True)
         res.check("словари: состояния, отметки, поверхности, роли, материалы, врачи",
                   (list(d["states"]), list(d["marks"]), list(d["surfaces"]), d["surface_states"],
                    d["bridge_roles"], [m["id"] for m in d["materials"]], d["doctors"][1]),
-                  (["ok", "carie", "obturatie", "coroana", "implant", "extras", "lipsa"], ["tratament", "devital"],
+                  (["ok", "carie", "obturatie", "coroana", "implant", "implant_fc", "extras", "lipsa"], ["tratament", "devital"],
                    ["M", "O", "D", "V", "L"], ["carie", "obturatie"], {"stalp": "Stâlp", "corp": "Corp de punte"},
                    ["metalo-ceramică", "zirconiu", "ceramică", "metal", "acrilat", "alt"], "Dr. Activ Doi"))
         res.check("пациент", d["patient"], {"id": pid, "name": "Odonto Pin", "primary_doctor": ""})
