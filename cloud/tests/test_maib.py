@@ -929,7 +929,15 @@ def suite_slow(res: Result) -> None:
             ref = _payment(s, cid3)["reference"]
             res.ok("письмо с нотой ушло (реквизиты перевода, страница оплаты)",
                    len(_letters(s)) == n + 1 and ref in _letters(s)[-1][0], [x[0] for x in _letters(s)[n:]])
-            r = c.post(f"/admin/payments/{_payment(s, cid3)['id']}/link")
+            link = f"/admin/payments/{_payment(s, cid3)['id']}/link"
+            fake.forbid = True
+            from_card = c.post(link).location
+            from_list = c.post(link, headers={"Referer": s.url + "/admin/payments"}).location
+            fake.forbid = False
+            res.check("maib отказал на «ссылка» — maib_failed туда, откуда нажали: карточка, страница ожидающих",
+                      (from_card, from_list),
+                      (f"/admin/clinics/{cid3}?msg=maib_failed", "/admin/payments?msg=maib_failed"))
+            r = c.post(link)
             p = _payment(s, cid3)
             res.ok("позже «ссылка» — та же нота, теперь картой с payId",
                    r.location.endswith("msg=card_link_mailed") and p["method"] == "card"

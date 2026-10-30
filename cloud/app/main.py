@@ -1426,7 +1426,7 @@ def payment_link(request: Request, pid: int) -> Response:
             box.add([(True, _payment_letter(con, c, p, who))])
     if outcome == payments.MAIB_FAILED:
         log.error("maib: ссылка для платежа %s не создана: %s", pid, why)
-        return RedirectResponse("/admin/payments?msg=maib_failed", status_code=303)
+        return RedirectResponse(f"{back}?msg=maib_failed", status_code=303)
     if outcome != payments.LINK:
         return RedirectResponse(f"{back}?msg=payment_not_pending", status_code=303)
     code = (box.code or "card_link_mailed") if c["email"] else "card_link"
