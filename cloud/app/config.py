@@ -36,11 +36,14 @@ BANK = {"beneficiary": env("DP_BANK_BENEFICIARY"), "iban": env("DP_BANK_IBAN"),
 # Адрес продавца на cont de plată (receipts.py, 17.10); имя, IDNO и IBAN — те же DP_BANK_*.
 # Пусто = строки адреса в документе нет.
 SELLER_ADDRESS = env("DP_SELLER_ADDRESS")
-# Оплата картой через maib (L12): проект из кабинета maibmerchants. Все три
-# пусты = карт нет, платежи только переводом; адрес меняют только тесты.
-MAIB_BASE_URL = env("DP_MAIB_BASE_URL", "https://api.maibmerchants.md/v1")
-MAIB_PROJECT_ID = env("DP_MAIB_PROJECT_ID")
-MAIB_PROJECT_SECRET = env("DP_MAIB_PROJECT_SECRET")
+# Оплата картой через maib e-Commerce Checkout (L12, с 30.10 — API v2): ключи
+# проекта от банка. Все три пусты = карт нет, платежи только переводом. Адрес:
+# боевой по умолчанию, песочница — https://sandbox.maibmerchants.md (у неё свои
+# ключи); тесты подставляют свой стенд. Пути /v2/… дописывает провод — адрес без пути.
+# Имена e-Commerce v1 (DP_MAIB_PROJECT_ID/SECRET) не читаются: v1 у нас не включался.
+MAIB_BASE_URL = env("DP_MAIB_BASE_URL", "https://api.maibmerchants.md")
+MAIB_CLIENT_ID = env("DP_MAIB_CLIENT_ID")
+MAIB_CLIENT_SECRET = env("DP_MAIB_CLIENT_SECRET")
 MAIB_SIGNATURE_KEY = env("DP_MAIB_SIGNATURE_KEY")   # подпись callback
 # Форма пробного периода (L14): approve — заявка ждёт админа, auto — файл сразу.
 # Уведомление о заявке — на этот ящик; пусто = SUPPORT_EMAIL.

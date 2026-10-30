@@ -313,7 +313,7 @@ def _sms_order(c, body: dict, ip: str) -> Response:
             p = (payments.create_name(con, c, amount, "program") if name
                  else payments.create_pack(con, c, units, amount, "program"))
         # Карта — на нашей странице оплаты, кнопкой после галочки условий (23.10): ссылка maib
-        # живёт 10 минут и рождается по клику (payments.card_link), поэтому ни программе, ни
+        # живёт минуты (maib.PAY_TTL) и рождается по клику (payments.card_link), поэтому ни программе, ни
         # письму её не даём. Программа (2.0.9) показывает `pay_url` ссылкой «Plătește cu cardul».
         page = paylink.for_mail(con, c, "program") if maib.enabled() else None
         if created and c["email"]:
@@ -391,7 +391,7 @@ def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method:
     maib, «Am citit și accept Termenii» перед оплатой. IDNO без него абонемента не
     бывает — заполняется тут же. Вариант не назван (старая страница) — текущий.
     `ref` — ожидающая нота SMS (пакет, имя) этой клиники: её карта, тем же путём.
-    Карта — `payments.card_link`: ссылка maib рождается по клику (живёт 10 минут)."""
+    Карта — `payments.card_link`: ссылка maib рождается по клику (живёт минуты, maib.PAY_TTL)."""
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     ip = _ip(request)
@@ -1312,7 +1312,7 @@ def payment_new(request: Request, cid: str, months: str = Form("1"), amount: str
 
 def _send_payment_letter(con, c, p, who: str) -> str:
     """Письмо с нотой абонемента: страница оплаты клиники (paylink.for_mail) — и для карты,
-    и для смены варианта; ссылки maib в письме нет (живёт 10 минут, 23.10). Общая нота
+    и для смены варианта; ссылки maib в письме нет (живёт минуты, maib.PAY_TTL). Общая нота
     кабинета (26.10) — плательщику, со строками по клиникам."""
     if p["kind"] == payments.CABINET:
         c = _clinic(con, p["clinic_id"])
@@ -1342,7 +1342,7 @@ def _send_payment_letter(con, c, p, who: str) -> str:
 
 
 def _settle_now(con, p, who: str) -> str:
-    """Спросить maib и применить: код для ?msg=. Истина — pay-info, не callback и не кнопка."""
+    """Спросить maib и применить: код для ?msg=. Истина — статус checkout, не callback и не кнопка."""
     truth = maib.info(p["provider_id"])
     outcome = payments.settle(con, p, truth, who)
     if outcome == payments.SETTLED_PAID:
@@ -1405,20 +1405,22 @@ def payment_link(request: Request, pid: int) -> Response:
     return RedirectResponse(f"{back}?msg={code}", status_code=303)
 
 
-def _maib_callback(raw: bytes) -> Response:
-    """Сигнал от maib после оплаты. Подпись — фильтр от чужих; истина — pay-info
-    (инвариант 2); второй callback того же платежа ничего не делает (3).
-    Ответы: 400 битый или подпись не сошлась, 404 платёж не наш, 503 maib не
-    ответил про статус (пусть повторит), 200 — принято, с исходом."""
+def _maib_callback(raw: bytes, signature: str, timestamp: str) -> Response:
+    """Сигнал от maib после оплаты. Подпись (заголовки X-Signature и
+    X-Signature-Timestamp над СЫРЫМ телом) — фильтр от чужих; истина — статус
+    checkout у maib (инвариант 2); второй callback того же платежа ничего не делает (3).
+    Ответы: 400 подпись не сошлась или тело не по форме, 404 платёж не наш, 503 maib
+    не ответил про статус (пусть повторит), 200 — принято, с исходом."""
+    if not maib.verify(raw, signature, timestamp):
+        log.warning("maib callback: подпись не сошлась или метка не свежая")
+        return JSONResponse({"ok": False, "code": "bad_signature"}, status_code=400)
     try:
-        payload = json.loads(raw.decode("utf-8"))
+        result = json.loads(raw.decode("utf-8"))
     except (ValueError, UnicodeDecodeError):
         return JSONResponse({"ok": False, "code": "bad_json"}, status_code=400)
-    result = maib.signed(payload)
-    if result is None:
-        log.warning("maib callback: подпись не сошлась или тело не по форме")
-        return JSONResponse({"ok": False, "code": "bad_signature"}, status_code=400)
-    pay_id = result.get("payId")
+    if not isinstance(result, dict):
+        return JSONResponse({"ok": False, "code": "bad_json"}, status_code=400)
+    pay_id = result.get("checkoutId")
     with db.connect() as con:
         p = payments.by_pay_id(con, pay_id) if isinstance(pay_id, str) and pay_id else None
     if p is None:
@@ -1440,12 +1442,14 @@ def _maib_callback(raw: bytes) -> Response:
 
 @app.post(maib.CALLBACK_PATH)
 async def maib_callback(request: Request) -> Response:
-    return await run_in_threadpool(_maib_callback, await request.body())
+    return await run_in_threadpool(_maib_callback, await request.body(),
+                                   request.headers.get("x-signature", ""),
+                                   request.headers.get("x-signature-timestamp", ""))
 
 
 def _returned(pay_id: str):
-    """Платёж, о котором браузер вернулся от maib, — по payId (неугадываемый id maib, любая
-    попытка ноты). ⛔ По orderId (= наш reference) не искать: он порядковый
+    """Платёж, о котором браузер вернулся от maib, — по checkoutId (неугадываемый id maib,
+    любая попытка ноты). ⛔ По orderId (= наш reference) не искать: он порядковый
     (DP-2026-000123), и страница по нему показывала бы чужие ноты; а после зачёта
     повторного платежа он и не совпадает с reference строки. Нота ещё ждёт, а maib
     настроен — сразу спросить maib о ЭТОЙ попытке и применить ответ (settle: та же
@@ -1469,16 +1473,18 @@ def _returned(pay_id: str):
 
 
 @app.get(maib.OK_PATH, response_class=HTMLResponse)
-def pay_ok(payId: str = "", orderId: str = "") -> Response:  # noqa: N803 — имена параметров maib
-    """Куда maib возвращает браузер после оплаты. Редирект — не истина: «plătită» страница
-    говорит только о ноте, которую сервер уже закрыл по ответу maib (settle); иначе —
-    «în curs de confirmare». № заказа, что оплачивается, сумма и дата — требование maib."""
-    return HTMLResponse(views.pay_page(True, _returned(payId)))
+def pay_ok(checkoutId: str = "", checkoutStatus: str = "", orderId: str = "") -> Response:  # noqa: N803 — имена maib
+    """Куда maib возвращает браузер после оплаты (Checkout дописывает checkoutId,
+    checkoutStatus — Completed или Failed — и orderId). Редирект — не истина, и
+    checkoutStatus тоже: «plătită» страница говорит только о ноте, которую сервер уже
+    закрыл по ответу maib (settle); иначе — «în curs de confirmare». № заказа, что
+    оплачивается, сумма и дата — требование maib."""
+    return HTMLResponse(views.pay_page(True, _returned(checkoutId)))
 
 
 @app.get(maib.FAIL_PATH, response_class=HTMLResponse)
-def pay_fail(payId: str = "", orderId: str = "") -> Response:  # noqa: N803
-    return HTMLResponse(views.pay_page(False, _returned(payId)))
+def pay_fail(checkoutId: str = "", checkoutStatus: str = "", orderId: str = "") -> Response:  # noqa: N803
+    return HTMLResponse(views.pay_page(False, _returned(checkoutId)))
 
 
 def _payment(con, pid: int):

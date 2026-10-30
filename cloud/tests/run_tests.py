@@ -80,7 +80,7 @@ SUITES = [
     ("Сервер: карта maib — ежедневная задача, maib молчит", test_maib.suite_daily),
     ("Сервер: карта maib — второй платёж по закрытой ноте зачитывается", test_maib.suite_duplicate),
     ("Сервер: карта maib — без DP_MAIB_* всё как в шаге 1", test_maib.suite_off),
-    ("Провод maib: подпись по образцу документации, поля /pay, pay-info, токен, 403, возврат", test_maib.suite_wire),
+    ("Провод maib Checkout: подпись по образцу документации, поля checkout, статусы, токен, 403, возврат", test_maib.suite_wire),
     ("Сервер: форма пробного — правила: ящик, поля, лимиты", test_trial.suite_rules),
     ("Сервер: форма пробного — auto, один пробный на IDNO/e-mail, спам", test_trial.suite_auto),
     ("Сервер: форма пробного — approve, кнопки, скрыть", test_trial.suite_approve),

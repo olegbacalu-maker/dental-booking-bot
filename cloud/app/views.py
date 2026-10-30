@@ -1289,7 +1289,8 @@ def _pay_pane(c, sub, st: str, payments: list, reminders: list, now: datetime) -
     if maib.enabled():
         method = ("<div><label>Как платит клиника</label><select name='method'>"
                   "<option value='transfer'>Переводом — реквизиты и reference в письме</option>"
-                  "<option value='card'>Картой — ссылка maib сразу, в таблице (живёт 10 минут); в письме — "
+                  f"<option value='card'>Картой — ссылка maib сразу, в таблице (живёт {maib.PAY_TTL // 60} минут); "
+                  "в письме — "
                   "страница оплаты с галочкой</option>"
                   "</select></div>")
     else:

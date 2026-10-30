@@ -82,7 +82,7 @@ def bank_lines(reference: str, amount: int) -> str:
 _REFERENCE_NOTE = ("Important: indicați neapărat referința {reference} în destinația plății — după ea "
                    "recunoaștem plata dumneavoastră. După confirmare termenul se prelungește automat în "
                    "program; primiți confirmarea pe e-mail.")
-# Карта — на НАШЕЙ странице оплаты (23.10): ссылка maib живёт 10 минут (maib.PAY_TTL) и
+# Карта — на НАШЕЙ странице оплаты (23.10): ссылка maib живёт минуты (maib.PAY_TTL) и
 # рождается по кнопке после галочки условий (требование maib), поэтому в письме её нет.
 # Значков и названий Apple Pay / Google Pay нет, пока maib их не включит (Олег 23.10).
 CARD_NOTE = "Plata cu cardul — pe pagina de plată DentPilot (bifați Termenii și condițiile, apoi „Plătește cu cardul”):"

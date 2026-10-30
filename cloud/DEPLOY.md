@@ -131,15 +131,20 @@ openssl rand -hex 32                                                     # → D
 `draft/cloud-legal` репозитория сайта и публикуется в день запуска
 сервера (`docs/site/README.md`); письма о заявках приходят на `DP_TRIAL_NOTIFY`.
 
-Карты (L12): в кабинете maibmerchants завести проект, взять `Project ID`,
-`Project Secret` и `Signature Key` → `DP_MAIB_*`; там же указать адреса
-возврата и callback — `https://cloud.dentpilot.md/pay/ok`, `/pay/fail`,
-`/v1/maib/callback` (сервер шлёт их и в каждом платеже). Пока три значения
-пусты, платежи идут только переводом, и это не ошибка. Провод сверен с
-документацией 23.10.2026; ⚠️ maib принимает запросы только с IP проекта
-(`79.143.180.16`, иначе 403), поэтому тестовый платёж и `python -m app.tools
-check` — с сервера. Callback приходит с 91.250.245.70 / .71 / .142 — их не
-закрывать. Порядок подключения — docs.maibmerchants.md/e-commerce › Integration steps.
+Карты (L12, maib e-Commerce Checkout, API v2): ключи проекта от банка —
+`ClientId`, `ClientSecret`, `SignatureKey` → `DP_MAIB_CLIENT_ID`,
+`DP_MAIB_CLIENT_SECRET`, `DP_MAIB_SIGNATURE_KEY`; `DP_MAIB_BASE_URL` — адрес без
+пути: тестовые ключи живут с `https://sandbox.maibmerchants.md`, боевые — с
+`https://api.maibmerchants.md` (адрес и ключи меняются вместе). Адреса возврата
+и callback — `https://cloud.dentpilot.md/pay/ok`, `/pay/fail`,
+`/v1/maib/callback` — сервер шлёт в каждом checkout. Пока три ключа пусты,
+платежи идут только переводом, и это не ошибка; `python -m app.tools check`
+говорит «токен получен… (Checkout v2, песочница|боевой …)». Провод сверен с
+документацией 30.10.2026; ⚠️ maib может закрыть доступ не с IP проекта
+(`79.143.180.16`, 403), поэтому тестовый платёж и `check` — с сервера. Callback
+подписан HMAC в заголовках `X-Signature` / `X-Signature-Timestamp`: метка
+дальше 10 минут от часов сервера отклоняется — часы сервера должны идти верно
+(NTP). Документация — docs.maibmerchants.md/checkout.
 
 ### Кабинет клиники (шаг 3, 01.10): OAuth-клиент Google
 

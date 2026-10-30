@@ -37,6 +37,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
@@ -262,12 +263,20 @@ def check() -> list[tuple[str, str]]:
     if maib.enabled():
         try:
             maib.token()
-            out.append((OK, f"maib: токен получен, оплата картой включена ({config.MAIB_BASE_URL}); "
-                            f"callback {config.BASE_URL.rstrip('/')}{maib.CALLBACK_PATH}"))
+            where = "песочница" if "sandbox" in config.MAIB_BASE_URL else "боевой"
+            out.append((OK, f"maib: токен получен, оплата картой включена (Checkout v2, {where} "
+                            f"{config.MAIB_BASE_URL}); callback {config.BASE_URL.rstrip('/')}{maib.CALLBACK_PATH}"))
         except maib.MaibError as e:
             out.append((BAD, f"maib не отвечает: {e}"))
+        if urllib.parse.urlsplit(config.MAIB_BASE_URL).path.strip("/"):
+            out.append((WARN, f"DP_MAIB_BASE_URL={config.MAIB_BASE_URL}: адрес с путём — провод сам дописывает "
+                              "/v2/…; нужен адрес без пути (https://api.maibmerchants.md или песочница)"))
     else:
         out.append((WARN, "DP_MAIB_* пусты: оплата картой выключена, платежи только переводом"))
+    stale = [n for n in ("DP_MAIB_PROJECT_ID", "DP_MAIB_PROJECT_SECRET") if os.environ.get(n)]
+    if stale:
+        out.append((WARN, f"{', '.join(stale)}: имена e-Commerce v1, провод их не читает — ключи Checkout "
+                          "в DP_MAIB_CLIENT_ID / DP_MAIB_CLIENT_SECRET"))
     # SMS-пакет (S3): токен sms.md живёт только здесь; баланс — проверка, что токен принят и с правом account:read
     if smsmd.enabled():
         try:

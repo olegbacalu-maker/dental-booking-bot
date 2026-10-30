@@ -18,7 +18,7 @@ cloud.md › «Напоминания». Запуск раз в сутки из 
 остальных. Состояние по-прежнему не хранится: окна считаются от дат.
 
 Карты (L12; с 23.10): письма периода несут страницу оплаты клиники
-(paylink.for_mail) рядом с reference — ссылка maib живёт 10 минут и рождается
+(paylink.for_mail) рядом с reference — ссылка maib живёт минуты (maib.PAY_TTL) и рождается
 только по клику на этой странице, после галочки условий. Вторая забота задачи —
 спросить maib про каждую попытку оплаты картой без окончательного ответа:
 callback мог не дойти, а истина всё равно у maib.
@@ -129,7 +129,7 @@ def _one(con: sqlite3.Connection, row: sqlite3.Row, now: datetime, send, who: st
     if row["plan"] != "trial":
         p = open_payment(con, row, who)
         # карта — на странице оплаты клиники, кнопкой после галочки условий (23.10): ссылка maib
-        # живёт 10 минут и рождается по клику, поэтому письмо несёт НАШУ страницу, не ссылку maib
+        # живёт минуты (maib.PAY_TTL) и рождается по клику, поэтому письмо несёт НАШУ страницу, не ссылку maib
         page = paylink.for_mail(con, row, who)
         pay = {"reference": p["reference"], "amount": int(p["amount"]), "months": int(p["months"]),
                "url": page if maib.enabled() else None, "page": page, "tier": p["tier"]}
@@ -156,7 +156,7 @@ ATTEMPT_DAYS = 30      # попытку без окончательного от
 
 def settle_cards(who: str, rep: Report) -> None:
     """Каждая попытка оплаты картой без окончательного ответа maib (pay_attempts.final = 0):
-    спросить pay-info и применить (payments.settle). Callback мог не дойти; истина у maib
+    спросить статус checkout (maib.info) и применить (payments.settle). Callback мог не дойти; истина у maib
     и без него. Окончательный ответ (OK, FAILED, TIMEOUT протухшей ссылки) закрывает
     попытку — назавтра её не спрашивают, и «card_failed» не пишется каждый день (23.10).
     Оплачено — файл письмом, как из админки. maib не ответил — в отчёт, не в

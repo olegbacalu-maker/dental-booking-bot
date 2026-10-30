@@ -75,7 +75,7 @@ MIGRATIONS = {
         "ALTER TABLE clinics ADD COLUMN renew_seq INTEGER",
     ],
     # L12, карты: адрес hosted-страницы maib и последний статус, который назвал
-    # сам maib (pay-info). `provider_id` (payId) и его UNIQUE — с первой схемы.
+    # сам maib (статус по id). `provider_id` (payId; с 30.10 — checkoutId Checkout) и его UNIQUE — с первой схемы.
     3: [
         "ALTER TABLE payments ADD COLUMN pay_url TEXT",
         "ALTER TABLE payments ADD COLUMN provider_status TEXT NOT NULL DEFAULT ''",
@@ -225,7 +225,7 @@ MIGRATIONS = {
     # когда клиника отметила «Am citit și accept Termenii» перед этой оплатой (требование
     # maib; у нот админки и ежедневной задачи пусто). Всё, что было до шага, — Plus: пробный
     # и прежний единственный тариф включали SMS; цены существующих подписок не трогаются.
-    # Там же — попытки оплаты картой: ссылка maib живёт 10 минут (maib.PAY_TTL), поэтому она
+    # Там же — попытки оплаты картой: ссылка maib живёт минуты (maib.PAY_TTL), поэтому она
     # создаётся по клику «Plătește cu cardul», и у одной ноты их может быть несколько.
     # `payments.provider_id`/`pay_url` — последняя; `pay_attempts` — КАЖДАЯ: оплата во вкладке
     # со старой ссылкой должна узнаваться (callback, задача), а не прийти «не нашей».

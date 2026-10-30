@@ -250,25 +250,25 @@ def suite_flow(res: Result) -> None:
                   admin.post(f"/admin/clinics/{cid2}/tier", tier="basic").location, f"/admin/clinics/{cid2}?msg=tier_trial")
         res.check("и у оплатившей клиники без галочки нота не создаётся — need_terms",
                   anon.post(path, tier="plus", months="1", method="transfer").location, f"{path}?msg=need_terms")
-        # страница возврата maib: по payId, не по reference
+        # страница возврата maib: по checkoutId, не по reference
         ref = _sql(s, "SELECT reference FROM payments WHERE id=?", pid)[0][0]
         _sql(s, "UPDATE payments SET provider_id='pay-ok-test-uuid' WHERE id=?", pid)
-        ok = Client(s.url).get(f"/pay/ok?payId=pay-ok-test-uuid&orderId={ref}")
+        ok = Client(s.url).get(f"/pay/ok?checkoutId=pay-ok-test-uuid&orderId={ref}")
         res.ok("/pay/ok: № заказа, что оплачено, сумма, «plătită» только раз сервер закрыл ноту, поставщик",
                ok.status == 200 and ref in ok.body and "Abonament DentPilot Plus, 1 lună" in ok.body
                and f"{views._mdl(pp)} MDL" in ok.body and "plătită" in ok.body and "Oleg Bacalu" in ok.body
                and "Mulțumim" in ok.body, ok.body[-1500:])
         res.ok("/pay/ok по одному reference (порядковому) ничего не показывает",
                ref not in Client(s.url).get(f"/pay/ok?orderId={ref}").body)
-        res.ok("/pay/ok с неизвестным payId — без подробностей",
-               ref not in Client(s.url).get(f"/pay/ok?payId=nu-exista&orderId={ref}").body)
+        res.ok("/pay/ok с неизвестным checkoutId — без подробностей",
+               ref not in Client(s.url).get(f"/pay/ok?checkoutId=nu-exista&orderId={ref}").body)
         anon.post(path, tier="plus", months="12", method="transfer", terms="1")
         pend = _sql(s, "SELECT id, reference FROM payments WHERE clinic_id=? AND status='pending'", cid)[0]
         _sql(s, "UPDATE payments SET provider_id='pay-wait-uuid' WHERE id=?", pend[0])
-        ok = Client(s.url).get(f"/pay/ok?payId=pay-wait-uuid&orderId={pend[1]}")
+        ok = Client(s.url).get(f"/pay/ok?checkoutId=pay-wait-uuid&orderId={pend[1]}")
         res.ok("/pay/ok до ответа maib — «în curs de confirmare», не «plătită»",
                pend[1] in ok.body and "în curs de confirmare" in ok.body and "plătită" not in ok.body, ok.body[-1200:])
-        fail = Client(s.url).get(f"/pay/fail?payId=pay-wait-uuid&orderId={pend[1]}")
+        fail = Client(s.url).get(f"/pay/fail?checkoutId=pay-wait-uuid&orderId={pend[1]}")
         res.ok("/pay/fail: № заказа и как ещё оплатить", "nu a reușit" in fail.body and pend[1] in fail.body
                and "transfer bancar" in fail.body)
 
@@ -369,7 +369,7 @@ def suite_card(res: Result) -> None:
     """Карта по клику (23.10): ссылка maib живёт 10 минут (maib.PAY_TTL) — письмо несёт нашу
     страницу, ссылка рождается кнопкой за галочкой; у ноты может быть несколько попыток, и
     оплата во вкладке со старой ссылкой узнаётся; задача не пишет card_failed каждый день."""
-    from test_maib import CALLBACK, FakeMaib, _payment
+    from test_maib import FakeMaib, _payment
     fake = FakeMaib()
     try:
         with Server(env={**BANK_ENV, **SMS_ENV, **fake.env}) as s:
@@ -384,7 +384,7 @@ def suite_card(res: Result) -> None:
             body = _letters(s)[-1][2]
             res.ok("нота переводом: ссылки maib нет ни в строке, ни в письме; письмо ведёт на страницу оплаты",
                    r.location.endswith("msg=note_created") and not p["provider_id"] and fake.calls["pay"] == 0
-                   and "/plata/" in body and "maib.ecommerce.md" not in body and mail.CARD_NOTE in body, body[:800])
+                   and "/plata/" in body and "checkout.maib.md" not in body and mail.CARD_NOTE in body, body[:800])
             r = anon.post(path, tier="basic", months="1", method="card", terms="1")
             p1 = _payment(s, cid)
             res.ok("клик «Plătește cu cardul»: ссылка рождается сейчас, браузер на неё",
@@ -403,20 +403,20 @@ def suite_card(res: Result) -> None:
             res.check("обе попытки записаны", _sql(s, "SELECT count(*) FROM pay_attempts WHERE payment_id=?", p2["id"]),
                       [(2,)])
             # клиника заплатила во вкладке со СТАРОЙ ссылкой — callback по старому payId
-            fake.set_status(old_pid, "OK")
-            r = anon.post_raw(CALLBACK, fake.callback(old_pid))
+            fake.set_status(old_pid, "Completed")
+            r = fake.post(anon, old_pid)
             res.ok("callback по прежней попытке — наш, нота оплачена (не 404)",
                    r.status == 200 and json.loads(r.body).get("outcome") == "paid"
                    and _payment(s, cid)["status"] == "paid", f"{r.status} {r.body}")
             res.check("вариант после оплаты прежней попыткой — Basic", _subrow(s, cid)[1], "basic")
             res.ok("повторный callback той же попытки — already",
-                   json.loads(anon.post_raw(CALLBACK, fake.callback(old_pid)).body).get("outcome") == "already")
+                   json.loads(fake.post(anon, old_pid).body).get("outcome") == "already")
             # задача: протухшая попытка — один окончательный ответ, без card_failed, назавтра не спрашивает
-            fake.set_status(p2["provider_id"], "TIMEOUT")
+            fake.set_status(p2["provider_id"], "Expired")
             info0 = fake.calls["info"]
             rc, out = _run(s, datetime.now(UTC).date())
             rc2, out2 = _run(s, datetime.now(UTC).date())
-            res.ok("TIMEOUT протухшей ссылки: maib спрошен один раз, card_failed не пишется",
+            res.ok("Expired (TIMEOUT) протухшей ссылки: maib спрошен один раз, card_failed не пишется",
                    fake.calls["info"] == info0 + 1
                    and _sql(s, "SELECT count(*) FROM audit WHERE what='card_failed'")[0][0] == 0
                    and _sql(s, "SELECT final FROM pay_attempts WHERE provider_id=?", p2["provider_id"]) == [(1,)],
@@ -437,8 +437,8 @@ def suite_card(res: Result) -> None:
             res.ok("клик на ноте SMS: ссылка maib родилась сейчас", r.status == 303 and r.location == sp[1]
                    and sp[0] in fake.pays, f"{r.location} {sp}")
             # страница возврата: maib уже сказал OK — сервер применяет сразу и говорит «plătită»
-            fake.set_status(sp[0], "OK")
-            ok = Client(s.url).get(f"/pay/ok?payId={sp[0]}&orderId={sms_ref}")
+            fake.set_status(sp[0], "Completed")
+            ok = Client(s.url).get(f"/pay/ok?checkoutId={sp[0]}&orderId={sms_ref}")
             res.ok("/pay/ok: спросил maib о попытке, нота SMS оплачена, «plătită»",
                    "plătită" in ok.body and sms_ref in ok.body
                    and _sql(s, "SELECT status FROM payments WHERE reference=?", sms_ref) == [("paid",)], ok.body[-1200:])

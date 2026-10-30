@@ -24,7 +24,7 @@ DP_ADMIN_HASH=$(python -m app.tools hash-password) DP_LICENSE_KEY=../tests/fixtu
 | `DP_SMTP_HOST/PORT/USER/PASS`, `DP_MAIL_FROM` | почта; без хоста письма ложатся файлами в `DP_MAIL_OUTBOX` |
 | `DP_BANK_BENEFICIARY`, `DP_BANK_IBAN`, `DP_BANK_NAME`, `DP_BANK_CODE` | реквизиты в письме о переводе; без них платёж создаётся, письмо не уходит. Те же — продавец на cont de plată (17.10), плюс `DP_SELLER_ADDRESS` — его адрес |
 | `DP_PRICE_BASIC`, `DP_PRICE_PLUS` | прайс абонемента, лей за месяц (23.10): DentPilot Basic без модуля SMS и Plus с ним, год — 11 месяцев; ⛔ цены только здесь, не в репозитории; пусто — вариант не продаётся (`check` предупреждает). Разбор — cloud.md › «Оплата › Шаг 4» |
-| `DP_MAIB_PROJECT_ID`, `DP_MAIB_PROJECT_SECRET`, `DP_MAIB_SIGNATURE_KEY` | проект maib ecommerce (L12): оплата картой по ссылке; пусто — только переводом. `DP_MAIB_BASE_URL` — адрес API, меняют только тесты |
+| `DP_MAIB_CLIENT_ID`, `DP_MAIB_CLIENT_SECRET`, `DP_MAIB_SIGNATURE_KEY` | проект maib e-Commerce Checkout (L12, API v2): оплата картой на странице банка; пусто — только переводом. `DP_MAIB_BASE_URL` — адрес API без пути: боевой `https://api.maibmerchants.md` (по умолчанию) или песочница `https://sandbox.maibmerchants.md` (со своими ключами) |
 | `DP_TRIAL_MODE`, `DP_TRIAL_NOTIFY` | заявка на пробный (`/proba` и из программы): `auto` — файл сразу, программа включается в момент заявки (боевой режим с 26.09, `cloud.env.example`); `approve` (умолчание кода) — заявка ждёт кнопки в админке; письмо о каждой заявке на `DP_TRIAL_NOTIFY` (пусто = ящик поддержки) |
 | `DP_DECLARATION` | подписанный PDF декларации поставщика (закон 195, текст — `docs/site/declaratie-195.html`): вложением в каждое письмо с файлом лицензии; пусто или не PDF — письма без него, `check` предупреждает |
 | `DP_CONTRACT`, `DP_DPA` | договор лицензии и соглашение об обработке данных — PDF, подписанные Олегом один раз на версию (дата в имени файла = версия): клиника скачивает их в кабинете, `/cont/documente`, и может загрузить экземпляр со своей подписью (`data/contracts/`, вывозит `pull-backups.ps1`); пусто — «ещё не выложен», `check` предупреждает |
@@ -152,12 +152,13 @@ sms.md, раздел «SMS» админки `GET /admin/sms` и JSON `GET /admin
 ссылку на hosted-страницу maib и, если есть реквизиты, перевод с тем же
 reference — долг один. После оплаты maib зовёт
 `POST /v1/maib/callback`; подпись проверяется, и всё равно статус
-спрашивается у maib (`pay-info`) — только его `OK` продлевает срок и выдаёт
+спрашивается у maib (статус checkout) — только `Completed` с исполненным
+платежом продлевает срок и выдаёт
 файл, второй callback ничего не делает. Тот же вопрос задают кнопка
 «Проверить» и ежедневная задача — callback не обязан дойти. Статус не OK —
 платёж остаётся в ожидании со словами maib в карточке; «Новая ссылка» даёт
 новую попытку на тот же reference. Страницы возврата — `/pay/ok`, `/pay/fail`.
-⚠️ Имена методов maib — по их документации на 25.09, сверить в песочнице
+Провод — maib e-Commerce Checkout API v2, сверен с документацией 30.10.2026
 (`app/maib.py`).
 
 **Автообновление файла (L13)** — в каждый выданный файл едет `renew`: адрес
