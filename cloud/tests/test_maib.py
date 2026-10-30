@@ -819,7 +819,8 @@ def suite_wire(res: Result) -> None:
         for st, pst, want in (("Initialized", None, "PENDING"), ("PaymentMethodSelected", None, "PENDING"),
                               ("Expired", None, "TIMEOUT"), ("Abandoned", None, "TIMEOUT"),
                               ("Cancelled", None, "CANCELLED"), ("Failed", None, "FAILED"),
-                              ("Somewhere", None, "PENDING")):
+                              ("Somewhere", None, "PENDING"),
+                              ("Waitingforinit", None, "CREATED")):     # так ответила живая песочница 30.10
             fake.set_status(cid, st)
             res.check(f"статус: {st} → {want}", maib.info(cid)["status"], want)
         res.ok("незнакомый статус — ожидание и строка в логе",
@@ -840,6 +841,9 @@ def suite_wire(res: Result) -> None:
         res.ok("Completed/Executed → OK, paymentId платежа, способ оплаты",
                got["status"] == "OK" and got["paymentId"] == fake.pays[cid]["payment"]["paymentId"]
                and got["statusCode"] == "Completed/Executed" and got["statusMessage"] == "Card", got)
+        fake.pays[cid]["status"], fake.pays[cid]["payment"]["status"] = "COMPLETED", "executed"
+        res.check("регистр слов maib не важен: COMPLETED/executed → OK", maib.info(cid)["status"], "OK")
+        fake.pays[cid]["status"], fake.pays[cid]["payment"]["status"] = "Completed", "Executed"
         r = maib.refund(cid)
         rq = fake.heads[-1]
         res.ok("полный возврат: Created, refundId, запрос на /v2/payments/{paymentId}/refund",

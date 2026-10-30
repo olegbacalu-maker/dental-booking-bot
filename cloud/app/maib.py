@@ -63,14 +63,16 @@ STATUS_OK = "OK"                        # единственный наш ста
 WAITING = ("CREATED", "PENDING")        # платёж ещё идёт; FAILED, CANCELLED, TIMEOUT — не прошёл
 PAY_TTL = 25 * 60                       # ⚠️ checkout живёт expiresAt − createdAt: 25 минут в примере документации
 SIGNATURE_SKEW = 10 * 60                # секунд: метка callback дальше от наших часов — повтор чужого, не принимать
-REFUNDED = ("Created", "Requested", "Accepted")   # возврат принят банком; Rejected, Manual — нет
+REFUNDED = ("created", "requested", "accepted")   # возврат принят банком; Rejected, Manual — нет (без регистра)
 DESCRIPTION_MAX = 125                   # orderInfo.description, знаков
 _EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 
 # Статус checkout → наш (payments.settle). Completed — только вместе со статусом платежа.
-_WAIT = {"WaitingForInit": "CREATED", "Initialized": "PENDING", "PaymentMethodSelected": "PENDING"}
-_GONE = {"Expired": "TIMEOUT", "Abandoned": "TIMEOUT", "Cancelled": "CANCELLED", "Failed": "FAILED"}
-_PAID = ("Executed", "PartiallyRefunded")       # деньги у нас (частичный возврат — не повод отнять срок)
+# ⚠️ Сравнение без регистра: живая песочница 30.10 ответила «Waitingforinit», а документация
+# пишет «WaitingForInit» — слово «Completed» в другом регистре оставило бы оплату «ожиданием».
+_WAIT = {"waitingforinit": "CREATED", "initialized": "PENDING", "paymentmethodselected": "PENDING"}
+_GONE = {"expired": "TIMEOUT", "abandoned": "TIMEOUT", "cancelled": "CANCELLED", "failed": "FAILED"}
+_PAID = ("executed", "partiallyrefunded")       # деньги у нас (частичный возврат — не повод отнять срок)
 
 
 class MaibError(RuntimeError):
@@ -227,18 +229,19 @@ def ours(c: dict) -> dict:
     st = str(c.get("status") or "")
     p = _payment_of(c)
     pst = str(p.get("status") or "")
-    if st == "Completed" and pst in _PAID:
+    s, ps = st.lower(), pst.lower()
+    if s == "completed" and ps in _PAID:
         status = STATUS_OK
-    elif st == "Completed" and pst == "Refunded":
+    elif s == "completed" and ps == "refunded":
         status = "REFUNDED"
-    elif st == "Completed" and pst == "Failed":
+    elif s == "completed" and ps == "failed":
         status = "FAILED"
-    elif st in _GONE:
-        status = _GONE[st]
-    elif st in _WAIT:
-        status = _WAIT[st]
+    elif s in _GONE:
+        status = _GONE[s]
+    elif s in _WAIT:
+        status = _WAIT[s]
     else:
-        if st != "Completed":
+        if s != "completed":
             log.warning("maib: незнакомый статус checkout %r — считаю ожиданием", st)
         status = "PENDING"
     return {"payId": c.get("id"), "status": status, "statusCode": "/".join(x for x in (st, pst) if x),
@@ -279,7 +282,7 @@ def refund(checkout_id: str, amount: int | float | None = None,
             raise MaibError(f"refund: вернуть нечего ({bank.get('status')}, refundableAmount={amount!r})")
     r = _authed("POST", f"/v2/payments/{_id(pid)}/refund", {"amount": float(amount), "reason": reason[:500]})
     status = str(r.get("status") or "")
-    if status not in REFUNDED:
+    if status.lower() not in REFUNDED:
         raise MaibError(f"refund: {status or 'без статуса'}")
     return dict(r, paymentId=pid)
 
