@@ -567,7 +567,10 @@ def suite_live(res: Result) -> None:
                 # доставка: опрос у сервера, летопись
                 stand.states = {1: "delivered", 2: "undelivered"}
                 clock.set(_at(*fri, 21, 40))
-                rows = _wait(lambda: [r for r in _sms_log(d) if r["cloud_id"] in (1, 2) and r["state"] != "sent"] or None)
+                # ждать ОБЕ строки: на медленном раннере опрос успевает перевести одну, и ожидание,
+                # отпускающее по первой, роняло проверку (CI 30.10 на b9d28f7)
+                rows = _wait(lambda: (lambda xs: xs if len(xs) == 2 else None)(
+                    [r for r in _sms_log(d) if r["cloud_id"] in (1, 2) and r["state"] != "sent"]))
                 res.ok("опрос доставки: 1 — delivered, 2 — undelivered",
                        rows and {r["cloud_id"]: r["state"] for r in rows} == {1: "delivered", 2: "undelivered"}, repr(rows))
                 ev = _wait(lambda: [t for t in _events(d, a_pid) if t.startswith(("SMS livrat", "SMS nelivrat"))] or None)
