@@ -26,7 +26,7 @@ reference как следующий период (`credit_again`) — карто
 на callback, кнопку «Проверить» и ежедневную задачу: оплачено только то, про
 что сам maib (статус checkout, maib.info) сказал OK; второй раз ничего не продлевается.
 С 23.10 ссылка maib живёт минуты (maib.PAY_TTL): клинике её даёт только клик
-«Plătește cu cardul» на странице оплаты (`card_link`), письма несут нашу
+«Plătește cu cardul» на странице оплаты (`card_plan` → `card_ask` → `card_record`), письма несут нашу
 страницу; у ноты может быть несколько попыток — все в `pay_attempts`, и любая
 узнаётся (`by_pay_id`), чтобы оплата во вкладке со старой ссылкой не потерялась.
 
@@ -51,6 +51,7 @@ from __future__ import annotations
 import calendar
 import contextlib
 import sqlite3
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from . import db, license, maib, mail, receipts, sms, tiers
@@ -378,60 +379,102 @@ def by_pay_id(con: sqlite3.Connection, pay_id: str | None) -> sqlite3.Row | None
     return con.execute("SELECT * FROM payments WHERE provider_id=?", (pay_id,)).fetchone()
 
 
-def attach_card(con: sqlite3.Connection, payment: sqlite3.Row, clinic: sqlite3.Row, who: str,
-                client_ip: str = "127.0.0.1") -> sqlite3.Row:
-    """Ссылка maib к ожидающему платежу (L12): новый платёж у maib, payId и адрес
-    страницы — в строку (последняя попытка) и в pay_attempts; reference не меняется.
-    Прежние попытки остаются узнаваемыми. Бросает maib.MaibError, если maib не ответил.
-    ⚠️ Адрес живёт maib.PAY_TTL — клинике его даёт только клик (card_link), не письмо."""
-    if payment["status"] != PENDING:
-        raise ValueError("not_pending")
-    pay_id, pay_url = maib.create(int(payment["amount"]), payment["reference"],
-                                  f"DentPilot {payment['reference']}: {subject(payment, con)} — {clinic['name']}",
-                                  clinic["email"] or "", client_ip)
-    con.execute("UPDATE payments SET method=?, provider_id=?, pay_url=?, provider_status='' WHERE id=?",
-                (CARD, pay_id, pay_url, payment["id"]))
-    con.execute("INSERT INTO pay_attempts(provider_id, payment_id, pay_url, created_at) VALUES(?,?,?,?)",
-                (pay_id, payment["id"], pay_url, db.now_iso()))
-    db.audit(con, who, "card_link", clinic["id"], f"{payment['reference']}: maib {pay_id}")
-    return con.execute("SELECT * FROM payments WHERE id=?", (payment["id"],)).fetchone()
-
-
 LINK_MARGIN = 60          # секунд: ссылку старше PAY_TTL − запас клинике не отдаём — не успеет заплатить
-LINK = "link"             # исход card_link: адрес maib, куда вести браузер
+LINK = "link"             # исход card_record: адрес maib, куда вести браузер
+MAIB_FAILED = "maib_failed"   # исход card_record: maib не дал ссылку (нота остаётся как была)
 
 
-def card_link(con: sqlite3.Connection, payment: sqlite3.Row, clinic: sqlite3.Row, who: str,
-              client_ip: str = "127.0.0.1") -> tuple[str, str]:
-    """Кнопка «Plătește cu cardul» (после галочки условий) → (LINK, адрес maib) или
-    (SETTLED_PAID, '') — эта нота уже оплачена картой, maib только что это сказал.
+@dataclass
+class Card:
+    """Ссылка maib к ожидающей ноте в три шага (30.10, ревью транзакций): сеть — ВНЕ
+    транзакции. maib думает до maib.TIMEOUT на вызов; под замком записи это время ждали все
+    соседние записи (callback, /v1/license, кабинет), а дольше 10 с — «database is locked».
+    `card_plan` (в транзакции: снимок ноты и последней попытки) → commit → `card_ask` (без
+    базы: maib) → `card_record` (новая короткая транзакция: перечитать и записать)."""
+    payment_id: int
+    reference: str
+    amount: int
+    description: str
+    email: str
+    client_ip: str
+    last: sqlite3.Row | None            # последняя попытка без окончательного ответа maib
+    truth: dict | None = None           # ответ maib о ней (maib.info)
+    reuse: str = ""                     # её ссылка — ещё жива и молода, отдать снова
+    new: tuple[str, str] | None = None  # новая попытка у maib: (payId, адрес)
+    error: str = ""                     # maib не дал новую ссылку
 
-    Ссылка maib живёт PAY_TTL, поэтому она рождается по клику, а не заранее. Есть живая
-    попытка — сперва спросить maib о ней: OK → settle (оплачено; письмо — вызывающему);
-    ещё идёт и моложе PAY_TTL — та же ссылка (вторая вкладка не плодит платежей у maib);
-    иначе — новая попытка. maib молчит про прежнюю — новая, если прежняя стара.
-    ⛔ payId вслепую не заменяется: прежние попытки остаются в pay_attempts (by_pay_id)."""
+
+def card_plan(con: sqlite3.Connection, payment: sqlite3.Row, clinic: sqlite3.Row,
+              client_ip: str = "127.0.0.1") -> Card:
+    """Шаг 1, в транзакции вызывающего: всё, что maib нужно знать, — снимком.
+    ⛔ Не в ожидании — ValueError('not_pending')."""
     if payment["status"] != PENDING:
         raise ValueError("not_pending")
     last = attempt(con, payment["provider_id"])
-    if last is not None and not last["final"]:
+    return Card(payment["id"], payment["reference"], int(payment["amount"]),
+                f"DentPilot {payment['reference']}: {subject(payment, con)} — {clinic['name']}",
+                clinic["email"] or "", client_ip, last if last is not None and not last["final"] else None)
+
+
+def card_ask(card: Card, fresh: bool = False) -> Card:
+    """Шаг 2, вне транзакции: спросить maib. Кнопка «Plătește cu cardul»: есть живая попытка —
+    сперва её статус (OK — запишет settle; ещё идёт и моложе PAY_TTL − запас — та же ссылка,
+    вторая вкладка не плодит платежей у maib; maib молчит про неё — та же, если молода),
+    иначе новая попытка. `fresh` — «ссылка» админки: всегда новая (взамен не прошедшей).
+    Две вкладки разом могут создать у maib две попытки — card_record запишет обе."""
+    last = None if fresh else card.last
+    if last is not None:
         created = db.parse_ts(last["created_at"])
-        young = created is not None and (datetime.now(timezone.utc) - created).total_seconds() \
-            < maib.PAY_TTL - LINK_MARGIN
+        young = created is not None and \
+            (datetime.now(timezone.utc) - created).total_seconds() < maib.PAY_TTL - LINK_MARGIN
         try:
-            truth = maib.info(last["provider_id"])
+            card.truth = maib.info(last["provider_id"])
         except maib.MaibError:
-            truth = None
-        if truth is not None:
-            outcome = settle(con, payment, truth, who)
-            if outcome == SETTLED_PAID:
-                return SETTLED_PAID, ""
-            if outcome == SETTLED_WAITING and young:
-                return LINK, last["pay_url"]
-        elif young:
-            return LINK, last["pay_url"]
-    fresh = con.execute("SELECT * FROM payments WHERE id=?", (payment["id"],)).fetchone()
-    return LINK, attach_card(con, fresh, clinic, who, client_ip)["pay_url"]
+            card.truth = None
+        status = str((card.truth or {}).get("status") or "").upper()
+        if status == maib.STATUS_OK:
+            return card
+        if young and (card.truth is None or status in maib.WAITING):
+            card.reuse = last["pay_url"]
+            return card
+    try:
+        card.new = maib.create(card.amount, card.reference, card.description, card.email, card.client_ip)
+    except maib.MaibError as e:
+        card.error = str(e)
+    return card
+
+
+def card_record(con: sqlite3.Connection, card: Card, who: str) -> tuple[str, str, sqlite3.Row]:
+    """Шаг 3, под замком записи (`db.connect(immediate=True)`): перечитать ноту и записать, что
+    сказал maib. → (исход, адрес, платёж): (LINK, адрес maib) — вести браузер; (SETTLED_PAID, '')
+    — maib сказал «оплачено» (письмо — вызывающему, по возвращённому платежу); (SETTLED_ALREADY,
+    '') — нота закрылась, пока maib думал (callback, другая вкладка, админ); (MAIB_FAILED, текст).
+
+    Ответ о прежней попытке — через settle, единственный путь к `paid`. Новая попытка — в
+    pay_attempts всегда (⛔ payId вслепую не заменяется: прежние остаются узнаваемыми,
+    by_pay_id), в строку ноты (последняя) и журнал `card_link` — только пока нота ждёт."""
+    p = con.execute("SELECT * FROM payments WHERE id=?", (card.payment_id,)).fetchone()
+    if card.truth is not None and card.last is not None:
+        # попытка могла переехать на другую строку (зачёт повторного платежа) — платёж по ней
+        target = by_pay_id(con, card.last["provider_id"]) or p
+        outcome = settle(con, target, card.truth, who)
+        if outcome == SETTLED_PAID:
+            return SETTLED_PAID, "", target
+        p = con.execute("SELECT * FROM payments WHERE id=?", (card.payment_id,)).fetchone()
+    if card.new is not None:
+        pay_id, pay_url = card.new
+        con.execute("INSERT INTO pay_attempts(provider_id, payment_id, pay_url, created_at) VALUES(?,?,?,?)",
+                    (pay_id, card.payment_id, pay_url, db.now_iso()))
+        if p["status"] == PENDING:
+            con.execute("UPDATE payments SET method=?, provider_id=?, pay_url=?, provider_status='' WHERE id=?",
+                        (CARD, pay_id, pay_url, p["id"]))
+            db.audit(con, who, "card_link", p["clinic_id"], f"{p['reference']}: maib {pay_id}")
+            return LINK, pay_url, con.execute("SELECT * FROM payments WHERE id=?", (p["id"],)).fetchone()
+    if p["status"] != PENDING:
+        return SETTLED_ALREADY, "", p
+    if card.reuse:
+        return LINK, card.reuse, p
+    return MAIB_FAILED, card.error, p
 
 
 EXPIRED = "TIMEOUT"       # ссылка maib прожила PAY_TTL без оплаты: это не «карта не прошла»

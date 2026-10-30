@@ -391,7 +391,9 @@ def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method:
     maib, «Am citit și accept Termenii» перед оплатой. IDNO без него абонемента не
     бывает — заполняется тут же. Вариант не назван (старая страница) — текущий.
     `ref` — ожидающая нота SMS (пакет, имя) этой клиники: её карта, тем же путём.
-    Карта — `payments.card_link`: ссылка maib рождается по клику (живёт минуты, maib.PAY_TTL)."""
+    Карта — `_card_go`: ссылка maib рождается по клику (живёт минуты, maib.PAY_TTL).
+    Три шага: нота и снимок для maib — транзакцией; письмо с нотой и maib — после её commit,
+    вне замка записи; ответ maib — своей короткой (`_card_go`)."""
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     ip = _ip(request)
@@ -401,6 +403,7 @@ def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method:
     m = _months(months)
     idno = "".join(idno.split())
     card = method == payments.CARD and maib.enabled()
+    plan = None
     with payments.outbox() as box, db.connect(immediate=True) as con:
         c = paylink.lookup(con, pid)
         if c is None:
@@ -422,46 +425,56 @@ def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method:
                 return RedirectResponse(f"{back}?msg=note_gone", status_code=303)
             if not card:
                 return RedirectResponse(f"{back}?msg=no_card", status_code=303)
-            return _card_go(con, note, c, "program", ip, back, box)
-        if idno and idno != (c["idno"] or ""):
-            if not trial.IDNO_RE.match(idno):
-                return RedirectResponse(f"{back}?msg=bad_idno", status_code=303)
-            if account.idno_taken(con, idno, c["id"]):
-                return RedirectResponse(f"{back}?msg=idno_taken", status_code=303)
-            con.execute("UPDATE clinics SET idno=? WHERE id=?", (idno, c["id"]))
-            db.audit(con, "program", "clinic_edit", c["id"], f"IDNO {idno} (pagina de plată)")
-            c = _clinic(con, c["id"])
-        if len(c["idno"] or "") != 13:
-            return RedirectResponse(f"{back}?msg=pay_need_idno", status_code=303)
-        sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (c["id"],)).fetchone()
-        try:
-            p, outcome = payments.choose(con, c, tier or tiers.pick(sub), m, "program")
-        except ValueError as e:
-            return RedirectResponse(f"{back}?msg={'in_group' if str(e) == payments.HELD else 'tier_not_sold'}",
-                                    status_code=303)
-        if outcome != payments.EXISTS:
-            # новая нота — письмом и при карте: не дойдёт клиника до оплаты — реквизиты у неё есть
-            _send_payment_letter(con, c, p, "program")
-        if card:
-            return _card_go(con, p, c, "program", ip, back, box)
+            plan = payments.card_plan(con, note, c, ip)
+        else:
+            if idno and idno != (c["idno"] or ""):
+                if not trial.IDNO_RE.match(idno):
+                    return RedirectResponse(f"{back}?msg=bad_idno", status_code=303)
+                if account.idno_taken(con, idno, c["id"]):
+                    return RedirectResponse(f"{back}?msg=idno_taken", status_code=303)
+                con.execute("UPDATE clinics SET idno=? WHERE id=?", (idno, c["id"]))
+                db.audit(con, "program", "clinic_edit", c["id"], f"IDNO {idno} (pagina de plată)")
+                c = _clinic(con, c["id"])
+            if len(c["idno"] or "") != 13:
+                return RedirectResponse(f"{back}?msg=pay_need_idno", status_code=303)
+            sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (c["id"],)).fetchone()
+            try:
+                p, outcome = payments.choose(con, c, tier or tiers.pick(sub), m, "program")
+            except ValueError as e:
+                return RedirectResponse(f"{back}?msg={'in_group' if str(e) == payments.HELD else 'tier_not_sold'}",
+                                        status_code=303)
+            if outcome != payments.EXISTS:
+                # новая нота — письмом и при карте: не дойдёт клиника до оплаты — реквизиты у неё есть
+                box.add([(True, _payment_letter(con, c, p, "program"))])
+            if card:
+                plan = payments.card_plan(con, p, c, ip)
+    if plan is not None:
+        return _card_go(plan, "program", back)
     code = {payments.CREATED: "note_created", payments.REPLACED: "note_replaced"}.get(outcome, "note_exists")
     return RedirectResponse(f"{back}?msg={code}", status_code=303)
 
 
-def _card_go(con, p, c, who: str, ip: str, back: str, box: payments.Outbox) -> Response:
-    """Клик «Plătește cu cardul» → браузер на страницу maib (ссылка по клику, payments.card_link)
-    или назад с card_paid, если maib уже сказал «оплачено» (тогда и письмо об оплате — в `box`
-    вызывающего: зовут внутри его транзакции, письмо уходит после её commit)."""
-    try:
-        outcome, url = payments.card_link(con, p, c, who, ip)
-    except maib.MaibError as e:
-        log.warning("ссылка maib для %s не создана: %s", p["reference"], e)
-        return RedirectResponse(f"{back}{'&' if '?' in back else '?'}msg=maib_failed", status_code=303)
-    sep = "&" if "?" in back else "?"
-    if outcome == payments.SETTLED_PAID:
-        box.add(payments.notify_paid(con, p, who))
-        return RedirectResponse(f"{back}{sep}msg=card_paid", status_code=303)
-    return RedirectResponse(url, status_code=303)
+def _card_go(plan: payments.Card, who: str, back: str, gone: str = "note_gone") -> Response:
+    """Клик «Plătește cu cardul», шаги 2–3 (нота и снимок `plan` уже закоммичены вызывающим):
+    maib — вне транзакции (payments.card_ask), запись ответа — короткой под замком записи
+    (payments.card_record). → браузер на страницу maib или назад: card_paid (maib сказал
+    «оплачено» — письмо об оплате после commit; или нота уже оплачена картой), `gone` (нота
+    закрылась иначе, пока maib думал), maib_failed."""
+    payments.card_ask(plan)
+    with payments.outbox() as box, db.connect(immediate=True) as con:
+        outcome, url, p = payments.card_record(con, plan, who)
+        if outcome == payments.SETTLED_PAID:
+            box.add(payments.notify_paid(con, p, who))
+    if outcome == payments.LINK:
+        return RedirectResponse(url, status_code=303)
+    if outcome == payments.MAIB_FAILED:
+        log.warning("ссылка maib для %s не создана: %s", plan.reference, url)
+        code = "maib_failed"
+    elif outcome == payments.SETTLED_PAID or (p["status"] == payments.PAID and p["paid_via"] == payments.CARD):
+        code = "card_paid"
+    else:
+        code = gone
+    return RedirectResponse(f"{back}{'&' if '?' in back else '?'}msg={code}", status_code=303)
 
 
 # ---------- вход ----------
@@ -1250,8 +1263,10 @@ def payment_new(request: Request, cid: str, months: str = Form("1"), amount: str
                 send: str = Form(""), method: str = Form(payments.TRANSFER), tier: str = Form("")) -> Response:
     """Платёж: переводом (reference в письме) или картой (L12: плюс ссылка maib).
     Вариант — названный в форме, иначе текущий (tiers.pick); сумма пусто = по правилу
-    tiers.price. maib не ответил — строка откатывается вместе с транзакцией, reference
-    не потрачен, админ видит maib_failed."""
+    tiers.price. Три шага, как у страницы оплаты: нота — транзакцией, письмо и maib — после
+    её commit, ссылка — своей короткой. maib не ответил — нота остаётся (переводом, reference
+    уже её), админ видит maib_failed и позже жмёт «Ссылка на карту» (решение Олега Р1, 30.10:
+    иначе админка держала замок записи до 2 × maib.TIMEOUT, и в это время падали callback-и)."""
     if (deny := _guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
@@ -1260,61 +1275,67 @@ def payment_new(request: Request, cid: str, months: str = Form("1"), amount: str
     card = method == payments.CARD
     if card and not maib.enabled():
         return RedirectResponse(f"/admin/clinics/{cid}?msg=no_maib", status_code=303)
-    try:
-        with db.connect() as con:
-            c = _clinic(con, cid)
-            if c is None:
-                return Response(status_code=404)
-            sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (cid,)).fetchone()
-            t = tier if tier in tiers.TIERS else tiers.pick(sub)
-            if t not in tiers.TIERS:
-                return RedirectResponse(f"/admin/clinics/{cid}?msg=tier_not_sold", status_code=303)
-            try:
-                m = int(months)
-                # срок не из ряда — отказ даёт payments.create (bad_months), не KeyError здесь
-                a = (int(amount) if amount.strip()
-                     else payments.amount_for(sub, t, m) if m in payments.MONTHS else 1)
-            except ValueError:
-                return RedirectResponse(f"/admin/clinics/{cid}?msg=bad_amount", status_code=303)
-            if a <= 0 and not amount.strip():
-                # вариант без цены в cloud.env — сумму только руками
-                return RedirectResponse(f"/admin/clinics/{cid}?msg=tier_not_sold", status_code=303)
-            # вторая ожидающая нота не выставляется (03.10): кабинет, страница оплаты и
-            # ежедневная задача её не плодят — админка тоже; письмо с прежней — по галочке
-            # долг клиники — своя нота или общая нота кабинета, где она строкой (26.10)
-            pending = payments.debt_of(con, cid)
-            if pending is not None:
-                if card and not pending["pay_url"]:
-                    # карта к УЖЕ ожидающей ноте: ссылка maib к ней, reference прежний; maib молчит — maib_failed ниже
-                    pending = payments.attach_card(con, pending, c, who, _ip(request))
-                    code = "card_link"
-                    if send == "1":
-                        code = _send_payment_letter(con, c, pending, who) or "card_link_mailed"
-                else:
-                    code = "note_pending"
-                    if send == "1":
-                        code = _send_payment_letter(con, c, pending, who) or "note_pending_mailed"
-                return RedirectResponse(f"/admin/clinics/{cid}?msg={code}", status_code=303)
+    plan = None
+    with payments.outbox() as box, db.connect(immediate=True) as con:
+        c = _clinic(con, cid)
+        if c is None:
+            return Response(status_code=404)
+        sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (cid,)).fetchone()
+        t = tier if tier in tiers.TIERS else tiers.pick(sub)
+        if t not in tiers.TIERS:
+            return RedirectResponse(f"/admin/clinics/{cid}?msg=tier_not_sold", status_code=303)
+        try:
+            m = int(months)
+            # срок не из ряда — отказ даёт payments.create (bad_months), не KeyError здесь
+            a = (int(amount) if amount.strip()
+                 else payments.amount_for(sub, t, m) if m in payments.MONTHS else 1)
+        except ValueError:
+            return RedirectResponse(f"/admin/clinics/{cid}?msg=bad_amount", status_code=303)
+        if a <= 0 and not amount.strip():
+            # вариант без цены в cloud.env — сумму только руками
+            return RedirectResponse(f"/admin/clinics/{cid}?msg=tier_not_sold", status_code=303)
+        # вторая ожидающая нота не выставляется (03.10): кабинет, страница оплаты и
+        # ежедневная задача её не плодят — админка тоже; письмо с прежней — по галочке
+        # долг клиники — своя нота или общая нота кабинета, где она строкой (26.10)
+        p = payments.debt_of(con, cid)
+        if p is not None:
+            if card and not p["pay_url"]:
+                # карта к УЖЕ ожидающей ноте: ссылка maib к ней, reference прежний; maib молчит — maib_failed ниже
+                plan = payments.card_plan(con, p, c, _ip(request))
+                code = "card_link"
+            else:
+                code = "note_pending"
+        else:
             try:
                 p = payments.create(con, c, m, a, who, tier=t)
             except ValueError as e:
                 return RedirectResponse(f"/admin/clinics/{cid}?msg=bad_{e}", status_code=303)
             code = "payment_created"
             if card:
-                p = payments.attach_card(con, p, c, who, _ip(request))
+                plan = payments.card_plan(con, p, c, _ip(request))
                 code = "card_created"
-            if send == "1":
-                code = _send_payment_letter(con, c, p, who) or code + "_mailed"
-    except maib.MaibError as e:
-        log.error("maib: платёж клинике %s не создан: %s", cid, e)
-        return RedirectResponse(f"/admin/clinics/{cid}?msg=maib_failed", status_code=303)
+        if send == "1":
+            box.add([(True, _payment_letter(con, c, p, who))])
+    if send == "1":
+        code = box.code or code + "_mailed"
+    if plan is not None:
+        payments.card_ask(plan, fresh=True)
+        with db.connect(immediate=True) as con:
+            outcome, why, _ = payments.card_record(con, plan, who)
+        if outcome == payments.MAIB_FAILED:
+            log.error("maib: ссылка к ноте %s клиники %s не создана: %s", plan.reference, cid, why)
+            code = "maib_failed"
+        elif outcome != payments.LINK:
+            code = "payment_not_pending"
     return RedirectResponse(f"/admin/clinics/{cid}?msg={code}", status_code=303)
 
 
-def _send_payment_letter(con, c, p, who: str) -> str:
-    """Письмо с нотой абонемента: страница оплаты клиники (paylink.for_mail) — и для карты,
-    и для смены варианта; ссылки maib в письме нет (живёт минуты, maib.PAY_TTL). Общая нота
-    кабинета (26.10) — плательщику, со строками по клиникам."""
+def _payment_letter(con, c, p, who: str) -> mail.Letter | str:
+    """Письмо с нотой абонемента — СОБРАТЬ в транзакции (paylink.for_mail заводит ссылку
+    страницы оплаты — запись в базу), отправить после её commit (`payments.outbox`): SMTP до
+    30 с под замком записи валил соседние записи. Страница оплаты клиники — и для карты, и
+    для смены варианта; ссылки maib в письме нет (живёт минуты, maib.PAY_TTL). Общая нота
+    кабинета (26.10) — плательщику, со строками по клиникам. Код отказа: bad_email, no_bank."""
     if p["kind"] == payments.CABINET:
         c = _clinic(con, p["clinic_id"])
     if not c["email"]:
@@ -1330,13 +1351,8 @@ def _send_payment_letter(con, c, p, who: str) -> str:
                                                 page=page)
     except RuntimeError:
         return "no_bank"
-    try:
-        where = mail.send(c["email"], subject, body)
-    except (RuntimeError, OSError) as e:
-        log.error("письмо с нотой %s не отправлено: %r", p["reference"], e)
-        return "mail_failed"
-    db.audit(con, who, "mail", c["id"], f"нота {p['reference']} на {c['email']} ({where})")
-    return ""
+    return mail.Letter(c["email"], subject, body, c["id"], who, f"нота {p['reference']}",
+                       f"письмо с нотой {p['reference']}")
 
 
 # ---------- карта: maib (L12) ----------
@@ -1383,7 +1399,9 @@ def payment_check(request: Request, pid: int) -> Response:
 @app.post("/admin/payments/{pid}/link")
 def payment_link(request: Request, pid: int) -> Response:
     """Ссылка на карту к ожидающему платежу: первая (платёж заведён переводом) или
-    новая взамен не прошедшей. Тот же reference; письмо — если есть e-mail."""
+    новая взамен не прошедшей. Тот же reference; письмо — если есть e-mail. Снимок —
+    чтением, maib — вне транзакции, ссылка и письмо — короткой под замком записи (нота могла
+    закрыться, пока maib думал: тогда payment_not_pending, попытка записана в pay_attempts)."""
     if (deny := _guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
@@ -1391,23 +1409,27 @@ def payment_link(request: Request, pid: int) -> Response:
     if not maib.enabled():
         return RedirectResponse("/admin/payments?msg=no_maib", status_code=303)
     who = auth.current_user(request)
-    try:
-        with db.connect() as con:
-            p = _payment(con, pid)
-            if p is None:
-                return Response(status_code=404)
-            back = _back(request, p)
-            c = _clinic(con, p["clinic_id"])
-            try:
-                p = payments.attach_card(con, p, c, who, _ip(request))
-            except ValueError:
-                return RedirectResponse(f"{back}?msg=payment_not_pending", status_code=303)
-            code = "card_link"
-            if c["email"]:
-                code = _send_payment_letter(con, c, p, who) or "card_link_mailed"
-    except maib.MaibError as e:
-        log.error("maib: ссылка для платежа %s не создана: %s", pid, e)
-        return RedirectResponse(f"/admin/payments?msg=maib_failed", status_code=303)
+    with db.connect() as con:
+        p = _payment(con, pid)
+        if p is None:
+            return Response(status_code=404)
+        back = _back(request, p)
+        c = _clinic(con, p["clinic_id"])
+        try:
+            plan = payments.card_plan(con, p, c, _ip(request))
+        except ValueError:
+            return RedirectResponse(f"{back}?msg=payment_not_pending", status_code=303)
+    payments.card_ask(plan, fresh=True)
+    with payments.outbox() as box, db.connect(immediate=True) as con:
+        outcome, why, p = payments.card_record(con, plan, who)
+        if outcome == payments.LINK and c["email"]:
+            box.add([(True, _payment_letter(con, c, p, who))])
+    if outcome == payments.MAIB_FAILED:
+        log.error("maib: ссылка для платежа %s не создана: %s", pid, why)
+        return RedirectResponse("/admin/payments?msg=maib_failed", status_code=303)
+    if outcome != payments.LINK:
+        return RedirectResponse(f"{back}?msg=payment_not_pending", status_code=303)
+    code = (box.code or "card_link_mailed") if c["email"] else "card_link"
     return RedirectResponse(f"{back}?msg={code}", status_code=303)
 
 
@@ -1590,7 +1612,8 @@ def payment_mail(request: Request, pid: int) -> Response:
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     who = auth.current_user(request)
-    with db.connect() as con:
+    code = ""
+    with payments.outbox() as box, db.connect(immediate=True) as con:
         p = con.execute("SELECT * FROM payments WHERE id=?", (pid,)).fetchone()
         if p is None:
             return Response(status_code=404)
@@ -1598,7 +1621,8 @@ def payment_mail(request: Request, pid: int) -> Response:
         if p["status"] != payments.PENDING:
             code = "payment_not_pending"
         else:
-            code = _send_payment_letter(con, c, p, who) or "payment_mailed"
+            box.add([(True, _payment_letter(con, c, p, who))])
+    code = code or box.code or "payment_mailed"
     return RedirectResponse(f"/admin/clinics/{p['clinic_id']}?msg={code}", status_code=303)
 
 
@@ -2139,39 +2163,40 @@ def cont_note(request: Request, months: str = Form("1"), method: str = Form(paym
     """Нота на абонемент из кабинета: тот же выбор, что на странице оплаты
     (payments.choose — вариант и срок, другой заменяет открытую ноту, долг один); карта —
     только при настроенном maib; ⛔ без галочки условий — нет (требование maib). Письмо с
-    нотой — как из админки."""
+    нотой — как из админки, после commit ноты; maib — вне транзакции (`_card_go`)."""
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     m = _months(months)
     card = method == payments.CARD and maib.enabled()
-    try:
-        with payments.outbox() as box, db.connect(immediate=True) as con:
-            acc, cl = _cont_clinic(request, con, c)
-            if cl is None:
-                return _cont_deny(acc)
-            if m not in payments.MONTHS:
-                return RedirectResponse(_cont_to(con, acc, cl["id"], "bad_months"), status_code=303)
-            if terms != "1":
-                return RedirectResponse(_cont_to(con, acc, cl["id"], "need_terms"), status_code=303)
-            if len(cl["idno"] or "") != 13:
-                return RedirectResponse(_cont_to(con, acc, cl["id"], "need_idno"), status_code=303)
-            sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (cl["id"],)).fetchone()
-            try:
-                p, outcome = payments.choose(con, cl, tier or tiers.pick(sub), m, acc["email"])
-            except ValueError as e:
-                # клиника в открытой общей ноте кабинета (26.10) — своя нота не выставляется
-                why = "in_group" if str(e) == payments.HELD else "tier_not_sold"
-                return RedirectResponse(_cont_to(con, acc, cl["id"], why), status_code=303)
-            if outcome != payments.EXISTS:
-                _send_payment_letter(con, cl, p, acc["email"])
-            if card:
-                return _card_go(con, p, cl, acc["email"], _ip(request), _cont_to(con, acc, cl["id"]), box)
-            if outcome == payments.EXISTS:
-                return RedirectResponse(_cont_to(con, acc, cl["id"], "note_exists"), status_code=303)
+    plan = None
+    with payments.outbox() as box, db.connect(immediate=True) as con:
+        acc, cl = _cont_clinic(request, con, c)
+        if cl is None:
+            return _cont_deny(acc)
+        if m not in payments.MONTHS:
+            return RedirectResponse(_cont_to(con, acc, cl["id"], "bad_months"), status_code=303)
+        if terms != "1":
+            return RedirectResponse(_cont_to(con, acc, cl["id"], "need_terms"), status_code=303)
+        if len(cl["idno"] or "") != 13:
+            return RedirectResponse(_cont_to(con, acc, cl["id"], "need_idno"), status_code=303)
+        sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (cl["id"],)).fetchone()
+        try:
+            p, outcome = payments.choose(con, cl, tier or tiers.pick(sub), m, acc["email"])
+        except ValueError as e:
+            # клиника в открытой общей ноте кабинета (26.10) — своя нота не выставляется
+            why = "in_group" if str(e) == payments.HELD else "tier_not_sold"
+            return RedirectResponse(_cont_to(con, acc, cl["id"], why), status_code=303)
+        if outcome != payments.EXISTS:
+            box.add([(True, _payment_letter(con, cl, p, acc["email"]))])
+        if card:
+            plan = payments.card_plan(con, p, cl, _ip(request))
+            back = _cont_to(con, acc, cl["id"])
+        elif outcome == payments.EXISTS:
+            back = _cont_to(con, acc, cl["id"], "note_exists")
+        else:
             back = _cont_to(con, acc, cl["id"], "note_replaced" if outcome == payments.REPLACED else "note_created")
-    except maib.MaibError as e:
-        log.error("maib: нота из кабинета не создана: %s", e)
-        return RedirectResponse("/cont?msg=maib_failed", status_code=303)
+    if plan is not None:
+        return _card_go(plan, acc["email"], back)
     return RedirectResponse(back, status_code=303)
 
 
@@ -2600,22 +2625,23 @@ def cont_group(request: Request, msg: str = "") -> Response:
 def _group_submit(request: Request, form: dict, ip: str) -> Response:
     back = "/cont/nota-comuna"
     card = form.get("method") == payments.CARD and maib.enabled()
-    try:
-        with payments.outbox() as box, db.connect(immediate=True) as con:
-            acc = _current_account(con, request)
-            if acc is None:
-                return _cont_login_redirect()
-            rows, pending, _ = _group_state(con, acc)
-            if form.get("terms") != "1":
-                return RedirectResponse(f"{back}?msg=need_terms", status_code=303)
-            ref = form.get("ref") or ""
-            if ref:
-                # карта к открытой общей ноте — за галочкой условий, ссылка maib по клику
-                if pending is None or pending["reference"] != ref:
-                    return RedirectResponse(f"{back}?msg=group_gone", status_code=303)
-                if not card:
-                    return RedirectResponse(f"{back}?msg=no_card", status_code=303)
-                return _card_go(con, pending, _clinic(con, pending["clinic_id"]), acc["email"], ip, back, box)
+    plan = None
+    with payments.outbox() as box, db.connect(immediate=True) as con:
+        acc = _current_account(con, request)
+        if acc is None:
+            return _cont_login_redirect()
+        rows, pending, _ = _group_state(con, acc)
+        if form.get("terms") != "1":
+            return RedirectResponse(f"{back}?msg=need_terms", status_code=303)
+        ref = form.get("ref") or ""
+        if ref:
+            # карта к открытой общей ноте — за галочкой условий, ссылка maib по клику
+            if pending is None or pending["reference"] != ref:
+                return RedirectResponse(f"{back}?msg=group_gone", status_code=303)
+            if not card:
+                return RedirectResponse(f"{back}?msg=no_card", status_code=303)
+            plan = payments.card_plan(con, pending, _clinic(con, pending["clinic_id"]), ip)
+        else:
             picks = []
             for r, _, _ in rows:
                 t = form.get(f"t_{r['id']}") or ""
@@ -2631,12 +2657,11 @@ def _group_submit(request: Request, form: dict, ip: str) -> Response:
             except ValueError as e:
                 why = {"too_many": "group_too_many", "months": "bad_months"}.get(str(e), "tier_not_sold")
                 return RedirectResponse(f"{back}?msg={why}", status_code=303)
-            _send_payment_letter(con, payer, p, acc["email"])
+            box.add([(True, _payment_letter(con, payer, p, acc["email"]))])
             if card:
-                return _card_go(con, p, payer, acc["email"], ip, back, box)
-    except maib.MaibError as e:
-        log.error("maib: общая нота из кабинета не создана: %s", e)
-        return RedirectResponse(f"{back}?msg=maib_failed", status_code=303)
+                plan = payments.card_plan(con, p, payer, ip)
+    if plan is not None:
+        return _card_go(plan, acc["email"], back, gone="group_gone")
     return RedirectResponse(f"{back}?msg={'group_replaced' if replaced else 'group_created'}", status_code=303)
 
 

@@ -151,6 +151,7 @@ class FakeMaib:
         self.heads: list[tuple[str, str, dict]] = []    # (метод, путь, заголовки) каждого запроса
         self.token_value = "tok-" + uuid.uuid4().hex[:8]
         self.forbid = False
+        self.slow = 0.0                         # секунд думает maib над созданием checkout
         fake = self
 
         class H(http.server.BaseHTTPRequestHandler):
@@ -194,6 +195,7 @@ class FakeMaib:
                         "accessToken": fake.token_value, "expiresIn": 300, "tokenType": "Bearer"}})
                 if path == "/v2/checkouts":
                     fake.calls["pay"] += 1
+                    time.sleep(fake.slow)
                     fake.bodies.append(body)
                     bad = _checkout_error(body)
                     if bad:
@@ -843,6 +845,99 @@ def suite_race(res: Result) -> None:
                    "database is locked" not in log_ and "Traceback" not in log_, log_[-1500:])
     finally:
         smtp.close()
+        fake.close()
+
+
+def _pay_page(s: Server, c: Client, cid: str) -> str:
+    """Путь /plata/<id> клиники — так, как его берёт программа (Bearer = renew_token)."""
+    tok = _sql(s, "SELECT renew_token FROM clinics WHERE id=?", cid)[0][0]
+    r = Client(s.url)._do("/v1/pay-link", b"", {"Authorization": f"Bearer {tok}"})
+    return "/plata/" + json.loads(r.body)["url"].rsplit("/", 1)[1]
+
+
+def suite_slow(res: Result) -> None:
+    """maib думает — соседи пишут (30.10, ревью, шаг 4): клик «Plătește cu cardul» и нота
+    картой из админки ждали maib (до 15 с на вызов) ПОД замком записи, и каждая соседняя
+    запись (callback, /v1/license, кабинет) ждала с ними, а дольше 10 с — «database is locked».
+    Сеть — вне транзакции: запись программы другой клиники проходит, пока maib ещё думает.
+    И Р1: maib отказал на «Выставить ноту» картой — нота остаётся «переводом», админ видит
+    maib_failed и позже жмёт «ссылка»."""
+    fake = FakeMaib()
+    slow = 4.0
+    try:
+        with Server(env={**BANK_ENV, **fake.env}) as s:
+            c = Client(s.url).login()
+            other = _clinic(c, name="Clinica Vecina", idno="3333333333333", email="vecina@example.md")
+            c.post(f"/admin/clinics/{other}/issue", kind="trial")
+            tok = _sql(s, "SELECT renew_token FROM clinics WHERE id=?", other)[0][0]
+            neighbour = Client(s.url)
+
+            def write():
+                time.sleep(0.5)                 # клик уже внутри и ждёт maib
+                t0 = time.monotonic()
+                r = neighbour._do("/v1/pay-link", b"", {"Authorization": f"Bearer {tok}"})
+                return r, time.monotonic() - t0, time.monotonic()
+
+            def timed(fn):
+                def go():
+                    r = fn()
+                    return r, time.monotonic()
+                return go
+
+            # 1) страница оплаты: клик картой ждёт maib
+            cid = _clinic(c, name="Clinica Lenta", idno="4444444444444", email="lenta@example.md")
+            c.post(f"/admin/clinics/{cid}/issue", kind="trial")
+            path = _pay_page(s, c, cid)
+            anon = Client(s.url)
+            fake.slow = slow
+            t0 = time.monotonic()
+            click, (w, took, w_end) = _together(timed(lambda: anon.post(path, months="1", method="card", terms="1")),
+                                                write)
+            fake.slow = 0.0
+            r, c_end = click
+            p = _payment(s, cid)
+            res.ok("клик картой при думающем maib: 303 на страницу maib",
+                   r.status == 303 and r.location == p["pay_url"] and p["provider_id"] in fake.pays,
+                   f"{r.status} {r.location}")
+            res.ok(f"maib правда думал ≥ {slow:.0f} с", c_end - t0 >= slow, f"{c_end - t0:.1f}")
+            res.ok("запись программы соседней клиники — 200 за < 2 с, раньше ответа maib",
+                   w.status == 200 and took < 2.0 and w_end < c_end, f"{w.status} {took:.1f} с")
+
+            # 2) админка: «Выставить ноту» картой ждёт maib
+            cid2 = _clinic(c, name="Clinica Lenta Doi", idno="5555555555555", email="lenta2@example.md")
+            fake.slow = slow
+            t0 = time.monotonic()
+            click, (w, took, w_end) = _together(
+                timed(lambda: c.post(f"/admin/clinics/{cid2}/payments", months="1", amount="", send="1",
+                                     method="card")), write)
+            fake.slow = 0.0
+            r, c_end = click
+            res.check("нота картой из админки при думающем maib — создана и отправлена",
+                      r.location, f"/admin/clinics/{cid2}?msg=card_created_mailed")
+            res.ok("запись программы во время «Выставить ноту» картой — 200 за < 2 с, раньше ответа maib",
+                   w.status == 200 and took < 2.0 and w_end < c_end, f"{w.status} {took:.1f} с")
+
+            # 3) Р1: maib отказал — нота остаётся переводом, письмо с ней ушло, «ссылка» позже
+            cid3 = _clinic(c, name="Clinica Refuz", idno="6666666666666", email="refuz@example.md")
+            n = len(_letters(s))
+            fake.forbid = True
+            r = c.post(f"/admin/clinics/{cid3}/payments", months="1", amount="", send="1", method="card")
+            fake.forbid = False
+            res.check("maib отказал на ноте картой — maib_failed", r.location, f"/admin/clinics/{cid3}?msg=maib_failed")
+            rows = _sql(s, "SELECT status, method, provider_id FROM payments WHERE clinic_id=?", cid3)
+            res.check("нота осталась: одна, ожидает, переводом, без payId", rows, [("pending", "transfer", None)])
+            ref = _payment(s, cid3)["reference"]
+            res.ok("письмо с нотой ушло (реквизиты перевода, страница оплаты)",
+                   len(_letters(s)) == n + 1 and ref in _letters(s)[-1][0], [x[0] for x in _letters(s)[n:]])
+            r = c.post(f"/admin/payments/{_payment(s, cid3)['id']}/link")
+            p = _payment(s, cid3)
+            res.ok("позже «ссылка» — та же нота, теперь картой с payId",
+                   r.location.endswith("msg=card_link_mailed") and p["method"] == "card"
+                   and p["provider_id"] in fake.pays and p["reference"] == ref, f"{r.location} {dict(p)}")
+            log_ = s.log()
+            res.ok("в логе сервера ни «database is locked», ни трейсбека",
+                   "database is locked" not in log_ and "Traceback" not in log_, log_[-1500:])
+    finally:
         fake.close()
 
 

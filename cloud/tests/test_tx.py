@@ -13,7 +13,8 @@ from harness import CLOUD, Result
 
 # Кто держит settle своей транзакцией — по ним видно, что обход нашёл то, что должен
 # (список ВКЛЮЧАЕТ требование: переименуют — красное «найдены», а не тихий ноль)
-HOLDERS = {"_maib_callback", "_returned", "payment_check", "settle_cards"}
+HOLDERS = {"_maib_callback", "_returned", "payment_check", "settle_cards",
+           "_card_go", "payment_new", "payment_link"}
 
 
 def _name(call: ast.Call) -> str:
@@ -53,7 +54,7 @@ def check(trees: dict[str, ast.Module]) -> tuple[set, dict, list]:
     """(обёртки settle, {функция: [(файл, строка, immediate)]} — её `with db.connect`, в
     которых зовётся settle или обёртка, нарушения «файл:строка функция»).
     Обёртка — функция, которая зовёт settle (или обёртку) ВНЕ своего `with db.connect`, то
-    есть на чужом `con`: card_link, _settle_now, _card_go. Её вызовы требуют того же замка."""
+    есть на чужом `con`: card_record, _settle_now. Её вызовы требуют того же замка."""
     funcs = []
     for fname, tree in trees.items():
         for node in ast.walk(tree):
@@ -105,10 +106,10 @@ def suite_settle_lock(res: Result) -> None:
     res.ok("исходники нашлись: main.py, jobs.py, payments.py",
            {"main.py", "jobs.py", "payments.py"} <= set(trees), sorted(trees))
     wrappers, held, bad = check(trees)
-    res.ok("обёртки settle найдены: card_link, _settle_now, _card_go",
-           {"card_link", "_settle_now", "_card_go"} <= wrappers, sorted(wrappers))
-    res.ok("транзакции с settle найдены у callback, возврата, «Проверить», ежедневной задачи",
-           HOLDERS <= set(held), sorted(held))
+    res.ok("обёртки settle найдены: card_record, _settle_now",
+           {"card_record", "_settle_now"} <= wrappers, sorted(wrappers))
+    res.ok("транзакции с settle найдены у callback, возврата, «Проверить», ежедневной задачи, "
+           "кнопки карты, ноты и ссылки из админки", HOLDERS <= set(held), sorted(held))
     res.check("каждый with db.connect, где зовётся settle (или обёртка), — immediate=True", bad, [])
     for func in sorted(HOLDERS):
         _, _, mbad = check(_strip(trees, func))
@@ -126,23 +127,18 @@ SCOPE = ("main.py", "jobs.py", "payments.py")
 # Отправляющие сами по себе; `send` без модуля — mail.send, переданный параметром (jobs, sms)
 SEND_BASE = {"mail.send", "mail.deliver"}
 
-# Где письма об оплате собираются в транзакции и уходят через outbox — 7 мест решения Р4:
+# Где письма собираются в транзакции и уходят через outbox — 7 мест оплаты решения Р4:
 # callback, возврат браузера, ежедневная задача, «Проверить» (_settle_now), «Подтвердить»,
-# «Зачесть повторный», кнопка карты (_card_go у страницы оплаты, кабинета и общей ноты).
+# «Зачесть повторный», кнопка карты (_card_go); и письмо с нотой (шаг 4): страница оплаты,
+# кабинет, общая нота, «Выставить ноту», «Ссылка на карту», «Письмо» из админки.
 # Список ВКЛЮЧАЕТ требование — переименуют, и «найдены» покраснеет, а не позеленеет тихо.
 OUTBOX_HOLDERS = {"_maib_callback", "_returned", "settle_cards", "payment_check", "payment_confirm",
-                  "payment_repeat", "pay_link_submit", "cont_note", "_group_submit"}
+                  "payment_repeat", "_card_go", "pay_link_submit", "cont_note", "_group_submit",
+                  "payment_new", "payment_link", "payment_mail"}
 
 # Отправка внутри транзакции, оставленная НАМЕРЕННО: не письмо об оплате (решение Олега Р4 —
-# в эту ветку не берём, список в отчёт) или следующий шаг ветки. Ключ — «файл:функция → вызов».
+# в эту ветку не берём, список в отчёт). Ключ — «файл:функция → вызов».
 MAIL_IN_TX = {
-    # письмо с нотой при выставлении (_send_payment_letter) — шаг 4, три фазы (С3)
-    "main.py:pay_link_submit → main._send_payment_letter": "нота со страницы оплаты — С3",
-    "main.py:cont_note → main._send_payment_letter": "нота из кабинета — С3",
-    "main.py:_group_submit → main._send_payment_letter": "общая нота кабинета — С3",
-    "main.py:payment_new → main._send_payment_letter": "нота из админки — С3 (Р1)",
-    "main.py:payment_link → main._send_payment_letter": "ссылка на карту из админки — С3",
-    "main.py:payment_mail → main._send_payment_letter": "«письмо с нотой ещё раз» из админки — С3",
     # не оплата (Р4): в эту ветку не берём, список — в отчёт
     "main.py:_sms_order → mail.send": "нота SMS из программы (main.py ~327)",
     "main.py:_trial_program → trial.submit": "пробный из программы: выдача и письмо (trial.py:218)",
@@ -187,11 +183,8 @@ def _walk(node: ast.AST, w, out: list) -> None:
         _walk(child, w, out)
 
 
-def mail_check(trees: dict[str, ast.Module]) -> tuple[set, dict, list]:
-    """(отправляющие функции «модуль.имя», {функция: [строки with, где outbox раньше
-    db.connect]}, нарушения «файл:функция → вызов» в SCOPE). Отправляющая — та, что зовёт
-    отправляющую где угодно (в своей транзакции или после неё): её вызов внутри чужой
-    транзакции — SMTP под замком."""
+def _funcs(trees: dict[str, ast.Module]) -> tuple[set, list]:
+    """(модули, [(файл, модуль, def, [(вызов, with db.connect или None, «модуль.имя»)])])."""
     mods = {f[:-3] for f in trees}
     funcs = []
     for fname, tree in trees.items():
@@ -202,26 +195,40 @@ def mail_check(trees: dict[str, ast.Module]) -> tuple[set, dict, list]:
                 for stmt in node.body:
                     _walk(stmt, None, found)
                 funcs.append((fname, stem, node, [(c, w, _key(c, stem, mods)) for c, w in found]))
-    senders = SEND_BASE | {f"{m}.send" for m in mods}
+    return mods, funcs
+
+
+def _closure(funcs: list, base: set) -> set:
+    """`base` и каждая функция, что зовёт кого-то из них где угодно — по цепочке."""
+    out = set(base)
     while True:
-        more = {f"{stem}.{fn.name}" for _, stem, fn, found in funcs if any(k in senders for _, _, k in found)}
-        if more <= senders:
-            break
-        senders |= more
+        more = {f"{stem}.{fn.name}" for _, stem, fn, found in funcs if any(k in out for _, _, k in found)}
+        if more <= out:
+            return out
+        out |= more
+
+
+def _inside(funcs: list, reach: set) -> list:
+    """Нарушения «файл:функция → вызов»: вызов из `reach` внутри `with db.connect` в SCOPE."""
+    return sorted({f"{fname}:{fn.name} → {k}" for fname, _, fn, found in funcs if fname in SCOPE
+                   for _, w, k in found if w is not None and k in reach})
+
+
+def mail_check(trees: dict[str, ast.Module]) -> tuple[set, dict, list]:
+    """(отправляющие функции «модуль.имя», {функция: [строки with, где outbox раньше
+    db.connect]}, нарушения «файл:функция → вызов» в SCOPE). Отправляющая — та, что зовёт
+    отправляющую где угодно (в своей транзакции или после неё): её вызов внутри чужой
+    транзакции — SMTP под замком."""
+    mods, funcs = _funcs(trees)
+    senders = _closure(funcs, SEND_BASE | {f"{m}.send" for m in mods})
     boxed: dict = {}
-    bad = []
     for fname, stem, fn, found in funcs:
         for node in ast.walk(fn):
             if isinstance(node, ast.With) and (conn := _connect(node)) is not None:
                 first = node.items[0].context_expr
                 if first is not conn and isinstance(first, ast.Call) and _key(first, stem, mods) == "payments.outbox":
                     boxed.setdefault(fn.name, []).append(node.lineno)
-        if fname not in SCOPE:
-            continue
-        for c, w, k in found:
-            if w is not None and k in senders:
-                bad.append(f"{fname}:{fn.name} → {k}")
-    return senders, boxed, sorted(set(bad))
+    return senders, boxed, _inside(funcs, senders)
 
 
 def _func(tree: ast.Module, func: str) -> ast.FunctionDef:
@@ -266,14 +273,14 @@ def suite_mail_after_commit(res: Result) -> None:
            need <= set(trees), sorted(need - set(trees)))
     senders, boxed, bad = mail_check(trees)
     want = {"mail.send", "mail.deliver", "payments.send_paid", "payments.outbox", "license.mail_latest",
-            "sms.mail_pack", "sms.mail_name", "main._send_payment_letter"}
+            "sms.mail_pack", "sms.mail_name"}
     res.ok("отправляющие найдены: mail.send/deliver, send_paid, outbox, обёртки mail_latest/mail_pack/mail_name",
            want <= senders, sorted(want - senders))
     builders = {"payments.notify_paid", "license.letter_latest", "sms.letter_pack", "sms.letter_name",
-                "main._card_go", "main._settle_now"}
-    res.ok("сборка писем ничего не отправляет: notify_paid, letter_*, _card_go, _settle_now",
+                "main._payment_letter", "main._settle_now", "payments.card_plan", "payments.card_record"}
+    res.ok("сборка писем ничего не отправляет: notify_paid, letter_*, _payment_letter, _settle_now, card_*",
            not (builders & senders), sorted(builders & senders))
-    res.ok("outbox раньше db.connect у всех 7 мест оплаты (9 транзакций)",
+    res.ok("outbox раньше db.connect у 7 мест оплаты и 6 мест письма с нотой",
            OUTBOX_HOLDERS <= set(boxed), sorted(OUTBOX_HOLDERS - set(boxed)))
     res.check("отправка внутри with db.connect — только названные исключения",
               [b for b in bad if b not in MAIL_IN_TX], [])
@@ -291,9 +298,66 @@ def suite_mail_after_commit(res: Result) -> None:
     hit = {"main.py:_maib_callback → payments.notify_paid", "main.py:_returned → payments.notify_paid",
            "jobs.py:settle_cards → payments.notify_paid", "main.py:payment_confirm → payments.notify_paid",
            "main.py:payment_repeat → payments.notify_paid", "main.py:payment_check → main._settle_now",
-           "main.py:pay_link_submit → main._card_go"}
+           "main.py:_card_go → payments.notify_paid"}
     res.ok("пара: notify_paid начал отправлять — красные все места оплаты", hit <= set(m), sorted(hit - set(m)))
-    _, _, m = mail_check(_prepend(trees, "main.py", "_card_go", "license.mail_latest(con, c, who)"))
-    hit = {f"main.py:{h} → main._card_go" for h in ("pay_link_submit", "cont_note", "_group_submit")}
-    res.ok("пара: _card_go отправляет сам — красные страница оплаты, кабинет, общая нота",
+    _, _, m = mail_check(_prepend(trees, "main.py", "_payment_letter", "mail.send('a', 'b', 'c')"))
+    hit = {f"main.py:{h} → main._payment_letter" for h in ("pay_link_submit", "cont_note", "_group_submit",
+                                                            "payment_new", "payment_link", "payment_mail")}
+    res.ok("пара: сборка письма с нотой начала отправлять — красные все шесть мест ноты",
+           hit <= set(m), sorted(hit - set(m)))
+
+
+# ---------- сеть maib — вне транзакции (шаг 4) ----------
+# maib думает до maib.TIMEOUT (15 с) на вызов; клик «Plătește cu cardul» и нота картой из
+# админки держали его под замком записи, и соседние записи (callback, /v1/license, кабинет)
+# ждали с ними, а дольше 10 с — «database is locked» (test_maib.suite_slow). Сеть — только
+# вне `with db.connect`: снимок (payments.card_plan) → commit → maib (card_ask) → короткая
+# транзакция ответа (card_record, settle).
+
+# Вызов maib внутри транзакции, оставленный НАМЕРЕННО, — с причиной. Сейчас таких нет.
+NET_IN_TX: dict[str, str] = {}
+
+
+def net_check(trees: dict[str, ast.Module]) -> tuple[set, list]:
+    """(функции «модуль.имя», которые ходят в maib — сами или по цепочке, нарушения в SCOPE).
+    Основа — функции maib.py, где есть urlopen (`_call`); дальше — все, кто их зовёт."""
+    _, funcs = _funcs(trees)
+    base = {f"maib.{fn.name}" for fname, _, fn, _ in funcs if fname == "maib.py"
+            and any(isinstance(n, ast.Attribute) and n.attr == "urlopen" for n in ast.walk(fn))}
+    reach = _closure(funcs, base)
+    return reach, _inside(funcs, reach)
+
+
+def suite_net_outside_tx(res: Result) -> None:
+    """maib — вне транзакции: ни maib.* с сетью, ни функции, что их зовёт (по цепочке), внутри
+    `with db.connect` в main.py, jobs.py, payments.py, кроме названных исключений; и пары."""
+    trees = _trees()
+    need = {"maib.py", "main.py", "jobs.py", "payments.py"}
+    res.ok("исходники нашлись: maib.py, main.py, jobs.py, payments.py", need <= set(trees),
+           sorted(need - set(trees)))
+    reach, bad = net_check(trees)
+    want = {"maib._call", "maib.token", "maib.create", "maib.info", "payments.card_ask", "main._card_go"}
+    res.ok("сеть maib найдена: _call, token, create, info и по цепочке card_ask, _card_go",
+           want <= reach, sorted(want - reach))
+    quiet = {"maib.enabled", "maib.verify", "maib.ours", "payments.card_plan", "payments.card_record",
+             "payments.settle", "payments.notify_paid", "main._settle_now", "main._payment_letter"}
+    res.ok("без сети: enabled, verify, ours, снимок и запись ответа (card_plan, card_record, settle)",
+           not (quiet & reach), sorted(quiet & reach))
+    res.check("maib внутри with db.connect — только названные исключения",
+              [b for b in bad if b not in NET_IN_TX], [])
+    res.check("исключения живые (нет устаревших строк)", sorted(set(NET_IN_TX) - set(bad)), [])
+    # пары: каждая поломка краснеет
+    _, m = net_check(_inject(trees, "main.py", "_maib_callback", "maib.info('x')"))
+    res.ok("пара: maib.info в транзакции callback — красный", "main.py:_maib_callback → maib.info" in m, repr(m))
+    _, m = net_check(_inject(trees, "jobs.py", "settle_cards", "maib.info('x')"))
+    res.ok("пара: maib.info в транзакции ежедневной задачи — красный",
+           "jobs.py:settle_cards → maib.info" in m, repr(m))
+    _, m = net_check(_inject(trees, "main.py", "_card_go", "payments.card_ask(plan)"))
+    res.ok("пара: card_ask в транзакции кнопки карты — красный", "main.py:_card_go → payments.card_ask" in m, repr(m))
+    _, m = net_check(_inject(trees, "main.py", "pay_link_submit", "_card_go(plan, 'program', back)"))
+    res.ok("пара: кнопка карты целиком внутри транзакции страницы оплаты (как до шага 4) — красный",
+           "main.py:pay_link_submit → main._card_go" in m, repr(m))
+    _, m = net_check(_prepend(trees, "payments.py", "card_record", "maib.create(1, 'r', 'd')"))
+    hit = {f"main.py:{h} → payments.card_record" for h in ("_card_go", "payment_new", "payment_link")}
+    res.ok("пара: запись ответа начала звать maib — красные кнопка карты, нота и ссылка из админки",
            hit <= set(m), sorted(hit - set(m)))
