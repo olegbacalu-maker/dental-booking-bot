@@ -438,7 +438,10 @@ def entries() -> list[dict]:
            f"denumirea și telefonul clinicii, fără serviciu sau prețuri — și "
            f"consumă un SMS din pachet. Dacă SMS-ul nu ajunge, pacientul revine "
            f"în «De sunat». Butonul se pornește și se oprește în "
-           f"<b>Setări › SMS</b>.{end}"),
+           f"<b>Setări › SMS</b>; tot acolo este bifa <b>Trimite SMS automat</b>: "
+           f"programul trimite singur reamintirea celor ajunși în listă, un număr "
+           f"limitat pe zi (cei mai întârziați primii), fără a dubla butonul — "
+           f"la început bifa este oprită.{end}"),
 
         _q("refresh", "Actualizarea programului șterge datele?",
            f"{p}<b>Nu.</b> Actualizarea înlocuiește doar fișierele "

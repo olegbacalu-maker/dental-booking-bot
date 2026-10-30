@@ -225,6 +225,11 @@ def suite(res: Result) -> None:
            all("reamintirea controlului periodic" in x and "Rechemări" in x for x in (s16, dpa, flows, decl, flat_privacy))
            and "butonului „SMS” din lista Rechemări" in s16 and "butonului „SMS” din lista Rechemări" in dpa
            and "doar denumirea și telefonul clinicii" in s16 and "doar denumirea și telefonul clinicii" in dpa)
+    # автоматическая отправка по галочке (утро 30.10, В1 → В): названа в § 16, DPA (инструкция),
+    # Anexa 2, декларации и политике; число в день — константа программы, в текстах его нет
+    res.ok("§ 16, DPA, Anexa 2, декларация, политика: trimiterea automată по настройке клиники; числа в день в тексте нет",
+           all("trimiterea automată" in x or "trimiterii automate" in x for x in (s16, dpa, flows, decl, flat_privacy))
+           and "un număr limitat pe zi" in s16 and not re.search(r"cel mult \d+", s16))
     res.ok("политика § 5: обновления на GitHub, кнопки оплаты/кабинета, опрос SMS, maib, внутренние уведомления",
            all(x in flat_privacy for x in ("Verificarea actualizărilor", "GitHub, Inc.", "Deschide contul clinicii",
                                            "soldul de SMS", "maib", "notificările interne ale furnizorului")))
