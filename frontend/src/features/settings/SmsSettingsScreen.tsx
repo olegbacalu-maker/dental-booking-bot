@@ -50,6 +50,9 @@ const T = {
   recallHint: 'recepția trimite, la apăsare, o singură reamintire a controlului periodic pentru fiecare termen; '
     + 'textul conține doar denumirea și telefonul clinicii',
   recallNoPhone: 'butonul apare după ce completați telefonul clinicii în Setări › Clinica',
+  recallAuto: 'Trimite SMS automat când pacientul ajunge în listă',
+  recallAutoHint: 'programul trimite singur, între 08:00 și 21:00, cel mult {n} SMS pe zi — cei mai întârziați primii; '
+    + 'restul rămân pentru butonul SMS și pentru telefon. Oprit la clinicile noi: cu istoric lung ar pleca zeci de SMS în prima zi.',
   previewRo: 'română',
   previewRu: 'русский',
   segments1: '1 SMS',
@@ -308,6 +311,16 @@ export function SmsSettingsScreen({ navigate = defaultNavigate }: Props) {
               </select>
             </div>
             <p className="hint">{data.clinic.phone ? T.recallHint : T.recallNoPhone}</p>
+            {/* автоматическая отправка (Олег 30.10 утром, В1 → В): выключена по
+                умолчанию; действует только вместе с кнопкой — без неё серая */}
+            <div className="dp-sms-ev">
+              <label>
+                <input type="checkbox" checked={s.recall.on && s.recall.auto} disabled={busy || !s.recall.on}
+                  onChange={(e) => save((f) => ({ ...f, recall: { ...f.recall, auto: e.target.checked } }))} />
+                {' '}{T.recallAuto}
+              </label>
+            </div>
+            <p className="hint">{T.recallAutoHint.replace('{n}', String(data.options.recall_auto_daily))}</p>
             {s.recall.on && preview('recall', s.recall.variant)}
           </div>
 

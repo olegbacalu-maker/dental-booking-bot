@@ -354,7 +354,7 @@ export interface SmsSettingsForm {
   phone_line: boolean
   /** Кнопка «SMS» в «Rechemări» (30.10): включена по умолчанию; вариант текста
    *  из `options.recall_variants`, предпросмотр — `previews.recall`. */
-  recall: { on: boolean; variant: string }
+  recall: { on: boolean; variant: string; auto: boolean }
 }
 
 export interface SmsPreview {
@@ -405,6 +405,8 @@ export interface SmsData {
   options: {
     hours: number[]; leads: number[]; variants: { key: string; label: string }[]
     recall_variants: { key: string; label: string }[]
+    /** Потолок автоматических рекламаций в день — константа сервера, экран её печатает. */
+    recall_auto_daily: number
   }
   /** Предпросмотр: событие → вариант → язык → текст с данными клиники. */
   previews: Record<string, Record<string, Record<string, SmsPreview>>>

@@ -30,12 +30,13 @@ const BASE: SmsData = {
     day_before: { on: true, hour: 10, variant: 'standard' },
     same_day: { on: false, hours: 2, variant: 'standard' },
     phone_line: false,
-    recall: { on: true, variant: 'standard' },
+    recall: { on: true, variant: 'standard', auto: false },
   },
   options: {
     hours: [8, 9, 10, 11, 12], leads: [1, 2, 3],
     variants: [{ key: 'standard', label: 'Standard' }, { key: 'scurt', label: 'Scurt' }],
     recall_variants: [{ key: 'standard', label: 'Standard' }, { key: 'scurt', label: 'Scurt' }],
+    recall_auto_daily: 20,
   },
   previews: {
     day_before: { standard: PV('maine'), scurt: PV('maine') },
@@ -96,7 +97,7 @@ describe('SmsSettingsScreen', () => {
       day_before: { on: true, hour: 10, variant: 'standard' },
       same_day: { on: true, hours: 2, variant: 'standard' },
       phone_line: false,
-      recall: { on: true, variant: 'standard' },
+      recall: { on: true, variant: 'standard', auto: false },
     })
     expect(await screen.findByText('Setări SMS salvate')).toBeTruthy()
     expect(screen.getByText(/Clinica Test va reaminteste ca astazi/)).toBeTruthy()
@@ -105,7 +106,7 @@ describe('SmsSettingsScreen', () => {
 
   it('Rechemări (30.10): галочка «Buton SMS» включена, предпросмотр без услуги; снятие шлёт полную форму', async () => {
     get.mockResolvedValueOnce(ok(BASE))
-    const after: SmsData = { ...BASE, settings: { ...BASE.settings, recall: { on: false, variant: 'standard' } } }
+    const after: SmsData = { ...BASE, settings: { ...BASE.settings, recall: { on: false, variant: 'standard', auto: false } } }
     post.mockResolvedValueOnce(ok(after, 'ok_sms', 'Setări SMS salvate'))
     open()
     await screen.findByText('42')
@@ -113,10 +114,29 @@ describe('SmsSettingsScreen', () => {
     expect(box.checked).toBe(true)
     expect(screen.getByText(/a venit timpul pentru controlul periodic/)).toBeTruthy()
     expect(screen.getByText(/пора на плановый осмотр/)).toBeTruthy()
+    /* автоматическая отправка: выключена по умолчанию, лимит дня — число сервера */
+    const auto = screen.getByLabelText('Trimite SMS automat când pacientul ajunge în listă') as HTMLInputElement
+    expect(auto.checked).toBe(false)
+    expect(auto.disabled).toBe(false)
+    expect(screen.getByText(/cel mult 20 SMS pe zi/)).toBeTruthy()
     fireEvent.click(box)
-    expect(post).toHaveBeenCalledWith('/settings/sms', { ...BASE.settings, recall: { on: false, variant: 'standard' } })
+    expect(post).toHaveBeenCalledWith('/settings/sms', { ...BASE.settings, recall: { on: false, variant: 'standard', auto: false } })
     expect(await screen.findByText('Setări SMS salvate')).toBeTruthy()
     expect(screen.queryByText(/a venit timpul pentru controlul periodic/)).toBeNull()
+    /* без кнопки автоматика недоступна */
+    expect((screen.getByLabelText('Trimite SMS automat când pacientul ajunge în listă') as HTMLInputElement).disabled).toBe(true)
+  })
+
+  it('Rechemări: галочка автоматической отправки шлёт полную форму с auto: true', async () => {
+    get.mockResolvedValueOnce(ok(BASE))
+    const after: SmsData = { ...BASE, settings: { ...BASE.settings, recall: { on: true, variant: 'standard', auto: true } } }
+    post.mockResolvedValueOnce(ok(after, 'ok_sms', 'Setări SMS salvate'))
+    open()
+    await screen.findByText('42')
+    fireEvent.click(screen.getByLabelText('Trimite SMS automat când pacientul ajunge în listă'))
+    expect(post).toHaveBeenCalledWith('/settings/sms', { ...BASE.settings, recall: { on: true, variant: 'standard', auto: true } })
+    expect(await screen.findByText('Setări SMS salvate')).toBeTruthy()
+    expect((screen.getByLabelText('Trimite SMS automat când pacientul ajunge în listă') as HTMLInputElement).checked).toBe(true)
   })
 
   it('вариант текста и час — тем же сохранением', async () => {
