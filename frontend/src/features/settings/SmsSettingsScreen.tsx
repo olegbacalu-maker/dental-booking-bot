@@ -52,7 +52,7 @@ const T = {
   recallNoPhone: 'butonul apare după ce completați telefonul clinicii în Setări › Clinica',
   recallAuto: 'Trimite SMS automat când pacientul ajunge în listă',
   recallAutoHint: 'programul trimite singur, între 08:00 și 21:00, cel mult {n} SMS pe zi — cei mai întârziați primii; '
-    + 'restul rămân pentru butonul SMS și pentru telefon. Oprit la clinicile noi: cu istoric lung ar pleca zeci de SMS în prima zi.',
+    + 'restul rămân pentru butonul SMS și pentru telefon. La început este oprită: la o clinică cu istoric lung ar pleca zeci de SMS în prima zi.',
   previewRo: 'română',
   previewRu: 'русский',
   segments1: '1 SMS',
