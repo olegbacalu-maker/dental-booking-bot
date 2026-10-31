@@ -160,6 +160,46 @@ def suite_rules(res: Result) -> None:
     trial._hits.clear(); trial._all.clear()
 
 
+def suite_hits_sweep(res: Result) -> None:
+    """Лимиты в памяти (31.10, как paylink/login): ключ адреса, который больше не приходит,
+    выметается, когда его последняя отметка старше часа; живой ключ и лимиты в час — как были."""
+    import time
+    from app import trial
+    saved = dict(trial._hits), list(trial._all), dict(trial._verify_hits), list(trial._swept)
+    try:
+        for name, hits, ask, add in (("verify_limited", trial._verify_hits, trial.verify_limited, None),
+                                     ("limited", trial._hits, trial.limited, "192.0.2.1")):
+            now = time.time()
+            hits.clear()
+            hits.update({f"10.0.0.{i}": [now - 7200, now - 3700] for i in range(500)})
+            hits["10.9.9.9"] = [now - 4000, now - 600]                  # живой: последняя отметка 10 мин назад
+            trial._swept[0] = now                                         # только что выметали — ждём минуту
+            ask("192.0.2.1")
+            if add:
+                trial.note(add)
+            res.check(f"{name}: раньше минуты после уборки ключи не трогаются", len(hits), 502)
+            trial._swept[0] = now - 61
+            ask("192.0.2.1")
+            res.check(f"{name}: уборка — остались живой и спрашивающий", sorted(hits), ["10.9.9.9", "192.0.2.1"])
+            res.check(f"{name}: отметки живого ключа целы", len(hits["10.9.9.9"]), 2)
+        trial._verify_hits.clear()
+        got = [trial.verify_limited("192.0.2.7") for _ in range(trial.VERIFY_PER_HOUR + 1)]
+        res.check(f"verify_limited: лимит в час прежний — {trial.VERIFY_PER_HOUR} проходят, следующий нет",
+                  got, [False] * trial.VERIFY_PER_HOUR + [True])
+        trial._hits.clear(); trial._all.clear()
+        got = []
+        for _ in range(trial.MAX_PER_HOUR + 1):
+            got.append(trial.limited("192.0.2.7"))
+            trial.note("192.0.2.7")
+        res.check(f"limited: лимит в час прежний — {trial.MAX_PER_HOUR} проходят, следующий нет",
+                  got, [False] * trial.MAX_PER_HOUR + [True])
+    finally:
+        trial._hits.clear(); trial._hits.update(saved[0])
+        trial._all[:] = saved[1]
+        trial._verify_hits.clear(); trial._verify_hits.update(saved[2])
+        trial._swept[:] = saved[3]
+
+
 def suite_approve(res: Result) -> None:
     """Режим approve (по умолчанию): заявка ждёт кнопки; выдать, скрыть; check."""
     with Server(env={"DP_TRIAL_NOTIFY": "oleg@example.md"}) as s:

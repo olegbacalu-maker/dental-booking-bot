@@ -79,6 +79,7 @@ MAX_PER_HOUR = 5                 # заявок с одного адреса (IP
 MAX_TOTAL_PER_HOUR = 60          # заявок со всех адресов в час: потолок на случай ротации адресов
 _hits: dict[str, list[float]] = {}
 _all: list[float] = []
+_swept = [0.0]                    # когда в последний раз выметали ключи, которые больше не приходят
 HONEYPOT = "website"             # поле, которого нет для человека
 ISSUED, ISSUED_UNMAILED, REQUESTED, DUPLICATE = "issued", "issued_unmailed", "requested", "duplicate"
 ADDED = "added"                  # заведена без пробного (NO_TRIAL): абонемент ставит вызывающий
@@ -108,11 +109,24 @@ def bucket(ip: str) -> str:
     return ip
 
 
+def _sweep(now: float) -> None:
+    """Ключ чистится только своим адресом — адреса, что больше не приходят, копились бы
+    навсегда (ротация IPv6 /64; заявок под общим потолком — до 60 новых ключей в час):
+    раз в минуту выметаем из обоих лимитов всех, чья последняя отметка старше часа."""
+    if now - _swept[0] < 60:
+        return
+    for hits in (_hits, _verify_hits):
+        for k in [k for k, v in hits.items() if not v or now - v[-1] >= 3600]:
+            del hits[k]
+    _swept[0] = now
+
+
 def limited(ip: str) -> bool:
     """Больше MAX_PER_HOUR заявок с адреса за час, или больше MAX_TOTAL_PER_HOUR со
     всех, — отказ, тем же приёмом, что лимит входа. Считаются и принятые, и
     отказанные после проверки полей: перебор адресов тоже заявки."""
     now = time.time()
+    _sweep(now)
     key = bucket(ip)
     stamps = [t for t in _hits.get(key, []) if now - t < 3600]
     if stamps:
@@ -272,6 +286,7 @@ def new_code(con: sqlite3.Connection, clinic: sqlite3.Row, ip: str, who: str = "
 def verify_limited(ip: str) -> bool:
     """Больше VERIFY_PER_HOUR проверок кода с адреса за час — отказ (перебор кодов)."""
     now = time.time()
+    _sweep(now)
     key = bucket(ip)
     stamps = [t for t in _verify_hits.get(key, []) if now - t < 3600]
     _verify_hits[key] = stamps + [now]

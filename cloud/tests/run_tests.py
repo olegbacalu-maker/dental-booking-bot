@@ -89,6 +89,7 @@ SUITES = [
     ("Сервер: карта maib — без DP_MAIB_* всё как в шаге 1", test_maib.suite_off),
     ("Провод maib Checkout: подпись по образцу документации, поля checkout, статусы, токен, 403, возврат", test_maib.suite_wire),
     ("Сервер: форма пробного — правила: ящик, поля, лимиты", test_trial.suite_rules),
+    ("Сервер: лимиты заявки и проверки кода — старые ключи выметаются", test_trial.suite_hits_sweep),
     ("Сервер: форма пробного — auto, один пробный на IDNO/e-mail, спам", test_trial.suite_auto),
     ("Сервер: форма пробного — approve, кнопки, скрыть", test_trial.suite_approve),
     ("Сервер: заявка из программы — токен, выдача, повтор, скрыть, auto", test_trial.suite_program),
