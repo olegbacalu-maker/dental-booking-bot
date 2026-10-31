@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8">
+<title>Criptarea calculatorului clinicii (BitLocker) — instrucțiune</title>
+<style>
+ body{font-family:'Segoe UI',system-ui,sans-serif;max-width:760px;margin:24px auto;
+      padding:0 16px;color:#111;line-height:1.55;font-size:15px}
+ h1{font-size:20px;margin:8px 0 2px}
+ .sub{color:#555;font-size:13px;margin:0 0 20px}
+ h2{font-size:15px;margin:20px 0 6px}
+ ol{padding-left:22px}
+ li{margin:6px 0}
+ kbd{background:#EEE;border:1px solid #CCC;border-radius:4px;padding:1px 6px;
+     font-size:13px}
+ .warn{border-left:4px solid #B45309;background:#FEF3C7;padding:10px 12px;
+       margin:14px 0;font-size:14px}
+ .ok{border-left:4px solid #047857;background:#D1FAE5;padding:10px 12px;
+     margin:14px 0;font-size:14px}
+ .note{border:1px dashed #999;padding:10px 12px;font-size:12.5px;color:#444;
+       background:#FAFAFA;margin:16px 0}
+ .sign{margin-top:30px;font-size:14px}
+ .fill{background:#FFF3B0;padding:0 6px}
+ .fillhint{border:1px solid #0E9F8A;background:#EAF7F4;color:#0B5F53;
+           padding:9px 12px;font-size:12.5px;margin:0 0 16px;border-radius:6px}
+ .fill:focus{outline:2px solid #0E9F8A;background:#FFFBEA}
+ @media print{.noprint{display:none}
+   .fill{background:none;padding:0}
+   .fill.empty{background:#FFF3B0}}
+ .model{margin-top:28px;font-size:11px;color:#777;text-align:center;font-family:inherit}
+</style></head><body>
+
+<div class="fillhint noprint">
+<b>Completare:</b> faceți clic pe orice câmp galben și scrieți direct în pagină.
+Apoi <b>Ctrl+P</b> — la tipar câmpurile completate ies curate, iar cele rămase
+goale se văd galbene, ca să nu treacă neobservate. Pagina nu memorează nimic:
+completați și tipăriți (sau salvați ca PDF) dintr-o dată, astfel datele unei
+clinici nu ajung pe hârtia alteia.
+</div>
+
+<div class="note noprint">
+<b>Pentru instalator / administratorul clinicii.</b> Această pagină se
+parcurge O DATĂ, la instalarea DentPilot. Ultima secțiune (actul) se tipărește
+și se semnează — este dovada scrisă a măsurii tehnice cerute de Legea 195.
+</div>
+
+<h1>Criptarea calculatorului clinicii (BitLocker)</h1>
+<p class="sub">de ce este necesară și cum se activează — 10 minute</p>
+
+<h2>De ce</h2>
+<p>Fișele pacienților se află pe acest calculator. Dacă calculatorul (sau
+discul) este furat, fără criptare datele se citesc prin simpla conectare a
+discului la alt calculator — indiferent de parola Windows sau de PIN-ul
+programului. BitLocker criptează întreg discul: un disc furat rămâne
+ilizibil. Aceasta este măsura recunoscută drept „criptare a datelor" în
+sensul Legii nr. 195/2024.</p>
+
+<h2>Pasul 1 — verificați ediția Windows</h2>
+<ol>
+<li>Apăsați <kbd>Win</kbd>+<kbd>Pause</kbd> (sau Setări → Sistem → Despre).</li>
+<li>La „Ediție" trebuie să fie <b>Windows 10/11 Pro</b> (sau Enterprise).</li>
+</ol>
+<div class="warn"><b>Windows Home nu are BitLocker complet.</b> Unele
+calculatoare Home au „Device encryption" (Setări → Confidențialitate și
+securitate → Criptarea dispozitivului) — dacă există, activați-o, efectul e
+echivalent. Dacă nu există nici ea: fie upgrade la Pro, fie semnalați
+furnizorului — se va conveni o măsură alternativă. Nu lăsați punctul
+nerezolvat.</div>
+
+<h2>Pasul 2 — activați BitLocker</h2>
+<ol>
+<li>Meniul Start → tastați <b>BitLocker</b> → „Manage BitLocker".</li>
+<li>La discul <b>C:</b> apăsați <b>Turn on BitLocker</b>.</li>
+<li>La întrebarea despre cheia de recuperare alegeți
+<b>Save to a file</b> sau <b>Print the recovery key</b>.</li>
+<li>Alegeți „Encrypt used disk space only" (mai rapid) → Next → Start.</li>
+<li>Criptarea rulează în fundal; calculatorul poate fi folosit normal.</li>
+</ol>
+
+<div class="warn"><b>Caz frecvent pe calculatoare noi: «BitLocker ожидает
+активации» / status «Encrypted», dar «Protection Off».</b> Discul este deja
+criptat, însă cheia stă <b>neprotejată</b> lângă date — un disc furat se
+deschide singur, protecția reală e zero. Activarea durează un minut și nu
+re-criptează nimic: în fereastra BitLocker apăsați «Turn on BitLocker»,
+salvați și tipăriți cheia de recuperare. Verificare din consolă de
+administrator: <kbd>manage-bde -status C:</kbd> → «Protection On» și
+protectorii «TPM, Numerical Password».</div>
+
+<div class="warn"><b>Cheia de recuperare este critică.</b> Fără ea, la o
+defecțiune a plăcii de bază sau la mutarea discului, datele sunt pierdute
+definitiv. Tipăriți-o, puneți-o în plic sigilat, păstrați-o în alt loc decât
+calculatorul (seif, dosarul actelor clinicii). NU o lipiți de monitor și nu o
+salvați pe același calculator.</div>
+
+<h2>Pasul 3 — verificați</h2>
+<ol>
+<li>Reveniți la „Manage BitLocker" — la C: trebuie să scrie
+<b>BitLocker on</b>.</li>
+<li>Verificați că și copia de rezervă externă e protejată: din DentPilot →
+Setări › Copie de rezervă › „Copie manuală pe stick USB” — exportați arhiva pe stick
+cu o parolă de minim 10 caractere.</li>
+<li>Programul arată singur starea criptării: Setări › Stare sistem, rândul
+„Criptare disc (BitLocker)”.</li>
+</ol>
+
+<div class="ok">Gata. Împreună cu PIN-ul programului și copiile criptate,
+clinica are măsurile tehnice de bază cerute de lege: acces controlat,
+purtător criptat, copii protejate.</div>
+
+<h2>Act de confirmare (tipăriți și semnați)</h2>
+<p>Subsemnatul <span class="fill">«nume, funcție»</span> confirm că la data de
+<span class="fill">«zz.ll.aaaa»</span>, pe calculatorul clinicii
+<span class="fill" data-k="name">«denumirea clinicii»</span> destinat programului DentPilot:</p>
+<ol>
+<li>criptarea discului (BitLocker / Device encryption) este <b>activată</b>;</li>
+<li>cheia de recuperare a fost tipărită și depusă în
+<span class="fill">«locul păstrării»</span>;</li>
+<li>accesul în program este protejat prin PIN cunoscut doar personalului.</li>
+</ol>
+<p class="sign">Semnătura: ______________________</p>
+
+<p class="model">Model DentPilot · redacția din 31.10.2026 · contul clinicii, secțiunea „Documente”</p>
+
+<script>
+(function () {
+  Array.prototype.forEach.call(document.querySelectorAll('.fill'), function (el) {
+    var ph = el.textContent;
+    var isPh = ph.trim().charAt(0) === '\u00AB';
+    el.contentEditable = 'true';
+    el.spellcheck = false;
+    function setEmpty(on) {
+      if (on) { el.classList.add('empty'); } else { el.classList.remove('empty'); }
+    }
+    setEmpty(isPh);
+    function clearPh() {
+      if (el.classList.contains('empty')) el.textContent = '';
+    }
+    el.addEventListener('focus', clearPh);
+    el.addEventListener('click', clearPh);
+    el.addEventListener('input', function () {
+      setEmpty(el.textContent.trim() === '');
+    });
+    el.addEventListener('blur', function () {
+      if (el.textContent.trim() !== '') return;
+      el.textContent = ph;
+      setEmpty(isPh);
+    });
+    el.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+    });
+  });
+})();
+</script>
+</body></html>

@@ -613,5 +613,7 @@ def documents_note() -> str:
         return ""
     return (f"Contractul de licență și Acordul de prelucrare a datelor, semnate de furnizor, le găsiți în contul "
             f"clinicii: {DOCUMENTS_URL} — de descărcat pentru contabilitatea clinicii; acolo puteți încărca și "
-            f"exemplarul semnat de clinică.")
+            f"exemplarul semnat de clinică. Tot acolo sunt modelele de documente pentru Legea 195 (informarea "
+            f"pacienților, registrul de evidență, criptarea calculatorului, lista de verificare) — se completează "
+            f"în browser și se tipăresc.")
 

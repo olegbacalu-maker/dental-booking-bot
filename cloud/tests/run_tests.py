@@ -26,6 +26,7 @@ import test_fleet  # noqa: E402
 import test_issue  # noqa: E402
 import test_jobs  # noqa: E402
 import test_maib  # noqa: E402
+import test_modele  # noqa: E402
 import test_payments  # noqa: E402
 import test_paylink  # noqa: E402
 import test_update  # noqa: E402
@@ -165,6 +166,10 @@ SUITES = [
      test_contracts.suite_without),
     ("Документы в кабинете: схема 18 → 20 одним init (шаг 19 функцией, шаг 20), загрузка после",
      test_contracts.suite_migration),
+    ("Образцы 195 в кабинете: файлы, версии, основания как в программе, экранирование — без сервера",
+     test_modele.suite_rules),
+    ("Образцы 195 в кабинете: только под входом, своя клиника и филиал, вкладка, SMS, вход из программы",
+     test_modele.suite_cabinet),
     ("Поисковики: noindex на каждом ответе, robots.txt обход не закрывает", test_robots.suite),
 ]
 

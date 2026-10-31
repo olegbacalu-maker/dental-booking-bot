@@ -9,7 +9,7 @@ from __future__ import annotations
 import html
 from datetime import datetime, timedelta, timezone
 
-from . import config, contracts, license, maib, mail, sms, tiers, trial
+from . import config, contracts, license, maib, mail, modele, sms, tiers, trial
 from . import emailconf  # подтверждение ящика (27.10)
 from . import payments as pay  # ⚠️ не `payments`: так зовётся параметр карточки клиники (список строк)
 
@@ -2603,10 +2603,28 @@ def _doc_line(d: dict, q: str = "") -> str:
     return f"<li><b>{esc(d['title'])}</b>{ver} — {link}<br><span class='muted'>{esc(d['what'])}</span></li>"
 
 
-def _cont_docs_body(c, docs: list, mine: list, fragment: str = "", q: str = "") -> str:
-    """Вкладка «Documente» (29.10, contracts.py): подписанные поставщиком PDF — скачать; акты акцепта
-    условий — фрагмент terms (`fragment`) или общая строка; загрузка экземпляра клиники со своей
-    подписью (по желанию) и список загруженных."""
+def _cont_modele(q: str = "", with_sms: bool = False) -> str:
+    """«Modele pentru clinică» (31.10, modele.py): образцы закона 195 страницами — открываются в новой
+    вкладке браузера с реквизитами клиники (`?c=` филиала), заполняются в странице, Ctrl+P.
+    ⛔ Без `id` у карточки: метка адреса — имя вкладки (test_cont_tabs)."""
+    rows = "".join(
+        f"<li><b>{esc(m['title'])}</b> <span class='muted'>· modelul din {esc(m['version'])}</span> — "
+        f"<a href='/cont/modele/{k}{q}' target='_blank' rel='noopener'>{_ic('file', 14)} Deschide</a>"
+        f"<br><span class='muted'>{esc(m['what'])}</span></li>" for k, m in modele.MODELE.items())
+    about = ("<p class='muted' style='margin:0 0 12px'>Se deschid în browser cu <b>denumirea, IDNO, adresa și "
+             "telefonul clinicii</b> deja completate. Câmpurile galbene rămase le completați direct în pagină, apoi "
+             "<b>Ctrl+P</b> — tipăriți sau salvați ca PDF. Pagina nu păstrează nimic din ce scrieți. Hârtiile semnate "
+             "stau în mapa „Legea 195” a clinicii, împreună cu documentele furnizorului de mai sus.</p>")
+    sms_line = ("<p class='muted' style='margin:12px 0 0'>Clinica folosește <b>Pachetul SMS</b>: modelele se deschid "
+                "cu secțiunile despre memento-uri incluse (bifa din capul paginii le poate scoate).</p>") if with_sms else ""
+    return (f"<div class='card'>{_chead('list', 'Modele pentru clinică', 'Legea 195/2024 · de completat și de tipărit')}"
+            f"{about}<ul class='steps' style='margin:0'>{rows}</ul>{sms_line}</div>")
+
+
+def _cont_docs_body(c, docs: list, mine: list, fragment: str = "", q: str = "", with_sms: bool = False) -> str:
+    """Вкладка «Documente» (29.10, contracts.py): подписанные поставщиком PDF — скачать; образцы закона 195
+    для клиники (31.10, `_cont_modele`); акты акцепта условий — фрагмент terms (`fragment`) или общая
+    строка; загрузка экземпляра клиники со своей подписью (по желанию) и список загруженных."""
     mine = list(mine)
     items = "".join(_doc_line(d, q) for d in docs)
     about = ("<p class='muted' style='margin:0 0 12px'>Documentele sunt semnate electronic de furnizor (semnătură "
@@ -2636,7 +2654,7 @@ def _cont_docs_body(c, docs: list, mine: list, fragment: str = "", q: str = "") 
               f"părți: descărcați PDF-ul de mai sus, semnați-l cu semnătura electronică a clinicii (MSign) sau tipăriți-l, "
               f"semnați-l și scanați-l, apoi încărcați-l aici. Rămâne în contul clinicii; furnizorul îl vede în fișa clinicii.</p>"
               f"{form}{have}</div>")
-    return prov + accept + upload
+    return prov + _cont_modele(q, with_sms) + accept + upload
 
 
 # Вкладки кабинета (29.10, вариант 1 Олега): ключ, значок, подпись. ⛔ Ключ не равен ни одному id
@@ -2673,7 +2691,7 @@ def _cpick(cab: list, cur: str, now: datetime) -> str:
 def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", devices: list = (),
               smsinfo: dict | None = None, cab: list = (), group=None, scoped: bool = False,
               branch: bool = False, docs: list = (), docs_mine: list = (), docs_fragment: str = "",
-              tab: str = "") -> str:
+              tab: str = "", modele_sms: bool = False) -> str:
     """Дашборд клиники в кабинете — по вкладкам (29.10): Licență și program · Abonament și plăți · Clinica
     · SMS (когда пакет предложен) · Documente; `tab` — вкладка по умолчанию без метки адреса
     (/cont/documente открывает «Documente»), иначе первая. `scoped` — вошли кнопкой программы (27.10, contlink.py): одна
@@ -2777,7 +2795,7 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
     sms_card = _cont_sms(smsinfo.get("clinic") or c, smsinfo, q) if smsinfo is not None else ""
     panes = {"licenta": hero + f"<div class='grid2'>{devs}{acct}</div>", "plati": pays,
              "clinica": data + (_clinics_card(cab, c["id"], now) if multi else "") + branches,
-             "sms": sms_card, "documente": _cont_docs_body(c, list(docs), docs_mine, docs_fragment, q)}
+             "sms": sms_card, "documente": _cont_docs_body(c, list(docs), docs_mine, docs_fragment, q, modele_sms)}
     # счётчик «ждёт вас» у вкладки: открытая нота (своя или общая); имя SMS запрошено, заявление не загружено
     counts = {"plati": 1 if (pending or group is not None) else 0,
               "sms": 1 if (smsinfo is not None and smsinfo["acc"] is not None

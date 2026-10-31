@@ -46,6 +46,8 @@ ROUTES = {
     # документы (29.10, contracts.py): общие PDF — любому вошедшему, экземпляр — своей клиники
     ("GET", "/cont/documente"): "own", ("GET", "/cont/documente/{doc}.pdf"): "own",
     ("GET", "/cont/documente/{rid}/clinica.pdf"): "own", ("POST", "/cont/documente/incarca"): "own",
+    # образцы закона 195 (31.10, modele.py): реквизиты своей клиники
+    ("GET", "/cont/modele/{key}"): "own",
     ("GET", "/cont/clinica-noua"): "deny", ("POST", "/cont/clinica-noua"): "deny",
     ("GET", "/cont/nota-comuna"): "deny", ("POST", "/cont/nota-comuna"): "deny",
     ("POST", "/cont/nota-comuna/anuleaza"): "deny",

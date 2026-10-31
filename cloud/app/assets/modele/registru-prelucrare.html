@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8">
+<title>Registrul activităților de prelucrare</title>
+<style>
+ body{font-family:Georgia,'Times New Roman',serif;max-width:860px;margin:24px auto;
+      padding:0 16px;color:#111;line-height:1.5;font-size:14px}
+ h1{font-size:19px;text-align:center;margin:8px 0 2px}
+ .sub{text-align:center;color:#555;font-size:13px;margin:0 0 20px}
+ table{border-collapse:collapse;width:100%;margin:10px 0 18px}
+ th,td{border:1px solid #888;padding:6px 8px;text-align:left;vertical-align:top;
+       font-size:13px}
+ th{background:#EFEFEF;width:220px}
+ .fill{background:#FFF3B0;padding:0 6px}
+ .note{border:1px dashed #999;padding:10px 12px;font-size:12.5px;color:#444;
+       background:#FAFAFA;margin:16px 0}
+ .fillhint{border:1px solid #0E9F8A;background:#EAF7F4;color:#0B5F53;
+           padding:9px 12px;font-size:12.5px;margin:0 0 16px;border-radius:6px}
+ .fill:focus{outline:2px solid #0E9F8A;background:#FFFBEA}
+ .smstoggle{display:block;border:1px solid #0E9F8A;background:#F4FBF9;
+            padding:8px 12px;font-size:12.5px;margin:0 0 16px;border-radius:6px}
+ body:not(.sms) .sms-only{display:none}
+ body.sms .no-sms{display:none}
+ @media print{.noprint{display:none}
+   .fill{background:none;padding:0}
+   .fill.empty{background:#FFF3B0}}
+ .model{margin-top:28px;font-size:11px;color:#777;text-align:center;font-family:inherit}
+</style></head><body>
+
+<div class="fillhint noprint">
+<b>Completare:</b> faceți clic pe orice câmp galben și scrieți direct în pagină.
+Apoi <b>Ctrl+P</b> — la tipar câmpurile completate ies curate, iar cele rămase
+goale se văd galbene, ca să nu treacă neobservate. Pagina nu memorează nimic:
+completați și tipăriți (sau salvați ca PDF) dintr-o dată, astfel datele unei
+clinici nu ajung pe hârtia alteia.
+</div>
+
+<label class="smstoggle noprint"><input type="checkbox" id="sms-toggle">
+Clinica folosește <b>Pachetul SMS</b> DentPilot — în registru apare și
+activitatea «Memento-uri SMS»</label>
+
+<div class="note noprint">
+<b>Cum se folosește:</b> acesta este registrul activităților de prelucrare —
+documentul pe care îl cere autoritatea (CNPDCP) la un control. Completați
+câmpurile galbene o singură dată și actualizați-l când se schimbă ceva
+(program nou, canal nou de comunicare). Păstrați-l tipărit sau ca fișier,
+împreună cu documentele clinicii.
+</div>
+
+<h1>Registrul activităților de prelucrare a datelor cu caracter personal</h1>
+<p class="sub">art. corespunzător din Legea nr. 195/2024 · Operator:
+<span class="fill" data-k="name">«denumirea clinicii»</span>, IDNO
+<span class="fill" data-k="idno">«IDNO»</span></p>
+
+<h2>Activitatea 1 — Evidența pacienților și a tratamentelor (DentPilot)</h2>
+<table>
+<tr><th>Scopul prelucrării</th>
+    <td>programarea vizitelor, evidența tratamentelor, întocmirea documentației medicale;
+        reamintirea controlului periodic (lista «Rechemări»: apel telefonic, e-mail
+        din programul de e-mail al clinicii sau, cu Pachetul SMS, un SMS trimis de
+        recepție ori automat, după setarea clinicii — Activitatea 2; după termenul
+        ales la serviciu)</td></tr>
+<tr><th>Categorii de persoane</th><td>pacienții clinicii</td></tr>
+<tr><th>Categorii de date</th>
+    <td>identificare (nume, telefon, e-mail, adresă, data nașterii, IDNP);
+        <b>date despre sănătate</b>: istoricul tratamentelor, starea dinților,
+        plan de tratament, radiografii, alergii, asigurare</td></tr>
+<tr><th>Temei</th><td>executarea contractului de servicii medicale; obligația
+    legală de a ține documentația medicală</td></tr>
+<tr><th>Destinatari</th><td>instituții abilitate, la cerere legală; altă
+    instituție medicală, la solicitarea pacientului (transferul fișei)</td></tr>
+<tr><th>Transfer în străinătate</th><td>nu are loc</td></tr>
+<tr><th>Termen de păstrare</th><td>conform normelor privind documentația
+    medicală; datele de contact fără tratament — până la cererea de ștergere</td></tr>
+<tr><th>Măsuri de securitate</th>
+    <td>program local (baza de date se află pe calculatorul clinicii); acces prin
+        cod PIN cu limitarea încercărilor; jurnalul accesărilor la fișe;
+        criptarea purtătorului (BitLocker); copii de rezervă criptate (AES-256);
+        ștergerea / anonimizarea la cerere</td></tr>
+<tr><th>Sistem utilizat</th><td>DentPilot, instalat local; furnizor — Oleg Bacalu, antreprenor independent,
+    IDNO 1026023148339 (dentpilot.md); condițiile — Contractul de licență DentPilot
+    și Acordul privind prelucrarea datelor (contul clinicii, secțiunea „Documente”)</td></tr>
+</table>
+
+<div class="sms-only">
+<h2>Activitatea 2 — Memento-uri SMS (Pachetul SMS DentPilot)</h2>
+<table>
+<tr><th>Scopul prelucrării</th><td>memento-uri SMS despre vizitele programate,
+    pentru a reduce absențele; reamintirea controlului periodic, trimisă din
+    lista «Rechemări» de recepție sau automat, după setarea clinicii (un SMS
+    pentru fiecare termen, un număr limitat pe zi), pentru continuitatea
+    tratamentului</td></tr>
+<tr><th>Categorii de persoane</th><td>pacienții cu o vizită programată sau cu
+    termen de control periodic, care nu au refuzat memento-urile</td></tr>
+<tr><th>Categorii de date</th><td>numărul de telefon mobil; textul
+    memento-ului: denumirea clinicii, ziua, data și ora vizitei, opțional
+    telefonul clinicii; la reamintirea controlului periodic — doar denumirea
+    și telefonul clinicii. Fără nume, medic, serviciu sau alte date despre
+    sănătate</td></tr>
+<tr><th>Temei</th><td>interesul legitim al clinicii (reducerea absențelor)</td></tr>
+<tr><th>Informarea persoanei</th><td>informarea afișată la recepție și
+    formularul personal tipărit din program</td></tr>
+<tr><th>Opoziție</th><td>la recepție, oricând: bifa «Fără remindere SMS» în
+    fișa pacientului</td></tr>
+<tr><th>Destinatari (persoane împuternicite)</th><td>furnizorul programului
+    DentPilot — serverul lui transmite mesajul și nu păstrează numărul și
+    textul (Acordul privind prelucrarea datelor — Anexa 3 la Contractul de licență); operatorul SMS Rock Soft
+    S.R.L. (SMS.MD), IDNO 1021600014623; operatorii de telefonie mobilă</td></tr>
+<tr><th>Transfer în străinătate</th><td>mesajele pleacă doar spre numere din
+    Republica Moldova; serverele SMS.MD sunt în Republica Moldova; serverul
+    furnizorului (tranzit, fără păstrare) — la Contabo GmbH, centru de date în
+    Uniunea Europeană</td></tr>
+<tr><th>Termen de păstrare</th><td>la furnizor — nu se păstrează; la SMS.MD —
+    3 luni; în program — starea memento-ului în fișă, ca la Activitatea 1</td></tr>
+<tr><th>Măsuri de securitate</th><td>transmitere criptată (HTTPS); cheie de
+    acces separată a clinicii; textul fără date despre sănătate; limită zilnică
+    de mesaje</td></tr>
+</table>
+</div>
+
+<h2>Activitatea <span class="no-sms">2</span><span class="sms-only">3</span> —
+<span class="fill">«alte prelucrări: video-supraveghere,
+contabilitate, site…»</span></h2>
+<table>
+<tr><th>Scopul prelucrării</th><td class="fill">«completați sau ștergeți secțiunea»</td></tr>
+<tr><th>Categorii de date</th><td class="fill">«…»</td></tr>
+<tr><th>Temei</th><td class="fill">«…»</td></tr>
+</table>
+
+<p>Întocmit: <span class="fill">«zz.ll.aaaa»</span> ·
+Responsabil: ______________________ ·
+Actualizat ultima dată: <span class="fill">«zz.ll.aaaa»</span></p>
+
+<p class="model">Model DentPilot · redacția din 31.10.2026 · contul clinicii, secțiunea „Documente”</p>
+
+<script>
+(function () {
+  Array.prototype.forEach.call(document.querySelectorAll('.fill'), function (el) {
+    var ph = el.textContent;
+    var isPh = ph.trim().charAt(0) === '\u00AB';
+    el.contentEditable = 'true';
+    el.spellcheck = false;
+    function setEmpty(on) {
+      if (on) { el.classList.add('empty'); } else { el.classList.remove('empty'); }
+    }
+    setEmpty(isPh);
+    function clearPh() {
+      if (el.classList.contains('empty')) el.textContent = '';
+    }
+    el.addEventListener('focus', clearPh);
+    el.addEventListener('click', clearPh);
+    el.addEventListener('input', function () {
+      setEmpty(el.textContent.trim() === '');
+    });
+    el.addEventListener('blur', function () {
+      if (el.textContent.trim() !== '') return;
+      el.textContent = ph;
+      setEmpty(isPh);
+    });
+    el.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+    });
+  });
+})();
+</script>
+<script>
+(function () {
+  var t = document.getElementById('sms-toggle');
+  if (!t) return;
+  function apply() {
+    if (t.checked) { document.body.classList.add('sms'); }
+    else { document.body.classList.remove('sms'); }
+  }
+  t.addEventListener('change', apply);
+  apply();
+})();
+</script>
+</body></html>

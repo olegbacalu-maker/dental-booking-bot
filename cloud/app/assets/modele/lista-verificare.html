@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8">
+<title>Legea 195 — lista de verificare a clinicii</title>
+<style>
+ body{font-family:'Segoe UI',system-ui,sans-serif;max-width:760px;margin:24px auto;
+      padding:0 16px;color:#111;line-height:1.5;font-size:14.5px}
+ h1{font-size:19px;margin:8px 0 2px}
+ .sub{color:#555;font-size:13px;margin:0 0 18px}
+ h2{font-size:15px;margin:18px 0 6px;border-bottom:1px solid #DDD;padding-bottom:3px}
+ label{display:block;margin:5px 0;cursor:default}
+ input[type=checkbox]{margin-right:8px;transform:scale(1.15)}
+ .fill{background:#FFF3B0;padding:0 6px}
+ kbd{background:#EEE;border:1px solid #CCC;border-radius:4px;padding:1px 6px;font-size:12.5px}
+ .note{border:1px dashed #999;padding:9px 12px;font-size:12.5px;color:#444;
+       background:#FAFAFA;margin:14px 0}
+ .sign{margin-top:24px;display:flex;justify-content:space-between;font-size:13.5px}
+ .fillhint{border:1px solid #0E9F8A;background:#EAF7F4;color:#0B5F53;
+           padding:9px 12px;font-size:12.5px;margin:0 0 16px;border-radius:6px}
+ .fill:focus{outline:2px solid #0E9F8A;background:#FFFBEA}
+ .smstoggle{display:block;border:1px solid #0E9F8A;background:#F4FBF9;
+            padding:8px 12px;font-size:12.5px;margin:0 0 16px;border-radius:6px}
+ body:not(.sms) .sms-only{display:none}
+ body.sms .no-sms{display:none}
+ @media print{.noprint{display:none}
+   .fill{background:none;padding:0}
+   .fill.empty{background:#FFF3B0}}
+ .model{margin-top:28px;font-size:11px;color:#777;text-align:center;font-family:inherit}
+</style></head><body>
+
+<div class="fillhint noprint">
+<b>Completare:</b> faceți clic pe orice câmp galben și scrieți direct în pagină.
+Apoi <b>Ctrl+P</b> — la tipar câmpurile completate ies curate, iar cele rămase
+goale se văd galbene, ca să nu treacă neobservate. Pagina nu memorează nimic:
+completați și tipăriți (sau salvați ca PDF) dintr-o dată, astfel datele unei
+clinici nu ajung pe hârtia alteia.
+</div>
+
+<label class="smstoggle noprint"><input type="checkbox" id="sms-toggle">
+Clinica folosește <b>Pachetul SMS</b> DentPilot — apare secțiunea E</label>
+
+<div class="note noprint">Tipăriți pagina și bifați pe hârtie, punct cu punct. Pagina semnată rămâne în mapa „Legea 195” a clinicii, împreună cu celelalte hârtii.</div>
+
+<h1>Legea 195 — lista de verificare a clinicii</h1>
+<p class="sub">Clinica: <span class="fill" data-k="name">«denumirea»</span> ·
+Data: <span class="fill">«zz.ll.aaaa»</span> ·
+Versiunea DentPilot: <span class="fill">«x.y.z»</span></p>
+
+<h2>A. Programul</h2>
+<label><input type="checkbox"> Instalat din arhiva <b>DentPilot-Setup</b> descărcată de pe
+dentpilot.md sau din contul clinicii (instalatorul este semnat digital)</label>
+<label><input type="checkbox"> Fiecare utilizator are <b>PIN-ul</b> lui (4–8 cifre; 6 sau mai multe,
+dacă programul e deschis și de pe alte calculatoare din rețea); PIN-ul nu se notează lângă calculator</label>
+<label><input type="checkbox"> Completat profilul clinicii în <b>Setări</b>: denumirea juridică,
+IDNO, telefon, adresă, medici, servicii, program de lucru</label>
+<label><input type="checkbox"> Rolurile verificate: fiecare utilizator vede doar ce îi trebuie
+(director, recepție, medic)</label>
+
+<h2>B. Criptarea calculatorului (modelul „Criptarea calculatorului”)</h2>
+<label><input type="checkbox"> Ediția Windows verificată (<kbd>Win</kbd>+<kbd>Pause</kbd>):
+Pro / Enterprise — sau «Device encryption» prezent pe Home</label>
+<label><input type="checkbox"> În DentPilot, <b>Setări › Stare sistem</b>, rândul «Criptare disc
+(BitLocker)» nu este roșu; dacă este — BitLocker activat acum (instrucțiunea, pasul 2)</label>
+<label><input type="checkbox"> <b>Cheia de recuperare</b> tipărită, în plic sigilat,
+depusă la: <span class="fill">«locul»</span> — NU pe același calculator</label>
+<label><input type="checkbox"> Actul din instrucțiune completat și <b>semnat</b></label>
+
+<h2>C. Copia de rezervă</h2>
+<label><input type="checkbox"> Arhivă exportată din <b>Setări › Copie de rezervă</b> pe stick
+(parolă de minim 10 caractere, aleasă de clinică); arhiva <b>deschisă de probă</b> cu 7-Zip /
+WinRAR pe alt calculator sau măcar în alt folder — parola funcționează</label>
+<label><input type="checkbox"> Parola arhivei notată pe hârtie și depusă lângă cheia
+BitLocker; stabilit cine și cât de des repetă exportul:
+<span class="fill">«cine / frecvența»</span></label>
+
+<h2>D. Hârtiile (mapa „Legea 195”)</h2>
+<label><input type="checkbox"> <b>Informarea pacienților</b>: câmpurile galbene
+completate, tipărită, afișată la recepție</label>
+<label><input type="checkbox"> <b>Registrul activităților de prelucrare</b>: completat,
+secțiunile nefolosite șterse, semnat</label>
+<label><input type="checkbox"> <b>Documentele furnizorului</b> descărcate din contul clinicii
+(secțiunea „Documente”) și puse în mapă: Contractul de licență, Acordul privind prelucrarea
+datelor, Declarația furnizorului. Clinica le acceptă la activare și la plată; semnătura ei pe
+ele este opțională</label>
+<label><input type="checkbox"> Personalul instruit pe scurt: unde e butonul
+«Descarcă datele pacientului», cum se răspunde la o cerere de ștergere
+(câmpul STERG), în cel mult o lună</label>
+
+<div class="sms-only">
+<h2>E. Pachetul SMS</h2>
+<label><input type="checkbox"> Informarea și registrul tipărite cu bifa «Pachetul SMS» —
+cu secțiunile despre memento-uri</label>
+<label><input type="checkbox"> Personalul știe bifa <b>«Fără remindere SMS»</b>
+din fișă — pentru pacientul care refuză memento-urile</label>
+<label><input type="checkbox"> Test: «SMS de test» din <b>Setări › SMS</b> a
+ajuns pe telefonul clinicii</label>
+<label><input type="checkbox"> Doar pentru nume propriu de expeditor: cererea pentru alias
+descărcată din contul clinicii (secțiunea „SMS”), semnată de reprezentantul legal și încărcată
+înapoi acolo; alias propus: <span class="fill">«max. 11 caractere»</span></label>
+</div>
+
+<div class="sign">
+<span>Verificat de: ______________________</span>
+<span>Reprezentantul clinicii: ______________________</span>
+</div>
+
+<p class="model">Model DentPilot · redacția din 31.10.2026 · contul clinicii, secțiunea „Documente”</p>
+
+<script>
+(function () {
+  Array.prototype.forEach.call(document.querySelectorAll('.fill'), function (el) {
+    var ph = el.textContent;
+    var isPh = ph.trim().charAt(0) === '\u00AB';
+    el.contentEditable = 'true';
+    el.spellcheck = false;
+    function setEmpty(on) {
+      if (on) { el.classList.add('empty'); } else { el.classList.remove('empty'); }
+    }
+    setEmpty(isPh);
+    function clearPh() {
+      if (el.classList.contains('empty')) el.textContent = '';
+    }
+    el.addEventListener('focus', clearPh);
+    el.addEventListener('click', clearPh);
+    el.addEventListener('input', function () {
+      setEmpty(el.textContent.trim() === '');
+    });
+    el.addEventListener('blur', function () {
+      if (el.textContent.trim() !== '') return;
+      el.textContent = ph;
+      setEmpty(isPh);
+    });
+    el.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+    });
+  });
+})();
+</script>
+<script>
+(function () {
+  var t = document.getElementById('sms-toggle');
+  if (!t) return;
+  function apply() {
+    if (t.checked) { document.body.classList.add('sms'); }
+    else { document.body.classList.remove('sms'); }
+  }
+  t.addEventListener('change', apply);
+  apply();
+})();
+</script>
+</body></html>

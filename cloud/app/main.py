@@ -22,7 +22,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from . import (account, auth, cabinet, config, contlink, contracts, db, download, fleet, jobs, license, logmask, maib,
-               mail, payments, paylink, receipts, robots, sms, sms_paper, sms_rule, smsmd, smsreport, tiers, trial,
+               mail, modele, payments, paylink, receipts, robots, sms, sms_paper, sms_rule, smsmd, smsreport, tiers, trial,
                updates, views)
 from . import login as elogin  # ⚠️ не `login`: так зовётся маршрут входа админки ниже, он затенил бы модуль
 from . import emailconf  # подтверждение ящика клиники (27.10)
@@ -1881,11 +1881,12 @@ def _cont_dashboard(request: Request, msg: str, c: str, tab: str = "") -> Respon
         # вкладка «Documente» (29.10, contracts.py): экземпляры клиники и акты акцепта (terms.py)
         docs_mine = contracts.of_clinic(con, cl["id"])
         docs_fragment = contracts.terms_fragment(con, cl, q)
+        modele_sms = modele.sms_on(sa)
     # последний выпуск — из памяти или одним запросом к API; вне транзакции
     return HTMLResponse(views.cont_page(acc, cl, sub, issue, pays, download.latest(), msg, devices=devices,
                                         smsinfo=smsinfo, cab=cab, group=group, scoped=scoped, branch=branch,
                                         docs=contracts.statuses(), docs_mine=docs_mine, docs_fragment=docs_fragment,
-                                        tab=tab))
+                                        tab=tab, modele_sms=modele_sms))
 
 
 @app.get("/cont", response_class=HTMLResponse)
@@ -2427,6 +2428,25 @@ def cont_document_pdf(request: Request, doc: str) -> Response:
         return Response(status_code=404)
     return Response(data, media_type="application/pdf",
                     headers={"Content-Disposition": f'inline; filename="{contracts.filename(doc)}"'})
+
+
+@app.get("/cont/modele/{key}", response_class=HTMLResponse)
+def cont_model(request: Request, key: str, c: str = "") -> Response:
+    """Образец закона 195 с реквизитами клиники (31.10, modele.py) — страницей, для печати. Только своя
+    клиника (`?c=` филиала; чужая или неизвестная — на кабинет, без данных); неизвестный образец — 404.
+    `no-store`: в странице реквизиты клиники."""
+    with db.connect() as con:
+        acc = _current_account(con, request)
+        if acc is None:
+            return _cont_login_redirect()
+        cl = account.pick(con, acc, c)
+        if cl is None:
+            return RedirectResponse("/cont", status_code=303)
+        sa = con.execute("SELECT * FROM sms_accounts WHERE clinic_id=?", (cl["id"],)).fetchone()
+    page = modele.render(key, cl, modele.sms_on(sa))
+    if page is None:
+        return Response(status_code=404)
+    return HTMLResponse(page, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/cont/documente/{rid}/clinica.pdf")
