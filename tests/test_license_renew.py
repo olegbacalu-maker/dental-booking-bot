@@ -30,7 +30,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 
-from harness import BOT, ROOT, Client, Result, Server, _rmtree_settled
+from harness import BOT, ROOT, TZ, Client, Clock, Result, Server, _rmtree_settled
 
 FIX = ROOT / "tests" / "fixtures" / "license"
 KEY_ENV = {"DENTART_LICENSE_KEYS": str(FIX / "test-key.json")}
@@ -142,13 +142,13 @@ class Stand:
         self.srv.server_close()
 
 
-def _file(seq: int, renew: dict | None, *, expired: bool = False) -> str:
-    """Файл с подписью тестового ключа: действует ещё 400 дней или уже в readonly."""
+def _file(seq: int, renew: dict | None, *, expired: bool = False, days: int = 400) -> str:
+    """Файл с подписью тестового ключа: действует ещё `days` дней или уже в readonly."""
     now = datetime.now(timezone.utc).replace(microsecond=0)
     d = timedelta(days=1)
     claim = dict(gen.CLAIMS["valid"], seq=seq, issued_at=(now - 40 * d).strftime(TS),
-                 valid_until=((now - 20 * d) if expired else (now + 400 * d)).strftime(TS),
-                 grace_until=((now - 6 * d) if expired else (now + 414 * d)).strftime(TS))
+                 valid_until=((now - 20 * d) if expired else (now + days * d)).strftime(TS),
+                 grace_until=((now - 6 * d) if expired else (now + (days + 14) * d)).strftime(TS))
     if renew is not None:
         claim["renew"] = renew
     payload = gen.claim_bytes(claim)
@@ -245,6 +245,15 @@ def suite_client(res: Result) -> None:
                and stand.requests[-1]["agent"] == "DentPilot/9.9", stand.requests[-1]["agent"])
         stand.serve(204)
         res.check("204 — SAME", rn.fetch(stand.url, TOKEN, 5, timeout=5), (rn.SAME, ""))
+        meta: dict = {}
+        rn.fetch(stand.url, TOKEN, 5, timeout=5, meta=meta)
+        res.ok("204 — заголовок Date ответа уходит в meta как есть (пол часов, 02.11)",
+               isinstance(meta.get("date"), str) and meta["date"].endswith(" GMT"), repr(meta))
+        stand.serve(500, "oops")
+        meta = {}
+        rn.fetch(stand.url, TOKEN, 5, timeout=5, meta=meta)
+        res.ok("500 — Date не берётся: время приносит только удачный ответ", "date" not in meta, repr(meta))
+        stand.serve(204)
         stand.serve(401, '{"ok": false}')
         res.check("401 — REFUSED", rn.fetch(stand.url, TOKEN, 5, timeout=5), (rn.REFUSED, ""))
         stand.serve(403, "")
@@ -461,6 +470,98 @@ def suite_button(res: Result) -> None:
     finally:
         _rmtree_settled(d2)
 
+
+
+def _seen(d: pathlib.Path) -> tuple[datetime | None, datetime | None]:
+    """Пол часов в обеих копиях памяти: файл license.state и зеркало lic_seen в базе."""
+    con = sqlite3.connect(d / "dental.db")
+    try:
+        row = con.execute("SELECT value FROM schema_meta WHERE key = 'lic_seen'").fetchone()
+    finally:
+        con.close()
+    parse = lambda v: datetime.strptime(v, TS).replace(tzinfo=timezone.utc) if v else None  # noqa: E731
+    return parse(_mem(d).get("last_seen")), parse(row[0] if row else None)
+
+
+def suite_clock(res: Result) -> None:
+    """Часы на год вперёд и обратно (02.11, М1 разбора): облако опускает пол.
+
+    Один запуск с датой на год вперёд поднимал `last_seen` на год, и платящая
+    клиника после исправления часов сидела в readonly до файла дальше той даты.
+    Стенд отвечает с НАСТОЯЩИМ `Date` (его ставит http.server по часам прогона,
+    `Clock` их не двигает) — ровно то, что приносит облако."""
+    stand = Stand()
+    renew = {"url": stand.url, "token": TOKEN}
+    d = pathlib.Path(tempfile.mkdtemp(prefix="dp_renew_clock_"))
+    real = datetime.now(timezone.utc)
+    year = timedelta(days=365)
+    try:
+        # файл действует ещё 100 дней: год вперёд — далеко за льготой
+        (d / "license.json").write_text(_file(5, renew, days=100), encoding="utf-8")
+
+        # 1. часы на год вперёд, облака нет: readonly, пол поднялся на год в обеих копиях
+        stand.serve(500)
+        with Clock(real.astimezone(TZ) + year):
+            with Server(dir_=d, env=KEY_ENV) as s:
+                c = Client(s.url).login()
+                a = _wait_renew(c)
+                res.ok("часы +1 год без облака: readonly",
+                       a.get("state") == "readonly" and _renew(a).get("outcome") == "offline", repr(a))
+        f, m = _seen(d)
+        res.ok("пол поднялся на год: и файл памяти, и зеркало в базе",
+               f is not None and m is not None and f > real + year - timedelta(days=1)
+               and m > real + year - timedelta(days=1), repr((f, m)))
+
+        # 2. часы вернулись, облака по-прежнему нет: как до правки — пол держит
+        with Server(dir_=d, env=KEY_ENV) as s:
+            c = Client(s.url).login()
+            a = _wait_renew(c)
+            res.ok("часы назад без облака: по-прежнему readonly",
+                   a.get("state") == "readonly" and _renew(a).get("outcome") == "offline", repr(a))
+            res.check("запись отказывает", c.post_json("/api/patients", {"name": "Clk Ro", "phone": "069000441"}).status,
+                      423)
+        res.ok("пол на месте", (_seen(d)[0] or real) > real + year - timedelta(days=1), repr(_seen(d)))
+
+        # 3. облако ответило (204, новее нет) — пол опущен до его времени, active без нового файла
+        stand.serve(204)
+        with Server(dir_=d, env=KEY_ENV) as s:
+            c = Client(s.url).login()
+            a = _wait_renew(c)
+            res.ok("ответ облака с настоящим Date: active, seq прежний",
+                   a.get("state") == "active" and _renew(a).get("outcome") == "same" and a.get("seq") == 5, repr(a))
+            res.check("запись снова работает", c.post_json("/api/patients", {"name": "Clk Ok", "phone": "069000442"}).status,
+                      200)
+            res.ok("лог: пол опущен по времени сервера", "license: last_seen " in _log(s)
+                   and "(server time)" in _log(s), _log(s)[-600:])
+            res.ok("лог: часы не расходятся — строки о расхождении нет", "license: clock skew" not in _log(s))
+        f, m = _seen(d)
+        hi = datetime.now(timezone.utc) + timedelta(minutes=5)
+        res.ok("опущены ОБЕ копии памяти: файл и зеркало в базе",
+               f is not None and m is not None and real - timedelta(minutes=1) < f < hi
+               and real - timedelta(minutes=1) < m < hi, repr((f, m)))
+
+        # 4. облако снова недоступно: слияние копий года не возвращает
+        stand.serve(500)
+        with Server(dir_=d, env=KEY_ENV) as s:
+            c = Client(s.url).login()
+            res.check("без облака после опускания: active", _wait_renew(c).get("state"), "active")
+
+        # 5. часы на месяц НАЗАД, облако отвечает: пол не ниже его времени, строка о расхождении в лог
+        stand.serve(204)
+        with Clock(datetime.now(TZ) - timedelta(days=30)):
+            with Server(dir_=d, env=KEY_ENV) as s:
+                c = Client(s.url).login()
+                a = _wait_renew(c)
+                res.check("часы назад с облаком: active по файлу", a.get("state"), "active")
+                res.ok("лог: часы далеко от облака — строка clock skew", "license: clock skew local=" in _log(s),
+                       _log(s)[-600:])
+        f, m = _seen(d)
+        res.ok("перевод назад пол не опускает: не раньше времени облака",
+               f is not None and m is not None and f > real - timedelta(minutes=1)
+               and m > real - timedelta(minutes=1), repr((f, m)))
+    finally:
+        stand.close()
+        _rmtree_settled(d)
 
 # ---------- активация без файла: заявка на пробный (26.09) ----------
 

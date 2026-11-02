@@ -934,6 +934,8 @@ async def renew_once() -> str:
             _mailbox.update(email=meta["mailbox"]["email"], confirmed=meta["mailbox"]["confirmed"])
         if "terms" in meta:
             _terms["server"] = meta["terms"]      # старшая принятая версия с любого ПК клиники (29.10)
+        if (srv := st.server_time(meta.get("date"))) is not None:
+            await _server_clock(srv)          # до _put: refresh() сольёт уже опущенные копии
         result = {rn.SAME: RENEW_SAME, rn.REFUSED: RENEW_REFUSED}.get(outcome, RENEW_OFFLINE)
         if outcome == rn.NEWER:
             code, claim = rsa_verify.open_envelope(text, keys())
@@ -977,6 +979,30 @@ async def renew_once() -> str:
         (log.info if result == RENEW_SAME else log.warning)(
             "license: renew=%s seq=%d had=%d", result, _mem.accepted_seq, had)
         return result
+
+
+async def _server_clock(server_now: datetime) -> None:
+    """Время облака из удачного ответа: пол часов не выше него (02.11).
+
+    Часы, однажды убежавшие вперёд, подняли `last_seen`, и без этого клиника
+    после исправления часов жила бы в readonly до файла дальше той даты.
+    Опускаются ОБЕ копии памяти — файл и зеркало в базе: `merge` берёт
+    позднейшую, и неопущенная вернула бы пол на следующем старте."""
+    global _mem
+    wall = _now()
+    if abs(wall - server_now) > st.SKEW_LOG:
+        # ⚠️ ASCII, как в _log
+        log.warning("license: clock skew local=%s server=%s", st.fmt(wall), st.fmt(server_now))
+    if _dir is None:
+        return
+    mem = st.cut_seen(_mem, server_now)
+    if mem == _mem:
+        return
+    log.warning("license: last_seen %s -> %s (server time)",
+                st.fmt(_mem.last_seen) if _mem.last_seen else "-", st.fmt(server_now))
+    _mem = mem
+    st.save(_dir / STATE_NAME, mem)
+    await _meta_save(mem)
 
 
 def _pending_every() -> float:

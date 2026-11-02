@@ -293,14 +293,37 @@ pub fn paint(app: &AppHandle, color: &str) {
 pub fn open_external(url: &str) {
     let ok = ["http://", "https://", "mailto:", "tel:"].iter().any(|p| url.starts_with(p));
     if !ok {
-        log(&format!("external address refused: {url}"));
+        log(&format!("external address refused: {}", log_target(url)));
         return;
     }
-    log(&format!("open outside: {url}"));
+    log(&format!("open outside: {}", log_target(url)));
     let (verb, target) = (wide("open"), wide(url));
     unsafe {
         ShellExecuteW(std::ptr::null_mut(), verb.as_ptr(), target.as_ptr(), std::ptr::null(), std::ptr::null(), SW_SHOWNORMAL);
     }
+}
+
+/// Внешний адрес для `shell.log`: схема, у http(s) — ещё хост (02.11).
+/// ⛔ Ни пути, ни запроса, ни того, что после схемы: `tel:` — телефон пациента,
+/// `mailto:` несёт адрес и текст письма-напоминания, а журнал уезжает из
+/// клиники вместе с жалобой. Мусор вместо схемы — `?`.
+fn log_target(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once(':') else { return "?".into() };
+    let scheme_ok = !scheme.is_empty()
+        && scheme.len() <= 16
+        && scheme.starts_with(|c: char| c.is_ascii_alphabetic())
+        && scheme.chars().all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c));
+    if !scheme_ok {
+        return "?".into();
+    }
+    let scheme = scheme.to_ascii_lowercase();
+    if scheme != "http" && scheme != "https" {
+        return format!("{scheme}:");
+    }
+    let auth = rest.strip_prefix("//").unwrap_or("");
+    let auth = auth.split(['/', '?', '#', '\\']).next().unwrap_or("");
+    let host = auth.rsplit('@').next().unwrap_or("");
+    format!("{scheme}://{host}")
 }
 
 /// Скачивание: родное окно «Сохранить как». `dest` — куда положил бы сам
@@ -361,3 +384,30 @@ fn message_owned(owner: HWND, text: &str, style: u32) -> i32 {
 
 pub const INFO: u32 = MB_ICONINFORMATION;
 pub const ERROR: u32 = MB_ICONERROR;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn log_target_keeps_no_personal_data() {
+        assert_eq!(log_target("tel:+37369123456"), "tel:");
+        assert_eq!(
+            log_target("mailto:ion.popescu@mail.md?subject=Reamintire&body=Ion%2C%20v%C4%83%20a%C8%99tept%C4%83m"),
+            "mailto:"
+        );
+        assert_eq!(log_target("https://dentpilot.md/plata/abc123?k=secret#x"), "https://dentpilot.md");
+        assert_eq!(log_target("http://maps.google.com:8080/?q=Str.+Ismail+12"), "http://maps.google.com:8080");
+        assert_eq!(log_target("https://ion:parola@exemplu.md/a"), "https://exemplu.md");
+        assert_eq!(log_target("https://exemplu.md"), "https://exemplu.md");
+        assert_eq!(log_target("https://exemplu.md\\cale"), "https://exemplu.md");
+        // отказанные — только схема
+        assert_eq!(log_target("file:///C:/Users/Ion/fisa.pdf"), "file:");
+        assert_eq!(log_target("JavaScript:alert(document.cookie)"), "javascript:");
+        assert_eq!(log_target("C:\\Users\\Ion\\fisa.pdf"), "c:");
+        assert_eq!(log_target("069123456"), "?");
+        assert_eq!(log_target(":x"), "?");
+        assert_eq!(log_target("ion popescu:069123456"), "?");
+        assert_eq!(log_target(""), "?");
+    }
+}

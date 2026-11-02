@@ -192,6 +192,48 @@ def suite_memory(res: Result) -> None:
     res.check("слияние при равном seq: даты первого", same.valid_until, a.valid_until)
 
 
+
+def suite_server_time(res: Result) -> None:
+    """Потолок пола — время облака (02.11): `server_time` и `cut_seen`.
+
+    Часы ушли на год вперёд и вернулись: без облака пол держит год, с ответом
+    облака — опускается до его времени, и не ниже: перевод назад не оживляет."""
+    valid = _claim("valid")
+    real = valid.valid_until - 100 * DAY              # «сейчас» по облаку: файл действует ещё 100 дней
+    ahead = real + 365 * DAY                          # куда однажды убежали часы
+
+    res.check("Date: обычный заголовок HTTP — aware UTC",
+              lst.server_time(real.strftime("%a, %d %b %Y %H:%M:%S GMT")), real)
+    res.check("Date: со смещением — приведён к UTC",
+              lst.server_time((real + timedelta(hours=2)).strftime("%a, %d %b %Y %H:%M:%S +0200")), real)
+    for bad in (None, "", "   ", "вчера", "Mon, 99 Nov 2026 10:00:00 GMT", 12345,
+                real.strftime("%a, %d %b %Y %H:%M:%S -0000")):
+        res.check(f"Date: {bad!r} — None, а не исключение и не наивное время", lst.server_time(bad), None)
+
+    _, mem = lst.evaluate(("", valid), ahead, lst.Memory(), True)
+    res.check("часы на год вперёд: пол поднялся на год", mem.last_seen, ahead)
+    s, _ = lst.evaluate(("", valid), real, mem, True)
+    res.ok("часы вернулись, облака нет: пол держит год — readonly, как до правки",
+           s.state == lst.READONLY and s.now == ahead, repr(s))
+    cut = lst.cut_seen(mem, real)
+    res.ok("ответ облака: виденное и первый запуск опущены до его времени",
+           cut.last_seen == real and cut.first_start == real, repr(cut))
+    res.ok("ответ облака: принятый файл и его даты не тронуты",
+           (cut.accepted_seq, cut.valid_until, cut.grace_until)
+           == (mem.accepted_seq, mem.valid_until, mem.grace_until), repr(cut))
+    s, _ = lst.evaluate(("", valid), real, cut, True)
+    res.ok("после ответа облака: active", s.state == lst.ACTIVE and s.now == real, repr(s))
+    s, _ = lst.evaluate(None, real, cut, True)
+    res.check("и без файла на диске — по запомненным датам, не readonly", s.state, lst.GRACE)
+
+    seen = lst.Memory(real - 30 * DAY, real, valid.seq, valid.valid_until, valid.grace_until)
+    res.check("пол позади облака — не тронут", lst.cut_seen(seen, real + DAY), seen)
+    res.check("пустая память — пустая", lst.cut_seen(lst.Memory(), real), lst.Memory())
+    s, _ = lst.evaluate(("", valid), real - 300 * DAY, lst.cut_seen(seen, real + DAY), True)
+    res.check("часы назад после ответа облака: время не раньше пола", s.now, real)
+    res.ok("слияние с неопущенной копией вернуло бы год — поэтому опускаются обе",
+           lst.merge(cut, mem).last_seen == ahead and lst.merge(cut, cut).last_seen == real)
+
 def suite_keys(res: Result) -> None:
     """Таблица ключей: в exe — константа и только она; вне exe — только файл из
     окружения (02.10: иначе боевой ключ запер бы стеной каждый тестовый сервер)."""

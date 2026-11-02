@@ -56,6 +56,7 @@ def suite_wire(res: Result) -> None:
         stand.get_headers = {}
         meta = {}
         rn.fetch(stand.url, TOKEN, 1, timeout=5, meta=meta)
+        meta.pop("date", None)            # время ответа — для пола часов (02.11), не о ящике
         res.check("без заголовков — ничего (старый сервер)", meta, {})
     finally:
         stand.close()

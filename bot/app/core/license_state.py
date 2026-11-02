@@ -20,9 +20,17 @@
 ⛔ Часам верят с полом: не раньше `issued_at` файла и не раньше последнего
 виденного времени. Перевод часов назад ничего не оживляет. Это защита от
 случайного и ленивого, не DRM.
+
+⭐ Потолок у пола — время облака (02.11): один запуск с часами на год вперёд
+поднимал `last_seen` на год, и после исправления часов платящая клиника
+сидела в readonly до файла дальше той даты. Удачный ответ облака приносит
+заголовок `Date`, и `cut_seen` опускает память до него. Ниже времени облака
+пол не опускается, поэтому перевод часов назад по-прежнему ничего не
+оживляет; без связи с облаком пол только растёт.
 """
 from __future__ import annotations
 
+import email.utils
 import json
 import os
 import pathlib
@@ -37,6 +45,7 @@ MISSING = "missing"
 INVALID = "invalid"
 OLDER = "license_older"                 # файл старее принятого ранее (seq)
 NO_FILE_GRACE = timedelta(days=14)      # обновившаяся клиника без файла
+SKEW_LOG = timedelta(minutes=10)        # часы дальше облака — строка в лог
 _TS = "%Y-%m-%dT%H:%M:%SZ"
 
 
@@ -86,6 +95,31 @@ def clock(now_wall: datetime, mem: Memory, claim: object | None) -> datetime:
     if claim is not None:
         floor.append(claim.issued_at)
     return max(floor)
+
+
+def server_time(header: object) -> datetime | None:
+    """Заголовок `Date` ответа облака — aware UTC; None — нет, мусор или без пояса."""
+    if not isinstance(header, str) or not header.strip():
+        return None
+    try:
+        dt = email.utils.parsedate_to_datetime(header)
+    except (TypeError, ValueError, IndexError, OverflowError):
+        return None
+    if dt is None or dt.tzinfo is None:
+        return None
+    return dt.astimezone(timezone.utc)
+
+
+def cut_seen(mem: Memory, server_now: datetime) -> Memory:
+    """Память не позже времени облака: ни виденное, ни первый запуск не могли
+    случиться после его «сейчас». Только вниз и только до облака — пол часов
+    от перевода назад остаётся."""
+    seen, first = mem.last_seen, mem.first_start
+    if seen is not None and seen > server_now:
+        seen = server_now
+    if first is not None and first > server_now:
+        first = server_now
+    return replace(mem, last_seen=seen, first_start=first)
 
 
 def by_dates(now: datetime, valid_until: datetime, grace_until: datetime) -> str:

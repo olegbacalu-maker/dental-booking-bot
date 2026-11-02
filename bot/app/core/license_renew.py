@@ -42,6 +42,10 @@ Bearer — повторное принятие новой версии усло�
 без сервера). 200 с `ok` — квитанция `{id, version, at}`; исходы — как у e-mail. Суточный ответ
 `/v1/license` несёт заголовок `X-DentPilot-Terms` — старшую версию, которую клиника уже приняла
 (с любого своего компьютера); `fetch(meta=…)` кладёт её в `meta["terms"]`.
+
+Заголовок `Date` ответа 200/204 (02.11) уходит в `meta["date"]` как есть: по нему
+license.py опускает пол часов, поднятый часами, убежавшими вперёд. Разбор даты —
+license_state.server_time: здесь только провод.
 """
 from __future__ import annotations
 
@@ -115,6 +119,8 @@ def fetch(url: str, token: str, seq: int, timeout: float = TIMEOUT,
                 meta["mailbox"] = box
             if meta is not None and r.status in (200, 204) and (tv := terms_version(r.headers)):
                 meta["terms"] = tv
+            if meta is not None and r.status in (200, 204) and r.headers.get("Date"):
+                meta["date"] = r.headers.get("Date")
             if r.status == 204:
                 return SAME, ""
             if r.status != 200:
