@@ -43,8 +43,9 @@ foreach ($r in $Rules) {
     $what = "$($r.Name) | $($r.ApplicationName) | proto $($r.Protocol) | profiles $($r.Profiles)"
     if ($DryRun) { Write-Output "would narrow: $what"; continue }
     try {
-        # Pravilo okna "Razreshit' dostup" Windows - edge traversal "defer to user";
-        # snimaem do adresov: iz-za predelov podseti ego vse ravno ne dolzhno byt'.
+        # Pravilo okna "Razreshit' dostup" Windows - edge traversal "defer to user",
+        # a ego Windows dopuskaet tol'ko bez uslovij, krome programmy i protokola:
+        # RemoteAddresses do snyatiya otvergaetsya (opyt 02.11; tak upal netsh 2.8.0).
         if ($r.EdgeTraversalOptions) { $r.EdgeTraversalOptions = 0 }
         $r.RemoteAddresses = 'LocalSubnet'
         Write-Output "narrowed: $what"
