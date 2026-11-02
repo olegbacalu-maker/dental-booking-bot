@@ -377,6 +377,14 @@ MSG_BANNER = {
     "bad_bkp_unset": ("err", "Alegeți întâi folderul și parola copiei în afara "
                              "calculatorului"),
     "ok_bkp_run": ("ok", "Copia de rezervă externă a fost făcută"),
+    # Нет папки вне компьютера (02.11, разбор коллеги): копии лежат на том же
+    # диске, что и картотека, и умирают вместе с ним — молчать об этом нельзя.
+    # Строка директора (`backup_loop.alert` → баннер и Stare sistem); ссылку
+    # «Copie de rezervă» дописывает баннер, поэтому точки в конце нет.
+    "bkp_no_offsite": ("warn", "Copiile de rezervă sunt doar pe acest calculator — dacă "
+                               "discul se defectează, se pierd odată cu evidența. Alegeți "
+                               "un folder pe alt disc, un stick USB sau folderul cloud al "
+                               "clinicii"),
     "bad_bkp_auto": ("err", "Copia de rezervă externă nu s-a făcut"),
     "ok_rst_staged": ("ok", "Copia a fost verificată — confirmați restaurarea"),
     "bad_rst_pass": ("err", "Parola arhivei nu este corectă"),

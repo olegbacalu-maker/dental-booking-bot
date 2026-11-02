@@ -549,6 +549,8 @@ SUITES = [
     ("Копии: расписание под поддельными часами", test_backup.suite_schedule),
     ("Копии: выключатель директора — выключенное молчит", test_backup.suite_switch),
     ("Копии: неудача — лента и баннер директора", test_backup.suite_failure),
+    ("Копии: нет папки вне компьютера — строка директору", test_backup.suite_offsite),
+    ("Копии: локальные хранятся по дням под поддельными часами", test_backup.suite_rotation_days),
     ("Копии: нет pyzipper или битый .pyd — плитки нет, хаб жив", test_backup.suite_available),
     ("Закон 195: уведомление в боте", test_privacy.suite_bot_notice),
 ]

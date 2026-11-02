@@ -115,11 +115,13 @@ def access_state() -> dict:
 def backup_state() -> dict:
     """Копии картотеки — ФАКТАМИ (17.10): когда была последняя локальная,
     когда последняя внешняя и куда, что не удалось. Тон `warn` ровно при
-    тексте баннера директора (`backup_loop.alert`) — одно условие на оба."""
+    тексте баннера директора (`backup_loop.alert`) — одно условие на оба;
+    с 02.11 он есть и когда папки вне компьютера нет вовсе."""
     st = backup_loop.state()
     local = st["local_at"] or "încă nu s-a făcut"
     if not st["folder"]:
-        ext = "nealeasă (Setări › Copie de rezervă)"
+        # строка `alert` ниже уже ведёт ссылкой в настройку — не повторять
+        ext = "nealeasă" if st["alert"] else "nealeasă (Setări › Copie de rezervă)"
     elif st["ext_at"]:
         ext = f"{st['ext_at']} în {st['folder']}"
     else:

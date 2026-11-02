@@ -8,8 +8,8 @@
 1. **Раз в сутки, пока программа запущена** — фоновая задача приложения по
    образцу `sms_loop`: тик раз в минуту, сама работа — в потоке
    (`asyncio.to_thread`), старт её не ждёт. Локальная копия — тем же
-   `autobackup.make_backup`, что у лаунчера (`data\\backups`, 14 штук, под
-   ключом картотеки). Внешняя — тем же `backup.write_encrypted`, что у кнопки
+   `autobackup.make_backup`, что у лаунчера (`data\\backups`, хранение по
+   дням — `autobackup.doomed`, под ключом картотеки). Внешняя — тем же `backup.write_encrypted`, что у кнопки
    «Exportă arhiva»: зашифрованный ZIP в папку, которую назвала клиника
    (второй диск, флешка, облачная папка), с ротацией по своему префиксу
    `dentpilot-auto-*` — ручные архивы в той же папке не трогаются.
@@ -20,7 +20,8 @@
    вставят, папку подключат.
 3. **Программа помнит дату последней удачной внешней копии** (`schema_meta`,
    `backup_ext_ok_at`) и показывает её ФАКТОМ в Setări › Copie de rezervă и в
-   Stare sistem. Старше STALE_DAYS или не удалась — баннер.
+   Stare sistem. Старше STALE_DAYS или не удалась — баннер; папки нет
+   вовсе — тоже баннер (02.11: все копии на одном диске с картотекой).
 
 Пароль внешней копии живёт в `dental.env` под DPAPI (как токен бота):
 `password()` отличает «не задан» («») от «не читается на этой машине»
@@ -350,13 +351,18 @@ def ext_stale(now: datetime | None = None) -> bool:
 
 def alert() -> str:
     """Текст янтарной строки директору; пусто — всё в порядке. Выключенная
-    суточная копия молчит: директор выключил её сам (`enabled`)."""
+    суточная копия молчит: директор выключил её сам (`enabled`).
+    Папки вне компьютера нет — тоже строка (02.11): до того `alert()`
+    молчал, Stare sistem светился `ok`, а все копии жили на одном диске с
+    картотекой. Слова — в `MSG_BANNER` (`bkp_no_offsite`); `layout`
+    импортирует этот модуль, поэтому обратный импорт — внутри функции."""
     if not enabled():
         return ""
     if _s["local_err"]:
         return f"Copia de rezervă zilnică nu s-a făcut: {_s['local_err']}"
     if not folder():
-        return ""
+        from . import layout
+        return layout.msg_text("bkp_no_offsite")
     if _s["ext_err"]:
         return f"Copia de rezervă externă nu s-a făcut: {_s['ext_err']}"
     if ext_stale():

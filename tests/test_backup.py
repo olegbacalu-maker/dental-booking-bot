@@ -14,10 +14,17 @@
                            поддельными часами, ротация, память дат.
 * `suite_failure`        — отказ внешней копии: одна строка ленты на полосу,
                            баннер директора, снимается первой удачей.
+* `suite_offsite`        — папки вне компьютера нет: строка директору (не
+                           врачу, не регистратуре), гаснет с папкой (02.11).
+* `suite_rotation_days`  — локальные копии хранятся по дням под поддельными
+                           часами: единственная копия дня не вытесняется
+                           запусками (02.11).
 
 ⚠️ Сам `desktop.py` тестами неимпортируем; что он зовёт `restore` в нужном
 порядке, проверяет `test_launcher.suite_autobackup` текстом.
 """
+import ast
+import html
 import io
 import json
 import pathlib
@@ -27,14 +34,15 @@ import sys
 import tempfile
 import time
 import zipfile
-from datetime import timedelta
+from datetime import datetime, time as dtime, timedelta
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "bot"))
 
 from app.core import autobackup, dbkey, restore  # noqa: E402
 
-from harness import (FIXTURES, TZ, Client, Clock, Result, Server, _rmtree_settled,  # noqa: E402
+from harness import (BOT, FIXTURES, TZ, Client, Clock, Result, Server, _rmtree_settled,  # noqa: E402
                      add_appt, clinic_now, clinic_today, new_patient, shell_signal)
+from test_api import NO_KEY  # noqa: E402
 
 PW = "parola-de-rezerva-2026"
 TICK = {"DENTART_BACKUP_TICK_S": "0.3"}
@@ -614,6 +622,145 @@ def suite_failure(res: Result) -> None:
         _rmtree_settled(d)
         if dest.exists():
             _rmtree_settled(dest)
+
+
+# ---------- 6. папки вне компьютера нет: строка директору (02.11) ----------
+
+def _banner_text(code: str) -> str:
+    """Слова кода из `MSG_BANNER` — разбором исходника: импорт `layout` в
+    процессе прогона потянул бы `db` с чужим DATABASE_URL."""
+    tree = ast.parse((BOT / "app" / "core" / "layout.py").read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and any(getattr(t, "id", "") == "MSG_BANNER" for t in node.targets):
+            for k, v in zip(node.value.keys, node.value.values):
+                if isinstance(k, ast.Constant) and k.value == code:
+                    return ast.literal_eval(v)[1]
+    return ""
+
+
+def suite_offsite(res: Result) -> None:
+    """Разбор коллеги 02.11: без папки вне компьютера все копии лежат на
+    одном диске с картотекой, а программа молчала (`alert()` пуст, Stare
+    sistem `ok`). Ветка PIN-файла: роли — настоящие учётки."""
+    d = pathlib.Path(tempfile.mkdtemp(prefix="dp_bk_off_"))
+    dest = pathlib.Path(tempfile.mkdtemp(prefix="dp_bk_odest_"))
+    shutil.copy(FIXTURES / "clinic_test.json", d / "clinic.json")
+    want = _banner_text("bkp_no_offsite")
+    res.ok("текст строки — в MSG_BANNER (bkp_no_offsite)", bool(want), "кода нет в словаре")
+    try:
+        with _env_server(d, **NO_KEY) as s:
+            boss = Client(s.url)
+            boss.post("/admin/setup", pin1="1111", pin2="1111")
+            for body in ({"uid": "d3", "name": "Dr. Activ Trei", "role": "medic", "doctor_id": "d3", "pin": "2222"},
+                         {"uid": "ana", "name": "Ana R", "role": "receptie", "pin": "4444"}):
+                boss.post_json("/api/settings/users", body)
+
+            def login(pin):
+                x = Client(s.url)
+                x.post("/admin/login", password=pin, next="/admin")
+                return x
+
+            sig = shell_signal(boss.get("/admin").body, "backup")
+            res.ok("без папки директор видит строку со ссылкой на настройку",
+                   sig["shown"] and html.escape(want) in sig["html"]
+                   and "/admin/settings/backup" in sig["html"], repr(sig)[:300])
+            sysd = _j(boss.get("/api/settings/system"))["data"]["backup"]
+            res.ok("Stare sistem — тон warn и та же строка", sysd["tone"] == "warn" and sysd["alert"] == want,
+                   repr(sysd))
+            res.check("экран копий — та же строка", _auto(boss)["alert"], want)
+            med, rec = login("2222"), login("4444")
+            res.ok("врач строки не видит", not shell_signal(med.get("/admin").body, "backup")["shown"])
+            res.ok("регистратура строки не видит", not shell_signal(rec.get("/admin").body, "backup")["shown"])
+
+            r = boss.post_json("/api/settings/backup/auto", {"folder": str(dest), "password": PW})
+            res.check("папка выбрана", r.msg, "ok_bkp_auto")
+            res.ok("первый архив сделан", _wait(lambda: _ext(dest)))
+            res.ok("с папкой строка гаснет",
+                   _wait(lambda: not shell_signal(boss.get("/admin").body, "backup")["shown"]))
+            sysd = _j(boss.get("/api/settings/system"))["data"]["backup"]
+            res.ok("Stare sistem — снова ok", sysd["tone"] == "ok" and not sysd["alert"], repr(sysd))
+
+            r = boss.post_json("/api/settings/backup/auto", {"folder": "", "password": ""})
+            res.check("папку сняли", r.msg, "ok_bkp_off")
+            res.ok("без папки строка вернулась",
+                   shell_signal(boss.get("/admin").body, "backup")["shown"])
+            r = boss.post_json("/api/settings/backup/auto", {"enabled": False})
+            res.ok("выключенная суточная копия молчит и без папки",
+                   r.msg == "ok_bkp_stop" and not shell_signal(boss.get("/admin").body, "backup")["shown"],
+                   r.msg)
+    finally:
+        _rmtree_settled(d)
+        _rmtree_settled(dest)
+
+
+# ---------- 7. локальные копии — по дням, под поддельными часами (02.11) ----------
+
+def suite_rotation_days(res: Result) -> None:
+    """До 02.11 держались 14 новейших по счёту: при 3–4 запусках в день
+    история кончалась на четвёртом дне. Теперь — новейшая копия каждого из
+    `autobackup.KEEP_DAYS` дней и `KEEP_RECENT` новейших. Копию делает сам
+    цикл сервера под часами (имя по дню — `datetime.now()` программы).
+    Полдень — чтобы день по Кишинёву и по часам машины (CI — UTC) совпал;
+    на двое суток вперёд — чтобы mtime подложенных файлов был позади часов
+    больше суток и цикл сделал копию сразу."""
+    days, recent = autobackup.KEEP_DAYS, autobackup.KEEP_RECENT
+    d = pathlib.Path(tempfile.mkdtemp(prefix="dp_bk_rot_"))
+    shutil.copy(FIXTURES / "clinic_test.json", d / "clinic.json")
+    start = datetime.combine(clinic_today() + timedelta(days=2), dtime(12, 0), tzinfo=TZ)
+    day0 = start.date()
+
+    def nm(day, hms):
+        return f"dental_{day:%Y%m%d}_{hms}_1.db"
+
+    def names():
+        return {p.name for p in _local(d)}
+
+    bdir = d / "backups"
+    bdir.mkdir()
+    # по ОДНОЙ копии за days+1 прошлых дней и пять запусков сегодня утром:
+    # старая ротация «14 новейших» оставила бы сегодняшние и 8 прошлых дней
+    for k in range(1, days + 2):
+        (bdir / nm(day0 - timedelta(days=k), "100000")).write_bytes(b"vechi")
+    for i in range(5):
+        (bdir / nm(day0, f"08000{i}")).write_bytes(b"vechi")
+    (bdir / "dental_manual.db").write_bytes(b"pus de mana")
+    noon = f"dental_{day0:%Y%m%d}_1"          # копия цикла — после полудня
+    try:
+        with Clock(start) as clock:
+            with _env_server(d) as s:
+                Client(s.url).login()
+                # прошлые дни окна (days-1) + три новейших + чужое имя
+                got = _wait(lambda: any(n.startswith(noon) for n in names())
+                            and len(names()) == days - 1 + recent + 1, timeout=30)
+                now = names()
+                res.ok("цикл сделал копию дня по часам программы", bool(got), f"{sorted(now)}")
+                res.ok("единственная копия каждого из прошлых дней окна цела",
+                       all(nm(day0 - timedelta(days=k), "100000") in now for k in range(1, days)),
+                       f"{sorted(now)}")
+                res.ok("дни старше окна ушли",
+                       not any(nm(day0 - timedelta(days=k), "100000") in now for k in (days, days + 1)),
+                       f"{sorted(now)}")
+                res.ok("сегодня — новейшие запуски, утренние старше ушли",
+                       {nm(day0, "080003"), nm(day0, "080004")} <= now
+                       and not {nm(day0, f"08000{i}") for i in range(3)} & now, f"{sorted(now)}")
+                res.ok("чужое имя по маске ротация не трогает", "dental_manual.db" in now)
+                mine = next((n for n in now if n.startswith(noon)), "")
+
+                # назавтра: окно сдвигается на день, вчерашний день держит одну копию
+                clock.set(start + timedelta(hours=25))
+                tomorrow = f"dental_{day0 + timedelta(days=1):%Y%m%d}_"
+                gone = nm(day0 - timedelta(days=days - 1), "100000")
+                got = _wait(lambda: any(n.startswith(tomorrow) for n in names()) and gone not in names(),
+                            timeout=30)
+                now = names()
+                res.ok("назавтра — новая копия, окно сдвинулось на день", bool(got), f"{sorted(now)}")
+                res.ok("следующий за ушедшим день цел",
+                       nm(day0 - timedelta(days=days - 2), "100000") in now, f"{sorted(now)}")
+                res.check("вчера — новейшая копия дня и одна из трёх новейших",
+                          sorted(n for n in now if n.startswith(f"dental_{day0:%Y%m%d}_")),
+                          sorted([nm(day0, "080004"), mine]))
+    finally:
+        _rmtree_settled(d)
 
 
 def suite_available(res: Result) -> None:

@@ -779,13 +779,22 @@ def suite_autobackup(res: Result) -> None:
             import shutil
             _rmtree_settled(bad_dir)
 
-        # -- ротация видит только финальные имена --
-        for i in range(20):
-            (tmp / "backups" / f"dental_20250101_0000{i:02d}_1.db").write_bytes(
-                b"vechi")
+        # -- ротация по дням (02.11): новейшая копия каждого из KEEP_DAYS
+        # дней + KEEP_RECENT новейших; видит только финальные имена --
+        for f in (tmp / "backups").glob("dental_*.db"):
+            f.unlink()               # первая копия теста: две за секунду — одно имя
+        for day in range(1, 21):
+            for hms in ("080000", "180000"):
+                (tmp / "backups" / f"dental_202501{day:02d}_{hms}_1.db").write_bytes(b"vechi")
         autobackup.make_backup(tmp)
-        left = sorted((tmp / "backups").glob("dental_*.db"))
-        res.check("ротация держит ровно 14 копий", len(left), 14)
+        left = {p.name for p in (tmp / "backups").glob("dental_*.db")}
+        # сегодняшняя + 13 прошлых дней (20..08) по новейшей + 20-го утренняя
+        # среди трёх новейших
+        res.check("ротация по дням: 14 дней + три новейших",
+                  len(left), autobackup.KEEP_DAYS + 1)
+        res.ok("новейшая копия последнего дня окна цела, день за окном ушёл",
+               "dental_20250108_180000_1.db" in left and "dental_20250107_180000_1.db" not in left
+               and "dental_20250108_080000_1.db" not in left, f"{sorted(left)}")
 
         desk = (BOT / "desktop.py").read_text(encoding="utf-8")
         res.ok("лаунчер делает копию через autobackup", "autobackup" in desk,
