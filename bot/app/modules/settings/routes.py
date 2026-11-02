@@ -267,7 +267,7 @@ def _hub_tiles() -> list[dict]:
                           [{"t": f"{len(all_users())} utilizatori"}]))
     # FAQ безусловно и последней: справка в конце списка — привычное место
     tiles.append(tile("/admin/settings/faq", "help", "v", "Întrebări frecvente",
-                      [{"t": "copii de rezervă, mutare, BitLocker, Legea 195"}]))
+                      [{"t": "copii de rezervă, rețea, BitLocker, Legea 195, plata, PIN uitat"}]))
     # Демо с сайта (core/demo.py): плитка раздела, который шлюз отклонит,
     # обещала бы экран, которого нет. Тот же список, что у отказа в main.py, —
     # не второй.

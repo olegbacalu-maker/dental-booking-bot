@@ -5,13 +5,16 @@ React, а данные (`_hub_tiles`, `faq.entries`, `lan.*_html`, `_val_hours`)
 правила сохранения отдаёт сервер. Сверки «как на старой странице» ушли вместе
 с ней, а 13.10 (шаг 6) — и ключ `ui.react` с `?ui=legacy`.
 """
+import base64
 import json
 import pathlib
 import re
 import tempfile
+from datetime import datetime
 
 from harness import FIXTURES, TG_ON, Client, Result, Server, _rmtree_settled
 
+BOT = pathlib.Path(__file__).resolve().parents[1] / "bot"
 DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 120
 NO_KEY = {"ADMIN_KEY": ""}      # ветка PIN-файла — то, что получает клиника
@@ -382,7 +385,7 @@ def suite_faq(res: Result) -> None:
                first["answer"][:60])
         res.ok("ответ про 7-Zip есть",
                any("7-Zip" in it["answer"] for it in d["items"]), "нет")
-        res.ok("без бота абзац про токен не отдаётся",
+        res.ok("абзаца про токен бота нет",
                not any("tokenul botului" in it["answer"] for it in d["items"]), "есть")
 
         # BitLocker (сверка 18.10): справка называет КАЖДУЮ строку, которую
@@ -430,11 +433,61 @@ def suite_faq(res: Result) -> None:
                and not any("parola de intrare" in it["question"] + it["answer"]
                            for it in d["items"]),
                "в справке снова «parola de intrare»")
-    with Server(env=TG_ON) as s:
-        c = Client(s.url).login()
-        d = _j(c.get("/api/settings/faq"))["data"]
-        res.ok("клинике с ботом — абзац про токен",
-               any("tokenul botului" in it["answer"] for it in d["items"]), "нет")
+
+        # Сверка 02.11: справка называла места, которых на экранах нет, —
+        # «Setări › SMS» (меню: SECTION_TITLE["sms"], плитка — иначе) и
+        # «jurnalul de acces» (это «Activitate recentă»). Имя раздела и
+        # предел автоотправки — из исходников, не литералом.
+        everything = " ".join(it["question"] + it["answer"] for it in d["items"])
+        res.ok("нет пункта «Setări › SMS», которого нет в меню",
+               "Setări › SMS" not in everything, "снова «Setări › SMS»")
+        res.ok("нет «jurnalul de acces» — лента зовётся «Activitate recentă»",
+               "jurnalul de acces" not in everything and "Activitate recentă" in everything,
+               "лента названа не так, как на экране")
+        lay = (BOT / "app" / "core" / "layout.py").read_text(encoding="utf-8")
+        sms_title = re.search(r'"sms": "([^"]+)"\}', lay)
+        daily = re.search(r"^RECALL_AUTO_DAILY = (\d+)",
+                          (BOT / "app" / "core" / "sms_plan.py").read_text(encoding="utf-8"), re.M)
+        recall = next((it["answer"] for it in d["items"] if "Rechemări" in it["question"]), "")
+        res.ok("Rechemări: раздел SMS — именем меню, предел — числом программы",
+               bool(sms_title and daily) and f"<b>{sms_title.group(1)}</b>" in recall
+               and f"cel mult {daily.group(1)} pe" in recall,
+               recall[-700:])
+        law = next((it["answer"] for it in d["items"] if "Legea 195" in it["question"]), "")
+        res.ok("Legea 195: бумаги — в кабинете, «Documente», а не «scrieți-ne»",
+               "fila <b>Documente</b>" in law and "Deschide contul clinicii" in law
+               and "modelele informării" not in law, law[-700:])
+        asked = [it["question"] for it in d["items"]]
+        res.ok("новые вопросы 02.11: окно ×, конец срока, роли",
+               any("×" in q for q in asked) and any("perioada de probă" in q for q in asked)
+               and any("Cine ce vede" in q for q in asked), repr(asked))
+        win = next((it["answer"] for it in d["items"] if "×" in it["question"]), "")
+        res.ok("окно ×: названы выход значка и галочка автозапуска",
+               "Ieșire din DentPilot" in win and "Pornește DentPilot odată cu Windows" in win, win[:300])
+        term = next((it["answer"] for it in d["items"] if "perioada de probă" in it["question"]), "")
+        res.ok("конец срока без лицензии: без строки «этот компьютер»",
+               bool(term) and "Pe acest calculator" not in term, term[:200])
+
+    # Конец срока у программы с файлом лицензии: даты и число дней льготы —
+    # из самого файла (у пробного и у оплаты они разные), не литералом.
+    from test_license_renew import KEY_ENV, _file
+    lic_dir = pathlib.Path(tempfile.mkdtemp(prefix="dp_faq_lic_"))
+    try:
+        text = _file(1, None)
+        (lic_dir / "license.json").write_text(text, encoding="utf-8")
+        raw = json.loads(text)["payload"]
+        claim = json.loads(base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)))
+        vu, gu = (datetime.strptime(claim[k], "%Y-%m-%dT%H:%M:%SZ")
+                  for k in ("valid_until", "grace_until"))
+        with Server(dir_=lic_dir, env=KEY_ENV) as s:
+            c = Client(s.url).login()
+            items = _j(c.get("/api/settings/faq"))["data"]["items"]
+            term = next((it["answer"] for it in items if "perioada de probă" in it["question"]), "")
+            res.ok("конец срока: строка этого компьютера, льгота — разностью дат файла",
+                   "Pe acest calculator, acum:" in term
+                   and f"încă {(gu - vu).days} zile" in term, term[:400])
+    finally:
+        _rmtree_settled(lic_dir)
 
 
 def suite_hours(res: Result) -> None:

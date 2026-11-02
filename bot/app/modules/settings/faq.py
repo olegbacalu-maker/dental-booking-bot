@@ -25,14 +25,22 @@ dpapi.py; ступени блокировки входа — auth._LOCK_STEPS (3
 Windows Home без шифрования — предупреждение во вкладке BitLocker, не на
 главном экране (слово Олега); про устройство SMS-пакета здесь не пишем —
 это договор, а не справка (слово Олега).
+
+Сверка 02.11 (`review/faq-audit-2026-11-02.md`, Олег): раздел SMS называется
+так, как в меню (`SECTION_TITLE`), а не «Setări › SMS», которого нет; кто что
+менял — «Activitate recentă», не «jurnal de acces»; бумаги закона 195 — в
+кабинете; про Telegram-бот справка молчит (бот удаляется целиком); новые
+вопросы — окно ×, конец срока (дата из файла лицензии), роли.
 """
 from __future__ import annotations
 
 import html
 
-from ...core.layout import FEEDBACK_EMAIL, _ic, data_folder, tg_configured
-from ...core import auth, autobackup, backup_loop, bitlocker, theme
+from ... import engine as eng
+from ...core.layout import FEEDBACK_EMAIL, SECTION_TITLE, _ic, data_folder
+from ...core import auth, autobackup, backup_loop, bitlocker, sms_plan, theme
 from ...core import backup as bkp
+from ...core import license as lic
 from .system import bitlocker_state
 
 # Что делать при каждой строке BitLocker из «Stare sistem». Сама строка — из
@@ -132,6 +140,49 @@ def _bitlocker(p: str, end: str) -> str:
         f"{end}")
 
 
+def _term(p: str, end: str) -> str:
+    """Ответ «конец пробного или оплаты» (02.11): первой строкой — даты ЭТОГО
+    файла лицензии (`lic.current()`, те же, что у плитки «Licența»), число дней
+    льготы — разность его же дат, не литерал: у пробного и у оплаты она разная
+    и задаётся сервером. Без файла (исходники, демо, облако) — без строки."""
+    s = lic.current()
+    now = ""
+    if s is not None and lic.applies() and s.claim is not None:
+        def d(x) -> str:
+            return x.astimezone(eng.TZ).strftime("%d.%m.%Y")
+        trial = s.claim.plan == "trial"
+        what = "perioada de probă este valabilă" if trial else "abonamentul este valabil"
+        days = (s.grace_until - s.valid_until).days
+        if s.state == lic.st.ACTIVE:
+            now = (f"{what} până la <b>{d(s.valid_until)}</b>; după această dată "
+                   f"programul lucrează complet încă {days} zile, până la "
+                   f"<b>{d(s.grace_until)}</b>, apoi trece în regim de citire")
+        elif s.state == lic.st.GRACE:
+            now = (f"termenul s-a încheiat la {d(s.valid_until)}; programul lucrează "
+                   f"complet până la <b>{d(s.grace_until)}</b>, apoi trece în regim "
+                   f"de citire")
+        elif s.state == lic.st.READONLY:
+            now = f"programul este în regim de citire din <b>{d(s.grace_until)}</b>"
+    head = (f"{p}<b>Pe acest calculator, acum:</b> {now}. Aceleași date le arată "
+            f"<b>Setări › Licența</b>.{end}" if now else
+            f"{p}Termenul îl arată <b>Setări › Licența</b>; după expirare, bannerul "
+            f"de sus spune până când programul lucrează complet.{end}")
+    return (
+        f"{head}"
+        f"{p}După termen programul lucrează <b>complet</b> încă câteva zile — "
+        f"până la data din banner — ca să aveți timp de plată. Apoi trece în "
+        f"<b>regim de citire</b>: datele nu se pierd și nu se blochează — fișele "
+        f"se consultă, documentele se tipăresc, arhiva se exportă, iar copia de "
+        f"rezervă se face în continuare; programări noi și modificări nu se mai "
+        f"pot face.{end}"
+        f"{p}După plată termenul nou ajunge în program singur, iar programul "
+        f"revine imediat la lucru complet (cum se plătește — în întrebarea de mai "
+        f"sus). Ce ați introdus în perioada de probă rămâne în program.{end}"
+        f"{p}Perioada de probă include modulul SMS. Dacă alegeți apoi "
+        f"<b>DentPilot Basic</b>, modulul SMS se oprește la sfârșitul ei; cu "
+        f"<b>DentPilot Plus</b> lucrează mai departe.{end}")
+
+
 def entries() -> list[dict]:
     """Все записи справки в порядке страницы."""
     p = "<p style='margin:0 0 8px'>"
@@ -147,20 +198,12 @@ def entries() -> list[dict]:
            "<b>C:\\ProgramData\\DentPilot</b>")
     pin_lan = auth.PIN_MIN_LAN
     lan_hours = auth.COOKIE_TTL_LAN // 3600
-    # Telegram заморожен (08-08): абзац про токен — только клинике, у которой
-    # бот настроен (grandfather). Остальным он рассказывал бы про раздел,
-    # которого у них нет (08-13). Следующий абзац меняет число вместе с ним:
-    # «Ambele» опирается на два предмета — лист восстановления И токен.
-    if tg_configured():
-        tok = (f"{p}{_ic('sos')} Trebuie reintrodus și <b>tokenul botului "
-               f"Telegram</b> (Setări › Telegram Bot), din același motiv. Aici "
-               f"însă nu se pierde nimic: tokenul se ia din nou de la "
-               f"@BotFather.{end}"
-               f"{p}Ambele sunt protecții, nu defecțiuni: un folder copiat sau "
-               f"furat nu dezvăluie nici evidența, nici tokenul clinicii.{end}")
-    else:
-        tok = (f"{p}Este o protecție, nu o defecțiune: un folder copiat sau "
-               f"furat nu dezvăluie evidența clinicii.{end}")
+    # Раздел SMS — именем меню (его видит и регистратура), а не «Setări › SMS»:
+    # такого пункта нет, плитка настроек зовётся иначе (сверка 02.11)
+    sms = SECTION_TITLE["sms"]
+    sec = SECTION_TITLE
+    role = auth.ROLE_LABEL
+    pay_hours = int(lic.PAY_WATCH.total_seconds() // 3600)
     items = [
         _q("save", "Cât de des fac copii de rezervă și unde le păstrez?",
            f"{p}Cu <b>Setări › Copie de rezervă › Copie zilnică automată</b> "
@@ -286,7 +329,8 @@ def entries() -> list[dict]:
            f"discul vechi pus în calculatorul nou: cheia este legată de contul "
            f"Windows vechi și pe altul nu poate fi citită. Fără foaie, o astfel "
            f"de evidență nu se deschide nici de noi.{end}"
-           + tok),
+           f"{p}Este o protecție, nu o defecțiune: un folder copiat sau furat nu "
+           f"dezvăluie evidența clinicii.{end}"),
 
         _q("shield", "Cum pornesc BitLocker — criptarea discului?",
            _bitlocker(p, end)),
@@ -371,17 +415,23 @@ def entries() -> list[dict]:
            f"favorite — sau, din meniul Edge, «Instalează acest site ca "
            f"aplicație»: atunci se deschide ca un program obișnuit, cu "
            f"iconiță pe ecran.</li></ol>"
+           # Окно Tauri (22.10): крестик прячет к часам, гасит только пункт
+           # меню значка (`shell/src/win.rs`, tray:quit)
            f"{p}{_ic('sos')} Calculatorul cu programul trebuie să fie "
-           f"<b>pornit</b>: cât timp doarme sau e oprit, în cabinet nu se "
-           f"deschide nimic. Opriți-i modul «Sleep» din setările Windows.{end}"
+           f"<b>pornit</b>, iar programul — deschis sau lângă ceas: cât timp "
+           f"calculatorul doarme sau e oprit, în cabinet nu se deschide nimic. "
+           f"Butonul × doar ascunde fereastra lângă ceas; «Ieșire din DentPilot» "
+           f"din meniul iconiței de lângă ceas oprește programul și accesul. "
+           f"Opriți modul «Sleep» din setările Windows.{end}"
            f"{p}{_ic('sos')} Dacă adresa nu se mai deschide — de obicei după o "
            f"repornire a routerului — reveniți la <b>Setări › Acces din "
            f"rețea</b>: adresa nouă scrie acolo. Ca să nu se mai schimbe, "
            f"administratorul rețelei poate fixa adresa pe router.{end}"
            f"{p}Fiecare intră cu <b>PIN-ul lui</b>: recepția vede programările, "
            f"dar nu și rapoartele de bani, medicul — doar programările lui "
-           f"(pacienții îi vede pe toți), iar jurnalul de acces arată cine ce "
-           f"a schimbat, de pe oricare calculator. Cât timp accesul din rețea e "
+           f"(pacienții îi vede pe toți), iar cine ce a schimbat, de pe oricare "
+           f"calculator, vede directorul în <b>Statistici › Activitate "
+           f"recentă</b>. Cât timp accesul din rețea e "
            f"pornit, programul cere PIN-ul din nou după {lan_hours} ore — o dată "
            f"pe tură, pe fiecare calculator și telefon. Funcționează doar în "
            f"rețeaua clinicii — de acasă nu.{end}"),
@@ -408,8 +458,24 @@ def entries() -> list[dict]:
            f"firewall»</b>, dacă lipsește), iar la «Verificarea legăturii» "
            f"arată ce dispozitive au ajuns până la calculator.{end}"),
 
-        # С переезда в Program Files обновление ставит подписанный установщик
-        # за UAC (`update._update_by_setup`) и перезапускается само.
+        # Окно Tauri (22.10): × прячет к часам (`shell/src/notices.rs`,
+        # tray_hint), выход — только пункт меню значка (`win.rs`, tray:quit);
+        # галочка автозапуска — строка «Stare sistem» (`settings/autostart.py`).
+        _q("power", "Am închis fereastra cu × — programul s-a oprit?",
+           f"{p}<b>Nu.</b> Butonul × ascunde fereastra lângă ceas, iar programul "
+           f"lucrează mai departe: registrul rămâne deschis pentru al doilea "
+           f"calculator și pentru telefoane, memento-urile SMS pleacă la timp, "
+           f"copia zilnică se face. Clic pe iconița DentPilot de lângă ceas "
+           f"deschide fereastra din nou; dacă nu o vedeți, ea stă printre "
+           f"iconițele ascunse, sub săgeata de lângă ceas.{end}"
+           f"{p}Programul se oprește de tot doar cu clic dreapta pe iconiță › "
+           f"<b>Ieșire din DentPilot</b>. Atunci nici al doilea calculator, nici "
+           f"telefoanele nu mai intră, iar memento-urile așteaptă următoarea "
+           f"pornire.{end}"
+           f"{p}Ca programul să pornească singur dimineața, odată cu calculatorul, "
+           f"bifați <b>Pornește DentPilot odată cu Windows</b> în <b>Setări › "
+           f"Stare sistem</b>.{end}"),
+
         _q("refresh", "Cum funcționează «Rechemări»?",
            f"{p}«Rechemări» este lista recepției cu pacienții cărora le-a venit "
            f"timpul pentru o procedură repetată (de regulă igienizarea). Termenul "
@@ -437,12 +503,17 @@ def entries() -> list[dict]:
            f"controlului periodic pentru termenul curent — textul conține doar "
            f"denumirea și telefonul clinicii, fără serviciu sau prețuri — și "
            f"consumă un SMS din pachet. Dacă SMS-ul nu ajunge, pacientul revine "
-           f"în «De sunat». Butonul se pornește și se oprește în "
-           f"<b>Setări › SMS</b>; tot acolo este bifa <b>Trimite SMS automat</b>: "
-           f"programul trimite singur reamintirea celor ajunși în listă, un număr "
-           f"limitat pe zi (cei mai întârziați primii), fără a dubla butonul — "
-           f"la început bifa este oprită.{end}"),
+           f"în «De sunat». Butonul se pornește și se oprește în <b>{sms}</b> "
+           f"(meniul lateral) și apare după ce telefonul clinicii e completat în "
+           f"<b>Setări › Clinica</b>. Tot acolo este bifa <b>Trimite SMS "
+           f"automat</b>: programul trimite singur reamintirea celor ajunși în "
+           f"listă, între {sms_plan.QUIET_END:02d}:00 și {sms_plan.QUIET_START:02d}:00, cel mult "
+           f"{sms_plan.RECALL_AUTO_DAILY} pe "
+           f"zi (cei mai întârziați primii), fără a dubla butonul — la început "
+           f"bifa este oprită.{end}"),
 
+        # С переезда в Program Files обновление ставит подписанный установщик
+        # за UAC (`update._update_by_setup`) и перезапускается само.
         _q("refresh", "Actualizarea programului șterge datele?",
            f"{p}<b>Nu.</b> Actualizarea înlocuiește doar fișierele "
            f"programului; baza de date, documentele și setările rămân "
@@ -472,12 +543,14 @@ def entries() -> list[dict]:
            f"cu modulul SMS), perioada (o lună sau un an) și modul de plată.{end}"
            f"{p}Modulul SMS pornește imediat după plata variantei Plus; la trecerea la "
            f"Basic rămâne pornit până la sfârșitul perioadei în curs. SMS-urile nu intră "
-           f"în abonament: pachetele se comandă separat, în <b>Setări › SMS</b>.{end}"
+           f"în abonament: pachetele le comandă directorul, în <b>{sms}</b> › "
+           f"<b>Comandă</b>.{end}"
            f"{p}<b>Transfer bancar</b> — primiți nota de plată pe e-mail, cu referința ei "
            f"(DP-…), pe care o treceți în ordinul de plată. Dacă pagina afișează "
            f"<b>Plătește cu cardul</b>, puteți achita imediat cu cardul.{end}"
            f"{p}Termenul nou ajunge în program singur: după «Plătește acum» programul "
-           f"verifică plata la fiecare minut timp de două ore, apoi o dată pe zi. Plata "
+           f"verifică plata la fiecare minut timp de {pay_hours} ore, apoi o dată pe zi. "
+           f"Plata "
            f"prin transfer se confirmă când banii ajung în contul DentPilot; ca să "
            f"verificați imediat, apăsați <b>Verifică acum dacă există un termen nou</b> "
            f"pe pagina licenței.{end}"
@@ -488,11 +561,11 @@ def entries() -> list[dict]:
            f"a licenței, butonul <b>Deschide contul clinicii</b> (doar pentru director). "
            f"Așa vedeți doar clinica acestui program; celelalte clinici ale contului — "
            f"după intrarea cu Google sau cu codul pe e-mail.{end}"
-           f"{p}Dacă abonamentul a expirat, programul lucrează în continuare până la data "
-           f"din banner, apoi trece în regim de citire: datele se pot consulta, tipări și "
-           f"exporta, iar copia de rezervă funcționează; programări și înregistrări noi se "
-           f"pot face din nou imediat după plată. Întrebări: "
-           f"<a href='mailto:{FEEDBACK_EMAIL}'>{FEEDBACK_EMAIL}</a>.{end}"),
+           f"{p}Ce se întâmplă când abonamentul expiră — în întrebarea următoare. "
+           f"Întrebări: <a href='mailto:{FEEDBACK_EMAIL}'>{FEEDBACK_EMAIL}</a>.{end}"),
+
+        _q("hourglass", "Ce se întâmplă când se termină perioada de probă sau "
+                        "abonamentul?", _term(p, end)),
 
         # Подтверждение ящика (27.10): слова — блока страницы лицензии (layout._email_block) и
         # письма облака (cloud/app/mail.py, confirm_lines); ссылка живёт 7 дней (emailconf.LINK_TTL).
@@ -531,6 +604,32 @@ def entries() -> list[dict]:
            f"poate schimba; codul de pe foaie deschide baza însăși și nu poate "
            f"fi schimbat sau recuperat de nimeni.{end}"),
 
+        # Права — таблица `auth.PERMS` (роль = набор прав), названия ролей и
+        # разделов — из `ROLE_LABEL`/`SECTION_TITLE`, как в меню и в списке
+        # учёток. Врач: журнал только свой, картотека вся (Олег 22–23.10).
+        _q("users", "Cine ce vede: director, recepție, medic?",
+           f"{p}Fiecare om intră cu PIN-ul lui și vede doar ce îi permite rolul. "
+           f"Rolul îl alege directorul, în <b>Setări › Securitate și "
+           f"utilizatori</b>.{end}"
+           f"<ul style='margin:0 0 8px;padding-left:22px'>"
+           f"<li><b>{role[auth.ROLE_DIRECTOR]}</b> — tot: programările tuturor "
+           f"medicilor, pacienții, <b>{sec['stat']}</b> (bani și rapoarte), "
+           f"<b>{sec['set']}</b>, utilizatorii, <b>{sec['rec']}</b> și "
+           f"<b>{sms}</b>.</li>"
+           f"<li><b>{role[auth.ROLE_RECEPTIE]}</b> — programările tuturor "
+           f"medicilor, pacienții și plățile, fișele medicilor (concedii, ore, "
+           f"servicii), <b>{sec['rec']}</b> și <b>{sms}</b>; fără "
+           f"{sec['stat']} și fără {sec['set']}.</li>"
+           f"<li><b>{role[auth.ROLE_MEDIC]}</b> — în registru doar programările "
+           f"lui (nu le vede, nu le mută și nu le anulează pe ale altora), iar "
+           f"fișele pacienților — pe toate; fără {sms}, {sec['rec']}, "
+           f"{sec['stat']} și {sec['set']}. Termenul de control al pacientului îl "
+           f"vede în fișă.</li></ul>"
+           f"{p}{_ic('sos')} Contul unui medic trebuie legat de medicul lui (în "
+           f"rândul contului, în Securitate și utilizatori): un cont de medic "
+           f"nelegat vede registrul gol. Cine ce a schimbat vede directorul în "
+           f"<b>{sec['stat']} › Activitate recentă</b>.{end}"),
+
         # Стилей, меню, шрифтов — по нескольку, и их число растёт: числом в
         # тексте не называем («трёх стилей» пережило три новых стиля).
         _q("palette", "Pot pune culoarea și logoul clinicii în program?",
@@ -550,8 +649,9 @@ def entries() -> list[dict]:
            f"conține cod.{end}"),
 
         # Декларация поставщика (закон 195) едет вложением в каждое письмо о
-        # лицензии (cloud/app/mail.declaration); образцы общих документов —
-        # по просьбе (слово Олега 18.10).
+        # лицензии (cloud/app/mail.declaration). С 31.10 подписанные PDF
+        # поставщика и образцы клиники — вкладка «Documente» кабинета
+        # (cloud/app/modele.py, views.py › «Modele pentru clinică»).
         _q("scales", "Ce cere Legea 195 și cu ce mă ajută programul?",
            f"{p}Legea 195/2024 (protecția datelor personale) dă pacientului "
            f"dreptul la o copie a datelor lui și dreptul la ștergere. "
@@ -568,11 +668,14 @@ def entries() -> list[dict]:
            f"semnăturii rămâne în program.{end}"
            f"{p}Evidența stă <b>pe acest calculator</b>: fișele pacienților nu "
            f"ajung pe serverele noastre. Copia din folderul ales — de exemplu un "
-           f"folder cloud — pleacă doar criptată, cu parola clinicii. "
-           f"<b>Declarația furnizorului</b> (Legea 195), semnată, o primiți pe "
-           f"e-mail odată cu licența; dacă o vreți și pe altă adresă sau aveți "
-           f"nevoie de modelele informării de la recepție și ale registrului de "
-           f"evidență, scrieți-ne.{end}"
+           f"folder cloud — pleacă doar criptată, cu parola clinicii.{end}"
+           f"{p}<b>Declarația furnizorului</b>, contractul și acordul de "
+           f"prelucrare, semnate de DentPilot, și <b>modelele pentru "
+           f"clinică</b> — informarea de la recepție, registrul activităților de "
+           f"prelucrare, actul BitLocker și lista de verificare, completate cu "
+           f"datele clinicii — stau în contul clinicii, fila <b>Documente</b>. "
+           f"Contul se deschide din program: <b>Setări › Licența › Deschide "
+           f"contul clinicii</b>.{end}"
            f"{p}Măsura tehnică cerută de lege o acoperă <b>criptarea "
            f"discului (BitLocker)</b> — starea ei o verifică programul singur "
            f"și o arată în <b>Setări › Stare sistem</b>, ca să nu depindeți de "

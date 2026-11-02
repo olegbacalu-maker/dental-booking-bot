@@ -1654,10 +1654,12 @@ def suite_bot_ui(res: Result) -> None:
         res.ok("grandfather: строка канала Telegram в Stare sistem",
                bool(json.loads(c.get("/api/settings/system").body)["data"]["telegram"]),
                "строка канала пропала у клиники с ботом")
-        res.ok("grandfather: FAQ говорит про токен при переезде",
-               any("tokenul botului Telegram" in it["answer"] for it in
-                   json.loads(c.get("/api/settings/faq").body)["data"]["items"]),
-               "клиника с ботом потеряет токен при переезде и не узнает об этом")
+        # Бот удаляется целиком (В3, Олег 02.11): справка молчит о нём и у
+        # клиники с токеном — абзац про токен снят сверкой FAQ 02.11
+        res.ok("grandfather: FAQ о токене бота не говорит",
+               not any("tokenul botului" in it["answer"] for it in
+                       json.loads(c.get("/api/settings/faq").body)["data"]["items"]),
+               "абзац про токен бота вернулся в справку")
         # ⭐ Опция канала в фильтре — по ДАННЫМ, не по токену: grandfather БЕЗ
         # tg-пациентов её тоже не видит (канарейка-демо — ровно этот случай;
         # фильтр по пустому множеству продавал бы замороженный канал на демо).
