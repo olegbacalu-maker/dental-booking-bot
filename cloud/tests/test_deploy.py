@@ -189,6 +189,8 @@ def suite_files(res: Result) -> None:
     res.ok("контейнер назван так, как зовёт cron",
            "container_name: dentpilot-cloud" in compose and "docker exec dentpilot-cloud" in cron)
     res.ok("cron: задача, копия и вывоз копии", "app.jobs daily" in cron and "app.tools backup" in cron and "backup.sh" in cron)
+    res.ok("cron: ежечасные оплаты картой (02.11) — и в Docker, и без него",
+           "docker exec dentpilot-cloud python -m app.jobs cards" in cron and ".venv/bin/python -m app.jobs cards" in cron)
     res.ok("unit systemd: окружение из файла, не в юните", "EnvironmentFile=" in unit and "DP_ADMIN_HASH" not in unit)
     res.ok(".gitignore: cloud.env и backups", "cloud/deploy/cloud.env" in gitignore and "cloud/backups/" in gitignore)
     res.ok("DEPLOY.md называет каждую команду",
