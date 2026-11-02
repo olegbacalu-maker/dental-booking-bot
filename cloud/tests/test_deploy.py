@@ -193,7 +193,7 @@ def suite_files(res: Result) -> None:
     res.ok(".gitignore: cloud.env и backups", "cloud/deploy/cloud.env" in gitignore and "cloud/backups/" in gitignore)
     res.ok("DEPLOY.md называет каждую команду",
            all(cmd in deploy_md for cmd in ("keygen", "hash-password", "app.tools check", "app.tools backup",
-                                            "verify-backup", "drill", "app.jobs daily")))
+                                            "verify-backup", "drill", "app.jobs daily", "app.jobs cards")))
     res.ok("DEPLOY.md: три вещи для восстановления и вариант на Windows",
            "Три вещи" in deploy_md and "run-windows.ps1" in deploy_md and "Планировщик" in deploy_md)
     res.ok("run-windows.ps1: те же команды", all(x in ps1 for x in ("app.tools check", "app.tools backup", "app.jobs", "uvicorn")))

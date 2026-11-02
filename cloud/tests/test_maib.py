@@ -36,13 +36,14 @@ import time
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
-from harness import CLOUD, FIX, ROOT, Client, Result, Server, cid_from, load_by_path
+from harness import CLOUD, FIX, ROOT, Client, Result, Server, cid_from, free_port, load_by_path
 
 sys.path.insert(0, str(CLOUD))
 from app import mail  # noqa: E402 — константы писем
 from app import payments as pay  # noqa: E402 — правило продления
 from app import config  # noqa: E402 — прайс
 from app import maib  # noqa: E402 — провод, его наборы зовут прямо (suite_wire)
+from app import tools  # noqa: E402 — check: песочница при боевом адресе (suite_sandbox_live)
 
 rv = load_by_path("rsa_verify", ROOT / "bot" / "app" / "core" / "rsa_verify.py")
 KEY = json.loads((FIX / "test-key.json").read_text(encoding="utf-8"))
@@ -715,6 +716,63 @@ def suite_daily(res: Result) -> None:
         fake.close()
 
 
+def _cards(s: Server) -> tuple[int, str]:
+    p = subprocess.run([sys.executable, "-m", "app.jobs", "cards"], cwd=str(CLOUD), env=s.env,
+                       capture_output=True, text=True, encoding="utf-8", timeout=60)
+    return p.returncode, p.stdout + p.stderr
+
+
+def suite_hourly(res: Result) -> None:
+    """`app.jobs cards` раз в час (02.11): не дошли ни callback, ни возврат браузера — оплату
+    картой моложе суток зачитывает час, а не утренняя задача. Старше суток — забота daily."""
+    fake = FakeMaib()
+    try:
+        with Server(env={**BANK_ENV, **fake.env}) as s:
+            c = Client(s.url).login()
+            v = datetime.now(timezone.utc).date() + 60 * D
+            cids = []
+            for name, mail_ in (("Clinica Ora", "ora@example.md"), ("Clinica Ieri", "ieri@example.md")):
+                cid = _clinic(c, name=name, email=mail_)
+                c.post(f"/admin/clinics/{cid}/issue", kind="dates", valid_until=f"{v:%Y-%m-%d}", grace_days="14")
+                c.post(f"/admin/clinics/{cid}/payments", months="1", amount="", send="1", method="card")
+                cids.append(cid)
+            fresh, old = (_payment(s, cid) for cid in cids)
+            two_days = (datetime.now(timezone.utc) - 2 * D).strftime("%Y-%m-%dT%H:%M:%SZ")
+            con = sqlite3.connect(s.dir / "cloud.db")
+            try:
+                con.execute("UPDATE pay_attempts SET created_at=? WHERE provider_id=?", (two_days, old["provider_id"]))
+                con.commit()
+            finally:
+                con.close()
+            rc, out = _cards(s)
+            res.ok("cards: ничего не оплачено — оба ждут, спрошен только свежий",
+                   rc == 0 and "картой оплачено: 0" in out and fake.calls["info"] == 1, out[-300:])
+            for p in (fresh, old):
+                fake.set_status(p["provider_id"], "Completed")
+            n = len(_letters(s))
+            rc, out = _cards(s)
+            got = _payment(s, cids[0])
+            res.ok("cards: callback не дошёл — свежая оплата зачтена в течение часа, код 0",
+                   rc == 0 and f"оплачено картой {fresh['reference']}" in out and "картой оплачено: 1" in out
+                   and got["status"] == "paid" and got["confirmed_by"] == "cards", out[-300:])
+            res.ok("…файл выдан и отправлен письмом, как из daily",
+                   _sql(s, "SELECT count(*) FROM issues WHERE clinic_id=?", cids[0])[0][0] == 2
+                   and len(_letters(s)) == n + 1 and "licența" in _letters(s)[-1][0].lower())
+            res.ok("попытка старше суток — не спрошена: она забота daily",
+                   old["reference"] not in out and _payment(s, cids[1])["status"] == "pending"
+                   and fake.calls["info"] == 2, out[-300:])
+            res.check("строки «cards прошёл» в журнале нет (24 в сутки ни о чём)",
+                      _sql(s, "SELECT count(*) FROM audit WHERE what IN ('cards', 'daily')")[0][0], 0)
+            rc, out = _cards(s)
+            res.ok("второй час: окончательный ответ закрыл попытку, maib не спрашивают снова",
+                   rc == 0 and "картой оплачено: 0" in out and fake.calls["info"] == 2, out[-300:])
+            rc, out = _run(s, datetime.now(timezone.utc).date())
+            res.ok("daily подбирает попытку старше суток",
+                   f"оплачено картой {old['reference']}" in out and _payment(s, cids[1])["status"] == "paid", out[-300:])
+    finally:
+        fake.close()
+
+
 class SlowSmtp:
     """Стенд SMTP: приветствие через `delay` секунд, STARTTLS не умеет — mail.send бросает
     SMTPNotSupportedError, письмо уходит в `mail_failed`, оплата не откатывается. Так письмо
@@ -1088,6 +1146,36 @@ def suite_off(res: Result) -> None:
         res.ok("check: карты выключены — предупреждение", "DP_MAIB_* пусты" in out.stdout, out.stdout[-300:])
         res.ok("check: имя e-Commerce v1 в окружении — предупреждение, что оно не читается",
                "DP_MAIB_PROJECT_ID: имена e-Commerce v1" in out.stdout, out.stdout[-400:])
+        rc, out = _cards(s)
+        res.ok("cards без DP_MAIB_*: код 0, сказано словами", rc == 0 and "карт нет" in out, out[-300:])
+
+
+def suite_sandbox_live(res: Result) -> None:
+    """Песочница maib на боевом DP_BASE_URL (02.11): `tools check` не пишет «ok» — тестовой картой
+    продлилась бы настоящая лицензия. Сеть не нужна: прокси на мёртвый порт, токен падает, а
+    предупреждение от токена не зависит."""
+    sandbox, live = "https://sandbox.maibmerchants.md", "https://cloud.dentpilot.md"
+    res.ok("песочница + боевой адрес → предупреждение «настоящую лицензию»",
+           "настоящую лицензию" in tools.maib_pairing(sandbox, live + "/"))
+    res.check("боевой maib + боевой адрес — законно", tools.maib_pairing("https://api.maibmerchants.md", live), "")
+    res.check("песочница у машины разработчика — законно", tools.maib_pairing(sandbox, "http://127.0.0.1:8000"), "")
+    res.check("регистр адреса не обходит", bool(tools.maib_pairing("https://SANDBOX.maibmerchants.md", "https://Cloud.DentPilot.md")),
+              True)
+    dead = f"http://127.0.0.1:{free_port()}"
+    with Server(env=BANK_ENV) as s:
+        def check(maib_url: str) -> str:
+            env = {**s.env, "DP_MAIB_BASE_URL": maib_url, "DP_MAIB_CLIENT_ID": CLIENT, "DP_MAIB_CLIENT_SECRET": SECRET,
+                   "DP_MAIB_SIGNATURE_KEY": SIGKEY, "DP_BASE_URL": live, "HTTPS_PROXY": dead, "HTTP_PROXY": dead,
+                   "NO_PROXY": ""}
+            return subprocess.run([sys.executable, "-m", "app.tools", "check"], cwd=str(CLOUD), env=env,
+                                  capture_output=True, text=True, encoding="utf-8").stdout
+        out = check(sandbox)
+        res.ok("check: песочница при боевом адресе — ⚠ с «адрес и ключи вместе», в сеть не ходили",
+               any(ln.strip().startswith(tools.WARN) and "настоящую лицензию" in ln and "только вместе" in ln
+                   for ln in out.splitlines()) and "maib не отвечает" in out, out[-700:])
+        out = check("https://api.maibmerchants.md")
+        res.ok("check: боевой maib при боевом адресе — без этого предупреждения",
+               "настоящую лицензию" not in out and "maib не отвечает" in out, out[-500:])
 
 
 def suite_wire(res: Result) -> None:
@@ -1198,6 +1286,12 @@ def suite_wire(res: Result) -> None:
                and got["statusCode"] == "Completed/Executed" and got["statusMessage"] == "Card", got)
         fake.pays[cid]["status"], fake.pays[cid]["payment"]["status"] = "COMPLETED", "executed"
         res.check("регистр слов maib не важен: COMPLETED/executed → OK", maib.info(cid)["status"], "OK")
+        fake.pays[cid]["payment"]["status"] = "Reversed"
+        seen.lines.clear()
+        res.check("Completed с незнакомым статусом платежа → ожидание", maib.info(cid)["status"], "PENDING")
+        res.ok("…и строка в логе с обоими словами (не молча)",
+               any("незнакомый статус платежа" in x and "COMPLETED" in x and "Reversed" in x for x in seen.lines),
+               seen.lines)
         fake.pays[cid]["status"], fake.pays[cid]["payment"]["status"] = "Completed", "Executed"
         r = maib.refund(cid)
         rq = fake.heads[-1]

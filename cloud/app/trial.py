@@ -83,6 +83,7 @@ _swept = [0.0]                    # когда в последний раз вы
 HONEYPOT = "website"             # поле, которого нет для человека
 ISSUED, ISSUED_UNMAILED, REQUESTED, DUPLICATE = "issued", "issued_unmailed", "requested", "duplicate"
 ADDED = "added"                  # заведена без пробного (NO_TRIAL): абонемент ставит вызывающий
+DEVICE_TAKEN = "device_taken"    # компьютер заявки уже у другой клиники (флот): новой не заводится
 NAME_MAX, EMAIL_MAX, CONTACT_MAX, PHONE_MAX = 120, 120, 80, 40
 # Голый адрес: одна «@», без пробелов и знаков, которыми в заголовке письма
 # отделяют имя от адреса или один адрес от другого.
@@ -191,22 +192,44 @@ def existing(con: sqlite3.Connection, idno: str, email: str, allow: set | frozen
     return None
 
 
+def device_owner(con: sqlite3.Connection, device: dict | None) -> sqlite3.Row | None:
+    """Клиника, у которой этот компьютер уже записан во флоте (fleet.touch), — или None.
+    Скрытая заявка не держит компьютер, как не держит IDNO и ящик (existing)."""
+    if not device or not device.get("id"):
+        return None
+    return con.execute("SELECT c.* FROM devices d JOIN clinics c ON c.id = d.clinic_id "
+                       "WHERE d.id=? AND c.declined_at IS NULL", (device["id"],)).fetchone()
+
+
 # ---------- заявка ----------
 
 
 def submit(con: sqlite3.Connection, f: dict, ip: str, who: str = "form",
-           origin: str = ORIGIN_FORM, allow: set | frozenset = frozenset()) -> tuple[str, sqlite3.Row]:
+           origin: str = ORIGIN_FORM, allow: set | frozenset = frozenset(),
+           device: dict | None = None) -> tuple[str, sqlite3.Row]:
     """Заявка → (исход, клиника). Исход: DUPLICATE — уже есть, ничего не сделано;
+    DEVICE_TAKEN — компьютер `device` уже у другой клиники, ничего не сделано (клиника — та);
     REQUESTED — заведена, ждёт админа; ISSUED — пробный выдан и отправлен; ADDED — заведена
     без пробного (NO_TRIAL), абонемент ставит вызывающий (account.start_paid).
     `origin` — форма сайта или программа: заявки из обеих ждут в одном списке.
-    `allow` — клиники своего кабинета (existing); адрес — `f['address']`, если есть."""
+    `allow` — клиники своего кабинета (existing); адрес — `f['address']`, если есть.
+    `device` — личность машины из заголовков (fleet.from_request), только у программы."""
     old = existing(con, f["idno"], f["email"], allow)
     if old is not None:
         # без clinic_id: чужой текст не должен ложиться в карточку клиники
         db.audit(con, who, "trial_duplicate", None,
                  f"{f['name']}, IDNO {f['idno'] or '—'}, {f['email']}, {ip} — уже есть {old['id']} ({old['name']})")
         return DUPLICATE, old
+    # 02.11 (разбор перед первой клиникой): компьютер, уже записанный за клиникой, не получает
+    # второй пробный на новый ящик. Свою клинику он находит выше (IDNO или ящик → код на её
+    # e-mail) — новый ПК известной клиники идёт как раньше; сюда доходит только заявка,
+    # которая завела бы ДРУГУЮ клинику
+    owner = device_owner(con, device)
+    if owner is not None and owner["id"] not in allow:
+        db.audit(con, who, "trial_duplicate", None,
+                 f"reason=device: {f['name']}, IDNO {f['idno'] or '—'}, {f['email']}, {ip} — компьютер "
+                 f"{device['id']} уже у {owner['id']} ({owner['name']}), новой клинике отказано")
+        return DEVICE_TAKEN, owner
     cid = "c_" + secrets.token_hex(6)
     now = db.now_iso()
     con.execute("INSERT INTO clinics(id, name, idno, contact_name, email, phone, address, created_at, "

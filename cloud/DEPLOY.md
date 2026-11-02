@@ -253,6 +253,19 @@ docker compose exec cloud python -m app.jobs daily
 docker compose exec cloud python -m app.jobs daily --at 2026-10-17T06:00:00Z   # разбор: что ушло бы в этот день
 ```
 
+**Раз в час: оплаты картой** (02.11). Оплату картой засчитывает callback maib
+или возврат браузера на `/pay/ok`; не дошли оба (вкладку закрыли, callback
+опоздал дальше 10 минут свежести подписи) — без этой строки лицензия ждала бы
+утренней задачи. `app.jobs cards` спрашивает maib только про попытки моложе
+суток (старше — забота `daily`), в журнал строки «прошёл» не пишет; при пустых
+`DP_MAIB_*` ничего не делает. Строка в тот же `crontab -e` (минута 20 — мимо
+05:35 и 06:05):
+
+```
+20 * * * *  docker exec dentpilot-cloud python -m app.jobs cards                       >> /var/log/dentpilot/jobs.log 2>&1
+# без Docker: 20 * * * *  cd /srv/cloud && set -a && . /srv/dentpilot/cloud.env && set +a && .venv/bin/python -m app.jobs cards
+```
+
 ## 6. Копии и учение по восстановлению
 
 ```

@@ -38,9 +38,11 @@ def _program_version() -> str:
     return re.search(r'^TERMS_VERSION = "([^"]+)"', src, re.M).group(1)
 
 
-def _trial(anon: Client, **over) -> dict:
+def _trial(anon: Client, device: str = "", **over) -> dict:
+    """`device` — другой компьютер: клиника на компьютере другой клиники пробного не заводит (02.11)."""
     r = anon._do("/v1/trial", json.dumps(dict(GOOD, **over)).encode("utf-8"),
-                 {"Content-Type": "application/json", "User-Agent": AGENT, **HDR})
+                 {"Content-Type": "application/json", "User-Agent": AGENT, **HDR,
+                  **({"X-DentPilot-Device": device} if device else {})})
     return {"status": r.status, **(json.loads(r.body) if r.body else {})}
 
 
@@ -101,13 +103,14 @@ def suite_program(res: Result) -> None:
         res.check("/v1/license: X-DentPilot-Terms = принятая версия", _header(s, token), v)
 
         # старая программа: без terms — ни акта, ни заголовка, но consent на месте
-        d2 = _trial(anon, name="Clinica Veche", email="veche@example.md")
+        d2 = _trial(anon, "d_00000000ac03", name="Clinica Veche", email="veche@example.md")
         cid2 = _sql(s, "SELECT id FROM clinics WHERE email=?", "veche@example.md")[0][0]
         res.ok("без terms: принята, квитанции в ответе нет, акта нет, consent_at есть",
                d2["status"] == 200 and "terms" not in d2 and not _acts(s, cid2)
                and _sql(s, "SELECT consent_at FROM clinics WHERE id=?", cid2)[0][0], repr(d2))
         res.check("без акта заголовка нет (программа читает «не знаем»)", _header(s, d2.get("token", "")), "")
-        d3 = _trial(anon, name="Clinica Mușor", email="musor@example.md", terms="2026-10-27", actor="X")
+        d3 = _trial(anon, "d_00000000ac04", name="Clinica Mușor", email="musor@example.md", terms="2026-10-27",
+                    actor="X")
         res.ok("мусорная версия в заявке — заявка принята, акта нет", d3["status"] == 200 and "terms" not in d3
                and not _acts(s, _sql(s, "SELECT id FROM clinics WHERE email=?", "musor@example.md")[0][0]), repr(d3))
 

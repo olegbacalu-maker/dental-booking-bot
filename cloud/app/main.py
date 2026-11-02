@@ -620,8 +620,11 @@ def _trial_program(f: dict, ip: str, ident: dict | None = None,
     vid = code = ""
     act = None
     with db.connect(immediate=True) as con:
-        outcome, clinic = trial.submit(con, f, ip, who="program", origin=trial.ORIGIN_PROGRAM)
+        outcome, clinic = trial.submit(con, f, ip, who="program", origin=trial.ORIGIN_PROGRAM, device=ident)
         token = ""
+        if outcome == trial.DEVICE_TAKEN:
+            # компьютер чужой клиники: ни токена, ни кода, ни письма — строка в журнале (submit)
+            return outcome, "", "", None
         if outcome == trial.DUPLICATE:
             vid, code = trial.new_code(con, clinic, ip)
         else:
@@ -675,6 +678,8 @@ async def trial_api(request: Request) -> Response:
     trial.note(ip)
     outcome, token, vid, act = await run_in_threadpool(_trial_program, f, ip, fleet.from_request(request),
                                                        terms.from_body(body))
+    if outcome == trial.DEVICE_TAKEN:
+        return _api_err("device_taken", 409)
     if outcome == trial.DUPLICATE:
         if not vid:
             return _api_err("duplicate", 409)

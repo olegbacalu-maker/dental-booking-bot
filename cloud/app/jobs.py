@@ -5,6 +5,7 @@ cloud.md › «Напоминания». Запуск раз в сутки из 
 
     python -m app.jobs daily
     python -m app.jobs daily --at 2026-10-17T06:00:00Z
+    python -m app.jobs cards          # раз в час: только оплаты картой моложе суток
 
 Строки таблицы напоминаний здесь — ОКНА дат [с, до), а не точки: если задача
 не бежала несколько дней (сервер лежал), она шлёт письмо той строки, в чьём
@@ -21,7 +22,9 @@ cloud.md › «Напоминания». Запуск раз в сутки из 
 (paylink.for_mail) рядом с reference — ссылка maib живёт минуты (maib.PAY_TTL) и рождается
 только по клику на этой странице, после галочки условий. Вторая забота задачи —
 спросить maib про каждую попытку оплаты картой без окончательного ответа:
-callback мог не дойти, а истина всё равно у maib.
+callback мог не дойти, а истина всё равно у maib. Ту же часть раз в час
+повторяет `cards` для попыток моложе суток (02.11): не дошли ни callback, ни
+возврат браузера — лицензия ждёт час, а не до утра.
 """
 from __future__ import annotations
 
@@ -152,9 +155,11 @@ def _one(con: sqlite3.Connection, row: sqlite3.Row, now: datetime, send, who: st
 
 
 ATTEMPT_DAYS = 30      # попытку без окончательного ответа maib спрашивают не дольше месяца
+CARDS_HOURS = 24       # ежечасный проход (cards) — только свежие попытки; старше — забота daily
+CARDS_WHO = "cards"
 
 
-def settle_cards(who: str, rep: Report) -> None:
+def settle_cards(who: str, rep: Report, max_age: timedelta = timedelta(days=ATTEMPT_DAYS)) -> None:
     """Каждая попытка оплаты картой без окончательного ответа maib (pay_attempts.final = 0):
     спросить статус checkout (maib.info) и применить (payments.settle). Callback мог не дойти; истина у maib
     и без него. Окончательный ответ (OK, FAILED, TIMEOUT протухшей ссылки) закрывает
@@ -165,7 +170,7 @@ def settle_cards(who: str, rep: Report) -> None:
     пройти потом: попытка остаётся открытой, и задача зачтёт второй платёж (credit_again)."""
     if not maib.enabled():
         return
-    since = (datetime.now(timezone.utc) - timedelta(days=ATTEMPT_DAYS)).strftime(db.TS)
+    since = (datetime.now(timezone.utc) - max_age).strftime(db.TS)
     with db.connect() as con:
         rows = con.execute("""SELECT a.provider_id, a.payment_id, p.reference, p.clinic_id
                               FROM pay_attempts a JOIN payments p ON p.id = a.payment_id
@@ -259,13 +264,36 @@ def daily(now: datetime | None = None, send=mail.send, who: str = WHO) -> Report
     return rep
 
 
+def cards(who: str = CARDS_WHO) -> Report:
+    """Ежечасный проход (02.11): только settle_cards для попыток моложе CARDS_HOURS. Писем о
+    сроке, SMS и журнала здесь нет — это daily. Строки «прошёл» в журнал не пишет: 24 строки в
+    сутки ничего не говорят, а оплата и так оставляет свои (payment_paid, issue, mail)."""
+    rep = Report(at=datetime.now(timezone.utc).strftime(db.TS))
+    settle_cards(who, rep, timedelta(hours=CARDS_HOURS))
+    return rep
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("daily", help="напоминания по таблице cloud.md за сегодня")
     d.add_argument("--at", help="подставная дата-время YYYY-MM-DDTHH:MM:SSZ (по умолчанию сейчас, UTC)")
+    sub.add_parser("cards", help=f"раз в час: оплаты картой моложе {CARDS_HOURS} ч — спросить maib и зачесть")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    if a.cmd == "cards":
+        db.init()
+        rep = cards()
+        for cid, ref in rep.cards:
+            print(f"оплачено картой {ref} {cid}")
+        for cid, why in rep.skipped:
+            print(f"пропущено {cid}: {why}")
+        for cid, err in rep.failed:
+            print(f"ошибка {cid}: {err}")
+        tail = (f"картой оплачено: {len(rep.cards)}, maib не ответил: {len(rep.skipped)}, ошибок: {len(rep.failed)}"
+                if maib.enabled() else "DP_MAIB_* пусты — карт нет, спрашивать некого")
+        print(f"{rep.at}: {tail}")
+        return 1 if rep.failed else 0
     now = None
     if a.at:
         now = db.parse_ts(a.at)

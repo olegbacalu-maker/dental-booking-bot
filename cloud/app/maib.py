@@ -241,7 +241,10 @@ def ours(c: dict) -> dict:
     elif s in _WAIT:
         status = _WAIT[s]
     else:
-        if s != "completed":
+        if s == "completed":
+            # checkout закрыт, а слово платежа новое: деньги могли прийти — в лог, чтобы не ждать молча
+            log.warning("maib: checkout %r, незнакомый статус платежа %r — считаю ожиданием", st, pst)
+        else:
             log.warning("maib: незнакомый статус checkout %r — считаю ожиданием", st)
         status = "PENDING"
     return {"payId": c.get("id"), "status": status, "statusCode": "/".join(x for x in (st, pst) if x),

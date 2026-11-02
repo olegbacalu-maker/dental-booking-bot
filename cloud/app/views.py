@@ -403,6 +403,10 @@ TRIAL_MSG = {
     "duplicate_code": "Clinica este deja înregistrată la DentPilot. Am trimis un cod de activare pe "
                       "adresa de e-mail a clinicii — introduceți-l mai jos (este valabil "
                       f"{int(trial.CODE_TTL.total_seconds() // 60)} minute).",
+    # 02.11: компьютер уже у другой клиники (trial.DEVICE_TAKEN); ту клинику не называем
+    "device_taken": "Acest calculator este deja legat de o clinică înregistrată la DentPilot. Dacă este clinica "
+                    "dvs., introduceți mai jos IDNO-ul sau e-mailul ei — vă trimitem un cod de activare. "
+                    "Altfel, scrieți-ne.",
     "bad_code": "Codul nu este corect sau a expirat — verificați e-mailul sau trimiteți din nou "
                 "cererea pentru un cod nou.",
     "code_limited": "Prea multe încercări — încercați peste o oră sau scrieți-ne.",

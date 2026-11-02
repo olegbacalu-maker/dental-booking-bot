@@ -157,3 +157,52 @@ def suite_activation(res: Result) -> None:
                      {"Content-Type": "application/json", **_hdr(device=DEV2, version="1.36.0")})
         res.ok("верный код: токен, второй компьютер привязан к той же клинике",
                r.status == 200 and [d[:2] for d in _devices(s)] == [(DEV1, cid), (DEV2, cid)], f"{r.status} {_devices(s)}")
+
+
+def suite_device_taken(res: Result) -> None:
+    """02.11: компьютер, уже записанный за клиникой, не получает второй пробный на новый ящик —
+    409 со словами, которые программа покажет как есть (провод bot/app/core/license_renew.py,
+    без правки клиента); свою клинику он находит кодом, как раньше; скрытая заявка компьютер
+    не держит. Заявок здесь ровно пять — лимит с адреса (trial.MAX_PER_HOUR)."""
+    from app import views  # noqa: E402 — текст отказа
+    rn = load_by_path("license_renew", ROOT / "bot" / "app" / "core" / "license_renew.py")
+    with Server(env={"DP_TRIAL_MODE": "auto", "DP_TRIAL_NOTIFY": "oleg@example.md"}) as s:
+        anon = Client(s.url)
+
+        def trial(email_: str, name: str = "Clinica Nouă", idno: str = "") -> tuple[int, dict]:
+            body = json.dumps({"name": name, "idno": idno, "contact_name": "X", "email": email_,
+                               "phone": "", "consent": "1"}).encode()
+            r = anon._do("/v1/trial", body, {"Content-Type": "application/json", **_hdr()})
+            return r.status, json.loads(r.body or "{}")
+
+        st, d = trial("nou@example.md")
+        cid = _sql(s, "SELECT id FROM clinics")[0][0]
+        res.ok("первая заявка: клиника заведена, компьютер у неё", st == 200 and _devices(s)[0][:2] == (DEV1, cid),
+               f"{st} {d}")
+        n_letters = len(list(s.outbox.glob("*.eml")))
+        st, d = trial("alta@example.md", name="Clinica Alta")
+        res.ok("тот же компьютер, новый ящик: 409 device_taken со словами, без verify_id и токена",
+               st == 409 and d.get("code") == "device_taken" and d.get("text") == views.TRIAL_MSG["device_taken"]
+               and "verify_id" not in d and "token" not in d, f"{st} {d}")
+        res.ok("…новой клиники нет, компьютер остался у первой, писем не ушло",
+               _sql(s, "SELECT count(*) FROM clinics")[0][0] == 1 and _devices(s)[0][:2] == (DEV1, cid)
+               and len(list(s.outbox.glob("*.eml"))) == n_letters)
+        res.ok("…в журнале — повторная заявка с причиной reason=device, компьютером и владельцем (без clinic_id)",
+               any(why.startswith("reason=device") and DEV1 in why and cid in why for why, in
+                   _sql(s, "SELECT detail FROM audit WHERE what='trial_duplicate' AND clinic_id IS NULL")))
+        res.ok("текст отказа чужую клинику не называет", "Clinica Nouă" not in views.TRIAL_MSG["device_taken"]
+               and "nou@" not in d.get("text", ""))
+        st, d = trial("nou@example.md")
+        res.ok("свою клинику тот же компьютер находит как раньше: 409 с verify_id (код на её e-mail)",
+               st == 409 and d.get("code") == "duplicate" and d.get("verify_id"), f"{st} {d}")
+        outcome, data = rn.request_trial(s.url + "/v1/trial", {"name": "Clinica Alta", "idno": "", "contact_name": "X",
+                                                               "email": "alta2@example.md", "phone": "", "consent": "1"},
+                                         extra={k: v for k, v in _hdr().items() if k != "User-Agent"},
+                                         agent="DentPilot/2.7.0")
+        res.ok("провод программы читает отказ как REJECTED со словами сервера и без verify_id (REQUEST_REFUSED)",
+               outcome == rn.REJECTED and data.get("text") == views.TRIAL_MSG["device_taken"]
+               and "verify_id" not in data, f"{outcome} {data}")
+        _sql(s, "UPDATE clinics SET declined_at='2026-11-02T10:00:00Z' WHERE id=?", cid)
+        st, d = trial("alta3@example.md", name="Clinica Alta")
+        res.ok("скрытая заявка компьютер не держит: новая клиника заведена, компьютер переехал",
+               st == 200 and d.get("token") and _devices(s)[0][1] != cid, f"{st} {d}")

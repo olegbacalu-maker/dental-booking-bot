@@ -49,6 +49,8 @@ from . import account, auth, config, contracts, db, keys, license, mail, maib, p
 
 OK, WARN, BAD = "ok", "⚠", "✗"
 PULL_MAX_DAYS = 3        # отметка вывоза копий старше — предупреждение (ПК выключен)
+LIVE_HOST = "cloud.dentpilot.md"           # боевой DP_BASE_URL: сюда приходят настоящие клиники
+MAIB_SANDBOX_HOST = "sandbox.maibmerchants.md"
 
 
 # ---------- бэкап ----------
@@ -261,13 +263,17 @@ def check() -> list[tuple[str, str]]:
             out.append((WARN, f"DP_PRICE_{t.upper()} пуст: {tiers.NAME[t]} не продаётся (страница оплаты его не "
                               f"предлагает и ноту за 14 дней в нём не выставить)"))
     if maib.enabled():
+        pairing = maib_pairing(config.MAIB_BASE_URL, config.BASE_URL)
         try:
             maib.token()
-            where = "песочница" if "sandbox" in config.MAIB_BASE_URL else "боевой"
-            out.append((OK, f"maib: токен получен, оплата картой включена (Checkout v2, {where} "
-                            f"{config.MAIB_BASE_URL}); callback {config.BASE_URL.rstrip('/')}{maib.CALLBACK_PATH}"))
+            where = "песочница" if _host(config.MAIB_BASE_URL) == MAIB_SANDBOX_HOST else "боевой"
+            out.append((WARN if pairing else OK,
+                        f"maib: токен получен, оплата картой включена (Checkout v2, {where} "
+                        f"{config.MAIB_BASE_URL}); callback {config.BASE_URL.rstrip('/')}{maib.CALLBACK_PATH}"))
         except maib.MaibError as e:
             out.append((BAD, f"maib не отвечает: {e}"))
+        if pairing:
+            out.append((WARN, pairing))
         if urllib.parse.urlsplit(config.MAIB_BASE_URL).path.strip("/"):
             out.append((WARN, f"DP_MAIB_BASE_URL={config.MAIB_BASE_URL}: адрес с путём — провод сам дописывает "
                               "/v2/…; нужен адрес без пути (https://api.maibmerchants.md или песочница)"))
@@ -355,6 +361,21 @@ def check() -> list[tuple[str, str]]:
     if not config.SELLER_ADDRESS:
         out.append((WARN, "DP_SELLER_ADDRESS пуст: cont de plată без адреса продавца"))
     return out
+
+
+def _host(url: str) -> str:
+    return (urllib.parse.urlsplit(url).hostname or "").lower()
+
+
+def maib_pairing(maib_url: str, base_url: str) -> str:
+    """Песочница maib на боевом сервере (02.11, разбор перед первой клиникой): тестовая карта
+    песочницы оплатила бы ноту, settle продлил бы НАСТОЯЩУЮ лицензию. Строка предупреждения
+    или "" — песочница у машины разработчика и боевой maib на боевом сервере законны."""
+    if _host(maib_url) != MAIB_SANDBOX_HOST or _host(base_url) != LIVE_HOST:
+        return ""
+    return (f"maib: песочница {maib_url} при боевом DP_BASE_URL={base_url} — тестовой картой можно получить "
+            "настоящую лицензию; адрес и ключи меняются только вместе: DP_MAIB_BASE_URL=https://api.maibmerchants.md "
+            "и боевые DP_MAIB_CLIENT_ID / DP_MAIB_CLIENT_SECRET / DP_MAIB_SIGNATURE_KEY")
 
 
 def _integrity(dbp: pathlib.Path) -> str:
