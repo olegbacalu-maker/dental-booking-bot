@@ -752,11 +752,16 @@ def suite_update_paths(res: Result) -> None:
     for need, why in (
             # 11.10: перезапуск — сторожем, его метка и копия оболочки в папке клиники
             ('work / f"{task}.run"', "метка сторожа перезапуска"),
-            ('work_dir() / _WATCH_EXE', "копия оболочки для сторожа"),
             ('work / "DentPilot-Setup.zip"', "скачанный архив установщика"),
             ('work / privileged.SETUP_NEW', "извлечённый установщик")):
         res.ok(f"{why} — в папке клиники", need in src,
                f"{why} снова пишется рядом с exe")
+    # 02.11: копию оболочки исполняет планировщик от имени владельца — она в
+    # папке УЧЁТКИ, а не в папке данных, куда пишут все учётки Windows.
+    res.ok("копия оболочки для сторожа — в папке учётки",
+           "dst = d / _WATCH_EXE" in src and "d = paths.user_dir()" in src
+           and "dst = work_dir() / _WATCH_EXE" not in src,
+           "сторож снова исполняет exe из папки, куда пишут все учётки")
     # Якорь обратной полярности: ни одного файла рядом с программой.
     res.ok("рядом с exe ничего не создаётся",
            'exe.with_name(' not in src and "sys.executable).resolve().parent /" not in src,

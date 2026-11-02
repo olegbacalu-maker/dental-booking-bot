@@ -22,7 +22,7 @@ from . import db
 from . import engine as eng
 from . import paths
 from . import update as upd
-from .core import dbkey, demo
+from .core import dbkey, demo, orders
 from .core import license as lic
 from .core import backup_loop
 from .core import sms_loop as sms
@@ -230,6 +230,7 @@ async def startup() -> None:
         return
     await db.init(seed_rows)
     await entry.check_auth_file()
+    await orders.report_done()       # заказы лаунчеру: летопись и баннер директору
     # Лицензия (L3): файл, память, состояние — до первого запроса к воротам
     # (L4) и баннеру (L5). Облако и демо без ключа: внутри no-op.
     await lic.startup()

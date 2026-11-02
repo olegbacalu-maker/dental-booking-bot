@@ -520,6 +520,17 @@ MSG_BANNER = {
                           "și nu poate fi citit — transferul nu începe"),
     "mig_nousers": ("err", "În fișa aleasă nu există niciun cont — nu avem "
                            "cu ce confirma, deci transferul nu începe"),
+    # ---- заказы лаунчеру (02.11, `core/orders.py`) ----
+    # Баннер директору и летопись после старта: что лаунчер исполнил или
+    # отверг. Строку дополняет `orders.event_text` (что, почему, когда);
+    # потолок летописи 200 знаков. Говорят, ЧТО случилось, а не про взлом:
+    # штатное восстановление — не тревога.
+    "ord_decrypted": ("warn", "Criptarea evidenței a fost oprită la pornirea programului"),
+    "ord_restored": ("warn", "Baza de date a fost restaurată din copie la pornirea programului"),
+    "ord_rejected": ("err", "O comandă nesemnată de acest cont Windows a fost respinsă "
+                            "la pornire"),
+    "ord_repeat": ("err", "Nimic nu a fost șters. Dacă ați cerut-o dvs., repetați "
+                          "comanda din Setări"),
 }
 
 
@@ -935,10 +946,14 @@ def _tamper_banner() -> str:
     me = request_user()
     if me is not None and not can(me, PERM_SETTINGS):
         return ""
-    return (f"<div class='banner err' style='margin-bottom:14px'>{_ic('shield')} {html.escape(txt)}. "
-            "Dacă nu a fost o intervenție cunoscută (resetarea unui PIN uitat, "
-            "tehnicianul clinicii), schimbați PIN-urile în Setări › Utilizatori "
-            "și verificați jurnalul de acces."
+    # Тем же каналом едут события лаунчера (`orders.report_done`, 02.11:
+    # расшифровка, восстановление, отвергнутый заказ) — со своими словами.
+    # Совет про PIN — только при самом сигнале auth.json.
+    advice = (" Dacă nu a fost o intervenție cunoscută (resetarea unui PIN uitat, "
+              "tehnicianul clinicii), schimbați PIN-urile în Setări › Utilizatori "
+              "și verificați jurnalul de acces." if "auth.json" in txt else "")
+    return (f"<div class='banner err' style='margin-bottom:14px'>{_ic('shield')} {html.escape(txt)}."
+            f"{advice}"
             "<form method='post' action='/admin/security/ack' "
             "style='display:inline;margin-left:12px'>"
             "<button style='background:none;border:1px solid currentColor;"

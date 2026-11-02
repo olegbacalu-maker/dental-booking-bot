@@ -745,6 +745,12 @@ def _open_run_root() -> tuple[pathlib.Path, object]:
 
 RUN_TMP, _RUN_LOCK = _open_run_root()
 
+# Папка учётки (`paths.user_dir`: секрет подписи заказов лаунчеру, копия
+# сторожа) — в папке прогона, а не в %LOCALAPPDATA% разработчика. Серверы
+# наследуют окружение; собранная программа эту переменную не слушает.
+_USER_DIR = ".user"                  # не «временное набора»: живёт весь прогон
+os.environ.setdefault("DENTART_USER_DIR", str(RUN_TMP / _USER_DIR))
+
 
 @atexit.register
 def _close_run_root() -> None:
@@ -756,7 +762,7 @@ def _close_run_root() -> None:
 
 
 def _run_entries() -> set[str]:
-    return {p.name for p in RUN_TMP.iterdir()} - {".lock"}
+    return {p.name for p in RUN_TMP.iterdir()} - {".lock", _USER_DIR}
 
 
 def _check_left(res: "Result", suite: str, before: set[str]) -> None:

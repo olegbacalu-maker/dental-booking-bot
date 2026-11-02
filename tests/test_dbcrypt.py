@@ -22,7 +22,7 @@ import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "bot"))
 
-from app.core import dbkey  # noqa: E402
+from app.core import dbkey, orders  # noqa: E402
 
 from harness import FIXTURES, Client, Result, Server, _rmtree_settled  # noqa: E402
 
@@ -41,6 +41,14 @@ def _plain_db(path: pathlib.Path, rows: int = 3) -> None:
 
 
 # ---------- 1. код восстановления ----------
+
+def _unspend(order_text: str) -> None:
+    """Обрыв питания ДО расхода номера: убрать номер заказа из израсходованных."""
+    nonce = json.loads(order_text)["nonce"]
+    p = orders._used_path()
+    used = [n for n in orders._used() if n != nonce]
+    p.write_text(json.dumps(used), encoding="utf-8")
+
 
 def suite_key(res: Result) -> None:
     key = dbkey.generate()
@@ -263,6 +271,7 @@ def suite_pending(res: Result) -> None:
         res.ok("до переезда старая копия лежит открытой",
                MARK.encode() in old_copy.read_bytes(), "копия и так не читается")
 
+        saved = (tmp / dbkey.PENDING_FILE).read_text(encoding="utf-8")
         res.ok("лаунчер выполнил переезд",
                (dbkey.apply_pending(tmp) or "").startswith("encrypted"),
                "переезд не выполнен")
@@ -278,8 +287,11 @@ def suite_pending(res: Result) -> None:
         # ⭐ Обрыв питания МЕЖДУ переездом и укладкой ключа: база уже зашифрована,
         # заказ ещё лежит. Второй проход по флагу «в лоб» зашифровал бы шифр и
         # убил картотеку — поэтому apply_pending смотрит на состояние файла.
-        shutil.copy(tmp / dbkey.KEY_FILE, tmp / dbkey.PENDING_FILE)
+        # Обрыв — до укладки ключа, значит и до расхода номера заказа (02.11):
+        # заказ лежит тот же, номер не израсходован.
+        (tmp / dbkey.PENDING_FILE).write_text(saved, encoding="utf-8")
         (tmp / dbkey.KEY_FILE).unlink()
+        _unspend(saved)
         res.check("недоделанный переезд доводится до конца",
                   dbkey.apply_pending(tmp), "encrypted")
         res.check("после доводки ключ читается", dbkey.state(tmp), dbkey.OK)

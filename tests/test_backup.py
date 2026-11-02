@@ -173,10 +173,14 @@ def suite_roundtrip(res: Result) -> None:
             res.ok("запись о восстановлении — в ленте клиники",
                    _wait(lambda: _feed(c2, "restaurată")),
                    "лаунчер исполнил, а программа о нём не сказала")
-            page = c2.get("/admin")
+            # Канал tamper несёт и баннер «восстановлено» (заказы лаунчеру,
+            # 02.11, `orders.report_done`) — тревога auth.json узнаётся по словам.
+            sig = shell_signal(c2.get("/admin").body, "tamper")
             res.ok("ложной тревоги auth.json после восстановления нет",
-                   not shell_signal(page.body, "tamper")["shown"],
+                   "auth.json" not in (sig.get("html") or ""),
                    "восстановленная база помнила чужой отпечаток файла доступа")
+            res.ok("баннер директору: база восстановлена из копии",
+                   "restaurată din copie" in (sig.get("html") or ""), repr(sig)[:300])
     finally:
         _rmtree_settled(work)
 
@@ -242,8 +246,9 @@ def suite_restore_button(res: Result) -> None:
             res.ok("лента: восстановлено из копии, старая база названа",
                    any("before-restore" in a["text"] for a in _wait(lambda: _feed(c, "restaurată")) or []),
                    "строки о восстановлении нет или она не называет отложенную базу")
-            res.ok("тревоги auth.json нет",
-                   not shell_signal(c.get("/admin").body, "tamper")["shown"])
+            sig = shell_signal(c.get("/admin").body, "tamper")
+            res.ok("тревоги auth.json нет", "auth.json" not in (sig.get("html") or ""),
+                   repr(sig)[:300])
     finally:
         _rmtree_settled(d)
 

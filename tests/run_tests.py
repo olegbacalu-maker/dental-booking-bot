@@ -32,6 +32,7 @@ import test_backup  # noqa: E402
 import test_booking  # noqa: E402
 import test_chair  # noqa: E402
 import test_dbcrypt  # noqa: E402
+import test_orders  # noqa: E402
 import test_demo  # noqa: E402
 import test_desk  # noqa: E402
 import test_dev  # noqa: E402
@@ -502,6 +503,11 @@ SUITES = [
     ("Шифрование базы: заказ по галочке", test_dbcrypt.suite_confirm),
     ("Шифрование базы: восстановление по листу", test_dbcrypt.suite_recover),
     ("Бэкап: отказ экспорта и инструкции db.key", test_dbcrypt.suite_export_err),
+    ("Заказы лаунчеру: шифрование и расшифровка — чужой нет, свой да", test_orders.suite_crypt),
+    ("Заказы лаунчеру: восстановление — чужой, подменённый, повторный нет, свой да",
+     test_orders.suite_restore),
+    ("Заказы лаунчеру: летопись и баннер директору", test_orders.suite_report),
+    ("Заказы лаунчеру: папка учётки — у Windows, не из окружения", test_orders.suite_user_dir),
     ("Лаунчер: dental.env из Блокнота", test_launcher.suite_envfile),
     ("Лаунчер: DENTART_PORT", test_launcher.suite_port),
     ("Лаунчер: автокопия базы", test_launcher.suite_autobackup),

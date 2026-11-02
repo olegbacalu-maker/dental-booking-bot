@@ -51,9 +51,9 @@ import time
 import zipfile
 from datetime import datetime
 
-from . import dbkey
+from . import dbkey, orders
 
-REQUEST_FILE = "restore.request"      # JSON-заказ: лаунчер исполняет на старте
+REQUEST_FILE = "restore.request"      # подписанный заказ (`orders`): лаунчер исполняет на старте
 DONE_FILE = "restore.done"            # лаунчер исполнил: приложение запишет в ленту
 STAGE_DIR = "restore-staging"         # распакованная и проверенная копия
 SUMMARY = "summary.json"
@@ -277,17 +277,31 @@ def pending(data_dir: pathlib.Path) -> bool:
 
 
 def request(data_dir: pathlib.Path) -> bool:
-    """Заказать восстановление принятой копии. False — принимать нечего."""
+    """Заказать восстановление принятой копии. False — принимать нечего или
+    подписать нечем.
+
+    ⛔ Заказ подписан и привязан к отпечатку ВСЕЙ приёмки (`orders.tree_fp`):
+    папку данных пишет любая учётка Windows этого ПК, и неподписанный заказ
+    (или подменённая под подписанным заказом база) подложил бы владельцу
+    чужую картотеку с чужим `auth.json`."""
     s = summary(data_dir)
     if s is None:
         return False
-    (data_dir / REQUEST_FILE).write_text(json.dumps(s, ensure_ascii=False), encoding="utf-8")
+    order = orders.sign(orders.RESTORE, stage_fp=orders.tree_fp(stage_dir(data_dir)),
+                        summary=s)
+    if order is None:
+        return False
+    orders.write(data_dir / REQUEST_FILE, order)
     return True
 
 
 def cancel(data_dir: pathlib.Path) -> None:
-    """Снять заказ и выбросить принятое."""
-    (data_dir / REQUEST_FILE).unlink(missing_ok=True)
+    """Снять заказ и выбросить принятое. Номер заказа расходуется: снятый
+    заказ, сохранённый кем-то копией, не исполнится и позже."""
+    req = data_dir / REQUEST_FILE
+    if req.exists():
+        orders.spend(orders.read(req))
+    req.unlink(missing_ok=True)
     st = stage_dir(data_dir)
     if st.exists():
         shutil.rmtree(st)
@@ -386,10 +400,12 @@ def apply_pending(data_dir: pathlib.Path, clinic_root: pathlib.Path | None = Non
         req.unlink(missing_ok=True)
         shutil.rmtree(st, ignore_errors=True)
         return "restore-nothing"
-    try:
-        s = json.loads(req.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        s = {}
+    order = orders.read(req)
+    if (why := orders.check(order, orders.RESTORE,
+                            stage_fp=orders.tree_fp(st))) is not None:
+        # приёмка — в сторону вместе с заказом: в ней может быть своя копия
+        return orders.reject(data_dir, req, orders.RESTORE, why, also=(st,))
+    s = order.get("summary") if isinstance(order.get("summary"), dict) else {}
 
     key = None
     if dbkey.enabled(data_dir):
@@ -446,6 +462,9 @@ def apply_pending(data_dir: pathlib.Path, clinic_root: pathlib.Path | None = Non
             if (st / n).exists():
                 os.replace(st / n, clinic_root / n)
 
+    orders.note(data_dir, orders.RESTORE, "done", str(s.get("name") or ""),
+                nonce=str(order["nonce"]))
+    orders.spend(order)
     req.unlink(missing_ok=True)
     shutil.rmtree(st, ignore_errors=True)
     done = {**s, "aside": aside, "relinked": relinked,

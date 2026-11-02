@@ -310,6 +310,8 @@ answer = {"quit": True}
 sidecar.request_quit = lambda reason: (quits.append(reason), answer["quit"])[1]
 upd.is_desktop = lambda: True
 paths.is_frozen = lambda: True               # собранный движок: сторож — копия
+user = tmp / "user"                           # папка учётки (paths.user_dir)
+paths.user_dir = lambda: user
 
 def fake_schtasks(task, command, arguments, proof, wait):
     runs.append({"task": task, "command": command, "args": list(arguments)})
@@ -339,9 +341,11 @@ upd.STATE["latest"] = "v99.0.0"
 res_file = upd.work_dir() / "install.result"
 out["update_watch"] = upd._arm_restart_watch(res_file)
 out["update_runs"] = [plan_of(r) for r in runs]
-copy = upd.work_dir() / upd._WATCH_EXE
+copy = user / upd._WATCH_EXE
 out["copy_is_shell"] = copy.exists() and copy.read_bytes() == b"OBOLOCHKA"
 out["copy_path"] = str(copy)
+out["copy_not_in_data"] = not (upd.work_dir() / upd._WATCH_EXE).exists()
+out["work_dir"] = str(upd.work_dir())
 del runs[:]
 
 # --- оболочку не знаем (движок из исходников) — сторожа нет, программа жива ---
@@ -385,11 +389,16 @@ def suite_watch_shell(res: Result) -> None:
         res.ok("трубы к оболочке нет — движок себя не гасит (остановку принесёт закрытый stdin)",
                o["restart_nopipe"] is None and o["restart_nopipe_quits"] == ["restart"], repr(o))
         u = o["update_runs"]
-        res.ok("сторож обновления — КОПИЯ оболочки в папке клиники, ждёт итог мастера",
+        res.ok("сторож обновления — КОПИЯ оболочки в папке учётки, ждёт итог мастера",
                o["update_watch"] is None and o["copy_is_shell"] and len(u) == 1
                and u[0]["command"] == o["copy_path"] and u[0]["launch"] == [shell]
                and u[0]["pid"] == o["parent"] and u[0]["result"].endswith("install.result")
                and "Program Files" not in o["copy_path"], repr((u, o["copy_path"])))
+        # 02.11: папку данных пишут все учётки Windows, а копию исполняет
+        # планировщик от имени владельца — подмена была бы чужим кодом под ним.
+        res.ok("копии нет в папке данных — исполняемое только в папке учётки",
+               o["copy_not_in_data"] and not o["copy_path"].startswith(o["work_dir"]),
+               repr((o["copy_path"], o["work_dir"])))
         res.ok("оболочка не найдена — отказ словами, программа жива, оболочку не просят",
                o["no_shell"] and "DentPilot.exe" in o["no_shell"] and o["no_shell_runs"] == 0
                and o["no_shell_quits"] == [], repr(o))

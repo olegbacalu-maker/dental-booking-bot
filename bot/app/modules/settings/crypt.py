@@ -196,7 +196,6 @@ def turn_off(data_dir: pathlib.Path | None) -> str | None:
     """Заказать расшифровку. Сам переезд делает ЛАУНЧЕР до старта приложения:
     базу нельзя подменять под открытым соединением — подмена файла с
     `-wal`/`-shm` даёт порчу, которая всплывает часами позже."""
-    if not data_dir:
+    if not data_dir or not dbkey.request_decrypt(data_dir):
         return "bad_crypt"
-    dbkey.request_decrypt(data_dir)
     return None

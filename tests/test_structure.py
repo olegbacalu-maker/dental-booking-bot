@@ -87,7 +87,8 @@ _PRELOAD_MOD = {p.rsplit("/", 1)[-1][:-3] for p in _PRELOAD}
 
 # Модули копий картотеки, которые лаунчер зовёт в `_prepare` до сборки
 # приложения (17.10): им можно знать друг друга и предзагрузочный слой.
-_LAUNCHER_COPY = ("app/core/autobackup.py", "app/core/restore.py", "app/core/dbkey.py")
+_LAUNCHER_COPY = ("app/core/autobackup.py", "app/core/restore.py", "app/core/dbkey.py",
+                  "app/core/orders.py")
 _LAUNCHER_COPY_OK = _PRELOAD_MOD | {p.rsplit("/", 1)[-1][:-3] for p in _LAUNCHER_COPY}
 
 # `__file__` законен ровно там, где кто-то обязан знать, где лежит он сам:
@@ -612,6 +613,40 @@ def suite(res: Result) -> None:
                 bad.append(f"{rel}:{n.lineno} → {', '.join(outside)}")
     res.ok("модули копий импортируемы лаунчером", not bad,
            "в шапке — то, что тянет приложение: " + "; ".join(bad))
+
+    # ---- заказы лаунчеру подписаны (02.11, разбор коллеги Б2) ----
+    # Папку данных пишет любая учётка Windows ПК, а заказ исполняет лаунчер
+    # владельца. Исполнитель (`apply_pending`) обязан спросить подпись
+    # (`orders.check`), а файл заказа пишется только подписанным
+    # (`orders.write`): голый `write_text` в файл заказа — снова пустой
+    # маркер, который положит и чужая учётка.
+    bad = []
+    for rel in ("app/core/dbkey.py", "app/core/restore.py"):
+        tree = by_path.get(rel)
+        fns = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+               and n.name == "apply_pending"] if tree is not None else []
+        if not fns:
+            bad.append(f"{rel}: apply_pending не найдена")
+        bad += [f"{rel}:{f.lineno}" for f in fns
+                if not any(isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
+                           and c.func.attr == "check" and isinstance(c.func.value, ast.Name)
+                           and c.func.value.id == "orders" for c in ast.walk(f))]
+    res.ok("заказ лаунчеру исполняется только по подписи", not bad,
+           "apply_pending без orders.check: " + ", ".join(bad))
+    _ORDER_NAMES = {"DECRYPT_FILE", "PENDING_FILE", "REQUEST_FILE"}
+    bad = []
+    for rel, tree in src:
+        for n in ast.walk(tree):
+            if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                    and n.func.attr in ("write_text", "write_bytes")):
+                continue
+            names = {x.id if isinstance(x, ast.Name) else x.attr
+                     for x in ast.walk(n.func.value)
+                     if isinstance(x, (ast.Name, ast.Attribute))}
+            if names & _ORDER_NAMES:
+                bad.append(f"{rel}:{n.lineno}")
+    res.ok("файл заказа лаунчеру пишется подписанным", not bad,
+           "заказ записан мимо orders.write: " + ", ".join(bad))
 
     # main.py подключает роутеры модулей; обратный импорт замкнул бы круг.
     # Сегодня это упало бы и так, громко, — правило стоит здесь ради того, чтобы

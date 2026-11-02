@@ -670,7 +670,7 @@ def _sha256(path: pathlib.Path) -> str:
 # ---------- обновление установщиком (03.10) ----------
 
 _WATCH_TASK = "DentPilotUpdate"
-_WATCH_EXE = "DentPilot-watch.exe"   # копия оболочки в папке клиники — сторож с заставкой
+_WATCH_EXE = "DentPilot-watch.exe"   # копия оболочки в папке учётки — сторож с заставкой
 _ZIP_MAX = 300_000_000
 
 
@@ -700,16 +700,26 @@ def _program_cmd() -> list[str]:
 
 def _watch_command(copy: bool) -> list[str] | str:
     """Чем запускать сторожа: оболочкой в режиме `--watch` (`shell/src/watch.rs`;
-    она одна, 3–4 МБ, страницы заставки вшиты). С установщиком — её КОПИЕЙ в
-    папке клиники: установщик закрывает всё, что держит заменяемые файлы
+    она одна, 3–4 МБ, страницы заставки вшиты). С установщиком — её КОПИЕЙ:
+    установщик закрывает всё, что держит заменяемые файлы
     (`/CLOSEAPPLICATIONS`), а запущенный exe держит собственный образ — сторож
     из `Program Files` погиб бы вместе с программой (разбор в `restartwatch`).
+    ⛔ Копия — в папке УЧЁТКИ (`paths.user_dir`), не в папке данных (02.11):
+    ту установщик открыл на запись всем учёткам Windows, а копию исполняет
+    планировщик от имени владельца — подменённый exe был бы чужим кодом под
+    его учёткой. ⚠️ Решает СТОЯЩАЯ версия: обновление на 2.8.0 ещё кладёт
+    копию по-старому (её убирает `main._sweep_watch_copy` новой версии;
+    копия в папке учётки остаётся и перезаписывается следующим обновлением).
     Из исходников копии нет. str = копия не записалась."""
     cmd = _program_cmd()
     if not copy or not paths.is_frozen():
         return cmd
-    dst = work_dir() / _WATCH_EXE
+    d = paths.user_dir()
+    if d is None:
+        return "copia programului pentru repornire: folderul contului Windows nu a fost găsit"
+    dst = d / _WATCH_EXE
     try:
+        d.mkdir(parents=True, exist_ok=True)
         shutil.copy2(cmd[0], dst)
     except OSError as e:
         return f"copia programului pentru repornire nu s-a putut scrie ({e})"

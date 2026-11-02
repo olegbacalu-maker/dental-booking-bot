@@ -37,6 +37,7 @@ import pathlib
 import secrets
 
 from .. import dpapi
+from . import orders
 
 # ⚠️ `storage` НЕ импортируется в шапке намеренно: он тянет за собой `db`, а
 # этот модуль зовёт ЛАУНЧЕР (`desktop.py`) — до того, как приложение собрано, и
@@ -236,7 +237,12 @@ def convert(src: pathlib.Path, key: bytes | None,
 # его лаунчер до старта приложения — тем же приёмом, что уже работает для
 # токена бота и сетевого доступа.
 PENDING_FILE = "db-key.pending"      # новый ключ ждёт применения = «включить»
-DECRYPT_FILE = "db-decrypt.request"  # пустой маркер = «выключить»
+DECRYPT_FILE = "db-decrypt.request"  # заказ = «выключить»
+# ⛔ Оба заказа ПОДПИСАНЫ (`core/orders.py`, 02.11): папку данных пишет любая
+# учётка Windows этого ПК, и пустой маркер чужой учётки расшифровал бы ей
+# картотеку руками владельца при следующем его запуске. Заказ шифрования — тот
+# же класс: блоб с флагом LOCAL_MACHINE читается DPAPI любой учётки, и база
+# легла бы под ключ, который знает чужой.
 
 
 def opens_with(src: pathlib.Path, key: bytes | None) -> bool:
@@ -272,8 +278,10 @@ def apply_pending(data_dir: pathlib.Path, db_name: str = "dental.db") -> str | N
     pending, decrypt = data_dir / PENDING_FILE, data_dir / DECRYPT_FILE
 
     if pending.exists():
-        blob = pending.read_text(encoding="utf-8").strip()
-        raw = dpapi.unprotect(blob)
+        order = orders.read(pending)
+        if (why := orders.check(order, orders.ENCRYPT)) is not None:
+            return orders.reject(data_dir, pending, orders.ENCRYPT, why)
+        raw = dpapi.unprotect(str(order.get("blob") or ""))
         key = None
         if raw:
             try:
@@ -282,6 +290,7 @@ def apply_pending(data_dir: pathlib.Path, db_name: str = "dental.db") -> str | N
             except (ValueError, binascii.Error):
                 key = None
         if key is None:
+            orders.spend(order)
             pending.unlink(missing_ok=True)
             return "pending-unreadable"
         if not opens_with(src, key):          # ещё не переезжали
@@ -300,12 +309,30 @@ def apply_pending(data_dir: pathlib.Path, db_name: str = "dental.db") -> str | N
                 convert(old, key)
             except Exception:                            # noqa: BLE001
                 stale.append(old.name)
-        os.replace(pending, data_dir / KEY_FILE)
+        tmp = data_dir / (KEY_FILE + ".tmp")
+        tmp.write_text(str(order["blob"]), encoding="utf-8")
+        os.replace(tmp, data_dir / KEY_FILE)
+        pending.unlink(missing_ok=True)
+        # номер расходуется ПОСЛЕ ключа на месте: обрыв раньше — следующий
+        # запуск доделает тот же заказ, а не отвергнет его при шифрованной базе
+        orders.spend(order)
         decrypt.unlink(missing_ok=True)
         return "encrypted" + (f" (копии не переехали: {', '.join(stale)})"
                               if stale else "")
 
     if decrypt.exists():
+        keyfile = data_dir / KEY_FILE
+        if not keyfile.exists() and opens_with(src, None):
+            # уже исполнен: обрыв между снятием ключа и снятием заказа (или
+            # заказ на открытой базе — расшифровывать нечего)
+            decrypt.unlink(missing_ok=True)
+            return None
+        order = orders.read(decrypt)
+        # Привязка к отпечатку db.key: новое шифрование — новый ключ, и
+        # сохранённая когда-то копия заказа к нему не подходит.
+        if (why := orders.check(order, orders.DECRYPT,
+                                key_fp=orders.file_fp(keyfile))) is not None:
+            return orders.reject(data_dir, decrypt, orders.DECRYPT, why)
         key = load(data_dir)
         if key is not None:
             # ⛔ Копии data/backups расшифровываются ПЕРВЫМИ — зеркало ветки
@@ -328,6 +355,7 @@ def apply_pending(data_dir: pathlib.Path, db_name: str = "dental.db") -> str | N
                 # ключ обязан пережить сбой: пока хоть одна копия под ним,
                 # удалить его значит потерять её. База остаётся зашифрованной,
                 # состояние цельное; след уходит в лог лаунчера этой строкой.
+                orders.spend(order)
                 decrypt.unlink(missing_ok=True)
                 return ("decrypt-failed (копии не расшифровались: "
                         + ", ".join(stale) + ")")
@@ -342,9 +370,13 @@ def apply_pending(data_dir: pathlib.Path, db_name: str = "dental.db") -> str | N
         # восстановления недостижим: его включает как раз наличие db.key.
         # Клиника с ПРАВИЛЬНЫМ листом на руках оставалась без входа.
         if opens_with(src, None):
-            (data_dir / KEY_FILE).unlink(missing_ok=True)
+            # событие — ДО снятия ключа: после него заказ уже не проверить
+            orders.note(data_dir, orders.DECRYPT, "done", nonce=str(order["nonce"]))
+            keyfile.unlink(missing_ok=True)
+            orders.spend(order)
             decrypt.unlink(missing_ok=True)
             return "decrypted"
+        orders.spend(order)
         decrypt.unlink(missing_ok=True)
         return "decrypt-failed"
     return None
@@ -355,7 +387,10 @@ def load_pending(data_dir: pathlib.Path) -> bytes | None:
     p = data_dir / PENDING_FILE
     if not p.exists():
         return None
-    raw = dpapi.unprotect(p.read_text(encoding="utf-8").strip())
+    # ⚠️ Подпись здесь не проверяется: функция только ПОКАЗЫВАЕТ ключ для
+    # листа. Исполняет заказ лаунчер, и подпись проверяет он.
+    order = orders.read(p)
+    raw = dpapi.unprotect(str((order or {}).get("blob") or ""))
     if not raw:
         return None
     try:
@@ -373,15 +408,27 @@ def request_encrypt(data_dir: pathlib.Path, key: bytes) -> bool:
     blob = dpapi.protect(base64.b64encode(key).decode())
     if not blob:
         return False
+    order = orders.sign(orders.ENCRYPT, blob=blob)
+    if order is None:
+        return False
     try:
-        p.write_text(blob, encoding="utf-8")
+        orders.write(p, order)
     except OSError:
         return False
     return True
 
 
-def request_decrypt(data_dir: pathlib.Path) -> None:
-    (data_dir / DECRYPT_FILE).write_text("", encoding="utf-8")
+def request_decrypt(data_dir: pathlib.Path) -> bool:
+    """Заказать расшифровку подписанным файлом, привязанным к нынешнему
+    `db.key`. False — подписать нечем или не записалось: заказа нет."""
+    order = orders.sign(orders.DECRYPT, key_fp=orders.file_fp(data_dir / KEY_FILE))
+    if order is None:
+        return False
+    try:
+        orders.write(data_dir / DECRYPT_FILE, order)
+    except OSError:
+        return False
+    return True
 
 
 def pragma_value(key: bytes) -> str:

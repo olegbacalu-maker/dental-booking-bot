@@ -117,3 +117,66 @@ def contract_dir(base: pathlib.Path | None = None) -> pathlib.Path | None:
     Ни то ни другое — `None`, и вызывающий обязан обойтись без квитанции."""
     root = data_root() or base
     return root / CONTRACT_DIR if root is not None else None
+
+
+USER_ENV = "DENTART_USER_DIR"
+# FOLDERID_LocalAppData
+_LOCAL_APPDATA = "{F1B32785-6FBA-4FCF-9D55-7B8E7F157091}"
+
+
+def _known_local_appdata() -> pathlib.Path | None:
+    """%LOCALAPPDATA% у Windows, а не из окружения (SHGetKnownFolderPath)."""
+    if sys.platform != "win32":
+        return None
+    import ctypes
+    import uuid
+    from ctypes import wintypes
+
+    class _GUID(ctypes.Structure):
+        _fields_ = [("d1", wintypes.DWORD), ("d2", wintypes.WORD),
+                    ("d3", wintypes.WORD), ("d4", ctypes.c_ubyte * 8)]
+
+    u = uuid.UUID(_LOCAL_APPDATA)
+    g = _GUID(u.time_low, u.time_mid, u.time_hi_version,
+              (ctypes.c_ubyte * 8)(*u.bytes[8:]))
+    out = ctypes.c_wchar_p()
+    try:
+        shell32 = ctypes.windll.shell32
+        if shell32.SHGetKnownFolderPath(ctypes.byref(g), 0, None, ctypes.byref(out)) != 0:
+            return None
+        return pathlib.Path(out.value) if out.value else None
+    except OSError:
+        return None
+    finally:
+        if out:
+            ctypes.windll.ole32.CoTaskMemFree(out)
+
+
+def user_dir() -> pathlib.Path | None:
+    """Папка ЭТОЙ учётки Windows: `%LOCALAPPDATA%\\DentPilot` (02.11).
+
+    Туда, а не в папку клиники, ложится всё, что другая учётка того же ПК
+    подменить не должна: секрет подписи заказов лаунчеру (`core/orders.py`) и
+    копия оболочки, которую исполняет сторож перезапуска (`update.py`).
+    ⛔ Папку клиники (`ProgramData\\DentPilot`) установщик открыл на запись всем
+    пользователям — положенное туда исполнит или примет на веру владелец.
+    ⛔ Путь спрашивается у Windows, а не у `%LOCALAPPDATA%` окружения:
+    лаунчер вливает в окружение `dental.env`, а тот лежит в той же общей папке.
+    `$DENTART_USER_DIR` — только из исходников (прогон, песочница, стенды);
+    собранная программа его не слушает по той же причине.
+    ⛔ Windows не ответила — None и строка ошибки в лог, а не тихий откат в
+    общую папку: вызывающий отказывает (заказ не исполняется, копии сторожа
+    нет). `%LOCALAPPDATA%` окружения — запасной путь только из исходников."""
+    raw = os.environ.get(USER_ENV, "").strip().strip("\"'")
+    if raw and not is_frozen() and pathlib.Path(raw).is_absolute():
+        return pathlib.Path(raw)
+    base = _known_local_appdata()
+    if base is None:
+        local = os.environ.get("LOCALAPPDATA", "")
+        if not local or is_frozen():
+            import logging
+            logging.getLogger("paths").error(
+                "папка учётки Windows (LocalAppData) не получена у Windows")
+            return None
+        base = pathlib.Path(local)
+    return base / "DentPilot"

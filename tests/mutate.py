@@ -100,6 +100,13 @@ MUTATIONS = [
      "\nfrom . import db  # noqa\n"),
     ("модули копий импортируемы лаунчером", "app/core/restore.py",
      "\nfrom .. import db  # noqa\n"),
+    # ---- заказы лаунчеру подписаны (02.11) ----
+    # Исполнитель без подписи: тот же вызов, но уже не проверка.
+    ("исполняется только по подписи", "app/core/restore.py",
+     ("orders.check(order, orders.RESTORE,", "dict(order=order, kind=orders.RESTORE,")),
+    # Пустой маркер, как до 2.8.0, — его положит и чужая учётка.
+    ("пишется подписанным", "app/modules/settings/crypt.py",
+     "\ndef _mut(d):\n    (d / dbkey.DECRYPT_FILE).write_text('', encoding='utf-8')\n"),
     ("не импортирует main", "app/core/visits.py",
      "\nfrom app import main  # noqa\n"),
     # ---- переприсваиваемое имя по значению (14.10) ----
