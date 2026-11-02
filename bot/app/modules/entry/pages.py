@@ -13,6 +13,8 @@ Windows» читает строковые литералы исходников,
 """
 from __future__ import annotations
 
+import html
+
 from ...core.auth import PIN_MAX
 from ...core.layout import _ic
 
@@ -24,6 +26,20 @@ PIN_INPUT = ("<input type='password' name='password' placeholder='PIN' autofocus
              f"inputmode='numeric' pattern='[0-9]*' maxlength='{PIN_MAX}' "
              "style='text-align:center;font-size:28px;letter-spacing:12px'>")
 PASS_INPUT = "<input type='password' name='password' placeholder='Parola' autofocus required>"
+
+
+def pick_input(people: list[dict], chosen: str = "") -> str:
+    """Вход ИЗ СЕТИ (02.11): человек выбирается списком, PIN сверяется только
+    с ним (`routes.try_login`, `remote`). На самом ПК — прежний один PIN.
+    Курсор в PIN, если человек уже выбран (повтор после неудачи)."""
+    opts = "".join(
+        f"<option value='{html.escape(p['id'])}'"
+        f"{' selected' if p['id'] == chosen else ''}>{html.escape(p['name'])}</option>"
+        for p in people)
+    first = "" if chosen else "<option value='' selected disabled>Alegeți persoana</option>"
+    pin = PIN_INPUT if chosen else PIN_INPUT.replace(" autofocus", "")
+    return (f"<select name='uid' required aria-label='Persoana'"
+            f"{'' if chosen else ' autofocus'}>{first}{opts}</select>{pin}")
 
 # ⛔ На входе НЕ пишем, как сбросить забытый PIN (было до 08-11: «закройте
 # программу и удалите data\\auth.json»). Совет расходился с FAQ, и расходился в
@@ -70,6 +86,10 @@ LOGIN_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
         font-size:15px;font-weight:600;cursor:pointer;transition:background-color .2s ease}
  button:hover{background:__ACCENT_D__}
  .err{color:#B91C1C;font-size:13px}
+ /* выбор человека при входе из сети (02.11) — та же рамка, что у поля PIN */
+ select{height:44px;padding:0 10px;border:1px solid #E7EDF5;border-radius:12px;font-size:16px;
+        outline:none;color:#162033;background:#fff;font-family:inherit}
+ select:focus{border-color:__ACCENT__;box-shadow:0 0 0 3px __RING__}
 </style></head><body>
 <form method="post" action="/admin/login">
   __LOGO__

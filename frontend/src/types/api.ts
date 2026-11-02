@@ -29,8 +29,9 @@ export type ApiFailure =
   | { kind: 'unauthenticated' }
   /** 403 — вошёл, но роль не пускает (PERMS на сервере) или чужой Origin. */
   | { kind: 'forbidden'; code: string; text: string }
-  /** 422 — не прошла проверка. `field` называет поле формы. */
-  | { kind: 'validation'; code: string; text: string; field?: string }
+  /** 422 — не прошла проверка. `field` называет поле формы; `data` — что
+   *  сервер приложил к отказу (вход из сети: кого выбирать, `login_pick`). */
+  | { kind: 'validation'; code: string; text: string; field?: string; data?: unknown }
   /** 409 — конфликт: занятый слот, дубль пациента, запись уже уехала. */
   | { kind: 'conflict'; code: string; text: string }
   /** Сеть, таймаут, оборванный ответ. Программа продолжает работать. */
@@ -61,5 +62,10 @@ export class ApiError extends Error {
   /** Поле формы, которое отверг сервер. */
   get field(): string | undefined {
     return this.failure.kind === 'validation' ? this.failure.field : undefined
+  }
+
+  /** Данные, приложенные к отказу 422 (`undefined` — не прикладывали). */
+  get data(): unknown {
+    return this.failure.kind === 'validation' ? this.failure.data : undefined
   }
 }

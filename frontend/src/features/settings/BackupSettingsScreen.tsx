@@ -3,6 +3,7 @@ import { useCommand } from '../../app/bridge'
 import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
+import { Notice } from '../../components/Notice'
 import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
 import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
@@ -243,6 +244,10 @@ export function BackupSettingsScreen({ navigate = defaultNavigate }: Props) {
           {/* Янтарная строка — ТЕКСТ сервера, тот же, что в баннере директора и
               в Stare sistem (backup_loop.alert); выключенная копия молчит. */}
           {auto.alert && <div className="banner warn" role="status">{auto.alert}</div>}
+          {/* выключатель, папка, восстановление и выгрузка — только на ПК
+              программы (02.11, `auth.LOCAL_ONLY`): из сети экран читается,
+              а вместо кнопок, которые упадут, — слова сервера */}
+          <Notice n={data.remote} />
 
           <div className="pcard dp-bk-top">
             <label className="dp-sw dp-bk-sw">
@@ -257,7 +262,7 @@ export function BackupSettingsScreen({ navigate = defaultNavigate }: Props) {
                 aria-checked={auto.enabled}
                 aria-label={T.daily}
                 checked={auto.enabled}
-                disabled={busy}
+                disabled={busy || Boolean(data.remote)}
                 onChange={(e) => void call(() => settings.backupAuto({ enabled: e.target.checked }))}
               />
             </label>
@@ -267,7 +272,7 @@ export function BackupSettingsScreen({ navigate = defaultNavigate }: Props) {
               {auto.last.at && <>, {auto.last.where ? `în ${auto.last.where}` : T.thisPc}</>}
             </p>
 
-            {auto.enabled && (
+            {auto.enabled && !data.remote && (
               <>
                 <p className="hint">{T.whereHint}</p>
                 {auto.pass_unreadable && <div className="banner warn">{T.passUnreadable}</div>}
@@ -323,7 +328,7 @@ export function BackupSettingsScreen({ navigate = defaultNavigate }: Props) {
               <span className="dp-fold-c" aria-hidden="true"><Icon name="chev-r" /></span>
             </summary>
             <p className="hint">{T.restoreHint}</p>
-            {rst.pending ? (
+            {data.remote ? <Notice n={data.remote} /> : rst.pending ? (
               <div className="banner warn" role="status">
                 {T.pending}{' '}
                 <button type="button" className="rowdel" onClick={() => void call(() => settings.restoreCancel())} disabled={busy}>
@@ -398,7 +403,7 @@ export function BackupSettingsScreen({ navigate = defaultNavigate }: Props) {
             <p className="hint">{T.manualHint}</p>
             {/* Сама выгрузка идёт ОБЫЧНОЙ формой на старый маршрут: файл может
                 весить сотни мегабайт, браузер качает ответ формы потоком. */}
-            <form className="add" method="post" action={EXPORT_ACTION}>
+            {data.remote ? <Notice n={data.remote} /> : <form className="add" method="post" action={EXPORT_ACTION}>
               <input
                 type="password"
                 name="parola"
@@ -410,7 +415,7 @@ export function BackupSettingsScreen({ navigate = defaultNavigate }: Props) {
                 autoComplete="new-password"
               />
               <button><Icon name="download" /> {T.export}</button>
-            </form>
+            </form>}
           </details>
         </>
       )}

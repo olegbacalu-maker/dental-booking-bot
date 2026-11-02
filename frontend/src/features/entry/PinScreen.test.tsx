@@ -72,3 +72,34 @@ describe('PinScreen: экран PIN без поля id (22.10)', () => {
     expect(document.activeElement).toBe(screen.getByLabelText('PIN'))
   })
 })
+
+describe('PinScreen: вход из сети — с выбором человека (02.11)', () => {
+  const pick = () => new ApiError({
+    kind: 'validation', code: 'login_pick', text: 'Alegeți-vă numele din listă și introduceți PIN-ul',
+    field: 'uid', data: { people: [{ id: 'ana', name: 'Ana R' }, { id: 'clinic', name: 'Director' }] },
+  }, 'v')
+  afterEach(() => { try { window.localStorage.clear() } catch { /* jsdom */ } })
+
+  it('login_pick: слова сервера, список людей, набранный PIN остаётся; второй заход — с выбранным', async () => {
+    const enter = vi.fn().mockRejectedValueOnce(pick()).mockResolvedValueOnce(undefined)
+    render(<PinScreen m={M} enter={enter} />)
+    expect(screen.queryByLabelText('Persoana')).toBeNull()
+    await pressEnter('246810')
+    expect((await screen.findByRole('alert')).textContent).toContain('Alegeți-vă numele')
+    const who = screen.getByLabelText('Persoana') as HTMLSelectElement
+    expect([...who.options].map((o) => o.textContent)).toEqual(['Alegeți persoana', 'Ana R', 'Director'])
+    expect((screen.getByLabelText('PIN') as HTMLInputElement).value).toBe('246810')
+    fireEvent.change(who, { target: { value: 'ana' } })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Intră' })) })
+    expect(enter).toHaveBeenLastCalledWith('246810', 'ana')
+  })
+
+  it('выбор помнится устройством, но сам не уходит: первый заход снова без человека', async () => {
+    window.localStorage.setItem('dp.pin.person', 'clinic')
+    const enter = vi.fn().mockRejectedValueOnce(pick())
+    render(<PinScreen m={M} enter={enter} />)
+    await pressEnter('246810')
+    expect(enter).toHaveBeenCalledWith('246810', '')
+    expect((screen.getByLabelText('Persoana') as HTMLSelectElement).value).toBe('clinic')
+  })
+})

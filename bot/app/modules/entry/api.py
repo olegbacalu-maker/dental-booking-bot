@@ -16,10 +16,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 
 from ...core.api import api_body, api_guard
-from ...core.auth import (_as_user, _set_auth_cookie, client_peer, revoke_cookie,
-                          same_origin_post)
+from ...core.auth import (_as_user, _set_auth_cookie, client_is_local, client_peer,
+                          login_people, revoke_cookie, same_origin_post)
 from ...core.layout import msg_json
-from .routes import LOGIN_BROKEN, LOGIN_OK, try_login
+from .routes import LOGIN_BROKEN, LOGIN_OK, LOGIN_PICK, try_login
 
 router = APIRouter()
 
@@ -33,7 +33,8 @@ async def api_login(request: Request):
     блокировки — та же причина, что у формы (`same_origin_post`).
 
     Коды — те же слова, что видит форма входа: `login_bad` (422), `lock_pin`
-    (423, `data.left` — секунды), `auth_broken` (409). ⚠️ 401 здесь не
+    (423, `data.left` — секунды), `auth_broken` (409); из сети без `uid` —
+    `login_pick` (422, `data.people` — кого выбрать, 02.11). ⚠️ 401 здесь не
     бывает намеренно: клиент на 401 уходит на страницу входа документом, а
     экран PIN обязан показать отказ на месте.
     """
@@ -42,9 +43,15 @@ async def api_login(request: Request):
     body = await api_body(request) or {}
     outcome, who, lock = await try_login(str(body.get("pin") or "")[:64],
                                          str(body.get("uid") or "")[:32],
-                                         client_peer(request))
+                                         client_peer(request),
+                                         remote=not client_is_local(request))
     if outcome == LOGIN_BROKEN:
         return msg_json(False, "auth_broken", status=409)
+    if outcome == LOGIN_PICK:
+        # список людей — только в этом ответе: экран PIN узнаёт, что он в
+        # сети, по отказу, а не по модели оболочки
+        return msg_json(False, "login_pick", field="uid", status=422,
+                        data={"people": login_people()})
     if outcome != LOGIN_OK:
         if lock:
             return msg_json(False, "lock_pin", data={"left": lock}, status=423)

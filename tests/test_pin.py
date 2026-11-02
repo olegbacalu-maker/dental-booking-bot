@@ -1129,3 +1129,272 @@ def suite_reset_gate(res: Result) -> None:
     finally:
         _reset_stamp(None)
         _rmtree_settled(base)
+
+
+# ---------- сеть клиники: опасное — только с этого ПК, вход — с выбором (02.11) ----------
+
+PHONE, DESK = "192.168.1.23", "127.0.0.1"
+
+
+def _worker_lan_guard(tmpdir: str) -> None:
+    """Живое приложение как ASGI — адрес клиента задаём сами (uvicorn прогона
+    слушает только 127.0.0.1, «запрос из сети» через него не предъявить; тот
+    же приём, что `test_hardening.worker-*`). Печатает `ключ значение`."""
+    import asyncio
+    import urllib.parse
+
+    base = pathlib.Path(tmpdir)
+    os.environ.update({
+        "CLINIC_CONFIG": str(base / "clinic.json"),
+        "DATABASE_URL": f"sqlite:///{base / 'dental.db'}",
+        "ADMIN_KEY": "", "DENTART_NO_RESTART": "1", "TELEGRAM_TOKEN": "",
+        "DENTART_LAN": "1",
+    })
+    sys.path.insert(0, str(BOT))
+    from app import db
+    from app.core import auth
+    from app.main import app
+
+    async def call(method: str, path: str, ip: str, *, form: dict | None = None,
+                   js: dict | None = None, cookie: str = ""):
+        hdrs = [(b"host", b"127.0.0.1:8088")]
+        body = b""
+        if form is not None:
+            body = urllib.parse.urlencode(form).encode()
+            hdrs.append((b"content-type", b"application/x-www-form-urlencoded"))
+        elif js is not None:
+            body = json.dumps(js).encode()
+            hdrs.append((b"content-type", b"application/json"))
+        if body:
+            hdrs.append((b"content-length", str(len(body)).encode()))
+        if cookie:
+            hdrs.append((b"cookie", cookie.encode()))
+        p, _, q = path.partition("?")
+        scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+                 "method": method, "scheme": "http", "path": p, "raw_path": p.encode(),
+                 "query_string": q.encode(), "root_path": "", "headers": hdrs,
+                 "client": (ip, 40000), "server": ("127.0.0.1", 8088)}
+        got: dict = {"body": b"", "headers": {}}
+
+        async def receive():
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        async def send(msg):
+            if msg["type"] == "http.response.start":
+                got["status"] = msg["status"]
+                got["headers"] = {k.decode().lower(): v.decode()
+                                  for k, v in msg.get("headers", [])}
+            elif msg["type"] == "http.response.body":
+                got["body"] += msg.get("body", b"")
+
+        await app(scope, receive, send)
+        text = got["body"].decode("utf-8", "replace")
+        try:
+            env = json.loads(text)
+        except ValueError:
+            env = None
+        return got["status"], got["headers"], text, env if isinstance(env, dict) else {}
+
+    def jar(h: dict) -> str:
+        return h.get("set-cookie", "").split(";")[0]
+
+    def out(k: str, v) -> None:
+        print(k, v, flush=True)
+
+    async def login(ip: str, pin: str, uid: str = ""):
+        st, h, _t, env = await call("POST", "/api/auth/login", ip,
+                                    js={"pin": pin, "uid": uid})
+        return st, jar(h), env
+
+    async def probes() -> None:
+        st, _h, _t, _e = await call("POST", "/admin/setup", DESK,
+                                    form={"pin1": "246810", "pin2": "246810"})
+        out("setup", st)
+        _st, boss, _e = await login(DESK, "246810")
+        out("desk_login_no_uid", "ok" if boss else "no")
+        _st, _h, _t, env = await call("POST", "/api/settings/users", DESK, cookie=boss,
+                                      js={"new": True, "name": "Ana Recepție",
+                                          "role": "receptie", "pin": "135791"})
+        out("desk_user_add", env.get("code"))
+        rid = next((u["id"] for u in auth.all_users() if u["role"] == "receptie"), "")
+
+        # --- вход из сети: без человека PIN не сверяется вовсе ---
+        for _ in range(7):
+            st, _c, env = await login(PHONE, "000000")
+        out("phone_no_uid", f"{st} {env.get('code')}")
+        people = (env.get("data") or {}).get("people") or []
+        out("phone_people", "|".join(p["name"] for p in people))
+        out("phone_people_no_role", bool(people) and all(set(p) == {"id", "name"}
+                                                         for p in people))
+        out("phone_no_uid_counted", auth.fail_count(PHONE))
+        st, recv, env = await login(PHONE, "135791", rid)
+        out("phone_login", f"{st} {bool(recv)}")
+        # чужой PIN под выбранным человеком — неудача, а не вход того, чей он
+        _st, _c, env = await login(PHONE, "246810", rid)
+        out("phone_wrong_person", env.get("code"))
+        st, boss_lan, _e = await login(PHONE, "246810", "clinic")
+        out("phone_boss_login", f"{st} {bool(boss_lan)}")
+
+        # --- опасное из сети — отказ словами ---
+        bad = []
+        for path in sorted(auth.LOCAL_ONLY):
+            url = path.replace("{uid}", rid)
+            method = "GET" if path.endswith("/sheet") else "POST"
+            if path.startswith("/api/"):
+                st, _h, _t, env = await call(method, url, PHONE, cookie=boss_lan, js={})
+                ok = st == 403 and env.get("code") == "only_local"
+            else:
+                st, _h, text, _e = await call(method, url, PHONE, cookie=boss_lan,
+                                              form={"parola": "x" * 12, "ack": "1"})
+                ok = st == 403 and "calculatorul principal" in text
+            if not ok:
+                bad.append(f"{path}={st}")
+        out("lan_refused", ",".join(bad) or "all")
+        st, _h, _t, env = await call("POST", "/api/settings/users", PHONE, cookie=boss_lan,
+                                     js={"new": True, "name": "Intrus", "role": "director",
+                                         "pin": "999999"})
+        out("lan_user_add", f"{st} {env.get('code')}")
+        out("lan_user_written", any(u["name"] == "Intrus" for u in auth.all_users()))
+        for scr in ("backup", "crypt", "security"):
+            _st, _h, _t, env = await call("GET", f"/api/settings/{scr}", PHONE,
+                                          cookie=boss_lan)
+            _st, _h, _t, env2 = await call("GET", f"/api/settings/{scr}", DESK, cookie=boss)
+            far = ((env.get("data") or {}).get("remote") or {}).get("code")
+            near = (env2.get("data") or {}).get("remote", "absent")
+            out(f"remote_{scr}", f"{far} {near}")
+        # с этого ПК охрана сети не мешает: отказ — уже словами самого правила
+        _st, _h, _t, env = await call("POST", "/api/settings/backup/restore/stage", DESK,
+                                      cookie=boss, js={"kind": "?"})
+        out("desk_restore_stage", env.get("code"))
+        st, _h, _t, _e = await call("GET", "/admin/settings/crypt/sheet", DESK, cookie=boss)
+        out("desk_sheet", st)
+
+        # --- смена своего PIN: из сети можно, и только своего ---
+        _st, _h, _t, env = await call("POST", "/api/settings/pin", PHONE, cookie=recv,
+                                      js={"old_pin": "246810", "new1": "112233",
+                                          "new2": "112233"})
+        out("pin_change_other", env.get("code"))
+        _st, _h, _t, env = await call("POST", "/api/settings/pin", PHONE, cookie=recv,
+                                      js={"old_pin": "135791", "new1": "112233",
+                                          "new2": "112233"})
+        out("pin_change_own", env.get("code"))
+
+        # --- страница входа: из сети список людей, с этого ПК — прежний PIN ---
+        _st, _h, text, _e = await call("GET", "/admin/login", PHONE)
+        out("page_phone_select", "<select name='uid'" in text and "Ana Recep" in text)
+        _st, _h, text, _e = await call("GET", "/admin/login", DESK)
+        out("page_desk_select", "<select" in text)
+        st, h, _t, _e = await call("POST", "/admin/login", PHONE,
+                                   form={"password": "246810", "next": "/admin"})
+        out("form_phone_no_uid", f"{st} {h.get('location', '')}")
+        st, h, _t, _e = await call("POST", "/admin/login", PHONE,
+                                   form={"password": "000001", "uid": "clinic",
+                                         "next": "/admin"})
+        out("form_phone_retry_keeps", "u=clinic" in h.get("location", ""))
+
+        # --- проверка PIN не держит цикл событий (М7) ---
+        t0 = time.perf_counter()
+        auth._derive("246810", "0" * 32)
+        one = time.perf_counter() - t0
+        done: dict = {}
+
+        async def slow():
+            await login(DESK, "246810")
+            done["login"] = time.perf_counter()
+
+        async def quick():
+            await asyncio.sleep(0.01)
+            await call("GET", "/health", DESK)
+            done["health"] = time.perf_counter()
+
+        # в цикле событий /health ждал бы конца PBKDF2 и кончил бы почти
+        # вместе со входом; в потоке — задолго до него
+        t0 = time.perf_counter()
+        await asyncio.gather(slow(), quick())
+        out("loop_free", f"{done['health'] < done['login'] - one / 2} "
+                         f"health={done['health'] - t0:.3f} "
+                         f"login={done['login'] - t0:.3f} derive={one:.3f}")
+
+    async def main() -> None:
+        async with app.router.lifespan_context(app):
+            try:
+                await probes()
+            finally:
+                await db.close()   # иначе поток aiosqlite держит процесс
+
+    asyncio.run(main())
+
+
+def suite_lan_guard(res: Result) -> None:
+    """Сеть клиники (02.11, разбор коллеги Б3 и М7). Канал в сети — http, кука
+    директора живёт 12 ч: подсмотренная в Wi-Fi, она давала с телефона лист с
+    ключом, всю картотеку архивом, новую учётку-директора и восстановление
+    чужой копии. Теперь всё из `auth.LOCAL_ONLY` — только с самого ПК
+    программы. Вход из сети — только с выбором человека: без него один PIN
+    сверялся со ВСЕМИ учётками, и подбор шёл в N раз быстрее; PBKDF2 — в
+    потоке, а не в цикле событий."""
+    import shutil
+    import subprocess
+
+    from harness import FIXTURES, PYTHON
+    base = pathlib.Path(tempfile.mkdtemp(prefix="dp_languard_"))
+    try:
+        shutil.copy(FIXTURES / "clinic_test.json", base / "clinic.json")
+        r = subprocess.run([str(PYTHON), str(pathlib.Path(__file__).resolve()),
+                            "worker-lan-guard", str(base)],
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=180, env=dict(os.environ))
+        got = dict(line.split(" ", 1) for line in (r.stdout or "").splitlines()
+                   if " " in line)
+        if not res.ok("проба поднялась", r.returncode == 0 and "loop_free" in got,
+                      f"rc={r.returncode}: {(r.stderr or '')[-1500:]}"):
+            return
+        res.check("с этого ПК вход по одному PIN — как раньше",
+                  got.get("desk_login_no_uid"), "ok")
+        res.check("с этого ПК учётка заводится", got.get("desk_user_add"), "ok_user")
+        res.check("из сети без человека — просьба выбрать", got.get("phone_no_uid"),
+                  "422 login_pick")
+        res.ok("и список людей по именам", "Ana Recepție" in (got.get("phone_people") or ""),
+               got.get("phone_people", ""))
+        res.check("без ролей и секретов", got.get("phone_people_no_role"), "True")
+        res.check("попытка без человека — не неудача (ничего не сверялось)",
+                  got.get("phone_no_uid_counted"), "0")
+        res.check("из сети с выбором — вход", got.get("phone_login"), "200 True")
+        res.check("чужой PIN под выбранным — неудача, а не вход владельца PIN",
+                  got.get("phone_wrong_person"), "login_bad")
+        res.check("директор входит из сети с выбором", got.get("phone_boss_login"),
+                  "200 True")
+        res.check("каждый маршрут LOCAL_ONLY из сети отбит словами",
+                  got.get("lan_refused"), "all")
+        res.check("учётка из сети — 403 only_local", got.get("lan_user_add"),
+                  "403 only_local")
+        res.check("и не записана", got.get("lan_user_written"), "False")
+        for scr in ("backup", "crypt", "security"):
+            res.check(f"экран {scr}: подсказка only_local из сети, с ПК — нет",
+                      got.get(f"remote_{scr}"), "only_local None")
+        res.check("восстановление с ПК не отбито охраной сети",
+                  got.get("desk_restore_stage"), "bad_rst_src")
+        res.ok("лист восстановления с ПК не отбит охраной сети",
+               got.get("desk_sheet") != "403", f"получено {got.get('desk_sheet')!r}")
+        res.check("смена PIN из сети: чужой старый PIN не подходит",
+                  got.get("pin_change_other"), "bad_pin")
+        res.check("свой — меняется и из сети", got.get("pin_change_own"), "ok_pin")
+        res.check("страница входа из сети — со списком людей",
+                  got.get("page_phone_select"), "True")
+        res.check("с этого ПК — без списка", got.get("page_desk_select"), "False")
+        res.ok("форма из сети без человека — просьба выбрать",
+               (got.get("form_phone_no_uid") or "").startswith("303 /admin/login?err=pick"),
+               got.get("form_phone_no_uid", ""))
+        res.check("после неудачи выбранный человек остаётся выбранным",
+                  got.get("form_phone_retry_keeps"), "True")
+        res.ok("проверка PIN не держит цикл событий",
+               (got.get("loop_free") or "").startswith("True"), got.get("loop_free", ""))
+    finally:
+        _rmtree_settled(base)
+
+
+_WORKERS = {"worker-lan-guard": _worker_lan_guard}
+
+if __name__ == "__main__":
+    if len(sys.argv) >= 3 and sys.argv[1] in _WORKERS:
+        _WORKERS[sys.argv[1]](sys.argv[2])

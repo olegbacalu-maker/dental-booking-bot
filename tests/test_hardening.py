@@ -114,10 +114,16 @@ def _worker_setup(tmpdir: str) -> None:
             print("local_post", st, loc)
             print("auth_after_local", (base / "auth.json").exists())
             # после установки PIN обычная работа из сети живёт как раньше
-            st, _loc, _b = await call("GET", "/admin/login", "192.168.1.7")
+            st, _loc, body = await call("GET", "/admin/login", "192.168.1.7")
             print("lan_login_page", st)
+            # из сети — с выбором человека (02.11): PIN без него не сверяется
+            print("lan_login_picks", "<select name='uid'" in body)
             st, loc, _b = await call("POST", "/admin/login", "192.168.1.7",
                                      {"password": "4321", "next": "/admin"})
+            print("lan_login_nouid", st, loc)
+            st, loc, _b = await call("POST", "/admin/login", "192.168.1.7",
+                                     {"password": "4321", "uid": "clinic",
+                                      "next": "/admin"})
             print("lan_login", st, loc)
             # битый auth.json: setup закрыт и локально (правило suite_broken)
             (base / "auth.json").write_text('{"v":2,"users":[{"id"',
@@ -153,7 +159,11 @@ def suite_setup_local(res: Result) -> None:
         res.check("PIN записан", got.get("auth_after_local"), "True")
         res.check("после установки вход из сети открыт",
                   got.get("lan_login_page"), "200")
-        res.ok("и пускает по PIN",
+        res.check("и просит выбрать человека", got.get("lan_login_picks"), "True")
+        res.ok("PIN без выбора человека из сети не сверяется",
+               (got.get("lan_login_nouid") or "").startswith("303 /admin/login?err=pick"),
+               f"получено {got.get('lan_login_nouid')!r}")
+        res.ok("и пускает по PIN выбранного",
                (got.get("lan_login") or "").startswith("303 /admin")
                and "err=" not in (got.get("lan_login") or ""),
                f"получено {got.get('lan_login')!r}")
@@ -892,8 +902,10 @@ def _worker_peers(tmpdir: str) -> None:
         return got["status"], got["headers"].get("location", ""), got
 
     async def login(ip, pin="4321"):
+        # из сети PIN сверяется только с выбранным человеком (02.11): без
+        # `uid` вход отвечает «выберите» и неудачей не считается
         st, loc, got = await call("POST", "/admin/login", ip,
-                                  {"password": pin, "next": "/admin"})
+                                  {"password": pin, "uid": "clinic", "next": "/admin"})
         return ("locked" if "err=lock" in loc else "bad" if "err=" in loc
                 else "ok" if loc == "/admin" else f"{st} {loc}"), got
 

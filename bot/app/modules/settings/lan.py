@@ -132,10 +132,17 @@ def firewall_ok(st: dict | None) -> bool | None:
     return None if st is None else st["verdict"] == "ok"
 
 
+def firewall_wide(st: dict | None) -> bool:
+    """Пускают, но из ЛЮБОЙ сети, а не только из своей подсети (`netcheck.wide`):
+    правило кнопки до 2.8.0 или окна Windows. Чинится той же кнопкой."""
+    return st is not None and st["verdict"] == "ok" and netcheck.wide(st)
+
+
 def firewall_fixable(st: dict | None) -> bool:
-    """Кнопка лечит отсутствующее разрешение и запрет на exe. «Все входящие
-    закрыты» — настройка профиля сети, её кнопка не трогает (tips_html)."""
-    return st is not None and st["verdict"] in ("missing", "blocked")
+    """Кнопка лечит отсутствующее разрешение, запрет на exe и слишком широкое
+    разрешение. «Все входящие закрыты» — настройка профиля сети, её кнопка не
+    трогает (tips_html)."""
+    return st is not None and (st["verdict"] in ("missing", "blocked") or firewall_wide(st))
 
 
 def request_firewall_rule(st: dict | None = None) -> bool:
@@ -149,7 +156,13 @@ def request_firewall_rule(st: dict | None = None) -> bool:
       2. снять ВСЕ входящие правила этого exe — среди них запрет, который
          Windows ставит, пока её окно ждёт ответа, и оставляет после
          «Отмена»; запрет сильнее разрешения, и без этого шаг 3 не помог бы;
-      3. одно разрешение этому exe в профилях `netcheck.profiles_for`.
+      3. одно разрешение этому exe в профилях `netcheck.profiles_for` и
+         ТОЛЬКО из своей подсети (`remoteip=localsubnet`, 02.11): журнал по
+         http не открывается дальше Wi-Fi клиники, даже если ПК однажды
+         окажется в сети с проброшенным портом. Старое правило без этого
+         (до 2.8.0, или окна самой Windows) экран видит (`firewall_wide`) и
+         предлагает ту же кнопку: тихо переписать его может только
+         администратор, а UAC на каждом старте программы хуже кнопки.
     """
     exe = sys.executable
     prof = netcheck.profiles_for((st or {}).get("category", ""))
@@ -158,7 +171,8 @@ def request_firewall_rule(st: dict | None = None) -> bool:
             f'netsh advfirewall firewall delete rule name=all dir=in '
             f'program="{exe}" >nul 2>&1 & '
             f'netsh advfirewall firewall add rule name="{FIREWALL_RULE}" '
-            f'dir=in action=allow program="{exe}" profile={prof} enable=yes')
+            f'dir=in action=allow program="{exe}" profile={prof} '
+            f'remoteip=localsubnet enable=yes')
     try:
         import ctypes
         # >32 = запуск удался (сам netsh отработает уже за UAC-ом)
@@ -184,8 +198,10 @@ def intro_html() -> str:
     return ("<p class='hint' style='margin-top:0;max-width:640px'>"
             "Registrul se deschide și pe al doilea calculator al clinicii "
             "(cabinet, recepție) sau pe telefonul medicului — în aceeași "
-            "rețea. Fiecare intră cu parola lui; drepturile și jurnalul de "
-            "acces funcționează ca de obicei.</p>"
+            "rețea. Fiecare își alege numele și intră cu PIN-ul lui; drepturile "
+            "și jurnalul de acces funcționează ca de obicei. Copiile de rezervă, "
+            "restaurarea, criptarea și utilizatorii se schimbă însă doar pe "
+            "acest calculator: din rețea paginile lor doar se citesc.</p>"
             f"<div {_WARN}>{_ic('monitor')} <b>Un program, o singură "
             f"evidență.</b> Programul rămâne instalat pe <b>un singur "
             f"calculator</b> — acesta. Celelalte doar <b>deschid adresa lui</b> "
@@ -306,7 +322,13 @@ def firewall_html(st: dict | None = None) -> str:
     """Windows не пустит: разрешения для этой сети нет или exe запрещён.
     Кнопку рисует React-экран. Звать только при `firewall_fixable(st)`."""
     v = (st or {}).get("verdict", "missing")
-    if v == "blocked":
+    if firewall_wide(st):
+        what = (f"<b>Permisiunea DentPilot e mai largă decât trebuie</b> — "
+                f"Windows lasă programul să fie deschis din orice rețea, nu "
+                f"doar din rețeaua clinicii. Apăsați butonul și confirmați în "
+                f"fereastra Windows (UAC): permisiunea rămâne doar pentru "
+                f"calculatoarele și telefoanele din rețeaua locală.")
+    elif v == "blocked":
         what = (f"<b>Windows blochează programul</b> — în fereastra lui de "
                 f"confirmare s-a apăsat «Anulează» sau nu s-a răspuns. "
                 f"Blocarea e mai puternică decât orice permisiune: al doilea "

@@ -329,6 +329,48 @@ def suite_tauri_layout(res: Result) -> None:
         res.ok(f"порча «{label}» — находка", broken != s and any(want in b for b in got),
                f"находки: {got}" if broken != s else "порча не применилась — якорь устарел")
 
+def suite_firewall_narrow(res: Result) -> None:
+    """Мастер сужает правило брандмауэра стоящих установок (02.11, lan-guard).
+
+    Кнопка «Acces din rețea» до 2.8.0 ставила правило без `remoteip` — журнал
+    по http открывался из ЛЮБОЙ сети. Сузить его без UAC может только мастер
+    (он от администратора, обновление тоже ставится им). Здесь — текст строки
+    `[Run]`: имя правила то же, что у кнопки (`lan.FIREWALL_RULE`, иначе мастер
+    сузит пустоту, а netsh молча ответит «нет такого правила»), тихое
+    обновление её не пропускает, окно не мигает, а кнопка ставит новое правило
+    тоже только из своей подсети. ⚠️ Сам netsh здесь не исполняется: правила
+    брандмауэра машины прогон не трогает — живая проверка на канарейке."""
+    import ast
+    lan_src = (BOT / "app" / "modules" / "settings" / "lan.py").read_text(encoding="utf-8")
+    rule = next((n.value.value for n in ast.parse(lan_src).body
+                 if isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant)
+                 and any(isinstance(t, ast.Name) and t.id == "FIREWALL_RULE"
+                         for t in n.targets)), None)
+    if not res.ok("lan.FIREWALL_RULE нашлось", isinstance(rule, str) and bool(rule),
+                  "имя правила кнопки не найдено — сверять мастер не с чем"):
+        return
+    run = section(_src(), "Run")
+    lines = [ln for ln in run.replace("\\\r\n", " ").replace("\\\n", " ").splitlines()
+             if not ln.lstrip().startswith(";") and "netsh" in ln.lower()]
+    res.ok("в [Run] одна строка netsh", len(lines) == 1, " | ".join(lines) or "строки нет")
+    if len(lines) != 1:
+        return
+    ln = lines[0]
+    res.ok("сужает правило с именем кнопки",
+           f'name=""{rule}""' in ln and "set rule" in ln, ln)
+    res.ok("только входящие и только из своей подсети",
+           "dir=in" in ln and "new remoteip=localsubnet" in ln, ln)
+    flags = ln.split("Flags:", 1)[1] if "Flags:" in ln else ""
+    res.ok("тихое обновление не пропускает строку", "skipifsilent" not in flags, flags)
+    res.ok("без окна консоли и дожидаясь netsh",
+           "runhidden" in flags and "waituntilterminated" in flags, flags)
+    res.ok("не от исходной учётки — нужен администратор",
+           "runasoriginaluser" not in flags, flags)
+    add = lan_src[lan_src.find("add rule"):lan_src.find("add rule") + 300]
+    res.ok("кнопка ставит правило тоже только из своей подсети",
+           "add rule" in lan_src and "remoteip=localsubnet" in add, add[:200])
+
+
 
 def suite_compiles(res: Result) -> None:
     """Компилируется ли скрипт. ⚠️ Пропуск печатается ВСЛУХ.

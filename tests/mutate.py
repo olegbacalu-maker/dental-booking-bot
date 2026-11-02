@@ -458,6 +458,25 @@ MUTATIONS = [
     # Хаб перестал прятать плитки — экран обещает то, что шлюз отклонит.
     ("список демо-отказов не протух", "app/modules/settings/routes.py",
      ("demo.refuses(", "demo.refuses_nowhere(")),
+    # ---- опасное из сети — только с этого ПК (02.11) ----
+    # Ровно дыра разбора Б3: экспорт картотеки без проверки, откуда запрос.
+    ("опасное из сети — только с этого ПК", "app/modules/settings/routes.py",
+     ("    if (deny := local_only(request, page=True)) is not None:\n        return deny\n"
+      "    d = _data_dir()\n    if d is None or not bkp.available():",
+      "    d = _data_dir()\n    if d is None or not bkp.available():")),
+    # Проверка есть, но ПОСЛЕ работы: учётка уже удалена, отказ — для вида.
+    ("опасное из сети — только с этого ПК", "app/modules/settings/api.py",
+     ("    if (deny := local_only(request)) is not None:\n        return deny\n"
+      "    code = await _drop_user(_me(request), uid)\n",
+      "    code = await _drop_user(_me(request), uid)\n"
+      "    if (deny := local_only(request)) is not None:\n        return deny\n")),
+    # Маршрут переименовали, строка списка осталась — охраняет пустоту.
+    ("опасное из сети — только с этого ПК", "app/core/auth.py",
+     ('"/api/settings/crypt/off",', '"/api/settings/crypt/stop",')),
+    # Новый опасный маршрут зовёт проверку, а в список не попал: экраны и
+    # наборы, читающие список, о нём не знают.
+    ("опасное из сети — только с этого ПК", "app/core/auth.py",
+     ('    "/api/settings/users/{uid}/delete",\n', "")),
     # ---- файлы сборки клиента: образ демо и оба игнора (07.10) ----
     # Ровно 1.39.1 до 892d69b: модели зубов есть в конфиге и в обоих игнорах,
     # а копии в образе демо нет — 3D там молча строил бы коронки-формулы.
@@ -599,6 +618,15 @@ LEGAL = [
     ("каждый баннер каркаса — сигнал оболочки", "_frontend/layouts/AppShell.tsx",
      ("[sig.demo, sig.license, sig.tamper, sig.split, sig.slot, sig.setup, sig.backup]",
       "[sig.tamper, sig.split, sig.slot, sig.setup, sig.backup, sig.license, sig.demo]")),
+    # ⭐ Законно: проверка сети раньше охраны входа — тоже «раньше любой
+    # работы» (порядок двух охран правило не судит).
+    ("опасное из сети — только с этого ПК", "app/modules/settings/api.py",
+     ("    if (deny := api_require(request, PERM_USERS)) is not None:\n        return deny\n"
+      "    if (deny := local_only(request)) is not None:\n        return deny\n"
+      "    code = await _drop_user(",
+      "    if (deny := local_only(request)) is not None:\n        return deny\n"
+      "    if (deny := api_require(request, PERM_USERS)) is not None:\n        return deny\n"
+      "    code = await _drop_user(")),
     # ⭐ Законно: ещё один живой адрес в списке демо — правило сверяет строки
     # с маршрутами, а не судит, что закрывать.
     ("список демо-отказов не протух", "app/core/demo.py",

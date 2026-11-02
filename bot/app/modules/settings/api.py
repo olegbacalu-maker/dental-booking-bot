@@ -37,10 +37,11 @@ from ...core import sms_plan as splan
 from ...core.api import api_body, api_guard, api_require
 from ...core.auth import (PERM_SETTINGS, PERM_SMS, PERM_USERS, PIN_MAX, PIN_MIN_LAN, ROLE_LABEL,
                           _pin_rec, _set_auth_cookie, all_users, can, change_pin,
-                          client_peer, current_user, pin_min, pin_readiness,
-                          request_user)
+                          client_is_local, client_peer, current_user, local_only, pin_min,
+                          pin_readiness, request_user)
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, SETUP_HINT, SUPPORT_PHONE,
-                            _DOW_FULL, _DOW_ORDER, msg_json, msg_text, tg_refresh_meta)
+                            _DOW_FULL, _DOW_ORDER, msg_json, msg_text, msg_view,
+                            tg_refresh_meta)
 from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
 from ...core import backup as bkp
@@ -286,7 +287,14 @@ async def shell_notices(request: Request):
 
 # ---------- шифрование картотеки ----------
 
-def _crypt_data() -> dict:
+def _remote(request: Request) -> dict | None:
+    """Экран открыт НЕ с этого ПК: подсказка словами сервера (`only_local`)
+    вместо кнопок маршрутов из `auth.LOCAL_ONLY` — кнопка, которая заведомо
+    упадёт, хуже строки «это делается на главном компьютере». None — с ПК."""
+    return None if client_is_local(request) else msg_view("only_local")
+
+
+def _crypt_data(request: Request) -> dict:
     """Состояние раздела и его проза кусками.
 
     ⛔ Адрес печатного листа едет ОТ СЕРВЕРА, а не склеивается в браузере:
@@ -294,14 +302,15 @@ def _crypt_data() -> dict:
     """
     st = crypt.state(_data_dir())
     return {"state": st, "blocks": crypt.blocks(st),
-            "sheet": "/admin/settings/crypt/sheet"}
+            "sheet": "/admin/settings/crypt/sheet",
+            "remote": _remote(request)}
 
 
 @router.get("/api/settings/crypt")
 async def api_crypt_get(request: Request):
     if (deny := api_require(request, PERM_SETTINGS)) is not None:
         return deny
-    return msg_json(True, data=_crypt_data())
+    return msg_json(True, data=_crypt_data(request))
 
 
 @router.post("/api/settings/crypt/prepare")
@@ -313,6 +322,8 @@ async def api_crypt_prepare(request: Request):
     листе. Ответ несёт АДРЕС листа, а не разметку: печать остаётся серверной.
     """
     if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    if (deny := local_only(request)) is not None:
         return deny
     err = crypt.prepare(_data_dir())
     if err == "crypt_on":
@@ -327,6 +338,8 @@ async def api_crypt_off(request: Request):
     """Заказать расшифровку. Форма отвечала страницей перезапуска; здесь —
     JSON с тем же словом, и клиент показывает его вместо страницы."""
     if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    if (deny := local_only(request)) is not None:
         return deny
     if (err := crypt.turn_off(_data_dir())) is not None:
         return msg_json(False, err, status=500)
@@ -564,7 +577,7 @@ _USER_HTTP = {"bad_user": 422, "bad_pin": 422, "dup_user": 409, "last_dir": 409,
               "self_user": 409, "lock_pin": 409, "uid_taken": 409}
 
 
-async def _security_data(me_id: str) -> dict:
+async def _security_data(request: Request) -> dict:
     last = await _last_logins()
     return {
         "users": [{"id": u["id"], "name": u["name"], "role": u["role"],
@@ -572,7 +585,9 @@ async def _security_data(me_id: str) -> dict:
                    "last_login": last.get(u["id"], "")} for u in all_users()],
         "roles": dict(ROLE_LABEL),
         "doctors": [{"id": k, "name": v} for k, v in eng.DOCTORS.items()],
-        "me": me_id,
+        "me": _me(request),
+        # свой PIN меняется и из сети — он требует старый
+        "remote": _remote(request),
         # минимум — по состоянию сети (6 при включённом доступе), функцией
         "pin": {"min": pin_min(), "max": PIN_MAX},
     }
@@ -589,7 +604,7 @@ async def api_security(request: Request):
         return deny
     if not _pin_rec():
         return msg_json(False, status=404)
-    return msg_json(True, data=await _security_data(_me(request)))
+    return msg_json(True, data=await _security_data(request))
 
 
 @router.post("/api/settings/users")
@@ -598,6 +613,8 @@ async def api_user_save(request: Request):
     PIN, последний директор, длина PIN. Форма добавления шлёт `new: true` без
     `uid` — id выбирает сервер; строка сотрудника — его `uid`."""
     if (deny := api_require(request, PERM_USERS)) is not None:
+        return deny
+    if (deny := local_only(request)) is not None:
         return deny
     body = await api_body(request)
     if body is None:
@@ -608,17 +625,19 @@ async def api_user_save(request: Request):
                              new=body.get("new") is True)
     if code != "ok_user":
         return msg_json(False, code, status=_USER_HTTP.get(code, 422))
-    return msg_json(True, code, data=await _security_data(_me(request)))
+    return msg_json(True, code, data=await _security_data(request))
 
 
 @router.post("/api/settings/users/{uid}/delete")
 async def api_user_delete(request: Request, uid: str):
     if (deny := api_require(request, PERM_USERS)) is not None:
         return deny
+    if (deny := local_only(request)) is not None:
+        return deny
     code = await _drop_user(_me(request), uid)
     if code != "ok_user":
         return msg_json(False, code, status=_USER_HTTP.get(code, 422))
-    return msg_json(True, code, data=await _security_data(_me(request)))
+    return msg_json(True, code, data=await _security_data(request))
 
 
 @router.post("/api/settings/pin")
@@ -633,7 +652,7 @@ async def api_pin_change(request: Request):
         return msg_json(False, "bad_pin", status=422)
     s = lambda k: str(body.get(k) or "")  # noqa: E731
     code, who = await change_pin(s("old_pin"), s("new1"), s("new2"),
-                                 client_peer(request))
+                                 client_peer(request), uid=_me(request))
     if code != "ok_pin":
         return msg_json(False, code, status=_USER_HTTP.get(code, 422))
     return _set_auth_cookie(msg_json(True, code), who)
@@ -668,7 +687,7 @@ def _archives_in(folder: str) -> list[dict]:
     return out
 
 
-def _backup_data() -> dict:
+def _backup_data(request: Request) -> dict:
     d = _data_dir()
     st = backup_loop.state()
     return {"min_pass": bkp.MIN_PASS, "filename": bkp.archive_name(),
@@ -677,7 +696,8 @@ def _backup_data() -> dict:
                         "archives": _archives_in(st["folder"]),
                         "staged": restore.summary(d) if d else None,
                         "pending": bool(d and restore.pending(d)),
-                        "schema": db.SCHEMA_VERSION}}
+                        "schema": db.SCHEMA_VERSION},
+            "remote": _remote(request)}
 
 
 @router.get("/api/settings/backup")
@@ -689,7 +709,7 @@ async def api_backup(request: Request):
         return deny
     if not bkp.available():
         return msg_json(False, status=404)
-    return msg_json(True, data=_backup_data())
+    return msg_json(True, data=_backup_data(request))
 
 
 def _folder_check(folder: str) -> str | None:
@@ -724,6 +744,8 @@ async def api_backup_auto(request: Request):
     ok_bkp_off."""
     if (deny := api_require(request, PERM_SETTINGS)) is not None:
         return deny
+    if (deny := local_only(request)) is not None:
+        return deny
     body = await api_body(request)
     if body is None:
         return msg_json(False, "bad_set", status=422)
@@ -757,7 +779,7 @@ async def api_backup_auto(request: Request):
         code = "ok_bkp_on" if enabled else "ok_bkp_stop"
     logging.getLogger("settings").warning("backup settings: daily %s, folder %r",
                                           "on" if enabled else "OFF", folder)
-    return msg_json(True, code, data=_backup_data())
+    return msg_json(True, code, data=_backup_data(request))
 
 
 @router.post("/api/settings/backup/auto/run")
@@ -770,9 +792,9 @@ async def api_backup_auto_run(request: Request):
         return msg_json(False, "bad_bkp_unset", status=409)
     err = await backup_loop.run_external()
     if err:
-        return msg_json(False, "bad_bkp_auto", status=500, data=_backup_data(),
+        return msg_json(False, "bad_bkp_auto", status=500, data=_backup_data(request),
                         text=f"{msg_text('bad_bkp_auto')}: {err}")
-    return msg_json(True, "ok_bkp_run", data=_backup_data())
+    return msg_json(True, "ok_bkp_run", data=_backup_data(request))
 
 
 @router.post("/api/settings/backup/restore/stage")
@@ -782,6 +804,8 @@ async def api_restore_stage(request: Request):
     data\\backups (под ключом картотеки), `archive` — архив из папки
     назначения по имени, `path` — архив по полному пути (флешка)."""
     if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    if (deny := local_only(request)) is not None:
         return deny
     d = _data_dir()
     body = await api_body(request)
@@ -810,14 +834,14 @@ async def api_restore_stage(request: Request):
             raise restore.RestoreError("bad_rst_src", f"kind={kind!r}")
     except restore.RestoreError as ex:
         logging.getLogger("settings").warning("restore stage: %s (%s)", ex.code, ex.detail)
-        return msg_json(False, ex.code, status=422, data=_backup_data())
+        return msg_json(False, ex.code, status=422, data=_backup_data(request))
     except OSError as ex:
         logging.getLogger("settings").warning("restore stage: %r", ex)
-        return msg_json(False, "bad_rst_file", status=500, data=_backup_data())
+        return msg_json(False, "bad_rst_file", status=500, data=_backup_data(request))
     if int(s.get("schema") or 0) > db.SCHEMA_VERSION:
         restore.cancel(d)
-        return msg_json(False, "bad_rst_newer", status=409, data=_backup_data())
-    return msg_json(True, "ok_rst_staged", data=_backup_data())
+        return msg_json(False, "bad_rst_newer", status=409, data=_backup_data(request))
+    return msg_json(True, "ok_rst_staged", data=_backup_data(request))
 
 
 @router.post("/api/settings/backup/restore/confirm")
@@ -827,14 +851,16 @@ async def api_restore_confirm(request: Request):
     делает только лаунчер до старта приложения."""
     if (deny := api_require(request, PERM_SETTINGS)) is not None:
         return deny
+    if (deny := local_only(request)) is not None:
+        return deny
     d = _data_dir()
     if d is None or not restore.request(d):
-        return msg_json(False, "bad_rst_none", status=409, data=_backup_data())
+        return msg_json(False, "bad_rst_none", status=409, data=_backup_data(request))
     logging.getLogger("settings").warning("restore ordered: %s", restore.summary(d))
     auto = upd.restart_app() is None
     desktop = upd.is_desktop()
     return msg_json(True, "ok_rst_ordered", data={
-        **_backup_data(), "restart": auto,
+        **_backup_data(request), "restart": auto,
         "text": f"{msg_text('ok_rst_ordered')} — {restart_text(auto)}" if desktop else "",
         "note": RESTART_NOTE if desktop else "",
     })
@@ -847,7 +873,7 @@ async def api_restore_cancel(request: Request):
     d = _data_dir()
     if d is not None:
         restore.cancel(d)
-    return msg_json(True, "ok_rst_cancel", data=_backup_data())
+    return msg_json(True, "ok_rst_cancel", data=_backup_data(request))
 
 
 # ---------- SMS-пакет (S6): Setări › SMS ----------

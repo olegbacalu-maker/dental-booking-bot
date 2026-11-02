@@ -317,6 +317,20 @@ Filename: "{src}\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Parameters: "/si
     StatusMsg: "{cm:InstallingWebView2}"; Check: OfflineWv2Ready; Flags: waituntilterminated
 Filename: "{tmp}\MicrosoftEdgeWebView2Setup.exe"; Parameters: "/silent /install"; \
     StatusMsg: "{cm:InstallingWebView2}"; Check: WebView2Missing; Flags: waituntilterminated
+; Сеть клиники (02.11, lan-guard): разрешение брандмауэра — только из своей
+; подсети. Кнопка «Acces din rețea» до 2.8.0 ставила правило «DentPilot» без
+; remoteip — журнал по http открывался из ЛЮБОЙ сети. Переписать его может
+; только администратор, а мастер им и идёт (обновление тоже ставится им):
+; `set rule` меняет ВСЕ правила с этим именем (по профилям — тоже). Правила
+; нет (чистая установка, сеть не включали) — netsh отвечает отказом, и это не
+; ошибка: код возврата [Run] не проверяет, установка не падает. Без
+; skipifsilent: обновление идёт тихо, а сузить надо именно у обновляющихся.
+; ⚠️ Имя — то же, что `lan.FIREWALL_RULE` (сверяет test_installer). Правило,
+; которое завело окно «Разрешить доступ» самой Windows, зовётся иначе, и `set`
+; по программе netsh не умеет (имя «all» в set запрещено) — его видит и чинит
+; кнопкой экран сети (`netcheck.wide`).
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall set rule name=""DentPilot"" dir=in new remoteip=localsubnet"; \
+    Flags: runhidden waituntilterminated skipifdoesntexist
 ; ⛔ runasoriginaluser обязателен. Без него [Run] наследует ПОВЫШЕННЫЙ токен,
 ; и первый запуск идёт от администратора: файлы в папке данных создаются не той
 ; учёткой, а на клинике с шифрованием db.key заворачивается под DPAPI админа —

@@ -62,7 +62,7 @@ foreach ($r in $fw.Rules) {
   $app = $r.ApplicationName
   if (-not $app) { continue }
   if ([Environment]::ExpandEnvironmentVariables($app) -ne $exe) { continue }
-  $rules += [pscustomobject]@{ a = [int]$r.Action; p = [int]$r.Profiles; e = [bool]$r.Enabled; t = [int]$r.Protocol }
+  $rules += [pscustomobject]@{ a = [int]$r.Action; p = [int]$r.Profiles; e = [bool]$r.Enabled; t = [int]$r.Protocol; r = [string]$r.RemoteAddresses }
 }
 $cat = ''; $name = ''
 if ($env:DP_FW_IP) {
@@ -129,16 +129,31 @@ def verdict(st: dict) -> str:
         if len(shut) == 3 and shut[i]:
             return "shut"
 
-    def hits(r: dict) -> bool:
-        return (bool(r.get("e")) and r.get("t") in _TCP_OR_ANY
-                and (bit is None or bool(int(r.get("p", 0)) & bit)))
-
-    rules = [r for r in st.get("rules") or [] if hits(r)]
+    rules = _hits(st)
     if any(r.get("a") == BLOCK for r in rules):
         return "blocked"
     if any(r.get("a") == ALLOW for r in rules):
         return "ok"
     return "missing"
+
+
+def _hits(st: dict) -> list[dict]:
+    """Включённые правила exe для TCP в профиле сети адреса для телефона."""
+    bit = PROFILE_BIT.get(st.get("category") or "")
+    return [r for r in st.get("rules") or []
+            if bool(r.get("e")) and r.get("t") in _TCP_OR_ANY
+            and (bit is None or bool(int(r.get("p", 0)) & bit))]
+
+
+def wide(st: dict) -> bool:
+    """Разрешение пускает из ЛЮБОЙ сети, а не только из своей подсети (02.11,
+    разбор коллеги Б3): так ставила кнопка до 2.8.0 и так ставит своё правило
+    окно «Разрешить доступ» самой Windows. Журнал клиники по http открывать
+    дальше её Wi-Fi незачем. «*» или пусто — шире некуда; «LocalSubnet» или
+    свой список адресов — сужено. Правило без поля (старый ответ) — молчим:
+    лучше промолчать, чем послать директора чинить исправное."""
+    return any(r.get("a") == ALLOW and "r" in r and str(r.get("r") or "*").strip() == "*"
+               for r in _hits(st))
 
 
 def profiles_for(category: str) -> str:

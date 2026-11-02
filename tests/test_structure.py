@@ -1846,6 +1846,69 @@ def suite(res: Result) -> None:
     res.ok("список демо-отказов не протух", not bad,
            "демо закрывает не те адреса: " + "; ".join(bad))
 
+    # ---- опасное из сети — только с этого ПК (02.11, разбор коллеги Б3) ----
+    # `auth.LOCAL_ONLY` — ОДИН список маршрутов, которые выдают ключ или
+    # картотеку целиком, меняют шифрование, копии, учётки, восстановление. В
+    # сети клиники канал — http и кука 12 ч: забытая проверка = подсмотренная
+    # кука директора с телефона уносит всё. Правило в три стороны:
+    #   1) маршрут из списка зовёт `local_only` сразу за охраной входа — раньше
+    #      любой работы (иначе экспорт успел бы собрать архив);
+    #   2) каждая строка списка совпадает с живым маршрутом (полярность
+    #      ВКЛЮЧАЮЩАЯ: переименованный адрес выпал бы из охраны молча);
+    #   3) маршрут, зовущий `local_only`, стоит в списке — иначе список врёт, а
+    #      экраны и наборы читают именно его.
+    bad = []
+    auth_tree = by_path.get(_AUTH_MODULE)
+    local_only = set()
+    for n in ast.walk(auth_tree) if auth_tree else ():
+        if (isinstance(n, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == "LOCAL_ONLY" for t in n.targets)):
+            local_only = {e.value for e in ast.walk(n.value)
+                          if isinstance(e, ast.Constant) and isinstance(e.value, str)}
+    if not local_only:
+        bad.append(f"{_AUTH_MODULE}: нет LOCAL_ONLY — якорь правила пропал")
+    _GUARDS = {"require", "api_require", "api_guard", "_guard"}
+
+    def _guard_call(stmt, names) -> bool:
+        return (isinstance(stmt, ast.If) and any(
+            isinstance(c, ast.Call) and isinstance(c.func, ast.Name) and c.func.id in names
+            for c in ast.walk(stmt.test))
+            and len(stmt.body) == 1 and isinstance(stmt.body[0], ast.Return))
+
+    seen = set()
+    for rel, tree in src:
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            paths = {d.args[0].value for d in fn.decorator_list
+                     if isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute)
+                     and d.func.attr in ("get", "post") and d.args
+                     and isinstance(d.args[0], ast.Constant)}
+            if not paths:
+                continue
+            body = fn.body[1:] if (fn.body and isinstance(fn.body[0], ast.Expr)
+                                   and isinstance(fn.body[0].value, ast.Constant)) else fn.body
+            rest = list(body)
+            while rest and _guard_call(rest[0], _GUARDS):
+                rest.pop(0)
+            first_local = bool(rest) and _guard_call(rest[0], {"local_only"})
+            calls_local = any(isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
+                              and c.func.id == "local_only" for c in ast.walk(fn))
+            for p in paths:
+                if p in local_only:
+                    seen.add(p)
+                    if not first_local:
+                        bad.append(f"{rel}:{fn.lineno} {p} — нет `local_only` сразу за "
+                                   f"охраной входа")
+                elif calls_local:
+                    bad.append(f"{rel}:{fn.lineno} {p} зовёт local_only, но его нет в "
+                               f"auth.LOCAL_ONLY")
+    bad += [f"auth.LOCAL_ONLY: «{p}» — нет такого маршрута (переименован?)"
+            for p in sorted(local_only - seen)]
+    res.ok("опасное из сети — только с этого ПК", not bad,
+           "маршрут, выдающий ключ, картотеку или учётки, доступен из сети "
+           "клиники: " + "; ".join(bad))
+
     # ---- каждый файл сборки клиента — в образе демо и в обоих игнорах (07.10) ----
     # Сборка клиента кладёт файлы в статику движка (vite.config.ts). В exe они
     # едут ПАПКОЙ (`--add-data`, новое имя подхватится само), а образ демо

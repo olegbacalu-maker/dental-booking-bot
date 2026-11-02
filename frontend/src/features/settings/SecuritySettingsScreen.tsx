@@ -2,6 +2,7 @@ import { useCallback, useState, type FormEvent } from 'react'
 import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
+import { Notice } from '../../components/Notice'
 import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
 import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
@@ -146,16 +147,19 @@ export function SecuritySettingsScreen({ navigate = defaultNavigate }: Props) {
       </form>
 
       <h2><Icon name="users" /> {T.usersTitle}</h2>
+      {/* учётки правятся только с ПК программы (02.11, `auth.LOCAL_ONLY`): из
+          сети — список без форм и слова сервера вместо кнопок, которые упадут */}
+      <Notice n={data?.remote} />
       <table className="set">
         <thead><tr><th style={{ width: 220 }}>{T.cols.person}</th><th>{T.cols.access}</th><th /></tr></thead>
         <tbody>
           {data?.users.map((u) => (
-            <UserRowForm key={u.id} user={u} data={data} busy={busy}
+            <UserRowForm key={u.id} user={u} data={data} busy={busy} locked={Boolean(data.remote)}
               onSave={(f) => saveUser(f)} onRemove={() => removeUser(u)} />
           ))}
         </tbody>
       </table>
-      <form className="add" onSubmit={(e) => { e.preventDefault(); void saveUser({ ...fresh, name: freshName }, () => setFresh(NEW_USER)) }}>
+      {!data?.remote && <form className="add" onSubmit={(e) => { e.preventDefault(); void saveUser({ ...fresh, name: freshName }, () => setFresh(NEW_USER)) }}>
         <select value={fresh.doctor_id} aria-label="medic" disabled={busy || !data}
           onChange={(e) => setFresh({ ...fresh, doctor_id: e.target.value })}>
           <option value="">{T.noDoctor}</option>
@@ -173,7 +177,7 @@ export function SecuritySettingsScreen({ navigate = defaultNavigate }: Props) {
           aria-label={range(T.addPin)}
           style={{ width: 150 }} disabled={busy || !data} onChange={(e) => setFresh({ ...fresh, pin: e.target.value })} />
         <button disabled={busy || !data}>{T.add}</button>
-      </form>
+      </form>}
       <p className="hint">
         {T.hint}<b>Director</b>{T.hintRoles}<b>Recepție</b> și <b>Medic</b>{T.hintRest}<b>director</b>{T.hintDirector}
       </p>
@@ -186,12 +190,14 @@ interface RowProps {
   user: UserRow
   data: SecurityData
   busy: boolean
+  /** Открыто не с ПК программы: строка только читается. */
+  locked: boolean
   onSave: (form: UserForm) => void
   onRemove: () => void
 }
 
 /** Строка сотрудника: роль, врач, новый PIN (не обязателен) и сохранение. */
-function UserRowForm({ user, data, busy, onSave, onRemove }: RowProps) {
+function UserRowForm({ user, data, busy, locked, onSave, onRemove }: RowProps) {
   const [form, setForm] = useState<UserForm>({
     uid: user.id, name: user.name, role: user.role, doctor_id: user.doctor_id, pin: '',
   })
@@ -202,7 +208,7 @@ function UserRowForm({ user, data, busy, onSave, onRemove }: RowProps) {
         <small className="dp-muted">{T.idLabel}{user.id}</small><br />
         <small className="dp-muted">{T.lastLogin}{user.last_login || '—'}</small>
       </td>
-      <td>
+      {locked ? <><td>{data.roles[user.role] ?? user.role}</td><td /></> : <><td>
         <form className="dp-user-row" onSubmit={(e) => { e.preventDefault(); onSave(form); setForm({ ...form, pin: '' }) }}>
           <select value={form.role} aria-label={`rol ${user.id}`} disabled={busy}
             onChange={(e) => setForm({ ...form, role: e.target.value })}>
@@ -221,7 +227,7 @@ function UserRowForm({ user, data, busy, onSave, onRemove }: RowProps) {
       </td>
       <td>
         <button type="button" className="rowdel" disabled={busy} onClick={onRemove}>{T.remove}</button>
-      </td>
+      </td></>}
     </tr>
   )
 }

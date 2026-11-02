@@ -31,6 +31,7 @@ import json
 import os
 import pathlib
 import secrets
+import threading
 import time
 import urllib.parse
 
@@ -583,6 +584,15 @@ def all_users() -> list[dict]:
     return [_as_user(u) for u in _users(_pin_rec())]
 
 
+def login_people() -> list[dict]:
+    """Кого выбирать при входе ИЗ СЕТИ (02.11): id и имя, без роли и секретов.
+    По сети PIN сверяется только с выбранным человеком (`entry.try_login`),
+    иначе одна попытка проверяла бы все учётки сразу. Имена видит любой в
+    Wi-Fi клиники — это цена выбора; роли и врачи не уходят."""
+    return sorted(({"id": u["id"], "name": u["name"]} for u in all_users()),
+                  key=lambda u: u["name"].casefold())
+
+
 def find_user(uid: str) -> dict | None:
     """СЫРАЯ запись сотрудника — вместе с `sid`, который нужен _set_auth_cookie.
     Наружу для показа берут all_users(): там уже без секретов."""
@@ -605,14 +615,16 @@ def pin_free(pin: str, except_uid: str = "") -> bool:
     в день, и требовать ещё и логин — это трение на ровном месте). Значит
     пароль ОБЯЗАН определять человека однозначно: два одинаковых, и журнал
     доступа начнёт называть чужое имя.
+    ⚠️ Синхронная и тяжёлая, как `verify_pin`: из async — `asyncio.to_thread`.
     """
-    for u in _users(_pin_rec()):
-        if u.get("id") == except_uid:
-            continue
-        got = _derive(pin, u.get("salt", ""), u.get("kdf", KDF),
-                      int(u.get("iter") or KDF_ITER))
-        if u.get("hash") and hmac.compare_digest(got, u["hash"]):
-            return False
+    with _PIN_LOCK:
+        for u in _users(_pin_rec()):
+            if u.get("id") == except_uid:
+                continue
+            got = _derive(pin, u.get("salt", ""), u.get("kdf", KDF),
+                          int(u.get("iter") or KDF_ITER))
+            if u.get("hash") and hmac.compare_digest(got, u["hash"]):
+                return False
     return True
 
 
@@ -637,6 +649,10 @@ def delete_user(uid: str) -> bool:
     return True
 
 
+# Одна проверка PIN за раз (`verify_pin`, `pin_free`) — см. `verify_pin`.
+_PIN_LOCK = threading.RLock()
+
+
 def verify_pin(pin: str, uid: str = "") -> dict | None:
     """Проверить PIN, вернуть запись вошедшего (None — не подошёл).
 
@@ -650,33 +666,40 @@ def verify_pin(pin: str, uid: str = "") -> dict | None:
     миграции. Строчка выше про «переписывается в v2» и есть причина: удачная
     проверка ПИШЕТ в корень. Для источника есть `verify_source_pin` — он читает
     по явному пути и не пишет туда ничего.
+
+    ⚠️ PBKDF2 600k на каждую сверяемую учётку — доли секунды СИНХРОННО: из
+    async звать только через `asyncio.to_thread` (`try_login`, `change_pin`),
+    иначе на это время замирает журнал у всех рабочих мест (разбор 02.11, М7).
+    Замок — одна проверка за раз: удачная пишет auth.json (tmp + replace), а
+    подбор с десятка телефонов не займёт больше одного ядра.
     """
-    rec = _pin_rec()
-    for u in _users(rec):
-        if uid and u.get("id") != uid:
-            continue          # логин указан явно — сверяем только с ним
-        want = u.get("hash", "")
-        got = _derive(pin, u.get("salt", ""), u.get("kdf", KDF),
-                      int(u.get("iter") or KDF_ITER))
-        if want and hmac.compare_digest(got, want):
-            if u.get("kdf") != KDF or not u.get("sid"):
-                # заодно чиним запись без sid: до ролей его не было, а без него
-                # именная кука не отличит «пароль сменили» от «не меняли»
-                _write_pin(pin, role=u.get("role", ROLE_DIRECTOR),
-                           uid=u.get("id", "clinic"))
-                return next((x for x in _users(_pin_rec())
-                             if x.get("id") == u.get("id", "clinic")), u)
-            if u.get("plen") != len(pin):
-                # запись до 17.10: длина нужна включению сети (pin_readiness);
-                # единственный момент, когда PIN в руках, — вот он
-                _note_plen(u.get("id", "clinic"), len(pin))
-                return {**u, "plen": len(pin)}
-            return u
-    return None
+    with _PIN_LOCK:
+        rec = _pin_rec()
+        for u in _users(rec):
+            if uid and u.get("id") != uid:
+                continue          # логин указан явно — сверяем только с ним
+            want = u.get("hash", "")
+            got = _derive(pin, u.get("salt", ""), u.get("kdf", KDF),
+                          int(u.get("iter") or KDF_ITER))
+            if want and hmac.compare_digest(got, want):
+                if u.get("kdf") != KDF or not u.get("sid"):
+                    # заодно чиним запись без sid: до ролей его не было, а без него
+                    # именная кука не отличит «пароль сменили» от «не меняли»
+                    _write_pin(pin, role=u.get("role", ROLE_DIRECTOR),
+                               uid=u.get("id", "clinic"))
+                    return next((x for x in _users(_pin_rec())
+                                 if x.get("id") == u.get("id", "clinic")), u)
+                if u.get("plen") != len(pin):
+                    # запись до 17.10: длина нужна включению сети (pin_readiness);
+                    # единственный момент, когда PIN в руках, — вот он
+                    _note_plen(u.get("id", "clinic"), len(pin))
+                    return {**u, "plen": len(pin)}
+                return u
+        return None
 
 
 async def change_pin(old_pin: str, new1: str, new2: str,
-                     peer: str = "") -> tuple[str, dict | None]:
+                     peer: str = "", uid: str = "") -> tuple[str, dict | None]:
     """Смена СВОЕГО PIN: (код ответа, запись вошедшего для свежей куки).
 
     Зовёт JSON API (`settings/api.py`): старый PIN проверяется тем же
@@ -686,6 +709,10 @@ async def change_pin(old_pin: str, new1: str, new2: str,
     смену роли); ключ подписи вращается, поэтому вызывающий ОБЯЗАН выдать
     свежую куку ответом, иначе первый же переход выкинет на вход.
     Коды: lock_pin / bad_pin / dup_user / ok_pin.
+    `uid` — вошедший (02.11): старый PIN сверяется только с ЕГО записью. Без
+    него форма смены была оракулом по ВСЕМ учёткам — вошедший с телефона
+    перебирал бы чужие PIN-ы, а угаданный чужой отдавал бы ему куку того,
+    чей он. Пустой — прежний поиск по всем (вызовы без вошедшего).
     """
     if not _pin_rec():
         return "bad_pin", None
@@ -694,7 +721,8 @@ async def change_pin(old_pin: str, new1: str, new2: str,
     if lock_left(peer) > 0:
         return "lock_pin", None
     # форма смены — второй оракул для того же PIN, поэтому считает те же неудачи
-    if (who := verify_pin(old_pin.strip())) is None:
+    who = await asyncio.to_thread(lambda: verify_pin(old_pin.strip(), uid=uid))
+    if who is None:
         note_fail(peer)
         await asyncio.sleep(FAIL_DELAY)
         return "bad_pin", None
@@ -706,7 +734,7 @@ async def change_pin(old_pin: str, new1: str, new2: str,
     # ПЕРВОГО совпавшего, а сменивший пароль ложится в конец списка —
     # проигрывает всегда именно он: директор со следующего входа получает куку
     # регистратуры и вернуть себе роль уже не может.
-    if not pin_free(n1, except_uid=who.get("id", "clinic")):
+    if not await asyncio.to_thread(pin_free, n1, who.get("id", "clinic")):
         return "dup_user", None
     # роль и id берутся у вошедшего: смена своего PIN не должна никого повышать
     _write_pin(n1, role=who.get("role", ROLE_DIRECTOR), uid=who.get("id", "clinic"))
@@ -835,6 +863,56 @@ def client_is_local(request: Request) -> bool:
     # адрес НЕ is_loopback — разворачиваем в честный IPv4
     mapped = getattr(addr, "ipv4_mapped", None)
     return (mapped or addr).is_loopback
+
+
+# Только с ЭТОГО компьютера (02.11, разбор коллеги Б3). В сети клиники канал —
+# http, кука живёт 12 ч, и подсмотренная в Wi-Fi кука директора давала с
+# любого телефона ровно то, что не возвращается: ключ картотеки на листе,
+# всю картотеку архивом, новую учётку-директора, восстановление чужой копии.
+# Здесь — то, что выдаёт ключ или картотеку целиком, меняет шифрование, куда
+# уходят копии, учётки и восстановление. Смена СВОЕГО PIN сюда не входит
+# намеренно: она требует старый PIN, и укравшему куку ничего не даёт, а врачу
+# с телефона нужна. ⛔ Список ОДИН: маршрут отсюда обязан звать `local_only`
+# первым делом после охраны входа, и каждая строка обязана совпадать с живым
+# маршрутом (держит `test_structure` + мутация) — переименованный адрес иначе
+# молча выпал бы из охраны.
+LOCAL_ONLY = frozenset({
+    "/admin/settings/crypt/sheet",              # лист с ключом картотеки
+    "/admin/settings/crypt/confirm",            # включить шифрование
+    "/api/settings/crypt/prepare",
+    "/api/settings/crypt/off",                  # расшифровать картотеку
+    "/admin/backup/export",                     # вся картотека архивом
+    "/api/settings/backup/auto",                # куда уходят копии (и пароль)
+    "/api/settings/backup/restore/stage",       # чужая копия вместо картотеки
+    "/api/settings/backup/restore/confirm",
+    "/api/settings/users",                      # завести/поправить учётку
+    "/api/settings/users/{uid}/delete",
+})
+
+
+def local_only(request: Request, *, page: bool = False):
+    """Отказ запросу из сети к маршруту из `LOCAL_ONLY` (None — с этого ПК).
+    JSON — конвертом `only_local` 403; `page` — страница с теми же словами
+    (лист, экспорт формой: их открывает браузер, а не fetch).
+    ⛔ Пир, а не заголовки (`client_is_local`); при выключенной сети пир всегда
+    loopback — у клиники без сети не меняется ничего."""
+    if client_is_local(request):
+        return None
+    # отложенный импорт: layout сам импортирует auth
+    from fastapi.responses import HTMLResponse
+    from .layout import msg_json, msg_text
+    if not page:
+        return msg_json(False, "only_local", status=403)
+    import html as _html
+    return HTMLResponse(
+        "<!doctype html><html lang='ro'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<title>DentPilot</title></head><body style='font-family:system-ui,"
+        "sans-serif;max-width:560px;margin:12vh auto;padding:0 16px;"
+        "line-height:1.6;color:#162033'>"
+        f"<p>{_html.escape(msg_text('only_local'))}</p>"
+        "<p><a href='/admin/settings'>Setări</a></p></body></html>",
+        status_code=403)
 
 
 # --- сигнализация auth.json (08-06) ---

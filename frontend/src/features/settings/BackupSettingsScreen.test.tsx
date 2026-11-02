@@ -26,7 +26,11 @@ const DATA: BackupData = {
     ],
     archives: [], staged: null, pending: false, schema: 7,
   },
+  remote: null,
 }
+/* Экран открыт из сети (02.11): подсказка сервера вместо кнопок `auth.LOCAL_ONLY`. */
+const REMOTE = { code: 'only_local', tone: 'warn',
+  text: 'Această acțiune se face doar pe calculatorul principal al clinicii' }
 const OFF: BackupData = {
   ...DATA,
   auto: { ...DATA.auto, enabled: false, alert: '' },
@@ -212,6 +216,18 @@ describe('BackupSettingsScreen', () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith('/settings/backup/restore/confirm', {}))
     expect(await screen.findByText(/Restaurarea este comandată/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Verifică copia/ })).toBeNull()
+  })
+
+  it('из сети: слова сервера вместо выключателя, папки, восстановления и выгрузки (02.11)', async () => {
+    get.mockResolvedValueOnce(ok<BackupData>({ ...CONFIGURED, remote: REMOTE }))
+    open()
+    expect((await screen.findAllByText(/doar pe calculatorul principal/)).length).toBeGreaterThan(0)
+    /* видно, что есть, — но то, что сервер из сети отобьёт, не предлагается */
+    expect(screen.getByText(/17\.10\.2026 10:00/)).toBeTruthy()
+    expect((screen.getByRole('switch') as HTMLInputElement).disabled).toBe(true)
+    expect(screen.queryByLabelText(/folder|dosar/i)).toBeNull()
+    expect(document.querySelector(`form[action="${EXPORT_ACTION}"]`)).toBeNull()
+    expect(screen.queryByRole('button', { name: /Verifică/ })).toBeNull()
   })
 
   it('заказ, ждущий старта, можно снять', async () => {

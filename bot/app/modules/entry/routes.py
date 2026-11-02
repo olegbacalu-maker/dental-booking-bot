@@ -23,6 +23,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from ... import db, privileged
 from ... import engine as eng
 from ...core.auth import (ADMIN_KEY, FAIL_DELAY, LOCK_STEP_COUNTS, NET_STEP_COUNTS,
+                          login_people,
                           PEER_LOCAL,
                           PERM_SETTINGS, _as_user, _pin_rec, _secret,
                           _set_auth_cookie, _setup_allowed, _write_pin,
@@ -34,16 +35,18 @@ from ...core.auth import (ADMIN_KEY, FAIL_DELAY, LOCK_STEP_COUNTS, NET_STEP_COUN
                           set_tamper_alert, verify_pin)
 from ...core.layout import msg_text, standalone
 from .pages import (LOGIN_TMPL, PASS_INPUT, PIN_INPUT, SETUP_ADMIN_TMPL,
-                    SETUP_LOCAL_TMPL, SETUP_TMPL)
+                    SETUP_LOCAL_TMPL, SETUP_TMPL, pick_input)
 
 router = APIRouter()
 
 # Исходы входа — одни на форму (`?err=`) и на JSON (коды MSG_BANNER).
+# LOGIN_PICK (02.11) — вход из сети без выбора человека: PIN не проверялся.
 LOGIN_OK, LOGIN_BAD, LOGIN_LOCK, LOGIN_BROKEN = "ok", "bad", "lock", "broken"
+LOGIN_PICK = "pick"
 
 
-async def try_login(password: str, uid: str = "",
-                    peer: str = "") -> tuple[str, dict | None, int]:
+async def try_login(password: str, uid: str = "", peer: str = "", *,
+                    remote: bool = False) -> tuple[str, dict | None, int]:
     """Оракул входа: (исход, запись вошедшего, срок блокировки в секундах).
 
     Один на форму входа и на `POST /api/auth/login`. Здесь всё, что решает,
@@ -55,6 +58,11 @@ async def try_login(password: str, uid: str = "",
     отвечает на чужой POST пустым 403, JSON — конвертом; оракулу об этом знать
     незачем. ⚠️ Куку тоже выдаёт вызывающий — ПОСЛЕ этого вызова: `verify_pin`
     мог переписать файл v1→v2 и сменить ключ подписи (см. `verify_pin`).
+    `remote` — запрос не с этого ПК (`auth.client_is_local`, 02.11, разбор М7):
+    PIN без выбранного человека тогда не проверяется ВОВСЕ (`LOGIN_PICK`), а
+    не сверяется со всеми учётками: одна попытка из Wi-Fi иначе проверяла бы
+    каждую, и подбор шёл бы в N раз быстрее. На самом ПК вход прежний — по
+    одному PIN (Олег 22.10).
     """
     if auth_blocked():
         # проверять ввод не по чему — «PIN greșit» тут враньё, а счётчик
@@ -75,7 +83,13 @@ async def try_login(password: str, uid: str = "",
         # регистре, а поле ID на телефоне получает автозаглавную букву. Без
         # него врач с верным паролем видит «PIN greșit» и накручивает счётчик
         # блокировки собственным телефоном.
-        who = verify_pin(pw, uid=uid.strip().lower()[:32])
+        uid = uid.strip().lower()[:32]
+        if remote and not uid:
+            # не неудача: ничего не сверялось — счётчик не трогаем
+            return LOGIN_PICK, None, 0
+        # PBKDF2 600k на учётку — в потоке: в цикле событий вход замораживал
+        # журнал всем рабочим местам на время проверки (разбор 02.11, М7)
+        who = await asyncio.to_thread(lambda: verify_pin(pw, uid=uid))
         ok = who is not None
     else:
         ok = bool(ADMIN_KEY) and hmac.compare_digest(pw, ADMIN_KEY)
@@ -127,7 +141,8 @@ def _wait_text(lock: int) -> str:
 
 
 @router.get("/admin/login", response_class=HTMLResponse)
-async def admin_login_page(next: str = "/admin", err: str = "", s: str = ""):
+async def admin_login_page(request: Request, next: str = "/admin", err: str = "",
+                           s: str = "", u: str = ""):
     # ⚠️ auth_blocked, а не _auth_broken: то же условие, что в _guard. При
     # заполненном ADMIN_KEY вход по ключу исправен, и разговор про битый файл
     # увёл бы человека чинить то, что его беде не мешает.
@@ -151,16 +166,23 @@ async def admin_login_page(next: str = "/admin", err: str = "", s: str = ""):
         err_html = ("<div class='err'>Prea multe încercări greșite. "
                     f"Încercați peste {wait}<br><small>Ați uitat PIN-ul? "
                     "Un director îl poate schimba din Setări › Securitate "
-                    "și utilizatori.</small></div>")
+                    "și utilizatori, pe calculatorul cu programul.</small></div>")
+    elif err == "pick":
+        err_html = f"<div class='err'>{html.escape(msg_text('login_pick'))}</div>"
     elif err:
         err_html = (f"<div class='err'>{html.escape(msg_text('login_bad'))}</div>"
                     if pin_mode else "<div class='err'>Parolă greșită</div>")
     else:
         err_html = ""
     nxt = next if next.startswith("/admin") else "/admin"
+    # из сети — со списком людей: PIN сверяется только с выбранным (02.11)
+    if pin_mode and not client_is_local(request):
+        field = pick_input(login_people(), u)
+    else:
+        field = PIN_INPUT if pin_mode else PASS_INPUT
     return (standalone(LOGIN_TMPL)
             .replace("__ERR__", err_html).replace("__NEXT__", html.escape(nxt))
-            .replace("__INPUT__", PIN_INPUT if pin_mode else PASS_INPUT))
+            .replace("__INPUT__", field))
 
 
 @router.post("/admin/login")
@@ -173,10 +195,13 @@ async def admin_login(request: Request, password: str = Form(...),
         return Response(status_code=403)
     target = next_url if next_url.startswith("/admin") else "/admin"
     nxt = urllib.parse.quote(target, safe="")
-    outcome, who, lock = await try_login(password, uid, client_peer(request))
+    outcome, who, lock = await try_login(password, uid, client_peer(request),
+                                         remote=not client_is_local(request))
     if outcome == LOGIN_BROKEN:
         return RedirectResponse(f"/admin/login?err=broken&next={nxt}",
                                 status_code=303)
+    if outcome == LOGIN_PICK:
+        return RedirectResponse(f"/admin/login?err=pick&next={nxt}", status_code=303)
     if outcome == LOGIN_OK:
         # кука ставится ПОСЛЕ try_login: миграция v1→v2 меняет ключ подписи,
         # а запись пользователя — свой sid
@@ -184,6 +209,9 @@ async def admin_login(request: Request, password: str = Form(...),
     # `s` — срок блокировки: и у запертого входа, и у неудачи, которая его
     # заперла; страница входа подставит его в «Încercați peste …»
     q = f"err=lock&s={lock}" if lock else "err=1"
+    # выбранный из сети человек остаётся выбранным при повторе
+    if uid.strip():
+        q += "&u=" + urllib.parse.quote(uid.strip().lower()[:32], safe="")
     return RedirectResponse(f"/admin/login?{q}&next={nxt}", status_code=303)
 
 

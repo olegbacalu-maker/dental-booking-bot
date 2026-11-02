@@ -520,6 +520,14 @@ MSG_BANNER = {
                           "și nu poate fi citit — transferul nu începe"),
     "mig_nousers": ("err", "În fișa aleasă nu există niciun cont — nu avem "
                            "cu ce confirma, deci transferul nu începe"),
+    # lan-guard (02.11): сеть клиники
+    # Вход из сети — только с выбором человека: без него PIN сверялся бы со
+    # ВСЕМИ учётками (`auth.verify_pin`, `entry.try_login`)
+    "login_pick": ("warn", "Alegeți-vă numele din listă și introduceți PIN-ul"),
+    # Опасное действие директора из сети (`auth.LOCAL_ONLY`): отказ маршрута и
+    # подсказка-состояние экрана вместо его кнопок (`msg_view`)
+    "only_local": ("warn", "Această acțiune se face doar pe calculatorul principal "
+                          "al clinicii — cel pe care este instalat programul"),
     # ---- заказы лаунчеру (02.11, `core/orders.py`) ----
     # Баннер директору и летопись после старта: что лаунчер исполнил или
     # отверг. Строку дополняет `orders.event_text` (что, почему, когда);

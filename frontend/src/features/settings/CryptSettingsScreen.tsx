@@ -3,6 +3,7 @@ import { AppLink } from '../../components/AppLink'
 import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
+import { Notice } from '../../components/Notice'
 import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
 import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
@@ -118,19 +119,22 @@ export function CryptSettingsScreen({ navigate = defaultNavigate }: Props) {
           {data.blocks.what && <div dangerouslySetInnerHTML={{ __html: data.blocks.what }} />}
           {data.blocks.cost && <div dangerouslySetInnerHTML={{ __html: data.blocks.cost }} />}
           {data.blocks.limit && <div dangerouslySetInnerHTML={{ __html: data.blocks.limit }} />}
-          {data.state !== 'off' && (
+          {/* лист с ключом и переключение — только на ПК программы (02.11,
+              `auth.LOCAL_ONLY`): из сети слова сервера вместо кнопок */}
+          <Notice n={data.remote} />
+          {!data.remote && data.state !== 'off' && (
             <div className="nav">
               <AppLink className={data.state === 'pending' ? 'primary' : undefined} href={data.sheet}>
                 <Icon name="print" /> {data.state === 'pending' ? T.sheetOpen : T.sheet}
               </AppLink>
             </div>
           )}
-          {data.state === 'on' && (
+          {!data.remote && data.state === 'on' && (
             <button type="button" className="rowdel" onClick={stop} disabled={busy}>
               {T.stop}
             </button>
           )}
-          {data.state === 'off' && (
+          {!data.remote && data.state === 'off' && (
             <button type="button" className="savebtn" onClick={prepare} disabled={busy}>
               {T.prepare}
             </button>

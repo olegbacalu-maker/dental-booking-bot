@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import html
 import logging
 import os
@@ -29,7 +30,8 @@ from ... import update as upd
 from ...core.auth import (PERM_SETTINGS, PERM_SMS, ROLE_DIRECTOR, ROLE_LABEL, _guard, _pin_rec,
                           all_users, can, delete_user, find_user,
                           n_directors, pin_free, pin_len_ok, pin_readiness,
-                          remember_auth_file, request_user, require, save_user)
+                          local_only, remember_auth_file, request_user, require,
+                          save_user)
 from ...core.layout import (_DOW_ORDER, _ic,
                             msg_banner,
                             react_shell, shell_model, _shell, standalone,
@@ -443,6 +445,8 @@ async def settings_crypt_sheet(request: Request):
     """
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
+    if (deny := local_only(request, page=True)) is not None:
+        return deny
     key, pending = crypt.key_for_sheet(_data_dir())
     if key is None:
         return RedirectResponse("/admin/settings/crypt?msg=bad_crypt", status_code=303)
@@ -501,6 +505,8 @@ async def settings_crypt_confirm(request: Request, ack: str = Form("")):
     """Подтверждение и перезапуск. Сам переезд делает ЛАУНЧЕР до старта
     приложения: базу нельзя подменять под открытым соединением."""
     if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    if (deny := local_only(request, page=True)) is not None:
         return deny
     if ack != "1":
         return RedirectResponse("/admin/settings/crypt/sheet", status_code=303)
@@ -860,7 +866,8 @@ async def _apply_user(uid: str, *, name: str, role: str, doctor_id: str,
         return "bad_user"
     # ⚠️ проверка ДО записи: вход идёт по одному лишь паролю, и два одинаковых
     # означают, что журнал доступа однажды назовёт не того человека
-    if pin and not pin_free(pin, except_uid=uid):
+    # PBKDF2 по всем учёткам — в потоке, иначе замер бы журнал (как вход)
+    if pin and not await asyncio.to_thread(pin_free, pin, uid):
         return "dup_user"
     # директор, снимающий с себя роль последним, запирает настройки НАВСЕГДА:
     # вернуть право станет некому
@@ -894,6 +901,8 @@ async def admin_backup_export(request: Request, parola: str = Form(...)):
     вежливость, настоящая проверка тут: форму можно послать и без браузера.
     """
     if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    if (deny := local_only(request, page=True)) is not None:
         return deny
     d = _data_dir()
     if d is None or not bkp.available():

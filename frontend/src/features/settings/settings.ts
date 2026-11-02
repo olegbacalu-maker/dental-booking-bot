@@ -1,4 +1,5 @@
 import { api, type ApiResult } from '../../services/api'
+import type { ServerNotice } from '../../components/Notice'
 
 /* Формы ответов — bot/app/modules/settings/api.py. Всё, что здесь HTML
    (справка FAQ, проза страницы «Acces din rețea»), — текст СЕРВЕРА из тех же
@@ -174,6 +175,8 @@ export interface SecurityData {
   /** id вошедшего — свою учётку удалить нельзя. */
   me: string
   pin: { min: number; max: number }
+  /** Открыто не с ПК программы — учётки только читаются (`auth.LOCAL_ONLY`, 02.11). */
+  remote: ServerNotice | null
 }
 
 /** Те же поля, что у формы учётки: pin пустой = не менять. */
@@ -206,6 +209,8 @@ export interface CryptData {
   blocks: { status: string; what: string; cost: string; limit: string; note: string }
   /** Адрес печатного листа восстановления. Он остаётся серверной страницей. */
   sheet: string
+  /** Открыто не с ПК программы — лист и переключение только там (02.11). */
+  remote: ServerNotice | null
 }
 
 export interface CryptPrepared {
@@ -327,6 +332,9 @@ export interface BackupData {
     pending: boolean
     schema: number
   }
+  /** Открыто не с ПК программы — экспорт, папка, выключатель и восстановление
+   *  только там (`auth.LOCAL_ONLY`, 02.11). */
+  remote: ServerNotice | null
 }
 
 export type BackupAutoForm = { enabled: boolean } | { folder: string; password: string }

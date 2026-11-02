@@ -23,6 +23,7 @@ const OFF: CryptData = {
     note: '',
   },
   sheet: SHEET,
+  remote: null,
 }
 const ON: CryptData = {
   state: 'on',
@@ -32,13 +33,19 @@ const ON: CryptData = {
     note: '<p>Copiile zilnice sunt și ele criptate.</p>',
   },
   sheet: SHEET,
+  remote: null,
 }
 const PENDING: CryptData = {
   state: 'pending',
   blocks: { status: '<div class="banner warn">Criptarea este pregătită.</div>',
             what: '', cost: '', limit: '', note: '' },
   sheet: SHEET,
+  remote: null,
 }
+/* Экран открыт из сети (02.11): подсказка сервера вместо кнопок `auth.LOCAL_ONLY`. */
+const REMOTE = { code: 'only_local', tone: 'warn',
+  text: 'Această acțiune se face doar pe calculatorul principal al clinicii' }
+
 
 const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, text, tone: 'ok' })
 
@@ -103,6 +110,15 @@ describe('CryptSettingsScreen', () => {
     expect(post).toHaveBeenCalledWith('/settings/crypt/off', {})
     /* Программа закрывается — предлагать что-то ещё нечестно. */
     expect(screen.queryByRole('button', { name: 'Oprește criptarea' })).toBeNull()
+  })
+
+  it('из сети: проза есть, а листа с ключом и кнопок нет — слова сервера (02.11)', async () => {
+    get.mockResolvedValueOnce(ok({ ...ON, remote: REMOTE }))
+    open(vi.fn())
+    expect(await screen.findByText(/doar pe calculatorul principal/)).toBeTruthy()
+    expect(screen.getByText('Evidența este criptată.')).toBeTruthy()
+    expect(screen.queryByRole('link')).toBeNull()
+    expect(screen.queryByRole('button')).toBeNull()
   })
 
   it('заказ сделан: только лист, ни одной кнопки действия', async () => {

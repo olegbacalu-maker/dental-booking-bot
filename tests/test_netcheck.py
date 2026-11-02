@@ -36,8 +36,11 @@ def _st(rules, category="Public", on=ON, shut=OPEN) -> dict:
             "on": list(on), "shut": list(shut)}
 
 
-def _r(action, profiles, proto=6, enabled=True) -> dict:
-    return {"a": action, "p": profiles, "t": proto, "e": enabled}
+def _r(action, profiles, proto=6, enabled=True, remote=None) -> dict:
+    r = {"a": action, "p": profiles, "t": proto, "e": enabled}
+    if remote is not None:
+        r["r"] = remote
+    return r
 
 
 A, B = netcheck.ALLOW, netcheck.BLOCK
@@ -69,6 +72,58 @@ def suite_verdict(res: Result) -> None:
               v(_st([_r(A, PRIV)], category="")), "ok")
     res.check("тип сети неизвестен — запрет тоже", v(_st([_r(B, PRIV)], category="")), "blocked")
     res.check("доменная сеть", v(_st([_r(A, DOM)], "DomainAuthenticated")), "ok")
+
+
+def suite_wide(res: Result) -> None:
+    """Разрешение только из своей подсети (02.11, разбор коллеги Б3): кнопка
+    ставит `remoteip=localsubnet`, а правило «из любой сети» (кнопка до
+    2.8.0, окно самой Windows) экран видит и чинит той же кнопкой."""
+    from app.modules.settings import lan
+    w = netcheck.wide
+    res.check("разрешение из любой сети — широкое", w(_st([_r(A, PUB, remote="*")])), True)
+    res.check("из своей подсети — нет", w(_st([_r(A, PUB, remote="LocalSubnet")])), False)
+    res.check("свой список адресов — тоже сужено",
+              w(_st([_r(A, PUB, remote="192.168.1.0/255.255.255.0")])), False)
+    res.check("ответ без поля (старый скрипт) — молчим", w(_st([_r(A, PUB)])), False)
+    res.check("широкое, но выключенное — не считается",
+              w(_st([_r(A, PUB, enabled=False, remote="*")])), False)
+    res.check("широкое ДРУГОЙ сети — не считается",
+              w(_st([_r(A, PRIV, remote="*"), _r(A, PUB, remote="LocalSubnet")])), False)
+    st = _st([_r(A, PUB, remote="*")])
+    st["verdict"] = netcheck.verdict(st)
+    res.check("широкое правило пускает — вердикт прежний", st["verdict"], "ok")
+    res.check("и экран предлагает кнопку", lan.firewall_fixable(st), True)
+    res.ok("словами — что правило шире сети клиники",
+           "mai largă" in lan.firewall_html(st), lan.firewall_html(st)[:200])
+    narrow = _st([_r(A, PUB, remote="LocalSubnet")])
+    narrow["verdict"] = netcheck.verdict(narrow)
+    res.check("суженное — кнопки нет", lan.firewall_fixable(narrow), False)
+    # сама команда: UAC не показываем — ловим аргументы ShellExecuteW
+    got: list = []
+
+    class _Shell:
+        @staticmethod
+        def ShellExecuteW(*a):
+            got.append(a)
+            return 42
+
+    import types
+    fake = types.SimpleNamespace(windll=types.SimpleNamespace(shell32=_Shell))
+    real = sys.modules.get("ctypes")
+    sys.modules["ctypes"] = fake            # lan импортирует ctypes внутри функции
+    try:
+        asked = lan.request_firewall_rule(st)
+    finally:
+        if real is not None:
+            sys.modules["ctypes"] = real
+        else:
+            sys.modules.pop("ctypes", None)
+    args = got[0][3] if got else ""
+    res.check("запрос показан", asked, True)
+    res.ok("новое правило — только из своей подсети",
+           "add rule" in args and "remoteip=localsubnet" in args.split("add rule", 1)[1], args)
+    res.ok("старое правило снимается тем же вызовом",
+           "delete rule name=all dir=in" in args, args)
 
 
 def suite_profiles(res: Result) -> None:

@@ -101,6 +101,7 @@ async function request<T>(
         code,
         text,
         ...(envelope?.field ? { field: envelope.field } : {}),
+        ...(envelope?.data !== undefined ? { data: envelope.data } : {}),
       })
     default:
       throw fail({ kind: 'server', status: response.status, code, text })

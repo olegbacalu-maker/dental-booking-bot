@@ -23,7 +23,12 @@ const SEC: SecurityData = {
   doctors: [{ id: 'd2', name: 'Dr. Doi' }],
   me: 'clinic',
   pin: { min: 4, max: 8 },
+  remote: null,
 }
+/* Экран открыт из сети (02.11): подсказка сервера вместо кнопок `auth.LOCAL_ONLY`. */
+const REMOTE = { code: 'only_local', tone: 'warn',
+  text: 'Această acțiune se face doar pe calculatorul principal al clinicii' }
+
 
 const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, text, tone: 'ok' })
 
@@ -48,6 +53,19 @@ describe('SecuritySettingsScreen', () => {
     expect((screen.getByLabelText('rol ana') as HTMLSelectElement).value).toBe('receptie')
     expect((screen.getByLabelText('medic clinic') as HTMLSelectElement).value).toBe('')
     expect(screen.getByText(/ultima intrare: —/)).toBeTruthy()
+  })
+
+  it('из сети: учётки только читаются, свой PIN меняется (02.11)', async () => {
+    get.mockResolvedValueOnce(ok({ ...SEC, remote: REMOTE }))
+    open()
+    expect(await screen.findByText(/doar pe calculatorul principal/)).toBeTruthy()
+    expect(screen.getByText('Ana R')).toBeTruthy()
+    expect(screen.getByRole('cell', { name: 'Recepție' })).toBeTruthy()
+    expect(screen.queryByLabelText('rol ana')).toBeNull()
+    expect(screen.queryByRole('button', { name: /Șterge/ })).toBeNull()
+    expect(screen.queryByLabelText('medic')).toBeNull()
+    /* смена СВОЕГО PIN — не в LOCAL_ONLY: требует старый PIN */
+    expect(screen.getByRole('button', { name: /Schimbă/ })).toBeTruthy()
   })
 
   it('смена PIN: шлёт три поля, показывает ответ, чистит форму', async () => {
@@ -166,6 +184,7 @@ describe('BackupSettingsScreen', () => {
       auto: { enabled: true, folder: '', last: { at: '', where: '' }, has_pass: false, pass_unreadable: false, local_at: '', local_error: '',
         ext_at: '', ext_error: '', ext_stale: false, stale_days: 3, keep: 7, alert: '' },
       restore: { local: [], archives: [], staged: null, pending: false, schema: 1 },
+      remote: null,
     }))
     openScreen('/admin/settings/backup', '/admin/settings/backup', <BackupSettingsScreen />, loadBackupSettings)
     expect(await screen.findByRole('button', { name: /Exportă arhiva/ })).toBeTruthy()
