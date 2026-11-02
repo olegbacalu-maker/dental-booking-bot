@@ -470,6 +470,35 @@ def suite_faq(res: Result) -> None:
         res.ok("сеть: вход — имя из списка и PIN, опасное — только с ПК программы",
                "alegeți-vă numele din listă" in lan and "doar pe calculatorul" in lan
                and "copia de rezervă pe stick" in net.lower(), net[:300])
+        # Перечень «только с ПК программы» — фактом из auth.LOCAL_ONLY: каждый
+        # маршрут списка обязан иметь слово в faq.LOCAL_WORDS (сверка от
+        # программы — новый закрытый маршрут без слова справка не назовёт)
+        import ast
+        def _const(path, name):
+            tree = ast.parse((BOT / "app" / path).read_text(encoding="utf-8"))
+            for node in tree.body:
+                if isinstance(node, ast.Assign) and any(
+                        getattr(x, "id", "") == name for x in node.targets):
+                    return node.value
+            return None
+        routes = _const("core/auth.py", "LOCAL_ONLY")
+        routes = [e.value for e in routes.args[0].elts] if routes is not None else []
+        words = ast.literal_eval(_const("modules/settings/faq.py", "LOCAL_WORDS") or ast.Tuple(elts=[]))
+        bare = [r for r in routes if not any(r.startswith(h) for hs, _ in words for h in hs)]
+        res.ok("каждый маршрут auth.LOCAL_ONLY назван словом в FAQ",
+               bool(routes) and not bare, "без слова: " + ", ".join(bare))
+        said = [w for hs, w in words if any(r.startswith(hs) for r in routes)]
+        res.ok("абзац двух ПК перечисляет закрытое из сети словами FAQ",
+               bool(said) and ", ".join(said) in lan, lan[-500:])
+        # Заказы лаунчеру (local-orders): справка цитирует баннер, а не пересказ
+        banner = {k: v for k, v in re.findall(r'"(ord_\w+)": \("\w+", "([^"]+)"', lay)}
+        rest = next((it["answer"] for it in d["items"] if "restaurez" in it["question"]), "")
+        crypt = next((it["answer"] for it in d["items"] if "criptarea evidenței" in it["question"]), "")
+        res.ok("восстановление и шифрование цитируют баннеры заказов",
+               bool(banner.get("ord_restored")) and banner["ord_restored"] in rest
+               and bool(banner.get("ord_rejected")) and banner["ord_rejected"] in crypt
+               and bool(banner.get("ord_decrypted")) and banner["ord_decrypted"] in crypt,
+               repr(banner))
         term = next((it["answer"] for it in d["items"] if "perioada de probă" in it["question"]), "")
         res.ok("конец срока без лицензии: без строки «этот компьютер»",
                bool(term) and "Pe acest calculator" not in term, term[:200])

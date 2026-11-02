@@ -37,7 +37,7 @@ from __future__ import annotations
 import html
 
 from ... import engine as eng
-from ...core.layout import FEEDBACK_EMAIL, SECTION_TITLE, _ic, data_folder
+from ...core.layout import FEEDBACK_EMAIL, SECTION_TITLE, _ic, data_folder, msg_text
 from ...core import auth, autobackup, backup_loop, bitlocker, sms_plan, theme
 from ...core import backup as bkp
 from ...core import license as lic
@@ -58,22 +58,32 @@ BL_ADVICE = (
 )
 
 
-# Этап 1 (2.8.0). Что из сети только читается (`lan-guard`: опасные маршруты —
-# только с ПК программы, `client_is_local`): одна строка на абзац двух ПК, ответ
-# «со второго ПК» и оговорки восстановления и шифрования — слова одни.
-LOCAL_ONLY = ("copia de rezervă pe stick, restaurarea din copie, criptarea și foaia "
-              "ei de recuperare, utilizatorii")
-# ⚠️ ЧЕРНОВИКИ этапа 1: точные слова `backup-offsite` и `local-orders` придут при
-# посадке их веток — меняется по строке здесь, а не текст ответа.
-# Сколько копий на этом ПК. При посадке `backup-offsite` → «se păstrează câte una
-# pentru fiecare din ultimele {autobackup.KEEP_DAYS} zile cu copii și ultimele
-# {autobackup.KEEP_RECENT} copii» (слова сессии), переходное `KEEP` снять.
-KEEP_LOCAL = f"se păstrează ultimele {autobackup.KEEP}"
-# Что видит директор после восстановления или расшифровки (`local-orders`)
-AFTER_ORDER = "directorul vede la pornire un banner despre ea"
-# Заказ из другой учётки Windows (`local-orders`: подпись ключом владельца)
-OTHER_ACCOUNT = ("cererea făcută din alt cont Windows al calculatorului nu se "
-                 "execută")
+# Что из сети только читается (`lan-guard`, 2.8.0) — ФАКТОМ из `auth.LOCAL_ONLY`:
+# слово на группу маршрутов (по началу адреса), в порядке абзаца. Слово без
+# живого маршрута не печатается (выгрузки Excel появятся, когда их закроет
+# `lan-guard`); маршрут без слова ловит suite_faq — сверка от программы, как
+# у BL_ADVICE. Один перечень на абзац двух ПК и ответ «со второго ПК».
+LOCAL_WORDS = (
+    (("/admin/backup/export",), "copia de rezervă pe stick"),
+    (("/api/settings/backup/auto",), "folderul copiilor de rezervă"),
+    (("/api/settings/backup/restore/",), "restaurarea din copie"),
+    (("/admin/settings/crypt/", "/api/settings/crypt/"),
+     "criptarea și foaia ei de recuperare"),
+    (("/api/settings/users",), "utilizatorii"),
+    (("/admin/patients.xlsx", "/admin/export.xlsx"),
+     "exporturile în Excel (lista pacienților, registrul)"),
+)
+
+
+def local_only_words() -> str:
+    """Перечень «только с ПК программы» словами — из живого `auth.LOCAL_ONLY`."""
+    return ", ".join(word for heads, word in LOCAL_WORDS
+                     if any(r.startswith(heads) for r in auth.LOCAL_ONLY))
+
+
+def _said(code: str) -> str:
+    """Слова баннера из `MSG_BANNER` — справка цитирует экран, а не пересказ."""
+    return html.escape(msg_text(code))
 
 
 def _q(icon: str, question: str, answer: str) -> dict:
@@ -222,6 +232,7 @@ def entries() -> list[dict]:
     sec = SECTION_TITLE
     role = auth.ROLE_LABEL
     pay_hours = int(lic.PAY_WATCH.total_seconds() // 3600)
+    local = local_only_words()
     items = [
         _q("save", "Cât de des fac copii de rezervă și unde le păstrez?",
            f"{p}Cu <b>Setări › Copie de rezervă › Copie zilnică automată</b> "
@@ -251,7 +262,9 @@ def entries() -> list[dict]:
            f"notați-o într-un loc sigur. Fără ea, arhiva nu poate fi deschisă de "
            f"nimeni, nici de noi.{end}"
            f"{p}Pentru cine vrea detaliile: copiile de pe acest calculator stau în "
-           f"<b>data\\backups</b> ({KEEP_LOCAL}, criptate "
+           f"<b>data\\backups</b> (se păstrează câte una pentru fiecare din "
+           f"ultimele {autobackup.KEEP_DAYS} zile cu copii și ultimele "
+           f"{autobackup.KEEP_RECENT} copii, criptate "
            f"ca și evidența), arhivele din folder se numesc "
            f"<b>{backup_loop.AUTO_PREFIX}…zip</b> (se păstrează ultimele "
            f"{backup_loop.KEEP_EXT}; arhivele exportate manual în același folder "
@@ -281,7 +294,8 @@ def entries() -> list[dict]:
            f"șterge</b>: rămâne în folderul cu date sub numele "
            f"<b>dental.before-restore-&lt;data&gt;.db</b>, iar în Activitate "
            f"recentă (Statistici) apare ce copie a fost restaurată, iar "
-           f"{AFTER_ORDER}. Dacă evidența "
+           f"directorul vede la pornire bannerul «{_said('ord_restored')}». "
+           f"Dacă evidența "
            f"este criptată, copia este trecută automat sub cheia acestui "
            f"calculator — nu trebuie șters nimic.{end}"
            f"{p}Pe un calculator nou: instalați DentPilot și porniți-l. Programul "
@@ -394,9 +408,15 @@ def entries() -> list[dict]:
            f"deci tot ce descifrează programul descifrează și acea persoană. "
            f"Împotriva asta lucrează PIN-ul de intrare și blocarea ecranului "
            f"(Win+L), nu criptarea.{end}"
+           # Заказы лаунчеру подписаны секретом учётки (`core/orders.py`):
+           # чужой не исполняется и ничего не уничтожает — откладывается
            f"{p}Pornirea și oprirea criptării, ca și foaia de recuperare, se fac "
-           f"doar pe <b>calculatorul cu programul</b>, iar {OTHER_ACCOUNT}. "
-           f"Criptarea începe la următoarea pornire a programului.{end}"
+           f"doar pe <b>calculatorul cu programul</b>, din contul Windows în care "
+           f"lucrează programul. Criptarea începe la următoarea pornire a "
+           f"programului; după oprire, directorul vede bannerul "
+           f"«{_said('ord_decrypted')}». O comandă lăsată din alt cont Windows "
+           f"nu se execută: la pornire directorul vede «{_said('ord_rejected')}» "
+           f"și «{_said('ord_repeat')}».{end}"
            f"{p}Se poate opri oricând: <b>«Oprește criptarea»</b> pe aceeași "
            f"pagină, cu o repornire. Datele nu se pierd.{end}"),
 
@@ -462,7 +482,7 @@ def entries() -> list[dict]:
            f"pe tură, pe fiecare calculator și telefon. Funcționează doar în "
            f"rețeaua clinicii — de acasă nu.{end}"
            f"{p}{_ic('lock')} Câteva lucruri se fac <b>doar pe calculatorul "
-           f"cu programul</b>: {LOCAL_ONLY}. Din rețea paginile lor se pot "
+           f"cu programul</b>: {local}. Din rețea paginile lor se pot "
            f"citi, dar nu schimba — în rețea legătura nu e criptată, iar "
            f"acestea sunt acțiunile care nu se mai pot întoarce.{end}"),
 
@@ -493,7 +513,7 @@ def entries() -> list[dict]:
         # — абзац ответа о двух ПК, здесь только ссылка на него.
         _q("wifi", "De pe al doilea calculator nu pot face copia sau schimba "
                    "utilizatorii — e o defecțiune?",
-           f"{p}<b>Nu, e intenționat.</b> {LOCAL_ONLY[0].upper()}{LOCAL_ONLY[1:]} "
+           f"{p}<b>Nu, e intenționat.</b> {local[:1].upper()}{local[1:]} "
            f"se fac doar pe <b>calculatorul cu programul</b>. Din rețea paginile "
            f"lor "
            f"se deschid ca să vedeți starea, dar butoanele nu schimbă nimic. De "
