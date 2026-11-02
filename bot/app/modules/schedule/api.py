@@ -33,7 +33,7 @@ from ... import db
 from ... import engine as eng
 from ...core.api import (api_body, api_guard, api_own_appt, api_own_doctor, api_require,
                          live_envelope, live_reply)
-from ...core.auth import PERM_SMS
+from ...core.auth import PERM_SMS, remote_notice
 from ...core.layout import msg_json
 from ...core.visits import (_collect_cards, _parse_date, all_status_actions, my_scope,
                             of_doctor, service_options)
@@ -181,7 +181,9 @@ async def api_day(request: Request, date_q: str = Query("", alias="date"),
     data = await _day_model(d, doctor, f, scope)
     if data is None:
         return msg_json(False, status=404)
-    return msg_json(True, data=data)
+    # «Excel» дня — только с ПК программы (`auth.LOCAL_ONLY`, 02.11); в ответе,
+    # а не в построителе: модель дня одна на всех, а это — про того, кто смотрит
+    return msg_json(True, data={**data, "remote": remote_notice(request)})
 
 
 # Экраны живого канала: имя → построитель состояния.

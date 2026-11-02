@@ -37,11 +37,10 @@ from ...core import sms_plan as splan
 from ...core.api import api_body, api_guard, api_require
 from ...core.auth import (PERM_SETTINGS, PERM_SMS, PERM_USERS, PIN_MAX, PIN_MIN_LAN, ROLE_LABEL,
                           _pin_rec, _set_auth_cookie, all_users, can, change_pin,
-                          client_is_local, client_peer, current_user, local_only, pin_min,
+                          client_peer, current_user, local_only, pin_min, remote_notice,
                           pin_readiness, request_user)
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, SETUP_HINT, SUPPORT_PHONE,
-                            _DOW_FULL, _DOW_ORDER, msg_json, msg_text, msg_view,
-                            tg_refresh_meta)
+                            _DOW_FULL, _DOW_ORDER, msg_json, msg_text, tg_refresh_meta)
 from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
 from ...core import backup as bkp
@@ -287,13 +286,6 @@ async def shell_notices(request: Request):
 
 # ---------- шифрование картотеки ----------
 
-def _remote(request: Request) -> dict | None:
-    """Экран открыт НЕ с этого ПК: подсказка словами сервера (`only_local`)
-    вместо кнопок маршрутов из `auth.LOCAL_ONLY` — кнопка, которая заведомо
-    упадёт, хуже строки «это делается на главном компьютере». None — с ПК."""
-    return None if client_is_local(request) else msg_view("only_local")
-
-
 def _crypt_data(request: Request) -> dict:
     """Состояние раздела и его проза кусками.
 
@@ -303,7 +295,7 @@ def _crypt_data(request: Request) -> dict:
     st = crypt.state(_data_dir())
     return {"state": st, "blocks": crypt.blocks(st),
             "sheet": "/admin/settings/crypt/sheet",
-            "remote": _remote(request)}
+            "remote": remote_notice(request)}
 
 
 @router.get("/api/settings/crypt")
@@ -587,7 +579,7 @@ async def _security_data(request: Request) -> dict:
         "doctors": [{"id": k, "name": v} for k, v in eng.DOCTORS.items()],
         "me": _me(request),
         # свой PIN меняется и из сети — он требует старый
-        "remote": _remote(request),
+        "remote": remote_notice(request),
         # минимум — по состоянию сети (6 при включённом доступе), функцией
         "pin": {"min": pin_min(), "max": PIN_MAX},
     }
@@ -697,7 +689,7 @@ def _backup_data(request: Request) -> dict:
                         "staged": restore.summary(d) if d else None,
                         "pending": bool(d and restore.pending(d)),
                         "schema": db.SCHEMA_VERSION},
-            "remote": _remote(request)}
+            "remote": remote_notice(request)}
 
 
 @router.get("/api/settings/backup")

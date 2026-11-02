@@ -15,6 +15,17 @@ export interface ServerNotice {
   text: string
 }
 
+/**
+ * Та же подсказка сервера, но СТРОКОЙ на месте кнопки (02.11): выгрузка
+ * файлом, которую сервер из сети не отдаст (`auth.LOCAL_ONLY`, код
+ * `only_local`), — в ряду кнопок экрана, а не баннером над всем экраном:
+ * экраны Pacienți и Programări второй ПК открывает весь день.
+ */
+export function NoticeInline({ n }: { n?: ServerNotice | null | undefined }) {
+  if (!n || !n.text) return null
+  return <small className="dp-muted" role="note" data-code={n.code}>{n.text}</small>
+}
+
 export function Notice({ n }: { n?: ServerNotice | null | undefined }) {
   if (!n || !n.text) return null
   return (

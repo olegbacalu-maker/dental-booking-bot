@@ -4,7 +4,7 @@ import { AppLink } from '../../components/AppLink'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
-import { Notice } from '../../components/Notice'
+import { Notice, NoticeInline } from '../../components/Notice'
 import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
 import {
@@ -178,7 +178,9 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
   /* «Excel» дня — у общего журнала; день врача выгрузки не имеет. Ссылка одна
      на кнопку и на «Exportă în Excel…» меню окна Tauri. */
   const shown = state.status === 'ready' ? state.data.date : ''
-  const excelUrl = !doctor && shown ? `/admin/export.xlsx?from=${shown}&to=${shown}` : ''
+  /* из сети журнал файлом не отдаётся (`auth.LOCAL_ONLY`) — вместо кнопки слова */
+  const remote = state.status === 'ready' ? state.data.remote ?? null : null
+  const excelUrl = !doctor && shown && !remote ? `/admin/export.xlsx?from=${shown}&to=${shown}` : ''
   useCommand('act:export', excelUrl !== '' && (() => navigate(excelUrl)))
 
   if (state.status === 'leaving') return null
@@ -279,6 +281,7 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
             <Icon name="download" /> {T.excel}
           </AppLink>
         )}
+        {!doctor && <NoticeInline n={remote} />}
       </div>
       {/* ⭐ (22.10, вариант H Олега) У дня врача дата — кнопка календаря: тот
           же `MiniCal`, что на главной, с точками ЕГО записей; модель несёт

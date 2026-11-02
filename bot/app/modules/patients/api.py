@@ -33,7 +33,7 @@ from ... import engine as eng
 from ... import teeth_svg as tsvg
 from ...core.api import api_body, api_guard, api_own_doctor, api_require
 from ...core import recall
-from ...core.auth import PERM_MONEY, PERM_RECALL, can, request_user
+from ...core.auth import PERM_MONEY, PERM_RECALL, can, remote_notice, request_user
 from ...core.layout import ALERT_KINDS, STATUS_LABEL, _initials, msg_json, msg_text
 from ...core.visits import my_scope
 from . import anamneza as panam
@@ -123,6 +123,8 @@ async def api_patients(request: Request, q: str = "", med: str = "", st: str = "
         "rows": [_row(p, now) for p in rows],
         "total": total, "page": page, "pages": pages, "per": per, "sort": sort,
         "hidden_arh": hidden, "n_arh": n_arh,
+        # «Exportă» (книга по отбору) — только с ПК программы (`auth.LOCAL_ONLY`)
+        "remote": remote_notice(request),
     })
 
 

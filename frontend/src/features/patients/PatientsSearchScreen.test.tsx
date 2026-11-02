@@ -99,6 +99,14 @@ describe('filters', () => {
 })
 
 describe('PatientsSearchScreen', () => {
+  it('из сети: вместо «Exportă» — слова сервера, картотека файлом только на ПК программы (02.11)', async () => {
+    serve({ '': { ...PAGE, remote: { code: 'only_local', tone: 'warn', text: 'Această acțiune se face doar pe calculatorul principal al clinicii' } } })
+    open()
+    expect(await screen.findByText('Avans Popescu')).toBeTruthy()
+    expect(document.querySelector('a[href^="/admin/patients.xlsx"]')).toBeNull()
+    expect(screen.getByRole('note').textContent).toMatch(/doar pe calculatorul principal/)
+  })
+
   it('строки: имя, «возраст · канал» второй строкой, долг и аванс, статус словами сервера, врач с последнего визита', async () => {
     serve()
     open()

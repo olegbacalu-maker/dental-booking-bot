@@ -3,6 +3,7 @@ import { useCommand } from '../../app/bridge'
 import { AppLink } from '../../components/AppLink'
 import { Count } from '../../components/Count'
 import { Icon, iconName } from '../../components/Icon'
+import { NoticeInline } from '../../components/Notice'
 import { Spark } from '../../components/Spark'
 import { defaultNavigate } from '../../hooks/useLoad'
 import { t } from '../../utils/i18n'
@@ -134,7 +135,8 @@ export function StatsBoard({ d, live, pick, onPick, onPreset, onApply, periodUrl
   const preset = d.presets.find((p) => p.from === d.period.from && p.to === d.period.to)
   const [open, setOpen] = useState(false)
   /* «Exportă în Excel…» меню окна Tauri — эта же ссылка периода */
-  useCommand('act:export', () => defaultNavigate(d.export_url))
+  /* из сети журнал периода файлом не отдаётся (`auth.LOCAL_ONLY`) */
+  useCommand('act:export', !d.remote && (() => defaultNavigate(d.export_url)))
   const s = board.series
   const sum = metric === 'appts' ? board.summary.appts : board.summary.income
   const m = board.money
@@ -168,7 +170,9 @@ export function StatsBoard({ d, live, pick, onPick, onPreset, onApply, periodUrl
             onClick={() => setOpen(!open)}
           ><Icon name="cal" />{T.interval}{!preset && d.period.short && <em>{d.period.short}</em>}</button>
         </div>
-        <AppLink className="dp-btn" href={d.export_url}><Icon name="download" /> {T.excel}</AppLink>
+        {d.remote
+          ? <NoticeInline n={d.remote} />
+          : <AppLink className="dp-btn" href={d.export_url}><Icon name="download" /> {T.excel}</AppLink>}
       </div>
       <div className="sub stx-period"><b>{d.period.label}</b> · {T.compared} {board.prev_name}</div>
 

@@ -1,3 +1,4 @@
+import type { ServerNotice } from '../../components/Notice'
 import { api, type ApiResult } from '../../services/api'
 
 /* Формы ответов — bot/app/modules/patients/api.py. Даты уже в поясе клиники и
@@ -36,6 +37,9 @@ export interface PatientsPage {
   /** Сколько архивных спрятано этим отбором (0, когда их спросили явно). */
   hidden_arh: number
   n_arh: number
+  /** Открыто не с ПК программы — выгрузки файлом там же (`auth.LOCAL_ONLY`,
+   *  02.11): слова сервера вместо кнопки. Нет или `null` — кнопка есть. */
+  remote?: ServerNotice | null
 }
 
 export interface Tile {

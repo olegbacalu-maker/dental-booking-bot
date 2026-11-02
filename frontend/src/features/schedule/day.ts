@@ -278,6 +278,9 @@ export interface DayModel {
    *  привязки к врачу — «contul nu e legat de un medic»; слова и тон —
    *  `MSG_BANNER` (`layout.msg_view`). Нет или `null` — журнал обычный. */
   notice?: ServerNotice | null
+  /** Открыто не с ПК программы — выгрузки файлом там же (`auth.LOCAL_ONLY`,
+   *  02.11): слова сервера вместо кнопки. Нет или `null` — кнопка есть. */
+  remote?: ServerNotice | null
 }
 
 /** Строка колонки рисков: atenționare фиши или часть анамнеза. Сведены без

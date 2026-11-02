@@ -129,6 +129,14 @@ afterEach(() => {
 })
 
 describe('StatsScreen', () => {
+  it('из сети: вместо «Exportă» — слова сервера (02.11, журнал файлом только на ПК программы)', async () => {
+    get.mockResolvedValueOnce(ok({ ...WEEK, remote: { code: 'only_local', tone: 'warn', text: 'Această acțiune se face doar pe calculatorul principal al clinicii' } }))
+    open()
+    expect(await screen.findByText('15.09.2026 — 21.09.2026')).toBeTruthy()
+    expect(document.querySelector('a[href*="export.xlsx"]')).toBeNull()
+    expect(screen.getByRole('note').textContent).toMatch(/doar pe calculatorul principal/)
+  })
+
   it('период, показатели, график, врачи, услуги и лента — всё из одного конверта', async () => {
     get.mockResolvedValueOnce(ok(WEEK))
     open()

@@ -3,6 +3,7 @@ import { useCommand } from '../../app/bridge'
 import { AppLink } from '../../components/AppLink'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { Icon } from '../../components/Icon'
+import { NoticeInline } from '../../components/Notice'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
@@ -203,7 +204,9 @@ export function PatientsSearchScreen({ navigate = defaultNavigate, debounceMs = 
   const cur = typed === null ? filters : { ...filters, q: typed }
   const exportUrl = `/admin/patients.xlsx${filtersToQuery(cur, false)}`
   /* Меню окна Tauri: «Exportă în Excel…» и «Pacient nou…» — эти же кнопки */
-  useCommand('act:export', data !== null && (() => navigate(exportUrl)))
+  /* из сети вся картотека файлом не отдаётся (`auth.LOCAL_ONLY`) */
+  const remote = data?.page.remote ?? null
+  useCommand('act:export', data !== null && !remote && (() => navigate(exportUrl)))
   useCommand('act:newPatient', data !== null && (() => setAdding(true)))
 
   /* Enter в поле — сразу, не дожидаясь паузы (кнопки «Caută» больше нет). */
@@ -236,9 +239,11 @@ export function PatientsSearchScreen({ navigate = defaultNavigate, debounceMs = 
           `.sub` — под него (panel.css › .content>.nav). Своего заголовка
           «Pacienți» у экрана нет — раздел называют сайдбар и подпись. */}
       <div className="nav dp-pl-nav">
-        <AppLink className="dp-btn" href={exportUrl} title={T.exportTitle}>
-          <Icon name="download" /> {T.exportBtn}
-        </AppLink>
+        {remote ? <NoticeInline n={remote} /> : (
+          <AppLink className="dp-btn" href={exportUrl} title={T.exportTitle}>
+            <Icon name="download" /> {T.exportBtn}
+          </AppLink>
+        )}
         <button type="button" className="dp-btn pri" onClick={() => setAdding(true)}>
           <Icon name="plus" /> {T.add}
         </button>

@@ -1,3 +1,4 @@
+import type { ServerNotice } from '../../components/Notice'
 import { api, type ApiResult } from '../../services/api'
 
 /* Формы ответа — bot/app/modules/stats/api.py. Всё, что здесь строка с
@@ -145,6 +146,9 @@ export interface StatsData {
   period: StatPeriod
   presets: StatPreset[]
   export_url: string
+  /** Открыто не с ПК программы — выгрузки файлом там же (`auth.LOCAL_ONLY`,
+   *  02.11): слова сервера вместо кнопки. Нет или `null` — кнопка есть. */
+  remote?: ServerNotice | null
   doctors: StatDoctor[]
   services: StatService[]
   activity: StatEvent[]

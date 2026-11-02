@@ -46,7 +46,7 @@ from . import perio as pperio
 from . import plan_acord as pplan
 from . import visit as pvisit
 from ...core import shellopen, xlsx
-from ...core.auth import _guard
+from ...core.auth import _guard, local_only
 from ...core.visits import my_scope
 from ...core.layout import (ALERT_KINDS, LIVE_STATUSES, _ic, _initials, react_shell,
                             shell_model)
@@ -1378,8 +1378,11 @@ async def patients_xlsx(request: Request, q: str = "", med: str = "", st: str = 
     целиком: выгружают ВЫБОРКУ, а не её страницу. Книга, а не CSV: CSV не
     несёт типов, и Excel съедал ведущий ноль телефона, а даты показывал
     решёткой — та же беда, что у выгрузки дня до 1.19.23 (скриншот Олега
-    08-13, разбор в хронике). CSV-маршрут снят 13.10 (слово Олега 12.10)."""
+    08-13, разбор в хронике). CSV-маршрут снят 13.10 (слово Олега 12.10).
+    ⛔ Вся картотека файлом — только с ПК программы (`auth.LOCAL_ONLY`, 02.11)."""
     if (deny := _guard(request)) is not None:
+        return deny
+    if (deny := local_only(request, page=True)) is not None:
         return deny
     now = datetime.now(eng.TZ)
     rows = await db.patients_rows(_pl_select(now, q, med, st, ch, dat),

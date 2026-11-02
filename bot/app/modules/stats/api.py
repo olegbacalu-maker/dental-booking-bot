@@ -17,7 +17,7 @@ from fastapi import APIRouter, Query, Request
 
 from ... import engine as eng
 from ...core.api import api_require
-from ...core.auth import PERM_MONEY
+from ...core.auth import PERM_MONEY, remote_notice
 from ...core.layout import msg_json
 from . import model
 from .routes import period
@@ -46,4 +46,6 @@ async def api_stats(request: Request,
     d1, d2 = period(from_q, to_q, today)
     if not model.period_ok(d1, d2, today):
         return msg_json(False, "bad_period", status=422, field="from")
-    return msg_json(True, data=await model.build(d1, d2, today))
+    # «Excel» периода — только с ПК программы (`auth.LOCAL_ONLY`, 02.11)
+    return msg_json(True, data={**await model.build(d1, d2, today),
+                                "remote": remote_notice(request)})

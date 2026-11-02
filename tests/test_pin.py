@@ -1239,7 +1239,8 @@ def _worker_lan_guard(tmpdir: str) -> None:
         bad = []
         for path in sorted(auth.LOCAL_ONLY):
             url = path.replace("{uid}", rid)
-            method = "GET" if path.endswith("/sheet") else "POST"
+            # лист и выгрузки файлом открывает браузер ссылкой — GET
+            method = "GET" if path.endswith(("/sheet", ".xlsx")) else "POST"
             if path.startswith("/api/"):
                 st, _h, _t, env = await call(method, url, PHONE, cookie=boss_lan, js={})
                 ok = st == 403 and env.get("code") == "only_local"
@@ -1255,10 +1256,12 @@ def _worker_lan_guard(tmpdir: str) -> None:
                                          "pin": "999999"})
         out("lan_user_add", f"{st} {env.get('code')}")
         out("lan_user_written", any(u["name"] == "Intrus" for u in auth.all_users()))
-        for scr in ("backup", "crypt", "security"):
-            _st, _h, _t, env = await call("GET", f"/api/settings/{scr}", PHONE,
-                                          cookie=boss_lan)
-            _st, _h, _t, env2 = await call("GET", f"/api/settings/{scr}", DESK, cookie=boss)
+        for scr, api in (("backup", "/api/settings/backup"), ("crypt", "/api/settings/crypt"),
+                         ("security", "/api/settings/security"),
+                         ("patients", "/api/patients"), ("day", "/api/schedule/day"),
+                         ("stats", "/api/stats")):
+            _st, _h, _t, env = await call("GET", api, PHONE, cookie=boss_lan)
+            _st, _h, _t, env2 = await call("GET", api, DESK, cookie=boss)
             far = ((env.get("data") or {}).get("remote") or {}).get("code")
             near = (env2.get("data") or {}).get("remote", "absent")
             out(f"remote_{scr}", f"{far} {near}")
@@ -1268,6 +1271,11 @@ def _worker_lan_guard(tmpdir: str) -> None:
         out("desk_restore_stage", env.get("code"))
         st, _h, _t, _e = await call("GET", "/admin/settings/crypt/sheet", DESK, cookie=boss)
         out("desk_sheet", st)
+        # выгрузки файлом с этого ПК — книга, как раньше
+        for url in ("/admin/patients.xlsx", "/admin/export.xlsx"):
+            st, h, _t, _e = await call("GET", url, DESK, cookie=boss)
+            out(f"desk_{url.rsplit('/', 1)[1]}",
+                f"{st} {h.get('content-type', '').startswith('application/vnd.openxml')}")
 
         # --- смена своего PIN: из сети можно, и только своего ---
         _st, _h, _t, env = await call("POST", "/api/settings/pin", PHONE, cookie=recv,
@@ -1369,13 +1377,15 @@ def suite_lan_guard(res: Result) -> None:
         res.check("учётка из сети — 403 only_local", got.get("lan_user_add"),
                   "403 only_local")
         res.check("и не записана", got.get("lan_user_written"), "False")
-        for scr in ("backup", "crypt", "security"):
+        for scr in ("backup", "crypt", "security", "patients", "day", "stats"):
             res.check(f"экран {scr}: подсказка only_local из сети, с ПК — нет",
                       got.get(f"remote_{scr}"), "only_local None")
         res.check("восстановление с ПК не отбито охраной сети",
                   got.get("desk_restore_stage"), "bad_rst_src")
         res.ok("лист восстановления с ПК не отбит охраной сети",
                got.get("desk_sheet") != "403", f"получено {got.get('desk_sheet')!r}")
+        res.check("книга пациентов с ПК — файлом", got.get("desk_patients.xlsx"), "200 True")
+        res.check("журнал за период с ПК — файлом", got.get("desk_export.xlsx"), "200 True")
         res.check("смена PIN из сети: чужой старый PIN не подходит",
                   got.get("pin_change_other"), "bad_pin")
         res.check("свой — меняется и из сети", got.get("pin_change_own"), "ok_pin")

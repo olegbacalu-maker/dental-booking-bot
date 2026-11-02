@@ -887,7 +887,23 @@ LOCAL_ONLY = frozenset({
     "/api/settings/backup/restore/confirm",
     "/api/settings/users",                      # завести/поправить учётку
     "/api/settings/users/{uid}/delete",
+    # выгрузки картотеки и журнала файлом (02.11, Олег: «только с ПК программы,
+    # в 2.8.0»): книга пациентов по отбору и журнал за период (он же «Excel»
+    # дня и кнопка Statistici)
+    "/admin/patients.xlsx",
+    "/admin/export.xlsx",
 })
+
+
+def remote_notice(request: Request) -> dict | None:
+    """Экран открыт НЕ с этого ПК: подсказка словами сервера (`only_local`)
+    для модели экрана — её рисуют вместо кнопок маршрутов из `LOCAL_ONLY`
+    (кнопка, которая заведомо упадёт, хуже строки «это делается на главном
+    компьютере»). None — с этого ПК."""
+    if client_is_local(request):
+        return None
+    from .layout import msg_view       # отложенный: layout сам импортирует auth
+    return msg_view("only_local")
 
 
 def local_only(request: Request, *, page: bool = False):

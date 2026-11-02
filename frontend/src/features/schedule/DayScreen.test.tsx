@@ -1189,6 +1189,13 @@ describe('список дня', () => {
     await show({ doctor: 'd2' })
     expect(document.querySelector('a[href*="export.xlsx"]')).toBeNull()
   })
+
+  it('из сети: вместо Excel — слова сервера, журнал файлом только на ПК программы (02.11)', async () => {
+    get.mockResolvedValue(ok({ ...MODEL, remote: { code: 'only_local', tone: 'warn', text: 'Această acțiune se face doar pe calculatorul principal al clinicii' } }))
+    await show()
+    expect(document.querySelector('a[href*="export.xlsx"]')).toBeNull()
+    expect(screen.getByRole('note').textContent).toMatch(/doar pe calculatorul principal/)
+  })
 })
 
 /* B2.3: день, отбор и врач живут в АДРЕСЕ, и владеет им роутер. Экран не

@@ -470,6 +470,12 @@ MUTATIONS = [
       "    code = await _drop_user(_me(request), uid)\n",
       "    code = await _drop_user(_me(request), uid)\n"
       "    if (deny := local_only(request)) is not None:\n        return deny\n")),
+    # Выгрузка картотеки файлом без проверки сети (02.11, Олег: «только с ПК
+    # программы»): книга пациентов уходит на любой телефон с кукой.
+    ("опасное из сети — только с этого ПК", "app/modules/patients/routes.py",
+     ("    if (deny := local_only(request, page=True)) is not None:\n        return deny\n"
+      "    now = datetime.now(eng.TZ)\n    rows = await db.patients_rows(",
+      "    now = datetime.now(eng.TZ)\n    rows = await db.patients_rows(")),
     # Маршрут переименовали, строка списка осталась — охраняет пустоту.
     ("опасное из сети — только с этого ПК", "app/core/auth.py",
      ('"/api/settings/crypt/off",', '"/api/settings/crypt/stop",')),

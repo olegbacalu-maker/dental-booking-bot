@@ -24,7 +24,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from ... import db
 from ... import engine as eng
-from ...core.auth import _guard, request_user
+from ...core.auth import _guard, local_only, request_user
 from ...core import xlsx
 from ...core.layout import msg_view, react_shell, shell_model
 from ...core.risks import denied_since, merge as merge_risks
@@ -192,7 +192,10 @@ async def admin_export_xlsx(
     from_q: str = Query("", alias="from"),
     to_q: str = Query("", alias="to"),
 ):
+    # журнал файлом — только с ПК программы (`auth.LOCAL_ONLY`, 02.11)
     if (deny := _guard(request)) is not None:
+        return deny
+    if (deny := local_only(request, page=True)) is not None:
         return deny
     d1 = _parse_date(from_q) if from_q else datetime.now(eng.TZ).date()
     d2 = _parse_date(to_q) if to_q else d1

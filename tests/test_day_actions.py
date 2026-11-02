@@ -58,10 +58,11 @@ def suite_model(res: Result) -> None:
         # `source_col` — показывать ли «Sursă» (только при боте).
         # ⚠️ Таблицы старой страницы (`hours` с ячейками) в модели больше нет:
         # клиент её не читал с 06.10, а страница снята 13.10.
+        # `remote` (02.11) — подсказка вместо «Excel» дня у открывшего из сети.
         res.check("в модели есть всё, чем живут шапка, канва, окна и список",
                   sorted(set(m) - {"date", "doctors"}),
                   ["actions", "canvas", "cards", "day_label", "day_long", "filter", "form", "list",
-                   "note_actions", "note_ends", "notice", "source_col"])
+                   "note_actions", "note_ends", "notice", "remote", "source_col"])
         # ⛔ ТРИ значения, а не два (C26.5.2). Обрезок больше не носит имени
         # полного: в блоке сетки рядом лежат `comment` (полное, источник
         # правки и участник отпечатка живого канала) и `comment_cut` (60, то,
