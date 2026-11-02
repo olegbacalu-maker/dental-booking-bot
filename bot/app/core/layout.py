@@ -379,8 +379,9 @@ MSG_BANNER = {
     "ok_bkp_run": ("ok", "Copia de rezervă externă a fost făcută"),
     # Нет папки вне компьютера (02.11, разбор коллеги): копии лежат на том же
     # диске, что и картотека, и умирают вместе с ним — молчать об этом нельзя.
-    # Строка директора (`backup_loop.alert` → баннер и Stare sistem); ссылку
-    # «Copie de rezervă» дописывает баннер, поэтому точки в конце нет.
+    # Строка экранов копий (`backup_loop.line` → Stare sistem, Copie de
+    # rezervă), НЕ баннер каркаса (Олег 02.11). Ссылку на настройку дописывает
+    # Stare sistem, поэтому точки в конце нет.
     "bkp_no_offsite": ("warn", "Copiile de rezervă sunt doar pe acest calculator — dacă "
                                "discul se defectează, se pierd odată cu evidența. Alegeți "
                                "un folder pe alt disc, un stick USB sau folderul cloud al "
@@ -957,9 +958,15 @@ def _backup_banner() -> str:
     me = request_user()
     if me is not None and not can(me, PERM_SETTINGS):
         return ""
-    return (f"<div class='banner warn' style='margin-bottom:14px'>{_ic('save')} "
+    # один значок — треугольник `.banner.warn` (Олег 02.11), без дискеты
+    return (f"<div class='banner warn' style='margin-bottom:14px'>"
             f"{html.escape(txt)}. <a href='/admin/settings/backup'><b>Copie de "
             f"rezervă</b></a></div>")
+
+
+# Экраны, которые сами печатают строку копий (`backup_loop.line()`): баннер
+# копий каркаса на них её не дублирует (Олег 02.11, «убрать оба»).
+BACKUP_LINE_SCREENS = ("settings_system", "settings_backup")
 
 
 def _lic_date(d) -> str:
@@ -1657,6 +1664,8 @@ def react_shell(screen: str, path: str, model: dict,
     `QuickFind`), а его часы писали бы в узел, которым владеет React.
     """
     e = html.escape
+    if screen in BACKUP_LINE_SCREENS and "signals" in model:
+        model = {**model, "signals": {**model["signals"], "backup": {"shown": False, "html": ""}}}
     attrs = (f' data-params="{e(json.dumps(params, ensure_ascii=False), quote=True)}"'
              if params else "")
     return _doc_head() + f'''<body data-v="{eng.APP_VERSION}">

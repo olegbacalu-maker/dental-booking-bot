@@ -14,8 +14,9 @@
                            поддельными часами, ротация, память дат.
 * `suite_failure`        — отказ внешней копии: одна строка ленты на полосу,
                            баннер директора, снимается первой удачей.
-* `suite_offsite`        — папки вне компьютера нет: строка директору (не
-                           врачу, не регистратуре), гаснет с папкой (02.11).
+* `suite_offsite`        — папки вне компьютера нет: янтарная строка в Stare
+                           sistem и на экране копий, НЕ баннер каркаса;
+                           гаснет с папкой (02.11, решение Олега).
 * `suite_rotation_days`  — локальные копии хранятся по дням под поддельными
                            часами: единственная копия дня не вытесняется
                            запусками (02.11).
@@ -24,7 +25,6 @@
 порядке, проверяет `test_launcher.suite_autobackup` текстом.
 """
 import ast
-import html
 import io
 import json
 import pathlib
@@ -583,6 +583,12 @@ def suite_failure(res: Result) -> None:
                 res.ok("директор видит янтарный баннер на главной",
                        sig["shown"] and "nu s-a făcut" in sig["html"] and "/admin/settings/backup" in sig["html"],
                        repr(sig))
+                # Олег 02.11: один значок (треугольник `.banner.warn`), и на
+                # экранах со своей строкой копий баннер её не дублирует
+                res.ok("у баннера один значок — своего svg нет", "<svg" not in sig["html"], sig["html"][:200])
+                for path in ("/admin/settings/system", "/admin/settings/backup"):
+                    res.ok(f"отказ: {path} — строка экрана без баннера каркаса",
+                           not shell_signal(c.get(path).body, "backup")["shown"])
                 res.check("Stare sistem — тон warn", _j(c.get("/api/settings/system"))["data"]["backup"]["tone"],
                           "warn")
                 r = c.post_json("/api/settings/backup/auto/run", {})
@@ -640,8 +646,10 @@ def _banner_text(code: str) -> str:
 
 def suite_offsite(res: Result) -> None:
     """Разбор коллеги 02.11: без папки вне компьютера все копии лежат на
-    одном диске с картотекой, а программа молчала (`alert()` пуст, Stare
-    sistem `ok`). Ветка PIN-файла: роли — настоящие учётки."""
+    одном диске с картотекой, а программа молчала (Stare sistem `ok`).
+    Олег 02.11: «эта надпись должна быть только в настройках, на главном
+    экране это каждый день не нужно видеть» — строка экранов копий, баннера
+    каркаса нет ни у кого. Ветка PIN-файла: роли — настоящие учётки."""
     d = pathlib.Path(tempfile.mkdtemp(prefix="dp_bk_off_"))
     dest = pathlib.Path(tempfile.mkdtemp(prefix="dp_bk_odest_"))
     shutil.copy(FIXTURES / "clinic_test.json", d / "clinic.json")
@@ -660,34 +668,35 @@ def suite_offsite(res: Result) -> None:
                 x.post("/admin/login", password=pin, next="/admin")
                 return x
 
-            sig = shell_signal(boss.get("/admin").body, "backup")
-            res.ok("без папки директор видит строку со ссылкой на настройку",
-                   sig["shown"] and html.escape(want) in sig["html"]
-                   and "/admin/settings/backup" in sig["html"], repr(sig)[:300])
             sysd = _j(boss.get("/api/settings/system"))["data"]["backup"]
-            res.ok("Stare sistem — тон warn и та же строка", sysd["tone"] == "warn" and sysd["alert"] == want,
-                   repr(sysd))
+            res.ok("без папки Stare sistem — тон warn и строка словами", sysd["tone"] == "warn"
+                   and sysd["alert"] == want and sysd["external"] == "nealeasă", repr(sysd))
             res.check("экран копий — та же строка", _auto(boss)["alert"], want)
-            med, rec = login("2222"), login("4444")
-            res.ok("врач строки не видит", not shell_signal(med.get("/admin").body, "backup")["shown"])
-            res.ok("регистратура строки не видит", not shell_signal(rec.get("/admin").body, "backup")["shown"])
+            for who, c in (("директор", boss), ("врач", login("2222")), ("регистратура", login("4444"))):
+                res.ok(f"{who}: на главной баннера нет — это настройка, не авария",
+                       not shell_signal(c.get("/admin").body, "backup")["shown"])
+            for path in ("/admin/settings/system", "/admin/settings/backup"):
+                res.ok(f"{path}: баннер каркаса строку экрана не дублирует",
+                       not shell_signal(boss.get(path).body, "backup")["shown"])
 
             r = boss.post_json("/api/settings/backup/auto", {"folder": str(dest), "password": PW})
             res.check("папка выбрана", r.msg, "ok_bkp_auto")
             res.ok("первый архив сделан", _wait(lambda: _ext(dest)))
-            res.ok("с папкой строка гаснет",
-                   _wait(lambda: not shell_signal(boss.get("/admin").body, "backup")["shown"]))
-            sysd = _j(boss.get("/api/settings/system"))["data"]["backup"]
-            res.ok("Stare sistem — снова ok", sysd["tone"] == "ok" and not sysd["alert"], repr(sysd))
+            sysd = _wait(lambda: (lambda b: b if b["tone"] == "ok" else None)(
+                _j(boss.get("/api/settings/system"))["data"]["backup"]))
+            res.ok("с папкой строка гаснет, Stare sistem — снова ok", bool(sysd) and not sysd["alert"],
+                   repr(sysd))
+            res.check("экран копий — строки нет", _auto(boss)["alert"], "")
 
             r = boss.post_json("/api/settings/backup/auto", {"folder": "", "password": ""})
             res.check("папку сняли", r.msg, "ok_bkp_off")
-            res.ok("без папки строка вернулась",
-                   shell_signal(boss.get("/admin").body, "backup")["shown"])
+            sysd = _j(boss.get("/api/settings/system"))["data"]["backup"]
+            res.ok("без папки строка вернулась", sysd["tone"] == "warn" and sysd["alert"] == want, repr(sysd))
+            res.ok("и баннера на главной по-прежнему нет",
+                   not shell_signal(boss.get("/admin").body, "backup")["shown"])
             r = boss.post_json("/api/settings/backup/auto", {"enabled": False})
-            res.ok("выключенная суточная копия молчит и без папки",
-                   r.msg == "ok_bkp_stop" and not shell_signal(boss.get("/admin").body, "backup")["shown"],
-                   r.msg)
+            res.ok("выключенная суточная копия без папки строку не пишет",
+                   r.msg == "ok_bkp_stop" and _auto(boss)["alert"] == "", r.msg)
     finally:
         _rmtree_settled(d)
         _rmtree_settled(dest)

@@ -20,8 +20,8 @@
    вставят, папку подключат.
 3. **Программа помнит дату последней удачной внешней копии** (`schema_meta`,
    `backup_ext_ok_at`) и показывает её ФАКТОМ в Setări › Copie de rezervă и в
-   Stare sistem. Старше STALE_DAYS или не удалась — баннер; папки нет
-   вовсе — тоже баннер (02.11: все копии на одном диске с картотекой).
+   Stare sistem. Старше STALE_DAYS или не удалась — баннер. Папки нет
+   вовсе — строка только на экранах копий (`line()`), не баннер (02.11).
 
 Пароль внешней копии живёт в `dental.env` под DPAPI (как токен бота):
 `password()` отличает «не задан» («») от «не читается на этой машине»
@@ -350,19 +350,16 @@ def ext_stale(now: datetime | None = None) -> bool:
 
 
 def alert() -> str:
-    """Текст янтарной строки директору; пусто — всё в порядке. Выключенная
-    суточная копия молчит: директор выключил её сам (`enabled`).
-    Папки вне компьютера нет — тоже строка (02.11): до того `alert()`
-    молчал, Stare sistem светился `ok`, а все копии жили на одном диске с
-    картотекой. Слова — в `MSG_BANNER` (`bkp_no_offsite`); `layout`
-    импортирует этот модуль, поэтому обратный импорт — внутри функции."""
+    """Текст янтарного БАННЕРА директору — авария копии; пусто — всё в
+    порядке. Выключенная суточная копия молчит: директор выключил её сам
+    (`enabled`). Папка вне компьютера не выбрана — не авария, а настройка:
+    её называет `line()` на экранах копий, не баннер."""
     if not enabled():
         return ""
     if _s["local_err"]:
         return f"Copia de rezervă zilnică nu s-a făcut: {_s['local_err']}"
     if not folder():
-        from . import layout
-        return layout.msg_text("bkp_no_offsite")
+        return ""
     if _s["ext_err"]:
         return f"Copia de rezervă externă nu s-a făcut: {_s['ext_err']}"
     if ext_stale():
@@ -372,6 +369,22 @@ def alert() -> str:
         days = (_now() - ok).days
         return f"Ultima copie de rezervă externă are {days} zile ({_fmt(ok)})"
     return ""
+
+
+def line() -> str:
+    """Янтарная строка ЭКРАНОВ копий (Stare sistem, Copie de rezervă, плитка
+    хаба): авария (`alert`) или — 02.11, разбор коллеги — папки вне
+    компьютера нет, и все копии живут на одном диске с картотекой. До того
+    экраны молчали, а Stare sistem светился `ok`. Баннером каркаса это НЕ
+    идёт (Олег 02.11: «эта надпись должна быть только в настройках, на
+    главном экране это каждый день не нужно видеть»). Слова — в
+    `MSG_BANNER` (`bkp_no_offsite`); `layout` импортирует этот модуль,
+    поэтому обратный импорт — внутри функции."""
+    txt = alert()
+    if txt or not enabled() or folder():
+        return txt
+    from . import layout
+    return layout.msg_text("bkp_no_offsite")
 
 
 def state() -> dict:
@@ -396,5 +409,5 @@ def state() -> dict:
         "ext_stale": ext_stale(),
         "stale_days": STALE_DAYS,
         "keep": KEEP_EXT,
-        "alert": alert(),
+        "alert": line(),
     }
