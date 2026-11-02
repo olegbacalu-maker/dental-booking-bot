@@ -51,7 +51,7 @@ import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
 
-from . import config, db, license, mail
+from . import config, db, license, mail, payments
 
 MODE_AUTO, MODE_APPROVE = "auto", "approve"
 # clinics.origin: откуда пришла заявка — форма /proba, программа, кабинет (вход Google, 01.10),
@@ -199,6 +199,33 @@ def device_owner(con: sqlite3.Connection, device: dict | None) -> sqlite3.Row | 
         return None
     return con.execute("SELECT c.* FROM devices d JOIN clinics c ON c.id = d.clinic_id "
                        "WHERE d.id=? AND c.declined_at IS NULL", (device["id"],)).fetchone()
+
+
+def unpaid_trial(con: sqlite3.Connection, clinic_id: str) -> bool:
+    """Пробный (или заявка без подписки), за который не заплачено ни разу — ни своей нотой, ни
+    строкой общей ноты кабинета. Филиал из «Adaugă clinică» (plan не trial) сюда не входит."""
+    sub = con.execute("SELECT plan FROM subscriptions WHERE clinic_id=?", (clinic_id,)).fetchone()
+    if sub is not None and sub["plan"] != "trial":
+        return False
+    return con.execute("SELECT 1 FROM payments WHERE status=? AND (clinic_id=? OR id IN "
+                       "(SELECT payment_id FROM payment_lines WHERE clinic_id=?)) LIMIT 1",
+                       (payments.PAID, clinic_id, clinic_id)).fetchone() is None
+
+
+def device_kept(con: sqlite3.Connection, clinic: sqlite3.Row, device: dict | None, ip: str,
+                who: str = "program") -> sqlite3.Row | None:
+    """Код (/v1/verify) открыл `clinic`, а компьютер во флоте у ДРУГОЙ клиники → та клиника, если
+    переносить нельзя, иначе None (02.11, Олег «Да, закрыть»): новый ящик через /proba или кабинет
+    и код в программе дали бы компьютеру чужой клиники второй пробный. Нельзя — только к
+    неоплаченному пробному; платная клиника, своя, скрытая заявка-владелец, компьютер без флота —
+    как раньше. Отказ — строкой журнала, как у заявки (DEVICE_TAKEN)."""
+    owner = device_owner(con, device)
+    if owner is None or owner["id"] == clinic["id"] or not unpaid_trial(con, clinic["id"]):
+        return None
+    db.audit(con, who, "trial_duplicate", None,
+             f"reason=device: код к пробному {clinic['id']} ({clinic['name']}), {ip} — компьютер {device['id']} "
+             f"уже у {owner['id']} ({owner['name']}), перенос отказан")
+    return owner
 
 
 # ---------- заявка ----------

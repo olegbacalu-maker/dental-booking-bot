@@ -407,6 +407,11 @@ TRIAL_MSG = {
     "device_taken": "Acest calculator este deja legat de o clinică înregistrată la DentPilot. Dacă este clinica "
                     "dvs., introduceți mai jos IDNO-ul sau e-mailul ei — vă trimitem un cod de activare. "
                     "Altfel, scrieți-ne.",
+    # 02.11: код открыл неоплаченный пробный, а компьютер — у другой клиники (trial.device_kept);
+    # на экране кода подсказка «introduceți IDNO» не к месту — только контакт
+    "device_kept": "Acest calculator este deja legat de o clinică înregistrată la DentPilot, iar perioada de "
+                   f"probă a altei clinici nu se poate activa pe el. Scrieți-ne: {config.SUPPORT_EMAIL}, "
+                   f"{config.SUPPORT_PHONE}.",
     "bad_code": "Codul nu este corect sau a expirat — verificați e-mailul sau trimiteți din nou "
                 "cererea pentru un cod nou.",
     "code_limited": "Prea multe încercări — încercați peste o oră sau scrieți-ne.",

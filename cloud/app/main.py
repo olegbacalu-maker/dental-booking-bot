@@ -705,6 +705,8 @@ def _verify_program(vid: str, code: str, ip: str, ident: dict | None = None,
             clinic = trial.check_code(con, vid, code, ip)
         if clinic is None:
             return "", None
+        if trial.device_kept(con, clinic, ident, ip) is not None:
+            return trial.DEVICE_TAKEN, None       # не токен: маршрут отвечает 409 (код уже погашен)
         fleet.touch(con, clinic["id"], ident)
         act = (terms.view(terms.record(con, clinic["id"], accept[0], accept[1], terms.SRC_VERIFY, ip, ident))
                if accept[0] else None)
@@ -734,6 +736,8 @@ async def trial_verify(request: Request) -> Response:
                                           terms.from_body(body)) if vid and code else ("", None))
     if not token:
         return _api_err("bad_code", 400)
+    if token == trial.DEVICE_TAKEN:
+        return _api_err("device_kept", 409)
     out = {"ok": True, "url": license.renew_url(), "token": token}
     if act is not None:
         out["terms"] = act

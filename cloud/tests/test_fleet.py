@@ -206,3 +206,83 @@ def suite_device_taken(res: Result) -> None:
         st, d = trial("alta3@example.md", name="Clinica Alta")
         res.ok("скрытая заявка компьютер не держит: новая клиника заведена, компьютер переехал",
                st == 200 and d.get("token") and _devices(s)[0][1] != cid, f"{st} {d}")
+
+
+def _code_to(s: Server, to: str) -> str:
+    """Шестизначный код из последнего письма «codul de activare» на адрес `to`."""
+    import email
+    import email.policy
+    import re
+    for f in sorted(s.outbox.glob("*.eml"), reverse=True):
+        m = email.message_from_bytes(f.read_bytes(), policy=email.policy.default)
+        if to in str(m["To"]) and m["Subject"].startswith("DentPilot: codul de activare"):
+            hit = re.search(r"\b(\d{6})\b", m.get_body(preferencelist=("plain",)).get_content())
+            return hit.group(1) if hit else ""
+    return ""
+
+
+def suite_device_kept(res: Result) -> None:
+    """02.11 (Олег: «Да, закрыть»): компьютер пробной клиники не получает второй пробный обходом —
+    новый ящик через /proba (сайт, без компьютера) и код в программе (/v1/verify). Отказ 409 словами,
+    которые программа показывает на экране кода (провод bot/app/core/license_renew.py); своя клиника и
+    платная — как раньше. Заявок здесь пять — лимит с адреса (trial.MAX_PER_HOUR)."""
+    from app import views  # noqa: E402 — текст отказа
+    rn = load_by_path("license_renew", ROOT / "bot" / "app" / "core" / "license_renew.py")
+    extra = {k: v for k, v in _hdr().items() if k != "User-Agent"}
+    with Server(env={"DP_TRIAL_MODE": "auto", "DP_TRIAL_NOTIFY": "oleg@example.md"}) as s:
+        anon = Client(s.url)
+
+        def trial(email_: str, name: str) -> dict:
+            out, data = rn.request_trial(s.url + "/v1/trial", {"name": name, "idno": "", "contact_name": "X",
+                                                               "email": email_, "phone": "", "consent": "1"},
+                                         extra=extra, agent="DentPilot/2.7.0")
+            return data
+
+        def verify(vid: str, to: str) -> tuple[str, dict]:
+            return rn.verify_code(s.url + "/v1/verify", vid, _code_to(s, to), extra=extra, agent="DentPilot/2.7.0")
+
+        trial("a@example.md", "Clinica A")
+        a = _sql(s, "SELECT id FROM clinics WHERE email='a@example.md'")[0][0]
+        res.ok("компьютер у пробной клиники A", _devices(s)[0][:2] == (DEV1, a), _devices(s))
+        r = anon.post("/proba", name="Clinica B", idno="", contact_name="X", email="b@example.md", phone="",
+                      consent="1")
+        b = _sql(s, "SELECT id FROM clinics WHERE email='b@example.md'")
+        res.ok("сайт: новый пробный B на новый ящик (без компьютера)", r.status == 200 and len(b) == 1, r.status)
+        b = b[0][0] if b else ""
+        vid = trial("b@example.md", "Clinica B").get("verify_id", "")
+        out, data = verify(vid, "b@example.md")
+        res.ok("код B на компьютере A: REJECTED словами device_kept (экран кода, не «нет связи»), без токена",
+               out == rn.REJECTED and data.get("text") == views.TRIAL_MSG["device_kept"] and "token" not in data,
+               f"{out} {data}")
+        res.ok("…компьютер остался у A, в журнале reason=device с обеими клиниками",
+               _devices(s)[0][:2] == (DEV1, a)
+               and any(why.startswith("reason=device") and a in why and b in why for why, in
+                       _sql(s, "SELECT detail FROM audit WHERE what='trial_duplicate' AND clinic_id IS NULL")))
+        res.ok("текст на экране кода не зовёт вводить IDNO и даёт контакт",
+               "IDNO" not in views.TRIAL_MSG["device_kept"] and "@" in views.TRIAL_MSG["device_kept"])
+        vid = trial("a@example.md", "Clinica A").get("verify_id", "")
+        out, data = verify(vid, "a@example.md")
+        res.ok("своя клиника: код A на компьютере A — токен, как раньше", out == rn.ACCEPTED and data.get("token"),
+               f"{out} {data}")
+        _sql(s, "UPDATE subscriptions SET plan='standard' WHERE clinic_id=?", b)
+        vid = trial("b@example.md", "Clinica B").get("verify_id", "")
+        out, data = verify(vid, "b@example.md")
+        res.ok("платная клиника B: код на компьютере A — токен, компьютер переехал (device_moved), как раньше",
+               out == rn.ACCEPTED and data.get("token") and _devices(s)[0][:2] == (DEV1, b), f"{out} {data}")
+        # «ни одной оплаты» — своей нотой или строкой общей ноты кабинета (чистая функция, без commit)
+        from app import trial  # noqa: E402
+        con = sqlite3.connect(s.dir / "cloud.db")
+        con.row_factory = sqlite3.Row
+        try:
+            now = "2026-11-02T10:00:00Z"
+            con.execute("INSERT INTO payments(clinic_id, amount, method, status, reference, created_at) "
+                        "VALUES(?, 400, 'transfer', 'pending', 'T-1', ?)", (a, now))
+            pending = trial.unpaid_trial(con, a)
+            pid = con.execute("INSERT INTO payments(clinic_id, amount, method, status, reference, created_at) "
+                              "VALUES(?, 800, 'transfer', 'paid', 'T-2', ?)", (b, now)).lastrowid
+            con.execute("INSERT INTO payment_lines(payment_id, clinic_id, tier, months, amount) "
+                        "VALUES(?, ?, 'plus', 1, 400)", (pid, a))
+            res.ok("unpaid_trial: ожидающая нота — ещё не оплата; строка оплаченной общей ноты — оплата",
+                   pending is True and trial.unpaid_trial(con, a) is False)
+        finally:
+            con.close()
