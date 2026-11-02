@@ -1351,7 +1351,8 @@ def suite_lan_guard(res: Result) -> None:
         r = subprocess.run([str(PYTHON), str(pathlib.Path(__file__).resolve()),
                             "worker-lan-guard", str(base)],
                            capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=180, env=dict(os.environ))
+                           errors="replace", timeout=180,
+                           env=dict(os.environ, PYTHONIOENCODING="utf-8"))
         got = dict(line.split(" ", 1) for line in (r.stdout or "").splitlines()
                    if " " in line)
         if not res.ok("проба поднялась", r.returncode == 0 and "loop_free" in got,
