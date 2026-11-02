@@ -289,6 +289,8 @@ Source: "demo.flag"; DestDir: "{app}"; Tasks: demodata; Flags: ignoreversion
 ; на обновляемой Windows он есть всегда, и лишние 1.6 МБ возить незачем.
 Source: "MicrosoftEdgeWebView2Setup.exe"; DestDir: "{tmp}"; \
     Flags: deleteafterinstall; Check: WebView2Missing
+; Сужение правил брандмауэра — строка [Run] с этим файлом (разбор там).
+Source: "firewall-narrow.ps1"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Icons]
 ; ⛔ AppUserModelID — на ОБОИХ ярлыках: уведомления оболочки Windows показывает
@@ -319,17 +321,26 @@ Filename: "{tmp}\MicrosoftEdgeWebView2Setup.exe"; Parameters: "/silent /install"
     StatusMsg: "{cm:InstallingWebView2}"; Check: WebView2Missing; Flags: waituntilterminated
 ; Сеть клиники (02.11, lan-guard): разрешение брандмауэра — только из своей
 ; подсети. Кнопка «Acces din rețea» до 2.8.0 ставила правило «DentPilot» без
-; remoteip — журнал по http открывался из ЛЮБОЙ сети. Переписать его может
-; только администратор, а мастер им и идёт (обновление тоже ставится им):
-; `set rule` меняет ВСЕ правила с этим именем (по профилям — тоже). Правила
-; нет (чистая установка, сеть не включали) — netsh отвечает отказом, и это не
-; ошибка: код возврата [Run] не проверяет, установка не падает. Без
+; remoteip, окно «Разрешить доступ» самой Windows ставит так же — журнал по
+; http открывался из ЛЮБОЙ сети. Переписать правило может только
+; администратор, а мастер им и идёт (обновление тоже ставится им).
+; ⛔ Не netsh (2.8.0: `set rule name="DentPilot" … new remoteip=localsubnet`
+; на канарейке вернул 1 и не сузил ничего). netsh `set` выбирает правила
+; только по имени, а правила окна Windows зовутся описанием exe («DentPilot —
+; registrul…») и ставятся на программу. Скрипт идёт по правилам COM-объектом
+; брандмауэра (как `netcheck`) и сужает входящие РАЗРЕШЕНИЯ с адресом «*» — по
+; имени кнопки (без регистра: старое «dentpilot» окна Windows тоже) и по
+; программе: движку И оболочке. Правила оболочки — наследство 1.x, когда
+; DentPilot.exe был сервером; сама оболочка ничего не слушает, но удалять
+; чужое (их ставил щелчок директора) незачем — суженное безвредно. Запреты,
+; чужие программы, уже суженные — не трогает.
+; Отказ ничего не валит: код возврата [Run] не проверяет (в журнале установки
+; виден: 0 / 2 часть не сузилась / 3 брандмауэр не ответил). Без
 ; skipifsilent: обновление идёт тихо, а сузить надо именно у обновляющихся.
-; ⚠️ Имя — то же, что `lan.FIREWALL_RULE` (сверяет test_installer). Правило,
-; которое завело окно «Разрешить доступ» самой Windows, зовётся иначе, и `set`
-; по программе netsh не умеет (имя «all» в set запрещено) — его видит и чинит
-; кнопкой экран сети (`netcheck.wide`).
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall set rule name=""DentPilot"" dir=in new remoteip=localsubnet"; \
+; ⚠️ Имя — то же, что `lan.FIREWALL_RULE`; скрипт — только ASCII (держит
+; test_installer).
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; \
+    Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{tmp}\firewall-narrow.ps1"" -Name ""DentPilot"" -Engine ""{app}\{#EngineDir}\{#EngineExe}"" -Shell ""{app}\{#AppExeName}"""; \
     Flags: runhidden waituntilterminated skipifdoesntexist
 ; ⛔ runasoriginaluser обязателен. Без него [Run] наследует ПОВЫШЕННЫЙ токен,
 ; и первый запуск идёт от администратора: файлы в папке данных создаются не той

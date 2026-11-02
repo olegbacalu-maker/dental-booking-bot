@@ -549,7 +549,7 @@ SUITES = [
     ("P3-min: первый запуск и блокировка", test_installer.suite_first_run),
     ("P3-min: комментарии Pascal", test_installer.suite_pascal_comments),
     ("Tauri: мастер ставит оболочку и движок папкой, ярлыки с паспортом", test_installer.suite_tauri_layout),
-    ("Сеть: мастер сужает правило брандмауэра стоящих установок",
+    ("Сеть: мастер сужает правила брандмауэра стоящих установок",
      test_installer.suite_firewall_narrow),
     ("P3-min: установщик компилируется", test_installer.suite_compiles),
     ("Зашифрованный бэкап клиники",test_privacy.suite_backup),

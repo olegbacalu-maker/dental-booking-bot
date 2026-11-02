@@ -231,7 +231,7 @@ if (-not (Test-Path $setup)) { Fail "ISCC ne sozdal $setup" }
 
 # Sostav mastera - po ego zhe zhurnalu sborki ("Compressing: <fail>"), bez
 # zapuska: KAZHDYI fail papki programmy vnutri, i nichego, krome nee i dvuh
-# izvestnyh (demo.flag, zagruzchik WebView2). Poteryannyi _internal\ ili lishnii
+# izvestnyh (demo.flag, zagruzchik WebView2, skript suzheniya brandmauera). Poteryannyi _internal\ ili lishnii
 # staryi exe v dist inache uvidela by tolko klinika.
 # !! U faila BEZ ignoreversion ISCC dopisyvaet versiyu: "...Setup.exe   (1.3.251.23)".
 $packed = @($isccOut | Where-Object { $_ -match '^\s*Compressing:\s+(.+?)(\s+\([\d.]+\))?\s*$' } |
@@ -240,10 +240,10 @@ $progFull = [IO.Path]::GetFullPath("$PSScriptRoot\$prog")
 $want = @(Get-ChildItem $prog -Recurse -File | ForEach-Object { $_.FullName })
 $missing = @($want | Where-Object { $packed -notcontains $_ })
 $extra = @($packed | Where-Object { -not $_.StartsWith($progFull + "\", [StringComparison]::OrdinalIgnoreCase) } |
-           Where-Object { @("demo.flag", "MicrosoftEdgeWebView2Setup.exe") -notcontains (Split-Path $_ -Leaf) })
+           Where-Object { @("demo.flag", "MicrosoftEdgeWebView2Setup.exe", "firewall-narrow.ps1") -notcontains (Split-Path $_ -Leaf) })
 if ($missing.Count -gt 0) { Fail ("v mastere net $($missing.Count) failov programmy, naprimer " + $missing[0]) }
 if ($extra.Count -gt 0) { Fail ("v master popalo chuzhoe: " + ($extra -join ", ")) }
-Write-Host ("   sostav mastera: {0} failov programmy (DentPilot.exe + engine\) + demo.flag + zagruzchik WebView2" -f $want.Count)
+Write-Host ("   sostav mastera: {0} failov programmy (DentPilot.exe + engine\) + demo.flag + zagruzchik WebView2 + firewall-narrow.ps1" -f $want.Count)
 
 if ($signOn -and (Get-AuthenticodeSignature -LiteralPath $setup).Status -ne "Valid") {
     Fail "master ustanovki ne podpisan: $((Get-AuthenticodeSignature -LiteralPath $setup).Status)"

@@ -329,17 +329,23 @@ def suite_tauri_layout(res: Result) -> None:
         res.ok(f"порча «{label}» — находка", broken != s and any(want in b for b in got),
                f"находки: {got}" if broken != s else "порча не применилась — якорь устарел")
 
-def suite_firewall_narrow(res: Result) -> None:
-    """Мастер сужает правило брандмауэра стоящих установок (02.11, lan-guard).
+NARROW_PS1 = ISS.parent / "firewall-narrow.ps1"
 
-    Кнопка «Acces din rețea» до 2.8.0 ставила правило без `remoteip` — журнал
-    по http открывался из ЛЮБОЙ сети. Сузить его без UAC может только мастер
-    (он от администратора, обновление тоже ставится им). Здесь — текст строки
-    `[Run]`: имя правила то же, что у кнопки (`lan.FIREWALL_RULE`, иначе мастер
-    сузит пустоту, а netsh молча ответит «нет такого правила»), тихое
-    обновление её не пропускает, окно не мигает, а кнопка ставит новое правило
-    тоже только из своей подсети. ⚠️ Сам netsh здесь не исполняется: правила
-    брандмауэра машины прогон не трогает — живая проверка на канарейке."""
+
+def suite_firewall_narrow(res: Result) -> None:
+    """Мастер сужает правила брандмауэра стоящих установок (02.11, lan-guard).
+
+    Кнопка «Acces din rețea» до 2.8.0 ставила правило без `remoteip`, окно
+    «Разрешить доступ» самой Windows ставит так же — журнал по http
+    открывался из ЛЮБОЙ сети. Сузить без UAC может только мастер (он от
+    администратора, обновление тоже ставится им). 2.8.0 делал это строкой
+    netsh `set rule name=…` — на канарейке она вернула 1 и не сузила ничего,
+    а правила окна Windows по имени не находятся вовсе. Теперь —
+    `installer/firewall-narrow.ps1` (COM-объект брандмауэра, как `netcheck`).
+    Здесь: строка `[Run]` (имя = `lan.FIREWALL_RULE`, движок и оболочка теми
+    же именами, что кладёт `[Files]`, тихое обновление её не пропускает) и
+    сам скрипт на ПОДСТАВНЫХ правилах. ⚠️ Правила брандмауэра машины прогон
+    не трогает — живое сужение проверено опытом на тестовом правиле."""
     import ast
     lan_src = (BOT / "app" / "modules" / "settings" / "lan.py").read_text(encoding="utf-8")
     rule = next((n.value.value for n in ast.parse(lan_src).body
@@ -349,26 +355,143 @@ def suite_firewall_narrow(res: Result) -> None:
     if not res.ok("lan.FIREWALL_RULE нашлось", isinstance(rule, str) and bool(rule),
                   "имя правила кнопки не найдено — сверять мастер не с чем"):
         return
-    run = section(_src(), "Run")
-    lines = [ln for ln in run.replace("\\\r\n", " ").replace("\\\n", " ").splitlines()
-             if not ln.lstrip().startswith(";") and "netsh" in ln.lower()]
-    res.ok("в [Run] одна строка netsh", len(lines) == 1, " | ".join(lines) or "строки нет")
-    if len(lines) != 1:
+    if not res.ok("скрипт сужения на месте", NARROW_PS1.exists(), str(NARROW_PS1)):
         return
-    ln = lines[0]
-    res.ok("сужает правило с именем кнопки",
-           f'name=""{rule}""' in ln and "set rule" in ln, ln)
-    res.ok("только входящие и только из своей подсети",
-           "dir=in" in ln and "new remoteip=localsubnet" in ln, ln)
+    raw = NARROW_PS1.read_bytes()
+    # Windows PowerShell 5.1 читает файл без BOM в кодировке ANSI: кириллица
+    # в комментарии ещё переживёт, а байт 0x93 («Г» в UTF-8) там — кавычка.
+    res.ok("скрипт сужения — только ASCII", all(b < 128 for b in raw),
+           "не-ASCII байт в firewall-narrow.ps1")
+    s = _src()
+    files = section(s, "Files")
+    res.ok("[Files] кладёт скрипт во временную папку мастера",
+           'Source: "firewall-narrow.ps1"; DestDir: "{tmp}"' in files, files[-300:])
+    # Сверка состава мастера в сборке отказывает всему вне папки программы,
+    # кроме названных поимённо: без строки там сборка выпуска встала бы.
+    build = (BOT.parent / "Build-Installer.ps1").read_text(encoding="utf-8-sig")
+    res.ok("сборка знает скрипт в составе мастера", f'"{NARROW_PS1.name}")' in build,
+           "Build-Installer.ps1: нет в списке известных файлов мастера")
+    run = section(s, "Run")
+    lines = [ln for ln in run.replace("\\\r\n", " ").replace("\\\n", " ").splitlines()
+             if not ln.lstrip().startswith(";")]
+    res.ok("в [Run] нет netsh",
+           not any("netsh" in ln.lower() for ln in lines),
+           " | ".join(ln for ln in lines if "netsh" in ln.lower()))
+    mine = [ln for ln in lines if "firewall-narrow.ps1" in ln]
+    res.ok("в [Run] одна строка сужения", len(mine) == 1, " | ".join(mine) or "строки нет")
+    if len(mine) != 1:
+        return
+    ln = mine[0]
+    res.ok("64-битный PowerShell из системы",
+           'Filename: "{sys}\\WindowsPowerShell\\v1.0\\powershell.exe"' in ln, ln)
+    res.ok("скрипт — из временной папки, без профиля и политики",
+           '-File ""{tmp}\\firewall-narrow.ps1""' in ln and "-NoProfile" in ln
+           and "-ExecutionPolicy Bypass" in ln, ln)
+    res.ok("имя — то же, что у кнопки", f'-Name ""{rule}""' in ln, ln)
+    res.ok("программы — движок и оболочка",
+           '-Engine ""{app}\\{#EngineDir}\\{#EngineExe}""' in ln
+           and '-Shell ""{app}\\{#AppExeName}""' in ln, ln)
     flags = ln.split("Flags:", 1)[1] if "Flags:" in ln else ""
     res.ok("тихое обновление не пропускает строку", "skipifsilent" not in flags, flags)
-    res.ok("без окна консоли и дожидаясь netsh",
+    res.ok("без окна консоли и дожидаясь скрипта",
            "runhidden" in flags and "waituntilterminated" in flags, flags)
     res.ok("не от исходной учётки — нужен администратор",
            "runasoriginaluser" not in flags, flags)
     add = lan_src[lan_src.find("add rule"):lan_src.find("add rule") + 300]
     res.ok("кнопка ставит правило тоже только из своей подсети",
            "add rule" in lan_src and "remoteip=localsubnet" in add, add[:200])
+    _narrow_behaviour(res, rule)
+
+
+# Подставные правила (поля INetFwRule). Ожидание — RemoteAddresses после прогона.
+_ENGINE = r"C:\DP-test\DentPilot\engine\DentPilot-Engine.exe"
+_SHELL = r"C:\DP-test\DentPilot\DentPilot.exe"
+_FAKE = [
+    # (что, правило, ожидаемые адреса)
+    ("своё правило кнопки до 2.8.0",
+     dict(Name="DentPilot", ApplicationName=_ENGINE, Direction=1, Action=1,
+          RemoteAddresses="*", EdgeTraversalOptions=0), "LocalSubnet"),
+    ("старое «dentpilot» окна Windows (имя без регистра, старый путь)",
+     dict(Name="dentpilot", ApplicationName=r"C:\users\public\dentpilot\dentpilot.exe",
+          Direction=1, Action=1, RemoteAddresses="*", EdgeTraversalOptions=2), "LocalSubnet"),
+    ("окно Windows на движок (чужое имя, путь в нижнем регистре)",
+     dict(Name="DentPilot - registrul", ApplicationName=_ENGINE.lower(), Direction=1,
+          Action=1, RemoteAddresses="*", EdgeTraversalOptions=2), "LocalSubnet"),
+    ("окно Windows на оболочку (путь через переменную окружения)",
+     dict(Name="DentPilot - registrul", ApplicationName=r"%DP_FW_TEST_ROOT%\DentPilot.exe",
+          Direction=1, Action=1, RemoteAddresses="*", EdgeTraversalOptions=2), "LocalSubnet"),
+    ("пустые адреса на движке",
+     dict(Name="x", ApplicationName=_ENGINE, Direction=1, Action=1,
+          RemoteAddresses="", EdgeTraversalOptions=0), "LocalSubnet"),
+    ("запрет на движок не трогается",
+     dict(Name="DentPilot", ApplicationName=_ENGINE, Direction=1, Action=0,
+          RemoteAddresses="*", EdgeTraversalOptions=0), "*"),
+    ("исходящее не трогается",
+     dict(Name="DentPilot", ApplicationName=_ENGINE, Direction=2, Action=1,
+          RemoteAddresses="*", EdgeTraversalOptions=0), "*"),
+    ("чужая программа не трогается",
+     dict(Name="Other", ApplicationName=r"C:\DP-test\Other\other.exe", Direction=1,
+          Action=1, RemoteAddresses="*", EdgeTraversalOptions=0), "*"),
+    ("свой список адресов не трогается",
+     dict(Name="DentPilot", ApplicationName=_ENGINE, Direction=1, Action=1,
+          RemoteAddresses="192.168.7.0/255.255.255.0", EdgeTraversalOptions=0),
+     "192.168.7.0/255.255.255.0"),
+]
+
+_NARROW_RUN = r"""
+$ErrorActionPreference = 'Stop'
+# PowerShell 5.1 отдаёт массив JSON ОДНИМ объектом — разворачиваем
+$rules = @(); foreach ($x in ($env:DP_FW_FAKE | ConvertFrom-Json)) { $rules += $x }
+if ($env:DP_FW_THROW) {
+  $rules[0] | Add-Member -Force -MemberType ScriptProperty -Name RemoteAddresses `
+    -Value { '*' } -SecondValue { throw 'denied' }
+}
+$a = @{ Rules = $rules; Name = $env:DP_FW_NAME; Engine = $env:DP_FW_ENGINE; Shell = $env:DP_FW_SHELL }
+if ($env:DP_FW_DRY) { $a.DryRun = $true }
+$out = @(& $env:DP_FW_PS1 @a)
+$code = $LASTEXITCODE
+[pscustomobject]@{ code = $code; out = $out;
+  r = @($rules | ForEach-Object { [string]$_.RemoteAddresses });
+  e = @($rules | ForEach-Object { [int]$_.EdgeTraversalOptions }) } | ConvertTo-Json -Compress
+"""
+
+
+def _narrow_run(rule: str, **env) -> dict | None:
+    e = dict(os.environ, DP_FW_FAKE=json.dumps([r for _, r, _ in _FAKE]),
+             DP_FW_NAME=rule, DP_FW_ENGINE=_ENGINE, DP_FW_SHELL=_SHELL,
+             DP_FW_PS1=str(NARROW_PS1), DP_FW_TEST_ROOT=r"C:\DP-test\DentPilot", **env)
+    try:
+        r = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive",
+                            "-ExecutionPolicy", "Bypass", "-Command", _NARROW_RUN],
+                           capture_output=True, timeout=60, env=e)
+    except (OSError, subprocess.TimeoutExpired) as ex:
+        return {"error": repr(ex)}
+    try:
+        return json.loads(r.stdout.decode("utf-8", "replace").strip())
+    except ValueError:
+        return {"error": (r.stdout + r.stderr).decode("utf-8", "replace")[-600:]}
+
+
+def _narrow_behaviour(res: Result, rule: str) -> None:
+    if os.name != "nt":
+        print("  SKIP поведение firewall-narrow.ps1: нужен Windows PowerShell")
+        return
+    d = _narrow_run(rule)
+    if not res.ok("скрипт отработал на подставных правилах", d and "r" in d, str(d)):
+        return
+    for (what, _, want), got in zip(_FAKE, d["r"]):
+        res.ok(f"сужение: {what}", got == want, f"{got!r}, ждали {want!r}")
+    res.ok("edge traversal окна Windows снят у суженных",
+           all(e == 0 for e, (_, _, w) in zip(d["e"], _FAKE) if w == "LocalSubnet"), str(d["e"]))
+    res.ok("код 0, по строке на суженное",
+           d["code"] == 0 and len(d["out"] or []) == 5, f"{d['code']} {d['out']}")
+    d = _narrow_run(rule, DP_FW_DRY="1")
+    res.ok("-DryRun ничего не меняет и называет пять",
+           d and d.get("r") == [r["RemoteAddresses"] for _, r, _ in _FAKE]
+           and len(d.get("out") or []) == 5, str(d))
+    d = _narrow_run(rule, DP_FW_THROW="1")
+    res.ok("отказ одного правила: код 2, остальные сужены",
+           d and d.get("code") == 2 and d["r"][1:5] == ["LocalSubnet"] * 4, str(d))
 
 
 
