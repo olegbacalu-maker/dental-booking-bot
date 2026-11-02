@@ -464,6 +464,12 @@ def suite_faq(res: Result) -> None:
         win = next((it["answer"] for it in d["items"] if "×" in it["question"]), "")
         res.ok("окно ×: названы выход значка и галочка автозапуска",
                "Ieșire din DentPilot" in win and "Pornește DentPilot odată cu Windows" in win, win[:300])
+        # lan-guard (2.8.0): вход по сети — имя и PIN; опасное — только с ПК
+        # программы, одни слова в ответе о двух ПК и в отдельном вопросе
+        net = next((it["answer"] for it in d["items"] if "al doilea calculator" in it["question"]), "")
+        res.ok("сеть: вход — имя из списка и PIN, опасное — только с ПК программы",
+               "alegeți-vă numele din listă" in lan and "doar pe calculatorul" in lan
+               and "copia de rezervă pe stick" in net.lower(), net[:300])
         term = next((it["answer"] for it in d["items"] if "perioada de probă" in it["question"]), "")
         res.ok("конец срока без лицензии: без строки «этот компьютер»",
                bool(term) and "Pe acest calculator" not in term, term[:200])

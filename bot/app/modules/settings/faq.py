@@ -58,6 +58,24 @@ BL_ADVICE = (
 )
 
 
+# Этап 1 (2.8.0). Что из сети только читается (`lan-guard`: опасные маршруты —
+# только с ПК программы, `client_is_local`): одна строка на абзац двух ПК, ответ
+# «со второго ПК» и оговорки восстановления и шифрования — слова одни.
+LOCAL_ONLY = ("copia de rezervă pe stick, restaurarea din copie, criptarea și foaia "
+              "ei de recuperare, utilizatorii")
+# ⚠️ ЧЕРНОВИКИ этапа 1: точные слова `backup-offsite` и `local-orders` придут при
+# посадке их веток — меняется по строке здесь, а не текст ответа.
+# Сколько копий на этом ПК. При посадке `backup-offsite` → «se păstrează câte una
+# pentru fiecare din ultimele {autobackup.KEEP_DAYS} zile cu copii și ultimele
+# {autobackup.KEEP_RECENT} copii» (слова сессии), переходное `KEEP` снять.
+KEEP_LOCAL = f"se păstrează ultimele {autobackup.KEEP}"
+# Что видит директор после восстановления или расшифровки (`local-orders`)
+AFTER_ORDER = "directorul vede la pornire un banner despre ea"
+# Заказ из другой учётки Windows (`local-orders`: подпись ключом владельца)
+OTHER_ACCOUNT = ("cererea făcută din alt cont Windows al calculatorului nu se "
+                 "execută")
+
+
 def _q(icon: str, question: str, answer: str) -> dict:
     """Одна запись справки: имя иконки (из layout._I), вопрос, ответ HTML-ом.
     JSON API отдаёт её как есть; потолок ширины карточки — правило `.dp-faq`
@@ -215,7 +233,9 @@ def entries() -> list[dict]:
            f"vedeți <b>Ultima copie</b> (când și unde) și copiile făcute, pe zile; "
            f"dacă o copie nu s-a făcut sau cea din folder are "
            f"{backup_loop.STALE_DAYS} zile ori mai mult, directorul vede un "
-           f"avertisment pe fiecare ecran.{end}"
+           f"avertisment pe fiecare ecran. Dacă folderul din afara calculatorului "
+           f"nu este ales, o spun <b>Stare sistem</b> și ecranul <b>Copie de "
+           f"rezervă</b>.{end}"
            f"{p}Întrerupătorul îl decide directorul. <b>Oprit</b>, programul face "
            f"doar copia de la pornire, pe acest calculator, și nu mai avertizează "
            f"nimic — folderul și parola rămân salvate pentru când îl porniți din "
@@ -231,7 +251,7 @@ def entries() -> list[dict]:
            f"notați-o într-un loc sigur. Fără ea, arhiva nu poate fi deschisă de "
            f"nimeni, nici de noi.{end}"
            f"{p}Pentru cine vrea detaliile: copiile de pe acest calculator stau în "
-           f"<b>data\\backups</b> (se păstrează ultimele {autobackup.KEEP}, criptate "
+           f"<b>data\\backups</b> ({KEEP_LOCAL}, criptate "
            f"ca și evidența), arhivele din folder se numesc "
            f"<b>{backup_loop.AUTO_PREFIX}…zip</b> (se păstrează ultimele "
            f"{backup_loop.KEEP_EXT}; arhivele exportate manual în același folder "
@@ -248,7 +268,8 @@ def entries() -> list[dict]:
         # не поставлен PIN и не активирована программа. После восстановления
         # auth.json едет из архива — вход старыми PIN.
         _q("refresh", "Cum restaurez evidența dintr-o copie?",
-           f"{p}Din program, în <b>Setări › Copie de rezervă › Restaurare din "
+           f"{p}Pe <b>calculatorul cu programul</b> (din rețea pagina doar se "
+           f"citește), în <b>Setări › Copie de rezervă › Restaurare din "
            f"copie</b> (secțiunea pliată de jos): alegeți după dată o copie de pe "
            f"acest calculator sau din folderul ales, ori scrieți calea unei "
            f"arhive de pe stick (cu parola ei), și apăsați <b>Verifică copia</b>. "
@@ -259,7 +280,8 @@ def entries() -> list[dict]:
            f"însuși, niciodată cu evidența deschisă. Baza de acum <b>nu se "
            f"șterge</b>: rămâne în folderul cu date sub numele "
            f"<b>dental.before-restore-&lt;data&gt;.db</b>, iar în Activitate "
-           f"recentă (Statistici) apare ce copie a fost restaurată. Dacă evidența "
+           f"recentă (Statistici) apare ce copie a fost restaurată, iar "
+           f"{AFTER_ORDER}. Dacă evidența "
            f"este criptată, copia este trecută automat sub cheia acestui "
            f"calculator — nu trebuie șters nimic.{end}"
            f"{p}Pe un calculator nou: instalați DentPilot și porniți-l. Programul "
@@ -372,6 +394,9 @@ def entries() -> list[dict]:
            f"deci tot ce descifrează programul descifrează și acea persoană. "
            f"Împotriva asta lucrează PIN-ul de intrare și blocarea ecranului "
            f"(Win+L), nu criptarea.{end}"
+           f"{p}Pornirea și oprirea criptării, ca și foaia de recuperare, se fac "
+           f"doar pe <b>calculatorul cu programul</b>, iar {OTHER_ACCOUNT}. "
+           f"Criptarea începe la următoarea pornire a programului.{end}"
            f"{p}Se poate opri oricând: <b>«Oprește criptarea»</b> pe aceeași "
            f"pagină, cu o repornire. Datele nu se pierd.{end}"),
 
@@ -411,7 +436,8 @@ def entries() -> list[dict]:
            f"<li>Tot pe acea pagină scrie <b>adresa</b>, de forma "
            f"<b>http://192.168.0.15:8088/admin</b>. Notați-o.</li>"
            f"<li>Pe <b>al doilea calculator</b>: deschideți Chrome sau Edge, "
-           f"scrieți adresa, intrați cu PIN-ul dumneavoastră. Salvați-o la "
+           f"scrieți adresa, alegeți-vă numele din listă și intrați cu "
+           f"PIN-ul dumneavoastră. Salvați-o la "
            f"favorite — sau, din meniul Edge, «Instalează acest site ca "
            f"aplicație»: atunci se deschide ca un program obișnuit, cu "
            f"iconiță pe ecran.</li></ol>"
@@ -434,13 +460,18 @@ def entries() -> list[dict]:
            f"recentă</b>. Cât timp accesul din rețea e "
            f"pornit, programul cere PIN-ul din nou după {lan_hours} ore — o dată "
            f"pe tură, pe fiecare calculator și telefon. Funcționează doar în "
-           f"rețeaua clinicii — de acasă nu.{end}"),
+           f"rețeaua clinicii — de acasă nu.{end}"
+           f"{p}{_ic('lock')} Câteva lucruri se fac <b>doar pe calculatorul "
+           f"cu programul</b>: {LOCAL_ONLY}. Din rețea paginile lor se pot "
+           f"citi, dar nu schimba — în rețea legătura nu e criptată, iar "
+           f"acestea sunt acțiunile care nu se mai pot întoarce.{end}"),
 
         _q("phone", "Pot deschide registrul de pe telefon?",
            f"{p}Da, în aceeași rețea a clinicii: <b>Setări › Acces din rețea › "
            f"Activează accesul</b> (programul repornește), apoi scanați "
            f"codul QR de pe pagină cu telefonul conectat la Wi-Fi-ul "
-           f"clinicii. Fiecare intră cu PIN-ul lui (în rețea — de cel puțin "
+           f"clinicii. Fiecare își alege numele și intră cu PIN-ul lui (în "
+           f"rețea — de cel puțin "
            f"{pin_lan} cifre); din meniul browserului alegeți «Adaugă pe "
            f"ecranul principal».{end}"
            f"{p}Pe <b>iPhone</b> registrul se deschide după aceea ca o "
@@ -457,6 +488,16 @@ def entries() -> list[dict]:
            f"permisiunea Windows (și oferă butonul <b>«Creează regula de "
            f"firewall»</b>, dacă lipsește), iar la «Verificarea legăturii» "
            f"arată ce dispozitive au ajuns până la calculator.{end}"),
+
+        # `lan-guard` (2.8.0): из сети опасные страницы только читаются; почему
+        # — абзац ответа о двух ПК, здесь только ссылка на него.
+        _q("wifi", "De pe al doilea calculator nu pot face copia sau schimba "
+                   "utilizatorii — e o defecțiune?",
+           f"{p}<b>Nu, e intenționat.</b> {LOCAL_ONLY[0].upper()}{LOCAL_ONLY[1:]} "
+           f"se fac doar pe <b>calculatorul cu programul</b>. Din rețea paginile "
+           f"lor "
+           f"se deschid ca să vedeți starea, dar butoanele nu schimbă nimic. De "
+           f"ce — la întrebarea despre două calculatoare.{end}"),
 
         # Окно Tauri (22.10): × прячет к часам (`shell/src/notices.rs`,
         # tray_hint), выход — только пункт меню значка (`win.rs`, tray:quit);
@@ -589,7 +630,7 @@ def entries() -> list[dict]:
         _q("key", "Am uitat PIN-ul de intrare — ce fac?",
            f"{p}Dacă în clinică există alt <b>director</b>, el poate seta un "
            f"PIN nou pentru oricine: <b>Setări › Securitate și "
-           f"utilizatori</b>.{end}"
+           f"utilizatori</b>, pe calculatorul cu programul.{end}"
            f"{p}Dacă PIN-ul uitat e al singurului director — scrieți-ne la "
            f"<a href='mailto:{FEEDBACK_EMAIL}'>{FEEDBACK_EMAIL}</a>. Există o "
            f"procedură de deblocare: ea cere confirmarea unui administrator "
