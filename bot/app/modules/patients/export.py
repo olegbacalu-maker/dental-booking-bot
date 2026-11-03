@@ -53,7 +53,7 @@ _DOCDIR = "documente"
 
 def _plain(value):
     """datetime → ISO. Без этого json.dumps падает на колонках-датах: `_fetch`
-    возвращает их объектами (см. `_DT_COLS` в db.py), а не строками."""
+    возвращает их объектами (см. `_DT_COLS` в db/conn.py), а не строками."""
     if isinstance(value, (datetime, date)):
         return value.isoformat()
     raise TypeError(f"не умею сериализовать {type(value).__name__}")

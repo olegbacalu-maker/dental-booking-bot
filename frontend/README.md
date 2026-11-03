@@ -89,7 +89,7 @@ tsc) + набор `tests/test_<раздел>.py`. Загрузка данных 
 ## Граница с движком
 
 ```
-компонент → services/api.ts → /api/* → FastAPI → db.py
+компонент → services/api.ts → /api/* → FastAPI → db/
 ```
 
 ⛔ Компоненты в сеть не ходят: только через `services/api.ts`. Там же лежит

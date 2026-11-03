@@ -71,8 +71,9 @@ powershell -File Build-Installer.ps1
 #    ⛔ Она не для выпуска: в releases\ не кладётся, а release.py prerelease
 #    проверяет подпись мастера сам и неподписанный не зальёт.
 
-# 3a. ТОЛЬКО если правка тронула миграции (bot/app/db.py: MIGRATIONS_*,
-#     SCHEMA_VERSION, слотовые индексы) — канарейка на СОБРАННОМ бинарнике:
+# 3a. ТОЛЬКО если правка тронула миграции (bot/app/db/schema.py: MIGRATIONS,
+#     SCHEMA_VERSION; bot/app/db/slots.py: слотовые индексы) — канарейка на
+#     СОБРАННОМ бинарнике:
 python scripts/check_slot_guard.py
 
 # 4. только теперь тег — на тот коммит, из которого собрано.

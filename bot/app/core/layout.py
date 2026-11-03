@@ -1568,7 +1568,7 @@ def status_view(status: str, call: str | None = "") -> tuple[str, str]:
     return status, STATUS_LABEL.get(status, status)
 
 
-# статусы, при которых слот занят — единый источник правды в db.py
+# статусы, при которых слот занят — единый источник правды в db/slots.py
 LIVE_STATUSES = db.ACTIVE_STATUSES
 
 

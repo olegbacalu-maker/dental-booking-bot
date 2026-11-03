@@ -22,7 +22,7 @@
 Поток запроса:
 
 ```
-компонент → services/api.ts → /api/* → FastAPI → db.py → SQLite
+компонент → services/api.ts → /api/* → FastAPI → db/ → SQLite
 ```
 
 Доставка обновлений:
