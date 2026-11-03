@@ -160,8 +160,8 @@ MAIL_IN_TX = {
     "main.py:cont_register_submit → account.register": "регистрация кабинета → trial.submit (trial.py:218)",
     "main.py:cont_add_submit → account.add_clinic": "«Adaugă clinică» → trial.submit (trial.py:218)",
     "main.py:cont_add_submit → main._send_added_letter": "письмо новой клинике кабинета (нота + ящик)",
-    "main.py:clinic_issue → main._send_latest": "файл письмом из админки после выдачи (main.py ~1650)",
-    "main.py:clinic_email → main._send_latest": "файл письмом из админки, кнопка «отправить»",
+    "routes_admin.py:clinic_issue → routes_admin._send_latest": "файл письмом из админки после выдачи (main.py ~1650)",
+    "routes_admin.py:clinic_email → routes_admin._send_latest": "файл письмом из админки, кнопка «отправить»",
     "jobs.py:daily → jobs._one": "напоминания о сроке ежедневной задачи (send параметром)",
 }
 
