@@ -112,7 +112,7 @@ def suite_glyph_scope(res: Result) -> None:
     # лежал в main.py), вход, установка PIN. db.py: летопись пациента, её
     # читает регистратура каждый день.
     for rel, what in (("app/modules/entry/pages.py", "вход, установка PIN, восстановление"),
-                      ("app/db.py", "тексты летописи пациента"),
+                      (test_structure._DB_TEXTS, "тексты летописи пациента"),
                       ("app/update.py", "экран и лог обновления")):
         r = _run(rel, f'\n_MUT_GLYPH = "<h1>{GLYPH} Gata</h1>"\n')
         res.ok(f"знак в {rel} виден сторожу ({what})",
@@ -138,7 +138,7 @@ def suite_glyph_math(res: Result) -> None:
     ловится вовсе: «−» от дефиса отличается только шириной.
     """
     for glyph, what in ((MINUS, "минус U+2212"), (APPROX, "≈ U+2248")):
-        r = _run("app/db.py", f'\n_MUT_MATH = "Plan: {glyph} procedura"\n')
+        r = _run(test_structure._DB_TEXTS, f'\n_MUT_MATH = "Plan: {glyph} procedura"\n')
         res.ok(f"{what} в тексте виден сторожу", _red(r, "знаки у Windows"),
                "знак остался незамеченным — экран нарисует его системным "
                "шрифтом, а летопись уедет такой в выгрузку по 195-му")
@@ -146,7 +146,7 @@ def suite_glyph_math(res: Result) -> None:
     # Полярность: обычный дефис — законная замена, и правило обязано молчать.
     # Иначе «починка» знака гнала бы по кругу, а сторож краснел бы на текстах,
     # которых в дереве десятки.
-    r = _run("app/db.py", '\n_MUT_DASH = "Plan: - procedura"\n')
+    r = _run(test_structure._DB_TEXTS, '\n_MUT_DASH = "Plan: - procedura"\n')
     res.ok("обычный дефис нарушением не считается",
            not _red(r, "знаки у Windows"), _why(r, "знаки у Windows"))
 

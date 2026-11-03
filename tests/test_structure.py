@@ -97,6 +97,16 @@ _LAUNCHER_COPY_OK = _PRELOAD_MOD | {p.rsplit("/", 1)[-1][:-3] for p in _LAUNCHER
 # в исходниках и умрёт внутри exe, где раскладка другая.
 _FILE_OK = {"app/paths.py", "desktop.py"}
 
+# Пакет db (с 03.11.2026; до того — один `app/db.py`): правила ниже смотрят в
+# модуль-ВЛАДЕЛЕЦ своего якоря, а не в пакет целиком. ⚠️ Переедет якорь в
+# соседний модуль — правило покраснеет «якорь пропал», а не ослепнет: каждое
+# ищет своё имя только в названном файле.
+_DB_STATE = "app/db/__init__.py"     # _CONN, _SQ, ACTOR_HOOK — переприсваиваемое
+_DB_SCHEMA = "app/db/__init__.py"    # SCHEMA_VERSION, MIGRATIONS, SQLITE_SCHEMA
+_DB_SLOTS = "app/db/__init__.py"     # _slot_lock, _BOOK_LOCK, _uq_slot_sql
+_DB_DAY = "app/db/__init__.py"       # day_appointments: выборка дня
+_DB_TEXTS = "app/db/__init__.py"     # тексты летописи пациента («Plan: …»)
+
 # Все, кто в итоге зовёт `_save_users`, то есть переписывает auth.json.
 # verify_pin здесь не по недосмотру: при входе он молча мигрирует файл v1→v2.
 # Забытый рядом remember_auth_file() = ложный «взлом» при следующем старте, а
@@ -707,7 +717,7 @@ def suite(res: Result) -> None:
     # Якоря: оба пути разбора ещё видят то, ради чего написаны. Без них
     # сломанный обход нашёл бы ноль переприсваиваемых имён и позеленел навсегда.
     bad = [f"{f}: разбор не видит {name} — якорь правила пропал"
-           for f, name in (("app/engine.py", "CLINIC_NAME"), ("app/db.py", "ACTOR_HOOK"))
+           for f, name in (("app/engine.py", "CLINIC_NAME"), (_DB_STATE, "ACTOR_HOOK"))
            if name not in rebound.get(f, set())]
     bad += [f"{rel}:{n.lineno} {', '.join(sorted(hit))} из {f}"
             for rel, tree in src for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
@@ -871,7 +881,7 @@ def suite(res: Result) -> None:
     # лог чист, страховки от двойной брони на waiting-визите нет.
     # ⚠️ Полярность опасная: правило ищет ИМЕНА. Переименуют SCHEMA_VERSION или
     # словарь — искать станет нечего, поэтому «не нашлось» здесь тоже красное.
-    db_tree = by_path.get("app/db.py")
+    db_tree = by_path.get(_DB_SCHEMA)
     consts, dictkeys = {}, {}
     for n in ast.walk(db_tree or ast.Module(body=[], type_ignores=[])):
         if not (isinstance(n, ast.Assign) and len(n.targets) == 1
@@ -909,7 +919,7 @@ def suite(res: Result) -> None:
                 continue
             if not any(n in text for n in ("uq_doctor_slot", "uq_patient_slot")):
                 continue
-            if rel == "app/db.py" and "_uq_slot_sql" in _enclosing(tree, ln):
+            if rel == _DB_SLOTS and "_uq_slot_sql" in _enclosing(tree, ln):
                 anchor += 1
                 continue
             bad.append(f"{rel}:{ln}")
@@ -928,12 +938,12 @@ def suite(res: Result) -> None:
     # ⚠️ Полярность опасная: правило ищет ИМЕНА, поэтому якорь — сам _slot_lock
     # существует.
     bad = []
-    slot_fn = next((n for n in ast.walk(db_tree
+    slot_fn = next((n for n in ast.walk(by_path.get(_DB_SLOTS)
                                         or ast.Module(body=[], type_ignores=[]))
                     if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
                     and n.name == "_slot_lock"), None)
     if slot_fn is None:
-        bad.append("app/db.py: _slot_lock не найден — якорь правила пропал")
+        bad.append(f"{_DB_SLOTS}: _slot_lock не найден — якорь правила пропал")
     for rel, tree in src:
         for n in ast.walk(tree):
             # ЛЮБОЕ обращение к имени, не только with-форма: прямой
@@ -946,7 +956,7 @@ def suite(res: Result) -> None:
             attr_use = isinstance(n, ast.Attribute) and n.attr == "_BOOK_LOCK"
             if not (name_use or attr_use):
                 continue
-            if rel == "app/db.py" and "_slot_lock" in _enclosing(tree, n.lineno):
+            if rel == _DB_SLOTS and "_slot_lock" in _enclosing(tree, n.lineno):
                 continue
             bad.append(f"{rel}:{n.lineno}")
     res.ok("замок брони берётся только через _slot_lock", not bad,
@@ -1322,17 +1332,17 @@ def suite(res: Result) -> None:
     # при неизменном дне дали бы разное тело, и подмена шла бы каждые 12 секунд.
     # Правило ловится ДОБАВЛЕНИЕМ — новой такой сортировкой без `a.id`.
     _DAY_ORDER = "ORDER BY a.starts_at, a.doctor"
-    ordered = [(rel, n) for rel, tree in src if rel == "app/db.py"
+    ordered = [(rel, n) for rel, tree in src if rel == _DB_DAY
                for n in ast.walk(tree)
                if isinstance(n, ast.Constant) and isinstance(n.value, str)
                and _DAY_ORDER in n.value]
-    bad = [f"app/db.py:{n.lineno}" for _rel, n in ordered
+    bad = [f"{_DB_DAY}:{n.lineno}" for _rel, n in ordered
            if f"{_DAY_ORDER}, a.id" not in n.value]
     # ⚠️ Якорь: правило ИЩЕТ ИМЯ, и переименование колонки сделало бы его
     # вечнозелёным — ноль нарушителей над нулём находок. (До 12.10 выборок было
     # две — тот же запрос текстом Postgres и текстом SQLite; теперь одна.)
     if not ordered:
-        bad.append("app/db.py: выборки дня нет — якорь правила пропал, "
+        bad.append(f"{_DB_DAY}: выборки дня нет — якорь правила пропал, "
                    "искать оно будет несуществующую сортировку")
     res.ok("выборка дня упорядочена полностью, с тай-брейком по id", not bad,
            "ничья в сортировке дня перетасует блоки канвы между запросами: "

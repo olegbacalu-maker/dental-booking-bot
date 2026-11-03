@@ -2,7 +2,36 @@
 Даты храним как ISO-строки в UTC — сравнения лексикографичны.
 
 Postgres-издание снято 12.10.2026 (на нём не работало ничего живого: демо
-сайта — тот же SQLite); последний код с ним — тег `archive/pg-edition`."""
+сайта — тот же SQLite); последний код с ним — тег `archive/pg-edition`.
+
+Пакет с 03.11.2026 (до того — один `db.py` на 4 тысячи строк). Для вызывающих
+ничего не поменялось: `from . import db` и `db.что-угодно` — здесь
+реэкспортировано каждое имя прежнего модуля (снимок держит
+`tests/test_db_names.py`). Раскладка снизу вверх, в порядке импорта:
+
+    conn      соединение, выборки, даты, schema_meta как словарь
+    events    летопись пациента и клиники, кто за журналом
+    slots     ⭐ защита слотов: замок брони, страховочные индексы, бронь
+    patients  фиша: поиск, поля, предупреждения, свёртка диакритики
+    plist     список «Pacienți» одной выборкой
+    sms       очередь SMS-напоминаний
+    recall    Rechemări
+    plans     план лечения
+    schedule  визиты и журнал: запись, заметки, день, перенос, статус
+    teeth     одонтограмма, история зубов, мосты
+    perio     пародонтограмма
+    records   дневник визита, анамнез, прикус
+    docs      документы пациента
+    finance   платежи
+    erasure   закон 195: стирание и обезличивание
+    schema    схема, миграции, init/close
+
+⛔ **Переприсваиваемое состояние живёт ЗДЕСЬ и только здесь** — `_CONN`, `_SQ`,
+`ACTOR_HOOK`: это тот объект, который снаружи видят как `db`, и `db.ACTOR_HOOK
+= …` из `main.py` должен попасть туда, где его читают. Подмодули берут его
+ЧЕРЕЗ ПАКЕТ (`from .. import db` → `db._CONN`), никогда `from . import _CONN`:
+импорт заморозил бы `None` до `init()` навсегда (правило CLAUDE.md, держит
+`test_structure`)."""
 from __future__ import annotations
 
 import asyncio
@@ -1261,7 +1290,7 @@ def _sqlite_driver(path: str):
     """
     # импорт здесь, а не в шапке: core.storage тянет за собой db, и на уровне
     # модуля это замкнуло бы круг
-    from .core import dbkey
+    from ..core import dbkey
 
     key = dbkey.load()
     if key is None:
@@ -1290,7 +1319,7 @@ def _sqlite_driver(path: str):
 async def init(seed_rows: list | None = None) -> None:
     global _CONN, _SQ
     import aiosqlite
-    from . import paths            # ⭐ один разборщик $DATABASE_URL на проект
+    from .. import paths            # ⭐ один разборщик $DATABASE_URL на проект
     path = str(paths.db_file())
     # ⚠️ Локальное имя `sqlite3` — не описка: ниже в этой же функции стоят
     # `except sqlite3.OperationalError`, и они обязаны смотреть на ТОТ
@@ -2730,7 +2759,7 @@ async def _backfill_activity() -> None:
     # starts_at в UTC — без перевода перенесённый визит на 09:00 записался бы
     # «06:00» навсегда, текст события строка и не пересчитывается.
     # Импорт отложенный: engine импортирует db, на уровне модуля был бы круг.
-    from . import engine as eng
+    from .. import engine as eng
     n = 0
     for r in rows:
         when = r["starts_at"]
@@ -2894,7 +2923,7 @@ async def set_teeth(pid: int, items: list[dict]) -> int | None:
     упавшей операции. Отдельное соединение ради этого окна не заводим.
     Летопись — как у одиночной записи: строка на зуб через `log_event` после
     commit (журнал не роняет запись)."""
-    from .teeth_svg import tooth_fields
+    from ..teeth_svg import tooth_fields
     nums = [it["tooth"] for it in items]
     async with _slot_lock():
         rows = await _fetch(
@@ -2983,7 +3012,7 @@ def _tooth_next(prev: dict | None, tooth: int, state: str, note: str, doctor: st
     """
     # состояние в летопись — СЛОВОМ (см. log_event): «obturatie» и «lipsa» это
     # ключи одонтограммы, а строку читают регистратура и пациент в выгрузке
-    from .teeth_svg import (MARK_RO, STATE_RO, SURFACE_ORDER, SURFACE_STATES,
+    from ..teeth_svg import (MARK_RO, STATE_RO, SURFACE_ORDER, SURFACE_STATES,
                             mark_list, pack_marks, pack_surfaces, surface_map,
                             surface_summary, tooth_state_of)
     if surfaces is None:
@@ -3118,7 +3147,7 @@ async def add_bridge(pid: int, teeth: list, material: str,
     «зуб в одном мосту» держится только check-then-insert'ом (у таблицы нет
     уникального индекса — зубы лежат упакованной строкой), и без замка два
     конкурентных сохранения оба видят «свободно» (ревью 08-22)."""
-    from .teeth_svg import pack_bridge, parse_bridge
+    from ..teeth_svg import pack_bridge, parse_bridge
     mine = {n for n, _r in teeth}
     async with _slot_lock():
         for row in await bridges(pid):
@@ -3146,7 +3175,7 @@ async def delete_bridge(bid: int, pid: int) -> bool:
     транзакцией, и записанное ДО было бы враньём навсегда при отказе DELETE
     или втором конкурентном удалении (ревью 08-22). Замок — тот же, что у
     add_bridge: SELECT и DELETE иначе гоняются с ним."""
-    from .teeth_svg import parse_bridge
+    from ..teeth_svg import parse_bridge
     async with _slot_lock():
         rows = await _fetch(
             "SELECT teeth, material, doctor, created_at FROM bridges "
@@ -3244,7 +3273,7 @@ async def perio_save(pid: int, eid: int, rows: list, covers: set,
     ⚠️ Сообщать нечего — не делается НИЧЕГО, включая строку летописи: пустое
     сохранение это не находка осмотра, а промах по кнопке.
     """
-    from .modules.patients.perio import ledger_words
+    from ..modules.patients.perio import ledger_words
     if not rows and not covers and doctor is None and note is None:
         return 0
     keep = {int(r["tooth"]) for r in rows}
@@ -3380,7 +3409,7 @@ async def set_plan_status(item_id: int, pid: int, status: str,
         tail = f" ({motiv})" if status == "refuzat" and motiv else ""
         # статус позиции — СЛОВОМ (см. log_event): тем же словарём, каким его
         # называют бумажный бланк 043/e и выгрузка по 195-му
-        from .modules.patients.fisa043 import PLAN_RO
+        from ..modules.patients.fisa043 import PLAN_RO
         await log_event(pid, "plan_status",
                         f"Plan: {rows[0]['procedure']} › "
                         f"{PLAN_RO.get(status, status)}{tail}",
@@ -4055,7 +4084,7 @@ async def set_status(appt_id: int, status: str) -> str:
                 # статус визита зовётся ОДНИМ словом на всю программу
                 # (см. log_event): свой словарь тут уже расходился с журналом —
                 # кнопка ставила «nu a venit», а летопись писала «neprezentare»
-                from .core.layout import STATUS_LABEL
+                from ..core.layout import STATUS_LABEL
                 await log_event(own[0]["patient_id"], "appt_status",
                                 f"Vizită {STATUS_LABEL.get(status, status)}: "
                                 f"{own[0]['service']}")

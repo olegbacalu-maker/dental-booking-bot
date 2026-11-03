@@ -184,8 +184,15 @@ def _blocked(dbfile: pathlib.Path, *args) -> bool:
         con.close()
 
 
-def _patched_bot(work: pathlib.Path, patch: str) -> pathlib.Path:
-    """Копия дерева `bot\\` с дописанным в конец `app/db.py` кодом.
+# Куда дописывать подмену: в модуль-ВЛАДЕЛЕЦ имени (пакет db с 03.11.2026).
+# Функции модуля ищут соседей в СВОИХ глобалах, и переопределение, дописанное
+# в другой файл пакета, не перекрыло бы ничего.
+_SCHEMA_PY = "app/db/__init__.py"       # MIGRATIONS
+_SLOTS_PY = "app/db/__init__.py"        # _slot_conflicts, _uq_index_state
+
+
+def _patched_bot(work: pathlib.Path, patch: str, rel: str) -> pathlib.Path:
+    """Копия дерева `bot\\` с дописанным в конец `rel` (модуль пакета db) кодом.
 
     Тот же приём, что в mutate.py, и по той же причине: настоящее дерево не
     трогается. Нужен там, где проверяемое поведение снаружи не вызвать —
@@ -194,7 +201,7 @@ def _patched_bot(work: pathlib.Path, patch: str) -> pathlib.Path:
     """
     dst = work / "bot"
     shutil.copytree(BOT, dst, ignore=shutil.ignore_patterns("__pycache__"))
-    f = dst / "app" / "db.py"
+    f = dst / rel
     f.write_text(f.read_text(encoding="utf-8") + patch, encoding="utf-8")
     return dst
 
@@ -872,7 +879,8 @@ def suite_step4_list(res: Result) -> None:
     try:
         bot = _patched_bot(work, "\n# тест: оператор, дописанный в шаг 4\n"
                                  "_MUT = \"CREATE TABLE step4_mark(x INTEGER)\"\n"
-                                 "MIGRATIONS[4].append(_MUT)\n")
+                                 "MIGRATIONS[4].append(_MUT)\n",
+                                 _SCHEMA_PY)
         data = work / "data"
         data.mkdir()
         with Server(dir_=data, bot=bot):
@@ -911,7 +919,8 @@ def suite_slot_guard_no_data(res: Result) -> None:
     try:
         bot = _patched_bot(work, "\n# тест: подсчёт конфликтов отказал\n"
                                  "async def _slot_conflicts(act_sql=_ACT_SQL):\n"
-                                 "    raise RuntimeError('нет ответа')\n")
+                                 "    raise RuntimeError('нет ответа')\n",
+                                 _SLOTS_PY)
         data = work / "data"
         data.mkdir()
         dbfile = data / "dental.db"
@@ -1186,7 +1195,8 @@ def suite_uq_state_unreadable(res: Result) -> None:
     try:
         bot = _patched_bot(work, "\n# тест: состояние индексов не читается\n"
                                  "async def _uq_index_state():\n"
-                                 "    raise RuntimeError('база не ответила')\n")
+                                 "    raise RuntimeError('база не ответила')\n",
+                                 _SLOTS_PY)
         data = work / "data"
         data.mkdir()
         dbfile = data / "dental.db"
@@ -1256,7 +1266,8 @@ def suite_uq_cleared_no_conflict(res: Result) -> None:
     try:
         bot = _patched_bot(work, "\n# тест: состояние индексов не читается\n"
                                  "async def _uq_index_state():\n"
-                                 "    raise RuntimeError('база не ответила')\n")
+                                 "    raise RuntimeError('база не ответила')\n",
+                                 _SLOTS_PY)
         data = work / "data"
         data.mkdir()
         dbfile = data / "dental.db"

@@ -31,6 +31,7 @@ import test_api  # noqa: E402
 import test_backup  # noqa: E402
 import test_booking  # noqa: E402
 import test_chair  # noqa: E402
+import test_db_names  # noqa: E402
 import test_dbcrypt  # noqa: E402
 import test_orders  # noqa: E402
 import test_demo  # noqa: E402
@@ -101,6 +102,9 @@ SUITES = [
     # где переезд файла убил бы собранную программу. Ждать этого 60 секунд,
     # пока прогоняются наборы с сервером, незачем.
     ("Раскладка кода: правила карты", test_structure.suite),
+    # Доли секунды, сервера нет: пакет db (03.11.2026) обязан отдавать те же
+    # имена, что прежний db.py, — пропавшее имя падает только на своей ветке.
+    ("Раскладка кода: имена db те же, что до пакета", test_db_names.suite),
     # Сразу за ним: те же правила, но на СЛЕПЫЕ ЗОНЫ — область, форма вызова,
     # список имён без якоря. Мутация о таком промахе сказать не может.
     ("Сторожа: область правила о знаках", test_guards.suite_glyph_scope),
