@@ -34,6 +34,7 @@ import test_pure  # noqa: E402
 import test_receipts  # noqa: E402
 import test_renew  # noqa: E402
 import test_robots  # noqa: E402
+import test_routes  # noqa: E402
 import test_sms  # noqa: E402
 import test_sms_admin  # noqa: E402
 import test_sms_paper  # noqa: E402
@@ -47,6 +48,8 @@ from harness import run  # noqa: E402
 
 SUITES = [
     ("Сервер: без импортов движка, одни версии", test_pure.suite),
+    ("Маршруты: тот же набор, что до разноса main.py; один адрес — один маршрут", test_routes.suite_snapshot),
+    ("Маршруты: ни один модуль не импортирует main", test_routes.suite_layout),
     ("Оплата картой: settle только под замком записи (immediate)", test_tx.suite_settle_lock),
     ("Оплата картой: письма об оплате — после commit", test_tx.suite_mail_after_commit),
     ("Оплата картой: сеть maib — вне транзакции", test_tx.suite_net_outside_tx),

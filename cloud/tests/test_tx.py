@@ -129,7 +129,15 @@ def suite_settle_lock(res: Result) -> None:
 # `with db.connect`: письмо собирается в транзакции (payments.notify_paid, license.letter_latest,
 # sms.letter_*), уходит после commit (payments.outbox → send_paid → mail.deliver).
 
-SCOPE = ("main.py", "jobs.py", "payments.py")
+# main.py, роутеры routes_*.py и их общие помощники web.py (03.11, разнос main.py) — по имени
+# файла, не списком: новый роутер мимо сторожа не пройдёт
+SCOPE = ("main.py", "web.py", "jobs.py", "payments.py")
+
+
+def in_scope(fname: str) -> bool:
+    return fname in SCOPE or fname.startswith("routes_")
+
+
 # Отправляющие сами по себе; `send` без модуля — mail.send, переданный параметром (jobs, sms)
 SEND_BASE = {"mail.send", "mail.deliver"}
 
@@ -216,7 +224,7 @@ def _closure(funcs: list, base: set) -> set:
 
 def _inside(funcs: list, reach: set) -> list:
     """Нарушения «файл:функция → вызов»: вызов из `reach` внутри `with db.connect` в SCOPE."""
-    return sorted({f"{fname}:{fn.name} → {k}" for fname, _, fn, found in funcs if fname in SCOPE
+    return sorted({f"{fname}:{fn.name} → {k}" for fname, _, fn, found in funcs if in_scope(fname)
                    for _, w, k in found if w is not None and k in reach})
 
 
@@ -242,6 +250,12 @@ def _func(tree: ast.Module, func: str) -> ast.FunctionDef:
         if isinstance(node, ast.FunctionDef) and node.name == func:
             return node
     raise AssertionError(f"нет функции {func}")
+
+
+def _where(trees: dict, func: str) -> str:
+    """Файл, где определена функция: маршруты и помощники живут по роутерам (03.11)."""
+    return next(f for f, tree in trees.items() for node in ast.walk(tree)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == func)
 
 
 def _inject(trees: dict, fname: str, func: str, src: str) -> dict:
@@ -306,7 +320,7 @@ def suite_mail_after_commit(res: Result) -> None:
            "main.py:_card_go → payments.notify_paid"}
     res.ok("пара: notify_paid начал отправлять — красные все места оплаты", hit <= set(m), sorted(hit - set(m)))
     _, _, m = mail_check(_prepend(trees, "main.py", "_payment_letter", "mail.send('a', 'b', 'c')"))
-    hit = {f"main.py:{h} → main._payment_letter" for h in ("pay_link_submit", "cont_note", "_group_submit",
+    hit = {f"{_where(trees, h)}:{h} → main._payment_letter" for h in ("pay_link_submit", "cont_note", "_group_submit",
                                                             "payment_new", "payment_link", "payment_mail")}
     res.ok("пара: сборка письма с нотой начала отправлять — красные все шесть мест ноты",
            hit <= set(m), sorted(hit - set(m)))
@@ -363,6 +377,6 @@ def suite_net_outside_tx(res: Result) -> None:
     res.ok("пара: кнопка карты целиком внутри транзакции страницы оплаты (как до шага 4) — красный",
            "main.py:pay_link_submit → main._card_go" in m, repr(m))
     _, m = net_check(_prepend(trees, "payments.py", "card_record", "maib.create(1, 'r', 'd')"))
-    hit = {f"main.py:{h} → payments.card_record" for h in ("_card_go", "payment_new", "payment_link")}
+    hit = {f"{_where(trees, h)}:{h} → payments.card_record" for h in ("_card_go", "payment_new", "payment_link")}
     res.ok("пара: запись ответа начала звать maib — красные кнопка карты, нота и ссылка из админки",
            hit <= set(m), sorted(hit - set(m)))

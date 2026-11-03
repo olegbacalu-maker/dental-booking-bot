@@ -84,10 +84,11 @@ def _kinds(c: Client) -> list:
 
 
 def _routes() -> dict:
-    """(метод, путь) каждого маршрута /cont… в main.py — из декораторов, ast-ом."""
-    tree = ast.parse((CLOUD / "app" / "main.py").read_text(encoding="utf-8"))
+    """(метод, путь) каждого маршрута /cont… в main.py и роутерах routes_*.py (03.11) — из
+    декораторов, ast-ом."""
+    files = [CLOUD / "app" / "main.py", *sorted((CLOUD / "app").glob("routes_*.py"))]
     out = {}
-    for fn in ast.walk(tree):
+    for fn in (n for f in files for n in ast.walk(ast.parse(f.read_text(encoding="utf-8")))):
         if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         for d in fn.decorator_list:
@@ -117,7 +118,7 @@ def suite_rules(res: Result) -> None:
            and auth._read("clinic", auth.account_cookie("a_1")) is None
            and auth._read("clinic", auth.clinic_cookie("c_1")) == "c_1")
     got = _routes()
-    res.ok("исходники нашлись: маршрутов /cont… в main.py больше десятка", len(got) > 10, repr(sorted(got)))
+    res.ok("исходники нашлись: маршрутов /cont… в main.py и роутерах больше десятка", len(got) > 10, repr(sorted(got)))
     res.check("⛔ каждый маршрут /cont… решён для входа из программы (ROUTES) — новый без решения красный",
               sorted(k for k in got if k not in ROUTES), [])
     res.check("в ROUTES нет маршрутов, которых больше нет (список гниёт молча)",
