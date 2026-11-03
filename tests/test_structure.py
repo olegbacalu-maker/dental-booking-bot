@@ -105,7 +105,7 @@ _DB_STATE = "app/db/__init__.py"     # _CONN, _SQ, ACTOR_HOOK — перепри
 _DB_SCHEMA = "app/db/__init__.py"    # SCHEMA_VERSION, MIGRATIONS, SQLITE_SCHEMA
 _DB_SLOTS = "app/db/slots.py"        # _slot_lock, _BOOK_LOCK, _uq_slot_sql
 _DB_DAY = "app/db/__init__.py"       # day_appointments: выборка дня
-_DB_TEXTS = "app/db/__init__.py"     # тексты летописи пациента («Plan: …»)
+_DB_TEXTS = "app/db/plans.py"        # тексты летописи пациента («Plan: …»)
 
 # Все, кто в итоге зовёт `_save_users`, то есть переписывает auth.json.
 # verify_pin здесь не по недосмотру: при входе он молча мигрирует файл v1→v2.
