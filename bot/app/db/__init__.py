@@ -35,7 +35,6 @@ Postgres-издание снято 12.10.2026 (на нём не работало
 from __future__ import annotations
 
 import os
-import secrets
 from datetime import datetime, timezone
 
 from .conn import (
@@ -56,6 +55,18 @@ from .slots import (
     UQ_REPAIR_TEXT, UQ_CLEARED_TEXT, UQ_COMPLETE_TEXT, _uq_mark_rows, _uq_at_least,
     _apply_uq_indexes, _slot_guard_apply, _slot_guard_verdict, _slot_guard_clear,
     _slot_guard_startup, _book, _book_locked, _patient_busy_at, _conflicts,
+)
+from .patients import (
+    patients_total, _upsert_patient, manual_key, _patient_ids_by_digits,
+    patient_name_by_phone, _digits, patient_id_by_key, create_patient, set_archived, _DIA,
+    _fold, fold, patient_appointments, PATIENT_FIELDS, get_patient, update_patient,
+    set_primary_doctor, set_birth_year, patient_alerts, add_alert, delete_alert,
+)
+from .plist import (
+    _PLIST_COLS, all_patients, patients_visits, patients_debt, _PL_LAST_DOC_OF, _PL_DOCTOR,
+    _PL_DEBT, _PL_CANAL, _PL_FROM, _PL_COLS, _PL_ORDER, _PL_DIALECT, _PlQuery,
+    patients_count, patients_rows, patients_doctors, patients_archived, patients_have_tg,
+    patients_counts,
 )
 
 # Версия схемы: шаги применяются по одному и записываются в schema_meta,
@@ -526,15 +537,6 @@ async def _set_schema_version(v: int) -> None:
     )
 
 
-async def patients_total() -> int:
-    """Пуста ли картотека — вопрос лицензии (core/license.py): на пустой без
-    файла стоит стена активации, на живой — отсчёт льготы.
-    ⚠️ Не `patients_count`: то имя занято счётчиком ОТФИЛЬТРОВАННОГО списка
-    ниже, и одноимённая функция молча перекрыла бы его (поймано 24.09)."""
-    n = await _fetchval("SELECT count(*) FROM patients")
-    return int(n or 0)
-
-
 async def _teeth_hist_base() -> None:
     """Шаг 6: базовый снимок КАЖДОЙ строки teeth в teeth_history и метка
     `teeth_hist_since` — одной транзакцией. С этого мгновения карта на любую
@@ -756,30 +758,6 @@ async def seed(rows: list | None) -> None:
         await admin_add(**row)
 
 
-# ---------- пациенты и записи ----------
-
-async def _upsert_patient(session_key: str, name: str, phone: str,
-                          lang: str, birth_year: int | None) -> int:
-    # Пустой телефон — NULL, и нормализация именно ЗДЕСЬ, в единственной точке
-    # записи: строка '' прошла бы фильтр phone IS NOT NULL и совпала бы по
-    # цифрам с любым другим безтелефонным (см. _patient_ids_by_digits)
-    phone = phone or None
-    await _CONN.execute(
-        """INSERT INTO patients(session_key, name, phone, lang, birth_year, created_at)
-           VALUES(?, ?, ?, ?, ?, ?)
-           ON CONFLICT(session_key) DO UPDATE
-             SET name = excluded.name, phone = excluded.phone, lang = excluded.lang,
-                 birth_year = COALESCE(excluded.birth_year, patients.birth_year)""",
-        (session_key, name, phone, lang, birth_year, _utcnow_iso()),
-    )
-    await _CONN.commit()
-    cur = await _CONN.execute(
-        "SELECT id FROM patients WHERE session_key = ?", (session_key,))
-    row = await cur.fetchone()
-    await cur.close()
-    return row[0]
-
-
 async def create_appointment(
     session_key: str, name: str, phone: str, lang: str,
     service: str, doctor: str, starts_at: datetime,
@@ -804,56 +782,6 @@ async def create_appointment(
         pid = await _upsert_patient(session_key, name, phone, lang, birth_year)
         return await _book_locked(pid, service, doctor, starts_at, source,
                                   doctor_id, service_id, duration_min)
-
-
-def manual_key(digits: str) -> str:
-    """Ключ пациента, заведённого с рецепции, — ЕДИНСТВЕННОЕ место, где он
-    собирается (08-20: раньше фиша и журнал собирали его каждый сам, и ветка
-    «без телефона» жила только у фиши). С цифрами — склейка по номеру, как
-    было всегда. Без цифр (галочка «fără telefon») склеивать не по чему — ключ
-    уникальный, но того же вида: по префиксу manual: весь код узнаёт «заведён
-    вручную».
-    ⛔ f"manual:{digits}" с пустыми digits дал бы ОДИН ключ на всех
-    безтелефонных: второй такой пациент молча склеился бы с первым, а
-    _upsert_patient ещё и переписал бы имя — всплыло бы на подписываемой
-    043/e с чужой одонтограммой."""
-    return f"manual:{digits}" if digits else f"manual:c{secrets.token_hex(5)}"
-
-
-async def _patient_ids_by_digits(digits: str) -> list[int]:
-    """Пациенты, чей телефон совпадает ПО ЦИФРАМ — независимо от того, каким
-    путём человек заведён (tg:… из бота, manual:… с рецепции). Телефон не
-    ключ: семья делит номер, поэтому список, а решает вызывающий. Фильтр в
-    Python, не в SQL: у SQLite нет regexp, а пациентов у клиники тысячи, не
-    миллионы.
-    ⛔ Пустые цифры — пустой ответ, и это сторож КЛАССА ошибки, а не удобство:
-    пациент без телефона хранит NULL, но одна строка с phone='' (легаси, ручная
-    правка базы) — и «все безтелефонные» совпали бы друг с другом по пустой
-    строке: запись уехала бы первому попавшемуся."""
-    if not digits:
-        return []
-    rows = await _fetch(
-        "SELECT id, phone FROM patients WHERE phone IS NOT NULL")
-    return [r["id"] for r in rows
-            if "".join(ch for ch in (r["phone"] or "") if ch.isdigit()) == digits]
-
-
-async def patient_name_by_phone(phone: str) -> str | None:
-    """Имя ЕДИНСТВЕННОГО пациента с этим номером. None — ноль или несколько.
-
-    Нужна журналу, чтобы предупредить регистратуру: визит ляжет в чужую
-    карточку (08-10). Семейный номер — норма, ребёнка записывают на телефон
-    родителя, и `admin_add` в этом случае пишет визит РОДИТЕЛЮ, молча выбрасывая
-    набранное имя. Запретить нельзя — по телефону записывают десятки раз в день;
-    значит надо сказать, в чью карточку легло."""
-    digits = "".join(ch for ch in phone if ch.isdigit())
-    if not digits:
-        return None
-    ids = await _patient_ids_by_digits(digits)
-    if len(ids) != 1:
-        return None
-    rows = await _fetch("SELECT name FROM patients WHERE id = ?", ids[0])
-    return rows[0]["name"] if rows else None
 
 
 async def admin_add(
@@ -1307,58 +1235,6 @@ async def day_patient_facts(pids: list, before: datetime) -> dict:
     return {"visits": visits, "alerts": alerts, "anam": anam, "plan": plan}
 
 
-_PLIST_COLS = ("id, name, phone, email, session_key, birth_year, birth_date, "
-               "gender, insurance, primary_doctor, file_no, notes, created_at, "
-               "archived")
-
-
-async def all_patients() -> list:
-    """Живые (не архивные) пациенты клиники строками — для рабочих списков
-    стойки на главной (`schedule/desk`), которые сводят их с `patients_visits`
-    и `patients_debt` сами. Список «Pacienți» отбирает в SQL (`patients_rows`)."""
-    return await _fetch(
-        f"""SELECT {_PLIST_COLS} FROM patients
-            WHERE COALESCE(archived, 0) = 0 ORDER BY id""")
-
-
-async def patients_visits(now: datetime) -> list:
-    """По пациенту: последний прошедший визит, ближайший будущий и сколько
-    всего (отменённые не в счёт). Один проход по таблице вместо запроса на
-    каждую строку списка — иначе страница пациентов стоила бы сотню запросов.
-    Заметки-блокировки сюда не попадают: у них patient_id = NULL."""
-    return await _fetch(
-        f"""SELECT patient_id,
-                   MAX(CASE WHEN starts_at <= ? THEN starts_at END) AS last_at,
-                   MIN(CASE WHEN starts_at > ? AND status IN {_ACT_SQL}
-                            THEN starts_at END) AS next_at,
-                   COUNT(*) AS n_visits
-              FROM appointments
-             WHERE patient_id IS NOT NULL AND status <> 'cancelled'
-             GROUP BY patient_id""",
-        _iso(now), _iso(now),
-    )
-
-
-async def patients_debt() -> dict:
-    """Долг каждого пациента: финализированный план − оплачено. Минус = аванс.
-
-    Та же формула, что в `patient_finance`, но на всю картотеку двумя запросами
-    вместо двух НА ПАЦИЕНТА (рабочие списки стойки зовут это раз на главную).
-    Полного внешнего соединения в SQLite нет, поэтому две выборки сводятся в
-    Python — заодно не приходится писать двум диалектам разный SQL.
-    """
-    chg = ("SELECT patient_id, COALESCE(SUM(price_mdl), 0) AS n FROM plan_items "
-           "WHERE status = 'finalizat' GROUP BY patient_id")
-    pay = ("SELECT patient_id, COALESCE(SUM(amount_mdl), 0) AS n FROM payments "
-           "GROUP BY patient_id")
-    out: dict[int, int] = {}
-    for r in await _fetch(chg):
-        out[r["patient_id"]] = int(r["n"] or 0)
-    for r in await _fetch(pay):
-        out[r["patient_id"]] = out.get(r["patient_id"], 0) - int(r["n"] or 0)
-    return out
-
-
 # ---------- рабочие списки регистратуры на главной (01.10, schedule/desk) ----------
 
 async def plan_open_summary() -> list:
@@ -1494,226 +1370,6 @@ async def recall_auto_sent(since_iso: str, actor: str) -> int:
     return int(rows[0]["n"]) if rows else 0
 
 
-# ---------- список пациентов: поиск, фильтры, порядок и страница — в SQL ----------
-#
-# Экран «Pacienți» (`/api/patients`) и книга `/admin/patients.xlsx` отбирают
-# ОДНОЙ выборкой: агрегаты (визиты, предупреждения, план, долг) — подзапросы,
-# соединённые с patients, чтобы WHERE, ORDER BY и LIMIT считала база. Отбор
-# словарём собирает модуль (`routes._pl_select`), статус строки выводит он же
-# (`_pl_status`). ⭐ До 13.10 то же правило жило ещё и в Python старой страницы
-# (паритет держал набор); она снята, и правило отбора теперь одно.
-
-
-def _digits(s) -> str:
-    """Только цифры — телефон «069-12 34» и «0691234» обязаны совпадать."""
-    return "".join(ch for ch in (s or "") if ch.isdigit())
-
-
-# врач последнего визита (включая будущий): подзапрос по индексу patient_id,
-# а не оконная функция по всей таблице — на 20 000 записей она стоила ~50 мс
-# на КАЖДЫЙ запрос списка, а нужна двадцати строкам страницы (и всем — только
-# под фильтром по врачу)
-_PL_LAST_DOC_OF = ("(SELECT a.doctor FROM appointments a WHERE a.patient_id = p.id "
-                   "AND a.status <> 'cancelled' ORDER BY a.starts_at DESC LIMIT 1)")
-# врач строки: медик курант из фиши, а если его не проставили — тот, кто вёл
-# последний визит (так его показывают экран и книга Excel): `primary_doctor`
-# проставляют руками, и без запасного колонка «Medic» пустовала бы почти у
-# всех, хотя врач у пациента фактически есть — тот, к кому он ходит
-_PL_DOCTOR = f"COALESCE(NULLIF(p.primary_doctor, ''), {_PL_LAST_DOC_OF}, '')"
-# долг = финализированный план − оплачено; минус — аванс (как `patients_debt`)
-_PL_DEBT = "(COALESCE(chg.n, 0) - COALESCE(pay.n, 0))"
-# канал по префиксу ключа — как `_pl_canal`; substr, а не LIKE: у LIKE в SQLite
-# регистр не в счёт, а ключи сравниваются буква в букву
-_PL_CANAL = ("CASE WHEN substr(p.session_key, 1, 3) = 'tg:' THEN 'tg' "
-             "WHEN substr(p.session_key, 1, 7) = 'manual:' THEN 'manual' "
-             "ELSE 'web' END")
-# pl — «в лечении»: активные статусы ПОИМЁННО (те же, что PLAN_ACTIVE), а не
-# «<> finalizat»: отказанная позиция закрыта, и пациент с одним отказом не
-# находится в лечении
-_PL_FROM = f"""
-      FROM patients p
-      LEFT JOIN (SELECT patient_id,
-                        MAX(CASE WHEN starts_at <= {{now1}} THEN starts_at END) AS last_at,
-                        MIN(CASE WHEN starts_at > {{now2}} AND status IN {_ACT_SQL}
-                                 THEN starts_at END) AS next_at,
-                        COUNT(*) AS n_visits
-                   FROM appointments
-                  WHERE patient_id IS NOT NULL AND status <> 'cancelled'
-                  GROUP BY patient_id) v ON v.patient_id = p.id
-      LEFT JOIN (SELECT patient_id, COUNT(*) AS n FROM patient_alerts
-                  GROUP BY patient_id) al ON al.patient_id = p.id
-      LEFT JOIN (SELECT patient_id, COUNT(*) AS n FROM plan_items
-                  WHERE status IN ('planificat', 'in_lucru')
-                  GROUP BY patient_id) pl ON pl.patient_id = p.id
-      LEFT JOIN (SELECT patient_id, COALESCE(SUM(price_mdl), 0) AS n FROM plan_items
-                  WHERE status = 'finalizat' GROUP BY patient_id) chg ON chg.patient_id = p.id
-      LEFT JOIN (SELECT patient_id, COALESCE(SUM(amount_mdl), 0) AS n FROM payments
-                  GROUP BY patient_id) pay ON pay.patient_id = p.id"""
-_PL_COLS = ("p.id, p.name, p.phone, p.email, p.session_key, p.birth_year, p.birth_date, "
-            "p.gender, p.primary_doctor, p.file_no, p.notes, p.created_at, p.archived, "
-            "v.last_at, v.next_at, COALESCE(v.n_visits, 0) AS n_visits, "
-            "COALESCE(al.n, 0) AS n_alerts, COALESCE(pl.n, 0) AS n_plan, "
-            f"{_PL_LAST_DOC_OF} AS last_doctor, {_PL_DEBT} AS debt, "
-            # счёт всего отбора той же выборкой: второй проход по агрегатам
-            # ради COUNT(*) стоил столько же, сколько сама страница
-            "COUNT(*) OVER () AS total")
-_PL_ORDER = {
-    "name": "{fold_name}, p.id",
-    "new": "p.created_at DESC, p.id",
-    "debt": _PL_DEBT + " DESC, p.id",
-    # по последнему визиту; кто ещё не был — в конце, в порядке заведения
-    "last": "(v.last_at IS NULL), v.last_at DESC, p.id",
-}
-
-
-# Как пишутся куски отбора: архив (0/1), свёртка диакритики и «только цифры»
-# (функции dp_fold/dp_digits, регистрирует init), «содержит», заполнитель и
-# вид даты.
-_PL_DIALECT = {"arch": "COALESCE(p.archived, 0) <> 0",
-               "fold": lambda col: f"dp_fold({col})",
-               "digits": lambda col: f"dp_digits({col})",
-               "has": lambda hay, needle: f"instr({hay}, {needle}) > 0",
-               "ph": lambda n: "?", "dt": _iso}
-
-
-class _PlQuery:
-    """Текст запроса списка и его аргументы по порядку.
-
-    `f` — отбор словарём (см. `patients_count`): q/terms, med, st, ch, dat,
-    show_archived, stale_cut, now. Каждое значение добавляется ровно там, где
-    стоит его заполнитель в тексте.
-    """
-
-    def __init__(self, f: dict):
-        self.d = _PL_DIALECT
-        self.args: list = []
-        d = self.d
-        self.base = _PL_FROM.format(now1=self.arg(f["now"], dt=True),
-                                    now2=self.arg(f["now"], dt=True))
-        conds = []
-        if not f.get("show_archived"):
-            conds.append(f"NOT ({d['arch']})")
-        if f.get("q"):
-            t = f.get("terms") or {}
-            alts = []
-            if t.get("fold"):
-                for col in ("p.name", "p.email", "p.file_no"):
-                    alts.append(d["has"](d["fold"](col), self.arg(t["fold"])))
-            if t.get("birth"):
-                alts.append(f"substr(COALESCE(p.birth_date, ''), 1, 10) = "
-                            f"{self.arg(t['birth'])}")
-            if t.get("digits"):
-                # notes — номер второго человека на семейном телефоне (решение
-                # 08-18). ⚠️ РАЗДЕЛЬНО от телефона, не общей строкой: на стыке
-                # «конец телефона + начало заметки» находились бы номера,
-                # которых нет
-                for col in ("p.phone", "p.notes"):
-                    alts.append(d["has"](d["digits"](col), self.arg(t["digits"])))
-            # запрос без единого пригодного куска (одна буква) не находит
-            # никого
-            conds.append("(" + " OR ".join(alts) + ")" if alts else "1 = 0")
-        med = f.get("med") or ""
-        if med == "-":
-            conds.append(f"{_PL_DOCTOR} = ''")
-        elif med:
-            conds.append(f"{_PL_DOCTOR} = {self.arg(med)}")
-        st = f.get("st") or ""
-        if st == "arhivat":
-            conds.append(d["arch"])
-        elif st == "atentie":
-            conds.append("COALESCE(al.n, 0) > 0")
-        elif st == "tratament":
-            conds.append("COALESCE(pl.n, 0) > 0")
-        elif st == "inactiv":
-            conds.append(f"(v.last_at IS NULL OR v.last_at <= "
-                         f"{self.arg(f['stale_cut'], dt=True)})")
-        elif st == "activ":
-            conds.append(f"(v.last_at IS NOT NULL AND v.last_at > "
-                         f"{self.arg(f['stale_cut'], dt=True)})")
-        if f.get("ch"):
-            conds.append(f"{_PL_CANAL} = {self.arg(f['ch'])}")
-        # ноль — ни в долг, ни в аванс: рассчитавшийся пациент не должен
-        # всплывать в списке, который регистратура открывает, чтобы звонить
-        if f.get("dat") == "da":
-            conds.append(f"{_PL_DEBT} > 0")
-        elif f.get("dat") == "avans":
-            conds.append(f"{_PL_DEBT} < 0")
-        if conds:
-            self.base += "\n     WHERE " + "\n       AND ".join(conds)
-
-    def arg(self, value, *, dt: bool = False) -> str:
-        self.args.append(self.d["dt"](value) if dt else value)
-        return self.d["ph"](len(self.args))
-
-    def page_sql(self, sort: str, limit: int | None, offset: int) -> str:
-        order = _PL_ORDER.get(sort, _PL_ORDER["last"]).format(
-            fold_name=self.d["fold"]("p.name"))
-        sql = f"SELECT {_PL_COLS}{self.base}\n     ORDER BY {order}"
-        if limit is None:          # книга Excel: вся выборка, а не страница
-            return sql
-        return sql + f"\n     LIMIT {self.arg(limit)} OFFSET {self.arg(offset)}"
-
-
-async def patients_count(f: dict) -> int:
-    """Сколько строк проходит отбор `f` — знаменатель страниц.
-
-    Отбор: `q` с разобранными кусками `terms` (fold / birth / digits — что
-    именно ищется, решает модуль, `_pl_terms`), `med` (имя врача или «-» =
-    без врача), `st` (arhivat / atentie / tratament / inactiv / activ,
-    включающий), `ch` (tg / manual / web), `dat` (da / avans),
-    `show_archived`, `stale_cut` (последний визит не позже — неактивен),
-    `now` (граница прошлого и будущего визита).
-    """
-    q = _PlQuery(f)
-    n = await _fetchval(f"SELECT COUNT(*){q.base}", *q.args)
-    return int(n or 0)
-
-
-async def patients_rows(f: dict, sort: str, limit: int | None, offset: int) -> list:
-    """Страница списка: строки с агрегатами (`last_at`, `next_at`, `n_visits`,
-    `n_alerts`, `n_plan`, `last_doctor`, `debt`) в порядке `sort`
-    (last / name / new / debt) и с `total` — счётом всего отбора в каждой
-    строке (окно). Пустая страница счёта не несёт: тогда `patients_count`.
-    `limit=None` — вся выборка (книга Excel). Статус строки выводит модуль
-    (`_pl_status`)."""
-    q = _PlQuery(f)
-    sql = q.page_sql(sort, limit, offset)
-    return await _fetch(sql, *q.args)
-
-
-async def patients_doctors() -> list[str]:
-    """Врачи, по которым список можно отобрать: тот же вывод, что у колонки
-    «Medic» (медик курант, иначе врач последнего визита)."""
-    sql = f"SELECT DISTINCT {_PL_DOCTOR} AS doctor FROM patients p"
-    return sorted(r["doctor"] for r in await _fetch(sql) if r["doctor"])
-
-
-async def patients_archived() -> int:
-    """Сколько фиш в архиве — для подсказки «N arhivați» под списком."""
-    return int(await _fetchval(
-        "SELECT COUNT(*) FROM patients WHERE COALESCE(archived, 0) <> 0") or 0)
-
-
-async def patients_have_tg() -> bool:
-    """Есть ли пациенты из бота — фильтр канала «Telegram» идёт ПО ДАННЫМ."""
-    sql = "SELECT COUNT(*) FROM patients WHERE substr(session_key, 1, 3) = 'tg:'"
-    return bool(await _fetchval(sql))
-
-
-async def patients_counts(month_start: datetime, prev_start: datetime) -> dict:
-    """Числа над списком: живых, в архиве, новых за этот месяц и за прошлый.
-    Новые считаются по всей картотеке, включая архив, — как на странице."""
-    lt = """SELECT SUM(CASE WHEN COALESCE(archived, 0) <> 0 THEN 0 ELSE 1 END) AS n_total,
-                   SUM(CASE WHEN COALESCE(archived, 0) <> 0 THEN 1 ELSE 0 END) AS n_arh,
-                   SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS n_new,
-                   SUM(CASE WHEN created_at >= ? AND created_at < ?
-                            THEN 1 ELSE 0 END) AS n_new_prev
-              FROM patients"""
-    rows = await _fetch(lt, _iso(month_start), _iso(prev_start), _iso(month_start))
-    r = rows[0] if rows else {}
-    return {k: int(r.get(k) or 0) for k in ("n_total", "n_arh", "n_new", "n_new_prev")}
-
-
 async def payments_day(start: datetime, end: datetime) -> list:
     """Платежи за окно, с именем пациента — для печатного отчёта кассы.
 
@@ -1729,130 +1385,6 @@ async def payments_day(start: datetime, end: datetime) -> list:
         sql.format("?", "?"),
         _iso(start), _iso(end),
     )
-
-
-async def patient_id_by_key(session_key: str) -> int | None:
-    """Есть ли уже пациент с таким ключом. Нужен до создания карточки вручную:
-    `_upsert_patient` при совпадении ПЕРЕЗАПИСАЛ бы имя существующего, и
-    «Ion Popescu» тихо стал бы «Ion P.» из-за общего семейного номера."""
-    return await _fetchval(
-        "SELECT id FROM patients WHERE session_key = ?", session_key)
-
-
-async def create_patient(session_key: str, name: str, phone: str,
-                         birth_year: int | None = None) -> int:
-    """Карточка без визита: регистратура завела пациента заранее (звонок,
-    первичный приём без времени). Остальные поля дописывает update_patient."""
-    return await _upsert_patient(session_key, name, phone, "ro", birth_year)
-
-
-async def set_archived(pid: int, on: bool) -> None:
-    """Архивация пациента: скрывает из списков, историю не трогает."""
-    await log_event(pid, "archive",
-                    "Pacient arhivat" if on else "Pacient scos din arhivă")
-    await _execute(
-        "UPDATE patients SET archived = ? WHERE id = ?",
-        int(on), pid,
-    )
-
-
-# Диакритика румынского: поиск «Balan» должен находить «Bălan» и наоборот.
-_DIA = str.maketrans("ăâîșşțţĂÂÎȘŞȚŢ", "aaissttAAISSTT")
-
-
-def _fold(s: str) -> str:
-    return (s or "").translate(_DIA).lower()
-
-
-# публичное имя для модулей: таблица диакритики обязана быть ОДНА на программу,
-# иначе список пациентов и поиск разойдутся в том, что считать «Bălan»
-fold = _fold
-
-
-async def patient_appointments(patient_id: int, limit: int = 20) -> list:
-    """Визиты пациента, свежие первыми. Предел по умолчанию — 20: столько
-    хватает боковому предпросмотру списка. Фише нужен ВЕСЬ список (она зовёт с
-    limit=1000): на ней стоит цифра «визитов всего», и с двадцаткой она врала
-    бы у давнего пациента."""
-    return await _fetch(
-        """SELECT id, service, doctor, starts_at, status, source, comment
-           FROM appointments WHERE patient_id = ?
-           ORDER BY starts_at DESC LIMIT ?""",
-        patient_id, limit,
-    )
-
-
-# ---------- карточка пациента (v1.6.0: A2 зубы+план, A4 документы) ----------
-
-PATIENT_FIELDS = ["name", "phone", "birth_date", "gender", "idnp", "email",
-                  "address", "insurance", "primary_doctor", "file_no", "notes"]
-
-
-async def get_patient(pid: int) -> dict | None:
-    cols = ("id, session_key, name, phone, lang, birth_year, created_at, archived, sms_off, "
-            + ", ".join(PATIENT_FIELDS[2:]))
-    rows = await _fetch(
-        f"SELECT {cols} FROM patients WHERE id = ?", pid)
-    return rows[0] if rows else None
-
-
-async def update_patient(pid: int, data: dict) -> None:
-    await log_event(pid, "profile", "Fișa pacientului a fost actualizată")
-    """Обновление профиля: только известные поля, явным списком колонок."""
-    sets_lt =", ".join(f"{f} = ?" for f in PATIENT_FIELDS)
-    vals = [data.get(f) for f in PATIENT_FIELDS]
-    await _execute(
-        f"UPDATE patients SET {sets_lt} WHERE id = ?",
-        *vals, pid,
-    )
-
-
-async def set_primary_doctor(pid: int, name: str | None) -> None:
-    """Медик курант одним полем (шапка фиши, 14.10) — мимо `update_patient`,
-    который пишет ВСЕ поля профиля и стёр бы остальные. None — снять."""
-    await log_event(pid, "profile", f"Medic curant: {name}" if name else "Medic curant scos")
-    await _execute("UPDATE patients SET primary_doctor = ? WHERE id = ?", name, pid)
-
-
-async def set_birth_year(pid: int, year: int | None) -> None:
-    """Синк года из birth_date: возраст в поиске/сетке считается по birth_year.
-    None стирает год — так очищенная дата рождения забирает с собой и возраст."""
-    await _execute(
-        "UPDATE patients SET birth_year = ? WHERE id = ?",
-        year, pid,
-    )
-
-
-async def patient_alerts(pid: int) -> list:
-    return await _fetch(
-        "SELECT id, kind, text FROM patient_alerts WHERE patient_id = ? ORDER BY id", pid)
-
-
-async def add_alert(pid: int, kind: str, text: str) -> None:
-    await log_event(pid, "alert_add", f"Atenționare adăugată: {text}")
-    await _execute(
-        "INSERT INTO patient_alerts(patient_id, kind, text, created_at) VALUES(?, ?, ?, ?)",
-        pid, kind, text, _utcnow_iso(),
-    )
-
-
-async def delete_alert(alert_id: int, pid: int) -> bool:
-    """Снять предупреждение. След в летописи обязателен: снятая аллергия на
-    пенициллин — клинически значимое событие, и «кто её снял» спросят громче,
-    чем «кто записал» (до 24.09 удаление не оставляло строки вовсе). Летопись
-    — ПОСЛЕ DELETE и только за реально снятую строку, как у `delete_bridge`.
-    False — у пациента такого предупреждения нет (чужое, выдуманное, уже
-    снятое с другого места)."""
-    rows = await _fetch(
-        "SELECT text FROM patient_alerts WHERE id = ? AND patient_id = ?", alert_id, pid)
-    if not rows:
-        return False
-    n = await _execute(
-        "DELETE FROM patient_alerts WHERE id = ? AND patient_id = ?", alert_id, pid)
-    if n != 1:
-        return False
-    await log_event(pid, "alert_del", f"Atenționare ștearsă: {rows[0]['text']}")
-    return True
 
 
 # Кто сейчас за журналом. Ставится приложением при старте (main.py), потому что
