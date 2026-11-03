@@ -154,8 +154,8 @@ OUTBOX_HOLDERS = {"_maib_callback", "_returned", "settle_cards", "payment_check"
 # в эту ветку не берём, список в отчёт). Ключ — «файл:функция → вызов».
 MAIL_IN_TX = {
     # не оплата (Р4): в эту ветку не берём, список — в отчёт
-    "main.py:_sms_order → mail.send": "нота SMS из программы (main.py ~327)",
-    "main.py:_trial_program → trial.submit": "пробный из программы: выдача и письмо (trial.py:218)",
+    "routes_program.py:_sms_order → mail.send": "нота SMS из программы (main.py ~327)",
+    "routes_program.py:_trial_program → trial.submit": "пробный из программы: выдача и письмо (trial.py:218)",
     "routes_public.py:trial_submit → trial.submit": "пробный с /proba: выдача и письмо (trial.py:218)",
     "main.py:cont_register_submit → account.register": "регистрация кабинета → trial.submit (trial.py:218)",
     "main.py:cont_add_submit → account.add_clinic": "«Adaugă clinică» → trial.submit (trial.py:218)",
