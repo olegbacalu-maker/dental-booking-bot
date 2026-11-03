@@ -15,7 +15,7 @@ import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
 
-from harness import BOT, ROOT, Client, Result, Server, _rmtree_settled, shell_model, shell_signal
+from harness import ROOT, Client, Result, Server, _rmtree_settled, shell_model, shell_signal
 
 FIX = ROOT / "tests" / "fixtures" / "license"
 KEY_ENV = {"DENTART_LICENSE_KEYS": str(FIX / "test-key.json")}

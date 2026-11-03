@@ -566,7 +566,6 @@ def suite_install_setup(res: Result) -> None:
                 tmp = pathlib.Path(td)
                 lab = dict(lab_kw)
                 if "request" in lab:
-                    import hashlib
                     lab["request"] = {"size": signed.stat().st_size, "sha256": "0" * 64}
                     want = "отпечаток"
                 exe, work = _setup_lab(tmp, signed, **lab)

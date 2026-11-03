@@ -29,7 +29,7 @@ import sys
 import tempfile
 import threading
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 from harness import (BOT, FIXTURES, ROOT, Client, Clock, Result, Server, TZ, _rmtree_settled,
                      add_appt, appt_id, day_model, new_patient, panel_live, pid_by_phone,

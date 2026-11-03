@@ -28,7 +28,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "bot"))
 
 from app import migstate  # noqa: E402
 from app.core import auth  # noqa: E402
-from harness import PIN, Client, Result, Server, shell_signal  # noqa: E402
+from harness import Client, Result, Server, shell_signal  # noqa: E402
 from test_srcpin import _diff, _root_v1, _root_v2, _snapshot  # noqa: E402
 
 

@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import argparse
 import ctypes
-import json
 import os
 import pathlib
 import shutil

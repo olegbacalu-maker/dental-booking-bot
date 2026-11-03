@@ -202,12 +202,12 @@ def suite_server(res: Result) -> None:
         _set_recall(c, {"hygiene": 6})
 
         # бумажная история: визит задним числом + «Finalizat»
-        p_due = _visit(c, date(2026, 4, 2), "Maria Scadent", "069810001")          # срок 02.10, просрочка 4 дня
+        _visit(c, date(2026, 4, 2), "Maria Scadent", "069810001")          # срок 02.10, просрочка 4 дня
         _visit(c, date(2026, 4, 2), "Noshow Nu", "069810002", status="noshow", time="10:00")
         _visit(c, date(2026, 4, 2), "Cancel Nu", "069810003", status="cancelled", time="11:00")
         _visit(c, date(2026, 4, 2), "Programat Nu", "069810004", status="confirmed", time="12:00")
         _visit(c, date(2026, 4, 2), "Consult Nu", "069810005", service="consult", doctor="d2", time="13:00")
-        p_same = _visit(c, date(2026, 4, 3), "Ion Rezervat", "069810006")
+        _visit(c, date(2026, 4, 3), "Ion Rezervat", "069810006")
         p_other = _visit(c, date(2026, 4, 3), "Elena Altul", "069810007", time="10:00")
         _visit(c, date(2026, 4, 21), "Irina Devreme", "069810008")                 # срок 21.10 — через 15 дней, вне окна
         _visit(c, date(2025, 9, 1), "Ana Veche", "069810009")                      # старше горизонта

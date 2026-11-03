@@ -11,7 +11,6 @@ cloud/tests/test_email.py.
 действия — только директору и в режиме чтения тоже (на ящик идут ноты); сервер не сказал о
 ящике — ни строки, ни блока: «не знаем» не равно «не подтверждён».
 """
-import json
 import pathlib
 import sqlite3
 import tempfile

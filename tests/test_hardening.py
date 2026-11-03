@@ -259,7 +259,7 @@ def suite_booking_race(res: Result) -> None:
     _slot_lock» + мутации на него."""
     import concurrent.futures
     import threading
-    from datetime import date, timedelta
+    from datetime import timedelta
 
     day = (clinic_today() + timedelta(days=1)).isoformat()
 

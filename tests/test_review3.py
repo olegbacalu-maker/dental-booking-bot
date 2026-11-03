@@ -23,7 +23,7 @@
 часам КЛИНИКИ, а /admin/add отказывает по графику ВРАЧА (outside_doc).
 """
 import re
-from datetime import date, timedelta
+from datetime import timedelta
 
 from harness import BOT, Client, Result, Server, clinic_today, day_model
 

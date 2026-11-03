@@ -20,7 +20,7 @@ import shutil
 import tempfile
 
 from harness import Client, Result, Server, _rmtree_settled, shell_signal
-from test_backup import PW, _export
+from test_backup import _export
 from test_license_renew import (FIX, KEY_ENV, TOKEN, Stand, _actors, _api, _file, _terms, _until,
                                 _wait_renew, rn)
 

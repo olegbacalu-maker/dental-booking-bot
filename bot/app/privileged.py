@@ -46,6 +46,7 @@ docs/dentpilot-2/updates.md › «Порядок с 03.10», шаг 2): уста
 """
 from __future__ import annotations
 
+import pathlib
 import re
 import shutil
 import sys
@@ -125,7 +126,6 @@ def _self_exe() -> "pathlib.Path":
     рассуждал бы о python.exe, которым сам и запущен.
     ⛔ Значение берётся у процесса, а НЕ из аргументов: снаружи назвать
     программу нельзя ничем."""
-    import pathlib
     return pathlib.Path(sys.executable).resolve()
 
 
@@ -140,7 +140,6 @@ def _layout(base=None) -> tuple:
     один знает раскладку; без него (прогон) — то же правило по имени exe.
     ⛔ Опознаётся ПО ИМЕНИ своего файла, а не окружением: повышенный процесс
     окружения оболочки не получает."""
-    import pathlib
 
     from .sidecar import ENGINE_EXE            # константа предзагрузочного слоя
     exe = _self_exe()
@@ -229,7 +228,6 @@ def _install_setup(args: list[str], data_root=None, base=None) -> str:
         raise Refused(f"операция не принимает аргументов, получено {args!r}")
     import hashlib
     import json
-    import pathlib
     from . import authenticode
 
     prog_root, exe, _engine = _layout(base)

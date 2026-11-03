@@ -27,7 +27,7 @@ from ... import db
 from ... import envfile
 from ... import engine as eng
 from ... import update as upd
-from ...core.auth import (PERM_SETTINGS, PERM_SMS, ROLE_DIRECTOR, ROLE_LABEL, _guard, _pin_rec,
+from ...core.auth import (PERM_SETTINGS, PERM_SMS, ROLE_DIRECTOR, ROLE_LABEL, _pin_rec,
                           all_users, can, delete_user, find_user,
                           n_directors, pin_free, pin_len_ok, pin_readiness,
                           local_only, remember_auth_file, request_user, require,

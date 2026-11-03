@@ -793,7 +793,6 @@ def suite_doc_outlives_shell(res: Result) -> None:
     2.0.2, задание харнесса) — флаг отвергнут, explorer без него; и контроль —
     прежний `os.startfile` в том же задании обязан ПОГИБНУТЬ: иначе стенд
     болезни не видит, и зелёное двух первых ничего не значит."""
-    import os
     import sys
     import tempfile
     import time

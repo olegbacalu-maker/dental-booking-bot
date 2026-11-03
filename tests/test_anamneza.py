@@ -10,7 +10,7 @@ import io
 import json
 import urllib.parse
 import zipfile
-from datetime import date, timedelta
+from datetime import timedelta
 
 import subprocess
 

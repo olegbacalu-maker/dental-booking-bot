@@ -20,11 +20,11 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 
-from harness import CLOUD, ROOT, Client, Result, Server, cid_from, load_by_path
+from harness import CLOUD, ROOT, Client, Result, Server, cid_from
 
 sys.path.insert(0, str(CLOUD))
 from app import config, db, terms  # noqa: E402
-from test_branches import BANK_ENV, _enter, _register, _token_of  # noqa: E402
+from test_branches import BANK_ENV, _enter, _token_of  # noqa: E402
 from test_email import AUTO, GOOD, _sql  # noqa: E402
 from test_renew import rn  # noqa: E402
 

@@ -12,7 +12,7 @@ import sys
 import tempfile
 import time
 import zipfile
-from datetime import date, timedelta
+from datetime import timedelta
 
 from harness import (BOT, Client, Result, Server, _rmtree_settled, appt_id,
                      clinic_today, day_model, pid_by_phone)
@@ -405,8 +405,6 @@ def suite_access_log(res: Result) -> None:
                f"просмотров в копии {len(views)} — журнал доступа не пишется")
 
         # просмотр документа — отдельное событие
-        docs = [n for n in zipfile.ZipFile(io.BytesIO(
-            c.get(f"/admin/patient/{pid}/export").raw)).namelist()]
         doc_id = data["documente"][0]["id"]
         c.get(f"/admin/doc/{doc_id}")
         z2 = zipfile.ZipFile(io.BytesIO(c.get(f"/admin/patient/{pid}/export").raw))
@@ -553,7 +551,7 @@ def suite_backup(res: Result) -> None:
     srv.extra_env["DENTART_DATA_DIR"] = str(root)
     with srv as s:
         c = Client(s.url).login()
-        pid = _seed(c)                     # чтобы в базе и файлах что-то было
+        _seed(c)                           # чтобы в базе и файлах что-то было
         res.check("логотип клиники загружен", c.post_file(
             "/api/settings/theme/logo", "file", "logo.png",
             b"\x89PNG\r\n\x1a\n" + b"x" * 64).msg, "ok_logo")

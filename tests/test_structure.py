@@ -1818,12 +1818,11 @@ def suite(res: Result) -> None:
                 and re.fullmatch(r"_\w+_(banner|hint)", c.func.id)}
     printed = {name for name in funcs if re.fullmatch(r"_\w+_(banner|hint)", name)}
     in_model = _banner_calls(funcs["shell_model"]) if "shell_model" in funcs else set()
-    signals, keys = set(), []
+    keys = []
     for n in ast.walk(funcs["shell_model"]) if "shell_model" in funcs else ():
         if isinstance(n, ast.Dict):
             for k, v in zip(n.keys, n.values):
                 if isinstance(k, ast.Constant) and k.value == "signals" and isinstance(v, ast.Dict):
-                    signals = _banner_calls(v)
                     keys = [kk.value for kk in v.keys if isinstance(kk, ast.Constant)]
     if not printed:
         bad.append("layout: функций баннеров не найдено — якорь правила пропал")

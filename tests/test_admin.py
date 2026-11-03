@@ -13,7 +13,7 @@ import zipfile
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from harness import (BOT, PIN, PYTHON, TZ, Client, Result, Server, _rmtree_settled, add_appt,
+from harness import (BOT, PYTHON, TZ, Client, Result, Server, _rmtree_settled, add_appt,
                      appt_id, bot_patient, clinic_today, day_model, new_patient, panel_live,
                      pid_by_phone, shell_model)
 

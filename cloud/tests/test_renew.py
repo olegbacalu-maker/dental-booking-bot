@@ -11,7 +11,7 @@ import json
 import re
 import sqlite3
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from harness import CLOUD, FIX, ROOT, Client, Result, Server, cid_from, load_by_path
 

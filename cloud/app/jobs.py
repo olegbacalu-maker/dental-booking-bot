@@ -35,7 +35,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
-from . import config, db, license, mail, maib, paylink, payments, sms, smsmd, tiers
+from . import config, db, mail, maib, paylink, payments, sms, smsmd, tiers
 
 log = logging.getLogger("cloud.jobs")
 

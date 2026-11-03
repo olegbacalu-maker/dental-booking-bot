@@ -13,7 +13,7 @@ import sqlite3
 import subprocess
 import sys
 
-from harness import CLOUD, FIX, ROOT, Client, Result, Server, cid_from, load_by_path
+from harness import CLOUD, FIX, ROOT, Client, Result, Server, load_by_path
 
 rv = load_by_path("rsa_verify", ROOT / "bot" / "app" / "core" / "rsa_verify.py")
 sys.path.insert(0, str(CLOUD))

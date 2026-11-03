@@ -10,7 +10,7 @@
 import json
 import os
 import subprocess
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from harness import (BOT, PYTHON, Client, Result, Server, appt_id, clinic_today,

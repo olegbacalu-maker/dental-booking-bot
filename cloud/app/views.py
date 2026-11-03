@@ -1274,7 +1274,6 @@ def _pay_pane(c, sub, st: str, payments: list, reminders: list, now: datetime) -
     """Вкладка «Оплата»: срок, что ждёт оплаты, тариф; «Выставить ноту» за кнопкой; ноты; напоминания."""
     cid = esc(c["id"])
     cur = tiers.current(sub)
-    price = tiers.price(sub, cur)
     vu = _ts(sub["valid_until"]) if sub else None
     if vu is None:
         term = _stat("Срок", "файла нет", "лицензия не выдана: вкладка «Лицензия»")

@@ -179,7 +179,7 @@ def suite_link(res: Result) -> None:
                 _sql(s, "SELECT count(*) FROM cont_links WHERE used_at IS NOT NULL")[0][0])
         res.check("POST с чужим Origin и с Origin: null — 403, ссылка цела", same, (403, 403, 0))
         b = Client(s.url)                                     # системный браузер: куки кабинета нет
-        page = b.get(path)
+        b.get(path)
         r = b.post(path, headers={"Origin": f"http://127.0.0.1:{s.port}", "Host": f"127.0.0.1:{s.port}"})
         res.ok("вход: 303 в кабинет, кука кабинета вида «clinic»",
                r.status == 303 and r.location == "/cont" and _kinds(b) == ["clinic"], f"{r.status} {r.location}")

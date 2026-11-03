@@ -44,7 +44,6 @@ from __future__ import annotations
 
 import asyncio
 import html
-import json
 import logging
 import os
 import pathlib
@@ -307,7 +306,11 @@ async def _boot() -> None:
             await reset(s)
         except Exception:  # noqa: BLE001
             log.exception("слот %d не поднялся", s.i)
-    asyncio.create_task(_sweep())
+    # ⚠️ Не create_task: цикл событий держит задачи СЛАБОЙ ссылкой, и брошенную
+    # задачу уборки сборщик мусора мог прибить — слоты перестали бы
+    # возвращаться в пул без строки в логе. Задачу _boot держит lifespan, она
+    # же и гасит уборку на остановке.
+    await _sweep()
 
 
 async def _sweep() -> None:

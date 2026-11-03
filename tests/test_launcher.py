@@ -142,7 +142,6 @@ def suite_envfile(res: Result) -> None:
                "os.replace" in src and "fsync" in src,
                "truncate+write: обрыв питания оставляет усечённый dental.env")
     finally:
-        import shutil
         _rmtree_settled(tmp)
 
 
@@ -776,7 +775,6 @@ def suite_autobackup(res: Result) -> None:
                    f"битый {[p.name for p in leftovers]} неотличим от бэкапа "
                    f"и вытеснит исправные копии из ротации")
         finally:
-            import shutil
             _rmtree_settled(bad_dir)
 
         # -- ротация по дням (02.11): новейшая копия каждого из KEEP_DAYS
@@ -813,5 +811,4 @@ def suite_autobackup(res: Result) -> None:
                f"prepare={start}, restore={i_r}, dbkey={i_k}, autobackup={i_b}: "
                f"восстановление не зовётся или идёт не первым")
     finally:
-        import shutil
         _rmtree_settled(tmp)

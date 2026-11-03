@@ -348,7 +348,7 @@ def suite_two_seats(res: Result) -> None:
         a = Client(s.url).login()
         b = Client(s.url).login()
         d = _seed(a)
-        pid, eid, base = d["pid"], d["eid"], d["base"]
+        pid, eid = d["pid"], d["eid"]
         ma = _j(a.get(f"/api/patients/{pid}/perio"))["data"]
         mb = _j(b.get(f"/api/patients/{pid}/perio"))["data"]
         res.check("оба места видят один осмотр и один его отпечаток",

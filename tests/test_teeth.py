@@ -11,7 +11,7 @@ import io
 import json
 import re
 import zipfile
-from datetime import date, timedelta
+from datetime import timedelta
 
 from harness import Client, Result, Server, clinic_today, pid_by_phone, shell_model
 

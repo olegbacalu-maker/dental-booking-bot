@@ -508,7 +508,7 @@ def suite_switch(res: Result) -> None:
                 tile = next(t for t in hub if t["href"] == "/admin/settings/backup")
                 res.ok("плитка хаба — факт «ultima copie», не AES",
                        "ultima copie" in tile["hint"][0]["t"] and "AES" not in tile["hint"][0]["t"], repr(tile["hint"]))
-                n_local, n_ext = len(_local(d)), len(_ext(dest))
+                n_local = len(_local(d))
 
                 # -- выключить: только {enabled} --
                 r = c.post_json("/api/settings/backup/auto", {"enabled": False})

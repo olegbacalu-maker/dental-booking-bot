@@ -19,7 +19,7 @@ import json
 import sqlite3
 import sys
 import zipfile
-from datetime import date, timedelta
+from datetime import timedelta
 
 from harness import BOT, Client, Result, Server, appt_id, clinic_today, pid_by_phone
 

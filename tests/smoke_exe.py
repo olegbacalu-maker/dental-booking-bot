@@ -42,10 +42,6 @@ from datetime import datetime, timezone
 # ПОСРЕДИ прогона. Сборка при этом отказывалась класть тег, то есть дымовой
 # тест не пускал ни один релиз — а выглядело как «сборка сломалась». Та же
 # мера, что в run_tests.py: плохой символ дешевле потерять, чем весь отчёт.
-import urllib.error
-import urllib.parse
-import urllib.request
-
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 

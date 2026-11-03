@@ -13,7 +13,7 @@ import tempfile
 import pathlib
 from urllib.parse import urlsplit
 
-from harness import CLOUD, Client, Result, Server, cid_from
+from harness import CLOUD, Client, Result, Server
 
 sys.path.insert(0, str(CLOUD))
 from app import emailconf  # noqa: E402

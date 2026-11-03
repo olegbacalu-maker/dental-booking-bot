@@ -12,11 +12,10 @@ import re
 import sqlite3
 import sys
 import tempfile
-import time
 
 import subprocess
 
-from harness import CLOUD, ROOT, Client, Result, Server, cid_from
+from harness import CLOUD, Client, Result, Server, cid_from
 from test_deploy import _tools
 from test_receipts import _letters, _raw
 from test_sms_paper import _cabinet
