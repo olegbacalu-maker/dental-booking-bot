@@ -18,10 +18,16 @@
 """
 import ast
 import importlib
+import os
+import pathlib
+import re
+import subprocess
 import sys
+import tempfile
 import types
+from datetime import datetime, timedelta, timezone
 
-from harness import BOT, Result
+from harness import BOT, ROOT, Result
 
 sys.path.insert(0, str(BOT))
 from app import db  # noqa: E402
@@ -91,6 +97,26 @@ SNAPSHOT = frozenset((
 ))
 
 
+# Подмена имени db из тестов и скриптов: `db.X = …`, `appdb.X += …`, `setattr(db, …)` —
+# и в коде строк для `python -c`, поэтому текстом, а не деревом.
+_ASSIGN = re.compile(r"\b(?:app)?db\.(\w+)\s*[-+]?=(?!=)")
+_SETATTR = re.compile(r"\b(?:set|del)attr\(\s*(?:app)?db\b")
+# Сторожа сами пишут такие строки: текст правила и мутация, которая его ломает.
+_GUARDS = {"test_db_names.py", "test_structure.py", "mutate.py"}
+# Часы харнесса (`tests/fakeclock`) подменяют `datetime` в глобалах модулей `app.*`
+# ПОСЛЕ исполнения тела: подмодуль, куда часы не дотянулись, жил бы по настоящему
+# времени, и набор под `harness.Clock` проверял бы не тот день — зелёным.
+_CLOCK_CODE = """
+import importlib, pkgutil, datetime as real
+from app import db
+print('_utcnow_iso', db._utcnow_iso())
+for m in sorted(n for _, n, _ in pkgutil.iter_modules(db.__path__)):
+    mod = importlib.import_module('app.db.' + m)
+    if 'datetime' in vars(mod):
+        print(m, mod.datetime.now(real.timezone.utc).isoformat())
+"""
+
+
 def _defined(path) -> list[str]:
     """Имена верхнего уровня файла — то, что модуль определяет сам."""
     out = []
@@ -138,6 +164,39 @@ def suite(res: Result) -> None:
     lost = sorted(n for n in SNAPSHOT - set(STATE) if n not in owners)
     res.ok("каждое имя снимка живёт в подмодуле", not lost,
            "имя осталось в __init__ или пропало: " + ", ".join(lost))
+
+    scanned, swapped = 0, []
+    for top in ("tests", "scripts", "demo"):
+        for f in sorted((ROOT / top).rglob("*.py")):
+            if f.name in _GUARDS:
+                continue
+            scanned += 1
+            for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+                hit = [a for a in _ASSIGN.findall(line) if a not in STATE]
+                if hit or _SETATTR.search(line):
+                    swapped.append(f"{f.relative_to(ROOT).as_posix()}:{i}")
+    res.ok("тесты и скрипты не подменяют имена db", scanned > 50 and not swapped,
+           f"просмотрено файлов {scanned}; подмена через пакет не дойдёт до вызовов из "
+           f"подмодулей — подменять в модуле-владельце: " + ", ".join(swapped))
+
+    shift = tempfile.NamedTemporaryFile("w", suffix=".shift", delete=False)
+    shift.write(str(400 * 86400))                        # +400 суток
+    shift.close()
+    try:
+        env = dict(os.environ, PYTHONPATH=str(ROOT / "tests" / "fakeclock"),
+                   FAKECLOCK_FILE=shift.name)
+        p = subprocess.run([sys.executable, "-c", _CLOCK_CODE], cwd=BOT, env=env,
+                           capture_output=True, text=True, encoding="utf-8", timeout=60)
+    finally:
+        pathlib.Path(shift.name).unlink(missing_ok=True)
+    rows = dict(ln.split(" ", 1) for ln in p.stdout.splitlines()
+                if ln and not ln.startswith("[fakeclock]"))
+    soon = datetime.now(timezone.utc) + timedelta(days=300)
+    stuck = sorted(m for m, at in rows.items() if datetime.fromisoformat(at) < soon)
+    res.ok("часы харнесса двигают все подмодули db",
+           p.returncode == 0 and "_utcnow_iso" in rows and len(rows) >= 6 and not stuck,
+           f"код {p.returncode}; подмодули с datetime: {sorted(rows)}; мимо часов: "
+           f"{stuck}; {p.stderr[-300:]}")
 
     leaked = sorted(f"{o}.{n}" for n in STATE for o in owners.get(n, []))
     res.ok("состояние db живёт только в __init__", not leaked and

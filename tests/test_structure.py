@@ -728,6 +728,27 @@ def suite(res: Result) -> None:
            "имя переприсваивается на ходу, а импорт заморозил его значение "
            "(читать как модуль.ИМЯ или функцией): " + "; ".join(bad))
 
+    # ---- атрибуту db снаружи присваивают только состояние (03.11) ----
+    # Пакет db: функции подмодулей зовут соседей СВОИМ именем (`from .conn
+    # import _fetch`), а не `db._fetch`. Подмена `db.ИМЯ = …` (или setattr)
+    # меняет только атрибут пакета — вызовы изнутри подмодулей её не видят, и
+    # хук, тестовая подделка или «временная заплатка» молча не действуют.
+    # Присваивать можно ровно состоянию, которое подмодули читают ЧЕРЕЗ пакет.
+    _DB_REBINDABLE = {"_CONN", "_SQ", "ACTOR_HOOK"}
+    bad = [f"{_DB_STATE}: {n}" for n in sorted(rebound.get(_DB_STATE, set()) - _DB_REBINDABLE)]
+    for rel, tree in src:
+        alias = {a.asname or a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
+                 for a in n.names if _from_target(rel, n, a.name) == _DB_STATE}
+        bad += [f"{rel}:{n.lineno} {n.func.id}" for n in ast.walk(tree)
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                and n.func.id in ("setattr", "delattr") and n.args
+                and isinstance(n.args[0], ast.Name) and n.args[0].id in alias]
+    if "ACTOR_HOOK" not in rebound.get(_DB_STATE, set()):
+        bad.append("разбор не видит db.ACTOR_HOOK = … из main.py — якорь правила пропал")
+    res.ok("атрибуту db снаружи присваивают только состояние", not bad,
+           "подмена имени пакета db не дойдёт до вызовов из подмодулей (они зовут "
+           "своё имя): " + "; ".join(bad))
+
 
     # ---- подмодуль db не держит переприсваиваемого состояния (03.11) ----
     # Пакет реэкспортирует каждое имя подмодуля (`from .teeth import …` в
