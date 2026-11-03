@@ -10,6 +10,8 @@ import copy
 import re
 import sys
 
+from starlette.routing import compile_path
+
 from harness import CLOUD, Result
 
 SNAPSHOT = [
@@ -119,8 +121,15 @@ def _app():
     return app
 
 
+def _routes() -> list:
+    """Маршруты app, роутеры раскрыты: FastAPI 0.141 кладёт в `app.routes` подключённый роутер
+    одним узлом (`_IncludedRouter`), а не копии маршрутов; обход — тот же, что у openapi."""
+    from fastapi.routing import iter_route_contexts
+    return [r for r in iter_route_contexts(_app().routes) if r.methods]
+
+
 def _got() -> list:
-    return sorted((m, r.path, r.name) for r in _app().routes for m in (getattr(r, "methods", None) or ()))
+    return sorted((m, r.path, r.name) for r in _routes() for m in r.methods)
 
 
 def _sample(path: str) -> str:
@@ -138,13 +147,13 @@ def suite_snapshot(res: Result) -> None:
     res.check("маршрутов не прибавилось мимо снимка", sorted(set(got) - set(want)), [])
     res.check("пара: снимок без одной строки — сторож видит пропажу",
               sorted(set(want) - set(want[1:])), [want[0]])
-    routes = [r for r in _app().routes if getattr(r, "methods", None)]
+    routes = [(r.path, r.methods, compile_path(r.path)[0]) for r in _routes()]
     twice = []
-    for r in routes:
-        url = _sample(r.path)
-        for m in r.methods:
-            hit = [o.path for o in routes if m in o.methods and o.path_regex.match(url)]
-            if hit != [r.path]:
+    for path, methods, _ in routes:
+        url = _sample(path)
+        for m in methods:
+            hit = [p for p, ms, rx in routes if m in ms and rx.match(url)]
+            if hit != [path]:
                 twice.append((m, url, hit))
     res.check("ни один адрес не ловят два маршрута одного метода (порядок роутеров не важен)", twice, [])
 
