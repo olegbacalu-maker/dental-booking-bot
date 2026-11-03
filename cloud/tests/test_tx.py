@@ -296,7 +296,7 @@ def suite_mail_after_commit(res: Result) -> None:
     res.ok("отправляющие найдены: mail.send/deliver, send_paid, outbox, обёртка mail_latest",
            want <= senders, sorted(want - senders))
     builders = {"payments.notify_paid", "license.letter_latest", "sms.letter_pack", "sms.letter_name",
-                "web.payment_letter", "main._settle_now", "payments.card_plan", "payments.card_record"}
+                "web.payment_letter", "routes_admin_pay._settle_now", "payments.card_plan", "payments.card_record"}
     res.ok("сборка писем ничего не отправляет: notify_paid, letter_*, _payment_letter, _settle_now, card_*",
            not (builders & senders), sorted(builders & senders))
     res.ok("outbox раньше db.connect у 7 мест оплаты и 6 мест письма с нотой",
@@ -310,13 +310,13 @@ def suite_mail_after_commit(res: Result) -> None:
     _, _, m = mail_check(_inject(trees, "jobs.py", "settle_cards", "payments.send_paid([])"))
     res.ok("пара: send_paid в транзакции ежедневной задачи — красный",
            "jobs.py:settle_cards → payments.send_paid" in m, repr(m))
-    _, _, m = mail_check(_swap(trees, "main.py", "payment_confirm"))
+    _, _, m = mail_check(_swap(trees, "routes_admin_pay.py", "payment_confirm"))
     res.ok("пара: connect раньше outbox («Подтвердить») — красный",
-           "main.py:payment_confirm → payments.outbox" in m, repr(m))
+           "routes_admin_pay.py:payment_confirm → payments.outbox" in m, repr(m))
     _, _, m = mail_check(_prepend(trees, "payments.py", "notify_paid", "mail.deliver(None)"))
     hit = {"routes_pay.py:_maib_callback → payments.notify_paid", "routes_pay.py:_returned → payments.notify_paid",
-           "jobs.py:settle_cards → payments.notify_paid", "main.py:payment_confirm → payments.notify_paid",
-           "main.py:payment_repeat → payments.notify_paid", "main.py:payment_check → main._settle_now",
+           "jobs.py:settle_cards → payments.notify_paid", "routes_admin_pay.py:payment_confirm → payments.notify_paid",
+           "routes_admin_pay.py:payment_repeat → payments.notify_paid", "routes_admin_pay.py:payment_check → routes_admin_pay._settle_now",
            "web.py:card_go → payments.notify_paid"}
     res.ok("пара: notify_paid начал отправлять — красные все места оплаты", hit <= set(m), sorted(hit - set(m)))
     _, _, m = mail_check(_prepend(trees, "web.py", "payment_letter", "mail.send('a', 'b', 'c')"))
@@ -359,7 +359,7 @@ def suite_net_outside_tx(res: Result) -> None:
     res.ok("сеть maib найдена: _call, token, create, info и по цепочке card_ask, _card_go",
            want <= reach, sorted(want - reach))
     quiet = {"maib.enabled", "maib.verify", "maib.ours", "payments.card_plan", "payments.card_record",
-             "payments.settle", "payments.notify_paid", "main._settle_now", "web.payment_letter"}
+             "payments.settle", "payments.notify_paid", "routes_admin_pay._settle_now", "web.payment_letter"}
     res.ok("без сети: enabled, verify, ours, снимок и запись ответа (card_plan, card_record, settle)",
            not (quiet & reach), sorted(quiet & reach))
     res.check("maib внутри with db.connect — только названные исключения",
