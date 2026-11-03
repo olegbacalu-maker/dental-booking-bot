@@ -79,7 +79,7 @@ def shown_days(monday: date, grouped: dict, today: date, colors) -> list[dict]:
             # клиники. `dm` — та же дата глазами человека, «18.09».
             "date": day.isoformat(),
             "dm": day.strftime("%d.%m"),
-            "label": eng.day_label(eng.Session(lang="ro"), day).split(",")[0].split()[0],
+            "label": eng.day_label(day).split()[0],
             "count": day_count(rows),
             "today": day == today,
             "open": bool(eng.hours_for(day)),

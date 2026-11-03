@@ -1,5 +1,5 @@
-"""Настройки клиники: профиль, часы работы, врачи и услуги, токен Telegram,
-проверка и установка обновления.
+"""Настройки клиники: профиль, часы работы, врачи и услуги, проверка и
+установка обновления.
 
 Единственный экран, который ПИШЕТ `clinic.json` — и потому единственный, где
 ошибка стоит дороже обычной: битый файл клиники означает старт с чужими
@@ -24,7 +24,7 @@ from fastapi.responses import (FileResponse, HTMLResponse, RedirectResponse)
 from starlette.background import BackgroundTask
 
 from ... import db
-from ... import dpapi, envfile
+from ... import envfile
 from ... import engine as eng
 from ... import update as upd
 from ...core.auth import (PERM_SETTINGS, PERM_SMS, ROLE_DIRECTOR, ROLE_LABEL, _guard, _pin_rec,
@@ -32,10 +32,7 @@ from ...core.auth import (PERM_SETTINGS, PERM_SMS, ROLE_DIRECTOR, ROLE_LABEL, _g
                           n_directors, pin_free, pin_len_ok, pin_readiness,
                           local_only, remember_auth_file, request_user, require,
                           save_user)
-from ...core.layout import (_DOW_ORDER, _ic,
-                            msg_banner,
-                            react_shell, shell_model, _shell, standalone,
-                            tg_configured, tg_status)
+from ...core.layout import _DOW_ORDER, _ic, react_shell, shell_model, standalone
 from ...core import bitlocker, dbkey, demo, theme
 from ...core import recall as crecall
 from ...core import license as lic
@@ -44,7 +41,6 @@ from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
 from ...core import backup as bkp
 from . import crypt
-from . import system
 from . import lan
 
 router = APIRouter()
@@ -56,34 +52,6 @@ _UID_RE = re.compile(r"[a-z0-9_-]{2,20}")
 
 _PALETTE_RO = {"green": "verde", "blue": "albastru", "amber": "portocaliu",
                "violet": "violet", "red": "roșu", "teal": "turcoaz"}
-
-
-_DOW_SHORT = {"ro": {"mon": "Lu", "tue": "Ma", "wed": "Mi", "thu": "Jo",
-                     "fri": "Vi", "sat": "Sâ", "sun": "Du"},
-              "ru": {"mon": "Пн", "tue": "Вт", "wed": "Ср", "thu": "Чт",
-                     "fri": "Пт", "sat": "Сб", "sun": "Вс"}}
-
-
-def _hours_summary(hours: dict, lang: str) -> str:
-    """'Lu–Vi 9:00–18:00, Sâ 9:00–14:00' из hours-словаря."""
-    names = _DOW_SHORT[lang]
-    parts = []
-    i = 0
-    while i < 7:
-        h = hours.get(_DOW_ORDER[i])
-        j = i
-        while j + 1 < 7 and hours.get(_DOW_ORDER[j + 1]) == h:
-            j += 1
-        if h:
-            rng = (names[_DOW_ORDER[i]] if i == j
-                   else f"{names[_DOW_ORDER[i]]}–{names[_DOW_ORDER[j]]}")
-            txt = f"{rng} {h[0]}:00–{h[1]}:00"
-            if len(h) >= 4:
-                txt += (f" (pauză {h[2]}:00–{h[3]}:00)" if lang == "ro"
-                        else f" (перерыв {h[2]}:00–{h[3]}:00)")
-            parts.append(txt)
-        i = j + 1
-    return ", ".join(parts)
 
 
 # ---------- раздел «Setări»: хаб + страницы-секции (просьба Олега 08-06) ----------
@@ -102,20 +70,11 @@ _SEC_CRUMBS = [{"href": "/admin/settings", "icon": "chev-l", "label": "Setări"}
                {"href": "/admin", "icon": "home", "label": "Panou"}]
 
 
-def _sec_page(body: str, sub: str, msg: str) -> str:
-    nav = "<div class='nav'>" + "".join(
-        f"<a href='{c['href']}'>{_ic(c['icon'])} {c['label']}</a>"
-        for c in _SEC_CRUMBS) + "</div>"
-    return _shell(nav + msg_banner(msg) + body, sub, active="set")
-
-
 def _sec_react(screen: str, path: str, sub: str, msg: str,
                params: dict | None = None) -> str:
     """Страница-секция настроек на React-оболочке (B1).
 
-    ⭐ Крошка едет в модели той же структурой, из которой её печатает и
-    серверная секция (`_sec_page`, сегодня — Telegram): два владельца одной
-    навигации разошлись бы молча.
+    Крошка «Setări › Panou» едет в модели (`frame.crumbs`).
     """
     return react_shell(screen, path,
                        shell_model("set", sub, msg=msg, crumbs=_SEC_CRUMBS),
@@ -132,7 +91,7 @@ HUB_GROUP_OF = {"/admin/settings/system": "general", "/admin/license": "general"
                 "/admin/settings/clinic": "general",
                 "/admin/settings/theme": "general", "/admin/settings/hours": "programari",
                 "/admin/settings/services": "programari",
-                "/admin/settings/telegram": "programari", "/admin/settings/sms": "programari",
+                "/admin/settings/sms": "programari",
                 "/admin/medici": "medici",
                 "/admin/settings/lan": "date", "/admin/settings/crypt": "date",
                 "/admin/settings/backup": "date", "/admin/settings/security": "securitate",
@@ -222,14 +181,6 @@ def _hub_tiles() -> list[dict]:
         tiles.insert(1, tile("/admin/license", "key", "g", "Licența",
                              _lic_hint(ls) + _lic_mail_hint()))
     if _lan_available():
-        # Telegram заморожен (08-08): плитку видят только клиники с уже
-        # настроенным токеном — grandfather, как секция в сайдбаре.
-        # Прямой адрес /admin/settings/telegram жив для ручного включения.
-        if tg_configured():
-            tg = tg_status()
-            tiles.append(tile("/admin/settings/telegram", "bot", "v", "Telegram Bot",
-                              [{"icon": "check", "t": f"@{tg['username']}"}]
-                              if tg["running"] else [{"t": "neconectat"}]))
         # Подпись выключенного состояния называет ВЕЩИ, а не режим: директор
         # ищет на хабе «второй компьютер», а не «сетевой доступ» (08-13).
         tiles.append(tile("/admin/settings/lan", "wifi", "b", "Acces din rețea",
@@ -306,28 +257,6 @@ async def settings_system(request: Request, msg: str = ""):
         return deny
     return _sec_react("settings_system", request.url.path,
                        "setări · stare sistem", msg)
-
-
-@router.get("/admin/settings/telegram", response_class=HTMLResponse)
-async def settings_telegram(request: Request, msg: str = ""):
-    if (deny := require(request, PERM_SETTINGS)) is not None:
-        return deny
-    if not os.environ.get("DENTART_ENV_FILE"):
-        return RedirectResponse("/admin/settings", status_code=303)
-    tok_set = bool(os.environ.get("TELEGRAM_TOKEN", "").strip())
-    ph = ("••• token setat — introduceți altul pentru schimbare" if tok_set
-          else "token de la @BotFather (ex. 123456789:AA...)")
-    body = f"""
-<h2>{_ic("bot")} Telegram — token bot</h2>
-<p class='hint' style='margin-top:0'>Stare: {system.tg_line(tg_status())}</p>
-<form class='add' method='post' action='/admin/telegram/save'
-      onsubmit="return confirm('Programul se va reporni pentru aplicare. Continuați?')">
-  <input type='password' name='token' placeholder="{ph}" style='width:430px'>
-  <button>{_ic('save')} Salvează</button>
-</form>
-<p class='hint'>Creați botul clinicii la @BotFather (2 minute) și lipiți tokenul aici.
-Câmp gol + salvare = dezactivează canalul Telegram.</p>"""
-    return _sec_page(body, "setări · Telegram Bot", msg)
 
 
 @router.get("/admin/settings/lan", response_class=HTMLResponse)
@@ -757,8 +686,8 @@ def _finish_cfg(**updates) -> dict:
 
     Врачи всегда переезжают как есть: их каталог правится только в «Medici»
     (фото/e-mail/статус не должны теряться из-за сохранения настроек).
-    `contacts` пересобирается из ИТОГОВЫХ значений — бот показывает адрес и
-    часы одной строкой, и она обязана отражать любой сохранённый кусок.
+    Строки `contacts` для бота здесь больше не собираются (бот удалён
+    03.11.2026); у старых профилей поле остаётся лежать, его никто не читает.
     """
     cfg = dict(eng.CONFIG)
     cfg.pop("template", None)      # клинику заполнили — подсказка больше не нужна
@@ -766,15 +695,6 @@ def _finish_cfg(**updates) -> dict:
     cfg.update(updates)
     if not cfg.get("doctors"):
         raise ValueError("doctors")
-    phone, hours = cfg["phone"], cfg["hours"]
-    addr_ro = cfg.get("address", {}).get("ro", "")
-    addr_ru = cfg.get("address", {}).get("ru", "")
-    cfg["contacts"] = {
-        "ro": (f"{_ic('pin')} {addr_ro}\n" if addr_ro else "")
-              + f"{_ic('phone')} {phone}\n{_ic('clock')} {_hours_summary(hours, 'ro')}",
-        "ru": (f"{_ic('pin')} {addr_ru}\n" if addr_ru else "")
-              + f"{_ic('phone')} {phone}\n{_ic('clock')} {_hours_summary(hours, 'ru')}",
-    }
     return cfg
 
 
@@ -937,35 +857,6 @@ async def admin_backup_export(request: Request, parola: str = Form(...)):
         background=BackgroundTask(shutil.rmtree, tmp, ignore_errors=True))
 
 
-@router.post("/admin/telegram/save", response_class=HTMLResponse)
-async def admin_telegram_save(request: Request, token: str = Form("")):
-    if (deny := require(request, PERM_SETTINGS)) is not None:
-        return deny
-    env_file = os.environ.get("DENTART_ENV_FILE", "")
-    if not env_file:
-        return RedirectResponse("/admin/settings", status_code=303)
-    tok = token.strip()
-    if tok and not re.fullmatch(r"\d{6,12}:[\w-]{30,120}", tok):
-        return RedirectResponse("/admin/settings/telegram?msg=bad_tok",
-                                status_code=303)
-    # в файл — шифротекст (dpapi), в окружение — открытый токен: им дальше
-    # пользуются и бот, и статус на этой же странице. Если DPAPI недоступен
-    # (запуск из исходников не под Windows), пишем как раньше — иначе правка
-    # токена перестала бы работать у разработчика вовсе.
-    try:
-        envfile.set_value(pathlib.Path(env_file), "TELEGRAM_TOKEN",
-                          (dpapi.protect(tok) or tok) if tok else "")
-    except OSError as ex:
-        # dental.env не читается — set_value отказывается, а не переписывает
-        # файл одной строкой; окружение тоже не трогаем: файл и env едины
-        logging.getLogger("settings").warning("env write: %r", ex)
-        return RedirectResponse("/admin/settings/telegram?msg=bad_env",
-                                status_code=303)
-    os.environ["TELEGRAM_TOKEN"] = tok
-    os.environ.pop("DENTART_TOKEN_UNREADABLE", None)
-    return _restart_now("Token salvat", "/admin/settings/telegram", "ok_tok")
-
-
 # Что сказать человеку, когда настройка применится только после перезапуска.
 # Пара (жирная часть, хвост): страница выделяет первую <b>, JSON API отдаёт
 # сплошным текстом; фраза одна, чтобы React не завёл свою.
@@ -1009,8 +900,8 @@ def _restart_now(done: str, back_url: str,
 def _restart_page(done: str, back_url: str, auto: bool) -> str:
     """Экран «настройка применится при следующем запуске».
 
-    Для настроек, которые читает ЛАУНЧЕР до старта приложения: токен бота,
-    сетевой доступ, шифрование картотеки.
+    Для настроек, которые читает ЛАУНЧЕР до старта приложения: сетевой
+    доступ, шифрование картотеки (до 03.11.2026 — и токен бота).
 
     ⭐ Перезапуск НАСТОЯЩИЙ (08-10). Экран раньше обещал его и не делал:
     механизм всё это время лежал готовым в `update.py` — `restart_app()`,

@@ -12,7 +12,7 @@ import re
 import tempfile
 from datetime import datetime
 
-from harness import FIXTURES, TG_ON, Client, Result, Server, _rmtree_settled
+from harness import FIXTURES, Client, Result, Server, _rmtree_settled
 
 BOT = pathlib.Path(__file__).resolve().parents[1] / "bot"
 DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
@@ -89,7 +89,7 @@ def suite_hub(res: Result) -> None:
             res.check("с dental.env — плитка сети с подписью «выключено»",
                       by.get("/admin/settings/lan", {}).get("hint"),
                       [{"t": "al doilea calculator, telefon — oprit"}])
-            res.ok("без токена плитки Telegram нет", "/admin/settings/telegram" not in by,
+            res.ok("плитки Telegram нет (бот удалён)", "/admin/settings/telegram" not in by,
                    f"{list(by)}")
     finally:
         _rmtree_settled(tmp)
@@ -212,9 +212,8 @@ def suite_system(res: Result) -> None:
         res.ok("проза о локальности приехала обоими языками",
                "funcționează local" in d["privacy"]
                and "работает локально" in d["privacy"], d["privacy"][:80])
-        # ⛔ Бот заморожен (08-08): строки канала быть не должно, иначе она
-        # отправляет клинику искать раздел, который заморозка спрятала.
-        res.check("без настроенного бота строки канала нет", d["telegram"], "")
+        # Бот удалён 03.11.2026: строки канала нет и поля в модели тоже
+        res.ok("строки канала Telegram нет", "telegram" not in d, "поле telegram вернулось")
 
         r = c.post_json("/api/settings/system/check", {})
         res.check("проверка обновлений — 200", r.status, 200)
@@ -239,13 +238,6 @@ def suite_system(res: Result) -> None:
         ch = _j(c.get("/api/settings/system"))["data"]["channel"]
         res.ok("beta названа и объяснена",
                ch and "beta" in ch["name"] and "ÎNAINTE" in ch["warn"], f"{ch}")
-
-    # клиника с настроенным ботом (grandfather) — строка канала возвращается
-    with Server(env=TG_ON) as s:
-        c = Client(s.url).login()
-        d = _j(c.get("/api/settings/system"))["data"]
-        res.ok("у grandfather-клиники строка канала есть", bool(d["telegram"]),
-               "строки нет")
 
     s = Server(env=NO_KEY)
     with s:
@@ -550,8 +542,6 @@ def suite_hours(res: Result) -> None:
                f"{after['hours']}")
         res.ok("соседи профиля целы", after["name"] == "Clinica Test" and len(after["services"]) >= 4
                and len(after["doctors"]) == 4, "затёрты")
-        res.ok("строка контактов боту пересобрана", "13" in after.get("contacts", {}).get("ro", ""),
-               "contacts не отражает обед")
         before = s.clinic.read_bytes()
         c.post_json("/api/settings/hours", body)
         res.ok("повторный POST тождествен", s.clinic.read_bytes() == before, "файл изменился")

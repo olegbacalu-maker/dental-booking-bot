@@ -1,7 +1,7 @@
 """Перезапуск программы после настройки, которую читает ЛАУНЧЕР.
 
-Сетевой доступ (LAN), токен бота и шифрование картотеки применяются только при
-следующем старте, поэтому все три маршрута кончаются одним и тем же:
+Сетевой доступ (LAN) и шифрование картотеки применяются только при следующем
+старте, поэтому оба маршрута кончаются одним и тем же:
 перезапустить программу и сказать человеку, что дальше. Здесь проверяется ровно
 эта общая часть — она молчаливая с обеих сторон:
 
@@ -26,8 +26,6 @@ import subprocess
 import tempfile
 
 from harness import BOT, PYTHON, Result
-
-_TOKEN = "123456789:AAExampleTokenAAExampleTokenAAExampleT"
 
 _CODE = r'''
 import asyncio, json, os, pathlib, sys
@@ -73,7 +71,15 @@ def lan_save(mode):
     return sapi.api_lan_save(None)
 
 
-TOKEN = "%s"
+def form_save():
+    """Серверная форма настройки, которую читает лаунчер (сегодня —
+    подтверждение шифрования, `crypt/confirm`; до 03.11.2026 — и токен бота):
+    общая часть `_restart_now` с баннером `fallback` для изданий без
+    перезапуска. Зовётся напрямую: подтверждение шифрования требует
+    распечатанного листа, а проверяется здесь не оно."""
+    async def run():
+        return st._restart_now("Setare salvată", "/admin/settings/crypt", "ok_set")
+    return run()
 
 
 def call(coro):
@@ -92,7 +98,7 @@ out = {}
 
 # --- 1. планировщик отработал: ОДИН запуск на сохранение ---
 for key, coro in (("lan", lambda: lan_save("on")),
-                  ("tok", lambda: st.admin_telegram_save(None, token=TOKEN))):
+                  ("tok", form_save)):
     spawns.clear(); exits.clear()
     r = call(coro())
     out[key + "_spawns"] = len(spawns)
@@ -103,7 +109,7 @@ for key, coro in (("lan", lambda: lan_save("on")),
 # --- 2. планировщик отказал: тот же один запуск, но экран говорит правду ---
 fail[0] = "planificatorul Windows nu a putut porni programul (schtasks /create, cod 1)"
 for key, coro in (("lan_bad", lambda: lan_save("on")),
-                  ("tok_bad", lambda: st.admin_telegram_save(None, token=TOKEN))):
+                  ("tok_bad", form_save)):
     spawns.clear(); exits.clear()
     r = call(coro())
     out[key + "_spawns"] = len(spawns)
@@ -115,7 +121,7 @@ for key, coro in (("lan_bad", lambda: lan_save("on")),
 # --- 3. обратная полярность: издания без перезапуска остаются на баннере ---
 upd.is_desktop = lambda: False
 for key, coro in (("lan_dev", lambda: lan_save("off")),
-                  ("tok_dev", lambda: st.admin_telegram_save(None, token=TOKEN))):
+                  ("tok_dev", form_save)):
     spawns.clear()
     r = call(coro())
     out[key + "_spawns"] = len(spawns)
@@ -158,7 +164,7 @@ args = seen.get("args", [])
 out["plan_profile"] = args[7] if len(args) > 7 and args[0] == rw.FLAG else ""
 
 print(json.dumps(out))
-''' % (str(BOT), _TOKEN)
+''' % str(BOT)
 
 
 _MEASURED: list = []          # один прогон подпроцесса на все наборы файла
@@ -188,7 +194,7 @@ def suite_once(res: Result) -> None:
     v = _run_code(res)
     if v is None:
         return
-    for key, what in (("lan", "доступ из сети"), ("tok", "токен бота")):
+    for key, what in (("lan", "доступ из сети"), ("tok", "серверная форма")):
         res.check(f"{what}: задача планировщика заводится один раз",
                   v[key + "_spawns"], 1)
         res.check(f"{what}: оболочку просят закрыться один раз", v[key + "_exits"], 1)
@@ -204,13 +210,14 @@ def suite_failed(res: Result) -> None:
 
     Настройка сохранена, программа жива и работает по-старому: применится она
     только после закрытия и открытия. Прежде маршрут отвечал баннером
-    «Setări salvate» (и «Token salvat …» — этот хотя бы просил перезапустить),
+    «Setări salvate» (форма токена бота — «Token salvat …», та хотя бы просила
+    перезапустить),
     то есть человек уходил уверенный, что доступ из сети уже включён.
     """
     v = _run_code(res)
     if v is None:
         return
-    for key, what in (("lan_bad", "доступ из сети"), ("tok_bad", "токен бота")):
+    for key, what in (("lan_bad", "доступ из сети"), ("tok_bad", "серверная форма")):
         res.check(f"{what}: отказ не добавляет второй попытки",
                   v[key + "_spawns"], 1)
         res.check(f"{what}: оболочку закрыться не просят", v[key + "_exits"], 0)
@@ -228,11 +235,11 @@ def suite_dev_banner(res: Result) -> None:
     v = _run_code(res)
     if v is None:
         return
-    # Токен — форма своей серверной страницы: редирект с баннером.
-    res.check("токен бота: без настольного издания — редирект", v["tok_dev_status"], 303)
-    res.ok("токен бота: с баннером ok_tok", "msg=ok_tok" in v["tok_dev_loc"],
+    # Серверная форма: редирект с баннером `fallback`.
+    res.check("серверная форма: без настольного издания — редирект", v["tok_dev_status"], 303)
+    res.ok("серверная форма: с баннером ok_set", "msg=ok_set" in v["tok_dev_loc"],
            f"location {v['tok_dev_loc']!r}")
-    res.check("токен бота: и планировщик не трогается", v["tok_dev_spawns"], 0)
+    res.check("серверная форма: и планировщик не трогается", v["tok_dev_spawns"], 0)
     # Сеть — JSON API (старая форма снята 12.10): тот же смысл ответом.
     res.check("доступ из сети: без настольного издания — ответ «сохранено»",
               (v["lan_dev_status"], v["lan_dev_code"]), (200, "ok_set"))

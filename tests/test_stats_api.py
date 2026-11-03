@@ -12,7 +12,7 @@
 import json
 from datetime import timedelta
 
-from harness import TG_ON, Client, Result, Server, clinic_today
+from harness import Client, Result, Server, clinic_today
 
 
 
@@ -51,7 +51,7 @@ def suite_stats(res: Result) -> None:
                [p["key"] for p in d["presets"]] == ["azi", "d7", "luna", "d30"],
                f"{[p['key'] for p in d['presets']]}")
 
-        # ⛔ Бот заморожен (08-08): у клиники без бота доли «prin bot» нет.
+        # Бот удалён 03.11.2026: доли «prin bot» в разборе нет.
         res.ok("без бота доли бота в разборе записей нет",
                "prin bot" not in k["programari"]["sub"], k["programari"]["sub"])
         res.check("записи посчитаны", k["programari"]["value"], 2)
@@ -167,15 +167,6 @@ def suite_board(res: Result) -> None:
                b2["series"]["labels"])
         res.check("и ряд по неделям сходится с карточкой", sum(b2["series"]["appts"]),
                   next(x["value"] for x in b2["kpis"] if x["key"] == "programari"))
-
-    # клиника с живым ботом: кольца источников на экране нет — доля бота
-    # едет строкой разбора, иначе она пропала бы молча
-    with Server(env=TG_ON) as s:
-        c = Client(s.url).login()
-        _seed(c)
-        b = _j(c.get("/api/stats"))["data"]["board"]
-        sub = next(x["sub"] for x in b["kpis"] if x["key"] == "programari")
-        res.ok("с ботом — доля бота строкой разбора", "prin bot" in sub, sub)
 
 
 def suite_switch(res: Result) -> None:

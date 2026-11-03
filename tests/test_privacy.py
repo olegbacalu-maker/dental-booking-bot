@@ -14,7 +14,7 @@ import time
 import zipfile
 from datetime import date, timedelta
 
-from harness import (BOT, Client, Result, Server, TG_ON, _rmtree_settled, appt_id,
+from harness import (BOT, Client, Result, Server, _rmtree_settled, appt_id,
                      clinic_today, day_model, pid_by_phone)
 
 
@@ -514,31 +514,6 @@ def suite_acord(res: Result) -> None:
         res.ok("отказ не тронул профиль",
                json.loads(s.clinic.read_text(encoding="utf-8"))["idno"] == "1003600012345",
                "кривой IDNO записался")
-
-
-def suite_bot_notice(res: Result) -> None:
-    """Уведомление об обработке — в момент, когда бот впервые просит имя."""
-    from harness import Bot
-    with Server(env=TG_ON) as s:
-        c = Client(s.url)
-        bot = Bot(c, "privacy-notice-test")
-        bot.say("start")
-        _, buttons = bot.say("📅 Programare")
-        texts, buttons = bot.say(buttons[0])          # услуга -> врач/день
-        # доходим до вопроса об имени: жмём первую кнопку, пока он не появится
-        for _ in range(6):
-            if "numiți" in texts:
-                break
-            if not buttons:
-                break
-            texts, buttons = bot.say(buttons[0])
-        res.ok("бот дошёл до вопроса об имени", "numiți" in texts,
-               f"диалог застрял: {texts[:120]!r}")
-        res.ok("в вопросе есть уведомление об обработке",
-               "prelucrate" in texts and "🔒" in texts,
-               "нет уведомления в момент сбора данных")
-        res.ok("уведомление называет клинику по имени",
-               "Clinica Test" in texts, "вместо клиники — {CLINIC} или пусто")
 
 
 def suite_backup(res: Result) -> None:

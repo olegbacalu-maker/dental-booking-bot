@@ -290,8 +290,7 @@ def suite_tiles(res: Result) -> None:
             return
         for key, names in (("rec", ["Tile 0", "Tile 1", "Tile 2", "Tile 3"]),
                            ("urg", ["Tile 0", "Tile 1"]),
-                           ("noshow", ["Tile 0"]),
-                           ("bot", [])):
+                           ("noshow", ["Tile 0"])):
             m = day_model(c, day, f=key)
             res.check(f"отбор «{key}»: свои строки, и счётчик равен им",
                       ([r["name"] for r in m["list"]], (m["filter"] or {}).get("count")),
@@ -299,6 +298,10 @@ def suite_tiles(res: Result) -> None:
         res.check("чужой ключ отбора сервер отбрасывает — список целиком",
                   (day_model(c, day, f="nope")["filter"],
                    len(day_model(c, day, f="nope")["list"])), (None, 5))
+        # отбор «prin bot» ушёл с ботом (03.11.2026): ключ теперь чужой
+        res.check("ключ «bot» больше не отбор — список целиком",
+                  (day_model(c, day, f="bot")["filter"],
+                   len(day_model(c, day, f="bot")["list"])), (None, 5))
 
 
 # ------------------------------------------------- шапка колонки врача

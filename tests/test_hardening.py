@@ -1,7 +1,7 @@
 """Production-hardening (аудит 08-20): границы, которые не видны обычному
 прогону, потому что нарушаются не запросом, а ОБСТОЯТЕЛЬСТВАМИ — адресом
-клиента, битым файлом на диске, гонкой двух запросов, конфигом, изменившимся
-посреди диалога.
+клиента, битым файлом на диске, гонкой двух запросов. (Диалог бота — сессии,
+TTL, конфиг посреди диалога — ушёл вместе с ботом 03.11.2026.)
 
 Часть проверок ходит НЕ через harness.Server: uvicorn в тестах слушает только
 127.0.0.1, и «запрос из сети клиники» через него не предъявить. Такие проверки
@@ -57,7 +57,6 @@ def _worker_setup(tmpdir: str) -> None:
         "DATABASE_URL": f"sqlite:///{base / 'dental.db'}",
         "ADMIN_KEY": "",                 # ветка PIN-файла, как у клиники
         "DENTART_NO_RESTART": "1",
-        "TELEGRAM_TOKEN": "",
     })
     sys.path.insert(0, str(BOT))
     from app import db
@@ -202,8 +201,6 @@ def suite_config_fallback(res: Result) -> None:
                "DentPilot Demo" not in r.body and "Elena Rusu" not in r.body,
                "в журнале чужие демо-врачи")
         res.check("вход тоже за шлюзом", c.get("/admin/login").status, 503)
-        res.check("канал записи закрыт",
-                  c.post_json("/chat", {"message": "/start"}).status, 503)
 
     # главный битый, .bak жив → работаем на .bak (прежнее поведение)
     s = Server()
@@ -342,157 +339,6 @@ def suite_punte_race(res: Result) -> None:
                   ["dup_punte", "ok_punte"])
 
 
-# ---------- ШАГ 4/7: сессия переживает hot-reload конфига ----------
-
-def _worker_stale(tmpdir: str) -> None:
-    """Диалог бота, под которым посреди флоу сменился clinic.json."""
-    import asyncio
-    import copy
-    from datetime import date, timedelta
-
-    base = pathlib.Path(tmpdir)
-    os.environ.update({
-        "CLINIC_CONFIG": str(base / "clinic.json"),
-        "DATABASE_URL": f"sqlite:///{base / 'dental.db'}",
-        "ADMIN_KEY": "", "TELEGRAM_TOKEN": "",
-    })
-    sys.path.insert(0, str(BOT))
-    from app import db
-    from app import engine as eng
-
-    day = (clinic_today() + timedelta(days=1)).isoformat()
-
-    async def to_confirm(sid: str, doc: str = "d2"):
-        """Прогнать диалог до шага подтверждения, вернуть сессию."""
-        s = eng.get_session(sid)
-        await eng.handle(s, sid, "/start")
-        await eng.handle(s, sid, "lang:ro")
-        await eng.handle(s, sid, "book")
-        await eng.handle(s, sid, "svc:consult")
-        await eng.handle(s, sid, f"doc:{doc}")
-        _texts, rows = await eng.handle(s, sid, f"day:{day}")
-        slot = next(b["value"] for row in rows for b in row
-                    if b["value"].startswith("time:"))
-        await eng.handle(s, sid, slot)
-        await eng.handle(s, sid, "Ion Stale")
-        await eng.handle(s, sid, "skip_year")
-        await eng.handle(s, sid, "069111222")
-        return s
-
-    def cfg_without_service(key: str) -> dict:
-        cfg = copy.deepcopy(eng.CONFIG)
-        cfg["services"] = [x for x in cfg["services"] if x["id"] != key]
-        return cfg
-
-    def cfg_doctor_off(dk: str) -> dict:
-        cfg = copy.deepcopy(eng.CONFIG)
-        for d in cfg["doctors"]:
-            if d["id"] == dk:
-                d["status"] = "concediu"
-        return cfg
-
-    async def main() -> None:
-        await db.init([])
-        try:
-            fresh = copy.deepcopy(eng.CONFIG)
-
-            # услугу удалили, пока пациент вводил имя и телефон
-            s = await to_confirm("web:stale1")
-            eng.apply_config(cfg_without_service("consult"))
-            texts, _rows = await eng.handle(s, "web:stale1", "confirm")
-            print("svc_gone_text", "actualizat" in " ".join(texts))
-            print("svc_gone_state", s.state)
-            from datetime import datetime
-            mine = await db.my_appointments("web:stale1", datetime.now(eng.TZ))
-            print("svc_gone_booked", len(mine))
-
-            # врача выключили после выбора
-            eng.apply_config(fresh)
-            s = await to_confirm("web:stale2", doc="d2")
-            eng.apply_config(cfg_doctor_off("d2"))
-            texts, rows = await eng.handle(s, "web:stale2", "confirm")
-            print("doc_off_text", "nu mai este disponibil" in " ".join(texts))
-            print("doc_off_state", s.state)
-            print("doc_off_offers",
-                  any(b["value"].startswith("doc:") for row in rows for b in row))
-            mine = await db.my_appointments("web:stale2", datetime.now(eng.TZ))
-            print("doc_off_booked", len(mine))
-
-            # услуга пропала, когда пациент только выбирал день
-            eng.apply_config(fresh)
-            s = eng.get_session("web:stale3")
-            await eng.handle(s, "web:stale3", "/start")
-            await eng.handle(s, "web:stale3", "lang:ro")
-            await eng.handle(s, "web:stale3", "book")
-            await eng.handle(s, "web:stale3", "svc:consult")
-            await eng.handle(s, "web:stale3", "doc:d2")
-            eng.apply_config(cfg_without_service("consult"))
-            texts, _rows = await eng.handle(s, "web:stale3", f"day:{day}")
-            print("day_stale_text", "actualizat" in " ".join(texts))
-
-            # у услуги выключили ВСЕХ её врачей, а пациент выбрал «любой»:
-            # день обязан ответить «actualizat», а не показать слоты ЧУЖИХ
-            # врачей — free_starts подменяет пустой allowed всеми активными,
-            # и до do_book пациент вводил бы имя и телефон впустую
-            # (ревью 08-22, фикс в _flow_valid)
-            eng.apply_config(fresh)
-            s = eng.get_session("web:stale4")
-            await eng.handle(s, "web:stale4", "/start")
-            await eng.handle(s, "web:stale4", "lang:ro")
-            await eng.handle(s, "web:stale4", "book")
-            await eng.handle(s, "web:stale4", "svc:hygiene")
-            await eng.handle(s, "web:stale4", "doc:any")
-            eng.apply_config(cfg_doctor_off("d3"))
-            texts, rows = await eng.handle(s, "web:stale4", f"day:{day}")
-            print("any_empty_text", "actualizat" in " ".join(texts))
-            print("any_empty_slots",
-                  any(b["value"].startswith("time:")
-                      for row in rows for b in row))
-
-            # живой конфиг: тот же путь ДОЛЖЕН бронировать (валидация не
-            # перетянула — иначе бот отбивал бы здоровые записи)
-            eng.apply_config(fresh)
-            s = await to_confirm("web:alive", doc="d3")
-            texts, _rows = await eng.handle(s, "web:alive", "confirm")
-            print("alive_booked", "Gata!" in " ".join(texts))
-        finally:
-            await db.close()
-
-    asyncio.run(main())
-
-
-def suite_stale_session(res: Result) -> None:
-    """P1 аудита 08-20: clinic.json обновился ПОД живой сессией бота — услуги
-    нет, врач в отпуске. Диалог обязан ответить словами и предложить выбор
-    заново; трейсбек или запись к выключенному врачу — поломка."""
-    base = pathlib.Path(tempfile.mkdtemp(prefix="dp_stale_"))
-    try:
-        shutil.copy(FIXTURES / "clinic_test.json", base / "clinic.json")
-        got = _run_worker("worker-stale", base)
-        if not res.ok("проба поднялась", got["_rc"] == "0",
-                      f"rc={got['_rc']}: {got['_stderr']}"):
-            return
-        res.check("удалённая услуга: ответ словами", got.get("svc_gone_text"),
-                  "True")
-        res.check("и выбор начинается заново", got.get("svc_gone_state"), "svc")
-        res.check("запись НЕ создана", got.get("svc_gone_booked"), "0")
-        res.check("выключенный врач: ответ словами", got.get("doc_off_text"),
-                  "True")
-        res.check("и предложен выбор врача", got.get("doc_off_offers"), "True")
-        res.check("запись к выключенному НЕ создана", got.get("doc_off_booked"),
-                  "0")
-        res.check("пропажа услуги на шаге дня — тоже словами",
-                  got.get("day_stale_text"), "True")
-        res.check("услуга без единого врача при «любом»: ответ словами",
-                  got.get("any_empty_text"), "True")
-        res.check("и слоты чужих врачей не показаны",
-                  got.get("any_empty_slots"), "False")
-        res.check("живой конфиг бронирует как раньше", got.get("alive_booked"),
-                  "True")
-    finally:
-        _rmtree_settled(base)
-
-
 # ---------- ШАГ 5: удаление пациента атомарно ----------
 
 def _worker_delete(tmpdir: str) -> None:
@@ -504,7 +350,7 @@ def _worker_delete(tmpdir: str) -> None:
     os.environ.update({
         "CLINIC_CONFIG": str(base / "clinic.json"),
         "DATABASE_URL": f"sqlite:///{base / 'dental.db'}",
-        "ADMIN_KEY": "", "TELEGRAM_TOKEN": "",
+        "ADMIN_KEY": "",
     })
     sys.path.insert(0, str(BOT))
     from app import db
@@ -571,128 +417,6 @@ def suite_delete_rollback(res: Result) -> None:
                   got.get("intact"), "True")
         res.check("повторное удаление сносит всё", got.get("all_deleted"),
                   "True")
-    finally:
-        _rmtree_settled(base)
-
-
-# ---------- ШАГ 6: сессии диалога — TTL и очистка PII ----------
-
-def _worker_session(tmpdir: str) -> None:
-    import asyncio
-    import time
-    from datetime import date, datetime, timedelta
-
-    base = pathlib.Path(tmpdir)
-    os.environ.update({
-        "CLINIC_CONFIG": str(base / "clinic.json"),
-        "DATABASE_URL": f"sqlite:///{base / 'dental.db'}",
-        "ADMIN_KEY": "", "TELEGRAM_TOKEN": "",
-    })
-    sys.path.insert(0, str(BOT))
-    from app import db
-    from app import engine as eng
-
-    day = (clinic_today() + timedelta(days=1)).isoformat()
-
-    async def main() -> None:
-        await db.init([])
-        try:
-            sid = "web:pii1"
-            s = eng.get_session(sid)
-            await eng.handle(s, sid, "/start")
-            await eng.handle(s, sid, "lang:ro")
-            await eng.handle(s, sid, "book")
-            await eng.handle(s, sid, "svc:consult")
-            await eng.handle(s, sid, "doc:d2")
-            _t, rows = await eng.handle(s, sid, f"day:{day}")
-            slot = next(b["value"] for row in rows for b in row
-                        if b["value"].startswith("time:"))
-            await eng.handle(s, sid, slot)
-            await eng.handle(s, sid, "Ion Confidențial")
-            await eng.handle(s, sid, "1985")
-            await eng.handle(s, sid, "069555111")
-            texts, _r = await eng.handle(s, sid, "confirm")
-            print("booked", "Gata!" in " ".join(texts))
-            print("pii_keys", ",".join(sorted(s.data)) or "-")
-            leaked = any("Confidențial" in str(v) or "069555111" in str(v)
-                         for v in s.data.values())
-            print("pii_leaked", leaked)
-            # «мои записи» и отмена живут по sid через БАЗУ — очистка сессии
-            # их не задевает
-            texts, rows = await eng.handle(s, sid, "my")
-            print("my_lists", "Consultație" in " ".join(texts))
-            cancel = next((b["value"] for row in rows for b in row
-                           if b["value"].startswith("cancel:")), "")
-            # чужая сессия с УГАДАННЫМ id: отмену фильтрует sid в самой БД
-            s2 = eng.get_session("web:strain")
-            await eng.handle(s2, "web:strain", "/start")
-            await eng.handle(s2, "web:strain", "lang:ro")
-            texts2, _r = await eng.handle(s2, "web:strain", cancel)
-            print("foreign_cancel_refused",
-                  "nu mai este activ" in " ".join(texts2))
-            print("appt_survived_foreign", len(await db.my_appointments(
-                sid, datetime.now(eng.TZ))))
-            texts, _r = await eng.handle(s, sid, cancel)
-            print("cancel_own", "anulat" in " ".join(texts).lower())
-
-            # TTL: молчавшая сессия выметается, живая остаётся
-            eng.get_session("web:old").last_seen = (
-                time.time() - eng.SESSION_TTL - 60)
-            eng.get_session("web:fresh")
-            eng._last_sweep = 0.0            # форсируем подметание
-            eng.get_session("web:trigger")
-            print("old_evicted", "web:old" not in eng.SESSIONS)
-            print("fresh_alive", "web:fresh" in eng.SESSIONS)
-            # «проставляется» значит ОБНОВЛЯЕТСЯ при обращении: штамп при
-            # создании дал бы `> 0` всегда, и прежняя проверка была
-            # тавтологией (ревью 08-22) — сдвигаем в прошлое и трогаем снова
-            eng.SESSIONS["web:fresh"].last_seen = time.time() - 999
-            eng.get_session("web:fresh")
-            print("retouched",
-                  time.time() - eng.SESSIONS["web:fresh"].last_seen < 60)
-            # протухшая, но ещё не выметенная: для session_alive она мертва —
-            # по ней telegram решает «новая ли» (восстановление языка)
-            stale = eng.get_session("web:stale2")
-            stale.last_seen = time.time() - eng.SESSION_TTL - 60
-            print("stale_not_alive", not eng.session_alive("web:stale2"))
-            print("alive_alive", eng.session_alive("web:fresh"))
-        finally:
-            await db.close()
-
-    asyncio.run(main())
-
-
-def suite_session_pii(res: Result) -> None:
-    """P1 аудита 08-20: SESSIONS рос вечно, а имя/телефон жили в ОЗУ бессрочно.
-    После успешной брони в сессии остаётся только номер визита; молчавшие
-    сессии выметаются по TTL — и ни то ни другое не задевает «мои записи» и
-    отмену (они живут по sid через базу)."""
-    base = pathlib.Path(tempfile.mkdtemp(prefix="dp_pii_"))
-    try:
-        shutil.copy(FIXTURES / "clinic_test.json", base / "clinic.json")
-        got = _run_worker("worker-session", base)
-        if not res.ok("проба поднялась", got["_rc"] == "0",
-                      f"rc={got['_rc']}: {got['_stderr']}"):
-            return
-        res.check("бронь через диалог прошла", got.get("booked"), "True")
-        res.check("в сессии остался только номер визита",
-                  got.get("pii_keys"), "last_appt")
-        res.check("имя и телефон из ОЗУ убраны", got.get("pii_leaked"), "False")
-        res.check("«мои записи» после очистки живы", got.get("my_lists"), "True")
-        res.check("чужая сессия не отменяет по угаданному id",
-                  got.get("foreign_cancel_refused"), "True")
-        res.check("и запись при этом цела", got.get("appt_survived_foreign"),
-                  "1")
-        res.check("отмена своей записи жива", got.get("cancel_own"), "True")
-        res.check("молчавшая сессия выметена по TTL", got.get("old_evicted"),
-                  "True")
-        res.check("живая сессия уцелела", got.get("fresh_alive"), "True")
-        res.check("last_seen обновляется при обращении",
-                  got.get("retouched"), "True")
-        res.check("протухшая до подметания — не живая (session_alive)",
-                  got.get("stale_not_alive"), "True")
-        res.check("живая сессия для session_alive жива",
-                  got.get("alive_alive"), "True")
     finally:
         _rmtree_settled(base)
 
@@ -862,7 +586,6 @@ def _worker_peers(tmpdir: str) -> None:
         "DATABASE_URL": f"sqlite:///{base / 'dental.db'}",
         "ADMIN_KEY": "",                 # ветка PIN-файла, как у клиники
         "DENTART_NO_RESTART": "1",
-        "TELEGRAM_TOKEN": "",
     })
     salt = "0123456789abcdef"
     (base / "auth.json").write_text(json.dumps(
@@ -1004,9 +727,7 @@ def suite_fail_per_device(res: Result) -> None:
 
 _WORKERS = {
     "worker-setup": _worker_setup,
-    "worker-stale": _worker_stale,
     "worker-delete": _worker_delete,
-    "worker-session": _worker_session,
     "worker-peers": _worker_peers,
 }
 

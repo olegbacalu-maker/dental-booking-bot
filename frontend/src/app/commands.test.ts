@@ -25,7 +25,7 @@ function model(over: Partial<ShellModel> = {}): ShellModel {
     runtime: { version: '9.9.9', tz: 'Europe/Chisinau' },
     about: { data: '', license_until: '' },
     entry: { pin: true, pin_max: 8, backdrop: '' },
-    nav: { active: 'dash', items: NAV_ALL, sync: [], foot_title: '' },
+    nav: { active: 'dash', items: NAV_ALL, sync: [] },
     signals: {
       license: { shown: false, html: '' }, tamper: { shown: false, html: '' },
       split: { shown: false, html: '' }, slot: { shown: false, html: '' },
@@ -45,7 +45,7 @@ function model(over: Partial<ShellModel> = {}): ShellModel {
 const RECEPTIE = model({
   identity: { name: 'Ana', role: 'receptie', role_label: 'Recepție', initials: 'A',
     can: { money: false, settings: false, doctors: true, schedule_all: true }, doctor: '' },
-  nav: { active: 'dash', items: NAV_ALL.filter((i) => i.key !== 'stat' && i.key !== 'set'), sync: [], foot_title: '' },
+  nav: { active: 'dash', items: NAV_ALL.filter((i) => i.key !== 'stat' && i.key !== 'set'), sync: [] },
 })
 
 function st(m: ShellModel | null, declared: string[] = [], locked = false,
@@ -139,7 +139,7 @@ describe('«Mergi la» — из того же списка, что левое м
   })
 
   it('новый раздел сервера сам встаёт в меню (без клавиши); строка без ссылки — нет', () => {
-    const m = model({ nav: { active: '', sync: [], foot_title: '', items: [
+    const m = model({ nav: { active: '', sync: [], items: [
       ...NAV_ALL, { key: 'nou', href: '/admin/nou', icon: 'x', label: 'Nou' },
       { key: 'gol', href: '', icon: 'x', label: 'Fără legătură' }] } })
     const go = menuOf('go', st(m))

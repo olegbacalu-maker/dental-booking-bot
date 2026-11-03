@@ -5,9 +5,9 @@
 """
 import json
 import sqlite3
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
-from harness import (TG_ON, TZ, Bot, Client, Result, Server, add_appt, appt_id, clinic_today,
+from harness import (TZ, Client, Result, Server, add_appt, appt_id, bot_patient, clinic_today,
                      day_model, panel_live, pid_by_phone)
 
 PHONE = "022111222"
@@ -35,9 +35,7 @@ def _card(c: Client, pid) -> dict:
 
 
 def suite(res: Result) -> None:
-    # grandfather-клиника: в середине набора идёт проверка «визит задним числом
-    # tg-пациенту», а канал бота живёт только за tg_configured (заморозка 08-08)
-    with Server(env=TG_ON) as s:
+    with Server() as s:
         c = Client(s.url).login()
 
         # --- обычная запись ---
@@ -137,12 +135,12 @@ def suite(res: Result) -> None:
         # раньше ручная запись искала по ключу manual:<цифры>, а у пациента из бота
         # ключ свой (tg:… у Telegram, web:… у веб-чата) — и вчерашний визит
         # уезжал КАРТОЧКЕ-ДВОЙНИКУ. Теперь пациент ищется по цифрам номера
-        # среди всех существующих.
-        tgb = Bot(Client(s.url), "t-tg-past")
-        tgb.say("/start"); tgb.say("lang:ro"); tgb.say("book")
-        tgb.say("svc:consult"); tgb.say("doc:d2"); tgb.say(f"day:{_d(4)}")
-        tgb.say(f"time:{_d(4)}T09:00"); tgb.say("Ion Telegram")
-        tgb.say("skip_year"); tgb.say("069010203"); tgb.say("confirm")
+        # среди всех существующих. Бот удалён 03.11.2026, но его фиши у клиник
+        # остаются — пациента заводит `bot_patient`, как его заводил адаптер.
+        when = datetime.combine(date.fromisoformat(_d(4)), time(9, 0), TZ)
+        aid = bot_patient(s, when, name="Ion Telegram", phone="069010203",
+                          key="tg:900002")
+        res.ok("tg-пациент из данных бота заведён", aid.isdigit(), aid)
         res.check("вчерашний визит tg-пациенту принимается (др. формат номера)",
                   add(c, _d(-2), "12:00", name="Ion T.",
                       phone="069 010 203"), "ok_past")

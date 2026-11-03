@@ -105,11 +105,11 @@ PENDING = timedelta(seconds=int(_env("DEMO_PENDING_S", "120")))
 # (кто в кабинете, кто ждёт) уехало бы от часов посетителя на полчаса
 REFRESH = timedelta(minutes=30)
 BOOT_TIMEOUT_S = 90    # сколько ждать /health дочернего процесса
-# Переменные машины разработчика, которым нечего делать в слоте: токен бота
-# запустил бы polling с демо-сервера, ключи лицензии — стену активации.
-_STRIP_ENV = ("TELEGRAM_TOKEN", "DENTART_UPDATE_TOKEN", "DENTART_CHANNEL",
+# Переменные машины разработчика, которым нечего делать в слоте: ключи
+# лицензии подняли бы стену активации, канал — проверку обновлений.
+_STRIP_ENV = ("DENTART_UPDATE_TOKEN", "DENTART_CHANNEL",
               "DENTART_LICENSE_KEYS", "DENTART_LICENSE_SERVER", "DENTART_ENV_FILE",
-              "DENTART_LAN", "DENTART_PORT", "DENTART_TOKEN_UNREADABLE",
+              "DENTART_LAN", "DENTART_PORT",
               "DENTART_SCAN_FAKE", "DENTART_SPLIT_SOURCE", "FAKECLOCK_FILE")
 _HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
         "te", "trailer", "transfer-encoding", "upgrade"}

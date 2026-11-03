@@ -8,8 +8,8 @@
 (прежнее окно pywebview снято 22.10.2026), и сервер без окна нечем закрыть.
 
 Данные КЛИНИКИ живут в отдельной папке (`data_root()` ниже), а не рядом с exe:
-clinic.json (профиль, правится в Setări), dental.env (TELEGRAM_TOKEN и
-ADMIN_KEY), data/dental.db (SQLite), data/dentpilot.log (лог).
+clinic.json (профиль, правится в Setări), dental.env (ADMIN_KEY, канал
+обновлений, сеть), data/dental.db (SQLite), data/dentpilot.log (лог).
 ⛔ Разделение намеренное: программа уезжает в `Program Files`, доступный только
 на чтение. Рядом с exe остаётся лишь то, что кладёт СБОРКА или установщик
 (`demo.flag`, `install.json`).
@@ -337,25 +337,19 @@ if not env_path.exists():
         _box(f"install.json:\n{e}\n\nProgramul pornește pe canalul obișnuit.")
         _info = None
     env_path.write_text(
-        "# Token botului Telegram (de la @BotFather):\nTELEGRAM_TOKEN=\n"
         "# Parola jurnalului /admin (gol = deschis):\nADMIN_KEY=\n"
         + install_info.channel_line(_info),
         encoding="utf-8",
     )
-from app import dpapi, envfile  # noqa: E402 — путь к env вычислен строкой выше
+from app import envfile  # noqa: E402 — путь к env вычислен строкой выше
 
 for k, v in envfile.read_all(env_path).items():
     os.environ.setdefault(k, v)
 
-# Токен бота лежит в dental.env зашифрованным средствами Windows: файл,
-# унесённый с этой машины, бесполезен. Расшифровать надо ЗДЕСЬ, до старта
-# приложения — дальше TELEGRAM_TOKEN читается из окружения как обычная строка.
-dpapi.unlock_env_token(env_path)
-
 os.environ.setdefault("CLINIC_CONFIG", str(cfg_path))
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{data_dir / 'dental.db'}")
 
-# путь к env-файлу — для страницы настроек (правка токена из UI)
+# путь к env-файлу — для страниц настроек (сеть, пароль внешней копии)
 os.environ["DENTART_ENV_FILE"] = str(env_path)
 
 # Профиль заставки сторожа перезапуска — РЯДОМ с профилем окна, у той же учётки

@@ -21,7 +21,6 @@ const T = t('system', {
   version: 'Versiune',
   db: 'Bază de date',
   folder: 'Folderul cu date',
-  telegram: 'Canal Telegram',
   updates: 'Actualizări',
   channel: 'Canal actualizări',
   access: 'Acces jurnal',
@@ -224,12 +223,6 @@ export function SystemSettingsScreen({ navigate = defaultNavigate, pollMs = 1500
                     <br />
                     <span className="dp-hs-sub">{data.folder.hint}</span>
                   </td>
-                </tr>
-              )}
-              {data.telegram && (
-                <tr>
-                  <th>{T.telegram}</th>
-                  <td dangerouslySetInnerHTML={{ __html: data.telegram }} />
                 </tr>
               )}
               <tr>

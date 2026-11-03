@@ -1425,7 +1425,7 @@ async def _upsert_patient(session_key: str, name: str, phone: str,
 async def create_appointment(
     session_key: str, name: str, phone: str, lang: str,
     service: str, doctor: str, starts_at: datetime,
-    source: str = "bot", birth_year: int | None = None,
+    source: str = "manual", birth_year: int | None = None,
     doctor_id: str | None = None, service_id: str | None = None,
     duration_min: int = 60,
 ) -> int | str | None:
@@ -1717,61 +1717,12 @@ async def doctor_future_count(doctor_key: str, doctor_name: str,
     ) or 0
 
 
-async def my_appointments(session_key: str, now: datetime) -> list:
-    # arrived тоже показываем: пациент «в кресле» не должен пропадать из «мои
-    # записи»; status нужен движку — у arrived НЕ рисуем кнопку отмены
-    return await _fetch(
-        f"""SELECT a.id, a.service, a.doctor, a.doctor_id, a.starts_at, a.status
-           FROM appointments a JOIN patients p ON p.id = a.patient_id
-           WHERE p.session_key = ? AND a.status IN {_ACT_SQL} AND a.starts_at > ?
-           ORDER BY a.starts_at""",
-        session_key, _iso(now),
-    )
-
-
-async def cancel_appointment(session_key: str, appt_id: int) -> int:
-    """Отмена ТОЛЬКО своей записи (ownership через session_key)."""
-    return await _execute(
-        """UPDATE appointments SET status = 'cancelled'
-           WHERE id = ? AND status = 'confirmed'
-             AND patient_id = (SELECT id FROM patients WHERE session_key = ?)""",
-        appt_id, session_key,
-    )
-
-
-# ---------- напоминания ----------
-
-async def tg_due_reminders(now: datetime) -> list:
-    """Telegram-записи, которым пора напомнить (окно 24ч; свежие < 30 мин не трогаем)."""
-    from datetime import timedelta
-    h24, m30 = now + timedelta(hours=24), now - timedelta(minutes=30)
-    return await _fetch(
-        """SELECT a.id, a.service, a.doctor, a.doctor_id, a.starts_at,
-                  a.reminded_day, a.reminded_2h, p.session_key, p.lang
-           FROM appointments a JOIN patients p ON p.id = a.patient_id
-           WHERE a.status = 'confirmed'
-             AND p.session_key LIKE 'tg:%'
-             AND a.starts_at > ? AND a.starts_at <= ?
-             AND a.created_at < ?
-             AND (a.reminded_day = 0 OR a.reminded_2h = 0)""",
-        _iso(now), _iso(h24), _iso(m30),
-    )
-
-
-async def mark_reminded(appt_id: int, day: bool, soon: bool) -> None:
-    await _execute(
-        """UPDATE appointments
-           SET reminded_day = MAX(reminded_day, ?), reminded_2h = MAX(reminded_2h, ?)
-           WHERE id = ?""",
-        int(day), int(soon), appt_id,
-    )
-
-
 # ---------- SMS-пакет (S5): очередь напоминаний ----------
 #
 # Состояние напоминания живёт ЗДЕСЬ (`sms_log`), а не во флагах визита:
-# `reminded_day`/`reminded_2h` принадлежат Telegram (tg_due_reminders,
-# mark_reminded, сброс при переносе) — SMS их не читает и не пишет. Решения
+# `reminded_day`/`reminded_2h` — флаги напоминаний Telegram-бота (удалён
+# 03.11.2026; у старых визитов флаг остаётся и читается колокольчиком) — SMS
+# их не читает и не пишет. Решения
 # «кому и когда» принимает core/sms_loop.py; здесь только выборки и записи.
 
 SMS_QUEUED, SMS_SENT, SMS_DELIVERED = "queued", "sent", "delivered"
@@ -1996,7 +1947,8 @@ async def appt_patient_id(appt_id: int) -> int | None:
 async def day_appointments(day_start: datetime, day_end: datetime) -> list:
     # has_rec — «консультация записана»: не дата, в _DT_COLS ему не место
     # sms_sent — SMS-напоминание принято сервером или доставлено (S5): второй
-    # источник колокольчика «Reminder trimis» рядом с reminded_day Telegram
+    # источник колокольчика «Reminder trimis» рядом с reminded_day (флаг
+    # удалённого Telegram-бота у старых визитов)
     # call_result — отметка звонка-подтверждения (`appt_calls`, 03.10): по ней
     # «programată» становится «confirmată» в повестке и списке дня. Ключ
     # первичный — строк не размножает. ⚠️ Не `AS call`: в стандарте SQL это слово занято.
@@ -2535,14 +2487,6 @@ async def set_archived(pid: int, on: bool) -> None:
     await _execute(
         "UPDATE patients SET archived = ? WHERE id = ?",
         int(on), pid,
-    )
-
-
-async def patient_lang(session_key: str) -> str | None:
-    """Язык пациента — чтобы после рестарта отвечать возвращённому на его языке."""
-    return await _fetchval(
-        "SELECT lang FROM patients WHERE session_key = ?",
-        session_key,
     )
 
 
@@ -3979,10 +3923,10 @@ async def move_appointment(appt_id: int, doctor_id: str, doctor: str,
                                                       exclude_id=appt_id):
             return "dup"
         # ⚠️ Перенос ВРЕМЕНИ снимает отметки напоминаний. Флаг значит «пациенту
-        # уже сказали про ЭТОТ час», а час стал другим: без сброса суточное
-        # напоминание с новым временем не уходит вовсе (telegram._send_reminder
-        # выходит по reminded_day), и пациент приезжает к прежнему часу — а
-        # журнал рядом с визитом продолжает показывать «Reminder trimis».
+        # уже сказали про ЭТОТ час», а час стал другим: без сброса журнал рядом
+        # с перенесённым визитом показывал бы «Reminder trimis» про прежний час.
+        # (Флаги ставил Telegram-бот, удалён 03.11.2026; у старых визитов они
+        # остались.)
         # Переезд к другому врачу в тот же час отметку не трогает: про час
         # сказано верно, а имя врача напоминание берёт актуальное.
         moved = rows[0]["starts_at"] != starts_at

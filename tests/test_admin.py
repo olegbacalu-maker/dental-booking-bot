@@ -13,9 +13,9 @@ import zipfile
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from harness import (BOT, PIN, PYTHON, Client, Result, Server, _rmtree_settled, add_appt,
-                     appt_id, clinic_today, day_model, new_patient, panel_live, pid_by_phone,
-                     shell_model)
+from harness import (BOT, PIN, PYTHON, TZ, Client, Result, Server, _rmtree_settled, add_appt,
+                     appt_id, bot_patient, clinic_today, day_model, new_patient, panel_live,
+                     pid_by_phone, shell_model)
 
 
 def _sync(page: str) -> list:
@@ -83,7 +83,6 @@ def suite_pages(res: Result) -> None:
             "/admin/settings": "Clinica Test",
             "/admin/medici": "",
             "/admin/search?q=Pagina": "",
-            "/admin/qr-print": "",
         }
         for path, needle in pages.items():
             r = c.get(path)
@@ -105,23 +104,15 @@ def suite_pages(res: Result) -> None:
         # позицию прокрутки — «вкладка FAQ закрывается сама» (Олег, 08-07).
         for path in ("/admin", f"/admin/all?date={_d(1)}", "/admin/week",
                      "/admin/doctor/d2", "/admin/settings", "/admin/settings/faq",
-                     "/admin/stats", "/admin/medici", "/admin/search", "/admin/qr-print"):
+                     "/admin/stats", "/admin/medici", "/admin/search"):
             res.ok(f"{path} НЕ перезагружает себя",
                    "data-reload" not in c.get(path).body,
                    "странице выдана автоперезагрузка — она снова будет терять "
                    "раскрытые details")
 
         # Ширина (08-16, просьба Олега «справа много места»): окно отдаётся
-        # ВСЕМ разделам. Экраны React ведут ширину раскладкой клиента (серверного
-        # `content` у их оболочки нет); у страниц на серверной оболочке
-        # (`_shell`, до шага 6 снятия старого интерфейса) — тот же
-        # единственный каркас `content` без модификатора: вернувшийся
-        # `content wide` снова сделал бы часть страниц узкими молча. Потолок
-        # самой СТРОКИ живёт в panel.css (test_review3.suite_width).
-        body = c.get("/admin/qr-print").body
-        res.ok("серверная оболочка занимает всю ширину окна",
-               'class="content"' in body,
-               "раздел не получил широкий контент — справа останется пустое поле")
+        # ВСЕМ разделам. Экраны React ведут ширину раскладкой клиента;
+        # потолок самой СТРОКИ живёт в panel.css (test_review3.suite_width).
         # справку рисует React: потолок строки — правило клиента `.dp-faq`
         front = BOT.parent / "frontend" / "src"
         faq_rule = re.search(r"\.dp-faq\s*\{[^}]*\}",
@@ -245,18 +236,8 @@ def suite_pages(res: Result) -> None:
                len(pre) == 2 and all(f"url('{u}')" in fonts.body for u in pre),
                f"предзагрузка: {pre}")
 
-        # поведение серверных страниц вынесено тем же приёмом, что и
-        # оформление (экраны React panel.js не грузят: у него там нет читателей)
-        res.ok("серверная страница подключает общий скрипт",
-               "/static/js/panel.js?v=" in c.get("/admin/qr-print").body,
-               "нет <script src> на panel.js")
-        js = c.get("/static/js/panel.js")
-        res.ok("скрипт отдаётся",
-               js.status == 200 and "setInterval" in js.body
-               and "dp_toast" in js.body, f"код {js.status}, {len(js.body)} б")
-        res.ok("скрипт отдаётся как javascript",
-               "javascript" in js.header("Content-Type"),
-               f"Content-Type: {js.header('Content-Type')!r}")
+        res.ok("общего скрипта серверных страниц больше нет (снят 03.11.2026)",
+               c.get("/static/js/panel.js").status == 404, "panel.js вернулся")
         res.ok("чужой тип статики не отдаётся",
                c.get("/static/txt/panel.txt").status == 404, "отдал не css/js")
 
@@ -510,7 +491,7 @@ def suite_dashboard(res: Result) -> None:
     (Плитки «Azi» с мини-графиками жили на старой панели и ушли с ней 13.10;
     React их не рисует с 01.10.)
     """
-    with Server(env={"DENTART_TOKEN_UNREADABLE": "1"}) as s:
+    with Server() as s:
         c = Client(s.url).login()
         day = _d(1)
         for time, doc, svc, name in (("09:00", "d2", "consult", "Ana Test"),
@@ -601,7 +582,7 @@ def suite_dashboard(res: Result) -> None:
         # успеет отрисоваться конечный кадр, и анимация пойдёт рывком назад
         head = c.get(f"/admin?date={day}").body.split("<body")[0]
         res.ok("выключатель анимаций стоит в <head>",
-               "dp_auto" in head and "classList.add('anim')" in head,
+               "classList.add('anim')" in head,
                "скрипт не в шапке")
         css = c.get("/static/css/panel.css").body
         res.ok("движение выключается системной настройкой",
@@ -702,11 +683,10 @@ def suite_analytics(res: Result) -> None:
 
     День завтрашний, как в suite_dashboard: сегодняшний зависит от часа прогона.
 
-    Сервер — grandfather-клиника (флаг «токен нечитаем» = tg_configured): доля
-    бота в разборе записей есть только у клиник с ботом; ветку «без бота»
-    стережёт suite_bot_ui.
+    Доли бота в разборе записей нет (бот удалён 03.11.2026) — это стережёт
+    и suite_bot_ui.
     """
-    with Server(env={"DENTART_TOKEN_UNREADABLE": "1"}) as s:
+    with Server() as s:
         c = Client(s.url).login()
         day = _d(1)
         for time, doc, svc, name, phone in (
@@ -738,9 +718,8 @@ def suite_analytics(res: Result) -> None:
         res.check("график по дням: один день — одна корзина с тремя записями",
                   (d["board"]["series"]["bucket"], d["board"]["series"]["appts"]),
                   ("day", [3]))
-        # у клиники с ботом его доля едет строкой разбора записей (кольца нет)
-        res.ok("доля бота названа в разборе записей",
-               "prin bot" in k["programari"]["sub"], k["programari"]["sub"])
+        res.ok("разбор записей без доли бота",
+               "prin bot" not in k["programari"]["sub"], k["programari"]["sub"])
         res.ok("выдуманных источников нет нигде",
                "Google" not in json.dumps(d) and "Instagram" not in json.dumps(d),
                "в аналитике выдуманные каналы")
@@ -1133,9 +1112,9 @@ def suite_settings(res: Result) -> None:
         res.ok("FAQ называет 7-Zip", any("7-Zip" in it["answer"] for it in faq_items),
                "про 7-Zip ни слова")
 
-        # Telegram заморожен (08-08): FAQ не продаёт бота — пункты про
-        # «бот ночью/в выходные» изъяты вместе с интерфейсом бота
-        res.ok("FAQ не продаёт замороженного бота",
+        # FAQ не продаёт бота (удалён 03.11.2026) — пункты про «бот ночью/в
+        # выходные» изъяты вместе с интерфейсом бота
+        res.ok("FAQ не продаёт удалённого бота",
                not any("Botul primește programări" in it["question"] + it["answer"]
                        for it in faq_items),
                "пункт про бот в выходные вернулся в FAQ")
@@ -1183,9 +1162,6 @@ def suite_settings(res: Result) -> None:
         res.ok("среда закрыта, обед пятницы записан",
                after["hours"]["wed"] is None and after["hours"]["fri"] == [9, 18, 13, 14],
                f"часы не те: {after['hours']}")
-        res.ok("строка контактов боту пересобрана",
-               "13" in after.get("contacts", {}).get("ro", ""),
-               "contacts не отражает новый обед")
 
         r = c.post_json("/api/settings/services", {"services": [
             {"id": "consult", "ro": "Consultație", "ru": "Консультация",
@@ -1381,20 +1357,12 @@ def suite_lan(res: Result) -> None:
                    "TELEGRAM_TOKEN=" in env_path.read_text(encoding="utf-8"),
                    "переключение затёрло соседние ключи")
 
-            # --- Telegram заморожен (08-08): интерфейс бота видит только
-            # клиника с УЖЕ настроенным токеном (grandfather) ---
-            res.check("без токена секции «Sincronizări» нет", _sync(c.get("/admin").body), [])
-            res.ok("без токена нет плитки Telegram на хабе",
+            # Telegram-бот удалён 03.11.2026: ни секции «Sincronizări» (без
+            # SMS-пакета), ни плитки бота — даже с токеном в dental.env
+            res.check("секции «Sincronizări» нет", _sync(c.get("/admin").body), [])
+            res.ok("нет плитки Telegram на хабе",
                    "/admin/settings/telegram" not in tiles(c),
-                   "плитка бота предлагается клинике без токена")
-
-        # UNREADABLE-флаг = токен был (переезд ПК): раздел обязан ВЕРНУТЬСЯ,
-        # иначе клинике после переезда некуда ввести токен заново
-        with Server(env={"DENTART_ENV_FILE": str(env_path),
-                         "DENTART_TOKEN_UNREADABLE": "1"}) as s2:
-            c2 = Client(s2.url).login()
-            res.check("настроенный бот остаётся в меню (grandfather)",
-                      _sync(c2.get("/admin").body), ["tg", "qr"])
+                   "плитка удалённого бота на хабе")
     finally:
         _rmtree_settled(tmp)
 
@@ -1407,26 +1375,6 @@ sys.path.insert(0, r"%s")
 from datetime import datetime, timedelta, date
 from app import engine as eng
 from app import paths
-# ⚠️ статус бота ищется в sys.modules по имени пакета. Когда имя считалось от
-# __package__ текущего файла, переезд файла в подпапку тихо ломал показ:
-# адаптер работает, а интерфейс рисует его выключенным. Подкладываем модуль
-# под НАСТОЯЩИМ именем и проверяем, что его находят из core.
-import types
-# настоящий адаптер — ради текстов визитки (_meta_texts); импортируем ДО
-# подделки, дальше имя в sys.modules перекрывает фейк
-from app import telegram as _tg_real
-_fake = types.ModuleType("app.telegram")
-_fake.STATUS = {"running": True, "username": "bot_de_test", "error": ""}
-_fake.meta_pings = 0
-def _ping():
-    _fake.meta_pings = _fake.meta_pings + 1
-_fake.refresh_meta = _ping
-sys.modules["app.telegram"] = _fake
-from app.core.layout import _tg_state, tg_refresh_meta, tg_status
-tg_refresh_meta()   # обязан дозвониться до модуля под НАСТОЯЩИМ именем
-_meta = _tg_real._meta_texts()          # фикстура без contacts
-eng.CONFIG["contacts"] = {"ro": "str. Test 1 / tel"}
-_meta_c = _tg_real._meta_texts()        # и с contacts-строкой
 # фолбэк обновлятора: чистые разборщики веб-ответов GitHub. Сеть в этих
 # проверках не участвует — кормим текстами, снятыми с настоящих ответов.
 from app import update as upd
@@ -1451,21 +1399,9 @@ out = {
  "bl_plain":  __import__("app.core.bitlocker", fromlist=["x"]).describe(2, "C:")[0],
  "bl_none":   __import__("app.core.bitlocker", fromlist=["x"]).describe(None)[0],
  "bl_c_in":   "C:" in __import__("app.core.bitlocker", fromlist=["x"]).describe(8, "C:")[1],
- "tg_user":        tg_status().get("username"),
- "tg_running":     tg_status().get("running"),
- "tg_state_tuple": list(_tg_state()),
- "meta_pinged":    _fake.meta_pings,
- "meta_short_ro":  _meta["ro"]["short"],
- "meta_desc_head": _meta["ro"]["desc"].startswith("Programări online — Clinica Test."),
- "meta_hint_ro":   "orele de lucru" in _meta["ro"]["desc"],
- "meta_hint_ru":   "часы работы" in _meta["ru"]["desc"],
- "meta_contacts":  "str. Test 1 / tel" in _meta_c["ro"]["desc"],
- "meta_lens_ok":   all(len(t["desc"]) <= 512 and len(t["short"]) <= 120
-                       for m in (_meta, _meta_c) for t in m.values()),
  "res_clinic":     paths.resource("clinic.json").exists(),
  "res_clinic_new": paths.resource("clinic_new.json").exists(),
  "res_static":     paths.resource("static").is_dir(),
- "res_index":      paths.resource("static", "index.html").exists(),
  # ⛔ runtime_dir() удалён: место записи больше не считается от того, где
  # лежит программа. Обе новые функции читают ОКРУЖЕНИЕ, поэтому и проверяем
  # их окружением — в этом подпроцессе ни одна из переменных не задана.
@@ -1519,26 +1455,10 @@ print(json.dumps(out))
     res.check("не смогли проверить — честное unknown, не паника",
               v["bl_none"], "unknown")
     res.check("в тексте назван сам диск", v["bl_c_in"], True)
-    # статус бота: ищется по имени пакета, а не по расположению файла
-    res.check("статус бота виден из core", v["tg_user"], "bot_de_test")
-    res.check("бот показан работающим", v["tg_running"], True)
-    res.check("короткий статус для сайдбара", v["tg_state_tuple"],
-              [True, "bot_de_test"])
-    # визитка бота: описание в профиле Telegram собирается из конфига клиники
-    # и живёт у Telegram — единственный текст, видимый при ВЫКЛЮЧЕННОЙ программе
-    res.check("пинок визитки доходит до адаптера", v["meta_pinged"], 1)
-    res.check("short-описание: имя клиники и телефон", v["meta_short_ro"],
-              "Programări online — Clinica Test · ☎️ +373 60 000 000")
-    res.check("описание начинается с имени клиники", v["meta_desc_head"], True)
-    res.check("описание объясняет молчание (RO)", v["meta_hint_ro"], True)
-    res.check("описание объясняет молчание (RU)", v["meta_hint_ru"], True)
-    res.check("contacts-строка попадает в описание", v["meta_contacts"], True)
-    res.check("лимиты Bot API соблюдены", v["meta_lens_ok"], True)
     # якоря путей: то, из-за чего собранный exe не стартовал бы после переезда
     res.check("демо-профиль клиники находится", v["res_clinic"], True)
     res.check("пустой профиль клиники находится", v["res_clinic_new"], True)
     res.check("папка static находится", v["res_static"], True)
-    res.check("страница пациента находится", v["res_index"], True)
     # ⛔ runtime_dir() удалён — писать «рядом с программой» больше нельзя.
     res.check("без DATABASE_URL каталога базы нет", v["db_dir_unset"], True)
     res.check("без DENTART_DATA_DIR папки клиники нет", v["data_root_unset"], True)
@@ -1572,31 +1492,20 @@ def _fixture():
 
 
 def suite_bot_ui(res: Result) -> None:
-    """Telegram заморожен (08-08): панель и статистика клиники БЕЗ бота молчат
-    о нём; grandfather-клиника (токен настроен) видит всё как раньше.
-    Вторая ветка поднимается с DENTART_TOKEN_UNREADABLE=1 — это честный флаг
-    dpapi «токен есть, но нечитаем»: tg_configured() истинен, а живой бот
-    не нужен."""
-    with Server() as s:  # токена нет — так выглядит новая клиника
+    """Telegram-бот и веб-самозапись удалены 03.11.2026 (код — тег
+    `archive/telegram-bot`): ни один экран о них не рассказывает, их адреса
+    не отвечают, а данные, которые бот завёл раньше, читаются как данные.
+    Токен в окружении (так выглядит dental.env клиники, ставившей бота)
+    ничего не воскрешает."""
+    with Server(env={"TELEGRAM_TOKEN": "123456789:" + "A" * 35}) as s:
         c = Client(s.url).login()
 
-        # ⛔ Заморозка прячет ЭКРАНЫ, но тексты про бота протекали мимо неё:
-        # 08-10 Олег увидел в карточке врача «Activ — botul și formularele îl
-        # propun» у клиники, у которой бота нет и не будет. Нашлось ещё шесть
-        # таких же — в баннере сохранения настроек, в подсказке про перерыв, в
-        # предупреждениях об услугах без врача. Каждое поодиночке мелочь, все
-        # вместе — программа рассказывает про функцию, которой у клиники нет.
-        # ⚠️ Проверка обходит СТРАНИЦЫ, а не исходники: строки собираются в
-        # f-строках из кусков, и поиск по коду их не ловит.
-        # ⚠️ 08-13 Олег увидел «Telegram» в фильтре каналов списка пациентов:
-        # страница построена ПОЗЖЕ заморозки, а слова «Telegram» в этом списке
-        # не было — три дырки (фильтр, строка «Canal Telegram» в Stare sistem,
-        # абзац токена в FAQ) прожили незамеченными. Слово и обе страницы
-        # теперь в обходе.
-        # ⚠️ Экраны React (все разделы с 13.10) несут текст в ответах /api/*,
-        # а не в странице: обход страницы у них видит пустую оболочку, и сторож
-        # молча становился пустым — поэтому в обходе их ответы. Журнал — в
-        # первую очередь: панель, день, неделя и кресло.
+        # ⚠️ Проверка обходит ОТВЕТЫ, а не исходники: строки собираются в
+        # f-строках из кусков, и поиск по коду их не ловит. Экраны React несут
+        # текст в ответах /api/*, а не в странице: обход страницы у них видит
+        # пустую оболочку, поэтому в обходе их ответы. История: 08-10 Олег
+        # увидел «Activ — botul și formularele îl propun» в карточке врача,
+        # 08-13 — «Telegram» в фильтре каналов списка пациентов.
         bot_pid = new_patient(c, "Fara Bot", "069000777")
         add_appt(c, _d(1), "10:00", "Fara Bot", "069000777")
         leaks = []
@@ -1611,67 +1520,64 @@ def suite_bot_ui(res: Result) -> None:
                      "/api/settings/system", "/api/settings/faq", "/api/stats",
                      "/api/doctors", "/api/doctors/d2"):
             body = c.get(path).body
-            for word in ("botul", "botului", "prin bot", "🤖", "Telegram"):
+            for word in ("botul", "botului", "prin bot", "🤖", "Telegram", "QR pacienți"):
                 if word in body:
                     leaks.append(f"{path}: {word}")
-        res.ok("клинике без бота о боте не рассказывают", not leaks,
-               f"утечки заморозки: {leaks}")
-        res.check("«Sursă» в «Lista zilei» у клиники без бота не показывается",
-                  day_model(c, _d(1))["source_col"], False)
-        # экран статистики — React: его текст сервера едет в /api/stats
+        res.ok("о боте не рассказывает ни один экран", not leaks,
+               f"следы бота: {leaks}")
+        res.check("Sincronizări без бота и QR", _sync(c.get("/admin").body), [])
+        res.ok("модель дня без колонки «Sursă»",
+               "source_col" not in day_model(c, _d(1)), "поле source_col вернулось")
         stats = c.get("/api/stats").body
         res.ok("статистика без доли бота",
                "prin bot" not in stats and "Prin bot" not in stats
-               and "Remindere" not in stats, "бот в разборе статистики")
-        res.ok("нет «botul a adus»", "botul a adus" not in stats,
-               "оценка вклада бота без бота")
+               and "Remindere" not in stats and "botul a adus" not in stats,
+               "бот в разборе статистики")
+        res.ok("Stare sistem без строки канала",
+               "telegram" not in json.loads(c.get("/api/settings/system").body)["data"],
+               "поле telegram вернулось")
 
-        # самозапись через веб — тот же канал, что бот: заморожена вместе с ним
-        res.check("лендинг самозаписи закрыт", c.get("/").status, 404)
-        res.check("веб-чат закрыт",
-                  c.post_json("/chat", {"session_id": "x", "message": "/start"}).status,
-                  404)
-        res.check("выставочный экран закрыт", c.get("/demo").status, 404)
+        # адреса бота и самозаписи — как любой несуществующий адрес
+        for method, path in (("GET", "/"), ("POST", "/chat"), ("GET", "/demo"),
+                             ("GET", "/admin/qr-print"),
+                             ("GET", "/admin/settings/telegram"),
+                             ("POST", "/admin/telegram/save")):
+            r = (c.post_json(path, {"message": "/start"}) if method == "POST"
+                 else c.get(path))
+            res.check(f"{method} {path} — 404 (бот удалён)", r.status, 404)
         # ⚠️ соседи по корню обязаны выжить: на /health держится single-instance
-        # guard лаунчера, на /static — всё оформление журнала
+        # guard лаунчера, на /static — всё оформление журнала, /qr — код
+        # адреса программы для сети клиники (Acces din rețea)
         res.check("/health не пострадал", c.get("/health").status, 200)
-        res.check("оформление отдаётся",
-                  c.get("/static/css/panel.css").status, 200)
+        res.check("оформление отдаётся", c.get("/static/css/panel.css").status, 200)
         res.check("значок отдаётся", c.get("/favicon.ico").status, 200)
+        r = c.get("/qr?data=http%3A%2F%2F192.168.1.5%3A8088%2Fadmin")
+        res.ok("QR адреса для сети клиники рисуется",
+               r.status == 200 and r.raw[:8] == b"\x89PNG\r\n\x1a\n",
+               f"код {r.status}")
 
-    # grandfather: у клиники токен настроен — интерфейс бота виден.
-    # (Плитка «Prin bot», блок «Programări noi din bot» и колокольчик жили
-    # только на старой панели и ушли с ней 13.10; React их не рисовал.)
-    with Server(env={"DENTART_TOKEN_UNREADABLE": "1"}) as s:
+    # Данные, заведённые ботом до удаления: фиша tg-пациента и его визит
+    # остаются, читаются как данные — канал «Telegram» в фише и в фильтре
+    # списка (фильтр строится ПО ДАННЫМ: без таких фиш опции нет — это
+    # проверено веткой выше, где «Telegram» не встретился ни в одном ответе).
+    with Server() as s:
         c = Client(s.url).login()
-        res.check("grandfather: Sincronizări в меню", _sync(c.get("/admin").body), ["tg", "qr"])
-        res.check("grandfather: «Sursă» в «Lista zilei» показывается",
-                  day_model(c)["source_col"], True)
-        kp = {x["key"]: x for x in
-              json.loads(c.get("/api/stats").body)["data"]["board"]["kpis"]}
-        res.ok("grandfather: доля бота в статистике",
-               "prin bot" in kp["programari"]["sub"], "статистика урезана у grandfather")
-        res.ok("grandfather: строка канала Telegram в Stare sistem",
-               bool(json.loads(c.get("/api/settings/system").body)["data"]["telegram"]),
-               "строка канала пропала у клиники с ботом")
-        # Бот удаляется целиком (В3, Олег 02.11): справка молчит о нём и у
-        # клиники с токеном — абзац про токен снят сверкой FAQ 02.11
-        res.ok("grandfather: FAQ о токене бота не говорит",
-               not any("tokenul botului" in it["answer"] for it in
-                       json.loads(c.get("/api/settings/faq").body)["data"]["items"]),
-               "абзац про токен бота вернулся в справку")
-        # ⭐ Опция канала в фильтре — по ДАННЫМ, не по токену: grandfather БЕЗ
-        # tg-пациентов её тоже не видит (канарейка-демо — ровно этот случай;
-        # фильтр по пустому множеству продавал бы замороженный канал на демо).
-        # Обратная сторона — в test_bot: у клиники с bot-пациентом опция есть.
+        when = datetime.combine(clinic_today() + timedelta(days=2),
+                                datetime.min.time(), TZ).replace(hour=10)
+        aid = bot_patient(s, when)
+        res.ok("старый визит бота заведён", aid.isdigit(), aid)
+        pid = pid_by_phone(c, "069900111")
         channels = [x["id"] for x in
                     json.loads(c.get("/api/patients/summary").body)["data"]["channels"]]
-        res.ok("grandfather без tg-пациентов: фильтр каналов без Telegram",
-               channels and "tg" not in channels, f"опция Telegram при нуле tg-пациентов: {channels}")
-        res.check("grandfather: лендинг самозаписи открыт", c.get("/").status, 200)
-        res.check("grandfather: веб-чат отвечает",
-                  c.post_json("/chat", {"session_id": "g", "message": "/start"}).status,
-                  200)
+        res.ok("фильтр «Telegram» есть у клиники с tg-фишами", "tg" in channels,
+               f"каналы: {channels}")
+        rows = _plist(c, "ch=tg")["rows"]
+        res.check("фильтр «Telegram» находит старую фишу",
+                  [r["id"] for r in rows], [pid])
+        day = json.loads(c.get(f"/api/schedule/day?date={when.date().isoformat()}").body)["data"]
+        res.ok("старый визит бота стоит в дне с источником «bot»",
+               any(r["source"] == "bot" for r in day["list"]),
+               f"{[(r['name'], r['source']) for r in day['list']]}")
 
 
 def suite_live_stable(res: Result) -> None:

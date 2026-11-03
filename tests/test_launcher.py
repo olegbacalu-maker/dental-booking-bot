@@ -68,19 +68,19 @@ def suite_envfile(res: Result) -> None:
                f"err={err!r}, got={got}")
 
         f = tmp / "bom.env"
-        f.write_bytes(codecs.BOM_UTF8 + b"TELEGRAM_TOKEN=abc\n")
+        f.write_bytes(codecs.BOM_UTF8 + b"DENTART_CHANNEL=abc\n")
         got = {}
         try:
             got = envfile.read_all(f)
         except Exception:  # noqa: BLE001
             pass
         res.ok("BOM не въезжает в имя первого ключа",
-               got.get("TELEGRAM_TOKEN") == "abc",
+               got.get("DENTART_CHANNEL") == "abc",
                f"ключи: {list(got)}")
 
         # -- ошибка чтения СУЩЕСТВУЮЩЕГО файла = отказ, а не запись --
         f = tmp / "dental.env"
-        body = "# comentariu\nTELEGRAM_TOKEN=tok\nADMIN_KEY=key\nDENTART_PORT=8090\n"
+        body = "# comentariu\nDENTART_CHANNEL=tok\nADMIN_KEY=key\nDENTART_PORT=8090\n"
         f.write_text(body, encoding="utf-8")
         h = _hold_no_read(f)
         if h in (0, -1):
@@ -89,7 +89,7 @@ def suite_envfile(res: Result) -> None:
         else:
             try:
                 try:
-                    envfile.set_value(f, "TELEGRAM_TOKEN", "nou")
+                    envfile.set_value(f, "DENTART_CHANNEL", "nou")
                     raised = None
                 except OSError as e:
                     raised = e

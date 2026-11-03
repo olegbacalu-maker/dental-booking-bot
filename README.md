@@ -410,26 +410,20 @@ LAN it would break login outright, and the clinic's Wi-Fi encrypts one layer bel
   are relinked to the new data folder, and a restored archive is moved under the clinic's
   key when the card index is encrypted.
 
-## Patient self-booking (optional, off by default)
+## Patient self-booking (removed)
 
-A messenger-style booking chat and a **Telegram bot**, both Romanian and Russian, sit on the
-same engine and the same database, so a bot booking is already in the journal and a manual
-entry already blocks the slot. The whole interface for it — the sidebar section, the QR
-sheet, the "source" column of the day list — appears only for a clinic that has configured
-a bot token.
-Clinics told us a QR on the door reads as "anyone can book", and asked for reminders they
-control instead; the code stays, the shop window does not.
-
-What it does when enabled: language choice first, then service → doctor (or *any
-available*) → day → time → name/phone → confirm, with per-service durations offered only
-where the *whole* interval fits the doctor's window, clears the lunch break and overlaps
-nothing; a separate acute-pain flow that offers the nearest slots including today; "my
-appointments" with cancellation; and automatic 24h/2h reminders in the patient's language.
+Until November 2026 the program carried a messenger-style booking chat and a Telegram bot
+on the same engine and database. Clinics told us a QR on the door reads as "anyone can
+book", and asked for reminders they control instead, so the channel was frozen in August
+2026 and removed on 3 November 2026; the code lives on in the git tag
+`archive/telegram-bot`. Appointments and patient records the bot created stay in the
+database and read as ordinary data (the patient list can still filter them by origin).
+Reminders today are the SMS package.
 
 ## One file = one clinic
 
 Everything clinic-specific lives in [`clinic.json`](clinic.json): name, phone, address,
-contacts, working hours per weekday (with lunch break and days off), doctors with
+working hours per weekday (with lunch break and days off), doctors with
 specialties and state, services with prices, durations and allowed doctors. The engine loads
 it at startup (`CLINIC_CONFIG` env) and re-applies it in-process on every save from the
 settings page — the compose volume is mounted **read-write** precisely so the journal can
@@ -501,8 +495,8 @@ and the `portable.flag` USB mode were removed on 22.10.2026). Build with
   startup raises a banner for the director and a line in the activity log. It is a trace, not
   a lock: whoever holds the file is standing next to the database as well, and on a clinic
   that has not turned encryption on, that database opens with any SQLite viewer.
-- **The Telegram token, when used, is encrypted with Windows DPAPI** — a stolen `dental.env`
-  is dead on another machine. The flip side is written down rather than discovered: a
+- **Secrets in `dental.env` are encrypted with Windows DPAPI** (the external backup
+  password) — a stolen `dental.env` is dead on another machine. The flip side is written down rather than discovered: a
   reinstalled Windows or a different account makes that ciphertext unreadable forever, so
   only values the clinic can re-enter are ever encrypted this way.
 - **Automatic backup on every start and once a day while running** into `data\backups\`
@@ -576,8 +570,8 @@ small gate: every visitor gets a private copy of a fictional clinic, seeded from
 for thirty minutes, out of a pool of twelve. A copy goes only to a browser tab's own
 navigation, so link previews and crawlers do not burn the pool. The program runs with
 `DENTART_DEMO=1` (`bot/app/core/demo.py`): one
-flag, one list of closed routes (update, database key, backup/restore, PIN and users, bot
-token, LAN, licence) that closes pages, JSON and the settings tiles alike, and a banner on
+flag, one list of closed routes (update, database key, backup/restore, PIN and users,
+LAN, licence) that closes pages, JSON and the settings tiles alike, and a banner on
 every screen. The gate, the seed and the image live in [`demo/`](demo/README.md), outside
 `bot/`, so none of it ships to clinics.
 
@@ -635,9 +629,6 @@ signs in by `ADMIN_KEY` (HMAC cookie), and compose refuses to start without it.
   server-rendered by design). JSON routes under `/api/` have their own guard that answers
   401/403 instead of redirecting, so a fetch can never mistake the login form for success.
   The 3D odontogram is three.js on the same server data.
-- The dialog engine is channel-agnostic (`engine.handle()`): the web chat and the Telegram
-  adapter (aiogram, inline keyboards; enabled by setting `TELEGRAM_TOKEN`) are two thin
-  adapters over the same engine and database.
 - The journal and the booking engine share one database by design — "integration" is a query,
   not a sync job.
 - Reviewed adversarially (multi-agent code review) before releases; findings are fixed and

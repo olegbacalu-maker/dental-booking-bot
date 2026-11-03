@@ -218,7 +218,6 @@ def _worker_peers(tmpdir: str) -> None:
         "DATABASE_URL": f"sqlite:///{base / 'dental.db'}",
         "ADMIN_KEY": "",
         "DENTART_NO_RESTART": "1",
-        "TELEGRAM_TOKEN": "",
     })
     sys.path.insert(0, str(BOT))
     from app import db

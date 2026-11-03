@@ -76,7 +76,7 @@ MUTATIONS = [
     ("$DATABASE_URL разбирает только", "app/core/storage.py",
      "\n_mut = 'sqlite:///x'.split('///', 1)[1]\n"),
     ("__package__", "app/engine.py",
-     "\n_mut = __package__ + '.telegram'\n"),
+     "\n_mut = __package__ + '.sidecar'\n"),
     ("роль не сравнивается", "app/modules/stats/routes.py",
      "\ndef _mut(u):\n    return u.get('role') == 'director'\n"),
     # Четвёртая роль в PERMS: правило выше ловит сравнение по месту по СПИСКУ
@@ -440,9 +440,9 @@ MUTATIONS = [
     # Плитку настроек переименовали — путь «Setări › Copie de rezervă» ведёт в никуда.
     ("текст перед скачиванием", "app/modules/settings/routes.py",
      ('"save", "b", "Copie de rezervă",', '"save", "b", "Arhivă de rezervă",')),
-    # ---- баннер в обеих оболочках (посадка L5 на B1) ----
-    # Ровно то, что было до посадки: баннер лицензии печатает старая страница,
-    # а в модель React-оболочки его не положили.
+    # ---- баннер в модели оболочки (посадка L5 на B1) ----
+    # Ровно то, что было до посадки: функция баннера лицензии есть, а в модель
+    # React-оболочки его не положили.
     ("каждый баннер каркаса — сигнал оболочки", "app/core/layout.py",
      ('"signals": {"license": _sig(_license_banner() + _mail_banner() + _terms_banner()),', '"signals": {')),
     # Сервер сигнал отдаёт, а оболочка его не рисует — вторая половина той же дыры.

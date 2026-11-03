@@ -177,7 +177,6 @@ _HUE_PALETTE = "_DOC_HUES"
 # нового знака и ломается молча (тот же урок, что у PLAN_ACTIVE).
 _SYSGLYPH = re.compile("[🀀-🫿←-⇿∀-⋿⌀-⏿"
                        "■-➿⬀-⯿]")
-_BOT_TEXTS = ("app/engine.py", "app/telegram.py")
 
 # ⚠️ С B5 такая страница может просить не 'Inter', а заполнитель __FAMILY__
 # (выбор шрифта клиники, подставляет layout.standalone) — объявление ей нужно
@@ -727,8 +726,8 @@ def suite(res: Result) -> None:
     # U+2714/U+2715, U+23F3 — то есть «не эмодзи» тут ничего не значит.
     # ⭐ Правило смотрит в СТРОКОВЫЕ ЛИТЕРАЛЫ, а не в файл: комментарии и
     # docstring'и до экрана не доезжают, и запрещать их незачем.
-    # ⛔ Тексты бота (engine.py, telegram.py) исключены намеренно: их рисует
-    # Telegram на телефоне пациента, а не Windows на машине клиники.
+    # (До 03.11.2026 исключением были тексты бота — engine.py и telegram.py:
+    # их рисовал Telegram на телефоне пациента. Бот удалён, исключения нет.)
     # ⚠️ Область — ВЕСЬ bot/, а не только modules/ и core/: тексты для
     # человека живут и в корне app/ — в db.py (летопись пациента), в update.py
     # (экран и лог обновления), до 14.10 и в main.py (вход, установка PIN,
@@ -739,8 +738,6 @@ def suite(res: Result) -> None:
     # лог» пришлось бы угадывать по имени функции.
     bad = []
     for rel, tree in src:
-        if rel in _BOT_TEXTS:
-            continue
         for ln, text in _ui_texts(tree):
             found = "".join(dict.fromkeys(_SYSGLYPH.findall(text)))
             if found:
@@ -1752,12 +1749,14 @@ def suite(res: Result) -> None:
            "сайт отправляет клинику к кнопке, которой нет: " + "; ".join(bad))
 
     # ---- каждый баннер каркаса — сигнал оболочки (посадка L5 на B1, 26.09) ----
-    # Старая страница печатает баннеры в `_shell`, React-оболочка рисует
-    # `shell_model()["signals"]` — и только их. Баннер, заведённый в одном месте,
-    # у другого пропадает молча: так лицензия (L5 писался до B1) была видна на
-    # `?ui=legacy` и не видна на React-экране — у клиники, которой отказывают
-    # в записи. Тесты этого не видят: харнесс держит старый интерфейс.
-    # Имена берутся из КОДА: баннер — вызов `_…_banner()` / `_…_hint()` в `_shell`.
+    # React-оболочка рисует `shell_model()` — и только её. Баннер, заведённый
+    # функцией в layout, но не положенный в модель, не виден НИГДЕ: так
+    # лицензия (L5 писался до B1) была видна старой странице и не видна
+    # React-экрану — у клиники, которой отказывают в записи. С 03.11.2026
+    # серверного каркаса `_shell` нет, и список баннеров — сами функции
+    # `_…_banner()` / `_…_hint()`, ОПРЕДЕЛЁННЫЕ в layout (до того — вызовы
+    # внутри `_shell`): каждая обязана вызываться в `shell_model`, а каждый
+    # ключ `signals` — рисоваться `AppShell.tsx`.
     bad = []
     lay_tree = by_path.get("app/core/layout.py")
     funcs = {n.name: n for n in ast.walk(lay_tree)
@@ -1767,7 +1766,8 @@ def suite(res: Result) -> None:
         return {c.func.id for c in ast.walk(node)
                 if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
                 and re.fullmatch(r"_\w+_(banner|hint)", c.func.id)}
-    printed = _banner_calls(funcs["_shell"]) if "_shell" in funcs else set()
+    printed = {name for name in funcs if re.fullmatch(r"_\w+_(banner|hint)", name)}
+    in_model = _banner_calls(funcs["shell_model"]) if "shell_model" in funcs else set()
     signals, keys = set(), []
     for n in ast.walk(funcs["shell_model"]) if "shell_model" in funcs else ():
         if isinstance(n, ast.Dict):
@@ -1776,15 +1776,16 @@ def suite(res: Result) -> None:
                     signals = _banner_calls(v)
                     keys = [kk.value for kk in v.keys if isinstance(kk, ast.Constant)]
     if not printed:
-        bad.append("layout._shell: баннеров не найдено — якорь правила пропал")
+        bad.append("layout: функций баннеров не найдено — якорь правила пропал")
     if not keys:
         bad.append("layout.shell_model: нет словаря signals — якорь правила пропал")
-    bad += [f"{name}() печатается в _shell, но не едет в signals" for name in sorted(printed - signals)]
+    bad += [f"{name}() есть в layout, но не едет в модель оболочки"
+            for name in sorted(printed - in_model)]
     shell_tsx = FRONTEND / "layouts" / "AppShell.tsx"
     tsx = shell_tsx.read_text(encoding="utf-8") if shell_tsx.exists() else ""
     bad += [f"AppShell.tsx не рисует sig.{k}" for k in keys if f"sig.{k}" not in tsx]
     res.ok("каждый баннер каркаса — сигнал оболочки", not bad,
-           "баннер виден только одной из двух оболочек: " + "; ".join(bad))
+           "баннер не виден ни на одном экране: " + "; ".join(bad))
 
     # ---- список демо-отказов не протух (демо с сайта, 01.10) ----
     # `core/demo.py` закрывает в демо адреса, меняющие машину и учётки, —

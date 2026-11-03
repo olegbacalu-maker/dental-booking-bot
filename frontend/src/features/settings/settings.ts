@@ -242,8 +242,6 @@ export interface SystemData {
   db: string
   /** Путь и объяснение, что в нём лежит. Пустой путь — строки нет вовсе. */
   folder: { path: string; hint: string }
-  /** Строка канала бота, HTML-кусок сервера; пусто, пока раздел заморожен. */
-  telegram: string
   update: SystemUpdate
   /** Непусто только на НЕ-stable: этот компьютер видит версии раньше клиник. */
   channel: { name: string; warn: string; note: string } | null

@@ -121,7 +121,7 @@ def build_lab(lab: pathlib.Path, exe: pathlib.Path) -> tuple[pathlib.Path, pathl
                                                 indent=2), encoding="utf-8")
     # ⚠️ Файл пишем сами, чтобы лаунчер не создавал его и не засевал канал:
     # засев — предмет другого стенда, и лишняя ветка здесь только мешала бы.
-    (old / "dental.env").write_text("TELEGRAM_TOKEN=\nADMIN_KEY=\n",
+    (old / "dental.env").write_text("ADMIN_KEY=\n",
                                     encoding="utf-8")
     return old / exe.name, old, anchor
 

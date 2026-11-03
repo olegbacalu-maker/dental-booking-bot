@@ -82,7 +82,6 @@ const MODEL: DayModel = {
   day_label: 'Mi 23.09.2026',
   day_long: 'Miercuri, 23 septembrie 2026',
   canvas: CANVAS,
-  source_col: true,
   doctors: [
     { id: 'd2', name: 'Dr. Activ Doi', spec: 'Terapeut' },
     { id: 'd3', name: 'Dr. Activ Trei', spec: 'Ortodont · inactiv' },
@@ -1084,10 +1083,8 @@ describe('список дня', () => {
     expect(list()[0]?.className).toBe('confirmed')
   })
 
-  it('источник и метки — словами сервера', async () => {
+  it('метки напоминания и консультации — у своих строк', async () => {
     await show()
-    expect(cells(1)?.[5]).toBe('bot')
-    expect(cells(2)?.[5]).toBe('notiță')
     expect(list()[1]?.querySelector('.rem-mark')).toBeTruthy()
     expect(list()[1]?.querySelector('.rec-mark')).toBeTruthy()
     expect(list()[0]?.querySelector('.rem-mark')).toBeNull()
@@ -1133,9 +1130,9 @@ describe('список дня', () => {
     expect(list()[2]?.querySelector('.dp-more')).toBeNull()
   })
 
-  /* ⭐ «Sursă» — только у клиники с ботом: без него там везде «manual». */
-  it('без бота колонки «Sursă» нет — ни в шапке, ни в строках', async () => {
-    get.mockResolvedValue(ok({ ...MODEL, source_col: false }))
+  /* ⭐ «Sursă» снята с ботом (03.11.2026): записи все из журнала. Старая
+     запись бота (`source: 'bot'`) в строке источником не подписывается. */
+  it('колонки «Sursă» нет — ни в шапке, ни в строках', async () => {
     await show()
     const head = Array.from(document.querySelectorAll('table.list th')).map((th) => th.textContent)
     expect(head).not.toContain('Sursă')

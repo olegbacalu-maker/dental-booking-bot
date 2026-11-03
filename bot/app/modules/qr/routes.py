@@ -1,82 +1,19 @@
-"""QR-коды: печатный листок на стойку, картинка кода и экран показа демо.
+"""Картинка QR-кода по адресу `/qr?data=…`.
 
-Листок печатает сама программа — клинике не нужен дизайнер, чтобы повесить
-у ресепшена ссылку на бота. Экран `/demo` — для выставки: показывает QR на
-адрес, по которому открыт стенд.
+Её зовёт экран «Acces din rețea» (`settings/lan.py`): код адреса программы
+для второго компьютера и телефонов в сети клиники. Печатный листок «QR
+pacienți» и выставочный `/demo` жили здесь с ботом записи и ушли вместе с ним
+(03.11.2026, код — тег `archive/telegram-bot`).
 """
 from __future__ import annotations
 
-import html
 import io
-import urllib.parse
 
 import qrcode
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, Response
-
-from ... import engine as eng
-from ...core import theme
-from ...core.auth import _guard
-from ...core.layout import _ic, _shell, _tg_state, tg_configured
+from fastapi import APIRouter
+from fastapi.responses import Response
 
 router = APIRouter()
-
-
-@router.get("/admin/qr-print", response_class=HTMLResponse)
-async def admin_qr_print(request: Request):
-    if (deny := _guard(request)) is not None:
-        return deny
-    _run, username = _tg_state()
-    if not username:
-        return _shell(
-            "<div class='banner err'>Botul Telegram nu este activ — setați tokenul în "
-            "<a href='/admin/settings/telegram'>Setări › Telegram Bot</a>, "
-            "apoi reveniți aici pentru QR.</div>",
-            "QR pentru pacienți", active="qr")
-    link = f"https://t.me/{username}"
-    q = urllib.parse.quote(link, safe="")
-    name = html.escape(eng.CLINIC_NAME)
-    acc, on = theme.accent(), theme.on_accent()
-    return f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{name} — QR pacienți</title><style>
- *{{box-sizing:border-box;margin:0;padding:0}}
- body{{font-family:'Segoe UI',system-ui,sans-serif;color:#1c2b33;display:flex;
-      flex-direction:column;align-items:center;padding:10mm;text-align:center}}
- .noprint{{margin-bottom:8mm;display:flex;gap:10px}}
- .noprint button{{background:{acc};color:{on};border:none;border-radius:8px;
-      padding:10px 22px;font-size:15px;cursor:pointer}}
- .noprint a{{align-self:center;color:{acc}}}
- .sheet{{border:2px dashed #ccd;border-radius:6mm;padding:12mm 16mm;max-width:150mm}}
- .clogo{{display:block;margin:0 auto 4mm;max-height:20mm;max-width:60mm;object-fit:contain}}
- h1{{font-size:26pt;color:{acc}}}
- h2{{font-size:15pt;color:#334;margin:4mm 0 8mm;font-weight:600}}
- img{{width:88mm;height:88mm}}
- .user{{font-size:14pt;color:{acc};font-weight:600;margin-top:4mm}}
- .how{{font-size:11pt;color:#556;margin-top:6mm;line-height:1.5}}
- .phone{{font-size:12pt;margin-top:6mm}}
- .brand{{font-size:8pt;color:#aab;margin-top:8mm}}
- @media print{{ .noprint{{display:none}} .sheet{{border:none}} body{{padding:0}} }}
-</style></head><body>
-<div class="noprint">
-  <button onclick="window.print()">{_ic('print')} Printează</button>
-  <a href="/admin">{_ic('chev-l')} Panou</a>
-</div>
-<div class="sheet">
-  {theme.print_logo()}
-  <h1>{_ic('tooth')} {name}</h1>
-  <!-- {_ic('ban')} не обещать здесь «24/7»/«non-stop»: бот отвечает, только пока
-       программа запущена, а выключает ли клиника ПК на ночь — мы не знаем.
-       Печатка врать не имеет права, выгода — «без звонка», не «всегда». -->
-  <h2>Programare online — fără să sunați</h2>
-  <img src="/qr?data={q}" alt="QR">
-  <div class="user">Telegram: @{html.escape(username)}</div>
-  <div class="how">Scanați codul cu camera telefonului și programați-vă în 40 de secunde.<br>
-  Отсканируйте код камерой телефона — запись за 40 секунд.</div>
-  <div class="phone">{_ic('phone')} {html.escape(eng.CLINIC_PHONE)}</div>
-  <div class="brand">DentPilot</div>
-</div>
-</body></html>"""
 
 
 @router.get("/qr")
@@ -85,20 +22,3 @@ async def qr(data: str) -> Response:
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return Response(buf.getvalue(), media_type="image/png")
-
-
-@router.get("/demo", response_class=HTMLResponse)
-async def demo(url: str = "") -> Response:
-    # выставочный экран ведёт на самозапись — исчезает вместе с ней (08-08)
-    if not tg_configured():
-        return Response(status_code=404)
-    target = (url or "http://localhost:8088").strip()[:500]
-    q = urllib.parse.quote(target, safe="")
-    return HTMLResponse(f"""<!doctype html><html><head><meta charset="utf-8"><title>DentPilot Demo — QR</title>
-<style>body{{font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;
-justify-content:center;height:100vh;margin:0;background:{theme.accent()};color:{theme.on_accent()}}}
-img{{background:#fff;padding:18px;border-radius:12px;width:340px;height:340px}}
-h1{{font-weight:600;font-size:22px}}p{{font-size:14px;opacity:.85}}</style></head><body>
-<h1>{_ic('tooth')} Scanați pentru programare / Сканируйте для записи</h1>
-<img src="/qr?data={q}" alt="QR">
-<p>{html.escape(target)}</p></body></html>""")

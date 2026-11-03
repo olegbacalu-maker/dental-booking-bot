@@ -251,10 +251,6 @@ export interface DayModel {
    *  СВОЙ, не тот, что у таблицы (`doctors`/`hours`), и подменять одно другим
    *  нельзя — разбор в `canvas.model`. */
   canvas: DashCanvasModel
-  /** Показывать ли «Sursă» в «Lista zilei»: только у клиники с ботом
-   *  (`tg_configured`), как и весь остальной интерфейс бота. Без бота там
-   *  везде одно слово «manual», и колонка ничего не различает. */
-  source_col: boolean
   doctors: DayColumn[]
   hours: DayHour[]
   /** `null` — формы нет (страница выключенного врача). */

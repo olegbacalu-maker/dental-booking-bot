@@ -21,15 +21,14 @@ import type { DayListRow, DayModel } from './day'
    ⭐ (06.10, Олег) В строке визита — ОДНА кнопка, следующий шаг (первое
    действие матрицы сервера), остальное — в меню «⋯»: то же меню исходов, что
    по правой кнопке, с теми же вопросами подтверждения, фишей и одонтограммой.
-   ⭐ «Sursă» — только у клиники с ботом (`source_col`): без бота там везде
-   «manual», и колонка ничего не различала. Заметку и так видно по значку в
+   ⭐ Колонки «Sursă» нет (снята с Telegram-ботом 03.11.2026): записи все из
+   журнала, колонка ничего не различала. Заметку и так видно по значку в
    «Serviciu». */
 const T = {
   title: 'Lista zilei',
   empty: 'Nicio programare în această zi.',
   all: 'arată tot',
-  head: ['Ora', 'Pacient', 'Telefon', 'Serviciu', 'Medic', 'Sursă', 'Status', 'Acțiuni'],
-  source: 'Sursă',
+  head: ['Ora', 'Pacient', 'Telefon', 'Serviciu', 'Medic', 'Status', 'Acțiuni'],
   more: 'Mai multe acțiuni',
   reminded: 'Reminder trimis',
   remindedSms: 'SMS trimis',
@@ -57,7 +56,7 @@ export function DayList({ model, busy, onCard, onCardMenu, onStatus, onAll }: Pr
   const title = f
     ? `${f.label} — ${model.date.split('-').reverse().join('.')}`
     : T.title
-  const head = model.source_col ? T.head : T.head.filter((h) => h !== T.source)
+  const head = T.head
   const n = model.list.filter((r) => !r.is_note).length
 
   return (
@@ -83,7 +82,7 @@ export function DayList({ model, busy, onCard, onCardMenu, onStatus, onAll }: Pr
               {model.list.length === 0 ? (
                 <tr><td colSpan={head.length} className="dp-empty">{T.empty}</td></tr>
               ) : model.list.map((row) => (
-                <Row key={row.id} row={row} busy={busy} source={model.source_col}
+                <Row key={row.id} row={row} busy={busy}
                      actions={(row.is_note ? model.note_actions : model.actions)[row.status] ?? []}
                      clickable={!row.is_note && !!model.cards[String(row.id)]}
                      onCard={onCard} onCardMenu={onCardMenu} onStatus={onStatus} />
@@ -101,14 +100,12 @@ interface RowProps {
   actions: { to: string; cls: string; label: string; confirm: string }[]
   clickable: boolean
   busy: boolean
-  /** Колонка «Sursă» показана (у клиники с ботом). */
-  source: boolean
   onCard: (id: number) => void
   onCardMenu?: ((id: number, x: number, y: number) => void) | undefined
   onStatus: (id: number, to: string) => void
 }
 
-function Row({ row, actions, clickable, busy, source, onCard, onCardMenu, onStatus }: RowProps) {
+function Row({ row, actions, clickable, busy, onCard, onCardMenu, onStatus }: RowProps) {
   /* У визита с карточкой — следующий шаг и «⋯»; у заметки (и у строки без
      карточки, которой быть не должно) — её кнопки как есть: у заметки их одна. */
   const compact = clickable && !!onCardMenu
@@ -136,12 +133,6 @@ function Row({ row, actions, clickable, busy, source, onCard, onCardMenu, onStat
         ) : null}
       </td>
       <td>{row.doctor}</td>
-      {source ? (
-        <td>
-          <Icon name={row.is_note ? 'note' : row.source === 'bot' ? 'bot' : 'pen'} />
-          {' '}{row.source_label}
-        </td>
-      ) : null}
       <td>
         {/* вид, а не код: «confirmată» даёт звонок-подтверждение (03.10) */}
         <span className={`stat s-${row.status_view}`}>{row.status_label}</span>

@@ -42,7 +42,6 @@ const SHELL: ShellModel = {
     active: 'set',
     items: [{ key: 'set', href: '/admin/settings', icon: 'home', label: 'Setări' }],
     sync: [],
-    foot_title: '',
   },
   signals: {
     license: { shown: false, html: '' },
@@ -301,8 +300,7 @@ describe('B4.2: оболочка — сайдбар, крошки, шапка, �
         { key: 'set', href: '/admin/settings', icon: 'set', label: 'Setări' },
       ],
       sync: [
-        { key: 'tg', href: '/admin/settings/telegram', icon: 'bot', label: 'Telegram Bot', dot: 'off' },
-        { key: 'qr', href: '/admin/qr-print', icon: 'qr', label: 'QR pacienți' },
+        { key: 'lic', href: '/admin/license', icon: 'key', label: 'Licența' },
       ],
     },
     frame: {
@@ -371,7 +369,7 @@ describe('B4.2: оболочка — сайдбар, крошки, шапка, �
   it('пункт «Sincronizări» на страницу, которой нет у роутера, — обычная ссылка', async () => {
     const { router } = openClinic()
     let native = false
-    await act(async () => { native = nativeClick(screen.getByTitle('Telegram Bot')) })
+    await act(async () => { native = nativeClick(screen.getByTitle('Licența')) })
     expect(native).toBe(true)
     expect(router.state.location.pathname).toBe(CLINIC_URL)
     expect(fetchDoc).not.toHaveBeenCalled()

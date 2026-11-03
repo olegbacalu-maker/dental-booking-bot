@@ -22,7 +22,7 @@ from harness import ROOT, Client, Result, Server, clinic_now, shell_model, shell
 DEMO = {"DENTART_DEMO": "1"}
 CLOSED_PAGES = ("/admin/settings/system", "/admin/settings/crypt",
                 "/admin/settings/backup", "/admin/settings/security",
-                "/admin/settings/telegram", "/admin/settings/lan", "/admin/license")
+                "/admin/settings/lan", "/admin/license")
 CLOSED_API = ("/api/settings/system", "/api/settings/crypt", "/api/settings/backup",
               "/api/settings/security", "/api/license")
 OPEN_PAGES = ("/admin/settings", "/admin/settings/clinic", "/admin/settings/hours",
@@ -109,7 +109,6 @@ def suite_demo(res: Result) -> None:
             res.ok(f"{path}: в демо нет", r.status == 303 and r.msg == "demo_off", repr(r))
         # формы учёток и PIN у старых страниц сняты (12.10) — их закрывает API ниже
         for path, fields in (("/admin/update/run", {}), ("/admin/backup/export", {}),
-                             ("/admin/telegram/save", {"token": "1:x"}),
                              ("/admin/settings/crypt/confirm", {"ack": "1"})):
             r = c.post(path, **fields)
             res.ok(f"POST {path}: в демо нет", r.status == 303 and r.msg == "demo_off", repr(r))

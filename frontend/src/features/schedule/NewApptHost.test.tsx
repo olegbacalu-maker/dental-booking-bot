@@ -78,7 +78,7 @@ const SHELL: ShellModel = {
     { key: 'dash', href: '/admin', icon: 'home', label: 'Panoul principal' },
     { key: 'prog', href: '/admin/all', icon: 'cal', label: 'Programări' },
     { key: 'pat', href: '/admin/search', icon: 'pat', label: 'Pacienți' },
-  ], sync: [], foot_title: '' },
+  ], sync: [] },
   signals: {
     license: { shown: false, html: '' }, tamper: { shown: false, html: '' },
     split: { shown: false, html: '' }, slot: { shown: false, html: '' },

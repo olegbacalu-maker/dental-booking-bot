@@ -17,7 +17,6 @@ const FRESH: SystemData = {
   version: '1.28.0',
   db: 'SQLite (local, data/dental.db)',
   folder: { path: 'C:\\ProgramData\\DentPilot', hint: 'aici stau evidența, documentele și copiile de rezervă' },
-  telegram: '',
   update: { state: 'fresh', icon: 'check', text: 'la zi', latest: '1.28.0', url: '' },
   channel: null,
   access: { icon: 'lock', text: 'PIN setat' },
@@ -59,8 +58,7 @@ describe('SystemSettingsScreen', () => {
     expect(screen.getByText(/aici stau evidența/)).toBeTruthy()
     expect(screen.getByText('PIN setat')).toBeTruthy()
     expect(screen.getByText('Programul funcționează local.')).toBeTruthy()
-    /* Заморожённый бот и канал stable строк не дают вовсе. */
-    expect(screen.queryByText('Canal Telegram')).toBeNull()
+    /* Канал stable строки не даёт вовсе. */
     expect(screen.queryByText('Canal actualizări')).toBeNull()
   })
 

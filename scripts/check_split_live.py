@@ -107,7 +107,7 @@ def build_lab(lab: pathlib.Path, exe: pathlib.Path) -> tuple[pathlib.Path, pathl
         profile["seed_demo"] = root == anchor
         (root / "clinic.json").write_text(
             json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
-        (root / "dental.env").write_text("TELEGRAM_TOKEN=\nADMIN_KEY=\n",
+        (root / "dental.env").write_text("ADMIN_KEY=\n",
                                          encoding="utf-8")
         _db(root / "data" / "dental.db")
 

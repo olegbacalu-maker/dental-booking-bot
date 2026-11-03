@@ -10,15 +10,13 @@ from __future__ import annotations
 import html
 import json
 import logging
-import os
 import re
-import sys
 import urllib.parse
 from datetime import date, datetime
 
 from fastapi.responses import JSONResponse
 
-from .. import brand, db, dpapi, paths, relocate
+from .. import brand, db, paths, relocate
 from .. import engine as eng
 from .. import update as upd
 from . import demo
@@ -296,14 +294,12 @@ MSG_BANNER = {
     "lan_pins": ("err", f"Accesul din rețea nu se poate porni: unele PIN-uri au "
                         f"sub {PIN_MIN_LAN} cifre — setați-le unul nou (lista e pe "
                         f"această pagină)"),
-    "bad_tok": ("err", "Token invalid — copiați exact tokenul de la @BotFather"),
     # ⚠️ dental.env не удалось ПРОЧИТАТЬ (придержан антивирусом/OneDrive или
     # сохранён в нечитаемой кодировке) — запись отменена, файл не тронут.
     "bad_env": ("err", "Nu am putut salva: fișierul dental.env nu a putut fi "
                        "citit (poate fi blocat de alt program). Închideți "
                        "programele care îl folosesc și încercați din nou; "
                        "detalii în data\\dentpilot.log"),
-    "ok_tok": ("ok", "Token salvat — reporniți programul pentru aplicare"),
     "part_note": ("ok", "Pauza a fost salvată parțial — unele ore erau deja ocupate"),
     "bad_set": ("err", "Setări invalide — verificați câmpurile (nume/telefon, ore, minim un medic și un serviciu)"),
     "outside": ("err", "Vizita nu încape în programul clinicii (închidere sau pauză)"),
@@ -549,9 +545,9 @@ def msg_banner(msg: str) -> str:
     открывает её заново с нулевой прокруткой, и баннер в потоке оставался за
     кадром — регистратура прочла «ничего не произошло» там, где журнал ответил
     «интервал занят». Плашка позиционируется фиксированно (panel.css,
-    .toastbox), поэтому видна с любой прокрутки; panel.js вешает крестик,
-    автозакрытие успеха и убирает msg из адреса, чтобы F5 и автообновление
-    не показывали тот же ответ заново.
+    .toastbox), поэтому видна с любой прокрутки. Разметку кладёт в модель
+    оболочки `shell_model` (`frame.msg`); крестик, автозакрытие успеха и
+    уборку msg из адреса делает React-оболочка.
 
     ⭐ Единственное место, где код из MSG_BANNER становится разметкой (держит
     test_structure): модуль, собравший баннер сам, вернул бы сообщение в поток
@@ -574,7 +570,7 @@ def msg_banner(msg: str) -> str:
 def msg_state(msg: str) -> str:
     """Ответ на действие СТРОКОЙ СОСТОЯНИЯ — для страницы со своей вёрсткой
     (`standalone()`: раздвоение картотеки, шаг 6 снятия старого интерфейса),
-    где нет ни стилей плавающей плашки (panel.css), ни её скрипта (panel.js).
+    где нет стилей плавающей плашки (panel.css).
     Вид `.state.ok/.warn/.err` страница описывает в своём `<style>`.
 
     ⭐ Тот же словарь и то же место, что у `msg_banner` и `msg_json`: ответ на
@@ -804,51 +800,6 @@ def _ic(name: str) -> str:
 def _initials(name: str) -> str:
     words = [w for w in re.split(r"[\s.]+", name) if w and w.lower() not in ("dr", "dr.")]
     return "".join(w[0].upper() for w in words[:2]) or "?"
-
-
-# Корень пакета приложения — «app», как бы глубоко ни лежал текущий модуль.
-# ⚠️ Раньше здесь стояло f"{__package__}.telegram", и это работало ровно до
-# переезда файла: из core/ строка стала искать app.core.telegram, из модуля
-# настроек — app.modules.settings.telegram. Адаптер при этом жив и опрашивает
-# Telegram, а интерфейс показывает бота выключенным — поломка, которую не видно
-# ни в логе, ни в тестах, потому что HTTP-ответ остаётся успешным.
-_APP_PKG = (__package__ or "app").split(".")[0]
-
-
-def tg_status() -> dict:
-    """Статус Telegram-адаптера БЕЗ импорта адаптера: `import aiogram` занимает
-    секунды, а это горячий путь (сайдбар рисуется на каждой странице). Модуль
-    уже импортирован в startup(), если токен задан — берём его из sys.modules."""
-    mod = sys.modules.get(f"{_APP_PKG}.telegram")
-    if mod is None:
-        return {"running": False, "username": "", "error": ""}
-    return dict(mod.STATUS)
-
-
-def tg_refresh_meta() -> None:
-    """Пнуть визитку бота (описание в профиле Telegram) после сохранения
-    настроек — имя/телефон/орар должны догнать clinic.json. Тот же принцип,
-    что tg_status: без импорта адаптера; бот не запущен — no-op."""
-    mod = sys.modules.get(f"{_APP_PKG}.telegram")
-    if mod is not None:
-        mod.refresh_meta()
-
-
-def _tg_state() -> tuple[bool, str]:
-    """Короткий ответ для сайдбара: (работает ли, username)."""
-    st = tg_status()
-    return bool(st["running"]), st.get("username", "")
-
-
-def tg_configured() -> bool:
-    """Telegram ЗАМОРОЖЕН (08-08, фидбек клиник: «QR на двери = запись для
-    любого» — канал не продаёт; курс на SMS-пакет). Интерфейс бота видят
-    только клиники, у которых токен УЖЕ настроен: работающее не отнимаем,
-    новым не предлагаем. UNREADABLE-флаг тоже считается «настроен» — после
-    переезда на другой ПК клиника должна ВИДЕТЬ раздел, чтобы ввести токен
-    заново, а не гадать, куда он делся."""
-    return bool(os.environ.get("TELEGRAM_TOKEN", "").strip()) \
-        or dpapi.UNREADABLE_FLAG in os.environ
 
 
 def data_folder() -> str:
@@ -1293,119 +1244,6 @@ def _slot_banner() -> str:
             f"{head}{how}{tail}{lst}</div>")
 
 
-# ⚠️ Узкий сайдбар — ПАРАМЕТР, а не набор страниц по ключу раздела: ключ
-# `active` отвечает ещё и за подсветку пункта меню:
-# детальная одонтограмма обязана держать «Pacienți» подсвеченным и при этом
-# идти с узким сайдбаром, и своим ключом она бы подсветку потеряла.
-def _sidebar(active: str, rail: bool = False) -> str:
-    # Пункт, которого человеку нельзя, не рисуется. ⚠️ Это удобство, а НЕ
-    # защита: отказ выдаёт require() в самом маршруте, потому что адрес
-    # набирается руками, а форма отправляется откуда угодно.
-    me = request_user()
-    show_money = can(me, PERM_MONEY) or me is None
-    show_set = can(me, PERM_SETTINGS) or me is None
-    show_docs = can(me, PERM_DOCTORS) or me is None
-
-    def item(key: str, href: str, icon: str, label: str, extra: str = "") -> str:
-        on = " on" if key == active else ""
-        # href='' — строка без ссылки: так «Telegram Bot» остаётся у того, кому
-        # настройки закрыты. Точка «бот жив» нужна и регистратуре (перестал
-        # работать — перестали приходить записи), а вот сама страница ей
-        # запрещена, и кнопка в отказ хуже, чем просто индикатор.
-        link = f" href='{href}'" if href else ""
-        return (f"<a class='{on.strip()}'{link} title='{label}'>{_ic(icon)}"
-                f"<span>{label}</span>{extra}</a>")
-
-    tg_on, tg_user = _tg_state()
-    tg_dot = "<span class='dot ok'></span>" if tg_on else "<span class='dot off'></span>"
-    tg_title = f"@{tg_user}" if tg_on else "neconectat"
-    # Секция «Sincronizări» — только у клиник с уже настроенным ботом
-    # (grandfather): Telegram заморожен, см. tg_configured. Прямой адрес
-    # /admin/settings/telegram остаётся живым — включить бота вручную можно.
-    sync = ""
-    foot_title = ""
-    if tg_configured():
-        sync = ('<div class="sec">Sincronizări</div>'
-                + item('tg', '/admin/settings/telegram' if show_set else '',
-                       'bot', 'Telegram Bot', tg_dot)
-                + item('qr', '/admin/qr-print', 'qr', 'QR pacienți'))
-        foot_title = f' title="Telegram: {html.escape(tg_title)}"'
-    # Подвал меню (08.10, макет): сайт знаком со словом, версия, часы, почта.
-    # Уголок .brandcorner снят — его две ссылки переехали сюда, с теми же
-    # атрибутами (⛔ сайт только target=_blank: окно программы отдаёт такую
-    # ссылку системному браузеру, обычная увела бы само окно без «назад»).
-    fb_subject = urllib.parse.quote(
-        f"Feedback DentPilot — {eng.CLINIC_NAME} (v{eng.APP_VERSION})")
-    fb_body = urllib.parse.quote("Ideea / problema mea:\n\n")
-    return f"""<aside class="side{' side-rail' if rail else ''}">
-  <div class="brand"><span class="mk">{brand.mark_svg(28, 'logo', flat=True)}</span>
-    <div class="txt"><b title="{html.escape(eng.CLINIC_NAME)}">{html.escape(eng.CLINIC_NAME)}</b></div>
-  </div>
-  <nav>
-    {item('dash', '/admin', 'home', SECTION_TITLE['dash'])}
-    {item('prog', '/admin/all', 'cal', SECTION_TITLE['prog'])}
-    {item('pat', '/admin/search', 'pat', SECTION_TITLE['pat'])}
-    {item('med', '/admin/medici', 'med', SECTION_TITLE['med']) if show_docs else ''}
-    {item('stat', '/admin/stats', 'stat', SECTION_TITLE['stat']) if show_money else ''}
-    {item('set', '/admin/settings', 'set', SECTION_TITLE['set']) if show_set else ''}
-    {sync}
-  </nav>
-  <div class="sfoot"{foot_title}><span class="sf-v"><a class="bc-site" href="{SITE_URL}" target="_blank" rel="noopener"
-   title="{SITE_URL.removeprefix('https://')}">{brand.mark_svg(18, 'bcmark', flat=True)}DentPilot</a> v{eng.APP_VERSION} · <span id="sf_clock" data-tz="{eng.TZ.key}"></span></span>
-    <a class="sf-mail" href="mailto:{FEEDBACK_EMAIL}?subject={fb_subject}&body={fb_body}"
-   title="Feedback">{FEEDBACK_EMAIL}</a></div>
-</aside>"""
-
-
-def _topbar() -> str:
-    # ⚠️ Колокольчика «Programări noi din bot» здесь больше нет: его считала
-    # старая панель (снята 13.10), и обе оболочки получали `bell: None`.
-    today = datetime.now(eng.TZ).date().isoformat()
-    # Логотип клиники по центру шапки — галочка в Setări › Aspect (08-21).
-    # Центрируется абсолютом (CSS .tb-logo), поэтому в потоке стоит где
-    # угодно; логотип пропал с диска при живой галочке — просто ничего нет.
-    tb_logo = ""
-    th = theme.current()
-    if th.get("logo_topbar"):
-        lg = theme.logo_url()
-        if lg:
-            tb_logo = f"<a class='tb-logo' href='/admin'><img src='{lg}' alt=''></a>"
-    return f"""<div class="top">
-  <form class="searchf" method="get" action="/admin/search">
-    <input id="topq" name="q" placeholder="Caută pacient, telefon…" autocomplete="off">
-    <span class="kbd">Ctrl K</span><button>{_ic('search')}</button>
-  </form>
-  {tb_logo}
-  <div style="flex:1"></div>
-  <span style="font-size:12px;color:var(--text3)">{_update_banner().removeprefix(' · ')}</span>
-  <a class="newbtn" href="/admin/all?date={today}#addform"><span class="plus">+</span><span class="nb-t">Programare nouă</span></a>
-  {_who_chip()}
-</div>"""
-
-
-def _who_chip() -> str:
-    """Кто сидит за журналом — правый верхний угол.
-
-    Появился только вместе с настоящими учётками (08-06). До них аватар с
-    должностью был бы витриной: за ним не стояло ни одного пользователя, и
-    «Director» на экране означал ровно ничего.
-    """
-    me = request_user()
-    if not me:
-        return ""
-    role = ROLE_LABEL.get(me["role"], me["role"])
-    # вторая строка: роль · клиника. Точки «Online» тут НЕТ намеренно — в
-    # локальной программе нет системы присутствия, и зелёная точка обещала бы
-    # то, чего не существует; живой индикатор есть у бота, где он настоящий
-    return (f"<div class='who' title='{html.escape(me['name'])} · {role}'>"
-            f"<span class='who-av'>{html.escape(_initials(me['name']))}</span>"
-            f"<div class='who-n'><b>{html.escape(me['name'])}</b>"
-            f"<small>{role} · {html.escape(eng.CLINIC_NAME)}</small></div>"
-            f"<a class='who-out' href='/admin/logout' title='Ieșire din cont'>{_ic('power')}</a>"
-            f"</div>")
-
-
-
 # ---- React-экраны (DentPilot 2.0, 09-17; интерфейс продукта с 21.09) ----
 # ⭐ **REACT_SCREENS — это список РЕАЛИЗОВАННЫХ поверхностей, а не механизм
 # выката.** Решение Олега 21.09: программы на целевой машине ещё нет, живых
@@ -1461,12 +1299,12 @@ FONT_PRELOAD = ("latin", "latin-ext")
 
 
 def _doc_head() -> str:
-    """<head> страницы журнала — ОДИН на серверную оболочку и на React (B1).
+    """<head> страницы журнала (печатает `react_shell`).
 
-    ⭐ Вынесен не ради красоты: с B1 голову печатают ДВА отправителя
-    (`_shell` и `react_shell`), и скопированная голова разошлась бы молча —
-    порядок `panel.css` → `<style>` темы и положение скрипта `anim` в шапке
-    ломаются без единой ошибки на экране.
+    ⭐ Порядок `panel.css` → `<style>` темы и положение скрипта `anim` в шапке
+    ломаются без единой ошибки на экране — менять осторожно. (Второй
+    отправитель головы, серверный каркас `_shell`, снят 03.11.2026 вместе со
+    страницами Telegram-бота.)
     """
     th = theme.current()
     th_css = theme.vars_css()
@@ -1492,17 +1330,13 @@ def _doc_head() -> str:
 <link rel="stylesheet" href="/static/css/fonts.css?v={_asset_ver('css', 'fonts.css')}">{pre}
 <link rel="stylesheet" href="/static/css/panel.css?v={_asset_ver('css', 'panel.css')}">
 <style>{th_css}</style>
-<script>/* Оживлять цифры и полосы можно только при ОСМЫСЛЕННОМ открытии страницы.
-Флаг dp_auto ставит panel.js перед 303-повтором той же страницы (смена статуса):
-это не приход человека, и заново играть появление блоков незачем. Здесь флаг
-снимается — и класс `anim` не выдаётся. Опрос живого журнала (12 с) страницу
-больше не перезагружает вовсе — panel.js подменяет #live и сам снимает `anim`,
-чтобы входные анимации не переигрывались на каждой приехавшей брони.
+<script>/* Класс `anim` — входные анимации цифр и полос при открытии страницы.
 ВАЖНО: скрипт обязан стоять В ШАПКЕ — класс нужен ДО первой отрисовки, иначе виден
 кадр с конечным состоянием, и анимация выглядит рывком назад. Всё оформление
-привязано к `.anim`, поэтому без JS страница просто статична — не пуста. */
-try{{if(sessionStorage.getItem('dp_auto')==='1'){{sessionStorage.removeItem('dp_auto');}}
-else{{document.documentElement.classList.add('anim');}}}}catch(e){{document.documentElement.classList.add('anim');}}
+привязано к `.anim`, поэтому без JS страница просто статична — не пуста.
+(Флаг `dp_auto`, которым panel.js гасил анимацию на 303-повторе, ушёл вместе с
+panel.js 03.11.2026: React-экраны перезагрузок не делают.) */
+document.documentElement.classList.add('anim');
 </script></head>"""
 
 
@@ -1526,9 +1360,9 @@ def section_title(active: str) -> str:
 def shell_model(active: str, sub: str, rail: bool = False,
                 msg: str = "",
                 crumbs: list | None = None, title: str = "") -> dict:
-    """Оболочка ДАННЫМИ — одна модель на серверную страницу и на React (B1).
+    """Оболочка ДАННЫМИ — модель, по которой React рисует каркас (B1).
 
-    ⭐ Живёт рядом с `_shell`, а не в своём модуле: ей нужны `auth`, `theme`,
+    ⭐ Живёт в layout, а не в своём модуле: ей нужны `auth`, `theme`,
     `brand` и сами баннеры, и вынос замкнул бы круг импортов.
 
     ⛔ Права приезжают РАЗРЕШЁННЫМИ (`can.money`), а не таблицей `PERMS`:
@@ -1553,7 +1387,6 @@ def shell_model(active: str, sub: str, rail: bool = False,
     show_sms = can(me, PERM_SMS) or me is None
     # «Rechemări» (29.10): стойка и директор; врачу пункта нет (В1 = А)
     show_recall = can(me, PERM_RECALL) or me is None
-    tg_on, tg_user = _tg_state()
     th = theme.current()
 
     items = [{"key": "dash", "href": "/admin", "icon": "home", "label": SECTION_TITLE["dash"]},
@@ -1571,16 +1404,9 @@ def shell_model(active: str, sub: str, rail: bool = False,
     if show_set:
         items.append({"key": "set", "href": "/admin/settings", "icon": "set",
                       "label": SECTION_TITLE["set"]})
-    # Секция «Sincronizări» — только у клиники с уже настроенным ботом
-    # (grandfather): Telegram заморожен. Пустой список = секции нет вовсе.
+    # Секция «Sincronizări» (сегодня в ней только SMS-пакет; Telegram-бот и QR
+    # для пациентов ушли 03.11.2026). Пустой список = секции нет вовсе.
     sync = []
-    if tg_configured():
-        sync = [{"key": "tg",
-                 "href": "/admin/settings/telegram" if show_set else "",
-                 "icon": "bot", "label": "Telegram Bot",
-                 "dot": "ok" if tg_on else "off"},
-                {"key": "qr", "href": "/admin/qr-print", "icon": "qr",
-                 "label": "QR pacienți"}]
     # SMS-пакет (S6): пункт у ВСЕХ ролей, когда сервер предлагает пакет
     # (видимость — выключателем на сервере, S0 › 7); регистратура меняет
     # переключатели, директор платит — решает API, не меню
@@ -1629,15 +1455,9 @@ def shell_model(active: str, sub: str, rail: bool = False,
         # с PIN-кодом оставить на том же фоне»; строкой сервера, как знак.
         "entry": {"pin": _pin_rec() is not None, "pin_max": PIN_MAX,
                   "backdrop": brand.backdrop_svg()},
-        "nav": {"active": active, "items": items, "sync": sync,
-                "foot_title": (f"@{tg_user}" if tg_on else "neconectat")
-                              if tg_configured() else ""},
-        # ⛔ Каждый баннер, который `_shell` печатает над телом, едет и сюда:
-        # React-оболочка рисует РОВНО этот список, и баннер, забытый здесь,
-        # у старой страницы виден, а у React-экрана — нет. Так было с
-        # лицензией (L5 строился до B1): тесты зелёные — харнесс держит
-        # старый интерфейс, — а клиника видела бы отказ записи без баннера.
-        # Держит `test_structure` («каждый баннер каркаса — сигнал оболочки»).
+        "nav": {"active": active, "items": items, "sync": sync},
+        # ⛔ React-оболочка рисует РОВНО этот список баннеров: баннер, забытый
+        # здесь, не виден нигде (серверного каркаса `_shell` с 03.11.2026 нет).
         "signals": {"license": _sig(_license_banner() + _mail_banner() + _terms_banner()),
                     "tamper": _sig(_tamper_banner()), "split": _sig(_split_banner()),
                     "slot": _sig(_slot_banner()), "setup": _sig(_setup_hint()),
@@ -1674,17 +1494,13 @@ def react_shell(screen: str, path: str, model: dict,
                 params: dict | None = None) -> str:
     """Документ, в котором оболочку рисует React (B1).
 
-    ⛔ Отличие от `_shell` ровно одно и оно несущее: сервер печатает ТОЛЬКО
-    голову и узел монтирования. Ни сайдбара, ни верхней панели, ни `<h1>`, ни
-    подписи раздела, ни баннеров — иначе на экране было бы по две штуки всего.
+    ⛔ Сервер печатает ТОЛЬКО голову и узел монтирования. Ни сайдбара, ни
+    верхней панели, ни `<h1>`, ни подписи раздела, ни баннеров: их рисует
+    React по модели `shell_model`.
 
     ⭐ Модель едет ИНЛАЙНОМ, атрибутом, тем же экранированием, что и
     `data-params`. Оболочка, ждущая `fetch`, рисовала бы пустой сайдбар на
     первом кадре — ровно то мигание, ради устранения которого B1 и делается.
-
-    ⚠️ `panel.js` здесь НЕ подключается: на этой странице у него не остаётся
-    ни одного читателя (`#live` нет, `#sf_clock` теперь рисует React, Ctrl+K —
-    `QuickFind`), а его часы писали бы в узел, которым владеет React.
     """
     e = html.escape
     if screen in BACKUP_LINE_SCREENS and "signals" in model:
@@ -1699,54 +1515,6 @@ def react_shell(screen: str, path: str, model: dict,
 <a href="{e(path)}">Reîncărcați pagina</a>.</p></div>
 <script type="module" src="/static/js/bundle.js?v={_asset_ver("js", "bundle.js")}"></script>
 </body></html>'''
-
-
-def _shell(body: str, sub: str, active: str = "dash", rail: bool = False) -> str:
-    """Серверный каркас: сайдбар, шапка, баннеры и `panel.js` вокруг тела.
-
-    ⭐ С 13.10 экраны программы рисует React (`react_shell`), и каркас остался
-    только у страниц ЗАМОРОЖЕННОГО бота — Setări › Telegram (`_sec_page`) и
-    «QR pacienți» без бота. Их не трогаем, пока бот заморожен (Олег 13.10:
-    «без Telegram, он пока заморожен»); каркас уйдёт вместе с ними. Живой
-    обёртки `#live` и колокольчика у него больше нет — их читала только
-    старая панель (шаг 6 снятия старого интерфейса).
-    ⛔ Баннер, который печатается здесь, обязан ехать и сигналом
-    `shell_model()` — держит `test_structure` («каждый баннер каркаса —
-    сигнал оболочки»)."""
-    # Подзаголовок без версии (08.10, промпт 1: «версию из подзаголовка
-    # убрать» — она в подвале меню); пустой не печатается вовсе и строки
-    # сетки шапки не занимает.
-    sub_html = f'<div class="sub">{sub}</div>' if sub else ""
-    # Тема клиники приезжает СТРОКОЙ в шапке, а не переписывает panel.css:
-    # таблица вшита в exe (только чтение), отдаётся с вечным кешем и одна на
-    # все клиники. Порядок обязателен — <style> ПОСЛЕ ссылки, иначе он не
-    # перебьёт :root. Цвет полосы браузера берётся из того же стиля: на
-    # телефоне врача она занимает верх экрана и осталась бы от прежней темы.
-    # ⚠️ В <h1> имени клиники НЕТ намеренно (08-09): оно и так на экране дважды —
-    # в подписи сайдбара и в чипе вошедшего («роль · клиника»). С 26.09 (B5,
-    # решение Олега) h1 называет РАЗДЕЛ — «Pacienți», «Setări», — как окно
-    # приложения Windows; постоянное «Registrul Clinicii» ушло, а в <title> окна
-    # остаётся имя клиники. Подпись .sub по-прежнему уточняет страницу внутри
-    # раздела.
-    # ⭐ Имя программы живёт в уголке справа внизу, знаком и словом. Подписи
-    # «DENTPILOT» под именем клиники больше нет (06.10, Олег: рядом с названием
-    # клиники она путала, чьё это имя).
-    # ⛔ Знак в уголке уходит на сайт ТОЛЬКО с target=_blank: окно программы
-    # отдаёт такие ссылки системному браузеру, а обычная ссылка увела бы на
-    # сайт само окно — кнопки «назад» в нём нет, вернуться можно лишь
-    # перезапуском. Держит test_api (обе оболочки) и проверка клиента.
-    return _doc_head() + f"""<body data-v="{eng.APP_VERSION}">
-{_sidebar(active, rail)}
-<div class="main">
-{_topbar()}
-<div class="content">
-<h1>{section_title(active)}</h1>
-{sub_html}
-{_demo_banner()}{_license_banner()}{_tamper_banner()}{_split_banner()}{_slot_banner()}{_setup_hint()}{_backup_banner()}
-{body}
-</div></div>
-<script src="/static/js/panel.js?v={_asset_ver('js', 'panel.js')}"></script>
-</body></html>"""
 
 
 # ⭐ Плашка обязана называть статус ТЕМ ЖЕ словом, что и кнопка, которая его
@@ -2315,6 +2083,5 @@ def _doc_hours_text(dk: str) -> str:
     a = f"{int(wf):02d}:00" if wf is not None else "deschidere"
     b = f"{int(wt):02d}:00" if wt is not None else "închidere"
     return f"{a}–{b}"
-
 
 

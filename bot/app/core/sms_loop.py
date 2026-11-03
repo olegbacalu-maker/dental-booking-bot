@@ -2,7 +2,7 @@
 
 Контракт — docs/dentpilot-2/sms.md › «Программа (bot/)». ⭐ SMS уходят, только
 пока программа запущена: расписание знает только она, и событие рождается
-здесь, а не в cron на сервере. Тик — 60 с, как у `telegram._reminder_loop`;
+здесь, а не в cron на сервере. Тик — 60 с;
 старт программы цикла не ждёт, сеть — в потоке, отказ — строкой в лог.
 
 Три чистых соседа делают всё, что можно проверить без сервера:
@@ -26,7 +26,8 @@
 4. Состояние доставки опрашивается у сервера (`/v1/sms/status`) раз в
    STATUS_EVERY, до STATUS_UNTIL после отправки.
 
-⛔ Флаги Telegram `reminded_day`/`reminded_2h` здесь не читаются и не пишутся.
+⛔ Флаги `reminded_day`/`reminded_2h` (удалённого Telegram-бота) здесь не
+читаются и не пишутся.
 ⛔ Номер и текст в лог не попадают: строки лога называют id и код.
 ⚠️ Летопись хранит ГОТОВУЮ строку (db.log_event): слово состояния
 разворачивается здесь и сейчас, записанное не переписывается.
@@ -345,12 +346,6 @@ async def refresh_account(force: bool = False) -> str:
 # ---------- очередь ----------
 
 
-def _tg_patient(session_key: str | None) -> bool:
-    """Пациент бота при живом боте: напоминает Telegram, SMS не дублирует (S0)."""
-    from .layout import tg_configured   # отложенно: layout тянет оболочку целиком
-    return bool(session_key and session_key.startswith("tg:") and tg_configured())
-
-
 async def _enqueue_due(now: datetime, s: dict) -> int:
     """Визиты окна → строки очереди для событий, чьё окно наступило."""
     horizon = now + HORIZON
@@ -363,7 +358,7 @@ async def _enqueue_due(now: datetime, s: dict) -> int:
     added = 0
     for r in rows:
         number, why = rule.phone(r["phone"])
-        if why or _tg_patient(r.get("session_key")):
+        if why:
             continue
         starts = r["starts_at"].astimezone(eng.TZ)
         created = r["created_at"].astimezone(eng.TZ)

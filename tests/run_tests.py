@@ -64,7 +64,6 @@ import test_srcpin  # noqa: E402
 import test_migrate  # noqa: E402
 import test_netcheck  # noqa: E402
 import test_odontogram_api  # noqa: E402
-import test_bot  # noqa: E402
 import test_perio  # noqa: E402
 import test_perio_api  # noqa: E402
 import test_pin  # noqa: E402
@@ -74,7 +73,6 @@ import test_privileged  # noqa: E402
 import test_review2  # noqa: E402
 import test_review3  # noqa: E402
 import test_review3_auth  # noqa: E402
-import test_review3_bot  # noqa: E402
 import test_restart  # noqa: E402
 import test_panel_model  # noqa: E402
 import test_patient_card  # noqa: E402
@@ -233,11 +231,8 @@ SUITES = [
      test_hardening.suite_config_fallback),
     ("Hardening: гонка за один слот", test_hardening.suite_booking_race),
     ("Hardening: гонка сохранения моста", test_hardening.suite_punte_race),
-    ("Hardening: сессия переживает hot-reload конфига",
-     test_hardening.suite_stale_session),
     ("Hardening: стирание пациента атомарно",
      test_hardening.suite_delete_rollback),
-    ("Hardening: сессии — TTL и очистка PII", test_hardening.suite_session_pii),
     ("Hardening: CSRF на маршрутах без куки", test_hardening.suite_csrf_origin),
     ("Hardening: чужое имя сервера (DNS rebinding) и карта адресов",
      test_hardening.suite_own_host),
@@ -247,9 +242,7 @@ SUITES = [
     ("PIN: атомарная запись auth.json", test_pin.suite_atomic),
     ("Сигнализация auth.json", test_pin.suite_tamper),
     ("Секреты: шифрование токена", test_pin.suite_secret),
-    ("Секреты: токен в dental.env", test_pin.suite_env_token),
     ("Окна расписания: обед впритык к краю", test_doctor_windows.suite_fits),
-    ("Окна расписания: «Oricare disponibil»", test_doctor_windows.suite_any),
     ("Окна расписания: график врача на сервере",
      test_doctor_windows.suite_routes),
     ("Окна расписания: бросок на занятый час", test_doctor_windows.suite_drop),
@@ -257,7 +250,6 @@ SUITES = [
     ("Запись из фиши пациента", test_booking.suite_card),
     ("Статусы и заметки", test_booking.suite_status),
     ("Перенос визита (drag & drop)", test_booking.suite_move),
-    ("Бот записи", test_bot.suite),
     ("Страницы журнала", test_admin.suite_pages),
     ("Панель дня", test_admin.suite_dashboard),
     ("Пациент без телефона и поиск по дате", test_admin.suite_nophone),
@@ -266,7 +258,7 @@ SUITES = [
     ("Аналитика (JSON)", test_stats_api.suite_stats),
     ("Аналитика: раскладка экрана (B8)", test_stats_api.suite_board),
     ("Аналитика: React-экран и право", test_stats_api.suite_switch),
-    ("Заморозка бота: интерфейс", test_admin.suite_bot_ui),
+    ("Бот удалён: ни следа на экранах, данные целы", test_admin.suite_bot_ui),
     ("Карточка пациента", test_admin.suite_patient_card),
     ("Анамнез: опросник", test_anamneza.suite),
     ("Анамнез: закон 195", test_anamneza.suite_195),
@@ -372,7 +364,6 @@ SUITES = [
     ("Процедура визита: смена у стоящей записи", test_schedule_api.suite_service),
     ("Неделя: узел React, раздел «Programări»", test_schedule_api.suite_switch),
     ("День: модель «Programări» — канва, подпись, врач", test_schedule_api.suite_day_parity),
-    ("День: «Sursă» — у клиники с ботом", test_schedule_api.suite_day_source),
     ("День врача: легаси-строка — колонкой-сиротой", test_schedule_api.suite_day_orphan),
     ("День врача: факты карточки и календарь шапки (A + H)", test_schedule_api.suite_doctor_day),
     ("Дневные экраны: узел React с параметрами адреса", test_schedule_api.suite_day_switch),
@@ -419,20 +410,12 @@ SUITES = [
     ("Пародонтограмма: два рабочих места в одном осмотре",
      test_perio_api.suite_two_seats),
     ("Ревью-3: фирменный цвет и знаки в CSS", test_review3.suite_css),
-    ("Ревью-3: часы в подвале сайдбара", test_review3.suite_clock),
     ("Ревью-3: услуги врача и чужой отпуск", test_review3.suite_doc_services),
     ("Ревью-3: границы периода в аналитике", test_review3.suite_stats_period),
     ("Ревью-3: часы формы по графику врача", test_review3.suite_form_hours),
     ("Ширина: окно странице, потолок строке", test_review3.suite_width),
     ("Ширина: сетки без мёртвых колонок", test_review3.suite_grids),
     ("Ширина: колонка цены в услугах", test_review3.suite_svc_table),
-    ("Ревью-3: веб-чат выдаёт ключ сессии сам",
-     test_review3_bot.suite_chat_session),
-    ("Ревью-3: кнопка из вчерашнего напоминания",
-     test_review3_bot.suite_callback_ack),
-    ("Ревью-3: перенос визита и напоминание",
-     test_review3_bot.suite_move_reminder),
-    ("Ревью-3: состояние канала Telegram", test_review3_bot.suite_tg_status),
     ("Ревью-3: смена PIN на чужой", test_review3_auth.suite_pin_dup),
     ("Ревью-3: ID при входе и регистр", test_review3_auth.suite_login_uid_case),
     ("Ревью-3: битый auth.json при ADMIN_KEY",
@@ -562,7 +545,6 @@ SUITES = [
     ("Копии: нет папки вне компьютера — строка директору", test_backup.suite_offsite),
     ("Копии: локальные хранятся по дням под поддельными часами", test_backup.suite_rotation_days),
     ("Копии: нет pyzipper или битый .pyd — плитки нет, хаб жив", test_backup.suite_available),
-    ("Закон 195: уведомление в боте", test_privacy.suite_bot_notice),
 ]
 
 if __name__ == "__main__":

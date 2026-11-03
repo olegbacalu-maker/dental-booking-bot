@@ -94,7 +94,6 @@ class Lab:
         if smoke:
             self.data.mkdir()
             (self.data / "dental.env").write_text(
-                "TELEGRAM_TOKEN=dpapi:smoke-nu-rasshifruesh\n"
                 f"ADMIN_KEY={SMOKE_KEY}\n", encoding="utf-8")
 
     def env(self, port: int) -> dict:
@@ -105,10 +104,6 @@ class Lab:
                     "DENTART_PORT": str(port),
                     "DENTART_PROFILE_DIR": str(self.dir / "webview"),
                     "DENTART_UPDATE_CHECK": "off"})
-        if not self.smoke:            # обход страниц: токен из dental.env (grandfather)
-            env["TELEGRAM_TOKEN"] = ""
-        else:
-            env.pop("TELEGRAM_TOKEN", None)
         return env
 
     def drop(self) -> None:

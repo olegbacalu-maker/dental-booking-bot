@@ -22,8 +22,8 @@ import type { CallResult, Desk } from './desk'
    ⭐ Списки стойки (De încasat, De confirmat, Plan fără programare) ОСТАЮТСЯ,
    хотя в макете их нет: это рабочие списки регистратуры (Олег 28.09: «очень
    нравится»), пустые не рисуются — в тихий день колонка ровно как макет.
-   ⛔ Колокольчика и «Programări noi din bot» тут НЕТ: оба за `tg_configured()`,
-   живого grandfather нет ни у кого, и в конверте их тоже нет. */
+   ⛔ Колокольчика и «Programări noi din bot» тут НЕТ: бот удалён 03.11.2026,
+   и в конверте их тоже нет. */
 
 const T = {
   agenda: 'Agenda zilei',

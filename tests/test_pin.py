@@ -739,8 +739,10 @@ def suite_api_login(res: Result) -> None:
 
 
 def suite_secret(res: Result) -> None:
-    """Шифрование токена бота. Сервер тут не нужен — важен сам модуль, и
-    прежде всего то, что он отличает «не расшифровалось» от «пусто»."""
+    """Шифрование секретов средствами Windows (пароль внешней копии, ключ
+    картотеки, заказы лаунчеру; до 03.11.2026 — и токен бота). Сервер тут не
+    нужен — важен сам модуль, и прежде всего то, что он отличает «не
+    расшифровалось» от «пусто»."""
     sys.path.insert(0, str(BOT))
     from app import dpapi
 
@@ -759,63 +761,8 @@ def suite_secret(res: Result) -> None:
     res.check("пусто остаётся пустым", dpapi.unprotect(""), "")
     res.ok("шифротекст с чужой машины даёт None, а не пустую строку",
            dpapi.unprotect(dpapi.PREFIX + "bm90LW1pbmU=") is None,
-           "«чужая машина» неотличима от «токена нет» — клиника пойдёт "
-           "чинить настройки бота, которые в порядке")
-
-
-def suite_env_token(res: Result) -> None:
-    """Жизнь токена в dental.env: то, что исполняется при КАЖДОМ старте у
-    клиники. Проверяется именно функция из dpapi, а не её пересказ: код в теле
-    desktop.py вызвать из теста нельзя, и раньше эта часть не проверялась никак.
-    """
-    sys.path.insert(0, str(BOT))
-    from app import dpapi
-
-    if not dpapi.available():
-        res.ok("DPAPI доступен", False, "не Windows — проверки неприменимы")
-        return
-
-    tok = "123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"
-    keep = {k: os.environ.get(k)
-            for k in (dpapi.TOKEN_KEY, dpapi.UNREADABLE_FLAG)}
-    tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_env_"))
-    env_path = tmp / "dental.env"
-    try:
-        # так выглядит уже установленная клиника: токен вписан открытым
-        env_path.write_text(f"# Token botului Telegram:\nTELEGRAM_TOKEN={tok}\n",
-                            encoding="utf-8")
-        os.environ[dpapi.TOKEN_KEY] = tok
-        dpapi.unlock_env_token(env_path)
-        on_disk = env_path.read_text(encoding="utf-8")
-        res.check("бот получает открытый токен", os.environ[dpapi.TOKEN_KEY], tok)
-        res.ok("на диске токен больше не читается", tok not in on_disk,
-               "открытый токен остался в файле")
-        res.ok("комментарии клиники в файле уцелели", "@BotFather" in on_disk
-               or on_disk.startswith("#"), "файл переписан без комментариев")
-
-        # следующий старт: в окружение попадает уже шифротекст из файла
-        os.environ[dpapi.TOKEN_KEY] = dict(
-            ln.split("=", 1) for ln in on_disk.splitlines()
-            if "=" in ln and not ln.startswith("#"))["TELEGRAM_TOKEN"]
-        dpapi.unlock_env_token(env_path)
-        res.check("повторный старт снова отдаёт открытый токен",
-                  os.environ[dpapi.TOKEN_KEY], tok)
-        res.ok("флаг нечитаемости не выставлен",
-               dpapi.UNREADABLE_FLAG not in os.environ, "ложная тревога")
-
-        # переустановка Windows / другой компьютер
-        os.environ[dpapi.TOKEN_KEY] = dpapi.PREFIX + "bm90LW1pbmU="
-        dpapi.unlock_env_token(env_path)
-        res.check("чужой шифротекст гасит бота", os.environ[dpapi.TOKEN_KEY], "")
-        res.check("и поднимает флаг, чтобы интерфейс объяснил причину",
-                  os.environ.get(dpapi.UNREADABLE_FLAG), "1")
-    finally:
-        for k, v in keep.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
-        _rmtree_settled(tmp)
+           "«чужая машина» неотличима от «секрета нет» — клиника пойдёт "
+           "чинить настройки, которые в порядке")
 
 
 # ---------- 17.10: сетевой режим — длина PIN, срок и отзыв сессии ----------
@@ -1147,7 +1094,7 @@ def _worker_lan_guard(tmpdir: str) -> None:
     os.environ.update({
         "CLINIC_CONFIG": str(base / "clinic.json"),
         "DATABASE_URL": f"sqlite:///{base / 'dental.db'}",
-        "ADMIN_KEY": "", "DENTART_NO_RESTART": "1", "TELEGRAM_TOKEN": "",
+        "ADMIN_KEY": "", "DENTART_NO_RESTART": "1",
         "DENTART_LAN": "1",
     })
     sys.path.insert(0, str(BOT))

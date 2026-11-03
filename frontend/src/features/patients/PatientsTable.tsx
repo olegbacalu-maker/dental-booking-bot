@@ -36,7 +36,7 @@ const T = {
   nobodyLeft: 'În listă nu rămâne nimeni:',
   showArchive: 'Arată arhiva',
   noPatients: 'Încă niciun pacient',
-  noPatientsHint: 'Fișele apar aici odată cu prima programare — din registru sau din bot.',
+  noPatientsHint: 'Fișele apar aici odată cu prima programare din registru.',
   addFirst: 'Adaugă primul pacient',
   showing: 'Afișare',
   of: 'din',

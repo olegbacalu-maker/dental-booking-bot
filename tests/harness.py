@@ -37,15 +37,6 @@ PYTHON = ROOT / ".venv-desktop" / "Scripts" / "python.exe"
 FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures"
 PIN = "test1234"
 
-# Клиника, у которой бот УЖЕ настроен (grandfather). Telegram и веб-чат
-# заморожены 08-08 и живут только за layout.tg_configured(), поэтому набор,
-# который проверяет САМ канал (диалог бота, лендинг, /chat), обязан подниматься
-# с этим окружением — иначе он стучится в дверь, которой у клиники нет.
-# Флаг честный: dpapi ставит его, когда токен есть, но не расшифровывается, —
-# интерфейс включён, живой адаптер Telegram при этом не стартует.
-TG_ON = {"DENTART_TOKEN_UNREADABLE": "1"}
-
-
 def free_port() -> int:
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
@@ -139,7 +130,6 @@ class Server:
             # прогон выедали квоту GitHub 60 в час (03.10); набор про обновления
             # включает проверку сам, передав пустое значение в env=
             "DENTART_UPDATE_CHECK": "off",
-            "TELEGRAM_TOKEN": "",            # адаптер Telegram не поднимать
             "TMPDIR": str(self.tmp), "TEMP": str(self.tmp), "TMP": str(self.tmp),
         })
         env.update(self.extra_env)
@@ -1207,27 +1197,43 @@ def appt_id(c: Client, day: str, name: str = "") -> int:
     return int(rows[0]["id"])
 
 
-class Bot:
-    """Диалог бота через /chat. Возвращает (тексты, значения кнопок).
+_BOT_PATIENT_CODE = """
+import asyncio, sys
+from datetime import datetime
+sys.path.insert(0, %r)
+from app import db
 
-    ⚠️ Ключ сессии больше НЕ приходит от клиента: /chat выдаёт подписанный
-    токен, а session_key собирает сервер (присланный `manual:<цифры>` открывал
-    бы чужую фишу — находка ревью 08-15). Метка нужна только для читаемости
-    теста; разные сессии дают разные токены, а не разные метки.
+
+async def main():
+    await db.init()
+    print(await db.create_appointment(
+        %r, %r, %r, "ro", "Consultatie", "Dr. Activ Doi",
+        datetime.fromisoformat(%r), source="bot", doctor_id="d2",
+        service_id="consult"))
+    await db.close()   # иначе поток aiosqlite не даёт процессу выйти
+
+asyncio.run(main())
+"""
+
+
+def bot_patient(s: "Server", when: datetime, name: str = "Din Telegram",
+                phone: str = "069900111", key: str = "tg:900001") -> str:
+    """Пациент и визит, которые ЗАВЁЛ Telegram-бот до 03.11.2026.
+
+    Бота больше нет, а его данные у клиники остаются: ключ `tg:<chat_id>`,
+    источник визита `bot`. Наборы, проверяющие, что старые данные читаются
+    как данные (фиша, список, фильтр «Telegram», ручная запись на тот же
+    номер), заводят такого пациента тем же `db.create_appointment`, которым
+    писал адаптер, — отдельным процессом, чтобы не тащить app.db в прогон.
+    Возвращает id визита строкой или «FAIL: …».
     """
-
-    def __init__(self, client: Client, label: str = ""):
-        self.c = client
-        self.label = label
-        self.token = ""
-
-    def say(self, message: str) -> tuple[str, list[str]]:
-        r = self.c.post_json("/chat", {"session": self.token, "message": message})
-        data = json.loads(r.body)
-        self.token = data.get("session") or self.token
-        texts = " | ".join(m["text"] for m in data["messages"])
-        buttons = [b["value"] for row in data["buttons"] for b in row]
-        return texts, buttons
+    env = dict(os.environ)
+    env["DATABASE_URL"] = f"sqlite:///{s.dir / 'dental.db'}"
+    env["CLINIC_CONFIG"] = str(s.clinic)
+    code = _BOT_PATIENT_CODE % (str(BOT), key, name, phone, when.isoformat())
+    p = subprocess.run([str(PYTHON), "-c", code], cwd=str(BOT), text=True,
+                       capture_output=True, env=env)
+    return p.stdout.strip() if p.returncode == 0 else f"FAIL: {p.stderr[-400:]}"
 
 
 # ---------- сбор и запуск проверок ----------

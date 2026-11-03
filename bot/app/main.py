@@ -2,8 +2,7 @@
 
 Здесь осталось ровно то, что не принадлежит ни одному разделу: сборка
 приложения и подключение модулей, посредники (шлюз режимов, опознание, потолок
-тела), старт, `/health` для лаунчера и замороженная самозапись пациента
-(`/` и `/chat`, живут с ботом).
+тела), старт и `/health` для лаунчера.
 
 Экраны живут в `modules/`, общее для них — в `core/`; вход и восстановление —
 `modules/entry`, лицензия — `modules/license`, статика и значки —
@@ -11,7 +10,6 @@
 разделу пора в свой модуль.
 """
 import asyncio
-import html
 import logging
 import os
 
@@ -26,9 +24,8 @@ from .core import dbkey, demo, orders
 from .core import license as lic
 from .core import backup_loop
 from .core import sms_loop as sms
-from .core.auth import (chat_session, current_user, host_allowed, request_user,
-                        set_request_user)
-from .core.layout import STATIC, msg_json, tg_configured
+from .core.auth import current_user, host_allowed, request_user, set_request_user
+from .core.layout import msg_json
 from .modules.assets import routes as assets
 from .modules.doctors import api as doctors_api
 from .modules.doctors import routes as doctors
@@ -108,8 +105,8 @@ async def _limit_body_size(request: Request, call_next):
 async def _identify(request: Request, call_next):
     """Кто в этом запросе — один раз, для каркаса страницы.
 
-    Сайдбар и верхний угол рисуются глубоко внутри `_shell`, куда запрос не
-    приходит. Считаем здесь и кладём в контекст запроса; решение «пускать или
+    Модель каркаса (меню, верхний угол) собирается глубоко внутри
+    `shell_model`, куда запрос не приходит. Считаем здесь и кладём в контекст запроса; решение «пускать или
     нет» это НЕ подменяет — его принимает require() в самом маршруте.
     Только для /admin и /api: статике опознание не нужно, а auth.json
     читается с диска. ⚠️ /api — с 18.09 (C18): по тому же контексту летопись
@@ -163,10 +160,6 @@ async def _recovery_gate(request: Request, call_next):
     if eng.CONFIG_BROKEN:
         if p.startswith("/admin"):
             return HTMLResponse(recovery.config_broken_page(), status_code=503)
-        if p == "/" or p == "/chat":
-            # каналу записи в этом состоянии отвечать нечем: конфиг (врачи,
-            # услуги, часы) — это и есть то, из чего собирается диалог
-            return Response(status_code=503)
     if recovery.active() and p.startswith("/admin") and not p.startswith("/admin/recover"):
         return RedirectResponse("/admin/recover", status_code=303)
     # Демо (core/demo.py): адресов, меняющих машину и учётки, нет — отказ
@@ -207,7 +200,7 @@ async def startup() -> None:
     db.ACTOR_HOOK = lambda: (request_user() or {}).get("name")
     # ⛔ Профиль клиники не читается (и .bak тоже): поднимаемся ЭКРАНОМ ОШИБКИ,
     # как в режиме восстановления, — база не открывается (ни миграций, ни
-    # сида), Telegram не стартует, все адреса ведут на объяснение. Работать на
+    # сида), все адреса ведут на объяснение. Работать на
     # вшитой демо-клинике поверх настоящей картотеки нельзя: на «Dr. Elena
     # Rusu», которой в клинике нет, запишут живого человека, а чужой прайс
     # уйдёт пациенту как настоящий. Падать тоже нельзя (прайор 08-16): у
@@ -255,7 +248,6 @@ async def startup() -> None:
     if not demo.on():
         _watch_releases()
     _check_disk_encryption()
-    _start_telegram()
 
 
 def _seed_rows() -> list:
@@ -311,23 +303,6 @@ def _check_disk_encryption() -> None:
     bitlocker.check_async(_data_dir())
 
 
-def _start_telegram() -> None:
-    token = os.environ.get("TELEGRAM_TOKEN", "").strip()
-    if token:
-        from . import telegram as tg
-
-        async def _tg_guard() -> None:
-            try:
-                await tg.run(token)
-            except Exception as e:  # noqa: BLE001 — веб-чат должен жить при любой ошибке TG
-                print(f"Telegram adapter FAILED: {e!r} — web chat keeps running")
-
-        asyncio.create_task(_tg_guard())
-        print("Telegram adapter: starting (token present)")
-    else:
-        print("TELEGRAM_TOKEN not set — Telegram adapter disabled (web chat only)")
-
-
 # ---------- остановка ----------
 # Задачи цикла, жившие ДО старта (сам uvicorn и его lifespan): их не трогаем.
 _BEFORE_START: set = set()
@@ -338,7 +313,7 @@ STOP_TASKS_S = 3.0
 async def shutdown() -> None:
     """Честная остановка (движок оболочки Tauri, Т5, 18.10.2026): uvicorn
     закончил с запросами — снять всё, что старт завёл в фоне (копии по
-    расписанию, SMS, лицензия, Telegram), и только потом закрыть базу.
+    расписанию, SMS, лицензия), и только потом закрыть базу.
     ⛔ Закрыть базу ОБЯЗАТЕЛЬНО: соединение aiosqlite — НЕ фоновый поток, и
     процесс с открытой базой после остановки сервера не выходит вовсе.
     Закрытие последнего соединения сбрасывает `-wal` в базу.
@@ -364,35 +339,3 @@ async def health() -> dict:
     # "app" = отпечаток для single-instance guard в desktop.py:
     # чужой сервис с {"ok":true} на нашем порту не должен сойти за нас
     return {"ok": True, "app": "dentpilot", "version": eng.APP_VERSION}
-
-
-# ---------- самозапись пациента (лендинг + веб-чат) ----------
-# ЗАМОРОЖЕНА вместе с Telegram (08-08): это тот же канал «пациент записывает
-# себя сам», от которого клиники отказались. Живёт ровно у тех, у кого настроен
-# бот (tg_configured) — интерфейс журнала и так весь под этим выключателем.
-# 404, а не заглушка: канала у этой клиники нет, и страница-извинение только
-# сбивала бы с толку того, кто открыл старую ссылку.
-
-@app.get("/", response_class=HTMLResponse)
-async def index() -> Response:
-    if not tg_configured():
-        return Response(status_code=404)
-    page = (STATIC / "index.html").read_text(encoding="utf-8")
-    return HTMLResponse(page.replace("{{CLINIC_NAME}}",
-                                     html.escape(eng.CLINIC_NAME)))
-
-
-@app.post("/chat")
-async def chat(payload: dict):
-    """⛔ Ключ сессии НЕ приходит от клиента (см. core.auth.chat_session): для
-    движка session_key — это удостоверение пациента, и присланный `manual:…`
-    открывал бы чужие записи. Сервер выдаёт свой, подписанный; клиент только
-    возвращает его следующим запросом."""
-    if not tg_configured():
-        return Response(status_code=404)
-    sid, token = chat_session(str(payload.get("session") or ""))
-    msg = str(payload.get("message") or "/start")[:500]
-    s = eng.get_session(sid)
-    texts, buttons = await eng.handle(s, sid, msg)
-    return {"messages": [{"text": x} for x in texts], "buttons": buttons,
-            "session": token}

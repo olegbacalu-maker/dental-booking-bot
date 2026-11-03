@@ -13,7 +13,7 @@ import subprocess
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from harness import (BOT, PYTHON, TG_ON, Bot, Client, Result, Server, appt_id, clinic_today,
+from harness import (BOT, PYTHON, Client, Result, Server, appt_id, clinic_today,
                      day_model)
 
 
@@ -97,34 +97,6 @@ print(json.dumps(out))
     res.check("конец ровно в закрытие — проходит", v["end_at_close"], True)
     res.check("хвост за закрытием — отказ", v["past_close"], False)
     res.check("день без обеда цел", v["no_lunch_noon"], True)
-
-
-def suite_any(res: Result) -> None:
-    """«Oricare disponibil» отдаёт визит врачу, который в этот час РАБОТАЕТ.
-
-    da принимает 9–13, db — 14–18; слот 15:00 предложен free_starts из окна db.
-    Старый отбор кандидатов смотрел только занятость — и отдавал визит da
-    (первому в списке): он в 15:00 не занят, он в 15:00 просто не работает.
-    """
-    with Server(clinic="clinic_split.json", env=TG_ON) as s:
-        day = _d(1)
-        bot = Bot(Client(s.url), "any-window-test")
-        bot.say("/start"); bot.say("lang:ro"); bot.say("book")
-        bot.say("svc:consult"); bot.say("doc:any")
-        _texts, buttons = bot.say(f"day:{day}")
-        res.ok("слот 15:00 предложен (окно вечернего врача)",
-               f"time:{day}T15:00" in buttons, f"кнопки: {buttons[:12]}")
-        bot.say(f"time:{day}T15:00")
-        bot.say("Ion Oricare"); bot.say("skip_year"); bot.say("069555444")
-        texts, _b = bot.say("confirm")
-        res.ok("визит достался вечернему врачу (db), не утреннему",
-               "Zi Seara" in texts and "Dimineata" not in texts,
-               f"ответ бота: {texts[:160]!r}")
-
-        c = Client(s.url).login()
-        row = _row_of(c, day, "Ion Oricare")
-        res.check("и в журнале визит стоит у вечернего врача",
-                  row.get("doctor"), "Dr. Zi Seara")
 
 
 def suite_routes(res: Result) -> None:

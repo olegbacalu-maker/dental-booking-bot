@@ -20,7 +20,7 @@ from datetime import date, datetime, timedelta
 
 from ... import db
 from ... import engine as eng
-from ...core.layout import _initials, tg_configured
+from ...core.layout import _initials
 from ...core.visits import _doc_hue, photo_url
 
 # Короткие дни недели для подсказок графика (понедельник — 0, как date.weekday).
@@ -45,8 +45,8 @@ MAX_DAYS = 366                    # год — самый длинный осм�
 
 
 def fmt_mdl(x: int) -> str:
-    """Деньги строкой для человека. ⚠️ Разделитель тысяч повторяет `panel.js`
-    и клиентский `groupThousands`: счётчик переписывает текст на каждом кадре
+    """Деньги строкой для человека. ⚠️ Разделитель тысяч повторяет
+    клиентский `groupThousands`: счётчик переписывает текст на каждом кадре
     и спросить формат у сервера не может."""
     return f"{x:,}".replace(",", " ") + " MDL"
 
@@ -86,7 +86,6 @@ def agg(rows: list) -> dict:
     act = [r for r in appts if r["status"] != "cancelled"]
     return {
         "total": len(act),
-        "bot": sum(1 for r in act if r["source"] == "bot"),
         # «пришли» = завершённые + в кабинете + ждущие в приёмной (waiting):
         # человек физически в клинике, для «Au venit» это уже факт
         "done": sum(1 for r in act if r["status"] in ("done", "arrived", "waiting")),
@@ -216,9 +215,6 @@ async def build(d1: date, d2: date, today: date) -> dict:
     for r in cur["act"]:
         total_by_day[idx[r["starts_at"].astimezone(eng.TZ).date()]] += 1
 
-    # Telegram заморожен (tg_configured): у клиники без бота доли «prin bot»
-    # в разборе карточки нет
-    tg_ui = tg_configured()
     present_pct = round(100 * cur["done"] / cur["total"]) if cur["total"] else 0
 
     # ---- загрузка и врачи ----
@@ -334,10 +330,7 @@ async def build(d1: date, d2: date, today: date) -> dict:
              "badge": badge(cur["total"], prev["total"]),
              "trend": trend(cur["total"], prev["total"], False, plabel),
              "prev": str(prev["total"]),
-             # у клиники с живым ботом кольца источников больше нет — доля
-             # бота едет строкой разбора (tg_configured, как плитки выше)
-             "sub": (f"{cur['done']} au venit · {cur['cancel']} anulate"
-                     + (f" · {cur['bot']} prin bot" if tg_ui else "")),
+             "sub": f"{cur['done']} au venit · {cur['cancel']} anulate",
              "series": total_by_day},
             {"key": "prezenta", "label": "Rata de prezență", "icon": "checkin",
              "text": f"{present_pct}%", "value": present_pct,

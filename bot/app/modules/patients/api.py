@@ -142,10 +142,10 @@ async def api_patients_summary(request: Request):
     n_appt = sum(1 for r in appts if r["starts_at"] >= month_start)
     n_appt_prev = len(appts) - n_appt
     doctors = sorted(set(eng.DOCTORS.values()) | set(await db.patients_doctors()))
-    # Telegram в фильтре — ПО ДАННЫМ, не по tg_configured(): у демо-канарейки
-    # токен настроен (grandfather), а пациентов из бота нет, и «Telegram» в
-    # фильтре продавал бы замороженный канал на каждом показе (08-13, Олег).
-    # Клинике с tg-пациентами фильтр остаётся: происхождение — это данные
+    # «Telegram» в фильтре — ПО ДАННЫМ: бот удалён 03.11.2026, но фиши,
+    # заведённые им раньше, остаются, и отобрать их можно. Без таких фиш
+    # опции нет: фильтр по пустому множеству продавал бы несуществующий канал
+    # (08-13, Олег). Происхождение — это данные, не обещание канала.
     has_tg = await db.patients_have_tg()
     return msg_json(True, data={
         "tiles": [

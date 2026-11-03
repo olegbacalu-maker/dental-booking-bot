@@ -77,9 +77,9 @@ def suite_matcher(res: Result) -> None:
                        ("/api/settings/users//delete", False),
                        ("/api/patients/7/profile", False), ("/api/documents/12/open", True)):
         res.check(f"allowed({path})", lst.allowed(path), want)
-    res.ok("ворота: POST под /api/ и /admin, не GET и не /chat",
+    res.ok("ворота: POST под /api/ и /admin, не GET и не вне их",
            lst.gated("/api/x", "POST") and lst.gated("/admin", "DELETE")
-           and not lst.gated("/api/x", "GET") and not lst.gated("/chat", "POST"))
+           and not lst.gated("/api/x", "GET") and not lst.gated("/x", "POST"))
     write, _ = _routes()
     templates = {t for _, t in write}
     stale = sorted(t for t in lst.READONLY_ALLOW if t not in templates)
@@ -87,7 +87,8 @@ def suite_matcher(res: Result) -> None:
     res.ok("белый список — только под /admin и /api/",
            all(t.startswith(("/admin", "/api/")) for t in lst.READONLY_ALLOW))
     outside = sorted(t for _, t in write if not t.startswith(("/admin", "/api/")))
-    res.check("вне ворот только канал записи /chat", outside, ["/chat"])
+    # до 03.11.2026 здесь жил канал самозаписи `/chat` — ушёл вместе с ботом
+    res.check("пишущих маршрутов вне ворот нет", outside, [])
 
 
 def suite_readonly(res: Result) -> None:

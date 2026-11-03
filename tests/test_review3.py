@@ -31,7 +31,6 @@ CSS = BOT / "app" / "static" / "css" / "panel.css"
 # Экран услуг рисует React (12.10): таблица — в его разметке, не в routes.py
 SERVICES_TSX = (BOT.parent / "frontend" / "src" / "features" / "settings"
                 / "ServicesSettingsScreen.tsx")
-JS = BOT / "app" / "static" / "js" / "panel.js"
 
 # Знаки, которые рисует система: те же диапазоны, что стережёт
 # test_structure._SYSGLYPH в питоновских литералах. Вшитый Inter их не
@@ -103,27 +102,8 @@ def suite_css(res: Result) -> None:
 
 
 # ---------- 2. часы сайдбара ----------
-
-def suite_clock(res: Result) -> None:
-    """Часы в подвале обновляются сами и идут по часам КЛИНИКИ."""
-    js = JS.read_text(encoding="utf-8")
-    block = js.split("sf_clock", 1)[-1].split("dp_pos", 1)[0]
-    res.ok("часы пересчитываются по таймеру", "setInterval(" in block,
-           "sf_clock пишется один раз при загрузке, а страница каркаса себя "
-           "не перезагружает — часы весь день показывали бы время открытия")
-    res.ok("пояс берётся из разметки, а не у устройства",
-           "data-tz" in block and "timeZone" in block,
-           "часы считаются в поясе браузера — в облаке через туннель это "
-           "чужой пояс, а весь остальной экран размечен часами клиники")
-    with Server() as s:
-        c = Client(s.url).login()
-        # часы подвала живут в серверном каркасе (`_shell`): его страницы —
-        # замороженного бота, QR без бота и Telegram (журнал и все разделы с
-        # 12–13.10 — React, там пояс едет в модели оболочки)
-        page = c.get("/admin/qr-print").body
-        res.ok("сервер отдаёт часовой пояс клиники",
-               'id="sf_clock" data-tz="Europe/Chisinau"' in page,
-               "нет data-tz у #sf_clock")
+# (Часы подвала серверного каркаса и их panel.js ушли 03.11.2026 вместе со
+# страницами бота; часы React-оболочки — `AppShell.Clock`, проверки клиента.)
 
 
 # ---------- 3. услуги врача ----------

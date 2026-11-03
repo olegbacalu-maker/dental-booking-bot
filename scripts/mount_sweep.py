@@ -96,7 +96,7 @@ def preconditions(dir_: pathlib.Path) -> None:
     ⚠️ Файл кладётся ДО первого старта: иначе первый запуск запомнит отпечаток
     без него, второй увидит расхождение и поднимет ложную тревогу подмены.
     """
-    (dir_ / "dental.env").write_text("TELEGRAM_TOKEN=\nADMIN_KEY=\n",
+    (dir_ / "dental.env").write_text("ADMIN_KEY=\n",
                                      encoding="utf-8")
     users = [{"id": "dir", "role": auth.ROLE_DIRECTOR, "name": "Director",
               **auth._secret_fields(PIN)}]

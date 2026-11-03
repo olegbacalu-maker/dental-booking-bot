@@ -8,7 +8,6 @@ services:
     container_name: dental_sandbox_bot
     environment:
       DATABASE_URL: sqlite:////data/dental.db
-      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}
       # ⛔ Обязателен: первичную установку PIN программа принимает только с
       # этого же компьютера, а запрос в контейнер приходит из сети Docker —
       # без ключа журнал заперт для всех.

@@ -11,7 +11,7 @@ const M: ShellModel = {
   runtime: { version: '9.9.9', tz: 'Europe/Chisinau' },
   about: { data: '', license_until: '' },
   entry: { pin: true, pin_max: 8, backdrop: '<div class="dp-bg" data-x="фон"></div>' },
-  nav: { active: '', items: [], sync: [], foot_title: '' },
+  nav: { active: '', items: [], sync: [] },
   signals: {
     license: { shown: false, html: '' },
     tamper: { shown: false, html: '' },

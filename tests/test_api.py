@@ -116,10 +116,6 @@ def suite_clinic(res: Result) -> None:
                    sv.get("id") == "hygiene" for sv in after["services"]),
                "services затёрты")
         res.check("файл: врачи пережили сохранение", len(after["doctors"]), 4)
-        res.ok("файл: contacts пересобраны из новых значений",
-               "str. Nouă 2" in after["contacts"]["ro"]
-               and "+373 60 111 222" in after["contacts"]["ru"],
-               f"{after.get('contacts')}")
 
         # ⭐ пересохранение БЕЗ единой правки обязано быть тождественным —
         # дешёвая проверка на весь класс потерь данных (08-16)
@@ -211,20 +207,8 @@ def suite_switch(res: Result) -> None:
                "ответ на действие потерян")
         # ⛔ Сайт — только в системном браузере: без target=_blank окно
         # программы само ушло бы на сайт, и вернуться было бы нечем.
-        # Серверная оболочка (`_shell`) жива у страниц замороженного бота —
-        # Setări › Telegram и «QR pacienți» без бота (Олег 13.10: бот заморожен,
-        # его страницы не трогаем).
-        old = c.get("/admin/qr-print").body
-        res.ok("старая оболочка: знак — ссылка на сайт с target=_blank, почта contact@",
-               'class="bc-site" href="https://dentpilot.md" target="_blank" rel="noopener"' in old
-               and 'href="mailto:contact@dentpilot.md?subject=' in old,
-               "уголок не тот")
-        res.ok("старая оболочка: под именем клиники нет подписи DentPilot (06.10)",
-               "<small>DentPilot</small>" not in old and '<div class="txt"><b' in old,
-               "подпись вернулась или сайдбар не тот")
-        res.ok("старая оболочка: ни живой обёртки, ни опроса, ни колокольчика (шаг 6)",
-               'id="live"' not in old and "data-reload" not in old
-               and "class='bell'" not in old, "каркас старой панели вернулся")
+        # Серверной оболочки (`_shell`) нет с 03.11.2026: её последние
+        # страницы (Setări › Telegram, «QR pacienți») ушли вместе с ботом.
         res.ok("хаб настроек не изменился (плитка клиники на месте)",
                any(t["href"] == "/admin/settings/clinic"
                    for t in _j(c.get("/api/settings/hub"))["data"]["tiles"]), "плитки нет")

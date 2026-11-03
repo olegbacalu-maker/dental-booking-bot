@@ -87,11 +87,6 @@ def main(base: str, password: str, phase: str = PAGES, data_dir: str = "") -> in
 
 def _static(c: Client, check) -> None:
     """Файлы, вшитые в сборку: не зависят ни от входа, ни от лицензии."""
-    # страница пациента-бота: живёт в static/index.html внутри бандла
-    r = c.get("/")
-    check("главная (static/index.html) отдаётся",
-          r.status == 200 and len(r.body) > 500, f"код {r.status}, {len(r.body)} б")
-
     r = c.get("/favicon.ico")
     check("значок отдаётся", r.status == 200 and len(r.body) > 50, f"код {r.status}")
 
@@ -116,13 +111,9 @@ def _static(c: Client, check) -> None:
     check("стили кешируются у клиники",
           "immutable" in r.header("Cache-Control"),
           f"Cache-Control: {r.header('Cache-Control')!r}")
-    r = c.get("/static/js/panel.js")
-    check("общий скрипт отдаётся из сборки",
-          r.status == 200 and "setInterval" in r.body,
-          f"код {r.status}, {len(r.body)} б")
 
     # Бандл React-клиента (DentPilot 2.0) собирает npm ДО PyInstaller
-    # (Build-Engine.ps1), и он едет тем же --add-data, что panel.js. Пропади
+    # (Build-Engine.ps1), и он едет тем же --add-data, что panel.css. Пропади
     # шаг сборки — у клиники с включённым флагом React страница открылась бы
     # серверной заглушкой, а /health и всё выше осталось бы зелёным.
     r = c.get("/static/js/bundle.js")
@@ -261,7 +252,7 @@ def _pages(c: Client, check, password: str, *, grace: bool) -> None:
 
     c.post("/admin/login", password=password, next="/admin")
     pages = ["/admin", "/admin/all", "/admin/week", "/admin/stats",
-             "/admin/settings", "/admin/medici", "/admin/search", "/admin/qr-print"]
+             "/admin/settings", "/admin/medici", "/admin/search"]
     for path in pages:
         r = c.get(path)
         check(f"{path} открывается",
@@ -348,12 +339,6 @@ def _pages(c: Client, check, password: str, *, grace: bool) -> None:
     r = c.get("/admin/casa")
     check("отчёт кассы подключён", r.status in (200, 303),
           f"код {r.status} (404 = casa.py не попал в сборку)")
-
-    # бот-диалог: конфиг клиники прочитан из бандла
-    # ключ сессии выдаёт сам сервер (core.auth.chat_session) — клиент его не шлёт
-    r = c.post_json("/chat", {"message": "/start"})
-    check("бот отвечает на /start",
-          r.status == 200 and "lang:ro" in r.body, f"код {r.status}")
 
 
 if __name__ == "__main__":

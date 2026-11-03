@@ -15,11 +15,11 @@
 
 export interface NavItem {
   key: string
-  /** Пустая строка — строка без ссылки: так «Telegram Bot» остаётся у того, кому настройки закрыты. */
+  /** Пустая строка — строка без ссылки (пункт-индикатор у того, кому страница закрыта). */
   href: string
   icon: string
   label: string
-  /** Индикатор «бот жив» у пункта Telegram и «пакет работает» у SMS: ok | off. */
+  /** Индикатор «пакет работает» у SMS: ok | off. */
   dot?: 'ok' | 'off'
   /** Предупреждение вместо точки — треугольник с подсказкой (SMS: осталось мало — правило
    *  «мало SMS» сервера, по штукам: 30 в платном пакете, 10 в пробном). */
@@ -67,7 +67,7 @@ export interface ShellModel {
    * `backdrop` — фон страниц входа, SVG сервера (как `clinic.mark`).
    */
   entry: { pin: boolean; pin_max: number; backdrop: string }
-  nav: { active: string; items: NavItem[]; sync: NavItem[]; foot_title: string }
+  nav: { active: string; items: NavItem[]; sync: NavItem[] }
   /** `backup` — копии картотеки не в порядке (17.10): локальная не удалась,
    *  внешняя не удалась или старше трёх дней; только директору. */
   signals: { license: Signal; tamper: Signal; split: Signal; slot: Signal; setup: Signal; demo: Signal; backup: Signal }

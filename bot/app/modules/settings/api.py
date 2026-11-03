@@ -40,7 +40,7 @@ from ...core.auth import (PERM_SETTINGS, PERM_SMS, PERM_USERS, PIN_MAX, PIN_MIN_
                           client_peer, current_user, local_only, pin_min, remote_notice,
                           pin_readiness, request_user)
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, SETUP_HINT, SUPPORT_PHONE,
-                            _DOW_FULL, _DOW_ORDER, msg_json, msg_text, tg_refresh_meta)
+                            _DOW_FULL, _DOW_ORDER, msg_json, msg_text)
 from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
 from ...core import backup as bkp
@@ -104,7 +104,6 @@ async def api_clinic_save(request: Request):
         return msg_json(False, "bad_set", status=422)
     if eng.save_config(cfg) is not None:
         return msg_json(False, "save_err", status=500)
-    tg_refresh_meta()   # имя и телефон уезжают и в профиль бота — как у формы
     return msg_json(True, "ok_set", data=_clinic_data())
 
 
@@ -386,7 +385,6 @@ async def api_hours_save(request: Request):
         return msg_json(False, "bad_set", status=422)
     if eng.save_config(cfg) is not None:
         return msg_json(False, "save_err", status=500)
-    tg_refresh_meta()   # часы уезжают и в профиль бота — как у формы
     return msg_json(True, "ok_set", data=_hours_data())
 
 
@@ -457,7 +455,6 @@ async def api_services_save(request: Request):
         return msg_json(False, "bad_set", status=422)
     if eng.save_config(cfg) is not None:
         return msg_json(False, "save_err", status=500)
-    tg_refresh_meta()   # услуги уезжают и в меню бота — как у формы
     return msg_json(True, "ok_set", data=_services_data())
 
 

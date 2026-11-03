@@ -17,7 +17,7 @@ import type { NavItem, ShellModel } from './shell'
    порядке, потому что panel.css написан под них.
    ⛔ Никакой перекладки и никакого редизайна: облик меняется с B5, не здесь.
    ⭐ B4.2: ссылки оболочки — переходы без перезагрузки (`AppLink`): сайдбар,
-   крошки, шапка, поиск. Адрес не из карты маршрутов (Telegram, QR, выход)
+   крошки, шапка, поиск. Адрес не из карты маршрутов (выход, печатные листы)
    остаётся обычной ссылкой — это решает сам `AppLink`, не список здесь. */
 
 const T = t('shell', {
@@ -147,7 +147,7 @@ function Sidebar({ m }: { m: ShellModel }) {
           <Icon name={folded ? 'chevs-r' : 'chevs-l'} /><span>{T.fold}</span>
         </button>
       )}
-      <div className="sfoot" {...(nav.foot_title ? { title: `Telegram: ${nav.foot_title}` } : {})}>
+      <div className="sfoot">
         <span className="sf-v">
           <AppLink className="bc-site" href={frame.site.href} target="_blank" rel="noopener"
             title={frame.site.href.replace(/^https:\/\//, '')}>

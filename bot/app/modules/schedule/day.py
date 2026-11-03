@@ -15,7 +15,7 @@ from ... import db
 from ... import engine as eng
 from ...core import sms_loop
 from ...core.auth import PERM_SMS, can, request_user
-from ...core.layout import _DOW_FULL, _DOW_ORDER, STATUS_LABEL, tg_configured
+from ...core.layout import _DOW_FULL, _DOW_ORDER, STATUS_LABEL
 from ...core.visits import _age, all_status_actions, call_fields, list_rows, service_fields
 
 
@@ -32,7 +32,7 @@ def day_title(d: date) -> str:
     у «Programări» один и тот же день назывался бы по-разному. Живёт здесь, а не
     в routes: модель дня routes не импортирует.
     """
-    return f"{eng.day_label(eng.Session(lang='ro'), d)}.{d.year}"
+    return f"{eng.day_label(d)}.{d.year}"
 
 
 # Месяцы словами — ОДИН список на мини-календарь панели и дату словами:
@@ -59,14 +59,13 @@ def column_spec(dk: str) -> str:
 
 
 # Отбор «Lista zilei» по адресу `/admin/all?f=…` (до 01.10 туда вели плитки
-# «Azi» панели). Фильтруется СПИСОК, не канва: «сколько пришло из бота» —
+# «Azi» панели). Фильтруется СПИСОК, не канва: «сколько с рецепции» —
 # вопрос к списку, а канва в этот момент отвечает на другой («что стоит в
 # дне»), и прореживать её значило бы соврать про занятость.
-# ⚠️ Отменённые в первых трёх фильтрах не считаются: «записей из бота» —
-# это живые записи, а не след отменённых.
+# ⚠️ Отменённые в первых двух фильтрах не считаются: «записи с рецепции» —
+# это живые записи, а не след отменённых. (Фильтр «prin bot» ушёл с ботом
+# 03.11.2026.)
 TILE_FILTERS = {
-    "bot": ("prin bot",
-            lambda r: r["source"] == "bot" and r["status"] != "cancelled"),
     "rec": ("recepție",
             lambda r: r["source"] == "manual" and r["status"] != "cancelled"),
     "urg": ("urgențe",
@@ -287,10 +286,6 @@ def model(d, items: list, cards: dict | None, form_items: list | None = None,
         "cards": {str(k): v for k, v in (cards or {}).items()},
         "actions": all_status_actions(),
         "note_actions": all_status_actions(is_note=True),
-        # «Sursă» в «Lista zilei» — только у клиники с ботом (06.10): без него
-        # там везде «manual», и колонка ничего не различает. Тот же признак
-        # прячет и весь остальной интерфейс бота (`tg_configured`).
-        "source_col": tg_configured(),
         **_list_part(rows or [], f),
     }
 

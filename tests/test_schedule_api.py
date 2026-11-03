@@ -16,7 +16,7 @@ import pathlib
 import sys
 from datetime import datetime, timedelta
 
-from harness import (TG_ON, Client, Result, Server, add_appt, appt_id, clinic_today,
+from harness import (Client, Result, Server, add_appt, appt_id, clinic_today,
                      day_model, shell_model)
 
 # правило сведения рисков (`core.risks`) проверяется и чистым вызовом
@@ -225,7 +225,7 @@ def suite_day_parity(res: Result) -> None:
                   ([x["id"] for x in one["columns"]],
                    sorted(b["id"] for b in one["columns"][0]["blocks"]) if one["columns"] else []),
                   (["d2"], d2_ids))
-        res.check("«Sursă» без бота не показывается", m["source_col"], False)
+        res.ok("колонки «Sursă» нет (бот удалён)", "source_col" not in m, "поле source_col вернулось")
 
         blocks = _blocks(m["canvas"])
         noshow = next(b for b in blocks if b.get("status") == "noshow")
@@ -249,17 +249,6 @@ def suite_day_parity(res: Result) -> None:
                   (["d2"], ["Dr. Activ Doi"]))
         res.check("чужой врач — 404, а не пустая сетка",
                   c.get("/api/schedule/day?doctor=d999").status, 404)
-
-
-def suite_day_source(res: Result) -> None:
-    """«Sursă» в «Lista zilei» — по боту (06.10): у клиники с ботом колонка есть.
-
-    ⚠️ Половина «без бота — нет» живёт в `suite_day_parity`; без этой
-    половины флаг мог бы быть просто всегда ложным, и обе проверки молчали бы."""
-    with Server(env=TG_ON) as s:
-        c = Client(s.url).login()
-        res.check("у клиники с ботом «Sursă» показывается",
-                  _j(c.get("/api/schedule/day"))["data"].get("source_col"), True)
 
 
 def suite_day_orphan(res: Result) -> None:

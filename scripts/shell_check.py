@@ -89,10 +89,8 @@ class Lab:
         self.profile = self.dir / "profile" / "webview"
         for d in (self.data, self.tmp, self.profile.parent):
             d.mkdir(parents=True)
-        # свежая установка без demo.flag, бот «настроен» (grandfather) —
-        # как у дымового теста прежней сборки: так обход видит и /chat
+        # свежая установка без demo.flag — как у дымового теста сборки
         (self.data / "dental.env").write_text(
-            "TELEGRAM_TOKEN=dpapi:smoke-nu-rasshifruesh\n"
             f"ADMIN_KEY={SMOKE_KEY}\n", encoding="utf-8")
         self.port = free_port()
         self.cdp = free_port()
@@ -104,7 +102,7 @@ class Lab:
     def env(self) -> dict:
         env = {k: v for k, v in os.environ.items()
                if not k.startswith(("DENTART_", "DENTPILOT_", "WEBVIEW2_"))
-               and k not in ("TELEGRAM_TOKEN", "ADMIN_KEY")}
+               and k != "ADMIN_KEY"}
         env.update({"DENTART_DATA_DIR": str(self.data), "TEMP": str(self.tmp),
                     "TMP": str(self.tmp), "DENTART_PORT": str(self.port),
                     "DENTART_PROFILE_DIR": str(self.profile),

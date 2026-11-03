@@ -14,15 +14,11 @@
 """
 from __future__ import annotations
 
-import html
-import os
-
 from ... import engine as eng
 from ... import update as upd
 from ...core import backup_loop, bitlocker
 from ...core.auth import ADMIN_KEY, _pin_rec
-from ...core.layout import (FEEDBACK_EMAIL, _ic, data_folder, tg_configured,
-                            tg_status)
+from ...core.layout import FEEDBACK_EMAIL, data_folder
 from . import autostart
 
 # Строка «Folderul cu date». ⚠️ Путь, а не «да/нет»: его сверяют глазами с
@@ -32,21 +28,6 @@ FOLDER_HINT = ("aici stau evidența, documentele și copiile de rezervă — nu 
                "folderul în care este instalat programul")
 
 CHANNEL_WARN = "acest calculator vede versiunile ÎNAINTE de clinici"
-
-
-def tg_line(tg: dict) -> str:
-    """Строка канала бота. Её читает и раздел Telegram, поэтому она здесь, а
-    не внутри сборки страницы."""
-    if tg["running"]:
-        return f"{_ic('check')} activ — @{html.escape(tg['username'])}"
-    if os.environ.get("DENTART_TOKEN_UNREADABLE") == "1":
-        # шифротекст не с этой машины (см. dpapi.py). Молчаливое «fără token»
-        # отправило бы клинику чинить настройки бота, которые в порядке
-        return (_ic("key") + " tokenul nu poate fi citit pe acest calculator — "
-                "reintroduceți-l în secțiunea Telegram")
-    if os.environ.get("TELEGRAM_TOKEN", "").strip():
-        return f"{_ic('sos')} {html.escape(tg.get('error') or 'pornire…')}"
-    return "— fără token (secțiunea Telegram Bot)"
 
 
 def bitlocker_state() -> dict:
@@ -163,15 +144,11 @@ def privacy_html() -> str:
 
 
 def data() -> dict:
-    """Модель экрана. Telegram заморожен (08-08): строка канала — только
-    клинике с настроенным ботом. Остальным она писала «— fără token (secțiunea
-    Telegram Bot)» и отправляла искать раздел, который заморозка спрятала
-    (08-13)."""
+    """Модель экрана."""
     return {
         "version": eng.APP_VERSION,
         "db": db_label(),
         "folder": {"path": data_folder() or "", "hint": FOLDER_HINT},
-        "telegram": tg_line(tg_status()) if tg_configured() else "",
         "update": update_state(),
         "channel": channel_state(),
         "access": access_state(),
