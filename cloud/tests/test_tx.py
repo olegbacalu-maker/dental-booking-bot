@@ -14,7 +14,7 @@ from harness import CLOUD, Result
 # Кто держит settle своей транзакцией — по ним видно, что обход нашёл то, что должен
 # (список ВКЛЮЧАЕТ требование: переименуют — красное «найдены», а не тихий ноль)
 HOLDERS = {"_maib_callback", "_returned", "payment_check", "settle_cards",
-           "_card_go", "payment_new", "payment_link", "payment_confirm", "payment_repeat"}
+           "card_go", "payment_new", "payment_link", "payment_confirm", "payment_repeat"}
 # Кто делает ноту `paid`: settle (карта) и confirm / credit_again («Подтвердить», «Зачесть
 # повторный» админки) — у всех одна гонка с callback, и замок нужен один
 PAID_WRITERS = {"settle", "confirm", "credit_again"}
@@ -147,7 +147,7 @@ SEND_BASE = {"mail.send", "mail.deliver"}
 # кабинет, общая нота, «Выставить ноту», «Ссылка на карту», «Письмо» из админки.
 # Список ВКЛЮЧАЕТ требование — переименуют, и «найдены» покраснеет, а не позеленеет тихо.
 OUTBOX_HOLDERS = {"_maib_callback", "_returned", "settle_cards", "payment_check", "payment_confirm",
-                  "payment_repeat", "_card_go", "pay_link_submit", "cont_note", "_group_submit",
+                  "payment_repeat", "card_go", "pay_link_submit", "cont_note", "_group_submit",
                   "payment_new", "payment_link", "payment_mail"}
 
 # Отправка внутри транзакции, оставленная НАМЕРЕННО: не письмо об оплате (решение Олега Р4 —
@@ -156,7 +156,7 @@ MAIL_IN_TX = {
     # не оплата (Р4): в эту ветку не берём, список — в отчёт
     "main.py:_sms_order → mail.send": "нота SMS из программы (main.py ~327)",
     "main.py:_trial_program → trial.submit": "пробный из программы: выдача и письмо (trial.py:218)",
-    "main.py:trial_submit → trial.submit": "пробный с /proba: выдача и письмо (trial.py:218)",
+    "routes_public.py:trial_submit → trial.submit": "пробный с /proba: выдача и письмо (trial.py:218)",
     "main.py:cont_register_submit → account.register": "регистрация кабинета → trial.submit (trial.py:218)",
     "main.py:cont_add_submit → account.add_clinic": "«Adaugă clinică» → trial.submit (trial.py:218)",
     "main.py:cont_add_submit → main._send_added_letter": "письмо новой клинике кабинета (нота + ящик)",
@@ -296,7 +296,7 @@ def suite_mail_after_commit(res: Result) -> None:
     res.ok("отправляющие найдены: mail.send/deliver, send_paid, outbox, обёртка mail_latest",
            want <= senders, sorted(want - senders))
     builders = {"payments.notify_paid", "license.letter_latest", "sms.letter_pack", "sms.letter_name",
-                "main._payment_letter", "main._settle_now", "payments.card_plan", "payments.card_record"}
+                "web.payment_letter", "main._settle_now", "payments.card_plan", "payments.card_record"}
     res.ok("сборка писем ничего не отправляет: notify_paid, letter_*, _payment_letter, _settle_now, card_*",
            not (builders & senders), sorted(builders & senders))
     res.ok("outbox раньше db.connect у 7 мест оплаты и 6 мест письма с нотой",
@@ -317,10 +317,10 @@ def suite_mail_after_commit(res: Result) -> None:
     hit = {"main.py:_maib_callback → payments.notify_paid", "main.py:_returned → payments.notify_paid",
            "jobs.py:settle_cards → payments.notify_paid", "main.py:payment_confirm → payments.notify_paid",
            "main.py:payment_repeat → payments.notify_paid", "main.py:payment_check → main._settle_now",
-           "main.py:_card_go → payments.notify_paid"}
+           "web.py:card_go → payments.notify_paid"}
     res.ok("пара: notify_paid начал отправлять — красные все места оплаты", hit <= set(m), sorted(hit - set(m)))
-    _, _, m = mail_check(_prepend(trees, "main.py", "_payment_letter", "mail.send('a', 'b', 'c')"))
-    hit = {f"{_where(trees, h)}:{h} → main._payment_letter" for h in ("pay_link_submit", "cont_note", "_group_submit",
+    _, _, m = mail_check(_prepend(trees, "web.py", "payment_letter", "mail.send('a', 'b', 'c')"))
+    hit = {f"{_where(trees, h)}:{h} → web.payment_letter" for h in ("pay_link_submit", "cont_note", "_group_submit",
                                                             "payment_new", "payment_link", "payment_mail")}
     res.ok("пара: сборка письма с нотой начала отправлять — красные все шесть мест ноты",
            hit <= set(m), sorted(hit - set(m)))
@@ -355,11 +355,11 @@ def suite_net_outside_tx(res: Result) -> None:
     res.ok("исходники нашлись: maib.py, main.py, jobs.py, payments.py", need <= set(trees),
            sorted(need - set(trees)))
     reach, bad = net_check(trees)
-    want = {"maib._call", "maib.token", "maib.create", "maib.info", "payments.card_ask", "main._card_go"}
+    want = {"maib._call", "maib.token", "maib.create", "maib.info", "payments.card_ask", "web.card_go"}
     res.ok("сеть maib найдена: _call, token, create, info и по цепочке card_ask, _card_go",
            want <= reach, sorted(want - reach))
     quiet = {"maib.enabled", "maib.verify", "maib.ours", "payments.card_plan", "payments.card_record",
-             "payments.settle", "payments.notify_paid", "main._settle_now", "main._payment_letter"}
+             "payments.settle", "payments.notify_paid", "main._settle_now", "web.payment_letter"}
     res.ok("без сети: enabled, verify, ours, снимок и запись ответа (card_plan, card_record, settle)",
            not (quiet & reach), sorted(quiet & reach))
     res.check("maib внутри with db.connect — только названные исключения",
@@ -371,12 +371,12 @@ def suite_net_outside_tx(res: Result) -> None:
     _, m = net_check(_inject(trees, "jobs.py", "settle_cards", "maib.info('x')"))
     res.ok("пара: maib.info в транзакции ежедневной задачи — красный",
            "jobs.py:settle_cards → maib.info" in m, repr(m))
-    _, m = net_check(_inject(trees, "main.py", "_card_go", "payments.card_ask(plan)"))
-    res.ok("пара: card_ask в транзакции кнопки карты — красный", "main.py:_card_go → payments.card_ask" in m, repr(m))
-    _, m = net_check(_inject(trees, "main.py", "pay_link_submit", "_card_go(plan, 'program', back)"))
+    _, m = net_check(_inject(trees, "web.py", "card_go", "payments.card_ask(plan)"))
+    res.ok("пара: card_ask в транзакции кнопки карты — красный", "web.py:card_go → payments.card_ask" in m, repr(m))
+    _, m = net_check(_inject(trees, "main.py", "pay_link_submit", "web.card_go(plan, 'program', back)"))
     res.ok("пара: кнопка карты целиком внутри транзакции страницы оплаты (как до шага 4) — красный",
-           "main.py:pay_link_submit → main._card_go" in m, repr(m))
+           "main.py:pay_link_submit → web.card_go" in m, repr(m))
     _, m = net_check(_prepend(trees, "payments.py", "card_record", "maib.create(1, 'r', 'd')"))
-    hit = {f"{_where(trees, h)}:{h} → payments.card_record" for h in ("_card_go", "payment_new", "payment_link")}
+    hit = {f"{_where(trees, h)}:{h} → payments.card_record" for h in ("card_go", "payment_new", "payment_link")}
     res.ok("пара: запись ответа начала звать maib — красные кнопка карты, нота и ссылка из админки",
            hit <= set(m), sorted(hit - set(m)))
