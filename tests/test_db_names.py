@@ -106,7 +106,7 @@ def _defined(path) -> list[str]:
 def suite(res: Result) -> None:
     subs = sorted(p.stem for p in PKG.glob("*.py") if p.stem != "__init__")
     # Якорь: пустой обход сделал бы все проверки ниже зелёными разом.
-    res.ok("исходники пакета db нашлись", (PKG / "__init__.py").exists(),
+    res.ok("исходники пакета db нашлись", (PKG / "__init__.py").exists() and len(subs) >= 10,
            f"в {PKG} подмодулей: {subs}")
 
     missing = sorted(n for n in SNAPSHOT if not hasattr(db, n))
@@ -135,6 +135,10 @@ def suite(res: Result) -> None:
            "реэкспорт смотрит не туда: " + ", ".join(stale))
     twice = sorted(f"{n}: {', '.join(o)}" for n, o in owners.items() if len(o) > 1)
     res.ok("у имени db один модуль-владелец", not twice, "; ".join(twice))
+    lost = sorted(n for n in SNAPSHOT - set(STATE) if n not in owners)
+    res.ok("каждое имя снимка живёт в подмодуле", not lost,
+           "имя осталось в __init__ или пропало: " + ", ".join(lost))
+
     leaked = sorted(f"{o}.{n}" for n in STATE for o in owners.get(n, []))
     res.ok("состояние db живёт только в __init__", not leaked and
            all(n in _defined(PKG / "__init__.py") for n in STATE),

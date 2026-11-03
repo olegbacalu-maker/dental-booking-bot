@@ -102,7 +102,7 @@ _FILE_OK = {"app/paths.py", "desktop.py"}
 # соседний модуль — правило покраснеет «якорь пропал», а не ослепнет: каждое
 # ищет своё имя только в названном файле.
 _DB_STATE = "app/db/__init__.py"     # _CONN, _SQ, ACTOR_HOOK — переприсваиваемое
-_DB_SCHEMA = "app/db/__init__.py"    # SCHEMA_VERSION, MIGRATIONS, SQLITE_SCHEMA
+_DB_SCHEMA = "app/db/schema.py"      # SCHEMA_VERSION, MIGRATIONS, SQLITE_SCHEMA
 _DB_SLOTS = "app/db/slots.py"        # _slot_lock, _BOOK_LOCK, _uq_slot_sql
 _DB_DAY = "app/db/schedule.py"       # day_appointments: выборка дня
 _DB_TEXTS = "app/db/plans.py"        # тексты летописи пациента («Plan: …»)
@@ -717,7 +717,8 @@ def suite(res: Result) -> None:
     # Якоря: оба пути разбора ещё видят то, ради чего написаны. Без них
     # сломанный обход нашёл бы ноль переприсваиваемых имён и позеленел навсегда.
     bad = [f"{f}: разбор не видит {name} — якорь правила пропал"
-           for f, name in (("app/engine.py", "CLINIC_NAME"), (_DB_STATE, "ACTOR_HOOK"))
+           for f, name in (("app/engine.py", "CLINIC_NAME"), (_DB_STATE, "ACTOR_HOOK"),
+                            (_DB_STATE, "_CONN"))
            if name not in rebound.get(f, set())]
     bad += [f"{rel}:{n.lineno} {', '.join(sorted(hit))} из {f}"
             for rel, tree in src for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
@@ -726,6 +727,24 @@ def suite(res: Result) -> None:
     res.ok("переприсваиваемое имя не импортируется по значению", not bad,
            "имя переприсваивается на ходу, а импорт заморозил его значение "
            "(читать как модуль.ИМЯ или функцией): " + "; ".join(bad))
+
+
+    # ---- подмодуль db не держит переприсваиваемого состояния (03.11) ----
+    # Пакет реэкспортирует каждое имя подмодуля (`from .teeth import …` в
+    # __init__) — это КОПИЯ ссылки на миг импорта. Подмодуль, переприсвоивший
+    # своё имя под `global`, разошёлся бы с `db.ИМЯ` молча: вызывающий читал бы
+    # прежнее значение до перезапуска. Поэтому всё, что меняется на ходу, живёт
+    # в __init__ (`_CONN`, `_SQ`, `ACTOR_HOOK`), а подмодули пишут и читают его
+    # через пакет: `from .. import db`, `db._CONN = …`.
+    pkg = [rel for rel in by_path if rel.startswith("app/db/") and rel != _DB_STATE]
+    bad = [f"{rel}:{n.lineno} {', '.join(n.names)}" for rel in pkg
+           for n in ast.walk(by_path[rel]) if isinstance(n, ast.Global)]
+    if _DB_STATE not in by_path or not pkg:
+        bad.append(f"{_DB_STATE} и подмодулей нет — якорь правила пропал")
+    res.ok("подмодуль db не держит переприсваиваемого состояния", not bad,
+           "global в подмодуле пакета db — реэкспорт `db.ИМЯ` останется "
+           "прежним (состояние — в __init__, писать через `db.ИМЯ = …`): "
+           + "; ".join(bad))
 
 
     # ---- ничего графического от Windows (08-11) ----

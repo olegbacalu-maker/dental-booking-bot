@@ -187,7 +187,7 @@ def _blocked(dbfile: pathlib.Path, *args) -> bool:
 # Куда дописывать подмену: в модуль-ВЛАДЕЛЕЦ имени (пакет db с 03.11.2026).
 # Функции модуля ищут соседей в СВОИХ глобалах, и переопределение, дописанное
 # в другой файл пакета, не перекрыло бы ничего.
-_SCHEMA_PY = "app/db/__init__.py"       # MIGRATIONS
+_SCHEMA_PY = "app/db/schema.py"         # MIGRATIONS
 _SLOTS_PY = "app/db/slots.py"           # _slot_conflicts, _uq_index_state
 
 
