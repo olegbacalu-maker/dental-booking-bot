@@ -13,11 +13,12 @@ BLOCKED) — страницы, JSON и плитки хаба одним спис
 import json
 import pathlib
 import shutil
+import sqlite3
 import sys
 import tempfile
-from datetime import timedelta
+from datetime import datetime, time, timedelta, timezone
 
-from harness import ROOT, Client, Result, Server, clinic_now, shell_model, shell_signal
+from harness import TZ, ROOT, Client, Result, Server, clinic_now, shell_model, shell_signal
 
 DEMO = {"DENTART_DEMO": "1"}
 CLOSED_PAGES = ("/admin/settings/system", "/admin/settings/crypt",
@@ -162,6 +163,48 @@ def suite_demo(res: Result) -> None:
                   _upload(c, _patient(c), 9 * 1024 * 1024, "mare.pdf"), 200)
 
 
+def _recall_rows(db_file: pathlib.Path, clinic_json: pathlib.Path, today) -> list[dict]:
+    """Список «Rechemări» засеянной базы ПРАВИЛОМ программы без сервера: те же
+    выборки, что `db.recall_done_last`/`recall_future`/`recall_marks`, в чистую
+    `recall.compute` — так засев проходится по многим дням за секунды."""
+    from app import db as appdb
+    from app.core import recall
+    cfg = json.loads(clinic_json.read_text(encoding="utf-8"))
+    svcs = [{"id": s["id"], "ro": s["ro"], "months": s["recall"]["months"],
+             "since": s["recall"]["since"]}
+            for s in cfg["services"] if (s.get("recall") or {}).get("months")]
+    when = lambda v: datetime.fromisoformat(v) if v else None  # noqa: E731
+    start = datetime.combine(today, time(0), tzinfo=TZ).astimezone(timezone.utc)
+    act = ",".join("?" * len(appdb.ACTIVE_STATUSES))
+    c = sqlite3.connect(db_file)
+    c.row_factory = sqlite3.Row
+    try:
+        done = [{**dict(r), "last_at": when(r["last_at"])} for r in c.execute(
+            "SELECT a.patient_id, a.service_id, a.id AS aid, MAX(a.starts_at) AS last_at, p.name "
+            "FROM appointments a JOIN patients p ON p.id = a.patient_id "
+            "WHERE a.status = 'done' GROUP BY a.patient_id, a.service_id")]
+        future = [{**dict(r), "next_at": when(r["next_at"])} for r in c.execute(
+            f"SELECT patient_id, service_id, service, MIN(starts_at) AS next_at FROM appointments "
+            f"WHERE patient_id IS NOT NULL AND status IN ({act}) AND starts_at >= ? "
+            f"GROUP BY patient_id, service_id",
+            (*appdb.ACTIVE_STATUSES, start.isoformat(timespec="seconds")))]
+        marks = [{**dict(r), "at": when(r["at"])}
+                 for r in c.execute("SELECT * FROM recall_marks ORDER BY id")]
+    finally:
+        c.close()
+    return recall.compute(done, future, marks, svcs, today)["rows"]
+
+
+def _recall_show_missing(rows: list[dict]) -> list[str]:
+    """Каких витринных строк «Rechemări» нет в списке (засев: двое записаны на
+    другую услугу, «nu răspunde ×2», «amânat»)."""
+    want = {"записан на другую услугу": lambda r: r["booked"] and not r["mark"],
+            "nu răspunde ×2": lambda r: r["mark"] and r["mark"]["n_noanswer"] == 2,
+            "amânat": lambda r: r["mark"] and r["mark"]["result"] == "later"
+                                 and r["tab"] == "snoozed"}
+    return [k for k, f in want.items() if not any(f(r) for r in rows)]
+
+
 def suite_seed(res: Result) -> None:
     """Засев демо (demo/seed.py) ложится на схему ПРОГРАММЫ: базу создаёт
     первый сервер, засев её наполняет, второй сервер открывает экраны. Это
@@ -185,6 +228,31 @@ def suite_seed(res: Result) -> None:
         at = clinic_now().replace(hour=12, minute=40, second=0, microsecond=0)
         while at.weekday() >= 5:
             at += timedelta(days=1)
+        # ⚠️ Витрина «Rechemări» — в КАЖДЫЙ день, а не в день прогона (03.11):
+        # дата гигиены была случайной, срок уходил за окно списка, и по
+        # вторникам и средам «nu răspunde ×2» не было — прогон краснел раз в
+        # неделю без правки. 35 дней подряд (с выходными: посетитель приходит
+        # и в воскресенье) всегда пересекают конец месяца.
+        sweep = work / "sweep"
+        sweep.mkdir()
+        shutil.copy(work / "clinic.json", sweep / "clinic.json")
+        fresh = sqlite3.connect(work / "dental.db")
+        bad = []
+        try:
+            for k in range(35):
+                day = at + timedelta(days=k)
+                (sweep / "dental.db").unlink(missing_ok=True)
+                dst = sqlite3.connect(sweep / "dental.db")
+                fresh.backup(dst)                  # схема с -wal, не копия файла
+                dst.close()
+                dseed.seed(sweep / "dental.db", sweep / "clinic.json", now=day)
+                miss = _recall_show_missing(_recall_rows(sweep / "dental.db", sweep / "clinic.json",
+                                                         day.date()))
+                if miss:
+                    bad.append(f"{day:%d.%m}: {', '.join(miss)}")
+        finally:
+            fresh.close()
+        res.ok("витрина «Rechemări» засевается в любой день (35 дней подряд)", not bad, "; ".join(bad))
         counts = dseed.seed(work / "dental.db", work / "clinic.json", now=at)
         res.ok("засев: пациенты, визиты, план, оплаты",
                counts["patients"] > 200 and counts["appointments"] > 400
@@ -203,10 +271,10 @@ def suite_seed(res: Result) -> None:
                    (desk.get("recall") or {}).get("n", 0) >= 5 and counts["recall"] >= 10,
                    f"{desk.get('recall')} / {counts.get('recall')}")
             rc = _j(c.get("/api/recall"))["data"]
-            res.ok("в списке есть записанный на другую услугу и «nu răspunde ×2»",
-                   any(r["booked"] for r in rc["rows"])
-                   and any(r["mark"] and r["mark"]["n_noanswer"] == 2 for r in rc["rows"]),
-                   str([(r["name"], r["booked"], r["mark"]) for r in rc["rows"]])[:300])
+            res.ok("в списке есть записанный на другую услугу, «nu răspunde ×2» и «amânat»",
+                   not _recall_show_missing(rc["rows"]),
+                   f"нет: {_recall_show_missing(rc['rows'])} · "
+                   + str([(r["name"], r["booked"], r["mark"]) for r in rc["rows"]])[:300])
             pats = _j(c.get("/api/patients?q=Popescu"))["data"]
             rows = pats.get("rows") or pats.get("patients") or pats.get("items") or []
             pid = next((r["id"] for r in rows if r.get("name") == "Maria Popescu"), None)

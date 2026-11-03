@@ -21,6 +21,7 @@
 """
 from __future__ import annotations
 
+import calendar
 import json
 import pathlib
 import random
@@ -161,6 +162,19 @@ SHOWCASE = [
      "visits": [("Control implant 21", "Implant 21 integrat, gingie sănătoasă",
                  "Stare post-implantare", "Amprentă pentru coroană definitivă", "Proba coroanei peste 10 zile")]},
 ]
+
+
+# Витринные строки «Rechemări» по порядку: (дней просрочки срока, час гигиены).
+# 0–1 — записаны вперёд на другую услугу, 2 — «nu răspunde ×2», 3 — «amânat».
+RECALL_SHOW = [(3, 10), (12, 11), (20, 13), (9, 14)]
+
+
+def _add_months(d: date, m: int) -> date:
+    """Как `core/recall.add_months` программы (засев пакет `app` не импортирует):
+    календарные месяцы с прижатием дня к концу месяца."""
+    y, mo = divmod(d.month - 1 + m, 12)
+    y, mo = d.year + y, mo + 1
+    return date(y, mo, min(d.day, calendar.monthrange(y, mo)[1]))
 
 
 def iso(dt: datetime) -> str:
@@ -312,10 +326,15 @@ def seed(db_path, clinic_json, now: datetime | None = None) -> dict:
                 t += timedelta(minutes=dur)
         d += timedelta(days=1)
 
-    # --- «Rechemări» (29.10): гигиена 5–7 месяцев назад у ~16 пациентов —
+    # --- «Rechemări» (29.10): гигиена ~полгода назад у ~16 пациентов —
     # иначе на demo.dentpilot.md экран пуст (срок у hygiene — 6 месяцев,
     # clinic.json). Двое записаны вперёд на ДРУГУЮ услугу («vine pe …»), у
     # одного два «nu răspunde», у одного «amânat»: список живой, как у стойки.
+    # ⚠️ Срок каждой строки — ВНУТРИ окна списка (`recall.LEAD`: не позже
+    # сегодня + 14). До 03.11 дата гигиены была случайной (150–215 дней назад),
+    # срок уходил за окно, и по вторникам и средам «nu răspunde ×2» на витрине
+    # не было вовсе. Витринные четыре — с постоянной просрочкой и часом, без
+    # случая; случай — только у массовки, и тоже в окне.
     n_recall = 0
     if "hygiene" in svcs:
         hy_label, hy_docs = svcs["hygiene"]
@@ -325,12 +344,25 @@ def seed(db_path, clinic_json, now: datetime | None = None) -> dict:
         used = {r[0] for r in c.execute("SELECT DISTINCT patient_id FROM appointments "
                                         "WHERE service_id = 'hygiene'")}
         pool = [x for x in pats[len(show_ids):] if x not in used]
+        half_year = _add_months(today, -6)
         for i, pid in enumerate(rnd.sample(pool, min(16, len(pool)))):
-            d0 = today - timedelta(days=rnd.randint(150, 215))
+            if i < len(RECALL_SHOW):
+                # просрочка и час постоянны: разные часы — витринные не
+                # сталкиваются, даже если выходной сведёт двоих в один день
+                late, hh = RECALL_SHOW[i]
+                d0 = half_year - timedelta(days=late)
+                dk = hy_docs[i % len(hy_docs)]
+                t_at = (hh, 0)
+            else:
+                # массовка: срок от месяца просрочки до «peste 8 zile»
+                # (запас до LEAD — прижатие к концу месяца двигает на 3 дня)
+                d0 = half_year + timedelta(days=rnd.randint(-30, 8))
+                dk = rnd.choice(hy_docs)
+                t_at = (rnd.choice([9, 10, 11, 13, 14, 15]), rnd.choice([0, 30]))
+            # выходной — назад: срок только раньше, из окна не выходит
             while not hours.get(_DOW[d0.weekday()]):
                 d0 -= timedelta(days=1)
-            dk = rnd.choice(hy_docs)
-            t0 = local(d0, rnd.choice([9, 10, 11, 13, 14, 15]), rnd.choice([0, 30]))
+            t0 = local(d0, *t_at)
             try:
                 cur = c.execute(
                     "INSERT INTO appointments(patient_id, service, doctor, starts_at, status, "
@@ -346,7 +378,12 @@ def seed(db_path, clinic_json, now: datetime | None = None) -> dict:
             if i < 2 and "filling" in svcs:
                 f_label, f_docs = svcs["filling"]
                 fdk = next((x for x in f_docs if x in docs), dk)
-                t1 = local(today + timedelta(days=5 + i), 10 + i)
+                # за горизонтом основного цикла (`end`): там у врача никого, и
+                # вставка не упрётся в занятый интервал; выходной — вперёд
+                d1 = end + timedelta(days=2 + i)
+                while not hours.get(_DOW[d1.weekday()]):
+                    d1 += timedelta(days=1)
+                t1 = local(d1, 10 + i)
                 try:
                     c.execute(
                         "INSERT INTO appointments(patient_id, service, doctor, starts_at, status, "
