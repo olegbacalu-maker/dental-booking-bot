@@ -4,7 +4,10 @@ name: dental-sandbox
 # Postgres-издание снято 12.10.2026 (тег archive/pg-edition).
 services:
   bot:
-    build: ./bot
+    # контекст — корень: образ сам собирает клиент React из frontend/
+    build:
+      context: .
+      dockerfile: bot/Dockerfile
     container_name: dental_sandbox_bot
     environment:
       DATABASE_URL: sqlite:////data/dental.db

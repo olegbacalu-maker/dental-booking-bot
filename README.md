@@ -447,6 +447,14 @@ installed there eventually ends up inside the exe; tests must also run where nob
 install packages. The React client has its own checks in `frontend/`: `npm run typecheck`,
 `npm run lint` and `npm test` (vitest).
 
+GitHub Actions ([`tests.yml`](.github/workflows/tests.yml)) runs all of it on every push:
+the engine suites and the mutation of the guards on Windows, `cargo test` of the Tauri
+shell, the client checks, the licence server, and `ruff check` over the Python sources — a
+rule set chosen to catch undefined names, unused imports and dropped asyncio tasks, not
+style ([`ruff.toml`](ruff.toml)). Python dependencies are installed from hash-pinned lock
+files (`bot/requirements-desktop.lock`, `cloud/requirements.lock`), and
+`scripts/lock_check.py` fails the run when a lock falls behind its `requirements*.txt`.
+
 Each suite starts **its own server on a free port with its own temporary database** (Windows
 happily lets a second process bind a busy port and then routes requests to the first one, so
 a fixed port would silently test the wrong server). The clinic used is
@@ -552,15 +560,25 @@ no route that accepts or returns medical data.
 
 ## Server mode — quick start
 
+From a fresh clone, with Docker only — no Node or Python on the host:
+
 ```bash
-echo ADMIN_KEY=<a long random string> > .env
-docker compose up -d --build
-# clinic journal: http://localhost:8088/admin
+cp .env.example .env              # then put a long random string after ADMIN_KEY=
+docker compose up -d --build      # first build: a few minutes (npm ci + the React bundle)
+# clinic journal: http://localhost:8088/admin — sign in with the ADMIN_KEY
 ```
+
+The image ([`bot/Dockerfile`](bot/Dockerfile)) is built from the repository root in two
+stages: Node builds the React client (the bundle is not committed), then Python installs the
+engine from [`bot/requirements-desktop.lock`](bot/requirements-desktop.lock) — the same
+pinned, hash-checked versions the desktop build ships — and copies the bundle in. SQLCipher
+is left out on purpose: its key lives under Windows DPAPI, so the server edition has no
+database encryption.
 
 `ADMIN_KEY` is required: the first-run PIN setup answers only a browser on the machine
 itself, and a request into the container comes from Docker's network. The database and the
-uploaded files live in the `dbdata` volume (`/data`). Reset to a fresh demo dataset:
+uploaded files live in the `dbdata` volume (`/data`); `clinic.json` is mounted from the
+repository read-write. Reset to a fresh demo dataset:
 `docker compose down -v && docker compose up -d`.
 
 ## Live demo (demo.dentpilot.md)

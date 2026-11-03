@@ -4,7 +4,9 @@ name: clinic-zambet
 
 services:
   bot:
-    build: ../../bot
+    build:
+      context: ../..
+      dockerfile: bot/Dockerfile
     container_name: zambet_bot
     environment:
       DATABASE_URL: sqlite:////data/dental.db
