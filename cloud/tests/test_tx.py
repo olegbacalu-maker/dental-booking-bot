@@ -107,8 +107,9 @@ def suite_settle_lock(res: Result) -> None:
     """settle, confirm, credit_again — только под db.connect(immediate=True), и пара: снятый
     immediate краснеет."""
     trees = _trees()
-    res.ok("исходники нашлись: main.py, jobs.py, payments.py",
-           {"main.py", "jobs.py", "payments.py"} <= set(trees), sorted(trees))
+    res.ok("исходники нашлись: роутеры оплаты, кабинета, web.py, jobs.py, payments.py",
+           {"routes_pay.py", "routes_admin_pay.py", "routes_cont.py", "web.py", "jobs.py", "payments.py"}
+           <= set(trees), sorted(trees))
     wrappers, held, bad = check(trees)
     res.ok("обёртки settle найдены: card_record, _settle_now",
            {"card_record", "_settle_now"} <= wrappers, sorted(wrappers))
@@ -154,13 +155,13 @@ OUTBOX_HOLDERS = {"_maib_callback", "_returned", "settle_cards", "payment_check"
 # в эту ветку не берём, список в отчёт). Ключ — «файл:функция → вызов».
 MAIL_IN_TX = {
     # не оплата (Р4): в эту ветку не берём, список — в отчёт
-    "routes_program.py:_sms_order → mail.send": "нота SMS из программы (main.py ~327)",
+    "routes_program.py:_sms_order → mail.send": "нота SMS из программы",
     "routes_program.py:_trial_program → trial.submit": "пробный из программы: выдача и письмо (trial.py:218)",
     "routes_public.py:trial_submit → trial.submit": "пробный с /proba: выдача и письмо (trial.py:218)",
     "routes_cont.py:cont_register_submit → account.register": "регистрация кабинета → trial.submit (trial.py:218)",
     "routes_cont.py:cont_add_submit → account.add_clinic": "«Adaugă clinică» → trial.submit (trial.py:218)",
     "routes_cont.py:cont_add_submit → routes_cont._send_added_letter": "письмо новой клинике кабинета (нота + ящик)",
-    "routes_admin.py:clinic_issue → routes_admin._send_latest": "файл письмом из админки после выдачи (main.py ~1650)",
+    "routes_admin.py:clinic_issue → routes_admin._send_latest": "файл письмом из админки после выдачи",
     "routes_admin.py:clinic_email → routes_admin._send_latest": "файл письмом из админки, кнопка «отправить»",
     "jobs.py:daily → jobs._one": "напоминания о сроке ежедневной задачи (send параметром)",
 }
@@ -286,10 +287,12 @@ def _prepend(trees: dict, fname: str, func: str, src: str) -> dict:
 
 def suite_mail_after_commit(res: Result) -> None:
     """Письма об оплате — после commit: ни mail.send, ни отправляющей функции внутри
-    `with db.connect` в main.py, jobs.py, payments.py, кроме названных исключений; и пары."""
+    `with db.connect` в main.py, роутерах routes_*.py, web.py, jobs.py, payments.py, кроме названных
+    исключений; и пары."""
     trees = _trees()
-    need = {"main.py", "jobs.py", "payments.py", "license.py", "sms.py", "mail.py"}
-    res.ok("исходники нашлись: main.py, jobs.py, payments.py, license.py, sms.py, mail.py",
+    need = {"routes_pay.py", "routes_admin_pay.py", "routes_cont.py", "web.py", "routes_program.py", "routes_admin.py",
+            "jobs.py", "payments.py", "license.py", "sms.py", "mail.py"}
+    res.ok("исходники нашлись: роутеры, web.py, jobs.py, payments.py, license.py, sms.py, mail.py",
            need <= set(trees), sorted(need - set(trees)))
     senders, boxed, bad = mail_check(trees)
     want = {"mail.send", "mail.deliver", "payments.send_paid", "payments.outbox", "license.mail_latest"}
@@ -316,7 +319,8 @@ def suite_mail_after_commit(res: Result) -> None:
     _, _, m = mail_check(_prepend(trees, "payments.py", "notify_paid", "mail.deliver(None)"))
     hit = {"routes_pay.py:_maib_callback → payments.notify_paid", "routes_pay.py:_returned → payments.notify_paid",
            "jobs.py:settle_cards → payments.notify_paid", "routes_admin_pay.py:payment_confirm → payments.notify_paid",
-           "routes_admin_pay.py:payment_repeat → payments.notify_paid", "routes_admin_pay.py:payment_check → routes_admin_pay._settle_now",
+           "routes_admin_pay.py:payment_repeat → payments.notify_paid",
+           "routes_admin_pay.py:payment_check → routes_admin_pay._settle_now",
            "web.py:card_go → payments.notify_paid"}
     res.ok("пара: notify_paid начал отправлять — красные все места оплаты", hit <= set(m), sorted(hit - set(m)))
     _, _, m = mail_check(_prepend(trees, "web.py", "payment_letter", "mail.send('a', 'b', 'c')"))
@@ -349,10 +353,11 @@ def net_check(trees: dict[str, ast.Module]) -> tuple[set, list]:
 
 def suite_net_outside_tx(res: Result) -> None:
     """maib — вне транзакции: ни maib.* с сетью, ни функции, что их зовёт (по цепочке), внутри
-    `with db.connect` в main.py, jobs.py, payments.py, кроме названных исключений; и пары."""
+    `with db.connect` в main.py, роутерах routes_*.py, web.py, jobs.py, payments.py, кроме названных
+    исключений; и пары."""
     trees = _trees()
-    need = {"maib.py", "main.py", "jobs.py", "payments.py"}
-    res.ok("исходники нашлись: maib.py, main.py, jobs.py, payments.py", need <= set(trees),
+    need = {"maib.py", "routes_pay.py", "routes_admin_pay.py", "routes_cont.py", "web.py", "jobs.py", "payments.py"}
+    res.ok("исходники нашлись: maib.py, роутеры оплаты, кабинета, web.py, jobs.py, payments.py", need <= set(trees),
            sorted(need - set(trees)))
     reach, bad = net_check(trees)
     want = {"maib._call", "maib.token", "maib.create", "maib.info", "payments.card_ask", "web.card_go"}

@@ -1,13 +1,19 @@
-"""DentPilot Cloud — сервер лицензий (docs/dentpilot-2/cloud.md, шаг 1).
+"""DentPilot Cloud — сервер лицензий и кабинет клиники (docs/dentpilot-2/cloud.md).
 
 Отдельная программа: ни одного импорта из bot/. Общее с движком — контракт
-файла лицензии и фикстуры tests/fixtures/license/. Здесь: вход администратора,
-клиники, выдача файла, письмо с файлом (L7), платежи переводом (L8),
-ежедневная задача с напоминаниями и журнал (L9), оплата картой через maib —
-ссылка, callback, проверка статуса (L12), ответ программе клиники на её
-суточный запрос нового файла (L13, /v1/license), публичная форма пробного
-периода /proba и заявки с неё в админке (L14), кабинет клиники со входом
-через Google и ссылка на скачивание программы (шаг 3, 01.10: /cont, /descarca).
+файла лицензии и фикстуры tests/fixtures/license/.
+
+Здесь только сборка (03.11, разнос main.py): посредники, startup, /health и
+подключение роутеров. Маршруты — по разделам:
+  routes_program    /v1/* — API программы клиники (Bearer-токен)
+  routes_pay        /plata/<ключ>, callback maib, /pay/ok|fail
+  routes_cont       /cont*, /auth/google* — кабинет клиники
+  routes_admin      /, /admin* — админка, кроме платежей
+  routes_admin_pay  /admin/payments*, нота и карта из карточки
+  routes_public     /robots.txt, /proba, /confirma/<ключ>, /descarca
+  web               общие помощники роутеров (зовутся `web.имя`)
+Новый маршрут — строка в tests/test_routes.py::SNAPSHOT. ⛔ main не импортирует
+никто (tests/test_routes.py): main подключает роутеры, обратный импорт замкнул бы круг.
 """
 from __future__ import annotations
 

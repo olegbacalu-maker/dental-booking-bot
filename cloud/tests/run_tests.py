@@ -50,6 +50,7 @@ SUITES = [
     ("Сервер: без импортов движка, одни версии", test_pure.suite),
     ("Маршруты: тот же набор, что до разноса main.py; один адрес — один маршрут", test_routes.suite_snapshot),
     ("Маршруты: ни один модуль не импортирует main", test_routes.suite_layout),
+    ("Маршруты: main.py — только сборка, роутеры подключены и не знают друг друга", test_routes.suite_routers),
     ("Оплата картой: settle только под замком записи (immediate)", test_tx.suite_settle_lock),
     ("Оплата картой: письма об оплате — после commit", test_tx.suite_mail_after_commit),
     ("Оплата картой: сеть maib — вне транзакции", test_tx.suite_net_outside_tx),

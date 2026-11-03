@@ -411,7 +411,9 @@ Dockerfile. ⛔ Ни одного импорта из `bot/`: движок — �
 документ и вектор контракта.
 
 ```
-cloud/app/main.py       FastAPI: админка (без React), /v1/license (✅ L13), callback maib (L12)
+cloud/app/main.py       FastAPI: только сборка — посредники, startup, /health, роутеры (с 03.11)
+cloud/app/routes_*.py   маршруты по разделам: program (/v1/*), pay (/plata, callback maib), cont,
+                        admin, admin_pay, public; общие помощники — web.py
 cloud/app/db.py         SQLite (WAL) + шаги миграций тем же приёмом, что db.py движка
 cloud/app/license.py    выдача: payload → подпись приватным ключом → seq+1 → запись в issues
 cloud/app/jobs.py       ежедневная задача: состояния, напоминания, письма
@@ -730,7 +732,7 @@ UTF-16 в заголовке, перенос, экранирование ско�
   знает оба кода.
 - Тексты кабинета и формы пробного (23.10, находка сессии гида): уже
   записанная клиника активирует программу на любом компьютере кодом на e-mail
-  (заявка с теми же данными — повтор, `main._trial_program`), а не «сама»;
+  (заявка с теми же данными — повтор, `routes_program._trial_program`), а не «сама»;
   «сама» — только программа, приславшая заявку.
 
 Проверяется `cloud/tests/test_tiers.py`: правило без сервера (вариант, цена,
@@ -835,7 +837,7 @@ actualizare» страницы, сторожит `test_structure`). Двусто
 — «админ-панель, VPS готов: скачивание с сайта, лицензия, личный кабинет,
 регистрация через Google». Сделано в `cloud/` (`app/account.py`,
 `app/download.py`, маршруты `/cont*`, `/auth/google*`, `/descarca` в
-`main.py`, страницы в `views.py`, миграция 6). VPS под админку и кабинет —
+`main.py` (с 03.11 — `routes_cont.py`, `routes_public.py`), страницы в `views.py`, миграция 6). VPS под админку и кабинет —
 тот же `cloud.dentpilot.md`; демо живёт на сервере маркетплейса, второй
 VPS — только под это.
 
@@ -1077,7 +1079,7 @@ intrare)», карточка «Autentificat prin e-mail», письмо о по�
    (ссылка всё равно гаснет).
 
 ⛔ **Вход кнопкой — только своя клиника** (рекомендация, Олег 27.10 «можешь приступать»).
-`main._current_account` без учётной записи берёт `contlink.session` — запись-заменитель с
+`routes_cont._current_account` без учётной записи берёт `contlink.session` — запись-заменитель с
 `provider = account.PROGRAM`; `account.clinics` отдаёт ей одну клинику, поэтому `pick` не
 пускает к другим по `?c=`, а список «Clinicile mele» не строится. Разделы обо всём кабинете
 (`contlink.DENY`: «Adaugă clinică», общая нота) закрывает посредник `_cont_program_only` по

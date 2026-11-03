@@ -601,7 +601,7 @@ def _payment_rows(rows: list, with_clinic: bool = False) -> str:
 def pay_page(ok: bool, p=None) -> str:
     """Куда maib возвращает браузер клиники (L12). Редирект — не истина о платеже:
     «plătită» — только когда сервер уже закрыл ноту по ответу maib (settle), иначе «în
-    curs de confirmare». `p` — платёж по payId из адреса (main._returned): № заказа, что
+    curs de confirmare». `p` — платёж по payId из адреса (routes_pay._returned): № заказа, что
     оплачивается, сумма, дата, поставщик и сайт — требование maib к странице возврата;
     без него (адрес без payId, чужой) — общий текст без подробностей."""
     if ok:
@@ -2731,7 +2731,7 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
     else:
         act = ""
     # Клиника кабинета уже на сервере: программа на любом её компьютере активируется кодом на
-    # e-mail (заявка с теми же данными — «повтор», main._trial_program), а не «сама» (23.10)
+    # e-mail (заявка с теми же данными — «повтор», routes_program._trial_program), а не «сама» (23.10)
     how = (f"<p class='muted' style='margin:14px 0 0'>La prima pornire programul cere datele clinicii și "
            f"codul pe care îl trimitem pe e-mailul clinicii — așa se activează pe orice calculator al ei. "
            f"Înainte de instalare citiți <a href='{esc(site)}/descarca.html'>ce cere Legea 195</a>.</p>")

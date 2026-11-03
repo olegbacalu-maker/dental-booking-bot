@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from . import (account, auth, cabinet, config, contlink, contracts, db, download, emailconf, fleet, jobs, maib, mail,
                modele, payments, paylink, receipts, sms, sms_paper, terms, tiers, trial, views, web)
-from . import login as elogin  # ⚠️ не `login`: так зовётся маршрут входа админки (routes_admin) — имя одно на всё облако
+from . import login as elogin  # ⚠️ не `login`: так зовётся маршрут входа админки (routes_admin)
 
 log = logging.getLogger("cloud")
 router = APIRouter()

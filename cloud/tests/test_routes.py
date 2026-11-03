@@ -193,3 +193,59 @@ def suite_layout(res: Result) -> None:
         bad = copy.deepcopy(trees)
         bad["views.py"].body.insert(0, ast.parse(src).body[0])
         res.ok(f"пара: «{src}» в модуле — красный", main_importers(bad) == ["views.py:1"], repr(main_importers(bad)))
+
+
+_VERBS = ("get", "post", "put", "patch", "delete", "api_route")
+
+
+def layout_faults(trees: dict[str, ast.Module]) -> list[str]:
+    """Нарушения раскладки: маршрут в main.py (кроме /health), роутер без `router = APIRouter()`
+    или не подключённый в main, роутер, импортирующий другой роутер, web.py, знающий роутеры."""
+    out = []
+    routers = sorted(n[:-3] for n in trees if n.startswith("routes_"))
+    for node in ast.walk(trees["main.py"]):
+        for d in getattr(node, "decorator_list", []):
+            if (isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute) and d.func.attr in _VERBS
+                    and not (d.args and isinstance(d.args[0], ast.Constant) and d.args[0].value == "/health")):
+                out.append(f"main.py:{d.lineno} маршрут {node.name} вне роутера")
+    included = {c.args[0].value.id for c in ast.walk(trees["main.py"])
+                if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) and c.func.attr == "include_router"
+                and c.args and isinstance(c.args[0], ast.Attribute) and isinstance(c.args[0].value, ast.Name)}
+    for r in routers:
+        if r not in included:
+            out.append(f"{r}.py не подключён в main.py")
+        if not any(isinstance(n, ast.Assign) and any(getattr(t, "id", "") == "router" for t in n.targets)
+                   for n in trees[f"{r}.py"].body):
+            out.append(f"{r}.py без router = APIRouter()")
+    for name, tree in trees.items():
+        if not (name.startswith("routes_") or name == "web.py"):
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.level == 1:
+                mods = [node.module] if node.module else [a.name for a in node.names]
+                bad = [m for m in mods if m.startswith("routes_")]
+                if bad:
+                    out.append(f"{name}:{node.lineno} импортирует {', '.join(bad)}")
+    return out
+
+
+def suite_routers(res: Result) -> None:
+    """main.py — только сборка; каждый роутер подключён; роутеры знают web, не друг друга."""
+    trees = _trees()
+    routers = sorted(n for n in trees if n.startswith("routes_"))
+    res.ok("исходники нашлись: шесть роутеров routes_*.py и web.py", len(routers) >= 6 and "web.py" in trees,
+           repr(routers))
+    res.check("main.py — только сборка; роутеры подключены и не импортируют друг друга", layout_faults(trees), [])
+    bad = copy.deepcopy(trees)
+    bad["main.py"].body.append(ast.parse("@app.get('/x')\ndef x():\n    pass").body[0])
+    res.ok("пара: маршрут в main.py — красный", any("маршрут x" in f for f in layout_faults(bad)),
+           repr(layout_faults(bad)))
+    bad = copy.deepcopy(trees)
+    bad["main.py"].body = [n for n in bad["main.py"].body
+                           if "routes_pay.router" not in ast.unparse(n)]
+    res.ok("пара: роутер не подключён — красный", "routes_pay.py не подключён в main.py" in layout_faults(bad),
+           repr(layout_faults(bad)))
+    bad = copy.deepcopy(trees)
+    bad["routes_pay.py"].body.insert(0, ast.parse("from . import routes_cont").body[0])
+    res.ok("пара: роутер импортирует роутер — красный",
+           any(f.startswith("routes_pay.py:1 ") for f in layout_faults(bad)), repr(layout_faults(bad)))

@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse, Response
 
 from . import (account, config, contlink, db, emailconf, fleet, license, maib, mail, payments, paylink, sms, smsmd,
                terms, trial, updates, views, web)
-from . import login as elogin  # ⚠️ не `login`: так зовётся маршрут входа админки (routes_admin) — имя одно на всё облако
+from . import login as elogin  # ⚠️ не `login`: так зовётся маршрут входа админки (routes_admin)
 
 log = logging.getLogger("cloud")
 router = APIRouter()
