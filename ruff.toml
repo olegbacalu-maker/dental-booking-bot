@@ -18,3 +18,8 @@ extend-exclude = ["sandbox"]
 select = ["F", "E9", "PLE", "RUF006"]
 # F541 — f-строка без подстановок: безвредна, а правка — чистая форма.
 ignore = ["F541"]
+
+[lint.per-file-ignores]
+# Пакет db (03.11, db-split) реэкспортирует каждое имя прежнего db.py — около
+# 260: весь код зовёт `from . import db; db.X`. Импорт здесь И ЕСТЬ назначение.
+"bot/app/db/__init__.py" = ["F401"]
