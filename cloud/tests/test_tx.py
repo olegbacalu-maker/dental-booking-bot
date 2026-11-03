@@ -305,8 +305,8 @@ def suite_mail_after_commit(res: Result) -> None:
               [b for b in bad if b not in MAIL_IN_TX], [])
     res.check("исключения живые (нет устаревших строк)", sorted(set(MAIL_IN_TX) - set(bad)), [])
     # пары: каждая поломка краснеет
-    _, _, m = mail_check(_inject(trees, "main.py", "_maib_callback", "mail.send('a', 'b', 'c')"))
-    res.ok("пара: mail.send в транзакции callback — красный", "main.py:_maib_callback → mail.send" in m, repr(m))
+    _, _, m = mail_check(_inject(trees, "routes_pay.py", "_maib_callback", "mail.send('a', 'b', 'c')"))
+    res.ok("пара: mail.send в транзакции callback — красный", "routes_pay.py:_maib_callback → mail.send" in m, repr(m))
     _, _, m = mail_check(_inject(trees, "jobs.py", "settle_cards", "payments.send_paid([])"))
     res.ok("пара: send_paid в транзакции ежедневной задачи — красный",
            "jobs.py:settle_cards → payments.send_paid" in m, repr(m))
@@ -314,7 +314,7 @@ def suite_mail_after_commit(res: Result) -> None:
     res.ok("пара: connect раньше outbox («Подтвердить») — красный",
            "main.py:payment_confirm → payments.outbox" in m, repr(m))
     _, _, m = mail_check(_prepend(trees, "payments.py", "notify_paid", "mail.deliver(None)"))
-    hit = {"main.py:_maib_callback → payments.notify_paid", "main.py:_returned → payments.notify_paid",
+    hit = {"routes_pay.py:_maib_callback → payments.notify_paid", "routes_pay.py:_returned → payments.notify_paid",
            "jobs.py:settle_cards → payments.notify_paid", "main.py:payment_confirm → payments.notify_paid",
            "main.py:payment_repeat → payments.notify_paid", "main.py:payment_check → main._settle_now",
            "web.py:card_go → payments.notify_paid"}
@@ -366,16 +366,16 @@ def suite_net_outside_tx(res: Result) -> None:
               [b for b in bad if b not in NET_IN_TX], [])
     res.check("исключения живые (нет устаревших строк)", sorted(set(NET_IN_TX) - set(bad)), [])
     # пары: каждая поломка краснеет
-    _, m = net_check(_inject(trees, "main.py", "_maib_callback", "maib.info('x')"))
-    res.ok("пара: maib.info в транзакции callback — красный", "main.py:_maib_callback → maib.info" in m, repr(m))
+    _, m = net_check(_inject(trees, "routes_pay.py", "_maib_callback", "maib.info('x')"))
+    res.ok("пара: maib.info в транзакции callback — красный", "routes_pay.py:_maib_callback → maib.info" in m, repr(m))
     _, m = net_check(_inject(trees, "jobs.py", "settle_cards", "maib.info('x')"))
     res.ok("пара: maib.info в транзакции ежедневной задачи — красный",
            "jobs.py:settle_cards → maib.info" in m, repr(m))
     _, m = net_check(_inject(trees, "web.py", "card_go", "payments.card_ask(plan)"))
     res.ok("пара: card_ask в транзакции кнопки карты — красный", "web.py:card_go → payments.card_ask" in m, repr(m))
-    _, m = net_check(_inject(trees, "main.py", "pay_link_submit", "web.card_go(plan, 'program', back)"))
+    _, m = net_check(_inject(trees, "routes_pay.py", "pay_link_submit", "web.card_go(plan, 'program', back)"))
     res.ok("пара: кнопка карты целиком внутри транзакции страницы оплаты (как до шага 4) — красный",
-           "main.py:pay_link_submit → web.card_go" in m, repr(m))
+           "routes_pay.py:pay_link_submit → web.card_go" in m, repr(m))
     _, m = net_check(_prepend(trees, "payments.py", "card_record", "maib.create(1, 'r', 'd')"))
     hit = {f"{_where(trees, h)}:{h} → payments.card_record" for h in ("card_go", "payment_new", "payment_link")}
     res.ok("пара: запись ответа начала звать maib — красные кнопка карты, нота и ссылка из админки",
