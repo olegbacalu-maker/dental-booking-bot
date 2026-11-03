@@ -188,7 +188,7 @@ def _blocked(dbfile: pathlib.Path, *args) -> bool:
 # Функции модуля ищут соседей в СВОИХ глобалах, и переопределение, дописанное
 # в другой файл пакета, не перекрыло бы ничего.
 _SCHEMA_PY = "app/db/__init__.py"       # MIGRATIONS
-_SLOTS_PY = "app/db/__init__.py"        # _slot_conflicts, _uq_index_state
+_SLOTS_PY = "app/db/slots.py"           # _slot_conflicts, _uq_index_state
 
 
 def _patched_bot(work: pathlib.Path, patch: str, rel: str) -> pathlib.Path:

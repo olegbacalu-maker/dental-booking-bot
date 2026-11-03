@@ -103,7 +103,7 @@ _FILE_OK = {"app/paths.py", "desktop.py"}
 # ищет своё имя только в названном файле.
 _DB_STATE = "app/db/__init__.py"     # _CONN, _SQ, ACTOR_HOOK — переприсваиваемое
 _DB_SCHEMA = "app/db/__init__.py"    # SCHEMA_VERSION, MIGRATIONS, SQLITE_SCHEMA
-_DB_SLOTS = "app/db/__init__.py"     # _slot_lock, _BOOK_LOCK, _uq_slot_sql
+_DB_SLOTS = "app/db/slots.py"        # _slot_lock, _BOOK_LOCK, _uq_slot_sql
 _DB_DAY = "app/db/__init__.py"       # day_appointments: выборка дня
 _DB_TEXTS = "app/db/__init__.py"     # тексты летописи пациента («Plan: …»)
 

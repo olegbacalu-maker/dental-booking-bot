@@ -92,7 +92,7 @@ def suite_rule(res: Result) -> None:
 
     # ⛔ перечисление обязано лежать внутри активных статусов базы: иначе
     # кресло ждало бы статус, которого конвейер не ставит
-    src = (pathlib.Path(__file__).resolve().parents[1] / "bot" / "app" / "db" / "__init__.py").read_text(encoding="utf-8")
+    src = (pathlib.Path(__file__).resolve().parents[1] / "bot" / "app" / "db" / "slots.py").read_text(encoding="utf-8")
     active = next(ast.literal_eval(n.value) for n in ast.parse(src).body
                   if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") == "ACTIVE_STATUSES")
     res.ok("кресло и очередь — внутри db.ACTIVE_STATUSES",
