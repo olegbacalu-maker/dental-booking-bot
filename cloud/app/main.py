@@ -21,12 +21,10 @@ from fastapi import BackgroundTasks, FastAPI, Form, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import (account, auth, cabinet, config, contlink, contracts, db, download, fleet, jobs, license, logmask, maib,
-               mail, modele, payments, paylink, receipts, robots, sms, sms_paper, sms_rule, smsmd, smsreport, tiers, trial,
-               updates, views)
+from . import (account, auth, cabinet, config, contlink, contracts, db, download, emailconf, fleet, jobs, license,
+               logmask, maib, mail, modele, payments, paylink, receipts, robots, sms, sms_paper, sms_rule, smsmd,
+               smsreport, terms, tiers, trial, updates, views, web)
 from . import login as elogin  # ⚠️ не `login`: так зовётся маршрут входа админки ниже, он затенил бы модуль
-from . import emailconf  # подтверждение ящика клиники (27.10)
-from . import terms  # акт акцепта условий (29.10)
 from . import terms as terms_mod  # то же — внутри маршрутов, где `terms` — поле формы (страница оплаты)
 
 APP_VERSION = "0.1.0"
@@ -303,7 +301,7 @@ def _sms_order(c, body: dict, ip: str) -> Response:
             return _sms_answer(why)
         if name:
             # имя общее на кабинет (26.10): нота за год имени — главной клинике, на её ящик
-            c = _clinic(con, sms.name_owner(con, c["id"]))
+            c = web.clinic(con, sms.name_owner(con, c["id"]))
             acc = sms.ensure(con, c["id"])
         if name and acc["sender_state"] not in (sms.S_REQUESTED, sms.S_SUBMITTED, sms.S_ACTIVE):
             return _sms_answer("sms_name_none")
@@ -340,7 +338,7 @@ async def sms_order(request: Request) -> Response:
     body = await _sms_body(request)
     if body is None:
         return _sms_answer("bad_json")
-    return await run_in_threadpool(_sms_order, c, body, _ip(request))
+    return await run_in_threadpool(_sms_order, c, body, web.ip(request))
 
 
 @app.post("/v1/smsmd/dlr/{secret}")
@@ -373,13 +371,6 @@ def pay_link_page(pid: str, msg: str = "") -> Response:
                                             lines=lines))
 
 
-def _months(raw: str) -> int:
-    try:
-        return int(raw)
-    except ValueError:
-        return 0
-
-
 @app.post(paylink.PATH + "/{pid}", response_class=HTMLResponse)
 def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method: str = Form(payments.TRANSFER),
                     idno: str = Form(""), tier: str = Form(""), terms: str = Form(""),
@@ -391,16 +382,16 @@ def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method:
     maib, «Am citit și accept Termenii» перед оплатой. IDNO без него абонемента не
     бывает — заполняется тут же. Вариант не назван (старая страница) — текущий.
     `ref` — ожидающая нота SMS (пакет, имя) этой клиники: её карта, тем же путём.
-    Карта — `_card_go`: ссылка maib рождается по клику (живёт минуты, maib.PAY_TTL).
+    Карта — `web.card_go`: ссылка maib рождается по клику (живёт минуты, maib.PAY_TTL).
     Три шага: нота и снимок для maib — транзакцией; письмо с нотой и maib — после её commit,
-    вне замка записи; ответ maib — своей короткой (`_card_go`)."""
+    вне замка записи; ответ maib — своей короткой (`web.card_go`)."""
     if not auth.same_origin_post(request):
         return Response(status_code=403)
-    ip = _ip(request)
+    ip = web.ip(request)
     back = f"{paylink.PATH}/{pid}"
     if paylink.limited(ip):
         return RedirectResponse(f"{back}?msg=limited", status_code=303)
-    m = _months(months)
+    m = web.months(months)
     idno = "".join(idno.split())
     card = method == payments.CARD and maib.enabled()
     plan = None
@@ -438,7 +429,7 @@ def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method:
                     return RedirectResponse(f"{back}?msg=idno_taken", status_code=303)
                 con.execute("UPDATE clinics SET idno=? WHERE id=?", (idno, c["id"]))
                 db.audit(con, "program", "clinic_edit", c["id"], f"IDNO {idno} (pagina de plată)")
-                c = _clinic(con, c["id"])
+                c = web.clinic(con, c["id"])
             if len(c["idno"] or "") != 13:
                 return RedirectResponse(f"{back}?msg=pay_need_idno", status_code=303)
             sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (c["id"],)).fetchone()
@@ -449,49 +440,16 @@ def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method:
                                         status_code=303)
             if outcome != payments.EXISTS:
                 # новая нота — письмом и при карте: не дойдёт клиника до оплаты — реквизиты у неё есть
-                box.add([(True, _payment_letter(con, c, p, "program"))])
+                box.add([(True, web.payment_letter(con, c, p, "program"))])
             if card:
                 plan = payments.card_plan(con, p, c, ip)
     if plan is not None:
-        return _card_go(plan, "program", back)
+        return web.card_go(plan, "program", back)
     code = {payments.CREATED: "note_created", payments.REPLACED: "note_replaced"}.get(outcome, "note_exists")
     return RedirectResponse(f"{back}?msg={code}", status_code=303)
 
 
-def _card_go(plan: payments.Card, who: str, back: str, gone: str = "note_gone") -> Response:
-    """Клик «Plătește cu cardul», шаги 2–3 (нота и снимок `plan` уже закоммичены вызывающим):
-    maib — вне транзакции (payments.card_ask), запись ответа — короткой под замком записи
-    (payments.card_record). → браузер на страницу maib или назад: card_paid (maib сказал
-    «оплачено» — письмо об оплате после commit; или нота уже оплачена картой), `gone` (нота
-    закрылась иначе, пока maib думал), maib_failed."""
-    payments.card_ask(plan)
-    with payments.outbox() as box, db.connect(immediate=True) as con:
-        outcome, url, p = payments.card_record(con, plan, who)
-        if outcome == payments.SETTLED_PAID:
-            box.add(payments.notify_paid(con, p, who))
-    if outcome == payments.LINK:
-        return RedirectResponse(url, status_code=303)
-    if outcome == payments.MAIB_FAILED:
-        log.warning("ссылка maib для %s не создана: %s", plan.reference, url)
-        code = "maib_failed"
-    elif outcome == payments.SETTLED_PAID or (p["status"] == payments.PAID and p["paid_via"] == payments.CARD):
-        code = "card_paid"
-    else:
-        code = gone
-    return RedirectResponse(f"{back}{'&' if '?' in back else '?'}msg={code}", status_code=303)
-
-
 # ---------- вход ----------
-
-
-def _guard(request: Request) -> RedirectResponse | None:
-    if auth.current_user(request) is None:
-        return RedirectResponse("/admin/login", status_code=303)
-    return None
-
-
-def _ip(request: Request) -> str:
-    return request.client.host if request.client else "?"
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -508,7 +466,7 @@ def login_page(msg: str = "") -> Response:
 def login(request: Request, user: str = Form(""), password: str = Form("")) -> Response:
     if not auth.same_origin_post(request):
         return Response(status_code=403)
-    ip = _ip(request)
+    ip = web.ip(request)
     if auth.locked(ip):
         return RedirectResponse("/admin/login?msg=login_locked", status_code=303)
     ok = (config.ADMIN_HASH and secrets.compare_digest(user.strip(), config.ADMIN_USER)
@@ -550,12 +508,12 @@ _REQUESTS_SQL = (f"SELECT c.* FROM clinics c WHERE c.origin IN ({', '.join(repr(
 
 @app.get("/admin", response_class=HTMLResponse)
 def clinics(request: Request, msg: str = "", state: str = "") -> Response:
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     with db.connect() as con:
         rows = con.execute(_CLINICS_SQL).fetchall()
         requests = con.execute(_REQUESTS_SQL).fetchall()
-        pending, names = _pending_count(con), _names_count(con)
+        pending, names = web.pending_count(con), web.names_count(con)
     return HTMLResponse(views.clinics_page(rows, auth.current_user(request), msg, requests=requests, state=state,
                                            pending=pending, names=names))
 
@@ -576,7 +534,7 @@ def trial_submit(request: Request, name: str = Form(""), idno: str = Form(""), c
     (trial.submit), письмо Олегу; в approve — клинике «принято», в auto — файл."""
     if not auth.same_origin_post(request):
         return Response(status_code=403)
-    ip = _ip(request)
+    ip = web.ip(request)
     if trial.limited(ip):
         return HTMLResponse(views.trial_page("limited"), status_code=429)
     fields = {"name": name, "idno": idno, "contact_name": contact_name, "email": email, "phone": phone,
@@ -660,7 +618,7 @@ async def trial_api(request: Request) -> Response:
     автообновлением (L13). Повтор — 409 с текстом (почему объявляется — trial.py).
     Без куки и без Origin: зовёт не браузер, а программа; токен получает только
     тот, кто завёл клинику этой заявкой."""
-    ip = _ip(request)
+    ip = web.ip(request)
     if not license.renew_offered():
         return _api_err("no_renew", 503)
     if trial.limited(ip):
@@ -719,7 +677,7 @@ async def trial_verify(request: Request) -> Response:
     заявки. Дальше программа спрашивает /v1/license и получает последний файл.
     Код — одноразовый, CODE_TTL, CODE_ATTEMPTS ошибок; проверок с адреса —
     VERIFY_PER_HOUR (trial.py)."""
-    ip = _ip(request)
+    ip = web.ip(request)
     if not license.renew_offered():
         return _api_err("no_renew", 503)
     if trial.verify_limited(ip):
@@ -798,7 +756,7 @@ async def _email_json(request: Request) -> dict | None:
 async def email_code_api(request: Request) -> Response:
     """«Retrimite»: письмо со ссылкой и кодом на ящик клиники. Подтверждённому — ответ без письма.
     Лимиты: запросов с адреса — как у входа кодом, писем клинике — emailconf.CODES_PER_HOUR."""
-    token, ip = _bearer(request), _ip(request)
+    token, ip = _bearer(request), web.ip(request)
     if not token:
         return JSONResponse({"ok": False, "code": "token_missing"}, status_code=401)
     if elogin.request_limited(ip):
@@ -810,7 +768,7 @@ async def email_code_api(request: Request) -> Response:
 async def email_change_api(request: Request) -> Response:
     """«Schimbă adresa»: лечение опечатки — новый ящик и код на него. ⛔ Только пока ящик не
     подтверждён (emailconf.change): подтверждённый меняет кабинет или Олег."""
-    token, ip = _bearer(request), _ip(request)
+    token, ip = _bearer(request), web.ip(request)
     if not token:
         return JSONResponse({"ok": False, "code": "token_missing"}, status_code=401)
     if elogin.request_limited(ip):
@@ -838,7 +796,7 @@ def _email_check(token: str, code: str, ip: str) -> Response:
 async def email_confirm_api(request: Request) -> Response:
     """Код из письма, введённый в программе → ящик подтверждён. Проверок с адреса — как у кода
     активации (trial.VERIFY_PER_HOUR), ошибок на коды клиники — emailconf.CODE_ATTEMPTS."""
-    token, ip = _bearer(request), _ip(request)
+    token, ip = _bearer(request), web.ip(request)
     if not token:
         return JSONResponse({"ok": False, "code": "token_missing"}, status_code=401)
     if trial.verify_limited(ip):
@@ -880,12 +838,12 @@ def email_confirm_submit(request: Request, key: str) -> Response:
 def trial_decline(request: Request, cid: str) -> Response:
     """Скрыть заявку с формы: пробный не выдан, клиника остаётся (и её IDNO/e-mail —
     в правиле «второго пробного нет»)."""
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     with db.connect() as con:
-        if _clinic(con, cid) is None:
+        if web.clinic(con, cid) is None:
             return Response(status_code=404)
         # токен — долой: программа, ждущая по этой заявке, получит 401 и скажет
         # «cererea nu mai este activă», а не будет спрашивать вечно
@@ -906,7 +864,7 @@ def _clean(name: str, idno: str) -> str:
 def clinic_new(request: Request, name: str = Form(""), idno: str = Form(""),
                contact_name: str = Form(""), email: str = Form(""), phone: str = Form(""),
                address: str = Form("")) -> Response:
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
@@ -922,16 +880,12 @@ def clinic_new(request: Request, name: str = Form(""), idno: str = Form(""),
     return RedirectResponse(f"/admin/clinics/{cid}?msg=clinic_ok", status_code=303)
 
 
-def _clinic(con, cid: str):
-    return con.execute("SELECT * FROM clinics WHERE id=?", (cid,)).fetchone()
-
-
 @app.get("/admin/clinics/{cid}", response_class=HTMLResponse)
 def clinic_card(request: Request, cid: str, msg: str = "", log: str = "") -> Response:
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     with db.connect() as con:
-        c = _clinic(con, cid)
+        c = web.clinic(con, cid)
         if c is None:
             return Response("нет такой клиники", status_code=404)
         sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (cid,)).fetchone()
@@ -947,11 +901,11 @@ def clinic_card(request: Request, cid: str, msg: str = "", log: str = "") -> Res
         pays = payments.of_clinic(con, cid)
         rems = con.execute("SELECT * FROM reminders WHERE subscription_id=? ORDER BY sent_at DESC, rowid DESC",
                            (cid,)).fetchall()
-        pending = _pending_count(con)
+        pending = web.pending_count(con)
         accounts = account.of_clinic(con, cid)
         devices = fleet.of_clinic(con, cid)
         smsinfo = smsreport.clinic_detail(con, cid)
-        names = _names_count(con)
+        names = web.names_count(con)
         active = fleet.active(con)
         cab = [(r, con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (r["id"],)).fetchone(),
                 con.execute("SELECT count(*) FROM devices WHERE clinic_id=?", (r["id"],)).fetchone()[0])
@@ -972,7 +926,7 @@ def clinic_sibling(request: Request, cid: str, name: str = Form(""), address: st
     """«Добавить клинику в кабинет» (26.10): ещё одна клиника с теми же входами кабинета, что у
     этой; тот же IDNO и ящик разрешены, если совпавшая клиника — этого кабинета. Пробный — как у
     клиники из админки: кнопкой во вкладке «Лицензия» новой карточки."""
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
@@ -983,7 +937,7 @@ def clinic_sibling(request: Request, cid: str, name: str = Form(""), address: st
     f = {"name": " ".join(name.split()), "address": " ".join(address.split()), "phone": phone.strip(),
          "email": "".join(email.split()), "idno": idno.strip(), "contact_name": " ".join(contact_name.split())}
     with db.connect(immediate=True) as con:
-        c = _clinic(con, cid)
+        c = web.clinic(con, cid)
         if c is None:
             return Response(status_code=404)
         if not account.of_clinic(con, cid):
@@ -999,12 +953,12 @@ def clinic_sibling(request: Request, cid: str, name: str = Form(""), address: st
 
 @app.get("/admin/fleet", response_class=HTMLResponse)
 def fleet_page(request: Request, msg: str = "") -> Response:
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     with db.connect() as con:
         rep = fleet.report(con)
-        pending = _pending_count(con)
-        names = _names_count(con)
+        pending = web.pending_count(con)
+        names = web.names_count(con)
     return HTMLResponse(views.fleet_page(rep, auth.current_user(request), msg, pending, names))
 
 
@@ -1017,16 +971,6 @@ def fleet_api(request: Request) -> Response:
     with db.connect() as con:
         rep = fleet.report(con)
     return JSONResponse({"ok": True, "data": rep})
-
-
-def _pending_count(con) -> int:
-    return con.execute("SELECT count(*) FROM payments WHERE status='pending'").fetchone()[0]
-
-
-def _names_count(con) -> int:
-    """Имена отправителей, ждущие Олега (заявка или подано): счётчик у раздела «SMS»."""
-    return con.execute("SELECT count(*) FROM sms_accounts WHERE sender_state IN (?, ?)",
-                       (sms.S_REQUESTED, sms.S_SUBMITTED)).fetchone()[0]
 
 
 # ---------- модуль «SMS» (S4): кто сколько отправил, имена, деньги ----------
@@ -1046,12 +990,12 @@ def _period_args(request: Request) -> tuple[str, date | None, date | None]:
 
 @app.get("/admin/sms", response_class=HTMLResponse)
 def sms_admin(request: Request, msg: str = "") -> Response:
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     kind, frm, to = _period_args(request)
     with db.connect() as con:
         rep = smsreport.report(con, kind, frm, to)
-        pending = _pending_count(con)
+        pending = web.pending_count(con)
     return HTMLResponse(views.sms_page(rep, auth.current_user(request), msg, pending))
 
 
@@ -1069,7 +1013,7 @@ def sms_api(request: Request) -> Response:
 @app.get("/admin/sms/export.xlsx")
 def sms_export(request: Request, month: str = "") -> Response:
     """Excel за месяц по клиникам — для сверки с фактурой sms.md. Без номеров и текстов."""
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     with db.connect() as con:
         name, data = smsreport.export(con, month)
@@ -1081,7 +1025,7 @@ def sms_export(request: Request, month: str = "") -> Response:
 @app.post("/admin/sms/sync")
 def sms_sync(request: Request) -> Response:
     """Сверить имена с sms.md сейчас — то же, что делает ежедневная задача."""
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
@@ -1099,7 +1043,7 @@ def sms_sync(request: Request) -> Response:
 def sms_test(request: Request, to: str = Form("")) -> Response:
     """Тестовая SMS себе от общего имени, мимо пакетов клиник. Номер — только в
     памяти запроса: в журнал идёт факт и исход, без цифр."""
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
@@ -1126,14 +1070,14 @@ def clinic_sms_action(request: Request, cid: str, action: str = Form(""), value:
                       custom_ro: str = Form(""), custom_ru: str = Form(""), custom_on: str = Form("")) -> Response:
     """Кнопки карточки › SMS: вкл/выкл, пилот, потолок, начисление с причиной, имя
     (заявка; заявление получено → подано → отказ). Каждое — строка в журнале."""
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     who = auth.current_user(request)
     back = f"/admin/clinics/{cid}"
     with db.connect(immediate=True) as con:
-        if _clinic(con, cid) is None:
+        if web.clinic(con, cid) is None:
             return Response(status_code=404)
         code = "sms_saved"
         if action in ("on", "off"):
@@ -1169,7 +1113,7 @@ def clinic_sms_paper(request: Request, cid: str) -> Response:
     """Подписанное заявление клиники на имя (загружено в кабинете, sms_paper.py) —
     файлом, для подачи в кабинете sms.md. ⚠️ Файл прислала клиника: отдаётся
     вложением с nosniff, а не в окно админки. Нет файла у текущей заявки — 404."""
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     with db.connect() as con:
         p = sms_paper.current(con, cid, body=True)
@@ -1185,11 +1129,11 @@ def clinic_sms_paper(request: Request, cid: str) -> Response:
 @app.get("/admin/clinics/{cid}/documente/{rid}.pdf")
 def clinic_document_file(request: Request, cid: str, rid: int) -> Response:
     """⚠️ Файл прислала клиника: вложением с nosniff, не в окно админки. Нет строки или файла — 404."""
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     with db.connect() as con:
         r = contracts.get(con, rid)
-        c = _clinic(con, cid)
+        c = web.clinic(con, cid)
     if r is None or c is None or r["clinic_id"] != cid:
         return Response(status_code=404)
     data = contracts.read_file(r)
@@ -1207,7 +1151,7 @@ def clinic_document_file(request: Request, cid: str, rid: int) -> Response:
 def daily_job(request: Request) -> Response:
     """То же, что cron: напоминания по таблице за сегодня. Повторный запуск в тот же
     день ничего не шлёт — ключ (подписка, kind, period) в reminders."""
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
@@ -1221,14 +1165,14 @@ _AUDIT_SQL = """SELECT a.*, c.name AS clinic FROM audit a LEFT JOIN clinics c ON
 
 @app.get("/admin/audit", response_class=HTMLResponse)
 def audit_log(request: Request, msg: str = "", kind: str = "") -> Response:
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     codes = views.audit_codes(kind)  # раздел журнала (?kind=pay); неизвестный — «все»
     only = f"WHERE a.what IN ({','.join('?' * len(codes))}) " if codes else ""
     with db.connect() as con:
         rows = con.execute(_AUDIT_SQL.replace("ORDER BY", only + "ORDER BY", 1), codes).fetchall()
         by_what = dict(con.execute("SELECT what, count(*) FROM audit GROUP BY what").fetchall())
-        pending, names = _pending_count(con), _names_count(con)
+        pending, names = web.pending_count(con), web.names_count(con)
     return HTMLResponse(views.audit_page(rows, auth.current_user(request), msg, pending,
                                          kind=kind if codes else "", by_what=by_what, names=names))
 
@@ -1253,13 +1197,13 @@ _REJECTED_SQL = """SELECT p.*, c.name AS clinic,
 @app.get("/admin/payments", response_class=HTMLResponse)
 def payments_pending(request: Request, msg: str = "", month: str = "") -> Response:
     """Платежи (17.10 — вкладки): ждут подтверждения, оплачены (по месяцам, с суммой), отклонены."""
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     with db.connect() as con:
         rows = con.execute(_PENDING_SQL).fetchall()
         paid = con.execute(_PAID_SQL).fetchall()
         rejected = con.execute(_REJECTED_SQL).fetchall()
-        names = _names_count(con)
+        names = web.names_count(con)
     # месяц оплаты — по Кишинёву, как сутки SMS: деньги 31-го в 23:30 — доход того месяца
     now = datetime.now(timezone.utc)
     by_month: dict[str, list] = {sms.local(now).strftime("%Y-%m"): []}
@@ -1280,7 +1224,7 @@ def payment_new(request: Request, cid: str, months: str = Form("1"), amount: str
     её commit, ссылка — своей короткой. maib не ответил — нота остаётся (переводом, reference
     уже её), админ видит maib_failed и позже жмёт «Ссылка на карту» (решение Олега Р1, 30.10:
     иначе админка держала замок записи до 2 × maib.TIMEOUT, и в это время падали callback-и)."""
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
@@ -1290,7 +1234,7 @@ def payment_new(request: Request, cid: str, months: str = Form("1"), amount: str
         return RedirectResponse(f"/admin/clinics/{cid}?msg=no_maib", status_code=303)
     plan = None
     with payments.outbox() as box, db.connect(immediate=True) as con:
-        c = _clinic(con, cid)
+        c = web.clinic(con, cid)
         if c is None:
             return Response(status_code=404)
         sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (cid,)).fetchone()
@@ -1314,7 +1258,7 @@ def payment_new(request: Request, cid: str, months: str = Form("1"), amount: str
         if p is not None:
             if card and not p["pay_url"]:
                 # карта к УЖЕ ожидающей ноте: ссылка maib к ней, reference прежний; maib молчит — maib_failed ниже
-                plan = payments.card_plan(con, p, c, _ip(request))
+                plan = payments.card_plan(con, p, c, web.ip(request))
                 code = "card_link"
             else:
                 code = "note_pending"
@@ -1325,10 +1269,10 @@ def payment_new(request: Request, cid: str, months: str = Form("1"), amount: str
                 return RedirectResponse(f"/admin/clinics/{cid}?msg=bad_{e}", status_code=303)
             code = "payment_created"
             if card:
-                plan = payments.card_plan(con, p, c, _ip(request))
+                plan = payments.card_plan(con, p, c, web.ip(request))
                 code = "card_created"
         if send == "1":
-            box.add([(True, _payment_letter(con, c, p, who))])
+            box.add([(True, web.payment_letter(con, c, p, who))])
     if send == "1":
         code = box.code or code + "_mailed"
     if plan is not None:
@@ -1341,31 +1285,6 @@ def payment_new(request: Request, cid: str, months: str = Form("1"), amount: str
         elif outcome != payments.LINK:
             code = "payment_not_pending"
     return RedirectResponse(f"/admin/clinics/{cid}?msg={code}", status_code=303)
-
-
-def _payment_letter(con, c, p, who: str) -> mail.Letter | str:
-    """Письмо с нотой абонемента — СОБРАТЬ в транзакции (paylink.for_mail заводит ссылку
-    страницы оплаты — запись в базу), отправить после её commit (`payments.outbox`): SMTP до
-    30 с под замком записи валил соседние записи. Страница оплаты клиники — и для карты, и
-    для смены варианта; ссылки maib в письме нет (живёт минуты, maib.PAY_TTL). Общая нота
-    кабинета (26.10) — плательщику, со строками по клиникам. Код отказа: bad_email, no_bank."""
-    if p["kind"] == payments.CABINET:
-        c = _clinic(con, p["clinic_id"])
-    if not c["email"]:
-        return "bad_email"
-    page = paylink.for_mail(con, c, who)
-    try:
-        if p["kind"] == payments.CABINET:
-            subject, body = mail.group_letter(c["name"], p["reference"], p["amount"], payments.lines_of(con, p["id"]),
-                                              pay_url=page if maib.enabled() else None, page=page)
-        else:
-            subject, body = mail.payment_letter(c["name"], p["reference"], p["amount"], p["months"],
-                                                pay_url=page if maib.enabled() else None, tier=p["tier"],
-                                                page=page)
-    except RuntimeError:
-        return "no_bank"
-    return mail.Letter(c["email"], subject, body, c["id"], who, f"нота {p['reference']}",
-                       f"письмо с нотой {p['reference']}")
 
 
 # ---------- карта: maib (L12) ----------
@@ -1388,12 +1307,12 @@ def payment_check(request: Request, pid: int) -> Response:
     """Кнопка «Проверить»: тот же вопрос maib, что задают callback и ежедневная задача.
     Короткое чтение → вопрос maib вне транзакции → замок записи, перечитать, settle: callback
     и возврат браузера могли закрыть ноту, пока maib отвечал."""
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     with db.connect() as con:
-        p = _payment(con, pid)
+        p = web.payment(con, pid)
     if p is None:
         return Response(status_code=404)
     back = _back(request, p)
@@ -1405,7 +1324,7 @@ def payment_check(request: Request, pid: int) -> Response:
         log.error("maib: статус %s не получен: %s", p["reference"], e)
         return RedirectResponse(f"{back}?msg=maib_failed", status_code=303)
     with payments.outbox() as box, db.connect(immediate=True) as con:
-        code = _settle_now(con, _payment(con, pid), truth, auth.current_user(request), box)
+        code = _settle_now(con, web.payment(con, pid), truth, auth.current_user(request), box)
     return RedirectResponse(f"{back}?msg={code}", status_code=303)
 
 
@@ -1415,7 +1334,7 @@ def payment_link(request: Request, pid: int) -> Response:
     новая взамен не прошедшей. Тот же reference; письмо — если есть e-mail. Снимок —
     чтением, maib — вне транзакции, ссылка и письмо — короткой под замком записи (нота могла
     закрыться, пока maib думал: тогда payment_not_pending, попытка записана в pay_attempts)."""
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
@@ -1423,20 +1342,20 @@ def payment_link(request: Request, pid: int) -> Response:
         return RedirectResponse("/admin/payments?msg=no_maib", status_code=303)
     who = auth.current_user(request)
     with db.connect() as con:
-        p = _payment(con, pid)
+        p = web.payment(con, pid)
         if p is None:
             return Response(status_code=404)
         back = _back(request, p)
-        c = _clinic(con, p["clinic_id"])
+        c = web.clinic(con, p["clinic_id"])
         try:
-            plan = payments.card_plan(con, p, c, _ip(request))
+            plan = payments.card_plan(con, p, c, web.ip(request))
         except ValueError:
             return RedirectResponse(f"{back}?msg=payment_not_pending", status_code=303)
     payments.card_ask(plan, fresh=True)
     with payments.outbox() as box, db.connect(immediate=True) as con:
         outcome, why, p = payments.card_record(con, plan, who)
         if outcome == payments.LINK and c["email"]:
-            box.add([(True, _payment_letter(con, c, p, who))])
+            box.add([(True, web.payment_letter(con, c, p, who))])
     if outcome == payments.MAIB_FAILED:
         log.error("maib: ссылка для платежа %s не создана: %s", pid, why)
         return RedirectResponse(f"{back}?msg=maib_failed", status_code=303)
@@ -1475,7 +1394,7 @@ def _maib_callback(raw: bytes, signature: str, timestamp: str) -> Response:
     # замок записи с начала: возврат браузера (/pay/ok) приходит почти тем же мигом, и
     # отложенная транзакция, прочитавшая до его коммита, при записи сразу «database is locked»
     with payments.outbox() as box, db.connect(immediate=True) as con:     # письмо — после commit
-        p = _payment(con, p["id"])
+        p = web.payment(con, p["id"])
         outcome = payments.settle(con, p, truth, "maib")
         if outcome == payments.SETTLED_PAID:
             box.add(payments.notify_paid(con, p, "maib"))
@@ -1510,7 +1429,7 @@ def _returned(pay_id: str):
         return p
     # callback того же платежа — в тот же миг; письмо — после commit
     with payments.outbox() as box, db.connect(immediate=True) as con:
-        fresh = _payment(con, p["id"])
+        fresh = web.payment(con, p["id"])
         if payments.settle(con, fresh, truth, "maib") == payments.SETTLED_PAID:
             box.add(payments.notify_paid(con, fresh, "maib"))
         return payments.by_pay_id(con, pay_id)
@@ -1531,28 +1450,18 @@ def pay_fail(checkoutId: str = "", checkoutStatus: str = "", orderId: str = "") 
     return HTMLResponse(views.pay_page(False, _returned(checkoutId)))
 
 
-def _payment(con, pid: int):
-    return con.execute("SELECT * FROM payments WHERE id=?", (pid,)).fetchone()
-
-
-def _pdf(row) -> Response:
-    """Cont de plată из снимка — в окно браузера, с именем файла для «Сохранить»."""
-    return Response(receipts.render(row), media_type="application/pdf",
-                    headers={"Content-Disposition": f'inline; filename="{receipts.filename(row["number"])}"'})
-
-
 @app.get("/admin/payments/{pid}/cont.pdf")
 def payment_receipt(request: Request, pid: int) -> Response:
     """Cont de plată оплаченного платежа (receipts.py, 17.10); не оплачен — 404.
     Оплаченный до таблицы receipts получает снимок при первом запросе."""
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     with db.connect() as con:
-        p = _payment(con, pid)
+        p = web.payment(con, pid)
         row = receipts.ensure(con, p, auth.current_user(request)) if p is not None else None
     if row is None:
         return Response(status_code=404)
-    return _pdf(row)
+    return web.pdf(row)
 
 
 def _back(request: Request, p) -> str:
@@ -1564,7 +1473,7 @@ def _back(request: Request, p) -> str:
 
 @app.post("/admin/payments/{pid}/confirm")
 def payment_confirm(request: Request, pid: int) -> Response:
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
@@ -1572,7 +1481,7 @@ def payment_confirm(request: Request, pid: int) -> Response:
     # замок записи с начала, как у settle: callback по той же ноте, закоммиченный между нашим
     # чтением и записью, сделал бы отложенную транзакцию «database is locked» — админу 500
     with payments.outbox() as box, db.connect(immediate=True) as con:     # письмо — после commit
-        p = _payment(con, pid)
+        p = web.payment(con, pid)
         if p is None:
             return Response(status_code=404)
         back = _back(request, p)
@@ -1594,7 +1503,7 @@ def payment_repeat(request: Request, pid: int, sure: str = Form("")) -> Response
     файл и письмо как у «Подтвердить» (payments.credit_again). Галочка «перевод
     пришёл» обязательна: кнопка продлевает и выдаёт файл, случайный клик — подарок.
     Ожидающую ноту закрывает «Подтвердить», не эта кнопка."""
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
@@ -1602,7 +1511,7 @@ def payment_repeat(request: Request, pid: int, sure: str = Form("")) -> Response
     # замок записи с начала, как у settle: callback по той же ноте, закоммиченный между нашим
     # чтением и записью, сделал бы отложенную транзакцию «database is locked» — админу 500
     with payments.outbox() as box, db.connect(immediate=True) as con:     # письмо — после commit
-        p = _payment(con, pid)
+        p = web.payment(con, pid)
         if p is None:
             return Response(status_code=404)
         back = _back(request, p)
@@ -1624,7 +1533,7 @@ def payment_repeat(request: Request, pid: int, sure: str = Form("")) -> Response
 def payment_mail(request: Request, pid: int) -> Response:
     """Письмо с ожидающей нотой ещё раз (03.10): та же нота, тот же reference —
     когда бухгалтер клиники потерял первое или нота выставлена без письма."""
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
@@ -1634,23 +1543,23 @@ def payment_mail(request: Request, pid: int) -> Response:
         p = con.execute("SELECT * FROM payments WHERE id=?", (pid,)).fetchone()
         if p is None:
             return Response(status_code=404)
-        c = _clinic(con, p["clinic_id"])
+        c = web.clinic(con, p["clinic_id"])
         if p["status"] != payments.PENDING:
             code = "payment_not_pending"
         else:
-            box.add([(True, _payment_letter(con, c, p, who))])
+            box.add([(True, web.payment_letter(con, c, p, who))])
     code = code or box.code or "payment_mailed"
     return RedirectResponse(f"/admin/clinics/{p['clinic_id']}?msg={code}", status_code=303)
 
 
 @app.post("/admin/payments/{pid}/reject")
 def payment_reject(request: Request, pid: int, reason: str = Form("")) -> Response:
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     with db.connect() as con:
-        p = _payment(con, pid)
+        p = web.payment(con, pid)
         if p is None:
             return Response(status_code=404)
         back = _back(request, p)
@@ -1665,14 +1574,14 @@ def payment_reject(request: Request, pid: int, reason: str = Form("")) -> Respon
 def clinic_edit(request: Request, cid: str, name: str = Form(""), idno: str = Form(""),
                 contact_name: str = Form(""), email: str = Form(""), phone: str = Form(""),
                 address: str = Form("")) -> Response:
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     if (code := _clean(name, idno)):
         return RedirectResponse(f"/admin/clinics/{cid}?msg={code}", status_code=303)
     with db.connect() as con:
-        if (old := _clinic(con, cid)) is None:
+        if (old := web.clinic(con, cid)) is None:
             return Response(status_code=404)
         con.execute("UPDATE clinics SET name=?, idno=?, contact_name=?, email=?, phone=?, address=? WHERE id=?",
                     (name.strip(), idno.strip(), contact_name.strip(), email.strip(), phone.strip(),
@@ -1700,13 +1609,13 @@ def _send_latest(con, c, who: str) -> str:
 def clinic_issue(request: Request, cid: str, kind: str = Form("trial"), valid_until: str = Form(""),
                  grace_days: str = Form(str(license.GRACE_DAYS)), reason: str = Form(""),
                  send: str = Form("")) -> Response:
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     who = auth.current_user(request)
     with db.connect() as con:
-        c = _clinic(con, cid)
+        c = web.clinic(con, cid)
         if c is None:
             return Response(status_code=404)
         if kind == "trial":
@@ -1738,12 +1647,12 @@ def clinic_tier(request: Request, cid: str, tier: str = Form("")) -> Response:
     """Вариант абонемента вручную — для исключений (Олег 23.10): сразу, без оплаты, строкой
     в журнале (tier_set). Обычный путь — выбор клиники при оплате (payments.choose). Цены
     здесь нет: цена варианта — всегда прайс (Олег 26.10: «600 везде»)."""
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     with db.connect() as con:
-        if _clinic(con, cid) is None:
+        if web.clinic(con, cid) is None:
             return Response(status_code=404)
         code = payments.set_tier(con, cid, tier, auth.current_user(request))
     return RedirectResponse(f"/admin/clinics/{cid}?msg={code or 'tier_set'}", status_code=303)
@@ -1751,7 +1660,7 @@ def clinic_tier(request: Request, cid: str, tier: str = Form("")) -> Response:
 
 @app.get("/admin/clinics/{cid}/issues/{seq}/license.json")
 def issue_file(request: Request, cid: str, seq: int) -> Response:
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     with db.connect() as con:
         row = con.execute("SELECT * FROM issues WHERE clinic_id=? AND seq=?", (cid, seq)).fetchone()
@@ -1763,12 +1672,12 @@ def issue_file(request: Request, cid: str, seq: int) -> Response:
 
 @app.post("/admin/clinics/{cid}/email")
 def clinic_email(request: Request, cid: str) -> Response:
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     with db.connect() as con:
-        c = _clinic(con, cid)
+        c = web.clinic(con, cid)
         if c is None:
             return Response(status_code=404)
         code = _send_latest(con, c, auth.current_user(request)) or "mailed"
@@ -1779,7 +1688,7 @@ def clinic_email(request: Request, cid: str) -> Response:
 def account_detach(request: Request, aid: str) -> Response:
     """Отвязать учётную запись кабинета от клиники (смена директора): запись
     удаляется, следующий вход этого аккаунта Google начинается с регистрации."""
-    if (deny := _guard(request)) is not None:
+    if (deny := web.guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
@@ -1880,7 +1789,7 @@ def _cont_dashboard(request: Request, msg: str, c: str, tab: str = "") -> Respon
             # ⛔ имя SMS филиала — у главной клиники: сессии кнопки филиала оно не открывается
             # имя общее на кабинет (26.10): заявка, заявление и год — у главной клиники; строка счёта
             # не заводится просмотром: без неё — «имени нет»
-            owner = _clinic(con, sms.name_owner(con, cl["id"]))
+            owner = web.clinic(con, sms.name_owner(con, cl["id"]))
             osa = con.execute("SELECT * FROM sms_accounts WHERE clinic_id=?", (owner["id"],)).fetchone()
             mine_name = owner["id"] == cl["id"]
             smsinfo = {"acc": osa, "from": sms.sender_for(con, cl["id"]), "suggest": sms.suggest(owner["name"]),
@@ -1923,7 +1832,7 @@ def cont_from_program(request: Request, lid: str) -> Response:
     В журнал — адрес и браузер (User-Agent): кто вошёл, разбирается без гаданий."""
     if not auth.same_origin_post(request):
         return Response(status_code=403)
-    ip = _ip(request)
+    ip = web.ip(request)
     ua = " ".join((request.headers.get("user-agent") or "?").split())[:160]
     with db.connect(immediate=True) as con:
         c = contlink.use(con, lid, ip)
@@ -1963,7 +1872,7 @@ def cont_login_email(request: Request, email: str = Form("")) -> Response:
     on = account.enabled()
     if not elogin.email_ok(email):
         return HTMLResponse(views.cont_login_page("bad_email", enabled=on, values={"email": email}), status_code=400)
-    ip = _ip(request)
+    ip = web.ip(request)
     if elogin.request_limited(ip):
         return HTMLResponse(views.cont_login_page("login_limited", enabled=on, values={"email": email}),
                             status_code=429)
@@ -1990,7 +1899,7 @@ def cont_login_code(request: Request, verify_id: str = Form(""), code: str = For
     CODE_ATTEMPTS ошибок на код, VERIFY_PER_HOUR проверок с адреса."""
     if not auth.same_origin_post(request):
         return Response(status_code=403)
-    ip = _ip(request)
+    ip = web.ip(request)
     vid = verify_id.strip()[:64]
     code = "".join(code.split())[:12]
     email = "".join(email.split())[:trial.EMAIL_MAX].lower()
@@ -2039,7 +1948,7 @@ async def google_callback(request: Request, code: str = "", state: str = "", err
         resp = RedirectResponse(f"/cont/login?msg={why}", status_code=303)
         resp.delete_cookie(auth.OAUTH_COOKIE, path="/auth/google")
         return resp
-    acc = await run_in_threadpool(_google_login, ident, _ip(request))
+    acc = await run_in_threadpool(_google_login, ident, web.ip(request))
     resp = RedirectResponse("/cont" if acc["clinic_id"] else "/cont/inregistrare", status_code=303)
     resp.set_cookie(auth.ACCOUNT_COOKIE, auth.account_cookie(acc["id"]), max_age=auth.ACCOUNT_TTL, path="/",
                     **_cookie_args())
@@ -2083,7 +1992,7 @@ def cont_register_submit(request: Request, name: str = Form(""), idno: str = For
         return _cont_login_redirect()
     if acc["clinic_id"]:
         return RedirectResponse("/cont", status_code=303)
-    ip = _ip(request)
+    ip = web.ip(request)
     if trial.limited(ip):
         return HTMLResponse(views.cont_register_page(acc, "limited"), status_code=429)
     f, code = trial.clean({"name": name, "idno": idno, "contact_name": contact_name, "email": acc["email"],
@@ -2129,7 +2038,7 @@ def cont_register_code(request: Request, verify_id: str = Form(""), code: str = 
         return _cont_login_redirect()
     if acc["clinic_id"]:
         return RedirectResponse("/cont", status_code=303)
-    ip = _ip(request)
+    ip = web.ip(request)
     vid = verify_id.strip()[:64]
     code = "".join(code.split())[:12]
     if trial.verify_limited(ip):
@@ -2181,10 +2090,10 @@ def cont_note(request: Request, months: str = Form("1"), method: str = Form(paym
     """Нота на абонемент из кабинета: тот же выбор, что на странице оплаты
     (payments.choose — вариант и срок, другой заменяет открытую ноту, долг один); карта —
     только при настроенном maib; ⛔ без галочки условий — нет (требование maib). Письмо с
-    нотой — как из админки, после commit ноты; maib — вне транзакции (`_card_go`)."""
+    нотой — как из админки, после commit ноты; maib — вне транзакции (`web.card_go`)."""
     if not auth.same_origin_post(request):
         return Response(status_code=403)
-    m = _months(months)
+    m = web.months(months)
     card = method == payments.CARD and maib.enabled()
     plan = None
     with payments.outbox() as box, db.connect(immediate=True) as con:
@@ -2205,16 +2114,16 @@ def cont_note(request: Request, months: str = Form("1"), method: str = Form(paym
             why = "in_group" if str(e) == payments.HELD else "tier_not_sold"
             return RedirectResponse(_cont_to(con, acc, cl["id"], why), status_code=303)
         if outcome != payments.EXISTS:
-            box.add([(True, _payment_letter(con, cl, p, acc["email"]))])
+            box.add([(True, web.payment_letter(con, cl, p, acc["email"]))])
         if card:
-            plan = payments.card_plan(con, p, cl, _ip(request))
+            plan = payments.card_plan(con, p, cl, web.ip(request))
             back = _cont_to(con, acc, cl["id"])
         elif outcome == payments.EXISTS:
             back = _cont_to(con, acc, cl["id"], "note_exists")
         else:
             back = _cont_to(con, acc, cl["id"], "note_replaced" if outcome == payments.REPLACED else "note_created")
     if plan is not None:
-        return _card_go(plan, acc["email"], back)
+        return web.card_go(plan, acc["email"], back)
     return RedirectResponse(back, status_code=303)
 
 
@@ -2234,7 +2143,7 @@ def cont_receipt(request: Request, number: str) -> Response:
         row = receipts.ensure(con, p, acc["email"]) if p is not None else None
     if row is None:
         return Response(status_code=404)
-    return _pdf(row)
+    return web.pdf(row)
 
 
 
@@ -2256,7 +2165,7 @@ def _cont_sms(request: Request, con):
         return acc, cl, cl, None
     if account.scoped(acc) and sms.name_owner(con, cl["id"]) != cl["id"]:
         return acc, cl, cl, None          # вход кнопкой программы филиала: имя кабинета не его (27.10)
-    owner = _clinic(con, sms.name_owner(con, cl["id"]))
+    owner = web.clinic(con, sms.name_owner(con, cl["id"]))
     return acc, cl, owner, sms.ensure(con, owner["id"])
 
 
@@ -2469,7 +2378,7 @@ def cont_document_mine(request: Request, rid: int) -> Response:
         r = contracts.get(con, rid)
         if r is None or r["clinic_id"] not in own:
             return Response(status_code=404)
-        cl = _clinic(con, r["clinic_id"])
+        cl = web.clinic(con, r["clinic_id"])
     data = contracts.read_file(r)
     if data is None:
         return Response(status_code=404)
@@ -2544,7 +2453,7 @@ def cont_add_submit(request: Request, c: str = "", name: str = Form(""), address
         acc, cl = _cont_clinic(request, con, c)
     if cl is None:
         return _cont_deny(acc)
-    ip = _ip(request)
+    ip = web.ip(request)
     f, code = account.clean_new({"name": name, "address": address, "phone": phone, "contact_name": contact_name,
                                  "email": email, "idno": idno, "consent": consent})
     f.update(tier=tier, months=months)          # выбор возвращается в форму вместе с полями
@@ -2677,13 +2586,13 @@ def _group_submit(request: Request, form: dict, ip: str) -> Response:
                 return RedirectResponse(f"{back}?msg=group_gone", status_code=303)
             if not card:
                 return RedirectResponse(f"{back}?msg=no_card", status_code=303)
-            plan = payments.card_plan(con, pending, _clinic(con, pending["clinic_id"]), ip)
+            plan = payments.card_plan(con, pending, web.clinic(con, pending["clinic_id"]), ip)
         else:
             picks = []
             for r, _, _ in rows:
                 t = form.get(f"t_{r['id']}") or ""
                 if t:
-                    picks.append((r, t, _months(form.get(f"m_{r['id']}") or "1")))
+                    picks.append((r, t, web.months(form.get(f"m_{r['id']}") or "1")))
             if not picks:
                 return RedirectResponse(f"{back}?msg=group_empty", status_code=303)
             payer = picks[0][0]
@@ -2694,11 +2603,11 @@ def _group_submit(request: Request, form: dict, ip: str) -> Response:
             except ValueError as e:
                 why = {"too_many": "group_too_many", "months": "bad_months"}.get(str(e), "tier_not_sold")
                 return RedirectResponse(f"{back}?msg={why}", status_code=303)
-            box.add([(True, _payment_letter(con, payer, p, acc["email"]))])
+            box.add([(True, web.payment_letter(con, payer, p, acc["email"]))])
             if card:
                 plan = payments.card_plan(con, p, payer, ip)
     if plan is not None:
-        return _card_go(plan, acc["email"], back, gone="group_gone")
+        return web.card_go(plan, acc["email"], back, gone="group_gone")
     return RedirectResponse(f"{back}?msg={'group_replaced' if replaced else 'group_created'}", status_code=303)
 
 
@@ -2712,7 +2621,7 @@ async def cont_group_submit(request: Request) -> Response:
         return Response(status_code=403)
     form = await request.form(max_fields=2 * (account.CLINICS_MAX + 4))
     data = {k: str(v) for k, v in form.items() if isinstance(v, str)}
-    return await run_in_threadpool(_group_submit, request, data, _ip(request))
+    return await run_in_threadpool(_group_submit, request, data, web.ip(request))
 
 
 @app.post("/cont/nota-comuna/anuleaza")
@@ -2740,7 +2649,7 @@ def descarca(request: Request) -> Response:
     молчит — на страницу выпусков. Кто скачивал — строкой в журнале."""
     url, rel = download.target()
     with db.connect() as con:
-        db.audit(con, "site", "download", None, f"{rel.asset if rel else 'pagina GitHub'} {_ip(request)}")
+        db.audit(con, "site", "download", None, f"{rel.asset if rel else 'pagina GitHub'} {web.ip(request)}")
     return RedirectResponse(url, status_code=302)
 
 
@@ -2770,7 +2679,7 @@ async def terms_accept_api(request: Request) -> Response:
     """{terms, actor} → строка акта source=program, ответ — квитанция {id, version, at}.
     Версия — дата dd.mm.yyyy (bad_terms иначе); актов одной версии может быть несколько
     (второй компьютер, повтор после сбоя записи квитанции) — это история, не состояние."""
-    token, ip = _bearer(request), _ip(request)
+    token, ip = _bearer(request), web.ip(request)
     if not token:
         return JSONResponse({"ok": False, "code": "token_missing"}, status_code=401)
     if elogin.request_limited(ip):
