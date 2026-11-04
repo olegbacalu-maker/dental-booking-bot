@@ -307,7 +307,7 @@ pub fn open_external(url: &str) {
 /// ⛔ Ни пути, ни запроса, ни того, что после схемы: `tel:` — телефон пациента,
 /// `mailto:` несёт адрес и текст письма-напоминания, а журнал уезжает из
 /// клиники вместе с жалобой. Мусор вместо схемы — `?`.
-fn log_target(url: &str) -> String {
+pub fn log_target(url: &str) -> String {
     let Some((scheme, rest)) = url.split_once(':') else { return "?".into() };
     let scheme_ok = !scheme.is_empty()
         && scheme.len() <= 16
@@ -409,5 +409,27 @@ mod tests {
         assert_eq!(log_target(":x"), "?");
         assert_eq!(log_target("ion popescu:069123456"), "?");
         assert_eq!(log_target(""), "?");
+        // адрес движка: без пути и запроса (`main.rs`, `webview.rs`)
+        assert_eq!(log_target("http://127.0.0.1:8088/admin/patient/42/docs/7?x=1"), "http://127.0.0.1:8088");
+        assert_eq!(log_target("blob:http://127.0.0.1:8088/5f2c-uuid"), "blob:");
+    }
+
+    /// Сторож на месте вызова: `log_target` не поможет строке, которая его не
+    /// зовёт. Строка журнала, где назван адрес, обязана идти через него.
+    #[test]
+    fn log_lines_do_not_carry_a_raw_url() {
+        for (file, text) in [("main.rs", include_str!("main.rs")), ("webview.rs", include_str!("webview.rs"))] {
+            let lines: Vec<(usize, &str)> =
+                text.lines().enumerate().filter(|(_, l)| l.contains("log(&format!(")).collect();
+            assert!(!lines.is_empty(), "{file}: не нашлось ни одной строки журнала");
+            for (i, line) in lines {
+                let names_address = ["url", "src", "uri", "{u}"].iter().any(|w| line.contains(w));
+                assert!(
+                    !names_address || line.contains("log_target("),
+                    "{file}:{}: адрес в журнале мимо win::log_target",
+                    i + 1
+                );
+            }
+        }
     }
 }

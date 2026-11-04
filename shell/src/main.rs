@@ -194,7 +194,7 @@ fn on_engine(app: &AppHandle, ev: Event) {
                 b.url = Some(url.clone());
                 b.ready = Some(r.clone());
             }
-            log(&format!("ready: {url} session={} lan={} data={}", r.session, r.lan, r.data));
+            log(&format!("ready: {} session={} lan={} data={}", win::log_target(&url), r.session, r.lan, r.data));
             win::title(app, r.port);
             enter(app, url, r.session == "clear");
             notices::start(app);
@@ -202,7 +202,7 @@ fn on_engine(app: &AppHandle, ev: Event) {
         Event::Busy { url } => {
             let Ok(u) = Url::parse(&url) else { return };
             if u.scheme() != "http" || u.host_str() != Some("127.0.0.1") {
-                log(&format!("busy: foreign address ignored: {url}"));
+                log(&format!("busy: foreign address ignored: {}", win::log_target(&url)));
                 return;
             }
             {
@@ -214,7 +214,7 @@ fn on_engine(app: &AppHandle, ev: Event) {
                 b.origin = Some(u.origin().ascii_serialization());
                 b.url = Some(url.clone());
             }
-            log(&format!("busy: showing {url} without an engine of our own"));
+            log(&format!("busy: showing {} without an engine of our own", win::log_target(&url)));
             win::title(app, u.port().unwrap_or(80));
             enter(app, url, false);
         }
@@ -444,11 +444,11 @@ fn page_builder(h: &AppHandle, color: Option<&str>, bg: Color, profile: std::pat
         .on_download(move |_wv, ev| match ev {
             DownloadEvent::Requested { url, destination } => {
                 let ok = win::save_as(&h3, destination);
-                log(&format!("download {url}: {}", if ok { destination.display().to_string() } else { "cancelled".into() }));
+                log(&format!("download {}: {}", win::log_target(url.as_str()), if ok { destination.display().to_string() } else { "cancelled".into() }));
                 ok
             }
             DownloadEvent::Finished { url, path, success } => {
-                log(&format!("download done {url}: {success} {path:?}"));
+                log(&format!("download done {}: {success} {path:?}", win::log_target(url.as_str())));
                 true
             }
             _ => true,

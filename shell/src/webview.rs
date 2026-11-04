@@ -120,7 +120,7 @@ fn on_message(app: &AppHandle, who: Who, src: &str, json: &str) {
         }
         Who::Page => {
             if !crate::is_engine_url(app, src) {
-                log(&format!("dpShell message from a foreign address ignored: {src}"));
+                log(&format!("dpShell message from a foreign address ignored: {}", crate::win::log_target(src)));
                 return;
             }
             let Some(path) = v["path"].as_str() else { return };
