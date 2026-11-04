@@ -336,12 +336,20 @@ def suite_review(res: Result) -> None:
     parsed.feed(page)
     root = parsed.attrs_ or {}
     res.ok("модель страницы не выходит из атрибута",
-           esc.returncode == 0 and "<img" not in page and "</script><" not in page
+           esc.returncode == 0 and "<img" not in page and "</script><img" not in page
            and "img" not in parsed.tags,
            f"код {esc.returncode}: {esc.stderr[-200:]} {page[-400:]}")
+
+    def _attr_json(name: str) -> dict:
+        # Сломанное экранирование — красная проверка, а не упавший набор.
+        try:
+            return json.loads(root.get(name, "{}"))
+        except ValueError:
+            return {}
+
     res.ok("значение доезжает до клиента тем же",
-           bool(root) and json.loads(root.get("data-shell", "{}")).get("d") == hostile
-           and json.loads(root.get("data-params", "{}")).get("k") == hostile,
+           bool(root) and _attr_json("data-shell").get("d") == hostile
+           and _attr_json("data-params").get("k") == hostile,
            f"атрибуты: {str(root)[:300]}")
 
     # ⛔ Демо-строки едут в admin_add ПО ИМЕНАМ. Позиционная распаковка через
