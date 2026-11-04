@@ -930,6 +930,50 @@ def suite(res: Result) -> None:
            "MSG_BANNER вне core/messages — сообщение вернётся строкой в "
            "поток, и внизу страницы его опять не видно: " + ", ".join(bad))
 
+    # ---- JSON рядом с <script> — только в экранированный атрибут (08-10, 04.11) ----
+    # Аудит 08-10: на карточке пациента четыре площадки экранировали `</`, а две
+    # нет, и незащищённым оказалось имя врача — поле, которое правит регистратура,
+    # МЛАДШАЯ роль; скрипт оттуда выполнялся в сессии директора. `json.dumps`
+    # безопасен для JavaScript, но не для HTML: `</script>` в значении закрывает тег.
+    # С React данные страница получает ТОЛЬКО атрибутом `data-shell`/`data-params`
+    # (`layout.react_shell`), поэтому правило теперь такое: в файле, печатающем
+    # `<script`, каждый `json.dumps` — прямой аргумент `html.escape(…, quote=True)`.
+    # (До 04.11 правило жило в test_anamneza и пропускало единственный файл с
+    # `<script`, то есть не проверяло ничего.)
+    # ⚠️ Полярность: «нарушителей нет» зеленеет на пустоте, поэтому якорь — такой
+    # вызов обязан найтись; всё, что печатает модель страницы, идёт им.
+    bad, esc_seen = [], 0
+    for rel, tree in src:
+        if "<script" not in (BOT / rel).read_text(encoding="utf-8"):
+            continue
+        aliases = {t.id for n in ast.walk(tree) if isinstance(n, ast.Assign)
+                   and isinstance(n.value, ast.Attribute) and n.value.attr == "escape"
+                   for t in n.targets if isinstance(t, ast.Name)}
+
+        def _is_escape(call: ast.Call) -> bool:
+            f = call.func
+            named = ((isinstance(f, ast.Attribute) and f.attr == "escape"
+                      and isinstance(f.value, ast.Name) and f.value.id == "html")
+                     or (isinstance(f, ast.Name) and f.id in aliases))
+            return named and any(k.arg == "quote" and getattr(k.value, "value", None) is True
+                                 for k in call.keywords)
+
+        guarded = set()
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Call) and _is_escape(n):
+                guarded.update(id(a) for a in n.args)
+        for n in ast.walk(tree):
+            if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                    and n.func.attr == "dumps" and getattr(n.func.value, "id", "") == "json"):
+                if id(n) in guarded:
+                    esc_seen += 1
+                else:
+                    bad.append(f"{rel}:{n.lineno}")
+    if not esc_seen:
+        bad.append("json.dumps под html.escape(quote=True) не найден — якорь правила пропал")
+    res.ok("JSON рядом с <script> — только экранированным атрибутом", not bad,
+           "незащищённые площадки: " + ", ".join(bad))
+
     # ---- соседи layout ниже него (разнос 04.11) ----
     # layout реэкспортирует имена соседей и зовёт их функции; импорт layout соседом
     # на уровне модуля замкнул бы круг, и проявился бы он только при неудачном порядке

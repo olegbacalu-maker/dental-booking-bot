@@ -216,6 +216,18 @@ MUTATIONS = [
     # правило разбирает синтаксис, дописанный код не исполняется.
     ("строит только layout", "app/modules/qr/routes.py",
      "\n_MUT_BANNER = MSG_BANNER\n"),
+    # Модель страницы уехала в атрибут без экранирования: `</script>` и кавычка в
+    # имени врача закрывают атрибут, дальше — разметка в сессии директора.
+    ("JSON рядом с <script>", test_structure._LAY_SHELL,
+     ('{e(json.dumps(model, ensure_ascii=False), quote=True)}',
+      '{json.dumps(model, ensure_ascii=False)}')),
+    # То же без `quote=True`: кавычка атрибута остаётся сырой.
+    ("JSON рядом с <script>", test_structure._LAY_SHELL,
+     ('{e(json.dumps(params, ensure_ascii=False), quote=True)}',
+      '{e(json.dumps(params, ensure_ascii=False))}')),
+    # Сосед стал печатать <script> с данными мимо экранирования.
+    ("JSON рядом с <script>", "app/core/pages.py",
+     "\ndef _mut_page(d):\n    return f'<script>var d={json.dumps(d)}</script>'\n"),
     # Сосед импортирует layout на уровне модуля: так и выглядит круг, который
     # проявляется только при неудачном порядке импорта. Обе формы импорта.
     ("соседи layout не импортируют", test_structure._LAY_ICONS,
@@ -673,6 +685,9 @@ LEGAL = [
       "    if (deny := local_only(request)) is not None:\n        return deny\n"
       "    if (deny := api_require(request, PERM_USERS)) is not None:\n        return deny\n"
       "    code = await _drop_user(")),
+    # ⭐ Законно: JSON в файле без `<script` — обычный ответ API, правило не про него.
+    ("JSON рядом с <script>", "app/modules/qr/routes.py",
+     "\ndef _mut_json(d):\n    return json.dumps(d)\n"),
     # ⭐ Законно: отложенный импорт внутри функции — так берут слова `db` и `auth`.
     ("соседи layout не импортируют", "app/core/pages.py",
      "\ndef _mut_lazy():\n    from . import layout\n    return layout\n"),

@@ -6,6 +6,7 @@
 обезличивание под номером фиши. Фиша читается через JSON API (её рисует
 React; до 13.10 — старая страница с разметкой опросника).
 """
+import html.parser
 import io
 import json
 import urllib.parse
@@ -306,38 +307,42 @@ def suite_review(res: Result) -> None:
 
     # ---------- находки аудита 08-10 ----------
 
-    # ⛔ Встраивание JSON в <script> — ТОЛЬКО через core.layout.js_json.
-    # Аудит нашёл, что на карточке пациента четыре площадки экранировали `</`,
-    # а две нет, и незащищённым оказалось имя врача — поле, которое правит
-    # регистратура, то есть МЛАДШАЯ роль. Скрипт оттуда выполнялся в сессии
-    # директора. Правило по месту не удержалось; проверка ищет нарушителей во
-    # ВСЕХ файлах, печатающих <script>, поэтому пятую площадку так не заведут.
-    bad = []
-    for f in (BOT / "app").rglob("*.py"):
-        # ⚠️ layout.py пропускается ОСОЗНАННО: там живёт сам js_json, и его
-        # определение вместе с объясняющей документацией — единственное место,
-        # где `json.dumps` рядом со словом <script> обязано встречаться.
-        if f.name == "layout.py":
-            continue
-        txt = f.read_text(encoding="utf-8", errors="replace")
-        if "<script" not in txt:
-            continue
-        for i, line in enumerate(txt.splitlines(), 1):
-            if "json.dumps" in line and not any(
-                    ok in line for ok in ("js_json", "html.escape")):
-                bad.append(f"{f.relative_to(BOT)}:{i}")
-    res.ok("JSON в <script> идёт только через js_json", not bad,
-           f"незащищённые площадки: {bad}")
-
+    # ⛔ Имя врача и прочие поля регистратуры едут на страницу JSON-ом (аудит 08-10:
+    # незащищённая площадка исполняла скрипт в сессии директора). С React единственная
+    # дверь — атрибуты `data-shell`/`data-params` у `layout.react_shell`; разбор всех
+    # файлов с `<script` держит правило «JSON рядом с <script>» в test_structure, а здесь
+    # опытом: значение не выходит из атрибута и доезжает до клиента тем же.
+    hostile = "Ana</script><img src=x onerror=alert(1)>\"'"
     esc = subprocess.run(
         [str(PYTHON), "-c",
-         "import sys;sys.path.insert(0,r'%s');"
-         "from app.core.layout import js_json;"
-         "print(js_json({'d':'Ana</script><img src=x>'}))" % str(BOT)],
+         "import sys,json;sys.path.insert(0,r'%s');"
+         "sys.stdout.reconfigure(encoding='utf-8');"
+         "from app.core.layout import react_shell;"
+         "v=sys.argv[1];"
+         "print(react_shell('stats','/admin/stats',{'d':v},{'k':v}))" % str(BOT), hostile],
         capture_output=True, text=True, encoding="utf-8")
-    res.ok("js_json разрывает закрывающий тег",
-           "</script>" not in esc.stdout and "<\\/script>" in esc.stdout,
-           f"вывод: {esc.stdout.strip()[:120]} {esc.stderr[-200:]}")
+    page = esc.stdout
+
+    class _Root(html.parser.HTMLParser):
+        attrs_ = None
+        tags: list = []
+
+        def handle_starttag(self, tag, attrs):
+            self.tags = [*self.tags, tag]
+            if tag == "div" and dict(attrs).get("id") == "root":
+                self.attrs_ = dict(attrs)
+
+    parsed = _Root()
+    parsed.feed(page)
+    root = parsed.attrs_ or {}
+    res.ok("модель страницы не выходит из атрибута",
+           esc.returncode == 0 and "<img" not in page and "</script><" not in page
+           and "img" not in parsed.tags,
+           f"код {esc.returncode}: {esc.stderr[-200:]} {page[-400:]}")
+    res.ok("значение доезжает до клиента тем же",
+           bool(root) and json.loads(root.get("data-shell", "{}")).get("d") == hostile
+           and json.loads(root.get("data-params", "{}")).get("k") == hostile,
+           f"атрибуты: {str(root)[:300]}")
 
     # ⛔ Демо-строки едут в admin_add ПО ИМЕНАМ. Позиционная распаковка через
     # границу модуля уже разъехалась молча: 08-07 в admin_add вставили
