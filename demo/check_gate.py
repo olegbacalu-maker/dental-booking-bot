@@ -126,7 +126,7 @@ def wait_health(cond, timeout: float, what: str) -> dict:
 
 
 def app_version() -> str:
-    src = (ROOT / "bot" / "app" / "engine.py").read_text(encoding="utf-8")
+    src = (ROOT / "bot" / "app" / "version.py").read_text(encoding="utf-8")
     m = re.search(r'^APP_VERSION\s*=\s*"([^"]+)"', src, re.M)
     return m.group(1) if m else ""
 

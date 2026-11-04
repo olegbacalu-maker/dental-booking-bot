@@ -98,6 +98,8 @@ MUTATIONS = [
      "\nasync def _mut_attr(uid):\n    auth.save_user(uid, name='x', role='medic')\n"),
     ("paths/dpapi/envfile", "app/paths.py",
      "\nfrom . import db  # noqa\n"),
+    ("paths/dpapi/envfile", "app/version.py",
+     "\nfrom . import db  # noqa\n"),
     ("модули копий импортируемы лаунчером", "app/core/restore.py",
      "\nfrom .. import db  # noqa\n"),
     # ---- заказы лаунчеру подписаны (02.11) ----

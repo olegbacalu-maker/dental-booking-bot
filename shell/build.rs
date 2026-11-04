@@ -4,7 +4,7 @@
 // ⚠️ Заставка и значок рисуются из bot/app/brand.py — той же фигурой, что
 // шапка программы и прежний DentPilot.exe. Поэтому сборке нужен Python
 // программы (.venv-desktop, в нём PIL); готовой оболочке — нет.
-// ⭐ Версия DentPilot.exe — APP_VERSION из bot/app/engine.py: у выпуска одна
+// ⭐ Версия DentPilot.exe — APP_VERSION из bot/app/version.py: у выпуска одна
 // версия, её видят «Свойства» файла и «Despre DentPilot».
 use std::env;
 use std::path::PathBuf;
@@ -18,7 +18,7 @@ fn main() {
         shell.join("ui").join("menubar.html"),
         app.join("bot").join("app").join("brand.py"),
         app.join("bot").join("app").join("splash.py"),
-        app.join("bot").join("app").join("engine.py"),
+        app.join("bot").join("app").join("version.py"),
         app.join("bot").join("app").join("static").join("css").join("fonts.css"),
         app.join("scripts").join("make_icon.py"),
     ] {
@@ -57,9 +57,9 @@ fn main() {
         );
     }
 
-    let engine = std::fs::read_to_string(app.join("bot").join("app").join("engine.py"))
-        .expect("bot/app/engine.py");
-    let version = engine
+    let source = std::fs::read_to_string(app.join("bot").join("app").join("version.py"))
+        .expect("bot/app/version.py");
+    let version = source
         .lines()
         .find_map(|l| {
             let rest = l.trim_start().strip_prefix("APP_VERSION")?;
@@ -67,7 +67,7 @@ fn main() {
             Some(rest.split('"').next()?.to_string())
         })
         .filter(|v| v.split('.').count() == 3 && v.split('.').all(|n| n.parse::<u32>().is_ok()))
-        .expect("APP_VERSION din bot/app/engine.py: trei numere");
+        .expect("APP_VERSION din bot/app/version.py: trei numere");
     let merge = format!(r#"{{"version":"{version}"}}"#);
     // tauri-build читает TAURI_CONFIG из своего процесса (ресурс exe),
     // generate_context! — из окружения rustc (cargo:rustc-env)

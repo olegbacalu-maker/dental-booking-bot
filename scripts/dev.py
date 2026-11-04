@@ -36,7 +36,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]      # …\app
 BOT = ROOT / "bot"
 PYTHON = ROOT / ".venv-desktop" / "Scripts" / "python.exe"
 TESTS = ROOT / "tests"
-ENGINE = BOT / "app" / "engine.py"
+VERSION_PY = BOT / "app" / "version.py"
 
 # Где живёт песочница `up` — `sandbox_dir()` ниже (17.10: уехала с %LOCALAPPDATA%).
 
@@ -264,13 +264,13 @@ def cmd_check(argv: list) -> int:
               f"не запушено коммитов: {ahead} — тег повиснет на origin/main "
               f"и опишет НЕ ТОТ код")
 
-    m = re.search(r'APP_VERSION\s*=\s*"([^"]+)"', ENGINE.read_text(encoding="utf-8"))
+    m = re.search(r'APP_VERSION\s*=\s*"([^"]+)"', VERSION_PY.read_text(encoding="utf-8"))
     ver = m.group(1) if m else ""
     three = bool(re.fullmatch(r"\d+\.\d+\.\d+", ver))
     ok &= say(three, f"APP_VERSION = {ver}" if three else
               f"APP_VERSION = {ver!r} — нужны ровно три числа")
 
-    # ⚠️ Версия живёт не только в engine.py: её дублирует package.json
+    # ⚠️ Версия живёт не только в version.py: её дублирует package.json
     # и ресурс свойств exe. Разъезд не мешает ни сборке, ни прогону — он
     # просто кладёт в свойства файла не тот номер, и увидеть это можно, только
     # открыв свойства в проводнике.
@@ -340,9 +340,9 @@ def cmd_check(argv: list) -> int:
     empty = False
     if base:
         stat, tests = shipped_since(base)
-        # подъём версии — строка в engine.py и её эхо в package.json
+        # подъём версии — строка в version.py и её эхо в package.json
         # (sync_version): сам по себе он не содержание
-        bump_files = {"bot/app/engine.py", "frontend/package.json"}
+        bump_files = {"bot/app/version.py", "frontend/package.json"}
         only_bump = bool(stat) and all(
             l.split("\t")[2].replace("\\", "/") in bump_files and l.split("\t")[:2] == ["1", "1"]
             for l in stat)

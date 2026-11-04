@@ -6,7 +6,7 @@
 [package]
 name = "dentpilot-shell"
 # Версия файла DentPilot.exe — НЕ отсюда: build.rs берёт APP_VERSION из
-# bot/app/engine.py (одна версия у выпуска, как у прежней сборки).
+# bot/app/version.py (одна версия у выпуска, как у прежней сборки).
 version = "0.0.0"
 edition = "2021"
 publish = false

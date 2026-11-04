@@ -20,7 +20,7 @@ DentPilot.exe  (оболочка, этот проект)
 |---|---|
 | `Cargo.toml`, `Cargo.lock` | версии `=` (Tauri 2.12.1, tauri-build 2.7.1, single-instance 2.5.1; webview2-com 0.39.1 и windows 0.62.2 — те же, что тянет сам Tauri) |
 | `tauri.conf.json` | `identifier` = паспорт `md.dentpilot.app`, издатель, без окон (окно строит код), без capabilities |
-| `build.rs` | сперва `assets.py` → `gen/`, потом сборка Tauri; версия exe = `APP_VERSION` из `bot/app/engine.py` |
+| `build.rs` | сперва `assets.py` → `gen/`, потом сборка Tauri; версия exe = `APP_VERSION` из `bot/app/version.py` |
 | `assets.py` | заставка и значок из `bot/app/brand.py` (`splash._fonts`, `make_icon`) → `gen/ui/splash.html`, `gen/icon.ico`; копия `ui/menubar.html` |
 | `ui/menubar.html` | полоса меню: пять статичных заголовков, цвет клиники |
 | `src/main.rs` | окно, два WebView, слова движка, заставка → программа, выход |

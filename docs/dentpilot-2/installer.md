@@ -47,11 +47,11 @@ powershell -File Build-Installer.ps1 -SetupDir D:\DentProject\sandbox\handout   
   в `D:\DentProject\releases` не кладётся, а `release.py prerelease` проверяет
   подпись мастера сам — тем же, чем проверит программа клиники
   (`privileged.SIGNERS`), — и неподписанный не зальёт.
-- **Версия одна** — `APP_VERSION` в `bot/app/engine.py`. Движок — через
+- **Версия одна** — `APP_VERSION` в `bot/app/version.py`. Движок — через
   `sync_version.py` (свойства exe) и `/health`; оболочка — `shell/build.rs`
   (свойства `DentPilot.exe` и `dpShell.version`); мастер — `/DAppVersion=` из
   того, что СОБРАННАЯ программа сказала о себе под оболочкой. Стенд сверяет
-  все четыре, сборка — ещё и с `engine.py`. Второго источника нет.
+  все четыре, сборка — ещё и с `version.py`. Второго источника нет.
   ✅ Опыт 18.10: временный бамп `APP_VERSION` до 2.0.0 (без коммита) — без
   единой правки в `shell/` и `.iss` сборка дала `/health` 2.0.0, свойства
   обоих exe 2.0.0, `dpShell.version` 2.0.0, мастер `DentPilot-Setup-2.0.0.exe`

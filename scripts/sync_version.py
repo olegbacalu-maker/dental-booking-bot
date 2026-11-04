@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Один источник версии на всю программу — `bot/app/engine.py`.
+"""Один источник версии на всю программу — `bot/app/version.py`.
 
     python scripts\\sync_version.py           # привести всех потребителей к нему
     python scripts\\sync_version.py --check   # только проверить, ничего не писать
 
-Потребителей версии в проекте несколько, и живут они в разных мирах: номер в
-`engine.py` показывает сама программа и по нему решает, обновляться ли;
+Потребителей версии в проекте несколько, и живут они в разных мирах: номер из
+`version.py` показывает сама программа и по нему решает, обновляться ли;
 `frontend/package.json` его дублирует; свойства файла в Windows берут его из
 ресурса, который PyInstaller вшивает ключом `--version-file`. Разойтись им
 нечего стоит, а заметить расхождение трудно: exe запускается и работает, в
@@ -25,6 +25,7 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+VERSION = ROOT / "bot" / "app" / "version.py"
 ENGINE = ROOT / "bot" / "app" / "engine.py"
 PACKAGE = ROOT / "frontend" / "package.json"
 VERSION_FILE = ROOT / "build" / "version_info.txt"
@@ -45,9 +46,9 @@ COPYRIGHT = f"© {COMPANY}"
 
 def app_version() -> str:
     m = re.search(r'APP_VERSION\s*=\s*"([^"]+)"',
-                  ENGINE.read_text(encoding="utf-8"))
+                  VERSION.read_text(encoding="utf-8"))
     if not m:
-        raise SystemExit("в engine.py нет APP_VERSION")
+        raise SystemExit("в bot/app/version.py нет APP_VERSION")
     v = m.group(1)
     if not re.fullmatch(r"\d+\.\d+\.\d+", v):
         raise SystemExit(f"APP_VERSION = {v!r} — нужны ровно три числа")
@@ -63,7 +64,7 @@ def version_info(version: str) -> str:
     """
     a, b, c = version.split(".")
     quad = f"({a}, {b}, {c}, 0)"
-    return f'''# Сгенерировано scripts/sync_version.py из bot/app/engine.py. Не править руками.
+    return f'''# Сгенерировано scripts/sync_version.py из bot/app/version.py. Не править руками.
 VSVersionInfo(
   ffi=FixedFileInfo(filevers={quad}, prodvers={quad}, mask=0x3f, flags=0x0,
                     OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
@@ -97,12 +98,22 @@ def installer_publisher() -> str:
     return m.group(1) if m else ""
 
 
+def _resource_body(text: str) -> list[str]:
+    """Ресурс без строк-комментариев: сравнивается то, что уедет в свойства exe,
+    а не заголовок, в котором назван исходник."""
+    return [l for l in text.splitlines() if not l.startswith("#")]
+
+
 def check() -> list[str]:
     """Расхождения словами. Пустой список — всё сходится."""
     v = app_version()
     bad = []
     if package_version() != v:
-        bad.append(f"frontend/package.json: {package_version()!r}, а в engine.py {v!r}")
+        bad.append(f"frontend/package.json: {package_version()!r}, а в version.py {v!r}")
+    # `eng.APP_VERSION` — импорт из version.py. Своя строка в engine.py дала бы
+    # второй источник: /health сказал бы одно, текстовые читатели — другое.
+    if re.search(r"^\s*APP_VERSION\s*=", ENGINE.read_text(encoding="utf-8"), flags=re.M):
+        bad.append("bot/app/engine.py: своя строка APP_VERSION, источник — version.py")
     # Издатель в двух местах — установщик и свойства exe. Разъедутся — в списке
     # программ одно имя, в свойствах файла другое, и заметно это только
     # человеку, открывшему оба окна; отсюда сверка здесь, рядом с версией.
@@ -113,7 +124,9 @@ def check() -> list[str]:
     # чистом клоне его нет по замыслу. Его делает сборка (Build-Engine.ps1
     # зовёт этот же скрипт первым шагом). Красным здесь он был бы красным
     # ВСЕГДА в CI — а сторож, краснеющий на ровном месте, перестают читать.
-    if VERSION_FILE.exists() and VERSION_FILE.read_text(encoding="utf-8") != version_info(v):
+    if (VERSION_FILE.exists()
+            and _resource_body(VERSION_FILE.read_text(encoding="utf-8"))
+            != _resource_body(version_info(v))):
         bad.append(f"{VERSION_FILE.relative_to(ROOT)} описывает не {v}")
     return bad
 
@@ -151,7 +164,7 @@ def main() -> int:
             print(f"  [ок]  версия всюду одна: {app_version()}")
         return 1 if bad else 0
     v = write()
-    print(f"  [ок]  версия разослана из engine.py: {v}")
+    print(f"  [ок]  версия разослана из version.py: {v}")
     return 0
 
 

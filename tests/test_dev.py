@@ -51,7 +51,7 @@ def suite_release_content(res: Result) -> None:
             return git("rev-parse", "HEAD")
 
         git("init", "-q")
-        commit({"bot/app/engine.py": 'APP_VERSION = "1.0.0"\n',
+        commit({"bot/app/version.py": 'APP_VERSION = "1.0.0"\n',
                 "frontend/src/main.tsx": "1\n",
                 "frontend/src/features/Day.tsx": "1\n",
                 "frontend/src/features/Day.test.tsx": "1\n",

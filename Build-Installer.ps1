@@ -17,10 +17,10 @@
 #                                    # v releases\ ne kladetsya, release.py ee ne primet
 #   .\Build-Installer.ps1 -SkipApp   # upakovat uzhe sobrannyi dist\DentPilot (pravka .iss)
 #
-# Versiya odna: APP_VERSION iz bot\app\engine.py. Ee berut dvizhok (sync_version ->
+# Versiya odna: APP_VERSION iz bot\app\version.py. Ee berut dvizhok (sync_version ->
 # svoistva exe, /health), obolochka (shell\build.rs -> svoistva DentPilot.exe,
 # dpShell.version) i master (/DAppVersion). Imya artefakta - iz togo, chto
-# SOBRANNAYA programma govorit o sebe (/health pod obolochkoi), a ne iz engine.py:
+# SOBRANNAYA programma govorit o sebe (/health pod obolochkoi), a ne iz version.py:
 # tak nevozmozhno vypustit "Setup-1.10.0.exe" s binarnikom 1.9.1.
 # -SetupDir: kuda polozhit gotovyi master dlya klinik (pustaya stroka - ne klast).
 param([switch]$NoSign, [switch]$SkipApp, [string]$SetupDir = "D:\DentProject\releases")
@@ -34,8 +34,8 @@ $shellExe = "$prog\DentPilot.exe"
 $engineExe = "$prog\engine\DentPilot-Engine.exe"
 
 # --- versiya v ishodnike (dlya sverki s tem, chto realno vnutri sborki) ---
-$engine = Get-Content "bot\app\engine.py" -Raw
-if ($engine -notmatch 'APP_VERSION\s*=\s*"([^"]+)"') { Fail "APP_VERSION ne naiden v bot\app\engine.py" }
+$versionSrc = Get-Content "bot\app\version.py" -Raw
+if ($versionSrc -notmatch 'APP_VERSION\s*=\s*"([^"]+)"') { Fail "APP_VERSION ne naiden v bot\app\version.py" }
 $srcVersion = $Matches[1]
 if ($srcVersion -notmatch '^\d+\.\d+\.\d+$') {
     Fail "APP_VERSION = '$srcVersion' - nuzhny rovno tri chisla (X.Y.Z), inache sravnenie versii u klinik lomaetsya"
@@ -192,10 +192,10 @@ foreach ($v in @($smoke.shell_file, $smoke.engine_file, $smoke.shell_version)) {
     if ("$v" -ne $version) { Fail "versii razoshlis: /health $version, obolochka $($smoke.shell_file), dvizhok $($smoke.engine_file), dpShell $($smoke.shell_version)" }
 }
 if (-not $SkipApp -and $version -ne $srcVersion) {
-    Fail "programma soobshchaet $version, a v engine.py $srcVersion - sborka vzyala staryi binarnik"
+    Fail "programma soobshchaet $version, a v version.py $srcVersion - sborka vzyala staryi binarnik"
 }
 if ($SkipApp -and $version -ne $srcVersion) {
-    Write-Host "!! programma = $version, engine.py = $srcVersion. Artefakty budut nazvany po PROGRAMME ($version)." -ForegroundColor Yellow
+    Write-Host "!! programma = $version, version.py = $srcVersion. Artefakty budut nazvany po PROGRAMME ($version)." -ForegroundColor Yellow
 }
 
 # --- 4. master ustanovki (Inno Setup) ---

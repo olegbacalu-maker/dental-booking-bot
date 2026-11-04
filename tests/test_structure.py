@@ -78,7 +78,9 @@ _PRELOAD = ("app/paths.py", "app/dpapi.py", "app/envfile.py",
             # сборки приложения (цвет заставки в `hello`). (`restartwatch.py`
             # ушёл из слоя 22.10.2026: Python-сторожа `--watch` больше нет, план
             # сторожа строит приложение — `update._spawn_watch`.)
-            "app/brand.py", "app/splash.py")
+            "app/brand.py", "app/splash.py",
+            # версия: её читают текстом сборка и скрипты, а движок — импортом
+            "app/version.py")
 
 # Друг друга им знать можно — это один слой, живущий до сборки приложения
 # (dpapi правит токен в dental.env, то есть зовёт envfile). Нельзя всё

@@ -56,7 +56,7 @@
 
 ## Версия — один источник
 
-`bot/app/engine.py` — источник истины. Синхронизировать: `package.json`,
+`bot/app/version.py` — источник истины. Синхронизировать: `package.json`,
 `tauri.conf.json`, `Cargo.toml`, тег, GitHub Release, имя ассета.
 
 ⏳ Завести `scripts/sync_version.py --check` и звать его в трёх местах:

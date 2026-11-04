@@ -13,12 +13,11 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from . import db, paths
+from .version import APP_VERSION  # noqa: F401 — вызывающие читают eng.APP_VERSION
 
 TZ = ZoneInfo("Europe/Chisinau")
 
 log = logging.getLogger("engine")
-
-APP_VERSION = "2.9.0"
 
 
 def _load_config() -> dict:

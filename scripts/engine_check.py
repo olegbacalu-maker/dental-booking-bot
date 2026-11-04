@@ -67,7 +67,7 @@ SMOKE_KEY = "smoke1234"    # пароль серверной ветки для �
 
 def app_version() -> str:
     m = re.search(r'APP_VERSION\s*=\s*"([^"]+)"',
-                  (BOT / "app" / "engine.py").read_text(encoding="utf-8"))
+                  (BOT / "app" / "version.py").read_text(encoding="utf-8"))
     return m.group(1) if m else ""
 
 

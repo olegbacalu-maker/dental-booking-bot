@@ -276,7 +276,7 @@ def suite_release_setup(res: Result) -> None:
 
 
 def suite_version_source(res: Result) -> None:
-    """Версия одна на программу: движок — источник, остальные её повторяют.
+    """Версия одна на программу: `version.py` — источник, остальные её повторяют.
 
     ⚠️ Разъезд номеров не мешает НИЧЕМУ: сборка идёт, прогон зелёный, exe
     работает — просто в свойствах файла стоит не тот номер, а `package.json`
@@ -310,6 +310,38 @@ def suite_version_source(res: Result) -> None:
     res.ok("разъехавшийся номер клиента даёт находку",
            any("package.json" in d for d in drift),
            f"молчит: {drift}")
+
+    # Источник — bot/app/version.py (04.11), движок берёт его импортом. Пара:
+    # подъём одного version.py обязан дать находку, а своя строка в engine.py
+    # (второй источник: /health и текстовые читатели разойдутся) — тоже.
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = pathlib.Path(tmp) / "version.py"
+        fake.write_text('APP_VERSION = "0.0.1"\n', encoding="utf-8")
+        real = mod.VERSION
+        mod.VERSION = fake
+        try:
+            drift = mod.check()
+        finally:
+            mod.VERSION = real
+    res.ok("другая версия в version.py даёт находку у клиента",
+           any("package.json" in d and "0.0.1" in d for d in drift),
+           f"молчит: {drift}")
+    res.ok("engine.py без своей строки версии",
+           not any("engine.py" in d for d in mod.check()), f"{mod.check()}")
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = pathlib.Path(tmp) / "engine.py"
+        fake.write_text('APP_VERSION = "0.0.1"\n', encoding="utf-8")
+        real = mod.ENGINE
+        mod.ENGINE = fake
+        try:
+            drift = mod.check()
+        finally:
+            mod.ENGINE = real
+    res.ok("своя строка APP_VERSION в engine.py даёт находку",
+           any("engine.py" in d for d in drift), f"молчит: {drift}")
+    # Читатели текстом и импортом обязаны получать одно и то же.
+    res.check("eng.APP_VERSION = строка version.py",
+              importlib.import_module("app.engine").APP_VERSION, v)
 
     # Ресурс свойств exe генерируется, а не правится руками: в нём обязана
     # стоять та же версия и имя файла, по которому обновление ищет ассет.
