@@ -108,6 +108,9 @@ _DB_SCHEMA = "app/db/schema.py"      # SCHEMA_VERSION, MIGRATIONS, SQLITE_SCHEMA
 _DB_SLOTS = "app/db/slots.py"        # _slot_lock, _BOOK_LOCK, _uq_slot_sql
 _DB_DAY = "app/db/schedule.py"       # day_appointments: выборка дня
 _DB_TEXTS = "app/db/plans.py"        # тексты летописи пациента («Plan: …»)
+# Якоря бывшего layout.py (разнос 04.11): переезд имени = правка одной строки.
+_LAY_SHELL = "app/core/layout.py"     # shell_model, REACT_SCREENS, SECTION_TITLE
+_LAY_ICONS = "app/core/icons.py"      # _I, _ic
 
 # Все, кто в итоге зовёт `_save_users`, то есть переписывает auth.json.
 # verify_pin здесь не по недосмотру: при входе он молча мигрирует файл v1→v2.
@@ -795,7 +798,7 @@ def suite(res: Result) -> None:
             if found:
                 bad.append(f"{rel}:{ln} {found}")
     res.ok("интерфейс не просит знаки у Windows", not bad,
-           "рисует системным шрифтом (нужна иконка из layout._I): "
+           "рисует системным шрифтом (нужна иконка из core/icons._I): "
            + "; ".join(bad[:8]))
 
     # ⚠️ Забытый импорт `_ic` не виден ни глазами, ни этим набором иначе:
@@ -1250,7 +1253,7 @@ def suite(res: Result) -> None:
            "мёртвая ветка на сервере (или переименованная поверхность, о "
            "которой клиент уже не знает): " + "; ".join(dead or ["нет _NO_STATE"]))
 
-    # ---- icons.ts свежий: иконки клиента — ИЗ layout._I (09-17, 2.0) ----
+    # ---- icons.ts свежий: иконки клиента — ИЗ core/icons._I (09-17, 2.0) ----
     # У иконок один владелец — словарь _I; frontend/src/components/icons.ts
     # генерируется из него (scripts/gen_icons.py). Правка иконки на сервере
     # без пересборки файла разошлась бы молча: старая форма рисует новое,
@@ -1262,15 +1265,16 @@ def suite(res: Result) -> None:
         "gen_icons", ROOT / "scripts" / "gen_icons.py")
     gen = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(gen)
-    icons = gen.icons_from_tree(layout_tree) if layout_tree is not None else None
+    icons_tree = by_path.get(_LAY_ICONS)
+    icons = gen.icons_from_tree(icons_tree) if icons_tree is not None else None
     ts = ROOT / "frontend" / "src" / "components" / "icons.ts"
     if not icons:
-        bad.append("в app/core/layout.py нет словаря _I — якорь правила пропал")
+        bad.append(f"в {_LAY_ICONS} нет словаря _I — якорь правила пропал")
     elif not ts.exists():
         bad.append(f"нет {ts.relative_to(ROOT)} — python scripts/gen_icons.py")
     elif ts.read_text(encoding="utf-8") != gen.render(icons):
-        bad.append("icons.ts отстал от layout._I — python scripts/gen_icons.py")
-    res.ok("icons.ts свежий: иконки клиента из layout._I", not bad,
+        bad.append("icons.ts отстал от core/icons._I — python scripts/gen_icons.py")
+    res.ok("icons.ts свежий: иконки клиента из core/icons._I", not bad,
            "React рисовал бы не те значки, что сервер: " + "; ".join(bad))
 
     # ---- ссылки экранов — AppLink (B4, 25.09) ----

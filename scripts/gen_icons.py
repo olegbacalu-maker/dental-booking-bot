@@ -1,9 +1,9 @@
-"""icons.ts для React-клиента — ИЗ layout._I, а не руками.
+"""icons.ts для React-клиента — ИЗ core/icons._I, а не руками.
 
   python scripts/gen_icons.py          пересобрать frontend/src/components/icons.ts
   python scripts/gen_icons.py --check  только проверить, что файл свежий
 
-У иконок один владелец — `core/layout._I` (правило карты: ничего графического
+У иконок один владелец — `core/icons._I` (правило карты: ничего графического
 от Windows, значок = иконка currentColor, и она сама берёт цвет клиники).
 Второй список в TypeScript разошёлся бы с первым при первой же правке, поэтому
 файл ПРОИЗВОДНЫЙ: правится источник, потом пересборка. Свежесть держит
@@ -21,7 +21,7 @@ import sys
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # консоль бывает cp1251
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-LAYOUT = ROOT / "bot" / "app" / "core" / "layout.py"
+ICONS = ROOT / "bot" / "app" / "core" / "icons.py"
 OUT = ROOT / "frontend" / "src" / "components" / "icons.ts"
 
 
@@ -44,7 +44,7 @@ def icons_from_tree(tree: ast.Module) -> dict[str, str] | None:
 
 def render(icons: dict[str, str]) -> str:
     lines = [
-        "// Сгенерировано scripts/gen_icons.py из bot/app/core/layout.py (_I).",
+        "// Сгенерировано scripts/gen_icons.py из bot/app/core/icons.py (_I).",
         "// НЕ ПРАВИТЬ РУКАМИ: правится источник, потом `python scripts/gen_icons.py`.",
         "// Внутренняя разметка <svg> — те же path'ы, что рисует серверный _ic().",
         "export const ICONS = {",
@@ -56,9 +56,9 @@ def render(icons: dict[str, str]) -> str:
 
 
 def main(argv: list[str]) -> int:
-    icons = icons_from_tree(ast.parse(LAYOUT.read_text(encoding="utf-8")))
+    icons = icons_from_tree(ast.parse(ICONS.read_text(encoding="utf-8")))
     if not icons:
-        print(f"в {LAYOUT} нет словаря _I")
+        print(f"в {ICONS} нет словаря _I")
         return 1
     text = render(icons)
     if "--check" in argv:

@@ -1,4 +1,4 @@
-// Сгенерировано scripts/gen_icons.py из bot/app/core/layout.py (_I).
+// Сгенерировано scripts/gen_icons.py из bot/app/core/icons.py (_I).
 // НЕ ПРАВИТЬ РУКАМИ: правится источник, потом `python scripts/gen_icons.py`.
 // Внутренняя разметка <svg> — те же path'ы, что рисует серверный _ic().
 export const ICONS = {
