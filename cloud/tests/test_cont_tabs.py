@@ -57,6 +57,7 @@ def suite_tabs(res: Result) -> None:
                not any(f"id='{k}'" in home.body for k in KEYS))
         res.ok("Licență și program: лицензия, программа, компьютеры, учётная запись",
                "Perioada de probă este valabilă" in panes["licenta"] and "Descarcă DentPilot" in panes["licenta"]
+               and "SmartScreen" in panes["licenta"] and "Oleg Bacalu" in panes["licenta"]
                and "Calculatoare cu DentPilot" in panes["licenta"] and "action='/cont/iesire'" in panes["licenta"]
                and "Clinica are și alte sedii?" not in panes["licenta"], panes["licenta"][-1500:])
         res.ok("Abonament și plăți: форма варианта и нот", "name='months'" in panes["plati"]

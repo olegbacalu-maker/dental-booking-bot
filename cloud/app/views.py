@@ -2668,6 +2668,11 @@ def _cont_docs_body(c, docs: list, mine: list, fragment: str = "", q: str = "", 
 # Вкладки кабинета (29.10, вариант 1 Олега): ключ, значок, подпись. ⛔ Ключ не равен ни одному id
 # страницы — иначе метка адреса прокрутит к элементу (то же правило, что у карточки админки);
 # прежние якоря блоков #plati и #date ведут на вкладку (data_href → #clinica). Держит test_cont_tabs.
+# То же окно описывают `descarca.html` сайта и гид: файл скачан из интернета, издатель — подпись (04.11).
+SMARTSCREEN_NOTE = ("La instalare, Windows poate afișa un ecran albastru SmartScreen: instalatorul este semnat, "
+                    "dar programul este încă nou pentru Windows. Deschideți detaliile, verificați că editorul "
+                    "este Oleg Bacalu și porniți instalarea.")
+
 CONT_TABS = (("licenta", "shield", "Licență și program"), ("plati", "card", "Abonament și plăți"),
              ("clinica", "building", "Clinica"), ("sms", "message", "SMS"), ("documente", "file", "Documente"))
 
@@ -2758,6 +2763,7 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
             f"{how}</div><div class='side'><p class='eyebrow'>Programul</p>"
             f"<div class='big'>DentPilot{ver}</div>"
             f"<p class='small'>Instalator semnat digital — arhivă zip cu {setup}.</p>"
+            f"<p class='small'>{SMARTSCREEN_NOTE}</p>"
             f"<div class='actions'><a class='btn' href='/descarca'>{_ic('download')} Descarcă DentPilot{ver}</a>{code_btn}{act}</div>"
             f"</div></div>")
     devs = (f"<div class='card'>{_chead('monitor', 'Calculatoare cu DentPilot', 'versiunea programului și ultima verificare a licenței')}"
@@ -2925,6 +2931,7 @@ def cont_activation_page(acc, c, code: str, until: str, main, release, msg: str 
             f"un singur calculator</p>{steps}{warn}"
             f"<div class='btns' style='margin-top:18px'><a class='btn' href='/descarca'>{_ic('download')} Descarcă "
             f"DentPilot{ver}</a><a class='btn second' href='/cont?c={esc(c['id'])}'>Înapoi la clinicile mele</a></div>"
+            f"<p class='note'>{SMARTSCREEN_NOTE}</p>"
             f"<p class='note'>Codul nu se mai poate vedea după ce închideți pagina. Pentru încă un calculator sau dacă "
             f"l-ați pierdut — «Cod de activare» din nou; codul vechi nefolosit nu mai este valabil.</p></div>")
     return _cont_shell("Codul de activare", card, acc, msg, eyebrow="Contul clinicii · cod de activare")
