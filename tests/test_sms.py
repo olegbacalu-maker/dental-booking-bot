@@ -846,7 +846,7 @@ def suite_screen(res: Result) -> None:
                            data["offered"] and not data["enabled"] and data["blocked"] == code
                            and data["why"].startswith("modulul SMS este oprit")
                            and ("DentPilot Plus" in data["why"]) == plus, repr(data)[:400])
-                src = (BOT / "app" / "core" / "layout.py").read_text(encoding="utf-8")
+                src = (BOT / "app" / "core" / "labels.py").read_text(encoding="utf-8")
                 want = {k: re.search(rf'^{n} = "([^"]+)"', src, re.M).group(1)
                         for k, n in (("phone", "SUPPORT_PHONE"), ("email", "FEEDBACK_EMAIL"))}
                 res.check("контакты для возобновления — те же, что на странице активации", data.get("support"), want)
