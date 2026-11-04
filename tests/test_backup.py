@@ -638,9 +638,9 @@ def suite_failure(res: Result) -> None:
 # ---------- 6. папки вне компьютера нет: строка директору (02.11) ----------
 
 def _banner_text(code: str) -> str:
-    """Слова кода из `MSG_BANNER` — разбором исходника: импорт `layout` в
+    """Слова кода из `MSG_BANNER` — разбором исходника: импорт `core/messages` в
     процессе прогона потянул бы `db` с чужим DATABASE_URL."""
-    tree = ast.parse((BOT / "app" / "core" / "layout.py").read_text(encoding="utf-8"))
+    tree = ast.parse((BOT / "app" / "core" / "messages.py").read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign) and any(getattr(t, "id", "") == "MSG_BANNER" for t in node.targets):
             for k, v in zip(node.value.keys, node.value.values):

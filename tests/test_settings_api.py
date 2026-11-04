@@ -483,7 +483,8 @@ def suite_faq(res: Result) -> None:
         res.ok("абзац двух ПК перечисляет закрытое из сети словами FAQ",
                bool(said) and ", ".join(said) in lan, lan[-500:])
         # Заказы лаунчеру (local-orders): справка цитирует баннер, а не пересказ
-        banner = {k: v for k, v in re.findall(r'"(ord_\w+)": \("\w+", "([^"]+)"', lay)}
+        msgs = (BOT / "app" / "core" / "messages.py").read_text(encoding="utf-8")
+        banner = {k: v for k, v in re.findall(r'"(ord_\w+)": \("\w+", "([^"]+)"', msgs)}
         rest = next((it["answer"] for it in d["items"] if "restaurez" in it["question"]), "")
         crypt = next((it["answer"] for it in d["items"] if "criptarea evidenței" in it["question"]), "")
         res.ok("восстановление и шифрование цитируют баннеры заказов",

@@ -425,7 +425,7 @@ MUTATIONS = [
     ("договор согласован с программой", "app/core/license_state.py",
      ("NO_FILE_GRACE = timedelta(days=14)", "NO_FILE_GRACE = timedelta(days=13)")),
     # Баннер режима чтения сказал клинике меньше, чем обещает договор.
-    ("договор согласован с программой", "app/core/layout.py",
+    ("договор согласован с программой", test_structure._LAY_MSG,
      ('"expirat. Datele se pot consulta, tipări și exporta; "',
       '"expirat. Datele se pot consulta și tipări; "')),
     # Галочка активации принимает версию условий, которой на сайте нет.
@@ -628,7 +628,7 @@ LEGAL = [
      ('    "/admin/login", "/admin/setup",', '    "/admin/login", "/admin/setup", "/api/license/renew",')),
     # ⭐ Законно: ещё один код баннера рядом с лицензионными — договор про
     # него ничего не обещает, и правило обязано молчать.
-    ("договор согласован с программой", "app/core/layout.py",
+    ("договор согласован с программой", test_structure._LAY_MSG,
      ('    "license_ok": ("ok", "Licența a fost activată"),',
       '    "license_ok": ("ok", "Licența a fost activată"),\n    "license_note": ("ok", "Notă"),')),
     # ⭐ Законно: подсказка у кнопки переписана, надпись та же — сайт прав.

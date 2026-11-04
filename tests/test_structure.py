@@ -111,6 +111,9 @@ _DB_TEXTS = "app/db/plans.py"        # тексты летописи пацие�
 # Якоря бывшего layout.py (разнос 04.11): переезд имени = правка одной строки.
 _LAY_SHELL = "app/core/layout.py"     # shell_model, REACT_SCREENS, SECTION_TITLE
 _LAY_ICONS = "app/core/icons.py"      # _I, _ic
+_LAY_MSG = "app/core/messages.py"     # MSG_BANNER и его читатели (msg_*)
+# Кому можно читать MSG_BANNER прямо; остальным — msg_text / msg_view / msg_json.
+_MSG_READERS = (_LAY_MSG, _LAY_SHELL)
 
 # Все, кто в итоге зовёт `_save_users`, то есть переписывает auth.json.
 # verify_pin здесь не по недосмотру: при входе он молча мигрирует файл v1→v2.
@@ -901,20 +904,26 @@ def suite(res: Result) -> None:
     # коротких страницах разработчика это невидимо.
     # ⚠️ Полярность опасная: правило ищет ИМЯ, и после переименования словаря
     # оно позеленело бы навсегда — поэтому сперва якорь «словарь ещё есть».
-    layout_tree = by_path.get("app/core/layout.py")
-    has_dict = layout_tree is not None and any(
+    msg_tree = by_path.get(_LAY_MSG)
+    has_dict = msg_tree is not None and any(
         isinstance(n, ast.Assign) and any(
             isinstance(t, ast.Name) and t.id == "MSG_BANNER" for t in n.targets)
-        for n in ast.walk(layout_tree))
-    bad = [] if has_dict else ["app/core/layout.py: словарь MSG_BANNER не найден"]
+        for n in ast.walk(msg_tree))
+    bad = [] if has_dict else [f"{_LAY_MSG}: словарь MSG_BANNER не найден"]
+    # ⚠️ Список ВКЛЮЧАЕТ разрешение: файл, переставший читать словарь, не должен
+    # оставаться в нём молча (список шире нужного прощал бы новое чтение там).
+    bad += [f"{rel}: допущен к MSG_BANNER, но его не читает — убрать из _MSG_READERS"
+            for rel in _MSG_READERS
+            if not any(isinstance(n, ast.Name) and n.id == "MSG_BANNER"
+                       for n in ast.walk(by_path.get(rel) or ast.parse("")))]
     bad += [f"{rel}:{n.lineno}" for rel, tree in src
-            if rel != "app/core/layout.py"
+            if rel not in _MSG_READERS
             for n in ast.walk(tree)
             if (isinstance(n, ast.Name) and n.id == "MSG_BANNER")
             or (isinstance(n, ast.ImportFrom)
                 and any(a.name == "MSG_BANNER" for a in n.names))]
     res.ok("ответ на действие строит только layout", not bad,
-           "MSG_BANNER вне layout.msg_banner — сообщение вернётся строкой в "
+           "MSG_BANNER вне core/messages — сообщение вернётся строкой в "
            "поток, и внизу страницы его опять не видно: " + ", ".join(bad))
 
     # ---- миграции db: версия схемы и schema_meta (08-15) ----
@@ -1590,7 +1599,7 @@ def suite(res: Result) -> None:
         bad += [f"READONLY_ALLOW: {t} — не под /admin и не под /api/"
                 for t in allow if not t.startswith(("/admin", "/api/"))]
     _GATE_HOME = ("app/core/license.py", "app/core/license_state.py",
-                  "app/core/layout.py", "app/main.py")
+                  _LAY_MSG, "app/main.py")
     bad += [f"{rel}:{ln} — второе решение про readonly вне шлюза"
             for rel, tree in src if rel not in _GATE_HOME
             for ln, text in _ui_texts(tree) if text == "license_readonly"]
@@ -1641,7 +1650,7 @@ def suite(res: Result) -> None:
     if not page:
         bad.append("docs/site/termeni.html не найден — договора нет")
     readonly_text = ""
-    lay_tree = by_path.get("app/core/layout.py")
+    lay_tree = by_path.get(_LAY_MSG)
     for n in ast.walk(lay_tree) if lay_tree else ():
         if (isinstance(n, ast.Assign) and isinstance(n.value, ast.Dict)
                 and any(isinstance(t, ast.Name) and t.id == "MSG_BANNER" for t in n.targets)):
@@ -1651,7 +1660,7 @@ def suite(res: Result) -> None:
                         and isinstance(v.elts[1], ast.Constant)):
                     readonly_text = v.elts[1].value
     if not readonly_text:
-        bad.append("app/core/layout.py: в MSG_BANNER нет license_readonly — якорь пропал")
+        bad.append(f"{_LAY_MSG}: в MSG_BANNER нет license_readonly — якорь пропал")
     else:
         m = re.search(r"(Datele se pot [^;.]+)", readonly_text)
         phrase = m.group(1).strip() if m else readonly_text
