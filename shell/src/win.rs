@@ -6,7 +6,7 @@
 // дальше; выход — из меню значка или «Fișier › Închide», с вопросом; в
 // первый раз — подсказка «я у часов».
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
@@ -326,6 +326,28 @@ pub fn log_target(url: &str) -> String {
     format!("{scheme}://{host}")
 }
 
+/// Расширения, которые `log_file_ext` называет в журнале.
+const LOG_EXTENSIONS: &[&str] = &[
+    "zip", "xlsx", "xls", "csv", "pdf", "png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff",
+    "heic", "doc", "docx", "odt", "ods", "rtf", "txt", "dcm", "stl",
+];
+
+/// Скачанный файл для `shell.log`: только расширение из списка, иначе `?`.
+/// ⛔ Ни имени, ни папки: выгрузка называется `date-<имя пациента>-…zip`, а
+/// журнал уезжает из клиники вместе с жалобой. Список, а не «что после точки»:
+/// имя документа задаёт человек, и у `Ion.Popescu` «расширением» была бы фамилия.
+pub fn log_file_ext(path: Option<&Path>) -> String {
+    let ext = path
+        .and_then(Path::extension)
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .filter(|e| LOG_EXTENSIONS.contains(&e.as_str()));
+    match ext {
+        Some(e) => format!(".{e}"),
+        None => "?".into(),
+    }
+}
+
 /// Скачивание: родное окно «Сохранить как». `dest` — куда положил бы сам
 /// WebView2 (папка «Загрузки» + имя от сервера); выбор человека пишется туда же.
 /// ⚠️ Модально внутри события WebView2 — так же, как это годами делало
@@ -414,8 +436,24 @@ mod tests {
         assert_eq!(log_target("blob:http://127.0.0.1:8088/5f2c-uuid"), "blob:");
     }
 
-    /// Сторож на месте вызова: `log_target` не поможет строке, которая его не
-    /// зовёт. Строка журнала, где назван адрес, обязана идти через него.
+    #[test]
+    fn log_file_ext_keeps_no_file_name() {
+        let ext = |p: &str| log_file_ext(Some(Path::new(p)));
+        assert_eq!(ext(r"C:\Users\Ion\Downloads\date-Ion_Popescu-42-20261104.zip"), ".zip");
+        assert_eq!(ext(r"C:\Users\Ion\Downloads\Fisa Ion Popescu.PDF"), ".pdf");
+        // без расширения и мусор вместо него
+        assert_eq!(ext(r"C:\Users\Ion\Downloads\Ion Popescu"), "?");
+        assert_eq!(ext(r"C:\Users\Ion.Popescu\Downloads\fisa"), "?");
+        // после точки — фамилия, а не расширение
+        assert_eq!(ext(r"C:\Users\Ion\Downloads\Ion.Popescu"), "?");
+        assert_eq!(ext(r"C:\Users\Ion\Downloads\.zip"), "?");
+        assert_eq!(ext(""), "?");
+        assert_eq!(log_file_ext(None), "?");
+    }
+
+    /// Сторож на месте вызова: `log_target` и `log_file_ext` не помогут строке,
+    /// которая их не зовёт. Строка журнала, где назван адрес или файл, обязана
+    /// идти через них.
     #[test]
     fn log_lines_do_not_carry_a_raw_url() {
         for (file, text) in [("main.rs", include_str!("main.rs")), ("webview.rs", include_str!("webview.rs"))] {
@@ -427,6 +465,13 @@ mod tests {
                 assert!(
                     !names_address || line.contains("log_target("),
                     "{file}:{}: адрес в журнале мимо win::log_target",
+                    i + 1
+                );
+                let names_file = ["destination", "path", "file_name", "filename"].iter().any(|w| line.contains(w));
+                assert!(
+                    !names_file
+                        || (line.contains("log_file_ext(") && !line.contains(".display()") && !line.contains("{path")),
+                    "{file}:{}: имя файла в журнале мимо win::log_file_ext",
                     i + 1
                 );
             }

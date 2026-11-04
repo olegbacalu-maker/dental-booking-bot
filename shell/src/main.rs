@@ -442,13 +442,13 @@ fn page_builder(h: &AppHandle, color: Option<&str>, bg: Color, profile: std::pat
             NewWindowResponse::Deny
         })
         .on_download(move |_wv, ev| match ev {
-            DownloadEvent::Requested { url, destination } => {
+            DownloadEvent::Requested { destination, .. } => {
                 let ok = win::save_as(&h3, destination);
-                log(&format!("download {}: {}", win::log_target(url.as_str()), if ok { destination.display().to_string() } else { "cancelled".into() }));
+                log(&format!("download {}: {}", win::log_file_ext(Some(destination.as_path())), if ok { "saving" } else { "cancelled" }));
                 ok
             }
-            DownloadEvent::Finished { url, path, success } => {
-                log(&format!("download done {}: {success} {path:?}", win::log_target(url.as_str())));
+            DownloadEvent::Finished { path, success, .. } => {
+                log(&format!("download done {}: {success}", win::log_file_ext(path.as_deref())));
                 true
             }
             _ => true,
