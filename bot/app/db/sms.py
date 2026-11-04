@@ -167,16 +167,6 @@ async def sms_counts(day_start: datetime) -> dict:
     return {k: int(r.get(k) or 0) for k in ("queued", "today", "delivered", "failed")}
 
 
-async def sms_spent(since: datetime) -> int:
-    """Сегменты, ушедшие оператору с `since` (списанные: sent, delivered,
-    undelivered) — расход для прогноза остатка."""
-    v = await _fetchval(
-        """SELECT COALESCE(SUM(segments), 0) FROM sms_log
-           WHERE state IN ('sent','delivered','undelivered') AND created_at >= ?""",
-        _iso(since))
-    return int(v or 0)
-
-
 async def sms_visits_month(start: datetime, end: datetime) -> int:
     """Сколько визитов с телефоном пациента было в окне — основа прогноза
     расхода в месяц: каждое включённое событие — по SMS на визит."""

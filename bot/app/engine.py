@@ -429,34 +429,21 @@ def is_past_day(d: date) -> bool:
     return d < datetime.now(TZ).date()
 
 
-async def free_starts(
-    doc_key: str, d: date, duration: int,
-    allowed_keys: list[str] | None = None,
-) -> list[datetime]:
+async def free_starts(doc_key: str, d: date, duration: int) -> list[datetime]:
     """Свободные СТАРТЫ для услуги данной длительности: 30-мин сетка внутри
     рабочих окон врача, интервал влезает в окно и не пересекает занятые."""
     now = datetime.now(TZ)
     day_start = datetime(d.year, d.month, d.day, 0, 0, tzinfo=TZ)
     day_end = day_start + timedelta(days=1)
-    keys = ([doc_key] if doc_key != "any"
-            else (allowed_keys or list(ACTIVE_DOCTORS)))
     free: set[datetime] = set()
-    for k in keys:
-        busy = await db.booked_intervals(k, DOCTORS.get(k, ""), day_start, day_end)
-        for w_start, w_end in _windows(k, d):
-            t_cur = w_start
-            while t_cur + timedelta(minutes=duration) <= w_end:
-                if t_cur > now and not _overlaps(t_cur, duration, busy):
-                    free.add(t_cur)
-                t_cur += timedelta(minutes=GRID_STEP)
+    busy = await db.booked_intervals(doc_key, DOCTORS.get(doc_key, ""), day_start, day_end)
+    for w_start, w_end in _windows(doc_key, d):
+        t_cur = w_start
+        while t_cur + timedelta(minutes=duration) <= w_end:
+            if t_cur > now and not _overlaps(t_cur, duration, busy):
+                free.add(t_cur)
+            t_cur += timedelta(minutes=GRID_STEP)
     return sorted(free)
-
-
-async def free_slots(
-    doc_key: str, d: date, allowed_keys: list[str] | None = None
-) -> list[datetime]:
-    """Свободные часовые окна (для дашборда «liber de la»)."""
-    return await free_starts(doc_key, d, 60, allowed_keys)
 
 
 def build_seed_rows() -> list[tuple]:

@@ -601,11 +601,6 @@ def accent() -> str:
     return current()["primary"]
 
 
-def accent_dark() -> str:
-    th = current()
-    return palette(th["primary"], th["style"])["--teal-d"]
-
-
 def on_accent() -> str:
     th = current()
     return palette(th["primary"], th["style"])["--on-teal"]

@@ -82,7 +82,7 @@ SNAPSHOT = frozenset((
     "sms_counts", "sms_delete", "SMS_DELIVERED", "sms_drop_kind", "sms_enqueue",
     "SMS_EXPIRED", "SMS_FAILED", "sms_known_idems", "sms_log_sent", "SMS_OFF_EVENT",
     "sms_overdue", "sms_pending", "sms_queue", "SMS_QUEUED", "_SMS_REMINDED_SQL",
-    "sms_rows", "SMS_SENT", "sms_set", "sms_spent", "SMS_STATES", "sms_states_by_kind",
+    "sms_rows", "SMS_SENT", "sms_set", "SMS_STATES", "sms_states_by_kind",
     "SMS_UNDELIVERED", "sms_visits_month", "_SQ", "SQLITE_CARD_SCHEMA",
     "_sqlite_driver", "SQLITE_EXTRA_COLS", "SQLITE_PATIENT_COLS", "SQLITE_SCHEMA",
     "_teeth_hist_base", "TEETH_HIST_SINCE", "teeth_hist_since", "TEETH_HIST_STEP",

@@ -69,7 +69,7 @@ from .sms import (
     SMS_QUEUED, SMS_SENT, SMS_DELIVERED, SMS_UNDELIVERED, SMS_FAILED, SMS_EXPIRED,
     SMS_STATES, _SMS_REMINDED_SQL, sms_candidates, sms_known_idems, sms_enqueue, sms_queue,
     sms_set, sms_delete, sms_drop_kind, sms_overdue, sms_pending, sms_rows, sms_by_idem,
-    sms_log_sent, sms_states_by_kind, sms_counts, sms_spent, sms_visits_month,
+    sms_log_sent, sms_states_by_kind, sms_counts, sms_visits_month,
     SMS_OFF_EVENT, set_sms_off, manual_patient_sms_off,
 )
 from .recall import (

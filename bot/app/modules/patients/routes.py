@@ -207,7 +207,7 @@ async def _free_slots(date_q: str, doctor: str, service: str) -> list[str]:
     allowed = [k for k, _n in eng.allowed_doc_items(service)]
     if doctor not in allowed:
         return []  # услугу этот врач не выполняет
-    free = await eng.free_starts(doctor, d, eng.svc_duration(service), allowed)
+    free = await eng.free_starts(doctor, d, eng.svc_duration(service))
     return [x.strftime("%H:%M") for x in free]
 
 
