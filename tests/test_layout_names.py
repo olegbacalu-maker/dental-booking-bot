@@ -132,17 +132,18 @@ def suite(res: Result) -> None:
         [sys.executable, "-c", _OWNERS_CODE, json.dumps(sorted(SNAPSHOT)), json.dumps(list(BELOW)),
          json.dumps({f: defined[f] for f in BELOW})],
         cwd=BOT, env=_env(), capture_output=True, text=True, encoding="utf-8", timeout=120)
-    if not res.ok("снимок layout читается", probe.returncode == 0,
-                  f"код {probe.returncode}: {probe.stderr[-400:]}"):
-        return
-    got = json.loads(probe.stdout.strip().splitlines()[-1])
-    res.ok("каждое имя снимка есть в layout", not got["missing"],
-           "пропали (ImportError у вызывающего): " + ", ".join(got["missing"]))
-    res.check("__all__ у layout — это снимок", set(got["all"]), set(SNAPSHOT))
-    res.ok("layout.X — тот же объект, что у соседа-владельца", not got["stale"],
-           "реэкспорт смотрит не туда: " + ", ".join(got["stale"]))
-    res.ok("MSG_BANNER через layout не торчит", not got["msg"],
-           "словарь читают только его допущенные файлы (test_structure)")
+    # Снимок не читается — дальше всё равно идём: причину (круг импортов, у какого
+    # входа) называет проверка чистыми процессами ниже.
+    if res.ok("снимок layout читается", probe.returncode == 0,
+              f"код {probe.returncode}: {probe.stderr[-400:]}"):
+        got = json.loads(probe.stdout.strip().splitlines()[-1])
+        res.ok("каждое имя снимка есть в layout", not got["missing"],
+               "пропали (ImportError у вызывающего): " + ", ".join(got["missing"]))
+        res.check("__all__ у layout — это снимок", set(got["all"]), set(SNAPSHOT))
+        res.ok("layout.X — тот же объект, что у соседа-владельца", not got["stale"],
+               "реэкспорт смотрит не туда: " + ", ".join(got["stale"]))
+        res.ok("MSG_BANNER через layout не торчит", not got["msg"],
+               "словарь читают только его допущенные файлы (test_structure)")
 
     # Каждый модуль — первым на чистом процессе. Импорт соседа после `app.main`
     # ничего не доказывает: круг проявляется только при неудачном порядке.
