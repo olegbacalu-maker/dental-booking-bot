@@ -216,6 +216,14 @@ MUTATIONS = [
     # правило разбирает синтаксис, дописанный код не исполняется.
     ("строит только layout", "app/modules/qr/routes.py",
      "\n_MUT_BANNER = MSG_BANNER\n"),
+    # Сосед импортирует layout на уровне модуля: так и выглядит круг, который
+    # проявляется только при неудачном порядке импорта. Обе формы импорта.
+    ("соседи layout не импортируют", test_structure._LAY_ICONS,
+     "\nfrom .layout import shell_model\n"),
+    ("соседи layout не импортируют", test_structure._LAY_LICENSE,
+     "\nfrom . import layout\n"),
+    ("соседи layout не импортируют", "app/core/labels.py",
+     "\nif True:\n    from .layout import standalone\n"),
     # Соседи бывшего layout (разнос 04.11): фасад и файл рядом с допущенными —
     # не допущены. Список `_MSG_READERS` держит ровно те файлы, что читают словарь.
     ("строит только layout", test_structure._LAY_SHELL,
@@ -665,6 +673,9 @@ LEGAL = [
       "    if (deny := local_only(request)) is not None:\n        return deny\n"
       "    if (deny := api_require(request, PERM_USERS)) is not None:\n        return deny\n"
       "    code = await _drop_user(")),
+    # ⭐ Законно: отложенный импорт внутри функции — так берут слова `db` и `auth`.
+    ("соседи layout не импортируют", "app/core/pages.py",
+     "\ndef _mut_lazy():\n    from . import layout\n    return layout\n"),
     # ⭐ Законно: ещё один живой адрес в списке демо — правило сверяет строки
     # с маршрутами, а не судит, что закрывать.
     ("список демо-отказов не протух", "app/core/demo.py",

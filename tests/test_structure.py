@@ -116,6 +116,8 @@ _LAY_MSG = "app/core/messages.py"     # MSG_BANNER и его читатели (m
 _LAY_BANNERS = "app/core/banners.py"  # баннеры-сигналы оболочки, _sms_alert
 _LAY_LICENSE = "app/core/license_pages.py"  # страницы лицензии
 _MSG_READERS = (_LAY_MSG, _LAY_BANNERS, _LAY_LICENSE)
+_LAY_BELOW = (_LAY_ICONS, _LAY_MSG, "app/core/labels.py", "app/core/pages.py",
+              _LAY_BANNERS, _LAY_LICENSE)
 
 # Все, кто в итоге зовёт `_save_users`, то есть переписывает auth.json.
 # verify_pin здесь не по недосмотру: при входе он молча мигрирует файл v1→v2.
@@ -927,6 +929,32 @@ def suite(res: Result) -> None:
     res.ok("ответ на действие строит только layout", not bad,
            "MSG_BANNER вне core/messages — сообщение вернётся строкой в "
            "поток, и внизу страницы его опять не видно: " + ", ".join(bad))
+
+    # ---- соседи layout ниже него (разнос 04.11) ----
+    # layout реэкспортирует имена соседей и зовёт их функции; импорт layout соседом
+    # на уровне модуля замкнул бы круг, и проявился бы он только при неудачном порядке
+    # импорта — у одного входа, а не у всех. Отложенный импорт внутри функции законен:
+    # так берут слова `db`, `auth`, `orders`, `backup_loop`.
+    bad = []
+    for rel in _LAY_BELOW:
+        tree = by_path.get(rel)
+        if tree is None:
+            bad.append(f"{rel}: файла нет — якорь правила пропал")
+            continue
+        stack = list(tree.body)
+        while stack:
+            n = stack.pop()
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                continue
+            stack.extend(ast.iter_child_nodes(n))
+            if (isinstance(n, ast.ImportFrom)
+                    and ((n.module or "").split(".")[-1] == "layout"
+                         or any(a.name == "layout" for a in n.names))):
+                bad.append(f"{rel}:{n.lineno}")
+            elif isinstance(n, ast.Import) and any(a.name.split(".")[-1] == "layout" for a in n.names):
+                bad.append(f"{rel}:{n.lineno}")
+    res.ok("соседи layout не импортируют его на уровне модуля", not bad,
+           "замкнётся круг импортов: " + ", ".join(bad))
 
     # ---- миграции db: версия схемы и schema_meta (08-15) ----
     # Шаг, добавленный в словари миграций без поднятия SCHEMA_VERSION, — мёртвый
