@@ -899,8 +899,8 @@ def suite(res: Result) -> None:
            "где есть путь — layout.data_folder, где нет — «local, pe acest "
            "calculator»: " + ", ".join(bad))
 
-    # ---- ответ на действие строит только layout (08-14) ----
-    # msg_banner в layout — единственное место, где код из ?msg= становится
+    # ---- ответ на действие строит только core/messages (08-14) ----
+    # msg_banner в core/messages — единственное место, где код из ?msg= становится
     # разметкой: плашка ПЛАВАЕТ поверх окна, потому что форма записи стоит
     # внизу страницы, а 303 открывает её с нулевой прокруткой — баннер в потоке
     # клиника не увидела («сказали ок, а что случилось — не поняли»). Модуль,
@@ -926,7 +926,7 @@ def suite(res: Result) -> None:
             if (isinstance(n, ast.Name) and n.id == "MSG_BANNER")
             or (isinstance(n, ast.ImportFrom)
                 and any(a.name == "MSG_BANNER" for a in n.names))]
-    res.ok("ответ на действие строит только layout", not bad,
+    res.ok("ответ на действие строит только core/messages", not bad,
            "MSG_BANNER вне core/messages — сообщение вернётся строкой в "
            "поток, и внизу страницы его опять не видно: " + ", ".join(bad))
 

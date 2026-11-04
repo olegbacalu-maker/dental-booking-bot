@@ -1,6 +1,6 @@
 """«Deschide contul clinicii» — кабинет своей клиники из программы без кода (27.10).
 
-Решение — core/license.py (`cont_link`), кнопка — страница лицензии (layout.py `_cont_block`),
+Решение — core/license.py (`cont_link`), кнопка — страница лицензии (license_pages.py `_cont_block`),
 вход — маршрут `/cont/<ключ>` (modules/license/routes.py), сервер — cloud/app/contlink.py.
 Сервер лицензий подменён стендом из test_license_renew: нужны ответы, которых настоящий сервер
 не даёт (чужой адрес, страница оплаты вместо входа, 401, тишина). Что настоящий сервер и

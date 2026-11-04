@@ -33,8 +33,8 @@ from __future__ import annotations
 import re
 import unicodedata
 
-# Значки — ИМЕНАМИ из layout._I: клиент рисует <Icon>. Сами подписи видов
-# (ALERT_KINDS) живут в core/layout.
+# Значки — ИМЕНАМИ из core/icons._I: клиент рисует <Icon>. Сами подписи видов
+# (ALERT_KINDS) живут в core/labels.
 ALERT_ICON = {"allergy": "sos", "medication": "pill", "warning": "alarm", "info": "info"}
 ALERT_TONE = {"allergy": "orange", "medication": "orange", "warning": "red"}
 

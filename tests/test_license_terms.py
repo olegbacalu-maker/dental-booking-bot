@@ -3,7 +3,7 @@
 
 Провод — core/license_renew.py (`terms_accept`, `terms_version`, `fetch(meta=…)`), решение —
 core/license.py (`accept_terms`, `receipts`, `terms_due`, досылка в `renew_once`), баннер — сигнал
-`license` оболочки (layout._terms_banner), блок страницы лицензии (layout._terms_block), действия —
+`license` оболочки (banners._terms_banner), блок страницы лицензии (license_pages._terms_block), действия —
 POST /admin/license/terms и /api/license/terms. Сервер подменён стендом из test_license_renew: нужны
 ответы по заказу (квитанция, заголовок, тишина). Что настоящий сервер понимает этот провод —
 cloud/tests/test_terms.py.

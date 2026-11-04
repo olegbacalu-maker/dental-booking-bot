@@ -214,7 +214,7 @@ MUTATIONS = [
     # Модуль, собравший баннер из словаря сам: сообщение вернётся строкой в
     # поток, и внизу страницы его опять не видно. Ломается ссылкой на ИМЯ —
     # правило разбирает синтаксис, дописанный код не исполняется.
-    ("строит только layout", "app/modules/qr/routes.py",
+    ("строит только core/messages", "app/modules/qr/routes.py",
      "\n_MUT_BANNER = MSG_BANNER\n"),
     # Модель страницы уехала в атрибут без экранирования: `</script>` и кавычка в
     # имени врача закрывают атрибут, дальше — разметка в сессии директора.
@@ -238,13 +238,13 @@ MUTATIONS = [
      "\nif True:\n    from .layout import standalone\n"),
     # Соседи бывшего layout (разнос 04.11): фасад и файл рядом с допущенными —
     # не допущены. Список `_MSG_READERS` держит ровно те файлы, что читают словарь.
-    ("строит только layout", test_structure._LAY_SHELL,
+    ("строит только core/messages", test_structure._LAY_SHELL,
      "\n_MUT_BANNER = MSG_BANNER\n"),
-    ("строит только layout", "app/core/pages.py",
+    ("строит только core/messages", "app/core/pages.py",
      "\nfrom .messages import MSG_BANNER\n"),
     # Допущенный файл перестал читать словарь, а в списке остался: список шире
     # нужного молча простил бы новое чтение там.
-    ("строит только layout", test_structure._LAY_BANNERS,
+    ("строит только core/messages", test_structure._LAY_BANNERS,
      [("from .messages import MSG_BANNER\n", ""),
       ('MSG_BANNER.get(code, ("err", code))[1]', "code")]),
     # Экран, вернувшийся к серому окну браузера: `window.confirm` и голый

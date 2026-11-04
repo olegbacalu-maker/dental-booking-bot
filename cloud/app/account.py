@@ -472,7 +472,7 @@ def add_sibling(con: sqlite3.Connection, current: sqlite3.Row, f: dict, who: str
 # «клиника известна» → поле кода. Код из письма (6 цифр) привязывает компьютер к клинике,
 # которую нашла заявка (главной: она старше); код кабинета (7 цифр) — к той, для которой его
 # выдали. ⛔ 7, не больше и не буквы: поле кода программы 2.0.9 — maxlength 7, inputmode numeric
-# (bot/app/core/layout.py, _CODE_FORM). Перебор держат: живой verify_id обязателен (его даёт
+# (bot/app/core/license_pages.py, _CODE_FORM). Перебор держат: живой verify_id обязателен (его даёт
 # только заявка, кодов на клинику — trial.CODES_PER_HOUR), ошибки считаются этому verify_id
 # (trial.CODE_ATTEMPTS), проверок с адреса — trial.VERIFY_PER_HOUR; живые коды не совпадают.
 

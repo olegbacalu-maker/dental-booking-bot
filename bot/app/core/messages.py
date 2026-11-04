@@ -468,7 +468,7 @@ def msg_state(msg: str) -> str:
     Вид `.state.ok/.warn/.err` страница описывает в своём `<style>`.
 
     ⭐ Тот же словарь и то же место, что у `msg_banner` и `msg_json`: ответ на
-    действие строит только layout (держит test_structure). Неизвестный код
+    действие строит только этот файл (держит test_structure). Неизвестный код
     молчит, а не печатает себя."""
     if msg not in MSG_BANNER:
         return ""

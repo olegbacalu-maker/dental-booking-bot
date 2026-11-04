@@ -2,7 +2,7 @@
 
 Провод — core/license_renew.py (`email_call`, `fetch(meta=…)`), решение — core/license.py
 (`mailbox`, `email_action`), напоминание — строка плитки «Licența» (settings/routes.py) и блок
-страницы лицензии (layout.py), действия — POST /admin/license/email/* (modules/license/routes.py).
+страницы лицензии (license_pages.py), действия — POST /admin/license/email/* (modules/license/routes.py).
 Сервер лицензий подменён стендом из test_license_renew: нужны ответы, которых настоящий сервер
 не даёт по заказу (отказ, тишина). Что настоящий сервер и этот провод понимают друг друга —
 cloud/tests/test_email.py.

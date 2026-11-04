@@ -2,7 +2,7 @@
 «Verifică acum», переход к оплате и состояние для клиента.
 
 Здесь только маршруты. Проверка файла, состояние и связь с сервером лицензий —
-`core/license.py`; сама страница (`license_page`) — в `core/layout.py`, потому
-что строит ответ на действие из `MSG_BANNER`, а это право одного layout.
+`core/license.py`; сама страница (`license_page`) — в `core/license_pages.py`:
+она читает `MSG_BANNER` прямо, а это право трёх файлов `core/` (`test_structure`).
 Ворота записи (readonly, стена активации) — шлюз в `main.py`, не здесь.
 """

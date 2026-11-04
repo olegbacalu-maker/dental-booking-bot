@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../types/api'
 import { api, loginUrl } from './api'
 
-/* Ответы движка, какими их строит core/layout.msg_json. Это фикстуры ТОЛЬКО
+/* Ответы движка, какими их строит core/messages.msg_json. Это фикстуры ТОЛЬКО
    этих проверок (§26): бандл их не видит. */
 function reply(status: number, body: unknown, type = 'application/json'): Response {
   const text = typeof body === 'string' ? body : JSON.stringify(body)
