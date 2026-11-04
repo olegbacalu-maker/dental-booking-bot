@@ -113,7 +113,8 @@ _LAY_SHELL = "app/core/layout.py"     # shell_model, REACT_SCREENS, SECTION_TITL
 _LAY_ICONS = "app/core/icons.py"      # _I, _ic
 _LAY_MSG = "app/core/messages.py"     # MSG_BANNER и его читатели (msg_*)
 # Кому можно читать MSG_BANNER прямо; остальным — msg_text / msg_view / msg_json.
-_MSG_READERS = (_LAY_MSG, _LAY_SHELL)
+_LAY_BANNERS = "app/core/banners.py"  # баннеры-сигналы оболочки, _sms_alert
+_MSG_READERS = (_LAY_MSG, _LAY_BANNERS, _LAY_SHELL)
 
 # Все, кто в итоге зовёт `_save_users`, то есть переписывает auth.json.
 # verify_pin здесь не по недосмотру: при входе он молча мигрирует файл v1→v2.
@@ -1819,13 +1820,17 @@ def suite(res: Result) -> None:
     # лицензия (L5 писался до B1) была видна старой странице и не видна
     # React-экрану — у клиники, которой отказывают в записи. С 03.11.2026
     # серверного каркаса `_shell` нет, и список баннеров — сами функции
-    # `_…_banner()` / `_…_hint()`, ОПРЕДЕЛЁННЫЕ в layout (до того — вызовы
+    # `_…_banner()` / `_…_hint()`, ОПРЕДЕЛЁННЫЕ в `core/` (до того — вызовы
     # внутри `_shell`): каждая обязана вызываться в `shell_model`, а каждый
     # ключ `signals` — рисоваться `AppShell.tsx`.
+    # ⚠️ Обход — весь `core/`, а не один файл: баннеры переехали из layout в
+    # `core/banners.py` (04.11), и правило, смотрящее в один файл, просто видело
+    # бы их меньше — зелёным. Обратная половина (`in_model - printed`) держит тот
+    # же переезд с другой стороны: зовётся то, чего обход не нашёл.
     bad = []
-    lay_tree = by_path.get("app/core/layout.py")
-    funcs = {n.name: n for n in ast.walk(lay_tree)
-             if isinstance(n, ast.FunctionDef)} if lay_tree else {}
+    lay_tree = by_path.get(_LAY_SHELL)
+    funcs = {n.name: n for rel, tree in src if rel.startswith("app/core/")
+             for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
 
     def _banner_calls(node) -> set:
         return {c.func.id for c in ast.walk(node)
@@ -1843,8 +1848,10 @@ def suite(res: Result) -> None:
         bad.append("layout: функций баннеров не найдено — якорь правила пропал")
     if not keys:
         bad.append("layout.shell_model: нет словаря signals — якорь правила пропал")
-    bad += [f"{name}() есть в layout, но не едет в модель оболочки"
+    bad += [f"{name}() есть в core/, но не едет в модель оболочки"
             for name in sorted(printed - in_model)]
+    bad += [f"{name}() зовётся в модели, но в core/ не найдена — обход ослеп"
+            for name in sorted(in_model - printed)]
     shell_tsx = FRONTEND / "layouts" / "AppShell.tsx"
     tsx = shell_tsx.read_text(encoding="utf-8") if shell_tsx.exists() else ""
     bad += [f"AppShell.tsx не рисует sig.{k}" for k in keys if f"sig.{k}" not in tsx]
@@ -2081,7 +2088,7 @@ def suite(res: Result) -> None:
     # берут состояние у `sms_loop.low`; ни одно сравнение остатка с числом
     # мимо `low_limit` не живёт.
     # ⚠️ Полярность: список потребителей ВКЛЮЧАЮЩИЙ — каждый обязан найтись.
-    low_users = {("app/core/layout.py", "_sms_alert"), ("app/core/sms_loop.py", "_low_view"),
+    low_users = {(_LAY_BANNERS, "_sms_alert"), ("app/core/sms_loop.py", "_low_view"),
                  ("app/core/notices.py", "sms_item")}
     bad, found, reads = [], set(), 0
     for rel, tree in src:

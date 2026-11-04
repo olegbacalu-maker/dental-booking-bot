@@ -458,8 +458,14 @@ MUTATIONS = [
     # ---- баннер в модели оболочки (посадка L5 на B1) ----
     # Ровно то, что было до посадки: функция баннера лицензии есть, а в модель
     # React-оболочки его не положили.
-    ("каждый баннер каркаса — сигнал оболочки", "app/core/layout.py",
+    ("каждый баннер каркаса — сигнал оболочки", test_structure._LAY_SHELL,
      ('"signals": {"license": _sig(_license_banner() + _mail_banner() + _terms_banner()),', '"signals": {')),
+    # Новый баннер рядом с остальными и в соседнем файле `core/`: правило, смотрящее
+    # в один файл, увидело бы только первый случай (разнос layout, 04.11).
+    ("каждый баннер каркаса — сигнал оболочки", test_structure._LAY_BANNERS,
+     "\ndef _ghost_banner():\n    return ''\n"),
+    ("каждый баннер каркаса — сигнал оболочки", "app/core/pages.py",
+     "\ndef _ghost_hint():\n    return ''\n"),
     # Сервер сигнал отдаёт, а оболочка его не рисует — вторая половина той же дыры.
     ("каждый баннер каркаса — сигнал оболочки", "_frontend/layouts/AppShell.tsx",
      ("sig.demo, sig.license, sig.tamper,", "sig.demo, sig.tamper,")),
@@ -551,7 +557,7 @@ MUTATIONS = [
       'PLACEHOLDERS = ("clinica", "ziua", "data", "ora", "telefon", "medic")')),
     # Подсказка меню решает «мало SMS» сама, своим порогом — ровно то, что
     # было до 18.10 (дни расхода у меню, штуки у часов).
-    ("«мало SMS» — одно правило", "app/core/layout.py",
+    ("«мало SMS» — одно правило", test_structure._LAY_BANNERS,
      ("    lo = sms_loop.low()\n",
       "    acc = sms_loop.account() or {}\n"
       "    lo = acc if int(acc.get(\"balance\") or 0) <= 50 else None\n")),
