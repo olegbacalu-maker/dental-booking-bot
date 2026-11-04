@@ -329,6 +329,58 @@ def suite_tauri_layout(res: Result) -> None:
         res.ok(f"порча «{label}» — находка", broken != s and any(want in b for b in got),
                f"находки: {got}" if broken != s else "порча не применилась — якорь устарел")
 
+# Чего в программе больше нет: бот удалён 03.11.2026, и токена к нему тоже нет.
+_GONE_WORDS = re.compile(r"\bbot\w*|\btoken\w*|telegram", re.IGNORECASE)
+
+
+def installer_texts(s: str) -> list[str]:
+    """Всё, что мастер может показать человеку: значения [Messages] и
+    [CustomMessages], подписи задач и шагов, строки в [Code].
+    Секция — по строке-заголовку, как в `suite_tauri_layout`."""
+    section, texts = "", []
+    for raw in s.splitlines():
+        line = raw.strip()
+        if re.fullmatch(r"\[[A-Za-z]+\]", line):
+            section = line
+        elif not line or line.startswith(";"):
+            continue
+        elif section in ("[Messages]", "[CustomMessages]"):
+            texts.append(line.partition("=")[2])
+        elif section == "[Code]":
+            texts += re.findall(r"'((?:[^']|'')*)'", line.split("//")[0])
+        else:
+            texts += re.findall(r'\b(?:Description|GroupDescription|StatusMsg):\s*"([^"]*)"', line)
+    return texts
+
+
+def suite_texts(res: Result) -> None:
+    """Тексты мастера не описывают то, чего в программе нет (04.11, Олег).
+
+    `tg-remove` чистил тексты программы, а строка мастера лежит вне `bot/`, и
+    окно удаления ещё в 2.9.0 сообщало клинике про «tokenul botului». Текст не
+    падает и не краснеет (CLAUDE.md, «Текст — тоже поведение»), поэтому сторож."""
+    s = _src()
+    texts = installer_texts(s)
+    # Полярность: без этой пары смена заголовка секции дала бы ноль текстов и
+    # вечную зелень ниже.
+    res.ok("тексты мастера нашлись",
+           any("datele clinicii NU au fost șterse" in t for t in texts) and len(texts) > 20,
+           f"прочитано текстов: {len(texts)}")
+    gone = [t[:80] for t in texts if _GONE_WORDS.search(t)]
+    res.check("тексты мастера не говорят о боте и токене", gone, [])
+    for label, broken, want in (
+        ("старая строка окна удаления",
+         s.replace("setările (clinic.json, dental.env)",
+                   "setările (clinic.json) și tokenul botului (dental.env)"), "tokenul"),
+        ("новое сообщение", s.replace("[CustomMessages]\n", "[CustomMessages]\nro.X=Botul Telegram\n"), "Botul"),
+        ("подпись шага", s.replace('StatusMsg: "{cm:InstallingWebView2}"', 'StatusMsg: "Token bot"', 1), "Token"),
+        ("строка в [Code]", s.replace("[Code]\n", "[Code]\nconst T = 'tokenul botului';\n"), "tokenul"),
+    ):
+        hits = [t for t in installer_texts(broken) if _GONE_WORDS.search(t)]
+        res.ok(f"порча «{label}» — находка", broken != s and any(want in t for t in hits),
+               f"находки: {hits}" if broken != s else "порча не применилась — якорь устарел")
+
+
 NARROW_PS1 = ISS.parent / "firewall-narrow.ps1"
 
 

@@ -542,6 +542,7 @@ SUITES = [
     ("Tauri: мастер ставит оболочку и движок папкой, ярлыки с паспортом", test_installer.suite_tauri_layout),
     ("Сеть: мастер сужает правила брандмауэра стоящих установок",
      test_installer.suite_firewall_narrow),
+    ("Мастер: тексты не говорят о боте и токене", test_installer.suite_texts),
     ("P3-min: установщик компилируется", test_installer.suite_compiles),
     ("Зашифрованный бэкап клиники",test_privacy.suite_backup),
     ("Копии: архив → пустая папка → те же пациенты", test_backup.suite_roundtrip),
