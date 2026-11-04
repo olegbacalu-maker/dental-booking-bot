@@ -216,6 +216,17 @@ MUTATIONS = [
     # правило разбирает синтаксис, дописанный код не исполняется.
     ("строит только layout", "app/modules/qr/routes.py",
      "\n_MUT_BANNER = MSG_BANNER\n"),
+    # Соседи бывшего layout (разнос 04.11): фасад и файл рядом с допущенными —
+    # не допущены. Список `_MSG_READERS` держит ровно те файлы, что читают словарь.
+    ("строит только layout", test_structure._LAY_SHELL,
+     "\n_MUT_BANNER = MSG_BANNER\n"),
+    ("строит только layout", "app/core/pages.py",
+     "\nfrom .messages import MSG_BANNER\n"),
+    # Допущенный файл перестал читать словарь, а в списке остался: список шире
+    # нужного молча простил бы новое чтение там.
+    ("строит только layout", test_structure._LAY_BANNERS,
+     [("from .messages import MSG_BANNER\n", ""),
+      ('MSG_BANNER.get(code, ("err", code))[1]', "code")]),
     # Экран, вернувшийся к серому окну браузера: `window.confirm` и голый
     # `confirm(` — оба ровно то, что жило в 17 местах до 01.10.
     ("подтверждение — своим окном", "_frontend/features/patients/card/AlertsCard.tsx",

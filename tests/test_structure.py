@@ -114,7 +114,8 @@ _LAY_ICONS = "app/core/icons.py"      # _I, _ic
 _LAY_MSG = "app/core/messages.py"     # MSG_BANNER и его читатели (msg_*)
 # Кому можно читать MSG_BANNER прямо; остальным — msg_text / msg_view / msg_json.
 _LAY_BANNERS = "app/core/banners.py"  # баннеры-сигналы оболочки, _sms_alert
-_MSG_READERS = (_LAY_MSG, _LAY_BANNERS, _LAY_SHELL)
+_LAY_LICENSE = "app/core/license_pages.py"  # страницы лицензии
+_MSG_READERS = (_LAY_MSG, _LAY_BANNERS, _LAY_LICENSE)
 
 # Все, кто в итоге зовёт `_save_users`, то есть переписывает auth.json.
 # verify_pin здесь не по недосмотру: при входе он молча мигрирует файл v1→v2.
