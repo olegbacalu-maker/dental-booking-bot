@@ -48,10 +48,10 @@ td.c{white-space:nowrap}
 
 <h1>ANEXA 2 — FLUXURILE DE DATE ALE PROGRAMULUI DENTPILOT</h1>
 <p class="sub">la Contractul de licență și utilizare a programului DentPilot ·
-versiunea din 30.10.2026 · document comun pentru toate clinicile, semnat de
+versiunea din 05.11.2026 · document comun pentru toate clinicile, semnat de
 furnizor</p>
 
-<p>Această anexă descrie, pentru versiunea curentă a programului (2.3 și
+<p>Această anexă descrie, pentru versiunea curentă a programului (2.9 și
 următoarele, până la o anexă nouă), fiecare caz în care programul instalat
 la clinică comunică în afara calculatorului: când, ce date pleacă, ce
 păstrează serverul furnizorului (cloud.dentpilot.md) și ce terț le
@@ -147,11 +147,16 @@ cea a serverului furnizorului.</p>
   programul deschide apoi linkul în browserul calculatorului</td>
   <td>linkul (valabil o zi); pe pagină clinica alege varianta și perioada și
   bifează Termenii și condițiile — serverul reține alegerea, data acceptării
-  și nota de plată emisă</td>
-  <td>numai la plata cu cardul, dacă pagina o oferă: maib primește suma,
-  moneda, descrierea plății (referința și denumirea clinicii), e-mailul
-  clinicii și adresa IP a browserului; datele cardului se introduc pe pagina
-  băncii și nu ajung la furnizor; IDNO nu se transmite băncii. Google
+  și nota de plată emisă, iar după plată — starea, suma și metoda de plată
+  confirmate de bancă</td>
+  <td>numai la plata online, pe pagina băncii (cu cardul sau cu altă metodă
+  afișată acolo — Anexa 1, secțiunea 4): maib primește suma, moneda,
+  descrierea plății (referința și denumirea clinicii), e-mailul clinicii și
+  adresa IP a browserului; numărul cardului, termenul lui și codul CVV se
+  introduc numai pe pagina băncii și nu ajung la furnizor; IDNO nu se
+  transmite băncii. Banca confirmă furnizorului plata; confirmarea poate
+  conține numele plătitorului și numărul mascat al cardului, pe care
+  furnizorul nu le păstrează. Google
   (Gmail): nota de plată și contul de plată achitat, pe e-mailul clinicii</td>
 </tr>
 <tr>
@@ -248,9 +253,8 @@ cea a serverului furnizorului.</p>
   <li>Furnizorul nu poate deschide o sesiune de acces la calculatorul
   clinicii; asistența la distanță se face numai prin „Asistență rapidă”
   Windows, la cererea și în prezența clinicii (contractul, clauza 7).</li>
-  <li>Botul Telegram și programarea online de către pacienți sunt oprite în
-  versiunea curentă și nu pornesc fără configurarea lor explicită de către
-  clinică.</li>
+  <li>Programul nu are bot Telegram și nici programare online făcută de
+  pacienți: programările le introduce doar personalul clinicii.</li>
 </ul>
 
 <h2>5. Serverul furnizorului: ce păstrează și cine îl deservește</h2>
@@ -277,7 +281,8 @@ Gmail (e-mailurile către clinică și notificările interne ale furnizorului;
 Google OAuth numai la intrarea în cont din browser cu un cont Google) ·
 Rock Soft S.R.L. / SMS.MD (numărul și textul memento-urilor; cererea pentru
 numele expeditorului) · maib (suma, descrierea plății cu denumirea
-clinicii, e-mailul, adresa IP a browserului — numai la plata cu cardul) ·
+clinicii, e-mailul, adresa IP a browserului — numai la plata online, pe
+pagina băncii) ·
 GitHub, Inc. (adresa IP a clinicii la descărcarea actualizărilor și, când
 serverul furnizorului nu răspunde, la verificarea lor).</p>
 
@@ -289,7 +294,7 @@ serverul furnizorului nu răspunde, la verificarea lor).</p>
     <p>Semnătura (electronică calificată)</p>
   </div>
   <div>
-    <p>Versiunea documentului: 30.10.2026</p>
+    <p>Versiunea documentului: 05.11.2026</p>
     <p>Clinica: identificată în actul de acceptare din contul clinicii;
     semnătura ei este opțională (contractul, clauza 11.2).</p>
   </div>

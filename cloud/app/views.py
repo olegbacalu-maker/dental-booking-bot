@@ -2132,8 +2132,8 @@ def _steps(card_on: bool) -> str:
     """Три шага оплаты; с картой (maib настроен) — и она. Срок перевода — словами условий § 4.6
     («după ce banii ajung în contul furnizorului»): его подтверждает Олег руками, своего срока
     у сервера нет — «в тот же рабочий день» не обещать (координатор 23.10)."""
-    pay_ = ("<li><b>Plătiți</b> cu cardul, chiar aici, sau prin transfer bancar, cu referința din notă în "
-            "destinația plății.</li>" if card_on else
+    pay_ = ("<li><b>Plătiți</b> cu cardul, pe pagina băncii maib, sau prin transfer bancar, cu referința din "
+            "notă în destinația plății.</li>" if card_on else
             "<li><b>Plătiți</b> prin transfer bancar, cu referința din notă în destinația plății.</li>")
     when = ("plata cu cardul — în câteva minute, transferul — după ce banii ajung în contul furnizorului"
             if card_on else "transferul după ce banii ajung în contul furnizorului")
@@ -2180,9 +2180,16 @@ def _online(card_on: bool) -> list[tuple[str, str]]:
     """Способы оплаты онлайн кнопками, по порядку (value поля `method`, надпись). Сейчас —
     карта maib. MIA QR (Олег 23.10: «QR MIA будет», в договоре maib — «API plăți prin QR
     MIA») ляжет сюда второй парой («mia», «Plătește cu MIA QR»): страница рисует столько
-    кнопок, сколько способов, а pay_link_submit различает их по `method`. Значков Apple Pay /
-    Google Pay нет, пока maib их не включит."""
+    кнопок, сколько способов, а pay_link_submit различает их по `method`. Карта, Google Pay и
+    Apple Pay — одна кнопка: кошелёк выбирают уже на странице банка (подсказка — `_card_hint`)."""
     return [("card", "Plătește cu cardul")] if card_on else []
+
+
+def _card_hint() -> str:
+    """Строка под кнопками оплаты онлайн: где проходит оплата и чем (условия § 4.3). Только текст —
+    значков на странице оплаты нет; способы — `mail.CARD_WAYS`, одна фраза на страницу и письмо."""
+    return (f"<p class='muted' style='margin:8px 0 0'>Plata cu cardul se face pe pagina securizată a băncii "
+            f"maib: {esc(mail.CARD_WAYS)}. {esc(mail.CARD_SAFE)}</p>")
 
 
 def _buttons(card_on: bool, transfer: str = "", online_prefix: str = "") -> str:
@@ -2194,7 +2201,7 @@ def _buttons(card_on: bool, transfer: str = "", online_prefix: str = "") -> str:
     if transfer:
         out += (f"<button class='{'' if online else 'primary'}' name='method' value='transfer'>"
                 f"{esc(transfer)}</button>")
-    return f"<p class='btns'>{out}</p>"
+    return f"<p class='btns'>{out}</p>{_card_hint() if online else ''}"
 
 
 def _terms_box() -> str:

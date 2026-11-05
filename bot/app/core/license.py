@@ -97,7 +97,7 @@ TERMS_CODE = "license_terms"               # импорт без галочки 
 # actualizare» страницы. `test_structure` сверяет оба значения с
 # docs/site/termeni.html — поменялись условия, меняется и дата здесь.
 TERMS_URL = "https://dentpilot.md/termeni.html"
-TERMS_VERSION = "30.10.2026"        # § 16: reamintirea controlului periodic по кнопке из Rechemări (SMS из списка); было 29.10.2026 (договор в кабинете, обновления 6 ч, техданные ПК, Asistență rapidă, адрес, счёт SMS 10 мин)
+TERMS_VERSION = "05.11.2026"        # § 4.3: оплата картой на странице банка maib — карта, Google Pay, Apple Pay, три двери; § 16.2: пакет SMS теми же способами; было 30.10.2026 (SMS из списка Rechemări)
 # Активация без файла (26.09): заявка на пробный уходит на сервер лицензий.
 # Боевой адрес — здесь (тот же, что умолчание DP_BASE_URL сервера, сверяет
 # cloud/tests/test_renew.py); окружение — только для стенда тестов и только

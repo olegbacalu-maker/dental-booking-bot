@@ -32,6 +32,12 @@ HDR = {"X-DentPilot-Device": "d_00000000ac01", "X-DentPilot-Channel": "stable", 
 AGENT = "DentPilot/2.4.0"
 
 
+def _newer(v: str) -> str:
+    """Версия условий НОВЕЕ текущей — «программа новее сервера»: 2 января следующего года. Не
+    литералом: дата-константа («01.11.2026») устарела первым же выпуском условий после неё."""
+    return f"02.01.{int(v[-4:]) + 1}"
+
+
 def _program_version() -> str:
     """`TERMS_VERSION` программы — из исходника, не литералом (как tests/test_license_renew._terms)."""
     src = (ROOT / "bot" / "app" / "core" / "license.py").read_text(encoding="utf-8")
@@ -87,6 +93,7 @@ def suite_program(res: Result) -> None:
     with Server(env=AUTO) as s:
         anon = Client(s.url)
         v = terms.CURRENT
+        newer = _newer(v)
         d = _trial(anon, terms=v, actor="Dr. Ana Popescu")
         token = d.get("token", "")
         cid = _sql(s, "SELECT id FROM clinics WHERE email=?", GOOD["email"])[0][0]
@@ -116,15 +123,15 @@ def suite_program(res: Result) -> None:
 
         # повторное принятие новой версии из программы — проводом программы
         url = s.url + terms.API_ACCEPT
-        out, got = rn.terms_accept(url, token, {"terms": "01.11.2026", "actor": "Ion Rusu"}, timeout=10,
+        out, got = rn.terms_accept(url, token, {"terms": newer, "actor": "Ion Rusu"}, timeout=10,
                                    agent=AGENT, extra=HDR)
-        res.ok("/v1/terms/accept: ACCEPTED, квитанция", out == rn.ACCEPTED and got.get("version") == "01.11.2026"
+        res.ok("/v1/terms/accept: ACCEPTED, квитанция", out == rn.ACCEPTED and got.get("version") == newer
                and str(got.get("id", "")).startswith("a_") and got.get("at"), repr((out, got)))
         acts = _acts(s, cid)
-        res.ok("второй акт: source=program, та же клиника", len(acts) == 2 and acts[1][:3] == ("01.11.2026", "Ion Rusu", "program"))
-        res.check("заголовок — старшая версия", _header(s, token), "01.11.2026")
+        res.ok("второй акт: source=program, та же клиника", len(acts) == 2 and acts[1][:3] == (newer, "Ion Rusu", "program"))
+        res.check("заголовок — старшая версия", _header(s, token), newer)
         rn.terms_accept(url, token, {"terms": "26.10.2026", "actor": "Ion Rusu"}, timeout=10)
-        res.check("акт старой версии заголовок не понижает", _header(s, token), "01.11.2026")
+        res.check("акт старой версии заголовок не понижает", _header(s, token), newer)
         res.check("мусорная версия — REJECTED bad_terms словами",
                   rn.terms_accept(url, token, {"terms": "вчера"}, timeout=10)[0], rn.REJECTED)
         res.check("чужой токен — REFUSED", rn.terms_accept(url, "x" * 43, {"terms": v}, timeout=10), (rn.REFUSED, {}))
@@ -158,7 +165,7 @@ def suite_program(res: Result) -> None:
         admin = Client(s.url).login()
         card = admin.get(f"/admin/clinics/{cid}").body
         res.ok("карточка клиники: акты с версией, именем, источником, компьютером и адресом",
-               "Акты акцепта условий" in card and "Dr. Ana Popescu" in card and "01.11.2026" in card
+               "Акты акцепта условий" in card and "Dr. Ana Popescu" in card and newer in card
                and "заявка на пробный из программы" in card and "из программы (новая версия условий)" in card
                and HDR["X-DentPilot-Device"] in card and "127.0.0.1" in card, card[-3000:])
         res.ok("акты — внутри раздела «Лицензия»",

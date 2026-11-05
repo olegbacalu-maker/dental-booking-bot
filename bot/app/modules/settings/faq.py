@@ -590,8 +590,9 @@ def entries() -> list[dict]:
 
         # ⚠️ Слова кнопок — те, что на экранах: «Plătește acum» (баннер, страница
         # лицензии), плитка «Licența», «Verifică acum dacă există un termen nou»;
-        # подписи страницы оплаты — cloud/app/views.py (pay_link_page). Карта
-        # появляется на той странице только с договором maib — отсюда «dacă».
+        # подписи страницы оплаты — cloud/app/views.py (pay_link_page). Способы
+        # оплаты картой — словами условий § 4.3 (mail.CARD_WAYS облака; согласие
+        # держит cloud/tests/test_contract.py).
         # Cont de plată «achitat» — cloud/app/receipts.py (письмо и кабинет).
         # «Deschide contul clinicii» (27.10) — та же страница лицензии, только директору; кабинет
         # по ней — только эта клиника (cloud/app/contlink.py).
@@ -607,8 +608,10 @@ def entries() -> list[dict]:
            f"în abonament: pachetele le comandă directorul, în <b>{sms}</b> › "
            f"<b>Comandă</b>.{end}"
            f"{p}<b>Transfer bancar</b> — primiți nota de plată pe e-mail, cu referința ei "
-           f"(DP-…), pe care o treceți în ordinul de plată. Dacă pagina afișează "
-           f"<b>Plătește cu cardul</b>, puteți achita imediat cu cardul.{end}"
+           f"(DP-…), pe care o treceți în ordinul de plată.{end}"
+           f"{p}<b>Cu cardul</b> — butonul <b>Plătește cu cardul</b> deschide pagina "
+           f"securizată a băncii maib: card Visa sau Mastercard, Google Pay sau Apple Pay. "
+           f"Datele cardului nu ajung la DentPilot.{end}"
            f"{p}Termenul nou ajunge în program singur: după «Plătește acum» programul "
            f"verifică plata la fiecare minut timp de {pay_hours} ore, apoi o dată pe zi. "
            f"Plata "

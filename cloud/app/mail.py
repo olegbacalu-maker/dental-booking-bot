@@ -133,7 +133,11 @@ _REFERENCE_NOTE = ("Important: indicați neapărat referința {reference} în de
                    "program; primiți confirmarea pe e-mail.")
 # Карта — на НАШЕЙ странице оплаты (23.10): ссылка maib живёт минуты (maib.PAY_TTL) и
 # рождается по кнопке после галочки условий (требование maib), поэтому в письме её нет.
-# Значков и названий Apple Pay / Google Pay нет, пока maib их не включит (Олег 23.10).
+# Способы оплаты на странице банка — ОДНА фраза на письмо и страницу оплаты (views._card_hint),
+# словами условий § 4.3; те же слова несут политика § 5, FAQ программы и сайт — согласие держит
+# tests/test_contract.py. Значков нет: на странице оплаты и в письме — только текст.
+CARD_WAYS = "card Visa sau Mastercard, Google Pay sau Apple Pay"
+CARD_SAFE = "Datele cardului nu ajung la DentPilot."
 CARD_NOTE = "Plata cu cardul — pe pagina de plată DentPilot (bifați Termenii și condițiile, apoi „Plătește cu cardul”):"
 
 
@@ -141,6 +145,7 @@ def card_lines(pay_url: str, amount: int) -> str:
     """Карта (L12): `pay_url` — страница оплаты клиники (paylink.for_mail), не ссылка maib.
     После оплаты картой программа продлевается сама."""
     return (f"{CARD_NOTE}\n  {pay_url}\n  Suma: {amount} MDL\n"
+            f"  Plata se face pe pagina securizată a băncii maib: {CARD_WAYS}. {CARD_SAFE}\n"
             f"  După plata cu cardul nu trebuie să faceți nimic: noul termen ajunge singur în program "
             f"în câteva minute, iar confirmarea — pe e-mail.\n")
 

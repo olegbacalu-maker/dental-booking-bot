@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from harness import CLOUD, ROOT, Result
 
 sys.path.insert(0, str(CLOUD))
-from app import auth, config, license, mail, payments, receipts, sms, sms_rule, trial  # noqa: E402
+from app import auth, config, license, mail, payments, receipts, sms, sms_rule, trial, views  # noqa: E402
 
 SITE = ROOT / "docs" / "site"
 
@@ -265,3 +265,45 @@ def suite(res: Result) -> None:
     res.ok("условия § 16: счёт SMS читается с сервера; идентификатор — amprentă без пациента и визита",
            "soldul de SMS al clinicii de pe serverul furnizorului" in s16 and "amprentă tehnică" in s16
            and "nu se pot afla pacientul, numărul de telefon sau vizita" in s16)
+    # Оплата картой на боевых ключах (05.11): где и чем платят, названо ОДНОЙ фразой —
+    # mail.CARD_WAYS (письмо с нотой и подсказка под кнопкой страницы оплаты); те же способы
+    # называют условия § 4.3, политика § 5 и ответ FAQ программы. Сверка в обе стороны: способ,
+    # снятый в одном месте и забытый в другом, — обещание, которого страница банка не держит.
+    known = ("Visa", "Mastercard", "Google Pay", "Apple Pay")
+    named = [b for b in known if b in mail.CARD_WAYS]
+    s4 = flat_terms.split("<h2>4. ", 1)[1].split("<h2>5. ", 1)[0] if "<h2>4. " in flat_terms else ""
+    faq_path = ROOT / "bot" / "app" / "modules" / "settings" / "faq.py"
+    faq = faq_path.read_text(encoding="utf-8") if faq_path.exists() else ""
+    res.ok("оплата картой: способы названы (карта и хотя бы Google Pay), FAQ программы нашёлся",
+           all(b in named for b in ("Visa", "Mastercard", "Google Pay")) and "Cum plătesc abonamentul?" in faq,
+           str(named))
+    for where, text in (("условия § 4", s4), ("политика § 5", flat_privacy), ("FAQ программы", faq)):
+        res.check(f"оплата картой: {where} называет те же способы, что письмо и страница оплаты",
+                  [b for b in known if b in text], named)
+    res.ok("оплата картой: FAQ программы — фразой mail.CARD_WAYS и mail.CARD_SAFE",
+           mail.CARD_WAYS in faq and mail.CARD_SAFE in faq)
+    res.ok("условия § 4.3: страница банка, три двери, «не получает и не хранит», оговорки «dacă pagina oferă» нет",
+           all(x in s4 for x in ("pagina de plată securizată a băncii maib", "butonul „Plătește acum”",
+                                 "din contul clinicii", "din e-mailul cu nota de plată",
+                                 "furnizorul nu le primește și nu le păstrează",
+                                 "ori cu altă metodă afișată pe pagina băncii"))
+           and "dacă pagina oferă" not in flat_terms)
+    res.ok("условия § 16.2: пакет SMS — теми же способами, что абонемент, без перечня дверей",
+           "prin aceleași metode ca abonamentul" in s16 and "pe altă cale pusă la dispoziție de furnizor" in s16)
+    res.ok("письмо с нотой и страница оплаты: одна фраза; без карты подсказки нет",
+           mail.CARD_WAYS in mail.card_lines("https://x/plata/1", 10) and mail.CARD_SAFE in mail.card_lines("u", 1)
+           and mail.CARD_WAYS in views._buttons(True) and mail.CARD_SAFE in views._buttons(True)
+           and mail.CARD_WAYS not in views._buttons(False, "Transfer bancar")
+           and "pe pagina băncii maib" in views._steps(True) and "chiar aici" not in views._steps(True))
+    # Что приходит обратно от банка: номер, срок и CVV — никогда; имя плательщика и номер с маской
+    # могут быть в уведомлении, сервер их не хранит (routes_pay._maib_callback читает один checkoutId)
+    back = ("codul CVV", "nu ajung la furnizor", "numărul mascat al cardului")
+    res.ok("политика § 5 и Anexa 2: номер, срок и CVV не приходят; маска и имя из уведомления банка не хранятся",
+           all(x in flat_privacy for x in back) and all(x in flows for x in back))
+    # Подписанные документы кошельков не называют: способ появился или снят — подпись не трогаем
+    res.ok("договор, Anexa 2 и DPA: кошельки не названы — «altă metodă afișată», отсылка к Anexa 1",
+           not any(b in t for b in ("Google Pay", "Apple Pay") for t in (c, dpa, flows))
+           and "altă metodă afișată" in c and "altă metodă afișată" in flows
+           and "dacă pagina oferă" not in c and "dacă pagina o oferă" not in flows)
+    res.ok("Anexa 2: бота Telegram и записи пациентами в программе нет — «oprite» не обещает обратного",
+           "nu are bot Telegram" in flows and "sunt oprite" not in flows)
