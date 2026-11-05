@@ -246,8 +246,9 @@ def suite_cabinet(res: Result) -> None:
             res.ok("вкладка SMS после оплаты: остаток вырос (30 пробных + 100), пакеты снова в продаже, счётчик пуст",
                    "Clinica are <b>130 SMS</b>" in sms and "name='pack'" in sms and "name='ref'" not in sms
                    and _count(home.body, "sms") == "", sms[:1500])
-            res.ok("в таблице нот оплаченная нота SMS — с документом",
-                   f"/cont/plati/{ref}.pdf" in _pane(home.body, "plati"))
+            res.ok("в таблице нот оплаченная нота SMS — с документом и своим предметом, не «0 luni»",
+                   f"/cont/plati/{ref}.pdf" in _pane(home.body, "plati") and "<td>pachet 100 SMS</td>" in
+                   _pane(home.body, "plati") and "0 luni" not in home.body)
             res.check("в логе сервера ни «database is locked», ни трейсбека",
                       [x for x in ("database is locked", "Traceback") if x in s.log()], [])
 

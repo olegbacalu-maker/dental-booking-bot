@@ -2472,14 +2472,17 @@ def _cont_sms_shop(c, shop: dict, notes: list, q: str, card_on: bool) -> str:
                f"<p class='muted' style='margin:12px 0 0'>Nota de plată vine și pe e-mail. După confirmarea plății "
                f"SMS-urile se adaugă automat, iar programul preia singur noul sold. Pachetul se poate comanda și "
                f"din program, Setări › SMS.</p>")
-    return (f"<div class='card'>{_chead('message', 'SMS · sold și pachete', 'pachete plătite în avans, separat de abonament', chip)}"
+    return (f"<div class='card'>{_chead('message', 'SMS · sold și pachete', 'pachete plătite în avans', chip)}"
             f"{top}{due}{buy}</div>")
 
 
 def _cont_term(p) -> str:
-    """Что за нота в таблице кабинета: вариант и срок; общая — «notă comună»."""
+    """Что за нота в таблице кабинета: вариант и срок; общая — «notă comună»; нота SMS — её предмет
+    (пакет, год имени): срока у неё нет, и ячейка «0 luni» была неправдой."""
     if (p["kind"] or "license") == "cabinet":
         return "notă comună (mai multe clinici)"
+    if (p["kind"] or "license") in ("sms", "sms_name"):
+        return esc(pay.subject(p))
     return esc((tiers.NAME[p['tier']] + ', ') if p['tier'] in tiers.TIERS else '') + esc(mail.luni(p['months']))
 
 
