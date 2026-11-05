@@ -79,6 +79,9 @@ def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method:
                 return RedirectResponse(f"{back}?msg=no_card", status_code=303)
             if note["kind"] in (payments.SMS, payments.SMS_NAME):
                 paid = "sms_card_paid"             # у ноты SMS срока нет — свои слова «уже оплачено»
+            # галочка стоит перед оплатой ЭТОЙ ноты: время — и в её terms_at (05.11; у ноты SMS из
+            # программы оно оставалось пустым при записанном акте — нота заведена без галочки)
+            payments.mark_terms(con, note)
             plan = payments.card_plan(con, note, c, ip)
         else:
             if idno and idno != (c["idno"] or ""):

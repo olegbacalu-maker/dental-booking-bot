@@ -397,9 +397,17 @@ def suite_plata(res: Result) -> None:
             sms_card = page[page.index("Pachet 100 SMS"):page.index("abonament DentPilot")]
             res.ok("блок реквизитов ноты SMS: без слов про срок, «SMS-urile se adaugă automat»",
                    TERM not in sms_card and mail.SMS_DONE["sms"] in sms_card, sms_card[-1200:])
+            res.check("нота из программы заведена без галочки: terms_at пуст",
+                      _sql(s, "SELECT terms_at FROM payments WHERE reference=?", ref)[0][0], None)
             r = anon.post(path, ref=ref, method="card", terms="1")
-            pid = _sql(s, "SELECT provider_id FROM payments WHERE reference=?", ref)[0][0]
+            pid, at = _sql(s, "SELECT provider_id, terms_at FROM payments WHERE reference=?", ref)[0]
             res.ok("карта ноты SMS со страницы оплаты — как раньше, на страницу банка", r.status == 303 and pid in fake.pays)
+            res.ok("галочка перед оплатой ноты SMS: время — в её terms_at, акт source=pay — рядом",
+                   bool(at) and _sql(s, "SELECT count(*) FROM terms_acceptances WHERE clinic_id=? AND source='pay'",
+                                     cid)[0][0] == 1, repr(at))
+            anon.post(path, ref=ref, method="card", terms="1")
+            res.check("второй клик отмеченное время не переписывает",
+                      _sql(s, "SELECT terms_at FROM payments WHERE reference=?", ref)[0][0], at)
             fake.set_status(pid, "Completed")
             res.check("банк уже сказал «оплачено», клик ещё раз — sms_card_paid",
                       anon.post(path, ref=ref, method="card", terms="1").location, f"{path}?msg=sms_card_paid")
