@@ -165,6 +165,8 @@ SUITES = [
      test_sms_cabinet.suite_cabinet),
     ("SMS-пакет: другой пакет при открытой ноте — замена, письмо, оплата по прежней странице банка зачтена",
      test_sms_cabinet.suite_replace),
+    ("SMS-пакет: год имени отправителя из кабинета — нота главной клинике, филиал, кнопка программы, оплата",
+     test_sms_cabinet.suite_name),
     ("SMS-пакет: страница оплаты — нота SMS первой и под своим заголовком", test_sms_cabinet.suite_plata),
     ("SMS-пакет: провод программы против этого сервера", test_sms_client.suite_client),
     ("Прод: копия базы, её проверка, учение по восстановлению", test_deploy.suite_backup),

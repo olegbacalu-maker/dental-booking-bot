@@ -7,7 +7,6 @@ from __future__ import annotations
 import json
 import logging
 import secrets
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.concurrency import run_in_threadpool
@@ -215,12 +214,7 @@ def _sms_order(c, body: dict, ip: str) -> Response:
     настроенном maib; письмо с нотой — на e-mail клиники. Цены — из cloud.env."""
     name = bool(body.get("name"))
     units = 0
-    if name:
-        if not config.SMS_NAME_PRICE:
-            return _sms_answer("sms_no_name")
-        if len(c["idno"] or "") != 13:
-            return _sms_answer("sms_need_idno")
-    else:
+    if not name:
         try:
             units = int(body.get("pack"))
         except (TypeError, ValueError):
@@ -228,20 +222,12 @@ def _sms_order(c, body: dict, ip: str) -> Response:
     kind = payments.SMS_NAME if name else payments.SMS
     with db.connect(immediate=True) as con:
         if name:
-            # выключенной клинике, без права по плану и на Basic (модуль погашен) не продаётся
-            acc = sms.ensure(con, c["id"])
-            why = sms.blocked(con, c["id"], acc, datetime.now(timezone.utc))
-            if why in web.SMS_CLOSED:
-                return _sms_answer(why)
-            # имя общее на кабинет (26.10): нота за год имени — главной клинике, на её ящик
-            c = web.clinic(con, sms.name_owner(con, c["id"]))
-            acc = sms.ensure(con, c["id"])
-            if acc["sender_state"] not in (sms.S_REQUESTED, sms.S_SUBMITTED, sms.S_ACTIVE):
-                return _sms_answer("sms_name_none")
-            p = payments.open_of(con, c["id"], kind)
-            created = p is None
-            if created:
-                p = payments.create_name(con, c, config.SMS_NAME_PRICE, "program")
+            # год имени — та же логика, что у кабинета (web.sms_name_note): имя общее на кабинет
+            # (26.10), нота — главной клинике, на её ящик
+            code, c, p, created = web.sms_name_note(con, c, "program")
+            if code:
+                return _sms_answer(code)
+            acc = sms.account(con, c["id"])
         else:
             # пакет — та же логика, что у кабинета (web.sms_pack_note): пакет из прайса, IDNO,
             # кому не продаётся, одна открытая нота; другой пакет заменяет её — `created`, с письмом

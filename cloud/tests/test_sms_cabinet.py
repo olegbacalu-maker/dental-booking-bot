@@ -428,6 +428,116 @@ def suite_replace(res: Result) -> None:
         fake.close()
 
 
+def suite_name(res: Result) -> None:
+    """Год своего имени отправителя — той же дверью кабинета, что пакет: имя общее на кабинет, нота —
+    главной клинике; филиалу из кнопки программы имя не открыто."""
+    fake = FakeMaib()
+    try:
+        with Server(env={**ENV, **fake.env, "DP_SMS_NAME_PRICE": "77"}) as s:
+            c = _enter(s, DIRECTOR)
+            main = _register(s, c)
+
+            def names() -> list:
+                return _sql(s, "SELECT reference, clinic_id, status, amount, terms_at FROM payments "
+                               "WHERE kind='sms_name' ORDER BY id")
+
+            sms = _pane(c.get("/cont").body, "sms")
+            res.ok("имени ещё нет: года имени не предлагают, подсказка называет обе двери",
+                   "pe un an" not in sms and "name='name' value='1'" not in sms and "aici sau din program" in sms, sms[-2500:])
+            res.check("год имени без заявки на имя — sms_name_none",
+                      c.post("/cont/sms/nota", name="1", terms="1").location, "/cont?msg=sms_name_none")
+            c.post("/cont/sms/nume", name="Zambet")
+            home = c.get("/cont")
+            sms = _pane(home.body, "sms")
+            res.ok("имя запрошено: год имени — цена прайса стенда, галочка условий, карта и перевод",
+                   "Numele propriu se plătește pe un an: 77 MDL." in sms and "name='name' value='1'" in sms
+                   and sms.index("numele expeditorului") < sms.index("name='name' value='1'")
+                   and sms.count("name='terms'") == 2, sms[-3000:])
+            res.check("счётчик SMS: заявление не загружено — 1", _count(home.body, "sms"), "1")
+            res.check("без галочки — need_terms", c.post("/cont/sms/nota", name="1").location, "/cont?msg=need_terms")
+            n = len(_letters(s))
+            r = c.post("/cont/sms/nota", name="1", method="transfer", terms="1")
+            res.check("заказ года имени — sms_name_note_created", r.location, "/cont?msg=sms_name_note_created")
+            got = names()
+            res.ok("нота вида sms_name у главной: цена прайса, ждёт, условия отмечены",
+                   len(got) == 1 and got[0][1:4] == (main, "pending", 77) and got[0][4], repr(got))
+            ref = got[0][0]
+            letters = _letters(s)
+            res.ok("письмо с нотой за имя: номер, имя, страница оплаты, без слов про срок",
+                   len(letters) == n + 1 and ref in letters[-1][1] and "Zambet" in letters[-1][1]
+                   and "/plata/" in letters[-1][2] and mail.SMS_DONE["sms_name"] in letters[-1][2]
+                   and TERM not in letters[-1][2], letters[-1][:3])
+            home = c.get(r.location)
+            sms = _pane(home.body, "sms")
+            res.ok("карточка имени: ожидающая нота с картой за галочкой и реквизитами; слово о ноте на странице",
+                   f"name='ref' value='{ref}'" in sms and "nume de expeditor SMS, un an" in sms
+                   and "MD00TEST0000000000000001" in sms and "name='name' value='1'" not in sms
+                   and "numele de expeditor a fost creată" in home.body, sms[-3000:])
+            res.check("счётчик SMS: заявление и нота — 2", _count(home.body, "sms"), "2")
+            res.check("второй заказ — та же нота (sms_name_note_exists)",
+                      (c.post("/cont/sms/nota", name="1", terms="1").location, len(names()), len(_letters(s))),
+                      ("/cont?msg=sms_name_note_exists", 1, n + 1))
+            st, data = _json(Client(s.url), "/v1/sms/order", _token_of(s, main), {"name": 1})
+            res.ok("заказ из программы при ноте кабинета: та же нота",
+                   st == 200 and data.get("reference") == ref and data.get("created") is False
+                   and data.get("kind") == "sms_name", repr((st, data)))
+
+            # филиал: имя общее — заказ и оплата из его вида идут главной клинике
+            _add(c, main)
+            bid = _sql(s, "SELECT id FROM clinics WHERE name=?", BRANCH["name"])[0][0]
+            sms_b = _pane(c.get(f"/cont?c={bid}").body, "sms")
+            res.ok("вид филиала: нота имени главной клиники — с оплатой, форма несёт филиал (?c=)",
+                   f"name='ref' value='{ref}'" in sms_b and f"action='/cont/sms/nota?c={bid}'" in sms_b
+                   and MAIN["name"] in sms_b, sms_b[-3000:])
+            r = c.post(f"/cont/sms/nota?c={bid}", ref=ref, method="card", terms="1")
+            pid = _sql(s, "SELECT provider_id FROM payments WHERE reference=?", ref)[0][0]
+            res.ok("карта ноты имени из вида филиала: на страницу банка, плательщик — главная",
+                   r.status == 303 and pid in fake.pays
+                   and MAIN["name"] in (fake.pays[pid]["body"].get("orderInfo") or {}).get("description", ""),
+                   f"{r.status} {r.location}")
+            # кнопка программы филиала: имени нет ни в карточке, ни в маршруте
+            _, link = _cont_link(Client(s.url), _token_of(s, bid))
+            b = Client(s.url)
+            _open(b, link)
+            res.ok("⛔ кнопка программы филиала: ни карточки имени, ни ноты имени главной",
+                   ref not in b.get("/cont").body and "numele expeditorului" not in _pane(b.get("/cont").body, "sms"))
+            res.check("⛔ кнопка программы филиала: заказ года имени — sms_not_offered",
+                      (b.post("/cont/sms/nota", name="1", terms="1").location, len(names())),
+                      ("/cont?msg=sms_not_offered", 1))
+            res.check("⛔ кнопка программы филиала: карта ноты имени главной — note_gone",
+                      b.post("/cont/sms/nota", ref=ref, method="card", terms="1").location, "/cont?msg=note_gone")
+
+            # оплата: имя ещё не одобрено — год ждёт одобрения; письмо, документ, страница возврата
+            fake.set_status(pid, "Completed")
+            n = len(_letters(s))
+            r = fake.post(Client(s.url), pid)
+            res.ok("callback: нота имени оплачена, год ждёт одобрения (prepaid), документ один",
+                   json.loads(r.body).get("outcome") == "paid" and names()[0][2] == "paid"
+                   and _sql(s, "SELECT sender_prepaid FROM sms_accounts WHERE clinic_id=?", main) == [(1,)]
+                   and _sql(s, "SELECT count(*) FROM receipts r JOIN payments p ON p.id = r.payment_id "
+                               "WHERE p.reference=?", ref)[0][0] == 1, f"{r.body} {names()}")
+            res.ok("письмо «este plătit» ушло главной клинике",
+                   len(_letters(s)) == n + 1 and "este plătit" in _letters(s)[-1][1] and _letters(s)[-1][0] == DIRECTOR)
+            ok = Client(s.url).get(f"/pay/ok?checkoutId={pid}&checkoutStatus=Completed&orderId={ref}")
+            res.ok("страница возврата: «plătită», имя на год, без слов про срок",
+                   "plătită" in ok.body and "Nume de expeditor SMS, un an" in ok.body and TERM not in ok.body,
+                   ok.body[-1200:])
+            home = c.get("/cont")
+            res.ok("после оплаты: год имени снова можно заказать (следующий), счётчик — одно заявление",
+                   "name='name' value='1'" in _pane(home.body, "sms") and _count(home.body, "sms") == "1")
+    finally:
+        fake.close()
+
+    # цены имени нет — года имени в кабинете нет
+    with Server(env=ENV) as s:
+        c = _enter(s, DIRECTOR)
+        _register(s, c)
+        c.post("/cont/sms/nume", name="Zambet")
+        res.ok("без DP_SMS_NAME_PRICE блока года имени нет", "pe un an" not in _pane(c.get("/cont").body, "sms"))
+        res.check("и заказ — sms_no_name", c.post("/cont/sms/nota", name="1", terms="1").location,
+                  "/cont?msg=sms_no_name")
+
+
 def suite_plata(res: Result) -> None:
     """Страница оплаты: ожидающая нота SMS — первой и под своим заголовком."""
     fake = FakeMaib()

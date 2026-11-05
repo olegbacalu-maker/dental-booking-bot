@@ -206,15 +206,20 @@ def mark_terms(con: sqlite3.Connection, payment: sqlite3.Row) -> None:
     con.execute("UPDATE payments SET terms_at=? WHERE id=? AND terms_at IS NULL", (db.now_iso(), payment["id"]))
 
 
-def create_name(con: sqlite3.Connection, clinic: sqlite3.Row, amount: int, who: str) -> sqlite3.Row:
-    """Нота за год своего имени отправителя (kind=sms_name, Олег 16.10)."""
+def create_name(con: sqlite3.Connection, clinic: sqlite3.Row, amount: int, who: str,
+                terms: bool = False) -> sqlite3.Row:
+    """Нота за год своего имени отправителя (kind=sms_name, Олег 16.10). `terms` — как у пакета:
+    клиника отметила условия, заказывая в кабинете."""
     if amount <= 0:
         raise ValueError("amount")
     ref = next_reference(con, datetime.now(timezone.utc))
-    con.execute("""INSERT INTO payments(clinic_id, amount, currency, method, status, reference, months, kind, created_at)
-                   VALUES(?,?,?,?,?,?,?,?,?)""",
-                (clinic["id"], amount, "MDL", TRANSFER, PENDING, ref, 0, SMS_NAME, db.now_iso()))
-    db.audit(con, who, "payment_new", clinic["id"], f"{ref}: {amount} MDL за год имени отправителя, перевод")
+    con.execute("""INSERT INTO payments(clinic_id, amount, currency, method, status, reference, months, kind,
+                                        terms_at, created_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (clinic["id"], amount, "MDL", TRANSFER, PENDING, ref, 0, SMS_NAME,
+                 db.now_iso() if terms else None, db.now_iso()))
+    db.audit(con, who, "payment_new", clinic["id"], f"{ref}: {amount} MDL за год имени отправителя, перевод"
+             + (", условия приняты" if terms else ""))
     return con.execute("SELECT * FROM payments WHERE reference=?", (ref,)).fetchone()
 
 

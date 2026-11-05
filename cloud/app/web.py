@@ -131,6 +131,29 @@ def sms_pack_note(con, c, units: int, who: str, terms: bool = False) -> tuple[st
     return "", p, (payments.REPLACED if old is not None else payments.CREATED)
 
 
+def sms_name_note(con, c, who: str, terms: bool = False) -> tuple[str, object, object, bool]:
+    """Нота за год своего имени отправителя — та же одна логика на программу и кабинет.
+    → (код отказа sms.CODES или '', клиника-хозяйка имени, нота, создана ли сейчас). Имя общее на
+    кабинет (26.10): нота — ГЛАВНОЙ клинике, на её ящик, кто бы из клиник кабинета ни заказал;
+    заказать можно, когда имя запрошено, подано или одобрено; открытая нота вида одна."""
+    if not config.SMS_NAME_PRICE:
+        return "sms_no_name", None, None, False
+    if len(c["idno"] or "") != 13:
+        return "sms_need_idno", None, None, False
+    acc = sms.ensure(con, c["id"])
+    why = sms.blocked(con, c["id"], acc, datetime.now(timezone.utc))
+    if why in SMS_CLOSED:
+        return why, None, None, False
+    owner = clinic(con, sms.name_owner(con, c["id"]))
+    acc = sms.ensure(con, owner["id"])
+    if acc["sender_state"] not in (sms.S_REQUESTED, sms.S_SUBMITTED, sms.S_ACTIVE):
+        return "sms_name_none", None, None, False
+    p = payments.open_of(con, owner["id"], payments.SMS_NAME)
+    if p is not None:
+        return "", owner, p, False
+    return "", owner, payments.create_name(con, owner, config.SMS_NAME_PRICE, who, terms=terms), True
+
+
 def sms_note_letter(con, c, p, who: str) -> mail.Letter | str:
     """Письмо с нотой SMS (пакет, год имени) — СОБРАТЬ в транзакции (paylink.for_mail заводит
     ссылку страницы оплаты), отправить после её commit (`payments.outbox`), как письмо с нотой

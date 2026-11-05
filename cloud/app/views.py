@@ -1608,6 +1608,12 @@ CONT_MSG = {
                          "e-mail — nota veche nu se mai plătește.",
     "sms_card_paid": "Banca a confirmat deja plata cu cardul: SMS-urile se adaugă automat, iar confirmarea vine "
                      "pe e-mail.",
+    "sms_name_note_created": "Nota de plată pentru numele de expeditor a fost creată: datele pentru plată sunt mai "
+                             "jos și pe e-mail.",
+    "sms_name_note_exists": "Aveți deja o notă de plată pentru numele de expeditor în așteptare — datele pentru "
+                            "plată sunt mai jos.",
+    "sms_no_name": "Numele propriu de expeditor nu este disponibil încă.",
+    "sms_name_none": "Cereți mai întâi numele de expeditor al clinicii.",
     "sms_pack": "Alegeți un pachet din listă.",
     "sms_no_packs": "Pachetele SMS nu sunt disponibile încă.",
     "sms_need_idno": "Pentru nota de plată completați mai întâi IDNO-ul clinicii (13 cifre), în datele clinicii.",
@@ -1666,7 +1672,7 @@ _CONT_OK = {"logged_out", "registered_issued", "registered_requested", "saved", 
             "note_replaced", "card_paid", "clinic_added", "clinic_added_wait", "group_created",
             "group_replaced", "group_cancelled",
             "linked", "sms_requested", "sms_paper_ok", "doc_ok", "sms_note_created", "sms_note_exists",
-            "sms_note_replaced", "sms_card_paid"}
+            "sms_note_replaced", "sms_card_paid", "sms_name_note_created", "sms_name_note_exists"}
 SENDER_RO = {"none": ("mute", "fără nume propriu"), "requested": ("warn", "cerere în lucru"),
              "submitted": ("warn", "la operatori"), "active": ("ok", "aprobat"), "rejected": ("bad", "respins")}
 STATE_RO = {"active": ("ok", "activă"), "grace": ("warn", "expirată — perioada de plată"),
@@ -2602,7 +2608,7 @@ def _cont_sms(c, info: dict, q: str = "") -> str:
     sub = f"acum SMS-urile pleacă de la «{esc(info['from'] or 'DentPilot')}»"
     hint = ("<p class='muted' style='margin:8px 0 0'>Până la 11 caractere: litere latine, cifre, spațiu, punct, "
             "cratimă — denumirea juridică sau marca clinicii. Până la aprobare memento-urile pleacă de la "
-            "«DentPilot». Anul numelui propriu se comandă din program: Setări › SMS.</p>")
+            "«DentPilot». Anul numelui propriu se plătește după cerere — aici sau din program, Setări › SMS.</p>")
 
     def ask(label: str) -> str:
         return (f"<form method='post' action='/cont/sms/nume{q}'><label>Numele expeditorului</label>"
@@ -2650,7 +2656,32 @@ def _cont_sms(c, info: dict, q: str = "") -> str:
     if shared:
         body = (f"<p class='muted' style='margin:0 0 12px'>Numele expeditorului este comun pentru clinicile din acest "
                 f"cont: cererea, documentul semnat și anul numelui sunt la <b>{esc(shared)}</b>.</p>") + body
-    return f"<div class='card'>{_chead('message', 'SMS · numele expeditorului', sub)}{body}</div>"
+    return f"<div class='card'>{_chead('message', 'SMS · numele expeditorului', sub)}{body}{_cont_sms_year(info, state, q)}</div>"
+
+
+def _cont_sms_year(info: dict, state: str, q: str) -> str:
+    """Год своего имени отправителя в кабинете (05.11): ожидающая нота — с картой и реквизитами
+    (`_sms_note_pay`), иначе заказ за галочкой условий, когда имя запрошено, подано или одобрено —
+    та же дверь `/cont/sms/nota`, что у пакета (поле `name`), и те же отказы. Цена — прайс сервера
+    (`info['name_price']`, cloud.env); нет цены — имя не продаётся, блока нет."""
+    action, card_on = f"/cont/sms/nota{q}", maib.enabled()
+    note = info.get("name_note")
+    if note is not None:
+        return (f"<div class='terms'><p><b>Nota de plată {esc(note['reference'])}</b> — {esc(pay.subject(note))}: "
+                f"<b>{_mdl(note['amount'])} MDL</b> <span class='tag warn'>în așteptare</span></p>"
+                f"{_sms_note_pay(note, action, card_on)}</div>")
+    price = info.get("name_price") or 0
+    if not price or state not in ("requested", "submitted", "active"):
+        return ""
+    head = (f"<div class='terms'><p><b>Numele propriu se plătește pe un an: {_mdl(price)} MDL.</b> Anul se numără "
+            f"din ziua în care operatorii aprobă numele; pentru un nume deja aprobat — de la sfârșitul anului plătit.</p>")
+    if info.get("name_closed"):
+        return f"{head}<p class='empty'>{esc(cont_text(info['name_closed']))}</p></div>"
+    if not info.get("idno"):
+        return (f"{head}<p class='empty'>Completați mai întâi IDNO-ul clinicii (13 cifre), în "
+                f"<a href='#clinica'>datele clinicii</a> — nota de plată se emite pe el.</p></div>")
+    return (f"{head}<form method='post' action='{action}'><input type='hidden' name='name' value='1'>"
+            f"{_terms_box()}{_buttons(card_on, 'Transfer bancar — primesc nota de plată')}</form></div>")
 
 
 def _crow(x: dict, on: bool, now: datetime) -> str:
@@ -2909,9 +2940,11 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
             f"<span class='muted'>pentru schimbare scrieți-ne</span></div></div>"
             f"<p style='margin:16px 0 0'><button class='primary'>Salvează</button></p></form></div>")
     sms_card = _cont_sms(smsinfo.get("clinic") or c, smsinfo, q) if smsinfo is not None else ""
-    # ожидающие ноты SMS этой клиники (пакет, год имени) — платятся во вкладке SMS
+    # ожидающие ноты SMS — платятся во вкладке SMS: пакет этой клиники — в карточке пакетов, год
+    # имени (нота хозяйки имени, у филиала — главной клиники) — в карточке имени
+    name_note = smsinfo.get("name_note") if smsinfo is not None else None
     sms_due = [p for p in payments if p["status"] == "pending" and p["clinic_id"] == c["id"]
-               and (p["kind"] or "license") in ("sms", "sms_name")]
+               and (p["kind"] or "license") == "sms"]
     shop_card = _cont_sms_shop(c, smsshop, sms_due, q, maib.enabled()) if smsshop is not None else ""
     panes = {"licenta": hero + f"<div class='grid2'>{devs}{acct}</div>", "plati": pays,
              "clinica": data + (_clinics_card(cab, c["id"], now) if multi else "") + branches,
@@ -2920,7 +2953,7 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
     # счётчик «ждёт вас» у вкладки: открытая нота (своя или общая); у SMS — ожидающие ноты SMS и имя,
     # запрошенное без загруженного заявления
     counts = {"plati": 1 if (pending or group is not None) else 0,
-              "sms": (len(sms_due) if smsshop is not None else 0)
+              "sms": (len(sms_due) if smsshop is not None else 0) + (1 if name_note is not None else 0)
               + (1 if (smsinfo is not None and smsinfo["acc"] is not None
                        and smsinfo["acc"]["sender_state"] == "requested" and not smsinfo.get("paper")) else 0)}
     tabs = [(k, i, t) for k, i, t in CONT_TABS if panes[k]]
