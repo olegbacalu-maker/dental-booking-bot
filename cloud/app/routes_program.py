@@ -142,8 +142,12 @@ def _sms_answer(code: str, **extra) -> Response:
 
 
 def _sms_view(cid: str) -> dict:
+    """Счёт SMS и, рядом с ним, ожидающие ноты SMS клиники (05.11, `notes`): программа держит блок
+    ноты на экране, пока та ждёт оплаты. Поле добавочное — прежние ключи счёта не менялись."""
     with db.connect(immediate=True) as con:
-        return sms.view(con, cid)
+        data = sms.view(con, cid)
+        data["notes"] = web.sms_open_notes(con, web.clinic(con, cid))
+        return data
 
 
 @router.get("/v1/sms/account")

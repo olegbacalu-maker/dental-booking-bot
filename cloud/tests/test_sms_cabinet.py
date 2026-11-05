@@ -26,7 +26,7 @@ from test_branches import BANK_ENV, BRANCH, DIRECTOR, MAIN, _add, _enter, _lette
 from test_contlink import _link as _cont_link, _open  # noqa: E402
 from test_jobs import _run  # noqa: E402
 from test_maib import FakeMaib, _together  # noqa: E402
-from test_paylink import _link as _pay_link  # noqa: E402
+from test_paylink import HDR, _link as _pay_link  # noqa: E402
 from test_tiers import _json  # noqa: E402
 
 PACKS = "100:50,500:200"         # стенд: «штук:лей», не прайс
@@ -537,6 +537,69 @@ def suite_name(res: Result) -> None:
         res.ok("без DP_SMS_NAME_PRICE блока года имени нет", "pe un an" not in _pane(c.get("/cont").body, "sms"))
         res.check("и заказ — sms_no_name", c.post("/cont/sms/nota", name="1", terms="1").location,
                   "/cont?msg=sms_no_name")
+
+
+# Ключи счёта, которые читает программа 2.9.1 (bot/app/core/sms_loop.refresh_account на теге v2.9.1):
+# сервер обязан отдавать их, как отдавал, — новое поле только добавляется
+KEYS_2_9_1 = ("offered", "enabled", "sender", "sender_state", "sender_note", "sender_until", "from", "balance",
+              "packs", "name_price", "name_days", "daily_cap", "used_today", "blocked", "custom")
+
+
+def suite_account_notes(res: Result) -> None:
+    """Счёт SMS для программы несёт ожидающие ноты (`notes`): пакет — своей клиники, год имени —
+    хозяйки имени; после оплаты ноты в списке нет. Прежние ключи счёта на месте."""
+    fake = FakeMaib()
+    try:
+        with Server(env={**ENV, **fake.env, "DP_SMS_NAME_PRICE": "77"}) as s:
+            c = _enter(s, DIRECTOR)
+            main = _register(s, c)
+            prog = Client(s.url)
+
+            def account(cid: str) -> dict:
+                r = prog.get("/v1/sms/account", headers={**HDR, "Authorization": f"Bearer {_token_of(s, cid)}"})
+                return json.loads(r.body)
+
+            acc = account(main)
+            res.ok("счёт без нот: `notes` — пустой список; ключи, которые читает программа 2.9.1, все на месте",
+                   acc.get("notes") == [] and all(k in acc for k in KEYS_2_9_1) and acc.get("ok") is True, repr(acc))
+            st, order = _json(prog, "/v1/sms/order", _token_of(s, main), {"pack": 100})
+            note = account(main)["notes"]
+            res.ok("нота пакета заказана: в счёте — она, теми же полями, что ответ заказа, со страницей оплаты",
+                   st == 200 and note == [{k: order[k] for k in ("kind", "reference", "amount", "units", "pay_url")}]
+                   and note[0]["pay_url"].startswith(config.BASE_URL.rstrip("/") + "/plata/")
+                   and "checkout" not in note[0]["pay_url"],
+                   repr((order, note)))
+            res.check("счёт спрашивают часто: вторая ссылка страницы оплаты не заводится",
+                      (account(main)["notes"], _sql(s, "SELECT count(*) FROM pay_links WHERE clinic_id=?", main)[0][0]),
+                      (note, 1))
+            # год имени: нота хозяйки имени видна и её филиалу — имя общее на кабинет
+            c.post("/cont/sms/nume", name="Zambet")
+            c.post("/cont/sms/nota", name="1", terms="1")
+            _add(c, main)
+            bid = _sql(s, "SELECT id FROM clinics WHERE name=?", BRANCH["name"])[0][0]
+            kinds = [(n["kind"], n["amount"], n["units"]) for n in account(main)["notes"]]
+            res.check("главная: нота пакета и нота года имени", kinds, [("sms", 50, 100), ("sms_name", 77, None)])
+            res.check("филиал: своей ноты пакета нет, нота имени кабинета — та же",
+                      [(n["kind"], n["reference"]) for n in account(bid)["notes"]],
+                      [("sms_name", account(main)["notes"][1]["reference"])])
+            # оплата картой: ноты пакета в счёте больше нет, остаток вырос
+            anon = Client(s.url)
+            anon.post("/plata/" + note[0]["pay_url"].rsplit("/", 1)[1], ref=note[0]["reference"], method="card", terms="1")
+            pid = _sql(s, "SELECT provider_id FROM payments WHERE reference=?", note[0]["reference"])[0][0]
+            fake.set_status(pid, "Completed")
+            fake.post(anon, pid)
+            acc = account(main)
+            res.ok("после оплаты: ноты пакета в счёте нет, остаток +100",
+                   [n["kind"] for n in acc["notes"]] == ["sms_name"] and acc["balance"] == 130, repr(acc))
+    finally:
+        fake.close()
+    with Server(env=ENV) as s:
+        c = _enter(s, DIRECTOR)
+        main = _register(s, c)
+        c.post("/cont/sms/nota", pack="100", terms="1")
+        r = Client(s.url).get("/v1/sms/account", headers={**HDR, "Authorization": f"Bearer {_token_of(s, main)}"})
+        res.ok("без maib: нота в счёте есть, страницы оплаты нет (карты нет — только перевод)",
+               [(n["kind"], n["pay_url"]) for n in json.loads(r.body)["notes"]] == [("sms", None)], r.body)
 
 
 def suite_plata(res: Result) -> None:

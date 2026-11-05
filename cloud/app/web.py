@@ -154,6 +154,23 @@ def sms_name_note(con, c, who: str, terms: bool = False) -> tuple[str, object, o
     return "", owner, payments.create_name(con, owner, config.SMS_NAME_PRICE, who, terms=terms), True
 
 
+def sms_open_notes(con, c, who: str = "program") -> list[dict]:
+    """Ожидающие ноты SMS клиники — программе, вместе со счётом (`/v1/sms/account`, 05.11): экран
+    Setări › SMS держит блок ноты, пока она ждёт оплаты, а не одну строку до ухода с экрана. Пакет —
+    нота самой клиники, год имени — нота хозяйки имени кабинета (sms.name_owner). Поля — те же, что
+    в ответе заказа (`/v1/sms/order`); `pay_url` — наша страница оплаты, только при настроенном maib
+    (ссылки банка нет: она живёт минуты). ⚠️ Поле новое: программа ≤ 2.9.1 его не читает."""
+    out = []
+    owner = clinic(con, sms.name_owner(con, c["id"]))
+    for kind, buyer in ((payments.SMS, c), (payments.SMS_NAME, owner)):
+        p = payments.open_of(con, buyer["id"], kind)
+        if p is None:
+            continue
+        out.append({"kind": kind, "reference": p["reference"], "amount": int(p["amount"]), "units": p["sms_units"],
+                    "pay_url": paylink.for_mail(con, buyer, who) if maib.enabled() else None})
+    return out
+
+
 def sms_note_letter(con, c, p, who: str) -> mail.Letter | str:
     """Письмо с нотой SMS (пакет, год имени) — СОБРАТЬ в транзакции (paylink.for_mail заводит
     ссылку страницы оплаты), отправить после её commit (`payments.outbox`), как письмо с нотой
