@@ -288,8 +288,14 @@ def suite(res: Result) -> None:
                                  "furnizorul nu le primește și nu le păstrează",
                                  "ori cu altă metodă afișată pe pagina băncii"))
            and "dacă pagina oferă" not in flat_terms)
+    # двери (программа, письмо, кабинет) у пакета не перечислены намеренно: покупка пакета из
+    # кабинета появится без новой версии условий
     res.ok("условия § 16.2: пакет SMS — теми же способами, что абонемент, без перечня дверей",
-           "prin aceleași metode ca abonamentul" in s16 and "pe altă cale pusă la dispoziție de furnizor" in s16)
+           "prin aceleași metode ca abonamentul" in s16 and "pe altă cale pusă la dispoziție de furnizor" in s16
+           and "cu cardul, de pe pagina de plată DentPilot, sau prin transfer bancar" in s16)
+    # имя банка — как у самого банка на сайте (слово Олега 05.11): BC „MAIB” SA
+    res.ok("условия § 4.3 и политика § 5: банк назван полным именем BC „MAIB” SA, одинаково",
+           "BC „MAIB” SA" in s4 and "BC „MAIB” SA" in flat_privacy and "B.C." not in s4 + flat_privacy)
     res.ok("письмо с нотой и страница оплаты: одна фраза; без карты подсказки нет",
            mail.CARD_WAYS in mail.card_lines("https://x/plata/1", 10) and mail.CARD_SAFE in mail.card_lines("u", 1)
            and mail.CARD_WAYS in views._buttons(True) and mail.CARD_SAFE in views._buttons(True)
