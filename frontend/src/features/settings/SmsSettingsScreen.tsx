@@ -392,7 +392,7 @@ export function SmsSettingsScreen({ navigate = defaultNavigate }: Props) {
               <h3>{T.orderTitle}</h3>
               <p className="hint">{T.orderHint}</p>
               {acc.packs.length ? (
-                <p className="dp-actions">
+                <p className="dp-actions dp-sms-packs">
                   {acc.packs.map((p) => (
                     <button key={p.units} type="button" className="savebtn" disabled={busy}
                       onClick={() => void orderPack(p.units, p.price)}>
