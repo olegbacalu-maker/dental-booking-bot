@@ -1604,6 +1604,8 @@ CONT_MSG = {
                         "e-mail.",
     "sms_note_exists": "Aveți deja o notă de plată pentru un pachet SMS în așteptare — datele pentru plată sunt "
                        "mai jos.",
+    "sms_note_replaced": "Nota de plată pentru pachetul SMS a fost înlocuită: datele noii note sunt mai jos și pe "
+                         "e-mail — nota veche nu se mai plătește.",
     "sms_card_paid": "Banca a confirmat deja plata cu cardul: SMS-urile se adaugă automat, iar confirmarea vine "
                      "pe e-mail.",
     "sms_pack": "Alegeți un pachet din listă.",
@@ -1664,7 +1666,7 @@ _CONT_OK = {"logged_out", "registered_issued", "registered_requested", "saved", 
             "note_replaced", "card_paid", "clinic_added", "clinic_added_wait", "group_created",
             "group_replaced", "group_cancelled",
             "linked", "sms_requested", "sms_paper_ok", "doc_ok", "sms_note_created", "sms_note_exists",
-            "sms_card_paid"}
+            "sms_note_replaced", "sms_card_paid"}
 SENDER_RO = {"none": ("mute", "fără nume propriu"), "requested": ("warn", "cerere în lucru"),
              "submitted": ("warn", "la operatori"), "active": ("ok", "aprobat"), "rejected": ("bad", "respins")}
 STATE_RO = {"active": ("ok", "activă"), "grace": ("warn", "expirată — perioada de plată"),
@@ -2423,7 +2425,8 @@ def _cont_sms_shop(c, shop: dict, notes: list, q: str, card_on: bool) -> str:
     """Кабинет › SMS: остаток и пакеты (05.11, слово Олега: «в админке клиники во вкладке SMS
     добавить и там эти пакеты»). Остаток — СВОЕЙ клиники; пакеты и цены — прайс сервера
     (`shop['packs']`, cloud.env), страница их только печатает. Ожидающая нота SMS — здесь же, с
-    картой за галочкой условий и реквизитами; пока она ждёт, второй не выставить (нота вида одна).
+    картой за галочкой условий и реквизитами; пока она ждёт, другой пакет ЗАМЕНЯЕТ её («Alt pachet?»,
+    web.sms_pack_note — как замена ноты абонемента): нота вида у клиники одна.
     `shop['closed']` — почему пакет не продаётся (код sms.CODES, слова кабинета — CONT_MSG)."""
     action = f"/cont/sms/nota{q}"
     chip = f"<span class='price'>sold: {_mdl(shop['balance'])} SMS</span>"
@@ -2435,9 +2438,20 @@ def _cont_sms_shop(c, shop: dict, notes: list, q: str, card_on: bool) -> str:
         f"<div class='terms'><p><b>Nota de plată {esc(p['reference'])}</b> — {esc(pay.subject(p))}: "
         f"<b>{_mdl(p['amount'])} MDL</b> <span class='tag warn'>în așteptare</span></p>"
         f"{_sms_note_pay(p, action, card_on)}</div>" for p in notes)
-    if any((p["kind"] or "") == "sms" for p in notes):
+    open_pack = next((p for p in notes if (p["kind"] or "") == "sms"), None)
+    sold = not shop["closed"] and bool(shop["packs"]) and len(c["idno"] or "") == 13
+    opts = "".join(f"<label><input type='radio' name='pack' value='{int(x['units'])}' required> "
+                   f"{_mdl(x['units'])} SMS — {_mdl(x['price'])} MDL</label>" for x in shop["packs"])
+    if open_pack is not None:
         buy = ("<p class='muted' style='margin:14px 0 0'>După confirmarea plății SMS-urile se adaugă automat, iar "
-               "programul preia singur noul sold. Un pachet nou se poate comanda după plata acestei note.</p>")
+               "programul preia singur noul sold.</p>")
+        if sold:
+            # другой пакет — замена ноты: та же форма, кнопки и предупреждение — как у ноты абонемента
+            buy += (f"<details class='more'><summary>Alt pachet?</summary>"
+                    f"<form method='post' action='{action}'><div class='seg' style='margin-top:12px'>{opts}</div>"
+                    f"<p class='note'>Nota {esc(open_pack['reference'])} se anulează și primiți una nouă, cu altă "
+                    f"referință — nu mai plătiți nota veche.</p>{_terms_box()}"
+                    f"{_buttons(card_on, 'Înlocuiește nota de plată', online_prefix='Înlocuiește și ')}</form></details>")
     elif shop["closed"]:
         buy = f"<p class='empty' style='margin-top:14px'>{esc(cont_text(shop['closed']))}</p>"
     elif not shop["packs"]:
@@ -2446,8 +2460,6 @@ def _cont_sms_shop(c, shop: dict, notes: list, q: str, card_on: bool) -> str:
         buy = ("<p class='empty' style='margin-top:14px'>Pentru un pachet SMS completați mai întâi IDNO-ul clinicii "
                "(13 cifre), în <a href='#clinica'>datele clinicii</a> — nota de plată se emite pe el.</p>")
     else:
-        opts = "".join(f"<label><input type='radio' name='pack' value='{int(x['units'])}' required> "
-                       f"{_mdl(x['units'])} SMS — {_mdl(x['price'])} MDL</label>" for x in shop["packs"])
         buy = (f"<form method='post' action='{action}'><span class='lbl'>Pachet nou</span>"
                f"<div class='seg'>{opts}</div>{_terms_box()}"
                f"{_buttons(card_on, 'Transfer bancar — primesc nota de plată')}</form>"

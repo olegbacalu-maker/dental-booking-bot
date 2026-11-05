@@ -244,10 +244,11 @@ def _sms_order(c, body: dict, ip: str) -> Response:
                 p = payments.create_name(con, c, config.SMS_NAME_PRICE, "program")
         else:
             # пакет — та же логика, что у кабинета (web.sms_pack_note): пакет из прайса, IDNO,
-            # кому не продаётся, одна открытая нота
-            code, p, created = web.sms_pack_note(con, c, units, "program")
+            # кому не продаётся, одна открытая нота; другой пакет заменяет её — `created`, с письмом
+            code, p, outcome = web.sms_pack_note(con, c, units, "program")
             if code:
                 return _sms_answer(code, **({"packs": sms.packs()} if code == "sms_pack" else {}))
+            created = outcome != payments.EXISTS
         # Карта — на нашей странице оплаты, кнопкой после галочки условий (23.10): ссылка maib
         # живёт минуты (maib.PAY_TTL) и рождается по клику (payments.card_link), поэтому ни программе, ни
         # письму её не даём. Программа (2.0.9) показывает `pay_url` ссылкой «Plătește cu cardul».

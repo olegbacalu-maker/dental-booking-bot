@@ -401,8 +401,18 @@ def suite_send(res: Result) -> None:
             res.ok("нота за пакет 100: reference, 50 MDL, создана", st == 200 and r["created"] and r["amount"] == 50
                    and r["units"] == 100 and r["reference"].startswith("DP-"), r)
             ref = r["reference"]
-            st, r2 = prog.post("/v1/sms/order", pack=500)
-            res.ok("вторая нота за пакет не плодится — та же", st == 200 and not r2["created"] and r2["reference"] == ref)
+            st, r2 = prog.post("/v1/sms/order", pack=100)
+            res.ok("вторая нота за тот же пакет не плодится — та же", st == 200 and not r2["created"] and r2["reference"] == ref)
+            # другой пакет при открытой ноте заменяет её (05.11, как нота абонемента): долг один, письмо уходит
+            st, r3 = prog.post("/v1/sms/order", pack=500)
+            res.ok("другой пакет — нота заменена: новая референция и письмо, прежняя отклонена, ожидающая одна",
+                   st == 200 and r3["created"] and r3["reference"] != ref and r3["units"] == 500
+                   and r3["reference"] in _letters(s)[-1][1] and "500 SMS" in _letters(s)[-1][1]
+                   and _sql(s, "SELECT status FROM payments WHERE reference=?", ref) == [("rejected",)]
+                   and _one(s, "SELECT count(*) FROM payments WHERE clinic_id=? AND kind='sms' AND status='pending'", cid) == 1,
+                   repr(r3))
+            st, r = prog.post("/v1/sms/order", pack=100)
+            ref = r["reference"]
             letters = _letters(s)
             res.ok("письмо с нотой за пакет: reference, 100 SMS, реквизиты",
                    letters and letters[-1][0] == "sms@example.md" and ref in letters[-1][1] and "100 SMS" in letters[-1][1]

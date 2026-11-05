@@ -187,10 +187,11 @@ def suite_cabinet(res: Result) -> None:
                                                             "detail LIKE ?", f"нота sms {ref}%")[0][0], 1)
             home = c.get("/cont?msg=sms_note_created")
             sms, plati = _pane(home.body, "sms"), _pane(home.body, "plati")
-            res.ok("вкладка SMS: ожидающая нота — карта за галочкой (ref) и реквизиты; новых пакетов не предлагает",
+            res.ok("вкладка SMS: ожидающая нота — карта за галочкой (ref) и реквизиты; другой пакет — за «Alt pachet?»",
                    ref in sms and f"name='ref' value='{ref}'" in sms and "name='terms'" in sms
                    and "MD00TEST0000000000000001" in sms and mail.SMS_DONE["sms"] in sms and TERM not in sms
-                   and "name='pack'" not in sms, sms[:3000])
+                   and "<span class='lbl'>Pachet nou</span>" not in sms and "<summary>Alt pachet?</summary>" in sms
+                   and f"Nota {ref} se anulează" in sms and "Înlocuiește nota de plată" in sms, sms[:3000])
             res.ok("вкладка оплат: нота SMS — строкой со ссылкой на вкладку SMS, без второй формы",
                    ref in plati and "href='#sms'" in plati and "name='ref'" not in plati, plati[-2500:])
             res.check("счётчик «ждёт вас» у SMS — 1", _count(home.body, "sms"), "1")
@@ -367,6 +368,64 @@ def suite_cabinet(res: Result) -> None:
         sms = _pane(c.get("/cont").body, "sms")
         res.ok("без maib: у ноты реквизиты, кнопки карты нет; в письме страницы оплаты нет",
                "MD00TEST0000000000000001" in sms and "name='ref'" not in sms and "/plata/" not in _letters(s)[-1][2])
+
+
+def suite_replace(res: Result) -> None:
+    """Другой пакет при открытой ноте — замена, как у абонемента (payments.choose): долг один, письмо
+    с новой нотой уходит, а оплата по прежней странице банка не теряется — зачитывается её пакетом."""
+    fake = FakeMaib()
+    try:
+        with Server(env={**ENV, **fake.env}) as s:
+            c = _enter(s, DIRECTOR)
+            main = _register(s, c)
+
+            def rows() -> list:
+                return _sql(s, "SELECT reference, status, sms_units FROM payments WHERE clinic_id=? AND kind='sms' "
+                               "ORDER BY id", main)
+
+            c.post("/cont/sms/nota", pack="100", method="card", terms="1")
+            ref_a, pid_a = _sql(s, "SELECT reference, provider_id FROM payments WHERE clinic_id=? AND kind='sms'", main)[0]
+            n = len(_letters(s))
+            r = c.post("/cont/sms/nota", pack="500", method="transfer", terms="1")
+            res.check("другой пакет при открытой ноте — sms_note_replaced", r.location, "/cont?msg=sms_note_replaced")
+            got = rows()
+            res.ok("прежняя нота отклонена, новая на 500 ждёт — долг один",
+                   len(got) == 2 and got[0] == (ref_a, "rejected", 100) and got[1][1:] == ("pending", 500), repr(got))
+            ref_b = got[1][0]
+            letters = _letters(s)
+            res.ok("письмо с новой нотой ушло: её номер и пакет",
+                   len(letters) == n + 1 and ref_b in letters[-1][1] and "500 SMS" in letters[-1][1], letters[-1][1])
+            res.ok("журнал: прежняя нота — «заменена», кем и на какой пакет",
+                   _sql(s, "SELECT who, detail FROM audit WHERE what='payment_rejected' AND clinic_id=?", main)
+                   == [(DIRECTOR, f"{ref_a}: заменена: клиника выбрала пакет 500 SMS")])
+            home = c.get(r.location)
+            sms = _pane(home.body, "sms")
+            res.ok("вкладка SMS: платится новая нота, прежней среди ожидающих нет, слово «заменена» на странице",
+                   f"name='ref' value='{ref_b}'" in sms and ref_a not in sms and "a fost înlocuită" in home.body
+                   and _count(home.body, "sms") == "1", sms[:2500])
+            res.check("тот же пакет ещё раз — та же нота, письма нет",
+                      (c.post("/cont/sms/nota", pack="500", terms="1").location, len(rows()), len(_letters(s))),
+                      ("/cont?msg=sms_note_exists", 2, n + 1))
+            # из программы — то же правило: другой пакет заменяет, письмо уходит, программа получает новую ноту
+            st, data = _json(Client(s.url), "/v1/sms/order", _token_of(s, main), {"pack": 100})
+            ref_c = data.get("reference", "")
+            res.ok("заказ другого пакета из программы: новая нота (created), прежняя отклонена, письмо ушло",
+                   st == 200 and data.get("created") is True and data.get("units") == 100 and ref_c not in (ref_a, ref_b)
+                   and [x[1] for x in rows()] == ["rejected", "rejected", "pending"] and len(_letters(s)) == n + 2,
+                   repr((st, data, rows())))
+            # клиника всё же заплатила на ПРЕЖНЕЙ странице банка (открытая вкладка): деньги не теряются
+            fake.set_status(pid_a, "Completed")
+            r = fake.post(Client(s.url), pid_a)
+            got = rows()
+            res.ok("оплата по прежней ноте после замены: зачтена её пакетом новой строкой, новая нота ждёт дальше",
+                   json.loads(r.body).get("outcome") == "paid" and _packs_of(s, main) == [(100,)]
+                   and [x[1] for x in got] == ["rejected", "rejected", "pending", "paid"] and got[2][0] == ref_c,
+                   f"{r.body} {got}")
+            res.ok("повтор того же callback — already, второго пакета нет",
+                   json.loads(fake.post(Client(s.url), pid_a).body).get("outcome") == "already"
+                   and _packs_of(s, main) == [(100,)])
+    finally:
+        fake.close()
 
 
 def suite_plata(res: Result) -> None:

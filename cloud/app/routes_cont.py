@@ -484,8 +484,8 @@ def cont_receipt(request: Request, number: str) -> Response:
 @router.post("/cont/sms/nota")
 def cont_sms_note(request: Request, pack: str = Form(""), ref: str = Form(""),
                   method: str = Form(payments.TRANSFER), terms: str = Form(""), c: str = "") -> Response:
-    """Нота SMS из кабинета. `pack` — заказ пакета: нота (или уже открытая — у клиники она одна),
-    письмо с ней; картой — сразу на страницу банка. `ref` — карта к ОЖИДАЮЩЕЙ ноте SMS этой
+    """Нота SMS из кабинета. `pack` — заказ пакета: нота (уже открытая на тот же пакет — она же, на
+    другой — заменяется, у клиники она одна), письмо с ней; картой — сразу на страницу банка. `ref` — карта к ОЖИДАЮЩЕЙ ноте SMS этой
     клиники (пакет, год имени), как на странице оплаты. ⛔ Без галочки условий — нет (требование
     maib); цена — из прайса сервера, не из формы. Письмо с нотой — после commit, maib — вне
     транзакции (`web.card_go`)."""
@@ -508,13 +508,14 @@ def cont_sms_note(request: Request, pack: str = Form(""), ref: str = Form(""),
                 return RedirectResponse(_cont_to(con, acc, cl["id"], "no_card"), status_code=303)
             said = ""
         else:
-            code, note, created = web.sms_pack_note(con, cl, web.months(pack), acc["email"], terms=True)
+            code, note, outcome = web.sms_pack_note(con, cl, web.months(pack), acc["email"], terms=True)
             if code:
                 return RedirectResponse(_cont_to(con, acc, cl["id"], code), status_code=303)
-            if created:
+            if outcome != payments.EXISTS:
                 # новая нота — письмом и при карте: не дойдёт клиника до оплаты — реквизиты у неё есть
                 box.add([(True, web.sms_note_letter(con, cl, note, acc["email"]))])
-            said = "sms_note_created" if created else "sms_note_exists"
+            said = {payments.CREATED: "sms_note_created", payments.REPLACED: "sms_note_replaced"}.get(
+                outcome, "sms_note_exists")
         payments.mark_terms(con, note)
         if card:
             plan = payments.card_plan(con, note, cl, web.ip(request))

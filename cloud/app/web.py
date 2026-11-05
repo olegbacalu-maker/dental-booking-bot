@@ -104,25 +104,31 @@ def payment(con, pid: int):
 SMS_CLOSED = ("sms_unconfigured", "sms_not_offered", "sms_off", "sms_plan", "sms_basic")
 
 
-def sms_pack_note(con, c, units: int, who: str, terms: bool = False) -> tuple[str, object, bool]:
+def sms_pack_note(con, c, units: int, who: str, terms: bool = False) -> tuple[str, object, str]:
     """Нота за пакет SMS — ОДНА логика на две двери: программа (`/v1/sms/order`) и кабинет
-    (`/cont/sms/nota`). → (код отказа sms.CODES или '', нота, создана ли сейчас). Пакет — только из
-    `config.SMS_PACKS` (цена оттуда же, не из формы); IDNO обязателен; открытая нота вида `sms` у
-    клиники одна — есть, вернётся она. В транзакции записи вызывающего (`immediate=True`)."""
+    (`/cont/sms/nota`). → (код отказа sms.CODES или '', нота, payments.CREATED | EXISTS | REPLACED).
+    Пакет — только из `config.SMS_PACKS` (цена оттуда же, не из формы); IDNO обязателен; открытая
+    нота вида `sms` у клиники одна. Тот же пакет — она же (сумма прежняя); ДРУГОЙ — она отклоняется
+    с причиной «заменена» и выставляется новая, как у абонемента (payments.choose): долг один, а
+    оплата по прежней ноте, если всё же придёт, зачтётся её пакетом (credit_again), деньги не
+    теряются. В транзакции записи вызывающего (`immediate=True`)."""
     if not config.SMS_PACKS:
-        return "sms_no_packs", None, False
+        return "sms_no_packs", None, ""
     if units not in config.SMS_PACKS:
-        return "sms_pack", None, False
+        return "sms_pack", None, ""
     if len(c["idno"] or "") != 13:
-        return "sms_need_idno", None, False
+        return "sms_need_idno", None, ""
     acc = sms.ensure(con, c["id"])
     why = sms.blocked(con, c["id"], acc, datetime.now(timezone.utc))
     if why in SMS_CLOSED:
-        return why, None, False
-    p = payments.open_of(con, c["id"], payments.SMS)
-    if p is not None:
-        return "", p, False
-    return "", payments.create_pack(con, c, units, config.SMS_PACKS[units], who, terms=terms), True
+        return why, None, ""
+    old = payments.open_of(con, c["id"], payments.SMS)
+    if old is not None and int(old["sms_units"] or 0) == units:
+        return "", old, payments.EXISTS
+    if old is not None:
+        payments.reject(con, old, f"заменена: клиника выбрала пакет {units} SMS", who)
+    p = payments.create_pack(con, c, units, config.SMS_PACKS[units], who, terms=terms)
+    return "", p, (payments.REPLACED if old is not None else payments.CREATED)
 
 
 def sms_note_letter(con, c, p, who: str) -> mail.Letter | str:
