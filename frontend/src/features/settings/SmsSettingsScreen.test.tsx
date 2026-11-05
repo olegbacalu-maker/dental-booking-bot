@@ -154,18 +154,77 @@ describe('SmsSettingsScreen', () => {
     })))
   })
 
-  it('директор: пополнение — вопрос, POST order, нота со ссылкой на оплату', async () => {
+  const NOTE = { kind: 'sms', reference: 'DP-7', amount: 150, units: 100, pay_url: 'https://cloud.dentpilot.md/plata/x' }
+  const withNotes = (notes: unknown): SmsData => ({ ...BASE, account: { ...BASE.account!, notes } as SmsData['account'] })
+
+  it('директор: пополнение — окно называет карту и перевод, POST order, блок ноты из свежих данных экрана', async () => {
+    get.mockResolvedValueOnce(ok(withNotes([])))
+    post.mockResolvedValueOnce(ok({ ...NOTE, created: true, screen: withNotes([NOTE]) }, 'sms_order_ok', 'Nota este gata'))
+    const asked = vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
+    open()
+    await screen.findByText('42')
+    expect(screen.queryByText('Nota de plată DP-7')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '100 SMS — 150 MDL' }))
+    expect(await screen.findByText('Nota de plată DP-7')).toBeTruthy()
+    expect(post).toHaveBeenCalledWith('/settings/sms/order', { pack: 100 })
+    // окно говорит, что будет после клика и чем платить, — не «нота придёт на e-mail» и всё
+    const question = String(asked.mock.calls[0]?.[0])
+    expect(question).toContain('Comandați 100 SMS pentru 150 MDL?')
+    expect(question).toContain('cu cardul')
+    expect(question).toContain('transfer bancar')
+    const pay = screen.getByRole('link', { name: 'Plătește cu cardul' })
+    expect(pay.getAttribute('href')).toBe('https://cloud.dentpilot.md/plata/x')
+    expect(pay.getAttribute('target')).toBe('_blank')
+    // рядом — плашка «нота готова» с той же ролью: блок ноты ищем по его словам
+    expect(screen.getAllByRole('status').map((e) => e.textContent ?? '')
+      .some((t) => t.includes('Nota de plată DP-7 — pachet 100 SMS: 150 MDL · în așteptare'))).toBe(true)
+  })
+
+  it('ожидающая нота стоит на экране при каждом открытии — без заказа, с картой, способами оплаты и переводом', async () => {
+    get.mockResolvedValueOnce(ok(withNotes([NOTE, { kind: 'sms_name', reference: 'DP-8', amount: 200, units: null, pay_url: '' }])))
+    open()
+    await screen.findByText('42')
+    expect(post).not.toHaveBeenCalled()
+    const [pack, name] = screen.getAllByRole('status')
+    expect(pack?.textContent).toContain('Nota de plată DP-7 — pachet 100 SMS: 150 MDL · în așteptare')
+    expect(name?.textContent).toContain('Nota de plată DP-8 — numele de expeditor, un an: 200 MDL · în așteptare')
+    // карта — только у ноты со страницей оплаты; фраза о способах — слово в слово страницы оплаты
+    expect(screen.getAllByRole('link', { name: 'Plătește cu cardul' })).toHaveLength(1)
+    expect(screen.getByText(/pagina securizată a băncii maib: card Visa sau Mastercard, Google Pay sau Apple Pay\. Datele cardului nu ajung la DentPilot\./)).toBeTruthy()
+    expect(screen.getByText(/^Sau prin transfer bancar: .* SMS-urile se adaugă automat\.$/)).toBeTruthy()
+    expect(screen.getByText(/^Prin transfer bancar: .* anul numelui se înregistrează automat\.$/)).toBeTruthy()
+    // пакеты остаются в продаже рядом с нотой
+    expect(screen.getByRole('button', { name: '100 SMS — 150 MDL' })).toBeTruthy()
+  })
+
+  it('нота оплачена или отклонена — сервер её больше не шлёт, блок уходит сам («Verifică acum»)', async () => {
+    get.mockResolvedValueOnce(ok(withNotes([NOTE])))
+    post.mockResolvedValueOnce(ok(withNotes([])))
+    open()
+    expect(await screen.findByText('Nota de plată DP-7')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Verifică acum/ }))
+    await waitFor(() => expect(screen.queryByText('Nota de plată DP-7')).toBeNull())
+    expect(screen.queryByRole('link', { name: 'Plătește cu cardul' })).toBeNull()
+  })
+
+  it('сервер до 05.11 (нот в счёте нет): экран открывается как раньше, после заказа — нота из ответа заказа', async () => {
+    // BASE без поля `notes` — так отвечает старый сервер; ответ заказа без `screen` — старый движок не бывает,
+    // но поле необязательное: экран обязан жить и без него
     get.mockResolvedValueOnce(ok(BASE))
-    post.mockResolvedValueOnce(ok({ kind: 'sms', reference: 'DP-7', amount: 150, units: 100,
-      pay_url: 'https://cloud.dentpilot.md/plata/x', created: true }, 'sms_order_ok', 'Nota a fost emisă'))
+    post.mockResolvedValueOnce(ok({ ...NOTE, created: true }, 'sms_order_ok', 'Nota este gata'))
     vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
     open()
     await screen.findByText('42')
+    expect(screen.queryByRole('status')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '100 SMS — 150 MDL' }))
-    expect(await screen.findByText(/Nota DP-7 \(150 MDL\)/)).toBeTruthy()
-    expect(post).toHaveBeenCalledWith('/settings/sms/order', { pack: 100 })
-    expect((screen.getByText('Plătește cu cardul') as HTMLAnchorElement).getAttribute('href'))
-      .toBe('https://cloud.dentpilot.md/plata/x')
+    expect(await screen.findByText('Nota de plată DP-7')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Plătește cu cardul' }).getAttribute('href')).toBe('https://cloud.dentpilot.md/plata/x')
+    // и явный null вместо списка — то же, что отсутствие поля
+    cleanup()
+    get.mockResolvedValueOnce(ok(withNotes(null)))
+    open()
+    await screen.findByText('42')
+    expect(screen.queryByRole('status')).toBeNull()
   })
 
   it('шесть пакетов с сервера: экран рисует все, в порядке сервера (по units), без своего списка', async () => {

@@ -7,12 +7,16 @@ import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
 import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError, type ApiResult } from '../../services/api'
-import { settings, type SmsData, type SmsOrder, type SmsSettingsForm } from './settings'
+import { settings, type SmsData, type SmsNote, type SmsOrder, type SmsSettingsForm } from './settings'
 
 /* Setări › SMS (S6, docs/dentpilot-2/sms.md › «Экраны»). Видит и регистратура:
    переключатели событий, час, вариант текста и строку телефона может менять
    любой вошедший (слово Олега 16.10); «Comandă» — пополнение и своё имя — и
    тестовая SMS только директору (`can_order` с сервера, отказ — `api_require`).
+   Заказанная нота (пакет, год имени) стоит на экране БЛОКОМ, пока ждёт оплаты
+   (05.11): её отдаёт сервер вместе со счётом (`account.notes`), а не память
+   экрана; «Plătește cu cardul» ведёт на страницу оплаты DentPilot в браузере
+   Windows — обычной ссылкой, как «Plătește acum» (ничего одноразового).
    ⛔ Тексты клиника НЕ правит: выбирает готовый вариант и видит предпросмотр
    со своим названием; число сегментов считает сервер. Каждое изменение
    сохраняется сразу — ответ приносит свежие данные и предпросмотры. */
@@ -63,12 +67,24 @@ const T = {
   forecastLeft: ' · restul ajunge pentru ~{days} zile',
   forecastNone: 'Încă nu sunt vizite pentru estimare.',
   orderTitle: 'Comandă',
-  orderHint: 'Nota de plată vine pe e-mailul clinicii; după plată SMS-urile se adaugă automat.',
+  orderHint: 'Nota de plată o plătiți cu cardul sau prin transfer bancar; după plată SMS-urile se adaugă automat.',
   packBtn: '{units} SMS — {price} MDL',
-  packConfirm: 'Comandați {units} SMS pentru {price} MDL? Nota de plată vine pe e-mail.',
+  packConfirm: 'Comandați {units} SMS pentru {price} MDL? Primiți nota de plată: o plătiți cu cardul, '
+    + 'pe pagina de plată, sau prin transfer bancar. Nota vine și pe e-mail.',
   packNone: 'Pachetele nu sunt încă disponibile.',
-  ordered: 'Nota {ref} ({amount} MDL) a fost emisă și trimisă pe e-mail.',
-  orderedPay: 'Plătește cu cardul',
+  // Ожидающая нота: способы оплаты картой — фразой условий § 4.3, той же, что на странице оплаты и
+  // в письме (cloud mail.CARD_WAYS / CARD_SAFE; согласие держит cloud/tests/test_sms_cabinet.py)
+  note: 'Nota de plată {ref}',
+  notePack: 'pachet {units} SMS',
+  noteName: 'numele de expeditor, un an',
+  noteWaiting: 'în așteptare',
+  notePay: 'Plătește cu cardul',
+  notePayHint: 'Plata cu cardul se face pe pagina securizată a băncii maib: card Visa sau Mastercard, '
+    + 'Google Pay sau Apple Pay. Datele cardului nu ajung la DentPilot.',
+  noteTransfer: 'Prin transfer bancar: datele și referința sunt în e-mailul cu nota de plată.',
+  noteTransferOr: 'Sau prin transfer bancar: datele și referința sunt în e-mailul cu nota de plată.',
+  noteAfterPack: 'După confirmarea plății SMS-urile se adaugă automat.',
+  noteAfterName: 'După confirmarea plății anul numelui se înregistrează automat.',
   senderTitle: 'Numele expeditorului',
   senderNone: 'SMS-urile pleacă de la numele „DentPilot" cu denumirea clinicii în text. Puteți cere numele propriu (până la 11 caractere latine).',
   senderRequested: 'cerere trimisă — descărcați cererea completată în contul clinicii (cloud.dentpilot.md/cont), semnați-o și încărcați-o acolo',
@@ -79,7 +95,8 @@ const T = {
   senderPh: 'Numele (ex. ZambetDent)',
   senderBtn: 'Cere numele',
   senderNameBtn: 'Comandă numele — {price} MDL / an',
-  senderNameConfirm: 'Comandați numele propriu de expeditor pentru un an ({price} MDL)?',
+  senderNameConfirm: 'Comandați numele propriu de expeditor pentru un an ({price} MDL)? Primiți nota de plată: '
+    + 'o plătiți cu cardul, pe pagina de plată, sau prin transfer bancar. Nota vine și pe e-mail.',
   testTitle: 'SMS de test',
   testHint: 'Pe numărul dvs. mobil, din pachetul clinicii.',
   testPh: 'Telefon mobil',
@@ -143,15 +160,21 @@ export function SmsSettingsScreen({ navigate = defaultNavigate }: Props) {
     void run(() => settings.smsSave(patch(data.settings)), (r) => replace(r.data))
   }
 
+  /* Ответ заказа несёт свежие данные экрана (`screen`): нота уже в счёте сервера. */
+  function ordered(r: ApiResult<SmsOrder>) {
+    setOrder(r.data)
+    if (r.data.screen) replace(r.data.screen)
+  }
+
   async function orderPack(units: number, price: number) {
     const text = T.packConfirm.replace('{units}', String(units)).replace('{price}', String(price))
     if (!await ask({ text, ok: T.orderTitle })) return
-    void run(() => settings.smsOrder(units), (r) => setOrder(r.data))
+    void run(() => settings.smsOrder(units), ordered)
   }
 
   async function orderName(price: number) {
     if (!await ask({ text: T.senderNameConfirm.replace('{price}', String(price)), ok: T.orderTitle })) return
-    void run(() => settings.smsOrderName(), (r) => setOrder(r.data))
+    void run(() => settings.smsOrderName(), ordered)
   }
 
   function requestSender(e: FormEvent) {
@@ -176,6 +199,9 @@ export function SmsSettingsScreen({ navigate = defaultNavigate }: Props) {
 
   const s = data?.settings
   const acc = data?.account ?? null
+  /* Ожидающие ноты: список сервера — блок стоит, пока нота ждёт оплаты, и уходит сам. Сервер их
+     не шлёт (до 05.11: `notes` нет) — как раньше, только нота последнего заказа, до ухода с экрана. */
+  const notes: SmsNote[] = acc?.notes ?? (order ? [order] : [])
   const calm: { head: string; path: string } | undefined =
     data && data.offered && Object.hasOwn(CALM, data.blocked) ? CALM[data.blocked] : undefined
   const seg = (n: number) => (n <= 1 ? T.segments1 : T.segmentsN.replace('{n}', String(n)))
@@ -375,14 +401,31 @@ export function SmsSettingsScreen({ navigate = defaultNavigate }: Props) {
                   ))}
                 </p>
               ) : <p className="hint">{T.packNone}</p>}
-              {order && (
-                <div className="banner ok" role="status">
-                  {T.ordered.replace('{ref}', order.reference).replace('{amount}', String(order.amount))}
-                  {/* страница оплаты maib — чужой адрес: AppLink отдаёт обычную ссылку,
-                      target=_blank уводит её в системный браузер, как «Plătește acum» */}
-                  {order.pay_url ? <> <AppLink href={order.pay_url} target="_blank" rel="noopener">{T.orderedPay}</AppLink></> : null}
+              {notes.map((n) => (
+                <div key={n.reference}>
+                  <div className="banner warn" role="status">
+                    <b>{T.note.replace('{ref}', n.reference)}</b>
+                    {' — '}{n.kind === 'sms_name' ? T.noteName : T.notePack.replace('{units}', String(n.units ?? ''))}
+                    {': '}<b>{n.amount} MDL</b>{' · '}{T.noteWaiting}
+                  </div>
+                  {/* страница оплаты — чужой адрес: AppLink отдаёт обычную ссылку, target=_blank
+                      уводит её в системный браузер, как «Plătește acum»; адрес проверил движок */}
+                  {n.pay_url ? (
+                    <>
+                      <p className="dp-actions">
+                        <AppLink className="pl-btn primary" href={n.pay_url} target="_blank" rel="noopener">
+                          <Icon name="card" /> {T.notePay}
+                        </AppLink>
+                      </p>
+                      <p className="hint">{T.notePayHint}</p>
+                    </>
+                  ) : null}
+                  <p className="hint">
+                    {n.pay_url ? T.noteTransferOr : T.noteTransfer}{' '}
+                    {n.kind === 'sms_name' ? T.noteAfterName : T.noteAfterPack}
+                  </p>
                 </div>
-              )}
+              ))}
 
               <h3>{T.testTitle}</h3>
               <p className="hint">{T.testHint}</p>

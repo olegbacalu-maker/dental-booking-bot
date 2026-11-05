@@ -572,6 +572,10 @@ def _pay_page_ok(page, endpoint: str) -> bool:
             and len(a.path) > len(PAY_PAGE) and not a.query and not a.fragment)
 
 
+# то же правило — адресу оплаты ноты SMS (sms_loop): страница оплаты того же сервера, и только она
+pay_page_ok = _pay_page_ok
+
+
 def paying() -> datetime | None:
     """До какого момента программа спрашивает файл часто после «Plătește acum»;
     None — не спрашивает (не нажимали, срок вышел или новый файл уже пришёл)."""

@@ -317,6 +317,39 @@ async def _remember(acc: dict | None) -> None:
     await _save_low()
 
 
+NOTE_KINDS = ("sms", "sms_name")              # ноты SMS: пакет и год своего имени отправителя
+NOTES_MAX = 4                                 # открытая нота каждого вида одна; больше — мусор
+
+
+def _pay_url(raw, base: str) -> str:
+    """Адрес оплаты ноты из ответа сервера — только страница оплаты ТОГО ЖЕ сервера, что отдал
+    счёт (правило «Plătește acum», `lic.pay_page_ok`); всё иное — пусто: блок ноты без кнопки карты."""
+    return raw if lic.pay_page_ok(raw, base) else ""
+
+
+def _notes(raw, base: str) -> list[dict] | None:
+    """Ожидающие ноты SMS из счёта сервера (05.11): только известные виды и поля. None — сервер
+    поля не прислал (сервер до 05.11): экран живёт как раньше, строкой после заказа. ⛔ Нота с
+    кривыми полями молча пропускается, а не роняет счёт: остаток и отправка от неё не зависят."""
+    if not isinstance(raw, list):
+        return None
+    out = []
+    for n in raw[:NOTES_MAX]:
+        if not isinstance(n, dict) or n.get("kind") not in NOTE_KINDS:
+            continue
+        ref = n.get("reference")
+        if not isinstance(ref, str) or not ref or len(ref) > 40:
+            continue
+        try:
+            amount = int(n.get("amount"))
+            units = int(n["units"]) if n.get("units") is not None else None
+        except (TypeError, ValueError):
+            continue
+        out.append({"kind": n["kind"], "reference": ref, "amount": amount, "units": units,
+                    "pay_url": _pay_url(n.get("pay_url"), base)})
+    return out
+
+
 async def refresh_account(force: bool = False) -> str:
     """Перечитать счёт у сервера. Исход — wire.*; OFFLINE/REFUSED оставляют
     прежний счёт (программа живёт по тому, что знала)."""
@@ -328,10 +361,10 @@ async def refresh_account(force: bool = False) -> str:
     outcome, body = await asyncio.to_thread(wire.account, t[0], t[1], wire.TIMEOUT, _agent(),
                                             lic.identity())
     if outcome == wire.OK:
-        await _remember({k: body.get(k) for k in (
+        await _remember({**{k: body.get(k) for k in (
             "offered", "enabled", "sender", "sender_state", "sender_note", "sender_until",
             "from", "balance", "packs", "name_price", "name_days", "daily_cap", "used_today",
-            "blocked", "custom")})
+            "blocked", "custom")}, "notes": _notes(body.get("notes"), t[0])})
     elif outcome == wire.DENIED:
         code = body.get("code") or ""
         if code in ("sms_not_offered", "sms_unconfigured"):
@@ -574,7 +607,12 @@ async def request_sender(name: str) -> tuple[str, dict]:
 
 
 async def order(pack: int = 0, name: bool = False) -> tuple[str, dict]:
-    return await _command(wire.order, pack, name)
+    """Нота у сервера; адрес оплаты из ответа — тем же правилом, что у нот счёта (`_pay_url`)."""
+    t = target()
+    outcome, body = await _command(wire.order, pack, name)
+    if outcome == wire.OK and t is not None:
+        body = {**body, "pay_url": _pay_url(body.get("pay_url"), t[0])}
+    return outcome, body
 
 
 async def send_test(phone: str) -> tuple[str, dict]:
@@ -744,9 +782,10 @@ def screen() -> dict:
         "why": "" if not available() else why,
         # код сервера — экран различает «выключено по желанию клиники» и прочие отказы
         "blocked": blocked if available() else "",
+        # `notes` — ожидающие ноты SMS (05.11): список — блок ноты на экране, None — сервер их не шлёт
         "account": ({k: acc.get(k) for k in ("balance", "from", "sender", "sender_state", "sender_note",
                                             "sender_until", "packs", "name_price", "name_days", "daily_cap",
-                                            "used_today")} if acc and offered() else None),
+                                            "used_today", "notes")} if acc and offered() else None),
         "settings": s,
         "options": {"hours": list(plan.HOURS_X), "leads": list(plan.LEAD_HOURS),
                     "variants": [{"key": v, "label": plan.VARIANT_LABEL[v]} for v in plan.VARIANTS]

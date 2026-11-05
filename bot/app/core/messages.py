@@ -147,7 +147,7 @@ MSG_BANNER = {
     # словами (`msg_json(text=…)`: словарь CODES облака — один на обе стороны)
     "ok_sms": ("ok", "Setări SMS salvate"),
     "bad_sms": ("err", "Setările SMS nu au putut fi citite"),
-    "sms_order_ok": ("ok", "Nota de plată a fost emisă și trimisă pe e-mailul clinicii"),
+    "sms_order_ok": ("ok", "Nota de plată este gata — detaliile sunt mai jos și pe e-mailul clinicii"),
     "sms_sender_ok": ("ok", "Cererea pentru numele expeditorului a fost trimisă — urmează cererea "
                             "semnată pentru operatori"),
     "sms_test_ok": ("ok", "SMS de test trimis"),

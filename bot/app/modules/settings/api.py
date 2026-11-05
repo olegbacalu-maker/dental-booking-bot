@@ -935,8 +935,9 @@ async def api_sms_refresh(request: Request):
 
 @router.post("/api/settings/sms/order")
 async def api_sms_order(request: Request):
-    """{pack: N} — пополнение, {name: 1} — год своего имени; директору. Нота
-    и ссылка maib — ответом сервера, письмо — на e-mail клиники."""
+    """{pack: N} — пополнение, {name: 1} — год своего имени; директору. Нота и
+    страница оплаты — ответом сервера, письмо — на e-mail клиники. `screen` — свежие
+    данные экрана: счёт перечитан после заказа, и блок ожидающей ноты встаёт сразу."""
     if (deny := api_require(request, PERM_SETTINGS)) is not None:
         return deny
     body = await api_body(request)
@@ -952,7 +953,8 @@ async def api_sms_order(request: Request):
     if outcome != sms_loop.wire.OK:
         return _sms_fail(outcome, data)
     return msg_json(True, "sms_order_ok",
-                    data={k: data.get(k) for k in ("kind", "reference", "amount", "units", "pay_url", "created")})
+                    data={**{k: data.get(k) for k in ("kind", "reference", "amount", "units", "pay_url", "created")},
+                          "screen": _sms_data()})
 
 
 @router.post("/api/settings/sms/sender")

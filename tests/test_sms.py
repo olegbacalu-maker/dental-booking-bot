@@ -220,6 +220,7 @@ class Stand:
                         "balance": 100, "packs": [], "name_price": 0, "name_days": 365,
                         "daily_cap": 500, "used_today": 0, "blocked": "", "custom": {}}
         self.account_reply: tuple[int, dict] | None = None
+        self.order_url: str | None = None     # адрес оплаты в ответе заказа; None — страница этого стенда
         self.send_mode = "ok"
         self.delay = 0.0
         self.states: dict[int, str] = {}
@@ -290,7 +291,7 @@ class Stand:
                     name = bool((sent or {}).get("name"))
                     self._reply(200, {"ok": True, "kind": "sms_name" if name else "sms", "reference": "DP-77",
                                       "amount": 200 if name else 150, "units": None if name else int((sent or {}).get("pack") or 0),
-                                      "pay_url": stand.base + "/plata/x", "created": True})
+                                      "pay_url": stand.order_url or stand.base + "/plata/x", "created": True})
                 else:
                     self._reply(404, {"ok": False})
 
@@ -767,6 +768,40 @@ def suite_screen(res: Result) -> None:
                 res.check("стенд получил заказ",
                           next((x["json"] for x in reversed(stand.requests) if x["path"] == "/v1/sms/order"), None),
                           {"pack": 100})
+                # ожидающие ноты SMS (05.11): блок на экране, пока нота ждёт оплаты
+                res.ok("ответ заказа: адрес страницы оплаты своего сервера и свежие данные экрана (`screen`)",
+                       _j(r)["data"]["pay_url"] == stand.base + "/plata/x"
+                       and _j(r)["data"]["screen"]["account"]["balance"] == 100 and _j(r)["data"]["screen"]["can_order"],
+                       r.body[:400])
+                res.ok("сервер до 05.11 (нот в счёте нет): `notes` — None, экран открывается как раньше",
+                       _j(r)["data"]["screen"]["account"]["notes"] is None
+                       and _j(c.get("/api/settings/sms"))["data"]["account"]["notes"] is None)
+                stand.order_url = "https://evil.example/plata/x"
+                r = c.post_json("/api/settings/sms/order", {"pack": 100})
+                res.check("⛔ адрес оплаты не того сервера в ответе заказа — пусто (кнопки карты не будет)",
+                          (r.msg, _j(r)["data"]["pay_url"]), ("sms_order_ok", ""))
+                stand.order_url = None
+                good = {"kind": "sms", "reference": "DP-77", "amount": 150, "units": 100, "pay_url": stand.base + "/plata/x"}
+                stand.account["notes"] = [
+                    {**good, "extra": "лишнее поле"},
+                    {"kind": "sms_name", "reference": "DP-78", "amount": "200", "units": None,
+                     "pay_url": "https://evil.example/plata/x"},
+                    {"kind": "license", "reference": "DP-79", "amount": 1, "units": None, "pay_url": ""},
+                    {"kind": "sms", "reference": "", "amount": 1, "units": 1, "pay_url": ""},
+                    {"kind": "sms", "reference": "DP-80", "amount": "много", "units": 1, "pay_url": ""}, "мусор"]
+                r = c.post_json("/api/settings/sms/refresh", {})
+                res.check("ноты счёта: известные виды и поля; чужой адрес оплаты — пусто; кривые строки пропущены",
+                          _j(r)["data"]["account"]["notes"],
+                          [good, {"kind": "sms_name", "reference": "DP-78", "amount": 200, "units": None, "pay_url": ""}])
+                res.ok("кривые ноты счёт не роняют: остаток и отправка на месте",
+                       _j(r)["data"]["account"]["balance"] == 100 and _j(r)["data"]["enabled"])
+                stand.account["notes"] = []
+                res.check("нота оплачена — сервер шлёт пустой список, блока нет",
+                          _j(c.post_json("/api/settings/sms/refresh", {}))["data"]["account"]["notes"], [])
+                stand.account["notes"] = "не список"
+                res.check("не список — как отсутствие поля (None), не падение",
+                          _j(c.post_json("/api/settings/sms/refresh", {}))["data"]["account"]["notes"], None)
+                del stand.account["notes"]
                 r = c.post_json("/api/settings/sms/sender", {"name": "Clinica Tst"})
                 res.ok("заявка на имя — sms_sender_ok, в счёте requested", r.msg == "sms_sender_ok"
                        and _j(r)["data"]["account"]["sender_state"] == "requested", r.body[:300])

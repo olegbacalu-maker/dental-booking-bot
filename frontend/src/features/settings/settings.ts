@@ -382,6 +382,19 @@ export interface SmsAccount {
   name_days: number
   daily_cap: number
   used_today: number
+  /** Ожидающие ноты SMS (пакет, год имени) — блок на экране, пока нота ждёт оплаты. `null` или
+   *  поля нет — сервер их не шлёт (сервер до 05.11): экран показывает только ноту последнего заказа. */
+  notes?: SmsNote[] | null
+}
+
+/** Нота SMS: поля ответа заказа, они же — у нот счёта. `pay_url` — страница оплаты DentPilot;
+ *  пусто — карты нет (maib не настроен или адрес не того сервера), остаётся перевод. */
+export interface SmsNote {
+  kind: string
+  reference: string
+  amount: number
+  units: number | null
+  pay_url: string
 }
 
 export interface SmsLow {
@@ -429,13 +442,10 @@ export interface SmsData {
   support: { phone: string; email: string }
 }
 
-export interface SmsOrder {
-  kind: string
-  reference: string
-  amount: number
-  units: number | null
-  pay_url: string
+export interface SmsOrder extends SmsNote {
   created: boolean
+  /** Свежие данные экрана: счёт перечитан после заказа, нота уже в `account.notes`. */
+  screen?: SmsData
 }
 
 export const settings = {

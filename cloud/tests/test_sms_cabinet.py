@@ -18,7 +18,7 @@ import re
 import sys
 from datetime import datetime, timezone
 
-from harness import CLOUD, Client, Result, Server, cid_from
+from harness import CLOUD, ROOT, Client, Result, Server, cid_from
 
 sys.path.insert(0, str(CLOUD))
 from app import config, mail, views  # noqa: E402
@@ -96,6 +96,13 @@ def _words(res: Result) -> None:
            == lic.replace(card_l, "<1>").replace(bank_l, "<2>") and pack.count(mail.SMS_DONE["sms"]) == 2, pack)
     res.ok("неизвестный вид ноты — как абонемент (умолчание), не падение",
            mail.ways_to_pay("DP-2026-000001", 600, url, kind="cabinet") == lic)
+    # экран SMS программы (блок ожидающей ноты) называет способы оплаты картой той же фразой, что
+    # страница оплаты и письмо: копия в клиенте — под сторожем, как ответ FAQ программы (test_contract)
+    tsx_path = ROOT / "frontend" / "src" / "features" / "settings" / "SmsSettingsScreen.tsx"
+    tsx = " ".join(tsx_path.read_text(encoding="utf-8").replace("'\n    + '", "").split()) if tsx_path.exists() else ""
+    res.ok("экран SMS программы нашёлся и называет способы оплаты фразой mail.CARD_WAYS и mail.CARD_SAFE",
+           "notePayHint" in tsx and mail.CARD_WAYS in tsx and mail.CARD_SAFE in tsx
+           and "pe pagina securizată a băncii maib" in tsx, tsx[:200])
     for kind, letter in (("sms", mail.sms_pack_note_letter("Clinica X", "DP-2026-000002", 50, 100, url)),
                          ("sms_name", mail.sms_name_note_letter("Clinica X", "DP-2026-000003", 77, "Zambet", url))):
         body = letter[1]
