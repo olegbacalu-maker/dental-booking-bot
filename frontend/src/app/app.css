@@ -248,11 +248,9 @@
 .dp-m6 { margin: 6px 0; }
 .dp-m08 { margin: 0 0 8px; }
 .dp-mt8 { margin-top: 8px; }
-.dp-mt9 { margin-top: 9px; }
 .dp-mt10 { margin-top: 10px; }
 
 .dp-hs-sub { color: var(--text3); font-size: var(--fs-s); }
-.dp-kpi-body { min-width: 0; }
 .dp-hero-wait { min-height: 140px; }
 
 /* заметка под строками профиля */
@@ -334,7 +332,6 @@
 
 /* кусок одонтограммы: пока едет — место под него, чтобы страница не прыгала */
 .dp-odo-wait { min-height: 120px; }
-.dp-odo-host:empty { display: none; }
 
 /* ---- дневник визита (C19): стили, которые старая страница несла своим <style> ---- */
 
@@ -380,17 +377,7 @@
 .dp-react-root .ocform .ocrow .dlab { margin-bottom: 0; }
 .dp-react-root .ocform .dlab.is-bad input, .dp-react-root .ocform .dlab.is-bad select { border-color: var(--red); box-shadow: 0 0 0 2px var(--red-soft); }
 
-/* ---- клинический модуль (C21): рисунок выбранного зуба в инспекторе — тот же
-   Tooth, но без кнопочного оформления и номера ---- */
-.dp-react-root .insp-pic .tooth-btn {
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: default;
-  box-shadow: none;
-  transform: none;
-}
-.dp-react-root .insp-pic .tooth-btn .num { display: none; }
+/* ---- клинический модуль (C21) ---- */
 .dp-react-root .odo .arch { position: relative; }
 
 /* ---- C22: черновик, клавиатура, контекстное меню, отзывчивость ---- */
@@ -402,8 +389,6 @@
    фирменного цвета) обе видны */
 .dp-react-root .odop .arch .tooth-btn.dirty { box-shadow: 0 0 0 2px var(--amber); }
 .dp-react-root .odop .arch .tooth-btn.sel.dirty { box-shadow: inset 0 0 0 2px var(--teal), 0 0 0 2px var(--amber); }
-.dp-react-root .dp-save-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.dp-react-root .dp-save-row .pl-btn { height: var(--h-ctl); }
 .dp-react-root .dp-draft { font-size: var(--fs-s); font-weight: 600; color: var(--amber-t); }
 /* легенда-фильтр (01.10): пункт — кнопка; нажатый — кольцо фирменного цвета,
    остальные при фильтре приглушены; счётчик зубов — мелко рядом с подписью.
@@ -414,7 +399,6 @@
 .dp-react-root .tleg button.lg:hover, .dp-react-root .tleg button.lg:focus-visible { background: var(--teal-soft); color: var(--teal-d); outline: none; }
 .dp-react-root .tleg button.lg.on { border-color: var(--teal); background: var(--teal-glow); color: var(--teal-d); }
 .dp-react-root .tleg[data-filter] button.lg:not(.on) { opacity: .55; }
-.dp-react-root .tleg .lg-pic { display: inline-flex; }
 .dp-react-root .tleg .lg-n { font-style: normal; font-weight: 600; color: var(--text3); margin-left: 2px; }
 .dp-react-root .tleg button.lg.on .lg-n { color: var(--teal-d); }
 .dp-react-root .odop .arch .tooth-btn { transition: transform var(--dur) ease, background-color var(--dur) ease,
@@ -593,13 +577,6 @@
    словам и по длинному слову тоже (120 знаков без пробелов бывают). */
 .dp-react-root .dp-note-text { margin: 0; font-size: var(--fs-body); line-height: 1.45;
   overflow-wrap: anywhere; }
-.dp-react-root .dp-birth {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--fs-s);
-  color: var(--text3);
-}
 /* день (C25.5c): список дня. Пустая строка и комментарий — классами вместо
    инлайновых стилей старой страницы, цвета берутся у темы клиники. */
 .dp-react-root .dp-empty { color: var(--text3); }
@@ -702,13 +679,6 @@
    стола, как мышью (до 25.10 — панель поверх дуги). Цели ≥ 44 px, у зуба нет
    выделения текста и выноски iOS. */
 .dp-react-root .insp-close { display: none; }
-.dp-react-root .st-palette { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 6px; }
-.dp-react-root .st-palette .stp {
-  display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 10px; border: 1px solid var(--line);
-  border-radius: var(--r-ctl); background: var(--panel); color: var(--text); font: inherit; font-size: var(--fs-body); cursor: pointer;
-}
-.dp-react-root .st-palette .stp i { width: 12px; height: 12px; border-radius: 50%; flex: none; }
-.dp-react-root .st-palette .stp.on { border-color: var(--teal); background: var(--teal-glow); color: var(--teal-d); font-weight: 600; }
 /* Раскладка B (25.10): в АЛЬБОМЕ панель — колонкой рабочего стола, как мышью
    (прежняя панель поверх карты закрывала вкладки Implant / Proteză); в
    ПОРТРЕТЕ — шторка снизу (52 % высоты), а рабочий стол над ней ужимается
@@ -726,7 +696,6 @@
   .dp-react-root .odop[data-sel] .odop-side .insp { border: none; box-shadow: none; margin: 0; }
 }
 @media (pointer: coarse) {
-  .dp-react-root .insp .insp-t:first-child { display: flex; align-items: center; justify-content: space-between; }
   .dp-react-root .insp-close {
     display: inline-grid; place-items: center; width: 44px; height: 44px; margin: -8px -8px -8px 0;
     border: none; background: none; color: var(--text2); border-radius: var(--r-ctl); cursor: pointer;
@@ -1240,9 +1209,6 @@
   background: var(--surface); border: 1px solid var(--glass-edge); border-radius: var(--r-card);
   box-shadow: var(--sh); padding: 13px 15px;
 }
-.dk-h { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
-.dk-h b { font-size: var(--fs-m); font-weight: 600; }
-.dk-h small { font-size: var(--fs-xs); color: var(--text3); }
 .dk-sec { border-top: 1px solid var(--line2); padding: 8px 0 4px; }
 .dk-sec > summary {
   list-style: none; display: flex; align-items: center; gap: 9px; cursor: pointer; padding: 2px 0;
@@ -1289,8 +1255,6 @@
 .dk-btn:disabled { opacity: .5; cursor: default; }
 .dk-sum { font-size: var(--fs-s); font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .dk-sum.bad { color: var(--red-t); }
-.dk-when { font-size: var(--fs-s); font-weight: 600; color: var(--text2); white-space: nowrap; text-decoration: none; }
-.dk-when.today { color: var(--green-t); }
 .dk-more, .dk-lnk {
   font-size: var(--fs-s); color: var(--teal-d); text-decoration: none; background: none; border: 0;
   padding: 0; cursor: pointer; font-weight: 600;
