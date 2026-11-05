@@ -15,10 +15,10 @@
 /* ---------- шрифт ----------
    Четыре правила @font-face уехали 08-11 в СОСЕДНИЙ файл — `fonts.css`.
    Причина: их просит не только журнал. Вход, установка PIN и восстановление
-   несут свою вёрстку в <style> и panel.css не подключают (см. layout.py), а
+   несут свою вёрстку в <style> и panel.css не подключают (см. core/pages.py), а
    значит объявления шрифта у них не было вовсе — и первый экран клиники
    рисовался системным Segoe UI. Подключается fonts.css отдельной ссылкой из
-   `core/layout.py` (`_shell`), рядом с этой; те страницы вставляют его текст
+   `core/layout.py` (`_doc_head`), рядом с этой; те страницы вставляют его текст
    в себя. Почему так и чего нельзя ломать — в шапке самого fonts.css. */
  :root{--bg:#F6FBF8;--panel:#FFFFFF;--line:#E7EDF5;--line2:#F1F6FA;
    --text:#162033;--text2:#7E8B9C;--text3:#A0AAB8;
@@ -1206,17 +1206,6 @@
    font:inherit;font-size:var(--fs-s);font-weight:400;cursor:pointer}
  .dlg-form .br-chip.stalp,.dlg-form .br-chip.stalp:hover{background:var(--teal);border-color:var(--teal);
    color:var(--on-teal);font-weight:600}
- .i-bridge{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
-   margin:8px 0 2px;padding:8px 10px;border:1px solid var(--line);
-   border-radius:var(--r-chip);background:var(--fill);font-size:var(--fs-s)}
- /* ⛔ Та же грабля, что строкой выше у .br-bar, и здесь она опаснее: без этого
-    правила блок моста висит в инспекторе ВСЕГДА — сервер отдаёт его hidden,
-    но display:flex сильнее UA-правила. До первого выбора у формы пустой
-    action, а после — action ПРЕЖНЕГО моста: выбрав зуб вне конструкции,
-    врач видел бы «Șterge puntea» и снёс бы не ту (08-23, увидено на кадре
-    детальной страницы). */
- .i-bridge[hidden]{display:none}
- .i-bridge form{margin:0}
  /* .br-arc на печать не идёт: скобка положена JS-ом в ЭКРАННЫХ пикселях, а
     печать перекладывает поток — скобка легла бы мимо зубов. Мосты на бумаге
     несёт 043/e (клетки Co/D + строка-acoladă), экранная скобка — дубль. */
