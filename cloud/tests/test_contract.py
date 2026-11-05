@@ -293,6 +293,19 @@ def suite(res: Result) -> None:
     res.ok("условия § 16.2: пакет SMS — теми же способами, что абонемент, без перечня дверей",
            "prin aceleași metode ca abonamentul" in s16 and "pe altă cale pusă la dispoziție de furnizor" in s16
            and "cu cardul, de pe pagina de plată DentPilot, sau prin transfer bancar" in s16)
+    # Дважды или по ошибке оплаченный пакет (слово Олега 05.11: «зачислять второй…, уже по просьбе вернем
+    # деньги»): сервер зачисляет оплаченную ноту сам, деньги возвращаются по просьбе клиники на условиях
+    # абонемента — пока SMS этого пакета не тронуты. Условие «не использованы» — про возврат, не про зачёт.
+    # Формулировка одна, в § 12.4: § 16 про возврат не говорит, только «остаток не сгорает».
+    s12 = flat_terms.split("<h2>12. ", 1)[1].split("<h2>13. ", 1)[0] if "<h2>12. " in flat_terms else ""
+    res.ok("условия § 12.4: пакет SMS — зачёт сразу, возврат по просьбе на условиях абонемента, если SMS не тронуты",
+           "Pachetele de SMS plătite nu se restituie, cu excepția unei plăți făcute din greșeală sau de două ori" in s12
+           and "pachetul astfel plătit se adaugă la soldul clinicii" in s12
+           and "plata lui se restituie la cererea clinicii, în aceleași condiții ca mai sus" in s12
+           and "dacă SMS-urile din acest pachet nu au fost folosite" in s12
+           and s12.count("în cel mult 14 zile de la cerere") == 2)
+    res.ok("условия: о возврате пакета говорит только § 12.4; § 16 — «остаток не сгорает», как и § 12.4",
+           "restitu" not in s16 and "SMS-urile rămase nu expiră" in s16 and "SMS-urile rămase nu expiră" in s12)
     # имя банка — как у самого банка на сайте (слово Олега 05.11): BC „MAIB” SA
     res.ok("условия § 4.3 и политика § 5: банк назван полным именем BC „MAIB” SA, одинаково",
            "BC „MAIB” SA" in s4 and "BC „MAIB” SA" in flat_privacy and "B.C." not in s4 + flat_privacy)
