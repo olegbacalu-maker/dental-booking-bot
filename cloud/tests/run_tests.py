@@ -37,6 +37,7 @@ import test_robots  # noqa: E402
 import test_routes  # noqa: E402
 import test_sms  # noqa: E402
 import test_sms_admin  # noqa: E402
+import test_sms_cabinet  # noqa: E402
 import test_sms_paper  # noqa: E402
 import test_sms_client  # noqa: E402
 import test_sms_rule  # noqa: E402
@@ -158,6 +159,11 @@ SUITES = [
     ("SMS-пакет: кабинет — заявка на имя, заполненное заявление, подписанное в базу, админка",
      test_sms_paper.suite_cabinet),
     ("SMS-пакет: кабинет без пакета — раздела SMS нет", test_sms_paper.suite_not_offered),
+    ("SMS-пакет из кабинета: слова ноты — письмо, реквизиты, страница возврата без «срока»; карточка пакетов",
+     test_sms_cabinet.suite_words),
+    ("SMS-пакет из кабинета: заказ, перевод и карта, одно зачисление, второй платёж, задача, отказы, филиал",
+     test_sms_cabinet.suite_cabinet),
+    ("SMS-пакет: страница оплаты — нота SMS первой и под своим заголовком", test_sms_cabinet.suite_plata),
     ("SMS-пакет: провод программы против этого сервера", test_sms_client.suite_client),
     ("Прод: копия базы, её проверка, учение по восстановлению", test_deploy.suite_backup),
     ("Прод: проверка окружения", test_deploy.suite_check),

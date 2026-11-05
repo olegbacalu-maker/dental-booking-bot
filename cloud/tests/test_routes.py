@@ -94,6 +94,7 @@ SNAPSHOT = [
     ("POST", "/cont/date", "cont_edit"),
     ("POST", "/cont/nota", "cont_note"),
     ("GET", "/cont/plati/{number}.pdf", "cont_receipt"),
+    ("POST", "/cont/sms/nota", "cont_sms_note"),
     ("POST", "/cont/sms/nume", "cont_sms_name"),
     ("POST", "/cont/sms/cerere.pdf", "cont_sms_form"),
     ("POST", "/cont/sms/cerere", "cont_sms_upload"),

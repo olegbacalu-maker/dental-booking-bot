@@ -214,41 +214,40 @@ def _sms_order(c, body: dict, ip: str) -> Response:
     имени (kind=sms_name). Одна открытая нота каждого вида на клинику; карта — при
     настроенном maib; письмо с нотой — на e-mail клиники. Цены — из cloud.env."""
     name = bool(body.get("name"))
+    units = 0
     if name:
         if not config.SMS_NAME_PRICE:
             return _sms_answer("sms_no_name")
-        units, amount = None, config.SMS_NAME_PRICE
+        if len(c["idno"] or "") != 13:
+            return _sms_answer("sms_need_idno")
     else:
-        if not config.SMS_PACKS:
-            return _sms_answer("sms_no_packs")
         try:
             units = int(body.get("pack"))
         except (TypeError, ValueError):
             units = 0
-        if units not in config.SMS_PACKS:
-            return _sms_answer("sms_pack", packs=sms.packs())
-        amount = config.SMS_PACKS[units]
-    if len(c["idno"] or "") != 13:
-        return _sms_answer("sms_need_idno")
     kind = payments.SMS_NAME if name else payments.SMS
     with db.connect(immediate=True) as con:
-        # выключенной клинике, без права по плану и на Basic (модуль погашен) не продаётся;
-        # без имени пополнение продаётся
-        acc = sms.ensure(con, c["id"])
-        why = sms.blocked(con, c["id"], acc, datetime.now(timezone.utc))
-        if why in ("sms_unconfigured", "sms_not_offered", "sms_off", "sms_plan", "sms_basic"):
-            return _sms_answer(why)
         if name:
+            # выключенной клинике, без права по плану и на Basic (модуль погашен) не продаётся
+            acc = sms.ensure(con, c["id"])
+            why = sms.blocked(con, c["id"], acc, datetime.now(timezone.utc))
+            if why in web.SMS_CLOSED:
+                return _sms_answer(why)
             # имя общее на кабинет (26.10): нота за год имени — главной клинике, на её ящик
             c = web.clinic(con, sms.name_owner(con, c["id"]))
             acc = sms.ensure(con, c["id"])
-        if name and acc["sender_state"] not in (sms.S_REQUESTED, sms.S_SUBMITTED, sms.S_ACTIVE):
-            return _sms_answer("sms_name_none")
-        p = payments.open_of(con, c["id"], kind)
-        created = p is None
-        if created:
-            p = (payments.create_name(con, c, amount, "program") if name
-                 else payments.create_pack(con, c, units, amount, "program"))
+            if acc["sender_state"] not in (sms.S_REQUESTED, sms.S_SUBMITTED, sms.S_ACTIVE):
+                return _sms_answer("sms_name_none")
+            p = payments.open_of(con, c["id"], kind)
+            created = p is None
+            if created:
+                p = payments.create_name(con, c, config.SMS_NAME_PRICE, "program")
+        else:
+            # пакет — та же логика, что у кабинета (web.sms_pack_note): пакет из прайса, IDNO,
+            # кому не продаётся, одна открытая нота
+            code, p, created = web.sms_pack_note(con, c, units, "program")
+            if code:
+                return _sms_answer(code, **({"packs": sms.packs()} if code == "sms_pack" else {}))
         # Карта — на нашей странице оплаты, кнопкой после галочки условий (23.10): ссылка maib
         # живёт минуты (maib.PAY_TTL) и рождается по клику (payments.card_link), поэтому ни программе, ни
         # письму её не даём. Программа (2.0.9) показывает `pay_url` ссылкой «Plătește cu cardul».

@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Form, Request
 from fastapi.concurrency import run_in_threadpool
@@ -99,6 +99,14 @@ def _cont_dashboard(request: Request, msg: str, c: str, tab: str = "") -> Respon
         q = f"?c={cl['id']}" if len(mine) > 1 else ""
         sa = con.execute("SELECT * FROM sms_accounts WHERE clinic_id=?", (cl["id"],)).fetchone()
         smsinfo = None
+        # пакеты SMS (05.11) — у СВОЕЙ клиники, и у филиала из кнопки программы тоже: остаток,
+        # прайс, кому не продаётся (те же коды, что программе — web.SMS_CLOSED). Только чтение:
+        # счёт не заводится просмотром
+        smsshop = None
+        if sms.offered(sa):
+            why = sms.blocked(con, cl["id"], sa, datetime.now(timezone.utc))
+            smsshop = {"balance": sms.balance(con, cl["id"]), "packs": sms.packs(),
+                       "closed": why if why in web.SMS_CLOSED else ""}
         # вход кнопкой программы (27.10): одна клиника; в кабинете ли она с другими — только для
         # текста о коде компьютера, без их имён
         scoped = account.scoped(acc)
@@ -120,7 +128,8 @@ def _cont_dashboard(request: Request, msg: str, c: str, tab: str = "") -> Respon
         modele_sms = modele.sms_on(sa)
     # последний выпуск — из памяти или одним запросом к API; вне транзакции
     return HTMLResponse(views.cont_page(acc, cl, sub, issue, pays, download.latest(), msg, devices=devices,
-                                        smsinfo=smsinfo, cab=cab, group=group, scoped=scoped, branch=branch,
+                                        smsinfo=smsinfo, smsshop=smsshop, cab=cab, group=group, scoped=scoped,
+                                        branch=branch,
                                         docs=contracts.statuses(), docs_mine=docs_mine, docs_fragment=docs_fragment,
                                         tab=tab, modele_sms=modele_sms))
 
@@ -463,6 +472,56 @@ def cont_receipt(request: Request, number: str) -> Response:
         return Response(status_code=404)
     return web.pdf(row)
 
+
+# ---------- кабинет › SMS: пакеты и оплата нот SMS (05.11) ----------
+#
+# Слово Олега 05.11: «в админке клиники во вкладке SMS добавить и там эти пакеты» — покупка пакета
+# из кабинета, вторая дверь рядом с программой (Setări › SMS, она остаётся). Логика заказа одна
+# (web.sms_pack_note), путь денег — тот же, что у абонемента (payments, maib, receipts): своего
+# провода нет. Остаток и пакет — у СВОЕЙ клиники (у филиала свои); имя отправителя — у главной.
+
+
+@router.post("/cont/sms/nota")
+def cont_sms_note(request: Request, pack: str = Form(""), ref: str = Form(""),
+                  method: str = Form(payments.TRANSFER), terms: str = Form(""), c: str = "") -> Response:
+    """Нота SMS из кабинета. `pack` — заказ пакета: нота (или уже открытая — у клиники она одна),
+    письмо с ней; картой — сразу на страницу банка. `ref` — карта к ОЖИДАЮЩЕЙ ноте SMS этой
+    клиники (пакет, год имени), как на странице оплаты. ⛔ Без галочки условий — нет (требование
+    maib); цена — из прайса сервера, не из формы. Письмо с нотой — после commit, maib — вне
+    транзакции (`web.card_go`)."""
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    card = method == payments.CARD and maib.enabled()
+    plan = None
+    with payments.outbox() as box, db.connect(immediate=True) as con:
+        acc, cl = _cont_clinic(request, con, c)
+        if cl is None:
+            return _cont_deny(acc)
+        if terms != "1":
+            return RedirectResponse(_cont_to(con, acc, cl["id"], "need_terms"), status_code=303)
+        if ref:
+            note = con.execute("SELECT * FROM payments WHERE reference=? AND clinic_id=? AND status=? AND kind IN (?,?)",
+                               (ref, cl["id"], payments.PENDING, payments.SMS, payments.SMS_NAME)).fetchone()
+            if note is None:
+                return RedirectResponse(_cont_to(con, acc, cl["id"], "note_gone"), status_code=303)
+            if not card:
+                return RedirectResponse(_cont_to(con, acc, cl["id"], "no_card"), status_code=303)
+            said = ""
+        else:
+            code, note, created = web.sms_pack_note(con, cl, web.months(pack), acc["email"], terms=True)
+            if code:
+                return RedirectResponse(_cont_to(con, acc, cl["id"], code), status_code=303)
+            if created:
+                # новая нота — письмом и при карте: не дойдёт клиника до оплаты — реквизиты у неё есть
+                box.add([(True, web.sms_note_letter(con, cl, note, acc["email"]))])
+            said = "sms_note_created" if created else "sms_note_exists"
+        payments.mark_terms(con, note)
+        if card:
+            plan = payments.card_plan(con, note, cl, web.ip(request))
+        back = _cont_to(con, acc, cl["id"], "" if card else said)
+    if plan is not None:
+        return web.card_go(plan, acc["email"], back, paid="sms_card_paid")
+    return RedirectResponse(back, status_code=303)
 
 
 # ---------- кабинет › SMS: имя отправителя и заявление (17.10, sms_paper.py) ----------

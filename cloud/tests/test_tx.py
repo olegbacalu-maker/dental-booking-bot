@@ -145,10 +145,11 @@ SEND_BASE = {"mail.send", "mail.deliver"}
 # Где письма собираются в транзакции и уходят через outbox — 7 мест оплаты решения Р4:
 # callback, возврат браузера, ежедневная задача, «Проверить» (_settle_now), «Подтвердить»,
 # «Зачесть повторный», кнопка карты (_card_go); и письмо с нотой (шаг 4): страница оплаты,
-# кабинет, общая нота, «Выставить ноту», «Ссылка на карту», «Письмо» из админки.
+# кабинет, общая нота, «Выставить ноту», «Ссылка на карту», «Письмо» из админки; нота SMS из
+# кабинета (05.11, cont_sms_note).
 # Список ВКЛЮЧАЕТ требование — переименуют, и «найдены» покраснеет, а не позеленеет тихо.
 OUTBOX_HOLDERS = {"_maib_callback", "_returned", "settle_cards", "payment_check", "payment_confirm",
-                  "payment_repeat", "card_go", "pay_link_submit", "cont_note", "_group_submit",
+                  "payment_repeat", "card_go", "pay_link_submit", "cont_note", "cont_sms_note", "_group_submit",
                   "payment_new", "payment_link", "payment_mail"}
 
 # Отправка внутри транзакции, оставленная НАМЕРЕННО: не письмо об оплате (решение Олега Р4 —

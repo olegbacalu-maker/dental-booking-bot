@@ -182,18 +182,28 @@ def choose(con: sqlite3.Connection, clinic: sqlite3.Row, tier: str, months: int,
     return p, (REPLACED if old is not None else CREATED)
 
 
-def create_pack(con: sqlite3.Connection, clinic: sqlite3.Row, units: int, amount: int, who: str) -> sqlite3.Row:
+def create_pack(con: sqlite3.Connection, clinic: sqlite3.Row, units: int, amount: int, who: str,
+                terms: bool = False) -> sqlite3.Row:
     """Нота за пакет SMS (kind=sms): тот же reference, тот же путь оплаты; при
-    подтверждении начисляется пакет, а не срок (confirm)."""
+    подтверждении начисляется пакет, а не срок (confirm). `terms` — клиника отметила условия,
+    заказывая пакет (кабинет): время ложится в terms_at; программа заказывает без галочки."""
     if units <= 0 or amount <= 0:
         raise ValueError("amount")
     ref = next_reference(con, datetime.now(timezone.utc))
     con.execute("""INSERT INTO payments(clinic_id, amount, currency, method, status, reference, months, kind,
-                                        sms_units, created_at)
-                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                (clinic["id"], amount, "MDL", TRANSFER, PENDING, ref, 0, SMS, units, db.now_iso()))
-    db.audit(con, who, "payment_new", clinic["id"], f"{ref}: {amount} MDL за пакет {units} SMS, перевод")
+                                        sms_units, terms_at, created_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (clinic["id"], amount, "MDL", TRANSFER, PENDING, ref, 0, SMS, units,
+                 db.now_iso() if terms else None, db.now_iso()))
+    db.audit(con, who, "payment_new", clinic["id"], f"{ref}: {amount} MDL за пакет {units} SMS, перевод"
+             + (", условия приняты" if terms else ""))
     return con.execute("SELECT * FROM payments WHERE reference=?", (ref,)).fetchone()
+
+
+def mark_terms(con: sqlite3.Connection, payment: sqlite3.Row) -> None:
+    """Клиника отметила условия перед оплатой УЖЕ выставленной ноты (карта по `ref`: нота SMS из
+    программы, общая нота): время — в terms_at, один раз; отмеченное раньше не переписывается."""
+    con.execute("UPDATE payments SET terms_at=? WHERE id=? AND terms_at IS NULL", (db.now_iso(), payment["id"]))
 
 
 def create_name(con: sqlite3.Connection, clinic: sqlite3.Row, amount: int, who: str) -> sqlite3.Row:

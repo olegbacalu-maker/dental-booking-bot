@@ -55,7 +55,7 @@ def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method:
     m = web.months(months)
     idno = "".join(idno.split())
     card = method == payments.CARD and maib.enabled()
-    plan = None
+    plan, paid = None, "card_paid"
     with payments.outbox() as box, db.connect(immediate=True) as con:
         c = paylink.lookup(con, pid)
         if c is None:
@@ -77,6 +77,8 @@ def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method:
                 return RedirectResponse(f"{back}?msg=note_gone", status_code=303)
             if not card:
                 return RedirectResponse(f"{back}?msg=no_card", status_code=303)
+            if note["kind"] in (payments.SMS, payments.SMS_NAME):
+                paid = "sms_card_paid"             # у ноты SMS срока нет — свои слова «уже оплачено»
             plan = payments.card_plan(con, note, c, ip)
         else:
             if idno and idno != (c["idno"] or ""):
@@ -105,7 +107,7 @@ def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method:
             if card:
                 plan = payments.card_plan(con, p, c, ip)
     if plan is not None:
-        return web.card_go(plan, "program", back)
+        return web.card_go(plan, "program", back, paid=paid)
     code = {payments.CREATED: "note_created", payments.REPLACED: "note_replaced"}.get(outcome, "note_exists")
     return RedirectResponse(f"{back}?msg={code}", status_code=303)
 

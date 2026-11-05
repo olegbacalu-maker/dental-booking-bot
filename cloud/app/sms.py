@@ -282,16 +282,17 @@ def plan_ok(sub: sqlite3.Row | None, now: datetime) -> bool:
     return st in ("active", "grace") or (st == "readonly" and config.SMS_READONLY)
 
 
-def blocked(con: sqlite3.Connection, clinic_id: str, acc: sqlite3.Row, now: datetime) -> str:
+def blocked(con: sqlite3.Connection, clinic_id: str, acc: sqlite3.Row | None, now: datetime) -> str:
     """Почему клиника не может слать сейчас ('' — может). Остаток и потолок — отдельно.
     Порядок — от того, что клиника не изменит, к тому, что изменит оплатой: ручное
     выключение Олега (sms_off) говорится раньше варианта Basic (sms_basic) — оплата Plus
-    его не сняла бы. Остаток при выключенном модуле не трогается (условия § 16.10)."""
+    его не сняла бы. Остаток при выключенном модуле не трогается (условия § 16.10).
+    `acc` — None, пока счёт не заведён (кабинет читает, не заводя): новый счёт включён."""
     if not smsmd.enabled():
         return "sms_unconfigured"
     if not offered(acc):
         return "sms_not_offered"
-    if not acc["enabled"]:
+    if acc is not None and not acc["enabled"]:
         return "sms_off"
     sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (clinic_id,)).fetchone()
     if not plan_ok(sub, now):

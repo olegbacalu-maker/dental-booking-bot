@@ -129,8 +129,26 @@ def bank_lines(reference: str, amount: int) -> str:
 
 
 _REFERENCE_NOTE = ("Important: indicați neapărat referința {reference} în destinația plății — după ea "
-                   "recunoaștem plata dumneavoastră. După confirmare termenul se prelungește automat în "
-                   "program; primiți confirmarea pe e-mail.")
+                   "recunoaștem plata dumneavoastră. După confirmare {after}")
+# Что происходит после оплаты — по виду ноты (05.11). У абонемента продлевается срок; у ноты SMS
+# (пакет, год имени — payments.SMS / SMS_NAME) срока нет, и «termenul se prelungește» в её письме,
+# блоке реквизитов и на странице возврата было неправдой. AFTER_* — концовки абонемента, они же
+# умолчание: письмо ноты абонемента от параметра не меняется ни на байт (держит
+# tests/test_sms_cabinet.py). SMS_DONE — что происходит у ноты SMS, одной фразой на письмо и страницы.
+AFTER_CARD = "noul termen ajunge singur în program în câteva minute, iar confirmarea — pe e-mail."
+AFTER_TRANSFER = "termenul se prelungește automat în program; primiți confirmarea pe e-mail."
+SMS_DONE = {"sms": "SMS-urile se adaugă automat în contul clinicii",
+            "sms_name": "plata numelui de expeditor se înregistrează automat"}
+
+
+def after_paid(kind: str = "license") -> tuple[str, str]:
+    """Концовки двух фраз способов оплаты — (после оплаты картой, после подтверждения перевода)."""
+    if kind in SMS_DONE:
+        return (f"{SMS_DONE[kind]} în câteva minute, iar confirmarea vine pe e-mail.",
+                f"{SMS_DONE[kind]}; primiți confirmarea pe e-mail.")
+    return AFTER_CARD, AFTER_TRANSFER
+
+
 # Карта — на НАШЕЙ странице оплаты (23.10): ссылка maib живёт минуты (maib.PAY_TTL) и
 # рождается по кнопке после галочки условий (требование maib), поэтому в письме её нет.
 # Способы оплаты на странице банка — ОДНА фраза на письмо и страницу оплаты (views._card_hint),
@@ -141,25 +159,27 @@ CARD_SAFE = "Datele cardului nu ajung la DentPilot."
 CARD_NOTE = "Plata cu cardul — pe pagina de plată DentPilot (bifați Termenii și condițiile, apoi „Plătește cu cardul”):"
 
 
-def card_lines(pay_url: str, amount: int) -> str:
+def card_lines(pay_url: str, amount: int, after: str = AFTER_CARD) -> str:
     """Карта (L12): `pay_url` — страница оплаты клиники (paylink.for_mail), не ссылка maib.
-    После оплаты картой программа продлевается сама."""
+    `after` — что будет после оплаты картой: у абонемента программа продлевается сама
+    (умолчание), у ноты SMS — своё (`after_paid`)."""
     return (f"{CARD_NOTE}\n  {pay_url}\n  Suma: {amount} MDL\n"
             f"  Plata se face pe pagina securizată a băncii maib: {CARD_WAYS}. {CARD_SAFE}\n"
-            f"  După plata cu cardul nu trebuie să faceți nimic: noul termen ajunge singur în program "
-            f"în câteva minute, iar confirmarea — pe e-mail.\n")
+            f"  După plata cu cardul nu trebuie să faceți nimic: {after}\n")
 
 
-def ways_to_pay(reference: str, amount: int, pay_url: str | None) -> str:
+def ways_to_pay(reference: str, amount: int, pay_url: str | None, kind: str = "license") -> str:
     """Способы оплаты по порядку: карта (если есть страница оплаты с картой), перевод (если
-    есть реквизиты). Ни того ни другого — RuntimeError, как у bank_lines."""
+    есть реквизиты). Ни того ни другого — RuntimeError, как у bank_lines. `kind` — вид ноты:
+    способы одни на все виды, от вида зависит только, что будет после оплаты (`after_paid`)."""
+    after_card, after_transfer = after_paid(kind)
     parts = []
     if pay_url:
-        parts.append(card_lines(pay_url, amount))
+        parts.append(card_lines(pay_url, amount, after_card))
     try:
         lines = bank_lines(reference, amount)
         parts.append(("Sau prin transfer bancar:\n" if pay_url else "") + lines
-                     + "\n" + _REFERENCE_NOTE.format(reference=reference))
+                     + "\n" + _REFERENCE_NOTE.format(reference=reference, after=after_transfer))
     except RuntimeError:
         if not parts:
             raise
@@ -201,7 +221,7 @@ def payment_letter(clinic: str, reference: str, amount: int, months: int,
 def sms_pack_note_letter(clinic: str, reference: str, amount: int, units: int,
                          pay_url: str | None = None) -> tuple[str, str]:
     """Нота за пакет SMS (S3): та же форма, что у абонемента, другой предмет."""
-    ways = ways_to_pay(reference, amount, pay_url)
+    ways = ways_to_pay(reference, amount, pay_url, kind="sms")
     subject = f"DentPilot: nota de plată {reference} — pachet {units} SMS pentru {clinic}"
     body = (f"Bună ziua,\n\n"
             f"Pentru pachetul de {units} SMS (DentPilot, {clinic}) vă rugăm să achitați {amount} MDL:\n\n"
@@ -214,7 +234,7 @@ def sms_pack_note_letter(clinic: str, reference: str, amount: int, units: int,
 def sms_name_note_letter(clinic: str, reference: str, amount: int, name: str,
                          pay_url: str | None = None) -> tuple[str, str]:
     """Нота за год своего имени отправителя (Олег 16.10: платно, годом)."""
-    ways = ways_to_pay(reference, amount, pay_url)
+    ways = ways_to_pay(reference, amount, pay_url, kind="sms_name")
     subject = f"DentPilot: nota de plată {reference} — numele de expeditor «{name}» pentru {clinic}"
     body = (f"Bună ziua,\n\n"
             f"Pentru numele propriu de expeditor «{name}» (un an, DentPilot, {clinic}) vă rugăm să "

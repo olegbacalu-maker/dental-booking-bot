@@ -6,11 +6,12 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 
 from fastapi import Request
 from fastapi.responses import RedirectResponse, Response
 
-from . import auth, db, maib, mail, payments, paylink, receipts, sms
+from . import auth, config, db, maib, mail, payments, paylink, receipts, sms
 
 log = logging.getLogger("cloud")
 
@@ -22,12 +23,12 @@ def months(raw: str) -> int:
         return 0
 
 
-def card_go(plan: payments.Card, who: str, back: str, gone: str = "note_gone") -> Response:
+def card_go(plan: payments.Card, who: str, back: str, gone: str = "note_gone", paid: str = "card_paid") -> Response:
     """Клик «Plătește cu cardul», шаги 2–3 (нота и снимок `plan` уже закоммичены вызывающим):
     maib — вне транзакции (payments.card_ask), запись ответа — короткой под замком записи
-    (payments.card_record). → браузер на страницу maib или назад: card_paid (maib сказал
-    «оплачено» — письмо об оплате после commit; или нота уже оплачена картой), `gone` (нота
-    закрылась иначе, пока maib думал), maib_failed."""
+    (payments.card_record). → браузер на страницу maib или назад: `paid` (maib сказал
+    «оплачено» — письмо об оплате после commit; или нота уже оплачена картой; у ноты SMS свой
+    код — её слова не про срок), `gone` (нота закрылась иначе, пока maib думал), maib_failed."""
     payments.card_ask(plan)
     with payments.outbox() as box, db.connect(immediate=True) as con:
         outcome, url, p = payments.card_record(con, plan, who)
@@ -39,7 +40,7 @@ def card_go(plan: payments.Card, who: str, back: str, gone: str = "note_gone") -
         log.warning("ссылка maib для %s не создана: %s", plan.reference, url)
         code = "maib_failed"
     elif outcome == payments.SETTLED_PAID or (p["status"] == payments.PAID and p["paid_via"] == payments.CARD):
-        code = "card_paid"
+        code = paid
     else:
         code = gone
     return RedirectResponse(f"{back}{'&' if '?' in back else '?'}msg={code}", status_code=303)
@@ -96,6 +97,54 @@ def payment_letter(con, c, p, who: str) -> mail.Letter | str:
 
 def payment(con, pid: int):
     return con.execute("SELECT * FROM payments WHERE id=?", (pid,)).fetchone()
+
+
+# Кому пакет SMS не продаётся (sms.blocked): выключенной клинике, без права по плану и на Basic
+# (модуль погашен). Без одобренного имени пополнение продаётся — SMS уходят от общего имени.
+SMS_CLOSED = ("sms_unconfigured", "sms_not_offered", "sms_off", "sms_plan", "sms_basic")
+
+
+def sms_pack_note(con, c, units: int, who: str, terms: bool = False) -> tuple[str, object, bool]:
+    """Нота за пакет SMS — ОДНА логика на две двери: программа (`/v1/sms/order`) и кабинет
+    (`/cont/sms/nota`). → (код отказа sms.CODES или '', нота, создана ли сейчас). Пакет — только из
+    `config.SMS_PACKS` (цена оттуда же, не из формы); IDNO обязателен; открытая нота вида `sms` у
+    клиники одна — есть, вернётся она. В транзакции записи вызывающего (`immediate=True`)."""
+    if not config.SMS_PACKS:
+        return "sms_no_packs", None, False
+    if units not in config.SMS_PACKS:
+        return "sms_pack", None, False
+    if len(c["idno"] or "") != 13:
+        return "sms_need_idno", None, False
+    acc = sms.ensure(con, c["id"])
+    why = sms.blocked(con, c["id"], acc, datetime.now(timezone.utc))
+    if why in SMS_CLOSED:
+        return why, None, False
+    p = payments.open_of(con, c["id"], payments.SMS)
+    if p is not None:
+        return "", p, False
+    return "", payments.create_pack(con, c, units, config.SMS_PACKS[units], who, terms=terms), True
+
+
+def sms_note_letter(con, c, p, who: str) -> mail.Letter | str:
+    """Письмо с нотой SMS (пакет, год имени) — СОБРАТЬ в транзакции (paylink.for_mail заводит
+    ссылку страницы оплаты), отправить после её commit (`payments.outbox`), как письмо с нотой
+    абонемента. Карта — строкой со страницей оплаты, когда maib настроен. Код отказа: bad_email,
+    no_bank."""
+    if not c["email"]:
+        return "bad_email"
+    page = paylink.for_mail(con, c, who) if maib.enabled() else None
+    try:
+        if p["kind"] == payments.SMS_NAME:
+            acc = sms.account(con, c["id"])
+            subject, body = mail.sms_name_note_letter(c["name"], p["reference"], int(p["amount"]),
+                                                      acc["sender"] if acc is not None else "", page)
+        else:
+            subject, body = mail.sms_pack_note_letter(c["name"], p["reference"], int(p["amount"]),
+                                                      int(p["sms_units"]), page)
+    except RuntimeError:
+        return "no_bank"
+    return mail.Letter(c["email"], subject, body, c["id"], who, f"нота {p['kind']} {p['reference']}",
+                       f"письмо с нотой SMS {p['reference']}")
 
 
 def pdf(row) -> Response:
