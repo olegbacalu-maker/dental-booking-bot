@@ -410,29 +410,33 @@ def _refund(con, row, who: str, why: str) -> None:
     ledger(con, row["clinic_id"], int(row["segments"]), "refund", who, message_id=row["id"], note=why)
 
 
-def _accepted(con, row, pid: str, segments: int, who: str) -> None:
-    """sms.md принял: id запоминается; его число сегментов истинно — расхождение = строка fix."""
+def _accepted(con, row, pid: str, segments: int, who: str, box) -> None:
+    """sms.md принял: id запоминается; его число сегментов истинно — расхождение = строка fix.
+    `box` — payments.outbox вызывающего: тревога Олегу уходит после commit его транзакции."""
     _set(con, row["id"], provider_id=pid, state=QUEUED, error="")
     if segments and segments != int(row["segments"]):
-        _fix_segments(con, row, segments, who)
+        _fix_segments(con, row, segments, who, box)
 
 
-def _fix_segments(con, row, segments: int, who: str) -> None:
+def _fix_segments(con, row, segments: int, who: str, box) -> None:
     ours = int(row["segments"])
     ledger(con, row["clinic_id"], ours - segments, "fix", who, message_id=row["id"],
            note=f"sms.md насчитал {segments} сегм., сервер {ours}")
     _set(con, row["id"], segments=segments, state_at=row["state_at"])
     log.warning("сегменты разошлись: сообщение %s — sms.md %s, сервер %s", row["id"], segments, ours)
-    alarm(con, "sms_segments", "DentPilot Cloud: правило сегментов разошлось с sms.md",
-          f"Сообщение {row['id']} клиники {row['clinic_id']}: sms.md насчитал {segments} сегм., "
-          f"сервер — {ours}. Списано по счёту sms.md (строка fix в журнале). Сверить "
-          f"cloud/app/sms_rule.py и bot/app/core/sms_rule.py с правилом sms.md (S2).")
+    box.add(alarm_letter(
+        con, "sms_segments", "DentPilot Cloud: правило сегментов разошлось с sms.md",
+        f"Сообщение {row['id']} клиники {row['clinic_id']}: sms.md насчитал {segments} сегм., "
+        f"сервер — {ours}. Списано по счёту sms.md (строка fix в журнале). Сверить "
+        f"cloud/app/sms_rule.py и bot/app/core/sms_rule.py с правилом sms.md (S2)."))
 
 
 def submit(clinic_id: str, to_raw, text, kind, idem, now: datetime | None = None,
            who: str = "program") -> tuple[int, dict]:
     """POST /v1/sms/send → (HTTP, тело). Сеть — вне транзакций: строка и списание
-    коммитятся ДО вызова sms.md, итог — после."""
+    коммитятся ДО вызова sms.md, итог — после; тревога Олегу (сегменты разошлись, sms.md
+    отказывает) собирается в транзакции итога и уходит после её commit (payments.outbox)."""
+    from . import payments   # payments импортирует sms на уровне модуля — здесь, не вверху
     now = now or datetime.now(UTC)
     to, why = sms_rule.phone(to_raw if isinstance(to_raw, str) else "")
     if why:
@@ -489,7 +493,7 @@ def submit(clinic_id: str, to_raw, text, kind, idem, now: datetime | None = None
         except (smsmd.Unanswered, smsmd.Refused) as e:
             log.warning("поиск сообщения %s у sms.md не удался: %s", mid, e)
             return answer("sms_retry", id=mid)
-        with db.connect(immediate=True) as con:
+        with payments.outbox() as box, db.connect(immediate=True) as con:
             row = con.execute("SELECT * FROM sms_messages WHERE id=?", (mid,)).fetchone()
             if row["provider_id"]:
                 return _ok(con, row)
@@ -497,7 +501,7 @@ def submit(clinic_id: str, to_raw, text, kind, idem, now: datetime | None = None
                 # тот же текст и ещё ничей: другое напоминание тому же пациенту — не наше
                 if body == text and not con.execute("SELECT 1 FROM sms_messages WHERE provider_id=?",
                                                     (pid,)).fetchone():
-                    _accepted(con, row, pid, 0, who)
+                    _accepted(con, row, pid, 0, who, box)
                     log.info("сообщение %s найдено у sms.md после молчания", mid)
                     return _ok(con, _row(con, clinic_id, idem))
     try:
@@ -511,20 +515,21 @@ def submit(clinic_id: str, to_raw, text, kind, idem, now: datetime | None = None
         log.warning("sms.md отказал в сообщении %s: %s", mid, e)
         temporary = e.http in (401, 402, 403, 429)
         error = e.code + ((":" + ",".join(e.fields)) if e.fields else "")
-        with db.connect(immediate=True) as con:
+        with payments.outbox() as box, db.connect(immediate=True) as con:
             row = con.execute("SELECT * FROM sms_messages WHERE id=?", (mid,)).fetchone()
             _set(con, mid, state=RETRY if temporary else REFUSED, error=error[:80])
             _refund(con, row, who, f"sms.md: {error}"[:200])
             if e.http in (401, 402, 403):
-                alarm(con, "sms_smsmd_" + str(e.http), f"DentPilot Cloud: sms.md отказывает ({e.code})",
-                      f"sms.md ответил {e.http} {e.code} на отправку: "
-                      + ("на нашем счёте sms.md нет денег — пополнить депозит."
-                         if e.http == 402 else "токен DP_SMSMD_TOKEN не принят или без прав messages:send.")
-                      + " SMS клиник не уходят, пакеты возвращаются; программа повторит сама.")
+                box.add(alarm_letter(
+                    con, "sms_smsmd_" + str(e.http), f"DentPilot Cloud: sms.md отказывает ({e.code})",
+                    f"sms.md ответил {e.http} {e.code} на отправку: "
+                    + ("на нашем счёте sms.md нет денег — пополнить депозит."
+                       if e.http == 402 else "токен DP_SMSMD_TOKEN не принят или без прав messages:send.")
+                    + " SMS клиник не уходят, пакеты возвращаются; программа повторит сама."))
         return answer("sms_retry" if temporary else "sms_refused", id=mid, error=error)
-    with db.connect(immediate=True) as con:
+    with payments.outbox() as box, db.connect(immediate=True) as con:
         row = con.execute("SELECT * FROM sms_messages WHERE id=?", (mid,)).fetchone()
-        _accepted(con, row, got["id"], got["segments"], who)
+        _accepted(con, row, got["id"], got["segments"], who, box)
         return _ok(con, con.execute("SELECT * FROM sms_messages WHERE id=?", (mid,)).fetchone())
 
 
@@ -547,15 +552,16 @@ def states(con: sqlite3.Connection, clinic_id: str, ids) -> list[dict]:
 # ---------- статусы: уведомление и опрос ----------
 
 
-def apply(con: sqlite3.Connection, row: sqlite3.Row, status: int, segments: int, who: str) -> str:
+def apply(con: sqlite3.Connection, row: sqlite3.Row, status: int, segments: int, who: str, box) -> str:
     """Истина от sms.md (GET /messages/{id}) → состояние строки. Конечное не трогается;
-    переход в 10/11 возвращает сегменты один раз (из конечного обратно не выходят)."""
+    переход в 10/11 возвращает сегменты один раз (из конечного обратно не выходят).
+    `box` — payments.outbox вызывающего (тревога о сегментах — после commit)."""
     _set(con, row["id"], checked_at=db.now_iso(), state_at=row["state_at"])
     if row["state"] in FINAL:
         return row["state"]
     new = BY_STATUS.get(status)
     if segments and segments != int(row["segments"]):
-        _fix_segments(con, row, segments, who)
+        _fix_segments(con, row, segments, who, box)
         row = con.execute("SELECT * FROM sms_messages WHERE id=?", (row["id"],)).fetchone()
     if new is None or new == row["state"]:
         return row["state"]
@@ -580,14 +586,16 @@ def recheck(pid: str, status_hint: int | None = None, who: str = "smsmd") -> str
     except (smsmd.Unanswered, smsmd.Refused) as e:
         log.warning("статус сообщения %s не получен: %s", row["id"], e)
         return row["state"]
-    with db.connect(immediate=True) as con:
+    from . import payments   # payments импортирует sms на уровне модуля — здесь, не вверху
+    with payments.outbox() as box, db.connect(immediate=True) as con:
         fresh = con.execute("SELECT * FROM sms_messages WHERE id=?", (row["id"],)).fetchone()
-        return apply(con, fresh, truth["status"], truth["segments"], who)
+        return apply(con, fresh, truth["status"], truth["segments"], who, box)
 
 
 def poll(now: datetime | None = None, who: str = "daily") -> dict:
     """Опрос всех, у кого нет конечного состояния: через час после отправки и раз в
     час до 26 ч. Уведомление только ускоряет — истина приходит и без него."""
+    from . import payments   # payments импортирует sms на уровне модуля — здесь, не вверху
     now = now or datetime.now(UTC)
     out = {"checked": 0, "failed": 0}
     if not smsmd.enabled():
@@ -606,9 +614,9 @@ def poll(now: datetime | None = None, who: str = "daily") -> dict:
             log.warning("опрос сообщения %s: %s", r["id"], e)
             out["failed"] += 1
             continue
-        with db.connect(immediate=True) as con:
+        with payments.outbox() as box, db.connect(immediate=True) as con:
             fresh = con.execute("SELECT * FROM sms_messages WHERE id=?", (r["id"],)).fetchone()
-            apply(con, fresh, truth["status"], truth["segments"], who)
+            apply(con, fresh, truth["status"], truth["segments"], who, box)
         out["checked"] += 1
     return out
 
@@ -850,20 +858,18 @@ def letter_pack(con: sqlite3.Connection, clinic: sqlite3.Row, payment: sqlite3.R
 ALARM_TO = "_sms"       # строка reminders для писем Олегу: раз в сутки на вид
 
 
-def alarm(con: sqlite3.Connection, kind: str, subject: str, body: str) -> bool:
-    """Письмо Олегу (ящик уведомлений, DP_TRIAL_NOTIFY) — не чаще раза в сутки на вид."""
+def alarm_letter(con: sqlite3.Connection, kind: str, subject: str, body: str) -> list:
+    """Письмо Олегу (ящик уведомлений, DP_TRIAL_NOTIFY) — не чаще раза в сутки на вид: СОБРАТЬ в
+    транзакции (отметка за сегодня уже есть — пусто), отправить после её commit (06.11): SMTP
+    внутри транзакции шёл под замком записи. Отметку `reminders` пишет mail.deliver после удачной
+    отправки; строки журнала у тревоги нет. → список для `box.add` (payments.outbox): пуст или
+    одно письмо."""
     day = datetime.now(UTC).strftime("%Y-%m-%d")
     if con.execute("SELECT 1 FROM reminders WHERE subscription_id=? AND kind=? AND period=?",
                    (ALARM_TO, kind, day)).fetchone():
-        return False
-    try:
-        mail.send(config.TRIAL_NOTIFY, subject, body)
-    except (RuntimeError, OSError) as e:
-        log.error("тревога %s не отправлена: %r", kind, e)
-        return False
-    con.execute("INSERT INTO reminders(subscription_id, kind, period, sent_at) VALUES(?,?,?,?)",
-                (ALARM_TO, kind, day, db.now_iso()))
-    return True
+        return []
+    return [(False, mail.Letter(config.TRIAL_NOTIFY, subject, body, "", "", "", f"тревога {kind}: письмо",
+                                code="", remind=(ALARM_TO, kind, day)))]
 
 
 def low_letters(send=None, who: str = "daily") -> list[str]:
@@ -888,15 +894,11 @@ def low_letters(send=None, who: str = "daily") -> list[str]:
             if con.execute("SELECT 1 FROM reminders WHERE subscription_id=? AND kind='sms_low' AND period=?",
                            (r["id"], str(r["pack"]))).fetchone():
                 continue
-            subject, body = mail.sms_low_letter(r["name"], max(0, r["bal"]))
-            try:
-                where = send(r["email"], subject, body)
-            except (RuntimeError, OSError) as e:
-                log.error("письмо об остатке SMS клинике %s не отправлено: %r", r["id"], e)
-                continue
-            con.execute("INSERT INTO reminders(subscription_id, kind, period, sent_at) VALUES(?,?,?,?)",
-                        (r["id"], "sms_low", str(r["pack"]), db.now_iso()))
-            db.audit(con, who, "mail", r["id"], f"остаток SMS {r['bal']} на {r['email']} ({where})")
+        # письмо — вне транзакции (06.11); отметка и строка журнала — после удачной отправки
+        subject, body = mail.sms_low_letter(r["name"], max(0, r["bal"]))
+        letter = mail.Letter(r["email"], subject, body, r["id"], who, f"остаток SMS {r['bal']}",
+                             f"письмо об остатке SMS клинике {r['id']}", remind=(r["id"], "sms_low", str(r["pack"])))
+        if not mail.deliver(letter, via=send):
             sent.append(r["id"])
     return sent
 
@@ -937,11 +939,13 @@ def float_check(now: datetime | None = None) -> dict:
     need = max(out["owed"], out["week"]) * cost
     if have is not None and have < need:
         with db.connect() as con:
-            out["alarm"] = alarm(con, "sms_float", "DentPilot Cloud: на счёте sms.md меньше, чем продано",
-                                 f"Баланс sms.md: {out['balance']} MDL. Продано клиникам и не потрачено: "
-                                 f"{out['owed']} сегм. (≈ {out['owed'] * cost / 100:.2f} MDL по "
-                                 f"{config.SMSMD_SEGMENT_COST}); расход за 7 дней: {out['week']} сегм. "
-                                 f"Пополнить депозит sms.md переводом с бизнес-счёта.")
+            letters = alarm_letter(con, "sms_float", "DentPilot Cloud: на счёте sms.md меньше, чем продано",
+                                   f"Баланс sms.md: {out['balance']} MDL. Продано клиникам и не потрачено: "
+                                   f"{out['owed']} сегм. (≈ {out['owed'] * cost / 100:.2f} MDL по "
+                                   f"{config.SMSMD_SEGMENT_COST}); расход за 7 дней: {out['week']} сегм. "
+                                   f"Пополнить депозит sms.md переводом с бизнес-счёта.")
+        # письмо — вне транзакции (06.11); «тревога ушла» — письмо было и почта его приняла
+        out["alarm"] = bool(letters) and not mail.deliver(letters[0][1])
     return out
 
 

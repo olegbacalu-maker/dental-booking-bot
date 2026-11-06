@@ -167,8 +167,6 @@ MAIL_IN_TX = {
     "routes_cont.py:cont_add_submit → account.add_clinic": "«Adaugă clinică» → trial.submit (trial.py:218)",
     "routes_cont.py:cont_add_submit → routes_cont._send_added_letter": "письмо новой клинике кабинета (нота + ящик)",
     "routes_admin.py:clinic_issue → routes_admin._send_latest": "файл письмом из админки после выдачи",
-    "routes_admin.py:clinic_email → routes_admin._send_latest": "файл письмом из админки, кнопка «отправить»",
-    "jobs.py:daily → jobs._one": "напоминания о сроке ежедневной задачи (send параметром)",
 }
 
 
@@ -424,24 +422,16 @@ READ_NAMES = {"web.clinic", "web.payment", "sms.account", "sms.balance", "sms.st
 WRITE_HOLDERS = {"license_renew", "_sms_clinic", "submit", "descarca", "_cont_dashboard", "cont_edit",
                  "cont_receipt", "cont_sms_form", "login", "trial_decline", "clinic_new", "sms_export",
                  "sms_test", "clinic_edit", "clinic_issue", "clinic_tier", "account_detach", "payment_receipt",
-                 "payment_reject", "daily"}
+                 "payment_reject", "daily", "clinic_email"}
 # Чьи транзакции только читают и остаются отложенными: правило — не «immediate везде»
 READ_HOLDERS = {"clinics", "clinic_card", "audit_log", "issue_file", "email_confirm_page"}
 
-# Пишущая транзакция, оставленная отложенной НАМЕРЕННО, — «файл:функция → первая запись». Во всех
-# четырёх письмо уходит ВНУТРИ транзакции ДО первой записи (отметка «отправлено» — после удачной
-# отправки): замок с начала держал бы запись всего сервера на время SMTP (до 30 с, mail.send), и
-# соседи падали бы уже через 10 с ожидания. Цена названа: запись соседа за время отправки —
-# «database is locked» на отметке: письмо ушло, отметки нет (задача повторит письмо назавтра,
-# Олегу — 500 после отправленного письма). Лечится не замком, а выносом отправки за commit
-# (payments.outbox) — отдельная работа.
-DEFERRED_WRITE = {
-    "jobs.py:daily → jobs._one": "письмо о сроке: send, потом строка reminders (ежедневная задача)",
-    "sms.py:low_letters → SQL": "«Au rămas N SMS»: send, потом строка reminders (ежедневная задача)",
-    "sms.py:float_check → sms.alarm": "тревога Олегу о балансе sms.md: mail.send, потом reminders (задача)",
-    "routes_admin.py:clinic_email → routes_admin._send_latest": "«Отправить файл письмом» админки: "
-                                                                "mail.deliver, потом строка журнала",
-}
+# Пишущая транзакция, оставленная отложенной НАМЕРЕННО, — «файл:функция → первая запись», с причиной.
+# Сейчас таких нет. До 06.11 их было четыре (письмо о сроке задачи, «Au rămas N SMS», тревога о
+# балансе sms.md, «отправить файл письмом» админки): письмо уходило ВНУТРИ транзакции ДО первой
+# записи, и замок с начала держал бы запись всего сервера на время SMTP. Письма вынесены за commit
+# (mail.deliver после транзакции: отправить → отметить) — причина исчезла, транзакции под замком.
+DEFERRED_WRITE: dict[str, str] = {}
 
 
 def _aliases(tree: ast.Module, mods: set) -> dict:

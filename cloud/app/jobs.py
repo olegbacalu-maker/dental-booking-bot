@@ -18,6 +18,16 @@ cloud.md › «Напоминания». Запуск раз в сутки из 
 откатывает запись об отправленном у другой, а ошибка одной не останавливает
 остальных. Состояние по-прежнему не хранится: окна считаются от дат.
 
+⛔ Письмо уходит ПОСЛЕ commit транзакции подписки (06.11): в ней оно только
+собирается (`_one` — нота и ссылка страницы оплаты пишутся в базу), отправка и
+отметка `reminders` — потом (mail.deliver). Раньше SMTP шёл внутри: у платных —
+под замком записи (до 30 с, соседние записи падали через 10), у пробных — до
+первой записи, и сосед, записавший за время отправки, ронял отметку: письмо
+ушло, отметки нет, назавтра — второе такое же. Порядок «отправить → отметить»:
+письмо не теряется (почта отказала или процесс умер до отправки — отметки нет,
+следующий проход пришлёт), дважды уходит только при смерти процесса между
+ответом почты и отметкой.
+
 Карты (L12; с 23.10): письма периода несут страницу оплаты клиники
 (paylink.for_mail) рядом с reference — ссылка maib живёт минуты (maib.PAY_TTL) и рождается
 только по клику на этой странице, после галочки условий. Вторая забота задачи —
@@ -112,22 +122,25 @@ def open_payment(con: sqlite3.Connection, clinic: sqlite3.Row, who: str = WHO) -
     return payments.create(con, clinic, months, payments.amount_for(clinic, tier, months), who, tier=tier)
 
 
-def _one(con: sqlite3.Connection, row: sqlite3.Row, now: datetime, send, who: str, rep: Report) -> None:
+def _one(con: sqlite3.Connection, row: sqlite3.Row, now: datetime, who: str, rep: Report) -> mail.Letter | None:
+    """Письмо подписке на сегодня — СОБРАТЬ в её транзакции (нота периода и ссылка страницы
+    оплаты пишутся в базу) или None: писать нечего, уже отправлено, некуда. Отправляет `daily`
+    после commit; отметка `reminders` и строка журнала — в письме (`remind`, `code`)."""
     valid = db.parse_ts(row["valid_until"])
     if valid is None:
-        return
+        return None
     grace = valid + timedelta(days=int(row["grace_days"]))
     kind = due(valid.date(), grace.date(), row["plan"], now.date())
     if kind is None:
-        return
+        return None
     period = row["valid_until"]
     if con.execute("SELECT 1 FROM reminders WHERE subscription_id=? AND kind=? AND period=?",
                    (row["id"], kind, period)).fetchone():
-        return
+        return None
     if not row["email"]:
         log.warning("напоминание %s клинике %s не отправлено: e-mail не указан", kind, row["id"])
         rep.skipped.append((row["id"], "нет e-mail"))
-        return
+        return None
     pay = None
     if row["plan"] != "trial":
         p = open_payment(con, row, who)
@@ -142,16 +155,10 @@ def _one(con: sqlite3.Connection, row: sqlite3.Row, now: datetime, send, who: st
             pay["clinics"] = [ln["name"] for ln in lines]
     subject, body = mail.reminder_letter(kind, row["name"], row["plan"], valid, grace,
                                          int(row["grace_days"]), pay)
-    try:
-        where = send(row["email"], subject, body)
-    except (RuntimeError, OSError) as e:
-        log.error("напоминание %s клинике %s не отправлено: %r", kind, row["id"], e)
-        rep.failed.append((row["id"], repr(e)))
-        return
-    con.execute("INSERT INTO reminders(subscription_id, kind, period, sent_at) VALUES(?,?,?,?)",
-                (row["id"], kind, period, db.now_iso()))
-    db.audit(con, who, "reminder", row["id"], f"{kind}, период до {period[:10]}, на {row['email']} ({where})")
-    rep.sent.append((row["id"], kind))
+    # строка журнала после отправки: «<kind>, период до <дата>, на <ящик> (<куда>)»
+    return mail.Letter(row["email"], subject, body, row["id"], who, f"{kind}, период до {period[:10]},",
+                       f"напоминание {kind} клинике {row['id']}", code="reminder",
+                       remind=(row["id"], kind, period))
 
 
 ATTEMPT_DAYS = 30      # попытку без окончательного ответа maib спрашивают не дольше месяца
@@ -254,8 +261,15 @@ def daily(now: datetime | None = None, send=mail.send, who: str = WHO) -> Report
         subs = con.execute(_SUBS).fetchall()
     for row in subs:
         try:
-            with db.connect() as con:
-                _one(con, row, now, send, who, rep)
+            with db.connect(immediate=True) as con:
+                letter = _one(con, row, now, who, rep)
+            # письмо — после commit: почта думает не под замком записи и не внутри транзакции
+            if letter is None:
+                continue
+            if mail.deliver(letter, via=send):
+                rep.failed.append((row["id"], letter.error))
+            else:
+                rep.sent.append((row["id"], letter.remind[1]))
         except Exception as e:  # noqa: BLE001 — одна клиника не останавливает остальных
             log.error("напоминания клинике %s: %r", row["id"], e)
             rep.failed.append((row["id"], repr(e)))

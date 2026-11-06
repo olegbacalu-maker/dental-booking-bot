@@ -27,6 +27,7 @@ import test_issue  # noqa: E402
 import test_jobs  # noqa: E402
 import test_lock  # noqa: E402
 import test_maib  # noqa: E402
+import test_mail_tx  # noqa: E402
 import test_modele  # noqa: E402
 import test_payments  # noqa: E402
 import test_paylink  # noqa: E402
@@ -94,6 +95,10 @@ SUITES = [
     ("Замок записи: формы кабинета и админки при соседе-писателе ждут и сохраняют", test_lock.suite_pages),
     ("Замок записи: сосед закоммитил между чтением и записью — отложенная падает сразу, immediate исключает",
      test_lock.suite_snapshot),
+    ("Письма после commit: письмо о сроке — сосед пишет, пока почта думает; отказ почты; смерть процесса",
+     test_mail_tx.suite_daily),
+    ("Письма после commit: тревоги SMS Олегу и «Au rămas N SMS» — вне транзакции, раз на вид",
+     test_mail_tx.suite_sms),
     ("Сервер: карта maib — ссылка, четыре callback, проверка, новая ссылка", test_maib.suite_flow),
     ("Сервер: карта maib — ежедневная задача, maib молчит", test_maib.suite_daily),
     ("Сервер: карта maib — ежечасный проход cards: свежие попытки за час, старые — daily", test_maib.suite_hourly),

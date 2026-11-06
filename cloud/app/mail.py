@@ -66,29 +66,50 @@ class Letter:
     detail: str                 # строка журнала `mail` до « на <ящик> (<куда>)»
     what: str                   # о чём письмо — для лога, если SMTP отказал
     files: list[tuple[str, bytes]] = field(default_factory=list)
+    # 06.11, письма после commit — и у задачи, тревог и клиники из кабинета:
+    code: str = "mail"          # код строки журнала об отправке; '' — строки нет (тревога Олегу)
+    # отметка «отправлено» в reminders (подписка, вид, период): пишется ПОСЛЕ удачной отправки,
+    # той же короткой транзакцией, что строка журнала, — по ней задача не шлёт письмо второй раз
+    remind: tuple[str, str, str] | None = None
+    error: str = ""             # repr отказа почты — ставит deliver (отчёту ежедневной задачи)
 
 
-def deliver(letter: Letter, con: sqlite3.Connection | None = None) -> str:
-    """Отправить собранное письмо и записать `mail` в журнал. Код для ?msg=: '' — ушло,
-    'mail_failed' — SMTP отказал (лог; то, ради чего письмо, не откатывается).
-    Без `con` журнал пишет своей короткой транзакцией — так зовут после commit оплаты;
-    с `con` — в транзакции вызывающего (обёртки «собрать + отправить» вне оплаты)."""
+def deliver(letter: Letter, con: sqlite3.Connection | None = None, via=None) -> str:
+    """Отправить собранное письмо и записать об этом: отметку `letter.remind` и строку журнала
+    `letter.code`. Код для ?msg=: '' — ушло, 'mail_failed' — SMTP отказал (лог и `letter.error`;
+    то, ради чего письмо, не откатывается, отметки нет — задача пришлёт письмо в следующий проход).
+    Без `con` запись идёт своей короткой транзакцией под замком записи — так зовут после commit;
+    с `con` — в транзакции вызывающего (обёртки «собрать + отправить» вне оплаты).
+    `via` — чем отправлять вместо `send` (ежедневная задача получает его параметром).
+    ⚠️ Порядок «отправить → отметить» — намеренно: письмо о сроке не теряется никогда (процесс
+    умер до отправки — отметки нет, следующий проход пришлёт), а дважды уходит только если процесс
+    умер или база отказала в те миллисекунды между ответом почты и отметкой. Наоборот («отметить →
+    отправить») потеряло бы письмо молча; ровно один раз без очереди писем не бывает."""
     try:
-        where = send(letter.to, letter.subject, letter.body, *letter.files)
+        where = (via or send)(letter.to, letter.subject, letter.body, *letter.files)
     except (RuntimeError, OSError, ValueError) as e:
         log.error("%s не отправлено: %r", letter.what, e)
+        letter.error = repr(e)
         return "mail_failed"
     line = f"{letter.detail} на {letter.to} ({where})"
     if con is not None:
-        db.audit(con, letter.who, "mail", letter.clinic_id, line)
+        _sent(con, letter, line)
         return ""
     try:
         with db.connect(immediate=True) as own:
-            db.audit(own, letter.who, "mail", letter.clinic_id, line)
+            _sent(own, letter, line)
     except sqlite3.Error as e:
-        # письмо ушло, оплата закоммичена — без строки журнала ответ не должен стать 500
+        # письмо ушло, запись, ради которой оно, закоммичена — ответ не должен стать 500
         log.error("письмо ушло, строка журнала не записана (%s): %r", line, e)
     return ""
+
+
+def _sent(con: sqlite3.Connection, letter: Letter, line: str) -> None:
+    if letter.remind is not None:
+        con.execute("INSERT OR IGNORE INTO reminders(subscription_id, kind, period, sent_at) VALUES(?,?,?,?)",
+                    (*letter.remind, db.now_iso()))
+    if letter.code:
+        db.audit(con, letter.who, letter.code, letter.clinic_id, line)
 
 
 FOOTER = f"Întrebări: {config.SUPPORT_EMAIL} · {config.SUPPORT_PHONE}\n\nDentPilot"

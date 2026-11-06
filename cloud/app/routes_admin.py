@@ -538,12 +538,13 @@ def clinic_email(request: Request, cid: str) -> Response:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
-    with db.connect() as con:
+    # письмо собирается в транзакции (код подтверждения ящика — запись), уходит после её commit
+    with payments.outbox() as box, db.connect(immediate=True) as con:
         c = web.clinic(con, cid)
         if c is None:
             return Response(status_code=404)
-        code = _send_latest(con, c, auth.current_user(request)) or "mailed"
-    return RedirectResponse(f"/admin/clinics/{cid}?msg={code}", status_code=303)
+        box.add([(True, license.letter_latest(con, c, auth.current_user(request)))])
+    return RedirectResponse(f"/admin/clinics/{cid}?msg={box.code or 'mailed'}", status_code=303)
 
 
 @router.post("/admin/accounts/{aid}/detach")
