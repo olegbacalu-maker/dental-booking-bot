@@ -17,12 +17,18 @@ IMMEDIATE` ждёт соседа до 10 с и читает уже после н
 import email
 import email.policy
 import json
+import pathlib
 import re
+import shutil
 import sqlite3
+import tempfile
 import threading
 import time
 
 from harness import Client, Result, Server, cid_from
+
+from app import config as srv_config  # noqa: E402 — путь к базе для db.connect (harness уже добавил cloud/ в путь)
+from app import db as srv_db  # noqa: E402
 
 HOLD = 1.0          # сколько сосед держит замок записи; ⚠️ меньше timeout=10 у db.connect
 DEVICE = "d_0123456789ab"
@@ -231,3 +237,63 @@ def suite_pages(res: Result) -> None:
         res.check("реквизиты из админки записаны",
                   _sql(s, "SELECT name FROM clinics WHERE id=?", cid), [("Clinica Lacat Admin",)])
         _quiet(res, s)
+
+
+def suite_snapshot(res: Result) -> None:
+    """Второй вид той же гонки — сосед УСПЕЛ закоммитить между нашим чтением и нашей записью: замок
+    уже свободен, а запись отложенной транзакции всё равно падает сразу (снимок устарел, ждать
+    нечего). Через HTTP его не поставить без паузы внутри сервера, поэтому — на самом `db.connect`
+    сервера, без сервера: две транзакции в процессе теста на своей базе. И обратное: под
+    `immediate=True` сосед к нам между чтением и записью не попадает — ждёт commit и видит нашу строку."""
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_lock_"))
+    keep = srv_config.DB_PATH
+    srv_config.DB_PATH = tmp / "cloud.db"
+    try:
+        srv_db.init()
+        err, t0 = "", time.monotonic()
+        try:
+            with srv_db.connect() as con:                         # отложенная, как license_renew до 06.11
+                con.execute("SELECT count(*) FROM audit").fetchone()
+                with srv_db.connect(immediate=True) as other:     # сосед: записал и закоммитил
+                    srv_db.audit(other, "vecin", "lock_test")
+                t0 = time.monotonic()
+                srv_db.audit(con, "noi", "lock_test")             # замок свободен — а снимок устарел
+        except sqlite3.OperationalError as e:
+            err = str(e)
+        took = time.monotonic() - t0
+        res.ok("отложенная: прочла, сосед закоммитил, её запись — «database is locked» сразу, при свободном замке",
+               "database is locked" in err and took < 2.0, f"{err!r} за {took:.2f} с")
+        with srv_db.connect() as con:
+            res.check("запись соседа на месте, наша откатилась",
+                      [r[0] for r in con.execute("SELECT who FROM audit ORDER BY id")], ["vecin"])
+        seen: dict = {}
+
+        def neighbour():
+            try:
+                with srv_db.connect(immediate=True) as other:
+                    seen["ours"] = other.execute("SELECT count(*) FROM audit WHERE who='noi'").fetchone()[0]
+                    srv_db.audit(other, "vecin", "lock_test")
+            except Exception as e:  # noqa: BLE001 — исключение тоже ответ
+                seen["error"] = repr(e)
+
+        with srv_db.connect(immediate=True) as con:               # как license_renew теперь
+            con.execute("SELECT count(*) FROM audit").fetchone()
+            t = threading.Thread(target=neighbour, daemon=True)
+            t.start()
+            t.join(timeout=HOLD)
+            waited = t.is_alive()                                 # сосед стоит на BEGIN IMMEDIATE
+            srv_db.audit(con, "noi", "lock_test")
+        t.join(timeout=30)
+        res.ok("immediate: сосед между нашим чтением и записью не попал — ждал commit и увидел нашу строку",
+               waited and seen == {"ours": 1}, f"ждал={waited} {seen!r}")
+        with srv_db.connect() as con:
+            res.check("обе записи на месте, по порядку: сосед, мы, сосед",
+                      [r[0] for r in con.execute("SELECT who FROM audit ORDER BY id")], ["vecin", "noi", "vecin"])
+    finally:
+        srv_config.DB_PATH = keep
+        for _ in range(10):
+            try:
+                shutil.rmtree(tmp)
+                break
+            except OSError:
+                time.sleep(0.3)
