@@ -2382,7 +2382,10 @@ dialog.dp-about { width: 460px; }
 .side .side-fold:focus-visible { outline: none; box-shadow: var(--ring); }
 .side.side-rail .side-fold { justify-content: center; margin: 4px 8px 10px; padding: 9px 0; }
 .side.side-rail .side-fold span { display: none; }
-.anim .side .side-fold span { white-space: nowrap; }
+/* ⛔ Вне .anim (06.11.2026), вместе с переходом ширины меню в panel.css: подпись
+   кнопки не переносится, пока бар едет, — а едет он теперь всегда, не только
+   до первого изменения дня */
+.side .side-fold span { white-space: nowrap; }
 @media (max-width: 1000px) { .side .side-fold { display: none; } }
 
 /* Карточка визита: строка подтверждения звонком (12.10; с 23.10 — сегмент без коробки).
