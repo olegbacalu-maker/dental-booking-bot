@@ -136,11 +136,12 @@ def suite_settle_lock(res: Result) -> None:
 
 # main.py, роутеры routes_*.py и их общие помощники web.py (03.11, разнос main.py) — по имени
 # файла, не списком: новый роутер мимо сторожа не пройдёт
-SCOPE = ("main.py", "web.py", "jobs.py", "payments.py")
-
-
 def in_scope(fname: str) -> bool:
-    return fname in SCOPE or fname.startswith("routes_")
+    """Область сторожей писем и сети maib — ВСЯ cloud/app (06.11). До того — main.py, роутеры,
+    web.py, jobs.py, payments.py: транзакции sms.py и trial.py стояли мимо, и тревога Олегу из
+    отправки SMS шла под замком записи незамеченной. Файл не из области молча зеленеет — поэтому
+    области-списка нет."""
+    return True
 
 
 # Отправляющие сами по себе; `send` без модуля — mail.send, переданный параметром (jobs, sms)
@@ -228,14 +229,14 @@ def _closure(funcs: list, base: set) -> set:
 
 
 def _inside(funcs: list, reach: set) -> list:
-    """Нарушения «файл:функция → вызов»: вызов из `reach` внутри `with db.connect` в SCOPE."""
+    """Нарушения «файл:функция → вызов»: вызов из `reach` внутри `with db.connect` в области (in_scope)."""
     return sorted({f"{fname}:{fn.name} → {k}" for fname, _, fn, found in funcs if in_scope(fname)
                    for _, w, k in found if w is not None and k in reach})
 
 
 def mail_check(trees: dict[str, ast.Module]) -> tuple[set, dict, list]:
     """(отправляющие функции «модуль.имя», {функция: [строки with, где outbox раньше
-    db.connect]}, нарушения «файл:функция → вызов» в SCOPE). Отправляющая — та, что зовёт
+    db.connect]}, нарушения «файл:функция → вызов» в области). Отправляющая — та, что зовёт
     отправляющую где угодно (в своей транзакции или после неё): её вызов внутри чужой
     транзакции — SMTP под замком."""
     mods, funcs = _funcs(trees)
@@ -290,9 +291,9 @@ def _prepend(trees: dict, fname: str, func: str, src: str) -> dict:
 
 
 def suite_mail_after_commit(res: Result) -> None:
-    """Письма об оплате — после commit: ни mail.send, ни отправляющей функции внутри
-    `with db.connect` в main.py, роутерах routes_*.py, web.py, jobs.py, payments.py, кроме названных
-    исключений; и пары."""
+    """Письма — после commit: ни mail.send, ни отправляющей функции внутри `with db.connect`
+    нигде в cloud/app (с 06.11 — все письма облака, не только оплата), кроме названных исключений
+    (их нет); и пары."""
     trees = _trees()
     need = {"routes_pay.py", "routes_admin_pay.py", "routes_cont.py", "web.py", "routes_program.py", "routes_admin.py",
             "jobs.py", "payments.py", "license.py", "sms.py", "mail.py"}
@@ -338,6 +339,44 @@ def suite_mail_after_commit(res: Result) -> None:
                                                             "payment_new", "payment_link", "payment_mail")}
     res.ok("пара: сборка письма с нотой начала отправлять — красные все шесть мест ноты",
            hit <= set(m), sorted(hit - set(m)))
+    # пары 06.11: письма вне оплаты — заявка, кабинет, задача, SMS
+    _, _, m = mail_check(_inject(trees, "sms.py", "submit", "mail.send('a', 'b', 'c')"))
+    res.ok("пара: mail.send в транзакции отправки SMS (sms.py — в области) — красный",
+           "sms.py:submit → mail.send" in m, repr(m))
+    _, _, m = mail_check(_inject(trees, "jobs.py", "daily", "mail.deliver(letter)"))
+    res.ok("пара: mail.deliver в транзакции ежедневной задачи — красный", "jobs.py:daily → mail.deliver" in m, repr(m))
+    _, _, m = mail_check(_inject(trees, "routes_program.py", "_sms_order", "mail.send(c['email'], 'a', 'b')"))
+    res.ok("пара: mail.send в транзакции ноты SMS из программы (как до 06.11) — красный",
+           "routes_program.py:_sms_order → mail.send" in m, repr(m))
+    _, _, m = mail_check(_swap(trees, "routes_public.py", "trial_submit"))
+    res.ok("пара: connect раньше outbox у формы пробного — красный",
+           "routes_public.py:trial_submit → payments.outbox" in m, repr(m))
+    _, _, m = mail_check(_prepend(trees, "trial.py", "submit", "mail.send('a', 'b', 'c')"))
+    hit = {"routes_public.py:trial_submit → trial.submit", "routes_program.py:_trial_program → trial.submit",
+           "routes_cont.py:cont_register_submit → account.register", "routes_cont.py:cont_add_submit → account.add_clinic"}
+    res.ok("пара: trial.submit снова отправляет — красные форма, программа, регистрация кабинета, «Adaugă clinică»",
+           hit <= set(m), sorted(hit - set(m)))
+    _, _, m = mail_check(_prepend(trees, "license.py", "letter_latest", "mail.deliver(None)"))
+    hit = {"routes_admin.py:clinic_issue → license.letter_latest", "routes_admin.py:clinic_email → license.letter_latest",
+           "routes_public.py:trial_submit → trial.letter", "routes_program.py:_trial_program → trial.letter",
+           "routes_cont.py:cont_register_submit → trial.letter"}
+    res.ok("пара: сборка письма о лицензии начала отправлять — красные выдача и кнопка админки, три двери пробного",
+           hit <= set(m), sorted(hit - set(m)))
+    _, _, m = mail_check(_prepend(trees, "sms.py", "alarm_letter", "mail.send('a', 'b', 'c')"))
+    hit = {"sms.py:submit → sms.alarm_letter", "sms.py:submit → sms._accepted", "sms.py:recheck → sms.apply",
+           "sms.py:poll → sms.apply", "sms.py:float_check → sms.alarm_letter"}
+    res.ok("пара: тревога Олегу снова отправляет сама — красные отправка SMS, уведомление, опрос, баланс",
+           hit <= set(m), sorted(hit - set(m)))
+    _, _, m = mail_check(_prepend(trees, "jobs.py", "_one", "send('a', 'b', 'c')"))
+    res.ok("пара: письмо о сроке снова уходит из _one (send параметром) — красный",
+           "jobs.py:daily → jobs._one" in m, repr(m))
+    _, _, m = mail_check(_prepend(trees, "routes_cont.py", "_added_letter", "mail.send('a', 'b', 'c')"))
+    res.ok("пара: письмо новой клинике кабинета снова отправляет само — красный",
+           "routes_cont.py:cont_add_submit → routes_cont._added_letter" in m, repr(m))
+    _, _, m = mail_check(_prepend(trees, "web.py", "sms_note_letter", "mail.send('a', 'b', 'c')"))
+    hit = {"routes_program.py:_sms_order → web.sms_note_letter", "routes_cont.py:cont_sms_note → web.sms_note_letter"}
+    res.ok("пара: сборка письма с нотой SMS начала отправлять — красные программа и кабинет",
+           hit <= set(m), sorted(hit - set(m)))
 
 
 # ---------- сеть maib — вне транзакции (шаг 4) ----------
@@ -352,7 +391,7 @@ NET_IN_TX: dict[str, str] = {}
 
 
 def net_check(trees: dict[str, ast.Module]) -> tuple[set, list]:
-    """(функции «модуль.имя», которые ходят в maib — сами или по цепочке, нарушения в SCOPE).
+    """(функции «модуль.имя», которые ходят в maib — сами или по цепочке, нарушения в области).
     Основа — функции maib.py, где есть urlopen (`_call`); дальше — все, кто их зовёт."""
     _, funcs = _funcs(trees)
     base = {f"maib.{fn.name}" for fname, _, fn, _ in funcs if fname == "maib.py"
@@ -363,8 +402,7 @@ def net_check(trees: dict[str, ast.Module]) -> tuple[set, list]:
 
 def suite_net_outside_tx(res: Result) -> None:
     """maib — вне транзакции: ни maib.* с сетью, ни функции, что их зовёт (по цепочке), внутри
-    `with db.connect` в main.py, роутерах routes_*.py, web.py, jobs.py, payments.py, кроме названных
-    исключений; и пары."""
+    `with db.connect` нигде в cloud/app, кроме названных исключений (их нет); и пары."""
     trees = _trees()
     need = {"maib.py", "routes_pay.py", "routes_admin_pay.py", "routes_cont.py", "web.py", "jobs.py", "payments.py"}
     res.ok("исходники нашлись: maib.py, роутеры оплаты, кабинета, web.py, jobs.py, payments.py", need <= set(trees),

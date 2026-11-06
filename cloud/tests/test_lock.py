@@ -60,7 +60,10 @@ class Neighbour:
 
     def take(self) -> None:
         self.con.execute("BEGIN IMMEDIATE")
-        self.con.execute("UPDATE schema_meta SET value=value WHERE key='version'")
+        # счётчик растёт — запись настоящая. ⚠️ `UPDATE … SET value=value` SQLite записью не считает
+        # (байты те же — страница не трогается, в WAL ничего не ложится): сосед только подержал бы замок
+        self.con.execute("INSERT INTO schema_meta(key, value) VALUES('test_neighbour', '1') "
+                         "ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1")
 
     def release(self) -> None:
         self.con.execute("COMMIT")
