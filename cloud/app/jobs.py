@@ -259,7 +259,7 @@ def daily(now: datetime | None = None, send=mail.send, who: str = WHO) -> Report
         except Exception as e:  # noqa: BLE001 — одна клиника не останавливает остальных
             log.error("напоминания клинике %s: %r", row["id"], e)
             rep.failed.append((row["id"], repr(e)))
-    with db.connect() as con:
+    with db.connect(immediate=True) as con:
         db.audit(con, who, "daily", None, f"на {rep.at}: {rep.line()}")
     return rep
 

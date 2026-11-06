@@ -90,6 +90,6 @@ def descarca(request: Request) -> Response:
     """302 на подписанный установщик последнего выпуска (GitHub Releases); API
     молчит — на страницу выпусков. Кто скачивал — строкой в журнале."""
     url, rel = download.target()
-    with db.connect() as con:
+    with db.connect(immediate=True) as con:
         db.audit(con, "site", "download", None, f"{rel.asset if rel else 'pagina GitHub'} {web.ip(request)}")
     return RedirectResponse(url, status_code=302)

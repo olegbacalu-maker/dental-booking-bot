@@ -42,7 +42,7 @@ def login(request: Request, user: str = Form(""), password: str = Form("")) -> R
         return RedirectResponse("/admin/login?msg=login_locked", status_code=303)
     ok = (config.ADMIN_HASH and secrets.compare_digest(user.strip(), config.ADMIN_USER)
           and auth.check_password(password, config.ADMIN_HASH))
-    with db.connect() as con:
+    with db.connect(immediate=True) as con:
         db.audit(con, user.strip()[:40] or "?", "login_ok" if ok else "login_fail", None, ip)
     if not ok:
         auth.note_fail(ip)
@@ -97,7 +97,7 @@ def trial_decline(request: Request, cid: str) -> Response:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
-    with db.connect() as con:
+    with db.connect(immediate=True) as con:
         if web.clinic(con, cid) is None:
             return Response(status_code=404)
         # токен — долой: программа, ждущая по этой заявке, получит 401 и скажет
@@ -126,7 +126,7 @@ def clinic_new(request: Request, name: str = Form(""), idno: str = Form(""),
     if (code := _clean(name, idno)):
         return RedirectResponse(f"/admin?msg={code}", status_code=303)
     cid = "c_" + secrets.token_hex(6)
-    with db.connect() as con:
+    with db.connect(immediate=True) as con:
         con.execute("INSERT INTO clinics(id, name, idno, contact_name, email, phone, address, created_at) "
                     "VALUES(?,?,?,?,?,?,?,?)",
                     (cid, name.strip(), idno.strip(), contact_name.strip(), email.strip(),
@@ -270,7 +270,7 @@ def sms_export(request: Request, month: str = "") -> Response:
     """Excel за месяц по клиникам — для сверки с фактурой sms.md. Без номеров и текстов."""
     if (deny := web.guard(request)) is not None:
         return deny
-    with db.connect() as con:
+    with db.connect(immediate=True) as con:
         name, data = smsreport.export(con, month)
         db.audit(con, auth.current_user(request), "sms_export", None, name)
     return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -311,10 +311,10 @@ def sms_test(request: Request, to: str = Form("")) -> Response:
     try:
         got = smsmd.send(config.SMS_COMMON, digits, "DentPilot: SMS de test. O zi buna!")
     except (smsmd.Unanswered, smsmd.Refused) as e:
-        with db.connect() as con:
+        with db.connect(immediate=True) as con:
             db.audit(con, who, "sms_test", None, f"не принято: {e}")
         return RedirectResponse("/admin/sms?msg=sms_test_failed", status_code=303)
-    with db.connect() as con:
+    with db.connect(immediate=True) as con:
         db.audit(con, who, "sms_test", None, f"принято sms.md, {got['segments']} сегм., id {got['id']}")
     return RedirectResponse("/admin/sms?msg=sms_test_sent", status_code=303)
 
@@ -442,7 +442,7 @@ def clinic_edit(request: Request, cid: str, name: str = Form(""), idno: str = Fo
         return Response(status_code=403)
     if (code := _clean(name, idno)):
         return RedirectResponse(f"/admin/clinics/{cid}?msg={code}", status_code=303)
-    with db.connect() as con:
+    with db.connect(immediate=True) as con:
         if (old := web.clinic(con, cid)) is None:
             return Response(status_code=404)
         con.execute("UPDATE clinics SET name=?, idno=?, contact_name=?, email=?, phone=?, address=? WHERE id=?",
@@ -476,7 +476,7 @@ def clinic_issue(request: Request, cid: str, kind: str = Form("trial"), valid_un
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     who = auth.current_user(request)
-    with db.connect() as con:
+    with db.connect(immediate=True) as con:
         c = web.clinic(con, cid)
         if c is None:
             return Response(status_code=404)
@@ -513,7 +513,7 @@ def clinic_tier(request: Request, cid: str, tier: str = Form("")) -> Response:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
-    with db.connect() as con:
+    with db.connect(immediate=True) as con:
         if web.clinic(con, cid) is None:
             return Response(status_code=404)
         code = payments.set_tier(con, cid, tier, auth.current_user(request))
@@ -554,7 +554,7 @@ def account_detach(request: Request, aid: str) -> Response:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
-    with db.connect() as con:
+    with db.connect(immediate=True) as con:
         acc = account.get(con, aid)
         if acc is None:
             return Response(status_code=404)

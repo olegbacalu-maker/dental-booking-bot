@@ -504,14 +504,14 @@ def submit(clinic_id: str, to_raw, text, kind, idem, now: datetime | None = None
         got = smsmd.send(sender, to, text)
     except smsmd.Unanswered as e:
         log.warning("sms.md не ответил на сообщение %s: %s", mid, e)
-        with db.connect() as con:
+        with db.connect(immediate=True) as con:
             _set(con, mid, error="no_answer")
         return answer("sms_retry", id=mid)
     except smsmd.Refused as e:
         log.warning("sms.md отказал в сообщении %s: %s", mid, e)
         temporary = e.http in (401, 402, 403, 429)
         error = e.code + ((":" + ",".join(e.fields)) if e.fields else "")
-        with db.connect() as con:
+        with db.connect(immediate=True) as con:
             row = con.execute("SELECT * FROM sms_messages WHERE id=?", (mid,)).fetchone()
             _set(con, mid, state=RETRY if temporary else REFUSED, error=error[:80])
             _refund(con, row, who, f"sms.md: {error}"[:200])

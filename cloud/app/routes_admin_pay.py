@@ -209,7 +209,7 @@ def payment_receipt(request: Request, pid: int) -> Response:
     Оплаченный до таблицы receipts получает снимок при первом запросе."""
     if (deny := web.guard(request)) is not None:
         return deny
-    with db.connect() as con:
+    with db.connect(immediate=True) as con:
         p = web.payment(con, pid)
         row = receipts.ensure(con, p, auth.current_user(request)) if p is not None else None
     if row is None:
@@ -311,7 +311,7 @@ def payment_reject(request: Request, pid: int, reason: str = Form("")) -> Respon
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
-    with db.connect() as con:
+    with db.connect(immediate=True) as con:
         p = web.payment(con, pid)
         if p is None:
             return Response(status_code=404)

@@ -123,7 +123,7 @@ def _sms_clinic(request: Request):
     token = _bearer(request)
     if not token:
         return None, JSONResponse({"ok": False, "code": "token_missing"}, status_code=401)
-    with db.connect() as con:
+    with db.connect(immediate=True) as con:      # читает клинику, потом пишет флот (test_tx.suite_write_lock)
         c = con.execute("SELECT * FROM clinics WHERE renew_token=? AND renew_token<>''", (token,)).fetchone()
         if c is None:
             return None, JSONResponse({"ok": False, "code": "token_unknown"}, status_code=401)

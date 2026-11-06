@@ -77,7 +77,9 @@ def _cont_dashboard(request: Request, msg: str, c: str, tab: str = "") -> Respon
     """Кабинет: дашборд открытой клиники по вкладкам (`?c=` — какой; без него — открытой последней),
     у записи с несколькими клиниками — чипы клиник под заголовком (26.10, 29.10). `tab` — вкладка
     по умолчанию (/cont/documente)."""
-    with db.connect() as con:
+    # замок записи с начала (06.11): переход на другую клинику кабинета пишет `accounts.clinic_id`
+    # после чтения — отложенная транзакция отвечала бы 500, если сосед успел записать (test_tx)
+    with db.connect(immediate=True) as con:
         acc = _current_account(con, request)
         if acc is None:
             return _cont_login_redirect()
@@ -400,7 +402,7 @@ def cont_edit(request: Request, name: str = Form(""), idno: str = Form(""), cont
         return Response(status_code=403)
     f, code = account.clean_edit({"name": name, "idno": idno, "contact_name": contact_name, "phone": phone,
                                   "address": address})
-    with db.connect() as con:
+    with db.connect(immediate=True) as con:
         acc, cl = _cont_clinic(request, con, c)
         if cl is None:
             return _cont_deny(acc)
@@ -462,7 +464,7 @@ def cont_note(request: Request, months: str = Form("1"), method: str = Form(paym
 def cont_receipt(request: Request, number: str) -> Response:
     """Cont de plată из кабинета — только документ СВОИХ клиник (своя нота или общая, где
     своя клиника строкой); чужой номер или неоплаченная нота — 404, без входа — на вход."""
-    with db.connect() as con:
+    with db.connect(immediate=True) as con:      # снимок оплаченного до receipts заводится здесь (ensure)
         acc = _current_account(con, request)
         if acc is None:
             return _cont_login_redirect()
@@ -592,7 +594,7 @@ def cont_sms_form(request: Request, rep: str = Form("")) -> Response:
     представитель с формы. Без заявки или без реквизитов — назад с причиной."""
     if not auth.same_origin_post(request):
         return Response(status_code=403)
-    with db.connect() as con:
+    with db.connect(immediate=True) as con:      # счёт SMS хозяйки имени заводится здесь (sms.ensure)
         acc, cl, c, sa = _cont_sms(request, con)
         if cl is None:
             return _cont_deny(acc)

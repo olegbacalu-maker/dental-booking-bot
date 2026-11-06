@@ -14,6 +14,10 @@ IMMEDIATE` ждёт соседа до 10 с и читает уже после н
 функцию нечем (и не нужно): замок записи у SQLite один на файл, чей бы процесс его ни держал.
 Ответ при удержанном замке — значит, маршрут не ждал: на отложенной транзакции это 500.
 """
+import email
+import email.policy
+import json
+import re
 import sqlite3
 import threading
 import time
@@ -131,4 +135,99 @@ def suite_license(res: Result) -> None:
               lambda: prog.get("/v1/license?seq=0", headers=_program(token)), 200)
         res.check("выдача файла программе — строкой в журнале",
                   _sql(s, "SELECT count(*) FROM audit WHERE what='renew' AND clinic_id=?", cid)[0][0], 1)
+        _quiet(res, s)
+
+
+def _together(*calls) -> list:
+    """Вызовы из своих потоков, отпущенные разом (Barrier); ответ или исключение — по порядку."""
+    gate = threading.Barrier(len(calls))
+    out: list = [None] * len(calls)
+
+    def go(i, fn):
+        gate.wait()
+        try:
+            out[i] = fn()
+        except Exception as e:  # noqa: BLE001 — исключение тоже ответ
+            out[i] = e
+
+    threads = [threading.Thread(target=go, args=(i, fn), daemon=True) for i, fn in enumerate(calls)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=60)
+    return out
+
+
+ROUNDS = 15
+
+
+def suite_program(res: Result) -> None:
+    """Соседи `/v1/license` у той же программы — `/v1/sms/*`: каждый сперва читает клинику и пишет
+    флот (`_sms_clinic`). При соседе-писателе ждут; и живая тройка старта программы разом, ROUNDS
+    кругов — ни одного 500 (подстраховка: без удержанного замка гонка случайна)."""
+    with Server() as s:
+        c = Client(s.url).login()
+        cid = _clinic(c)
+        c.post(f"/admin/clinics/{cid}/issue", kind="trial")
+        token = _sql(s, "SELECT renew_token FROM clinics WHERE id=?", cid)[0][0]
+        h = _program(token)
+        prog = Client(s.url)
+        waits(res, s, "/v1/sms/account", lambda: prog.get("/v1/sms/account", headers=h), 200)
+        res.check("флот: компьютер записан запросом счёта SMS",
+                  _sql(s, "SELECT clinic_id FROM devices WHERE id=?", DEVICE), [(cid,)])
+        waits(res, s, "/v1/sms/status",
+              lambda: prog._do("/v1/sms/status", json.dumps({"ids": []}).encode(),
+                               {**h, "Content-Type": "application/json"}), 200)
+        bad = []
+        for n in range(ROUNDS):
+            a, b, d = Client(s.url), Client(s.url), Client(s.url)
+            got = _together(lambda: a.get(f"/v1/license?seq={n % 2}", headers=h),
+                            lambda: b.get("/v1/sms/account", headers=h),
+                            lambda: d._do("/v1/sms/status", json.dumps({"ids": []}).encode(),
+                                          {**h, "Content-Type": "application/json"}))
+            bad += [f"круг {n}: {getattr(r, 'status', r)!r}" for r in got
+                    if getattr(r, "status", None) not in (200, 204)]
+        res.check(f"три запроса программы разом, {ROUNDS} кругов: только 200 и 204", bad, [])
+        _quiet(res, s)
+
+
+def _enter(s: Server, mail_to: str) -> Client:
+    """Вход в кабинет кодом на e-mail — так же, как человек (ящик клиники из админки — её кабинет)."""
+    c = Client(s.url)
+    r = c.post("/cont/login/email", email=mail_to)
+    vid = re.search(r"name='verify_id' value='([^']+)'", r.body).group(1)
+    body = ""
+    for f in sorted(s.outbox.glob("*.eml")):
+        m = email.message_from_bytes(f.read_bytes(), policy=email.policy.default)
+        if m["To"] == mail_to:
+            body = m.get_body(preferencelist=("plain",)).get_content()
+    r = c.post("/cont/login/cod", verify_id=vid, code=re.search(r": (\d{6})\n", body).group(1), email=mail_to)
+    assert r.status == 303, f"вход {mail_to}: {r.status} {r.location}"
+    return c
+
+
+def suite_pages(res: Result) -> None:
+    """Формы кабинета и админки, которые читают и потом пишут: при соседе-писателе ждут — директор
+    и Олег не видят 500 оттого, что в эту секунду программа клиники вышла на связь."""
+    with Server() as s:
+        c = Client(s.url).login()
+        cid = _clinic(c)
+        c.post(f"/admin/clinics/{cid}/issue", kind="trial")
+        fields = dict(name="Clinica Lacat Nou", idno="1234567890123", contact_name="Ion", phone="022000111",
+                      address="str. Test 1")
+        cab = _enter(s, "lacat@example.md")
+        res.ok("кабинет открыт на клинике из админки", cab.get("/cont").status == 200)
+        r, early, took = held(s, lambda: cab.post("/cont/date", **fields))
+        res.ok("кабинет, реквизиты (/cont/date): ждёт соседа и сохраняет",
+               not early and getattr(r, "status", None) == 303 and "saved" in r.location,
+               repr(r) if isinstance(r, Exception) else f"{r.status} {r.location} за {took:.2f} с, early={early}")
+        res.check("реквизиты из кабинета записаны",
+                  _sql(s, "SELECT name, phone FROM clinics WHERE id=?", cid), [("Clinica Lacat Nou", "022000111")])
+        r, early, took = held(s, lambda: c.post(f"/admin/clinics/{cid}/edit", email="lacat@example.md",
+                                                **dict(fields, name="Clinica Lacat Admin")))
+        res.ok("админка, карточка (/admin/clinics/<id>/edit): ждёт соседа и сохраняет",
+               not early and getattr(r, "status", None) == 303 and r.location.endswith("msg=saved"),
+               repr(r) if isinstance(r, Exception) else f"{r.status} {r.location} за {took:.2f} с, early={early}")
+        res.check("реквизиты из админки записаны",
+                  _sql(s, "SELECT name FROM clinics WHERE id=?", cid), [("Clinica Lacat Admin",)])
         _quiet(res, s)
