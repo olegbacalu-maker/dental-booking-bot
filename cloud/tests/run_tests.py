@@ -25,6 +25,7 @@ import test_email  # noqa: E402
 import test_fleet  # noqa: E402
 import test_issue  # noqa: E402
 import test_jobs  # noqa: E402
+import test_lock  # noqa: E402
 import test_maib  # noqa: E402
 import test_modele  # noqa: E402
 import test_payments  # noqa: E402
@@ -86,6 +87,8 @@ SUITES = [
     ("Сервер: задача — пробный, без e-mail, без реквизитов, кнопка, журнал", test_jobs.suite_edges),
     ("Сервер: автообновление — renew в файле, /v1/license, клиент программы", test_renew.suite_renew),
     ("Сервер: заявка из программы — её провод против этого сервера", test_renew.suite_request),
+    ("Замок записи: /v1/license при соседе-писателе ждёт, а не падает «database is locked»",
+     test_lock.suite_license),
     ("Сервер: карта maib — ссылка, четыре callback, проверка, новая ссылка", test_maib.suite_flow),
     ("Сервер: карта maib — ежедневная задача, maib молчит", test_maib.suite_daily),
     ("Сервер: карта maib — ежечасный проход cards: свежие попытки за час, старые — daily", test_maib.suite_hourly),

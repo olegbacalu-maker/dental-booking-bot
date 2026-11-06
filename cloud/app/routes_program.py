@@ -39,7 +39,10 @@ def license_renew(request: Request, seq: int = 0) -> Response:
     token = _bearer(request)
     if not token:
         return JSONResponse({"ok": False, "code": "token_missing"}, status_code=401)
-    with db.connect() as con:
+    # замок записи с начала (06.11): маршрут пишет след при каждом запросе, а программа на старте
+    # шлёт три запроса разом — отложенная транзакция, уже прочитав, получала «database is locked»
+    # вместо ожидания соседа (500 в бою; tests/test_lock.py)
+    with db.connect(immediate=True) as con:
         c = con.execute("SELECT * FROM clinics WHERE renew_token=? AND renew_token<>''",
                         (token,)).fetchone()
         if c is None:
