@@ -30,6 +30,33 @@
  *  умирал при первой же подмене, а у React он живёт. */
 export const FRESH_MS = 1800
 
+/** Сколько держать пометку сменившегося статуса: анимация 1.2 с
+ *  (`.gappt.moved` в panel.css) плюс запас. Снимает таймер — по той же
+ *  причине, что и `fresh`. */
+export const MOVED_MS = 1400
+
+/**
+ * У кого СМЕНИЛСЯ СТАТУС между двумя конвертами (06.11.2026): номер был и
+ * остался, статус другой.
+ *
+ * ⛔ Рождается там же, где `fresh`, — из разницы двух конвертов, а не из
+ * своего щелчка: поэтому смена, сделанная с другого компьютера или планшета,
+ * видна так же, как своя, а опрос без изменений не даёт ничего.
+ * ⚠️ `prev === null` — первый показ дня: сравнивать не с чем, пусто. Новая
+ * запись сюда не попадает (её в прошлом снимке нет) — она `fresh`.
+ */
+export function movedOf(
+  prev: ReadonlyMap<string, string> | null, now: ReadonlyMap<string, string>,
+): string[] {
+  if (prev === null) return []
+  const out: string[] = []
+  for (const [id, status] of now) {
+    const was = prev.get(id)
+    if (was !== undefined && was !== status) out.push(id)
+  }
+  return out
+}
+
 /** Ключ памяти дня. ⛔ Тот же, что печатает `panel.js`. */
 export function seenKey(day: string): string {
   return `dp_seen_${day}`

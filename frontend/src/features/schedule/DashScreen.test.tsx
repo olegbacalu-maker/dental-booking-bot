@@ -1368,6 +1368,56 @@ describe('C26.5.4: подсветка приехавшей записи', () => 
   })
 })
 
+describe('06.11: подсветка записи, у которой сменился статус', () => {
+  /* тот же день, та же запись №1 — другой статус: так выглядит и своя команда
+     (состояние приходит каналом), и статус, поставленный с другого места */
+  const turned = () => {
+    const m = model()
+    const b = m.canvas.columns[0]!.blocks[0]!
+    if (b.kind !== 'appt') throw new Error('фикстура: первым блоком ждали визит')
+    m.canvas.columns[0]!.blocks[0] = { ...b, status: 'waiting', status_label: 'a venit' }
+    m.agenda.items[0] = { ...m.agenda.items[0]!, status: 'waiting', badge: { cls: 'wait', label: 'A venit' } }
+    return m
+  }
+  const moved = () => Array.from(document.querySelectorAll('.moved'))
+    .map((el) => el.getAttribute('data-appt'))
+
+  it('первый показ дня не подсвечивает ничего', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, turned())))
+    await show()
+    expect(moved()).toEqual([])
+  })
+
+  it('⭐ сменился статус в конверте — подсвечены блок сетки и строка повестки, и только они', async () => {
+    const f = vi.fn(async () => reply(200, model()))
+    vi.stubGlobal('fetch', f)
+    await show()
+
+    f.mockImplementation(async () => reply(200, turned(), { 'X-DP-Hash': 'h2' }))
+    await vi.advanceTimersByTimeAsync(12_000)
+
+    await waitFor(() => expect(moved().length).toBe(2))
+    expect(document.querySelector('.gridbody [data-appt="1"]')?.className).toContain('moved')
+    expect(document.querySelector('.ag-l [data-appt="1"]')?.className).toContain('moved')
+    /* это не приезд: `fresh` остаётся новым номерам */
+    expect(document.querySelectorAll('.fresh').length).toBe(0)
+
+    /* ⛔ пометка не залипает — снимает таймер, как у `fresh` */
+    await vi.advanceTimersByTimeAsync(1_500)
+    await waitFor(() => expect(moved()).toEqual([]))
+  })
+
+  it('⛔ опрос без изменений (204) не подсвечивает ничего', async () => {
+    const f = vi.fn(async () => reply(200, model()))
+    vi.stubGlobal('fetch', f)
+    await show()
+    f.mockImplementation(async () => new Response(null, { status: 204 }))
+    await vi.advanceTimersByTimeAsync(36_000)
+    expect(f.mock.calls.length).toBeGreaterThan(2)
+    expect(moved()).toEqual([])
+  })
+})
+
 /* Права врача (22.10): учётка `medic` без привязки — пустая панель и
    подсказка сервера в конверте канала, состоянием под подзаголовком. */
 describe('права врача: подсказка учётки без врача на панели', () => {

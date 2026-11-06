@@ -499,6 +499,16 @@ describe('C26.5.2: блок записи', () => {
       expect(a().className).toBe('gappt fresh slim duo')
       rerender(at(new Set()))
       expect(a().className).toBe('gappt slim duo')
+      /* 06.11: та же история у пометки сменившегося статуса */
+      const mv = (moved: ReadonlySet<number>) => (
+        <DashCanvas model={MODEL} rail={rail} waitTick={NOW} lineTick={NOW}
+          onCard={onCard} onSlot={onSlot} onNote={onNote}
+          drag={null} hover="" onDrag={onDrag} onHover={onHover} onDrop={onDrop}
+          fresh={new Set()} moved={moved} />)
+      rerender(mv(new Set([1])))
+      expect(a().className).toBe('gappt moved slim duo')
+      rerender(mv(new Set()))
+      expect(a().className).toBe('gappt slim duo')
     } finally {
       delete (HTMLElement.prototype as { scrollHeight?: number }).scrollHeight
     }

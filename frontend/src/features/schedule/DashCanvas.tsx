@@ -84,6 +84,9 @@ interface Props {
   onDrop: (t: Target) => void
   /** Что приехало прямо сейчас: этим блокам ставится `fresh` (C26.5.4). */
   fresh: ReadonlySet<number>
+  /** У кого сменился статус в последнем конверте: этим блокам ставится
+   *  `moved` (06.11). Экран без живого канала его не передаёт. */
+  moved?: ReadonlySet<number> | undefined
   /** Факты карточки визита по id — только у дня ОДНОГО врача (22.10, вариант
    *  A): колонки справа от имени. Нет — карточка как на главной. */
   facts?: Record<string, VisitFacts> | undefined
@@ -91,8 +94,12 @@ interface Props {
 
 const p2 = (n: number) => String(n).padStart(2, '0')
 
+/** Пустая пометка — одна ссылка: новый `Set` на каждый рендер перезапускал бы
+ *  перемер ступеней блоков. */
+const NO_MARKS: ReadonlySet<number> = new Set()
+
 export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu, onSlot, onNote,
-  drag, hover, onDrag, onHover, onDrop, fresh, facts }: Props) {
+  drag, hover, onDrag, onHover, onDrop, fresh, moved = NO_MARKS, facts }: Props) {
   const body = useRef<HTMLDivElement | null>(null)
   /* ⚠️ Перемер блоков привязан к минутам ожидания не вообще, а только когда
      ожидающие ЕСТЬ: текст «așteaptă N min» вписывается после замера, и блок
@@ -103,8 +110,8 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
     (c) => c.blocks.some((b) => b.kind === 'appt' && b.wait_since))
   const view = useCardView()
   useFitGrid(body, rail, model.hours.length)
-  /* `fresh` меняет className блока без новой модели — и стёр бы ступени */
-  useFitAppts(body, waits ? waitTick : 0, model, view, fresh)
+  /* `fresh` и `moved` меняют className блока без новой модели — и стёрли бы ступени */
+  useFitAppts(body, waits ? waitTick : 0, model, view, fresh, moved)
 
   if (model.empty) {
     return (
@@ -178,7 +185,8 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
             {col.blocks.map((b) => (
               <Block key={b.id} block={b} waitTick={waitTick} dk={col.id ?? ''}
                 onCard={onCard} onCardMenu={onCardMenu} onNote={onNote} onDrag={onDrag}
-                fresh={fresh.has(b.id)} facts={facts?.[String(b.id)]} date={model.date} />
+                fresh={fresh.has(b.id)} moved={moved.has(b.id)}
+                facts={facts?.[String(b.id)]} date={model.date} />
             ))}
           </div>
         ))}
@@ -330,13 +338,14 @@ function Relink({ relink, date }: { relink: NonNullable<DashColumn['relink']>; d
 }
 
 function Block(
-  { block, waitTick, dk, onCard, onCardMenu, onNote, onDrag, fresh, facts, date }:
+  { block, waitTick, dk, onCard, onCardMenu, onNote, onDrag, fresh, moved, facts, date }:
   {
     block: DashBlock; waitTick: number; dk: string
     onCard: (id: number) => void; onNote: (id: number) => void
     onCardMenu?: ((id: number, x: number, y: number) => void) | undefined
     onDrag: (d: Drag | null) => void
     fresh: boolean
+    moved: boolean
     facts: VisitFacts | undefined
     date: string
   },
@@ -344,7 +353,7 @@ function Block(
   /* ⛔ Класс ТОТ ЖЕ, что у легаси (`.gappt.fresh` в panel.css): оформление уже
      лежит в стилях и живёт ВНЕ `.anim` — как раз потому, что эта анимация
      нужна на автообновлении, когда входные уже выключены. */
-  const fx = fresh ? ' fresh' : ''
+  const fx = (fresh ? ' fresh' : '') + (moved ? ' moved' : '')
   /* ⚠️ Те же множители, что печатал сервер: доли ячейки, ширина делится
      между пересекающимися. Считать позицию «от индекса часа» нельзя — на дне
      со сдвинутым графиком это промахивается (`base_min`). */

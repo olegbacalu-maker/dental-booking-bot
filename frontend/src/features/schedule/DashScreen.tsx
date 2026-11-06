@@ -23,7 +23,7 @@ import {
   type DashAppt, type DashModel, type DashNote,
 } from './dash'
 import { freeHalves, type Slot } from './slot'
-import { freshOf, readSeen, writeSeen, FRESH_MS } from './fresh'
+import { freshOf, movedOf, readSeen, writeSeen, FRESH_MS, MOVED_MS } from './fresh'
 import { clashAmong, hhmm, sameSlot, type Drag, type Target } from './move'
 
 /**
@@ -140,6 +140,10 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
   const [slot, setSlot] = useState<Slot | null>(null)
   /* Что приехало ПРЯМО СЕЙЧАС — номера, которых в прошлом конверте не было. */
   const [fresh, setFresh] = useState<ReadonlySet<number>>(NO_FRESH)
+  /* У кого сменился статус в последнем конверте (06.11.2026): строка и блок
+     на секунду подсвечиваются — видно, ЧТО изменилось, в том числе когда
+     статус поставили с другого компьютера или планшета. */
+  const [moved, setMoved] = useState<ReadonlySet<number>>(NO_FRESH)
   /* ⚠️ Со снимком, как у карточки, и по той же причине: заметку могли убрать
      со второго рабочего места, пока диалог открыт, — тогда на экране остаётся
      то, что человек ОТКРЫВАЛ, и слово о том, что этого больше нет. */
@@ -236,6 +240,10 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
      «только что приехал». Другой день читается из хранилища: первый его
      показ не подсвечивает ничего. */
   const seen = useRef<{ day: string; ids: string[] } | null>(null)
+  /* Статусы прошлого конверта — для подсветки сменившегося. ⛔ Только в
+     памяти экрана и НА ДЕНЬ: первый показ дня (и возврат на главную с другого
+     экрана) сравнивать не с чем и не подсвечивает ничего. */
+  const statuses = useRef<{ day: string; map: Map<string, string> } | null>(null)
   useEffect(() => {
     const d = state.data
     if (!d || shown.current === d) return
@@ -250,6 +258,14 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
        а не то, что мы сами сделали минуту назад. */
     const got = freshOf(was, ids)
     if (got.length) setFresh(new Set(got.map(Number)))
+    /* ⛔ И «сменился статус» — оттуда же, из разницы двух конвертов: своя
+       команда состояния не несёт, чужая приходит опросом, и обе видны
+       одинаково. Опрос без изменений (204) сюда не доходит вовсе. */
+    const now = statusOf(d)
+    const before = statuses.current?.day === d.date ? statuses.current.map : null
+    statuses.current = { day: d.date, map: now }
+    const turned = movedOf(before, now)
+    if (turned.length) setMoved(new Set(turned.map(Number)))
   }, [state.data])
 
   /* ⛔ Пометку снимает ТАЙМЕР, а не `animationend`: под
@@ -262,6 +278,13 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
     const t = setTimeout(() => setFresh(NO_FRESH), FRESH_MS)
     return () => clearTimeout(t)
   }, [fresh])
+
+  /* та же пометка-на-таймере у сменившегося статуса */
+  useEffect(() => {
+    if (!moved.size) return
+    const t = setTimeout(() => setMoved(NO_FRESH), MOVED_MS)
+    return () => clearTimeout(t)
+  }, [moved])
 
   /* ⛔ Надгробие. Запись могли отменить или перенести со второго рабочего
      места, пока диалог открыт. Молча размонтировать нельзя — человек решит,
@@ -423,14 +446,14 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
             onSlot={(dk, name, hour) => setSlot({ dk, name, hour })}
             onNote={(id) => openNoteById(d, id)}
             drag={drag} hover={hover} onDrag={startDrag} onHover={setHover}
-            onDrop={onDrop} fresh={fresh} />
+            onDrop={onDrop} fresh={fresh} moved={moved} />
           {/* ⛔ Без подсказки под сеткой (макет 08.10 — без строки-подсказки). */}
         </div>
         <div className="rail" ref={rail}>
           <DashRail minical={d.minical} agenda={d.agenda} canvas={d.canvas}
             desk={d.desk} date={d.date} waitTick={waitTick}
             busy={busy} onCard={(id) => openById(d, id)}
-            onCardMenu={(id, x, y) => setMenu({ id, x, y })} fresh={fresh}
+            onCardMenu={(id, x, y) => setMenu({ id, x, y })} fresh={fresh} moved={moved}
             onCall={(id, result) => { void act(() => dash.call(d.date, id, result)) }}
             onFlow={(id, to) => { void act(() => dash.status(d.date, id, to)) }}
             actions={d.actions}
@@ -559,6 +582,17 @@ function idsOf(m: DashModel): string[] {
     for (const b of col.blocks) out.push(String(b.id))
   }
   for (const it of m.agenda.items) out.push(String(it.id))
+  return out
+}
+
+/** Статус каждой записи на панели: блоки канвы и строки повестки (номер один
+ *  и тот же, статус — тоже; повестка покрывает запись без колонки). */
+function statusOf(m: DashModel): Map<string, string> {
+  const out = new Map<string, string>()
+  for (const col of m.canvas.columns) {
+    for (const b of col.blocks) out.set(String(b.id), b.status)
+  }
+  for (const it of m.agenda.items) out.set(String(it.id), it.status)
   return out
 }
 

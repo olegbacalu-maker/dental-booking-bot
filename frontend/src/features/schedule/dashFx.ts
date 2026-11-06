@@ -215,7 +215,7 @@ function onCardView(changed: () => void): () => void {
  */
 export function useFitAppts(
   body: React.RefObject<HTMLDivElement | null>, tick: number, deps: unknown, view = '',
-  marks: unknown = null,
+  marks: unknown = null, marks2: unknown = null,
 ): void {
   useLayoutEffect(() => {
     const gb = body.current
@@ -229,7 +229,7 @@ export function useFitAppts(
       if (over(a)) a.classList.add('bare')
       fitFacts(a)
     }
-  }, [body, tick, deps, view, marks])
+  }, [body, tick, deps, view, marks, marks2])
 }
 
 /**

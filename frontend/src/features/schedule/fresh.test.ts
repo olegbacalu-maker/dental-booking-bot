@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { freshOf, readSeen, seenKey, writeSeen } from './fresh'
+import { freshOf, movedOf, readSeen, seenKey, writeSeen } from './fresh'
 
 /* Память дня и разница двух конвертов — правило без единого узла DOM.
 
@@ -49,5 +49,23 @@ describe('C26.5.4: что считается приехавшим', () => {
   it('⚠️ номера приводятся к строкам: конверт несёт числа, хранилище — текст', () => {
     writeSeen('2026-09-20', ['7'])
     expect(freshOf(readSeen('2026-09-20'), ['7', '8'])).toEqual(['8'])
+  })
+})
+
+describe('06.11: у кого сменился статус между двумя конвертами', () => {
+  const m = (o: Record<string, string>) => new Map(Object.entries(o))
+
+  it('⛔ первый показ дня не подсвечивает НИЧЕГО', () => {
+    expect(movedOf(null, m({ 1: 'confirmed', 2: 'waiting' }))).toEqual([])
+  })
+
+  it('сменившийся — тот, чей номер был и чей статус стал другим', () => {
+    expect(movedOf(m({ 1: 'confirmed', 2: 'waiting' }), m({ 1: 'waiting', 2: 'waiting' }))).toEqual(['1'])
+    expect(movedOf(m({ 1: 'confirmed' }), m({ 1: 'confirmed' }))).toEqual([])
+  })
+
+  it('⛔ новая запись — не «сменила статус»: она приехала (`fresh`), а ушедшая не подсвечивает никого', () => {
+    expect(movedOf(m({ 1: 'confirmed' }), m({ 1: 'confirmed', 5: 'confirmed' }))).toEqual([])
+    expect(movedOf(m({ 1: 'confirmed', 5: 'waiting' }), m({ 1: 'confirmed' }))).toEqual([])
   })
 })

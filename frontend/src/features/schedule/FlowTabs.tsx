@@ -100,20 +100,25 @@ interface ListProps {
   busy: boolean
   onCard: (id: number) => void
   onFlow: (id: number, to: FlowTo) => void
+  /** У кого сменился статус в последнем конверте (06.11): строка, только что
+   *  пришедшая на эту вкладку, подсвечена. */
+  moved?: ReadonlySet<number> | undefined
 }
 
-export function FlowList({ kind, rows, labels, busy, onCard, onFlow }: ListProps) {
+export function FlowList({ kind, rows, labels, busy, onCard, onFlow, moved }: ListProps) {
   if (!rows.length) return <p className="fl-empty">{W.empty[kind]}</p>
   return (
     <div className="fl-list">
       {rows.map((r) => (
-        <Row key={r.it.id} kind={kind} r={r} labels={labels} busy={busy} onCard={onCard} onFlow={onFlow} />
+        <Row key={r.it.id} kind={kind} r={r} labels={labels} busy={busy} onCard={onCard} onFlow={onFlow}
+          moved={moved?.has(r.it.id) ?? false} />
       ))}
     </div>
   )
 }
 
-function Row({ kind, r, labels, busy, onCard, onFlow }: { kind: FlowKind; r: FlowRow } & Omit<ListProps, 'kind' | 'rows'>) {
+function Row({ kind, r, labels, busy, onCard, onFlow, moved }:
+  { kind: FlowKind; r: FlowRow; moved: boolean } & Omit<ListProps, 'kind' | 'rows' | 'moved'>) {
   const { it } = r
   const to = NEXT[kind]
   let chip: { text: string; cls: string }
@@ -144,7 +149,7 @@ function Row({ kind, r, labels, busy, onCard, onFlow }: { kind: FlowKind; r: Flo
   }
   const over = kind === 'incab' && r.min > 0
   return (
-    <div className={`fl-row${over ? ' over' : ''}`} data-appt={it.id} onClick={() => onCard(it.id)}>
+    <div className={`fl-row${over ? ' over' : ''}${moved ? ' moved' : ''}`} data-appt={it.id} onClick={() => onCard(it.id)}>
       <span className="dk-t">{it.time}</span>
       <div className="fl-b">
         <div className="fl-l1">

@@ -61,6 +61,8 @@ interface Props {
   onCall: (id: number, result: CallResult) => void
   /** Что приехало прямо сейчас: этим строкам ставится `fresh` (C26.5.4). */
   fresh: ReadonlySet<number>
+  /** У кого сменился статус в последнем конверте: строкам ставится `moved` (06.11). */
+  moved?: ReadonlySet<number> | undefined
   /** Поток пациента (03.10): следующий статус одной кнопкой — команда панели. */
   onFlow: (id: number, to: FlowTo) => void
   /** Матрица кнопок исхода: из неё — слова статусов на вкладках потока. */
@@ -70,8 +72,8 @@ interface Props {
 }
 
 export function DashRail(
-  { minical, agenda, canvas, desk, date, waitTick, busy, onCard, onCardMenu, onCall, fresh, onFlow,
-    actions, onSlot }: Props,
+  { minical, agenda, canvas, desk, date, waitTick, busy, onCard, onCardMenu, onCall, fresh,
+    moved = NO_MARKS, onFlow, actions, onSlot }: Props,
 ) {
   // поток — только у СЕГОДНЯ: в чужом дне «опаздывает» и «ждёт» не значат ничего
   const flow = agenda.today ? flowOf(agenda.items, waitTick) : null
@@ -80,7 +82,7 @@ export function DashRail(
     <>
       <MiniCal cal={minical} />
       <Agenda agenda={agenda} date={date} waitTick={waitTick} onCard={onCard}
-        onCardMenu={onCardMenu} fresh={fresh} flow={flow} labels={labels}
+        onCardMenu={onCardMenu} fresh={fresh} moved={moved} flow={flow} labels={labels}
         busy={busy} onFlow={onFlow} />
       <FreeCard canvas={canvas} today={agenda.today} date={date} waitTick={waitTick}
         desk={desk} busy={busy} onSlot={onSlot} />
@@ -94,13 +96,16 @@ export function DashRail(
  *  сервера (`labels`), второго словаря статусов здесь нет. */
 const NEXT_OF: Record<string, FlowTo> = { confirmed: 'waiting', waiting: 'arrived', arrived: 'done' }
 
+/** Пустая пометка — одна ссылка на всех. */
+const NO_MARKS: ReadonlySet<number> = new Set()
+
 /** Пустой день — ДРУГОЕ дерево, а не пустой список: без счётчика, без списка
  *  и без ссылки «смотреть все». */
 function Agenda(
-  { agenda, date, waitTick, onCard, onCardMenu, fresh, flow, labels, busy, onFlow }: {
+  { agenda, date, waitTick, onCard, onCardMenu, fresh, moved, flow, labels, busy, onFlow }: {
     agenda: DashAgenda; date: string; waitTick: number
     onCard: (id: number) => void; onCardMenu?: ((id: number, x: number, y: number) => void) | undefined
-    fresh: ReadonlySet<number>
+    fresh: ReadonlySet<number>; moved: ReadonlySet<number>
     /** Вкладки потока над повесткой; null — чужой день, вкладок нет. */
     flow: Flow | null; labels: FlowLabels; busy: boolean; onFlow: (id: number, to: FlowTo) => void
   },
@@ -138,7 +143,8 @@ function Agenda(
           Высота блока на любой вкладке — высота списка «Toate». */}
       <div className="ag-stack">
         {flow && t !== 'all' && (
-          <FlowList kind={t} rows={flow[t]} labels={labels} busy={busy} onCard={onCard} onFlow={onFlow} />
+          <FlowList kind={t} rows={flow[t]} labels={labels} busy={busy} onCard={onCard} onFlow={onFlow}
+            moved={moved} />
         )}
         {/* `aria-hidden` — невидимый список и для читалки, и для запросов по роли */}
         <div className={`ag-l${t !== 'all' ? ' off' : ''}`} aria-hidden={t !== 'all' || undefined}>
@@ -150,7 +156,7 @@ function Agenda(
           return (
             <div key={it.id}
               className={`ag-i${it.state === 'past' ? ' past' : ''}${it.status === 'done' ? ' done' : ''}`
-                + (fresh.has(it.id) ? ' fresh' : '')}
+                + (fresh.has(it.id) ? ' fresh' : '') + (moved.has(it.id) ? ' moved' : '')}
               data-appt={it.id}
               /* завершённый — серая полоса, не цвет услуги (09.10, как у блока сетки) */
               style={{ borderLeftColor: it.status === 'done' ? 'var(--text3)' : it.bar }}
