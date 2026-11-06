@@ -418,6 +418,14 @@
   box-shadow: var(--sh3);
   padding: 6px;
 }
+/* Появление меню (06.11.2026, проба look/motion-1): проявляется и чуть
+   вырастает от угла у курсора за короткую ступень. @starting-style — меню
+   кликабельно с первого кадра, закрывается мгновенно; движок без него
+   показывает меню сразу. */
+@media (prefers-reduced-motion: no-preference) {
+  .dp-cmenu { transform-origin: top left; transition: opacity var(--dur-fast) ease, transform var(--dur-fast) ease; }
+  @starting-style { .dp-cmenu { opacity: 0; transform: scale(.97); } }
+}
 .dp-cmenu-h { font-size: var(--fs-s); font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--text3); padding: 6px 10px 4px; }
 .dp-cmenu-i {
   display: block;
@@ -1548,6 +1556,13 @@ dialog.dp-about { width: 460px; }
 .fl-chip.blue { background: var(--blue-soft); color: #1D4ED8; }
 .fl-row.over .fl-chip.amber { background: var(--panel); }
 .fl-empty { margin: 8px 0 4px; font-size: var(--fs-s); color: var(--text3); text-align: center; }
+/* Список вкладки проявляется при переключении (06.11): узел пересоздаётся
+   только сменой вкладки (ключ в DashRail), опрос канала его не трогает.
+   Высоту блока держит стопка `.ag-stack` — меняется только прозрачность. */
+@media (prefers-reduced-motion: no-preference) {
+  .fl-list, .fl-empty { transition: opacity var(--dur-fast) ease; }
+  @starting-style { .fl-list, .fl-empty { opacity: 0; } }
+}
 .dk-btn.fl-waiting:hover { background: var(--violet-soft); color: #6D28D9; border-color: transparent; }
 .dk-btn.fl-arrived:hover { background: var(--blue-soft); color: #1D4ED8; border-color: transparent; }
 .dk-btn.fl-done:hover { background: var(--green-soft); color: var(--green-t); border-color: transparent; }

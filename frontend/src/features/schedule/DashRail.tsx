@@ -143,7 +143,9 @@ function Agenda(
           Высота блока на любой вкладке — высота списка «Toate». */}
       <div className="ag-stack">
         {flow && t !== 'all' && (
-          <FlowList kind={t} rows={flow[t]} labels={labels} busy={busy} onCard={onCard} onFlow={onFlow}
+          /* ключ по вкладке (06.11): другая вкладка — другой узел списка, и
+             он проявляется; обновление канала узел не пересоздаёт */
+          <FlowList key={t} kind={t} rows={flow[t]} labels={labels} busy={busy} onCard={onCard} onFlow={onFlow}
             moved={moved} />
         )}
         {/* `aria-hidden` — невидимый список и для читалки, и для запросов по роли */}
