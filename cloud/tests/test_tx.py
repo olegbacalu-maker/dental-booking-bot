@@ -5,9 +5,13 @@ settle — только под замком записи с начала (`db.co
 если соседка успела закоммитить: busy timeout устаревший снимок не ждёт. maib почти разом
 шлёт callback и возвращает браузер на /pay/ok — вторая ветка падала 500 (test_maib.suite_race).
 Тест гонки держит это, пока внутри транзакции есть пауза (письмо); сторож — всегда.
+
+С 06.11 то же правило — для КАЖДОЙ транзакции, которая пишет (suite_write_lock, в конце файла):
+500 «database is locked» на /v1/license в бою — та же отложенная транзакция, не про оплату.
 """
 import ast
 import copy
+import re
 
 from harness import CLOUD, Result
 
@@ -180,23 +184,26 @@ def _key(call: ast.Call, stem: str, mods: set) -> str | None:
 _DEFS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
 
 
-def _walk(node: ast.AST, w, out: list) -> None:
+def _walk(node: ast.AST, w, out: list, texts: list | None = None) -> None:
     """(вызов, ближайший `with db.connect` или None), без вложенных def. Элементы `with` ПОСЛЕ
-    db.connect выходят РАНЬШЕ commit — они внутри транзакции; до него — снаружи (outbox)."""
+    db.connect выходят РАНЬШЕ commit — они внутри транзакции; до него — снаружи (outbox).
+    `texts` — туда же строковые литералы (литерал, with): SQL записи ищет write_check."""
     if isinstance(node, _DEFS):
         return
     if isinstance(node, ast.With) and (conn := _connect(node)) is not None:
         after = False
         for item in node.items:
-            _walk(item.context_expr, node if after else w, out)
+            _walk(item.context_expr, node if after else w, out, texts)
             after = after or item.context_expr is conn
         for stmt in node.body:
-            _walk(stmt, node, out)
+            _walk(stmt, node, out, texts)
         return
     if isinstance(node, ast.Call):
         out.append((node, w))
+    if texts is not None and isinstance(node, ast.Constant) and isinstance(node.value, str):
+        texts.append((node, w))
     for child in ast.iter_child_nodes(node):
-        _walk(child, w, out)
+        _walk(child, w, out, texts)
 
 
 def _funcs(trees: dict[str, ast.Module]) -> tuple[set, list]:
@@ -385,4 +392,160 @@ def suite_net_outside_tx(res: Result) -> None:
     _, m = net_check(_prepend(trees, "payments.py", "card_record", "maib.create(1, 'r', 'd')"))
     hit = {f"{_where(trees, h)}:{h} → payments.card_record" for h in ("card_go", "payment_new", "payment_link")}
     res.ok("пара: запись ответа начала звать maib — красные кнопка карты, нота и ссылка из админки",
+           hit <= set(m), sorted(hit - set(m)))
+
+
+# ---------- транзакция, которая пишет, — под замком записи с начала (06.11) ----------
+# Бой, 06.11: 500 на GET /v1/license — «database is locked». Программа на старте шлёт три запроса
+# разом; license_renew шёл отложенной транзакцией: прочёл клинику, потом писал след запроса. SQLite
+# у транзакции, которая УЖЕ читает, замок записи не ждёт (busy timeout — только до первого чтения):
+# сосед держит замок или успел закоммитить — отказ сразу. Отсюда правило: `with db.connect`, в
+# котором есть запись, открыт с immediate=True. Запись — SQL-литерал INSERT / UPDATE / DELETE /
+# REPLACE или вызов функции, которая пишет на чужом `con` (сама или по цепочке). Транзакции, где
+# запись стоит первой, отложенными были безопасны (замок берётся с ожиданием) — правило одно на
+# всех: «сперва запись» молча кончается с первой добавленной выше строкой чтения.
+# Живой тест — tests/test_lock.py (сосед держит замок, запрос обязан ждать).
+# ⚠️ Чего сторож не видит: SQL, собранный не литералом (переменная модуля, строка, начатая
+# не-литералом), и вызов функции, пришедшей параметром (`send`).
+
+WRITE_SQL = re.compile(r"^\s*(INSERT\s+(OR\s+\w+\s+)?INTO|UPDATE\s+(OR\s+\w+\s+)?\w+\s+SET|DELETE\s+FROM"
+                       r"|REPLACE\s+INTO)\b", re.I)
+SQL = "SQL"          # метка записи литералом — в нарушении «файл:функция → SQL»
+
+# Кто пишет на чужом `con` — по ним видно, что обход нашёл то, что должен (список ВКЛЮЧАЕТ
+# требование: переименуют — красное «найдены», а не тихий ноль)
+WRITE_NAMES = {"db.audit", "fleet.touch", "terms.record", "paylink.create", "contlink.create", "sms.ensure",
+               "sms.view", "sms.ledger", "license.issue", "license.renew_token", "payments.settle",
+               "payments.create", "receipts.ensure", "trial.submit", "emailconf.issue", "account.detach"}
+# Кто только читает: цепочка не должна разрастись до «пишут все»
+READ_NAMES = {"web.clinic", "web.payment", "sms.account", "sms.balance", "sms.states", "sms.blocked",
+              "terms.headers", "fleet.of_clinic", "payments.of_clinic", "payments.debt_of", "account.clinics"}
+# Чьи транзакции переведены на замок с начала 06.11 — у каждой пара «без immediate — красный»
+WRITE_HOLDERS = {"license_renew", "_sms_clinic", "submit", "descarca", "_cont_dashboard", "cont_edit",
+                 "cont_receipt", "cont_sms_form", "login", "trial_decline", "clinic_new", "sms_export",
+                 "sms_test", "clinic_edit", "clinic_issue", "clinic_tier", "account_detach", "payment_receipt",
+                 "payment_reject", "daily"}
+# Чьи транзакции только читают и остаются отложенными: правило — не «immediate везде»
+READ_HOLDERS = {"clinics", "clinic_card", "audit_log", "issue_file", "email_confirm_page"}
+
+# Пишущая транзакция, оставленная отложенной НАМЕРЕННО, — «файл:функция → первая запись». Во всех
+# четырёх письмо уходит ВНУТРИ транзакции ДО первой записи (отметка «отправлено» — после удачной
+# отправки): замок с начала держал бы запись всего сервера на время SMTP (до 30 с, mail.send), и
+# соседи падали бы уже через 10 с ожидания. Цена названа: запись соседа за время отправки —
+# «database is locked» на отметке: письмо ушло, отметки нет (задача повторит письмо назавтра,
+# Олегу — 500 после отправленного письма). Лечится не замком, а выносом отправки за commit
+# (payments.outbox) — отдельная работа.
+DEFERRED_WRITE = {
+    "jobs.py:daily → jobs._one": "письмо о сроке: send, потом строка reminders (ежедневная задача)",
+    "sms.py:low_letters → SQL": "«Au rămas N SMS»: send, потом строка reminders (ежедневная задача)",
+    "sms.py:float_check → sms.alarm": "тревога Олегу о балансе sms.md: mail.send, потом reminders (задача)",
+    "routes_admin.py:clinic_email → routes_admin._send_latest": "«Отправить файл письмом» админки: "
+                                                                "mail.deliver, потом строка журнала",
+}
+
+
+def _aliases(tree: ast.Module, mods: set) -> dict:
+    """Имя в файле → модуль облака: `from . import login as elogin` зовёт login под другим именем."""
+    out = {m: m for m in mods}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.level == 1 and not node.module:
+            for a in node.names:
+                if a.name in mods:
+                    out[a.asname or a.name] = a.name
+    return out
+
+
+def _wkey(call: ast.Call, stem: str, names: dict) -> str | None:
+    f = call.func
+    if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id in names:
+        return f"{names[f.value.id]}.{f.attr}"
+    if isinstance(f, ast.Name):
+        return f"{stem}.{f.id}"
+    return None
+
+
+def write_check(trees: dict[str, ast.Module]) -> tuple[set, dict, list]:
+    """(пишущие «модуль.имя», {функция: [(файл, строка, immediate)]} — её `with db.connect` с
+    записью, нарушения «файл:функция → первая запись» — такие with без immediate=True).
+    Пишущая — функция, у которой запись (SQL-литерал или вызов пишущей) стоит ВНЕ своего
+    `with db.connect`, то есть на чужом `con`; дальше — все, кто так зовёт её, по цепочке."""
+    mods = {f[:-3] for f in trees}
+    funcs = []
+    for fname, tree in trees.items():
+        stem, names = fname[:-3], _aliases(tree, mods)
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                calls: list = []
+                texts: list = []
+                for stmt in node.body:
+                    _walk(stmt, None, calls, texts)
+                marks = [(c.lineno, c.col_offset, _wkey(c, stem, names), w) for c, w in calls]
+                marks += [(t.lineno, t.col_offset, SQL, w) for t, w in texts if WRITE_SQL.match(t.value)]
+                funcs.append((fname, stem, node, sorted(marks, key=lambda m: m[:2])))
+    writers = {SQL}
+    while True:
+        more = {f"{stem}.{fn.name}" for _, stem, fn, marks in funcs
+                if any(w is None and k in writers for _, _, k, w in marks)}
+        if more <= writers:
+            break
+        writers |= more
+    held: dict = {}
+    bad = []
+    for fname, _, fn, marks in funcs:
+        seen = set()
+        for _, _, k, w in marks:
+            if w is None or k not in writers or id(w) in seen:
+                continue
+            seen.add(id(w))
+            imm = _immediate(_connect(w))
+            held.setdefault(fn.name, []).append((fname, w.lineno, imm))
+            if not imm:
+                bad.append(f"{fname}:{fn.name} → {k}")
+    return writers - {SQL}, held, sorted(bad)
+
+
+def _deferred(trees: dict[str, ast.Module]) -> set:
+    """Функции, у которых есть `with db.connect` без immediate (читающие и исключения)."""
+    return {node.name for tree in trees.values() for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            for w in ast.walk(node) if isinstance(w, ast.With) and (c := _connect(w)) is not None
+            and not _immediate(c)}
+
+
+def suite_write_lock(res: Result) -> None:
+    """Каждый `with db.connect`, в котором есть запись, — immediate=True, кроме названных
+    исключений; и пары: снятый immediate, запись в читающей транзакции, читатель стал писателем."""
+    trees = _trees()
+    need = {"routes_program.py", "routes_pay.py", "routes_cont.py", "routes_admin.py", "routes_admin_pay.py",
+            "routes_public.py", "web.py", "jobs.py", "sms.py", "payments.py", "fleet.py", "db.py"}
+    res.ok("исходники нашлись: роутеры, web.py, jobs.py, sms.py, payments.py, fleet.py, db.py",
+           need <= set(trees), sorted(need - set(trees)))
+    writers, held, bad = write_check(trees)
+    res.ok("пишущие найдены: audit, touch, record, create ссылок, ensure, issue, settle и остальные",
+           WRITE_NAMES <= writers, sorted(WRITE_NAMES - writers))
+    res.ok("читающие не записаны в пишущие: clinic, payment, balance, states, headers…",
+           not (READ_NAMES & writers), sorted(READ_NAMES & writers))
+    res.ok("пишущие транзакции найдены у /v1/license, /v1/sms/*, кабинета, админки, задачи",
+           WRITE_HOLDERS <= set(held), sorted(WRITE_HOLDERS - set(held)))
+    res.ok("читающие транзакции остались отложенными (правило — не «immediate везде»): список клиник, "
+           "карточка, журнал, файл выдачи, страница подтверждения ящика",
+           READ_HOLDERS <= _deferred(trees) and not (READ_HOLDERS & set(held)),
+           f"{sorted(READ_HOLDERS - _deferred(trees))} {sorted(READ_HOLDERS & set(held))}")
+    res.check("with db.connect с записью без immediate=True — только названные исключения",
+              [b for b in bad if b not in DEFERRED_WRITE], [])
+    res.check("исключения живые (нет устаревших строк)", sorted(set(DEFERRED_WRITE) - set(bad)), [])
+    # пары: каждая поломка краснеет
+    for func in sorted(WRITE_HOLDERS):
+        _, _, m = write_check(_strip(trees, func))
+        res.ok(f"пара: без immediate у {func} — сторож красный",
+               any(f":{func} → " in b for b in m if b not in DEFERRED_WRITE), repr(m))
+    _, _, m = write_check(_inject(trees, "routes_admin.py", "clinics", "db.audit(con, 'a', 'b')"))
+    res.ok("пара: запись в читающей транзакции списка клиник — красный",
+           "routes_admin.py:clinics → db.audit" in m, repr(m))
+    _, _, m = write_check(_inject(trees, "routes_admin.py", "clinics",
+                                  "con.execute('UPDATE clinics SET name=name')"))
+    res.ok("пара: UPDATE литералом в читающей транзакции — красный", "routes_admin.py:clinics → SQL" in m, repr(m))
+    _, _, m = write_check(_prepend(trees, "web.py", "clinic", "con.execute('DELETE FROM audit')"))
+    hit = {"routes_admin.py:clinic_card → web.clinic", "routes_admin.py:clinic_document_file → web.clinic"}
+    res.ok("пара: читатель web.clinic начал писать — красные читающие транзакции, что его зовут",
            hit <= set(m), sorted(hit - set(m)))
