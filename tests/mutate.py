@@ -424,6 +424,10 @@ MUTATIONS = [
      (".top form.searchf input{font-size:16px}", ".top form.searchf .q{font-size:16px}")),
     ("длительность перехода", "app/static/css/panel.css",
      "\n.mut{transition:color .2s ease}\n"),
+    # Отклик на действие под выключателем входных анимаций: у стойки он не
+    # сыграл бы ни разу (класс снят первым изменением дня).
+    ("под .anim только входные анимации", "app/static/css/panel.css",
+     "\n.anim .toastbox .banner{animation:dp-toast .3s ease both}\n"),
     # Размытие числом — в app.css: правило обязано читать и клиентский файл.
     ("размытие берётся ступенью", "_frontend/app/app.css",
      "\n.mut{backdrop-filter:blur(8px)}\n"),
@@ -645,6 +649,9 @@ LEGAL = [
     ("длительность перехода", "app/static/css/panel.css",
      "\n.m10{transition:color var(--dur) ease,transform var(--dur-fast)}"
      ".m11{animation:dp-in .3s ease}\n"),
+    # Ещё одна ступень задержки входной лесенки и отклик ВНЕ .anim — законны.
+    ("под .anim только входные анимации", "app/static/css/panel.css",
+     "\n.anim .ag-i:nth-child(7){animation-delay:.24s}.m13 .anim-x{animation:dp-in .3s ease}\n"),
     # Размытие ступенью у висящего над прокруткой и blur(…) у обычного filter
     # (не backdrop) — законны.
     ("размытие берётся ступенью", "app/static/css/panel.css",
