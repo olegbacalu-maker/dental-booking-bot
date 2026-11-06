@@ -461,12 +461,6 @@ def clinic_edit(request: Request, cid: str, name: str = Form(""), idno: str = Fo
 # ---------- выдача файла ----------
 
 
-def _send_latest(con, c, who: str) -> str:
-    """Последний выданный файл письмом; код для ?msg=. Одна функция на админку,
-    callback maib и ежедневную задачу — license.mail_latest."""
-    return license.mail_latest(con, c, who)
-
-
 @router.post("/admin/clinics/{cid}/issue")
 def clinic_issue(request: Request, cid: str, kind: str = Form("trial"), valid_until: str = Form(""),
                  grace_days: str = Form(str(license.GRACE_DAYS)), reason: str = Form(""),
@@ -476,7 +470,8 @@ def clinic_issue(request: Request, cid: str, kind: str = Form("trial"), valid_un
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     who = auth.current_user(request)
-    with db.connect(immediate=True) as con:
+    # письмо о выдаче собирается в транзакции, уходит после её commit (06.11: SMTP шёл под её замком)
+    with payments.outbox() as box, db.connect(immediate=True) as con:
         c = web.clinic(con, cid)
         if c is None:
             return Response(status_code=404)
@@ -498,9 +493,9 @@ def clinic_issue(request: Request, cid: str, kind: str = Form("trial"), valid_un
             return RedirectResponse(f"/admin/clinics/{cid}?msg=bad_{e}", status_code=303)
         except RuntimeError:
             return RedirectResponse(f"/admin/clinics/{cid}?msg=no_key", status_code=303)
-        code = "issued"
         if send == "1":
-            code = _send_latest(con, c, who) or "issued_mailed"
+            box.add([(True, license.letter_latest(con, c, who))])
+    code = (box.code or "issued_mailed") if send == "1" else "issued"
     return RedirectResponse(f"/admin/clinics/{cid}?msg={code}", status_code=303)
 
 

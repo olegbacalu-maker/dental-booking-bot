@@ -334,10 +334,12 @@ def cont_register_submit(request: Request, name: str = Form(""), idno: str = For
         return HTMLResponse(views.cont_register_page(acc, code, f), status_code=400)
     trial.note(ip)
     vid = link_code = ""
-    with db.connect(immediate=True) as con:
+    with payments.outbox() as box, db.connect(immediate=True) as con:      # письмо о пробном — после commit
         outcome, clinic = account.register(con, acc, f, ip)
+        box.add(trial.letter(con, outcome, clinic, acc["email"]))
         if outcome == trial.DUPLICATE:
             vid, link_code = account.request_link(con, acc, clinic, ip)
+    outcome = trial.mailed(outcome, clinic, box.code, acc["email"])
     if vid:
         subject, body = mail.link_code(clinic["name"], link_code, int(trial.CODE_TTL.total_seconds() // 60),
                                        acc["email"], via="Google" if acc["provider"] == "google" else "e-mail")
@@ -872,7 +874,7 @@ def cont_add_submit(request: Request, c: str = "", name: str = Form(""), address
     trial.note(ip)
     act = until = ""
     main = nota = None
-    with db.connect(immediate=True) as con:
+    with payments.outbox() as box, db.connect(immediate=True) as con:      # письмо новой клинике — после commit
         if len(account.clinics(con, acc)) >= account.CLINICS_MAX:
             return HTMLResponse(views.cont_add_page(acc, cl, "clinics_max", f), status_code=409)
         outcome, new = account.add_clinic(con, cl, f, ip, acc["email"], tier, int(months))
@@ -882,7 +884,7 @@ def cont_add_submit(request: Request, c: str = "", name: str = Form(""), address
             main = cabinet.main_of(con, new["id"])
             nota = payments.debt_of(con, new["id"])
             if outcome == trial.ADDED:
-                _send_added_letter(con, new, nota, acc["email"])
+                box.add(_added_letter(con, new, nota, acc["email"]))
     trial.notify(new, outcome, ip, dict(f, cabinet=f"{cl['name']} ({cl['id']})",
                                         nota=f"{nota['reference']}, {nota['amount']} MDL" if nota else ""),
                  trial.ORIGIN_CONT_ADD)
@@ -902,15 +904,18 @@ def _add_unpaid(con, cl) -> str:
     return views.cont_text("add_unpaid").format(name=clinic["name"], ref=nota["reference"] if nota else "—")
 
 
-def _send_added_letter(con, c, p, who: str) -> None:
+def _added_letter(con, c, p, who: str) -> list:
     """Клинике из «Adaugă clinică» — одно письмо: включена, срок на оплату, нота первого периода с
-    реквизитами. Ушло — напоминание «нота» за этот срок задача уже не шлёт (jobs.INVOICE: у срока
-    на оплату его окно открыто с первого дня); не ушло — пришлёт задача. Ящик не подтверждён (не
-    совпал со входом кабинета, emailconf.on_new_clinic) — в том же письме «Confirmă adresa» и
-    код, как в письме о лицензии (license.mail_latest): одно письмо, не два."""
+    реквизитами. СОБРАТЬ в транзакции (ссылка страницы оплаты, код подтверждения ящика — записи в
+    базу), отправить после её commit (06.11; раньше SMTP шёл под её замком записи) → список для
+    `box.add`: пуст или одно письмо. Ушло — напоминание «нота» за этот срок задача уже не шлёт
+    (отметка jobs.INVOICE — `remind` письма, пишется после удачной отправки: у срока на оплату её
+    окно открыто с первого дня); не ушло — пришлёт задача. Ящик не подтверждён (не совпал со входом
+    кабинета, emailconf.on_new_clinic) — в том же письме «Confirmă adresa» и код, как в письме о
+    лицензии (license.letter_latest): одно письмо, не два."""
     sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (c["id"],)).fetchone()
     if p is None or sub is None or not c["email"]:
-        return
+        return []
     page = paylink.for_mail(con, c, who)
     valid = db.parse_ts(sub["valid_until"])
     try:
@@ -920,13 +925,12 @@ def _send_added_letter(con, c, p, who: str) -> None:
         confirm = emailconf.for_letter(con, c, who)
         if confirm:
             body = mail.with_confirm(body, *confirm, emailconf.LINK_TTL.days)
-        where = mail.send(c["email"], subject, body)
-    except (RuntimeError, OSError, ValueError) as e:
+    except (RuntimeError, ValueError) as e:
         log.error("письмо новой клинике кабинета %s не отправлено: %r", c["id"], e)
-        return
-    con.execute("INSERT OR IGNORE INTO reminders(subscription_id, kind, period, sent_at) VALUES(?,?,?,?)",
-                (c["id"], jobs.INVOICE, sub["valid_until"], db.now_iso()))
-    db.audit(con, who, "mail", c["id"], f"клиника добавлена, нота {p['reference']} на {c['email']} ({where})")
+        return []
+    return [(True, mail.Letter(c["email"], subject, body, c["id"], who, f"клиника добавлена, нота {p['reference']}",
+                               f"письмо новой клинике кабинета {c['id']}",
+                               remind=(c["id"], jobs.INVOICE, sub["valid_until"])))]
 
 
 @router.post("/cont/cod", response_class=HTMLResponse)

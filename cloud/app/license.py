@@ -148,19 +148,12 @@ def issue_text(row: sqlite3.Row) -> str:
                       ensure_ascii=False, indent=2) + "\n"
 
 
-def mail_latest(con: sqlite3.Connection, clinic: sqlite3.Row, who: str,
-                receipt: tuple[str, bytes] | None = None, summary: str = "") -> str:
-    """Последний выданный файл письмом — собрать и отправить в транзакции `con` (админка,
-    пробный из формы). Код для ?msg= или '' — ушло. После оплаты так не зовут: письмо
-    собирает `letter_latest`, а уходит оно после commit (payments.notify_paid)."""
-    out = letter_latest(con, clinic, who, receipt, summary)
-    return out if isinstance(out, str) else mail.deliver(out, con)
-
-
 def letter_latest(con: sqlite3.Connection, clinic: sqlite3.Row, who: str,
                   receipt: tuple[str, bytes] | None = None, summary: str = "") -> mail.Letter | str:
-    """Письмо о последнем выданном файле: админка, оплата и ежедневная задача — одной
-    функцией. Собранное письмо или код отказа (`no_issue`, `bad_email`). `receipt` — (имя
+    """Письмо о последнем выданном файле: админка, оплата, пробный — одной функцией. СОБРАТЬ в
+    транзакции, отправить после её commit (payments.outbox → mail.deliver); обёртки «собрать и
+    отправить в транзакции» (mail_latest) нет с 06.11 — SMTP шёл под замком записи.
+    Собранное письмо или код отказа (`no_issue`, `bad_email`). `receipt` — (имя
     файла, PDF) cont de plată после оплаты (receipts.py): вложением и фразой в письме;
     `summary` — строки оплаты из того же снимка (receipts.summary, требование maib)."""
     row = con.execute("SELECT * FROM issues WHERE clinic_id=? ORDER BY seq DESC LIMIT 1",

@@ -7,7 +7,7 @@ import logging
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from . import auth, db, download, emailconf, robots, trial, views, web
+from . import auth, db, download, emailconf, payments, robots, trial, views, web
 
 log = logging.getLogger("cloud")
 router = APIRouter()
@@ -49,8 +49,10 @@ def trial_submit(request: Request, name: str = Form(""), idno: str = Form(""), c
         # бот заполнил поле, которого человек не видит: ему «принято», нам — строка в лог
         log.warning("форма пробного: скрытое поле заполнено, %s, %s", ip, f["email"])
         return HTMLResponse(views.trial_done_page(trial.REQUESTED, f["email"]))
-    with db.connect(immediate=True) as con:
+    with payments.outbox() as box, db.connect(immediate=True) as con:      # письмо — после commit
         outcome, clinic = trial.submit(con, f, ip)
+        box.add(trial.letter(con, outcome, clinic, "form"))
+    outcome = trial.mailed(outcome, clinic, box.code, "form")
     trial.notify(clinic, outcome, ip, f)
     if outcome == trial.REQUESTED:
         trial.acknowledge(clinic)

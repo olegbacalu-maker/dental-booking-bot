@@ -21,6 +21,7 @@ import email
 import email.policy
 import json
 import pathlib
+import re
 import socketserver
 import sqlite3
 import ssl
@@ -495,3 +496,241 @@ def suite_sms(res: Result) -> None:
     finally:
         smtp.close()
         fake.close()
+
+
+# ---------- маршруты: пробный, кабинет, админка, нота SMS ----------
+
+_LICENSE = """
+import json, sys
+from app import db, license
+sys.stdout.reconfigure(encoding="utf-8")
+class Undo(Exception):
+    pass
+try:
+    with db.connect(immediate=True) as con:
+        c = con.execute("SELECT * FROM clinics WHERE id=?", (sys.argv[1],)).fetchone()
+        l = license.letter_latest(con, c, sys.argv[2])
+        out = l if isinstance(l, str) else [l.to, l.subject, l.body, [f[0] for f in l.files]]
+        raise Undo                      # код подтверждения ящика, заведённый сборкой, — откатить
+except Undo:
+    print(json.dumps(out))
+"""
+
+
+def _loose(text: str) -> str:
+    """Письмо без одноразового: ссылка и код подтверждения ящика у каждой сборки свои."""
+    return re.sub(r"\b\d{6}\b", "<cod>", re.sub(r"\S*/confirma/\S+", "<link>", text))
+
+
+def license_same(s: Server, got: tuple, cid: str, who: str) -> bool:
+    """Письмо о лицензии на стенде — то, что собирает license.letter_latest сервера для этой
+    клиники сейчас (в его окружении, с откатом): кому, тема, текст, вложения; ссылка и код
+    подтверждения ящика — с точностью до одноразового значения."""
+    p = subprocess.run([sys.executable, "-c", _LICENSE, cid, who], cwd=str(CLOUD), env=s.env,
+                       capture_output=True, timeout=60)
+    assert p.returncode == 0, p.stderr.decode("utf-8", "replace")[-600:]
+    want = json.loads(p.stdout.decode("utf-8"))
+    return (not isinstance(want, str) and got[0] == want[0] and got[1] == " ".join(want[1].split())
+            and _loose(got[2]).rstrip("\n") == _loose(want[2]).rstrip("\n") and got[3] == want[3])
+
+
+def _audit(s: Server, cid: str, *what: str) -> list:
+    marks = ",".join("?" * len(what))
+    return _sql(s, f"SELECT what, who FROM audit WHERE clinic_id=? AND what IN ({marks}) ORDER BY id", cid, *what)
+
+
+def _cid(s: Server, box: str) -> str:
+    return _sql(s, "SELECT id FROM clinics WHERE email=? ORDER BY created_at DESC, rowid DESC LIMIT 1", box)[0][0]
+
+
+def _enter(s: Server, smtp: Smtp, box: str) -> Client:
+    """Вход в кабинет кодом на e-mail — код из письма на стенде."""
+    c = Client(s.url)
+    r = c.post("/cont/login/email", email=box)
+    vid = re.search(r"name='verify_id' value='([^']+)'", r.body).group(1)
+    code = re.search(r": (\d{6})\n", smtp.to(box)[-1][2]).group(1)
+    r = c.post("/cont/login/cod", verify_id=vid, code=code, email=box)
+    assert r.status == 303, f"вход {box}: {r.status} {r.location}"
+    return c
+
+
+def suite_trial_admin(res: Result) -> None:
+    """Пробный с формы /proba и из программы (auto), файл письмом из админки — после выдачи и
+    кнопкой: письмо собирается в транзакции и уходит после commit. Почта думает — замок записи
+    свободен; письмо то же; почта отказала — выдача остаётся, исход и журнал прежние."""
+    smtp = Smtp()
+    try:
+        with Server(env={**BANK_ENV, **smtp.env, "DP_TRIAL_MODE": "auto", "DP_TRIAL_NOTIFY": "oleg@example.md"}) as s:
+            anon = Client(s.url)
+            form = dict(name="Clinica Forma", idno="1003600011111", contact_name="Ana", phone="", consent="1")
+
+            # форма /proba
+            box = "forma@example.md"
+            r, free = thinking(smtp, s, lambda: anon.post("/proba", email=box, **form))
+            cid = _cid(s, box)
+            res.ok("/proba: почта думала при свободном замке записи; «Perioada de probă este activă»",
+                   free and getattr(r, "status", 0) == 200 and "Perioada de probă este activă" in r.body,
+                   f"замок свободен: {free}, {getattr(r, 'status', r)}")
+            res.ok("/proba: письмо о пробном — то же, что собирает сервер",
+                   len(smtp.to(box)) == 1 and license_same(s, smtp.to(box)[0], cid, "form"), repr(smtp.to(box))[:400])
+            res.check("/proba: журнал — выдача, потом письмо", _audit(s, cid, "issue", "mail", "mail_failed"),
+                      [("issue", "form"), ("mail", "form")])
+            smtp.fail = True
+            box2 = "forma2@example.md"
+            r = anon.post("/proba", email=box2, **dict(form, name="Clinica Forma Doi", idno="1003600022222"))
+            smtp.fail = False
+            cid2 = _cid(s, box2)
+            res.ok("/proba, почта отказала: страница «Cererea a fost primită», пробный выдан, mail_failed в журнале",
+                   r.status == 200 and "Cererea a fost primită" in r.body
+                   and _sql(s, "SELECT count(*) FROM issues WHERE clinic_id=?", cid2)[0][0] == 1
+                   and _audit(s, cid2, "issue", "mail", "mail_failed") == [("issue", "form"), ("mail_failed", "form")]
+                   and _sql(s, "SELECT detail FROM audit WHERE clinic_id=? AND what='mail_failed'", cid2)
+                   == [("пробный из формы не ушёл: mail_failed",)], f"{r.status} {_audit(s, cid2, 'issue', 'mail', 'mail_failed')}")
+
+            # программа /v1/trial
+            def ask(box_, name, idno, device):
+                body = json.dumps(dict(name=name, idno=idno, contact_name="Ion", email=box_, phone="",
+                                       consent="1")).encode()
+                r_ = Client(s.url)._do("/v1/trial", body, {"Content-Type": "application/json",
+                                                          "User-Agent": "DentPilot/2.10.0", "X-DentPilot-Device": device})
+                return r_.status, json.loads(r_.body or "{}")
+
+            box3 = "program@example.md"
+            (st, d), free = thinking(smtp, s, lambda: ask(box3, "Clinica Program", "1003600033333", "d_0000000000a1"))
+            cid3 = _cid(s, box3)
+            res.ok("/v1/trial: почта думала при свободном замке записи; issued и токен",
+                   free and st == 200 and d.get("state") == "issued" and len(d.get("token", "")) >= 32,
+                   f"замок свободен: {free}, {st} {d}")
+            res.ok("/v1/trial: письмо о пробном — то же, что собирает сервер",
+                   len(smtp.to(box3)) == 1 and license_same(s, smtp.to(box3)[0], cid3, "program"))
+            smtp.fail = True
+            box4 = "program2@example.md"
+            st, d = ask(box4, "Clinica Program Doi", "1003600044444", "d_0000000000b2")
+            smtp.fail = False
+            cid4 = _cid(s, box4)
+            res.ok("/v1/trial, почта отказала: программе issued и токен, как раньше; mail_failed в журнале",
+                   st == 200 and d.get("state") == "issued" and len(d.get("token", "")) >= 32
+                   and _audit(s, cid4, "issue", "mail", "mail_failed") == [("issue", "program"), ("mail_failed", "program")],
+                   f"{st} {d} {_audit(s, cid4, 'issue', 'mail', 'mail_failed')}")
+
+            # админка: выдача с письмом, потом кнопка «отправить письмом»
+            admin = Client(s.url).login()
+            v = datetime.now(timezone.utc).date() + 90 * D
+            n = len(smtp.to(box))
+            r, free = thinking(smtp, s, lambda: admin.post(f"/admin/clinics/{cid}/issue", kind="dates",
+                                                           valid_until=f"{v:%Y-%m-%d}", grace_days="14", send="1"))
+            res.ok("админка, выдача с письмом: почта думала при свободном замке записи; issued_mailed",
+                   free and getattr(r, "location", "") == f"/admin/clinics/{cid}?msg=issued_mailed",
+                   f"замок свободен: {free}, {getattr(r, 'location', r)}")
+            res.ok("письмо после выдачи — то же, что собирает сервер, про новый срок",
+                   len(smtp.to(box)) == n + 1 and license_same(s, smtp.to(box)[-1], cid, "oleg")
+                   and f"{v:%d.%m.%Y}" in smtp.to(box)[-1][2], repr(smtp.to(box)[-1])[:300])
+            smtp.fail = True
+            r = admin.post(f"/admin/clinics/{cid}/issue", kind="dates", valid_until=f"{v + D:%Y-%m-%d}",
+                           grace_days="14", send="1")
+            smtp.fail = False
+            res.ok("выдача, почта отказала: mail_failed, файл выдан (выдача не откатилась)",
+                   r.location == f"/admin/clinics/{cid}?msg=mail_failed"
+                   and _sql(s, "SELECT MAX(seq) FROM issues WHERE clinic_id=?", cid)[0][0] == 3, r.location)
+            r, free = thinking(smtp, s, lambda: admin.post(f"/admin/clinics/{cid}/email"))
+            res.ok("кнопка «отправить письмом»: сосед записал, пока почта думала, — mailed, не 500",
+                   free and getattr(r, "location", "") == f"/admin/clinics/{cid}?msg=mailed",
+                   f"замок свободен: {free}, {getattr(r, 'status', r)} {getattr(r, 'location', '')}")
+            res.ok("письмо кнопки — то же, что собирает сервер; журнал — строка mail от oleg",
+                   len(smtp.to(box)) == n + 2 and license_same(s, smtp.to(box)[-1], cid, "oleg")
+                   and _audit(s, cid, "mail")[-1] == ("mail", "oleg"), repr(_audit(s, cid, "mail")))
+            smtp.fail = True
+            r = admin.post(f"/admin/clinics/{cid}/email")
+            smtp.fail = False
+            res.check("кнопка, почта отказала: mail_failed", r.location, f"/admin/clinics/{cid}?msg=mail_failed")
+            _quiet(res, s)
+    finally:
+        smtp.close()
+
+
+def suite_cabinet_sms(res: Result) -> None:
+    """Регистрация кабинета (пробный, auto), «Adaugă clinică» (письмо с нотой и отметка «нота
+    отправлена»), нота SMS из программы — письмо после commit: почта думает при свободном замке
+    записи, письмо то же, отметка и журнал — после отправки; почта отказала — клиника и нота на
+    месте, отметки нет (ноту пришлёт задача)."""
+    smtp = Smtp()
+    env = {**BANK_ENV, **smtp.env, "DP_TRIAL_MODE": "auto", "DP_TRIAL_NOTIFY": "oleg@example.md",
+           "DP_SMS_OFFERED": "1", "DP_SMSMD_TOKEN": "t", "DP_SMSMD_BASE_URL": "http://127.0.0.1:9",
+           "DP_SMS_PACKS": "100:50,500:200"}
+    try:
+        with Server(env=env) as s:
+            box, idno = "director@example.md", "1003600055555"
+            cab = _enter(s, smtp, box)
+            n = len(smtp.to(box))
+            r, free = thinking(smtp, s, lambda: cab.post("/cont/inregistrare", name="Clinica Cabinet", idno=idno,
+                                                         contact_name="Ion Rusu", phone="022123456", consent="1"))
+            main = _cid(s, box)
+            res.ok("регистрация кабинета: почта думала при свободном замке записи; registered_issued",
+                   free and getattr(r, "location", "").startswith("/cont?msg=registered_issued"),
+                   f"замок свободен: {free}, {getattr(r, 'location', r)}")
+            res.ok("письмо о пробном кабинету — то же, что собирает сервер",
+                   len(smtp.to(box)) == n + 1 and license_same(s, smtp.to(box)[-1], main, box))
+
+            # «Adaugă clinică»: письмо с нотой первого периода + отметка «нота отправлена»
+            new = dict(address="bd. Dacia 27, Chisinau", phone="022555010", contact_name="Ion Rusu", email=box,
+                       idno=idno, consent="1", tier="plus", months="1")
+            n = len(smtp.to(box))
+            r, free = thinking(smtp, s, lambda: cab.post(f"/cont/clinica-noua?c={main}", name="Cabinet Botanica", **new))
+            b1 = _sql(s, "SELECT id FROM clinics WHERE name='Cabinet Botanica'")[0][0]
+            res.ok("«Adaugă clinică»: почта думала при свободном замке записи; страница с кодом компьютера",
+                   free and getattr(r, "status", 0) == 200 and "class='code'" in r.body,
+                   f"замок свободен: {free}, {getattr(r, 'status', r)}")
+            valid, grace_days = _sql(s, "SELECT valid_until, grace_days FROM subscriptions WHERE clinic_id=?", b1)[0]
+            ref, amount, months, tier = _sql(s, "SELECT reference, amount, months, tier FROM payments "
+                                                "WHERE clinic_id=?", b1)[0]
+            grace = (datetime.strptime(valid, "%Y-%m-%dT%H:%M:%SZ") + grace_days * D).strftime("%Y-%m-%dT%H:%M:%SZ")
+            page = paylink.url_for(_sql(s, "SELECT id FROM pay_links WHERE clinic_id=?", b1)[0][0])
+            res.ok("письмо новой клинике — то же, что собирает сборщик (тема и текст байт в байт)",
+                   len(smtp.to(box)) == n + 1 and _same(smtp.to(box)[-1], built(
+                       s, "clinic_added_letter", "Cabinet Botanica", {"dt": valid}, {"dt": grace}, ref, amount,
+                       months, tier, None, page)), repr(smtp.to(box)[-1])[:500])
+            res.check("отметка «нота отправлена» и строка журнала — после письма, прежним текстом",
+                      (_sql(s, "SELECT kind, period FROM reminders WHERE subscription_id=?", b1),
+                       _sql(s, "SELECT who, detail FROM audit WHERE what='mail' AND clinic_id=?", b1)),
+                      ([(jobs.INVOICE, valid)], [(box, f"клиника добавлена, нота {ref} на {box} (smtp)")]))
+            smtp.fail = True
+            r = cab.post(f"/cont/clinica-noua?c={main}", name="Cabinet Centru", **dict(new, address="str. Puskin 1"))
+            smtp.fail = False
+            b2 = _sql(s, "SELECT id FROM clinics WHERE name='Cabinet Centru'")
+            res.ok("«Adaugă clinică», почта отказала: клиника и нота на месте, отметки и строки mail нет",
+                   r.status == 200 and len(b2) == 1
+                   and _sql(s, "SELECT count(*) FROM payments WHERE clinic_id=?", b2[0][0])[0][0] == 1
+                   and not _sql(s, "SELECT 1 FROM reminders WHERE subscription_id=?", b2[0][0])
+                   and not _sql(s, "SELECT 1 FROM audit WHERE what='mail' AND clinic_id=?", b2[0][0]), f"{r.status} {b2}")
+
+            # нота SMS из программы
+            token = _sql(s, "SELECT renew_token FROM clinics WHERE id=?", main)[0][0]
+            hdr = {"Authorization": f"Bearer {token}", "Content-Type": "application/json",
+                   "User-Agent": "DentPilot/2.10.0", "X-DentPilot-Device": "d_0000000000c3"}
+
+            def order(pack: int):
+                r_ = Client(s.url)._do("/v1/sms/order", json.dumps({"pack": pack}).encode(), hdr)
+                return r_.status, json.loads(r_.body or "{}")
+
+            n = len(smtp.to(box))
+            (st, d), free = thinking(smtp, s, lambda: order(100))
+            res.ok("/v1/sms/order: почта думала при свободном замке записи; нота создана",
+                   free and st == 200 and d.get("created") is True and d.get("units") == 100,
+                   f"замок свободен: {free}, {st} {d}")
+            res.ok("письмо с нотой SMS — то же, что собирает сборщик (тема и текст байт в байт)",
+                   len(smtp.to(box)) == n + 1 and _same(smtp.to(box)[-1], built(
+                       s, "sms_pack_note_letter", "Clinica Cabinet", d.get("reference"), d.get("amount"), 100, None)),
+                   repr(smtp.to(box)[-1])[:500])
+            res.check("журнал: строка mail ноты SMS — после письма, прежним текстом",
+                      _sql(s, "SELECT who, detail FROM audit WHERE what='mail' AND clinic_id=? AND detail LIKE 'нота sms %'",
+                           main), [("program", f"нота sms {d.get('reference')} на {box} (smtp)")])
+            smtp.fail = True
+            st, d2 = order(500)
+            smtp.fail = False
+            res.ok("нота SMS, почта отказала: программе тот же ответ (нота создана), второй строки mail нет",
+                   st == 200 and d2.get("created") is True and d2.get("units") == 500
+                   and _sql(s, "SELECT count(*) FROM audit WHERE what='mail' AND clinic_id=? AND detail LIKE 'нота sms %'",
+                            main)[0][0] == 1, f"{st} {d2}")
+            _quiet(res, s)
+    finally:
+        smtp.close()

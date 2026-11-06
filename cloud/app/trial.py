@@ -236,7 +236,7 @@ def submit(con: sqlite3.Connection, f: dict, ip: str, who: str = "form",
            device: dict | None = None) -> tuple[str, sqlite3.Row]:
     """Заявка → (исход, клиника). Исход: DUPLICATE — уже есть, ничего не сделано;
     DEVICE_TAKEN — компьютер `device` уже у другой клиники, ничего не сделано (клиника — та);
-    REQUESTED — заведена, ждёт админа; ISSUED — пробный выдан и отправлен; ADDED — заведена
+    REQUESTED — заведена, ждёт админа; ISSUED — пробный выдан (письмо — `letter`); ADDED — заведена
     без пробного (NO_TRIAL), абонемент ставит вызывающий (account.start_paid).
     `origin` — форма сайта или программа: заявки из обеих ждут в одном списке.
     `allow` — клиники своего кабинета (existing); адрес — `f['address']`, если есть.
@@ -279,11 +279,30 @@ def submit(con: sqlite3.Connection, f: dict, ip: str, who: str = "form",
         # ключа выдачи нет: заявка остаётся заявкой, а не откатывается пятисотой
         db.audit(con, who, "trial_no_key", cid, str(e)[:200])
         return REQUESTED, clinic
-    code = license.mail_latest(con, clinic, who)
-    if code:
-        db.audit(con, who, "mail_failed", cid, f"пробный из формы не ушёл: {code}")
-        return ISSUED_UNMAILED, clinic
+    # письмо о пробном — не здесь (06.11): вызывающий собирает его в этой же транзакции (`letter`),
+    # отправляет после её commit (payments.outbox) и узнаёт исход у `mailed`
     return ISSUED, clinic
+
+
+def letter(con: sqlite3.Connection, outcome: str, clinic: sqlite3.Row, who: str) -> list:
+    """Письмо о выданном пробном (исход ISSUED) — СОБРАТЬ в транзакции заявки: код подтверждения
+    ящика — запись в базу. → список для `box.add` (payments.outbox): пуст или одно письмо; уходит
+    после commit. До 06.11 его слал сам `submit`, внутри транзакции: почта думала под замком записи."""
+    return [(True, license.letter_latest(con, clinic, who))] if outcome == ISSUED else []
+
+
+def mailed(outcome: str, clinic: sqlite3.Row, code: str, who: str) -> str:
+    """Исход заявки после отправки письма (`code` — `box.code` из payments.outbox): пробный выдан,
+    а письмо не ушло → ISSUED_UNMAILED и строка `mail_failed` в журнале — как раньше, только своей
+    короткой транзакцией: заявка и файл уже закоммичены и отказом почты не откатываются."""
+    if outcome != ISSUED or not code:
+        return outcome
+    try:
+        with db.connect(immediate=True) as con:
+            db.audit(con, who, "mail_failed", clinic["id"], f"пробный из формы не ушёл: {code}")
+    except sqlite3.Error:
+        pass                # строка журнала — не причина отвечать заявке ошибкой
+    return ISSUED_UNMAILED
 
 
 def notify(clinic: sqlite3.Row, outcome: str, ip: str, fields: dict | None = None,

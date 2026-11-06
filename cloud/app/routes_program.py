@@ -227,14 +227,13 @@ def _sms_order(c, body: dict, ip: str) -> Response:
         except (TypeError, ValueError):
             units = 0
     kind = payments.SMS_NAME if name else payments.SMS
-    with db.connect(immediate=True) as con:
+    with payments.outbox() as box, db.connect(immediate=True) as con:      # письмо с нотой — после commit
         if name:
             # год имени — та же логика, что у кабинета (web.sms_name_note): имя общее на кабинет
             # (26.10), нота — главной клинике, на её ящик
             code, c, p, created = web.sms_name_note(con, c, "program")
             if code:
                 return _sms_answer(code)
-            acc = sms.account(con, c["id"])
         else:
             # пакет — та же логика, что у кабинета (web.sms_pack_note): пакет из прайса, IDNO,
             # кому не продаётся, одна открытая нота; другой пакет заменяет её — `created`, с письмом
@@ -247,17 +246,11 @@ def _sms_order(c, body: dict, ip: str) -> Response:
         # письму её не даём. Программа (2.0.9) показывает `pay_url` ссылкой «Plătește cu cardul».
         page = paylink.for_mail(con, c, "program") if maib.enabled() else None
         if created and c["email"]:
-            try:
-                if name:
-                    subject, text = mail.sms_name_note_letter(c["name"], p["reference"], int(p["amount"]),
-                                                              acc["sender"], page)
-                else:
-                    subject, text = mail.sms_pack_note_letter(c["name"], p["reference"], int(p["amount"]),
-                                                              int(p["sms_units"]), page)
-                where = mail.send(c["email"], subject, text)
-                db.audit(con, "program", "mail", c["id"], f"нота {kind} {p['reference']} на {c['email']} ({where})")
-            except (RuntimeError, OSError) as e:
-                log.error("письмо с нотой SMS %s не отправлено: %r", p["reference"], e)
+            # то же письмо, что у кабинета (web.sms_note_letter): собрать здесь, отправить после commit
+            letter = web.sms_note_letter(con, c, p, "program")
+            if isinstance(letter, str):
+                log.error("письмо с нотой SMS %s не собрано: %s", p["reference"], letter)
+            box.add([(True, letter)])
     return JSONResponse({"ok": True, "kind": kind, "reference": p["reference"], "amount": int(p["amount"]),
                          "units": p["sms_units"], "pay_url": page, "created": created})
 
@@ -309,8 +302,9 @@ def _trial_program(f: dict, ip: str, ident: dict | None = None,
     (старая программа) — как раньше, с одним `consent_at`."""
     vid = code = ""
     act = None
-    with db.connect(immediate=True) as con:
+    with payments.outbox() as box, db.connect(immediate=True) as con:      # письмо о пробном — после commit
         outcome, clinic = trial.submit(con, f, ip, who="program", origin=trial.ORIGIN_PROGRAM, device=ident)
+        box.add(trial.letter(con, outcome, clinic, "program"))
         token = ""
         if outcome == trial.DEVICE_TAKEN:
             # компьютер чужой клиники: ни токена, ни кода, ни письма — строка в журнале (submit)
@@ -326,6 +320,7 @@ def _trial_program(f: dict, ip: str, ident: dict | None = None,
             fresh = con.execute("SELECT * FROM clinics WHERE id=?", (clinic["id"],)).fetchone()
             token = license.renew_token(con, fresh)
             fleet.touch(con, clinic["id"], ident)
+    outcome = trial.mailed(outcome, clinic, box.code, "program")
     if vid:
         subject, body = mail.activation_code(clinic["name"], code,
                                              int(trial.CODE_TTL.total_seconds() // 60))

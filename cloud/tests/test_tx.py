@@ -150,24 +150,22 @@ SEND_BASE = {"mail.send", "mail.deliver"}
 # callback, возврат браузера, ежедневная задача, «Проверить» (_settle_now), «Подтвердить»,
 # «Зачесть повторный», кнопка карты (_card_go); и письмо с нотой (шаг 4): страница оплаты,
 # кабинет, общая нота, «Выставить ноту», «Ссылка на карту», «Письмо» из админки; нота SMS из
-# кабинета (05.11, cont_sms_note).
+# кабинета (05.11, cont_sms_note). С 06.11 — и все остальные письма облака: пробный из формы,
+# программы и кабинета, «Adaugă clinică», нота SMS из программы, файл письмом из админки (после
+# выдачи и кнопкой), тревоги Олегу из отправки SMS, уведомления о доставке и опроса.
 # Список ВКЛЮЧАЕТ требование — переименуют, и «найдены» покраснеет, а не позеленеет тихо.
 OUTBOX_HOLDERS = {"_maib_callback", "_returned", "settle_cards", "payment_check", "payment_confirm",
                   "payment_repeat", "card_go", "pay_link_submit", "cont_note", "cont_sms_note", "_group_submit",
-                  "payment_new", "payment_link", "payment_mail"}
+                  "payment_new", "payment_link", "payment_mail",
+                  "trial_submit", "_trial_program", "cont_register_submit", "cont_add_submit", "_sms_order",
+                  "clinic_issue", "clinic_email", "submit", "recheck", "poll"}
 
-# Отправка внутри транзакции, оставленная НАМЕРЕННО: не письмо об оплате (решение Олега Р4 —
-# в эту ветку не берём, список в отчёт). Ключ — «файл:функция → вызов».
-MAIL_IN_TX = {
-    # не оплата (Р4): в эту ветку не берём, список — в отчёт
-    "routes_program.py:_sms_order → mail.send": "нота SMS из программы",
-    "routes_program.py:_trial_program → trial.submit": "пробный из программы: выдача и письмо (trial.py:218)",
-    "routes_public.py:trial_submit → trial.submit": "пробный с /proba: выдача и письмо (trial.py:218)",
-    "routes_cont.py:cont_register_submit → account.register": "регистрация кабинета → trial.submit (trial.py:218)",
-    "routes_cont.py:cont_add_submit → account.add_clinic": "«Adaugă clinică» → trial.submit (trial.py:218)",
-    "routes_cont.py:cont_add_submit → routes_cont._send_added_letter": "письмо новой клинике кабинета (нота + ящик)",
-    "routes_admin.py:clinic_issue → routes_admin._send_latest": "файл письмом из админки после выдачи",
-}
+# Отправка внутри транзакции, оставленная НАМЕРЕННО, — «файл:функция → вызов», с причиной.
+# Сейчас таких нет. До 06.11 их было девять (не письма об оплате: нота SMS из программы, пробный из
+# формы / программы / кабинета, «Adaugă clinică», файл письмом из админки, письмо о сроке задачи):
+# все вынесены за commit — письмо собирается в транзакции, уходит после неё (payments.outbox,
+# mail.deliver), как письма оплаты с 30.10.
+MAIL_IN_TX: dict[str, str] = {}
 
 
 def _key(call: ast.Call, stem: str, mods: set) -> str | None:
@@ -301,14 +299,20 @@ def suite_mail_after_commit(res: Result) -> None:
     res.ok("исходники нашлись: роутеры, web.py, jobs.py, payments.py, license.py, sms.py, mail.py",
            need <= set(trees), sorted(need - set(trees)))
     senders, boxed, bad = mail_check(trees)
-    want = {"mail.send", "mail.deliver", "payments.send_paid", "payments.outbox", "license.mail_latest"}
-    res.ok("отправляющие найдены: mail.send/deliver, send_paid, outbox, обёртка mail_latest",
-           want <= senders, sorted(want - senders))
+    want = {"mail.send", "mail.deliver", "payments.send_paid", "payments.outbox", "sms.low_letters",
+            "sms.float_check", "jobs.daily"}
+    res.ok("отправляющие найдены: mail.send/deliver, send_paid, outbox, письма задачи (low_letters, "
+           "float_check, daily)", want <= senders, sorted(want - senders))
     builders = {"payments.notify_paid", "license.letter_latest", "sms.letter_pack", "sms.letter_name",
-                "web.payment_letter", "routes_admin_pay._settle_now", "payments.card_plan", "payments.card_record"}
-    res.ok("сборка писем ничего не отправляет: notify_paid, letter_*, _payment_letter, _settle_now, card_*",
+                "web.payment_letter", "routes_admin_pay._settle_now", "payments.card_plan", "payments.card_record",
+                "trial.submit", "trial.letter", "account.register", "account.add_clinic", "routes_cont._added_letter",
+                "web.sms_note_letter", "sms.alarm_letter", "sms._accepted", "sms._fix_segments", "sms.apply",
+                "jobs._one"}
+    res.ok("сборка писем ничего не отправляет: notify_paid, letter_*, payment_letter, _settle_now, card_*, "
+           "заявка и клиника кабинета (submit, register, add_clinic), _added_letter, sms_note_letter, "
+           "тревога SMS (alarm_letter и кто её зовёт), письмо о сроке (_one)",
            not (builders & senders), sorted(builders & senders))
-    res.ok("outbox раньше db.connect у 7 мест оплаты и 6 мест письма с нотой",
+    res.ok("outbox раньше db.connect у 7 мест оплаты, 7 мест письма с нотой и 10 мест остальных писем",
            OUTBOX_HOLDERS <= set(boxed), sorted(OUTBOX_HOLDERS - set(boxed)))
     res.check("отправка внутри with db.connect — только названные исключения",
               [b for b in bad if b not in MAIL_IN_TX], [])

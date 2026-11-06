@@ -74,12 +74,12 @@ class Letter:
     error: str = ""             # repr отказа почты — ставит deliver (отчёту ежедневной задачи)
 
 
-def deliver(letter: Letter, con: sqlite3.Connection | None = None, via=None) -> str:
+def deliver(letter: Letter, via=None) -> str:
     """Отправить собранное письмо и записать об этом: отметку `letter.remind` и строку журнала
     `letter.code`. Код для ?msg=: '' — ушло, 'mail_failed' — SMTP отказал (лог и `letter.error`;
     то, ради чего письмо, не откатывается, отметки нет — задача пришлёт письмо в следующий проход).
-    Без `con` запись идёт своей короткой транзакцией под замком записи — так зовут после commit;
-    с `con` — в транзакции вызывающего (обёртки «собрать + отправить» вне оплаты).
+    ⛔ Только ПОСЛЕ commit транзакции, собравшей письмо, и вне любой транзакции (держит
+    tests/test_tx.py): запись об отправке идёт своей короткой транзакцией под замком записи.
     `via` — чем отправлять вместо `send` (ежедневная задача получает его параметром).
     ⚠️ Порядок «отправить → отметить» — намеренно: письмо о сроке не теряется никогда (процесс
     умер до отправки — отметки нет, следующий проход пришлёт), а дважды уходит только если процесс
@@ -92,9 +92,6 @@ def deliver(letter: Letter, con: sqlite3.Connection | None = None, via=None) -> 
         letter.error = repr(e)
         return "mail_failed"
     line = f"{letter.detail} на {letter.to} ({where})"
-    if con is not None:
-        _sent(con, letter, line)
-        return ""
     try:
         with db.connect(immediate=True) as own:
             _sent(own, letter, line)
