@@ -208,6 +208,89 @@ describe('PatientsSearchScreen', () => {
     await waitFor(() => expect(router.state.location.pathname).toBe('/admin/patient/6'))
   })
 
+  it('06.11: от пациента к пациенту — прежняя сводка стоит до ответа, «Se încarcă…» только у задержавшегося', async () => {
+    serve()
+    const base = get.getMockImplementation()!
+    let release: (v: unknown) => void = () => undefined
+    const held = new Promise((r) => { release = r })
+    get.mockImplementation((path: string) => (
+      path === '/patients/6/peek' ? Promise.resolve(ok({ html: "<div class='pp-head'><b>Sumar Avans</b></div>" }))
+        : path === '/patients/2/peek' ? held
+          : base(path)))
+    open()
+    fireEvent.click(await screen.findByText('Avans Popescu'))
+    expect(await screen.findByText('Sumar Avans')).toBeTruthy()
+
+    /* щелчок по другому: выбран уже он, а в панели — прежняя сводка, без слова
+       ожидания и не нажимаемая (её ссылки ведут к прежнему пациенту) */
+    fireEvent.click(document.querySelector('#plr2 button') as HTMLButtonElement)
+    expect(document.getElementById('plr2')?.className).toBe('on')
+    expect(screen.queryByText('Se încarcă…')).toBeNull()
+    const stale = screen.getByText('Sumar Avans').closest('[inert]')
+    expect(stale).toBeTruthy()
+    expect(stale?.getAttribute('aria-busy')).toBe('true')
+
+    /* ответ задержался — тогда словом */
+    expect(await screen.findByText('Se încarcă…')).toBeTruthy()
+    expect(screen.queryByText('Sumar Avans')).toBeNull()
+
+    await act(async () => { release(ok({ html: "<div class='pp-head'><b>Sumar Ganea</b></div>" })) })
+    const fresh = await screen.findByText('Sumar Ganea')
+    expect(fresh.closest('[inert]')).toBeNull()
+    expect(screen.queryByText('Se încarcă…')).toBeNull()
+  })
+
+  it('06.11: Escape, пока сводка в пути, — опоздавший ответ панель не открывает', async () => {
+    serve()
+    const base = get.getMockImplementation()!
+    let release: (v: unknown) => void = () => undefined
+    const held = new Promise((r) => { release = r })
+    get.mockImplementation((path: string) => (path === '/patients/6/peek' ? held : base(path)))
+    open()
+    fireEvent.click(await screen.findByText('Avans Popescu'))
+    expect(document.querySelector('aside')?.className).toBe('ppanel open')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await act(async () => { release(ok({ html: '<b>Sumar tardiv</b>' })) })
+    expect(document.querySelector('aside')?.className).toBe('ppanel')
+    expect(screen.queryByText('Sumar tardiv')).toBeNull()
+  })
+
+  it('06.11: панель-ящик уезжает со своей сводкой, подсказка возвращается после выезда', async () => {
+    serve()
+    const base = get.getMockImplementation()!
+    get.mockImplementation((path: string) => (path === '/patients/6/peek'
+      ? Promise.resolve(ok({ html: "<div class='pp-head'><b>Sumar Avans</b></div><a href='/admin/patient/6'>Editează</a>" }))
+      : base(path)))
+    /* узкое окно: таблица стилей делает панель ящиком (`position: fixed`);
+       jsdom стилей не считает — положение подставлено */
+    const real = window.getComputedStyle
+    const spy = vi.spyOn(window, 'getComputedStyle').mockImplementation((el, pseudo) => {
+      const cs = real(el, pseudo)
+      return (el as Element).classList?.contains('ppanel')
+        ? new Proxy(cs, { get: (t, k) => (k === 'position' ? 'fixed' : Reflect.get(t, k)) }) : cs
+    })
+    try {
+      open()
+      fireEvent.click(await screen.findByText('Avans Popescu'))
+      expect(await screen.findByText('Sumar Avans')).toBeTruthy()
+      fireEvent.keyDown(document, { key: 'Escape' })
+      const aside = document.querySelector('aside') as HTMLElement
+      /* закрыта, выбор снят — а содержимое прежнее и не нажимается */
+      expect(aside.className).toBe('ppanel')
+      expect(document.getElementById('plr6')?.className ?? '').not.toContain('on')
+      expect(screen.getByText('Sumar Avans').closest('[inert]')).toBeTruthy()
+      expect(screen.queryByText(/Alegeți un pacient/)).toBeNull()
+      /* выезд кончился — подсказка пустой панели на месте */
+      const done = new Event('transitionend', { bubbles: true })
+      Object.defineProperty(done, 'propertyName', { value: 'transform' })
+      fireEvent(aside, done)
+      expect(screen.queryByText('Sumar Avans')).toBeNull()
+      expect(screen.getByText(/Alegeți un pacient/)).toBeTruthy()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   it('предпросмотр исчезнувшей фиши — своя фраза', async () => {
     serve()
     const base = get.getMockImplementation()!

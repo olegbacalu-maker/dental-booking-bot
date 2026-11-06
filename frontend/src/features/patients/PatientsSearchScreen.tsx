@@ -68,6 +68,11 @@ interface Props {
 
 const KEYS = ['q', 'med', 'st', 'ch', 'dat', 'sort', 'page', 'per'] as const
 
+/** Предпросмотра нет и панель никуда не едет — одна ссылка на всех. */
+const NO_PEEK: { peek: PeekState | null; ghost: PeekState | null } = { peek: null, ghost: null }
+/** Сколько ждать сводку молча: дольше — панель говорит «Se încarcă…» словом. */
+const PEEK_WAIT_MS = 150
+
 /**
  * Отбор из АДРЕСА — правилом страницы сервера: повтор ключа — последний,
  * `q` обрезан. ⛔ Адрес — единственный владелец отбора (B2.3): своей копии у
@@ -107,7 +112,12 @@ export function PatientsSearchScreen({ navigate = defaultNavigate, debounceMs = 
   const [failedFor, setFailedFor] = useState<string | null>(null)
 
   const [toast, setToast] = useState<ToastState | null>(null)
-  const [peek, setPeek] = useState<PeekState | null>(null)
+  /* Предпросмотр и его «призрак» — ОДНИМ состоянием (06.11.2026): закрытие
+     решает оба разом (что открыто — ничего; что показывает уезжающая панель —
+     то, что в ней было), и чистой функцией от прежнего значения. */
+  const [pk, setPk] = useState<{ peek: PeekState | null; ghost: PeekState | null }>(NO_PEEK)
+  const peek = pk.peek
+  const panel = useRef<HTMLElement | null>(null)
   const [adding, setAdding] = useState(false)
   const peekSeq = useRef(0)
   const closeToast = useCallback(() => setToast(null), [])
@@ -173,25 +183,59 @@ export function PatientsSearchScreen({ navigate = defaultNavigate, debounceMs = 
   }, [data, filters, key, replace, fail, go])
   const busy = data !== null && !sameFilters(data.filters, filters) && failedFor !== key
 
+  /* Закрытие (06.11.2026). В узком окне панель — ящик и уезжает за край за
+     `--dur-slow`: до конца выезда в ней остаётся сводка («призрак»), иначе
+     уезжала бы уже подсказка пустой панели. В широком окне панель стоит
+     колонкой — подсказка возвращается сразу.
+     ⚠️ «Едет ли» спрашивается у САМОЙ панели (её `position` задаёт таблица
+     стилей), а не вторым числом ширины окна в коде: порог один — в panel.css.
+     ⛔ Номер запроса двигается и здесь: ответ, пришедший после закрытия,
+     открывал бы панель заново. */
+  const closePeek = useCallback(() => {
+    peekSeq.current += 1
+    const el = panel.current
+    const slides = el !== null && window.getComputedStyle(el).position === 'fixed'
+    setPk((s) => ({
+      peek: null,
+      ghost: slides && s.peek && s.peek.html !== null && !s.peek.error
+        ? { id: s.peek.id, html: s.peek.html, error: '' } : null,
+    }))
+  }, [])
+  const ghostDone = useCallback(() => setPk((s) => (s.ghost ? { ...s, ghost: null } : s)), [])
+
   useEffect(() => {
-    const onKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') setPeek(null) }
+    const onKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') closePeek() }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [])
+  }, [closePeek])
 
   async function openPeek(id: number) {
     const seq = ++peekSeq.current
-    setPeek({ id, html: null, error: '' })
+    /* ⭐ Прежняя сводка остаётся на экране, пока новая в пути (06.11.2026):
+       ответ приходит за пару кадров, и слово «Se încarcă…» между двумя
+       пациентами было вспышкой на каждом щелчке по списку. Словом ожидание
+       называется, только если ответ задержался (`PEEK_WAIT_MS`). Прежняя
+       сводка в это время не нажимается — `PatientPeek`, `inert`. */
+    setPk((s) => ({
+      ghost: null,
+      peek: { id, html: s.peek && !s.peek.error ? s.peek.html : null, error: '', pending: true },
+    }))
+    const slow = window.setTimeout(() => {
+      if (seq !== peekSeq.current) return
+      setPk((s) => (s.peek?.pending ? { ...s, peek: { ...s.peek, html: null, slow: true } } : s))
+    }, PEEK_WAIT_MS)
     try {
       const r = await patients.peek(id)
       if (seq !== peekSeq.current) return
-      setPeek({ id, html: r.data.html, error: '' })
+      setPk({ ghost: null, peek: { id, html: r.data.html, error: '' } })
     } catch (e) {
       if (seq !== peekSeq.current) return
       const err = asApiError(e)
       if (leaveIfSignedOut(err)) return
       const gone = err.failure.kind === 'server' && err.failure.status === 404
-      setPeek({ id, html: null, error: gone ? T.peekGone : T.peekFail })
+      setPk({ ghost: null, peek: { id, html: null, error: gone ? T.peekGone : T.peekFail } })
+    } finally {
+      window.clearTimeout(slow)
     }
   }
 
@@ -310,7 +354,7 @@ export function PatientsSearchScreen({ navigate = defaultNavigate, debounceMs = 
         </div>
         {/* ⭐ Предпросмотр и KPI — правая колонка (шире 1400px); ниже колонка
             одна, предпросмотр — ящик, а KPI спрятан: те же числа в подписи. */}
-        <PatientPeek peek={peek} onClose={() => setPeek(null)} />
+        <PatientPeek peek={peek} ghost={pk.ghost} onGhostDone={ghostDone} onClose={closePeek} panel={panel} />
         {kpi && (
           <div className="dp-card dp-pl-kpi">
             <span className="dp-pl-kpi-ic"><Icon name="users" /></span>
