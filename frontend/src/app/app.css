@@ -1258,6 +1258,19 @@
 .dk-btn.ok:hover { background: var(--green-soft); color: var(--green-t); border-color: transparent; }
 .dk-btn.no:hover { background: var(--amber-soft); color: var(--amber-t); border-color: transparent; }
 .dk-btn:disabled { opacity: .5; cursor: default; }
+/* Вид выключенной кнопки — с задержкой в ступень (06.11, проба look/motion-1):
+   команда панели выключает все кнопки шага на один-два кадра, и без задержки
+   они мигали. Сама кнопка выключена сразу; разбор — panel.css › «движение». */
+.dk-btn:disabled, .dp-free-btn:disabled, .dp-cmenu-i:disabled,
+.dp-react-root .dp-card-foot button:disabled, .dp-react-root .dp-dl .act button.dp-next:disabled {
+  transition: opacity var(--dur-fast) ease var(--dur);
+}
+@media (prefers-reduced-motion: reduce) {
+  .dk-btn:disabled, .dp-free-btn:disabled, .dp-cmenu-i:disabled,
+  .dp-react-root .dp-card-foot button:disabled, .dp-react-root .dp-dl .act button.dp-next:disabled {
+    transition-duration: 0s;
+  }
+}
 .dk-sum { font-size: var(--fs-s); font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .dk-sum.bad { color: var(--red-t); }
 .dk-more, .dk-lnk {
@@ -1501,6 +1514,8 @@ dialog.dp-about { width: 460px; }
 .fl-tab span { font-size: var(--fs-s); font-weight: 500; white-space: nowrap; }
 .fl-tab b { font-size: var(--fs-h3); font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; line-height: 24px; }
 .fl-tab.on { background: var(--teal-soft); border-color: var(--teal); box-shadow: inset 0 0 0 1px var(--teal); color: var(--text); }
+/* цифра вкладки меняет тон переходом (06.11): счётчик перекрашивается вместе со сменой статуса */
+@media (prefers-reduced-motion: no-preference) { .fl-tab b { transition: color var(--dur) ease; } }
 .fl-tab b.amber { color: var(--amber-t); }
 .fl-tab b.red { color: var(--red-t); }
 .fl-tab b.violet { color: #6D28D9; }

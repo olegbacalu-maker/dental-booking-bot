@@ -1976,10 +1976,32 @@
    30%{opacity:1;transform:none;box-shadow:0 0 0 3px var(--teal-line)}
    100%{opacity:1;transform:none;box-shadow:0 0 0 0 transparent}}
  .gappt.fresh,.ag-i.fresh{animation:dp-fresh 1.6s ease}
+ /* Смена статуса без рывка (06.11.2026, проба look/motion-1).
+    1. Команда панели выключает ВСЕ кнопки шага разом (`busy` экрана), а длится
+       один-два кадра: два десятка кнопок бледнели и возвращались — мигание
+       (замер: 17–31 мс, на медленном ПК до 0,2 с). Вид выключенной кнопки
+       теперь приходит с задержкой в ступень: короткая команда не меняет на
+       экране ничего, долгая (программа не отвечает) бледнит кнопки плавно.
+       ⛔ Защита от второго щелчка не тронута: кнопка выключена сразу,
+       задержан только её вид. Обратно — мгновенно: правило стоит на :disabled.
+    2. Плашка статуса, слово на блоке и сам блок меняют цвет переходом, а не
+       щелчком. Переход запускает только смена класса или цвета, то есть новый
+       конверт канала; опрос без изменений не трогает ни одного узла. */
+ .savebtn.ag-next:disabled,.dlg-form button:disabled{
+   transition:opacity var(--dur-fast) ease var(--dur),box-shadow var(--dur-fast) ease var(--dur),
+     transform var(--dur-fast) ease var(--dur)}
+ @media (prefers-reduced-motion:no-preference){
+   .stat,.pl-badge{transition:background-color var(--dur) ease,color var(--dur) ease}
+   .gappt{transition:background-color var(--dur) ease,opacity var(--dur) ease}
+   .ag-i{transition:background-color var(--dur) ease,border-color var(--dur) ease,box-shadow var(--dur) ease,
+     transform var(--dur) ease,opacity var(--dur) ease}
+ }
  /* Уважать системную настройку: у части людей движение вызывает тошноту, и
     Windows отдаёт это флагом. Отключаем всё разом, страница остаётся рабочей. */
  @media (prefers-reduced-motion:reduce){
    .anim *,.gappt.fresh,.ag-i.fresh{animation:none !important;transition:none !important}
+   /* вид выключенной кнопки приходит без затухания, одной ступенькой после задержки */
+   .savebtn.ag-next:disabled,.dlg-form button:disabled{transition-duration:0s}
  }
  /* ---------- заглушка узла React ----------
     Внутри #root сервер оставляет строку «Interfața nouă nu s-a încărcat»
