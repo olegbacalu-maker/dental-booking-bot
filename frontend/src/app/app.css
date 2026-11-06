@@ -1535,7 +1535,7 @@ dialog.dp-about { width: 460px; }
 /* строка, пришедшая на вкладку со сменой статуса (06.11): то же кольцо, что у
    строки повестки и блока сетки; кадры — panel.css › dp-moved */
 .fl-row.moved { animation: dp-moved 1.2s ease; }
-@media (prefers-reduced-motion: reduce) { .fl-row.moved { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .fl-row.moved { animation: none; box-shadow: 0 0 0 3px var(--teal-line); } }
 .fl-b { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 1px; }
 .fl-l1 { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .fl-l1 a { text-decoration: none; color: inherit; min-width: 0; overflow: hidden; }
