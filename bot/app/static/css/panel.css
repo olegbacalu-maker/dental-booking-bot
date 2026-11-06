@@ -889,6 +889,19 @@
  dialog{border:none;border-radius:var(--r-card);padding:0;width:430px;max-width:95vw;background:var(--surface-live);
    box-shadow:0 4px 8px rgba(16,24,40,.10),0 24px 56px rgba(16,24,40,.24)}
  dialog::backdrop{background:rgba(15,23,42,.4)}
+ /* Появление окна (06.11.2026, проба look/motion-1): окно проявляется и
+    встаёт на место за короткую ступень, затемнение темнеет вместе с ним — одно
+    правило на все окна программы. Начальный вид задаёт @starting-style: окно
+    кликабельно с первого кадра, закрывается мгновенно, как и раньше. Движок
+    без @starting-style (Chromium <117, Safari <17.5, Firefox <129) правило
+    пропускает и показывает окно сразу — конечный вид тот же.
+    ⛔ Только прозрачность и transform: раскладку окно не двигает. */
+ @media (prefers-reduced-motion:no-preference){
+   dialog[open]{transition:opacity var(--dur-fast) ease,transform var(--dur-fast) ease}
+   @starting-style{dialog[open]{opacity:0;transform:translateY(8px) scale(.985)}}
+   dialog[open]::backdrop{transition:opacity var(--dur-fast) ease}
+   @starting-style{dialog[open]::backdrop{opacity:0}}
+ }
  .dlg-head{background:transparent;color:var(--text);padding:13px 16px;font-weight:600;font-size:var(--fs-body);
    display:flex;justify-content:space-between;border-bottom:1px solid var(--line)}
  .dlg-head button{color:var(--text3);font-size:var(--fs-l)}

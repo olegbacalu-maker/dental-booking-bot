@@ -215,6 +215,10 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
                   title={T.svcChange} aria-label={T.svcChange}
                   onClick={() => setSvcOpen(true)}><Icon name="pen" /></button>
               )}
+              {/* место под карандаш с ПЕРВОГО кадра (06.11): список услуг
+                  приходит кадром позже окна, и без него карандаш толкал
+                  врача в строке и подращивал окно */}
+              {svcAsk && svcOpts === null && <span className="dp-card-pen" aria-hidden="true" />}
             </span>
             {card.doctor ? <span className="dp-card-w"><span className="dp-card-dot">·</span>{card.doctor}</span> : null}
           </div>

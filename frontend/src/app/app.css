@@ -520,8 +520,13 @@
   width: 24px; height: 24px; padding: 0; border: 1px solid transparent; border-radius: var(--r-xs); background: none;
   color: var(--text3); display: inline-flex; align-items: center; justify-content: center; box-shadow: none; transform: none;
   font-size: var(--fs-m);
+  /* кнопка 24px выше строки фактов: без поправки её приход (список услуг
+     отвечает кадром позже окна) подращивал окно на 3px — замер 06.11 */
+  margin-block: -2px;
 }
 .dp-react-root .dlg-form .dp-card-pen:hover { background: var(--teal-soft); color: var(--teal-d); }
+/* место под карандаш, пока список услуг в пути: врач в той же строке не едет вправо */
+.dp-react-root .dlg-form span.dp-card-pen { visibility: hidden; }
 .dp-react-root .dp-card-pen svg { width: 14px; height: 14px; }
 /* смена процедуры: список, контурная «Schimbă» и «Renunță» одной строкой под фактами, отказ — над ними */
 .dp-react-root .dp-card-svc { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; width: 100%; }
