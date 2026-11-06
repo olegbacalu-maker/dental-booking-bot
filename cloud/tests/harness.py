@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import http.client
 import http.cookiejar
 import json
 import os
@@ -48,6 +49,33 @@ def free_port() -> int:
     return port
 
 
+def _health(port: int, deadline: float) -> bool:
+    """Один опрос `/health` на старте сервера: ответил ли он — как `_health` харнесса движка (14.10).
+
+    ⛔ Ответ читается ДО КОНЦА, и только потом сокет закрывается. Прежний опрос
+    (`with urlopen(…): return`) закрывал сокет по одним заголовкам; uvicorn пишет тело отдельной
+    записью, и закрытие, попавшее в это окно, приходило серверу RST-ом прямо под его `shutdown`.
+    Сервер здоров, но asyncio на Windows печатает в его лог трейсбек (`_call_connection_lost` →
+    ConnectionResetError 10054), и проверки «в логе ни трейсбека» (test_maib, test_lock) краснели
+    случайно: 06.11 — `test_maib.suite_slow` в полном прогоне; проба пустых стартов — 2 из 80.
+    Подключение — с таймаутом в секунду, но ПРИНЯТЫЙ запрос через секунду не бросается (брошенный
+    с ответом в пути — тот же обрыв): ответа ждём до общего срока старта.
+    «Ещё не поднялся» — только сетевые ошибки и ответ 4xx/5xx, не `except Exception`: ошибка в
+    самом харнессе не должна выглядеть сервером, который 40 секунд не отвечает."""
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=1)
+    try:
+        conn.connect()
+        conn.sock.settimeout(max(1.0, deadline - time.time()))
+        conn.request("GET", "/health", headers={"Connection": "close"})
+        r = conn.getresponse()
+        r.read()
+        return r.status < 400
+    except (OSError, http.client.HTTPException):
+        return False
+    finally:
+        conn.close()
+
+
 class Server:
     def __init__(self, env: dict | None = None, log_level: str = "warning"):
         # `info` — только набору, который читает журнал доступа (маска секрета
@@ -86,11 +114,9 @@ class Server:
         while time.time() < deadline:
             if self.proc.poll() is not None:
                 raise RuntimeError("сервер упал при старте:\n" + self.log()[-2000:])
-            try:
-                with urllib.request.urlopen(self.url + "/health", timeout=1):
-                    return self
-            except Exception:  # noqa: BLE001 — ещё не поднялся
-                time.sleep(0.2)
+            if _health(self.port, deadline):
+                return self
+            time.sleep(0.2)                 # ещё не поднялся
         raise RuntimeError("сервер не ответил на /health за 40 секунд")
 
     def log(self) -> str:
