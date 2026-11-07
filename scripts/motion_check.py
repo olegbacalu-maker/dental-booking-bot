@@ -32,7 +32,19 @@
   reduce  `prefers-reduced-motion`: после окна, меню, вкладки, смены статуса и
           сворачивания меню — ни одного НОВОГО перехода или анимации с
           длительностью (список «новое» — NEW ниже; задержанная ступенька вида
-          выключенной кнопки длительности не имеет и движением не считается).
+          выключенной кнопки длительности не имеет и движением не считается);
+          закрытое окно и ушедшая строка уходят в том же кадре, без призрака.
+  Вторая волна (07.11.2026):
+  leave   строка, ушедшая со вкладки потока: её призрак гаснет на прежнем
+          месте, соседняя строка доезжает сдвигом (несколько промежуточных
+          положений) и встаёт ровно на место раскладки без остатка transform;
+  close   закрытие: окно по Esc гаснет за ступень и уходит из дерева; щелчок
+          по вкладке потока во время затухания срабатывает (ввод не задержан);
+          меню по Esc и плашка по крестику гаснут и уходят;
+  move    блок, перенесённый с другого рабочего места, после опроса доезжает
+          до нового места сдвигом и встаёт точно на него;
+  stats   «Statistici» при приходе на экран (после снятия `anim` с документа):
+          корень экрана несёт `anim`, графики проявляются, цифры считают.
 
 ⚠️ Покой меряется ВНЕ границы получаса: на ней сервер законно меняет конверт (час
 «сейчас», прошедшее начало записи). Перед сценарием стенд ждёт, если до границы
@@ -51,7 +63,18 @@
   toast   · въезд ответа возвращён под `.anim` → после первого изменения дня
             ответ стоит без движения;
   reduce  · правило появления окна дописано БЕЗ `@media (prefers-reduced-motion)`
-            → переход у окна при выключенном движении.
+            → переход у окна при выключенном движении;
+  leave   · `.fl-list{--motion-flip:none}` → соседняя строка встаёт одним кадром;
+          · `.fl-row.leaving{display:none !important}` → призрака нет;
+  close   · `dialog{transition:none !important}` → окно уходит без затухания;
+          · `.dp-cmenu.out{opacity:1 !important}` → меню не гаснет;
+          · `.toastbox.out{opacity:1 !important}` → плашка не гаснет;
+  move    · `.gridbody{--motion-flip:none}` → блок встаёт одним кадром;
+  stats   · `.dp-react-root.anim .spark{animation:none !important}` → графики не
+            проявляются;
+          · `.anim .stx-bar{animation:none !important}` → столбцы не растут;
+          · `.stx-bar{animation:stx-grow-y .55s both !important}` → вход играет и
+            на смене периода.
 """
 from __future__ import annotations
 
@@ -80,8 +103,8 @@ from odo_shots import CDP, Page, login_cookie, start_edge  # noqa: E402
 PORT = 9348
 SIZE = (1366, 768)
 LIVE_S = 12            # период опроса живого канала (services/live.ts › LIVE_MS)
-SCENARIOS = ("idle", "dialog", "status", "menu", "toast", "reduce")
-STYLE_SCENARIOS = ("dialog", "status", "menu", "toast")
+SCENARIOS = ("idle", "dialog", "status", "menu", "toast", "reduce", "leave", "close", "move", "stats")
+STYLE_SCENARIOS = ("dialog", "status", "menu", "toast", "close")
 
 # Замеры в странице: кадры, изменения узлов, сеть, сдвиги раскладки, запуски
 # анимаций и переходов. Код программы не трогается — всё вводится по CDP.
@@ -145,6 +168,8 @@ INSTR = r"""(() => {
 # закрытого визита карандаша смены процедуры нет (режим --styles ходит по кругу).
 BLOCK = "document.querySelector('.gappt:not(.gnote):not(.done)')"
 STEP = "document.querySelector('.ag-l .ag-i .ag-next')"
+WAIT_BTN = ("Array.from(document.querySelectorAll('.ag-l .ag-i .ag-next'))"
+            ".filter((b) => b.textContent.trim() === 'A venit')[{i}]")
 DLG = ("() => { const d = document.querySelector('dialog[open]'); if (!d) return null;"
        " return [Number(getComputedStyle(d).opacity), d.offsetHeight, !!d.querySelector('button.dp-card-pen')]; }")
 
@@ -178,8 +203,9 @@ def is_new(r: dict) -> bool:
 class Run:
     """Одна страница главной на одном сервере; собирает утверждения."""
 
-    def __init__(self, cdp: CDP, url: str, label: str):
+    def __init__(self, cdp: CDP, url: str, label: str, client: Client, day: str):
         self.cdp, self.url, self.label = cdp, url, label
+        self.client, self.day = client, day
         self.page = Page(cdp, url)
         self.bad: list[str] = []
         self.n = 0
@@ -241,6 +267,8 @@ class Run:
                 + (f" — {[r['name'] + ' ' + r['target'] for r in d['runs'][:4]]}" if d["runs"] else ""))
         noise = [m for m in d["muts"] if "sf_clock" not in m and "nowline" not in m]
         self.ok(not noise, f"покой: изменившихся узлов {len(noise)}" + (f" — {noise[:4]}" if noise else ""))
+        waapi = self.js("document.getAnimations().filter((a) => a.playState === 'running').length")
+        self.ok(waapi == 0, f"покой: идущих анимаций (и Web Animations — смыкание, переезд) {waapi}")
 
     def dialog(self) -> None:
         step = self.js("getComputedStyle(document.documentElement).getPropertyValue('--dur-fast').trim()")
@@ -343,6 +371,20 @@ class Run:
             if self.js("!!document.querySelector('.side .side-fold')"):
                 runs += self.tap("document.querySelector('.side .side-fold')", 0.5)["runs"]
                 runs += self.tap("document.querySelector('.side .side-fold')", 0.5)["runs"]
+            # уход: окно по Esc — сразу из дерева; строка со вкладки — без призрака
+            self.tap(BLOCK, 0.5)
+            # ⚠️ окно подтверждения стоит в дереве всегда; считается закрытое и ВИДИМОЕ
+            d = self.key("Escape", 27, 0.4, "() => Array.from(document.querySelectorAll('dialog:not([open])'))"
+                         ".filter((x) => getComputedStyle(x).display !== 'none').length")
+            runs += d["runs"]
+            self.ok(not any(d["samples"]), "без движения: закрытое окно не видно ни кадра")
+            self.tap(WAIT_BTN.format(i=0), 1.2)      # на свежем сервере в «A venit» никого нет
+            self.tap("document.querySelectorAll('.fl-tab')[2]", 0.4)
+            d = self.tap("document.querySelector('.fl-list .fl-row .dk-btn')", 1.2,
+                         "() => document.querySelectorAll('.fl-row.leaving').length")
+            runs += d["runs"]
+            self.ok(not any(d["samples"]), "без движения: ушедшая строка без призрака")
+            self.tap("document.querySelectorAll('.fl-tab')[0]", 0.3)
         finally:
             self.cdp.cmd("Emulation.setEmulatedMedia", features=[])
         new = [r for r in runs if is_new(r)]
@@ -351,6 +393,128 @@ class Run:
                 print("      ·", line)
         self.ok(not new, f"без движения: новых переходов и анимаций с длительностью {len(new)} из {len(runs)} запусков"
                 + (f" — {[(r['name'], r['target'][:30], r['pseudo'], r['dur']) for r in new[:4]]}" if new else ""))
+
+    def key(self, key: str, vk: int, wait: float, sample: str = "") -> dict:
+        self.js(f"__mc.sample = {sample or 'null'}; __mc.reset(); 1")
+        self.cdp.cmd("Input.dispatchKeyEvent", type="keyDown", key=key, code=key, windowsVirtualKeyCode=vk)
+        self.cdp.cmd("Input.dispatchKeyEvent", type="keyUp", key=key, code=key, windowsVirtualKeyCode=vk)
+        self.cdp.drain(wait)
+        return self.take()
+
+    def leave(self) -> None:
+        # две записи «a venit», вкладка потока «A venit», первая уходит в кабинет
+        self.tap(WAIT_BTN.format(i=0), 1.6)
+        self.tap(WAIT_BTN.format(i=0), 1.6)
+        time.sleep(1.6)
+        self.tap("document.querySelectorAll('.fl-tab')[2]", 0.5)
+        self.ok(self.js("document.querySelectorAll('.fl-list .fl-row').length") >= 2, "смыкание: на вкладке не меньше двух строк")
+        second = self.js("document.querySelectorAll('.fl-list .fl-row')[1].getAttribute('data-appt')")
+        smp = (f"() => {{ const g = document.querySelector('.fl-row.leaving'); const r = document.querySelector('.fl-row[data-appt=\"{second}\"]');"
+               " if (!r) return null; const b = r.parentElement.getBoundingClientRect();"
+               " return [g ? Number(getComputedStyle(g).opacity) : null, Math.round((r.getBoundingClientRect().top - b.top) * 10) / 10,"
+               " getComputedStyle(r).transform, r.offsetTop, r.getAnimations().length]; }")
+        d = self.tap("document.querySelector('.fl-list .fl-row .dk-btn')", 1.4, smp)
+        seen = [s for s in d["samples"] if s]
+        ghost = [s[0] for s in seen if s[0] is not None]
+        self.ok(len(ghost) >= 2 and ghost[0] > 0.6 and ghost[-1] < 0.3 and ghost == sorted(ghost, reverse=True),
+                f"смыкание: призрак ушедшей строки гаснет по кадрам ({ghost[:1]} … {ghost[-1:]}, кадров {len(ghost)})")
+        tops = [s[1] for s in seen]
+        mid = [t for t in tops if tops[0] > t > tops[-1]]
+        self.ok(len(mid) >= 3 and tops[-1] < tops[0] and all(a >= b for a, b in zip(tops, tops[1:])),
+                f"смыкание: соседняя строка доезжает сдвигом ({tops[0]} → {tops[-1]}, промежуточных положений {len(mid)})")
+        end = seen[-1] if seen else None
+        self.ok(end is not None and end[2] == "none" and abs(end[1] - end[3]) < 1,
+                f"смыкание: по концу — без остатка transform, на месте раскладки ({end[2:] if end else '—'})")
+        self.tap("document.querySelectorAll('.fl-tab')[0]", 0.4)
+
+    def close(self) -> None:
+        smp = ("() => { const d = document.querySelector('dialog:not(.dp-ask)'); const t = document.querySelectorAll('.fl-tab')[1];"
+               " return [d ? Number(getComputedStyle(d).opacity) : null, d ? d.open : null, t.getAttribute('aria-selected')]; }")
+        self.tap(BLOCK, 0.9)
+        self.js(f"__mc.sample = {smp}; __mc.reset(); 1")
+        m = self.cdp.cmd
+        m("Input.dispatchKeyEvent", type="keyDown", key="Escape", code="Escape", windowsVirtualKeyCode=27)
+        m("Input.dispatchKeyEvent", type="keyUp", key="Escape", code="Escape", windowsVirtualKeyCode=27)
+        time.sleep(0.04)
+        x, y = self.page.center("document.querySelectorAll('.fl-tab')[1]")      # щелчок, пока окно гаснет
+        m("Input.dispatchMouseEvent", type="mouseMoved", x=x, y=y)
+        m("Input.dispatchMouseEvent", type="mousePressed", x=x, y=y, button="left", clickCount=1)
+        m("Input.dispatchMouseEvent", type="mouseReleased", x=x, y=y, button="left", clickCount=1)
+        self.cdp.drain(0.8)
+        d = self.take()
+        seen = d["samples"]
+        fading = [s[0] for s in seen if s[0] is not None and s[1] is False and 0 < s[0] < 1]
+        self.ok(len(fading) >= 2 and fading == sorted(fading, reverse=True),
+                f"закрытие: окно гаснет по кадрам после Esc ({fading[:1]} … {fading[-1:]}, кадров {len(fading)})")
+        self.ok(seen and seen[-1][0] is None, "закрытие: по концу окна в дереве нет")
+        self.ok(seen and seen[-1][2] == "true", "закрытие: щелчок по вкладке во время затухания сработал — ввод не задержан")
+        self.tap("document.querySelectorAll('.fl-tab')[0]", 0.3)
+        # меню
+        self.tap(BLOCK, 0.5, button="right")
+        d = self.key("Escape", 27, 0.6, "() => { const m = document.querySelector('.dp-cmenu'); return m ? Number(getComputedStyle(m).opacity) : null; }")
+        ops = [s for s in d["samples"] if s is not None and s < 1]
+        self.ok(len(ops) >= 2 and ops == sorted(ops, reverse=True) and d["samples"][-1] is None,
+                f"закрытие: меню гаснет по кадрам и уходит ({ops[:1]} … {ops[-1:]}, кадров {len(ops)})")
+        # плашка
+        self.tap(BLOCK, 0.9)
+        self.js("(() => { const t = document.querySelector('dialog[open] textarea');"
+                " Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(t, 'de sunat ' + Date.now());"
+                " t.dispatchEvent(new Event('input', { bubbles: true })); return 1 })()")
+        time.sleep(0.3)
+        self.tap("Array.from(document.querySelectorAll('dialog[open] button')).find((b) => b.textContent.includes('Salvează'))", 1.0)
+        d = self.tap("document.querySelector('.toastbox .t-x')", 0.8,
+                     "() => { const b = document.querySelector('.toastbox'); return b ? Number(getComputedStyle(b).opacity) : null; }")
+        ops = [s for s in d["samples"] if s is not None and s < 1]
+        self.ok(len(ops) >= 2 and ops == sorted(ops, reverse=True) and d["samples"][-1] is None,
+                f"закрытие: плашка гаснет по крестику и уходит ({ops[:1]} … {ops[-1:]}, кадров {len(ops)})")
+
+    def move(self) -> None:
+        # перенос с «другого рабочего места»: команда мимо этой страницы, ждём опрос
+        info = self.js("(() => { const b = document.querySelector('.gappt:not(.gnote):not(.done)'); const c = b.closest('.gcol');"
+                       " const h = c.querySelector('.gcell[data-h]:not([disabled])'); return JSON.stringify([b.dataset.appt, c.dataset.dk, h ? h.dataset.hh : '']); })()")
+        bid, dk, free_hh = json.loads(info)
+        self.ok(bool(free_hh), f"переезд: свободный час в колонке есть ({free_hh})")
+        smp = (f"() => {{ const b = document.querySelector('.gappt[data-appt=\"{bid}\"]'); if (!b) return null;"
+               " const g = document.querySelector('.gridbody').getBoundingClientRect(); const r = b.getBoundingClientRect();"
+               " return [Math.round(r.top - g.top), Math.round(r.left - g.left), getComputedStyle(b).transform, b.offsetTop]; }")
+        self.js(f"__mc.sample = {smp}; __mc.reset(); 1")
+        r = self.client.post_json(f"/api/schedule/appointments/{bid}/move", {"date": self.day, "time": free_hh, "doctor": dk})
+        self.ok(r.status == 200, f"переезд: команда переноса принята ({r.status})")
+        self.cdp.drain(LIVE_S + 2.5)
+        d = self.take()
+        seen = [s for s in d["samples"] if s]
+        tops = [s[0] for s in seen]
+        mid = sorted({t for t in tops if min(tops[0], tops[-1]) < t < max(tops[0], tops[-1])})
+        self.ok(tops and tops[0] != tops[-1] and len(mid) >= 3,
+                f"переезд: блок доезжает до нового места сдвигом ({tops[0]} → {tops[-1]}, промежуточных положений {len(mid)})")
+        end = seen[-1] if seen else None
+        self.ok(end is not None and end[2] == "none" and abs(end[0] - end[3]) < 1,
+                f"переезд: по концу — без остатка transform, на месте раскладки ({end[2:] if end else '—'})")
+
+    def stats(self) -> None:
+        if self.js("document.documentElement.classList.contains('anim')"):
+            self.tap(STEP, 1.8)          # первое изменение дня снимает `anim` с документа
+            time.sleep(1.6)
+        self.ok(not self.js("document.documentElement.classList.contains('anim')"), "Statistici: класс anim с документа снят")
+        names = "(q) => Array.from(document.querySelectorAll(q)).flatMap((e) => e.getAnimations().map((a) => a.animationName)).join(',')"
+        smp = (f"() => {{ const n = {names};"
+               " return [!!document.querySelector('.dp-react-root.anim'), n('.dp-react-root .spark'),"
+               " Array.from(document.querySelectorAll('.stx-kpi-v')).map((v) => v.textContent.trim()).join('|'),"
+               " n('.stx-bar'), n('.stx-tbl tbody tr')]; }")
+        d = self.tap("document.querySelector('.side nav a[href=\"/admin/stats\"]')", 1.6, smp)
+        seen = [s for s in d["samples"] if s and s[0]]
+        self.ok(bool(seen), "Statistici: экран пришёл с классом anim на своём корне")
+        self.ok(any("dp-wipe" in s[1] for s in seen), "Statistici: графики проявляются (dp-wipe идёт)")
+        vals = [s[2] for s in seen]
+        self.ok(len(set(vals)) >= 3, f"Statistici: цифры плиток считают по кадрам ({len(set(vals))} состояний)")
+        self.ok(any("stx-grow-y" in s[3] for s in seen), "Statistici: столбцы графика растут")
+        self.ok(any("dp-in" in s[4] for s in seen), "Statistici: строки таблицы въезжают")
+        self.ok(not self.js("!!document.querySelector('.dp-react-root.anim')"), "Statistici: по концу входа класс снят")
+        # смена периода — новые узлы, но вход не играет заново
+        d = self.tap("document.querySelector('.stx-seg a:not(.on)')", 1.0,
+                     f"() => {{ const n = {names}; return n('.stx-bar') + n('.stx-tbl tbody tr') + n('.spark'); }}")
+        self.ok(not any(d["samples"]), f"Statistici: смена периода вход не повторяет ({sorted(set(d['samples']))[:3]})")
+        self.tap("document.querySelector('.side nav a[href=\"/admin\"]')", 1.0)
 
     def scenario(self, name: str, polls: int) -> None:
         print(f"[{self.label}] {name}")
@@ -412,6 +576,15 @@ PAIRS = [
                                                          " .anim .toastbox .banner{animation:dp-toast .3s ease both}")}),
     ("reduce", "появление окна без охраны reduced-motion", {"css": "dialog[open]{transition:opacity var(--dur-fast) ease !important}"
                                                                "@starting-style{dialog[open]{opacity:0}}"}),
+    ("leave", "смыкание выключено", {"css": ".fl-list{--motion-flip:none}"}),
+    ("leave", "призрака ушедшей строки нет", {"css": ".fl-row.leaving{display:none !important}"}),
+    ("close", "окно без затухания", {"css": "dialog{transition:none !important}"}),
+    ("close", "меню не гаснет", {"css": ".dp-cmenu.out{opacity:1 !important}"}),
+    ("close", "плашка не гаснет", {"css": ".toastbox.out{opacity:1 !important}"}),
+    ("move", "переезд блока выключен", {"css": ".gridbody{--motion-flip:none}"}),
+    ("stats", "графики Statistici без проявления", {"css": ".dp-react-root.anim .spark{animation:none !important}"}),
+    ("stats", "столбцы Statistici не растут", {"css": ".anim .stx-bar{animation:none !important}"}),
+    ("stats", "вход Statistici играет и на смене периода", {"css": ".stx-bar{animation:stx-grow-y .55s both !important}"}),
 ]
 
 
@@ -421,7 +594,7 @@ def run_tree(cdp: CDP, bot: pathlib.Path | None, label: str, names, polls: int, 
         with s1:
             c = Client(s1.url).login()
             seed(c)
-            run = Run(cdp, s1.url, label)
+            run = Run(cdp, s1.url, label, c, datetime.now(TZ).date().isoformat())
             cdp.cmd("Page.addScriptToEvaluateOnNewDocument", source=INSTR)
             if styles:
                 for style in styles:
