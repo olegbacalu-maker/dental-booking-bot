@@ -700,11 +700,21 @@
    (секция odo:layout), легенда на это время уходит — сцене остаётся место. */
 @media (pointer: coarse) and (orientation: portrait) {
   .dp-react-root .odop:not([data-sel]):not([data-ocl]) .odop-side { display: none; }
-  .dp-react-root .odop:is([data-sel], [data-ocl]) .odop-side {
+  .dp-react-root .odop[data-sel] .odop-side {
     position: fixed; z-index: 40; left: 0; right: 0; top: auto; bottom: 0;
     max-height: 52vh; overflow: auto; overscroll-behavior: contain;
     background: var(--surface-live); border-top: 1px solid var(--glass-edge);
     -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+    border-radius: var(--r-block) var(--r-block) 0 0; box-shadow: 0 -8px 24px rgba(15, 23, 42, .14);
+    padding: 8px 12px calc(12px + env(safe-area-inset-bottom));
+  }
+  /* шторка формы прикуса (этап 3 «ocluzie», 07.11) — та же шторка, но сплошная:
+     размытие разрешено только поимённо (`test_structure`), а форма с полями ввода
+     читается лучше на сплошном фоне */
+  .dp-react-root .odop[data-ocl]:not([data-sel]) .odop-side {
+    position: fixed; z-index: 40; left: 0; right: 0; top: auto; bottom: 0;
+    max-height: 52vh; overflow: auto; overscroll-behavior: contain;
+    background: var(--surface); border-top: 1px solid var(--glass-edge);
     border-radius: var(--r-block) var(--r-block) 0 0; box-shadow: 0 -8px 24px rgba(15, 23, 42, .14);
     padding: 8px 12px calc(12px + env(safe-area-inset-bottom));
   }
