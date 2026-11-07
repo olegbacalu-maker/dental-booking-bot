@@ -44,7 +44,9 @@
   move    блок, перенесённый с другого рабочего места, после опроса доезжает
           до нового места сдвигом и встаёт точно на него;
   stats   «Statistici» при приходе на экран (после снятия `anim` с документа):
-          корень экрана несёт `anim`, графики проявляются, цифры считают.
+          корень экрана несёт `anim`, графики проявляются, цифры считают;
+  print   печать посреди движения (строка уходит, окно гаснет): на листе ни
+          идущей анимации, ни сдвига, ни призрака, ни гаснущего окна.
 
 ⚠️ Покой меряется ВНЕ границы получаса: на ней сервер законно меняет конверт (час
 «сейчас», прошедшее начало записи). Перед сценарием стенд ждёт, если до границы
@@ -74,7 +76,9 @@
             проявляются;
           · `.anim .stx-bar{animation:none !important}` → столбцы не растут;
           · `.stx-bar{animation:stx-grow-y .55s both !important}` → вход играет и
-            на смене периода.
+            на смене периода;
+  print   · `@media print{.fl-row.leaving{display:flex !important;animation:fl-out 9s both !important}}`
+            → призрак строки на листе.
 """
 from __future__ import annotations
 
@@ -103,8 +107,8 @@ from odo_shots import CDP, Page, login_cookie, start_edge  # noqa: E402
 PORT = 9348
 SIZE = (1366, 768)
 LIVE_S = 12            # период опроса живого канала (services/live.ts › LIVE_MS)
-SCENARIOS = ("idle", "dialog", "status", "menu", "toast", "reduce", "leave", "close", "move", "stats")
-STYLE_SCENARIOS = ("dialog", "status", "menu", "toast", "close")
+SCENARIOS = ("idle", "dialog", "status", "menu", "toast", "reduce", "leave", "close", "move", "stats", "print")
+STYLE_SCENARIOS = ("dialog", "status", "menu", "toast", "close", "reduce")
 
 # Замеры в странице: кадры, изменения узлов, сеть, сдвиги раскладки, запуски
 # анимаций и переходов. Код программы не трогается — всё вводится по CDP.
@@ -522,20 +526,65 @@ class Run:
         self.ok(not any(d["samples"]), f"Statistici: смена периода вход не повторяет ({sorted(set(d['samples']))[:3]})")
         self.tap("document.querySelector('.side nav a[href=\"/admin\"]')", 1.0)
 
+    def print(self) -> None:
+        state = ("JSON.stringify({ css: document.getAnimations().filter((a) => a.playState === 'running'"
+                 " && (a.animationName || a.transitionProperty)).length,"
+                 " waapi: document.getAnimations().filter((a) => a.playState === 'running' && !(a.animationName || a.transitionProperty)).length,"
+                 " ghosts: Array.from(document.querySelectorAll('.fl-row.leaving')).filter((e) => getComputedStyle(e).display !== 'none').length,"
+                 " closing: Array.from(document.querySelectorAll('dialog:not([open])')).filter((e) => getComputedStyle(e).display !== 'none').length,"
+                 " moved: Array.from(document.querySelectorAll('.fl-row')).filter((e) => getComputedStyle(e).transform !== 'none').length })")
+        m = self.cdp.cmd
+
+        def press(finder: str) -> None:
+            x, y = self.page.center(finder)
+            for t in ("mousePressed", "mouseReleased"):
+                m("Input.dispatchMouseEvent", type=t, x=x, y=y, button="left", clickCount=1)
+
+        # строка уходит со вкладки — печать в момент призрака и сдвига
+        self.tap(WAIT_BTN.format(i=0), 1.2)
+        self.tap(WAIT_BTN.format(i=0), 1.2)
+        self.tap("document.querySelectorAll('.fl-tab')[2]", 0.4)
+        press("document.querySelector('.fl-list .fl-row .dk-btn')")
+        for _ in range(60):
+            if self.js("!!document.querySelector('.fl-row.leaving')"):
+                break
+            time.sleep(0.01)
+        m("Emulation.setEmulatedMedia", media="print")
+        # ⚠️ Подмена носителя `beforeprint` не шлёт, а изменение `matchMedia('print')`
+        # приходит событием к следующему кадру — его и ждём (настоящая печать шлёт
+        # `beforeprint` до раскладки листа, utils/flip слушает оба)
+        time.sleep(0.1)
+        s = json.loads(self.js(state))
+        m("Emulation.setEmulatedMedia", media="")
+        self.ok(not any(s.values()), f"печать посреди смыкания: на листе конечный вид ({s})")
+        self.tap("document.querySelectorAll('.fl-tab')[0]", 0.4)
+        # окно гаснет — печать в момент затухания
+        self.tap(BLOCK, 0.6)
+        m("Input.dispatchKeyEvent", type="keyDown", key="Escape", code="Escape", windowsVirtualKeyCode=27)
+        m("Input.dispatchKeyEvent", type="keyUp", key="Escape", code="Escape", windowsVirtualKeyCode=27)
+        time.sleep(0.03)
+        m("Emulation.setEmulatedMedia", media="print")
+        s = json.loads(self.js(state))
+        m("Emulation.setEmulatedMedia", media="")
+        self.ok(not any(s.values()), f"печать посреди закрытия окна: на листе конечный вид ({s})")
+
     def scenario(self, name: str, polls: int) -> None:
         print(f"[{self.label}] {name}")
         self.home()
         self.idle(polls) if name == "idle" else getattr(self, name)()
 
 
-def seed(c: Client) -> None:
-    """Девять записей на сегодня, не ближе двух часов от «сейчас»: в покое у них
-    нет ни минутных порогов, ни прошедшего на глазах начала."""
+def seed(c: Client, hours: int = 3) -> None:
+    """Записи на сегодня (по три врача на час), не ближе двух часов от «сейчас»: в
+    покое у них нет ни минутных порогов, ни прошедшего на глазах начала. Режим
+    стилей сеет больше часов — сценарии статуса проходят по записям в каждом стиле."""
     now = datetime.now(TZ)
     h0 = now.hour - 4 if now.hour >= 11 else max(7, now.hour + 2)
+    if now.hour >= 11 and hours > 3:
+        h0 = 7                              # больше часов — от открытия клиники
     day = now.date().isoformat()
     n = 0
-    for dh in range(3):
+    for dh in range(hours):
         for dk in ("d2", "d3", "d4"):
             n += 1
             r = c.post_json("/api/schedule/appointments", {
@@ -591,6 +640,7 @@ PAIRS = [
     ("stats", "графики Statistici без проявления", {"css": ".dp-react-root.anim .spark{animation:none !important}"}),
     ("stats", "столбцы Statistici не растут", {"css": ".anim .stx-bar{animation:none !important}"}),
     ("stats", "вход Statistici играет и на смене периода", {"css": ".stx-bar{animation:stx-grow-y .55s both !important}"}),
+    ("print", "призрак строки на листе", {"css": "@media print{.fl-row.leaving{display:flex !important;animation:fl-out 9s both !important}}"}),
 ]
 
 
@@ -599,7 +649,7 @@ def run_tree(cdp: CDP, bot: pathlib.Path | None, label: str, names, polls: int, 
     try:
         with s1:
             c = Client(s1.url).login()
-            seed(c)
+            seed(c, 6 if styles else 3)
             run = Run(cdp, s1.url, label, c, datetime.now(TZ).date().isoformat())
             cdp.cmd("Page.addScriptToEvaluateOnNewDocument", source=INSTR)
             if styles:
