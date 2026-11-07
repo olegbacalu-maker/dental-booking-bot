@@ -103,10 +103,12 @@ CHECK_JS = r"""
   if (odop && R(odop).r > window.innerWidth + 1) out.fails.push('.odop mai lat decat fereastra')
   const sel = document.querySelector('.odop .arch .tooth-btn.sel')
   out.sel = sel ? sel.dataset.n : null
-  const sf = document.querySelector('.insp .sfbtn.sel')
-  out.sf = sf ? sf.dataset.s : null
+  // выбранная поверхность — строка списка рядом с крупным зубом (SurfacesTab, 24.10;
+  // крест MODVL `.sfbtn` и подпись `.sfstate` сняты вместе с ним)
+  const sf = document.querySelector('.insp .dp-sfl-r.on')
+  out.sf = sf ? sf.dataset.sf : null
   out.sf_state = sf ? ((Array.from(sf.classList).find(c => c.startsWith('sf-')) || '').slice(3)) : null
-  const lab = document.querySelector('.insp .sfstate label b')
+  const lab = sf && sf.querySelector('.l')
   out.sf_label = lab ? lab.textContent : null
   out.dirty = Array.from(document.querySelectorAll('.odop .arch .tooth-btn.dirty')).map(b => b.dataset.n)
   out.unsaved = Boolean(document.querySelector('.dp-draft'))
@@ -300,7 +302,9 @@ def start_edge(profile, port=DEBUG_PORT):
 
 
 BTN = "document.querySelector('.odop .arch .tooth-btn[data-n=\"{n}\"]')"
-PIC = "document.querySelector('.insp-pic [data-s=\"{s}\"]')"
+# рисунок поверхностей в панели — крупный зуб (BigTooth, 24.10): SVG сервера с целями
+# `data-s`; прежний `.insp-pic` снят вместе со схемой MODVL
+PIC = "document.querySelector('.insp .dp-bt-pic [data-s=\"{s}\"]')"
 BY_TEXT = "Array.from(document.querySelectorAll('{sel}')).find(b => b.textContent.includes('{text}'))"
 
 
