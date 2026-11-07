@@ -257,7 +257,7 @@ export function SmsSettingsScreen({ navigate = defaultNavigate }: Props) {
             <div className="pl-stat"><b>{data.counts.failed}</b><small>{T.failed}</small></div>
           </div>
           <p className="hint">
-            {T.lastAt}: {data.last.at ? data.last.at.replace('T', ' ').slice(0, 16) : '—'}
+            {T.lastAt}: {data.last.when || '—'}
             {data.last.error_text ? ` · ${data.last.error_text}` : ''}
             {' '}
             <button type="button" className="dp-link" disabled={busy}

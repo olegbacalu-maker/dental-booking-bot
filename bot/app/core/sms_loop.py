@@ -807,5 +807,7 @@ def status() -> dict:
             "active": active(), "account": account(), "settings": settings(),
             "forecast": forecast(), "low": _low_view(), "last": {
                 "at": _last["at"].strftime("%Y-%m-%dT%H:%M:%SZ") if _last["at"] else None,
+                # экрану — час клиники готовой строкой: база и цикл живут в UTC
+                "when": _last["at"].astimezone(eng.TZ).strftime("%d.%m.%Y %H:%M") if _last["at"] else "",
                 "outcome": _last["outcome"], "error": _last["error"],
                 "error_text": WHY.get(_last["error"], _last["error"])}}

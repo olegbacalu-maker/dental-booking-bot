@@ -434,7 +434,8 @@ export interface SmsData {
    *  пункта меню и уведомления у часов; null — остатка хватает. */
   low: SmsLow | null
   counts: { queued: number; today: number; delivered: number; failed: number }
-  last: { at: string | null; outcome: string; error_text: string }
+  /** `at` — UTC для проверок; `when` — то же время в поясе клиники, «dd.mm.yyyy HH:MM» */
+  last: { at: string | null; when: string; outcome: string; error_text: string }
   /** Директор: «Comandă» (пополнение, имя), тестовая SMS. */
   can_order: boolean
   clinic: { name: string; phone: string }

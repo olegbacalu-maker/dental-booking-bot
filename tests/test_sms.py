@@ -715,6 +715,13 @@ def suite_screen(res: Result) -> None:
                 res.ok("экран: доступен, предложен, включён, остаток 100, от DentPilot, директору можно заказывать",
                        data["available"] and data["offered"] and data["enabled"] and data["account"]["balance"] == 100
                        and data["account"]["from"] == "DentPilot" and data["can_order"] and data["why"] == "", repr(data)[:600])
+                last = (_wait(lambda: _j(c.get("/api/settings/sms"))["data"]["last"] or None
+                              if _j(c.get("/api/settings/sms"))["data"]["last"]["at"] else None)
+                        or data["last"])
+                res.ok("ultima verificare: `at` — UTC для проверок, `when` — час КЛИНИКИ готовой строкой "
+                       "(09:00 у клиники = 07:00Z; экран резал ISO и показывал 07:00)",
+                       str(last["at"]).startswith("2026-11-06T07:") and str(last.get("when")).startswith("06.11.2026 09:"),
+                       repr(last))
                 res.check("настройки — умолчания (кнопка Rechemări включена, Олег 30.10)", data["settings"],
                           {"day_before": {"on": True, "hour": 10, "variant": "standard"},
                            "same_day": {"on": False, "hours": 2, "variant": "standard"}, "phone_line": False,

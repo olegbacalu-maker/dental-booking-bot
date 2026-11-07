@@ -55,7 +55,7 @@ const BASE: SmsData = {
   forecast: { visits: 120, month: 120, daily: 4, days_left: 10 },
   low: null,
   counts: { queued: 2, today: 3, delivered: 1, failed: 0 },
-  last: { at: '2026-10-16T09:00:00Z', outcome: 'sent', error_text: '' },
+  last: { at: '2026-10-16T09:00:00Z', when: '16.10.2026 12:00', outcome: 'sent', error_text: '' },
   can_order: true,
   clinic: { name: 'Clinica Test', phone: '+373 60 000 000' },
   support: { phone: '+373 60 508 048', email: 'contact@dentpilot.md' },
@@ -84,6 +84,16 @@ describe('SmsSettingsScreen', () => {
     expect(day.checked).toBe(true)
     expect((screen.getByLabelText('În ziua vizitei') as HTMLInputElement).checked).toBe(false)
     expect(screen.queryByText(/Clinica Test va reaminteste ca astazi/)).toBeNull()
+  })
+
+  it('ultima verificare — готовое время сервера в поясе клиники, не сырая ISO-строка (07.11)', async () => {
+    get.mockResolvedValueOnce(ok(BASE))
+    open()
+    await screen.findByText('42')
+    /* сервер хранит UTC (`at`, 09:00Z) и сам переводит в пояс клиники (`when`, 12:00);
+       экран режет ISO — и час уезжает на UTC */
+    expect(screen.getByText(/ultima verificare: 16\.10\.2026 12:00/)).toBeTruthy()
+    expect(screen.queryByText(/2026-10-16/)).toBeNull()
   })
 
   it('переключатель сохраняется сразу: POST с полной формой, ответ подменяет данные', async () => {
