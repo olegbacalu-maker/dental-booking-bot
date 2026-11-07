@@ -87,6 +87,24 @@ export const OPEN_OB = -3
 /** Полоса от режущего края, в которой ищется губная поверхность резца, мм. */
 export const EDGE_BAND = 1.5
 
+/** Наклон верхних резцов по подтипу II класса, градусы добавочного torque
+ *  (+ — коронка к губе): центральные `c`, боковые `l`. Схематичный признак
+ *  подтипа, не измерение (Олег 07.11): из overjet не вычисляется. II/1 —
+ *  центральные и боковые вперёд, II/2 — центральные назад, боковые вперёд.
+ *  Числа — по кадрам `design/ocluzie-3d/stage4` (координатор 07.11; крайние
+ *  14° и −16° выглядели карикатурно). */
+export const SCHEMATIC_TILT_II1_DEG = { c: 10, l: 10 } as const
+export const SCHEMATIC_TILT_II2_DEG = { c: -12, l: 8 } as const
+
+/** Подтип для наклона резцов: все записанные стороны — один и тот же II/1 или
+ *  II/2. Разные подтипы справа и слева (или II с одной стороны и I/III с другой) —
+ *  наклона нет, подтипы остаются в записи и на плашке (Олег 07.11). */
+export function tiltSubtype(rec: OcclRecord): 'II/1' | 'II/2' | null {
+  const sides = [rec.angle_dr, rec.angle_st].map((v) => (v ?? '').trim()).filter((v) => v !== '')
+  if (!sides.length || sides.some((v) => v !== sides[0])) return null
+  return sides[0] === 'II/1' || sides[0] === 'II/2' ? sides[0] : null
+}
+
 /** Направление сдвига нижней челюсти по классу Энгля: I → 0, III → вперёд (+1),
  *  II/1 и II/2 → назад (−1). ⚠️ 'III' — раньше `startsWith('II')`. Незнакомое — как пустое. */
 export function classSign(a: string): -1 | 0 | 1 | null {
@@ -121,19 +139,15 @@ export function jawPose(rec: OcclRecord, base: Bite, geo: OcclGeo, probe?: (p: J
   const overjet = mmOf(rec.overjet)
   const overbite = mmOf(rec.overbite)
   const open = t(rec.deschisa) !== ''
-  // опора: у моляров при открытом прикусе (наклон), иначе (0, 0, 0) — у резцов,
-  // поворот вокруг вертикали тогда не трогает записанную среднюю линию
+  // опора наклона открытого прикуса — у моляров
   if (open) pose.pivotZ = geo.z46
   if (dzR !== null || dzL !== null) {
     const r = dzR ?? (dzL as number)
     const l = dzL ?? (dzR as number)
-    // правая сторона пациента — −x; точно, а не первым порядком: разные классы
-    // сторон дают до 8 мм разницы. Моляр q = (∓half, ·, z46) уходит по z в
-    // ±half·sin(yaw) + (z46 + dz − P)·cos(yaw) + P — решаем на r и l.
-    const s = geo.half > 0 ? Math.max(-1, Math.min(1, (r - l) / (2 * geo.half))) : 0
-    pose.yaw = Math.asin(s)
-    const arm = geo.z46 - pose.pivotZ
-    pose.dz = (arm + (r + l) / 2) / Math.cos(pose.yaw) - arm
+    // челюсть — на среднее сторон; разницу сторон несут сегменты 4–8 по сторонам
+    // (`occlusionPlan`, этап 4). Поворота вокруг вертикали больше нет (Олег 07.11:
+    // боковое смещение из класса не выводить — `yaw` уводил моляры вбок на ~4,7 мм)
+    pose.dz = (r + l) / 2
   } else if (overjet !== null) {
     pose.dz = base.oj - overjet
   }

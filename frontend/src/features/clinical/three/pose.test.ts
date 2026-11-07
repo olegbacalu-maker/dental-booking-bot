@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { det3, layoutArch, type Vec3 } from './arch'
-import { posed } from './pose'
+import { posed, torqued } from './pose'
 
 /* Постановка (06.10): наклон не ломает базис (ортонормирован, отражённые
    квадранты остаются отражёнными), коронка наклоняется к мезиальной стороне,
@@ -51,5 +51,27 @@ describe('постановка зуба', () => {
     // у верхней челюсти корень — вверх (+y): вершина клыка на 1,9 мм выше моляра
     const pc = posed(c, 'canine', true, 11.3, 9.4)
     expect(pc.position[1] - c.position[1]).toBeCloseTo(1.9, 9)
+  })
+
+  it('⭐ добавочный torque = torque табличный + Δ у 11 и у зеркального 21; ноль — тот же объект', () => {
+    /* в базисе места ось коронки — (−sin a·cos b, cos a·cos b, sin b): torque b читается как
+       asin(y · z места). У верхнего центрального резца по таблице 7°. Этап 4 «ocluzie»: II/1
+       наклоняет вперёд (+), II/2 центральные назад (−) — знак обязан совпасть в обоих квадрантах. */
+    const up = layoutArch(UP, true)
+    for (const n of [11, 21]) {
+      const p0 = up.teeth.find((t) => t.n === n)
+      if (!p0) throw new Error('нет зуба')
+      const p = posed(p0, 'incisor_c', true, 10, 9)
+      const b = (q: typeof p): number => (Math.asin(dot(q.yAxis, p0.zAxis)) * 180) / Math.PI
+      expect(b(p)).toBeCloseTo(7, 6)
+      expect(b(torqued(p, 10))).toBeCloseTo(17, 6)
+      expect(b(torqued(p, -12))).toBeCloseTo(-5, 6)
+      const back = torqued(torqued(p, 10), -10)
+      back.yAxis.forEach((v, i) => expect(v).toBeCloseTo(p.yAxis[i] as number, 12))
+      expect(torqued(p, 0)).toBe(p)
+      // шейка (вокруг неё поворот) на месте, базис ортонормирован
+      expect(torqued(p, 10).position).toEqual(p.position)
+      expect(dot(torqued(p, 10).yAxis, torqued(p, 10).zAxis)).toBeCloseTo(0, 12)
+    }
   })
 })

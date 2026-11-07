@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { SCULPT, SCULPT_OF } from '../../../../models/teeth.js'
-import { archCurve, det3, GAP, GAP_CLOSED, layoutArch, LOWER_APEX, toWorld, type PlacedTooth, type Vec3 } from './arch'
-import { crownModel } from './crown'
-import { biteAt, SCHEMATIC_CLASS_SHIFT_MM, jawPose, molarMark, OPEN_OB, REL_I, ZERO_POSE, type BitePoints, type JawPose, type OcclRecord } from './occlusion'
-import { posed } from './pose'
-import { sculptModel } from './sculpt'
-import { toCls } from './toothGeometry'
+import { archCurve, det3, GAP, GAP_CLOSED, layoutArch, LOWER_APEX, toWorld } from './arch'
+import { biteAt, SCHEMATIC_CLASS_SHIFT_MM, jawPose, OPEN_OB, REL_I, ZERO_POSE, type BitePoints, type JawPose, type OcclRecord } from './occlusion'
+import { buildJaw, type Built } from '../../../test/jaws'
 
 /* Раскладка — числа, а не картинка: сумма ширин равна длине дуги, мезиальная
    сторона каждого зуба смотрит к средней линии, щёчная — наружу, отражены
@@ -140,43 +136,6 @@ describe('расстановка', () => {
    Размеры — `teeth_svg.tooth_geom` (07.11.2026). Прикус по умолчанию — I класс
    по ориентирам (Олег 07.11 на Q1, `arch.LOWER_APEX`); до 07.11 нижний apex
    стоял на −2,5 — бугор впереди борозды на 2,8 мм, overjet 5,5. */
-const GEOM: Record<'U' | 'L', Record<number, { md: number; bl: number; crown: number; cls: string }>> = {
-  U: {
-    1: { md: 8.52, bl: 7.16, crown: 10.5, cls: 'incisor_c' }, 2: { md: 6.73, bl: 6.46, crown: 9.0, cls: 'incisor_l' },
-    3: { md: 7.62, bl: 8.07, crown: 10.0, cls: 'canine' }, 4: { md: 7.48, bl: 9.5, crown: 8.5, cls: 'premolar' },
-    5: { md: 7.16, bl: 9.09, crown: 8.5, cls: 'premolar' }, 6: { md: 10.5, bl: 11.03, crown: 7.5, cls: 'molar' },
-    7: { md: 9.98, bl: 10.47, crown: 7.5, cls: 'molar' }, 8: { md: 9.24, bl: 9.7, crown: 7.5, cls: 'molar' },
-  },
-  L: {
-    1: { md: 5.79, bl: 6.55, crown: 9.0, cls: 'incisor_c' }, 2: { md: 6.26, bl: 6.88, crown: 9.5, cls: 'incisor_l' },
-    3: { md: 7.01, bl: 7.57, crown: 11.0, cls: 'canine' }, 4: { md: 7.48, bl: 8.0, crown: 8.0, cls: 'premolar' },
-    5: { md: 7.16, bl: 7.66, crown: 8.0, cls: 'premolar' }, 6: { md: 10.5, bl: 10.08, crown: 7.5, cls: 'molar' },
-    7: { md: 9.98, bl: 9.58, crown: 7.5, cls: 'molar' }, 8: { md: 9.24, bl: 8.87, crown: 7.5, cls: 'molar' },
-  },
-}
-
-interface Built { p: PlacedTooth; local: ArrayLike<number>; pts: number[]; mark: Vec3 | null }
-
-/** Челюсть так, как её ставит сцена (`buildArch` со своими моделями): точки коронок
- *  и ориентиры моляров (`molarMark`) — в системе группы. */
-function buildJaw(list: number[], upper: boolean, formula = false): Map<number, Built> {
-  const geom = (n: number) => ({ ...GEOM[upper ? 'U' : 'L'][n % 10]!, root: 12, roots: 1, upper })
-  const lay = layoutArch(list.map((n) => ({ n, md: geom(n).md })), upper)
-  const ref = crownModel(geom(upper ? 16 : 36)).tip
-  const out = new Map<number, Built>()
-  for (const p0 of lay.teeth) {
-    const g = geom(p0.n)
-    const cm = formula ? crownModel(g) : sculptModel(SCULPT[SCULPT_OF[p0.n] ?? '']!, g)
-    const p = posed(p0, toCls(g.cls), upper, cm.tip, ref)
-    const pos = cm.mesh.positions
-    const pts: number[] = []
-    for (let i = 0; i + 2 < pos.length; i += 3) pts.push(...toWorld(p, [pos[i]!, pos[i + 1]!, pos[i + 2]!]))
-    const k = p0.n % 10 === 6 ? molarMark(pos, g.md, upper) : null
-    out.set(p0.n, { p, local: pos, pts, mark: k ? toWorld(p, k) : null })
-  }
-  return out
-}
-
 const pointsOf = (U: Map<number, Built>, L: Map<number, Built>, marks = true): BitePoints => ({
   u11: U.get(11)!.pts, l41: L.get(41)!.pts,
   c16: U.get(16)!.p.position, c26: U.get(26)!.p.position, c36: L.get(36)!.p.position, c46: L.get(46)!.p.position,
@@ -253,10 +212,7 @@ describe('прикус по умолчанию (сомкнуто, без зап�
     const three = at({ angle_dr: 'III', angle_st: 'III', overbite: '1' })
     expect(three.relR).toBeCloseTo(-SCHEMATIC_CLASS_SHIFT_MM, 1)
     expect(three.oj).toBeLessThan(0)
-    // разные классы сторон: каждая сторона на своём месте (поворот вокруг вертикали)
-    const mix = at({ angle_dr: 'II/2', angle_st: 'III' })
-    expect(Math.abs(mix.relR - SCHEMATIC_CLASS_SHIFT_MM)).toBeLessThan(0.1)
-    expect(Math.abs(mix.relL + SCHEMATIC_CLASS_SHIFT_MM)).toBeLessThan(0.1)
+    // разные классы сторон одна поза челюсти не ставит — сегменты по сторонам (`occlusionPlan.test`)
   })
 
   it('открытый прикус: наклон вокруг моляров доводится секущей до записанного overbite (±0,05)', () => {

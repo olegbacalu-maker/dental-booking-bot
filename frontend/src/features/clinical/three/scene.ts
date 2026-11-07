@@ -10,13 +10,14 @@ import { buildDashedLoop, buildRoots, buildScrew, SURF, toCls, type Letter } fro
 import { crownModel, type CrownModel } from './crown'
 import { sculptModel, type SculptSet } from './sculpt'
 import { posed } from './pose'
-import { anchorsFor, buildGum, linRgb, marginH, SITE_DEG, stripesFor, wallPoint, type GumKind, type GumTooth } from './gum'
+import { anchorsFor, archFrame, buildGum, gumWarpFrame, linRgb, marginH, SITE_DEG, stripesFor, wallPoint, warpGum, type GumKind, type GumTooth, type WarpTooth } from './gum'
 import { roomEnv } from './env'
 import { comesFrom, MS, sceneFor, startLift } from './transition'
 import { createTweens, type Tweens } from './tween'
 import { EMPTY_BOUNDS, fillAt, fitRadius, isEmpty, mapBounds, union, type Bounds } from './fit'
 import { isFinger, LONG_MS, slopOf, swallowNextClick } from '../touch'
-import { biteAt, biteOf, blendPose, lowerPlacement, molarMark, poseLower, ZERO_POSE, type Bite, type BitePoints, type JawPose, type OcclGeo } from './occlusion'
+import { biteAt, biteOf, blendPose, lowerPlacement, molarMark, poseLower, ZERO_POSE, type Bite, type BitePoints, type JawPose, type OcclGeo, type OcclRecord } from './occlusion'
+import { gap34, gapIncCanine, molarGaps, occlusionPlan, placeOf, teethMove, ZERO_TEETH, type OcclPlan, type Shapes, type TeethPlan, type ToothShape } from './occlusionPlan'
 
 /* Сцена одонтограммы (B7, ступень 4) — чистый three.js, без React: обе
    челюсти на дуге движка, пять материалов на коронку (= пять поверхностей),
@@ -158,11 +159,15 @@ export interface ArchScene {
   setDim(teeth: ReadonlySet<number>): void
   /** слой пародонта (край по рецессии, полосы карманов, BOP, зонды); null — снять */
   setPerio(p: PerioInput | null): void
-  /** поза нижней челюсти по записи «Ocluzia» (`occlusion.jawPose`); null — назад
-   *  в положение по умолчанию. Применяется ТОЛЬКО сомкнуто («Ocluzie»): разомкнуто
-   *  запоминается, а включение «Ocluzie» ведёт её тем же твином, что смыкание.
-   *  Твин 700 мс, при reduced-motion — сразу. */
-  setOcclusion(pose: JawPose | null, animate: boolean): void
+  /** план прикуса по записи «Ocluzia» (`planFor`: поза нижней челюсти и места
+   *  отдельных зубов, этап 4) или голая поза челюсти; null — назад в положение по
+   *  умолчанию. Применяется ТОЛЬКО сомкнуто («Ocluzie»): разомкнуто запоминается,
+   *  а включение «Ocluzie» ведёт его тем же твином, что смыкание. Твин 700 мс, при
+   *  reduced-motion — сразу. */
+  setOcclusion(plan: OcclPlan | JawPose | null, animate: boolean): void
+  /** запись → план (`occlusionPlan` по коронкам сцены); null — челюсти не построены.
+   *  Кэш по полям записи: разные классы сторон подбирают «веер» ~0,4 с. */
+  planFor(rec: OcclRecord): OcclPlan | null
   /** прикус ПО ТЕКУЩИМ мировым матрицам (то, что на экране) — для стендов;
    *  null — челюсти ещё не построены */
   measureBite(): Bite | null
@@ -316,11 +321,39 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   const jawMap = (upper: boolean, withY = true): JawMap => upper
     ? (q) => [q[0], q[1] + (withY ? upperG.position.y : 0), q[2]]
     : (q) => poseLower(q, appliedPose(), withY ? jaw.lower.closeY + jaw.lower.hideY : 0)
+  /** ЗАПРОШЕННЫЕ места зубов по плану (этап 4: наклон резцов, добор overjet,
+   *  сегменты сторон и «веер»); применяются той же долей смыкания, что поза */
+  const occT: TeethPlan = { ...ZERO_TEETH }
+  /** план, который сейчас запрошен (для зонда: недобор `rest`) */
+  let occPlan: OcclPlan | null = null
   const placeJaws = (): void => {
     upperG.position.y = -jaw.upper.closeY + jaw.upper.hideY
     const pl = lowerPlacement(appliedPose(), jaw.lower.closeY + jaw.lower.hideY)
     lowerG.rotation.set(pl.rotation[0], pl.rotation[1], pl.rotation[2], 'YXZ')
     lowerG.position.set(pl.position[0], pl.position[1], pl.position[2])
+    placeTeeth()
+  }
+  /* Места отдельных зубов по плану — `occlusionPlan.placeOf` (одна формула со
+     замером), доля k та же, что у позы (Q3: разомкнуто — ТОТ ЖЕ объект места
+     раскладки, матрица не трогается). Десна идёт следом деформацией (`warpGum`):
+     перестраивать её каждый кадр твина дорого (~57 мс на челюсть). */
+  let teethShown = false
+  function placeTeeth(): void {
+    const k = Math.max(0, Math.min(1, jaw.lower.closeY / CLOSE_Y))
+    const moving = teethMove(occT) && k > 0
+    if (!moving && !teethShown) return
+    for (const [n, t] of teeth) {
+      const e = shape.get(n)
+      if (!e) continue
+      const p = placeOf(n, e.place, occT, k)
+      if (p === t.place) continue
+      t.place = p
+      t.group.matrix.makeBasis(new THREE.Vector3(...p.xAxis), new THREE.Vector3(...p.yAxis), new THREE.Vector3(...p.zAxis))
+        .setPosition(new THREE.Vector3(...p.position))
+      t.group.matrixWorldNeedsUpdate = true
+    }
+    teethShown = moving
+    warpGums()
   }
 
   // --- зубы ---
@@ -355,6 +388,10 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     lay: ArchLayout; list: number[]; upper: boolean; grp: T3.Group; mesh: T3.Mesh | null; geo: T3.BufferGeometry | null; marks: T3.Group
     /** габарит челюсти в её системе (коронки по матрицам зубов + тело десны) — камера под окно */
     box: Bounds
+    /** десна вслед за зубами по плану прикуса (этап 4): исходные вершины, станции и глубина —
+     *  лениво, при первом сдвиге; `warped` — сейчас показана деформированная */
+    warp?: { base: Float32Array; u: Float32Array; depth: Float32Array; tu: Map<number, number> } | null
+    warped?: boolean
   }
   const jawGum: JawGum[] = []
   const shape = new Map<number, { place: PlacedTooth; g: ToothGeom; cm: CrownModel }>()
@@ -476,6 +513,40 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     J.marks.add(probes)
   }
 
+  /** Десна челюсти вслед за местами зубов (этап 4). Все зубы на местах раскладки —
+   *  исходная сетка как была (тот же массив вершин). */
+  function warpGums(): void {
+    for (const J of jawGum) {
+      const geo = J.geo
+      if (!geo) continue
+      const list = J.list.map((n) => ({ n, e: shape.get(n), t: teeth.get(n) })).filter((x) => x.e && x.t)
+      const moved = list.some((x) => x.t!.place !== x.e!.place)
+      if (!moved && !J.warped) continue
+      const attr = geo.getAttribute('position') as T3.BufferAttribute
+      if (!J.warp) {
+        const F = archFrame(J.lay.A, J.lay.D, J.lay.apex)
+        const tu = new Map<number, number>()
+        const info = list.map((x) => {
+          const p = x.e!.place.position
+          const u = F.project(p[0], p[2], x.e!.place.s)
+          tu.set(x.n, u)
+          return { u, neckY: p[1], x: p[0], z: p[2] }
+        })
+        const base = Float32Array.from(attr.array as ArrayLike<number>)
+        const fr = gumWarpFrame(base, J.lay.A, J.lay.D, J.lay.apex, info, J.upper ? -1 : 1)
+        J.warp = { base, u: fr.u, depth: fr.depth, tu }
+      }
+      const W = J.warp
+      const wt: WarpTooth[] = list.map((x) => ({ u: W.tu.get(x.n) ?? 0, from: x.e!.place, to: x.t!.place })).sort((a, b) => a.u - b.u)
+      const next = moved ? warpGum(W.base, W.u, W.depth, wt) : W.base
+      ;(attr.array as Float32Array).set(next)
+      attr.needsUpdate = true
+      geo.computeVertexNormals()
+      geo.computeBoundingSphere()
+      J.warped = moved
+    }
+  }
+
   function rebuildGums(): void {
     if (!jawGum.length) return
     const sig = [...teeth.values()].map((t) => t.n + kindOf(t)).join(',') + '|' + perioVer
@@ -493,6 +564,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
         J.grp.add(J.mesh)
       }
       J.geo = geo
+      J.warp = null
+      J.warped = false
       buildMarks(J, list)
       // габарит для камеры под окно: коронки в системе челюсти (матрица зуба —
       // его место на дуге) и тело десны, под которым стоят корни; сдвиги
@@ -510,6 +583,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       J.box = { min: [bb.min.x, bb.min.y, bb.min.z], max: [bb.max.x, bb.max.y, bb.max.z] }
     }
     placeSite()
+    // новая сетка — по местам раскладки; план прикуса ложится на неё снова
+    warpGums()
     invalidate()
   }
 
@@ -1100,21 +1175,31 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   }
 
   const OCC_KEYS = ['dx', 'dy', 'dz', 'yaw', 'pitch', 'pivotY', 'pivotZ'] as const
-  function setOcclusion(pose: JawPose | null, animate: boolean): void {
+  const TEETH_KEYS = ['tiltC', 'tiltL', 'incZ', 'segR', 'segL', 'fan', 'fanPivot'] as const
+  function setOcclusion(arg: OcclPlan | JawPose | null, animate: boolean): void {
+    const plan: OcclPlan | null = arg && 'jaw' in arg ? arg : null
+    const pose: JawPose | null = plan ? plan.jaw : (arg as JawPose | null)
+    occPlan = plan
     const to: JawPose = { ...(pose ?? ZERO_POSE) }
     const from: JawPose = { ...occ }
+    const toT: TeethPlan = { ...(plan?.teeth ?? ZERO_TEETH) }
+    const fromT: TeethPlan = { ...occT }
     tweens.kill('occl')
-    if (OCC_KEYS.every((k) => from[k] === to[k])) return
+    if (OCC_KEYS.every((k) => from[k] === to[k]) && TEETH_KEYS.every((k) => fromT[k] === toT[k])) return
     // опора не едет вместе с углом: пока поворот растёт, точка опоры — та, вокруг
     // которой он будет (или был), иначе челюсть по пути уплывает на (I − R)·ΔP
     const turned = (p: JawPose): boolean => p.yaw !== 0 || p.pitch !== 0
     const pin = turned(to) ? to : from
+    // опора «веера» — так же: у того конца, где веер есть
+    const fanPin = toT.fan !== 0 ? toT.fanPivot : fromT.fanPivot
     const set = (k: number): void => {
       for (const key of OCC_KEYS) occ[key] = from[key] + (to[key] - from[key]) * k
       if (k < 1 && turned(pin)) {
         occ.pivotY = pin.pivotY
         occ.pivotZ = pin.pivotZ
       }
+      for (const key of TEETH_KEYS) occT[key] = fromT[key] + (toT[key] - fromT[key]) * k
+      if (k < 1) occT.fanPivot = fanPin
       placeJaws()
     }
     if (!animate) {
@@ -1125,6 +1210,27 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     // при reduced-motion `tweens` исполняет сразу (fn(1)) и просит кадр сам;
     // разомкнуто поза только запоминается — на экране ничего не едет
     tweens.add(OCCL_MS, set, () => invalidate(), 0, 'occl')
+  }
+
+  /** Коронки сцены для плана (`occlusionPlan`): места раскладки и сетки — один раз. */
+  let shapes: Map<number, ToothShape> | null = null
+  const planShapes = (): Shapes | null => {
+    if (shapes) return shapes
+    if (!shape.size) return null
+    shapes = new Map()
+    for (const [n, e] of shape) shapes.set(n, { place: e.place, pos: e.cm.mesh.positions, index: e.cm.mesh.index, md: e.g.md, upper: e.g.upper })
+    return shapes
+  }
+  const planCache = new Map<string, OcclPlan | null>()
+  function planFor(rec: OcclRecord): OcclPlan | null {
+    const S = planShapes()
+    if (!S) return null
+    const key = JSON.stringify(rec)
+    if (!planCache.has(key)) {
+      if (planCache.size > 8) planCache.clear()
+      planCache.set(key, occlusionPlan(rec, S, CLOSE_Y))
+    }
+    return planCache.get(key) ?? null
   }
 
   /** Точки замера в системах групп: коронки 11/41, центры и ориентиры первых моляров. */
@@ -1153,8 +1259,29 @@ export function createArchScene(opts: SceneOptions): ArchScene {
 
   /** Прикус по мировым матрицам three (что нарисовано): точки групп через matrixWorld челюстей. */
   function measureBite(): Bite | null {
-    const p = bitePoints()
-    if (!p) return null
+    if (!bitePoints()) return null
+    // места зубов СЕЙЧАС (план прикуса двигает резцы и сегменты), матрицы групп — ниже
+    const cur = (n: number): PlacedTooth => teeth.get(n)?.place ?? (shape.get(n) as { place: PlacedTooth }).place
+    const crown = (n: number): number[] => {
+      const e = shape.get(n)
+      if (!e) return []
+      const a = e.cm.mesh.positions
+      const pl = cur(n)
+      const out: number[] = []
+      for (let i = 0; i + 2 < a.length; i += 3) out.push(...toWorld(pl, [a[i] as number, a[i + 1] as number, a[i + 2] as number]))
+      return out
+    }
+    const mk = (n: number): Vec3 | null => {
+      const e = shape.get(n)
+      if (!e) return null
+      const k = molarMark(e.cm.mesh.positions, e.g.md, e.g.upper)
+      return k ? toWorld(cur(n), k) : null
+    }
+    const p: BitePoints = {
+      u11: crown(11), l41: crown(41),
+      c16: cur(16).position, c26: cur(26).position, c36: cur(36).position, c46: cur(46).position,
+      k16: mk(16), k26: mk(26), k36: mk(36), k46: mk(46),
+    }
     scene.updateMatrixWorld(true)
     const v = new THREE.Vector3()
     const w = (g: T3.Group) => (q: Vec3): Vec3 => {
@@ -1415,8 +1542,19 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   // на экран прикус ведёт компонент (этап 3), не этот узел
   ;(canvas as HTMLCanvasElement & { __dpOccl?: unknown }).__dpOccl = {
     measure: () => measureBite(), base: () => biteBase(),
-    set: (pose: JawPose | null, animate = false) => setOcclusion(pose, animate),
-    pose: () => ({ want: { ...occ }, applied: appliedPose() }),
+    set: (plan: OcclPlan | JawPose | null, animate = false) => setOcclusion(plan, animate),
+    plan: (rec: OcclRecord) => planFor(rec),
+    pose: () => ({ want: { ...occ }, applied: appliedPose(), teeth: { ...occT }, rest: occPlan?.rest ?? null }),
+    // какие зубы сейчас НЕ на местах раскладки и показана ли деформированная десна (Q3: выкл — [] и false)
+    moved: () => [...teeth].filter(([n, t]) => t.place !== shape.get(n)?.place).map(([n]) => n),
+    gumWarped: () => jawGum.map((J) => !!J.warped),
+    // точные зазоры при запрошенном плане в сомкнутом положении (сетки коронок, `sweep`):
+    // моляры по вертикали, 3|4 вдоль дуги, боковой резец → клык назад
+    gaps: () => {
+      const S = planShapes()
+      if (!S) return null
+      return { molar: molarGaps(S, occT, occ, -CLOSE_Y, CLOSE_Y), g34: gap34(S, occT), incCanine: gapIncCanine(S, occT) }
+    },
     // группы челюстей как есть в three — разомкнуто обязаны быть прежними (0, y, 0) без поворота
     groups: () => [upperG, lowerG].map((g) => {
       g.updateMatrix()
@@ -1552,6 +1690,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       rebuildGums()
     },
     setOcclusion,
+    planFor,
     measureBite,
     biteBase,
     invalidate,

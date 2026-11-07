@@ -3,7 +3,6 @@ import { Icon } from '../../../components/Icon'
 import { useMenuDismiss } from '../../../components/menu'
 import type { Odontogram, PerioLayer } from '../chart'
 import { load3d } from './loadTeeth'
-import { jawPose } from './occlusion'
 import { PerioLegend } from './PerioLegend'
 import { createArchScene, labelsFor, type ArchScene, type CameraProbe, type Hit, type PerioInput, type Toggle, type ToothProbe, type ViewName } from './scene'
 import type { Letter } from './toothGeometry'
@@ -209,19 +208,18 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
   }, [])
 
   useEffect(() => { sceneRef.current?.setModel(model) }, [model])
-  /* ⭐ Прикус (этап 3 «ocluzie»): запись модели → поза нижней челюсти. Замер
-     прикуса модели (`biteBase`) есть только после постройки челюстей — поэтому
-     после `ready`. Применяется сценой ТОЛЬКО при «Ocluzie» (Q3: `blendPose`);
-     здесь поза лишь запрашивается. Пустая запись — null (модель стоит как
-     стоит, выводов нет). Свежая модель после записи формы — новая поза сразу;
-     та же запись — та же поза, сцена её не повторяет. */
+  /* ⭐ Прикус (этапы 3–4 «ocluzie»): запись модели → план = поза нижней челюсти и
+     места отдельных зубов (`scene.planFor` → `occlusionPlan`). Коронки для плана
+     есть только после постройки челюстей — поэтому после `ready`. Применяется
+     сценой ТОЛЬКО при «Ocluzie» (Q3); здесь план лишь запрашивается. Пустая
+     запись — null (модель стоит как стоит, выводов нет). Свежая модель после
+     записи формы — новый план сразу; та же запись — тот же план (кэш сцены). */
   const posed = useRef(false)
   useEffect(() => {
     const sc = sceneRef.current
     if (!sc || status !== 'ready') return
     const oz = model.ocluzie
-    const bb = oz?.recorded ? sc.biteBase() : null
-    sc.setOcclusion(oz && bb ? jawPose(oz.fields, bb.base, bb.geo, bb.probe) : null, posed.current)
+    sc.setOcclusion(oz?.recorded ? sc.planFor(oz.fields) : null, posed.current)
     posed.current = true
   }, [model, status])
   // слой «Ocluzie», включённый просьбой снаружи, — в сцену (кнопка зовёт `flip` сама;

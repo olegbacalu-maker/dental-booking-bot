@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { biteAt, biteOf, blendPose, classSign, incisal, jawPose, lowerPlacement, mmOf, molarMark, OPEN_OB, poseLower, REL_I, SCHEMATIC_CLASS_SHIFT_MM, ZERO_POSE, type Bite, type JawPose, type OcclGeo } from './occlusion'
+import { biteAt, biteOf, blendPose, classSign, incisal, jawPose, lowerPlacement, mmOf, molarMark, OPEN_OB, poseLower, REL_I, SCHEMATIC_CLASS_SHIFT_MM, SCHEMATIC_TILT_II1_DEG, SCHEMATIC_TILT_II2_DEG, tiltSubtype, ZERO_POSE, type Bite, type JawPose, type OcclGeo } from './occlusion'
 
 /* Прикус в 3D, этап 1: правила записи → позы на числах (замер своих моделей —
    `arch.test.ts` › «прикус по умолчанию»). Числа базы — прототипа 06.11. */
@@ -56,21 +56,26 @@ describe('запись → поза', () => {
     expect(p.yaw).toBe(0)
   })
 
-  it('разные классы сторон → поворот вокруг вертикали: знак по стороне, точно на моляры', () => {
-    // правая (−x) в III — вперёд, левая во II — назад: +yaw
-    const p = jawPose({ angle_dr: 'III', angle_st: 'II/1' }, BASE, GEO)
-    expect(p.yaw).toBeGreaterThan(0)
-    expect(Math.sin(p.yaw) * 2 * GEO.half).toBeCloseTo(2 * SCHEMATIC_CLASS_SHIFT_MM, 9)
-    expect(jawPose({ angle_dr: 'II/2', angle_st: 'III' }, BASE, GEO).yaw).toBeCloseTo(-p.yaw, 9)
-    // моляры встают каждый на своё место: проверка той же формулой, что у сцены
-    const m46 = poseLower([-GEO.half, 0, GEO.z46], p, 0)
-    const m36 = poseLower([GEO.half, 0, GEO.z46], p, 0)
-    expect(m46[2] - GEO.z46).toBeCloseTo(BASE.relR + SCHEMATIC_CLASS_SHIFT_MM, 6)
-    expect(m36[2] - GEO.z46).toBeCloseTo(BASE.relL - SCHEMATIC_CLASS_SHIFT_MM, 6)
-    // I и II: ровно полкласса разницы
-    const half = jawPose({ angle_dr: 'I', angle_st: 'II/1' }, BASE, GEO)
-    expect(poseLower([-GEO.half, 0, GEO.z46], half, 0)[2] - GEO.z46).toBeCloseTo(BASE.relR, 6)
-    expect(poseLower([GEO.half, 0, GEO.z46], half, 0)[2] - GEO.z46).toBeCloseTo(BASE.relL - SCHEMATIC_CLASS_SHIFT_MM, 6)
+  it('⭐ разные классы сторон → челюсть на среднее, поворота вокруг вертикали НЕТ (разницу несут сегменты, этап 4)', () => {
+    /* Олег 07.11: боковое смещение из класса не выводить — прежний yaw уводил
+       моляры вбок на ~4,7 мм. Разницу сторон двигают сегменты 4–8 (`occlusionPlan`). */
+    for (const [r, l] of [['III', 'II/1'], ['II/2', 'III'], ['I', 'II/1']] as const) {
+      const p = jawPose({ angle_dr: r, angle_st: l }, BASE, GEO)
+      expect(p.yaw).toBe(0)
+      const k = (a: string) => (a === 'III' ? 1 : a === 'I' ? 0 : -1) * SCHEMATIC_CLASS_SHIFT_MM
+      expect(p.dz).toBeCloseTo((BASE.relR + k(r) + BASE.relL + k(l)) / 2, 9)
+    }
+  })
+
+  it('подтип для наклона резцов: один и тот же II/1 или II/2 со всех записанных сторон', () => {
+    expect(tiltSubtype({ angle_dr: 'II/1', angle_st: 'II/1' })).toBe('II/1')
+    expect(tiltSubtype({ angle_dr: 'II/2', angle_st: '' })).toBe('II/2')
+    expect(tiltSubtype({ angle_dr: 'II/1', angle_st: 'II/2' })).toBeNull()
+    expect(tiltSubtype({ angle_dr: 'II/1', angle_st: 'I' })).toBeNull()
+    expect(tiltSubtype({ angle_dr: 'III', angle_st: 'III' })).toBeNull()
+    expect(tiltSubtype({})).toBeNull()
+    expect(SCHEMATIC_TILT_II1_DEG).toEqual({ c: 10, l: 10 })
+    expect(SCHEMATIC_TILT_II2_DEG).toEqual({ c: -12, l: 8 })
   })
 
   it('класса нет, overjet есть → dz = base.oj − overjet; при классе overjet не двигает челюсть', () => {

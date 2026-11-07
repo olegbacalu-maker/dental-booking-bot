@@ -33,6 +33,26 @@ const LOWER: Record<Cls, PoseSpec> = {
 
 const rad = (d: number): number => (d * Math.PI) / 180
 
+/** Добавочный torque поставленного зуба, градусы (+ — коронка к щеке/губе): тот
+ *  же поворот, что `posed` делает углом torque, — вокруг мезио-дистальной оси зуба
+ *  через середину шейки, поэтому `torqued(posed(p, …torque b), Δ)` = место с
+ *  torque b + Δ (держит `pose.test`). Квадранты 2 и 4 зеркальные (базис с
+ *  отрицательным определителем): поворот «в базисе зуба» в мире идёт в другую
+ *  сторону. Прикус по подтипу II/1 и II/2 (этап 4 «ocluzie») — через это. */
+export function torqued(p: PlacedTooth, deg: number): PlacedTooth {
+  if (!deg) return p
+  const a = (p.mirror ? -1 : 1) * rad(deg)
+  const k = p.xAxis
+  const c = Math.cos(a)
+  const s = Math.sin(a)
+  const rot = (v: Vec3): Vec3 => {
+    const d = k[0] * v[0] + k[1] * v[1] + k[2] * v[2]
+    const cr: Vec3 = [k[1] * v[2] - k[2] * v[1], k[2] * v[0] - k[0] * v[2], k[0] * v[1] - k[1] * v[0]]
+    return [v[0] * c + cr[0] * s + k[0] * d * (1 - c), v[1] * c + cr[1] * s + k[1] * d * (1 - c), v[2] * c + cr[2] * s + k[2] * d * (1 - c)]
+  }
+  return { ...p, yAxis: rot(p.yAxis), zAxis: rot(p.zAxis) }
+}
+
 /** Место зуба с наклоном и сдвигом шейки. `tip` — вершина этой коронки над
  *  шейкой, `tipRef` — у первого моляра той же челюсти (он остаётся на месте). */
 export function posed(p: PlacedTooth, cls: Cls, upper: boolean, tip: number, tipRef: number): PlacedTooth {

@@ -1,4 +1,4 @@
-import { archProfile, type Vec3 } from './arch'
+import { archProfile, type PlacedTooth, type Vec3 } from './arch'
 import type { RawMesh } from './mesh'
 import type { Cls } from './toothGeometry'
 
@@ -746,4 +746,120 @@ export function buildGum(inp: GumInput): RawMesh {
     }
   }
   return { positions: pos, index: idx, groups: [{ start: 0, count: idx.length, materialIndex: 0 }], colors: col }
+}
+
+// ------------------------------------------------- деформация по прикусу (этап 4)
+
+/** Зуб для деформации десны: станция на дуге (`archFrame.project` места раскладки)
+ *  и места до и после прикуса (`occlusionPlan.placeOf`). */
+export interface WarpTooth { u: number; from: PlacedTooth; to: PlacedTooth }
+
+/** Ширина перехода между жёсткими преобразованиями соседних зубов, мм: у шейки
+ *  узкая — край десны остаётся на своей коронке, книзу шире — тело без ступени
+ *  там, где соседние сегменты идут по-разному (граница 3|4 при разных классах
+ *  сторон: сдвиг вдоль дуги против «веера»). Не шире, чем от центра до центра
+ *  соседей. Растяжение тела (|Δ смещения| / ребро) при II/1 + III: узкий переход
+ *  9,2 (ступень), 0,9 на глубину — 1,6, 1,5 — 1,1, 2,5 — 0,77 (`gumWarp.test`).
+ *  Кадр — `design/ocluzie-3d/stage4/final`. */
+export const WARP_W0 = 0.6
+export const WARP_W1 = 2.5
+
+/** Станция и глубина под шейкой у каждой вершины десны — один раз на сетку. */
+export function gumWarpFrame(
+  positions: ArrayLike<number>, A: number, D: number, apex: number, teeth: { u: number; neckY: number; x: number; z: number }[], occ: number,
+): { u: Float32Array; depth: Float32Array } {
+  const F = archFrame(A, D, apex)
+  const n = Math.floor(positions.length / 3)
+  const u = new Float32Array(n)
+  const depth = new Float32Array(n)
+  for (let i = 0; i < n; i++) {
+    const x = positions[i * 3] as number
+    const y = positions[i * 3 + 1] as number
+    const z = positions[i * 3 + 2] as number
+    let best = teeth[0]
+    let bd = Infinity
+    for (const t of teeth) {
+      const d = (t.x - x) ** 2 + (t.z - z) ** 2
+      if (d < bd) {
+        bd = d
+        best = t
+      }
+    }
+    u[i] = best ? F.project(x, z, best.u) : 0
+    // книзу от шейки (у нижней челюсти — вниз, у верхней — вверх)
+    depth[i] = best ? Math.max(0, (best.neckY - y) * occ) : 0
+  }
+  return { u, depth }
+}
+
+const sstep = (e0: number, e1: number, x: number): number => {
+  const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)))
+  return t * t * (3 - 2 * t)
+}
+
+/** Десна, деформированная вслед за зубами: вершина берёт жёсткое преобразование
+ *  своего зуба (место «до» → «после»), между соседями — плавный переход по
+ *  станции дуги шириной `WARP_W0 + WARP_W1 × глубина`. Все зубы на месте — та же
+ *  сетка (новый массив с теми же числами). `teeth` — по станции. */
+export function warpGum(base: ArrayLike<number>, u: ArrayLike<number>, depth: ArrayLike<number>, teeth: WarpTooth[], w0 = WARP_W0, w1 = WARP_W1): Float32Array {
+  const out = Float32Array.from(base as ArrayLike<number>)
+  if (!teeth.length) return out
+  // преобразование зуба: p → to.pos + R·(p − from.pos), R = B_to · B_fromᵀ
+  const tf = teeth.map((t) => {
+    const f = [t.from.xAxis, t.from.yAxis, t.from.zAxis]
+    const g = [t.to.xAxis, t.to.yAxis, t.to.zAxis]
+    const R: number[] = []
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 3; c++) R.push((g[0]![r]! * f[0]![c]!) + (g[1]![r]! * f[1]![c]!) + (g[2]![r]! * f[2]![c]!))
+    }
+    const same = t.from === t.to
+    return { u: t.u, R, a: t.from.position, b: t.to.position, same }
+  })
+  if (tf.every((t) => t.same)) return out
+  const disp = (k: number, x: number, y: number, z: number): Vec3 => {
+    const t = tf[k]!
+    if (t.same) return [0, 0, 0]
+    const dx = x - t.a[0]
+    const dy = y - t.a[1]
+    const dz = z - t.a[2]
+    const R = t.R
+    return [
+      t.b[0] + R[0]! * dx + R[1]! * dy + R[2]! * dz - x,
+      t.b[1] + R[3]! * dx + R[4]! * dy + R[5]! * dz - y,
+      t.b[2] + R[6]! * dx + R[7]! * dy + R[8]! * dz - z,
+    ]
+  }
+  const N = Math.floor(out.length / 3)
+  for (let i = 0; i < N; i++) {
+    const s = u[i] as number
+    // соседи по станции: последний зуб с u ≤ s и следующий
+    let j = 0
+    while (j + 1 < tf.length && tf[j + 1]!.u <= s) j++
+    const x = out[i * 3]!
+    const y = out[i * 3 + 1]!
+    const z = out[i * 3 + 2]!
+    let d: Vec3
+    if (s <= tf[0]!.u || j + 1 >= tf.length) {
+      d = disp(s <= tf[0]!.u ? 0 : tf.length - 1, x, y, z)
+    } else {
+      const a = tf[j]!
+      const b = tf[j + 1]!
+      const mid = (a.u + b.u) / 2
+      // не шире, чем от центра до центра соседей: иначе в центре зуба смесь пары
+      // переключалась бы на следующую пару скачком (растяжение тела росло с шириной)
+      const w = Math.min(w0 + w1 * (depth[i] as number), b.u - a.u)
+      const k = sstep(mid - w / 2, mid + w / 2, s)
+      if (k <= 0) d = disp(j, x, y, z)
+      else if (k >= 1) d = disp(j + 1, x, y, z)
+      else {
+        const da = disp(j, x, y, z)
+        const db = disp(j + 1, x, y, z)
+        d = [da[0] + (db[0] - da[0]) * k, da[1] + (db[1] - da[1]) * k, da[2] + (db[2] - da[2]) * k]
+      }
+    }
+    out[i * 3] = x + d[0]
+    out[i * 3 + 1] = y + d[1]
+    out[i * 3 + 2] = z + d[2]
+  }
+  return out
 }
