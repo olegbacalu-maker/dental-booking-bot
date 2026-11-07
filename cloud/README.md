@@ -9,6 +9,7 @@
 cd cloud
 python -m venv .venv && .venv/bin/pip install -r requirements.txt
 python tests/run_tests.py                       # свой прогон, stdlib-харнес
+python tests/mutate.py                          # пары «слом → красная проверка», в копии дерева
 DP_ADMIN_HASH=$(python -m app.tools hash-password) DP_LICENSE_KEY=../tests/fixtures/license/test-key.json \
   DP_MAIL_OUTBOX=./outbox python -m uvicorn app.main:app --port 8090
 ```

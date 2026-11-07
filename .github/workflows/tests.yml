@@ -212,7 +212,7 @@ jobs:
   cloud:
     name: Облако (сервер лицензий)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: cloud
@@ -234,3 +234,11 @@ jobs:
 
       - name: Прогон сервера
         run: python tests/run_tests.py
+
+      # Пары «слом → красная проверка» облака (07.11, cloud/tests/mutate.py): поведение в копии
+      # дерева, каждая пара требует красной ИМЕННО своей проверки. Как у движка — и после
+      # красного прогона: одна отправка рассказывает оба ответа.
+      - name: Мутация сторожей облака
+        if: ${{ !cancelled() }}
+        timeout-minutes: 5
+        run: python tests/mutate.py
