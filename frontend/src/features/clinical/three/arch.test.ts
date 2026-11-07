@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { SCULPT, SCULPT_OF } from '../../../../models/teeth.js'
-import { archCurve, det3, GAP, GAP_CLOSED, layoutArch, toWorld, type PlacedTooth, type Vec3 } from './arch'
+import { archCurve, det3, GAP, GAP_CLOSED, layoutArch, LOWER_APEX, toWorld, type PlacedTooth, type Vec3 } from './arch'
 import { crownModel } from './crown'
 import { biteAt, SCHEMATIC_CLASS_SHIFT_MM, jawPose, molarMark, OPEN_OB, REL_I, ZERO_POSE, type BitePoints, type JawPose, type OcclRecord } from './occlusion'
 import { posed } from './pose'
@@ -137,9 +137,9 @@ describe('расстановка', () => {
 /* Прикус по умолчанию (волна «ocluzie», этап 1): замер тем же путём, что у
    сцены — раскладка `layoutArch`, свои модели зубов (`teeth.js`), постановка
    `posed` по формуле первого моляра, смыкание групп на (GAP − GAP_CLOSED)/2.
-   Размеры — `teeth_svg.tooth_geom` (07.11.2026). ⚠️ Закреплено ТЕКУЩЕЕ
-   положение (бугор 16 впереди борозды 46 — II класс схемой, прототип 06.11): после ответа Олега на Q1
-   (перевести в I класс) числа здесь меняются вместе с `layoutArch`. */
+   Размеры — `teeth_svg.tooth_geom` (07.11.2026). Прикус по умолчанию — I класс
+   по ориентирам (Олег 07.11 на Q1, `arch.LOWER_APEX`); до 07.11 нижний apex
+   стоял на −2,5 — бугор впереди борозды на 2,8 мм, overjet 5,5. */
 const GEOM: Record<'U' | 'L', Record<number, { md: number; bl: number; crown: number; cls: string }>> = {
   U: {
     1: { md: 8.52, bl: 7.16, crown: 10.5, cls: 'incisor_c' }, 2: { md: 6.73, bl: 6.46, crown: 9.0, cls: 'incisor_l' },
@@ -191,12 +191,15 @@ describe('прикус по умолчанию (сомкнуто, без зап�
   const base = biteAt(pts, ZERO_POSE, -close, close)
   const probe = (p: JawPose): number => biteAt(pts, p, -close, close).bite.ob
 
-  it('⭐ закреплено текущее положение: overjet ≈ 5,5, overbite ≈ 1,4, бугор впереди борозды на ≈ 2,8 мм по обе стороны (до Q1)', () => {
+  it('⭐ по умолчанию — I класс по ориентирам: бугор 16/26 в борозде 46/36 (±0,05), overjet ≈ 2,7, overbite ≈ 1,39', () => {
     expect(base.bite.byMarks).toBe(true)
-    expect(base.bite.oj).toBeCloseTo(5.5, 1)
+    expect(Math.abs(base.bite.relR)).toBeLessThan(0.05)
+    expect(Math.abs(base.bite.relL)).toBeLessThan(0.05)
+    expect(base.bite.oj).toBeCloseTo(2.7, 1)
     expect(base.bite.ob).toBeCloseTo(1.39, 1)
-    expect(base.bite.relR).toBeCloseTo(2.81, 1)
     expect(base.bite.relL).toBeCloseTo(base.bite.relR, 6)
+    // источник, а не сдвиг поверх: та же дуга на −2,5 давала бугор впереди на 2,8
+    expect(LOWER_APEX).toBe(0.3)
     // опора наклона и рычаг — из той же раскладки
     expect(base.geo.z46).toBeLessThan(-25)
     expect(base.geo.z41 - base.geo.z46).toBeGreaterThan(20)
@@ -232,12 +235,17 @@ describe('прикус по умолчанию (сомкнуто, без зап�
 
   it('поза ставит записанное (±0,1): I → бугор в борозде, overbite по записи; II/1 и III — на SCHEMATIC_CLASS_SHIFT_MM', () => {
     const at = (rec: OcclRecord) => biteAt(pts, jawPose(rec, base.bite, base.geo, probe), -close, close).bite
+    // I класс записан, и модель уже в нём — нижняя челюсть по z не едет
+    expect(Math.abs(jawPose({ angle_dr: 'I', angle_st: 'I' }, base.bite, base.geo).dz)).toBeLessThan(0.05)
     const one = at({ angle_dr: 'I', angle_st: 'I', overbite: '2' })
     expect(Math.abs(one.relR)).toBeLessThan(0.1)
     expect(Math.abs(one.relL)).toBeLessThan(0.1)
     expect(one.ob).toBeCloseTo(2, 1)
     // overjet I класса по ориентирам — ≈ 2,7 (прототип с REL_I = 2 давал 2,0)
-    expect(one.oj).toBeCloseTo(base.bite.oj - base.bite.relR, 1)
+    expect(one.oj).toBeCloseTo(2.7, 1)
+    const iiDz = jawPose({ angle_dr: 'II/1', angle_st: 'II/1' }, base.bite, base.geo).dz
+    expect(iiDz).toBeCloseTo(base.bite.relR - SCHEMATIC_CLASS_SHIFT_MM, 9)
+    expect(jawPose({ angle_dr: 'III', angle_st: 'III' }, base.bite, base.geo).dz).toBeCloseTo(base.bite.relR + SCHEMATIC_CLASS_SHIFT_MM, 9)
     const two = at({ angle_dr: 'II/1', angle_st: 'II/1', overbite: '3' })
     expect(two.relR).toBeCloseTo(SCHEMATIC_CLASS_SHIFT_MM, 1)
     expect(two.oj).toBeCloseTo(base.bite.oj - base.bite.relR + SCHEMATIC_CLASS_SHIFT_MM, 1)
