@@ -95,9 +95,9 @@ def suite_api(res: Result) -> None:
         res.check("палитра: цвет на каждое состояние и отметку, тем же порядком, за ними прикус",
                   list(d["palette"]), list(d["states"]) + list(d["marks"])
                   + ["ocl_incrucisata", "ocl_deschisa"])
-        res.check("подсветка прикуса — стартовые цвета прототипа 06.11",
+        res.check("подсветка прикуса — пара P2, выбор Олега 07.11 (слива, олива)",
                   (d["palette"]["ocl_incrucisata"], d["palette"]["ocl_deschisa"]),
-                  ("#C2410C", "#1D4ED8"))
+                  ("#86198F", "#3F6212"))
         res.check("размеры для 3D у всех зубов, 16 — 10,5 мм и три корня",
                   (all(set(v["geom"]) == {"md", "bl", "crown", "root", "roots", "cls", "upper"} for v in d["teeth"].values()),
                    d["teeth"]["16"]["geom"]["md"], d["teeth"]["16"]["geom"]["roots"], d["teeth"]["55"]["geom"]["cls"]),
