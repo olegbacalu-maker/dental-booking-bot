@@ -189,6 +189,15 @@ export function poseLower(q: Vec3, pose: JawPose, y0: number): Vec3 {
   return [x * cy + z1 * sy, y1 + pose.pivotY, -x * sy + z1 * cy + pose.pivotZ]
 }
 
+/** Доля, с которой план прикуса применяется (поза челюсти, места зубов, десна):
+ *  доля смыкания `closeY / full` (Q3: разомкнуто — 0); в «Parodont» — 0 всегда,
+ *  даже при «Ocluzie» (координатор 08.11: отметки пародонта стоят по местам
+ *  раскладки и за сдвинутыми зубами не идут). Одно условие на сцену — `scene.occK`. */
+export function occlusionK(closeY: number, full: number, parodont: boolean): number {
+  if (parodont || !(full > 0)) return 0
+  return Math.max(0, Math.min(1, closeY / full))
+}
+
 /** Применённая поза = запрошенная × доля смыкания k ∈ [0, 1] (Q3, Олег 07.11:
  *  прикус только при включённом «Ocluzie»). k = 0 — РОВНО `ZERO_POSE` (не
  *  «почти»: разомкнутое положение побайтно прежнее), k = 1 — запрошенная.

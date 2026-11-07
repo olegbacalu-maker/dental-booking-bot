@@ -16,7 +16,7 @@ import { comesFrom, MS, sceneFor, startLift } from './transition'
 import { createTweens, type Tweens } from './tween'
 import { EMPTY_BOUNDS, fillAt, fitRadius, isEmpty, mapBounds, union, type Bounds } from './fit'
 import { isFinger, LONG_MS, slopOf, swallowNextClick } from '../touch'
-import { biteAt, biteOf, blendPose, lowerPlacement, molarMark, poseLower, ZERO_POSE, type Bite, type BitePoints, type JawPose, type OcclGeo, type OcclRecord } from './occlusion'
+import { biteAt, biteOf, blendPose, lowerPlacement, molarMark, occlusionK, poseLower, ZERO_POSE, type Bite, type BitePoints, type JawPose, type OcclGeo, type OcclRecord } from './occlusion'
 import { gap34, gapIncCanine, molarGaps, occlusionPlan, placeOf, teethMove, ZERO_TEETH, type OcclPlan, type Shapes, type TeethPlan, type ToothShape } from './occlusionPlan'
 
 /* Сцена одонтограммы (B7, ступень 4) — чистый three.js, без React: обе
@@ -314,7 +314,13 @@ export function createArchScene(opts: SceneOptions): ArchScene {
      поворотом вокруг опоры: положение группы = P + R·(t − P), та же формула, что
      `occlusion.poseLower` для точки (0, 0, 0) — замер и экран не расходятся.
      Поза едет тем же твином, что смыкание: доля k = closeY / CLOSE_Y. */
-  const appliedPose = (): JawPose => blendPose(occ, jaw.lower.closeY / CLOSE_Y)
+  /** ⭐ ЕДИНСТВЕННОЕ место, где решается «применять ли план прикуса»: доля 0…1 для
+   *  позы челюсти, мест зубов и десны (`occlusion.occlusionK`). Разомкнуто — 0 (Q3,
+   *  Олег 07.11). В «Parodont» (слой пародонта `perio`) — 0 всегда, даже при
+   *  «Ocluzie» (координатор 08.11, вариант задания «прикус не применять»): отметки
+   *  BOP, зонды и маркер точки стоят по местам раскладки и за сдвинутыми зубами не идут. */
+  const occK = (): number => occlusionK(jaw.lower.closeY, CLOSE_Y, perio !== null)
+  const appliedPose = (): JawPose => blendPose(occ, occK())
   /** Точка системы челюсти → мир, как её ставит `placeJaws` (этап 3: фокус камеры
    *  и габарит знают позу прикуса). `withY` = false — без смыкания и ухода из
    *  кадра: габарит `fit.ts` их и прежде не учитывал, нулевая поза = прежний кадр. */
@@ -339,7 +345,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
      перестраивать её каждый кадр твина дорого (~57 мс на челюсть). */
   let teethShown = false
   function placeTeeth(): void {
-    const k = Math.max(0, Math.min(1, jaw.lower.closeY / CLOSE_Y))
+    const k = occK()
     const moving = teethMove(occT) && k > 0
     if (!moving && !teethShown) return
     for (const [n, t] of teeth) {
@@ -1687,7 +1693,10 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       }
       perioVer += 1
       if (lastModel) paint(lastModel)
+      // «Parodont» снимает план прикуса (`occK`), выход — возвращает: челюсти и зубы сразу
+      placeJaws()
       rebuildGums()
+      invalidate()
     },
     setOcclusion,
     planFor,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildJaw, LOWER, shapesOf, UPPER } from '../../../test/jaws'
 import { GAP, GAP_CLOSED, type PlacedTooth } from './arch'
-import { SCHEMATIC_CLASS_SHIFT_MM, SCHEMATIC_TILT_II1_DEG, SCHEMATIC_TILT_II2_DEG, type OcclRecord } from './occlusion'
+import { blendPose, occlusionK, SCHEMATIC_CLASS_SHIFT_MM, SCHEMATIC_TILT_II1_DEG, SCHEMATIC_TILT_II2_DEG, ZERO_POSE, type OcclRecord } from './occlusion'
 import {
   CONTACT_ONLY_III, gap34, gapIncCanine, molarGaps, occlusionPlan, OVERBITE_AFTER_TILT, OVERJET_STOP_AT_CANINE, placeOf,
   planBite, SEGMENT_FROM, sweep, ZERO_TEETH, type Body,
@@ -165,5 +165,25 @@ describe('запись → план (свои модели, сомкнуто)', 
     const p = plan({ angle_dr: 'II/1', angle_st: 'III', mediana_mm: '3', mediana_spre: 'stanga' })
     expect(p.jaw.dx).toBe(3)
     expect(p.jaw.yaw).toBe(0)
+  })
+})
+
+describe('«Parodont» снимает план прикуса (координатор 08.11)', () => {
+  it('⭐ в «Parodont» при «Ocluzie» и записи III — доля 0: челюсть, зубы и десна на местах раскладки; выход — план снова', SLOW, () => {
+    const p = plan({ angle_dr: 'III', angle_st: 'III' })
+    const mixed = plan({ angle_dr: 'II/1', angle_st: 'III' })
+    // «Ocluzie» вкл. (смыкание полное), «Parodont» вкл.
+    const k = occlusionK(C, C, true)
+    expect(k).toBe(0)
+    expect(blendPose(p.jaw, k)).toEqual(ZERO_POSE)
+    for (const n of [11, 41, 43, 44, 46, 36]) expect(placeOf(n, S.get(n)!.place, mixed.teeth, k)).toBe(S.get(n)!.place)
+    // выход из «Parodont» — тот же план целиком
+    const back = occlusionK(C, C, false)
+    expect(back).toBe(1)
+    expect(blendPose(p.jaw, back)).toEqual(p.jaw)
+    expect(placeOf(46, S.get(46)!.place, mixed.teeth, back)).not.toBe(S.get(46)!.place)
+    // разомкнуто — 0 и без «Parodont» (Q3); на полпути смыкания — доля
+    expect(occlusionK(0, C, false)).toBe(0)
+    expect(occlusionK(C / 2, C, false)).toBeCloseTo(0.5, 12)
   })
 })
