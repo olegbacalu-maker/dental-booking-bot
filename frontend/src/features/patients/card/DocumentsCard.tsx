@@ -8,6 +8,7 @@ import { hideDialog, showDialog } from './dialog'
 import { patientCard, scan, type Doc, type Form, type PatientCard, type ScanStatus } from './card'
 import { printHref } from './print'
 import { ScanBox, type ScanJob } from './ScanBox'
+import { useLingering } from '../../../utils/motion'
 
 /* Документы: снимки и PDF открываются тут же, остальное — программой
    Windows через движок, а если тот не может (не локально, чужое
@@ -74,6 +75,8 @@ export function DocumentsCard({ card, a, onFail, navigate, pick = null }: Props)
   const [file, setFile] = useState<File | null>(null)
   const [category, setCategory] = useState('alt')
   const [viewing, setViewing] = useState<Doc | null>(null)
+  /* окно гаснет за ступень (07.11): снимок и подпись стоят до конца */
+  const { shown: viewed } = useLingering(viewing)
   const dlg = useRef<HTMLDialogElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const inputId = `docfile-${card.id}`
@@ -249,18 +252,18 @@ export function DocumentsCard({ card, a, onFail, navigate, pick = null }: Props)
       </p>
       <dialog ref={dlg} className="wide" onClose={() => setViewing(null)}>
         <div className="dlg-head">
-          <span>{viewing?.filename ?? '—'}</span>
+          <span>{viewed?.filename ?? '—'}</span>
           <button type="button" onClick={closeViewer} aria-label={T.close}><Icon name="close" /></button>
         </div>
         <div className="dvbody">
-          {viewing?.view === 'img' && <img src={`/admin/doc/${viewing.id}?inline=1`} alt="" />}
-          {viewing?.view === 'pdf' && <iframe title={viewing.filename} src={`/admin/doc/${viewing.id}?inline=1`} />}
+          {viewed?.view === 'img' && <img src={`/admin/doc/${viewed.id}?inline=1`} alt="" />}
+          {viewed?.view === 'pdf' && <iframe title={viewed.filename} src={`/admin/doc/${viewed.id}?inline=1`} />}
         </div>
         <div className="dvacts">
-          {viewing && (
-            <button type="button" onClick={() => { void sysOpen(viewing.id) }}><Icon name="monitor" /> {T.openExt}</button>
+          {viewed && (
+            <button type="button" onClick={() => { void sysOpen(viewed.id) }}><Icon name="monitor" /> {T.openExt}</button>
           )}
-          {viewing && <AppLink href={`/admin/doc/${viewing.id}`}><Icon name="download" /> {T.save}</AppLink>}
+          {viewed && <AppLink href={`/admin/doc/${viewed.id}`}><Icon name="download" /> {T.save}</AppLink>}
         </div>
       </dialog>
     </div>

@@ -8,6 +8,7 @@ import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
 import { hideDialog, showDialog } from '../patients/card/dialog'
 import { dmy, letter, mailto, recallApi, type RecallData, type RecallResult, type RecallRow, type RecallTab } from './recall'
+import { useLingering } from '../../utils/motion'
 
 /* «Rechemări» (29.10) — список регистратуры: кому пора на повторную
    процедуру (срок задан у услуги), позвонить или написать. Решения Олега
@@ -299,14 +300,16 @@ function MarkPill({ mark }: { mark: NonNullable<RecallRow['mark']> }) {
 
 /** Окно SMS (30.10): кому, текст сервера, сколько SMS и сколько останется,
  *  «Trimite SMS». Текст не правится: его пишет DentPilot. */
-function SmsDialog({ row, balance, busy, onClose, onSend }: {
+function SmsDialog({ row: live, balance, busy, onClose, onSend }: {
   row: RecallRow | null; balance: number; busy: boolean; onClose: () => void; onSend: (r: RecallRow) => void
 }) {
   const ref = useRef<HTMLDialogElement>(null)
   useEffect(() => {
-    if (row) showDialog(ref.current)
+    if (live) showDialog(ref.current)
     else hideDialog(ref.current)
-  }, [row])
+  }, [live])
+  /* окно гаснет за ступень (07.11): текст стоит до конца */
+  const { shown: row } = useLingering(live)
   const s = row?.sms ?? null
   const segs = s?.segments ?? 1
   return (
@@ -366,15 +369,17 @@ function MarkMenu({ r, busy, onMark }: { r: RecallRow; busy: boolean; onMark: (r
 }
 
 /** Окно письма (кадр К3): текст, `mailto:`, «Copiază», отметка — человеком. */
-function MailDialog({ row, clinic, onClose, onSent }: {
+function MailDialog({ row: live, clinic, onClose, onSent }: {
   row: RecallRow | null; clinic: RecallData['clinic']; onClose: () => void; onSent: (r: RecallRow) => void
 }) {
   const ref = useRef<HTMLDialogElement>(null)
   const [copied, setCopied] = useState('')
   useEffect(() => {
-    if (row) showDialog(ref.current)
+    if (live) showDialog(ref.current)
     else hideDialog(ref.current)
-  }, [row])
+  }, [live])
+  /* окно гаснет за ступень (07.11): письмо стоит до конца */
+  const { shown: row } = useLingering(live)
   const l = row ? letter(row, clinic) : null
   function copy(what: string, text: string) {
     if (navigator.clipboard) void navigator.clipboard.writeText(text)

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { settle, useAsk } from './confirm'
 import { hideDialog, showDialog } from './dialog'
 import { Icon } from './Icon'
+import { useLingering } from '../utils/motion'
 
 /* Окно подтверждения — одно на всё приложение (см. `confirm.ts`). Тот же
    `<dialog>`, что у карточки визита и фиши: панель, подложка, радиусы из
@@ -15,6 +16,8 @@ const T = {
 
 export function ConfirmHost() {
   const req = useAsk()
+  /* окно гаснет за ступень (07.11) — текст и кнопки стоят до конца, не пустеют */
+  const { shown } = useLingering(req)
   const ref = useRef<HTMLDialogElement>(null)
   const okRef = useRef<HTMLButtonElement>(null)
   const noRef = useRef<HTMLButtonElement>(null)
@@ -33,24 +36,24 @@ export function ConfirmHost() {
   return (
     <dialog ref={ref} className="dp-ask" aria-labelledby="dp-ask-text"
       onClose={() => settle(false)}>
-      {req && (
+      {shown && (
         <>
           <div className="dp-ask-body">
-            <span className={`dp-ask-ico${req.danger ? ' danger' : ''}`}>
-              <Icon name={req.danger ? 'trash' : 'help'} />
+            <span className={`dp-ask-ico${shown.danger ? ' danger' : ''}`}>
+              <Icon name={shown.danger ? 'trash' : 'help'} />
             </span>
             <div className="dp-ask-txt">
-              {req.title && <b>{req.title}</b>}
-              <p id="dp-ask-text">{req.text}</p>
+              {shown.title && <b>{shown.title}</b>}
+              <p id="dp-ask-text">{shown.text}</p>
             </div>
           </div>
           <div className="dp-ask-btns">
             <button ref={noRef} type="button" className="pl-btn" onClick={() => settle(false)}>
-              {req.cancel ?? T.cancel}
+              {shown.cancel ?? T.cancel}
             </button>
-            <button ref={okRef} type="button" className={`savebtn${req.danger ? ' dp-ask-danger' : ''}`}
+            <button ref={okRef} type="button" className={`savebtn${shown.danger ? ' dp-ask-danger' : ''}`}
               onClick={() => settle(true)}>
-              {req.ok ?? (req.danger ? T.okDanger : T.ok)}
+              {shown.ok ?? (shown.danger ? T.okDanger : T.ok)}
             </button>
           </div>
         </>

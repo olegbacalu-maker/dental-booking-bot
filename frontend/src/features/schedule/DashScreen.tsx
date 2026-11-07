@@ -24,6 +24,7 @@ import {
 } from './dash'
 import { freeHalves, type Slot } from './slot'
 import { freshOf, movedOf, readSeen, writeSeen, FRESH_MS, MOVED_MS } from './fresh'
+import { useLingering, useOpening } from '../../utils/motion'
 import { clashAmong, hhmm, sameSlot, type Drag, type Target } from './move'
 
 /**
@@ -292,12 +293,26 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
      остаётся на ПОСЛЕДНЕМ известном блоке, говорит словом и запирает все
      кнопки: из надгробия ничего отправить нельзя, им можно только сказать
      «этого больше нет». */
+  /* Уход (07.11, вторая волна): закрытое окно и меню стоят ещё ступень, пока
+     гаснут по CSS; `open={false}` / `leaving` — их вид в это время. Без
+     движения `shown` равно состоянию, и всё как было. */
+  const cardL = useLingering(card)
+  const menuL = useLingering(menu)
+  const noteL = useLingering(note)
+  const slotL = useLingering(slot)
+  const moveL = useLingering(move)
+  /* ⛔ Смотрит на ЖИВОЕ состояние (`card`, а не `cardL.shown`): закрытое окно
+     гаснет со снимком открытия. Иначе запись, отменённая самим этим окном,
+     приехала бы каналом за ступень затухания — и уходящее окно успело бы
+     сказать «Programarea nu mai există». */
   const found = card === null ? null : findAppt(state.data, card.id)
-  const openCard = found ?? card?.at ?? null
+  const openCard = found ?? cardL.shown?.at ?? null
   const gone = card !== null && found === null
-  const menuCard = menu === null ? null : findAppt(state.data, menu.id)
+  const menuLive = menuL.shown === null ? null : findAppt(state.data, menuL.shown.id)
+  const menuAt = useOpening(menuL.shown, menuLive)
+  const menuCard = menuL.leaving ? menuAt : menuLive
   const foundNote = note === null ? null : findNote(state.data, note.id)
-  const openNote = foundNote ?? note?.at ?? null
+  const openNote = foundNote ?? noteL.shown?.at ?? null
   const noteGone = note !== null && foundNote === null
 
   /* Одно действие на обе команды. ⛔ Ответ состояния НЕ несёт: после команды
@@ -461,84 +476,84 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
         </div>
       </div>
 
-      {menu !== null && menuCard && (
-        <CardMenu at={menu} card={menuCard} actions={d.actions[menuCard.status] ?? []}
-          busy={busy} onClose={closeMenu}
+      {menuL.shown !== null && menuCard && (
+        <CardMenu at={menuL.shown} card={menuCard} actions={d.actions[menuCard.status] ?? []}
+          busy={busy} onClose={closeMenu} leaving={menuL.leaving}
           onStatus={async (to) => {
-            const ok = await act(() => dash.status(d.date, menu.id, to))
+            const ok = await act(() => dash.status(d.date, menuL.shown!.id, to))
             if (ok) setMenu(null)
             return ok
           }}
-          onCall={(result) => act(() => dash.call(d.date, menu.id, result))} />
+          onCall={(result) => act(() => dash.call(d.date, menuL.shown!.id, result))} />
       )}
-      {card !== null && openCard && (
-        <CardDialog key={card.id} open id={card.id} card={openCard}
+      {cardL.shown !== null && openCard && (
+        <CardDialog key={cardL.shown.id} open={!cardL.leaving} id={cardL.shown.id} card={openCard}
           /* ⛔ Кнопки приходят С СЕРВЕРА по состоянию записи. У надгробия их
              нет вовсе: действовать не над чем. */
           actions={gone ? [] : d.actions[openCard.status] ?? []}
           note={gone ? T.gone : ''}
           back={`/admin?date=${d.date}`} busy={busy}
           onClose={() => setCard(null)}
-          onComment={(text) => act(() => dash.comment(d.date, card.id, text))}
+          onComment={(text) => act(() => dash.comment(d.date, cardL.shown!.id, text))}
           onStatus={async (to) => {
-            const ok = await act(() => dash.status(d.date, card.id, to))
+            const ok = await act(() => dash.status(d.date, cardL.shown!.id, to))
             if (ok) setCard(null)
             return ok
           }}
-          onCall={(result) => act(() => dash.call(d.date, card.id, result))}
+          onCall={(result) => act(() => dash.call(d.date, cardL.shown!.id, result))}
           /* ⛔ Смена процедуры — команда без состояния, как статус: новая
              подпись и длительность приезжают КАНАЛОМ (`refresh()` в `act`),
              а не из ответа. */
-          onService={(sid, fail) => act(() => dash.service(d.date, card.id, sid), fail)} />
+          onService={(sid, fail) => act(() => dash.service(d.date, cardL.shown!.id, sid), fail)} />
       )}
-      {note !== null && openNote && (
+      {noteL.shown !== null && openNote && (
         /* ⛔ Кнопка приходит С СЕРВЕРА по состоянию заметки — той же матрицей,
            что печатает список дня. У надгробия её нет вовсе: действовать не над
            чем. ⚠️ Матрица знает два состояния из шести, и заметка, уведённая в
            чужой статус, честно остаётся без кнопок. */
-        <NoteDialog key={note.id} open note={openNote}
+        <NoteDialog key={noteL.shown.id} open={!noteL.leaving} note={openNote}
           actions={noteGone ? [] : d.note_actions[openNote.status] ?? []}
           gone={noteGone ? T.noteGone : ''}
           busy={busy} onClose={() => setNote(null)}
           onStatus={async (to) => {
-            const ok = await act(() => dash.status(d.date, note.id, to))
+            const ok = await act(() => dash.status(d.date, noteL.shown!.id, to))
             if (ok) setNote(null)
             return ok
           }} />
       )}
-      {slot && (
+      {slotL.shown && (
         /* ⚠️ Ключ «врач|час» — тот же приём, что у карточки: другая ячейка =
            другой диалог, и набранное имя не переезжает на соседний час.
            ⛔ Данные — ИЗ КОНВЕРТА (`slotform`, `note_ends`), а не отдельным
            запросом: они постоянны, отпечаток не двигают, и второй двери к
            состоянию не появляется. */
-        <SlotDialog key={`${slot.dk}|${slot.hour}`} open slot={slot}
+        <SlotDialog key={`${slotL.shown.dk}|${slotL.shown.hour}`} open={!slotL.leaving} slot={slotL.shown}
           date={d.date} form={d.slotform} noteEnds={d.note_ends} busy={busy}
           /* Занятость стартов — ПОДСКАЗКА по канве, как `busyAt` у переноса
              (17.10): сериализует сервер (`_slot_lock`, один критический
              участок на «проверка + вставка»), и его отказ приходит словом
              в само окно (`fail`), диалог остаётся открытым с набранным. */
-          free={freeHalves(blocksOf(d, slot.dk), Number(slot.hour.split(':')[0]))}
+          free={freeHalves(blocksOf(d, slotL.shown.dk), Number(slotL.shown.hour.split(':')[0]))}
           onClose={() => setSlot(null)}
           onAdd={(b, fail) => act(() => dash.add(d.date, b), fail)}
           onNote={(b, fail) => act(() => dash.note(d.date, b), fail)} />
       )}
-      {move && (
+      {moveL.shown && (
         /* ⛔ Подсказку о помехе считает ЭКРАН по своей канве, а не диалог по
            модели: у дня и у панели разные модели и разный ключ колонки, а
            диалог переноса ОДИН на оба.
            ⚠️ И это именно подсказка: правду говорит сервер под `_BOOK_LOCK` —
            пока тянули, час мог занять второй администратор. */
-        <MoveDialog open drag={move.drag} target={move.target} busy={busy}
-          fromName={colName(d, move.drag.dk)} toName={colName(d, move.target.dk)}
-          busyAt={clashAmong(blocksOf(d, move.target.dk), move.target.min,
-            move.drag.dur, move.drag.id)}
+        <MoveDialog open={!moveL.leaving} drag={moveL.shown.drag} target={moveL.shown.target} busy={busy}
+          fromName={colName(d, moveL.shown.drag.dk)} toName={colName(d, moveL.shown.target.dk)}
+          busyAt={clashAmong(blocksOf(d, moveL.shown.target.dk), moveL.shown.target.min,
+            moveL.shown.drag.dur, moveL.shown.drag.id)}
           onClose={() => setMove(null)}
           onMove={() => {
             /* ⚠️ Диалог закрывается ДО ответа, в отличие от записи: терять
                здесь нечего — набранного в нём нет, — а ответом служит сам
                блок, который либо переехал, либо остался на месте. */
-            const { drag: what, target: to } = move
+            const { drag: what, target: to } = moveL.shown!
             setMove(null)
             void act(() => dash.move(d.date, what.id,
               { date: d.date, time: hhmm(to.min), doctor: to.dk }))

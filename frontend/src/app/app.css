@@ -425,6 +425,8 @@
 @media (prefers-reduced-motion: no-preference) {
   .dp-cmenu { transform-origin: top left; transition: opacity var(--dur-fast) ease, transform var(--dur-fast) ease; }
   @starting-style { .dp-cmenu { opacity: 0; transform: scale(.97); } }
+  /* закрытие (07.11): родитель держит меню ещё ступень с классом `out` */
+  .dp-cmenu.out { opacity: 0; transform: scale(.97); pointer-events: none; }
 }
 .dp-cmenu-h { font-size: var(--fs-s); font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--text3); padding: 6px 10px 4px; }
 .dp-cmenu-i {

@@ -7,6 +7,7 @@ import type { CardActions } from './actions'
 import { hideDialog, showDialog } from './dialog'
 import { mdl, patientCard, type PatientCard, type PlanForm, type PlanItem } from './card'
 import { printHref } from './print'
+import { useLingering } from '../../../utils/motion'
 
 /* План лечения — те же слова, кнопки и порядок, что у старой карточки.
    Переходы направленные: кнопку следующего шага, возможность отказа и
@@ -101,6 +102,8 @@ export function PlanCard({ card, a, onTooth, onUploadSigned }: Props) {
   const set = (patch: Partial<PlanForm>) => setForm((f) => ({ ...f, ...patch }))
   const refuzDlg = useRef<HTMLDialogElement>(null)
   const [refuz, setRefuz] = useState<PlanItem | null>(null)
+  /* окно гаснет за ступень (07.11): название процедуры стоит до конца */
+  const { shown: refuzShown } = useLingering(refuz)
   const [motiv, setMotiv] = useState('')
   const [motivBad, setMotivBad] = useState(false)
   const [menu, setMenu] = useState<MenuAt | null>(null)
@@ -294,7 +297,7 @@ export function PlanCard({ card, a, onTooth, onUploadSigned }: Props) {
           <button type="button" onClick={() => hideDialog(refuzDlg.current)} aria-label={T.close}><Icon name="close" /></button>
         </div>
         <form className="dlg-form" onSubmit={onRefuz}>
-          <p className="hint dp-m0">{T.refuzProc} <b>{refuz?.procedure ?? '—'}</b></p>
+          <p className="hint dp-m0">{T.refuzProc} <b>{refuzShown?.procedure ?? '—'}</b></p>
           <label className="dlab">{T.refuzLabel}
             <textarea value={motiv} onChange={(e) => setMotiv(e.target.value)} rows={3} maxLength={300} required
                       placeholder={T.refuzPh} aria-invalid={motivBad || undefined} />

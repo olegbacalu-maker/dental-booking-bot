@@ -510,6 +510,8 @@
    justify-content:flex-end;padding:0;pointer-events:none;max-width:calc(100% - 48px);
    transition:opacity var(--dur) ease}
  .toastbox.out{opacity:0}
+ /* гаснущая плашка щелчков не ловит: следующий щелчок работает сразу (07.11) */
+ .toastbox.out .banner{pointer-events:none}
  .toastbox .banner,.toastbox .banner.ok,.toastbox .banner.err,.toastbox .banner.warn{
    pointer-events:auto;margin:0;max-width:600px;min-width:0;position:relative;
    display:flex;align-items:center;gap:10px;padding:12px 52px 12px 16px;
@@ -896,10 +898,22 @@
     без @starting-style (Chromium <117, Safari <17.5, Firefox <129) правило
     пропускает и показывает окно сразу — конечный вид тот же.
     ⛔ Только прозрачность и transform: раскладку окно не двигает. */
+ /* …и закрытие (07.11.2026, вторая волна): закрытое окно гаснет и опускается
+    за ту же ступень. `display` и `overlay` переходят дискретно (allow-discrete,
+    Chromium 117+): узел остаётся на экране и в верхнем слое до конца перехода;
+    движок без них убирает окно сразу, как раньше. Родитель держит узел ещё
+    ступень (`useLingering`). ⛔ Закрытое окно не модально и не ловит щелчков
+    (`pointer-events:none`): следующий щелчок работает сразу. */
  @media (prefers-reduced-motion:no-preference){
-   dialog[open]{transition:opacity var(--dur-fast) ease,transform var(--dur-fast) ease}
+   dialog{transition:opacity var(--dur-fast) ease,transform var(--dur-fast) ease,
+     overlay var(--dur-fast) ease allow-discrete,display var(--dur-fast) ease allow-discrete}
+   dialog:not([open]){opacity:0;transform:translateY(8px) scale(.985);pointer-events:none}
+   dialog[open]{opacity:1;transform:none}
    @starting-style{dialog[open]{opacity:0;transform:translateY(8px) scale(.985)}}
-   dialog[open]::backdrop{transition:opacity var(--dur-fast) ease}
+   dialog::backdrop{transition:opacity var(--dur-fast) ease,
+     overlay var(--dur-fast) ease allow-discrete,display var(--dur-fast) ease allow-discrete}
+   dialog:not([open])::backdrop{opacity:0}
+   dialog[open]::backdrop{opacity:1}
    @starting-style{dialog[open]::backdrop{opacity:0}}
  }
  .dlg-head{background:transparent;color:var(--text);padding:13px 16px;font-weight:600;font-size:var(--fs-body);

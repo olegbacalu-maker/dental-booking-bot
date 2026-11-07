@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Icon } from '../../components/Icon'
 import { hideDialog, showDialog } from '../patients/card/dialog'
 import { archIndex, type BridgeSave, type Odontogram } from './chart'
+import { useLingering } from '../../utils/motion'
 
 /* Мост (punte) — жест врача пилота (08-21): «selectezi 47-44 și meniu în
    care alegi punte». Пока режим включён, клик по зубу отмечает его, а не
@@ -49,7 +50,9 @@ export function BridgeDialog({ model, open, picked, busy, onClose, onSave }: {
   model: Odontogram; open: boolean; picked: number[]; busy: boolean; onClose: () => void; onSave: Props['onSave']
 }) {
   const ref = useRef<HTMLDialogElement>(null)
-  const ord = [...picked].sort((a, b) => archIndex(model, a) - archIndex(model, b))
+  /* окно гаснет за ступень (07.11): зубы моста стоят до конца */
+  const { shown: held } = useLingering(open ? picked : null)
+  const ord = [...(held ?? picked)].sort((a, b) => archIndex(model, a) - archIndex(model, b))
   const [roles, setRoles] = useState<Record<number, string>>({})
   const [doctor, setDoctor] = useState('')
   const [material, setMaterial] = useState(model.materials[0]?.id ?? '')

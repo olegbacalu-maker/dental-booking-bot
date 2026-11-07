@@ -5,6 +5,7 @@ import type { ApiError } from '../../../types/api'
 import { hideDialog, showDialog } from './dialog'
 import { mdl, type PatientCard, type PlanItem, type Visit } from './card'
 import { printHref } from './print'
+import { useLingering } from '../../../utils/motion'
 
 /* Шапка фиши по макету Олега (08.10, промпт 2): карточка с аватаром 80px,
    имя и плашки, строка «41 ani · canal: recepție · pacient din 2026 · ID #5»,
@@ -144,6 +145,8 @@ export function HeroKpi({ card, onBook, onPlan, onAnamneza, onDoctor, busy, back
   ]
   const dlg = useRef<HTMLDialogElement>(null)
   const [panel, setPanel] = useState<PanelKey | null>(null)
+  /* окно гаснет за ступень (07.11): список стоит до конца */
+  const { shown: panelShown } = useLingering(panel)
   const [copied, setCopied] = useState(false)
   /* Выбор врача, ушедший на сервер, виден, пока не приехала свежая фиша:
      привязан к фише, с которой начат (свежая показывает своё), отказ его
@@ -194,28 +197,28 @@ export function HeroKpi({ card, onBook, onPlan, onAnamneza, onDoctor, busy, back
   ]
 
   let body = null
-  if (panel === 'visits') {
+  if (panelShown === 'visits') {
     body = (
       <>
         {live.length ? live.map((v) => <VisitRow key={v.id} v={v} />) : <p className="hint dp-m0">— {T.emptyVisits} —</p>}
         {kpi.canc > 0 && <p className="hint">+ {kpi.canc} {T.cancelled}</p>}
       </>
     )
-  } else if (panel === 'active') {
+  } else if (panelShown === 'active') {
     body = (
       <>
         {active.length ? active.map((it) => <PlanRow key={it.id} it={it} labels={card.options.plan_labels} />) : <p className="hint dp-m0">— {T.emptyPlan} —</p>}
         <button type="button" className="lmore" onClick={() => { close(); onPlan() }}>{T.openPlan} ›</button>
       </>
     )
-  } else if (panel === 'last') {
+  } else if (panelShown === 'last') {
     body = lastRow ? (
       <>
         <VisitRow v={lastRow} />
         <p className="hint">{daysLabel(hero.days_ago)}</p>
       </>
     ) : <p className="hint dp-m0">— {T.emptyVisits} —</p>
-  } else if (panel === 'next') {
+  } else if (panelShown === 'next') {
     body = nextRow ? <VisitRow v={nextRow} /> : (
       <>
         <p className="hint dp-m0">— {T.noNext} —</p>
@@ -224,7 +227,7 @@ export function HeroKpi({ card, onBook, onPlan, onAnamneza, onDoctor, busy, back
         </button>
       </>
     )
-  } else if (panel === 'done') {
+  } else if (panelShown === 'done') {
     body = done.length ? done.map((it) => <PlanRow key={it.id} it={it} labels={card.options.plan_labels} />) : <p className="hint dp-m0">— {T.emptyDone} —</p>
   }
 
@@ -331,7 +334,7 @@ export function HeroKpi({ card, onBook, onPlan, onAnamneza, onDoctor, busy, back
       </div>
       <dialog ref={dlg} className="wide" onClose={() => setPanel(null)}>
         <div className="dlg-head">
-          <span>{panel ? T.panels[panel] : '—'}</span>
+          <span>{panelShown ? T.panels[panelShown] : '—'}</span>
           <button type="button" onClick={close} aria-label={T.close}><Icon name="close" /></button>
         </div>
         <div className="lbody">{body}</div>

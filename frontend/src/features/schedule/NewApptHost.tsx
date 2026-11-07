@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useLingering } from '../../utils/motion'
 import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
 import { asApiError, loginUrl } from '../../services/api'
@@ -39,15 +40,19 @@ interface Props {
 export function NewApptHost({ open, onClose, navigate = defaultNavigate }: Props) {
   const [toast, setToast] = useState<ToastState | null>(null)
   const closeToast = useCallback(() => setToast(null), [])
+  /* окно гаснет за ступень после закрытия (07.11): хозяин держит его ещё ступень */
+  const { shown, leaving } = useLingering(open ? true : null)
   return (
     <>
-      {open ? <NewApptWindow onClose={onClose} onDone={setToast} navigate={navigate} /> : null}
+      {shown ? <NewApptWindow open={!leaving} onClose={onClose} onDone={setToast} navigate={navigate} /> : null}
       {toast ? <Toast {...toast} onClose={closeToast} /> : null}
     </>
   )
 }
 
 interface WindowProps {
+  /** `false` — окно уже закрыто и гаснет (07.11): узел стоит ещё ступень */
+  open: boolean
   onClose: () => void
   onDone: (t: ToastState) => void
   navigate: (url: string) => void
@@ -55,7 +60,7 @@ interface WindowProps {
 
 /** Смонтировано, пока окно открыто: каждое открытие — запись с чистого листа,
  *  как у окна дня журнала. */
-function NewApptWindow({ onClose, onDone, navigate }: WindowProps) {
+function NewApptWindow({ open, onClose, onDone, navigate }: WindowProps) {
   const [got, setGot] = useState<{ date: string; form: DayForm } | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -104,5 +109,5 @@ function NewApptWindow({ onClose, onDone, navigate }: WindowProps) {
   }
 
   if (!got) return null
-  return <AddDialog open form={got.form} date={got.date} of="" busy={busy} onClose={onClose} onAdd={add} />
+  return <AddDialog open={open} form={got.form} date={got.date} of="" busy={busy} onClose={onClose} onAdd={add} />
 }

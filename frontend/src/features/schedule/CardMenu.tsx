@@ -41,12 +41,14 @@ interface Props {
    *  диалога карточки; меню после пункта закрывается, как после статуса. */
   onCall?: (result: CallResult) => Promise<boolean>
   onClose: () => void
+  /** Меню уходит (07.11): родитель держит его ещё ступень, вид — класс `out`. */
+  leaving?: boolean | undefined
 }
 
 const WIDTH = 240
 const ROW = 32
 
-export function CardMenu({ at, card, actions, busy, onStatus, onCall, onClose }: Props) {
+export function CardMenu({ at, card, actions, busy, onStatus, onCall, onClose, leaving = false }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   useMenuDismiss(ref, onClose)
   const fisa = card.pid !== null
@@ -66,8 +68,8 @@ export function CardMenu({ at, card, actions, busy, onStatus, onCall, onClose }:
     + (fisa ? ROW * 2 + 9 : 0) + 12
   const { left, top } = placeMenu(at.x, at.y, WIDTH, height)
   return (
-    <div ref={ref} className="dp-cmenu" role="menu" aria-label={`${card.time} — ${card.name}`}
-      style={{ left, top, width: WIDTH }}>
+    <div ref={ref} className={`dp-cmenu${leaving ? ' out' : ''}`} role="menu" aria-label={`${card.time} — ${card.name}`}
+      aria-hidden={leaving || undefined} style={{ left, top, width: WIDTH }}>
       <div className="dp-cmenu-h">{card.time} — {card.name}</div>
       {/* Тот же порядок, что в ряду окна (23.10): ступени — первой жирно
           следующий шаг, исключения «Nu a venit»/«Anulează» — приглушённо под

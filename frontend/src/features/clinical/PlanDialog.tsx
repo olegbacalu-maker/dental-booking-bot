@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Icon } from '../../components/Icon'
 import { hideDialog, showDialog } from '../../components/dialog'
 import type { Odontogram, PlanAdd } from './chart'
+import { useLingering } from '../../utils/motion'
 
 /* «Adaugă în plan» с зуба (01.10; Олег 27.09: «одонтограмма с планом не
    связана»). Врач смотрит на зуб — и кладёт процедуру в план, не уходя с
@@ -38,7 +39,9 @@ export function PlanDialog({ model, n, busy, invalid, onClose, onSave }: Props) 
   const [form, setForm] = useState(EMPTY)
   // новый зуб — чистая форма с его врачом; выводится при отрисовке, без эффекта
   const [seen, setSeen] = useState<number | null>(null)
-  const info = n !== null ? model.teeth[String(n)] : undefined
+  /* окно гаснет за ступень (07.11): номер зуба и подпись стоят до конца */
+  const { shown: nShown } = useLingering(n)
+  const info = nShown !== null ? model.teeth[String(nShown)] : undefined
   if (n !== null && n !== seen) {
     setSeen(n)
     const own = info?.doctor && model.doctors.includes(info.doctor) ? info.doctor : ''
@@ -67,7 +70,7 @@ export function PlanDialog({ model, n, busy, invalid, onClose, onSave }: Props) 
   return (
     <dialog ref={ref} className="dp-plan-dlg" onClose={onClose}>
       <div className="dlg-head">
-        <span><Icon name="clipboard" /> {T.title} · {T.tooth} <b>{n ?? '—'}</b></span>
+        <span><Icon name="clipboard" /> {T.title} · {T.tooth} <b>{nShown ?? '—'}</b></span>
         <button type="button" onClick={onClose} aria-label={T.close}><Icon name="close" /></button>
       </div>
       <form className="dlg-form" onSubmit={onSubmit}>

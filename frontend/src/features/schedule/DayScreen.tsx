@@ -23,6 +23,7 @@ import { NoteDialog } from './NoteDialog'
 import { SlotDialog } from './SlotDialog'
 import { canvasBlocks, canvasColName, canvasNote, type DashNote } from './dash'
 import { useClockTick } from './dashFx'
+import { useLingering, useOpening } from '../../utils/motion'
 import { day, type DayModel } from './day'
 import { freeHalves, type Slot } from './slot'
 import { clashAmong, hhmm, sameSlot, type Drag, type Target } from './move'
@@ -182,6 +183,20 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
   const remote = state.status === 'ready' ? state.data.remote ?? null : null
   const excelUrl = !doctor && shown && !remote ? `/admin/export.xlsx?from=${shown}&to=${shown}` : ''
   useCommand('act:export', excelUrl !== '' && (() => navigate(excelUrl)))
+  /* Уход (07.11, вторая волна): закрытое окно и меню стоят ещё ступень и
+     гаснут по CSS — `open={false}` / `leaving`. Без движения — как было.
+     ⚠️ Хуки — ДО ранних возвратов ниже. */
+  const cardL = useLingering(card)
+  const menuL = useLingering(menu)
+  const noteL = useLingering(note)
+  const slotL = useLingering(slot)
+  const moveL = useLingering(move)
+  const addL = useLingering(loc.hash === ADD_HASH && state.status === 'ready' && state.data.form ? true : null)
+  /* уходящее окно и меню гаснут с тем, что было при открытии: ответ команды
+     несёт новый день раньше, чем окно закроется, и кнопки сменились бы на глазах */
+  const cards = state.status === 'ready' ? state.data.cards : null
+  const cardAt = useOpening(cardL.shown, cardL.shown !== null ? cards?.[String(cardL.shown)] : undefined)
+  const menuAt = useOpening(menuL.shown, menuL.shown !== null ? cards?.[String(menuL.shown.id)] : undefined)
 
   if (state.status === 'leaving') return null
   if (state.status === 'failed') {
@@ -219,17 +234,16 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
      якоря роутер считает перезагрузкой, её отменяет правило маршрута
      (`loadDay` › `hashChangeKeepsData`). Своего флага у экрана нет: адрес и
      есть состояние. */
-  const adding = loc.hash === ADD_HASH
   const closeAdd = () => { void to(`${loc.pathname}${loc.search}`, { replace: true }) }
-  const openCard = card !== null ? m.cards[String(card)] : undefined
-  const menuCard = menu !== null ? m.cards[String(menu.id)] : undefined
+  const openCard = cardL.leaving ? cardAt : cardL.shown !== null ? m.cards[String(cardL.shown)] : undefined
+  const menuCard = menuL.leaving ? menuAt : menuL.shown !== null ? m.cards[String(menuL.shown.id)] : undefined
   const openMenu = (id: number, x: number, y: number) => setMenu({ id, x, y })
   const openNote = (id: number) => {
     const n = canvasNote(m.canvas, id)
     if (n) setNote({ id, at: n })
   }
   const foundNote = note === null ? null : canvasNote(m.canvas, note.id)
-  const shownNote = foundNote ?? note?.at ?? null
+  const shownNote = foundNote ?? noteL.shown?.at ?? null
   const noteGone = note !== null && foundNote === null
   const listNode = (
     <DayList model={m} busy={busy} onCard={setCard} onCardMenu={openMenu} onAll={() => go(m.date, '')}
@@ -321,71 +335,71 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
           показывало бы первый день вкладки и записывало в него. Смена дня
           начинает запись заново, как перезагрузка старой страницы (Олег
           24.09). */}
-      {adding && m.form
-        ? <AddDialog key={m.date} open form={m.form} date={m.date} of={doctor} busy={busy}
+      {addL.shown && m.form
+        ? <AddDialog key={m.date} open={!addL.leaving} form={m.form} date={m.date} of={doctor} busy={busy}
                      onClose={closeAdd}
                      onAdd={(b, fail) => act(() => day.add(at, doctor, tile, b), fail)} />
         : null}
 
-      {slot && m.form
-        ? <SlotDialog key={`${slot.dk}|${slot.hour}`} open slot={slot}
+      {slotL.shown && m.form
+        ? <SlotDialog key={`${slotL.shown.dk}|${slotL.shown.hour}`} open={!slotL.leaving} slot={slotL.shown}
                       date={m.date} form={m.form}
                       noteEnds={m.note_ends} busy={busy}
-                      free={freeHalves(canvasBlocks(m.canvas, slot.dk),
-                        Number(slot.hour.split(':')[0]))}
+                      free={freeHalves(canvasBlocks(m.canvas, slotL.shown.dk),
+                        Number(slotL.shown.hour.split(':')[0]))}
                       onClose={() => setSlot(null)}
                       onAdd={(b, fail) => act(() => day.add(at, doctor, tile, b), fail)}
                       onNote={(b, fail) => act(() => day.note(at, doctor, tile, b), fail)} />
         : null}
 
-      {menu !== null && menuCard
-        ? <CardMenu at={menu} card={menuCard} actions={m.actions[menuCard.status] ?? []}
-                    busy={busy} onClose={closeMenu}
+      {menuL.shown !== null && menuCard
+        ? <CardMenu at={menuL.shown} card={menuCard} actions={m.actions[menuCard.status] ?? []}
+                    busy={busy} onClose={closeMenu} leaving={menuL.leaving}
                     onStatus={async (to) => {
-                      const ok = await act(() => day.status(at, doctor, tile, menu.id, to))
+                      const ok = await act(() => day.status(at, doctor, tile, menuL.shown!.id, to))
                       if (ok) setMenu(null)
                       return ok
                     }}
-                    onCall={(result) => act(() => day.call(at, doctor, tile, menu.id, result))} />
+                    onCall={(result) => act(() => day.call(at, doctor, tile, menuL.shown!.id, result))} />
         : null}
 
-      {card !== null && openCard
-        ? <CardDialog key={card} open id={card} card={openCard}
+      {cardL.shown !== null && openCard
+        ? <CardDialog key={cardL.shown} open={!cardL.leaving} id={cardL.shown} card={openCard}
                       actions={m.actions[openCard.status] ?? []}
                       back={`${base}?date=${m.date}`} busy={busy}
                       onClose={() => setCard(null)}
-                      onComment={(text) => act(() => day.comment(at, doctor, tile, card, text))}
+                      onComment={(text) => act(() => day.comment(at, doctor, tile, cardL.shown!, text))}
                       onStatus={async (to) => {
-                        const ok = await act(() => day.status(at, doctor, tile, card, to))
+                        const ok = await act(() => day.status(at, doctor, tile, cardL.shown!, to))
                         if (ok) setCard(null)
                         return ok
                       }}
-                      onCall={(result) => act(() => day.call(at, doctor, tile, card, result))}
+                      onCall={(result) => act(() => day.call(at, doctor, tile, cardL.shown!, result))}
                       onService={(sid, fail) =>
-                        act(() => day.service(at, doctor, tile, card, sid), fail)} />
+                        act(() => day.service(at, doctor, tile, cardL.shown!, sid), fail)} />
         : null}
 
-      {note !== null && shownNote
-        ? <NoteDialog key={note.id} open note={shownNote}
+      {noteL.shown !== null && shownNote
+        ? <NoteDialog key={noteL.shown.id} open={!noteL.leaving} note={shownNote}
                       actions={noteGone ? [] : m.note_actions[shownNote.status] ?? []}
                       gone={noteGone ? T.noteGone : ''}
                       busy={busy} onClose={() => setNote(null)}
                       onStatus={async (to) => {
-                        const ok = await act(() => day.status(at, doctor, tile, note.id, to))
+                        const ok = await act(() => day.status(at, doctor, tile, noteL.shown!.id, to))
                         if (ok) setNote(null)
                         return ok
                       }} />
         : null}
 
-      {move
-        ? <MoveDialog open drag={move.drag} target={move.target} busy={busy}
-                      fromName={canvasColName(m.canvas, move.drag.dk)}
-                      toName={canvasColName(m.canvas, move.target.dk)}
-                      busyAt={clashAmong(canvasBlocks(m.canvas, move.target.dk), move.target.min,
-                        move.drag.dur, move.drag.id)}
+      {moveL.shown
+        ? <MoveDialog open={!moveL.leaving} drag={moveL.shown.drag} target={moveL.shown.target} busy={busy}
+                      fromName={canvasColName(m.canvas, moveL.shown.drag.dk)}
+                      toName={canvasColName(m.canvas, moveL.shown.target.dk)}
+                      busyAt={clashAmong(canvasBlocks(m.canvas, moveL.shown.target.dk), moveL.shown.target.min,
+                        moveL.shown.drag.dur, moveL.shown.drag.id)}
                       onClose={() => setMove(null)}
                       onMove={() => {
-                        const { drag: d, target: t } = move
+                        const { drag: d, target: t } = moveL.shown!
                         setMove(null)
                         void act(() => day.move(at, doctor, tile, d.id,
                           { date: m.date, time: hhmm(t.min), doctor: t.dk }))
