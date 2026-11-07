@@ -52,6 +52,11 @@
 «сейчас», прошедшее начало записи). Перед сценарием стенд ждёт, если до границы
 меньше, чем длится замер. Засев — записи не ближе двух часов от «сейчас»: у них
 нет минутных порогов (опоздание 5 и 15 минут, счётчик ожидания).
+⛔ Час засева — из часов КЛИНИКИ, а не от «сейчас» (07.11.2026): прежнее «час − 4»
+с 22:00 ставило записи на 18 ч, щелчок по блоку прокручивал страницу на 600 px,
+вкладка потока уходила под липкую шапку — и `close` краснел на любой версии; с
+23:00 засев уходил за закрытие. Теперь — самое раннее окно рабочего дня клиники
+(у блоков вверху сетки прокрутки почти нет); окна нет — отказ словами, не зелёный.
 
 ⛔ Зелёный стенд сам по себе ничего не доказывает — доказательство пары (`--pair`,
 проверено при заведении 06.11.2026, каждая покраснела своим сценарием):
@@ -69,6 +74,10 @@
   leave   · `.fl-list{--motion-flip:none}` → соседняя строка встаёт одним кадром;
           · `.fl-row.leaving{display:none !important}` → призрака нет;
   close   · `dialog{transition:none !important}` → окно уходит без затухания;
+          · окно остаётся модальным, пока гаснет (`cancel` отменён, `close()` через
+            200 мс — скриптом в странице: так ломает клиент, не CSS) → щелчок по
+            вкладке ловит окно (07.11.2026; CSS-пара тут слепа — закрытое окно
+            Chromium не пускает под щелчок даже с `pointer-events:auto` во весь экран);
           · `.dp-cmenu.out{opacity:1 !important}` → меню не гаснет;
           · `.toastbox.out{opacity:1 !important}` → плашка не гаснет;
   move    · `.gridbody{--motion-flip:none}` → блок встаёт одним кадром;
@@ -434,13 +443,27 @@ class Run:
     def close(self) -> None:
         smp = ("() => { const d = document.querySelector('dialog:not(.dp-ask)'); const t = document.querySelectorAll('.fl-tab')[1];"
                " return [d ? Number(getComputedStyle(d).opacity) : null, d ? d.open : null, t.getAttribute('aria-selected')]; }")
+        tab = "document.querySelectorAll('.fl-tab')[1]"
         self.tap(BLOCK, 0.9)
+        # ⛔ `tap` прокрутил страницу к БЛОКУ: блок внизу сетки уводит вкладку потока под
+        # липкую шапку, и сырой щелчок ниже попадает в шапку (07.11.2026: красное на любой
+        # версии при засеве на 18 ч). Вкладку — в видимую область, координаты — после.
+        self.js(f"{tab}.scrollIntoView({{block: 'center'}}); 1")
+        time.sleep(0.2)
+        x, y = self.page.center(tab)
         self.js(f"__mc.sample = {smp}; __mc.reset(); 1")
         m = self.cdp.cmd
         m("Input.dispatchKeyEvent", type="keyDown", key="Escape", code="Escape", windowsVirtualKeyCode=27)
         m("Input.dispatchKeyEvent", type="keyUp", key="Escape", code="Escape", windowsVirtualKeyCode=27)
         time.sleep(0.04)
-        x, y = self.page.center("document.querySelectorAll('.fl-tab')[1]")      # щелчок, пока окно гаснет
+        # Что под точкой щелчка, пока окно гаснет: вкладка — продукт ввод пропускает; окно —
+        # держит (законное красное ниже); иное — стенд промахнулся, и это не про продукт.
+        hit = self.js(f"(() => {{ const e = document.elementFromPoint({x}, {y}); if (!e) return 'ничего';"
+                      f" return e.closest('.fl-tab') === {tab} ? 'вкладка' : e.closest('dialog') ? 'окно'"
+                      " : e.tagName.toLowerCase() + (typeof e.className === 'string' && e.className ? '.' + e.className : ''); })()")
+        if hit not in ("вкладка", "окно"):
+            raise SystemExit(f"стенд: под точкой щелчка ({x:.0f}, {y:.0f}) не вкладка потока и не окно, а {hit}"
+                             " — промах стенда, о вводе продукта он ничего не говорит")
         m("Input.dispatchMouseEvent", type="mouseMoved", x=x, y=y)
         m("Input.dispatchMouseEvent", type="mousePressed", x=x, y=y, button="left", clickCount=1)
         m("Input.dispatchMouseEvent", type="mouseReleased", x=x, y=y, button="left", clickCount=1)
@@ -457,7 +480,8 @@ class Run:
         self.ok(len(mine) == 1 and abs(mine[0]["dur"] - want) < 1 and fading and fading == sorted(fading, reverse=True),
                 f"закрытие: окно гаснет переходом в ступень ({[r['dur'] for r in mine]} мс, промежуточных кадров {len(fading)})")
         self.ok(seen and seen[-1][0] is None, "закрытие: по концу окна в дереве нет")
-        self.ok(seen and seen[-1][2] == "true", "закрытие: щелчок по вкладке во время затухания сработал — ввод не задержан")
+        self.ok(seen and seen[-1][2] == "true",
+                f"закрытие: щелчок по вкладке во время затухания сработал — ввод не задержан (под точкой: {hit})")
         self.tap("document.querySelectorAll('.fl-tab')[0]", 0.3)
         # меню
         self.tap(BLOCK, 0.5, button="right")
@@ -574,14 +598,34 @@ class Run:
         self.idle(polls) if name == "idle" else getattr(self, name)()
 
 
-def seed(c: Client, hours: int = 3) -> None:
+def seed_start(now: datetime, day: list[int] | None, hours: int) -> int:
+    """Первый час засева: самое РАННЕЕ окно из `hours` часовых записей внутри рабочего
+    дня клиники `day` = [открытие, закрытие], где начало каждой записи не ближе двух
+    часов от `now` (у режима стилей, `hours` > 3, — часа: покой он не меряет, а шесть
+    часов с зазором в два после полудня в день 7–21 не влезают). Раннее — значит у
+    верха сетки: щелчок по блоку почти не прокручивает страницу, и раскладка экрана
+    одна в любой час запуска.
+    ⛔ Окна нет (выходной, короткий день) — отказ словами: стенд НЕ прогнан, а не зелёный."""
+    if not day:
+        raise SystemExit(f"засев: {now:%d.%m} у клиники выходной — записать некуда, стенд не прогнан")
+    t = now.hour + now.minute / 60
+    gap = 2 if hours <= 3 else 1
+    for h0 in range(day[0], day[1] - hours + 1):
+        if all(abs(h - t) >= gap for h in range(h0, h0 + hours)):
+            return h0
+    raise SystemExit(f"засев: в часах клиники {day[0]}–{day[1]} нет {hours} ч записей не ближе {gap} ч"
+                     f" от {now:%H:%M} — стенд не прогнан")
+
+
+def seed(c: Client, clinic: pathlib.Path, hours: int = 3) -> None:
     """Записи на сегодня (по три врача на час), не ближе двух часов от «сейчас»: в
     покое у них нет ни минутных порогов, ни прошедшего на глазах начала. Режим
-    стилей сеет больше часов — сценарии статуса проходят по записям в каждом стиле."""
+    стилей сеет больше часов — сценарии статуса проходят по записям в каждом стиле.
+    Часы — из `clinic.json` сервера (`seed_start`)."""
     now = datetime.now(TZ)
-    h0 = now.hour - 4 if now.hour >= 11 else max(7, now.hour + 2)
-    if now.hour >= 11 and hours > 3:
-        h0 = 7                              # больше часов — от открытия клиники
+    week = json.loads(clinic.read_text(encoding="utf-8"))["hours"]
+    h0 = seed_start(now, week.get(("mon", "tue", "wed", "thu", "fri", "sat", "sun")[now.weekday()]), hours)
+    print(f"  засев: {hours} ч с {h0:02d}:00 (сейчас {now:%H:%M})")
     day = now.date().isoformat()
     n = 0
     for dh in range(hours):
@@ -634,6 +678,8 @@ PAIRS = [
     ("leave", "смыкание выключено", {"css": ".fl-list{--motion-flip:none}"}),
     ("leave", "призрака ушедшей строки нет", {"css": ".fl-row.leaving{display:none !important}"}),
     ("close", "окно без затухания", {"css": "dialog{transition:none !important}"}),
+    ("close", "окно модально, пока гаснет", {"js": "document.addEventListener('cancel', (e) => { if (e.target.tagName === 'DIALOG')"
+                                                " { e.preventDefault(); setTimeout(() => e.target.close(), 200); } }, true);"}),
     ("close", "меню не гаснет", {"css": ".dp-cmenu.out{opacity:1 !important}"}),
     ("close", "плашка не гаснет", {"css": ".toastbox.out{opacity:1 !important}"}),
     ("move", "переезд блока выключен", {"css": ".gridbody{--motion-flip:none}"}),
@@ -644,12 +690,17 @@ PAIRS = [
 ]
 
 
-def run_tree(cdp: CDP, bot: pathlib.Path | None, label: str, names, polls: int, styles=()) -> tuple[int, list[str]]:
+def run_tree(cdp: CDP, bot: pathlib.Path | None, label: str, names, polls: int, styles=(), js: str = "") -> tuple[int, list[str]]:
+    """js — скрипт, который ломает КЛИЕНТ на каждой новой странице этого прогона (пара
+    без копии дерева); снимается по выходе — сессия CDP одна на все прогоны."""
     s1 = Server(keep_dir=True, **({"bot": bot} if bot else {}))
+    hook = None
     try:
+        if js:
+            hook = cdp.cmd("Page.addScriptToEvaluateOnNewDocument", source=js)["identifier"]
         with s1:
             c = Client(s1.url).login()
-            seed(c, 6 if styles else 3)
+            seed(c, s1.clinic, 6 if styles else 3)
             run = Run(cdp, s1.url, label, c, datetime.now(TZ).date().isoformat())
             cdp.cmd("Page.addScriptToEvaluateOnNewDocument", source=INSTR)
             if styles:
@@ -667,6 +718,8 @@ def run_tree(cdp: CDP, bot: pathlib.Path | None, label: str, names, polls: int, 
             run.ok(not errs, f"ошибок консоли нет ({errs[:3]})")
             return run.n, run.bad
     finally:
+        if hook:
+            cdp.cmd("Page.removeScriptToEvaluateOnNewDocument", identifier=hook)
         s1.drop()
 
 
@@ -696,11 +749,14 @@ def main(argv: list[str]) -> int:
                 if a.only and name not in a.only.split(","):
                     continue
                 ran += 1
-                copy = broken_tree(**how)
+                how = dict(how)
+                js = how.pop("js", "")
+                copy = broken_tree(**how) if how else None
                 try:
-                    _n, red = run_tree(cdp, copy, f"пара · {what}", [name], min(a.polls, 2))
+                    _n, red = run_tree(cdp, copy, f"пара · {what}", [name], min(a.polls, 2), js=js)
                 finally:
-                    shutil.rmtree(copy.parent, ignore_errors=True)
+                    if copy:
+                        shutil.rmtree(copy.parent, ignore_errors=True)
                 seen = bool(red)
                 print(f"пара {name}: {what} — {'видна (красное: ' + red[0][:90] + ')' if seen else 'НЕ ВИДНА — стенд слеп'}\n")
                 if not seen:
