@@ -233,6 +233,93 @@ def suite_pay_and_cabinet(res: Result) -> None:
                lst2.body[-1200:])
 
 
+def _pays(s: Server, cid: str) -> list:
+    """Акты оплаты клиники: (версия, кто, адрес, компьютер) — как у страницы оплаты."""
+    return [a[:2] + a[3:5] for a in _acts(s, cid) if a[2] == terms.SRC_PAY]
+
+
+def suite_cabinet_act(res: Result) -> None:
+    """Галочка перед нотой в кабинете (07.11, Олег: «Да, писать акт») — акт source=pay, как у страницы
+    оплаты, в той же транзакции, что terms_at ноты, ОДИН на ноту: повторный клик, возврат со страницы
+    банка и повтор callback второго акта не пишут; нота без отметки (админка) получает акт один раз;
+    нота SMS и общая нота — тем же путём, у общей — акт каждой клиники её строк."""
+    from test_branches import BRANCH, DIRECTOR, MAIN, _add, _register
+    from test_maib import FakeMaib, _together
+    from test_sms_cabinet import ENV as SMS_ENV
+    fake = FakeMaib()
+    try:
+        with Server(env={**SMS_ENV, **fake.env}) as s:
+            c = _enter(s, DIRECTOR)
+            main = _register(s, c)
+            want = [(terms.CURRENT, MAIN["contact_name"], "127.0.0.1", "")]
+            res.check("регистрация из кабинета акта оплаты не пишет", _pays(s, main), [])
+            res.check("без галочки — need_terms, акта нет",
+                      (c.post("/cont/nota", months="1", tier="plus", method="transfer").location, _pays(s, main)),
+                      ("/cont?msg=need_terms", []))
+            r = c.post("/cont/nota", months="1", tier="plus", method="transfer", terms="1")
+            res.check("нота абонемента из кабинета создана", r.location, "/cont?msg=note_created")
+            ref, at = _sql(s, "SELECT reference, terms_at FROM payments WHERE clinic_id=? AND status='pending'", main)[0]
+            res.ok("акт source=pay: версия CURRENT, контакт клиники, адрес браузера, без компьютера; terms_at на месте",
+                   _pays(s, main) == want and bool(at), repr((_pays(s, main), at)))
+            res.check("журнал: terms_accept — от учётной записи кабинета",
+                      _sql(s, "SELECT who FROM audit WHERE what='terms_accept' AND clinic_id=?", main), [(DIRECTOR,)])
+            res.check("та же нота ещё раз (note_exists) — второго акта нет",
+                      (c.post("/cont/nota", months="1", tier="plus", method="transfer", terms="1").location,
+                       len(_pays(s, main))), ("/cont?msg=note_exists", 1))
+
+            # карта по той же ноте: клик, callback и возврат браузера разом, повтор callback — акт один
+            r = c.post("/cont/nota", months="1", tier="plus", method="card", terms="1")
+            pid = _sql(s, "SELECT provider_id FROM payments WHERE reference=?", ref)[0][0]
+            res.ok("карта: браузер на страницу банка", r.status == 303 and pid in fake.pays, f"{r.status} {r.location}")
+            fake.set_status(pid, "Completed")
+            bank, browser = Client(s.url), Client(s.url)
+            _together(lambda: fake.post(bank, pid),
+                      lambda: browser.get(f"/pay/ok?checkoutId={pid}&checkoutStatus=Completed&orderId={ref}"))
+            fake.post(bank, pid)
+            browser.get(f"/pay/ok?checkoutId={pid}&checkoutStatus=Completed&orderId={ref}")
+            res.check("нота оплачена картой", _sql(s, "SELECT status, paid_via FROM payments WHERE reference=?", ref),
+                      [("paid", "card")])
+            res.check("клик картой, callback, возврат и их повтор второго акта не дали", len(_pays(s, main)), 1)
+
+            # нота без галочки (админка) — акт при первой галочке в кабинете, при второй — нет
+            admin = Client(s.url).login()
+            admin.post(f"/admin/clinics/{main}/payments", months="12")
+            row = _sql(s, "SELECT reference, terms_at, months FROM payments WHERE clinic_id=? AND status='pending'", main)
+            res.ok("нота админки: без отметки условий", len(row) == 1 and row[0][1] is None, repr(row))
+            tier = _sql(s, "SELECT tier FROM payments WHERE reference=?", row[0][0])[0][0] or "plus"
+            months = str(row[0][2])
+            r = c.post("/cont/nota", months=months, tier=tier, method="transfer", terms="1")
+            res.ok("галочка к ноте админки: та же нота, отметка встала, второй акт — один",
+                   r.location == "/cont?msg=note_exists" and len(_pays(s, main)) == 2
+                   and _sql(s, "SELECT terms_at FROM payments WHERE reference=?", row[0][0])[0][0], r.location)
+            c.post("/cont/nota", months=months, tier=tier, method="transfer", terms="1")
+            res.check("ещё раз к той же ноте — актов по-прежнему два", len(_pays(s, main)), 2)
+
+            # нота SMS из кабинета — тем же путём, один акт на ноту
+            r = c.post("/cont/sms/nota", pack="100", method="transfer", terms="1")
+            res.check("пакет SMS: нота создана", r.location, "/cont?msg=sms_note_created")
+            res.check("нота SMS — третий акт", len(_pays(s, main)), 3)
+            sref = _sql(s, "SELECT reference FROM payments WHERE clinic_id=? AND kind='sms'", main)[0][0]
+            c.post("/cont/sms/nota", pack="100", method="transfer", terms="1")
+            c.post("/cont/sms/nota", ref=sref, method="card", terms="1")
+            res.check("тот же пакет и карта к той же ноте SMS — новых актов нет", len(_pays(s, main)), 3)
+
+            # общая нота: акт каждой клиники строк, карта к ней — без нового
+            _add(c, main)
+            bid = _sql(s, "SELECT id FROM clinics WHERE name=?", BRANCH["name"])[0][0]
+            before = len(_pays(s, bid))
+            r = c.post("/cont/nota-comuna", terms="1", **{f"t_{main}": "plus", f"m_{main}": "1", f"t_{bid}": "basic",
+                                                         f"m_{bid}": "1"})
+            res.ok("общая нота создана", r.location.startswith("/cont/nota-comuna?msg=group_"), r.location)
+            res.check("общая нота: по акту на каждую клинику строк",
+                      (len(_pays(s, main)), len(_pays(s, bid)) - before), (4, 1))
+            gref = _sql(s, "SELECT reference FROM payments WHERE kind='cabinet' AND status='pending'")[0][0]
+            c.post("/cont/nota-comuna", terms="1", ref=gref, method="card")
+            res.check("карта к общей ноте — новых актов нет", (len(_pays(s, main)), len(_pays(s, bid)) - before), (4, 1))
+    finally:
+        fake.close()
+
+
 def suite_idem_and_audit(res: Result) -> None:
     """Миграция 19 хеширует idem и переживает повтор; срок журнала — задачей."""
     with Server() as s:

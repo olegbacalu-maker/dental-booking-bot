@@ -442,12 +442,16 @@ def cont_note(request: Request, months: str = Form("1"), method: str = Form(paym
         if len(cl["idno"] or "") != 13:
             return RedirectResponse(_cont_to(con, acc, cl["id"], "need_idno"), status_code=303)
         sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (cl["id"],)).fetchone()
+        prior = payments.open_of(con, cl["id"])   # нота, которую choose вернёт той же (EXISTS): была ли галочка
         try:
             p, outcome = payments.choose(con, cl, tier or tiers.pick(sub), m, acc["email"])
         except ValueError as e:
             # клиника в открытой общей ноте кабинета (26.10) — своя нота не выставляется
             why = "in_group" if str(e) == payments.HELD else "tier_not_sold"
             return RedirectResponse(_cont_to(con, acc, cl["id"], why), status_code=303)
+        # акт акцепта (07.11): choose сам ставит terms_at и новой ноте, и той же без отметки — новизну
+        # галочки говорит `prior`, снятый до него
+        web.cont_terms(con, p, outcome != payments.EXISTS or not prior["terms_at"], acc["email"], web.ip(request))
         if outcome != payments.EXISTS:
             box.add([(True, web.payment_letter(con, cl, p, acc["email"]))])
         if card:
@@ -523,7 +527,7 @@ def cont_sms_note(request: Request, pack: str = Form(""), ref: str = Form(""), n
             if not card:
                 return RedirectResponse(_cont_to(con, acc, cl["id"], "no_card"), status_code=303)
             buyer = web.clinic(con, note["clinic_id"])
-            said = ""
+            said, fresh = "", False
         elif name:
             if not named:
                 return RedirectResponse(_cont_to(con, acc, cl["id"], "sms_not_offered"), status_code=303)
@@ -532,7 +536,7 @@ def cont_sms_note(request: Request, pack: str = Form(""), ref: str = Form(""), n
                 return RedirectResponse(_cont_to(con, acc, cl["id"], code), status_code=303)
             if created:
                 box.add([(True, web.sms_note_letter(con, buyer, note, acc["email"]))])
-            said = "sms_name_note_created" if created else "sms_name_note_exists"
+            said, fresh = ("sms_name_note_created" if created else "sms_name_note_exists"), created
         else:
             code, note, outcome = web.sms_pack_note(con, cl, web.months(pack), acc["email"], terms=True)
             if code:
@@ -542,7 +546,9 @@ def cont_sms_note(request: Request, pack: str = Form(""), ref: str = Form(""), n
                 box.add([(True, web.sms_note_letter(con, cl, note, acc["email"]))])
             said = {payments.CREATED: "sms_note_created", payments.REPLACED: "sms_note_replaced"}.get(
                 outcome, "sms_note_exists")
-        payments.mark_terms(con, note)
+            fresh = outcome != payments.EXISTS
+        # галочка — в terms_at ноты и акт акцепта (07.11), один раз на ноту (web.cont_terms)
+        web.cont_terms(con, note, fresh, acc["email"], web.ip(request))
         if card:
             plan = payments.card_plan(con, note, buyer, web.ip(request))
         back = _cont_to(con, acc, cl["id"], "" if card else said)
@@ -992,6 +998,7 @@ def _group_submit(request: Request, form: dict, ip: str) -> Response:
                 return RedirectResponse(f"{back}?msg=group_gone", status_code=303)
             if not card:
                 return RedirectResponse(f"{back}?msg=no_card", status_code=303)
+            web.cont_terms(con, pending, False, acc["email"], ip)   # terms_at и акт — один раз на ноту (07.11)
             plan = payments.card_plan(con, pending, web.clinic(con, pending["clinic_id"]), ip)
         else:
             picks = []
@@ -1009,6 +1016,7 @@ def _group_submit(request: Request, form: dict, ip: str) -> Response:
             except ValueError as e:
                 why = {"too_many": "group_too_many", "months": "bad_months"}.get(str(e), "tier_not_sold")
                 return RedirectResponse(f"{back}?msg={why}", status_code=303)
+            web.cont_terms(con, p, True, acc["email"], ip)          # акт каждой клиники строк (07.11)
             box.add([(True, web.payment_letter(con, payer, p, acc["email"]))])
             if card:
                 plan = payments.card_plan(con, p, payer, ip)

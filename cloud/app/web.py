@@ -12,6 +12,7 @@ from fastapi import Request
 from fastapi.responses import RedirectResponse, Response
 
 from . import auth, config, db, maib, mail, payments, paylink, receipts, sms
+from . import terms as terms_mod  # `terms` здесь — параметр-галочка (sms_pack_note, sms_name_note)
 
 log = logging.getLogger("cloud")
 
@@ -58,6 +59,25 @@ def ip(request: Request) -> str:
 
 def clinic(con, cid: str):
     return con.execute("SELECT * FROM clinics WHERE id=?", (cid,)).fetchone()
+
+
+def cont_terms(con, note, fresh: bool, who: str, addr: str) -> int:
+    """Галочка условий в кабинете перед нотой (07.11, Олег: «Да, писать акт»): отметка в
+    `payments.terms_at` ноты и акт акцепта — тем же `terms.record`, что у страницы оплаты (версия
+    CURRENT, source=pay, кто — контакт клиники, адрес браузера; `who` — учётная запись кабинета, в
+    журнал), в транзакции записи вызывающего (`immediate=True`). ⛔ Один акт на ноту: акт пишется,
+    только когда галочка у ЭТОЙ ноты новая — нота заведена сейчас (`fresh`, её terms_at поставил
+    create) или её terms_at был пуст (нота админки или программы); повторный клик к той же ноте акта
+    не пишет, а возврат со страницы банка и callback галочки не видят вовсе. Клиника акта — клиника
+    ноты; у общей ноты — каждая клиника её строк. → сколько актов записано."""
+    if not (payments.mark_terms(con, note) or fresh):
+        return 0
+    ids = ([ln["clinic_id"] for ln in payments.lines_of(con, note["id"])] if note["kind"] == payments.CABINET
+           else [note["clinic_id"]])
+    for cid in dict.fromkeys(ids):
+        c = clinic(con, cid)
+        terms_mod.record(con, cid, terms_mod.CURRENT, c["contact_name"] or "", terms_mod.SRC_PAY, addr, who=who)
+    return len(dict.fromkeys(ids))
 
 
 def pending_count(con) -> int:

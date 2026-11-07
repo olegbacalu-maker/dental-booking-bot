@@ -200,10 +200,12 @@ def create_pack(con: sqlite3.Connection, clinic: sqlite3.Row, units: int, amount
     return con.execute("SELECT * FROM payments WHERE reference=?", (ref,)).fetchone()
 
 
-def mark_terms(con: sqlite3.Connection, payment: sqlite3.Row) -> None:
+def mark_terms(con: sqlite3.Connection, payment: sqlite3.Row) -> bool:
     """Клиника отметила условия перед оплатой УЖЕ выставленной ноты (карта по `ref`: нота SMS из
-    программы, общая нота): время — в terms_at, один раз; отмеченное раньше не переписывается."""
-    con.execute("UPDATE payments SET terms_at=? WHERE id=? AND terms_at IS NULL", (db.now_iso(), payment["id"]))
+    программы, общая нота): время — в terms_at, один раз; отмеченное раньше не переписывается.
+    → отмечена ли сейчас (было пусто): по этому кабинет пишет акт один раз на ноту (web.cont_terms)."""
+    return con.execute("UPDATE payments SET terms_at=? WHERE id=? AND terms_at IS NULL",
+                       (db.now_iso(), payment["id"])).rowcount == 1
 
 
 def create_name(con: sqlite3.Connection, clinic: sqlite3.Row, amount: int, who: str,
