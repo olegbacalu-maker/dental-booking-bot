@@ -444,8 +444,14 @@ class Run:
         d = self.take()
         seen = d["samples"]
         fading = [s[0] for s in seen if s[0] is not None and s[1] is False and 0 < s[0] < 1]
-        self.ok(len(fading) >= 2 and fading == sorted(fading, reverse=True),
-                f"закрытие: окно гаснет по кадрам после Esc ({fading[:1]} … {fading[-1:]}, кадров {len(fading)})")
+        # ⚠️ Промежуточных кадров мало, и это стенд, а не продукт: headless-Edge без
+        # видеокарты рисует Sticlă (размытие) кадром в 50–60 мс — на 150 мс выходит
+        # один-три кадра. Поэтому главное утверждение — сам переход длиной в ступень.
+        step = self.js("getComputedStyle(document.documentElement).getPropertyValue('--dur-fast').trim()")
+        want = float(step.rstrip("ms").rstrip("s")) * (1 if step.endswith("ms") else 1000) if step else -1
+        mine = [r for r in d["runs"] if r["target"].startswith("dialog") and r["name"] == "opacity" and not r["pseudo"]]
+        self.ok(len(mine) == 1 and abs(mine[0]["dur"] - want) < 1 and fading and fading == sorted(fading, reverse=True),
+                f"закрытие: окно гаснет переходом в ступень ({[r['dur'] for r in mine]} мс, промежуточных кадров {len(fading)})")
         self.ok(seen and seen[-1][0] is None, "закрытие: по концу окна в дереве нет")
         self.ok(seen and seen[-1][2] == "true", "закрытие: щелчок по вкладке во время затухания сработал — ввод не задержан")
         self.tap("document.querySelectorAll('.fl-tab')[0]", 0.3)
@@ -627,6 +633,7 @@ def main(argv: list[str]) -> int:
     shutil.rmtree(profile, ignore_errors=True)
     proc, ws = start_edge(profile, port=PORT)
     blind: list[str] = []
+    ran = 0
     try:
         cdp = CDP(ws)
         for dom in ("Page", "Runtime", "Network"):
@@ -638,6 +645,7 @@ def main(argv: list[str]) -> int:
             for name, what, how in PAIRS:
                 if a.only and name not in a.only.split(","):
                     continue
+                ran += 1
                 copy = broken_tree(**how)
                 try:
                     _n, red = run_tree(cdp, copy, f"пара · {what}", [name], min(a.polls, 2))
@@ -653,7 +661,7 @@ def main(argv: list[str]) -> int:
     okay = not bad and not blind
     tail = f"движение: {total - len(bad)}/{total} утверждений" + (f", стилей {len(styles)}" if styles else "")
     if a.pair:
-        tail += f", пар {len(PAIRS) - len(blind)}/{len(PAIRS)} краснеют"
+        tail += f", пар {ran - len(blind)}/{ran} краснеют"
     print(("OK  " if okay else "RED ") + tail + ("" if okay else " — " + "; ".join((bad + ["слепая пара " + b for b in blind])[:4])))
     return 0 if okay else 1
 
