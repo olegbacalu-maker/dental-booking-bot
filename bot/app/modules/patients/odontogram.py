@@ -28,6 +28,12 @@ FDI_MILK_UPPER = [55, 54, 53, 52, 51, 61, 62, 63, 64, 65]
 FDI_MILK_LOWER = [85, 84, 83, 82, 81, 71, 72, 73, 74, 75]
 FDI_ALL = FDI_UPPER + FDI_LOWER + FDI_MILK_UPPER + FDI_MILK_LOWER
 
+# Подсветка зубов из записи прикуса в 3D (07.11, прикус в 3D, этап 2): ключи
+# палитры = поля записи с префиксом. Стартовые значения — прототип 06.11
+# (Олег: «очень даже хорошо»). ⛔ Цвета СМЫСЛА, как `--red`/`--blue`: от
+# цвета клиники не зависят, теме не отдаются.
+OCL_COLORS = {"ocl_incrucisata": "#C2410C", "ocl_deschisa": "#1D4ED8"}
+
 # поверхности зуба: буква → румынское название. Порядок как в записи «MOD»,
 # принятой в карте: медиальная, окклюзионная, дистальная, потом щёчная и нёбная
 TOOTH_SURFACES = {"M": "mezial", "O": "ocluzal", "D": "distal",
@@ -356,7 +362,9 @@ def model(tmap: dict, tooth_acts: list, bridges: list | None,
         "tooth_states": {k: v for k, v in STATES.items() if k not in tsvg.SURFACE_STATES},
         # цвета состояний И отметок — те же, что у 2D и легенды; 3D красит
         # ими же (кольца отметок — цветом ореола и каналов, не своей копией)
-        "palette": {**tsvg.COLORS, **tsvg.MARK_COLORS},
+        # за ними — подсветка зубов прикуса (07.11, этап 2): цвета смысла,
+        # хексом, теме клиники НЕ отдаются; прозрачность — забота сцены
+        "palette": {**tsvg.COLORS, **tsvg.MARK_COLORS, **OCL_COLORS},
         "surfaces": dict(TOOTH_SURFACES), "surface_states": list(tsvg.SURFACE_STATES),
         "bridge_roles": dict(tsvg.BRIDGE_RO),
         "materials": [{"id": k, "label": v} for k, v in BRIDGE_MATERIALS],

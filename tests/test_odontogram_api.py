@@ -18,7 +18,7 @@ import zipfile
 from datetime import datetime, time, timedelta
 
 from harness import (TZ, Client, Clock, Result, Server, add_appt, appt_id, clinic_now,
-                     clinic_today, pid_by_phone)
+                     clinic_today, new_patient, pid_by_phone)
 
 
 def _d(offset: int) -> str:
@@ -83,16 +83,21 @@ def suite_api(res: Result) -> None:
                           "states", "marks", "surfaces", "surface_states", "bridge_roles",
                           "materials", "patient", "doctors", "perio", "perio_layer", "palette",
                           "tooth_states",
-                          "modes", "plan", "visits"]))
+                          "modes", "plan", "visits", "ocluzie"]))
         res.check("план зуба: у пациента без плана — пустой словарь", d["plan"], {})
         # кисть (11.10): кариес и пломба ставятся только по поверхностям, сетка
         # состояний зуба получает СПИСОК СЕРВЕРА — второго словаря у клиента нет
         res.check("tooth_states: состояния про весь зуб — словарь состояний без поверхностных, тем же порядком",
                   list(d["tooth_states"]), [k for k in d["states"] if k not in d["surface_states"]])
         # B7 ступень 1: размеры и цвета для объёмного вида едут с сервера
-        # с 02.10 за состояниями идут отметки: 3D красит кольца тем же цветом, что ореол/каналы в 2D
-        res.check("палитра: цвет на каждое состояние и отметку, тем же порядком",
-                  list(d["palette"]), list(d["states"]) + list(d["marks"]))
+        # с 02.10 за состояниями идут отметки: 3D красит кольца тем же цветом, что ореол/каналы в 2D;
+        # с 07.11 за ними — подсветка зубов прикуса (цвета смысла, не темы)
+        res.check("палитра: цвет на каждое состояние и отметку, тем же порядком, за ними прикус",
+                  list(d["palette"]), list(d["states"]) + list(d["marks"])
+                  + ["ocl_incrucisata", "ocl_deschisa"])
+        res.check("подсветка прикуса — стартовые цвета прототипа 06.11",
+                  (d["palette"]["ocl_incrucisata"], d["palette"]["ocl_deschisa"]),
+                  ("#C2410C", "#1D4ED8"))
         res.check("размеры для 3D у всех зубов, 16 — 10,5 мм и три корня",
                   (all(set(v["geom"]) == {"md", "bl", "crown", "root", "roots", "cls", "upper"} for v in d["teeth"].values()),
                    d["teeth"]["16"]["geom"]["md"], d["teeth"]["16"]["geom"]["roots"], d["teeth"]["55"]["geom"]["cls"]),
@@ -312,6 +317,54 @@ def suite_api(res: Result) -> None:
         res.check("пороги и цвета полосы — с сервера, ключи совпадают",
                   (lay["limits"], sorted(lay["colors"]), [x["key"] for x in lay["sites"]]),
                   ({"deep": 4, "severe": 6}, ["deep", "severe"], ["MV", "V", "DV", "ML", "L", "DL"]))
+        _ocluzie_checks(res, s, c)
+
+
+_OCL_FIELDS = ["angle_dr", "angle_st", "overjet", "overbite", "incrucisata", "deschisa",
+               "mediana_mm", "mediana_spre", "nota", "doctor"]
+
+
+def _ocluzie_checks(res: Result, s: Server, c: Client) -> None:
+    """Прикус в модели одонтограммы (07.11, прикус в 3D, этап 2): поля и строка
+    043/e, зубы граф готовыми списками сервера; пусто — «не записано»
+    (`filled: false`), а не норма. ⛔ Читается таблицей: GET одонтограммы не
+    пишет «Fișa deschisă» и с записью прикуса."""
+    pid = new_patient(c, "Odonto Ocluzia", "069300309")
+    url = f"/api/patients/{pid}/odontogram"
+    o = _j(c.get(url))["data"]["ocluzie"]
+    res.check("прикус не записан — filled false, поля пустые, сводка пустая, зубов нет",
+              o, {"filled": False, "fields": {k: "" for k in _OCL_FIELDS}, "summary": "",
+                  "teeth": {"incrucisata": [], "deschisa": []}})
+    r = c.post_json(f"/api/patients/{pid}/ocluzie",
+                    {"angle_dr": "I", "angle_st": "III", "overbite": "-3",
+                     "incrucisata": "24–26, 36", "deschisa": "frontal 13-23",
+                     "doctor": "Dr. Activ Doi"})
+    assert r.msg == "ok_occl", r.body[:200]
+    views0 = _views(s.dir / "dental.db")
+    d = _j(c.get(url))["data"]
+    res.check("GET одонтограммы с записью прикуса не пишет «Fișa deschisă» (закон 195)",
+              _views(s.dir / "dental.db"), views0)
+    o = d["ocluzie"]
+    res.check("состав прикуса в модели", sorted(o), ["fields", "filled", "summary", "teeth"])
+    res.check("записано — filled true, поля как в базе (мм с точкой, текст как написан)",
+              (o["filled"], o["fields"]["angle_st"], o["fields"]["overbite"],
+               o["fields"]["deschisa"], o["fields"]["doctor"]),
+              (True, "III", "-3", "frontal 13-23", "Dr. Activ Doi"))
+    res.check("зубы граф: диапазон по дуге (через 11/21), перечисление, незнакомое пропущено",
+              o["teeth"], {"incrucisata": [24, 25, 26, 36],
+                           "deschisa": [13, 12, 11, 21, 22, 23]})
+    card = _j(c.get(f"/api/patients/{pid}"))["data"]["ocluzie"]
+    res.check("сводка — та же строка, что у фиши и на 043/e (`ocluzie.line`)",
+              (o["summary"], o["summary"] == card["summary"]),
+              ("Angle dr. I, stg. III · overbite -3 mm · încrucișată: 24–26, 36 · "
+               "deschisă: frontal 13-23", True))
+    # снятие до пустого: у фиши запись есть (filled true — «осматривали»), сцене
+    # показывать нечего — то же «не записано»
+    c.post_json(f"/api/patients/{pid}/ocluzie", {k: "" for k in _OCL_FIELDS})
+    o = _j(c.get(url))["data"]["ocluzie"]
+    res.check("снятая до пустого запись — filled false, зубов нет (сцене нечего показывать)",
+              (o["filled"], o["summary"], o["teeth"]),
+              (False, "", {"incrucisata": [], "deschisa": []}))
 
 
 _PLAN_FIELDS = ["active", "doctor", "done", "due", "id", "label", "motiv", "overdue",

@@ -138,6 +138,14 @@ export interface ToothPlanItem {
   active: boolean
 }
 
+/** Прикус для сцены (`api._odo_ocluzie`). Поля — строками, как в базе. */
+export interface OdontogramOcluzie {
+  filled: boolean
+  fields: Record<string, string>
+  summary: string
+  teeth: { incrucisata: number[]; deschisa: number[] }
+}
+
 export interface Odontogram {
   teeth: Record<string, ToothInfo>
   history: Record<string, { at: string; text: string }[]>
@@ -178,6 +186,13 @@ export interface Odontogram {
   /** Прошлые визиты для «Compară» (25.10), свежие первыми; старые засевы
    *  проверок их не несут — кнопка тогда выключена. */
   visits?: CompareVisit[]
+  /** Запись прикуса «Ocluzia» для 3D (07.11, этап 2). Старые засевы проверок
+   *  её не несут. `filled: false` — «не записано» (не «норма»): сцена стоит в
+   *  положении по умолчанию и выводов не делает. `summary` — та же строка, что
+   *  печатает 043/e; зубы граф — готовыми списками сервера (`ocluzie.teeth_of`),
+   *  ⛔ своего разбора текста у клиента нет. Цвета подсветки — `palette`
+   *  (`ocl_incrucisata`, `ocl_deschisa`). */
+  ocluzie?: OdontogramOcluzie
   /** Свежая фиша — ТОЛЬКО в ответе записи зуба, которая её попросила
    *  (`?card=1`, см. `saveTooth`). Её тип знает фиша, а не этот модуль. */
   card?: unknown

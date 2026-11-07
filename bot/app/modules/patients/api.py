@@ -920,7 +920,23 @@ async def _odontogram(pid: int, p: dict) -> dict:
     # прошлые визиты для «Compară» (25.10): выбор — экрана, разница — своим GET
     m["visits"] = podo.compare_visits(await db.patient_appointments(pid, 1000), today,
                                       await db.teeth_hist_since())
+    m["ocluzie"] = _odo_ocluzie(await db.ocluzie(pid))
     return m
+
+
+def _odo_ocluzie(rec: dict | None) -> dict:
+    """Прикус для 3D (07.11, этап 2): поля и строка `summary` — те же, что у
+    фиши (`pcard.ocluzie_view`, строка = `poccl.line`, как на 043/e), зубы
+    граф încrucișată/deschisă — готовыми списками (`poccl.teeth_of`, клиент
+    своего разбора не заводит). ⛔ Читается таблицей, а не GET фиши: тот пишет
+    «Fișa deschisă» в журнал доступа (закон 195).
+    ⚠️ `filled` здесь — «есть что показать» (`not is_empty`), а у фиши — «запись
+    есть» (даже снятая до пустой): сцене снятая запись — то же «не записано»,
+    без выводов и без нормы."""
+    v = pcard.ocluzie_view(rec)
+    f = v["fields"]
+    return {"filled": not poccl.is_empty(rec), "fields": f, "summary": v["summary"],
+            "teeth": {k: poccl.teeth_of(f.get(k)) for k in ("incrucisata", "deschisa")}}
 
 
 async def _odo_reply(pid: int, code: str, *, ok: set, field: str = "",
