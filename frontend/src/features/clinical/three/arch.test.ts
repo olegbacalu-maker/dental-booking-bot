@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { archCurve, det3, GAP, layoutArch, toWorld } from './arch'
+import { SCULPT, SCULPT_OF } from '../../../../models/teeth.js'
+import { archCurve, det3, GAP, GAP_CLOSED, layoutArch, toWorld, type PlacedTooth, type Vec3 } from './arch'
+import { crownModel } from './crown'
+import { biteAt, CLASS_SHIFT, jawPose, molarMark, OPEN_OB, REL_I, ZERO_POSE, type BitePoints, type JawPose, type OcclRecord } from './occlusion'
+import { posed } from './pose'
+import { sculptModel } from './sculpt'
+import { toCls } from './toothGeometry'
 
 /* Раскладка — числа, а не картинка: сумма ширин равна длине дуги, мезиальная
    сторона каждого зуба смотрит к средней линии, щёчная — наружу, отражены
@@ -124,6 +130,138 @@ describe('расстановка', () => {
       expect(dot(t.xAxis, t.yAxis)).toBeCloseTo(0, 9)
       expect(dot(t.xAxis, t.zAxis)).toBeCloseTo(0, 9)
       expect(dot(t.yAxis, t.zAxis)).toBeCloseTo(0, 9)
+    }
+  })
+})
+
+/* Прикус по умолчанию (волна «ocluzie», этап 1): замер тем же путём, что у
+   сцены — раскладка `layoutArch`, свои модели зубов (`teeth.js`), постановка
+   `posed` по формуле первого моляра, смыкание групп на (GAP − GAP_CLOSED)/2.
+   Размеры — `teeth_svg.tooth_geom` (07.11.2026). ⚠️ Закреплено ТЕКУЩЕЕ
+   положение (бугор 16 впереди борозды 46 — II класс схемой, прототип 06.11): после ответа Олега на Q1
+   (перевести в I класс) числа здесь меняются вместе с `layoutArch`. */
+const GEOM: Record<'U' | 'L', Record<number, { md: number; bl: number; crown: number; cls: string }>> = {
+  U: {
+    1: { md: 8.52, bl: 7.16, crown: 10.5, cls: 'incisor_c' }, 2: { md: 6.73, bl: 6.46, crown: 9.0, cls: 'incisor_l' },
+    3: { md: 7.62, bl: 8.07, crown: 10.0, cls: 'canine' }, 4: { md: 7.48, bl: 9.5, crown: 8.5, cls: 'premolar' },
+    5: { md: 7.16, bl: 9.09, crown: 8.5, cls: 'premolar' }, 6: { md: 10.5, bl: 11.03, crown: 7.5, cls: 'molar' },
+    7: { md: 9.98, bl: 10.47, crown: 7.5, cls: 'molar' }, 8: { md: 9.24, bl: 9.7, crown: 7.5, cls: 'molar' },
+  },
+  L: {
+    1: { md: 5.79, bl: 6.55, crown: 9.0, cls: 'incisor_c' }, 2: { md: 6.26, bl: 6.88, crown: 9.5, cls: 'incisor_l' },
+    3: { md: 7.01, bl: 7.57, crown: 11.0, cls: 'canine' }, 4: { md: 7.48, bl: 8.0, crown: 8.0, cls: 'premolar' },
+    5: { md: 7.16, bl: 7.66, crown: 8.0, cls: 'premolar' }, 6: { md: 10.5, bl: 10.08, crown: 7.5, cls: 'molar' },
+    7: { md: 9.98, bl: 9.58, crown: 7.5, cls: 'molar' }, 8: { md: 9.24, bl: 8.87, crown: 7.5, cls: 'molar' },
+  },
+}
+
+interface Built { p: PlacedTooth; local: ArrayLike<number>; pts: number[]; mark: Vec3 | null }
+
+/** Челюсть так, как её ставит сцена (`buildArch` со своими моделями): точки коронок
+ *  и ориентиры моляров (`molarMark`) — в системе группы. */
+function buildJaw(list: number[], upper: boolean, formula = false): Map<number, Built> {
+  const geom = (n: number) => ({ ...GEOM[upper ? 'U' : 'L'][n % 10]!, root: 12, roots: 1, upper })
+  const lay = layoutArch(list.map((n) => ({ n, md: geom(n).md })), upper)
+  const ref = crownModel(geom(upper ? 16 : 36)).tip
+  const out = new Map<number, Built>()
+  for (const p0 of lay.teeth) {
+    const g = geom(p0.n)
+    const cm = formula ? crownModel(g) : sculptModel(SCULPT[SCULPT_OF[p0.n] ?? '']!, g)
+    const p = posed(p0, toCls(g.cls), upper, cm.tip, ref)
+    const pos = cm.mesh.positions
+    const pts: number[] = []
+    for (let i = 0; i + 2 < pos.length; i += 3) pts.push(...toWorld(p, [pos[i]!, pos[i + 1]!, pos[i + 2]!]))
+    const k = p0.n % 10 === 6 ? molarMark(pos, g.md, upper) : null
+    out.set(p0.n, { p, local: pos, pts, mark: k ? toWorld(p, k) : null })
+  }
+  return out
+}
+
+const pointsOf = (U: Map<number, Built>, L: Map<number, Built>, marks = true): BitePoints => ({
+  u11: U.get(11)!.pts, l41: L.get(41)!.pts,
+  c16: U.get(16)!.p.position, c26: U.get(26)!.p.position, c36: L.get(36)!.p.position, c46: L.get(46)!.p.position,
+  ...(marks ? { k16: U.get(16)!.mark, k26: U.get(26)!.mark, k36: L.get(36)!.mark, k46: L.get(46)!.mark } : {}),
+})
+
+describe('прикус по умолчанию (сомкнуто, без записи)', () => {
+  const U = buildJaw(UPPER, true)
+  const L = buildJaw(LOWER, false)
+  const close = (GAP - GAP_CLOSED) / 2
+  const pts = pointsOf(U, L)
+  const base = biteAt(pts, ZERO_POSE, -close, close)
+  const probe = (p: JawPose): number => biteAt(pts, p, -close, close).bite.ob
+
+  it('⭐ закреплено текущее положение: overjet ≈ 5,5, overbite ≈ 1,4, бугор впереди борозды на ≈ 2,8 мм по обе стороны (до Q1)', () => {
+    expect(base.bite.byMarks).toBe(true)
+    expect(base.bite.oj).toBeCloseTo(5.5, 1)
+    expect(base.bite.ob).toBeCloseTo(1.39, 1)
+    expect(base.bite.relR).toBeCloseTo(2.81, 1)
+    expect(base.bite.relL).toBeCloseTo(base.bite.relR, 6)
+    // опора наклона и рычаг — из той же раскладки
+    expect(base.geo.z46).toBeLessThan(-25)
+    expect(base.geo.z41 - base.geo.z46).toBeGreaterThan(20)
+    expect(base.geo.half).toBeGreaterThan(20)
+  })
+
+  it('⭐ ориентиры класса: бугор 16/26 и борозда 46/36 найдены на своих моделях; приближение по центрам с REL_I сходится ±0,1', () => {
+    /* Класс по Энглю — мезиально-щёчный бугор верхнего 6 против щёчной борозды
+       нижнего (AAPD, PMC3481985; Олег 07.11). Замер 07.11.2026: бугор впереди
+       центра 16 на 3,24 мм, борозда впереди центра 46 на 1,94 — поправка к
+       «центр − центр» 1,30 мм, а не 2, как брал прототип 06.11. */
+    for (const n of [16, 26]) {
+      const k = U.get(n)!.mark!
+      expect(k, `бугор ${n}`).not.toBeNull()
+      expect(k[2] - U.get(n)!.p.position[2]).toBeCloseTo(3.24, 1)
+    }
+    for (const n of [46, 36]) {
+      const k = L.get(n)!.mark!
+      expect(k, `борозда ${n}`).not.toBeNull()
+      expect(k[2] - L.get(n)!.p.position[2]).toBeCloseTo(1.94, 1)
+    }
+    const approx = biteAt(pointsOf(U, L, false), ZERO_POSE, -close, close).bite
+    expect(approx.byMarks).toBe(false)
+    expect(Math.abs(approx.relR - base.bite.relR)).toBeLessThan(0.1)
+    expect(REL_I).toBe(1.3)
+  })
+
+  it('коронки-формулы (без файла моделей): ориентиров нет — замер по центрам, не по случайным точкам', () => {
+    const fu = buildJaw(UPPER, true, true)
+    const fl = buildJaw(LOWER, false, true)
+    expect(biteAt(pointsOf(fu, fl), ZERO_POSE, -close, close).bite.byMarks).toBe(false)
+  })
+
+  it('поза ставит записанное (±0,1): I → бугор в борозде, overbite по записи; II/1 и III — на CLASS_SHIFT', () => {
+    const at = (rec: OcclRecord) => biteAt(pts, jawPose(rec, base.bite, base.geo, probe), -close, close).bite
+    const one = at({ angle_dr: 'I', angle_st: 'I', overbite: '2' })
+    expect(Math.abs(one.relR)).toBeLessThan(0.1)
+    expect(Math.abs(one.relL)).toBeLessThan(0.1)
+    expect(one.ob).toBeCloseTo(2, 1)
+    // overjet I класса по ориентирам — ≈ 2,7 (прототип с REL_I = 2 давал 2,0)
+    expect(one.oj).toBeCloseTo(base.bite.oj - base.bite.relR, 1)
+    const two = at({ angle_dr: 'II/1', angle_st: 'II/1', overbite: '3' })
+    expect(two.relR).toBeCloseTo(CLASS_SHIFT, 1)
+    expect(two.oj).toBeCloseTo(base.bite.oj - base.bite.relR + CLASS_SHIFT, 1)
+    expect(two.ob).toBeCloseTo(3, 1)
+    const three = at({ angle_dr: 'III', angle_st: 'III', overbite: '1' })
+    expect(three.relR).toBeCloseTo(-CLASS_SHIFT, 1)
+    expect(three.oj).toBeLessThan(0)
+    // величина из записи: II справа на 2,5 мм
+    expect(at({ angle_dr: 'II/2', mmR: '2,5' }).relR).toBeCloseTo(2.5, 1)
+    // разные классы сторон: каждая сторона на своём месте (поворот вокруг вертикали)
+    const mix = at({ angle_dr: 'II/2', angle_st: 'III' })
+    expect(Math.abs(mix.relR - CLASS_SHIFT)).toBeLessThan(0.1)
+    expect(Math.abs(mix.relL + CLASS_SHIFT)).toBeLessThan(0.1)
+  })
+
+  it('открытый прикус: наклон вокруг моляров доводится секущей до записанного overbite (±0,05)', () => {
+    for (const [ob, want] of [['-3', -3], ['', OPEN_OB], ['-6', -6]] as const) {
+      const rec: OcclRecord = { angle_dr: 'I', angle_st: 'I', overbite: ob, deschisa: '13–23' }
+      const pose = jawPose(rec, base.bite, base.geo, probe)
+      expect(pose.pitch).toBeGreaterThan(0)
+      expect(Math.abs(probe(pose) - want)).toBeLessThan(0.05)
+      // без замера — только первое приближение, и оно мимо: секущая нужна
+      const rough = jawPose(rec, base.bite, base.geo)
+      expect(Math.abs(probe(rough) - want)).toBeGreaterThan(Math.abs(probe(pose) - want))
     }
   })
 })

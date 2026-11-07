@@ -1,6 +1,6 @@
 import type * as T3 from 'three'
 import type { Odontogram, ToothGeom, ToothInfo } from '../chart'
-import { archCurve, GAP, GAP_CLOSED, layoutArch, type ArchLayout, type PlacedTooth } from './arch'
+import { archCurve, GAP, GAP_CLOSED, layoutArch, toWorld, type ArchLayout, type PlacedTooth, type Vec3 } from './arch'
 import { focusOcclusal, focusOrbit, nearestTheta } from './focus'
 import type { Three } from './loadThree'
 import { attachEnamel, enamelLive, enamelTooth, type EnamelLive, type EnamelMaterial } from './enamel'
@@ -16,6 +16,7 @@ import { comesFrom, MS, sceneFor, startLift } from './transition'
 import { createTweens, type Tweens } from './tween'
 import { EMPTY_BOUNDS, fillAt, fitRadius, isEmpty, union, type Bounds } from './fit'
 import { isFinger, LONG_MS, slopOf, swallowNextClick } from '../touch'
+import { biteAt, biteOf, molarMark, poseLower, ZERO_POSE, type Bite, type BitePoints, type JawPose, type OcclGeo } from './occlusion'
 
 /* Сцена одонтограммы (B7, ступень 4) — чистый three.js, без React: обе
    челюсти на дуге движка, пять материалов на коронку (= пять поверхностей),
@@ -121,6 +122,17 @@ export interface ToothProbe {
   depthWrite: boolean
 }
 
+/** Прикус модели для позы записи (волна «ocluzie»): замер сомкнутых челюстей
+ *  при нулевой позе — что бы ни было на экране — и overbite при любой позе. */
+export interface BiteBase {
+  base: Bite
+  geo: OcclGeo
+  probe: (pose: JawPose) => number
+}
+
+/** Твин позы прикуса, мс (как смыкание `setClosed`). */
+const OCCL_MS = 700
+
 export interface ArchScene {
   /** зонд для стендов Edge и разбора; null — такого зуба в сцене нет */
   inspect(n: number): ToothProbe | null
@@ -141,6 +153,14 @@ export interface ArchScene {
   setDim(teeth: ReadonlySet<number>): void
   /** слой пародонта (край по рецессии, полосы карманов, BOP, зонды); null — снять */
   setPerio(p: PerioInput | null): void
+  /** поза нижней челюсти по записи «Ocluzia» (`occlusion.jawPose`); null — назад
+   *  в положение по умолчанию. Твин 700 мс, при reduced-motion — сразу. */
+  setOcclusion(pose: JawPose | null, animate: boolean): void
+  /** прикус ПО ТЕКУЩИМ мировым матрицам (то, что на экране) — для стендов;
+   *  null — челюсти ещё не построены */
+  measureBite(): Bite | null
+  /** прикус модели для `jawPose`: сомкнуто, нулевая поза; null — не построено */
+  biteBase(): BiteBase | null
   /** замер (24.10): мс на кадр — n кадров подряд с шагом орбиты, каждый дождан
    *  чтением пикселя (иначе считалась бы очередь команд, а не GPU). Для стендов
    *  Edge: `.odo-stage canvas.__dpBench(n)`; кадров в покое не добавляет. */
@@ -270,9 +290,17 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     upper: { grp: upperG, closeY: 0, hideY: 0, dir: 1 },
     lower: { grp: lowerG, closeY: 0, hideY: 0, dir: -1 },
   }
+  /** поза прикуса нижней челюсти (`occlusion.ts`); ноль — положение по умолчанию */
+  const occ: JawPose = { ...ZERO_POSE }
+  /* Нижняя челюсть — сдвиг смыкания и ухода из кадра (y0) плюс поза прикуса с
+     поворотом вокруг опоры: положение группы = P + R·(t − P), та же формула, что
+     `occlusion.poseLower` для точки (0, 0, 0) — замер и экран не расходятся. */
   const placeJaws = (): void => {
     upperG.position.y = -jaw.upper.closeY + jaw.upper.hideY
-    lowerG.position.y = jaw.lower.closeY + jaw.lower.hideY
+    const y0 = jaw.lower.closeY + jaw.lower.hideY
+    lowerG.rotation.set(occ.pitch, occ.yaw, 0, 'YXZ')
+    const p = poseLower([0, 0, 0], occ, y0)
+    lowerG.position.set(p[0], p[1], p[2])
   }
 
   // --- зубы ---
@@ -299,6 +327,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   }
   const jawGum: JawGum[] = []
   const shape = new Map<number, { place: PlacedTooth; g: ToothGeom; cm: CrownModel }>()
+  /** точки замера прикуса в системах групп челюстей — один раз после постройки */
+  let bitePts: BitePoints | null = null
   let perio: PerioInput | null = null
   let perioVer = 0
   let gumSig = ''
@@ -1017,6 +1047,90 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     }, () => { if (!on) J.grp.visible = false }, 0, 'jaw-' + k)
   }
 
+  const OCC_KEYS = ['dx', 'dy', 'dz', 'yaw', 'pitch', 'pivotY', 'pivotZ'] as const
+  function setOcclusion(pose: JawPose | null, animate: boolean): void {
+    const to: JawPose = { ...(pose ?? ZERO_POSE) }
+    const from: JawPose = { ...occ }
+    tweens.kill('occl')
+    if (OCC_KEYS.every((k) => from[k] === to[k])) return
+    // опора не едет вместе с углом: пока поворот растёт, точка опоры — та, вокруг
+    // которой он будет (или был), иначе челюсть по пути уплывает на (I − R)·ΔP
+    const turned = (p: JawPose): boolean => p.yaw !== 0 || p.pitch !== 0
+    const pin = turned(to) ? to : from
+    const set = (k: number): void => {
+      for (const key of OCC_KEYS) occ[key] = from[key] + (to[key] - from[key]) * k
+      if (k < 1 && turned(pin)) {
+        occ.pivotY = pin.pivotY
+        occ.pivotZ = pin.pivotZ
+      }
+      placeJaws()
+    }
+    if (!animate) {
+      set(1)
+      invalidate()
+      return
+    }
+    // при reduced-motion `tweens` исполняет сразу (fn(1)) и просит кадр сам
+    tweens.add(OCCL_MS, set, () => invalidate(), 0, 'occl')
+  }
+
+  /** Точки замера в системах групп: коронки 11/41, центры и ориентиры первых моляров. */
+  function bitePoints(): BitePoints | null {
+    if (bitePts) return bitePts
+    const at = (n: number) => shape.get(n)
+    const s11 = at(11), s41 = at(41), s16 = at(16), s26 = at(26), s36 = at(36), s46 = at(46)
+    if (!s11 || !s41 || !s16 || !s26 || !s36 || !s46) return null
+    const pts = (e: { place: PlacedTooth; cm: CrownModel }): number[] => {
+      const a = e.cm.mesh.positions
+      const out: number[] = []
+      for (let i = 0; i + 2 < a.length; i += 3) out.push(...toWorld(e.place, [a[i] as number, a[i + 1] as number, a[i + 2] as number]))
+      return out
+    }
+    const mark = (e: { place: PlacedTooth; g: ToothGeom; cm: CrownModel }): Vec3 | null => {
+      const k = molarMark(e.cm.mesh.positions, e.g.md, e.g.upper)
+      return k ? toWorld(e.place, k) : null
+    }
+    bitePts = {
+      u11: pts(s11), l41: pts(s41),
+      c16: s16.place.position, c26: s26.place.position, c36: s36.place.position, c46: s46.place.position,
+      k16: mark(s16), k26: mark(s26), k36: mark(s36), k46: mark(s46),
+    }
+    return bitePts
+  }
+
+  /** Прикус по мировым матрицам three (что нарисовано): точки групп через matrixWorld челюстей. */
+  function measureBite(): Bite | null {
+    const p = bitePoints()
+    if (!p) return null
+    scene.updateMatrixWorld(true)
+    const v = new THREE.Vector3()
+    const w = (g: T3.Group) => (q: Vec3): Vec3 => {
+      v.set(q[0], q[1], q[2]).applyMatrix4(g.matrixWorld)
+      return [v.x, v.y, v.z]
+    }
+    const flat = (a: ArrayLike<number>, f: (q: Vec3) => Vec3): number[] => {
+      const out: number[] = []
+      for (let i = 0; i + 2 < a.length; i += 3) out.push(...f([a[i] as number, a[i + 1] as number, a[i + 2] as number]))
+      return out
+    }
+    const up = w(upperG)
+    const lo = w(lowerG)
+    const opt = (q: Vec3 | null | undefined, f: (q: Vec3) => Vec3): Vec3 | null => (q ? f(q) : null)
+    return biteOf({
+      u11: flat(p.u11, up), l41: flat(p.l41, lo),
+      c16: up(p.c16), c26: up(p.c26), c36: lo(p.c36), c46: lo(p.c46),
+      k16: opt(p.k16, up), k26: opt(p.k26, up), k36: opt(p.k36, lo), k46: opt(p.k46, lo),
+    })
+  }
+
+  function biteBase(): BiteBase | null {
+    const p = bitePoints()
+    if (!p) return null
+    const c = (GAP - GAP_CLOSED) / 2
+    const { bite, geo } = biteAt(p, ZERO_POSE, -c, c)
+    return { base: bite, geo, probe: (pose) => biteAt(p, pose, -c, c).bite.ob }
+  }
+
   function setClosed(on: boolean): void {
     const fu = jaw.upper.closeY
     const fl = jaw.lower.closeY
@@ -1244,6 +1358,13 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   }
   // зонд замера — на холсте: узел `__dp3d` собирает компонент, а замер — дело сцены
   ;(canvas as HTMLCanvasElement & { __dpBench?: (n: number) => number }).__dpBench = bench
+  // зонд прикуса для стендов Edge (волна «ocluzie»): `.odo-stage canvas.__dpOccl`;
+  // на экран прикус ведёт компонент (этап 3), не этот узел
+  ;(canvas as HTMLCanvasElement & { __dpOccl?: unknown }).__dpOccl = {
+    measure: () => measureBite(), base: () => biteBase(),
+    set: (pose: JawPose | null, animate = false) => setOcclusion(pose, animate),
+    pose: () => ({ ...occ }),
+  }
 
   return {
     bench,
@@ -1370,6 +1491,9 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       if (lastModel) paint(lastModel)
       rebuildGums()
     },
+    setOcclusion,
+    measureBite,
+    biteBase,
     invalidate,
     dispose() {
       if (disposed) return
