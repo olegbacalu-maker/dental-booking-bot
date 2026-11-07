@@ -79,6 +79,6 @@ describe('десна вслед за зубами (`warpGum`)', () => {
       return st
     }
     expect(strain(out)).toBeLessThan(1)
-    expect(strain(warpFor((n, p) => placeOf(n, p, plan.teeth, 1), WARP_W0, 0).out)).toBeGreaterThan(5)
+    expect(strain(warpFor((n, p) => placeOf(n, p, plan.teeth, 1), 0.6, 0).out)).toBeGreaterThan(5)
   })
 })
