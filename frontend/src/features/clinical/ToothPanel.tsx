@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useId, useState, type ReactNode } from 'react'
 import { Icon } from '../../components/Icon'
 import { JAW_RO, bridgeOf, type Odontogram } from './chart'
 import { DiagnosticTab } from './panel/DiagnosticTab'
@@ -75,11 +75,14 @@ interface Props {
   onClose?: (() => void) | undefined
   /** Зубы, записанные последним нажатием «Salvează», — для строки состояния. */
   saved: readonly number[] | null
+  /** Зуб не выбран — что панель держит вместо пустого места (этап 3 «ocluzie»,
+   *  вариант D Олега 07.11: запись прикуса и её форма). */
+  idle?: ReactNode
 }
 
 export function ToothPanel({
   model, n, busy, sel, onSurface, brush, onBrush, draft: d, dirty, onEdit: edit, pending, onSave, onDiscard, onDelBridge,
-  onBridgeFrom, onPlan, onClose, saved,
+  onBridgeFrom, onPlan, onClose, saved, idle,
 }: Props) {
   /* вкладка — свойство экрана: держится, пока врач ходит от зуба к зубу */
   const [tab, setTab] = useState<Tab>('sf')
@@ -115,7 +118,7 @@ export function ToothPanel({
             <span className="dp-tp-name">{T.pick}</span>
           </div>
         )}
-        {onClose && n !== null && (
+        {onClose && (n !== null || idle) && (
           <button type="button" className="insp-close" aria-label={T.close} title={T.close} onClick={onClose}><Icon name="close" /></button>
         )}
       </div>
@@ -156,7 +159,7 @@ export function ToothPanel({
           <Foot n={n} busy={busy} dirty={dirty} pending={pending} saved={saved} onDiscard={onDiscard} />
         </form>
       )}
-      {n === null && <div className="dp-tp-empty"><Icon name="tooth" /></div>}
+      {n === null && (idle ? <div className="dp-tp-idle">{idle}</div> : <div className="dp-tp-empty"><Icon name="tooth" /></div>)}
       {/* зуб не выбран (шторку закрыли), а черновики есть — записать их можно и так */}
       {n === null && pending.length > 0 && (
         <Foot n={n} busy={busy} dirty={false} pending={pending} saved={saved} onDiscard={onDiscard} onSave={onSave} />

@@ -7,6 +7,23 @@ import type { PlacedTooth, Vec3 } from './arch'
    минимума колеса не опускается, иначе первый же тик колеса дёргал бы камеру
    назад. Ничего клинического здесь нет — только где стоит камера. */
 
+/** Преобразование группы челюсти: точка в её системе → мир (смыкание, уход из
+ *  кадра и поза прикуса, `occlusion.poseLower`). Аффинное — оси переводятся
+ *  разностью образов. */
+export type JawMap = (q: Vec3) => Vec3
+
+/** Место зуба в МИРЕ (волна «ocluzie», этап 3): позиция и оси через
+ *  преобразование группы. Без него фокус брал только `y` группы, и после
+ *  сдвига или поворота нижней челюсти прикусом камера промахивалась. */
+export function placeIn(p: PlacedTooth, map: JawMap): PlacedTooth {
+  const o = map([0, 0, 0])
+  const dir = (a: Vec3): Vec3 => {
+    const w = map(a)
+    return [w[0] - o[0], w[1] - o[1], w[2] - o[2]]
+  }
+  return { ...p, position: map(p.position), xAxis: dir(p.xAxis), yAxis: dir(p.yAxis), zAxis: dir(p.zAxis) }
+}
+
 /** Расстояние камеры до зуба, мм; минимум колеса/щипка в сцене — 70. */
 export const FOCUS_R = 72
 

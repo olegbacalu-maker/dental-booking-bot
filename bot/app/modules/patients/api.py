@@ -599,7 +599,12 @@ async def api_patient_anamneza(request: Request, pid: int):
 async def api_patient_ocluzie(request: Request, pid: int):
     """{angle_dr, angle_st, overjet, overbite, incrucisata, deschisa, mediana_mm,
     mediana_spre, nota, doctor} — строками; отсутствующий ключ — «не
-    сообщали» (прежнее значение цело), пустая строка — стирание поля."""
+    сообщали» (прежнее значение цело), пустая строка — стирание поля.
+
+    `?odo=1` — запись из панели одонтограммы (этап 3 «ocluzie», 07.11): в
+    ответе свежая МОДЕЛЬ одонтограммы (`ocluzie` — поза и обводка в 3D сразу),
+    `&card=1` — рядом и фиша, как у записи зуба и плана с зуба. Без `odo` —
+    фиша, как было. Правило записи одно (`_save_ocluzie`)."""
     if (deny := api_guard(request)) is not None:
         return deny
     deny, p = await _owned(pid)
@@ -607,6 +612,9 @@ async def api_patient_ocluzie(request: Request, pid: int):
         return deny
     body = await api_body(request)
     code, field = await _save_ocluzie(pid, body if isinstance(body, dict) else None)
+    if request.query_params.get("odo") == "1":
+        return await _odo_reply(pid, code, ok={"ok_occl"}, field=field,
+                                card_for=request if request.query_params.get("card") == "1" else None)
     return await _card_reply(request, pid, code, field)
 
 

@@ -31,6 +31,18 @@ export function union(a: Bounds, b: Bounds): Bounds {
   }
 }
 
+/** Габарит после преобразования (поза нижней челюсти, этап 3 «ocluzie»):
+ *  параллелепипед вокруг образов восьми углов — поворот его только расширяет. */
+export function mapBounds(b: Bounds, map: (q: Vec3) => Vec3): Bounds {
+  if (isEmpty(b)) return b
+  let out = EMPTY_BOUNDS
+  for (const c of corners(b)) {
+    const w = map(c)
+    out = union(out, { min: w, max: w })
+  }
+  return out
+}
+
 /** Восемь углов параллелепипеда. */
 export function corners(b: Bounds): Vec3[] {
   const out: Vec3[] = []

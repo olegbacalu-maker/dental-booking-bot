@@ -350,6 +350,13 @@ export const chart = {
    *  получает рядом с моделью себя (`card`). */
   addPlan: (pid: number, body: PlanAdd, q = '') =>
     api.post<Odontogram>(`${P(pid)}/plan?odo=1${q ? `&${q.replace(/^\?/, '')}` : ''}`, body),
+  /** Запись прикуса из панели рабочего стола (этап 3 «ocluzie», форма — та же
+   *  `OcluziaCard`): маршрут фиши с `?odo=1` — в ответе свежая МОДЕЛЬ, и сцена
+   *  берёт позу и обводку сразу, своего кэша прикуса у неё нет; `q` — хвост
+   *  записи зуба (`?card=1…`), фиша едет рядом (`card`). Правило записи одно
+   *  (`routes._save_ocluzie`). */
+  saveOcluzie: (pid: number, fields: Record<string, string>, q = '') =>
+    api.post<Odontogram>(`${P(pid)}/ocluzie?odo=1${q ? `&${q.replace(/^\?/, '')}` : ''}`, fields),
 }
 
 /** Мост, в котором стоит зуб, и его роль там. */

@@ -57,6 +57,12 @@ const T = {
   unsaved: 'Anamneză nesalvată',
   anUnsaved: 'Anamneza are modificări nesalvate.',
   ocUnsavedTab: 'Ocluzie nesalvată',
+  /* строка прикуса в «Date pacient» (этап 3 «ocluzie», вариант D Олега 07.11):
+     форма — в панели «Dintele» вкладки «Odontogramă» */
+  ocTitle: 'Ocluzia',
+  ocNone: 'neînregistrată',
+  ocEdit: 'Editează în Odontogramă › Ocluzie',
+  ocAdd: 'Completează în Odontogramă › Ocluzie',
   ocUnsaved: 'Ocluzia are modificări nesalvate.',
   leaveCard: 'Părăsiți fișa fără să le salvați?',
   leaveOdo: 'Părăsiți formula dentară fără să le salvați?',
@@ -226,8 +232,9 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
   const [docsPick, setDocsPick] = useState<DocsPick | null>(null)
   const anIsDirty = state.status === 'ready' && anDirty(anDraft, state.data.anamneza)
   const ocIsDirty = state.status === 'ready' && ocDirty(ocDraft, state.data.ocluzie)
-  /* несохранённое во вкладке «Date pacient» — анамнез или прикус: точка на
-     вкладке и вопрос при уходе с фиши общие */
+  /* несохранённое у экрана — анамнез («Date pacient») или прикус (с 07.11 —
+     панель вкладки «Odontogramă»): вопрос при уходе с фиши общий, точка — на
+     вкладке своей формы */
   const dirty = anIsDirty || ocIsDirty
   /* ⭐ Черновики одонтограммы (волна 2, 25.10) — зубы, о которых сообщает
      рабочий стол вкладки (`onDirty`). Их охраняет ЭТОТ же блокер: роутер
@@ -311,6 +318,12 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
     if (t !== tab) void to(`${pathname}${qs(t, views)}`, { replace: true })
   }, [to, pathname, views, tab])
   const onTooth = useCallback((n: number) => { setToothReq({ n, k: Date.now() }); goTab('odonto') }, [goTab])
+  /* «Completează / Editează în Odontogramă › Ocluzie» из «Date pacient»: вкладка
+     одонтограммы с включённым «Ocluzie», зуб не выбран — форма в панели (на
+     планшете в портрете — шторкой). Прокрутку не трогаем (без автопрокрутки). */
+  const [oclReq, setOclReq] = useState<number | null>(null)
+  const toOcluzie = useCallback(() => { setOclReq(Date.now()); goTab('odonto') }, [goTab])
+  const oclSeen = useCallback(() => setOclReq(null), [])
   /* смена осмотра во вкладке пародонтограммы — тем же адресом, replace */
   const goExam = useCallback((id: number | null) => {
     void to(`${pathname}${qs('perio', views, id)}`, { replace: true })
@@ -431,11 +444,11 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
         {TABS.map(([k, label]) => (
           <button key={k} id={`wtab-${k}`} type="button" role="tab" aria-selected={tab === k}
             aria-controls="wpanel" tabIndex={tab === k ? 0 : -1} className={tab === k ? 'on' : ''}
-            title={k === 'date' && dirty ? [anIsDirty ? T.unsaved : '', ocIsDirty ? T.ocUnsavedTab : ''].filter(Boolean).join(' · ') : undefined}
+            title={k === 'date' && anIsDirty ? T.unsaved : k === 'odonto' && ocIsDirty ? T.ocUnsavedTab : undefined}
             onClick={() => goTab(k)}>
             {label}
             {/* точка — только глазу: имя вкладки для читалки и проверок остаётся прежним */}
-            {k === 'date' && dirty && <i className="wtab-dot" aria-hidden="true" />}
+            {((k === 'date' && anIsDirty) || (k === 'odonto' && ocIsDirty)) && <i className="wtab-dot" aria-hidden="true" />}
           </button>
         ))}
       </div>
@@ -465,7 +478,9 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
         {tab === 'odonto' && (
           <OdontogramTab pid={pid} views={views} say={say} onFail={failCb} onChanged={onToothSaved} open={toothReq}
             onDirty={onOdoDirty}
-            initial={perioStale === card ? null : card.odontogram ?? null} />
+            initial={perioStale === card ? null : card.odontogram ?? null}
+            ocluzie={(save) => <OcluziaCard card={card} a={a} draft={ocDraft} onDraft={setOcDraft} save={save} startOpen />}
+            oclReq={oclReq} onOclSeen={oclSeen} />
         )}
         {tab === 'perio' && (
           <PerioTab pid={pid} exam={sub} onExam={goExam} say={say} onFail={failCb} onChanged={onPerioChanged}
@@ -499,9 +514,17 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
               {/* пометки — тут же, под опросником (09.10, Олег: «в той же вкладке Anamneza»):
                   врач заполняет анамнез и ставит пометки в одном месте */}
               <AlertsCard card={card} a={a} withAnamneza={false} />
-              {/* прикус (26.10) — графа «Ocluzia» 043/e, под пометками
-                  (координатор 26.10: порядок «пометки под опросником» не трогать) */}
-              <OcluziaCard card={card} a={a} draft={ocDraft} onDraft={setOcDraft} />
+              {/* прикус (26.10) — графа «Ocluzia» 043/e, под пометками (порядок
+                  «пометки под опросником» не трогать). Форма с 07.11 — в панели
+                  вкладки «Odontogramă» (вариант D Олега); здесь запись строкой */}
+              <div className="fcard dp-ocl-line" id="ocluzia-line">
+                <h3>{T.ocTitle} {!card.ocluzie.filled && <span className="pill grey">{T.ocNone}</span>}
+                  {ocIsDirty && <span className="pill orange dp-unsaved">{T.ocUnsavedTab}</span>}</h3>
+                {card.ocluzie.summary && <p className="ocsum">{card.ocluzie.summary}</p>}
+                <button type="button" className="dp-ocl-go" onClick={toOcluzie}>
+                  <Icon name="pen" /> {card.ocluzie.filled ? T.ocEdit : T.ocAdd}
+                </button>
+              </div>
             </div>
           </div>
         )}

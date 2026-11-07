@@ -926,4 +926,28 @@ describe('легенда-фильтр (01.10)', () => {
     expect(document.querySelectorAll('.odop .arch .tooth-btn.dim').length).toBe(0)
     expect(leg().getAttribute('data-filter')).toBeNull()
   })
+
+  it('прикус на «Pe tot ecranul» (этап 3, 07.11): зуб не выбран — панель держит запись строкой сервера и ссылку в фишу; формы здесь нет (GET фиши — открытие, закон 195)', async () => {
+    const oc = { recorded: true, fields: {}, summary: 'Angle III · overbite 1 mm', teeth: { incrucisata: [], deschisa: [] } }
+    get.mockResolvedValue(ok({ ...MODEL, ocluzie: oc }))
+    open()
+    await waitFor(() => expect(document.querySelector('#ocluzia')).toBeTruthy())
+    const box = document.querySelector('#ocluzia') as HTMLElement
+    expect(within(box).getByText('Angle III · overbite 1 mm')).toBeTruthy()
+    expect(within(box).getByRole('link', { name: /Editează în fișă/ }).getAttribute('href')).toBe('/admin/patient/5?tab=odonto')
+    expect(screen.queryByLabelText('Overjet (mm)')).toBeNull()
+    expect(get.mock.calls.some(([p]) => p === '/patients/5')).toBe(false)
+    fireEvent.click(btn(16))
+    await waitFor(() => expect(document.querySelector('#ocluzia')).toBeNull())
+  })
+
+  it('прикус не записан — «neînregistrată» и «Completează în fișă», без слов о норме', async () => {
+    get.mockResolvedValue(ok({ ...MODEL, ocluzie: { recorded: false, fields: {}, summary: '', teeth: { incrucisata: [], deschisa: [] } } }))
+    open()
+    await waitFor(() => expect(document.querySelector('#ocluzia')).toBeTruthy())
+    const box = document.querySelector('#ocluzia') as HTMLElement
+    expect(within(box).getByText('neînregistrată')).toBeTruthy()
+    expect(within(box).getByRole('link', { name: /Completează în fișă/ })).toBeTruthy()
+    expect(box.textContent).not.toMatch(/normal/i)
+  })
 })

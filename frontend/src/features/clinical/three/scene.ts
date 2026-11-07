@@ -1,7 +1,7 @@
 import type * as T3 from 'three'
 import type { Odontogram, ToothGeom, ToothInfo } from '../chart'
 import { archCurve, GAP, GAP_CLOSED, layoutArch, toWorld, type ArchLayout, type PlacedTooth, type Vec3 } from './arch'
-import { focusOcclusal, focusOrbit, nearestTheta } from './focus'
+import { focusOcclusal, focusOrbit, nearestTheta, placeIn, type JawMap } from './focus'
 import type { Three } from './loadThree'
 import { attachEnamel, enamelLive, enamelTooth, type EnamelLive, type EnamelMaterial } from './enamel'
 import { COLOR, crownSealsScrew, FINISH, finishOf, hex, lerpHex, mixFinish, physOf, sameFinish, sameLook, setFinish, setTransparent, STENCIL_IMPLANT_CROWN, structChanged, targetLook, type Finish, type Look } from './look'
@@ -14,9 +14,9 @@ import { anchorsFor, buildGum, linRgb, marginH, SITE_DEG, stripesFor, wallPoint,
 import { roomEnv } from './env'
 import { comesFrom, MS, sceneFor, startLift } from './transition'
 import { createTweens, type Tweens } from './tween'
-import { EMPTY_BOUNDS, fillAt, fitRadius, isEmpty, union, type Bounds } from './fit'
+import { EMPTY_BOUNDS, fillAt, fitRadius, isEmpty, mapBounds, union, type Bounds } from './fit'
 import { isFinger, LONG_MS, slopOf, swallowNextClick } from '../touch'
-import { biteAt, biteOf, blendPose, lowerPlacement, molarMark, ZERO_POSE, type Bite, type BitePoints, type JawPose, type OcclGeo } from './occlusion'
+import { biteAt, biteOf, blendPose, lowerPlacement, molarMark, poseLower, ZERO_POSE, type Bite, type BitePoints, type JawPose, type OcclGeo } from './occlusion'
 
 /* Сцена одонтограммы (B7, ступень 4) — чистый three.js, без React: обе
    челюсти на дуге движка, пять материалов на коронку (= пять поверхностей),
@@ -120,7 +120,12 @@ export interface ToothProbe {
   fin: Finish[]
   transparent: boolean
   depthWrite: boolean
+  /** обводка прикуса на коронке (этап 3 «ocluzie»): какая графа или null */
+  ocl: OclKind | null
 }
+
+/** Графа записи «Ocluzia», чьи зубы обводятся: încrucișată или deschisă. */
+export type OclKind = 'incrucisata' | 'deschisa'
 
 /** Прикус модели для позы записи (волна «ocluzie»): замер сомкнутых челюстей
  *  при нулевой позе — что бы ни было на экране — и overbite при любой позе. */
@@ -191,6 +196,8 @@ interface ToothNodes {
   /** пустое место отсутствующего зуба — пунктир шейки у десны */
   gap: T3.Mesh
   gapMat: T3.MeshBasicMaterial
+  /** обводка прикуса — изнанка коронки чуть крупнее (этап 3 «ocluzie») */
+  ocl: T3.Mesh
   sprite: T3.Sprite
   tex: [T3.CanvasTexture, T3.CanvasTexture]
   sx: number
@@ -303,6 +310,12 @@ export function createArchScene(opts: SceneOptions): ArchScene {
      `occlusion.poseLower` для точки (0, 0, 0) — замер и экран не расходятся.
      Поза едет тем же твином, что смыкание: доля k = closeY / CLOSE_Y. */
   const appliedPose = (): JawPose => blendPose(occ, jaw.lower.closeY / CLOSE_Y)
+  /** Точка системы челюсти → мир, как её ставит `placeJaws` (этап 3: фокус камеры
+   *  и габарит знают позу прикуса). `withY` = false — без смыкания и ухода из
+   *  кадра: габарит `fit.ts` их и прежде не учитывал, нулевая поза = прежний кадр. */
+  const jawMap = (upper: boolean, withY = true): JawMap => upper
+    ? (q) => [q[0], q[1] + (withY ? upperG.position.y : 0), q[2]]
+    : (q) => poseLower(q, appliedPose(), withY ? jaw.lower.closeY + jaw.lower.hideY : 0)
   const placeJaws = (): void => {
     upperG.position.y = -jaw.upper.closeY + jaw.upper.hideY
     const pl = lowerPlacement(appliedPose(), jaw.lower.closeY + jaw.lower.hideY)
@@ -313,7 +326,18 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   // --- зубы ---
   const teeth = new Map<number, ToothNodes>()
   const crowns: T3.Mesh[] = []
-  const disposables: { dispose(): void }[] = [gumMat]
+  /* Обводка зубов граф «încrucișată» / «deschisă» (этап 3 «ocluzie»; Олег 07.11:
+     обводка, а не заливка — заливка прятала состояние зуба). Изнанка копии
+     коронки ×OCL_SCALE: снаружи коронки виден только ободок. Цвет — палитра
+     сервера (`ocl_*`), `toneMapped: false`: тональная кривая сцены иначе сдвигала
+     оттенок, и на экране был бы не тот цвет, что выбран (замер 07.11, ΔE 0). Два
+     материала на всю сцену — по графе. */
+  const OCL_SCALE = 1.1
+  const oclMat: Record<OclKind, T3.MeshBasicMaterial> = {
+    incrucisata: new THREE.MeshBasicMaterial({ color: 0x86198f, side: THREE.BackSide, toneMapped: false }),
+    deschisa: new THREE.MeshBasicMaterial({ color: 0x3f6212, side: THREE.BackSide, toneMapped: false }),
+  }
+  const disposables: { dispose(): void }[] = [gumMat, oclMat.incrucisata, oclMat.deschisa]
   let palette: Record<string, string> = {}
   let selected: number | null = null
   let hover: Hit | null = null
@@ -550,6 +574,12 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     const crown = new THREE.Mesh(crownGeo, mats)
     crown.userData['n'] = p.n
     crowns.push(crown)
+    // обводка прикуса — дочь коронки: едет с её твинами (подъём, «дыхание»), прячется с ней
+    const ocl = new THREE.Mesh(crownGeo, oclMat.incrucisata)
+    ocl.scale.setScalar(OCL_SCALE)
+    ocl.visible = false
+    ocl.raycast = () => undefined
+    crown.add(ocl)
     const rootMat = new THREE.MeshPhysicalMaterial({
       color: COLOR.dentin, ...physOf(FINISH.dentin), sheenColor: new THREE.Color(COLOR.sheenDentin), sheenRoughness: 0.5,
     })
@@ -629,7 +659,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     grp.add(group)
     disposables.push(crownGeo, rootsGeo, screwGeo, rootMat, screwMat, screwXMat, socketGeo, socketMat, gapGeo, gapMat, spriteMat, tex[0], tex[1], ...mats)
     teeth.set(p.n, {
-      n: p.n, place: p, group, crown, mats, roots, rootMat, screw, screwX, cap, ringT, ringD, ringI, ringS, socket, gap, gapMat, sprite, tex, sx: hmd / hbl, look: null,
+      n: p.n, place: p, group, crown, mats, roots, rootMat, screw, screwX, cap, ringT, ringD, ringI, ringS, socket, gap, gapMat, ocl, sprite, tex, sx: hmd / hbl, look: null,
     })
   }
 
@@ -911,6 +941,18 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   }
 
   function paint(model: Odontogram): void {
+    // обводка прикуса: зубы граф записи (разбор текста — сервер, `ocluzie.teeth_of`);
+    // только при «Ocluzie» (Олег 07.11: один режим), не в «Parodont» и не у погашенных
+    const oz = model.ocluzie
+    const oclOf = new Map<number, OclKind>()
+    if (oz?.recorded && togs.closed && !perio) {
+      for (const n of oz.teeth.deschisa) oclOf.set(n, 'deschisa')
+      for (const n of oz.teeth.incrucisata) oclOf.set(n, 'incrucisata')
+    }
+    for (const k of ['incrucisata', 'deschisa'] as const) {
+      const c = hex(palette['ocl_' + k] ?? '')
+      if (c) oclMat[k].color.setHex(c)
+    }
     for (const t of teeth.values()) {
       const info = model.teeth[String(t.n)]
       if (!info) continue
@@ -941,6 +983,9 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       // у импланта каналов нет — кольцо «nerv extras» там не показывается (и стояло бы вплотную к кольцу импланта)
       t.ringD.visible = !look.gone && !look.implant && !look.cap && look.devital && !dim
       t.ringI.visible = (look.implant || look.cap) && !dim
+      const kind = dim ? undefined : oclOf.get(t.n)
+      t.ocl.visible = kind !== undefined
+      if (kind) t.ocl.material = oclMat[kind]
       const selNow = t.n === selected && !look.gone
       if (selNow && !t.ringS.visible) {
         t.ringS.visible = true
@@ -978,7 +1023,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   /** габарит челюстей, которые вид показывает (спрятанная не в счёт) */
   const visibleBox = (): Bounds => {
     let box = EMPTY_BOUNDS
-    for (const J of jawGum) if (togs[J.upper ? 'upper' : 'lower']) box = union(box, J.box)
+    for (const J of jawGum) if (togs[J.upper ? 'upper' : 'lower']) box = union(box, J.upper ? J.box : mapBounds(J.box, jawMap(false, false)))
     return box
   }
   /** Радиус вида под окно (11.10, `fit.ts`): габарит видимых челюстей занимает
@@ -1389,6 +1434,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
         opacity: t.mats[0]?.opacity ?? 1, y: t.crown.position.y, busy: tweens.has(t),
         label: t.sprite.visible, labelScale: t.sprite.scale.x,
         fin: t.mats.map(finishOf), transparent: t.mats[0]?.transparent ?? false, depthWrite: t.mats[0]?.depthWrite ?? true,
+        ocl: t.ocl.visible ? (t.ocl.material === oclMat.deschisa ? 'deschisa' : 'incrucisata') : null,
       }
     },
     setModel(model) {
@@ -1442,7 +1488,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       if (t) {
         const upper = t.group.parent === upperG
         const g = lastModel ? geomOf(lastModel.teeth[String(n)], upper) : { ...FALLBACK, upper }
-        const f = (how === 'occlusal' ? focusOcclusal : focusOrbit)(t.place, g.crown, (upper ? upperG : lowerG).position.y, upper)
+        // место зуба — в мире (сдвиг, поворот прикуса, смыкание), а не только y группы
+        const f = (how === 'occlusal' ? focusOcclusal : focusOrbit)(placeIn(t.place, jawMap(upper)), g.crown, 0, upper)
         tgt.set(...f.target)
         orb.tt = nearestTheta(orb.theta, f.theta)
         orb.tp = f.phi

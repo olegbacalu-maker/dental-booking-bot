@@ -1412,42 +1412,75 @@ describe('PatientCardScreen', () => {
     expect(strip().getByRole('tab', { name: /Date pacient/ }).querySelector('.wtab-dot')).toBeNull()
   })
 
-  it('прикус (26.10): черновик переживает смену вкладки, вкладка помечена, уход спрашивает и называет прикус; сохранение шлёт все поля', async () => {
+  it('прикус (26.10; место — 07.11, вариант D): в «Date pacient» строка со ссылкой, форма — в панели вкладки Odontogramă; черновик переживает вкладки, точка — на Odontogramă, уход называет прикус; запись — с моделью (?odo=1)', async () => {
     serve()
     const { router } = open()
     await settled()
     await tabTo('Date pacient')
+    /* формы здесь больше нет — запись строкой и дорога к ней */
+    const line = () => document.querySelector('#ocluzia-line') as HTMLElement
+    expect(within(line()).getByText('neînregistrată')).toBeTruthy()
+    expect(screen.queryByLabelText('Overjet (mm)')).toBeNull()
+    fireEvent.click(within(line()).getByRole('button', { name: /Completează în Odontogramă › Ocluzie/ }))
+    await strip().findByRole('tab', { name: 'Odontogramă', selected: true })
+    expect(router.state.location.search).toBe('?tab=odonto')
+    /* зуб не выбран — панель «Dintele» держит форму, раскрытую */
     const oj = () => screen.getByLabelText('Overjet (mm)') as HTMLInputElement
-    expect(oj().value).toBe('')
+    await waitFor(() => expect(oj().value).toBe(''))
     fireEvent.change(oj(), { target: { value: '3' } })
     expect(within(document.querySelector('#ocluzia') as HTMLElement).getByText('modificări nesalvate')).toBeTruthy()
     await tabTo('Rezumat')
-    const tab = () => strip().getByRole('tab', { name: /Date pacient/ })
-    expect(tab().querySelector('.wtab-dot')).toBeTruthy()
-    expect(tab().getAttribute('title')).toBe('Ocluzie nesalvată')
+    const odo = () => strip().getByRole('tab', { name: /Odontogramă/ })
+    const date = () => strip().getByRole('tab', { name: /Date pacient/ })
+    expect(odo().querySelector('.wtab-dot')).toBeTruthy()
+    expect(odo().getAttribute('title')).toBe('Ocluzie nesalvată')
+    expect(date().querySelector('.wtab-dot')).toBeNull()
     await tabTo('Date pacient')
-    expect(oj().value).toBe('3')
+    expect(within(line()).getByText('Ocluzie nesalvată')).toBeTruthy()
+    await tabTo('Odontogramă')
+    await waitFor(() => expect(oj().value).toBe('3'))
     /* уход с фиши — вопрос называет прикус (анамнез чист); отказ оставляет на месте */
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
     fireEvent.click(screen.getByRole('link', { name: /Pacienți/ }))
     await waitFor(() => expect(confirm).toHaveBeenLastCalledWith('Ocluzia are modificări nesalvate. Părăsiți fișa fără să le salvați?'))
     expect(router.state.location.pathname).toBe('/admin/patient/5')
-    /* оба грязны — вопрос называет оба, анамнез первым */
+    /* оба грязны — у каждой вкладки своя подпись, вопрос называет оба, анамнез первым */
+    await tabTo('Date pacient')
     fireEvent.click(screen.getByLabelText('Diabet zaharat'))
-    expect(tab().getAttribute('title')).toBe('Anamneză nesalvată · Ocluzie nesalvată')
+    expect(date().getAttribute('title')).toBe('Anamneză nesalvată')
+    expect(odo().getAttribute('title')).toBe('Ocluzie nesalvată')
     fireEvent.click(screen.getByRole('link', { name: /Pacienți/ }))
     await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(
       'Anamneza are modificări nesalvate. Ocluzia are modificări nesalvate. Părăsiți fișa fără să le salvați?'))
-    /* сохранили прикус — ВСЕ поля разом (отсутствующий ключ сервер читал бы как «не сообщали»), черновика нет */
+    /* сохранили прикус из панели — ВСЕ поля разом, маршрутом прикуса с ?odo=1 и
+       хвостом записи зуба: в ответе модель (сцена берёт запись сразу) и фиша */
+    await tabTo('Odontogramă')
     const saved = { ...CARD.ocluzie, filled: true, fields: { ...CARD.ocluzie.fields, overjet: '3' }, summary: 'overjet 3 mm', when: '26.10.2026', author: 'Director' }
-    post.mockResolvedValueOnce(ok({ ...CARD, ocluzie: saved }, 'ok_occl', 'Ocluzia a fost salvată'))
-    fireEvent.click(screen.getByRole('button', { name: /Salvează ocluzia/ }))
+    const odoOcl = { recorded: true, fields: saved.fields, summary: 'overjet 3 mm', teeth: { incrucisata: [], deschisa: [] } }
+    post.mockResolvedValueOnce(ok({ ...ODO, ocluzie: odoOcl, card: { ...CARD, ocluzie: saved } }, 'ok_occl', 'Ocluzia a fost salvată'))
+    fireEvent.click(await screen.findByRole('button', { name: /Salvează ocluzia/ }))
     expect(await screen.findByText('Ocluzia a fost salvată')).toBeTruthy()
-    expect(post).toHaveBeenCalledWith('/patients/5/ocluzie', { ...CARD.ocluzie.fields, overjet: '3' })
-    expect(document.querySelector('#ocluzia .ocsum')?.textContent).toBe('overjet 3 mm')
+    expect(post).toHaveBeenCalledWith('/patients/5/ocluzie?odo=1&card=1', { ...CARD.ocluzie.fields, overjet: '3' })
+    await waitFor(() => expect(document.querySelector('#ocluzia .ocsum')?.textContent).toBe('overjet 3 mm'))
     expect(within(document.querySelector('#ocluzia') as HTMLElement).queryByText('modificări nesalvate')).toBeNull()
-    /* анамнез всё ещё грязен — точка остаётся, подпись только его */
-    expect(tab().getAttribute('title')).toBe('Anamneză nesalvată')
+    /* прикус записан — точки на Odontogramă нет; анамнез всё ещё грязен — на Date pacient есть */
+    expect(odo().querySelector('.wtab-dot')).toBeNull()
+    expect(date().getAttribute('title')).toBe('Anamneză nesalvată')
+    await tabTo('Date pacient')
+    expect(within(line()).getByText('overjet 3 mm')).toBeTruthy()
+    expect(within(line()).getByRole('button', { name: /Editează în Odontogramă › Ocluzie/ })).toBeTruthy()
+  })
+
+  it('прикус: выбор зуба отдаёт панель зубу, снятие выбора возвращает форму', async () => {
+    serve()
+    const { router } = open('/admin/patient/5?tab=odonto')
+    await settled()
+    await waitFor(() => expect(screen.getByLabelText('Overjet (mm)')).toBeTruthy())
+    fireEvent.click(document.querySelector('.dp-tm-btn[data-n="11"], .tooth-btn[data-n="11"]') as HTMLElement)
+    await waitFor(() => expect(screen.queryByLabelText('Overjet (mm)')).toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: 'Închide' }))
+    await waitFor(() => expect(screen.getByLabelText('Overjet (mm)')).toBeTruthy())
+    expect(router.state.location.search).toBe('?tab=odonto')
   })
 
   it('волна 2: черновик зубов — вопрос и при смене вкладки, и при уходе; анамнез и зубы грязны — вопрос называет оба (один блокер)', async () => {

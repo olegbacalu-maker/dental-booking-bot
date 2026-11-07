@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../../../types/api'
 import type { CardActions } from './actions'
 import { OcluziaCard, ocDirty, type OcDraft } from './OcluziaCard'
+import type { OclSave } from '../../clinical/OcluziaRecord'
 import { patientCard, type Ocluzie, type PatientCard } from './card'
 
 /* Прикус — графа «Ocluzia» 043/e (26.10). Здесь: не записан — серая пилюля и
@@ -29,13 +30,13 @@ const OPTS = {
 }
 const card = (oc: Ocluzie) => ({ id: 5, ocluzie: oc, options: OPTS }) as unknown as PatientCard
 
-function Host({ oc, act }: { oc: Ocluzie; act?: CardActions['act'] }) {
+function Host({ oc, act, save, startOpen }: { oc: Ocluzie; act?: CardActions['act']; save?: OclSave; startOpen?: boolean }) {
   const [draft, setDraft] = useState<OcDraft | null>(null)
   const a: CardActions = {
     pid: 5, views: false, busy: false, back: '/admin/patient/5?tab=date',
     act: act ?? (async (run) => { await run(); return null }),
   }
-  return <OcluziaCard card={card(oc)} a={a} draft={draft} onDraft={setDraft} />
+  return <OcluziaCard card={card(oc)} a={a} draft={draft} onDraft={setDraft} save={save} startOpen={startOpen} />
 }
 
 const details = () => document.querySelector('details.anform') as HTMLDetailsElement
@@ -101,5 +102,22 @@ describe('OcluziaCard — графа «Ocluzia» 043/e (26.10)', () => {
     expect(screen.getByLabelText('Overjet (mm)').closest('label')?.className).not.toContain('is-bad')
     fireEvent.click(screen.getByRole('button', { name: /Salvează ocluzia/ }))
     await waitFor(() => expect(screen.getByLabelText('dreapta').closest('label')?.className).toContain('is-bad'))
+  })
+
+  it('панель одонтограммы (07.11): раскрыта и у записанной, пишет своей записью (`save`, ?odo=1) мимо действия фиши; поле отказа подсвечено, кнопка занята на время записи', async () => {
+    const act = vi.fn()
+    let done: (e: ApiError | null) => void = () => undefined
+    const save = vi.fn<OclSave>(() => new Promise((r) => { done = r }))
+    render(<Host oc={FULL} act={act} save={save} startOpen />)
+    expect(details().open).toBe(true)
+    fireEvent.change(screen.getByLabelText('Overbite (mm)'), { target: { value: '-2' } })
+    const btn = screen.getByRole('button', { name: /Salvează ocluzia/ }) as HTMLButtonElement
+    fireEvent.click(btn)
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ ...FULL.fields, overbite: '-2' }))
+    expect(act).not.toHaveBeenCalled()
+    expect(btn.disabled).toBe(true)
+    done(new ApiError({ kind: 'validation', code: 'bad_occl_val', text: 'verificați câmpul', field: 'overbite' }, 'verificați câmpul'))
+    await waitFor(() => expect(btn.disabled).toBe(false))
+    expect(screen.getByLabelText('Overbite (mm)').closest('label')?.className).toContain('is-bad')
   })
 })

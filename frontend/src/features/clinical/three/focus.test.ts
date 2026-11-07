@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { layoutArch } from './arch'
-import { FOCUS_R, focusOrbit, nearestTheta } from './focus'
+import { FOCUS_R, focusOcclusal, focusOrbit, nearestTheta, placeIn } from './focus'
+import { poseLower, ZERO_POSE, type JawPose } from './occlusion'
 
 /* Камера у зуба — чистые числа: цель в середине коронки со смещением челюсти,
    азимут по щёчной нормали, наклон по челюсти, радиус не ниже минимума колеса. */
@@ -48,5 +49,46 @@ describe('nearestTheta', () => {
     // 3 → −3: через π, шаг < 0.3, а не −6
     expect(Math.abs(nearestTheta(3, -3) - 3)).toBeLessThan(0.3)
     expect(nearestTheta(0, Math.PI)).toBeCloseTo(Math.PI, 9)
+  })
+})
+
+/* Этап 3 «ocluzie»: прикус двигает нижнюю челюсть целиком (сдвиг и поворот), и
+   фокус обязан смотреть туда, где зуб НА ЭКРАНЕ, а не туда, где он стоял до позы. */
+describe('фокус при позе прикуса', () => {
+  const lo = layoutArch(sizes(LOWER), false)
+  const at = (n: number) => lo.teeth.find((t) => t.n === n)!
+  const Y0 = 4
+  const III: JawPose = { ...ZERO_POSE, dz: 7.5, yaw: 0.06, dy: -0.4 }
+  const OPEN: JawPose = { ...ZERO_POSE, dz: 0.3, pitch: 0.14, pivotZ: -28 }
+  const mid = (t: ReturnType<typeof at>, h: number): [number, number, number] =>
+    [t.position[0] + t.yAxis[0] * h, t.position[1] + t.yAxis[1] * h, t.position[2] + t.yAxis[2] * h]
+
+  for (const n of [41, 46]) {
+    it(`зуб ${n} при dz 7,5 и yaw 0,06: цель — середина коронки в мире, азимут — повёрнутая щёчная нормаль`, () => {
+      const t = at(n)
+      const f = focusOrbit(placeIn(t, (q) => poseLower(q, III, Y0)), 8, 0, false)
+      const want = poseLower(mid(t, 4), III, Y0)
+      for (let i = 0; i < 3; i++) expect(f.target[i]).toBeCloseTo(want[i] as number, 9)
+      // щёчная нормаль повёрнута на yaw вокруг вертикали
+      expect(f.theta).toBeCloseTo(Math.atan2(t.zAxis[0], t.zAxis[2]) + 0.06, 9)
+      // без учёта позы цель промахнулась бы на сдвиг челюсти — больше 7 мм
+      const old = focusOrbit(t, 8, Y0, false)
+      expect(Math.hypot(old.target[0] - want[0], old.target[1] - want[1], old.target[2] - want[2])).toBeGreaterThan(7)
+    })
+  }
+
+  it('открытый прикус (наклон вокруг моляров) и фокус «occlusal» листа пародонта — тоже по миру', () => {
+    const t = at(41)
+    const f = focusOcclusal(placeIn(t, (q) => poseLower(q, OPEN, Y0)), 8, 0, false)
+    const want = poseLower(mid(t, 4), OPEN, Y0)
+    for (let i = 0; i < 3; i++) expect(f.target[i]).toBeCloseTo(want[i] as number, 9)
+  })
+
+  it('нулевая поза — ровно прежний фокус со сдвигом челюсти по y', () => {
+    const t = at(46)
+    const a = focusOrbit(placeIn(t, (q) => poseLower(q, ZERO_POSE, Y0)), 8, 0, false)
+    const b = focusOrbit(t, 8, Y0, false)
+    for (let i = 0; i < 3; i++) expect(a.target[i]).toBeCloseTo(b.target[i] as number, 12)
+    expect(a.theta).toBeCloseTo(b.theta, 12)
   })
 })

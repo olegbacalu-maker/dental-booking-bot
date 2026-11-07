@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { AppLink } from '../../components/AppLink'
 import type { ToastState } from '../../components/Toast'
 import { asApiError } from '../../services/api'
+import type { OclSave } from './OcluziaRecord'
 import { OdontogramWorkbench } from './OdontogramWorkbench'
 import { chart, type Odontogram } from './chart'
 
@@ -41,9 +42,13 @@ interface Props {
   initial?: Odontogram | null
   /** Зубы с несохранённой правкой — фише, у которой блокер ухода (волна 2). */
   onDirty?: ((teeth: number[]) => void) | undefined
+  /** форма прикуса для панели без зуба (её строит фиша) и просьба открыть её */
+  ocluzie?: ((save: OclSave) => ReactNode) | undefined
+  oclReq?: number | null
+  onOclSeen?: (() => void) | undefined
 }
 
-export function OdontogramTab({ pid, views, say, onFail, onChanged, open = null, initial = null, onDirty }: Props) {
+export function OdontogramTab({ pid, views, say, onFail, onChanged, open = null, initial = null, onDirty, ocluzie, oclReq = null, onOclSeen }: Props) {
   const [got, setGot] = useState<{ pid: number; model: Odontogram | null; failed: boolean } | null>(null)
   /* Своё состояние (ответ записи, свой запрос) главнее засева; засев — только
      для ЭТОГО пациента: после перехода на другую фишу старый не годится. */
@@ -83,6 +88,6 @@ export function OdontogramTab({ pid, views, say, onFail, onChanged, open = null,
   if (!model) return <div className="fcard dp-odo-wait" aria-busy="true"><p className="hint dp-m0">{T.loading}</p></div>
   return (
     <OdontogramWorkbench pid={pid} model={model} replace={replace} fail={fail} say={say} open={open}
-      saveQuery={`?card=1${views ? '&views=1' : ''}`} embedded onDirty={onDirty} />
+      saveQuery={`?card=1${views ? '&views=1' : ''}`} embedded onDirty={onDirty} ocluzie={ocluzie} oclReq={oclReq} onOclSeen={onOclSeen} />
   )
 }

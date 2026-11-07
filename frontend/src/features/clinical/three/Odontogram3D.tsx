@@ -3,6 +3,7 @@ import { Icon } from '../../../components/Icon'
 import { useMenuDismiss } from '../../../components/menu'
 import type { Odontogram, PerioLayer } from '../chart'
 import { load3d } from './loadTeeth'
+import { jawPose } from './occlusion'
 import { PerioLegend } from './PerioLegend'
 import { createArchScene, labelsFor, type ArchScene, type CameraProbe, type Hit, type PerioInput, type Toggle, type ToothProbe, type ViewName } from './scene'
 import type { Letter } from './toothGeometry'
@@ -68,6 +69,15 @@ const T = {
   reset: 'Resetează vizualizarea',
   focus: 'Camera la dinte',
   focusTitle: 'Camera la dintele selectat (dublu-clic pe dinte sau tasta F); o vedere o aduce înapoi',
+  /* плашка прикуса (этап 3 «ocluzie»): запись — строкой сервера (как на листе
+     043/e), подпись «схематично» — слово Олега 07.11 (Q2): сдвиг класса —
+     условный ориентир, не измерение и не план лечения. ⛔ Слов о норме нет. */
+  ocl: 'Ocluzia',
+  oclNone: 'Ocluzia nu e înregistrată',
+  oclSchem: 'Reprezentare schematică',
+  oclEdit: 'Editează',
+  oclAdd: 'Completează',
+  oclKeys: { incrucisata: 'încrucișată', deschisa: 'deschisă' },
 } as const
 
 export type Mode = 'stare' | 'paro'
@@ -102,13 +112,17 @@ interface Props {
   mode: Mode
   /** назад к рисункам сервера (frontal / ocluzal) */
   onFlat: () => void
+  /** «Editează / Completează» плашки прикуса — к форме в панели; нет — без кнопки */
+  onOcluzie?: (() => void) | undefined
+  /** просьба снаружи включить «Ocluzie» (строка «Date pacient»), метка */
+  oclReq?: number | null
 }
 
 type Status = 'loading' | 'ready' | 'failed' | 'nogl'
 /** зонд сцены на узле — стенды Edge читают его через CDP, тестов в jsdom это не касается */
 type Probed = HTMLDivElement & { __dp3d?: { inspect: (n: number) => ToothProbe | null; camera: () => CameraProbe | null } }
 
-export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focus, onZoom, onDouble, dim, mode, onFlat }: Props) {
+export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focus, onZoom, onDouble, dim, mode, onFlat, onOcluzie, oclReq = null }: Props) {
   const host = useRef<HTMLDivElement | null>(null)
   const sceneRef = useRef<ArchScene | null>(null)
   const surfaceRef = useRef(onSurface)
@@ -123,6 +137,15 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
   const [view, setView] = useState<ViewName | null>('frontal')
   const [togs, setTogs] = useState<Record<Toggle, boolean>>({ xray: false, labels: labelsFor('frontal'), upper: true, lower: true, closed: false, rotate: false })
   const togsRef = useRef(togs)
+  /** что слой «Ocluzie» сейчас в сцене — чтобы не слать сцене то же значение дважды */
+  const sceneClosed = useRef(false)
+  /* просьба «к прикусу» применяется один раз на метку — при отрисовке, как
+     `open` рабочего стола; сцене слой передаётся при её создании или эффектом */
+  const [seenOcl, setSeenOcl] = useState<number | null>(null)
+  if (oclReq !== null && oclReq !== seenOcl) {
+    setSeenOcl(oclReq)
+    if (!togs.closed) setTogs({ ...togs, closed: true })
+  }
   const [zoom, setZoom] = useState(100)
   /* поповер «Straturi» — свойство экрана, не сцены */
   const [layOpen, setLayOpen] = useState(false)
@@ -166,6 +189,9 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
         sceneRef.current = scene
         ;(host.current as Probed).__dp3d = { inspect: (n) => scene.inspect(n), camera: () => scene.camera() }
         scene.setModel(modelRef.current)
+        // «Ocluzie» могли включить до готовности сцены (просьба из «Date pacient»)
+        if (togsRef.current.closed) scene.setToggle('closed', true)
+        sceneClosed.current = togsRef.current.closed
         if (dimRef.current.size) scene.setDim(dimRef.current)
         scene.setSelected(selRef.current)
         if (focusRef.current !== null) scene.focus(focusRef.current)
@@ -183,6 +209,28 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
   }, [])
 
   useEffect(() => { sceneRef.current?.setModel(model) }, [model])
+  /* ⭐ Прикус (этап 3 «ocluzie»): запись модели → поза нижней челюсти. Замер
+     прикуса модели (`biteBase`) есть только после постройки челюстей — поэтому
+     после `ready`. Применяется сценой ТОЛЬКО при «Ocluzie» (Q3: `blendPose`);
+     здесь поза лишь запрашивается. Пустая запись — null (модель стоит как
+     стоит, выводов нет). Свежая модель после записи формы — новая поза сразу;
+     та же запись — та же поза, сцена её не повторяет. */
+  const posed = useRef(false)
+  useEffect(() => {
+    const sc = sceneRef.current
+    if (!sc || status !== 'ready') return
+    const oz = model.ocluzie
+    const bb = oz?.recorded ? sc.biteBase() : null
+    sc.setOcclusion(oz && bb ? jawPose(oz.fields, bb.base, bb.geo, bb.probe) : null, posed.current)
+    posed.current = true
+  }, [model, status])
+  // слой «Ocluzie», включённый просьбой снаружи, — в сцену (кнопка зовёт `flip` сама;
+  // повтор того же значения перезапустил бы твин смыкания)
+  useEffect(() => {
+    if (status !== 'ready' || sceneClosed.current === togs.closed) return
+    sceneClosed.current = togs.closed
+    sceneRef.current?.setToggle('closed', togs.closed)
+  }, [status, togs.closed])
   useEffect(() => { sceneRef.current?.setSelected(selected) }, [selected])
   useEffect(() => { sceneRef.current?.setDim(dim) }, [dim])
   useEffect(() => { sceneRef.current?.setPerio(paro && layer ? toInput(layer) : null) }, [paro, layer])
@@ -214,6 +262,7 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
     const on = !togs[k]
     setTogs((t) => ({ ...t, [k]: on }))
     if (k === 'rotate' && on) setView(null)
+    if (k === 'closed') sceneClosed.current = on
     sceneRef.current?.setToggle(k, on)
   }
   const zoomTo = (pct: number): void => {
@@ -244,6 +293,7 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
           {status === 'failed' && <p className="hint odo-3d-msg">{T.failed}</p>}
           {status === 'nogl' && <p className="hint odo-3d-msg">{T.nogl}</p>}
         </div>
+        {ready && togs.closed && model.ocluzie && <OclPlaque model={model} onEdit={onOcluzie} />}
         <div className="dp-vp-ov">
           <div className="dp-seg dp-views dp-vp-pl" role="group" aria-label={T.group}>
             {VIEW_ORDER.map((v) => (
@@ -282,6 +332,31 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
         </div>
       </div>
       {model.milk_open && <p className="hint dp-m0 dp-vp-milk"><Icon name="tooth" /> {T.milk}</p>}
+    </div>
+  )
+}
+
+/** Плашка прикуса на сцене (этап 3 «ocluzie», Олег 07.11: внизу слева, при
+ *  «Ocluzie»): запись строкой сервера, «схематично» — только когда есть что
+ *  показать, ключ цветов обводки — те же цвета палитры, что в сцене. */
+function OclPlaque({ model, onEdit }: { model: Odontogram; onEdit?: (() => void) | undefined }) {
+  const oz = model.ocluzie
+  if (!oz) return null
+  const keys = (['incrucisata', 'deschisa'] as const).filter((k) => oz.recorded && oz.teeth[k].length > 0)
+  return (
+    <div className="dp-ocl dp-vp-pl" data-recorded={oz.recorded ? '' : undefined}>
+      <span className="dp-ocl-txt">
+        <span className="dp-ocl-head"><b>{T.ocl}</b>{oz.recorded && <span className="dp-ocl-schem">{T.oclSchem}</span>}</span>
+        <span className="dp-ocl-sum">{oz.recorded && oz.summary ? oz.summary : T.oclNone}</span>
+        {keys.length > 0 && (
+          <span className="dp-ocl-keys">
+            {keys.map((k) => <span key={k}><i style={{ borderColor: model.palette?.[`ocl_${k}`] ?? 'currentColor' }} />{T.oclKeys[k]}</span>)}
+          </span>
+        )}
+      </span>
+      {onEdit && (
+        <button type="button" className="dp-ocl-go" onClick={onEdit}><Icon name="pen" />{oz.recorded ? T.oclEdit : T.oclAdd}</button>
+      )}
     </div>
   )
 }

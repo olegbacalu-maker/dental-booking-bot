@@ -365,6 +365,27 @@ def _ocluzie_checks(res: Result, s: Server, c: Client) -> None:
     res.check("снятая до пустого запись — recorded false, зубов нет (сцене нечего показывать)",
               (o["recorded"], o["summary"], o["teeth"]),
               (False, "", {"incrucisata": [], "deschisa": []}))
+    # запись из панели одонтограммы (этап 3, 07.11): ?odo=1 — в ответе свежая
+    # МОДЕЛЬ (поза и обводка сразу, кэша прикуса у сцены нет), &card=1 — рядом
+    # фиша, без «Fișa deschisă»; отказ — тот же код и поле, что у фиши
+    views0 = _views(s.dir / "dental.db")
+    r = c.post_json(f"/api/patients/{pid}/ocluzie?odo=1&card=1",
+                    {**{k: "" for k in _OCL_FIELDS}, "angle_dr": "III", "angle_st": "III",
+                     "incrucisata": "34-36"})
+    d = _j(r)
+    res.check("?odo=1&card=1 — модель с прикусом и фиша рядом, код записи",
+              (r.msg, d["data"]["ocluzie"]["recorded"], d["data"]["ocluzie"]["teeth"]["incrucisata"],
+               "teeth" in d["data"], d["data"]["card"]["ocluzie"]["summary"] == d["data"]["ocluzie"]["summary"]),
+              ("ok_occl", True, [34, 35, 36], True, True))
+    res.check("?odo=1 запись прикуса не пишет «Fișa deschisă»", _views(s.dir / "dental.db"), views0)
+    r = c.post_json(f"/api/patients/{pid}/ocluzie?odo=1", {"angle_dr": "IV"})
+    d = _j(r)
+    res.check("?odo=1, отказ — 422 с полем, модели нет", (r.status, r.msg, d.get("field"), "data" in d),
+              (422, "bad_occl_val", "angle_dr", False))
+    r = c.post_json(f"/api/patients/{pid}/ocluzie?odo=1", {"overjet": "2"})
+    res.check("?odo=1 без card — только модель", ("card" in _j(r)["data"], "teeth" in _j(r)["data"]), (False, True))
+    r = c.post_json(f"/api/patients/{pid}/ocluzie", {"overjet": "2"})
+    res.check("без odo — фиша, как было", ("ocluzie" in _j(r)["data"], "teeth" in _j(r)["data"]), (True, False))
 
 
 _PLAN_FIELDS = ["active", "doctor", "done", "due", "id", "label", "motiv", "overdue",

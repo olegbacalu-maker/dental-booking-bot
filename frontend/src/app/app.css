@@ -699,8 +699,8 @@
    ПОРТРЕТЕ — шторка снизу (52 % высоты), а рабочий стол над ней ужимается
    (секция odo:layout), легенда на это время уходит — сцене остаётся место. */
 @media (pointer: coarse) and (orientation: portrait) {
-  .dp-react-root .odop:not([data-sel]) .odop-side { display: none; }
-  .dp-react-root .odop[data-sel] .odop-side {
+  .dp-react-root .odop:not([data-sel]):not([data-ocl]) .odop-side { display: none; }
+  .dp-react-root .odop:is([data-sel], [data-ocl]) .odop-side {
     position: fixed; z-index: 40; left: 0; right: 0; top: auto; bottom: 0;
     max-height: 52vh; overflow: auto; overscroll-behavior: contain;
     background: var(--surface-live); border-top: 1px solid var(--glass-edge);
@@ -708,7 +708,7 @@
     border-radius: var(--r-block) var(--r-block) 0 0; box-shadow: 0 -8px 24px rgba(15, 23, 42, .14);
     padding: 8px 12px calc(12px + env(safe-area-inset-bottom));
   }
-  .dp-react-root .odop[data-sel] .odop-side .insp { border: none; box-shadow: none; margin: 0; }
+  .dp-react-root .odop:is([data-sel], [data-ocl]) .odop-side .insp { border: none; box-shadow: none; margin: 0; }
 }
 @media (pointer: coarse) {
   .dp-react-root .insp-close {
@@ -2025,7 +2025,7 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .dp-tp .i-perio { margin: 0; }
 @media (pointer: coarse) {
   .dp-react-root .dp-odo .odop-side { max-width: none; }
-  .dp-react-root .dp-odo[data-sel] .odop-side .dp-tp { border: none; box-shadow: none; }
+  .dp-react-root .dp-odo:is([data-sel], [data-ocl]) .odop-side .dp-tp { border: none; box-shadow: none; }
 }
 
 /* ---- промпт 2 (08.10): общие кирпичи — выпадающий список, кольцо-аватар, чипы ---- */
@@ -2755,8 +2755,8 @@ dialog.dp-about { width: 460px; }
    легенда на это время уходит (сцене остаётся место); без зуба — всё окно */
 @media (pointer: coarse) and (orientation: portrait) {
   .dp-react-root .dp-odo .odop-grid { grid-template-columns: minmax(0, 1fr); }
-  .dp-react-root .dp-odo[data-sel] { height: calc(48dvh - var(--h-top) - 32px); min-height: 0; }
-  .dp-react-root .dp-odo[data-sel] .dp-vp-legend { display: none; }
+  .dp-react-root .dp-odo:is([data-sel], [data-ocl]) { height: calc(48dvh - var(--h-top) - 32px); min-height: 0; }
+  .dp-react-root .dp-odo:is([data-sel], [data-ocl]) .dp-vp-legend { display: none; }
 }
 @media (pointer: coarse) and (orientation: landscape) {
   .dp-react-root .dp-odo .odop-grid { grid-template-columns: minmax(0, 1fr) 340px; }
@@ -2788,14 +2788,14 @@ dialog.dp-about { width: 460px; }
    (data-pending) — шторки нет, но подвал «Salvează tot» остаётся полосой
    внизу, рабочий стол над ним ужимается: записать можно, не выбирая зуб */
 @media (pointer: coarse) and (orientation: portrait) {
-  .dp-react-root .odop:not([data-sel])[data-pending] .odop-side {
+  .dp-react-root .odop:not([data-sel]):not([data-ocl])[data-pending] .odop-side {
     display: block; position: fixed; z-index: 40; left: 0; right: 0; top: auto; bottom: 0;
     background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -8px 24px rgba(15, 23, 42, .14);
     padding: 0 12px env(safe-area-inset-bottom);
   }
-  .dp-react-root .odop:not([data-sel])[data-pending] .odop-side .insp { border: none; box-shadow: none; margin: 0; min-height: 0; }
-  .dp-react-root .odop:not([data-sel])[data-pending] .odop-side .dp-tp > :not(.dp-tp-foot) { display: none; }
-  .dp-react-root .dp-odo:not([data-sel])[data-pending] { height: calc(100dvh - var(--h-top) - 40px - 112px); min-height: 0; }
+  .dp-react-root .odop:not([data-sel]):not([data-ocl])[data-pending] .odop-side .insp { border: none; box-shadow: none; margin: 0; min-height: 0; }
+  .dp-react-root .odop:not([data-sel]):not([data-ocl])[data-pending] .odop-side .dp-tp > :not(.dp-tp-foot) { display: none; }
+  .dp-react-root .dp-odo:not([data-sel]):not([data-ocl])[data-pending] { height: calc(100dvh - var(--h-top) - 40px - 112px); min-height: 0; }
 }
 
 /* odo:compare — «Compară» рабочего стола (волна 2 одонтограммы, 25.10). Кнопка
@@ -2948,3 +2948,43 @@ dialog.dp-about { width: 460px; }
   .dp-react-root .rc-tools select { width: 100%; }
   .dp-react-root .rc-menu { right: auto; left: 0; }
 }
+
+/* ---- Прикус в 3D, этап 3 «ocluzie» (07.11; Олег по кадрам design\ocluzie-3d\:
+   вариант D, плашка внизу слева, обводка) ----
+   Плашка на сцене при «Ocluzie»: запись строкой сервера, «Reprezentare
+   schematică», ключ цветов обводки, «Editează / Completează» (форма — в панели
+   «Dintele», пока зуб не выбран). Сплошная, без размытия (`test_structure`).
+   На узкой сцене (вкладка фиши на 1366: «Straturi» и зум уходят в правый
+   нижний угол) плашка уже и строка записи в одну линию — не наезжает на зум. */
+.dp-react-root .dp-ocl {
+  position: absolute; left: 10px; bottom: 10px; z-index: 2; max-width: min(640px, calc(100% - 20px));
+  display: flex; align-items: center; gap: 4px 12px; padding: 8px 12px; color: var(--text); box-sizing: border-box;
+}
+.dp-react-root .dp-ocl-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: var(--fs-s); line-height: 1.35; }
+.dp-react-root .dp-ocl-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.dp-react-root .dp-ocl-schem { font-size: var(--fs-xs); font-style: italic; color: var(--text3); }
+.dp-react-root .dp-ocl-sum { color: var(--text2); }
+.dp-react-root .dp-ocl-keys { display: flex; gap: 12px; color: var(--text2); }
+/* ключ — квадрат с той же обводкой, что на зубе (цвет — палитра сервера) */
+.dp-react-root .dp-ocl-keys i { display: inline-block; width: 9px; height: 9px; margin-right: 5px; border: 2px solid; border-radius: 3px; vertical-align: -1px; }
+.dp-react-root .dp-ocl-go {
+  display: inline-flex; align-items: center; gap: 5px; flex: none; padding: 0; border: 0; background: none;
+  font: inherit; font-size: var(--fs-s); font-weight: 600; color: var(--teal-d); cursor: pointer; white-space: nowrap;
+}
+.dp-react-root .dp-ocl-go svg { width: 15px; height: 15px; }
+.dp-react-root .dp-ocl-go:focus-visible { outline: none; box-shadow: var(--ring); border-radius: 4px; }
+@container vp (max-width: 799px) {
+  .dp-react-root .dp-ocl { max-width: calc(100% - 300px); flex-wrap: wrap; }
+  .dp-react-root .dp-ocl-txt { max-width: 100%; }
+  .dp-react-root .dp-ocl-sum { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+@media (pointer: coarse) {
+  .dp-react-root .dp-ocl-go { min-height: 44px; }
+}
+@media print {
+  .dp-react-root .dp-ocl { display: none; }
+}
+/* панель «Dintele» без выбранного зуба держит запись прикуса и форму — карточка
+   формы без своей рамки, под шапкой панели */
+.dp-react-root .dp-tp-idle { border-top: 1px solid var(--line); }
+.dp-react-root .dp-tp-idle > .fcard { margin: 0; border: 0; border-radius: 0; box-shadow: none; background: none; }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { corners, EMPTY_BOUNDS, FILL, fillAt, fitRadius, isEmpty, union, type Bounds } from './fit'
+import { corners, EMPTY_BOUNDS, FILL, fillAt, fitRadius, isEmpty, union, type Bounds, mapBounds } from './fit'
 import type { Vec3 } from './arch'
 
 const rad = (d: number): number => (d * Math.PI) / 180
@@ -75,5 +75,18 @@ describe('fit: камера под окно', () => {
   it('глубина за камерой — доля бесконечна (камера внутри габарита)', () => {
     const f = fillAt(ARCH, HOME, 0, rad(80), FOV, 1.4, 5)
     expect(f.w).toBe(Infinity)
+  })
+})
+
+describe('fit: габарит после позы прикуса', () => {
+  const box: Bounds = { min: [-30, -10, -40], max: [30, 2, 10] }
+  it('сдвиг переносит габарит целиком; поворот только расширяет его; пустой — пустой', () => {
+    const moved = mapBounds(box, (q) => [q[0] + 1, q[1] - 2, q[2] + 7.5])
+    expect(moved).toEqual({ min: [-29, -12, -32.5], max: [31, 0, 17.5] })
+    const a = 0.1
+    const turned = mapBounds(box, (q) => [q[0] * Math.cos(a) + q[2] * Math.sin(a), q[1], -q[0] * Math.sin(a) + q[2] * Math.cos(a)])
+    expect(turned.max[0] - turned.min[0]).toBeGreaterThan(60)
+    expect(turned.max[2] - turned.min[2]).toBeGreaterThan(50)
+    expect(mapBounds(EMPTY_BOUNDS, (q) => q)).toBe(EMPTY_BOUNDS)
   })
 })

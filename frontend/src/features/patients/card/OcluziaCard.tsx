@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import type { OclSave } from '../../clinical/OcluziaRecord'
 import { Icon } from '../../../components/Icon'
 import type { CardActions } from './actions'
 import { patientCard, type Ocluzie, type PatientCard } from './card'
@@ -10,8 +11,14 @@ import { patientCard, type Ocluzie, type PatientCard } from './card'
    «норма» — поэтому перекрёстный и открытый прикус словами, а не галочкой.
    Классы Энгля и сторона — списки сервера (`options.ocluzie`), мм — как
    пишут («3», «2,5», «-1»), проверяет сервер и подсвечивает поле.
-   ⭐ Черновик живёт у ЭКРАНА фиши (`OcDraft`, как `AnDraft` 01.10): вкладка
-   «Date pacient» размонтируется при переходе, и набранное пропадало бы. */
+   ⭐ Место (07.11, Олег по кадрам `design\ocluzie-3d\`, вариант D): форма
+   живёт в панели «Dintele» вкладки «Odontogramă», пока зуб не выбран, — рядом
+   со сценой, где запись двигает нижнюю челюсть и обводит зубы. В «Date
+   pacient» осталась строка записи со ссылкой сюда. Сохраняет форма тем, что
+   ей дали (`save`): из панели — маршрутом прикуса с `?odo=1`, и рабочий стол
+   получает свежую модель (поза и обводка сразу) вместе с фишей.
+   ⭐ Черновик живёт у ЭКРАНА фиши (`OcDraft`, как `AnDraft` 01.10): вкладки
+   фиши размонтируются при переходе, и набранное пропадало бы. */
 const T = {
   title: 'Ocluzia',
   none: 'neînregistrată',
@@ -58,13 +65,18 @@ interface Props {
   a: CardActions
   draft: OcDraft | null
   onDraft: (d: OcDraft) => void
+  /** чем записать (панель одонтограммы — `?odo=1`); без него — действием фиши */
+  save?: OclSave | undefined
+  /** раскрыта ли форма сначала; без него — раскрыта, пока прикус не записан.
+   *  Панель одонтограммы раскрывает всегда: место свободно, пока зуб не выбран */
+  startOpen?: boolean | undefined
 }
 
 const MM = /^-?\d{1,2}([.,]\d{1,2})?$/
 /* поля в миллиметрах — только у них «не число» подсвечивается до отправки */
 const MM_FIELDS = new Set(['overjet', 'overbite', 'mediana_mm'])
 
-export function OcluziaCard({ card, a, draft, onDraft }: Props) {
+export function OcluziaCard({ card, a, draft, onDraft, save, startOpen }: Props) {
   const oc = card.ocluzie
   const opts = card.options.ocluzie
   const cur: OcDraft = draft && draft.oc === oc ? draft : { oc, fields: oc.fields }
@@ -72,12 +84,23 @@ export function OcluziaCard({ card, a, draft, onDraft }: Props) {
   const set = (k: string, v: string) => onDraft({ ...cur, fields: { ...f, [k]: v } })
   const dirty = ocDirty(draft, oc)
   /* раскрыта, пока прикус не записан (как опросник анамнеза) */
-  const [open, setOpen] = useState(!oc.filled)
+  const [open, setOpen] = useState(startOpen ?? !oc.filled)
   /* поле, которое сервер назвал в отказе (`error.field`) — подсветка */
   const [bad, setBad] = useState('')
+  /* своя запись (`save`) идёт мимо `a.act` — занятость кнопки своя */
+  const [saving, setSaving] = useState(false)
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
+    if (save) {
+      setSaving(true)
+      try {
+        setBad((await save(f))?.field ?? '')
+      } finally {
+        setSaving(false)
+      }
+      return
+    }
     const err = await a.act(() => patientCard.saveOcluzie(a.pid, a.views, f))
     setBad(err?.field ?? '')
   }
@@ -149,7 +172,7 @@ export function OcluziaCard({ card, a, draft, onDraft }: Props) {
             <textarea rows={2} maxLength={500} placeholder={T.notaPh} value={f.nota ?? ''}
                       onChange={(e) => set('nota', e.target.value)} />
           </label>
-          <button disabled={a.busy}><Icon name="save" /> {T.save}</button>
+          <button disabled={a.busy || saving}><Icon name="save" /> {T.save}</button>
         </form>
       </details>
     </div>

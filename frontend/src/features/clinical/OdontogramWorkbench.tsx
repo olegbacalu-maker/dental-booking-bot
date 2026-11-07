@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { shellOn, useCommand } from '../../app/bridge'
 import { AppLink } from '../../components/AppLink'
 import { ask } from '../../components/confirm'
@@ -11,6 +11,7 @@ import { ComparePanel } from './ComparePanel'
 import { DentalArch } from './DentalArch'
 import { LegendFilter } from './LegendFilter'
 import { ModeTabs } from './ModeTabs'
+import { OcluziaRecord, type OclSave } from './OcluziaRecord'
 import { PlanDialog } from './PlanDialog'
 import { ToothMap } from './ToothMap'
 import { ToothMenu, type MenuAt } from './ToothMenu'
@@ -150,6 +151,16 @@ interface Props {
   /** Зубы с несохранённой правкой — владельцу для вопроса при уходе (у роутера
    *  один блокер на всех); при снятии рабочего стола — пустой список. */
   onDirty?: ((teeth: number[]) => void) | undefined
+  /** Форма прикуса для панели без выбранного зуба (этап 3 «ocluzie», вариант D
+   *  Олега 07.11) — её строит фиша (`OcluziaCard`), запись даёт стол (`save`,
+   *  `?odo=1`). Нет (страница «Pe tot ecranul») — запись только для чтения со
+   *  ссылкой в фишу (`OcluziaRecord`). */
+  ocluzie?: ((save: OclSave) => ReactNode) | undefined
+  /** просьба «к форме прикуса» снаружи (строка «Date pacient»): метка — снять
+   *  выбор зуба, включить «Ocluzie», открыть шторку на планшете */
+  oclReq?: number | null
+  /** просьба исполнена — владелец её снимает (иначе возврат на вкладку повторил бы её) */
+  onOclSeen?: (() => void) | undefined
 }
 
 /** Сколько зубов на экране с записанной находкой: состояние, поверхность или
@@ -163,6 +174,7 @@ function recordedCount(model: Odontogram): number {
 
 export function OdontogramWorkbench({
   pid, model, replace, fail, say, initial = null, saveQuery = '', open = null, embedded = false, onDirty,
+  ocluzie, oclReq = null, onOclSeen,
 }: Props) {
   const c = useChart(pid, model, replace, fail, say, initial, saveQuery)
   /* что рисуют виды: сохранённое + черновики в предпросмотре сервера, а при
@@ -380,11 +392,48 @@ export function OdontogramWorkbench({
   /* почему «Compară» выключена: черновики, режим моста, нет прошлых визитов */
   const cmpOff = c.pending.length ? T.cmpDirty : brMode ? T.cmpBridge : !model.visits?.length ? T.cmpNone : ''
 
+  /* ⭐ Прикус в панели (этап 3 «ocluzie», вариант D Олега 07.11): пока зуб не
+     выбран, панель «Dintele» держит запись прикуса и её форму — рядом со
+     сценой, где запись двигает нижнюю челюсть. Запись — маршрутом прикуса с
+     `?odo=1` (+ хвост записи зуба): в ответе свежая модель (поза и обводка
+     сразу, своего кэша прикуса нет) и фиша — тем же `replace`, что у зуба. */
+  const saveOcl = useCallback<OclSave>(async (fields) => {
+    try {
+      const r = await chart.saveOcluzie(pid, fields, saveQuery)
+      replace(r.data)
+      if (r.text) say({ tone: r.tone, text: r.text })
+      return null
+    } catch (e) {
+      const err = asApiError(e)
+      fail(err)
+      return err
+    }
+  }, [pid, saveQuery, replace, say, fail])
+  /* Планшет в портрете: панель без выбранного зуба спрятана (шторка — по
+     выбору зуба), поэтому к форме ведёт своя шторка — плашка «Editează» на
+     сцене и строка «Date pacient» её открывают, крестик и выбор зуба закрывают.
+     Мышью и в альбоме атрибут ни на что не влияет: панель и так видна. */
+  const [oclSheet, setOclSheet] = useState(false)
+  const toOcl = useCallback(() => { c.select(null); setOclSheet(true) }, [c])
+  const [seenOcl, setSeenOcl] = useState<number | null>(null)
+  if (oclReq !== null && oclReq !== seenOcl) {
+    setSeenOcl(oclReq)
+    c.select(null)
+    setOclSheet(true)
+  }
+  // исполнена в этой же отрисовке (и сценой 3D — она дочь стола) — снять у владельца
+  useEffect(() => { if (oclReq !== null) onOclSeen?.() }, [oclReq, onOclSeen])
+  // выбран зуб — шторка прикуса закрыта: его снятие не возвращает её саму
+  if (oclSheet && c.selected !== null) setOclSheet(false)
+  const oz = model.ocluzie
+  const idle = cmpOn ? undefined : ocluzie ? ocluzie(saveOcl) : oz ? <OcluziaRecord pid={pid} oc={oz} /> : undefined
+
   return (
     <>
       <div ref={root} className="odop odo dp-odo" id="odo" data-page={embedded ? undefined : ''} data-view={c.view}
         data-sel={cmpOn ? undefined : c.selected ?? undefined} data-brush={c.brush ?? undefined}
-        data-pending={c.pending.length ? '' : undefined} data-cmp={cmpOn ? '' : undefined} tabIndex={0} onKeyDown={onKey}>
+        data-pending={c.pending.length ? '' : undefined} data-cmp={cmpOn ? '' : undefined}
+        data-ocl={oclSheet && idle && c.selected === null ? '' : undefined} tabIndex={0} onKeyDown={onKey}>
         <div className="dp-odo-head">
           {/* имя — заголовок детальной страницы и дорога назад в фишу; во вкладке фиши имя уже в её шапке */}
           {!embedded && (
@@ -421,7 +470,7 @@ export function OdontogramWorkbench({
                    поверхность и меню идут в панель, как из карты */
                 <Odontogram3D model={shown} selected={sel} onSurface={onSurface} onMenu={onMenu}
                   focus={focus3d} onZoom={setZoom} onDouble={onDouble} dim={dim} mode={scene}
-                  onFlat={() => c.setView('frontal')} />
+                  onFlat={() => c.setView('frontal')} onOcluzie={cmpOn || !idle ? undefined : toOcl} oclReq={oclReq} />
               ) : (
                 <>
                   <div className="dp-vp-bar">
@@ -477,8 +526,9 @@ export function OdontogramWorkbench({
               onDelBridge={(bid) => { void c.delBridge(bid) }}
               onBridgeFrom={bridgeFrom}
               onPlan={planFrom}
-              onClose={() => c.select(null)}
+              onClose={() => { c.select(null); setOclSheet(false) }}
               saved={savedN}
+              idle={idle}
             />}
           </aside>
         </div>
