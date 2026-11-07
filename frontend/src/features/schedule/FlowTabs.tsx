@@ -1,6 +1,9 @@
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import type { IconName } from '../../components/icons'
+import { useFlip } from '../../utils/flip'
+import { motionOk, stepMs } from '../../utils/motion'
 import type { DashActions } from './dash'
 import { dur, JUST_CAME_MIN, type Flow, type FlowKind, type FlowRow } from './flow'
 
@@ -106,20 +109,72 @@ interface ListProps {
 }
 
 export function FlowList({ kind, rows, labels, busy, onCard, onFlow, moved }: ListProps) {
-  if (!rows.length) return <p className="fl-empty">{W.empty[kind]}</p>
+  const box = useRef<HTMLDivElement>(null)
+  /* Смыкание (07.11, вторая волна): строка, ушедшая со вкладки, не исчезает в
+     том же кадре — её «призрак» стоит на прежнем месте вне потока и гаснет за
+     ступень, а соседи доезжают до нового места сдвигом (`useFlip`). Призраки —
+     из прошлых строк (приём «состояние от прошлого рендера»), только когда
+     движение разрешено; место призрака — где строка стояла перед уходом.
+     ⛔ Призрак не нажимается (`pointer-events:none`): данных за ним уже нет. */
+  /* ⚠️ Состав — по НОМЕРАМ, не по ссылке массива: поток пересчитывается на
+     каждом рендере (`flowOf` по тику), и сравнение ссылок сняло бы призрака
+     следующим же кадром. */
+  const [prev, setPrev] = useState({ key: rows.map((r) => r.it.id).join(','), rows })
+  const [ghosts, setGhosts] = useState<FlowRow[]>([])
+  const tops = useRef(new Map<number, number>())
+  const key = rows.map((r) => r.it.id).join(',')
+  if (key !== prev.key) {
+    setPrev({ key, rows })
+    const ids = new Set(rows.map((r) => r.it.id))
+    const gone = prev.rows.filter((r) => !ids.has(r.it.id))
+    if (gone.length && motionOk()) setGhosts(gone)
+  }
+  /* место призрака — где строка стояла, по последнему замеру; ставится до
+     первого кадра (layout-эффект), ref на рендере не читается */
+  useLayoutEffect(() => {
+    const el = box.current
+    if (!el || !ghosts.length) return
+    for (const g of el.querySelectorAll<HTMLElement>('.fl-row.leaving')) {
+      g.style.top = `${tops.current.get(Number(g.dataset.gone)) ?? 0}px`
+    }
+  }, [ghosts])
+  useEffect(() => {
+    if (!ghosts.length) return
+    const t = window.setTimeout(() => setGhosts([]), stepMs('--dur-fast'))
+    return () => window.clearTimeout(t)
+  }, [ghosts])
+  useFlip(box, rows, '.fl-row')
+  if (!rows.length && !ghosts.length) return <p className="fl-empty">{W.empty[kind]}</p>
   return (
-    <div className="fl-list">
+    <div className="fl-list" ref={box}>
       {rows.map((r) => (
         <Row key={r.it.id} kind={kind} r={r} labels={labels} busy={busy} onCard={onCard} onFlow={onFlow}
-          moved={moved?.has(r.it.id) ?? false} />
+          moved={moved?.has(r.it.id) ?? false} tops={tops} />
+      ))}
+      {!rows.length && <p className="fl-empty">{W.empty[kind]}</p>}
+      {ghosts.map((g) => (
+        <Row key={`gone-${g.it.id}`} kind={kind} r={g} labels={labels} busy onCard={onCard} onFlow={onFlow}
+          moved={false} leaving />
       ))}
     </div>
   )
 }
 
-function Row({ kind, r, labels, busy, onCard, onFlow, moved }:
-  { kind: FlowKind; r: FlowRow; moved: boolean } & Omit<ListProps, 'kind' | 'rows' | 'moved'>) {
+function Row({ kind, r, labels, busy, onCard, onFlow, moved, tops, leaving }:
+  { kind: FlowKind; r: FlowRow; moved: boolean
+    /** куда строка записывает своё место (для призрака после ухода) */
+    tops?: React.RefObject<Map<number, number>>
+    /** призрак ушедшей строки (место ставит список по `data-gone`) */
+    leaving?: boolean | undefined
+  } & Omit<ListProps, 'kind' | 'rows' | 'moved'>) {
   const { it } = r
+  const self = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const m = tops?.current
+    const el = self.current
+    if (!m || !el || leaving) return
+    m.set(it.id, el.offsetTop)
+  })
   const to = NEXT[kind]
   let chip: { text: string; cls: string }
   let sub: string
@@ -149,7 +204,9 @@ function Row({ kind, r, labels, busy, onCard, onFlow, moved }:
   }
   const over = kind === 'incab' && r.min > 0
   return (
-    <div className={`fl-row${over ? ' over' : ''}${moved ? ' moved' : ''}`} data-appt={it.id} onClick={() => onCard(it.id)}>
+    <div ref={self} className={`fl-row${over ? ' over' : ''}${moved ? ' moved' : ''}${leaving ? ' leaving' : ''}`}
+      data-appt={leaving ? undefined : it.id} data-gone={leaving ? it.id : undefined}
+      aria-hidden={leaving || undefined} onClick={() => onCard(it.id)}>
       <span className="dk-t">{it.time}</span>
       <div className="fl-b">
         <div className="fl-l1">

@@ -1,5 +1,6 @@
 import { useRef } from 'react'
 import { AppLink } from '../../components/AppLink'
+import { useFlip } from '../../utils/flip'
 import { Icon, iconName } from '../../components/Icon'
 import { clinicNow, clinicTz, nowlineRows, useCardView, useFitAppts, useFitGrid, waitLabel } from './dashFx'
 import type { DashAppt, DashBlock, DashCanvasModel, DashColumn } from './dash'
@@ -112,6 +113,10 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
   useFitGrid(body, rail, model.hours.length)
   /* `fresh` и `moved` меняют className блока без новой модели — и стёрли бы ступени */
   useFitAppts(body, waits ? waitTick : 0, model, view, fresh, moved)
+  /* Блок, сменивший место (перенос — свой или с другого места), доезжает до
+     нового сдвигом (07.11, вторая волна): только transform, раскладку и
+     ступень сжатия не трогает; на опросе без изменений — ни одного запуска. */
+  useFlip(body, model, '.gappt')
 
   if (model.empty) {
     return (

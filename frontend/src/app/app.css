@@ -1528,7 +1528,11 @@ dialog.dp-about { width: 460px; }
 .fl-tab b.red { color: var(--red-t); }
 .fl-tab b.violet { color: #6D28D9; }
 .fl-tab b.blue { color: #1D4ED8; }
-.fl-list { display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+.fl-list { display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow-y: auto; margin: 0 -4px; padding: 0 4px; position: relative; }
+/* призрак ушедшей строки (07.11): стоит на прежнем месте вне потока и гаснет за
+   ступень, соседи в это время доезжают сдвигом (utils/flip); не нажимается */
+.fl-row.leaving { position: absolute; left: 4px; right: 4px; pointer-events: none; animation: fl-out var(--dur-fast) ease both; }
+@keyframes fl-out { to { opacity: 0; } }
 .fl-row { display: flex; align-items: center; gap: 8px; padding: 7px 6px; border-radius: var(--r-s); cursor: pointer; }
 .fl-row:hover { background: var(--line2); }
 .fl-row.over { background: var(--amber-soft); }
