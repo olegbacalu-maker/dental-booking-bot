@@ -1624,7 +1624,9 @@ def suite(res: Result) -> None:
     # плавающий ответ и одним кадром сворачивалось меню (а с ним не работала
     # правка 25.09 «дёргания на Detaliat»). Новое правило под `.anim` — либо
     # входная анимация (тогда в список осознанно), либо ему тут не место.
-    entry = {".statbar>div", ".spark", ".ag-i", "*"}
+    entry = {".statbar>div", ".spark", ".ag-i", "*",
+             # вход «Statistici» (07.11): класс ставит и снимает сам экран
+             ".stx-bar", ".stx-bl-bar", ".stx-meter > *", ".stx-tbl tbody tr", ".stx-barlist li"}
     under = {(name, s.strip()) for name, sel, _body in rules
              for s in sel.split(",") if s.strip().startswith(".anim ")}
     bad = [f"{name}: {s}" for name, s in sorted(under)

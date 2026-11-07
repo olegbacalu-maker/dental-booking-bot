@@ -1136,6 +1136,15 @@
   align-items: center; position: relative; outline: none; border-radius: var(--r-xs);
 }
 .stx-bcol:hover { background: var(--teal-soft); }
+/* Вход «Statistici» (07.11, вторая волна): столбцы и полосы растут, строки
+   въезжают — при каждом приходе на экран; класс `anim` ставит и снимает экран
+   (StatsScreen). Только transform и opacity: раскладку не двигает; без движения
+   класса нет, а `.anim *` в panel.css гасит и класс шапки документа. */
+@keyframes stx-grow-y { from { transform: scaleY(0); } }
+@keyframes stx-grow-x { from { transform: scaleX(0); } }
+.anim .stx-bar { transform-origin: bottom; animation: stx-grow-y .55s cubic-bezier(.22,.61,.36,1) both; }
+.anim .stx-bl-bar, .anim .stx-meter > * { transform-origin: left; animation: stx-grow-x .55s cubic-bezier(.22,.61,.36,1) both; }
+.anim .stx-tbl tbody tr, .anim .stx-barlist li { animation: dp-in .38s ease both; }
 .stx-bcol:focus-visible { box-shadow: var(--ring); }
 .stx-bar { width: 60%; max-width: 48px; background: var(--teal); border-radius: 4px 4px 0 0; }
 .stx-top { font-size: var(--fs-xs); font-weight: 700; margin-bottom: 4px; font-variant-numeric: tabular-nums; }

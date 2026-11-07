@@ -1,11 +1,11 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
 import { queryParam, useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
-import { canAnimate } from '../../utils/fx'
+import { motionOk } from '../../utils/motion'
 import { t } from '../../utils/i18n'
 import { StatsBoard } from './StatsBoard'
 import { stats, type StatsData } from './stats'
@@ -34,6 +34,10 @@ export const loadStats: RouteLoad<StatsData> = (signal, _p, q) =>
  *  не переносятся, иначе плашка отказа возвращалась бы на каждой F5. */
 const periodUrl = (f: string, t2: string) => `/admin/stats?from=${f}&to=${t2}`
 
+/** Сколько длится вход экрана: самая долгая анимация — проявление графика .75 с
+ *  (panel.css › `.anim .spark`), плюс запас. */
+const ENTER_MS = 1000
+
 export function StatsScreen({ navigate = defaultNavigate }: Props) {
   const { state, retry, leaveIfSignedOut } = useRouteLoad<StatsData>(navigate)
   /* Смена адреса — РОУТЕРОМ; `navigate` из пропсов — это уход на вход. */
@@ -45,7 +49,20 @@ export function StatsScreen({ navigate = defaultNavigate }: Props) {
      ним, а не кадром раньше — поля не прыгают назад, на прежний период. */
   const [draft, setDraft] = useState<{ from: string; to: string; sent?: StatsData } | null>(null)
   const closeToast = useCallback(() => setToast(null), [])
-  const live = canAnimate()
+  /* Вход экрана — рост столбцов и полос, въезд строк, проявление графиков,
+     счёт цифр — играет при КАЖДОМ приходе на экран (07.11, вторая волна):
+     класс `anim` стоит на корне самого экрана, а не на документе (там его
+     снимает первое изменение дня на главной, и с B4 он не возвращается).
+     ⛔ Только на входе: класс снимается, когда вход доиграл, и смена периода
+     или показателя (новые узлы столбцов и строк) ничего заново не играет.
+     Главная не тронута. */
+  const [live, setLive] = useState(motionOk)
+  const ready = state.status === 'ready'
+  useEffect(() => {
+    if (!ready || !live) return
+    const t = window.setTimeout(() => setLive(false), ENTER_MS)
+    return () => window.clearTimeout(t)
+  }, [ready, live])
 
   /* Адрес повторяет отбор — как у старой страницы: перезагрузка и закладка
      открывают ТОТ ЖЕ период. Пишет его РОУТЕР, и загрузчик читает
@@ -93,7 +110,7 @@ export function StatsScreen({ navigate = defaultNavigate }: Props) {
   const pick = draft && (!draft.sent || draft.sent === d)
     ? draft : { from: d.period.from, to: d.period.to }
   return (
-    <section className="dp-react-root">
+    <section className={`dp-react-root${live ? ' anim' : ''}`}>
       {toast && <Toast tone={toast.tone} text={toast.text} onClose={closeToast} />}
       <StatsBoard
         d={d}
