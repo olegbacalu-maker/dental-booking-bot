@@ -2033,6 +2033,14 @@
    .ag-i{transition:background-color var(--dur) ease,border-color var(--dur) ease,box-shadow var(--dur) ease,
      transform var(--dur) ease,opacity var(--dur) ease}
  }
+ /* Печать (07.11.2026): лист — всегда конечный вид. Печать, начатая посреди
+    движения (строка уходит, окно гаснет, «Statistici» только пришла), иначе
+    снимала бы промежуточный кадр: призрак строки, полупрозрачное окно,
+    недоросшие столбцы. Сдвиги смыкания (Web Animations) завершает utils/flip. */
+ @media print{
+   *,*::before,*::after{animation:none !important;transition:none !important}
+   .fl-row.leaving,.dp-cmenu.out,.toastbox.out,dialog:not([open]){display:none !important}
+ }
  /* Уважать системную настройку: у части людей движение вызывает тошноту, и
     Windows отдаёт это флагом. Отключаем всё разом, страница остаётся рабочей. */
  @media (prefers-reduced-motion:reduce){

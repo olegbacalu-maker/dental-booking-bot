@@ -17,6 +17,23 @@ import { motionOk, stepMs } from './motion'
 
 interface Spot { x: number; y: number }
 
+/* Печать посреди сдвига (07.11): CSS `animation:none` в `@media print` Web
+   Animations не касается, и лист снял бы строку на полпути. Перед печатью
+   сдвиги завершаются — узел встаёт на своё место. Один слушатель на окно. */
+let printHooked = false
+function hookPrint(): void {
+  if (printHooked || typeof window.matchMedia !== 'function') return
+  printHooked = true
+  const finish = () => {
+    for (const a of document.getAnimations()) {
+      const css = a as Partial<CSSAnimation & CSSTransition>
+      if (!css.animationName && !css.transitionProperty) a.finish()
+    }
+  }
+  window.matchMedia('print').addEventListener('change', (e) => { if (e.matches) finish() })
+  window.addEventListener('beforeprint', finish)
+}
+
 /** Место узла В РАСКЛАДКЕ, без учёта идущего transform: по цепочке
  *  `offsetParent` до контейнера. ⛔ Не `getBoundingClientRect`: тот видит
  *  узел на полпути, и повторный рендер во время движения (тик, ответ канала)
@@ -53,6 +70,7 @@ export function useFlip(
     last.current = now
     if (!was || !motionOk() || typeof root.animate !== 'function'
       || getComputedStyle(root).getPropertyValue('--motion-flip').trim() === 'none') return
+    hookPrint()
     const ms = stepMs(step) - 40
     for (const [el, key] of nodes) {
       const from = was.get(key)
