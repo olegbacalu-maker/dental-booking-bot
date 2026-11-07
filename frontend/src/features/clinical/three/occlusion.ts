@@ -198,6 +198,14 @@ export function occlusionK(closeY: number, full: number, parodont: boolean): num
   return Math.max(0, Math.min(1, closeY / full))
 }
 
+/** Показывать ли плашку прикуса на сцене: при «Ocluzie» и не в «Parodont» — тот же
+ *  признак, что у `occlusionK` и обводки (координатор 08.11). В «Parodont» сцена
+ *  прикус не показывает, и «Reprezentare schematică» описывала бы то, чего нет;
+ *  запись врача видна в панели и в «Date pacient». */
+export function oclPlaqueShown(closed: boolean, parodont: boolean): boolean {
+  return closed && !parodont
+}
+
 /** Применённая поза = запрошенная × доля смыкания k ∈ [0, 1] (Q3, Олег 07.11:
  *  прикус только при включённом «Ocluzie»). k = 0 — РОВНО `ZERO_POSE` (не
  *  «почти»: разомкнутое положение побайтно прежнее), k = 1 — запрошенная.

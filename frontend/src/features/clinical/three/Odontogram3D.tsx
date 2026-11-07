@@ -4,6 +4,7 @@ import { useMenuDismiss } from '../../../components/menu'
 import type { Odontogram, PerioLayer } from '../chart'
 import { load3d } from './loadTeeth'
 import { PerioLegend } from './PerioLegend'
+import { oclPlaqueShown } from './occlusion'
 import { createArchScene, labelsFor, type ArchScene, type CameraProbe, type Hit, type PerioInput, type Toggle, type ToothProbe, type ViewName } from './scene'
 import type { Letter } from './toothGeometry'
 import { VIEW_ICON } from './viewIcons'
@@ -291,7 +292,8 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
           {status === 'failed' && <p className="hint odo-3d-msg">{T.failed}</p>}
           {status === 'nogl' && <p className="hint odo-3d-msg">{T.nogl}</p>}
         </div>
-        {ready && togs.closed && model.ocluzie && <OclPlaque model={model} onEdit={onOcluzie} />}
+        {/* в «Parodont» плашки нет: сцена там прикус не показывает (`occlusionK`), признак — тот же `paro`, что у `setPerio` */}
+        {ready && model.ocluzie && oclPlaqueShown(togs.closed, paro) && <OclPlaque model={model} onEdit={onOcluzie} />}
         <div className="dp-vp-ov">
           <div className="dp-seg dp-views dp-vp-pl" role="group" aria-label={T.group}>
             {VIEW_ORDER.map((v) => (

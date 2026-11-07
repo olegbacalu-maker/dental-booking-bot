@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildJaw, LOWER, shapesOf, UPPER } from '../../../test/jaws'
 import { GAP, GAP_CLOSED, type PlacedTooth } from './arch'
-import { blendPose, occlusionK, SCHEMATIC_CLASS_SHIFT_MM, SCHEMATIC_TILT_II1_DEG, SCHEMATIC_TILT_II2_DEG, ZERO_POSE, type OcclRecord } from './occlusion'
+import { blendPose, occlusionK, oclPlaqueShown, SCHEMATIC_CLASS_SHIFT_MM, SCHEMATIC_TILT_II1_DEG, SCHEMATIC_TILT_II2_DEG, ZERO_POSE, type OcclRecord } from './occlusion'
 import {
   CONTACT_ONLY_III, gap34, gapIncCanine, molarGaps, occlusionPlan, OVERBITE_AFTER_TILT, OVERJET_STOP_AT_CANINE, placeOf,
   planBite, SEGMENT_FROM, sweep, ZERO_TEETH, type Body,
@@ -185,5 +185,15 @@ describe('«Parodont» снимает план прикуса (координа�
     // разомкнуто — 0 и без «Parodont» (Q3); на полпути смыкания — доля
     expect(occlusionK(0, C, false)).toBe(0)
     expect(occlusionK(C / 2, C, false)).toBeCloseTo(0.5, 12)
+  })
+})
+
+describe('плашка прикуса в «Parodont» (координатор 08.11)', () => {
+  it('⭐ «Ocluzie» вкл. и «Parodont» — плашки нет; выход из «Parodont» — вернулась; «Ocluzie» выкл. — нет', () => {
+    expect(oclPlaqueShown(true, true)).toBe(false)
+    expect(oclPlaqueShown(true, false)).toBe(true)
+    expect(oclPlaqueShown(false, false)).toBe(false)
+    // тот же признак, что у доли плана: плашка есть ⇔ сцена применяет прикус (при полном смыкании)
+    for (const paro of [true, false]) expect(oclPlaqueShown(true, paro)).toBe(occlusionK(C, C, paro) > 0)
   })
 })
