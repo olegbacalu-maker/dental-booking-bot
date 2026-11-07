@@ -16,7 +16,7 @@ import { comesFrom, MS, sceneFor, startLift } from './transition'
 import { createTweens, type Tweens } from './tween'
 import { EMPTY_BOUNDS, fillAt, fitRadius, isEmpty, union, type Bounds } from './fit'
 import { isFinger, LONG_MS, slopOf, swallowNextClick } from '../touch'
-import { biteAt, biteOf, molarMark, poseLower, ZERO_POSE, type Bite, type BitePoints, type JawPose, type OcclGeo } from './occlusion'
+import { biteAt, biteOf, blendPose, lowerPlacement, molarMark, ZERO_POSE, type Bite, type BitePoints, type JawPose, type OcclGeo } from './occlusion'
 
 /* Сцена одонтограммы (B7, ступень 4) — чистый three.js, без React: обе
    челюсти на дуге движка, пять материалов на коронку (= пять поверхностей),
@@ -154,7 +154,9 @@ export interface ArchScene {
   /** слой пародонта (край по рецессии, полосы карманов, BOP, зонды); null — снять */
   setPerio(p: PerioInput | null): void
   /** поза нижней челюсти по записи «Ocluzia» (`occlusion.jawPose`); null — назад
-   *  в положение по умолчанию. Твин 700 мс, при reduced-motion — сразу. */
+   *  в положение по умолчанию. Применяется ТОЛЬКО сомкнуто («Ocluzie»): разомкнуто
+   *  запоминается, а включение «Ocluzie» ведёт её тем же твином, что смыкание.
+   *  Твин 700 мс, при reduced-motion — сразу. */
   setOcclusion(pose: JawPose | null, animate: boolean): void
   /** прикус ПО ТЕКУЩИМ мировым матрицам (то, что на экране) — для стендов;
    *  null — челюсти ещё не построены */
@@ -290,17 +292,22 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     upper: { grp: upperG, closeY: 0, hideY: 0, dir: 1 },
     lower: { grp: lowerG, closeY: 0, hideY: 0, dir: -1 },
   }
-  /** поза прикуса нижней челюсти (`occlusion.ts`); ноль — положение по умолчанию */
+  /** ЗАПРОШЕННАЯ поза прикуса нижней челюсти (`occlusion.ts`, `setOcclusion`);
+   *  применённая — она же × доля смыкания (`blendPose`): прикус только при
+   *  включённом «Ocluzie» (Q3, Олег 07.11), разомкнуто — ровно ноль */
   const occ: JawPose = { ...ZERO_POSE }
+  /** смыкание `setClosed`: сдвиг каждой челюсти к другой в сомкнутом положении, мм */
+  const CLOSE_Y = (GAP - GAP_CLOSED) / 2
   /* Нижняя челюсть — сдвиг смыкания и ухода из кадра (y0) плюс поза прикуса с
      поворотом вокруг опоры: положение группы = P + R·(t − P), та же формула, что
-     `occlusion.poseLower` для точки (0, 0, 0) — замер и экран не расходятся. */
+     `occlusion.poseLower` для точки (0, 0, 0) — замер и экран не расходятся.
+     Поза едет тем же твином, что смыкание: доля k = closeY / CLOSE_Y. */
+  const appliedPose = (): JawPose => blendPose(occ, jaw.lower.closeY / CLOSE_Y)
   const placeJaws = (): void => {
     upperG.position.y = -jaw.upper.closeY + jaw.upper.hideY
-    const y0 = jaw.lower.closeY + jaw.lower.hideY
-    lowerG.rotation.set(occ.pitch, occ.yaw, 0, 'YXZ')
-    const p = poseLower([0, 0, 0], occ, y0)
-    lowerG.position.set(p[0], p[1], p[2])
+    const pl = lowerPlacement(appliedPose(), jaw.lower.closeY + jaw.lower.hideY)
+    lowerG.rotation.set(pl.rotation[0], pl.rotation[1], pl.rotation[2], 'YXZ')
+    lowerG.position.set(pl.position[0], pl.position[1], pl.position[2])
   }
 
   // --- зубы ---
@@ -1070,7 +1077,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       invalidate()
       return
     }
-    // при reduced-motion `tweens` исполняет сразу (fn(1)) и просит кадр сам
+    // при reduced-motion `tweens` исполняет сразу (fn(1)) и просит кадр сам;
+    // разомкнуто поза только запоминается — на экране ничего не едет
     tweens.add(OCCL_MS, set, () => invalidate(), 0, 'occl')
   }
 
@@ -1126,7 +1134,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   function biteBase(): BiteBase | null {
     const p = bitePoints()
     if (!p) return null
-    const c = (GAP - GAP_CLOSED) / 2
+    const c = CLOSE_Y
     const { bite, geo } = biteAt(p, ZERO_POSE, -c, c)
     return { base: bite, geo, probe: (pose) => biteAt(p, pose, -c, c).bite.ob }
   }
@@ -1134,7 +1142,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   function setClosed(on: boolean): void {
     const fu = jaw.upper.closeY
     const fl = jaw.lower.closeY
-    const c = on ? (GAP - GAP_CLOSED) / 2 : 0
+    const c = on ? CLOSE_Y : 0
     tweens.kill('close')
     tweens.add(700, (k) => {
       jaw.upper.closeY = fu + (c - fu) * k
@@ -1363,7 +1371,12 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   ;(canvas as HTMLCanvasElement & { __dpOccl?: unknown }).__dpOccl = {
     measure: () => measureBite(), base: () => biteBase(),
     set: (pose: JawPose | null, animate = false) => setOcclusion(pose, animate),
-    pose: () => ({ ...occ }),
+    pose: () => ({ want: { ...occ }, applied: appliedPose() }),
+    // группы челюстей как есть в three — разомкнуто обязаны быть прежними (0, y, 0) без поворота
+    groups: () => [upperG, lowerG].map((g) => {
+      g.updateMatrix()
+      return { p: g.position.toArray(), r: [g.rotation.x, g.rotation.y, g.rotation.z], m: g.matrix.toArray() }
+    }),
   }
 
   return {

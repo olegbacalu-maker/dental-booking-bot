@@ -14,8 +14,11 @@ import type { Vec3 } from './arch'
    - класс по Энглю — по ОРИЕНТИРАМ (AAPD, PMC3481985; Олег 07.11):
      мезиально-щёчный бугор верхнего первого моляра против щёчной борозды
      нижнего. I — совпадают, II — бугор мезиальнее борозды, III — дистальнее.
-     Фиксированного числа мм у класса нет: `CLASS_SHIFT` — схема, пока
-     величину не дала запись (`mmR`/`mmL`);
+     Фиксированного числа мм у класса нет, и запись его не даёт (Олег 07.11,
+     Q2): сдвиг II/III — условный визуальный ориентир `SCHEMATIC_CLASS_SHIFT_MM`,
+     не измерение и не план лечения;
+   - поза применяется ТОЛЬКО в сомкнутом положении («Ocluzie», Q3): сцена
+     смешивает её с нулём долей смыкания (`blendPose`), разомкнуто — ровно ноль;
    - поза — ОДНА формула и для сцены (`placeJaws`), и для замера (`poseLower`):
      поворот R = Ry(yaw)·Rx(pitch) (порядок three 'YXZ') вокруг опоры
      P = (0, pivotY, pivotZ) после сдвига t = (dx, y0 + dy, dz):
@@ -28,10 +31,6 @@ import type { Vec3 } from './arch'
 export interface OcclRecord {
   angle_dr?: string
   angle_st?: string
-  /** ⚠️ Поля в форме НЕТ (07.11, откуда брать мм — решает Олег): насколько
-   *  бугор впереди/позади борозды справа и слева, мм. Нет — `CLASS_SHIFT`. */
-  mmR?: string
-  mmL?: string
   overjet?: string
   overbite?: string
   incrucisata?: string
@@ -74,10 +73,11 @@ export interface OcclGeo {
   half: number
 }
 
-/** Сдвиг моляров при II и III классе, мм — СХЕМАТИЧЕСКОЕ значение (между
- *  половиной и целым бугром), не клиническое: у класса нет своего числа мм,
- *  величина измеряется у пациента (`mmR`/`mmL`). Одно имя на модуль. */
-export const CLASS_SHIFT = 4
+/** Сдвиг моляров при II и III классе, мм: схематический ориентир, не
+ *  клиническое значение. Величина реального расхождения у пациента
+ *  индивидуальна, в записи её нет и не будет (Олег 07.11, Q2: «условный
+ *  визуальный ориентир, не измерение и не план лечения»). Одно имя на модуль. */
+export const SCHEMATIC_CLASS_SHIFT_MM = 4
 /** Запасной путь, когда ориентиров нет (коронки-формулы без бугров): бугор
  *  относительно борозды ≈ «центр 16 − центр 46» + REL_I. Замер своих моделей
  *  07.11.2026 — 1,30 мм (`arch.test.ts` › «ориентиры»); прототип 06.11 брал 2. */
@@ -112,13 +112,12 @@ const OPEN_STEPS = 4
 export function jawPose(rec: OcclRecord, base: Bite, geo: OcclGeo, probe?: (p: JawPose) => number): JawPose {
   const pose: JawPose = { ...ZERO_POSE }
   const t = (v: string | undefined): string => (v ?? '').trim()
-  const side = (angle: string | undefined, mm: string | undefined, rel: number): number | null => {
+  const side = (angle: string | undefined, rel: number): number | null => {
     const k = classSign(t(angle))
-    if (k === null) return null
-    return rel + k * Math.abs(mmOf(mm) ?? CLASS_SHIFT)
+    return k === null ? null : rel + k * SCHEMATIC_CLASS_SHIFT_MM
   }
-  const dzR = side(rec.angle_dr, rec.mmR, base.relR)
-  const dzL = side(rec.angle_st, rec.mmL, base.relL)
+  const dzR = side(rec.angle_dr, base.relR)
+  const dzL = side(rec.angle_st, base.relL)
   const overjet = mmOf(rec.overjet)
   const overbite = mmOf(rec.overbite)
   const open = t(rec.deschisa) !== ''
@@ -174,6 +173,26 @@ export function poseLower(q: Vec3, pose: JawPose, y0: number): Vec3 {
   const cy = Math.cos(pose.yaw)
   const sy = Math.sin(pose.yaw)
   return [x * cy + z1 * sy, y1 + pose.pivotY, -x * sy + z1 * cy + pose.pivotZ]
+}
+
+/** Применённая поза = запрошенная × доля смыкания k ∈ [0, 1] (Q3, Олег 07.11:
+ *  прикус только при включённом «Ocluzie»). k = 0 — РОВНО `ZERO_POSE` (не
+ *  «почти»: разомкнутое положение побайтно прежнее), k = 1 — запрошенная.
+ *  Опора не смешивается: у нуля поворота нет, и опора конца не сдвигает путь. */
+export function blendPose(want: JawPose, k: number): JawPose {
+  if (k <= 0) return { ...ZERO_POSE }
+  if (k >= 1) return { ...want }
+  return {
+    dx: want.dx * k, dy: want.dy * k, dz: want.dz * k, yaw: want.yaw * k, pitch: want.pitch * k,
+    pivotY: want.pivotY, pivotZ: want.pivotZ,
+  }
+}
+
+/** Положение и углы группы нижней челюсти при позе и подъёме y0 — то, что
+ *  `placeJaws` кладёт в three: положение = `poseLower` точки (0, 0, 0), углы —
+ *  (pitch, yaw, 0) в порядке 'YXZ'. При нулевой позе — (0, y0, 0) и нули. */
+export function lowerPlacement(pose: JawPose, y0: number): { position: Vec3; rotation: Vec3 } {
+  return { position: poseLower([0, 0, 0], pose, y0), rotation: [pose.pitch, pose.yaw, 0] }
 }
 
 /** Режущий край резца по точкам коронки в мире (плоский массив xyz): `edgeY` —

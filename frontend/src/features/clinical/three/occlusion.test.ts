@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { biteAt, biteOf, CLASS_SHIFT, classSign, incisal, jawPose, mmOf, molarMark, OPEN_OB, poseLower, REL_I, ZERO_POSE, type Bite, type JawPose, type OcclGeo } from './occlusion'
+import { biteAt, biteOf, blendPose, classSign, incisal, jawPose, lowerPlacement, mmOf, molarMark, OPEN_OB, poseLower, REL_I, SCHEMATIC_CLASS_SHIFT_MM, ZERO_POSE, type Bite, type JawPose, type OcclGeo } from './occlusion'
 
 /* Прикус в 3D, этап 1: правила записи → позы на числах (замер своих моделей —
    `arch.test.ts` › «прикус по умолчанию»). Числа базы — прототипа 06.11. */
@@ -16,7 +16,7 @@ describe('класс по Энглю', () => {
     expect(classSign('')).toBeNull()
     expect(classSign('IV')).toBeNull()
     // схематическое число, не клиническое (Q2): одно имя
-    expect(CLASS_SHIFT).toBe(4)
+    expect(SCHEMATIC_CLASS_SHIFT_MM).toBe(4)
   })
 
   it('миллиметры строкой: запятая, минус, пусто и мусор', () => {
@@ -37,18 +37,17 @@ describe('запись → поза', () => {
 
   it('класс по обеим сторонам → dz = rel + сдвиг класса, поворота нет', () => {
     expect(jawPose({ angle_dr: 'I', angle_st: 'I' }, BASE, GEO).dz).toBeCloseTo(3.51, 9)
-    expect(jawPose({ angle_dr: 'II/1', angle_st: 'II/1' }, BASE, GEO).dz).toBeCloseTo(3.51 - CLASS_SHIFT, 9)
+    expect(jawPose({ angle_dr: 'II/1', angle_st: 'II/1' }, BASE, GEO).dz).toBeCloseTo(3.51 - SCHEMATIC_CLASS_SHIFT_MM, 9)
     // прототип: III → dz 7,51, и это НЕ II (−0,49)
     const iii = jawPose({ angle_dr: 'III', angle_st: 'III' }, BASE, GEO)
     expect(iii.dz).toBeCloseTo(7.51, 9)
     expect(iii.yaw).toBe(0)
   })
 
-  it('величина сдвига — из записи (mmR/mmL), без неё — CLASS_SHIFT; знак даёт класс, не число', () => {
-    expect(jawPose({ angle_dr: 'II/1', angle_st: 'II/1', mmR: '2', mmL: '2' }, BASE, GEO).dz).toBeCloseTo(3.51 - 2, 9)
-    expect(jawPose({ angle_dr: 'III', angle_st: 'III', mmR: '-3', mmL: '3' }, BASE, GEO).dz).toBeCloseTo(3.51 + 3, 9)
-    expect(jawPose({ angle_dr: 'I', angle_st: 'I', mmR: '5' }, BASE, GEO).dz).toBeCloseTo(3.51, 9)
-    expect(jawPose({ angle_dr: 'II/2', angle_st: 'II/2', mmR: '' }, BASE, GEO).dz).toBeCloseTo(3.51 - CLASS_SHIFT, 9)
+  it('⭐ сдвиг класса — одна схема на все записи: поля величины у записи нет', () => {
+    // лишнее поле (как бы «мм» из чужой записи) позу не меняет
+    const rec = { angle_dr: 'II/1', angle_st: 'II/1', mmR: '2' } as Parameters<typeof jawPose>[0]
+    expect(jawPose(rec, BASE, GEO).dz).toBeCloseTo(3.51 - SCHEMATIC_CLASS_SHIFT_MM, 9)
   })
 
   it('класс записан с одной стороны — обе стороны по нему', () => {
@@ -61,17 +60,17 @@ describe('запись → поза', () => {
     // правая (−x) в III — вперёд, левая во II — назад: +yaw
     const p = jawPose({ angle_dr: 'III', angle_st: 'II/1' }, BASE, GEO)
     expect(p.yaw).toBeGreaterThan(0)
-    expect(Math.sin(p.yaw) * 2 * GEO.half).toBeCloseTo(2 * CLASS_SHIFT, 9)
+    expect(Math.sin(p.yaw) * 2 * GEO.half).toBeCloseTo(2 * SCHEMATIC_CLASS_SHIFT_MM, 9)
     expect(jawPose({ angle_dr: 'II/2', angle_st: 'III' }, BASE, GEO).yaw).toBeCloseTo(-p.yaw, 9)
     // моляры встают каждый на своё место: проверка той же формулой, что у сцены
     const m46 = poseLower([-GEO.half, 0, GEO.z46], p, 0)
     const m36 = poseLower([GEO.half, 0, GEO.z46], p, 0)
-    expect(m46[2] - GEO.z46).toBeCloseTo(BASE.relR + CLASS_SHIFT, 6)
-    expect(m36[2] - GEO.z46).toBeCloseTo(BASE.relL - CLASS_SHIFT, 6)
+    expect(m46[2] - GEO.z46).toBeCloseTo(BASE.relR + SCHEMATIC_CLASS_SHIFT_MM, 6)
+    expect(m36[2] - GEO.z46).toBeCloseTo(BASE.relL - SCHEMATIC_CLASS_SHIFT_MM, 6)
     // I и II: ровно полкласса разницы
     const half = jawPose({ angle_dr: 'I', angle_st: 'II/1' }, BASE, GEO)
     expect(poseLower([-GEO.half, 0, GEO.z46], half, 0)[2] - GEO.z46).toBeCloseTo(BASE.relR, 6)
-    expect(poseLower([GEO.half, 0, GEO.z46], half, 0)[2] - GEO.z46).toBeCloseTo(BASE.relL - CLASS_SHIFT, 6)
+    expect(poseLower([GEO.half, 0, GEO.z46], half, 0)[2] - GEO.z46).toBeCloseTo(BASE.relL - SCHEMATIC_CLASS_SHIFT_MM, 6)
   })
 
   it('класса нет, overjet есть → dz = base.oj − overjet; при классе overjet не двигает челюсть', () => {
@@ -186,5 +185,30 @@ describe('замер по точкам', () => {
     expect(bite.ob).toBeCloseTo(2 - 0.5 - (1 - 0.5) + 0.5, 9)
     expect(bite.oj).toBeCloseTo(5 - 1, 9)
     expect(geo).toEqual({ z41: 1, z46: -29.5, half: 25 })
+  })
+})
+
+describe('поза только сомкнуто (Q3)', () => {
+  const want: JawPose = { dx: 3, dy: 0.6, dz: 3.5, yaw: 0.1, pitch: 0.14, pivotY: 0, pivotZ: -29.85 }
+
+  it('⭐ разомкнуто (k = 0) — ровно ноль: группа нижней на (0, y0, 0) без поворота, побайтно как до прикуса', () => {
+    for (const y0 of [0, 1.7, -70]) {
+      const pl = lowerPlacement(blendPose(want, 0), y0)
+      // до волны «ocluzie» placeJaws ставил только y; x и z оставались +0, углы — +0
+      expect(pl.position.map((v) => Object.is(v, 0) ? 'z' : v)).toEqual(['z', y0 === 0 ? 'z' : y0, 'z'])
+      expect(pl.rotation.every((v) => Object.is(v, 0))).toBe(true)
+    }
+    expect(blendPose(want, -0.01)).toEqual(ZERO_POSE)
+  })
+
+  it('сомкнуто (k = 1) — запрошенная целиком; по пути — доля, опора не едет', () => {
+    expect(blendPose(want, 1)).toEqual(want)
+    expect(blendPose(want, 1.2)).toEqual(want)
+    const half = blendPose(want, 0.5)
+    expect(half.dz).toBeCloseTo(1.75, 12)
+    expect(half.pitch).toBeCloseTo(0.07, 12)
+    expect(half.pivotZ).toBe(want.pivotZ)
+    // положение группы = poseLower точки (0, 0, 0): одна формула с замером
+    expect(lowerPlacement(want, 4).position).toEqual(poseLower([0, 0, 0], want, 4))
   })
 })

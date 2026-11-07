@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { SCULPT, SCULPT_OF } from '../../../../models/teeth.js'
 import { archCurve, det3, GAP, GAP_CLOSED, layoutArch, toWorld, type PlacedTooth, type Vec3 } from './arch'
 import { crownModel } from './crown'
-import { biteAt, CLASS_SHIFT, jawPose, molarMark, OPEN_OB, REL_I, ZERO_POSE, type BitePoints, type JawPose, type OcclRecord } from './occlusion'
+import { biteAt, SCHEMATIC_CLASS_SHIFT_MM, jawPose, molarMark, OPEN_OB, REL_I, ZERO_POSE, type BitePoints, type JawPose, type OcclRecord } from './occlusion'
 import { posed } from './pose'
 import { sculptModel } from './sculpt'
 import { toCls } from './toothGeometry'
@@ -230,7 +230,7 @@ describe('прикус по умолчанию (сомкнуто, без зап�
     expect(biteAt(pointsOf(fu, fl), ZERO_POSE, -close, close).bite.byMarks).toBe(false)
   })
 
-  it('поза ставит записанное (±0,1): I → бугор в борозде, overbite по записи; II/1 и III — на CLASS_SHIFT', () => {
+  it('поза ставит записанное (±0,1): I → бугор в борозде, overbite по записи; II/1 и III — на SCHEMATIC_CLASS_SHIFT_MM', () => {
     const at = (rec: OcclRecord) => biteAt(pts, jawPose(rec, base.bite, base.geo, probe), -close, close).bite
     const one = at({ angle_dr: 'I', angle_st: 'I', overbite: '2' })
     expect(Math.abs(one.relR)).toBeLessThan(0.1)
@@ -239,18 +239,16 @@ describe('прикус по умолчанию (сомкнуто, без зап�
     // overjet I класса по ориентирам — ≈ 2,7 (прототип с REL_I = 2 давал 2,0)
     expect(one.oj).toBeCloseTo(base.bite.oj - base.bite.relR, 1)
     const two = at({ angle_dr: 'II/1', angle_st: 'II/1', overbite: '3' })
-    expect(two.relR).toBeCloseTo(CLASS_SHIFT, 1)
-    expect(two.oj).toBeCloseTo(base.bite.oj - base.bite.relR + CLASS_SHIFT, 1)
+    expect(two.relR).toBeCloseTo(SCHEMATIC_CLASS_SHIFT_MM, 1)
+    expect(two.oj).toBeCloseTo(base.bite.oj - base.bite.relR + SCHEMATIC_CLASS_SHIFT_MM, 1)
     expect(two.ob).toBeCloseTo(3, 1)
     const three = at({ angle_dr: 'III', angle_st: 'III', overbite: '1' })
-    expect(three.relR).toBeCloseTo(-CLASS_SHIFT, 1)
+    expect(three.relR).toBeCloseTo(-SCHEMATIC_CLASS_SHIFT_MM, 1)
     expect(three.oj).toBeLessThan(0)
-    // величина из записи: II справа на 2,5 мм
-    expect(at({ angle_dr: 'II/2', mmR: '2,5' }).relR).toBeCloseTo(2.5, 1)
     // разные классы сторон: каждая сторона на своём месте (поворот вокруг вертикали)
     const mix = at({ angle_dr: 'II/2', angle_st: 'III' })
-    expect(Math.abs(mix.relR - CLASS_SHIFT)).toBeLessThan(0.1)
-    expect(Math.abs(mix.relL + CLASS_SHIFT)).toBeLessThan(0.1)
+    expect(Math.abs(mix.relR - SCHEMATIC_CLASS_SHIFT_MM)).toBeLessThan(0.1)
+    expect(Math.abs(mix.relL + SCHEMATIC_CLASS_SHIFT_MM)).toBeLessThan(0.1)
   })
 
   it('открытый прикус: наклон вокруг моляров доводится секущей до записанного overbite (±0,05)', () => {
