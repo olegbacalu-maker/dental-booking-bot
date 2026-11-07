@@ -930,12 +930,11 @@ def _odo_ocluzie(rec: dict | None) -> dict:
     граф încrucișată/deschisă — готовыми списками (`poccl.teeth_of`, клиент
     своего разбора не заводит). ⛔ Читается таблицей, а не GET фиши: тот пишет
     «Fișa deschisă» в журнал доступа (закон 195).
-    ⚠️ `filled` здесь — «есть что показать» (`not is_empty`), а у фиши — «запись
-    есть» (даже снятая до пустой): сцене снятая запись — то же «не записано»,
-    без выводов и без нормы."""
+    `recorded` — в записи есть что показать (`not is_empty`; запись, снятая до
+    пустой, — то же «не записано»). Не `filled` фиши: там «запись есть»."""
     v = pcard.ocluzie_view(rec)
     f = v["fields"]
-    return {"filled": not poccl.is_empty(rec), "fields": f, "summary": v["summary"],
+    return {"recorded": not poccl.is_empty(rec), "fields": f, "summary": v["summary"],
             "teeth": {k: poccl.teeth_of(f.get(k)) for k in ("incrucisata", "deschisa")}}
 
 

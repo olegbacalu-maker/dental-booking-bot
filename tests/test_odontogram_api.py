@@ -327,13 +327,13 @@ _OCL_FIELDS = ["angle_dr", "angle_st", "overjet", "overbite", "incrucisata", "de
 def _ocluzie_checks(res: Result, s: Server, c: Client) -> None:
     """Прикус в модели одонтограммы (07.11, прикус в 3D, этап 2): поля и строка
     043/e, зубы граф готовыми списками сервера; пусто — «не записано»
-    (`filled: false`), а не норма. ⛔ Читается таблицей: GET одонтограммы не
+    (`recorded: false`), а не норма. ⛔ Читается таблицей: GET одонтограммы не
     пишет «Fișa deschisă» и с записью прикуса."""
     pid = new_patient(c, "Odonto Ocluzia", "069300309")
     url = f"/api/patients/{pid}/odontogram"
     o = _j(c.get(url))["data"]["ocluzie"]
-    res.check("прикус не записан — filled false, поля пустые, сводка пустая, зубов нет",
-              o, {"filled": False, "fields": {k: "" for k in _OCL_FIELDS}, "summary": "",
+    res.check("прикус не записан — recorded false, поля пустые, сводка пустая, зубов нет",
+              o, {"recorded": False, "fields": {k: "" for k in _OCL_FIELDS}, "summary": "",
                   "teeth": {"incrucisata": [], "deschisa": []}})
     r = c.post_json(f"/api/patients/{pid}/ocluzie",
                     {"angle_dr": "I", "angle_st": "III", "overbite": "-3",
@@ -345,9 +345,9 @@ def _ocluzie_checks(res: Result, s: Server, c: Client) -> None:
     res.check("GET одонтограммы с записью прикуса не пишет «Fișa deschisă» (закон 195)",
               _views(s.dir / "dental.db"), views0)
     o = d["ocluzie"]
-    res.check("состав прикуса в модели", sorted(o), ["fields", "filled", "summary", "teeth"])
-    res.check("записано — filled true, поля как в базе (мм с точкой, текст как написан)",
-              (o["filled"], o["fields"]["angle_st"], o["fields"]["overbite"],
+    res.check("состав прикуса в модели", sorted(o), ["fields", "recorded", "summary", "teeth"])
+    res.check("записано — recorded true, поля как в базе (мм с точкой, текст как написан)",
+              (o["recorded"], o["fields"]["angle_st"], o["fields"]["overbite"],
                o["fields"]["deschisa"], o["fields"]["doctor"]),
               (True, "III", "-3", "frontal 13-23", "Dr. Activ Doi"))
     res.check("зубы граф: диапазон по дуге (через 11/21), перечисление, незнакомое пропущено",
@@ -358,12 +358,12 @@ def _ocluzie_checks(res: Result, s: Server, c: Client) -> None:
               (o["summary"], o["summary"] == card["summary"]),
               ("Angle dr. I, stg. III · overbite -3 mm · încrucișată: 24–26, 36 · "
                "deschisă: frontal 13-23", True))
-    # снятие до пустого: у фиши запись есть (filled true — «осматривали»), сцене
+    # снятие до пустого: у фиши запись есть (её filled true — «осматривали»), сцене
     # показывать нечего — то же «не записано»
     c.post_json(f"/api/patients/{pid}/ocluzie", {k: "" for k in _OCL_FIELDS})
     o = _j(c.get(url))["data"]["ocluzie"]
-    res.check("снятая до пустого запись — filled false, зубов нет (сцене нечего показывать)",
-              (o["filled"], o["summary"], o["teeth"]),
+    res.check("снятая до пустого запись — recorded false, зубов нет (сцене нечего показывать)",
+              (o["recorded"], o["summary"], o["teeth"]),
               (False, "", {"incrucisata": [], "deschisa": []}))
 
 
