@@ -17,7 +17,7 @@ import { createTweens, type Tweens } from './tween'
 import { EMPTY_BOUNDS, fillAt, fitRadius, isEmpty, mapBounds, union, type Bounds } from './fit'
 import { isFinger, LONG_MS, slopOf, swallowNextClick } from '../touch'
 import { biteAt, biteOf, blendPose, lowerPlacement, molarMark, occlusionK, poseLower, ZERO_POSE, type Bite, type BitePoints, type JawPose, type OcclGeo, type OcclRecord } from './occlusion'
-import { depthOf, gap34, gapIncCanine, jawClear, molarGaps, occlusionPlan, placeOf, teethMove, ZERO_TEETH, type OcclPlan, type Shapes, type TeethPlan, type ToothShape } from './occlusionPlan'
+import { depthOf, gap34, gapIncCanine, jawClear, molarGaps, occlusionPlan, PICKS_ALL, placeOf, teethMove, ZERO_TEETH, type OcclPlan, type Shapes, type TeethPlan, type ToothShape } from './occlusionPlan'
 
 /* Сцена одонтограммы (B7, ступень 4) — чистый three.js, без React: обе
    челюсти на дуге движка, пять материалов на коронку (= пять поверхностей),
@@ -1227,14 +1227,24 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     for (const [n, e] of shape) shapes.set(n, { place: e.place, pos: e.cm.mesh.positions, index: e.cm.mesh.index, md: e.g.md, upper: e.g.upper })
     return shapes
   }
+  /** Зубы, чья коронка ПОКАЗАНА по последней покраске (`look.crown`): удалённый,
+   *  отсутствующий и имплантат без коронки в плане не участвуют (координатор 08.11).
+   *  Гашение легендой коронку не прячет — такой зуб в плане. */
+  const shownTeeth = (): Set<number> => {
+    const out = new Set<number>()
+    for (const [n, t] of teeth) if (t.look?.crown ?? true) out.add(n)
+    return out
+  }
   const planCache = new Map<string, OcclPlan | null>()
   function planFor(rec: OcclRecord): OcclPlan | null {
     const S = planShapes()
     if (!S) return null
-    const key = JSON.stringify(rec)
+    const shown = shownTeeth()
+    const hidden = [...S.keys()].filter((n) => !shown.has(n)).sort((a, b) => a - b)
+    const key = JSON.stringify(rec) + '|' + hidden.join(',')
     if (!planCache.has(key)) {
       if (planCache.size > 8) planCache.clear()
-      planCache.set(key, occlusionPlan(rec, S, CLOSE_Y))
+      planCache.set(key, occlusionPlan(rec, S, CLOSE_Y, shown))
     }
     return planCache.get(key) ?? null
   }
@@ -1283,10 +1293,14 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       const k = molarMark(e.cm.mesh.positions, e.g.md, e.g.upper)
       return k ? toWorld(cur(n), k) : null
     }
+    // зубы замера — те же, что у плана (показанные коронки, `picksOf`)
+    const pk = occPlan?.picks ?? PICKS_ALL
+    const [r16, r46] = pk.R ?? [16, 46]
+    const [r26, r36] = pk.L ?? [26, 36]
     const p: BitePoints = {
-      u11: crown(11), l41: crown(41),
-      c16: cur(16).position, c26: cur(26).position, c36: cur(36).position, c46: cur(46).position,
-      k16: mk(16), k26: mk(26), k36: mk(36), k46: mk(46),
+      u11: crown(pk.u), l41: crown(pk.l),
+      c16: cur(r16).position, c26: cur(r26).position, c36: cur(r36).position, c46: cur(r46).position,
+      k16: mk(r16), k26: mk(r26), k36: mk(r36), k46: mk(r46),
     }
     scene.updateMatrixWorld(true)
     const v = new THREE.Vector3()
@@ -1550,15 +1564,17 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     measure: () => measureBite(), base: () => biteBase(),
     set: (plan: OcclPlan | JawPose | null, animate = false) => setOcclusion(plan, animate),
     plan: (rec: OcclRecord) => planFor(rec),
-    pose: () => ({ want: { ...occ }, applied: appliedPose(), teeth: { ...occT }, rest: occPlan?.rest ?? null }),
+    pose: () => ({ want: { ...occ }, applied: appliedPose(), teeth: { ...occT }, rest: occPlan?.rest ?? null, picks: occPlan?.picks ?? null }),
     // какие зубы сейчас НЕ на местах раскладки и показана ли деформированная десна (Q3: выкл — [] и false)
     moved: () => [...teeth].filter(([n, t]) => t.place !== shape.get(n)?.place).map(([n]) => n),
     gumWarped: () => jawGum.map((J) => !!J.warped),
     // точные зазоры при запрошенном плане в сомкнутом положении (сетки коронок, `sweep`):
     // моляры по вертикали, челюсти по вертикали (любая пара), 3|4 вдоль дуги, боковой резец → клык назад
     gaps: () => {
-      const S = planShapes()
-      if (!S) return null
+      const S0 = planShapes()
+      if (!S0) return null
+      const shown = shownTeeth()
+      const S = new Map([...S0].filter(([n]) => shown.has(n)))
       return { molar: molarGaps(S, occT, occ, -CLOSE_Y, CLOSE_Y), clear: jawClear(S, occT, occ, -CLOSE_Y, CLOSE_Y), g34: gap34(S, occT), incCanine: gapIncCanine(S, occT) }
     },
     // группы челюстей как есть в three — разомкнуто обязаны быть прежними (0, y, 0) без поворота

@@ -3,7 +3,7 @@ import { buildJaw, LOWER, shapesOf, UPPER } from '../../../test/jaws'
 import { GAP, GAP_CLOSED, type PlacedTooth } from './arch'
 import { blendPose, occlusionK, oclPlaqueShown, SCHEMATIC_CLASS_SHIFT_MM, SCHEMATIC_TILT_II1_DEG, SCHEMATIC_TILT_II2_DEG, ZERO_POSE, type OcclRecord } from './occlusion'
 import {
-  CONTACT_ONLY_III, gap34, gapIncCanine, jawClear, jawOverlaps, molarGaps, occlusionPlan, OVERBITE_AFTER_TILT, OVERJET_STOP_AT_CANINE, placeOf,
+  CONTACT_ONLY_III, gap34, gapIncCanine, jawClear, jawOverlaps, molarGaps, picksOf, PICKS_ALL, occlusionPlan, OVERBITE_AFTER_TILT, OVERJET_STOP_AT_CANINE, placeOf,
   planBite, SEGMENT_FROM, sweep, ZERO_TEETH, type Body,
 } from './occlusionPlan'
 
@@ -199,6 +199,70 @@ describe('запись → план (свои модели, сомкнуто)', 
     const p = plan({ angle_dr: 'II/1', angle_st: 'III', mediana_mm: '3', mediana_spre: 'stanga' })
     expect(p.jaw.dx).toBe(3)
     expect(p.jaw.yaw).toBe(0)
+  })
+})
+
+describe('план только по показанным коронкам (координатор 08.11)', () => {
+  // удалённый, отсутствующий, имплантат без коронки — коронки на сцене нет (`look.crown`)
+  const all = new Set(S.keys())
+  const without = (...n: number[]) => new Set([...all].filter((x) => !n.includes(x)))
+  const at = (rec: OcclRecord, shown: Set<number>) => {
+    const p = occlusionPlan(rec, S, C, shown)
+    if (!p) throw new Error('нет плана')
+    const P = new Map([...S].filter(([n]) => shown.has(n)))
+    return { p, P, b: planBite(S, p.teeth, p.jaw, -C, C, p.picks)!.bite }
+  }
+
+  it('ориентиры: 16/46 → 17/47 → сторона без замера; резцы 11/41 → 21/31 → …', () => {
+    const has = (set: Set<number>) => (n: number) => set.has(n)
+    expect(picksOf(has(all))).toEqual(PICKS_ALL)
+    expect(picksOf(has(without(16))).R).toEqual([17, 47])
+    expect(picksOf(has(without(46))).R).toEqual([17, 47])
+    expect(picksOf(has(without(16, 47))).R).toBeNull()
+    expect(picksOf(has(without(36, 37))).L).toBeNull()
+    const inc = picksOf(has(without(11, 41)))
+    expect([inc.u, inc.l]).toEqual([21, 31])
+  })
+
+  it('⭐ I по умолчанию без 16: замер по 17/47 — тот же I (Q1), ничего не двигается', () => {
+    const { p, b } = at({ angle_dr: 'I', angle_st: 'I' }, without(16))
+    expect(p.picks.R).toEqual([17, 47])
+    expect(p.teeth).toEqual(ZERO_TEETH)
+    expect(Math.abs(p.jaw.dz - plan({ angle_dr: 'I', angle_st: 'I' }).jaw.dz)).toBeLessThan(0.01)
+    expect(Math.abs(b.relR)).toBeLessThan(0.05)
+  })
+
+  it('⭐ III справа без пары моляров (нет 46 и 47) — класс справа план не двигает, челюсть идёт за левой стороной', () => {
+    const { p, b } = at({ angle_dr: 'III', angle_st: 'III' }, without(46, 47))
+    expect(p.picks.R).toBeNull()
+    expect(Math.abs(b.relL + SCHEMATIC_CLASS_SHIFT_MM)).toBeLessThan(0.1)
+    // без ориентиров ни с одной стороны — класс не двигается вовсе (и контакта III нет)
+    const none = at({ angle_dr: 'III', angle_st: 'III' }, without(16, 17, 26, 27, 36, 37, 46, 47))
+    expect([none.p.picks.R, none.p.picks.L]).toEqual([null, null])
+    expect(none.p.jaw.dz).toBe(0)
+    expect(none.p.jaw.dy).toBe(0)
+  })
+
+  it('⭐ невидимые коронки контакт не держат: Олег без 7-х и 8-х — касание по показанным, скрытые вошли бы на 3,5 мм', SLOW, () => {
+    const rec = { angle_dr: 'II/1', angle_st: 'III', incrucisata: '13-43', deschisa: '12-22' }
+    const { p, P, b } = at(rec, without(17, 18, 27, 28, 37, 38, 47, 48))
+    expect(jawOverlaps(P, p.teeth, p.jaw, -C, C)).toEqual([])
+    expect(Math.abs(jawClear(P, p.teeth, p.jaw, -C, C))).toBeLessThan(0.02)
+    expect(jawClear(S, p.teeth, p.jaw, -C, C)).toBeLessThan(-1)
+    expect(Math.abs(b.ob + 3)).toBeLessThan(0.05)
+  })
+
+  it('⭐ Олег без 47, 26, 11, 43: замер по 21/31 и 27/37, класс ±4 после наклона, промежуток 3|4 только слева, пересечений нет', SLOW, () => {
+    const rec = { angle_dr: 'II/1', angle_st: 'III', incrucisata: '13-43', deschisa: '12-22' }
+    const { p, P, b } = at(rec, without(47, 26, 11, 43))
+    expect([p.picks.u, p.picks.l, p.picks.R, p.picks.L]).toEqual([21, 31, [16, 46], [27, 37]])
+    expect(Math.abs(b.relR - SCHEMATIC_CLASS_SHIFT_MM)).toBeLessThan(0.1)
+    expect(Math.abs(b.relL + SCHEMATIC_CLASS_SHIFT_MM)).toBeLessThan(0.1)
+    expect(Math.abs(b.ob + 3)).toBeLessThan(0.05)
+    expect(jawOverlaps(P, p.teeth, p.jaw, -C, C)).toEqual([])
+    expect(p.rest.gap34R).toBe(Infinity)
+    expect(p.rest.gap34L).toBeGreaterThan(-0.02)
+    expect(Number.isFinite(p.teeth.fan)).toBe(true)
   })
 })
 

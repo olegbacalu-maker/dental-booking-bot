@@ -62,6 +62,26 @@ export interface OcclPlan {
    *  промежутки 3|4 справа и слева после «веера», мм (≥ 0 — без наложения) */
   rest: { oj: number; gap34R: number | null; gap34L: number | null }
   base: Bite
+  /** по каким зубам мерился прикус (показанные коронки, `picksOf`) */
+  picks: Picks
+}
+
+/** Зубы замера прикуса: резцы overjet/overbite (`u`, `l`) и пары моляров класса по
+ *  сторонам (верхний, нижний). null у стороны — ни одной пары с обеими коронками:
+ *  класс этой стороны план не двигает. */
+export interface Picks { u: number; l: number; R: readonly [number, number] | null; L: readonly [number, number] | null }
+export const PICKS_ALL: Readonly<Picks> = Object.freeze({ u: 11, l: 41, R: [16, 46] as const, L: [26, 36] as const })
+
+/** Замер только по ПОКАЗАННЫМ коронкам (координатор 08.11): удалённый, отсутствующий,
+ *  имплантат без коронки — не ориентир. Класс — 16/46 (26/36), нет пары — соседняя
+ *  17/47 (27/37), нет и её — сторона без замера. Резцы — 11/41, затем 21/31, 11/31,
+ *  21/41, 12/42, 22/32; нет ни одной пары — 11/41 по раскладке (их место на дуге есть
+ *  и без коронок), в плане это видно полем `picks`. */
+export function picksOf(has: (n: number) => boolean): Picks {
+  const pair = (opts: readonly (readonly [number, number])[]): readonly [number, number] | null =>
+    opts.find(([a, b]) => has(a) && has(b)) ?? null
+  const inc = pair([[11, 41], [21, 31], [11, 31], [21, 41], [12, 42], [22, 32]]) ?? [11, 41]
+  return { u: inc[0], l: inc[1], R: pair([[16, 46], [17, 47]]), L: pair([[26, 36], [27, 37]]) }
 }
 
 /** Добор overjet сдвигом резцов назад — до касания боковых резцов с клыками,
@@ -259,15 +279,18 @@ const markOf = (sh: ToothShape): Vec3 | null => {
   return marksCache.get(sh) ?? null
 }
 
-/** Прикус модели при плане: точки замера по местам `placeOf` (k = 1). */
-export function planBite(S: Shapes, t: TeethPlan, jaw: JawPose, upperY: number, lowerY: number): { bite: Bite; geo: OcclGeo } | null {
+/** Прикус модели при плане: точки замера по местам `placeOf` (k = 1) на зубах `pk`
+ *  (сторона без пары — точки 16/46 или 26/36 раскладки: класс её не двигает). */
+export function planBite(S: Shapes, t: TeethPlan, jaw: JawPose, upperY: number, lowerY: number, pk: Picks = PICKS_ALL): { bite: Bite; geo: OcclGeo } | null {
   const at = (n: number): { sh: ToothShape; p: PlacedTooth } | null => {
     const sh = S.get(n)
     return sh ? { sh, p: placeOf(n, sh.place, t, 1) } : null
   }
-  const u11 = at(11)
-  const l41 = at(41)
-  const m = [16, 26, 36, 46].map(at)
+  const u11 = at(pk.u)
+  const l41 = at(pk.l)
+  const [r16, r46] = pk.R ?? [16, 46]
+  const [r26, r36] = pk.L ?? [26, 36]
+  const m = [r16, r26, r36, r46].map(at)
   if (!u11 || !l41 || m.some((x) => !x)) return null
   const [m16, m26, m36, m46] = m as { sh: ToothShape; p: PlacedTooth }[]
   const mk = (x: { sh: ToothShape; p: PlacedTooth }): Vec3 | null => {
@@ -400,16 +423,20 @@ export function gapIncCanine(S: Shapes, t: TeethPlan): number {
  *  ≈ 2 мм около −14,8°), поэтому не «равенство сторон» делением пополам, а
  *  минимум цены золотым сечением около оценки. Наложение неустранимо — наименьшее. */
 function solveFan(S: Shapes, t: TeethPlan): { fan: number; R: number; L: number } {
+  // сторона без клыка или первого премоляра (коронка не показана) — промежутка нет,
+  // угол держит другая сторона; нет обеих — оценка
   const cost = (a: number, stride: number): { c: number; R: number; L: number } => {
     const g = gap34(S, { ...t, fan: a }, stride)
-    const r = fin(g.R)
-    const l = fin(g.L)
-    const lo = Math.min(r, l)
-    return { c: lo < 0 ? 1000 - lo : Math.max(r, l), R: g.R, L: g.L }
+    const fs = [g.R, g.L].filter(Number.isFinite)
+    if (!fs.length) return { c: 0, R: g.R, L: g.L }
+    const lo = Math.min(...fs)
+    return { c: lo < 0 ? 1000 - lo : Math.max(...fs), R: g.R, L: g.L }
   }
   const D = Math.PI / 180
   // оценка: клык (≈ 16 мм от середины) догоняет полуразницу сегментов; поиск — ±8° вокруг
   const est = Math.asin(Math.max(-1, Math.min(1, (t.segR - t.segL) / 2 / 16)))
+  const e0 = cost(est, 1)
+  if (!Number.isFinite(e0.R) && !Number.isFinite(e0.L)) return { fan: est, R: e0.R, L: e0.L }
   // золотое сечение по каждой второй вершине (грубо и быстро), итог — точным замером
   let lo = est - 8 * D
   let hi = est + 8 * D
@@ -441,17 +468,25 @@ function solveFan(S: Shapes, t: TeethPlan): { fan: number; R: number; L: number 
 /** Шагов секущей для наклона открытого прикуса. */
 const OPEN_STEPS = 4
 
-/** Запись → план (`closeY` — смыкание каждой челюсти в сомкнутом положении, мм). */
-export function occlusionPlan(rec: OcclRecord, S: Shapes, closeY: number): OcclPlan | null {
+/** Запись → план (`closeY` — смыкание каждой челюсти в сомкнутом положении, мм).
+ *  `shown` — зубы с ПОКАЗАННОЙ коронкой (координатор 08.11): только они дают контакт,
+ *  промежутки и ориентиры; не задан — все. Раскладка (`S`) нужна целиком: места дуги
+ *  и опора «веера» есть и без коронок. */
+export function occlusionPlan(rec0: OcclRecord, S: Shapes, closeY: number, shown?: ReadonlySet<number>): OcclPlan | null {
   const upperY = -closeY
   const lowerY = closeY
-  const b0 = planBite(S, ZERO_TEETH, ZERO_POSE, upperY, lowerY)
+  const P: Shapes = shown ? new Map([...S].filter(([n]) => shown.has(n))) : S
+  const picks = picksOf((n) => P.has(n))
+  const tr = (v: string | undefined): string => (v ?? '').trim()
+  // сторона без пары ориентиров — класс её не двигает (как не записанный)
+  const rec: OcclRecord = { ...rec0, angle_dr: picks.R ? (rec0.angle_dr ?? '') : '', angle_st: picks.L ? (rec0.angle_st ?? '') : '' }
+  const bite0 = (t: TeethPlan, j: JawPose) => planBite(S, t, j, upperY, lowerY, picks)
+  const b0 = bite0(ZERO_TEETH, ZERO_POSE)
   if (!b0) return null
   const { bite: base, geo } = b0
   const jaw = jawPose(rec, base, geo)
   const teeth: TeethPlan = { ...ZERO_TEETH }
   const rest: OcclPlan['rest'] = { oj: 0, gap34R: null, gap34L: null }
-  const tr = (v: string | undefined): string => (v ?? '').trim()
   const kR = classSign(tr(rec.angle_dr))
   const kL = classSign(tr(rec.angle_st))
   const overjet = mmOf(rec.overjet)
@@ -468,7 +503,7 @@ export function occlusionPlan(rec: OcclRecord, S: Shapes, closeY: number): OcclP
     const p41 = S.get(41)?.place.position
     const p31 = S.get(31)?.place.position
     teeth.fanPivot = p41 && p31 ? (p41[2] + p31[2]) / 2 : 0
-    const f = solveFan(S, teeth)
+    const f = solveFan(P, teeth)
     teeth.fan = f.fan
     rest.gap34R = f.R
     rest.gap34L = f.L
@@ -482,7 +517,7 @@ export function occlusionPlan(rec: OcclRecord, S: Shapes, closeY: number): OcclP
     teeth.tiltL = tilt.l
   }
 
-  const obAt = (j: JawPose): number => planBite(S, teeth, j, upperY, lowerY)?.bite.ob ?? base.ob
+  const obAt = (j: JawPose): number => bite0(teeth, j)?.bite.ob ?? base.ob
 
   // вертикаль: открытый прикус — наклоном; записанный overbite — его число после
   // наклона резцов; III без записи — до первого контакта любой пары верх–низ
@@ -498,9 +533,17 @@ export function occlusionPlan(rec: OcclRecord, S: Shapes, closeY: number): OcclP
       j.dy += d * Math.cos(j.pitch)
       j.dz -= d * Math.sin(j.pitch)
     }
+    // наклон вокруг опоры двигает ориентиры класса вдоль z (ниже опоры — вперёд):
+    // dz возвращает класс, какой поза дала без наклона (при большом наклоне — до 0,5 мм)
+    const relMean = (j: JawPose): number => {
+      const b = bite0(teeth, j)?.bite
+      return b ? (b.relR + b.relL) / 2 : 0
+    }
+    const rel0 = relMean({ ...jaw, pitch: 0, dy: 0 })
     const at = (pitch: number): JawPose => {
       const j = { ...jaw, pitch, dy: 0 }
-      const c = fin(jawClear(S, teeth, j, upperY, lowerY))
+      j.dz += relMean(j) - rel0
+      const c = fin(jawClear(P, teeth, j, upperY, lowerY))
       if (c < BIG) lift(j, c)
       return j
     }
@@ -524,7 +567,7 @@ export function occlusionPlan(rec: OcclRecord, S: Shapes, closeY: number): OcclP
     jaw.dz = jb.dz
     // касание доводится ещё раз (сотые доли мм от перебора; overbite сдвигается на столько же)
     for (let i = 0; i < 3; i++) {
-      const c = fin(jawClear(S, teeth, jaw, upperY, lowerY))
+      const c = fin(jawClear(P, teeth, jaw, upperY, lowerY))
       if (c >= BIG || Math.abs(c) < 0.002) break
       lift(jaw, c)
     }
@@ -537,21 +580,21 @@ export function occlusionPlan(rec: OcclRecord, S: Shapes, closeY: number): OcclP
     // до первого контакта любой пары (не только 16/46 и 26/36: вторые и третьи
     // моляры сегментов разных сторон входили в верхние раньше)
     jaw.dy = 0
-    const lift = fin(jawClear(S, teeth, jaw, upperY, lowerY))
+    const lift = fin(jawClear(P, teeth, jaw, upperY, lowerY))
     if (lift < BIG) jaw.dy = lift
   }
 
   // записанный overjet при записанном классе — сдвигом резцов, не дальше клыков
   if (overjet !== null && (kR !== null || kL !== null)) {
-    const oj = planBite(S, teeth, jaw, upperY, lowerY)?.bite.oj ?? base.oj
+    const oj = bite0(teeth, jaw)?.bite.oj ?? base.oj
     let need = overjet - oj
     if (need < 0 && OVERJET_STOP_AT_CANINE) {
-      const room = Math.max(0, fin(gapIncCanine(S, teeth)))
+      const room = Math.max(0, fin(gapIncCanine(P, teeth)))
       need = Math.max(need, -room)
     }
     teeth.incZ = need
-    const got = planBite(S, teeth, jaw, upperY, lowerY)?.bite.oj ?? oj
+    const got = bite0(teeth, jaw)?.bite.oj ?? oj
     rest.oj = overjet - got
   }
-  return { jaw, teeth, rest, base }
+  return { jaw, teeth, rest, base, picks }
 }
