@@ -131,16 +131,15 @@ describe('запись → план (свои модели, сомкнуто)', 
     expect(bite({ angle_dr: 'II/1', angle_st: 'II/1', overbite: '3' }).p.rest.ob).toBeGreaterThan(2)
   })
 
-  it('⭐ коронки верх–низ не пересекаются ни при каком сочетании записи (Олег 08.11)', { timeout: 60000 }, () => {
-    const recs: OcclRecord[] = [{}, { angle_dr: 'I', angle_st: 'I', overbite: '2' }, { angle_dr: 'II/1', angle_st: 'II/1', overbite: '3' },
-      { angle_dr: 'III', angle_st: 'III', overbite: '1' }, { angle_dr: 'I', angle_st: 'I', overbite: '-3', deschisa: '13–23' },
-      { angle_dr: 'I', angle_st: 'I', mediana_mm: '3', mediana_spre: 'stanga', incrucisata: '24–26' }, { angle_dr: 'II/2', angle_st: 'II/2' },
-      { angle_dr: 'II/1', angle_st: 'II/1', overjet: '9' }, { angle_dr: 'II/1', angle_st: 'II/1', overjet: '5' }, { angle_dr: 'III', angle_st: 'III' },
-      { angle_dr: 'II/1', angle_st: 'III' }, { angle_dr: 'II/1', angle_st: 'III', overbite: '2' }, { angle_dr: 'II/1', angle_st: 'I' },
-      { angle_dr: 'III', angle_st: 'III', overjet: '-4', overbite: '4' }]
+  it('⭐ коронки верх–низ не пересекаются ни при каком сочетании записи (Олег 08.11)', () => {
+    // записи, которых нет в соседних проверках; вертикальный ход ≥ 0 у всех пар = пересечения нет
+    // (точная глубина `jawOverlaps` — ×6 дороже, она в проверках Олега и overbite)
+    const recs: OcclRecord[] = [{ angle_dr: 'I', angle_st: 'I', mediana_mm: '3', mediana_spre: 'stanga', incrucisata: '24–26' },
+      { angle_dr: 'II/2', angle_st: 'II/2' }, { angle_dr: 'II/1', angle_st: 'II/1', overjet: '9' }, { angle_dr: 'II/1', angle_st: 'II/1', overjet: '5' },
+      { angle_dr: 'II/1', angle_st: 'III', overbite: '2' }, { angle_dr: 'II/1', angle_st: 'I' }, { angle_dr: 'III', angle_st: 'III', overjet: '-4', overbite: '4' }]
     for (const rec of recs) {
       const p = plan(rec)
-      expect([JSON.stringify(rec), jawOverlaps(S, p.teeth, p.jaw, -C, C)]).toEqual([JSON.stringify(rec), []])
+      expect([JSON.stringify(rec), jawClear(S, p.teeth, p.jaw, -C, C) > -0.005]).toEqual([JSON.stringify(rec), true])
     }
   })
 

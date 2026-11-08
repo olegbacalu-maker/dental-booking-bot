@@ -344,27 +344,167 @@ export function molarGaps(S: Shapes, t: TeethPlan, jaw: JawPose, upperY: number,
   return { R: g(16, 46), L: g(26, 36) }
 }
 
-/** Все показанные коронки по плану в системе мира: верхние со смыканием, нижние с позой
- *  челюсти; прямоугольник в плоскости xz — отбор пар для `jawClear`. */
-interface Placed extends Body { n: number; x0: number; x1: number; z0: number; z1: number }
+/** Коронка в мире для вертикального хода (`jawClear`): вершины, треугольники, границы;
+ *  клетки xz с треугольниками строятся один раз на тело и только когда пара дошла до
+ *  точного хода. */
+interface Placed extends Body {
+  n: number
+  p: Float64Array
+  x0: number; x1: number; y0: number; y1: number; z0: number; z1: number
+  cells?: Map<number, number[]>
+}
+
+/** Аффинное преобразование (3×4 построчно) по образам начала и единичных векторов. */
+function affOf(f: (q: Vec3) => Vec3): number[] {
+  const c = f([0, 0, 0])
+  const a = f([1, 0, 0])
+  const b = f([0, 1, 0])
+  const d = f([0, 0, 1])
+  return [0, 1, 2].flatMap((k) => [a[k]! - c[k]!, b[k]! - c[k]!, d[k]! - c[k]!, c[k]!])
+}
+
+/** Коронка n по плану в мире: место `placeOf` и положение челюсти — одним аффинным
+ *  преобразованием (поза `poseLower` аффинна), без массива на вершину. */
+function placeBody(S: Shapes, n: number, t: TeethPlan, jawF: (q: Vec3) => Vec3): Placed | null {
+  const sh = S.get(n)
+  if (!sh) return null
+  const pl = placeOf(n, sh.place, t, 1)
+  const M = affOf((q) => jawF(toWorld(pl, q)))
+  const [m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11] = M as [number, number, number, number, number, number, number, number, number, number, number, number]
+  const a = sh.pos
+  const out = new Float64Array(a.length - (a.length % 3))
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity
+  for (let i = 0; i + 2 < a.length; i += 3) {
+    const u = a[i] as number
+    const v = a[i + 1] as number
+    const w = a[i + 2] as number
+    const x = m0 * u + m1 * v + m2 * w + m3
+    const y = m4 * u + m5 * v + m6 * w + m7
+    const z = m8 * u + m9 * v + m10 * w + m11
+    out[i] = x
+    out[i + 1] = y
+    out[i + 2] = z
+    if (x < x0) x0 = x
+    if (x > x1) x1 = x
+    if (y < y0) y0 = y
+    if (y > y1) y1 = y
+    if (z < z0) z0 = z
+    if (z > z1) z1 = z
+  }
+  return { n, p: out, idx: sh.index, x0, x1, y0, y1, z0, z1 }
+}
+
+/** Верхние коронки зависят только от наклона и сдвига резцов — внутри одного плана
+ *  (подбор наклона и касания зовёт `jawClear` десятки раз) они одни и те же. */
+const upCache = new WeakMap<Shapes, { key: string; up: Placed[] }>()
 function placedAll(S: Shapes, t: TeethPlan, jaw: JawPose, upperY: number, lowerY: number): { up: Placed[]; lo: Placed[] } {
-  const up: Placed[] = []
+  const key = `${upperY}|${t.tiltC}|${t.tiltL}|${t.incZ}`
+  const hit = upCache.get(S)
+  let up = hit && hit.key === key ? hit.up : null
+  if (!up) {
+    up = []
+    for (const [n, sh] of S) {
+      if (!sh.upper) continue
+      const b = placeBody(S, n, t, (q) => [q[0], q[1] + upperY, q[2]])
+      if (b) up.push(b)
+    }
+    upCache.set(S, { key, up })
+  }
   const lo: Placed[] = []
   for (const [n, sh] of S) {
-    const b = bodyOf(S, n, t, sh.upper ? (q) => [q[0], q[1] + upperY, q[2]] : (q) => poseLower(q, jaw, lowerY))
-    if (!b) continue
-    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity
-    for (let i = 0; i + 2 < b.p.length; i += 3) {
-      const x = b.p[i] as number
-      const z = b.p[i + 2] as number
-      if (x < x0) x0 = x
-      if (x > x1) x1 = x
-      if (z < z0) z0 = z
-      if (z > z1) z1 = z
-    }
-    ;(sh.upper ? up : lo).push({ ...b, n, x0, x1, z0, z1 })
+    if (sh.upper) continue
+    const b = placeBody(S, n, t, (q) => poseLower(q, jaw, lowerY))
+    if (b) lo.push(b)
   }
   return { up, lo }
+}
+
+const VCELL = 0.6
+const vkey = (a: number, b: number): number => (a + 4096) * 8192 + (b + 4096)
+/** Треугольники тела по клеткам плоскости xz (вертикальная линия ищет только в своей клетке). */
+function cellsOf(b: Placed): Map<number, number[]> {
+  if (b.cells) return b.cells
+  const g = new Map<number, number[]>()
+  const P = b.p
+  const idx = b.idx
+  for (let t = 0; t + 2 < idx.length; t += 3) {
+    const ia = (idx[t] as number) * 3
+    const ib = (idx[t + 1] as number) * 3
+    const ic = (idx[t + 2] as number) * 3
+    const a0 = Math.floor(Math.min(P[ia]!, P[ib]!, P[ic]!) / VCELL)
+    const a1 = Math.floor(Math.max(P[ia]!, P[ib]!, P[ic]!) / VCELL)
+    const b0 = Math.floor(Math.min(P[ia + 2]!, P[ib + 2]!, P[ic + 2]!) / VCELL)
+    const b1 = Math.floor(Math.max(P[ia + 2]!, P[ib + 2]!, P[ic + 2]!) / VCELL)
+    for (let ga = a0; ga <= a1; ga++) {
+      for (let gb = b0; gb <= b1; gb++) {
+        const k = vkey(ga, gb)
+        const arr = g.get(k)
+        if (arr) arr.push(t)
+        else g.set(k, [t])
+      }
+    }
+  }
+  b.cells = g
+  return g
+}
+
+/** Вертикальная линия через (x, z) и тело: наименьший и наибольший y пересечения — в h. */
+function vhit(b: Placed, x: number, z: number, h: [number, number]): boolean {
+  const list = cellsOf(b).get(vkey(Math.floor(x / VCELL), Math.floor(z / VCELL)))
+  if (!list) return false
+  const P = b.p
+  const idx = b.idx
+  let any = false
+  for (const t of list) {
+    const ia = (idx[t] as number) * 3
+    const ib = (idx[t + 1] as number) * 3
+    const ic = (idx[t + 2] as number) * 3
+    const ax = P[ia]!, az = P[ia + 2]!
+    const bx = P[ib]!, bz = P[ib + 2]!
+    const cx = P[ic]!, cz = P[ic + 2]!
+    const det = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz)
+    if (Math.abs(det) < 1e-12) continue
+    const w1 = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / det
+    if (w1 < -1e-9) continue
+    const w2 = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / det
+    if (w2 < -1e-9 || 1 - w1 - w2 < -1e-9) continue
+    const y = w1 * P[ia + 1]! + w2 * P[ib + 1]! + (1 - w1 - w2) * P[ic + 1]!
+    if (!any) {
+      h[0] = y
+      h[1] = y
+      any = true
+    } else {
+      if (y < h[0]) h[0] = y
+      if (y > h[1]) h[1] = y
+    }
+  }
+  return any
+}
+
+/** На сколько нижнее тело L можно поднять до касания верхнего U (минус — уже входят):
+ *  то же, что `sweep(L, U, [0, 1, 0])`, но клетки строятся один раз на тело. */
+function vgap(L: Placed, U: Placed): number {
+  const h: [number, number] = [0, 0]
+  let best = Infinity
+  const A = L.p
+  for (let i = 0; i + 2 < A.length; i += 3) {
+    const x = A[i]!
+    const z = A[i + 2]!
+    if (x < U.x0 || x > U.x1 || z < U.z0 || z > U.z1 || !vhit(U, x, z, h)) continue
+    const s = A[i + 1]!
+    if (h[1] - s < 0) continue
+    if (h[0] - s < best) best = h[0] - s
+  }
+  const B = U.p
+  for (let i = 0; i + 2 < B.length; i += 3) {
+    const x = B[i]!
+    const z = B[i + 2]!
+    if (x < L.x0 || x > L.x1 || z < L.z0 || z > L.z1 || !vhit(L, x, z, h)) continue
+    const s = B[i + 1]!
+    if (s - h[0] < 0) continue
+    if (s - h[1] < best) best = s - h[1]
+  }
+  return best
 }
 
 /** Вертикальный зазор челюстей при плане: на сколько нижнюю можно поднять до первого
@@ -373,13 +513,21 @@ function placedAll(S: Shapes, t: TeethPlan, jaw: JawPose, upperY: number, lowerY
  *  прикуса вокруг 46 поднимал 17/18/47/48 в верхние на 2–5 мм (данные Олега 08.11). */
 export function jawClear(S: Shapes, t: TeethPlan, jaw: JawPose, upperY: number, lowerY: number): number {
   const { up, lo } = placedAll(S, t, jaw, upperY, lowerY)
-  let best = Infinity
+  // пары по нижней границе хода (низ верхней − верх нижней): ближе неё касания нет —
+  // точный ход только пока граница меньше найденного
+  const pairs: { L: Placed; U: Placed; lb: number }[] = []
   for (const L of lo) {
     for (const U of up) {
       if (L.x0 > U.x1 || U.x0 > L.x1 || L.z0 > U.z1 || U.z0 > L.z1) continue
-      const g = sweep(L, U, [0, 1, 0])
-      if (g < best) best = g
+      pairs.push({ L, U, lb: U.y0 - L.y1 })
     }
+  }
+  pairs.sort((a, b) => a.lb - b.lb)
+  let best = Infinity
+  for (const { L, U, lb } of pairs) {
+    if (lb >= best) break
+    const g = vgap(L, U)
+    if (g < best) best = g
   }
   return best
 }
@@ -391,7 +539,7 @@ export function jawOverlaps(S: Shapes, t: TeethPlan, jaw: JawPose, upperY: numbe
   const out: { u: number; l: number; d: number }[] = []
   for (const L of lo) {
     for (const U of up) {
-      if (L.x0 > U.x1 || U.x0 > L.x1 || L.z0 > U.z1 || U.z0 > L.z1) continue
+      if (L.x0 > U.x1 || U.x0 > L.x1 || L.y0 > U.y1 || U.y0 > L.y1 || L.z0 > U.z1 || U.z0 > L.z1) continue
       const d = depthOf(U, L)
       if (d > min) out.push({ u: U.n, l: L.n, d })
     }
