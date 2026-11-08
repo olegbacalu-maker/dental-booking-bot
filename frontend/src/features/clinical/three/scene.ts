@@ -17,7 +17,7 @@ import { createTweens, type Tweens } from './tween'
 import { EMPTY_BOUNDS, fillAt, fitRadius, isEmpty, mapBounds, union, type Bounds } from './fit'
 import { isFinger, LONG_MS, slopOf, swallowNextClick } from '../touch'
 import { biteAt, biteOf, blendPose, lowerPlacement, molarMark, occlusionK, poseLower, ZERO_POSE, type Bite, type BitePoints, type JawPose, type OcclGeo, type OcclRecord } from './occlusion'
-import { gap34, gapIncCanine, molarGaps, occlusionPlan, placeOf, teethMove, ZERO_TEETH, type OcclPlan, type Shapes, type TeethPlan, type ToothShape } from './occlusionPlan'
+import { depthOf, gap34, gapIncCanine, jawClear, molarGaps, occlusionPlan, placeOf, teethMove, ZERO_TEETH, type OcclPlan, type Shapes, type TeethPlan, type ToothShape } from './occlusionPlan'
 
 /* Сцена одонтограммы (B7, ступень 4) — чистый three.js, без React: обе
    челюсти на дуге движка, пять материалов на коронку (= пять поверхностей),
@@ -1555,17 +1555,57 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     moved: () => [...teeth].filter(([n, t]) => t.place !== shape.get(n)?.place).map(([n]) => n),
     gumWarped: () => jawGum.map((J) => !!J.warped),
     // точные зазоры при запрошенном плане в сомкнутом положении (сетки коронок, `sweep`):
-    // моляры по вертикали, 3|4 вдоль дуги, боковой резец → клык назад
+    // моляры по вертикали, челюсти по вертикали (любая пара), 3|4 вдоль дуги, боковой резец → клык назад
     gaps: () => {
       const S = planShapes()
       if (!S) return null
-      return { molar: molarGaps(S, occT, occ, -CLOSE_Y, CLOSE_Y), g34: gap34(S, occT), incCanine: gapIncCanine(S, occT) }
+      return { molar: molarGaps(S, occT, occ, -CLOSE_Y, CLOSE_Y), clear: jawClear(S, occT, occ, -CLOSE_Y, CLOSE_Y), g34: gap34(S, occT), incCanine: gapIncCanine(S, occT) }
     },
     // группы челюстей как есть в three — разомкнуто обязаны быть прежними (0, y, 0) без поворота
     groups: () => [upperG, lowerG].map((g) => {
       g.updateMatrix()
       return { p: g.position.toArray(), r: [g.rotation.x, g.rotation.y, g.rotation.z], m: g.matrix.toArray() }
     }),
+    // пересечения ПОКАЗАННЫХ коронок по мировым матрицам three (что нарисовано): пары
+    // с глубиной больше min, мм (`depthOf`); `jaws` — верхняя с нижней, иначе соседи челюсти
+    overlaps: (min = 0.01) => {
+      scene.updateMatrixWorld(true)
+      const shown = (o: T3.Object3D | null): boolean => {
+        for (let x = o; x; x = x.parent) if (!x.visible) return false
+        return true
+      }
+      const v = new THREE.Vector3()
+      const B = crowns.filter(shown).map((m) => {
+        const a = m.geometry.getAttribute('position')
+        const p = new Float64Array(a.count * 3)
+        const lo = [Infinity, Infinity, Infinity]
+        const hi = [-Infinity, -Infinity, -Infinity]
+        for (let i = 0; i < a.count; i++) {
+          v.fromBufferAttribute(a, i).applyMatrix4(m.matrixWorld)
+          p[i * 3] = v.x
+          p[i * 3 + 1] = v.y
+          p[i * 3 + 2] = v.z
+          for (let k = 0; k < 3; k++) {
+            const c = p[i * 3 + k] as number
+            if (c < (lo[k] as number)) lo[k] = c
+            if (c > (hi[k] as number)) hi[k] = c
+          }
+        }
+        return { n: m.userData['n'] as number, p, idx: m.geometry.index?.array ?? [], lo, hi }
+      })
+      const out: { a: number; b: number; jaws: boolean; d: number }[] = []
+      for (let i = 0; i < B.length; i++) {
+        for (let j = i + 1; j < B.length; j++) {
+          const a = B[i]!
+          const b = B[j]!
+          if ([0, 1, 2].some((k) => (a.lo[k] as number) > (b.hi[k] as number) || (b.lo[k] as number) > (a.hi[k] as number))) continue
+          const d = depthOf(a, b)
+          const up = (n: number): boolean => Math.floor(n / 10) <= 2
+          if (d > min) out.push({ a: a.n, b: b.n, jaws: up(a.n) !== up(b.n), d: Math.round(d * 1000) / 1000 })
+        }
+      }
+      return out.sort((x, y) => y.d - x.d)
+    },
   }
 
   return {

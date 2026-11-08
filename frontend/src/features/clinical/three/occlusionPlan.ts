@@ -23,7 +23,8 @@ import { torqued } from './pose'
      середину 41|31: средняя линия на месте (её даёт только `dx`), клыки догоняют
      сегменты так, что промежутки 3|4 с обеих сторон ≥ 0 и равны;
    - III без записанного overbite — нижняя челюсть по вертикали до первого
-     контакта 16/46 или 26/36 (вверх до касания или вниз до снятия пересечения);
+     контакта любой пары верхняя–нижняя (`jawClear`: вверх до касания или вниз до
+     снятия пересечения); открытый прикус — наклоном, сзади до касания;
      записанный overbite главнее и после наклона резцов доводится снова. */
 
 /** Коронка зуба для плана: место раскладки (`posed`, ДО прикуса), сетка коронки
@@ -236,6 +237,22 @@ export function sweep(A: Body, B: Body, d: Vec3, stride = 1): number {
   return best
 }
 
+/** Оси, вдоль которых `depthOf` ищет разведение тел. */
+const AXES: readonly Vec3[] = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]
+
+/** Глубина пересечения тел, мм: наименьший сдвиг вдоль одной из осей ±x, ±y, ±z,
+ *  который их разводит; 0 — не пересекаются. Вершина одного тела внутри другого
+ *  даёт минус `sweep` по ЛЮБОЙ оси, поэтому хоть одна ось без минуса = пересечения нет. */
+export function depthOf(A: Body, B: Body, stride = 1): number {
+  let best = Infinity
+  for (const d of AXES) {
+    const s = sweep(A, B, d, stride)
+    if (s >= 0) return 0
+    if (-s < best) best = -s
+  }
+  return best
+}
+
 const marksCache = new WeakMap<ToothShape, Vec3 | null>()
 const markOf = (sh: ToothShape): Vec3 | null => {
   if (!marksCache.has(sh)) marksCache.set(sh, molarMark(sh.pos, sh.md, sh.upper))
@@ -295,6 +312,61 @@ export function molarGaps(S: Shapes, t: TeethPlan, jaw: JawPose, upperY: number,
     return U && L ? sweep(L, U, [0, 1, 0]) : Infinity
   }
   return { R: g(16, 46), L: g(26, 36) }
+}
+
+/** Все показанные коронки по плану в системе мира: верхние со смыканием, нижние с позой
+ *  челюсти; прямоугольник в плоскости xz — отбор пар для `jawClear`. */
+interface Placed extends Body { n: number; x0: number; x1: number; z0: number; z1: number }
+function placedAll(S: Shapes, t: TeethPlan, jaw: JawPose, upperY: number, lowerY: number): { up: Placed[]; lo: Placed[] } {
+  const up: Placed[] = []
+  const lo: Placed[] = []
+  for (const [n, sh] of S) {
+    const b = bodyOf(S, n, t, sh.upper ? (q) => [q[0], q[1] + upperY, q[2]] : (q) => poseLower(q, jaw, lowerY))
+    if (!b) continue
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity
+    for (let i = 0; i + 2 < b.p.length; i += 3) {
+      const x = b.p[i] as number
+      const z = b.p[i + 2] as number
+      if (x < x0) x0 = x
+      if (x > x1) x1 = x
+      if (z < z0) z0 = z
+      if (z > z1) z1 = z
+    }
+    ;(sh.upper ? up : lo).push({ ...b, n, x0, x1, z0, z1 })
+  }
+  return { up, lo }
+}
+
+/** Вертикальный зазор челюстей при плане: на сколько нижнюю можно поднять до первого
+ *  касания ЛЮБОЙ пары верхняя–нижняя коронка; минус — коронки уже входят друг в друга
+ *  (на столько опустить). Только 16/46 и 26/36 (`molarGaps`) мало: наклон открытого
+ *  прикуса вокруг 46 поднимал 17/18/47/48 в верхние на 2–5 мм (данные Олега 08.11). */
+export function jawClear(S: Shapes, t: TeethPlan, jaw: JawPose, upperY: number, lowerY: number): number {
+  const { up, lo } = placedAll(S, t, jaw, upperY, lowerY)
+  let best = Infinity
+  for (const L of lo) {
+    for (const U of up) {
+      if (L.x0 > U.x1 || U.x0 > L.x1 || L.z0 > U.z1 || U.z0 > L.z1) continue
+      const g = sweep(L, U, [0, 1, 0])
+      if (g < best) best = g
+    }
+  }
+  return best
+}
+
+/** Пересечения коронок верхняя–нижняя при плане (сомкнуто): пары с глубиной больше
+ *  min, мм (`depthOf`) — та же проверка, что зонд сцены `overlaps()` по three. */
+export function jawOverlaps(S: Shapes, t: TeethPlan, jaw: JawPose, upperY: number, lowerY: number, min = 0.01): { u: number; l: number; d: number }[] {
+  const { up, lo } = placedAll(S, t, jaw, upperY, lowerY)
+  const out: { u: number; l: number; d: number }[] = []
+  for (const L of lo) {
+    for (const U of up) {
+      if (L.x0 > U.x1 || U.x0 > L.x1 || L.z0 > U.z1 || U.z0 > L.z1) continue
+      const d = depthOf(U, L)
+      if (d > min) out.push({ u: U.n, l: L.n, d })
+    }
+  }
+  return out.sort((a, b) => b.d - a.d)
 }
 
 /** Промежуток 3|4 по стороне: на сколько 44 (34) может пройти мезиально до клыка. */
@@ -413,15 +485,48 @@ export function occlusionPlan(rec: OcclRecord, S: Shapes, closeY: number): OcclP
   const obAt = (j: JawPose): number => planBite(S, teeth, j, upperY, lowerY)?.bite.ob ?? base.ob
 
   // вертикаль: открытый прикус — наклоном; записанный overbite — его число после
-  // наклона резцов; III без записи — до первого контакта моляров
+  // наклона резцов; III без записи — до первого контакта любой пары верх–низ
   if (open) {
-    jaw.dy = 0
+    // наклон вокруг 46 поднимает зубы позади опоры в верхние (2.11.0: 27/38 — 4,3 мм,
+    // данные Олега 08.11). Поэтому при каждом наклоне челюсть стоит по вертикали до
+    // первого касания любой пары (`jawClear`, без пересечения коронок), а наклон
+    // подбирается секущей под overbite: сзади контакт, спереди открыто
     const want = overbite ?? -3
-    const ob0 = obAt({ ...jaw, pitch: 0 })
-    for (let i = 0; i < OPEN_STEPS; i++) {
-      const got = obAt(jaw)
-      if (Math.abs(got - want) < 0.005 || Math.abs(ob0 - got) < 1e-9) break
-      jaw.pitch *= (ob0 - want) / (ob0 - got)
+    // подъём по МИРОВОЙ вертикали на d: t = (dx, dy, dz) идёт до поворота (`poseLower`),
+    // поэтому Δt = Rx(pitch)ᵀ·(0, d, 0) — иначе челюсть уезжала бы и вперёд (класс −0,2 мм)
+    const lift = (j: JawPose, d: number): void => {
+      j.dy += d * Math.cos(j.pitch)
+      j.dz -= d * Math.sin(j.pitch)
+    }
+    const at = (pitch: number): JawPose => {
+      const j = { ...jaw, pitch, dy: 0 }
+      const c = fin(jawClear(S, teeth, j, upperY, lowerY))
+      if (c < BIG) lift(j, c)
+      return j
+    }
+    let a = 0
+    const ja = at(a)
+    let fa = obAt(ja) - want
+    let b = jaw.pitch
+    let jb = b === a ? ja : at(b)
+    let fb = obAt(jb) - want
+    for (let i = 0; i < OPEN_STEPS * 2; i++) {
+      if (Math.abs(fb) < 0.005 || Math.abs(fb - fa) < 1e-9) break
+      const n = b - (fb * (b - a)) / (fb - fa)
+      a = b
+      fa = fb
+      b = n
+      jb = at(b)
+      fb = obAt(jb) - want
+    }
+    jaw.pitch = jb.pitch
+    jaw.dy = jb.dy
+    jaw.dz = jb.dz
+    // касание доводится ещё раз (сотые доли мм от перебора; overbite сдвигается на столько же)
+    for (let i = 0; i < 3; i++) {
+      const c = fin(jawClear(S, teeth, jaw, upperY, lowerY))
+      if (c >= BIG || Math.abs(c) < 0.002) break
+      lift(jaw, c)
     }
   } else if (overbite !== null) {
     if (OVERBITE_AFTER_TILT) {
@@ -429,9 +534,10 @@ export function occlusionPlan(rec: OcclRecord, S: Shapes, closeY: number): OcclP
       jaw.dy = overbite - obAt(jaw)
     }
   } else if (!CONTACT_ONLY_III || kR === 1 || kL === 1) {
+    // до первого контакта любой пары (не только 16/46 и 26/36: вторые и третьи
+    // моляры сегментов разных сторон входили в верхние раньше)
     jaw.dy = 0
-    const g = molarGaps(S, teeth, jaw, upperY, lowerY)
-    const lift = Math.min(fin(g.R), fin(g.L))
+    const lift = fin(jawClear(S, teeth, jaw, upperY, lowerY))
     if (lift < BIG) jaw.dy = lift
   }
 

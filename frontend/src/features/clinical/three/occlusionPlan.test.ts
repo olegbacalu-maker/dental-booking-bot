@@ -3,7 +3,7 @@ import { buildJaw, LOWER, shapesOf, UPPER } from '../../../test/jaws'
 import { GAP, GAP_CLOSED, type PlacedTooth } from './arch'
 import { blendPose, occlusionK, oclPlaqueShown, SCHEMATIC_CLASS_SHIFT_MM, SCHEMATIC_TILT_II1_DEG, SCHEMATIC_TILT_II2_DEG, ZERO_POSE, type OcclRecord } from './occlusion'
 import {
-  CONTACT_ONLY_III, gap34, gapIncCanine, molarGaps, occlusionPlan, OVERBITE_AFTER_TILT, OVERJET_STOP_AT_CANINE, placeOf,
+  CONTACT_ONLY_III, gap34, gapIncCanine, jawClear, jawOverlaps, molarGaps, occlusionPlan, OVERBITE_AFTER_TILT, OVERJET_STOP_AT_CANINE, placeOf,
   planBite, SEGMENT_FROM, sweep, ZERO_TEETH, type Body,
 } from './occlusionPlan'
 
@@ -131,12 +131,13 @@ describe('запись → план (свои модели, сомкнуто)', 
     expect(five.b.oj - 5).toBeCloseTo(-five.p.rest.oj, 2)
   })
 
-  it('⭐ III без overbite — до первого контакта 16/46 и 26/36 (без наложения), с overbite — его число', () => {
+  it('⭐ III без overbite — до первого контакта любой пары (без пересечения коронок), с overbite — его число', () => {
     expect(CONTACT_ONLY_III).toBe(true)
     const iii = plan({ angle_dr: 'III', angle_st: 'III' })
-    const g = molarGaps(S, iii.teeth, iii.jaw, -C, C)
-    expect(Math.min(g.R, g.L)).toBeGreaterThan(-0.01)
-    expect(Math.min(g.R, g.L)).toBeLessThan(0.01)
+    const g = jawClear(S, iii.teeth, iii.jaw, -C, C)
+    expect(g).toBeGreaterThan(-0.01)
+    expect(g).toBeLessThan(0.01)
+    expect(jawOverlaps(S, iii.teeth, iii.jaw, -C, C)).toEqual([])
     const ob1 = bite({ angle_dr: 'III', angle_st: 'III', overbite: '1' })
     expect(Math.abs(ob1.b.ob - 1)).toBeLessThan(0.01)
     expect(ob1.b.oj).toBeLessThan(0)
@@ -154,10 +155,43 @@ describe('запись → план (свои модели, сомкнуто)', 
       // веер ровно настолько, насколько нужно: меньший промежуток почти закрыт
       expect(Math.min(g.R, g.L)).toBeLessThan(0.5)
       expect(Math.sign(p.teeth.fan)).toBe(r === 'III' ? 1 : -1)
-      // стороны с III — контакт моляров по первой паре
+      // сторона с III — контакт по первой касающейся паре, коронки верх–низ не пересекаются
+      const c = jawClear(S, p.teeth, p.jaw, -C, C)
+      expect(c).toBeGreaterThan(-0.01)
+      expect(c).toBeLessThan(0.02)
+      expect(jawOverlaps(S, p.teeth, p.jaw, -C, C)).toEqual([])
+      // первая пара моляров — не глубже (раньше контакт искали только у 16/46 и 26/36)
       const m = molarGaps(S, p.teeth, p.jaw, -C, C)
       expect(Math.min(m.R, m.L)).toBeGreaterThan(-0.01)
-      expect(Math.min(m.R, m.L)).toBeLessThan(0.02)
+    }
+  })
+
+  it('⭐ данные Олега 08.11: II/1 справа, III слева, overjet и overbite пусто, încrucișată 13-43, deschisă 12-22 — коронки верх–низ не пересекаются', SLOW, () => {
+    // на 2.11.0 наклон открытого прикуса вокруг 46 поднимал 17/18/47/48 в верхние (27/38 — 4,3 мм)
+    for (const [r, l] of [['II/1', 'III'], ['III', 'II/1']] as const) {
+      const { p, b } = bite({ angle_dr: r, angle_st: l, incrucisata: '13-43', deschisa: '12-22' })
+      expect(jawOverlaps(S, p.teeth, p.jaw, -C, C)).toEqual([])
+      // сзади — контакт (опора наклона), спереди — открыт на −3 (overbite не записан)
+      expect(Math.abs(jawClear(S, p.teeth, p.jaw, -C, C))).toBeLessThan(0.02)
+      expect(Math.abs(b.ob + 3)).toBeLessThan(0.05)
+      expect(p.jaw.pitch).toBeGreaterThan(0)
+      // опускание — по мировой вертикали: класс сторон по ориентирам не уезжает
+      const k = (a: string) => (a === 'III' ? -1 : 1) * SCHEMATIC_CLASS_SHIFT_MM
+      expect(Math.abs(b.relR - k(r))).toBeLessThan(0.1)
+      expect(Math.abs(b.relL - k(l))).toBeLessThan(0.1)
+      // при разных классах сторон наклона резцов нет, «веер» — в сторону III
+      expect([p.teeth.tiltC, p.teeth.tiltL]).toEqual([0, 0])
+      expect(Math.sign(p.teeth.fan)).toBe(r === 'III' ? 1 : -1)
+      const g = gap34(S, p.teeth)
+      expect(Math.min(g.R, g.L)).toBeGreaterThan(-0.02)
+    }
+  })
+
+  it('открытый прикус с записанным overbite и одним классом — без пересечения коронок, число врача', SLOW, () => {
+    for (const rec of [{ angle_dr: 'I', angle_st: 'I', overbite: '-3', deschisa: '13–23' }, { angle_dr: 'II/1', angle_st: 'II/1', deschisa: '12-22' }]) {
+      const { p, b } = bite(rec)
+      expect(jawOverlaps(S, p.teeth, p.jaw, -C, C)).toEqual([])
+      expect(Math.abs(b.ob + 3)).toBeLessThan(0.05)
     }
   })
 
