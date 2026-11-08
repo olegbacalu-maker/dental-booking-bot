@@ -453,6 +453,31 @@ def suite_faq(res: Result) -> None:
         res.ok("новые вопросы 02.11: окно ×, конец срока, роли",
                any("×" in q for q in asked) and any("perioada de probă" in q for q in asked)
                and any("Cine ce vede" in q for q in asked), repr(asked))
+        # Сверка 08.11: срок «Rechemări» — числом recall.LEAD; новые вопросы — условия,
+        # новый компьютер, кабинет, филиалы — называют кнопки словами экранов
+        lead = re.search(r"^LEAD = (\d+)",
+                         (BOT / "app" / "core" / "recall.py").read_text(encoding="utf-8"), re.M)
+        res.ok("Rechemări: за сколько дней до срока — числом recall.LEAD",
+               bool(lead) and f"cu {lead.group(1)} zile înainte de termen" in recall, recall[:600])
+        def _ans(word):
+            return next((it["answer"] for it in d["items"] if word in it["question"]), "")
+        terms, newpc = _ans("Termenii și condițiile"), _ans("calculator nou")
+        cont, branch = _ans("contul clinicii"), _ans("filială")
+        res.ok("новые вопросы 08.11: условия, новый компьютер, кабинет, филиалы",
+               all((terms, newpc, cont, branch)), repr(asked))
+        res.ok("условия: галочка и кнопка баннера, не замок, акт в «Documente»",
+               "Am citit și accept" in terms and "<b>Accept</b>" in terms
+               and "funcționează și fără acceptare" in terms and "Acceptarea termenilor" in terms,
+               terms[:300])
+        res.ok("новый компьютер: код из письма и «Nu a venit codul?» — словами формы",
+               "Codul din e-mail" in newpc and "Activează programul" in newpc
+               and "Nu a venit codul? Trimiteți din nou cererea" in newpc, newpc[:300])
+        res.ok("кабинет: вход из программы и вкладки кабинета",
+               "Deschide contul clinicii" in cont and "cloud.dentpilot.md/cont" in cont
+               and all(t in cont for t in ("Licență și program", "Abonament și plăți", "Documente")),
+               cont[:300])
+        res.ok("филиалы: «Adaugă clinică» и код компьютера из кабинета",
+               "Adaugă clinică" in branch and "Cod de activare pentru un calculator" in branch, branch[:300])
         win = next((it["answer"] for it in d["items"] if "×" in it["question"]), "")
         res.ok("окно ×: названы выход значка и галочка автозапуска",
                "Ieșire din DentPilot" in win and "Pornește DentPilot odată cu Windows" in win, win[:300])

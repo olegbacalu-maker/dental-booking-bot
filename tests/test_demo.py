@@ -289,6 +289,10 @@ def suite_seed(res: Result) -> None:
                 perio = _j(c.get(f"/api/patients/{pid}/perio"))
                 res.ok("пародонтограмма с осмотром", perio.get("ok") is True
                        and "Examen parodontal" in json.dumps(perio, ensure_ascii=False), str(perio)[:200])
+                # прикус (08.11): без записи слой «Ocluzie» демо показывал бы «nu e înregistrată»
+                oz = (odo.get("data") or {}).get("ocluzie") or {}
+                res.ok("прикус витринного пациента записан (слой «Ocluzie»)",
+                       oz.get("recorded") is True and "Angle" in (oz.get("summary") or ""), str(oz)[:200])
                 page = c.get(f"/admin/patient/{pid}/fisa043").body
                 res.ok("043/e печатается с данными", "Maria Popescu" in page and "2003078140017" in page,
                        "в 043/e нет пациента или IDNP")

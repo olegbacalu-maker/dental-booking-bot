@@ -74,6 +74,8 @@ SHOWCASE = [
      "anam": ("cardio", "Hipertensiune arterială (controlată)", "Enalapril 10 mg dimineața",
               "Penicilină", "Fără reacții la anestezie locală"),
      "perio": True,
+     # прикус (графа «Ocluzia» 043/e, слой «Ocluzie» 3D; 08.11) — у двух витринных
+     "ocluzie": {"angle_dr": "I", "angle_st": "I", "overjet": "2", "overbite": "2"},
      "plan_active": [("Tratament endodontic", 36, 1800, "d1", "in_lucru"),
                      ("Coroană zirconiu", 36, 4500, "d4", "planificat")],
      "visits": [("Durere la masticație, dintele 36", "Carie profundă ocluzo-distală 36, percuție pozitivă",
@@ -158,6 +160,8 @@ SHOWCASE = [
                (16, "obturatie", "O", "", ""), (46, "coroana", "", "", "")],
      "alerts": [("medication", "Antihipertensive — a lua dimineața")],
      "anam": ("cardio", "Hipertensiune arterială", "Amlodipină 5 mg", "", ""), "perio": False,
+     "ocluzie": {"angle_dr": "I", "angle_st": "II/1", "overjet": "4", "overbite": "3",
+                 "mediana_mm": "1", "mediana_spre": "stanga"},
      "plan_active": [("Coroană zirconiu", 21, 4500, "d4", "in_lucru")],
      "visits": [("Control implant 21", "Implant 21 integrat, gingie sănătoasă",
                  "Stare post-implantare", "Amprentă pentru coroană definitivă", "Proba coroanei peste 10 zile")]},
@@ -203,7 +207,7 @@ def seed(db_path, clinic_json, now: datetime | None = None) -> dict:
     docs, svcs, hours = _profile(pathlib.Path(clinic_json))
     c = sqlite3.connect(str(db_path))
     c.execute("PRAGMA foreign_keys=OFF")
-    tables = ("appt_calls", "recall_marks", "perio_teeth", "perio_exams", "bridges", "teeth",
+    tables = ("appt_calls", "recall_marks", "perio_teeth", "perio_exams", "bridges", "teeth", "ocluzie",
               "visit_records", "documents", "payments", "plan_items", "activity", "patient_alerts",
               "anamneza", "appointments", "patients")
     for t in tables:
@@ -468,6 +472,18 @@ def seed(db_path, clinic_json, now: datetime | None = None) -> dict:
             act(pid, "plan_add", f"Plan: + {proc}" + (f" (dinte {tooth})" if tooth else ""),
                 created, docs[dk], tooth)
             n_plan += 1
+        if sp.get("ocluzie"):
+            # те же колонки и та же строка летописи, что у `db.save_ocluzie`
+            # (пакет `app` засев не импортирует; колонки сторожит test_demo.suite_seed)
+            at = now - timedelta(days=rnd.randint(5, 30))
+            oc = {"incrucisata": "", "deschisa": "", "mediana_mm": "", "mediana_spre": "", "nota": "",
+                  **sp["ocluzie"], "doctor": dname}
+            cols = ("angle_dr", "angle_st", "overjet", "overbite", "incrucisata", "deschisa",
+                    "mediana_mm", "mediana_spre", "nota", "doctor")
+            c.execute(f"INSERT INTO ocluzie(patient_id, {', '.join(cols)}, author, created_at) "
+                      f"VALUES(?, {', '.join('?' * len(cols))}, ?, ?)",
+                      (pid, *(oc[k] for k in cols), dname, iso(at)))
+            act(pid, "ocluzie", "Ocluzia înregistrată", at, dname)
         if sp["perio"]:
             at = now - timedelta(days=rnd.randint(7, 45))
             cur = c.execute("INSERT INTO perio_exams(patient_id, doctor, note, created_at) VALUES(?,?,?,?)",

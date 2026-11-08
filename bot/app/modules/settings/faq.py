@@ -31,6 +31,14 @@ Windows Home без шифрования — предупреждение во �
 менял — «Activitate recentă», не «jurnal de acces»; бумаги закона 195 — в
 кабинете; про Telegram-бот справка молчит (бот удалён 03.11.2026); новые
 вопросы — окно ×, конец срока (дата из файла лицензии), роли.
+
+Сверка 08.11 (`review/site-faq-survey-2026-11-08.md` § 3.3): срок появления в
+«Rechemări» — `recall.LEAD`, не литерал; новые вопросы — обновлённые условия
+(баннер `banners._terms_banner`, акт — `cloud/app/terms.py`, вкладка «Documente»),
+новый компьютер (форма кода — `license_pages._CODE_FORM`), кабинет клиники
+(вкладки — `cloud/app/views.CONT_TABS`, адрес — `lic.SERVER_URL`), филиалы
+(«Adaugă clinică» — `cloud/app/account.add_clinic`: без пробного, тот же IDNO можно,
+код компьютера 7 цифр). Про устройство SMS-пакета — по-прежнему ни слова.
 """
 from __future__ import annotations
 
@@ -38,7 +46,7 @@ import html
 
 from ... import engine as eng
 from ...core.layout import FEEDBACK_EMAIL, SECTION_TITLE, _ic, data_folder, msg_text
-from ...core import auth, autobackup, backup_loop, bitlocker, sms_plan, theme
+from ...core import auth, autobackup, backup_loop, bitlocker, recall, sms_plan, theme
 from ...core import backup as bkp
 from ...core import license as lic
 from .system import bitlocker_state
@@ -233,6 +241,8 @@ def entries() -> list[dict]:
     role = auth.ROLE_LABEL
     pay_hours = int(lic.PAY_WATCH.total_seconds() // 3600)
     local = local_only_words()
+    # кабинет — адрес сервера лицензий программы, без схемы (его набирают руками)
+    cont = lic.SERVER_URL.split("//", 1)[-1].rstrip("/") + "/cont"
     items = [
         _q("save", "Cât de des fac copii de rezervă și unde le păstrez?",
            f"{p}Cu <b>Setări › Copie de rezervă › Copie zilnică automată</b> "
@@ -544,7 +554,7 @@ def entries() -> list[dict]:
            f"<b>Rechemare</b> — de exemplu Igienizare, 6 luni. Serviciile fără "
            f"termen nu intră în listă.{end}"
            f"{p}Lista se calculează singură din <b>vizitele finalizate</b>: "
-           f"pacientul apare cu 14 zile înainte de termen și rămâne până când "
+           f"pacientul apare cu {recall.LEAD} zile înainte de termen și rămâne până când "
            f"este programat din nou la același serviciu sau până la un marcaj "
            f"al recepției (<b>Sunat — revine</b>, <b>Nu răspunde</b>, "
            f"<b>Amânat până la</b>, <b>Nu mai reaminti</b>). Programarea la "
@@ -645,6 +655,82 @@ def entries() -> list[dict]:
            f"dosarul Spam sau apăsați <b>Retrimite e-mailul</b>.{end}"
            f"{p}Adresa este greșită? Tot acolo, <b>Schimbă adresa</b>: codul pleacă pe adresa nouă. "
            f"După confirmare adresa se schimbă doar din contul clinicii sau scriindu-ne.{end}"),
+
+        # Условия обновились (29.10): баннер директору — `banners._terms_banner`, тот же блок на
+        # странице лицензии (`license_pages`); ⛔ не замок (`lic.terms_due`). Акт уходит серверу
+        # сразу или при следующей проверке лицензии (`lic.accept_terms`), в кабинете — «Documente ›
+        # Acceptarea termenilor» (cloud/app/terms.py, источник «program»).
+        _q("file", "Termenii și condițiile s-au actualizat — ce fac?",
+           f"{p}Când DentPilot publică o versiune nouă a Termenilor și condițiilor, directorul vede "
+           f"sus bannerul «Termenii și condițiile DentPilot s-au actualizat», cu data versiunii. "
+           f"Apăsați <b>Citiți versiunea nouă</b> — textul se deschide în browser —, bifați "
+           f"<b>Am citit și accept</b> și apăsați <b>Accept</b>. Același bloc este și în "
+           f"<b>Setări › Licența</b>.{end}"
+           f"{p}Programul <b>funcționează și fără acceptare</b>: nimic nu se blochează, bannerul "
+           f"doar amintește. Recepția și medicii nu îl văd — acceptă directorul, în numele "
+           f"clinicii.{end}"
+           f"{p}Acceptarea pleacă la DentPilot imediat sau la următoarea verificare a licenței; "
+           f"actul cu versiunea, data și numele directorului apare în contul clinicii, fila "
+           f"<b>Documente</b> › <b>Acceptarea termenilor</b>.{end}"),
+
+        # Новый компьютер той же клиники: заявка с тем же IDNO или ящиком = «повтор», сервер шлёт
+        # код из 6 цифр на ящик клиники (cloud routes_program._trial_program); форма кода —
+        # `license_pages._CODE_FORM`, «Nu a venit codul?» — там же. Компьютер филиала — код
+        # кабинета из 7 цифр (cloud views.cont_page, «Cod de activare pentru un calculator»).
+        _q("monitor", "Instalez programul pe un calculator nou — cum îl activez?",
+           f"{p}La prima pornire programul cere un PIN, apoi deschide singur pagina "
+           f"<b>Activarea programului</b>. Completați datele clinicii cu <b>același IDNO sau "
+           f"același e-mail</b> ca la înregistrare, bifați termenii și apăsați <b>Trimite cererea "
+           f"și activează programul</b>. Clinica este deja înregistrată, de aceea programul cere "
+           f"apoi un <b>cod din 6 cifre</b>, trimis pe e-mailul clinicii: îl scrieți la "
+           f"<b>Codul din e-mail</b> și apăsați <b>Activează programul</b>. Abonamentul este al "
+           f"clinicii, nu al calculatorului — pe calculatorul nou merge același termen.{end}"
+           f"{p}Codul nu a venit? Verificați dosarul Spam, apoi, pe aceeași pagină, "
+           f"<b>Nu a venit codul? Trimiteți din nou cererea</b>. Codul pleacă doar pe adresa "
+           f"înregistrată la DentPilot; dacă ea nu mai există, scrieți-ne la "
+           f"<a href='mailto:{FEEDBACK_EMAIL}'>{FEEDBACK_EMAIL}</a>.{end}"
+           f"{p}Calculatorul unei <b>filiale</b> se activează cu codul din contul clinicii (7 "
+           f"cifre) — vedeți întrebarea despre filiale. Pacienții și programările nu vin cu "
+           f"licența: ele se mută cu arhiva de rezervă, ca în întrebarea despre mutarea pe alt "
+           f"calculator.{end}"),
+
+        # Кабинет (cloud/app/views.cont_page): вкладки — CONT_TABS; вход кнопкой программы видит
+        # только свою клинику (contlink.py), иначе — Google или код на e-mail (пароля нет).
+        _q("user", "Ce găsesc în contul clinicii și cum intru în el?",
+           f"{p}Contul clinicii este pagina clinicii la DentPilot, în browser. Directorul îl "
+           f"deschide din program, fără cod: <b>Setări › Licența › Deschide contul clinicii</b> — "
+           f"așa vede doar clinica acestui program. De pe orice calculator sau telefon: "
+           f"<b>{html.escape(cont)}</b>, cu contul Google sau cu un cod trimis pe e-mail; parolă "
+           f"nu există.{end}"
+           f"<ul style='margin:0 0 8px;padding-left:22px'>"
+           f"<li><b>Licență și program</b> — termenul licenței, butonul <b>Descarcă DentPilot</b> și "
+           f"calculatoarele clinicii, cu versiunea programului și ultima verificare a "
+           f"licenței;</li>"
+           f"<li><b>Abonament și plăți</b> — varianta, notele de plată, plata cu cardul și "
+           f"conturile de plată «achitat»;</li>"
+           f"<li><b>Clinica</b> — datele clinicii din notă și din licență și filialele;</li>"
+           f"<li><b>SMS</b> — pachetele clinicii;</li>"
+           f"<li><b>Documente</b> — contractul, acordul de prelucrare și declarația semnate de "
+           f"DentPilot, modelele Legii 195 completate cu datele clinicii și actele de acceptare a "
+           f"termenilor.</li></ul>"),
+
+        # Филиал = ещё одна клиника кабинета (cloud/app/account.add_clinic): без пробного, сразу
+        # нота первого периода; IDNO обязателен, тот же IDNO своей клиники разрешён; общая нота —
+        # кабинет («nota comună»). Кнопкой программы «Adaugă clinică» закрыта (contlink.DENY).
+        _q("clinic", "Clinica are mai multe sedii — cum adaug o filială?",
+           f"{p}Fiecare sediu este o clinică aparte în același cont DentPilot: cu licența, "
+           f"abonamentul și calculatoarele ei, cu aceeași intrare în cont. Filiala se adaugă din "
+           f"contul clinicii, după intrarea cu Google sau cu codul pe e-mail: fila <b>Clinica</b> › "
+           f"<b>Adaugă clinică</b>; când contul are deja mai multe clinici, butonul stă și sub "
+           f"titlu, lângă lista lor.{end}"
+           f"{p}Pentru filială completați denumirea, adresa și IDNO-ul — același IDNO ca al primei "
+           f"clinici este permis. Luna de probă o are doar prima clinică a contului: filiala "
+           f"pornește direct pe abonament, cu nota pentru prima perioadă (varianta și perioada le "
+           f"alegeți în formular). Mai multe clinici se pot plăti și cu o <b>notă comună</b>.{end}"
+           f"{p}Programul pe calculatorul filialei se activează cu codul din cont: fila "
+           f"<b>Licență și program</b>, butonul <b>Cod de activare pentru un calculator</b> (7 "
+           f"cifre). Codul de 6 cifre din e-mail leagă calculatorul de prima clinică a contului. "
+           f"Fiecare sediu are evidența lui, pe calculatorul lui.{end}"),
 
         # «PIN», как на экране входа («Ați uitat PIN-ul?»). Сброс при пропавшем
         # auth.json — только с подтверждением администратора Windows
