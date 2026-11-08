@@ -3,7 +3,7 @@ import { buildJaw, LOWER, shapesOf, UPPER } from '../../../test/jaws'
 import { GAP, GAP_CLOSED, type PlacedTooth } from './arch'
 import { blendPose, occlusionK, oclPlaqueShown, SCHEMATIC_CLASS_SHIFT_MM, SCHEMATIC_TILT_II1_DEG, SCHEMATIC_TILT_II2_DEG, ZERO_POSE, type OcclRecord } from './occlusion'
 import {
-  CONTACT_ONLY_III, gap34, gapIncCanine, jawClear, jawOverlaps, molarGaps, picksOf, PICKS_ALL, occlusionPlan, OVERBITE_AFTER_TILT, OVERJET_STOP_AT_CANINE, placeOf,
+  CONTACT_ONLY_III, OVERBITE_STOP_AT_CONTACT, gap34, gapIncCanine, jawClear, jawOverlaps, molarGaps, picksOf, PICKS_ALL, occlusionPlan, OVERBITE_AFTER_TILT, OVERJET_STOP_AT_CANINE, placeOf,
   planBite, SEGMENT_FROM, sweep, ZERO_TEETH, type Body,
 } from './occlusionPlan'
 
@@ -82,15 +82,18 @@ describe('места зубов по плану (`placeOf`)', () => {
 })
 
 describe('запись → план (свои модели, сомкнуто)', () => {
-  it('⭐ пустая запись и I класс: ни один зуб не двигается, контакт не трогает I по умолчанию (Q1)', () => {
-    const e = plan({})
-    expect(e.teeth).toEqual(ZERO_TEETH)
-    expect(e.jaw.dy).toBe(0)
-    const i = bite({ angle_dr: 'I', angle_st: 'I' })
-    expect(i.p.teeth).toEqual(ZERO_TEETH)
-    expect(i.p.jaw.dy).toBe(0)
-    expect(i.b.oj).toBeCloseTo(2.7, 1)
-    expect(i.b.ob).toBeCloseTo(1.39, 1)
+  it('⭐ пустая запись и I класс: ни один зуб не двигается, класс I по умолчанию (Q1); вертикаль — до касания без пересечения', () => {
+    for (const rec of [{}, { angle_dr: 'I', angle_st: 'I' }]) {
+      const i = bite(rec)
+      expect(i.p.teeth).toEqual(ZERO_TEETH)
+      expect([i.p.jaw.dx, i.p.jaw.dz, i.p.jaw.pitch]).toEqual([0, i.p.jaw.dz, 0])
+      expect(Math.abs(i.b.relR)).toBeLessThan(0.05)
+      // модель в сомкнутом положении входит молярами на 0,19 мм — план опускает до касания (Олег 08.11)
+      expect(i.p.jaw.dy).toBeCloseTo(-0.19, 2)
+      expect(Math.abs(jawClear(S, i.p.teeth, i.p.jaw, -C, C))).toBeLessThan(0.005)
+      expect(i.b.oj).toBeCloseTo(2.7, 1)
+      expect(i.b.ob).toBeCloseTo(1.2, 1)
+    }
   })
 
   it('II/1: резцы вперёд на схематичный наклон, класс по ориентирам; overjet растёт, overbite меняется (не записан)', () => {
@@ -99,7 +102,8 @@ describe('запись → план (свои модели, сомкнуто)', 
     expect(r.b.relR).toBeCloseTo(SCHEMATIC_CLASS_SHIFT_MM, 1)
     expect(r.b.relL).toBeCloseTo(SCHEMATIC_CLASS_SHIFT_MM, 1)
     expect(r.b.oj).toBeCloseTo(8.31, 1)
-    expect(r.b.ob).toBeCloseTo(0.96, 1)
+    // наклон поднимает край (1,39 → 0,96), касание без пересечения опускает ещё на 0,17
+    expect(r.b.ob).toBeCloseTo(0.79, 1)
   })
 
   it('II/2: центральные назад, боковые вперёд; разные подтипы сторон — без наклона', () => {
@@ -110,10 +114,32 @@ describe('запись → план (свои модели, сомкнуто)', 
     expect([mixed.teeth.tiltC, mixed.teeth.tiltL]).toEqual([0, 0])
   })
 
-  it('⭐ записанный overbite после наклона — число врача (±0,01)', () => {
+  it('⭐ записанный overbite — после наклона, но только до первого касания (Олег 08.11 «Без пересечения»); недобор — числом', () => {
     expect(OVERBITE_AFTER_TILT).toBe(true)
-    for (const [rec, ob] of [[{ angle_dr: 'II/1', angle_st: 'II/1', overbite: '3' }, 3], [{ angle_dr: 'II/2', angle_st: 'II/2', overbite: '4' }, 4]] as const) {
-      expect(Math.abs(bite(rec).b.ob - ob)).toBeLessThan(0.01)
+    expect(OVERBITE_STOP_AT_CONTACT).toBe(true)
+    // достижимое — число врача; недостижимое — касание и остаток в плане (модель + остаток = запись)
+    for (const [rec, ob] of [[{ angle_dr: 'III', angle_st: 'III', overbite: '1' }, 1], [{ angle_dr: 'II/1', angle_st: 'II/1', overbite: '3' }, 3],
+      [{ angle_dr: 'I', angle_st: 'I', overbite: '2' }, 2], [{ angle_dr: 'II/2', angle_st: 'II/2', overbite: '4' }, 4]] as const) {
+      const { p, b } = bite(rec)
+      expect(jawOverlaps(S, p.teeth, p.jaw, -C, C)).toEqual([])
+      expect(Math.abs(b.ob + p.rest.ob - ob)).toBeLessThan(0.01)
+      expect(p.rest.ob).toBeGreaterThan(-0.01)
+      if (p.rest.ob > 0.01) expect(Math.abs(jawClear(S, p.teeth, p.jaw, -C, C))).toBeLessThan(0.005)
+    }
+    expect(Math.abs(bite({ angle_dr: 'III', angle_st: 'III', overbite: '1' }).p.rest.ob)).toBeLessThan(0.01)
+    expect(bite({ angle_dr: 'II/1', angle_st: 'II/1', overbite: '3' }).p.rest.ob).toBeGreaterThan(2)
+  })
+
+  it('⭐ коронки верх–низ не пересекаются ни при каком сочетании записи (Олег 08.11)', { timeout: 60000 }, () => {
+    const recs: OcclRecord[] = [{}, { angle_dr: 'I', angle_st: 'I', overbite: '2' }, { angle_dr: 'II/1', angle_st: 'II/1', overbite: '3' },
+      { angle_dr: 'III', angle_st: 'III', overbite: '1' }, { angle_dr: 'I', angle_st: 'I', overbite: '-3', deschisa: '13–23' },
+      { angle_dr: 'I', angle_st: 'I', mediana_mm: '3', mediana_spre: 'stanga', incrucisata: '24–26' }, { angle_dr: 'II/2', angle_st: 'II/2' },
+      { angle_dr: 'II/1', angle_st: 'II/1', overjet: '9' }, { angle_dr: 'II/1', angle_st: 'II/1', overjet: '5' }, { angle_dr: 'III', angle_st: 'III' },
+      { angle_dr: 'II/1', angle_st: 'III' }, { angle_dr: 'II/1', angle_st: 'III', overbite: '2' }, { angle_dr: 'II/1', angle_st: 'I' },
+      { angle_dr: 'III', angle_st: 'III', overjet: '-4', overbite: '4' }]
+    for (const rec of recs) {
+      const p = plan(rec)
+      expect([JSON.stringify(rec), jawOverlaps(S, p.teeth, p.jaw, -C, C)]).toEqual([JSON.stringify(rec), []])
     }
   })
 

@@ -25,7 +25,9 @@ import { torqued } from './pose'
    - III без записанного overbite — нижняя челюсть по вертикали до первого
      контакта любой пары верхняя–нижняя (`jawClear`: вверх до касания или вниз до
      снятия пересечения); открытый прикус — наклоном, сзади до касания;
-     записанный overbite главнее и после наклона резцов доводится снова. */
+     записанный overbite — после наклона резцов, но только до первого касания любой пары
+     (`OVERBITE_STOP_AT_CONTACT`, Олег 08.11 «Без пересечения»); в конце любого плана
+     челюсть вниз до касания, если коронки верх–низ где-то входят друг в друга. */
 
 /** Коронка зуба для плана: место раскладки (`posed`, ДО прикуса), сетка коронки
  *  в системе зуба (позиции и индексы треугольников), ширина md. */
@@ -58,9 +60,9 @@ export const ZERO_TEETH: Readonly<TeethPlan> = Object.freeze({ tiltC: 0, tiltL: 
 export interface OcclPlan {
   jaw: JawPose
   teeth: TeethPlan
-  /** что план не добрал (видно в зонде и стенде): overjet, мм (запись − модель);
+  /** что план не добрал (видно в зонде и стенде): overjet и overbite, мм (запись − модель);
    *  промежутки 3|4 справа и слева после «веера», мм (≥ 0 — без наложения) */
-  rest: { oj: number; gap34R: number | null; gap34L: number | null }
+  rest: { oj: number; ob: number; gap34R: number | null; gap34L: number | null }
   base: Bite
   /** по каким зубам мерился прикус (показанные коронки, `picksOf`) */
   picks: Picks
@@ -88,6 +90,11 @@ export function picksOf(has: (n: number) => boolean): Picks {
  *  клыки на месте (координатор 07.11, отступление от «сохранять overjet» для
  *  крайних записей — в томе для Олега). false — добирать полностью. */
 export const OVERJET_STOP_AT_CANINE = true
+/** Записанный overbite добирается только до первого касания любой пары верх–низ
+ *  (`jawClear`): коронки не пересекаются ни при каком сочетании записи (Олег 08.11:
+ *  «Без пересечения»). Недобор — `rest.ob`, на плашке — запись врача (как у overjet).
+ *  false — число врача любой ценой (решение 07.11, коронки входили до 2,2 мм). */
+export const OVERBITE_STOP_AT_CONTACT = true
 /** Записанный overbite после наклона резцов доводится снова: число врача
  *  главнее (координатор 07.11). false — dy от прикуса модели без наклона. */
 export const OVERBITE_AFTER_TILT = true
@@ -486,7 +493,13 @@ export function occlusionPlan(rec0: OcclRecord, S: Shapes, closeY: number, shown
   const { bite: base, geo } = b0
   const jaw = jawPose(rec, base, geo)
   const teeth: TeethPlan = { ...ZERO_TEETH }
-  const rest: OcclPlan['rest'] = { oj: 0, gap34R: null, gap34L: null }
+  const rest: OcclPlan['rest'] = { oj: 0, ob: 0, gap34R: null, gap34L: null }
+  // подъём по МИРОВОЙ вертикали на d: t = (dx, dy, dz) идёт до поворота (`poseLower`),
+  // поэтому Δt = Rx(pitch)ᵀ·(0, d, 0) — иначе при наклоне челюсть уезжала бы и вперёд
+  const lift = (j: JawPose, d: number): void => {
+    j.dy += d * Math.cos(j.pitch)
+    j.dz -= d * Math.sin(j.pitch)
+  }
   const kR = classSign(tr(rec.angle_dr))
   const kL = classSign(tr(rec.angle_st))
   const overjet = mmOf(rec.overjet)
@@ -527,12 +540,6 @@ export function occlusionPlan(rec0: OcclRecord, S: Shapes, closeY: number, shown
     // первого касания любой пары (`jawClear`, без пересечения коронок), а наклон
     // подбирается секущей под overbite: сзади контакт, спереди открыто
     const want = overbite ?? -3
-    // подъём по МИРОВОЙ вертикали на d: t = (dx, dy, dz) идёт до поворота (`poseLower`),
-    // поэтому Δt = Rx(pitch)ᵀ·(0, d, 0) — иначе челюсть уезжала бы и вперёд (класс −0,2 мм)
-    const lift = (j: JawPose, d: number): void => {
-      j.dy += d * Math.cos(j.pitch)
-      j.dz -= d * Math.sin(j.pitch)
-    }
     // наклон вокруг опоры двигает ориентиры класса вдоль z (ниже опоры — вперёд):
     // dz возвращает класс, какой поза дала без наклона (при большом наклоне — до 0,5 мм)
     const relMean = (j: JawPose): number => {
@@ -596,5 +603,14 @@ export function occlusionPlan(rec0: OcclRecord, S: Shapes, closeY: number, shown
     const got = bite0(teeth, jaw)?.bite.oj ?? oj
     rest.oj = overjet - got
   }
+
+  // без пересечения коронок верх–низ при ЛЮБОМ сочетании (Олег 08.11): записанный
+  // overbite, срединная линия, наклон и сдвиг резцов, I/II без контакта III — челюсть
+  // вниз до первого касания; недобор overbite — числом в плане
+  if (OVERBITE_STOP_AT_CONTACT || overbite === null) {
+    const c = fin(jawClear(P, teeth, jaw, upperY, lowerY))
+    if (c < 0) lift(jaw, c)
+  }
+  if (overbite !== null) rest.ob = overbite - (bite0(teeth, jaw)?.bite.ob ?? overbite)
   return { jaw, teeth, rest, base, picks }
 }
