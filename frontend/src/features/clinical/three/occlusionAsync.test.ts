@@ -3,7 +3,7 @@ import { buildJaw, GEOM, LOWER, shapesOf, UPPER } from '../../../test/jaws'
 import { GAP, GAP_CLOSED, layoutArch } from './arch'
 import { anchorsFor, archFrame, buildGum, stripesFor, vertexNormals, type GumTooth } from './gum'
 import { toCls } from './toothGeometry'
-import { packed, peekPlan, planKey, requestGumShape, requestPlan, resetOcclusionAsync, sendGum, shapesPrint, type Reply } from './occlusionAsync'
+import { gumShapeNow, packed, peekPlan, planKey, rememberPlan, requestGumShape, requestPlan, resetOcclusionAsync, sendGum, shapesPrint, type Reply } from './occlusionAsync'
 import { gumStore, gumTarget, type GumIn } from './occlusionGum'
 import { occlusionPlan, ZERO_TEETH } from './occlusionPlan'
 
@@ -67,6 +67,15 @@ describe('план прикуса без главного потока (`occlusi
     expect(await requestPlan(S, fp, C, OLEG, ALL, key)).toBe(plan)
   })
 
+  it('план, посчитанный на месте (печать Ctrl+P), ложится в тот же кэш — воркер не нужен', async () => {
+    const fp = shapesPrint(S)
+    const key = planKey(fp, C, { angle_dr: 'III', angle_st: 'III' }, [])
+    const p = occlusionPlan({ angle_dr: 'III', angle_st: 'III' }, S, C, ALL)
+    rememberPlan(key, p)
+    expect(peekPlan(key)).toBe(p)
+    expect(await requestPlan(S, fp, C, { angle_dr: 'III', angle_st: 'III' }, ALL, key)).toBe(p)
+  })
+
   it('ключ различает запись и скрытые зубы', () => {
     const fp = shapesPrint(S)
     expect(planKey(fp, C, OLEG, [])).not.toBe(planKey(fp, C, { ...OLEG, deschisa: '' }, []))
@@ -125,6 +134,9 @@ describe('план прикуса без главного потока (`occlusi
     const gid = sendGum(g)
     const viaAsync = await requestGumShape(S, shapesPrint(S), gid, T)
     expect([...viaAsync!.pos]).toEqual([...moved.pos])
+    // печать Ctrl+P: та же форма на месте, синхронно
+    expect([...gumShapeNow(S, gid, T)!.pos]).toEqual([...moved.pos])
+    expect(gumShapeNow(S, 999, T)).toBeNull()
   })
 
   it('нормали вершин: площадной вес граней, единичные, как `computeVertexNormals` three', () => {

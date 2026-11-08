@@ -17,7 +17,7 @@ import { createTweens, type Tweens } from './tween'
 import { EMPTY_BOUNDS, fillAt, fitRadius, isEmpty, mapBounds, union, type Bounds } from './fit'
 import { isFinger, LONG_MS, slopOf, swallowNextClick } from '../touch'
 import { biteAt, biteOf, blendPose, lowerPlacement, molarMark, occlusionK, poseLower, ZERO_POSE, type Bite, type BitePoints, type JawPose, type OcclGeo, type OcclRecord } from './occlusion'
-import { peekPlan, planKey, requestGumShape, requestPlan, sendGum, shapesPrint } from './occlusionAsync'
+import { gumShapeNow, peekPlan, planKey, rememberPlan, requestGumShape, requestPlan, sendGum, shapesPrint } from './occlusionAsync'
 import type { GumShape } from './occlusionGum'
 import { depthOf, gap34, gapIncCanine, jawClear, molarGaps, occlusionPlan, PICKS_ALL, placeOf, teethMove, ZERO_TEETH, type OcclPlan, type Shapes, type TeethPlan, type ToothShape } from './occlusionPlan'
 
@@ -179,6 +179,11 @@ export interface ArchScene {
   /** обещание: запрошенный план посчитан, применён и твин прикуса закончен (печать
    *  `snapshot` берёт позу ПОСЛЕ плана); без записи — сразу */
   whenOccluded(): Promise<void>
+  /** СИНХРОННО довести прикус до конечного вида (печать Ctrl+P: `beforeprint` обещаний не
+   *  ждёт): твин смыкания — в конец; прикус не виден («Ocluzie» выкл., «Parodont») — больше
+   *  ничего; план в пути — посчитать на месте (до ~1 с) и применить без твина; твин прикуса —
+   *  в конец; недостающая форма десны — на месте. После него `snapshot` рисует итог. */
+  settleOcclusion(): void
   /** прикус ПО ТЕКУЩИМ мировым матрицам (то, что на экране) — для стендов;
    *  null — челюсти ещё не построены */
   measureBite(): Bite | null
@@ -1341,6 +1346,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
    *  последней просьбы: опоздавший ответ прежней записи не применяется. */
   let fp: string | null = null
   let askKey: string | null = null
+  let askRec: OcclRecord | null = null
+  let askShown: Set<number> = new Set()
   let asking: Promise<unknown> = Promise.resolve()
   function occludeFor(rec: OcclRecord | null, animate: boolean): void {
     if (!rec) {
@@ -1361,6 +1368,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       return
     }
     askKey = key
+    askRec = rec
+    askShown = shown
     asking = requestPlan(S, fp, CLOSE_Y, rec, shown, key).then(async (plan) => {
       if (disposed || askKey !== key) return
       if (plan) await gumReady(plan.teeth)
@@ -1369,6 +1378,33 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       // пришёл позже первого кадра — тем же твином, без прыжка (разомкнуто — запоминается)
       setOcclusion(plan, true)
     })
+  }
+  function settleOcclusion(): void {
+    tweens.finish('close')
+    if (occK() === 0) return
+    const S = planShapes()
+    if (askKey !== null && askRec && S) {
+      const plan = occlusionPlan(askRec, S, CLOSE_Y, askShown)
+      rememberPlan(askKey, plan)
+      askKey = null
+      setOcclusion(plan, false)
+    }
+    tweens.finish('occl')
+    // формы десны, которых воркер ещё не прислал, — на месте
+    if (S) {
+      fp ??= shapesPrint(S)
+      for (const J of jawGum) {
+        if (J.gid === undefined) continue
+        for (const t of [gumFrom, gumTo]) {
+          const key = `${J.gid}|${teethKey(t)}`
+          if (!teethMove(t) || gumShapes.has(key)) continue
+          const sh = gumShapeNow(S, J.gid, t)
+          if (sh) gumShapes.set(key, sh)
+        }
+      }
+    }
+    warpGums()
+    invalidate()
   }
   async function whenOccluded(): Promise<void> {
     for (;;) {
@@ -1700,6 +1736,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     pending: () => askKey,
     // план посчитан, применён и твин кончился (`whenOccluded`) — стенды меряют после
     settled: () => whenOccluded().then(() => true),
+    settle: () => { settleOcclusion(); return { applied: appliedPose(), teeth: { ...occT }, pending: askKey } },
     pose: () => ({ want: { ...occ }, applied: appliedPose(), teeth: { ...occT }, rest: occPlan?.rest ?? null, picks: occPlan?.picks ?? null }),
     // какие зубы сейчас НЕ на местах раскладки и показана ли деформированная десна (Q3: выкл — [] и false)
     moved: () => [...teeth].filter(([n, t]) => t.place !== shape.get(n)?.place).map(([n]) => n),
@@ -1894,6 +1931,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     planFor,
     occludeFor,
     whenOccluded,
+    settleOcclusion,
     measureBite,
     biteBase,
     invalidate,

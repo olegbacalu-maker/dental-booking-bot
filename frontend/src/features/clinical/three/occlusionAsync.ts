@@ -58,6 +58,10 @@ export function peekPlan(key: string): OcclPlan | null | undefined {
   plans.set(key, p)   // свежий — в конец (вытесняется самый старый)
   return p
 }
+/** План, посчитанный на месте (печать Ctrl+P, `scene.settleOcclusion`), — в тот же кэш. */
+export function rememberPlan(key: string, p: OcclPlan | null): void {
+  keep(key, p)
+}
 function keep(key: string, p: OcclPlan | null): void {
   plans.set(key, p)
   while (plans.size > PLAN_MAX) plans.delete(plans.keys().next().value as string)
@@ -216,6 +220,18 @@ export async function requestGumShape(S: Shapes, fp: string, gid: number, teeth:
     return r.shape
   }
   return go(true)
+}
+
+/** Форма десны НА МЕСТЕ, сейчас (печать Ctrl+P не ждёт воркера): рамка — один раз на сетку. */
+export function gumShapeNow(S: Shapes, gid: number, teeth: TeethPlan): GumShape | null {
+  const g = gums.get(gid)
+  if (!g) return null
+  let G = stores.get(gid)
+  if (!G) {
+    G = gumStore(g)
+    stores.set(gid, G)
+  }
+  return gumTarget(G, S, teeth)
 }
 
 /** Для проверок: забыть кэш и воркер. */

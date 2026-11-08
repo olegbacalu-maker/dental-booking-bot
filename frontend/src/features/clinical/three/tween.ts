@@ -23,6 +23,8 @@ export interface Tweens {
   add(dur: number, fn: TweenFn, done?: (() => void) | null, delay?: number, tag?: unknown): void
   /** снять все твины с этой меткой (незавершённые — без `done`) */
   kill(tag: unknown): void
+  /** довести твины с этой меткой до конца сейчас: `fn(1)` и `done` (печать Ctrl+P не ждёт кадров) */
+  finish(tag: unknown): void
   /** продвинуть до момента now; true — ещё есть что двигать */
   step(now: number): boolean
   /** есть ли твины с этой меткой */
@@ -55,6 +57,16 @@ export function createTweens(opts: TweenOptions): Tweens {
     kill(tag) {
       for (let i = list.length - 1; i >= 0; i--) {
         if (list[i]?.tag === tag) list.splice(i, 1)
+      }
+    },
+    finish(tag) {
+      const mine = list.filter((tw) => tw.tag === tag)
+      for (let i = list.length - 1; i >= 0; i--) {
+        if (list[i]?.tag === tag) list.splice(i, 1)
+      }
+      for (const tw of mine) {
+        tw.fn(1)
+        if (tw.done) tw.done()
       }
     },
     step(t) {

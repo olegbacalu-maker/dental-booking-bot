@@ -47,6 +47,23 @@ describe('твины', () => {
     expect(doneA).not.toHaveBeenCalled()
   })
 
+  it('finish по метке: fn(1) и done сейчас, твин снят; чужие метки идут дальше (печать Ctrl+P)', () => {
+    const tw = createTweens({ reduced: false, now: () => 0 })
+    const a: number[] = []
+    const doneA = vi.fn()
+    const b = vi.fn()
+    tw.add(700, (k) => a.push(k), doneA, 0, 'occl')
+    tw.add(700, b, null, 0, 'close')
+    tw.step(350)
+    tw.finish('occl')
+    expect(a.at(-1)).toBe(1)
+    expect(doneA).toHaveBeenCalledTimes(1)
+    expect(tw.has('occl')).toBe(false)
+    expect(tw.has('close')).toBe(true)
+    tw.finish('нет такой')
+    expect(tw.size).toBe(1)
+  })
+
   it('reduced-motion: fn(1) и done сразу, в очередь ничего не попадает, кадр не просится', () => {
     const wake = vi.fn()
     const tw = createTweens({ reduced: true, wake })
