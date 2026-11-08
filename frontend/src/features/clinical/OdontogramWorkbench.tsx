@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { flushSync } from 'react-dom'
 import { shellOn, useCommand } from '../../app/bridge'
 import { AppLink } from '../../components/AppLink'
 import { ask } from '../../components/confirm'
@@ -122,6 +123,7 @@ const T = {
   reloadOk: 'Reîncarcă',
   printAsk: 'Pe foaie ajunge doar ce e salvat. Salvați acum și tipăriți?',
   printOk: 'Salvează și tipărește',
+  sheet: 'Odontogramă',
   compare: 'Compară',
   compareTip: 'Compară dinții cu o vizită anterioară',
   cmpDirty: 'Salvați sau renunțați la modificări înainte de a compara',
@@ -251,6 +253,29 @@ export function OdontogramWorkbench({
     }
     window.print()
   }
+  /* Лист печати (08.11, замечание Олега «как выходит на бумаге»): шапка листа
+     — имя пациента, «Odontogramă», дата печати; заголовок документа на время
+     печати — тоже имя (его ставит в колонтитул и в имя PDF сам браузер, без
+     него там «Clinica — registru»). Дата и заголовок — на `beforeprint`, чтобы
+     Ctrl+P браузера мимо кнопки получил то же; `flushSync` — печать снимает
+     документ сразу после обработчика, отложенная отрисовка React не успела бы. */
+  const [printAt, setPrintAt] = useState(() => new Date())
+  const patientName = model.patient.name
+  useEffect(() => {
+    let was: string | null = null
+    const before = (): void => {
+      flushSync(() => setPrintAt(new Date()))
+      was = document.title
+      document.title = `${patientName} — ${T.sheet}`
+    }
+    const after = (): void => {
+      if (was !== null && document.title === `${patientName} — ${T.sheet}`) document.title = was
+      was = null
+    }
+    window.addEventListener('beforeprint', before)
+    window.addEventListener('afterprint', after)
+    return () => { window.removeEventListener('beforeprint', before); window.removeEventListener('afterprint', after); after() }
+  }, [patientName])
   /* «Tipărește…» меню окна Tauri — кнопка печати шапки ниже */
   useCommand('act:print', () => { void printChart() })
   /* F5 и «Reîncarcă» окна оболочки: с черновиками — своим окном вопроса */
@@ -434,6 +459,10 @@ export function OdontogramWorkbench({
         data-sel={cmpOn ? undefined : c.selected ?? undefined} data-brush={c.brush ?? undefined}
         data-pending={c.pending.length ? '' : undefined} data-cmp={cmpOn ? '' : undefined}
         data-ocl={oclSheet && idle && c.selected === null ? '' : undefined} tabIndex={0} onKeyDown={onKey}>
+        <div className="dp-odo-print">
+          <b>{patientName}</b>
+          <span>{T.sheet} · {printAt.toLocaleDateString('ro-RO', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+        </div>
         <div className="dp-odo-head">
           {/* имя — заголовок детальной страницы и дорога назад в фишу; во вкладке фиши имя уже в её шапке */}
           {!embedded && (

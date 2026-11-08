@@ -1570,6 +1570,9 @@
    body{background:#fff}.content{padding:0;max-width:none}
    .pv2{grid-template-columns:1fr}.pv2-side{position:static}
    .fcard,.hero,.kpi{box-shadow:none;break-inside:avoid}
+   /* кромка слоя рядом с меню: меню на листе нет, а кромка шла линией по
+      левому краю каждого листа (замечание Олега 08.11) */
+   .main{box-shadow:none;border-radius:0}
  }
  /* лента активности: что происходило с фишей */
  .acti{display:flex;gap:12px;align-items:flex-start;padding:14px 0;

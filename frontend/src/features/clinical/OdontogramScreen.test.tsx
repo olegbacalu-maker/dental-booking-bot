@@ -164,8 +164,28 @@ describe('OdontogramScreen', () => {
     expect((document.querySelector('details.milk') as HTMLDetailsElement).open).toBe(true)
     expect(document.querySelector('.arch.lower.br-room')).toBeTruthy()
     expect(screen.getByText('Carie', { selector: '.lg .lg-l' })).toBeTruthy()
-    expect(screen.getByText('Odonto Pin')).toBeTruthy()
+    expect(screen.getByText('Odonto Pin', { selector: '.dp-odo-who span' })).toBeTruthy()
     expect(get).toHaveBeenCalledWith('/patients/5/odontogram', expect.anything())
+  })
+
+  it('лист печати: шапка с именем и датой, заголовок документа на время печати — имя (08.11)', async () => {
+    open()
+    await waitFor(() => expect(btn(16)).toBeTruthy())
+    const sheet = document.querySelector('.dp-odo-print') as HTMLElement
+    expect(sheet.querySelector('b')?.textContent).toBe('Odonto Pin')
+    document.title = 'Clinica mea — registru'
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 10, 9, 10, 0))
+    try {
+      window.dispatchEvent(new Event('beforeprint'))   // без act: печать не ждёт планировщик React
+      // дата — в миг печати, а не открытия страницы; flushSync — уже в обработчике
+      expect(sheet.querySelector('span')?.textContent).toBe('Odontogramă · 09.11.2026')
+      expect(document.title).toBe('Odonto Pin — Odontogramă')
+    } finally {
+      vi.useRealTimers()
+    }
+    act(() => { window.dispatchEvent(new Event('afterprint')) })
+    expect(document.title).toBe('Clinica mea — registru')
   })
 
   it('выбор зуба: из адреса, кликом; инспектор показывает зуб, форму, историю и мост', async () => {
