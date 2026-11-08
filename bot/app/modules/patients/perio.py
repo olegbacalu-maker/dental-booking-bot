@@ -460,7 +460,7 @@ def print_sheet(patient: dict, exam: dict, rows: list) -> str:
     return f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Parodontogramă — {e(patient.get('name') or 'pacient')}</title>
-<style>{theme.paint(_CSS)}</style></head><body>
+<style>{theme.paint(_CSS)}{theme.PRINT_PAGE_CSS}</style></head><body>
 <div class="noprint">
   <button onclick="window.print()">Printează</button>
   <a href="/admin/patient/{patient['id']}/parodontograma">Înapoi</a>

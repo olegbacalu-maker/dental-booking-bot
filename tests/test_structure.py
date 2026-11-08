@@ -2245,3 +2245,36 @@ def suite(res: Result) -> None:
            and (n.func.id if isinstance(n.func, ast.Name) else n.func.attr) == "startfile"]
     res.ok("файл открывает только core/shellopen, не os.startfile", not bad,
            "программа, открытая так, гаснет вместе с оболочкой: " + "; ".join(bad))
+
+    # ⛔ Колонтитулы браузера на бумаге (Олег 08.11: «убрать»): дату, заголовок,
+    # адрес страницы и номер листа Chromium печатает в верхнем и нижнем поле
+    # листа. Гасит их ОДНО правило `theme.PRINT_PAGE_CSS` (поле 0, отступ 1 см
+    # у тела на каждом листе — раскладка прежняя до строки). Серверный бланк
+    # с кнопкой печати без него снова напечатает «127.0.0.1:8088/admin/…» на
+    # 043/e; листы React берут то же правило дословно из panel.css.
+    bad, sheets_n, page_css = [], 0, None
+    for rel, tree in src:
+        if rel == "app/core/theme.py":
+            for n in tree.body:
+                if (isinstance(n, ast.Assign) and len(n.targets) == 1
+                        and isinstance(n.targets[0], ast.Name) and n.targets[0].id == "PRINT_PAGE_CSS"):
+                    page_css = ast.literal_eval(n.value)
+        prints = any(isinstance(c, ast.Constant) and isinstance(c.value, str)
+                     and re.search(r"""onclick=["']window\.print\(\)""", c.value)
+                     for c in ast.walk(tree))
+        if not prints:
+            continue
+        sheets_n += 1
+        if not any(isinstance(n, ast.Attribute) and n.attr == "PRINT_PAGE_CSS" for n in ast.walk(tree)):
+            bad.append(f"{rel}: кнопка window.print() без theme.PRINT_PAGE_CSS")
+    if page_css is None:
+        bad.append("theme.PRINT_PAGE_CSS не найден — якорь правила пропал")
+    elif "@page{margin:0" not in page_css:
+        bad.append("theme.PRINT_PAGE_CSS не обнуляет поле листа")
+    elif page_css not in ((BOT / "app/static/css/panel.css").read_text(encoding="utf-8")
+                          if (BOT / "app/static/css/panel.css").exists() else ""):
+        bad.append("panel.css не держит theme.PRINT_PAGE_CSS дословно — листы React напечатают колонтитулы")
+    if sheets_n < 5:
+        bad.append(f"печатных бланков с кнопкой нашлось {sheets_n} — якорь правила пропал")
+    res.ok("печатный лист без колонтитулов браузера", not bad,
+           "дата, адрес и номер листа лягут на бумагу: " + "; ".join(bad))

@@ -404,6 +404,7 @@ async def settings_crypt_sheet(request: Request):
  button{{background:#0E9F8A;color:#fff;border:none;border-radius:8px;
         padding:10px 22px;font-size:14px;cursor:pointer;font-family:inherit}}
  @media print{{.noprint{{display:none}}body{{padding:0}}}}
+ {theme.PRINT_PAGE_CSS}
 </style></head><body>
 <div class="noprint"><button onclick="window.print()">{_ic('print')} Tipărește</button>
 <a href="/admin/settings/crypt">{_ic('chev-l')} Înapoi</a></div>

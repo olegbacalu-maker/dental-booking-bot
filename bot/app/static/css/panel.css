@@ -1574,6 +1574,10 @@
       левому краю каждого листа (замечание Олега 08.11) */
    .main{box-shadow:none;border-radius:0}
  }
+ /* колонтитулы браузера на бумаге не печатаются (Олег 08.11: «убрать»):
+    верхнее и нижнее поле листа 0, отступ 1 см — у тела на каждом листе.
+    Дословно theme.PRINT_PAGE_CSS серверных бланков, сверяет test_structure */
+ @page{margin:0 10mm}@media print{body{padding-top:10mm;padding-bottom:10mm;box-decoration-break:clone;-webkit-box-decoration-break:clone}}
  /* лента активности: что происходило с фишей */
  .acti{display:flex;gap:12px;align-items:flex-start;padding:14px 0;
    border-bottom:1px solid var(--line2);transition:background-color var(--dur) ease}

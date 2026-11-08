@@ -199,7 +199,7 @@ def render_form(p: dict, lang: str = "ro", back: str = "") -> str:
     return f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{t["title"]} — {e(p.get("name") or "")}</title>
-<style>{theme.paint(_FORM_CSS)}</style></head><body>
+<style>{theme.paint(_FORM_CSS)}{theme.PRINT_PAGE_CSS}</style></head><body>
 
 <div class="noprint">
   <button onclick="window.print()">{_ic('print')} {t["title"]}</button>
