@@ -124,6 +124,8 @@ interface Props {
 /** размер картинки сцены на листе печати: 16:9 ≈ ширина A4 без полей, ×2,2 к пикселю листа */
 const PRINT_W = 1600
 const PRINT_H = 900
+/** кнопка печати ждёт прикус не дольше: воркер завис — `settleOcclusion` досчитает на месте */
+const SETTLE_MS = 3000
 
 type Status = 'loading' | 'ready' | 'failed' | 'nogl'
 /** зонд сцены на узле — стенды Edge читают его через CDP, тестов в jsdom это не касается */
@@ -286,7 +288,11 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
      стола снимает её заранее и ждёт декодирования (`printShotRef`); Ctrl+P браузера мимо
      кнопки — снимок на `beforeprint`, если свежего нет (декодирование тогда не ждётся).
      После печати картинка снимается: на листе — всегда снимок этой печати. Сцены нет
-     (грузится, нет WebGL) — печатается узел сцены, как раньше. */
+     (грузится, нет WebGL) — печатается узел сцены, как раньше.
+     ⛔ Снимок — только ПОСЛЕ прикуса: план считает воркер (до ~1 с после открытия вкладки)
+     и челюсть доезжает твином. Кнопка ждёт `whenOccluded` (не дольше SETTLE_MS — дальше
+     досчитывает на месте), Ctrl+P ждать не может (`beforeprint` синхронный, лист
+     раскладывается сразу за ним) — `settleOcclusion` доводит прикус синхронно. */
   const shotImg = useRef<HTMLImageElement | null>(null)
   const shotFresh = useRef(false)
   const takeShot = useCallback((): HTMLImageElement | null => {
@@ -299,11 +305,20 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
   }, [])
   useEffect(() => {
     const own = async (): Promise<void> => {
+      const sc = sceneRef.current
+      if (sc) {
+        await Promise.race([sc.whenOccluded(), new Promise<void>((ok) => { setTimeout(ok, SETTLE_MS) })])
+        sc.settleOcclusion()
+      }
       const img = takeShot()
       if (img && typeof img.decode === 'function') await img.decode().catch(() => undefined)
     }
     if (printShotRef) printShotRef.current = own
-    const before = (): void => { if (!shotFresh.current) takeShot() }
+    const before = (): void => {
+      if (shotFresh.current) return
+      sceneRef.current?.settleOcclusion()
+      takeShot()
+    }
     const after = (): void => {
       shotFresh.current = false
       shotImg.current?.removeAttribute('src')
