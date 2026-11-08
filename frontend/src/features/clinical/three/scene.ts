@@ -1698,6 +1698,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     plan: (rec: OcclRecord) => planFor(rec),
     // план в пути (воркер) — ключ просьбы; null — применён или не просили
     pending: () => askKey,
+    // план посчитан, применён и твин кончился (`whenOccluded`) — стенды меряют после
+    settled: () => whenOccluded().then(() => true),
     pose: () => ({ want: { ...occ }, applied: appliedPose(), teeth: { ...occT }, rest: occPlan?.rest ?? null, picks: occPlan?.picks ?? null }),
     // какие зубы сейчас НЕ на местах раскладки и показана ли деформированная десна (Q3: выкл — [] и false)
     moved: () => [...teeth].filter(([n, t]) => t.place !== shape.get(n)?.place).map(([n]) => n),
