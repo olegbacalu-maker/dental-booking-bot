@@ -10,14 +10,15 @@ import { buildDashedLoop, buildRoots, buildScrew, SURF, toCls, type Letter } fro
 import { crownModel, type CrownModel } from './crown'
 import { sculptModel, type SculptSet } from './sculpt'
 import { posed } from './pose'
-import { anchorsFor, archFrame, buildGum, linRgb, marginH, SITE_DEG, stripesFor, wallPoint, warpGum, type GumKind, type GumTooth, type WarpTooth } from './gum'
+import { anchorsFor, archFrame, buildGum, linRgb, marginH, SITE_DEG, stripesFor, wallPoint, type GumKind, type GumTooth } from './gum'
 import { roomEnv } from './env'
 import { comesFrom, MS, sceneFor, startLift } from './transition'
 import { createTweens, type Tweens } from './tween'
 import { EMPTY_BOUNDS, fillAt, fitRadius, isEmpty, mapBounds, union, type Bounds } from './fit'
 import { isFinger, LONG_MS, slopOf, swallowNextClick } from '../touch'
 import { biteAt, biteOf, blendPose, lowerPlacement, molarMark, occlusionK, poseLower, ZERO_POSE, type Bite, type BitePoints, type JawPose, type OcclGeo, type OcclRecord } from './occlusion'
-import { peekPlan, planKey, requestFrame, requestPlan, shapesPrint } from './occlusionAsync'
+import { peekPlan, planKey, requestGumShape, requestPlan, sendGum, shapesPrint } from './occlusionAsync'
+import type { GumShape } from './occlusionGum'
 import { depthOf, gap34, gapIncCanine, jawClear, molarGaps, occlusionPlan, PICKS_ALL, placeOf, teethMove, ZERO_TEETH, type OcclPlan, type Shapes, type TeethPlan, type ToothShape } from './occlusionPlan'
 
 /* Сцена одонтограммы (B7, ступень 4) — чистый three.js, без React: обе
@@ -406,10 +407,11 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     box: Bounds
     /** десна вслед за зубами по плану прикуса (этап 4): исходные вершины, станции и глубина —
      *  лениво, при первом сдвиге; `warped` — сейчас показана деформированная */
-    warp?: { base: Float32Array; u: Float32Array; depth: Float32Array; tu: Map<number, number> } | null
+    /** сетка десны у воркера (`occlusionAsync.sendGum`); вершины и нормали по раскладке */
+    gid?: number
+    base?: Float32Array
+    nor0?: Float32Array
     warped?: boolean
-    /** сетка десны, для которой рамка уже запрошена у воркера (`askFrame`) */
-    warpAsk?: T3.BufferGeometry | null
   }
   const jawGum: JawGum[] = []
   const shape = new Map<number, { place: PlacedTooth; g: ToothGeom; cm: CrownModel }>()
@@ -531,55 +533,108 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     J.marks.add(probes)
   }
 
-  /** Десна челюсти вслед за местами зубов (этап 4). Все зубы на местах раскладки —
-   *  исходная сетка как была (тот же массив вершин). */
+  /* Десна вслед за зубами (этап 4). Конечную форму десны при плане зубов считает воркер
+     (`occlusionGum.gumTarget`: деформация и нормали по 41 тыс. треугольников — 50–60 мс
+     кадром на месте); кадр твина только смешивает раскладку, «было» и «стало» — ~1 мс.
+     Для наклона и «веера» это хорда вместо дуги (до 0,2 мм в середине твина), в конце —
+     ровно форма плана. Пока форма в пути, десна стоит по раскладке и догоняет. */
+  let gumFrom: TeethPlan = { ...ZERO_TEETH }
+  let gumTo: TeethPlan = { ...ZERO_TEETH }
+  let gumProg = 1
+  const gumShapes = new Map<string, GumShape>()
+  const gumFlying = new Map<string, Promise<void>>()
+  const teethKey = (t: TeethPlan): string => TEETH_KEYS.map((k) => t[k]).join(',')
+  /** Форма десны J при плане зубов t: готовая или null (тогда запрос воркеру). */
+  function gumShapeOf(J: JawGum, t: TeethPlan): GumShape | null {
+    if (!teethMove(t) || J.gid === undefined) return null
+    const key = `${J.gid}|${teethKey(t)}`
+    const got = gumShapes.get(key)
+    if (got) return got
+    void askGum(J, t)
+    return null
+  }
+  function askGum(J: JawGum, t: TeethPlan): Promise<void> {
+    const gid = J.gid
+    const S = planShapes()
+    if (gid === undefined || !S || !teethMove(t)) return Promise.resolve()
+    const key = `${gid}|${teethKey(t)}`
+    if (gumShapes.has(key)) return Promise.resolve()
+    const f = gumFlying.get(key)
+    if (f) return f
+    fp ??= shapesPrint(S)
+    const p = requestGumShape(S, fp, gid, t).then((sh) => {
+      gumFlying.delete(key)
+      if (disposed || !sh || J.gid !== gid) return
+      gumShapes.set(key, sh)
+      while (gumShapes.size > 6) gumShapes.delete(gumShapes.keys().next().value as string)
+      warpGums()
+      invalidate()
+    })
+    gumFlying.set(key, p)
+    return p
+  }
+  /** Формы десны обеих челюстей для плана — до старта его твина (без «догоняния»). */
+  const gumReady = (t: TeethPlan): Promise<unknown> => Promise.all(jawGum.map((J) => askGum(J, t)))
+
+  /** Десна челюсти по текущей доле: раскладка + доля·(форма − раскладка) для «было» и
+   *  «стало» твина. Доля 0 (разомкнуто, «Parodont») — исходная сетка как была. */
   function warpGums(): void {
+    const k = occK()
     for (const J of jawGum) {
       const geo = J.geo
-      if (!geo) continue
-      const list = J.list.map((n) => ({ n, e: shape.get(n), t: teeth.get(n) })).filter((x) => x.e && x.t)
-      const moved = list.some((x) => x.t!.place !== x.e!.place)
-      if (!moved && !J.warped) continue
-      const attr = geo.getAttribute('position') as T3.BufferAttribute
-      // рамка (станция дуги и глубина каждой вершины) — воркером; пока в пути, десна
-      // стоит по раскладке и догоняет зубы, когда рамка придёт (60–100 мс на главном потоке)
-      if (!J.warp) {
-        askFrame(J)
-        continue
+      const B = J.base
+      const B0 = J.nor0
+      if (!geo || !B || !B0) continue
+      const a = k * (1 - gumProg)
+      const b = k * gumProg
+      const F = a > 0 ? gumShapeOf(J, gumFrom) : null
+      const T = b > 0 ? gumShapeOf(J, gumTo) : null
+      const pa = geo.getAttribute('position') as T3.BufferAttribute
+      const na = geo.getAttribute('normal') as T3.BufferAttribute
+      const P = pa.array as Float32Array
+      const N = na.array as Float32Array
+      if (!F && !T) {
+        if (!J.warped) continue
+        P.set(B)
+        N.set(B0)
+      } else {
+        const fa = F ? a : 0
+        const tb = T ? b : 0
+        const FP = F?.pos ?? B
+        const FN = F?.nor ?? B0
+        const TP = T?.pos ?? B
+        const TN = T?.nor ?? B0
+        for (let i = 0; i < P.length; i++) {
+          const bp = B[i] as number
+          const bn = B0[i] as number
+          P[i] = bp + fa * ((FP[i] as number) - bp) + tb * ((TP[i] as number) - bp)
+          N[i] = bn + fa * ((FN[i] as number) - bn) + tb * ((TN[i] as number) - bn)
+        }
       }
-      const W = J.warp
-      const wt: WarpTooth[] = list.map((x) => ({ u: W.tu.get(x.n) ?? 0, from: x.e!.place, to: x.t!.place })).sort((a, b) => a.u - b.u)
-      const next = moved ? warpGum(W.base, W.u, W.depth, wt) : W.base
-      ;(attr.array as Float32Array).set(next)
-      attr.needsUpdate = true
-      geo.computeVertexNormals()
+      pa.needsUpdate = true
+      na.needsUpdate = true
       geo.computeBoundingSphere()
-      J.warped = moved
+      J.warped = !!(F || T)
     }
   }
 
-  /** Рамка деформации десны (`gum.gumWarpFrame`) — у воркера, один раз на сетку десны;
-   *  запрашивается сразу после постройки десны, к приходу плана она обычно готова. */
-  function askFrame(J: JawGum): void {
+  /** Сетка десны — воркеру (рамку деформации он считает сам), вершины и нормали — на место. */
+  function shareGum(J: JawGum): void {
     const geo = J.geo
-    if (!geo || J.warpAsk === geo) return
-    J.warpAsk = geo
-    const attr = geo.getAttribute('position') as T3.BufferAttribute
-    const list = J.list.map((n) => ({ n, e: shape.get(n) })).filter((x) => x.e)
+    if (!geo) return
+    const pos = Float32Array.from((geo.getAttribute('position') as T3.BufferAttribute).array as ArrayLike<number>)
+    J.base = pos
+    J.nor0 = Float32Array.from((geo.getAttribute('normal') as T3.BufferAttribute).array as ArrayLike<number>)
     const F = archFrame(J.lay.A, J.lay.D, J.lay.apex)
-    const tu = new Map<number, number>()
-    const info = list.map((x) => {
-      const p = x.e!.place.position
-      const u = F.project(p[0], p[2], x.e!.place.s)
-      tu.set(x.n, u)
-      return { u, neckY: p[1], x: p[0], z: p[2] }
+    const info = J.list.flatMap((n) => {
+      const e = shape.get(n)
+      if (!e) return []
+      const p = e.place.position
+      return [{ n, u: F.project(p[0], p[2], e.place.s), neckY: p[1], x: p[0], z: p[2] }]
     })
-    const base = Float32Array.from(attr.array as ArrayLike<number>)
-    void requestFrame(base, J.lay.A, J.lay.D, J.lay.apex, info, J.upper ? -1 : 1).then((fr) => {
-      if (disposed || J.geo !== geo) return
-      J.warp = { base, u: fr.u, depth: fr.depth, tu }
-      warpGums()
-      invalidate()
+    J.gid = sendGum({
+      positions: pos, index: Uint32Array.from((geo.index?.array ?? []) as ArrayLike<number>),
+      A: J.lay.A, D: J.lay.D, apex: J.lay.apex, teeth: info, occ: J.upper ? -1 : 1,
     })
   }
 
@@ -600,9 +655,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
         J.grp.add(J.mesh)
       }
       J.geo = geo
-      J.warp = null
       J.warped = false
-      askFrame(J)
+      shareGum(J)
       buildMarks(J, list)
       // габарит для камеры под окно: коронки в системе челюсти (матрица зуба —
       // его место на дуге) и тело десны, под которым стоят корни; сдвиги
@@ -1221,6 +1275,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     const from: JawPose = { ...occ }
     const toT: TeethPlan = { ...(plan?.teeth ?? ZERO_TEETH) }
     const fromT: TeethPlan = { ...occT }
+    gumFrom = fromT
+    gumTo = toT
     tweens.kill('occl')
     if (OCC_KEYS.every((k) => from[k] === to[k]) && TEETH_KEYS.every((k) => fromT[k] === toT[k])) return
     // опора не едет вместе с углом: пока поворот растёт, точка опоры — та, вокруг
@@ -1236,6 +1292,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
         occ.pivotZ = pin.pivotZ
       }
       for (const key of TEETH_KEYS) occT[key] = fromT[key] + (toT[key] - fromT[key]) * k
+      gumProg = k
       if (k < 1) occT.fanPivot = fanPin
       placeJaws()
     }
@@ -1304,7 +1361,9 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       return
     }
     askKey = key
-    asking = requestPlan(S, fp, CLOSE_Y, rec, shown, key).then((plan) => {
+    asking = requestPlan(S, fp, CLOSE_Y, rec, shown, key).then(async (plan) => {
+      if (disposed || askKey !== key) return
+      if (plan) await gumReady(plan.teeth)
       if (disposed || askKey !== key) return
       askKey = null
       // пришёл позже первого кадра — тем же твином, без прыжка (разомкнуто — запоминается)

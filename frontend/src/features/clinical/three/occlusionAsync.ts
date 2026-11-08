@@ -1,24 +1,25 @@
-import { gumWarpFrame } from './gum'
 import type { OcclRecord } from './occlusion'
-import { occlusionPlan, type OcclPlan, type Shapes, type ToothShape } from './occlusionPlan'
+import { gumStore, gumTarget, type GumIn, type GumShape, type GumStore } from './occlusionGum'
+import { occlusionPlan, type OcclPlan, type Shapes, type TeethPlan, type ToothShape } from './occlusionPlan'
 import OcclWorker from './occlusionWorker?worker&inline'
 
-/* Прикус в 3D: план и рамка десны — в воркере (координатор 08.11). План разных классов
-   сторон стоил на главном потоке ~0,6 с (подбор «веера» и касание по всем парам), рамка
-   десны — 60–100 мс при первом «Ocluzie»: рывок при открытии вкладки. Теперь сцена рисуется
-   сразу (без плана или с прошлым), план приходит сообщением и едет тем же твином 700 мс.
-   Кэш планов — модуля, не сцены: повторное открытие вкладки (новая сцена) берёт готовый.
-   Без воркера (jsdom проверок, отказ браузера) — тот же расчёт на месте, но отложенно. */
+/* Прикус в 3D: план и десна — в воркере (координатор 08.11). План разных классов сторон
+   стоил на главном потоке до 0,6 с одной задачей (подбор «веера», касание по всем парам),
+   первая деформация десны — 50–100 мс кадром. Теперь сцена рисуется сразу (без плана или
+   с прошлым), план приходит сообщением и едет тем же твином 700 мс; конечную форму десны
+   считает воркер, кадры твина только смешивают. Кэш планов — модуля, не сцены: повторное
+   открытие вкладки (новая сцена) берёт готовый. Без воркера (jsdom проверок, отказ
+   браузера) — тот же расчёт на месте, но отложенно. */
 
 /** Сетки коронок воркеру — один раз на раскладку (отпечаток `shapesPrint`). */
 export interface ShapeMsg { t: 'shapes'; fp: string; shapes: [number, ToothShape][] }
+/** Сетка десны воркеру — один раз на сетку (`gid`); рамку он считает сам. */
+export interface GumMsg { t: 'gum'; gid: number; gum: GumIn }
 export interface AskPlan { t: 'plan'; id: number; fp: string; rec: OcclRecord; closeY: number; shown: number[] }
-export interface FrameTooth { u: number; neckY: number; x: number; z: number }
-export interface AskFrame { t: 'frame'; id: number; positions: Float32Array; A: number; D: number; apex: number; teeth: FrameTooth[]; occ: number }
+export interface AskShape { t: 'shape'; id: number; fp: string; gid: number; teeth: TeethPlan }
 export type Reply =
   | { t: 'plan'; id: number; plan: OcclPlan | null; missing: boolean }
-  | { t: 'frame'; id: number; u: Float32Array; depth: Float32Array }
-export interface Frame { u: Float32Array; depth: Float32Array }
+  | { t: 'shape'; id: number; shape: GumShape | null; missing: boolean }
 
 /** Отпечаток раскладки: номера, места, оси и размер сеток коронок (FNV-1a по
  *  округлённым числам). Тот же пациент с теми же размерами зубов — тот же отпечаток. */
@@ -64,24 +65,36 @@ function keep(key: string, p: OcclPlan | null): void {
 
 let worker: Worker | null | undefined   // undefined — не пробовали; null — нет
 let seq = 0
-const waiting = new Map<number, { msg: AskPlan | AskFrame; done: (r: Reply) => void }>()
+let gseq = 0
+const waiting = new Map<number, { msg: AskPlan | AskShape; done: (r: Reply) => void }>()
 const sent = new Set<string>()            // отпечатки, чьи сетки воркер уже получил
-const local = new Map<string, Shapes>()   // те же сетки на месте — для запасного пути
+const sentGum = new Set<number>()         // сетки десны, которые воркер уже получил
+const local = new Map<string, Shapes>()   // те же сетки на месте — для запасного пути и повтора
+const gums = new Map<number, GumIn>()     // сетки десны на месте — для повтора и запасного пути
+const stores = new Map<number, GumStore>() // рамки, посчитанные на месте (запасной путь)
 
 /** Ответ без воркера — те же функции на главном потоке. */
-function here(m: AskPlan | AskFrame): Reply {
+function here(m: AskPlan | AskShape): Reply {
   if (m.t === 'plan') {
     const S = local.get(m.fp)
     return { t: 'plan', id: m.id, plan: S ? occlusionPlan(m.rec, S, m.closeY, new Set(m.shown)) : null, missing: false }
   }
-  const fr = gumWarpFrame(m.positions, m.A, m.D, m.apex, m.teeth, m.occ)
-  return { t: 'frame', id: m.id, u: fr.u, depth: fr.depth }
+  const S = local.get(m.fp)
+  const g = gums.get(m.gid)
+  if (!S || !g) return { t: 'shape', id: m.id, shape: null, missing: false }
+  let G = stores.get(m.gid)
+  if (!G) {
+    G = gumStore(g)
+    stores.set(m.gid, G)
+  }
+  return { t: 'shape', id: m.id, shape: gumTarget(G, S, m.teeth), missing: false }
 }
 
 function lose(): void {
   worker?.terminate()
   worker = null
   sent.clear()
+  sentGum.clear()
   const all = [...waiting.values()]
   waiting.clear()
   for (const w of all) setTimeout(() => w.done(here(w.msg)), 0)
@@ -107,7 +120,7 @@ function workerOf(): Worker | null {
   return worker
 }
 
-function ask(m: AskPlan | AskFrame): Promise<Reply> {
+function ask(m: AskPlan | AskShape): Promise<Reply> {
   return new Promise((done) => {
     const w = workerOf()
     if (!w) {
@@ -125,6 +138,18 @@ export function packed(S: Shapes): [number, ToothShape][] {
   return [...S].map(([n, sh]) => [n, { ...sh, pos: Float64Array.from(sh.pos), index: Uint32Array.from(sh.index) }])
 }
 
+/** Сетки раскладки — воркеру один раз и на место (запасной путь, повтор). */
+function ensureShapes(S: Shapes, fp: string): void {
+  local.set(fp, S)
+  if (local.size > 3) local.delete(local.keys().next().value as string)
+  const w = workerOf()
+  if (w && !sent.has(fp)) {
+    const msg: ShapeMsg = { t: 'shapes', fp, shapes: packed(S) }
+    w.postMessage(msg)
+    sent.add(fp)
+  }
+}
+
 const flying = new Map<string, Promise<OcclPlan | null>>()
 /** План записи — из кэша модуля, иначе воркером (один расчёт на ключ, даже если
  *  просят дважды). Сетки воркеру уходят один раз на раскладку. */
@@ -133,15 +158,8 @@ export function requestPlan(S: Shapes, fp: string, closeY: number, rec: OcclReco
   if (hit !== undefined) return Promise.resolve(hit)
   const f = flying.get(key)
   if (f) return f
-  local.set(fp, S)
-  if (local.size > 3) local.delete(local.keys().next().value as string)
   const go = async (retry: boolean): Promise<OcclPlan | null> => {
-    const w = workerOf()
-    if (w && !sent.has(fp)) {
-      const msg: ShapeMsg = { t: 'shapes', fp, shapes: packed(S) }
-      w.postMessage(msg)
-      sent.add(fp)
-    }
+    ensureShapes(S, fp)
     const r = await ask({ t: 'plan', id: ++seq, fp, rec, closeY, shown: [...shown] })
     if (r.t !== 'plan') return null
     if (r.missing && retry) {
@@ -159,11 +177,45 @@ export function requestPlan(S: Shapes, fp: string, closeY: number, rec: OcclReco
   return p
 }
 
-/** Рамка деформации десны (`gum.gumWarpFrame`: станция дуги и глубина каждой вершины) — воркером. */
-export async function requestFrame(positions: Float32Array, A: number, D: number, apex: number, teeth: FrameTooth[], occ: number): Promise<Frame> {
-  // копия без передачи владения: если воркер упадёт, запасной путь посчитает по ней же
-  const r = await ask({ t: 'frame', id: ++seq, positions: Float32Array.from(positions), A, D, apex, teeth, occ })
-  return r.t === 'frame' ? { u: r.u, depth: r.depth } : gumWarpFrame(positions, A, D, apex, teeth, occ)
+/** Сетка десны — воркеру (рамку он считает сам); номер сетки для `requestGumShape`. */
+export function sendGum(g: GumIn): number {
+  const gid = ++gseq
+  gums.set(gid, g)
+  while (gums.size > 8) {
+    const old = gums.keys().next().value as number
+    gums.delete(old)
+    stores.delete(old)
+  }
+  const w = workerOf()
+  if (w) {
+    const msg: GumMsg = { t: 'gum', gid, gum: g }
+    w.postMessage(msg)
+    sentGum.add(gid)
+  }
+  return gid
+}
+
+/** Конечная форма десны `gid` при плане зубов — воркером. null — сетка забыта. */
+export async function requestGumShape(S: Shapes, fp: string, gid: number, teeth: TeethPlan): Promise<GumShape | null> {
+  const go = async (retry: boolean): Promise<GumShape | null> => {
+    ensureShapes(S, fp)
+    const w = workerOf()
+    const g = gums.get(gid)
+    if (w && g && !sentGum.has(gid)) {
+      const msg: GumMsg = { t: 'gum', gid, gum: g }
+      w.postMessage(msg)
+      sentGum.add(gid)
+    }
+    const r = await ask({ t: 'shape', id: ++seq, fp, gid, teeth })
+    if (r.t !== 'shape') return null
+    if (r.missing && retry) {
+      sent.delete(fp)
+      sentGum.delete(gid)
+      return go(false)
+    }
+    return r.shape
+  }
+  return go(true)
 }
 
 /** Для проверок: забыть кэш и воркер. */
@@ -171,6 +223,8 @@ export function resetOcclusionAsync(): void {
   plans.clear()
   flying.clear()
   local.clear()
+  gums.clear()
+  stores.clear()
   lose()
   worker = undefined
 }

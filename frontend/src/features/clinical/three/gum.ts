@@ -865,3 +865,36 @@ export function warpGum(base: ArrayLike<number>, u: ArrayLike<number>, depth: Ar
   }
   return out
 }
+
+/** Нормали вершин по треугольникам — как `BufferGeometry.computeVertexNormals` three
+ *  (сумма ненормированных нормалей граней, то есть с весом площади, затем единичные):
+ *  десна прикуса считается в воркере (`occlusionWorker`), где three нет. */
+export function vertexNormals(pos: ArrayLike<number>, index: ArrayLike<number>): Float32Array {
+  const acc = new Float64Array(pos.length)
+  for (let t = 0; t + 2 < index.length; t += 3) {
+    const a = (index[t] as number) * 3
+    const b = (index[t + 1] as number) * 3
+    const c = (index[t + 2] as number) * 3
+    const bx = pos[b] as number, by = pos[b + 1] as number, bz = pos[b + 2] as number
+    // cb × ab, как в three
+    const cbx = (pos[c] as number) - bx, cby = (pos[c + 1] as number) - by, cbz = (pos[c + 2] as number) - bz
+    const abx = (pos[a] as number) - bx, aby = (pos[a + 1] as number) - by, abz = (pos[a + 2] as number) - bz
+    const nx = cby * abz - cbz * aby
+    const ny = cbz * abx - cbx * abz
+    const nz = cbx * aby - cby * abx
+    for (const v of [a, b, c]) {
+      acc[v] = (acc[v] as number) + nx
+      acc[v + 1] = (acc[v + 1] as number) + ny
+      acc[v + 2] = (acc[v + 2] as number) + nz
+    }
+  }
+  const out = new Float32Array(pos.length)
+  for (let i = 0; i + 2 < acc.length; i += 3) {
+    const x = acc[i] as number, y = acc[i + 1] as number, z = acc[i + 2] as number
+    const l = Math.hypot(x, y, z) || 1
+    out[i] = x / l
+    out[i + 1] = y / l
+    out[i + 2] = z / l
+  }
+  return out
+}
