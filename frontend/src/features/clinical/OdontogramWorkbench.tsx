@@ -241,6 +241,7 @@ export function OdontogramWorkbench({
   }
   /* печать при черновиках: экран рисует несохранённое, и бумага выдала бы его
      за записанное — сперва запись, печать после того, как экран её отрисовал */
+  const printShot = useRef<(() => Promise<void>) | null>(null)
   const printChart = async () => {
     if (cmpOn) {
       cmp.close()
@@ -251,6 +252,8 @@ export function OdontogramWorkbench({
       if (!await doSave()) return
       await new Promise<void>((done) => requestAnimationFrame(() => setTimeout(done, 0)))
     }
+    // 3D: картинка сцены вместо холста — снята и раскодирована до печати (`Odontogram3D`)
+    await printShot.current?.()
     window.print()
   }
   /* Лист печати (08.11, замечание Олега «как выходит на бумаге»): шапка листа
@@ -499,7 +502,7 @@ export function OdontogramWorkbench({
                    поверхность и меню идут в панель, как из карты */
                 <Odontogram3D model={shown} selected={sel} onSurface={onSurface} onMenu={onMenu}
                   focus={focus3d} onZoom={setZoom} onDouble={onDouble} dim={dim} mode={scene}
-                  onFlat={() => c.setView('frontal')} onOcluzie={cmpOn || !idle ? undefined : toOcl} oclReq={oclReq} />
+                  onFlat={() => c.setView('frontal')} onOcluzie={cmpOn || !idle ? undefined : toOcl} oclReq={oclReq} printShotRef={printShot} />
               ) : (
                 <>
                   <div className="dp-vp-bar">

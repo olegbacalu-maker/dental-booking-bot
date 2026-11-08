@@ -18,10 +18,14 @@ vi.mock('../../services/api', async (importOriginal) => {
 })
 
 /* Сцена 3D в jsdom не рисуется — вместо неё запись того, что ей отдали. */
-const { frames } = vi.hoisted(() => ({ frames: [] as string[] }))
+const { frames, printed } = vi.hoisted(() => ({ frames: [] as string[], printed: [] as string[] }))
 vi.mock('./three/Odontogram3D', () => ({
-  Odontogram3D: ({ model, dim }: { model: Odontogram; dim: ReadonlySet<number> }) => {
+  Odontogram3D: ({ model, dim, printShotRef }: {
+    model: Odontogram; dim: ReadonlySet<number>; printShotRef?: { current: (() => Promise<void>) | null }
+  }) => {
     frames.push(`${model.teeth['16']!.state}/${model.bridges.length}`)
+    // снимок сцены для листа (08.11): кнопка печати обязана дождаться его ДО window.print
+    if (printShotRef) printShotRef.current = async () => { await Promise.resolve(); printed.push('shot') }
     return <div className="odo-stage" data-t16={model.teeth['16']!.state} data-dim={[...dim].sort().join(',')} />
   },
 }))
@@ -267,5 +271,16 @@ describe('Compară: правка выключена, слой не в печат
     fireEvent.click(screen.getByRole('button', { name: 'Printează' }))
     await waitFor(() => expect(window.print).toHaveBeenCalledTimes(1))
     expect(atPrint).toEqual(['saved', 'saved', 'false', 'false'])
+  })
+
+  it('печать в 3D: картинка сцены снята и дождана до window.print (08.11)', async () => {
+    printed.length = 0
+    window.print = vi.fn(() => { printed.push('print') })
+    localStorage.setItem('dp_odo_view', '3d')
+    open()
+    await waitFor(() => expect(document.querySelector('.odo-stage')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Printează' }))
+    await waitFor(() => expect(window.print).toHaveBeenCalledTimes(1))
+    expect(printed).toEqual(['shot', 'print'])
   })
 })

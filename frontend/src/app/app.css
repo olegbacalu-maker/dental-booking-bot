@@ -2786,16 +2786,19 @@ dialog.dp-about { width: 460px; }
    Квадраты легенды — фон, а WebView2 по умолчанию печатает без фона («Grafică
    de fundal»): `print-color-adjust: exact`. Карточка сцены не рвётся между
    листами (`break-inside: avoid`). */
-.dp-react-root .dp-odo-print { display: none; }
+.dp-react-root .dp-odo-print, .dp-react-root .odo-print { display: none; }
 @media print {
   .dp-react-root .dp-odo { height: auto; container-type: normal; }
   .dp-react-root .dp-odo .odop-grid { display: block; }
   .dp-react-root .dp-odo .dp-vp-body { height: auto; flex-direction: column; }
   .dp-react-root .dp-odo .dp-vp-body .odo-stage { flex: none; height: 420px; }
+  /* 3D — картинкой сцены (`scene.snapshot`), холст на лист не идёт: он печатал старый кадр */
+  .dp-react-root .odo-print[src] { display: block; width: 100%; height: auto; }
+  .dp-react-root .dp-vp-body:has(> .odo-print[src]) > .odo-stage { display: none; }
   .dp-react-root .dp-vp-ov { display: none; }
   .content:has(.dp-odo) > :is(h1, .sub),
   .dp-react-root:has(.dp-odo) > :is(.dp-crumbs, .hero, .dp-abanner, .kpi5, .wtabs),
-  .dp-react-root .dp-odo .dp-odo-head { display: none; }
+  .dp-react-root .dp-odo :is(.dp-odo-head, .dp-vp-bar, details.milk:not([open])) { display: none; }
   .dp-react-root .dp-odo-print { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin: 0 0 12px; padding: 0 0 8px; border-bottom: 1px solid var(--line); }
   .dp-react-root .dp-odo-print b { font-size: var(--fs-h3); font-weight: 600; color: var(--text); }
   .dp-react-root .dp-odo-print span { font-size: var(--fs-s); color: var(--text2); }

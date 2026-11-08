@@ -195,6 +195,8 @@ export interface ArchScene {
   bench(n: number): number
   invalidate(): void
   dispose(): void
+  /** картинка сцены для печати w×h (PNG data URL); '' — сцены нет. Экран не меняет. */
+  snapshot(w: number, h: number): string
 }
 
 interface ToothNodes {
@@ -1539,6 +1541,35 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   observer.observe(container)
   resize()
 
+  /** Картинка для печати (08.11, замечание Олега по бумаге). Бумага печатает БУФЕР
+   *  холста, а он без `preserveDrawingBuffer` и с кадрами по требованию — старый кадр
+   *  (у Олега: «Frontal», разомкнуто, без обводки), растянутый в блок листа. Здесь кадр
+   *  рисуется в размер листа w×h (радиус вида подгоняется, как в `resize`; фокус на зубе
+   *  — свой радиус) и снимается `toDataURL` в том же такте, пока буфер цел. Поза,
+   *  обводка, гашение и камера — те, что на экране. Потом размер буфера, камера и радиус
+   *  возвращаются, и экран перерисовывается сразу: CSS-размер холста не трогается вовсе. */
+  function snapshot(w: number, h: number): string {
+    if (disposed) return ''
+    const pr = renderer.getPixelRatio()
+    const keep = { aspect: cam.aspect, r: orb.r }
+    renderer.setPixelRatio(1)
+    renderer.setSize(w, h, false)
+    cam.aspect = w / h
+    cam.updateProjectionMatrix()
+    if (focusR === null) orb.r *= fitR(orb.theta, orb.phi) / viewR
+    applyCam()
+    renderer.render(scene, cam)
+    const url = renderer.domElement.toDataURL('image/png')
+    renderer.setPixelRatio(pr)
+    renderer.setSize(lw, lh, false)
+    cam.aspect = keep.aspect
+    cam.updateProjectionMatrix()
+    orb.r = keep.r
+    applyCam()
+    renderer.render(scene, cam)
+    return url
+  }
+
   // --- указатель: орбита, наведение, щелчок, правая кнопка ---
   const ray = new THREE.Raycaster()
   const ndc = new THREE.Vector2()
@@ -1799,6 +1830,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
 
   return {
     bench,
+    snapshot,
     inspect(n) {
       const t = teeth.get(n)
       if (!t) return null
