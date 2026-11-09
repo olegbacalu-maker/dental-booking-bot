@@ -3076,6 +3076,7 @@ dialog.dp-sign {
 .dp-sigpad {
   position: relative; height: 180px; border: 1px dashed var(--line); border-radius: var(--r-chip);
   background: #fff; color: #1d2b53; overflow: hidden;
+  isolation: isolate; /* холст (z-index 1) остаётся в своём слое и не рисуется поверх липкого подвала */
 }
 .dp-sigpad canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; z-index: 1; }
 .dp-sigpad .ph {
@@ -3089,7 +3090,7 @@ dialog.dp-sign {
 .dp-sign .sg-foot {
   display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap;
   margin: auto -16px 0; padding: 12px 16px; border-top: 1px solid var(--line);
-  background: var(--surface-live, var(--panel)); position: sticky; bottom: 0;
+  background: var(--surface-live, var(--panel)); position: sticky; bottom: 0; z-index: 2;
 }
 .dp-sign .sg-foot .sg-where, .dp-sign .sg-foot .sg-err {
   flex: 1 1 100%; min-width: 0; margin: 0; font-size: var(--fs-s); display: flex; align-items: center; gap: 6px;
