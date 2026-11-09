@@ -185,3 +185,40 @@ def suite_sandbox_dir(res: Result) -> None:
         os.environ.pop("DP_SANDBOX", None)
         if was is not None:
             os.environ["DP_SANDBOX"] = was
+
+
+def suite_up_listener(res: Result) -> None:
+    """`up` находит прошлый сервер на порту (09.11.2026).
+
+    На Windows 11 26300 у слушающего сокета поле состояния — мусор (`CLOSED`,
+    `FIN_WAIT_1`, а с числом 0 netstat строку не печатает вовсе), и разбор
+    netstat по `LISTENING` молча не находил прошлый сервер: второй `up` падал
+    10048, а запросы продолжал получать старый процесс. Проверка — живым
+    сокетом этого же прогона: слушатель обязан найтись с первого раза и при
+    IPv4, и при IPv6, а привязанный, но не слушающий сокет — нет.
+    """
+    if sys.platform != "win32":
+        res.ok("слушатели порта — только на Windows (пропуск)", True)
+        return
+    import socket
+    sys.path.insert(0, str(ROOT / "scripts"))
+    dev = importlib.import_module("dev")
+    me = str(os.getpid())
+    for family, host, name in ((socket.AF_INET, "127.0.0.1", "IPv4"),
+                               (socket.AF_INET6, "::1", "IPv6")):
+        try:
+            s = socket.socket(family, socket.SOCK_STREAM)
+            s.bind((host, 0))
+        except OSError as e:
+            res.ok(f"{name}: сокет не завёлся — пропуск", True, str(e))
+            continue
+        with s:
+            port = s.getsockname()[1]
+            res.ok(f"{name}: привязанный без listen — не слушатель",
+                   me not in dev._listener_pids(port), f"порт {port}")
+            s.listen()
+            hits = sum(me in dev._listener_pids(port) for _ in range(10))
+            res.ok(f"{name}: слушатель находится каждый раз (10 из 10)",
+                   hits == 10, f"порт {port}: {hits} из 10")
+        res.ok(f"{name}: закрытый сокет — не слушатель",
+               me not in dev._listener_pids(port), f"порт {port}")

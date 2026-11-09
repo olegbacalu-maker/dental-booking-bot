@@ -156,17 +156,67 @@ def cmd_mutate(argv: list) -> int:
 # ---------- up ----------
 
 def _listener_pids(port: int) -> list[str]:
-    """Кто слушает порт. netstat, а не Get-NetTCPConnection: у последнего в
-    `powershell -Command` съедается `$_`, и команда падает на пустом месте."""
-    r = subprocess.run(["netstat", "-ano", "-p", "TCP"], capture_output=True,
-                       text=True, encoding="utf-8", errors="replace")
-    pids = []
-    for line in (r.stdout or "").splitlines():
-        parts = line.split()
-        if len(parts) >= 5 and parts[3] == "LISTENING" \
-                and parts[1].endswith(f":{port}"):
-            pids.append(parts[4])
-    return sorted(set(pids))
+    """Кто слушает порт: `GetExtendedTcpTable` с классом
+    TCP_TABLE_OWNER_PID_LISTENER — ядро само отбирает слушателей и отдаёт
+    PID числом, IPv4 и IPv6.
+
+    ⛔ Не netstat и не число/слово состояния (09.11.2026). На этой машине
+    (Windows 11, сборка 26300) у слушающих сокетов поле состояния — мусор:
+    0, 1 (`CLOSED`), 6 (`FIN_WAIT_1`) и меняется от вызова к вызову;
+    `Get-NetTCPConnection` пишет `FinWait1`, так что `-State Listen` тоже
+    мимо, а строку с состоянием 0 netstat не печатает ВОВСЕ (слушатель
+    песочницы — 0 раз из 20). Сверка с `LISTENING` молча не находила
+    прошлый сервер: второй `up` падал 10048, старый продолжал отвечать.
+    Класс «только слушатели» в тех же замерах — 20 из 20.
+    """
+    if sys.platform != "win32":
+        return []
+    import ctypes
+    import ctypes.wintypes as w
+    import socket
+    import struct
+    get = ctypes.windll.iphlpapi.GetExtendedTcpTable
+    LISTENER = 3                                # TCP_TABLE_OWNER_PID_LISTENER
+    # Смещения в строке таблицы: (локальный порт, PID, длина строки).
+    # MIB_TCPROW_OWNER_PID: state, laddr, lport, raddr, rport, pid.
+    # MIB_TCP6ROW_OWNER_PID: laddr[16], scope, lport, raddr[16], scope,
+    # rport, state, pid.
+    layout = {socket.AF_INET: (8, 20, 24), socket.AF_INET6: (20, 52, 56)}
+    pids = set()
+    for family, (o_port, o_pid, row) in layout.items():
+        size = w.DWORD(0)
+        get(None, ctypes.byref(size), False, family, LISTENER, 0)
+        for _ in range(3):                      # таблица могла подрасти
+            buf = ctypes.create_string_buffer(size.value + 1024)
+            size = w.DWORD(len(buf))
+            rc = get(buf, ctypes.byref(size), False, family, LISTENER, 0)
+            if rc != 122:                       # ERROR_INSUFFICIENT_BUFFER
+                break
+        if rc != 0:
+            continue
+        n = struct.unpack_from("<I", buf.raw, 0)[0]
+        for i in range(n):
+            base = 4 + i * row
+            lport = struct.unpack_from("!H", buf.raw, base + o_port)[0]
+            pid = struct.unpack_from("<I", buf.raw, base + o_pid)[0]
+            if lport == port and pid:
+                pids.add(str(pid))
+    return sorted(pids, key=int)
+
+
+def _free_port(port: int, wait: float = 10.0) -> list[str]:
+    """Погасить всех слушателей порта и дождаться, пока порт освободится.
+    Возвращает PID, которые остались живы (пусто — порт свободен)."""
+    for pid in _listener_pids(port):
+        r = subprocess.run(["taskkill", "/PID", pid, "/F"], capture_output=True)
+        if r.returncode == 0:
+            print(f"Прошлый сервер на {port} погашен (PID {pid}).")
+    deadline = time.monotonic() + wait
+    left = _listener_pids(port)
+    while left and time.monotonic() < deadline:
+        time.sleep(0.2)
+        left = _listener_pids(port)
+    return left
 
 
 def cmd_up(argv: list) -> int:
@@ -180,9 +230,14 @@ def cmd_up(argv: list) -> int:
               f"Песочница её не занимает и не "
               f"гасит — возьми другой порт, например `.\\dev up 8099`.")
         return 2
-    for pid in _listener_pids(port):
-        subprocess.run(["taskkill", "/PID", pid, "/F"], capture_output=True)
-        print(f"Прошлый сервер на {port} погашен (PID {pid}).")
+    left = _free_port(port)
+    if left:
+        # Громко, а не дальше: молча запущенный второй сервер — это ровно
+        # «правка не применилась», от которой `up` и гасит прошлый.
+        print(f"Порт {port} держит PID {', '.join(left)} — погасить не вышло "
+              f"(чужой процесс или нет прав). Погаси его из Диспетчера задач "
+              f"или возьми другой порт.")
+        return 2
 
     box = sandbox_dir()
     box.mkdir(parents=True, exist_ok=True)
