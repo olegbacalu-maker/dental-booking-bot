@@ -44,6 +44,7 @@ from . import ocluzie as poccl
 from . import odontogram as podo
 from . import perio as pperio
 from . import plan_acord as pplan
+from . import sign as psign
 from . import visit as pvisit
 from ...core import shellopen, xlsx
 from ...core.auth import _guard, local_only
@@ -949,6 +950,24 @@ async def patient_plan_acord(request: Request, pid: int, lang: str = "",
                        "Acord informat la planul de tratament generat "
                        "pentru tipărire")
     return pplan.render(p, plan, diag, _doc_lang(p, lang), _back_to_card(pid, back))
+
+
+@router.get("/admin/patient/{pid}/sign/{key}", response_class=HTMLResponse)
+async def patient_sign_sheet(request: Request, pid: int, key: str, lang: str = ""):
+    """Лист бланка, КАК ОН БУДЕТ ПОДПИСАН (09.11, `sign.py`): окно подписи
+    показывает его рамкой над полем подписи. Без кнопок, A4, у анкеты —
+    ответы из фиши. Печатью не является: события «tipărit» не пишет
+    (статус печати бланка не должен сдвигаться от того, что лист показали
+    на экране). Нечего подписывать (план без активных, анкета не введена) —
+    404: окно для такого бланка не открывается (`forms[].sign`)."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    p = await db.get_patient(pid)
+    if not p or key not in psign.SIGNABLE:
+        return HTMLResponse("", status_code=404)
+    if psign.precheck(key, await db.plan_items(pid), await db.anamneza(pid)):
+        return HTMLResponse("", status_code=404)
+    return HTMLResponse(await psign.sheet(p, key, _doc_lang(p, lang), {}))
 
 
 # ---------- дневник визита (consultația) ----------

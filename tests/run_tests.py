@@ -61,6 +61,7 @@ import test_license_renew  # noqa: E402
 import test_react_default  # noqa: E402
 import test_relocate  # noqa: E402
 import test_scan  # noqa: E402
+import test_sign  # noqa: E402
 import test_split  # noqa: E402
 import test_srcpin  # noqa: E402
 import test_migrate  # noqa: E402
@@ -354,6 +355,10 @@ SUITES = [
     ("Фиша: узел React экрана", test_patient_card.suite_switch),
     ("Фиша: сканер — листы в один PDF", test_scan.suite_scan),
     ("Фиша: сканер — разрешение и размер листа", test_scan.suite_scan_dpi),
+    ("Фиша: подпись на экране — три бланка в PDF", test_sign.suite_sign),
+    ("Фиша: подпись на экране — отказы", test_sign.suite_sign_refuse),
+    ("Фиша: подпись на экране — машина без Edge", test_sign.suite_sign_no_edge),
+    ("Фиша: подпись на экране — листы и тело", test_sign.suite_sign_sheets),
     ("Дневник визита: JSON API", test_visit_api.suite_api),
     ("Дневник визита: узел React экрана", test_visit_api.suite_switch),
     ("Одонтограмма: JSON API", test_odontogram_api.suite_api),

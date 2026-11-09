@@ -122,6 +122,8 @@ _T = {
         "date": "Data", "sign": "Semnătura pacientului",
         "minor": ("Pentru pacient minor — reprezentantul legal: nume "
                   "______________________ semnătura ______________"),
+        "minor_signed": ("Pentru pacient minor — reprezentantul legal: nume "
+                         "<b>{name}</b> semnătura {sig}"),
         "opt_h": "Acorduri opționale",
         "opt_sub": ("nu condiționează tratamentul și pot fi retrase oricând, "
                     "la recepție:"),
@@ -178,6 +180,8 @@ _T = {
         "date": "Дата", "sign": "Подпись пациента",
         "minor": ("Для несовершеннолетнего пациента — законный представитель: "
                   "имя ______________________ подпись ______________"),
+        "minor_signed": ("Для несовершеннолетнего пациента — законный представитель: "
+                         "имя <b>{name}</b> подпись {sig}"),
         "opt_h": "Необязательные согласия",
         "opt_sub": ("не влияют на лечение и могут быть отозваны в любой "
                     "момент на стойке:"),
@@ -266,7 +270,50 @@ def sheet_nav(pid: int, path: str, lang: str, back: str) -> tuple[str, str]:
     return html.escape(other), html.escape(back)
 
 
-def render(p: dict, lang: str = "ro", back: str = "") -> str:
+# --- режим «с подписями» (09.11, подпись на экране) ---
+# Лист, подписанный на экране, — тот же лист: те же тексты и вёрстка, только
+# на месте линии «______» картинка подписи, а бумага — A4 (headless Edge без
+# `size` печатает Letter). ⛔ Без подписей (`sign=None`) лист печатается БАЙТ В
+# БАЙТ как раньше: режим ДОПИСЫВАЕТ, а не меняет. Один набор помощников на три
+# листа (acord, plan-acord, анкета), как `sheet_nav`.
+# `sign` — уже проверенный словарь (`sign.py`): signer «pacient»|«reprezentant»,
+# name (имя представителя), patient/doctor — data:image/png (перекодированный
+# сервером), consents {mkt, photo} — True/False/None. Пустой `{}` — ПРЕДПРОСМОТР
+# в окне подписи: лист как будет подписан, но мест подписи ещё нет.
+SIGN_CSS = (" .sig{height:14mm;max-width:62mm;vertical-align:middle;object-fit:contain}"
+            " .chk.on{background:#111} .sign{align-items:flex-end}"
+            " @page{size:A4}")
+LINE = "______________________"
+
+
+def sig_img(uri: str | None) -> str:
+    """Картинка подписи или прежняя линия (места подписи ещё нет)."""
+    return f"<img class='sig' src='{html.escape(uri)}' alt=''>" if uri else LINE
+
+
+def sig_patient(sign: dict | None) -> str:
+    """Место подписи пациента: без режима — линия; подписал пациент — его
+    подпись; подписал представитель — прочерк: строку пациента под чужой
+    рукой не оставляем пустой, иначе в распечатке PDF её подпишут потом."""
+    if not sign or not sign.get("signer"):
+        return LINE
+    return sig_img(sign.get("patient")) if sign["signer"] == "pacient" else "—"
+
+
+def minor_line(t: dict, sign: dict | None) -> str:
+    """Строка представителя: подписал он — имя и подпись, иначе как на бумаге."""
+    if sign and sign.get("signer") == "reprezentant":
+        return t["minor_signed"].format(name=html.escape(sign.get("name") or ""),
+                                        sig=sig_img(sign.get("patient")))
+    return t["minor"]
+
+
+def chk(on: bool | None = None) -> str:
+    """Квадратик: закрашен — отмечено на экране; пусто — не отвечено."""
+    return "<span class='chk on'></span>" if on else "<span class='chk'></span>"
+
+
+def render(p: dict, lang: str = "ro", back: str = "", sign: dict | None = None) -> str:
     e = html.escape
     lang = lang if lang in LANGS else "ro"
     t = texts(lang)
@@ -281,19 +328,19 @@ def render(p: dict, lang: str = "ro", back: str = "") -> str:
              or (eng.CONFIG or {}).get("address", {}).get("ro", ""))
     file_no = (p.get("file_no") or "").strip() or str(p["id"])
     today = datetime.now(eng.TZ).strftime("%d.%m.%Y")
-    chk = "<span class='chk'></span>"
+    cons = (sign or {}).get("consents") or {}
     ref = f"<p class='small' style='text-align:center'>{t['ref']}</p>" if t["ref"] else ""
     return f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{t["title"]} — {e(p.get("name") or "pacient")}</title>
-<style>{theme.paint(_CSS)}{theme.PRINT_PAGE_CSS}</style></head><body>
-
+<style>{theme.paint(_CSS)}{theme.PRINT_PAGE_CSS}{SIGN_CSS if sign is not None else ""}</style></head><body>
+{"" if sign is not None else f"""
 <div class="noprint">
   <button onclick="window.print()">{t["print"]}</button>
   <a href="{other_href}">{t["other"]}</a>
   <a href="{back_href}">{t["back"]}</a>
 </div>
-
+"""}
 {theme.print_logo("clogo c")}
 <h1>{t["h1"]}</h1>
 <p class="sub">{t["sub"]}</p>
@@ -327,14 +374,14 @@ IDNO {idno}, {addr or "<span class='fill'>«adresa»</span>"},
 <p class="decl"><b>{t["decl"]}</b></p>
 <div class="sign">
 <span>{t["date"]}: <b>{today}</b></span>
-<span>{t["sign"]}: ______________________</span>
+<span>{t["sign"]}: {sig_patient(sign)}</span>
 </div>
-<p class="small" style="margin-top:8px">{t["minor"]}</p>
+<p class="small" style="margin-top:8px">{minor_line(t, sign)}</p>
 
 <div class="cons">
 <b>{t["opt_h"]}</b> — {t["opt_sub"]}
-<div class="row">{chk} DA &nbsp; {chk} NU — {t["opt_mkt"]}</div>
-<div class="row">{chk} DA &nbsp; {chk} NU — {t["opt_photo"]}</div>
+<div class="row">{chk(cons.get("mkt") is True)} DA &nbsp; {chk(cons.get("mkt") is False)} NU — {t["opt_mkt"]}</div>
+<div class="row">{chk(cons.get("photo") is True)} DA &nbsp; {chk(cons.get("photo") is False)} NU — {t["opt_photo"]}</div>
 </div>
 {ref}
 <p class="foot">{t["foot"].format(no=e(file_no), date=today)}</p>

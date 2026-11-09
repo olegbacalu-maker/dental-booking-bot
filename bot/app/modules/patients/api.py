@@ -32,7 +32,7 @@ from ... import db
 from ... import engine as eng
 from ... import teeth_svg as tsvg
 from ...core.api import api_body, api_guard, api_own_doctor, api_require
-from ...core import recall
+from ...core import pdf, recall
 from ...core.auth import PERM_MONEY, PERM_RECALL, can, remote_notice, request_user
 from ...core.layout import ALERT_KINDS, STATUS_LABEL, _initials, msg_json, msg_text
 from ...core.visits import my_scope
@@ -43,10 +43,11 @@ from . import ocluzie as poccl
 from . import odontogram as podo
 from . import perio as pperio
 from . import scan as pscan
+from . import sign as psign
 from . import visit as pvisit
 from .routes import (_PL_BADGE, _PL_CANAL, _PL_PER, _PL_SORTS, _add_alert,
                      _add_bridge, _add_pay, _add_plan, _appoint, _del_bridge,
-                     _drop_doc, _erase, _free_slots, _new_patient, _open_doc,
+                     _doc_lang, _drop_doc, _erase, _free_slots, _new_patient, _open_doc,
                      _p_age, _peek_html, _perio_absent, _perio_ctx, _perio_del,
                      _pl_canal, _pl_dmy, _pl_money, _pl_new_foot, _pl_select,
                      _pl_status, _pl_trend, _plan_del, _plan_status,
@@ -208,10 +209,12 @@ async def api_patient_new(request: Request):
 # ответом на действие, оставившее строку в летописи, а несостоявшееся
 # удаление строки не оставляет — POST с выдуманным id читал бы фишу целиком
 # мимо журнала доступа (закон 195).
-_CONFLICT = {"bad_pdel", "bad_off", "past", "dup", "conflict"}
+_CONFLICT = {"bad_pdel", "bad_off", "past", "dup", "conflict",
+             "bad_sign_plan", "bad_sign_anam"}
 _GONE = {"alert_gone", "plan_gone", "doc_gone", "pay_gone"}
 _OK = {"", "ok", "ok_card", "ok_tel_dup", "ok_arh", "ok_unarh", "ok_anam", "ok_occl",
-       "ok_pay", "pay_del", "ok_doc", "ok_anon", "ok_del", "ok_refuz", "ok_scan"}
+       "ok_pay", "pay_del", "ok_doc", "ok_anon", "ok_del", "ok_refuz", "ok_scan",
+       "ok_sign"}
 
 
 def _reply(code: str, data=None, field: str = "", *, conflict: bool = False):
@@ -395,15 +398,10 @@ async def _card(pid: int, p: dict, *, views: bool, log_view: bool) -> dict:
                          for pl in pays],
             "can_delete": can(request_user(), PERM_MONEY),
         },
-        "documents": [{"id": d["id"], "filename": d["filename"],
-                       "when": d["uploaded_at"].astimezone(eng.TZ).strftime("%d.%m.%Y"),
-                       "size": pcard.doc_size(d["size"]), "mime": d["mime"] or "",
-                       "category": d["category"],
-                       "icon": pcard.DOC_ICON.get(d["category"], "file"),
-                       "category_label": pcard.DOC_CATEGORIES.get(d["category"], ""),
-                       "view": pcard.doc_view(d["mime"])} for d in docs],
-        # бланки программы со статусами: вкладка «Documente» — центр бумаг (01.10)
-        "forms": pcard.forms_view(last, docs, plan, anam),
+        "documents": [_doc_row(d) for d in docs],
+        # бланки программы со статусами: вкладка «Documente» — центр бумаг (01.10);
+        # `sign` — подпись на экране возможна (PDF делается на этой машине, 09.11)
+        "forms": pcard.forms_view(last, docs, plan, anam, pdf.available()),
         "visits": {
             "history": [_visit_row(v, base, nextv, recs, now) for v in visits[:pcard.HIST_SHOWN]],
             "live": [_visit_row(v, base, nextv, recs, now) for v in vv["live"]],
@@ -426,6 +424,17 @@ async def _card(pid: int, p: dict, *, views: bool, log_view: bool) -> dict:
         },
         "options": _options(),
     }
+
+
+def _doc_row(d: dict) -> dict:
+    """Строка списка «Documente» — одна на фишу и на ответ подписи."""
+    return {"id": d["id"], "filename": d["filename"],
+            "when": d["uploaded_at"].astimezone(eng.TZ).strftime("%d.%m.%Y"),
+            "size": pcard.doc_size(d["size"]), "mime": d["mime"] or "",
+            "category": d["category"],
+            "icon": pcard.DOC_ICON.get(d["category"], "file"),
+            "category_label": pcard.DOC_CATEGORIES.get(d["category"], ""),
+            "view": pcard.doc_view(d["mime"])}
 
 
 async def _card_reply(request: Request, pid: int, code: str, field: str = "", *,
@@ -703,6 +712,45 @@ async def api_patient_doc_upload(request: Request, pid: int, file: UploadFile = 
     form = await request.form()
     code = await _store_doc(pid, file, str(form.get("category") or "alt"))
     return await _card_reply(request, pid, code, "file" if code == "bad_doc" else "")
+
+
+@router.post("/api/patients/{pid}/forms/{key}/sign")
+async def api_patient_form_sign(request: Request, pid: int, key: str):
+    """Подпись бланка на экране (09.11, `sign.py`; контракт —
+    side-session-notes/2026-11-09/sign-contract.md). JSON: signer, signer_name,
+    sig_patient, sig_doctor (у acord_plan), consents (у acord195), lang.
+    Права — как у «Încarcă semnat» (любой вошедший; маршрут открыт из сети:
+    планшет у кресла — не «опасное действие»). Ответ — свежая фиша + `doc`
+    (новая строка «Documente»). PDF на этой машине не делается (нет Edge) или
+    Edge не справился — 503 `pdf_none`/`pdf_err`, ничего не записано."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    deny, p = await _owned(pid)
+    if deny is not None:
+        return deny
+    if key not in psign.SIGNABLE:
+        return msg_json(False, status=404)
+    body = await api_body(request)
+    code, field, sign = psign.parse(key, body)
+    if code:
+        return _reply(code, field=field)
+    code = psign.precheck(key, await db.plan_items(pid), await db.anamneza(pid))
+    if code:
+        return _reply(code)
+    try:
+        data = await psign.make_pdf(p, key, _doc_lang(p, _s(body, "lang")), sign)
+    except pdf.PdfError as e:
+        return msg_json(False, e.code, status=503)
+    cat = next(f[4] for f in pcard.FORMS if f[0] == key)
+    code = await _store_bytes(pid, psign.file_name(key, p), data, "application/pdf", cat)
+    if code != "ok_doc":
+        return _reply(code)
+    await db.log_event(pid, "sign", psign.event_text(key, sign, psign.sha256(data)))
+    docs = await db.documents(pid)
+    doc = next((d for d in docs if d["category"] == cat), None)
+    out = await _card(pid, p, views=_views(request), log_view=False)
+    out["doc"] = _doc_row(doc) if doc else None
+    return _reply("ok_sign", data=out)
 
 
 @router.post("/api/patients/{pid}/documents/{doc_id}/delete")

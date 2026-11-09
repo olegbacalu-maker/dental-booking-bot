@@ -111,6 +111,8 @@ _FORM_T = {
         "date": "Data", "sign": "Semnătura pacientului",
         "minor": ("Pentru pacient minor — semnătura reprezentantului legal: "
                   "______________________"),
+        "minor_signed": ("Pentru pacient minor — reprezentantul legal <b>{name}</b>, "
+                         "semnătura: {sig}"),
         "foot": ("Datele se prelucrează conform Legii nr. 195/2024 · "
                  "formular generat de DentPilot la {date}"),
         "back": "Fișa pacientului", "other": "Русская версия",
@@ -128,6 +130,8 @@ _FORM_T = {
         "date": "Дата", "sign": "Подпись пациента",
         "minor": ("Для несовершеннолетнего — подпись законного "
                   "представителя: ______________________"),
+        "minor_signed": ("Для несовершеннолетнего — законный представитель "
+                         "<b>{name}</b>, подпись: {sig}"),
         "foot": ("Данные обрабатываются согласно Закону № 195/2024 "
                  "(Legea nr. 195/2024) · бланк сформирован программой "
                  "DentPilot {date}"),
@@ -168,9 +172,17 @@ _FORM_CSS = """
 """
 
 
-def render_form(p: dict, lang: str = "ro", back: str = "") -> str:
+def render_form(p: dict, lang: str = "ro", back: str = "", sign: dict | None = None,
+                anam: dict | None = None) -> str:
     """Пустой бланк опросника с шапкой пациента — на принтер. `back` — вкладка
-    фиши, с которой открыли (кнопка «назад»); пусто = сама фиша."""
+    фиши, с которой открыли (кнопка «назад»); пусто = сама фиша.
+
+    `sign` (09.11, подпись на экране; помощники — `acord.py`): подписывать
+    ПУСТОЙ бланк на экране нечем — ручки нет, поэтому лист в этом режиме несёт
+    ответы ИЗ ФИШИ (`anam`): отмеченное — DA, неотмеченное — NU, «ничем из
+    перечисленного» — своей строкой, свободные поля — текстом. Подпись под
+    ним — подтверждение того, что ввела рецепция. Без `sign` — прежний пустой
+    бланк байт в байт."""
     import html
     from datetime import datetime
 
@@ -183,30 +195,38 @@ def render_form(p: dict, lang: str = "ro", back: str = "") -> str:
     other_href, back_href = pacord.sheet_nav(p["id"], "anamneza/print", other, back)
     e = html.escape
     today = datetime.now(eng.TZ).strftime("%d.%m.%Y")
-    chk = "<span class='chk'></span>"
+    signed = sign is not None
+    got = keys((anam or {}).get("flags") or "") if signed else set()
     rows = "".join(
         f"<tr><td>{e(v)}</td>"
-        f"<td class='a'>{chk} {t['yes']} &nbsp;&nbsp; {chk} {t['no']}</td></tr>"
-        for v in FLAGS[lang].values())
+        f"<td class='a'>{pacord.chk(signed and k in got)} {t['yes']} &nbsp;&nbsp; "
+        f"{pacord.chk(signed and k not in got)} {t['no']}</td></tr>"
+        for k, v in FLAGS[lang].items())
     # «ничем из перечисленного» — последней строкой, квадратик первым: это
     # утверждение на весь список, а не ответ DA/NU на один пункт
-    rows += (f"<tr class='none'><td colspan='2'>{chk} "
+    rows += (f"<tr class='none'><td colspan='2'>{pacord.chk(NONE_KEY in got)} "
              f"{e(NONE_LABEL['sheet'][lang])}</td></tr>")
-    free = "".join(
-        f"<div class='fl'><b>{e(TEXT_LABELS[lang][k])}:</b>"
-        f"<div class='ln'></div><div class='ln'></div></div>"
-        for k, _lab, _ph in TEXTS)
+    if signed:
+        free = "".join(
+            f"<div class='fl'><b>{e(TEXT_LABELS[lang][k])}:</b>"
+            f"{e(((anam or {}).get(k) or '').strip()) or '—'}</div>"
+            for k, _lab, _ph in TEXTS)
+    else:
+        free = "".join(
+            f"<div class='fl'><b>{e(TEXT_LABELS[lang][k])}:</b>"
+            f"<div class='ln'></div><div class='ln'></div></div>"
+            for k, _lab, _ph in TEXTS)
     return f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{t["title"]} — {e(p.get("name") or "")}</title>
-<style>{theme.paint(_FORM_CSS)}{theme.PRINT_PAGE_CSS}</style></head><body>
-
+<style>{theme.paint(_FORM_CSS)}{theme.PRINT_PAGE_CSS}{pacord.SIGN_CSS if signed else ""}</style></head><body>
+{"" if signed else f"""
 <div class="noprint">
   <button onclick="window.print()">{_ic('print')} {t["title"]}</button>
   <a href="{other_href}">{t["other"]}</a>
   <a href="{back_href}">{_ic('chev-l')} {t["back"]}</a>
 </div>
-
+"""}
 {theme.print_logo("clogo c")}
 <h1>{t["h1"]}</h1>
 <p class="lead">{t["lead"]}</p>
@@ -224,10 +244,10 @@ def render_form(p: dict, lang: str = "ro", back: str = "") -> str:
 {free}
 
 <div class="sign">
-<span>{t["date"]}: ______________</span>
-<span>{t["sign"]}: ______________________</span>
+<span>{t["date"]}: {f"<b>{today}</b>" if signed else "______________"}</span>
+<span>{t["sign"]}: {pacord.sig_patient(sign)}</span>
 </div>
-<p class="small">{t["minor"]}</p>
+<p class="small">{pacord.minor_line(t, sign)}</p>
 
 <p class="foot">{t["foot"].format(date=today)}</p>
 

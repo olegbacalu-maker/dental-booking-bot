@@ -353,6 +353,17 @@ MSG_BANNER = {
     "scan_none": ("err", "Niciun scaner nu a fost găsit — verificați că este pornit și conectat la acest calculator"),
     "scan_err": ("err", "Scanarea nu a reușit — verificați foaia și scanerul, apoi încercați din nou"),
     "scan_empty": ("warn", "Nicio pagină scanată — apăsați mai întâi „Scanează”"),
+    # подпись бланка на экране (09.11, modules/patients/sign.py): результат —
+    # PDF в документах фиши; без Edge (демо, не Windows) — честный отказ
+    "ok_sign": ("ok", "Document semnat și salvat în fișă (PDF)"),
+    "bad_sign": ("err", "Semnătura lipsește sau nu poate fi citită — semnați din nou în câmp"),
+    "bad_sign_name": ("err", "Scrieți numele reprezentantului legal"),
+    "bad_sign_plan": ("err", "Planul de tratament nu are poziții active — nu este ce semna"),
+    "bad_sign_anam": ("err", "Chestionarul nu este completat în fișă — completați-l, apoi semnați"),
+    "pdf_none": ("err", "Pe acest calculator nu se poate crea PDF (lipsește Microsoft Edge) — "
+                        "tipăriți foaia și încărcați-o semnată"),
+    "pdf_err": ("err", "PDF-ul nu a putut fi creat — încercați din nou sau tipăriți foaia "
+                       "și încărcați-o semnată"),
     "ok_med": ("ok", "Datele medicului au fost salvate"),
     "bad_med": ("err", "Date invalide — verificați câmpurile medicului"),
     "new_med": ("ok", "Medic adăugat — completați fișa lui"),

@@ -93,6 +93,21 @@ FORMS = (
     ("fisa043", "Fișa 043/e", "fisa043", "fisa043", "fisa043"),
 )
 FORM_KINDS = tuple(f[3] for f in FORMS)
+# бланки с подписью на экране (09.11, `sign.py`) — те же три, что с «Încarcă
+# semnat»; 043/e нет (лист живёт ручкой после печати)
+SIGNABLE = ("acord195", "acord_plan", "chestionar")
+
+
+def can_sign(key: str, plan: list, anam: dict | None) -> bool:
+    """Есть ли что подписывать на экране (без вопроса «есть ли PDF»):
+    согласие к плану — только при активных позициях (согласие дают ДО, и
+    пустое ни на что не соглашается), анкета — только введённая в фишу (лист
+    несёт ответы ИЗ ФИШИ, пустой подписывать нечем)."""
+    if key == "acord_plan":
+        return any(it["status"] in db.PLAN_ACTIVE for it in plan)
+    if key == "chestionar":
+        return bool(anam)
+    return key in SIGNABLE
 
 # растровые картинки, которые безопасно отдавать inline (для превью в фише).
 # ⛔ SVG и HTML сюда НЕ входят: файл с того же origin, показанный inline, — это
@@ -134,7 +149,9 @@ ACT_ICON = {"appt_new": "cal", "appt_status": "check", "appt_cancel": "ban",
             "pay": "money", "pay_del": "minus",
             # копии картотеки (17.10): отказ копии — заметно; восстановление
             "backup_fail": "sos", "restore": "save",
-            "view": "eye", "doc_view": "eye", "erase": "erase"}
+            "view": "eye", "doc_view": "eye", "erase": "erase",
+            # подпись бланка на экране (09.11): строка с отпечатком PDF
+            "sign": "pen"}
 
 # сколько строк летописи фиша показывает сразу; остальные — за кнопкой
 ACT_SHOWN = 10
@@ -295,7 +312,8 @@ def _dmy(v) -> str:
     return v.astimezone(eng.TZ).strftime("%d.%m.%Y") if hasattr(v, "astimezone") else ""
 
 
-def forms_view(last: dict, docs: list, plan: list, anam: dict | None) -> list[dict]:
+def forms_view(last: dict, docs: list, plan: list, anam: dict | None,
+               pdf_ok: bool = False) -> list[dict]:
     """Статусы бланков программы для вкладки «Documente» и полосы согласия в
     плане: `printed` — дата последней печати (из летописи, `last_events`),
     `signed` — последний загруженный скан этой категории (документы идут
@@ -303,7 +321,11 @@ def forms_view(last: dict, docs: list, plan: list, anam: dict | None) -> list[di
     `stale`: активная позиция появилась ПОСЛЕ подписи — бумага не покрывает
     нынешний план, и это обязано быть видно до «Începe», а не на проверке.
     У опросника `filled` — когда анамнез введён в фишу: это и есть его
-    настоящий статус, скан — дополнение."""
+    настоящий статус, скан — дополнение.
+    `sign` (09.11) — показывать ли «Semnează»: PDF на этой машине делается
+    (`pdf_ok`, нет Edge — демо в Docker) и есть что подписывать (`can_sign`).
+    Подписанный на экране лист — такой же документ категории, и `signed`/
+    `stale` считаются от него без единой новой колонки."""
     def signed(cat: str) -> dict | None:
         for d in docs:
             if d.get("category") == cat:
@@ -317,7 +339,8 @@ def forms_view(last: dict, docs: list, plan: list, anam: dict | None) -> list[di
         s = signed(cat)
         f = {"key": key, "title": title, "sheet": sheet, "category": cat,
              "printed": _dmy(last.get(kind)),
-             "signed": {"doc_id": s["doc_id"], "when": s["when"]} if s else None}
+             "signed": {"doc_id": s["doc_id"], "when": s["when"]} if s else None,
+             "sign": bool(pdf_ok and key in SIGNABLE and can_sign(key, plan, anam))}
         if key == "acord_plan":
             f["n_active"] = len(active)
             f["total"] = sum(it["price_mdl"] or 0 for it in active)

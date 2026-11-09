@@ -143,6 +143,9 @@ _T = {
                   "instituită o măsură de ocrotire judiciară — reprezentantul "
                   "legal: nume ______________________ "
                   "semnătura ______________"),
+        "minor_signed": ("Pentru pacient minor sau pacient în privința căruia a fost "
+                         "instituită o măsură de ocrotire judiciară — reprezentantul "
+                         "legal: nume <b>{name}</b> semnătura {sig}"),
         "med_h": "Declarația medicului",
         "med": ("Confirm că am explicat pacientului caracterul, scopul, "
                 "beneficiile, riscul intervențiilor descrise și variantele "
@@ -213,6 +216,9 @@ _T = {
                   "которого установлена мера судебной охраны, — законный "
                   "представитель: имя ______________________ "
                   "подпись ______________"),
+        "minor_signed": ("Для несовершеннолетнего пациента или пациента, в отношении "
+                         "которого установлена мера судебной охраны, — законный "
+                         "представитель: имя <b>{name}</b> подпись {sig}"),
         "med_h": "Заявление врача",
         "med": ("Подтверждаю, что объяснил(а) пациенту характер, цель, пользу, "
                 "риск описанных вмешательств и альтернативные варианты "
@@ -275,7 +281,18 @@ def medic_name(plan: list, patient: dict) -> str:
     return (patient.get("primary_doctor") or "").strip()
 
 
-def render(p: dict, plan: list, diag: str = "", lang: str = "ro", back: str = "") -> str:
+def _refuz_sig(sign: dict | None) -> str:
+    """Подпись под блоком отказа. Строки представителя у блока нет (как и на
+    бумаге), поэтому подпись представителя встаёт сюда же с его именем —
+    иначе отказ, подписанный на экране за ребёнка, остался бы неподписанным."""
+    if sign and sign.get("signer") == "reprezentant":
+        return (pacord.sig_img(sign.get("patient"))
+                + f" <span class='small'>({html.escape(sign.get('name') or '')})</span>")
+    return pacord.sig_patient(sign)
+
+
+def render(p: dict, plan: list, diag: str = "", lang: str = "ro", back: str = "",
+           sign: dict | None = None) -> str:
     """`plan` — ВСЕ позиции; активные идут в согласие, отказы — в блок отказа.
 
     Финализированное на лист не попадает: согласие подписывают ДО, а не после;
@@ -338,9 +355,9 @@ def render(p: dict, plan: list, diag: str = "", lang: str = "ro", back: str = ""
 <th>{t["ref_date"]}</th></tr>{rrows}</table>
 <p class="decl">{t["ref_decl"]}</p>
 <div class="sign"><span>{t["date"]}: <b>{today}</b></span>
-<span>{t["sign_p"]}: ______________________</span></div>
+<span>{t["sign_p"]}: {_refuz_sig(sign)}</span></div>
 <div class="sign"><span></span>
-<span>{t["sign_m"]}: ______________________</span></div>
+<span>{t["sign_m"]}: {pacord.sig_img((sign or {}).get("doctor"))}</span></div>
 </div>"""
 
     ref_note = (f"<p class='small' style='text-align:center'>{t['ref_note']}</p>"
@@ -348,14 +365,14 @@ def render(p: dict, plan: list, diag: str = "", lang: str = "ro", back: str = ""
     return f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{t["title"]} — {e(p.get("name") or "pacient")}</title>
-<style>{theme.paint(_CSS)}{theme.PRINT_PAGE_CSS}</style></head><body>
-
+<style>{theme.paint(_CSS)}{theme.PRINT_PAGE_CSS}{pacord.SIGN_CSS if sign is not None else ""}</style></head><body>
+{"" if sign is not None else f"""
 <div class="noprint">
   <button onclick="window.print()">{t["print"]}</button>
   <a href="{other_href}">{t["other"]}</a>
   <a href="{back_href}">{t["back"]}</a>
 </div>
-
+"""}
 {theme.print_logo()}
 <h1>{t["h1"]}</h1>
 <p class="sub">{t["sub"]}</p>
@@ -393,15 +410,15 @@ def render(p: dict, plan: list, diag: str = "", lang: str = "ro", back: str = ""
 <p class="decl"><b>{t["decl_h"]}.</b> {t["decl"]}</p>
 <div class="sign">
 <span>{t["date"]}: <b>{today}</b></span>
-<span>{t["sign_p"]}: ______________________</span>
+<span>{t["sign_p"]}: {pacord.sig_patient(sign)}</span>
 </div>
-<p class="small" style="margin-top:8px">{t["minor"]}</p>
+<p class="small" style="margin-top:8px">{pacord.minor_line(t, sign)}</p>
 
 <div class="medbox">
 <b>{t["med_h"]}.</b> {t["med"]}
 <div class="sign">
 <span>{t["med_name"]}: {_fill(medic_name(plan, p))}</span>
-<span>{t["sign_m"]}: ______________________</span>
+<span>{t["sign_m"]}: {pacord.sig_img((sign or {}).get("doctor"))}</span>
 </div>
 </div>
 
