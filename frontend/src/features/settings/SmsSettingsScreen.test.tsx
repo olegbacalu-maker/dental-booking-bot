@@ -86,6 +86,14 @@ describe('SmsSettingsScreen', () => {
     expect(screen.queryByText(/Clinica Test va reaminteste ca astazi/)).toBeNull()
   })
 
+  it.each([[1, '~1 zi'], [2, '~2 zile'], [20, '~20 de zile']])(
+    'остаток на %i дн. — румынской формой «%s» (09.11: было «~1 zile»)', async (days, want) => {
+      get.mockResolvedValueOnce(ok({ ...BASE, forecast: { ...BASE.forecast, days_left: days } }))
+      open()
+      await screen.findByText('42')
+      expect(screen.getByText(new RegExp(`restul ajunge pentru ${want}$`))).toBeTruthy()
+    })
+
   it('ultima verificare — готовое время сервера в поясе клиники, не сырая ISO-строка (07.11)', async () => {
     get.mockResolvedValueOnce(ok(BASE))
     open()

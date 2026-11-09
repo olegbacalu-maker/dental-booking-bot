@@ -7,6 +7,7 @@ import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
 import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError, type ApiResult } from '../../services/api'
+import { roCount } from '../../utils/plural'
 import { settings, type SmsData, type SmsNote, type SmsOrder, type SmsSettingsForm } from './settings'
 
 /* Setări › SMS (S6, docs/dentpilot-2/sms.md › «Экраны»). Видит и регистратура:
@@ -64,7 +65,11 @@ const T = {
   previewHint: 'Textele sunt stabilite de DentPilot (un singur SMS, fără date despre tratament); limba — din fișa pacientului. Text propriu — la cerere, scrieți-ne.',
   forecastTitle: 'Consum estimat',
   forecast: '~{month} SMS pe lună ({visits} vizite cu telefon în ultimele 30 de zile)',
-  forecastLeft: ' · restul ajunge pentru ~{days} zile',
+  forecastLeft: ' · restul ajunge pentru ~{days}',
+  // число дней — румынской формой (09.11: было «~1 zile»): 1 zi, 2–19 zile, 20 de zile
+  days1: '{n} zi',
+  daysFew: '{n} zile',
+  daysMany: '{n} de zile',
   forecastNone: 'Încă nu sunt vizite pentru estimare.',
   orderTitle: 'Comandă',
   orderHint: 'Nota de plată o plătiți cu cardul sau prin transfer bancar; după plată SMS-urile se adaugă automat.',
@@ -354,7 +359,8 @@ export function SmsSettingsScreen({ navigate = defaultNavigate }: Props) {
           <p className="hint">
             {data.forecast.visits > 0
               ? T.forecast.replace('{month}', String(data.forecast.month)).replace('{visits}', String(data.forecast.visits))
-                + (data.forecast.days_left !== null && acc ? T.forecastLeft.replace('{days}', String(data.forecast.days_left)) : '')
+                + (data.forecast.days_left !== null && acc ? T.forecastLeft.replace('{days}', roCount(data.forecast.days_left,
+                  { one: T.days1, few: T.daysFew, many: T.daysMany })) : '')
               : T.forecastNone}
           </p>
         </>
