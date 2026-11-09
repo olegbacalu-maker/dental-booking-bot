@@ -650,6 +650,59 @@ begin
   Log('Programma ne otpushchena za 30 s - zakryvaet Restart Manager');
 end;
 
+// Заставка сторожа — наверх (09.11, Олег: «окно обновления всегда на заднем
+// плане»). Сторожа с заставкой «2.11.0 › 2.12.0» запускает планировщик, и его
+// процессу Windows передний план не отдаёт: окно открывалось ПОД программой и
+// оставалось сзади, когда та закрывалась по «started». Сторож — копия СТОЯЩЕЙ
+// версии и сам себя поднимает только с 2.12.1; мастер приходит НОВЫМ, поэтому
+// поднимает чужое окно сам — сразу после выхода программы — и пишет итог в журнал
+// (мастеру за UAC Windows может и отказать: тогда как было).
+// Окно сверяется по процессу: только DentPilot-watch.exe (имя — update._WATCH_EXE).
+function GetWindowThreadProcessId(Wnd: HWND; var Pid: DWord): DWord;
+  external 'GetWindowThreadProcessId@user32.dll stdcall';
+function SetForegroundWindow(Wnd: HWND): Boolean;
+  external 'SetForegroundWindow@user32.dll stdcall';
+
+function IsWatchProcess(Pid: DWord): Boolean;
+var
+  Locator, Service, Procs: Variant;
+begin
+  Result := False;
+  try
+    Locator := CreateOleObject('WbemScripting.SWbemLocator');
+    Service := Locator.ConnectServer('.', 'root\CIMV2');
+    Procs := Service.ExecQuery(Format('SELECT ProcessId FROM Win32_Process WHERE ProcessId = %d ' +
+                               'AND Name = ''DentPilot-watch.exe''', [Pid]));
+    Result := Procs.Count > 0;
+  except
+    Log('WMI: ' + GetExceptionMessage);
+  end;
+end;
+
+procedure RaiseWatchSplash();
+var
+  Wnd: HWND;
+  Pid: DWord;
+begin
+  Wnd := FindWindowByWindowName('{#AppName}');
+  if Wnd = 0 then
+  begin
+    Log('Zastavka storozha: okna net');
+    Exit;
+  end;
+  Pid := 0;
+  GetWindowThreadProcessId(Wnd, Pid);
+  if not IsWatchProcess(Pid) then
+  begin
+    Log(Format('Zastavka storozha: okno ne storozha (pid %d)', [Pid]));
+    Exit;
+  end;
+  if SetForegroundWindow(Wnd) then
+    Log(Format('Zastavka storozha naverhu (pid %d)', [Pid]))
+  else
+    Log(Format('Zastavka storozha: Windows otkazala v perednem plane (pid %d)', [Pid]));
+end;
+
 // ⛔ Блокировка, а не предупреждение. Пока переезд данных (P2) не написан,
 // установка поверх старой раскладки оставила бы клинику с двумя картотеками:
 // новая программа завела бы пустую базу в папке данных, а настоящая осталась
@@ -660,7 +713,10 @@ var
 begin
   Result := '';
   if ExpandConstant('{param:RESULT|}') <> '' then
+  begin
     WaitAppExit();
+    RaiseWatchSplash();
+  end;
   Legacy := LegacyDir();
   if Legacy <> '' then
   begin

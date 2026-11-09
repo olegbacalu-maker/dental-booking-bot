@@ -167,6 +167,18 @@ def suite_first_run(res: Result) -> None:
            "{param:RESULT|}" in prep and "WaitAppExit()" in prep
            and prep.find("WaitAppExit()") < prep.find("LegacyDir()"),
            "PrepareToInstall не ждёт — RM снова застанет выходящий процесс")
+    # 09.11 (Олег: «окно обновления всегда на заднем плане»): заставку сторожа запускает
+    # планировщик, переднего плана ей Windows не даёт; мастер приходит НОВЫМ и поднимает
+    # её сам — после выхода программы, только окно процесса сторожа (имя — из update.py)
+    res.ok("тихое обновление поднимает заставку сторожа после выхода программы",
+           "RaiseWatchSplash();" in prep
+           and prep.find("WaitAppExit()") < prep.find("RaiseWatchSplash();") < prep.find("LegacyDir()"),
+           "заставка обновления останется за другими окнами")
+    upd = (BOT / "app" / "update.py").read_text(encoding="utf-8")
+    m = re.search(r'^_WATCH_EXE = "([^"]+)"', upd, flags=re.M)
+    res.ok("мастер узнаёт сторожа по тому же имени, что даёт ему update.py",
+           bool(m) and f"Name = ''{m.group(1)}''" in s and "SetForegroundWindow" in s,
+           f"update._WATCH_EXE={m.group(1) if m else None!r} — в DentPilot.iss другое имя")
     res.ok("ждём по пути exe программы",
            "ExecutablePath = " in s and "{app}\\{#AppExeName}" in s,
            "по имени попались бы чужие копии DentPilot.exe")

@@ -140,7 +140,10 @@ def suite_request(res: Result) -> None:
     """Просящая сторона: что именно ушло бы в UAC."""
     seen = []
 
-    def shell(_h, verb, file, params, _dir, _show):
+    owners = []
+
+    def shell(h, verb, file, params, _dir, _show):
+        owners.append(h)
         seen.append((verb, file, params))
         return 42                       # >32 = Windows показала окно
 
@@ -161,6 +164,14 @@ def suite_request(res: Result) -> None:
                f"через UAC уходит оболочка: {file}")
         res.ok("аргументы — метка, имя операции и значение",
                params == '"--privileged" "uninstall-version" "1.28.1"', params)
+        # 09.11: без хозяина окно UAC движка (у него нет окон) мигает на панели задач,
+        # а не открывается — хозяином уходит окно оболочки (`_owner_window`)
+        privileged.request("uninstall-version", "1.28.1", _shell=shell, _owner=0x5A5A)
+        res.check("хозяин окна UAC — окно оболочки", owners[-1], 0x5A5A)
+        privileged.request("uninstall-version", "1.28.1", _shell=shell, _owner=0)
+        res.check("окна оболочки нет — без хозяина, как было", owners[-1], None)
+        import os
+        res.check("у процесса без окон хозяина нет", privileged._owner_window(os.getpid()), None)
 
         seen.clear()
         for name, args in (("delete-everything", ()), ("uninstall-version", ("1.28",)),

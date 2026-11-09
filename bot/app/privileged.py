@@ -420,7 +420,40 @@ def handle_argv(argv: list[str], data_root=None, base=None) -> int | None:
         return 1
 
 
-def request(name: str, *args: str, _shell=None) -> bool:
+def _owner_window(pid: int | None = None) -> int | None:
+    """Окно оболочки — хозяин окна UAC (09.11, Олег: «окно обновления всегда на заднем
+    плане»). Просит права ДВИЖОК, у него окон нет и переднего плана тоже: Windows тогда
+    не открывает окно UAC сразу, а мигает им на панели задач, и через ~2 мин оно
+    закрывается само (`cancelled`, находка 05.11). Хозяин — видимое верхнее окно без
+    владельца у РОДИТЕЛЯ движка (оболочка Tauri, `update._watch_pid`): по нему человек
+    и нажал «Actualizează», оно на переднем плане. Не нашлось (сервер, исходники) —
+    `None`, как было."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+        import os
+        want = os.getppid() if pid is None else pid
+        user32 = ctypes.windll.user32
+        found: list[int] = []
+        proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+        def each(hwnd, _lp):
+            owner = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+            if (owner.value == want and user32.IsWindowVisible(hwnd)
+                    and not user32.GetWindow(hwnd, 4)):          # 4 = GW_OWNER
+                found.append(hwnd)
+                return False
+            return True
+        user32.EnumWindows(proc(each), 0)
+        return found[0] if found else None
+    except Exception:  # noqa: BLE001 — хозяин окна украшает; без него UAC как было
+        return None
+
+
+def request(name: str, *args: str, _shell=None, _owner=None) -> bool:
     """Попросить Windows выполнить операцию с повышением (UAC).
 
     `True` — запрос ПОКАЗАН, а не «сделано»: итог UAC отсюда не виден, и
@@ -448,8 +481,12 @@ def request(name: str, *args: str, _shell=None) -> bool:
     shell = _shell
     if shell is None:                       # шов для проверок: настоящий UAC
         import ctypes                       # в прогоне не показать
-        shell = ctypes.windll.shell32.ShellExecuteW
+        raw = ctypes.windll.shell32.ShellExecuteW
+
+        def shell(h, *rest):                # хозяин — указателем: число вне int не пролезло бы
+            return raw(ctypes.c_void_p(h) if h else None, *rest)
+    owner = _owner_window() if _owner is None else (_owner or None)   # шов: 0 = без хозяина
     try:
-        return shell(None, "runas", sys.executable, line, None, 0) > 32
+        return shell(owner, "runas", sys.executable, line, None, 0) > 32
     except (OSError, AttributeError):
         return False

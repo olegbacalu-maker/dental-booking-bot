@@ -452,8 +452,25 @@ pub fn main(args: &[OsString], context: tauri::Context<tauri::Wry>) -> i32 {
                     push(&win, &p2, &v);
                 })
                 .build();
-            if let Err(e) = window {
-                log(&format!("watch: no window ({e}) - watching without a screen"));
+            match window {
+                Err(e) => log(&format!("watch: no window ({e}) - watching without a screen")),
+                // Заставка — наверх, когда закрылась прежняя программа (09.11, Олег: «окно
+                // обновления всегда на заднем плане»). Сторожа запускает планировщик, а его
+                // процессу Windows передний план не отдаёт: окно открывалось ПОД программой и
+                // оставалось сзади, когда та закрывалась. Не сразу: пока программа жива, наверху
+                // она и её окно UAC (хозяин — её окно, `privileged._owner_window`); заставка
+                // поверх неё увела бы UAC на панель задач. `set_focus` у tao — SetForegroundWindow,
+                // а при отказе — нажатие Alt, которое снимает запрет (`force_window_active`).
+                Ok(w) => {
+                    let pid = plan.pid;
+                    std::thread::spawn(move || {
+                        while pid_alive(pid) {
+                            std::thread::sleep(STEP);
+                        }
+                        let r = w.set_focus();
+                        log(&format!("watch: old program {pid} closed - splash to the front: {r:?}"));
+                    });
+                }
             }
             let h = app.handle().clone();
             let (p3, v3) = (plan.clone(), v1.clone());

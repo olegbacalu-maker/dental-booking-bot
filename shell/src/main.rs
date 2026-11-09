@@ -604,6 +604,11 @@ fn main() {
                     let _ = window.maximize();
                 }
                 let _ = window.show();
+                // Окно — наверх (09.11): после обновления программу запускает сторож из
+                // планировщика, и без этого окно открывалось за другими. `set_focus` у tao
+                // пробует SetForegroundWindow, при отказе — нажатие Alt (`force_window_active`);
+                // запуск человеком (ярлык) проходит первой попыткой.
+                let _ = window.set_focus();
                 let _ = page.set_focus();
             }
 
