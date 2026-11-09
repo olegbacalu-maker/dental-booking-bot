@@ -140,6 +140,15 @@ def _cont_dashboard(request: Request, msg: str, c: str, tab: str = "") -> Respon
                                         tab=tab, modele_sms=modele_sms))
 
 
+@router.get("/", response_class=HTMLResponse)
+def root() -> Response:
+    """Корень облака — кабинет клиники (09.11): гость на /cont уходит ко входу (Google или код на
+    e-mail), вошедший видит свой кабинет. До 09.11 корень вёл на /admin, и первая посторонняя
+    клиника, открыв адрес облака, вписала свой e-mail во вход администратора. Админка — только
+    прямым адресом /admin; ссылок на неё с публичных страниц нет (test_robots.suite_root)."""
+    return RedirectResponse("/cont", status_code=303)
+
+
 @router.get("/cont", response_class=HTMLResponse)
 def cont_home(request: Request, msg: str = "", c: str = "") -> Response:
     return _cont_dashboard(request, msg, c)
@@ -340,14 +349,18 @@ def cont_register_submit(request: Request, name: str = Form(""), idno: str = For
         if outcome == trial.DUPLICATE:
             vid, link_code = account.request_link(con, acc, clinic, ip)
     outcome = trial.mailed(outcome, clinic, box.code, acc["email"])
-    if vid:
+    if vid and link_code:
         subject, body = mail.link_code(clinic["name"], link_code, int(trial.CODE_TTL.total_seconds() // 60),
                                        acc["email"], via="Google" if acc["provider"] == "google" else "e-mail")
         try:
             mail.send(clinic["email"], subject, body)
         except (RuntimeError, OSError, ValueError) as e:
             log.error("код подключения клинике %s не отправлен: %r", clinic["id"], e)
+            trial.unsent(vid)
             vid = ""                   # кода у клиники нет — и вводить нечего
+    elif vid:
+        # повтор той же просьбы (trial.CODE_REPEAT): тот же verify_id, письма уже ушли
+        return HTMLResponse(views.cont_code_page(acc, vid))
     trial.notify(clinic, outcome, ip, f, trial.ORIGIN_CONT)
     if outcome == trial.DUPLICATE:
         if vid:

@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 21
 TS = "%Y-%m-%dT%H:%M:%SZ"
 
 
@@ -31,6 +31,13 @@ def _hash_idem(con: sqlite3.Connection) -> None:
             continue
         con.execute("UPDATE sms_messages SET idem=? WHERE id=?",
                     (hashlib.sha256(idem.encode("utf-8")).hexdigest(), mid))
+
+def _add_asked_by(con: sqlite3.Connection) -> None:
+    """Шаг 21: `activation_codes.asked_by`. Функцией, а не голым ALTER: шаги после 18 переживают повтор
+    (наборы откатывают версию на живой схеме и зовут init дважды), а ADD COLUMN второй раз — ошибка."""
+    if "asked_by" not in {r[1] for r in con.execute("PRAGMA table_info(activation_codes)")}:
+        con.execute("ALTER TABLE activation_codes ADD COLUMN asked_by TEXT NOT NULL DEFAULT ''")
+
 
 MIGRATIONS = {
     1: [
@@ -339,6 +346,11 @@ MIGRATIONS = {
             uploaded_at TEXT NOT NULL, who TEXT NOT NULL)""",
         "CREATE INDEX IF NOT EXISTS ix_clinic_contracts_clinic ON clinic_contracts(clinic_id, id)",
     ],
+    # Повтор заявки за секунды (09.11, первая посторонняя клиника: форма программы ушла дважды за
+    # 1,3 с — два письма, программа ждала второй код, первый ввод «неверный»): кто просил код —
+    # `who|сеть адреса` (trial.asker). Тот же проситель в CODE_REPEAT получает прежний живой код,
+    # без нового письма (trial.new_code). Старые строки — '' и ни с кем не совпадают.
+    21: [_add_asked_by],
 }
 
 

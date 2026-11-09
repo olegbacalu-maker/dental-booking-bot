@@ -119,6 +119,8 @@ SUITES = [
     ("Сервер: форма пробного — approve, кнопки, скрыть", test_trial.suite_approve),
     ("Сервер: заявка из программы — токен, выдача, повтор, скрыть, auto", test_trial.suite_program),
     ("Сервер: новый компьютер — код на e-mail клиники, код → токен → файл", test_trial.suite_code),
+    ("Сервер: повтор просьбы кода за секунды — тот же verify_id, одно письмо; отказ почты, окно",
+     test_trial.suite_code_repeat),
     ("E-mail клиники: письмо о пробном, ссылка, страница с кнопкой (GET не пишет)", test_email.suite_letter),
     ("E-mail клиники: программа — код, «Retrimite», «Schimbă adresa», лимит", test_email.suite_program),
     ("E-mail клиники: ошибки кода и ссылка из письма", test_email.suite_attempts),
@@ -209,6 +211,7 @@ SUITES = [
     ("Образцы 195 в кабинете: только под входом, своя клиника и филиал, вкладка, SMS, вход из программы",
      test_modele.suite_cabinet),
     ("Поисковики: noindex на каждом ответе, robots.txt обход не закрывает", test_robots.suite),
+    ("Корень облака — кабинет клиники, админка только прямым адресом", test_robots.suite_root),
 ]
 
 if __name__ == "__main__":

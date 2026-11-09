@@ -38,7 +38,9 @@ DentPilot»; о повторе узнаёт Олег письмом и отве�
 CODE_TTL, выдерживает CODE_ATTEMPTS ошибок и один успех, хранится хешем;
 кодов клинике — не больше CODES_PER_HOUR в час, проверок с адреса — не больше
 VERIFY_PER_HOUR. Чужой, вписавший IDNO клиники, получит «код отправлен», а
-код — владелец ящика.
+код — владелец ящика. Повтор той же просьбы в CODE_REPEAT (двойной клик, 09.11)
+— тот же verify_id и ни письма, ни строки кода: иначе программа ждёт второй код,
+а директор вводит первый из письма.
 """
 from __future__ import annotations
 
@@ -73,6 +75,13 @@ VERIFY_PATH = "/v1/verify"       # код из письма → токен кл�
 CODE_TTL = timedelta(minutes=15)
 CODE_ATTEMPTS = 5                # ошибок на один код; дальше код сгорает
 CODES_PER_HOUR = 3               # кодов одной клинике в час: письма не станут спамом
+# Повтор той же просьбы (09.11): тот же проситель (`asker`) той же клиники в это окно получает
+# прежний живой код — тот же verify_id, без письма и без новой строки. Двойной клик и повтор формы
+# (1,3 с у первой посторонней клиники; SMTP думает до 30 с, ответа программа ждёт всё это время)
+# укладываются с запасом, а нарочная «пришлите ещё раз» через пару минут даёт новый код: письмо
+# могло не дойти. Окно короче CODE_TTL намеренно — прежний код за окном ещё жив, но новый тогда
+# нужнее (открытым текстом кода нет, переслать прежний нельзя).
+CODE_REPEAT = timedelta(minutes=2)
 VERIFY_PER_HOUR = 20             # проверок кода с одного адреса в час
 _verify_hits: dict[str, list[float]] = {}
 MAX_PER_HOUR = 5                 # заявок с одного адреса (IPv6 — с одной /64) в час
@@ -332,11 +341,28 @@ def _code_hash(vid: str, code: str) -> str:
     return hashlib.sha256(f"{vid}:{code}".encode("utf-8")).hexdigest()
 
 
+def asker(who: str, ip: str) -> str:
+    """Кто просит код: `who` и сеть адреса (bucket). Повтор узнаётся только у того же просителя:
+    код, который попросила программа, не достаётся Google-аккаунту кабинета (его ошибки жгли бы
+    чужой код), и второй компьютер клиники с другого адреса получает свой."""
+    return f"{who}|{bucket(ip)}"
+
+
 def new_code(con: sqlite3.Connection, clinic: sqlite3.Row, ip: str, who: str = "program") -> tuple[str, str]:
-    """Код для клиники → (verify_id, код) или ('', ''): у клиники нет ящика или
-    лимит кодов за час исчерпан. Письмо шлёт вызывающий — после транзакции.
-    `who` — кто просит: программа или Google-аккаунт из кабинета (01.10)."""
+    """Код для клиники → (verify_id, код); (verify_id, '') — повтор той же просьбы в CODE_REPEAT:
+    прежний код жив (не погашен, не сожжён, не просрочен), письма слать НЕ надо — он уже ушёл;
+    ('', '') — у клиники нет ящика или лимит кодов за час исчерпан. Письмо шлёт вызывающий —
+    после транзакции. `who` — кто просит: программа или Google-аккаунт из кабинета (01.10)."""
     now = datetime.now(timezone.utc)
+    by = asker(who, ip)
+    again = con.execute("SELECT id FROM activation_codes WHERE clinic_id=? AND asked_by=? AND created_at >= ? "
+                        "AND used_at IS NULL AND attempts < ? AND expires_at > ? ORDER BY created_at DESC LIMIT 1",
+                        (clinic["id"], by, (now - CODE_REPEAT).strftime(db.TS), CODE_ATTEMPTS,
+                         now.strftime(db.TS))).fetchone()
+    if again is not None and clinic["email"]:
+        db.audit(con, who, "code_repeat", clinic["id"], f"повтор за {int(CODE_REPEAT.total_seconds())} с: "
+                                                        f"прежний код, без письма, {ip}")
+        return again["id"], ""
     hour_ago = (now - timedelta(hours=1)).strftime(db.TS)
     recent = con.execute("SELECT count(*) FROM activation_codes WHERE clinic_id=? AND created_at > ?",
                          (clinic["id"], hour_ago)).fetchone()[0]
@@ -345,11 +371,21 @@ def new_code(con: sqlite3.Connection, clinic: sqlite3.Row, ip: str, who: str = "
         return "", ""
     vid = secrets.token_urlsafe(18)
     code = f"{secrets.randbelow(10 ** 6):06d}"
-    con.execute("INSERT INTO activation_codes(id, clinic_id, code_hash, created_at, expires_at) "
-                "VALUES(?,?,?,?,?)", (vid, clinic["id"], _code_hash(vid, code), now.strftime(db.TS),
-                                      (now + CODE_TTL).strftime(db.TS)))
+    con.execute("INSERT INTO activation_codes(id, clinic_id, code_hash, created_at, expires_at, asked_by) "
+                "VALUES(?,?,?,?,?,?)", (vid, clinic["id"], _code_hash(vid, code), now.strftime(db.TS),
+                                        (now + CODE_TTL).strftime(db.TS), by))
     db.audit(con, who, "code_sent", clinic["id"], f"на {clinic['email']}, {ip}")
     return vid, code
+
+
+def unsent(vid: str) -> None:
+    """Письмо с кодом не ушло → код сжечь (своей короткой транзакцией, после почты): иначе повтор
+    в CODE_REPEAT отдал бы verify_id кода, которого никто не получил, — и без письма."""
+    try:
+        with db.connect(immediate=True) as con:
+            con.execute("UPDATE activation_codes SET attempts=? WHERE id=?", (CODE_ATTEMPTS, vid))
+    except sqlite3.Error:
+        pass                # не сожгли — повтор за окном всё равно получит новый
 
 
 def verify_limited(ip: str) -> bool:

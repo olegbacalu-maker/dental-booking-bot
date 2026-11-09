@@ -23,11 +23,6 @@ _IDNO = re.compile(r"^[0-9]{13}$")
 # ---------- вход ----------
 
 
-@router.get("/", response_class=HTMLResponse)
-def root() -> Response:
-    return RedirectResponse("/admin", status_code=303)
-
-
 @router.get("/admin/login", response_class=HTMLResponse)
 def login_page(msg: str = "") -> Response:
     return HTMLResponse(views.login_page(msg))

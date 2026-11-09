@@ -321,14 +321,19 @@ def _trial_program(f: dict, ip: str, ident: dict | None = None,
             token = license.renew_token(con, fresh)
             fleet.touch(con, clinic["id"], ident)
     outcome = trial.mailed(outcome, clinic, box.code, "program")
-    if vid:
+    if vid and code:
         subject, body = mail.activation_code(clinic["name"], code,
                                              int(trial.CODE_TTL.total_seconds() // 60))
         try:
             mail.send(clinic["email"], subject, body)
         except (RuntimeError, OSError, ValueError) as e:
             log.error("код активации клинике %s не отправлен: %r", clinic["id"], e)
+            trial.unsent(vid)
             vid = ""                   # кода у клиники нет — и вводить нечего
+    elif vid:
+        # повтор той же просьбы (trial.CODE_REPEAT): прежний код уже в ящике, его verify_id — тот же;
+        # ни письма клинике, ни второго письма Олегу о том же повторе
+        return outcome, token, vid, act
     trial.notify(clinic, outcome, ip, f, trial.ORIGIN_PROGRAM)
     if outcome == trial.REQUESTED:
         trial.acknowledge(clinic)

@@ -12,12 +12,13 @@ import re
 import sqlite3
 import subprocess
 import sys
+import threading
 
 from harness import CLOUD, FIX, ROOT, Client, Result, Server, load_by_path
 
 rv = load_by_path("rsa_verify", ROOT / "bot" / "app" / "core" / "rsa_verify.py")
 sys.path.insert(0, str(CLOUD))
-from app import license, mail  # noqa: E402 — срок пробного и его слова
+from app import db as cdb, license, mail, trial as ctrial  # noqa: E402 — схема, срок пробного, слова, окно кода
 KEY = json.loads((FIX / "test-key.json").read_text(encoding="utf-8"))
 KEYS = {"test": (int(KEY["n"], 16), int(KEY["e"]))}
 GOOD = dict(name="Clinica Probă", idno="1234567890123", contact_name="Ana", email="proba@example.md",
@@ -450,4 +451,107 @@ def suite_code(res: Result) -> None:
         _write(s, "UPDATE clinics SET declined_at='2026-09-26T10:00:00Z' WHERE email=?", "ascunsa@example.md")
         res.ok("заявку скрыли, пока код шёл: верный код токена не даёт (400)",
                len(code4) == 6 and _verify(anon, vid4, code4)[0] == 400, f"{vid4!r} {code4!r}")
+
+
+# ---------- повтор той же просьбы кода (09.11): двойной клик — один код ----------
+
+
+def _codes(s: Server, cid: str) -> list:
+    return _sql(s, "SELECT id, attempts, asked_by FROM activation_codes WHERE clinic_id=? ORDER BY created_at, rowid",
+                cid)
+
+
+def suite_code_repeat(res: Result) -> None:
+    """Первая посторонняя клиника (09.11): форма активации ушла дважды за 1,3 с — два письма с кодами,
+    программа ждала второй, первый ввод «неверный». Повтор того же просителя в trial.CODE_REPEAT —
+    тот же verify_id, без письма клинике и без второго письма Олегу; погашенный, просроченный за
+    окном и неотправленный код не переиспользуются; проситель другой — код свой."""
+    from test_mail_tx import Smtp  # noqa: PLC0415 — стенд почты, который умеет думать и отказывать
+    # чистое правило — на базе в памяти: кто просит, тот и получает прежний код
+    con = sqlite3.connect(":memory:", isolation_level=None)
+    con.row_factory = sqlite3.Row
+    con.execute("CREATE TABLE schema_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    for step in range(1, cdb.SCHEMA_VERSION + 1):
+        cdb.apply_step(con, step)
+    con.execute("INSERT INTO clinics(id, name, email, created_at) VALUES('c_r', 'R', 'r@example.md', ?)",
+                (cdb.now_iso(),))
+    cl = con.execute("SELECT * FROM clinics WHERE id='c_r'").fetchone()
+    v1, k1 = ctrial.new_code(con, cl, "192.0.2.1")
+    v2, k2 = ctrial.new_code(con, cl, "192.0.2.1")
+    res.ok("тот же проситель в окне: тот же verify_id и кода нет (письмо не шлётся)",
+           len(k1) == 6 and v2 == v1 and k2 == "", f"{v1!r} {v2!r} {k2!r}")
+    v3, k3 = ctrial.new_code(con, cl, "192.0.2.1", who="director@gmail.com")
+    v4, k4 = ctrial.new_code(con, cl, "198.51.100.7")
+    res.ok("другой проситель (кабинет) и другой адрес — свой код",
+           len({v1, v3, v4}) == 3 and len(k3) == 6 and len(k4) == 6, f"{v3!r} {v4!r}")
+    con.execute("UPDATE activation_codes SET attempts=? WHERE id=?", (ctrial.CODE_ATTEMPTS, v4))
+    res.check("сожжённый код не переиспользуется: «лимит» (четвёртый за час)",
+              ctrial.new_code(con, cl, "198.51.100.7"), ("", ""))
+    res.check("окно короче срока кода и не меньше минуты",
+              (ctrial.CODE_REPEAT < ctrial.CODE_TTL, ctrial.CODE_REPEAT.total_seconds() >= 60), (True, True))
+
+    smtp = Smtp()
+    box, oleg = "dublu@example.md", "oleg@example.md"
+    try:
+        with Server(env={**smtp.env, "DP_TRIAL_MODE": "auto", "DP_TRIAL_NOTIFY": oleg}) as s:
+            first = dict(GOOD, name="Clinica Dublu", idno="5005005005005", email=box)
+            st, _d = _api(Client(s.url), first)
+            cid = _clinics(s)[-1][0]
+            res.ok("клиника заведена (auto)", st == 200, repr(_d))
+            n_box, n_oleg, n_sess = len(smtp.to(box)), len(smtp.to(oleg)), smtp.sessions
+            # двойной клик: второй запрос приходит, пока первый ещё отдаёт письмо почте
+            smtp.hold = 1.0
+            out: list = []
+            t1 = threading.Thread(target=lambda: out.append(_api(Client(s.url), first)))
+            t1.start()
+            res.ok("первый запрос дошёл до почты", smtp.wait("sessions", n_sess + 1))
+            t2 = threading.Thread(target=lambda: out.append(_api(Client(s.url), first)))
+            t2.start()
+            t1.join(30)
+            t2.join(30)
+            smtp.hold = 0.0
+            vids = [d.get("verify_id", "") for _st, d in out]
+            res.ok("оба ответа — 409 duplicate «cod de activare» с ОДНИМ verify_id",
+                   len(out) == 2 and all(st == 409 and d.get("code") == "duplicate"
+                                         and "cod de activare" in d.get("text", "") for st, d in out)
+                   and len(vids[0]) >= 16 and vids[0] == vids[1], repr(out))
+            res.check("клинике — одно письмо с кодом", len(smtp.to(box)) - n_box, 1)
+            res.check("Олегу — одно письмо о повторе, не два", len(smtp.to(oleg)) - n_oleg, 1)
+            res.check("в базе — одна строка кода", len(_codes(s, cid)), 1)
+            res.check("журнал: code_sent один, code_repeat один",
+                      _sql(s, "SELECT what, count(*) FROM audit WHERE what IN ('code_sent','code_repeat') "
+                              "GROUP BY what ORDER BY what"), [("code_repeat", 1), ("code_sent", 1)])
+            code = re.search(r"\b(\d{6})\b", smtp.to(box)[-1][2]).group(1)
+            st, d = _verify(Client(s.url), vids[0], code)
+            res.ok("код из единственного письма принят по этому verify_id", st == 200 and d.get("token"), repr(d))
+
+            st, d = _api(Client(s.url), first)
+            res.ok("код погашен — новая просьба в окне получает НОВЫЙ код и письмо",
+                   st == 409 and d.get("verify_id") not in ("", vids[0]) and len(smtp.to(box)) - n_box == 2, repr(d))
+            _write(s, "UPDATE activation_codes SET created_at='2000-01-01T00:00:00Z' WHERE id=?", d["verify_id"])
+            st, d2 = _api(Client(s.url), first)
+            res.ok("за окном (живой, но старше CODE_REPEAT) — новый код и письмо: «пришлите ещё раз» работает",
+                   st == 409 and d2.get("verify_id") not in ("", d["verify_id"]) and len(smtp.to(box)) - n_box == 3,
+                   repr(d2))
+
+        # свой сервер: лимит заявок с адреса (5 в час) выше выбран
+        with Server(env={**smtp.env, "DP_TRIAL_MODE": "auto"}) as s:
+            first = dict(GOOD, name="Clinica Fara Posta", idno="5005005005006", email="fara@example.md")
+            _api(Client(s.url), first)
+            cid = _clinics(s)[-1][0]
+            smtp.fail = True
+            st, d = _api(Client(s.url), first)
+            smtp.fail = False
+            res.ok("почта отказала: 409 без verify_id (вводить нечего)", st == 409 and "verify_id" not in d, repr(d))
+            res.ok("неотправленный код сожжён", [r[1] for r in _codes(s, cid)] == [ctrial.CODE_ATTEMPTS],
+                   repr(_codes(s, cid)))
+            def code_letters() -> int:
+                return sum("codul de activare" in sub for _to, sub, _b, _a in smtp.to("fara@example.md"))
+            n = code_letters()
+            st, d = _api(Client(s.url), first)
+            res.ok("повтор после отказа почты в окне — новый код и письмо, а не мёртвый verify_id",
+                   st == 409 and len(d.get("verify_id", "")) >= 16 and code_letters() == n + 1
+                   and len(_codes(s, cid)) == 2 and _codes(s, cid)[-1][0] == d.get("verify_id"), repr(d))
+    finally:
+        smtp.close()
 

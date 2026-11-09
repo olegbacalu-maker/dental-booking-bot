@@ -281,14 +281,15 @@ def suite_migration(res: Result) -> None:
                            cwd=str(CLOUD), env=s.env, capture_output=True, text=True, encoding="utf-8", timeout=60)
         res.ok("init дважды с версии 18: шаги 19 и 20 через apply_step, без ошибки",
                p.returncode == 0 and "twice" in p.stdout, p.stdout + p.stderr)
-        res.check("версия схемы 20", _one(s, "SELECT value FROM schema_meta WHERE key='version'"), "20")
+        res.check("версия схемы — последняя (20 и всё, что после)",
+                  _one(s, "SELECT value FROM schema_meta WHERE key='version'"), str(db.SCHEMA_VERSION))
         res.check("обе таблицы на месте", _one(s, "SELECT count(*) FROM sqlite_master WHERE name IN "
                                                 "('terms_acceptances', 'clinic_contracts')"), 2)
         import hashlib
         res.check("шаг 19 захешировал idem один раз", _one(s, "SELECT idem FROM sms_messages"),
                   hashlib.sha256(raw.encode()).hexdigest())
-        res.check("db.SCHEMA_VERSION = 20 и шаг 19 держит функцию", (db.SCHEMA_VERSION, any(callable(x) for x in db.MIGRATIONS[19])),
-                  (20, True))
+        res.check("db.SCHEMA_VERSION ≥ 20 и шаг 19 держит функцию",
+                  (db.SCHEMA_VERSION >= 20, any(callable(x) for x in db.MIGRATIONS[19])), (True, True))
         cab = _cabinet(s, "veche@example.md")
         res.check("после миграции экземпляр загружается", _msg(_upload(cab, b"%PDF-1.4\n%%EOF\n")), "doc_ok")
 
