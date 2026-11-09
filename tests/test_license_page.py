@@ -80,6 +80,16 @@ def suite_wall(res: Result) -> None:
                    "name='terms'" in page.body and "required" in page.body
                    and "https://dentpilot.md/termeni.html" in page.body, page.body[-600:])
             res.ok("за стеной ссылки «назад в журнал» нет", "Înapoi la registru" not in page.body)
+            # 09.11: двойной клик по кнопке заявки ушёл двумя запросами — у клиники два кода.
+            # Страница проверяется ответом, поэтому сторож — сам обработчик в разметке:
+            # второй submit гасится, кнопки disabled до ответа, pageshow (возврат назад) их открывает
+            body = page.body
+            script = body[body.rfind("<script>"):body.rfind("</script>")]
+            res.ok("страница: одна отправка формы — submit гасит повтор, disabled, pageshow снимает",
+                   "addEventListener('submit'" in script and "e.preventDefault()" in script
+                   and "disabled = true" in script and "addEventListener('pageshow', unlock)" in script
+                   and "disabled = false" in script and "button:disabled" in body
+                   and body.rfind("<script>") > body.rfind("</form>"), script[:300])
             r = c.post_json("/api/patients", {})
             res.ok("за стеной запись отказывает кодом license_missing",
                    r.status == 423 and json.loads(r.body).get("code") == "license_missing",

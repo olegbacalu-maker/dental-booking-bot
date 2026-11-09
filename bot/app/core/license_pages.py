@@ -75,6 +75,7 @@ LICENSE_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
  input:focus,textarea:focus{border-color:__ACCENT__;box-shadow:0 0 0 3px __RING__}
  button{background:__ACCENT__;color:__ON__;border:none;border-radius:12px;height:44px;
         font-size:15px;font-weight:600;cursor:pointer}
+ button:disabled{opacity:.6;cursor:default}
  .err{color:#B91C1C;font-size:13px}
  .note{color:#065F46;font-size:13px}
  .state{padding:10px 12px;border-radius:10px;font-size:13.5px;line-height:1.5}
@@ -108,7 +109,30 @@ LICENSE_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
   <p class="contacts">Întrebări despre licență sau abonament:
   <a href="mailto:__EMAIL__">__EMAIL__</a> · __PHONE__</p>
   __BACK__
-</div></body></html>"""
+</div>
+<script>
+/* Одна отправка формы (09.11): двойной клик по «Activează» ушёл на сервер двумя заявками,
+   и клиника получила два кода. Повторный submit гасится, кнопки формы — disabled до ответа;
+   возврат назад (bfcache) снова открывает их. Данных в скрипте нет. */
+(function () {
+  function unlock() {
+    var fs = document.querySelectorAll('form');
+    for (var i = 0; i < fs.length; i++) {
+      fs[i].removeAttribute('data-sent');
+      var bs = fs[i].querySelectorAll('button');
+      for (var j = 0; j < bs.length; j++) bs[j].disabled = false;
+    }
+  }
+  document.addEventListener('submit', function (e) {
+    var f = e.target;
+    if (f.getAttribute('data-sent')) { e.preventDefault(); return; }
+    f.setAttribute('data-sent', '1');
+    var bs = f.querySelectorAll('button');
+    for (var j = 0; j < bs.length; j++) bs[j].disabled = true;
+  });
+  window.addEventListener('pageshow', unlock);
+})();
+</script></body></html>"""
 LICENSE_TMPL = LICENSE_TMPL.replace("__ICON__", _ic("key"))
 
 # Галочка условий — перед кнопкой: активация и есть принятие договора (п. 1
