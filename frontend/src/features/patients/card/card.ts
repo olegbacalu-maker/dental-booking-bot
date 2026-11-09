@@ -154,6 +154,19 @@ export interface Form {
   total?: number
   stale?: boolean
   filled?: string
+  /** «Semnează» (09.11): бланк подписывается на экране — сервер решает сам
+   *  (один из трёх, есть Edge для PDF, есть что подписывать). */
+  sign: boolean
+}
+
+/** Тело подписи бланка на экране (контракт sign-pdf, 09.11). ⛔ Только картинки
+ *  PNG: нажим, скорость и время точек не собираются (биометрия, закон 195). */
+export interface SignBody {
+  signer: 'pacient' | 'reprezentant'
+  signer_name?: string
+  sig_patient: string
+  sig_doctor?: string
+  consents?: { mkt: boolean | null; photo: boolean | null }
 }
 
 export interface Visit {
@@ -347,6 +360,9 @@ export const patientCard = {
     fd.append('category', category)
     return api.postForm<PatientCard>(`${P(pid)}/documents${V(views)}`, fd)
   },
+  /** Подпись на экране: ответ — свежая фиша (+ `doc`, новый PDF), как у всех действий. */
+  signForm: (pid: number, views: boolean, key: Form['key'], body: SignBody) =>
+    api.post<PatientCard & { doc: Doc }>(`${P(pid)}/forms/${key}/sign${V(views)}`, body),
   delDoc: (pid: number, views: boolean, docId: number) =>
     api.post<PatientCard>(`${P(pid)}/documents/${docId}/delete${V(views)}`, {}),
   openDoc: (docId: number) =>

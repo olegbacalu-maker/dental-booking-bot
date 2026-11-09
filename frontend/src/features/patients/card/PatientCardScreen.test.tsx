@@ -124,10 +124,10 @@ const CARD: PatientCard = {
     { id: 1, filename: 'rx.png', when: '18.09.2026', size: '0 KB', mime: 'image/png', category: 'radiografie', category_label: 'Radiografie', icon: 'xray', view: 'img' },
   ],
   forms: [
-    { key: 'acord195', title: 'Informare și acord (Legea 195)', sheet: 'acord', category: 'acord195', printed: '', signed: null },
-    { key: 'acord_plan', title: 'Acord informat la planul de tratament', sheet: 'plan-acord', category: 'acord_plan', printed: '18.09.2026', signed: null, n_active: 2, total: 1900, stale: false },
-    { key: 'chestionar', title: 'Chestionar anamneză', sheet: 'anamneza/print', category: 'chestionar', printed: '', signed: null, filled: '18.09.2026' },
-    { key: 'fisa043', title: 'Fișa 043/e', sheet: 'fisa043', category: 'fisa043', printed: '', signed: null },
+    { key: 'acord195', title: 'Informare și acord (Legea 195)', sheet: 'acord', category: 'acord195', printed: '', signed: null, sign: true },
+    { key: 'acord_plan', title: 'Acord informat la planul de tratament', sheet: 'plan-acord', category: 'acord_plan', printed: '18.09.2026', signed: null, n_active: 2, total: 1900, stale: false, sign: true },
+    { key: 'chestionar', title: 'Chestionar anamneză', sheet: 'anamneza/print', category: 'chestionar', printed: '', signed: null, filled: '18.09.2026', sign: true },
+    { key: 'fisa043', title: 'Fișa 043/e', sheet: 'fisa043', category: 'fisa043', printed: '', signed: null, sign: false },
   ],
   visits: {
     history: [
@@ -1291,6 +1291,67 @@ describe('PatientCardScreen', () => {
     expect(post).toHaveBeenCalledWith('/patients/5/scan/finish', { category: 'acord_plan', title: 'Acord informat la planul de tratament' })
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Scanare' })).toBeNull())
     expect((document.querySelector('.dp-form[data-form="acord_plan"]') as HTMLElement).textContent).toContain('semnat 01.10.2026')
+  })
+
+  /* ---- 09.11: подпись на экране — «Semnează» по `forms[].sign`, окно, ответ — свежая фиша ---- */
+
+  it('Documente: «Semnează» только там, где сервер разрешил (sign); в плане — «Semnează pe ecran»', async () => {
+    const off = { ...CARD, forms: CARD.forms.map((f) => f.key === 'chestionar' ? { ...f, sign: false } : f) }
+    serve(off)
+    open()
+    await settled()
+    await tabTo('Documente')
+    const form = (key: string) => document.querySelector(`.dp-form[data-form="${key}"]`) as HTMLElement
+    const btn = (key: string) => within(form(key)).queryByRole('button', { name: /^Semnează$/ })
+    expect(btn('acord195')).toBeTruthy()
+    expect(btn('acord_plan')).toBeTruthy()
+    /* анкета не введена в фишу (сервер: sign false) и 043/e — без кнопки; бумажный путь на месте */
+    expect(btn('chestionar')).toBeNull()
+    expect(btn('fisa043')).toBeNull()
+    expect(within(form('chestionar')).getByRole('button', { name: /Încarcă semnat/ })).toBeTruthy()
+    await tabTo('Plan și plăți')
+    expect(within(screen.getByRole('note', { name: 'Acord informat' })).getByRole('button', { name: 'Semnează pe ecran' })).toBeTruthy()
+  })
+
+  it('демо без PDF (sign false у всех): ни «Semnează», ни «Semnează pe ecran»', async () => {
+    serve({ ...CARD, forms: CARD.forms.map((f) => ({ ...f, sign: false })) })
+    open()
+    await settled()
+    await tabTo('Documente')
+    expect(screen.queryByRole('button', { name: /^Semnează$/ })).toBeNull()
+    await tabTo('Plan și plăți')
+    expect(within(screen.getByRole('note', { name: 'Acord informat' })).queryByRole('button', { name: 'Semnează pe ecran' })).toBeNull()
+  })
+
+  it('Documente: «Semnează» → окно с листом-предпросмотром → PNG на сервер → окно закрыто, бланк «semnat»', async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/png;base64,iVBORw0KGgo=')
+    serve()
+    const doc = { id: 12, filename: 'Acord - Pin Test - 09.11.2026 - semnat.pdf', when: '09.11.2026', size: '80 KB', mime: 'application/pdf', category: 'acord_plan', category_label: 'Acord informat la plan — semnat', icon: 'file', view: 'pdf' as const }
+    post.mockImplementation((path: string) => path === '/patients/5/forms/acord_plan/sign'
+      ? Promise.resolve(ok({ ...CARD, doc, documents: [doc, ...CARD.documents],
+        forms: CARD.forms.map((f) => f.key === 'acord_plan' ? { ...f, signed: { doc_id: 12, when: '09.11.2026' } } : f) },
+      'ok_sign', 'Document semnat și salvat în fișă (PDF)'))
+      : Promise.reject(new Error(`unexpected ${path}`)))
+    open()
+    await settled()
+    await tabTo('Documente')
+    const form = () => document.querySelector('.dp-form[data-form="acord_plan"]') as HTMLElement
+    fireEvent.click(within(form()).getByRole('button', { name: /^Semnează$/ }))
+    const dlg = within(await screen.findByRole('dialog', { name: /Semnează: Acord informat la planul de tratament/ }))
+    expect(dlg.getByTitle('Acord informat la planul de tratament').getAttribute('src')).toBe('/admin/patient/5/sign/acord_plan')
+    for (const name of ['Semnătura pacientului', 'Semnătura medicului']) {
+      const c = dlg.getByRole('img', { name })
+      fireEvent.pointerDown(c, { pointerType: 'pen', pointerId: 1 })
+      fireEvent.pointerUp(c, { pointerType: 'pen', pointerId: 1 })
+    }
+    fireEvent.click(dlg.getByRole('button', { name: /Salvează semnat/ }))
+    expect(await screen.findByText('Document semnat și salvat în fișă (PDF)')).toBeTruthy()
+    expect(post).toHaveBeenCalledWith('/patients/5/forms/acord_plan/sign',
+      { signer: 'pacient', sig_patient: 'data:image/png;base64,iVBORw0KGgo=', sig_doctor: 'data:image/png;base64,iVBORw0KGgo=' })
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /Semnează:/ })).toBeNull())
+    expect(form().textContent).toContain('semnat 09.11.2026')
+    expect(screen.getByText('Acord - Pin Test - 09.11.2026 - semnat.pdf')).toBeTruthy()
   })
 
   it('Documente: без сканера кнопок сканирования нет, подпись говорит, что его нет', async () => {

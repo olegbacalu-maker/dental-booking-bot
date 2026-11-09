@@ -7,6 +7,7 @@ import type { CardActions } from './actions'
 import { hideDialog, showDialog } from './dialog'
 import { mdl, patientCard, type PatientCard, type PlanForm, type PlanItem } from './card'
 import { printHref } from './print'
+import { SignDialog } from './sign/SignDialog'
 import { useLingering } from '../../../utils/motion'
 
 /* План лечения — те же слова, кнопки и порядок, что у старой карточки.
@@ -71,6 +72,7 @@ const T = {
     print: 'Tipărește',
     reprint: 'Tipărește din nou',
     upload: 'Încarcă exemplarul semnat',
+    sign: 'Semnează pe ecran',
     signed: 'semnat',
     stale: 'plan modificat după semnare — de retipărit și resemnat',
   },
@@ -107,6 +109,7 @@ export function PlanCard({ card, a, onTooth, onUploadSigned }: Props) {
   const [motiv, setMotiv] = useState('')
   const [motivBad, setMotivBad] = useState(false)
   const [menu, setMenu] = useState<MenuAt | null>(null)
+  const [signing, setSigning] = useState(false)
   const closeMenu = useCallback(() => setMenu(null), [])
 
   async function onAdd(e: FormEvent) {
@@ -178,11 +181,15 @@ export function PlanCard({ card, a, onTooth, onUploadSigned }: Props) {
           <AppLink href={printHref(card.id, 'plan-acord', a.back)} title={T.acordTitle}>
             {consent.printed || consent.signed ? T.consent.reprint : T.consent.print}
           </AppLink>
+          {consent.sign && (
+            <button type="button" className="lnk" onClick={() => setSigning(true)}>{T.consent.sign}</button>
+          )}
           {!consent.signed && consent.printed && (
             <button type="button" className="lnk" onClick={() => onUploadSigned(consent.category)}>{T.consent.upload}</button>
           )}
         </div>
       )}
+      {consent && signing && <SignDialog card={card} form={consent} a={a} onClose={() => setSigning(false)} />}
       {plan.items.length > 0 && (
         <div className="plan-prog">
           <div className="statbar"><div style={{ width: `${plan.pct_done}%` }}></div></div>

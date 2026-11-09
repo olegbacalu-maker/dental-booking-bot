@@ -8,6 +8,7 @@ import { hideDialog, showDialog } from './dialog'
 import { patientCard, scan, type Doc, type Form, type PatientCard, type ScanStatus } from './card'
 import { printHref } from './print'
 import { ScanBox, type ScanJob } from './ScanBox'
+import { SignDialog } from './sign/SignDialog'
 import { useLingering } from '../../../utils/motion'
 
 /* Документы: снимки и PDF открываются тут же, остальное — программой
@@ -16,7 +17,9 @@ import { useLingering } from '../../../utils/motion'
    старый маршрут /admin/doc/{id} (обычная ссылка).
    ⭐ С 01.10 вкладка — ЦЕНТР всех бумаг (слово Олега): сверху бланки
    программы со статусом «tipărit → semnat ✓», ниже загруженные файлы.
-   «Semnat» = загруженный скан своей категории; галочки без бумаги нет. */
+   «Semnat» = загруженный скан своей категории; галочки без бумаги нет.
+   С 09.11 — и подпись на экране («Semnează», `sign/SignDialog`): её итог —
+   тот же документ (PDF) той же категории, статус считается так же. */
 const T = {
   title: 'Documente și imagini',
   forms: 'Formulare',
@@ -41,6 +44,7 @@ const T = {
   print: 'Tipărește',
   reprint: 'Tipărește din nou',
   uploadSigned: 'Încarcă semnat',
+  sign: 'Semnează',
   printed: 'tipărit',
   notPrinted: 'netipărit',
   signed: 'semnat',
@@ -97,6 +101,8 @@ export function DocumentsCard({ card, a, onFail, navigate, pick = null }: Props)
      рисуется, а подпись говорит, что его нет (01.10) */
   const [scanner, setScanner] = useState<ScanStatus | null>(null)
   const [job, setJob] = useState<ScanJob | null>(null)
+  /* окно подписи на экране (09.11): бланк, который подписывают */
+  const [signing, setSigning] = useState<Form | null>(null)
   useEffect(() => {
     const ctl = new AbortController()
     scan.status(ctl.signal).then(
@@ -187,6 +193,11 @@ export function DocumentsCard({ card, a, onFail, navigate, pick = null }: Props)
               <AppLink className="pl-btn" href={printHref(card.id, f.sheet, a.back)}>
                 <Icon name="print" /> {f.printed ? T.reprint : T.print}
               </AppLink>
+              {f.sign && (
+                <button type="button" className="pl-btn primary" onClick={() => setSigning(f)}>
+                  <Icon name="pen" /> {T.sign}
+                </button>
+              )}
               {f.key !== 'fisa043' && scanner?.ok && (
                 <button type="button" className="pl-btn" disabled={job !== null}
                   onClick={() => setJob({ category: f.category, categoryLabel: label(f.category), title: f.title })}>
@@ -202,6 +213,7 @@ export function DocumentsCard({ card, a, onFail, navigate, pick = null }: Props)
           </div>
         ))}
       </div>
+      {signing && <SignDialog card={card} form={signing} a={a} onClose={() => setSigning(null)} />}
       {job && <ScanBox a={a} job={job} onFail={onFail} onDone={() => setJob(null)} />}
       <h3>{T.title} <small>· {T.max} {card.options.max_doc_mb} MB</small></h3>
       {card.documents.length ? (
