@@ -358,6 +358,7 @@ SUITES = [
     ("Фиша: подпись на экране — три бланка в PDF", test_sign.suite_sign),
     ("Фиша: подпись на экране — отказы", test_sign.suite_sign_refuse),
     ("Фиша: подпись на экране — машина без Edge", test_sign.suite_sign_no_edge),
+    ("Фиша: подпись на экране — старт снимает хвосты печати", test_sign.suite_sign_start_sweep),
     ("Фиша: подпись на экране — листы и тело", test_sign.suite_sign_sheets),
     ("Дневник визита: JSON API", test_visit_api.suite_api),
     ("Дневник визита: узел React экрана", test_visit_api.suite_switch),

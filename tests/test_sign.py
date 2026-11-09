@@ -164,6 +164,19 @@ def suite_sign(res: Result) -> None:
         res.check("и после трёх подписей временного нет", _left(s), [])
 
 
+def suite_sign_start_sweep(res: Result) -> None:
+    """Хвост печати от упавшего запуска (лист с медданными) снимает СТАРТ
+    движка, а не следующая подпись через недели (`pdf.sweep_on_start`)."""
+    s = Server()
+    dead = s.dir / "tmp" / "pdf" / "deadbeefdeadbeef"
+    dead.mkdir(parents=True)
+    (dead / "sheet.html").write_text("<p>Semn Test — anamneză</p>", encoding="utf-8")
+    (dead / "profile").mkdir()
+    res.ok("хвост на месте до старта", dead.exists(), "песочница не завелась")
+    with s:
+        res.check("после старта папка печати пуста", _left(s), [])
+
+
 def suite_sign_refuse(res: Result) -> None:
     """Отказы: кривая или пустая подпись, SVG, представитель без имени, врач
     без подписи, нечего подписывать, 043/e, без входа. Ничего не записано."""

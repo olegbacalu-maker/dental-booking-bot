@@ -20,7 +20,7 @@ from . import db
 from . import engine as eng
 from . import paths
 from . import update as upd
-from .core import dbkey, demo, orders
+from .core import dbkey, demo, orders, pdf
 from .core import license as lic
 from .core import backup_loop
 from .core import sms_loop as sms
@@ -195,6 +195,9 @@ async def startup() -> None:
     не живёт."""
     _BEFORE_START.clear()               # что жило до старта — не наше (гашение ниже)
     _BEFORE_START.update(asyncio.all_tasks())
+    # хвосты печати PDF (лист с медданными) от упавшего прошлого запуска — до
+    # ранних выходов: и в режиме восстановления они не лежат неделями (pdf.py)
+    pdf.sweep_on_start()
     # летопись подписывается ИМЕНЕМ вошедшего. Хук, а не импорт: db лежит ниже
     # слоя доступа, и прямой импорт замкнул бы круг db → core.auth → db
     db.ACTOR_HOOK = lambda: (request_user() or {}).get("name")
