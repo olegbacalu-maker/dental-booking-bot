@@ -123,7 +123,9 @@ def form_spec(d: date, items: list, sel_doctor: str = "",
         # часы клиники: ими подменяется пустое окно врача, ими же живёт форма,
         # когда активных врачей нет вовсе
         "hours": hours,
-        "services": [{"id": k, "label": v["ro"]} for k, v in eng.SERVICES.items()],
+        "services": services_list(),
+        # длительности, которые окно записи даёт выбрать руками (10.11)
+        "durations": list(eng.DURATIONS),
         "doctor": cur,
         "time": sel_time if sel_time in times.get(cur, hours) else "",
         "birth_max": birth_max(),
@@ -167,8 +169,16 @@ def slot_form(d: date) -> dict:
     врач приходит из колонки, час — из ячейки, получас — переключателем.
     """
     del d  # день приходит параметром ради симметрии с `form_spec`
-    return {"services": [{"id": k, "label": v["ro"]} for k, v in eng.SERVICES.items()],
+    return {"services": services_list(), "durations": list(eng.DURATIONS),
             "birth_max": birth_max(), "sms": sms_box()}
+
+
+def services_list() -> list[dict]:
+    """Услуги окна записи — ключ, подпись и длительность услуги (10.11: окно
+    показывает минуты и подставляет их в «Durată», пока её не тронули).
+    ⚠️ Одна сборка на форму дня и на `slotform` панели."""
+    return [{"id": k, "label": v["ro"], "dur": eng.svc_duration(k)}
+            for k, v in eng.SERVICES.items()]
 
 # --------------------------------------------------------------- модель 2.0
 # ⚠️ Здесь НЕ появляется ни одного нового правила: всё, что ниже, собирает уже

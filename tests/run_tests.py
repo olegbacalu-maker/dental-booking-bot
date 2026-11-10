@@ -380,6 +380,7 @@ SUITES = [
     ("Статус визита: переход только по ребру матрицы кнопок",
      test_schedule_api.suite_status_edges),
     ("Процедура визита: смена у стоящей записи", test_schedule_api.suite_service),
+    ("Длительность визита: руками в окне визита и записи", test_schedule_api.suite_duration),
     ("Неделя: узел React, раздел «Programări»", test_schedule_api.suite_switch),
     ("День: модель «Programări» — канва, подпись, врач", test_schedule_api.suite_day_parity),
     ("День врача: легаси-строка — колонкой-сиротой", test_schedule_api.suite_day_orphan),

@@ -15,7 +15,7 @@
 
 import type { ServerNotice } from '../../components/Notice'
 import { api } from '../../services/api'
-import type { NewAppt, NewNote, NoteView, VisitCardView } from './day'
+import type { FormService, NewAppt, NewNote, NoteView, VisitCardView } from './day'
 import type { CallResult, Desk } from './desk'
 import type { SlotFormView } from './slot'
 
@@ -212,7 +212,9 @@ export type DashActions = Record<string, {
 /** Что нужно диалогу пустого часа. ⚠️ Имя `slotform`, а не `form`: у модели
  *  дня `form` несёт ещё врачей, их часы и предвыбор. */
 export interface DashSlotForm {
-  services: { id: string; label: string }[]
+  services: FormService[]
+  /** Длительности на выбор в «Durată» (10.11); нет поля — выбора нет. */
+  durations?: number[]
   /** Потолок поля «дата рождения» — сегодня В ЧАСАХ КЛИНИКИ. */
   birth_max: string
   /** Галочка «SMS reminder»: пакет работает и у вошедшего право SMS. */
@@ -354,6 +356,11 @@ export const dash = {
   service: (date: string, id: number, serviceId: string) =>
     api.post<void>(`/schedule/appointments/${id}/service${cmdQuery(date)}`,
       { service_id: serviceId }),
+  /* длительность руками (10.11): тоже команда без состояния — новая
+     длительность приезжает каналом */
+  duration: (date: string, id: number, minutes: number) =>
+    api.post<void>(`/schedule/appointments/${id}/duration${cmdQuery(date)}`,
+      { minutes }),
   /* отметка звонка-подтверждения («De confirmat», 01.10): как статус —
      команда без состояния, экран спрашивает канал */
   call: (date: string, id: number, result: CallResult) =>

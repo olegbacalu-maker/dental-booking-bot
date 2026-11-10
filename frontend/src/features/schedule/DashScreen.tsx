@@ -504,7 +504,9 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
           /* ⛔ Смена процедуры — команда без состояния, как статус: новая
              подпись и длительность приезжают КАНАЛОМ (`refresh()` в `act`),
              а не из ответа. */
-          onService={(sid, fail) => act(() => dash.service(d.date, cardL.shown!.id, sid), fail)} />
+          onService={(sid, fail) => act(() => dash.service(d.date, cardL.shown!.id, sid), fail)}
+          /* длительность (10.11) — так же: команда, новая длительность едет каналом */
+          onDuration={(min, fail) => act(() => dash.duration(d.date, cardL.shown!.id, min), fail)} />
       )}
       {noteL.shown !== null && openNote && (
         /* ⛔ Кнопка приходит С СЕРВЕРА по состоянию заметки — той же матрицей,

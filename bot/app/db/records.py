@@ -20,8 +20,8 @@ async def appointment_brief(appt_id: int) -> dict | None:
     его из этой выборки, а не из формы."""
     rows = await _fetch(
         """SELECT a.id, a.patient_id, a.service, a.doctor, a.doctor_id,
-                  a.service_id, a.starts_at, a.duration_min, a.status, a.source,
-                  a.comment, p.name
+                  a.service_id, a.starts_at, a.duration_min, a.duration_set,
+                  a.status, a.source, a.comment, p.name
            FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id
            WHERE a.id = ?""", appt_id)
     return rows[0] if rows else None

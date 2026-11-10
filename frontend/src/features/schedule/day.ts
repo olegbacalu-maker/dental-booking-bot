@@ -119,6 +119,10 @@ export interface VisitCardView {
    *  окно спрашивает его само (`day.serviceOptions`). */
   service_id: string
   service_edit: boolean
+  /** Длительность визита в минутах (10.11): окно показывает её рядом с
+   *  процедурой и правит карандашом по тому же флагу `service_edit`. Нет поля
+   *  — строки длительности нет. */
+  dur?: number
 }
 
 /**
@@ -166,13 +170,41 @@ export interface DayCard {
   /** Процедура и можно ли её менять (22.10) — `core.visits.service_fields`. */
   service_id: string
   service_edit: boolean
+  /** Длительность визита в минутах (10.11, `_collect_cards`). */
+  dur?: number
 }
 
-/** Услуга, на которую можно сменить процедуру визита: ключ clinic.json и
- *  подпись (22.10, `GET …/service`). */
+/** Услуга, на которую можно сменить процедуру визита: ключ clinic.json,
+ *  подпись (22.10, `GET …/service`) и длительность услуги (10.11). */
 export interface ServiceOption {
   id: string
   label: string
+  dur?: number
+}
+
+/** Что окно визита спрашивает при открытии (`GET …/service`): список услуг и
+ *  (10.11) длительность визита, задана ли она руками и из чего выбирать. */
+export interface ServiceOptions {
+  service_id: string
+  options: ServiceOption[]
+  dur?: number
+  /** Длительность задана руками — смена процедуры её не тронет. */
+  dur_set?: boolean
+  durations?: number[]
+}
+
+/** Услуга окна записи: ключ, подпись и длительность услуги (10.11) — ею
+ *  «Durată» заполнена, пока её не тронули. */
+export interface FormService {
+  id: string
+  label: string
+  dur?: number
+}
+
+/** Подпись услуги с минутами (10.11): «Consultație · 15 min». Без минут — как
+ *  было. */
+export function svcLabel(s: { label: string; dur?: number }): string {
+  return s.dur ? `${s.label} · ${s.dur} min` : s.label
 }
 
 /** Кнопка исхода — сервер говорит и слово, и класс, и нужен ли вопрос. */
@@ -192,7 +224,10 @@ export interface DayForm {
   times: Record<string, string[]>
   /** Часы клиники — ими живёт форма, когда активных врачей нет вовсе. */
   hours: string[]
-  services: { id: string; label: string }[]
+  services: FormService[]
+  /** Длительности на выбор в «Durată» (10.11, `eng.DURATIONS`); нет поля —
+   *  выбора нет, визит берёт длительность услуги. */
+  durations?: number[]
   doctor: string
   time: string
   birth_max: string
@@ -334,6 +369,9 @@ export interface NewAppt {
   /** Галочка «Vizita a avut loc» (29.10, Rechemări, В3 = А): только на
    *  прошедший день — визит ложится сразу «finalizată». Нет поля — нет. */
   done?: boolean
+  /** «Durată» (10.11) — только ТРОНУТАЯ: нет поля — длительность услуги, есть
+   *  — визит такой длины, и смена процедуры её не перебьёт. */
+  duration?: number
 }
 
 export interface NewNote {
@@ -378,7 +416,7 @@ export const day = {
    *  при открытии. Правило — сервера (`visits.service_refusal`), правду при
    *  смене говорит POST под замком. */
   serviceOptions: (id: number, signal?: AbortSignal) =>
-    api.get<{ service_id: string; options: ServiceOption[] }>(
+    api.get<ServiceOptions>(
       `/schedule/appointments/${id}/service`, signal ? { signal } : {}),
 
   /** Смена процедуры у стоящей записи (22.10): ответ — свежий день, как у
@@ -387,6 +425,12 @@ export const day = {
     api.post<DayModel>(
       `/schedule/appointments/${id}/service${screen(at, doctor, f)}`,
       { service_id: serviceId }),
+
+  /** Длительность визита руками (10.11): ответ — свежий день, как у смены
+   *  процедуры. */
+  duration: (at: string, doctor: string, f: string, id: number, minutes: number) =>
+    api.post<DayModel>(
+      `/schedule/appointments/${id}/duration${screen(at, doctor, f)}`, { minutes }),
 
   move: (at: string, doctor: string, f: string, id: number,
          body: { date: string; time: string; doctor: string }) =>

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Icon } from '../../components/Icon'
 import { hideDialog, showDialog } from '../patients/card/dialog'
-import type { NewAppt, NewNote } from './day'
+import { svcLabel, type NewAppt, type NewNote } from './day'
+import { DurSelect, useDurPick } from './DurPick'
 import { slotTimes, type FreeHalves, type Slot, type SlotFormView } from './slot'
 import { SmsCheck, useSmsBox } from './SmsBox'
 
@@ -86,6 +87,8 @@ export function SlotDialog({ open, slot, date, form, noteEnds, free, busy,
   const none = !free.h0 && !free.h30
   if (!none && (half === 0 ? !free.h0 : !free.h30)) setHalf(free.h0 ? 0 : 30)
   const [service, setService] = useState(form.services[0]?.id ?? '')
+  /* «Durată» (10.11): длительность услуги, пока не тронули (`DurPick`) */
+  const dur = useDurPick(form.services, service, form.durations)
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [noPhone, setNoPhone] = useState(false)
@@ -106,7 +109,7 @@ export function SlotDialog({ open, slot, date, form, noteEnds, free, busy,
     e.preventDefault()
     setFail('')
     const ok = await onAdd({ date, time: atime, doctor: slot.dk, service, name,
-      phone: noPhone ? '' : phone, nophone: noPhone, birth, ...sms.field }, setFail)
+      phone: noPhone ? '' : phone, nophone: noPhone, birth, ...sms.field, ...dur.field }, setFail)
     if (ok) onClose()
   }
 
@@ -148,10 +151,13 @@ export function SlotDialog({ open, slot, date, form, noteEnds, free, busy,
               {hh}:30{!free.h30 && <small> · {T.taken}</small>}
             </button>
           </div>
-          <select value={service} onChange={(e) => setService(e.target.value)}
-                  aria-label={T.service}>
-            {form.services.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
-          </select>
+          <div className="dp-addrow dp-svcrow">
+            <select value={service} onChange={(e) => setService(e.target.value)}
+                    aria-label={T.service}>
+              {form.services.map((x) => <option key={x.id} value={x.id}>{svcLabel(x)}</option>)}
+            </select>
+            <DurSelect box={dur} />
+          </div>
           <input value={name} onChange={(e) => setName(e.target.value)}
                  placeholder={T.name} required />
           <input value={noPhone ? '' : phone} onChange={(e) => setPhone(e.target.value)}

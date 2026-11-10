@@ -41,7 +41,8 @@ from . import chair as pchair
 from . import panel as ppanel
 from .routes import (_AG_CLS, _add_appt, _add_note, _canvas_model, _chair_doctor,
                      _day_model, _move_appt, _notice, _panel_live, _set_comment,
-                     _set_service, _set_status, _svc_colors, _week_model)
+                     _set_duration, _set_service, _set_status, _svc_colors,
+                     _week_model)
 
 router = APIRouter()
 
@@ -49,13 +50,13 @@ router = APIRouter()
 # чтобы клиент разбирал ответы журнала и фиши одинаково.
 # ⚠️ Пустой код — это удача: так отвечает смена статуса, у которой баннера нет.
 _OK = {"", "ok", "ok_note", "part_note", "ok_move", "ok_comment", "ok_past", "ok_past_done",
-       "ok_other", "ok_svc"}
+       "ok_other", "ok_svc", "ok_dur"}
 _CONFLICT = {"conflict", "dup", "bad_off", "mv_gone", "mv_closed", "past", "bad_step",
-             "svc_closed", "svc_doc"}
+             "svc_closed", "svc_doc", "dur_closed"}
 # какое поле формы подсветить при 422; отказ без поля оставляет его пустым
 _FIELD = {"bad": "time", "bad_time": "time", "outside": "time",
           "outside_doc": "time", "bad_name": "name", "bad_phone": "phone",
-          "bad_bd": "birth"}
+          "bad_bd": "birth", "bad_dur": "duration"}
 
 
 # Поверхности, которым состояния НЕ отдаётся вовсе. ⛔ Это ПЕРЕЧИСЛЕНИЕ, а не
@@ -252,7 +253,10 @@ async def api_canvas(request: Request, date_q: str = Query("", alias="date")):
 async def api_add(request: Request, date_q: str = Query("", alias="date"),
                   doctor: str = Query(""), f: str = Query(""),
                   screen: str = Query("")):
-    """Ручная запись: {date, time, doctor, service, name, phone, nophone, birth, sms?}.
+    """Ручная запись: {date, time, doctor, service, name, phone, nophone, birth, sms?, duration?}.
+
+    ⚠️ `duration` — длительность, выбранная в окне РУКАМИ (10.11): нет ключа —
+    длительность услуги, как было; есть — визит с признаком `duration_set`.
 
     ⚠️ `nophone` — намерение ИЗ ФОРМЫ, а не «телефон пустой» (прайор 08-16):
     пустой номер без галочки остаётся отказом `bad_phone`.
@@ -276,7 +280,7 @@ async def api_add(request: Request, date_q: str = Query("", alias="date"),
                            _s(body, "service"), _s(body, "name"), _s(body, "phone"),
                            "1" if body.get("nophone") else "", _s(body, "birth"),
                            sms if isinstance(sms, bool) else None,
-                           body.get("done") is True)
+                           body.get("done") is True, _s(body, "duration"))
     return await _done(code, _screen(date_q), doctor, f=f, screen=screen)
 
 
@@ -361,8 +365,13 @@ async def api_service_options(request: Request, appt_id: int):
     cur = await db.appointment_brief(appt_id)
     if cur is None:
         return msg_json(False, "mv_gone", status=409)
+    # длительность визита и список длительностей (10.11) — той же подсказкой
+    # окна: карандаш длительности стоит по тому же флагу `service_edit`
     return msg_json(True, data={"service_id": cur["service_id"] or "",
-                                "options": service_options(cur)})
+                                "options": service_options(cur),
+                                "dur": int(cur["duration_min"] or 60),
+                                "dur_set": bool(cur["duration_set"]),
+                                "durations": list(eng.DURATIONS)})
 
 
 @router.post("/api/schedule/appointments/{appt_id}/service")
@@ -386,6 +395,28 @@ async def api_service(request: Request, appt_id: int,
         return msg_json(False, "bad", field="service", status=422)
     return await _done(await _set_service(appt_id, _s(body, "service_id")),
                        _screen(date_q), doctor, field="service", f=f, screen=screen)
+
+
+@router.post("/api/schedule/appointments/{appt_id}/duration")
+async def api_duration(request: Request, appt_id: int,
+                       date_q: str = Query("", alias="date"),
+                       doctor: str = Query(""), f: str = Query(""),
+                       screen: str = Query("")):
+    """Длительность визита руками (окно визита, 10.11.2026): {minutes}.
+
+    Ответ — как у смены процедуры: дню журнала свежий день, панели код без
+    состояния. Отказ называет причину (`dur_closed`, `bad_dur`, `outside`,
+    `conflict`…), окно печатает её у себя.
+    """
+    if (deny := api_guard(request)) is not None:
+        return deny
+    if (deny := await api_own_appt(appt_id)) is not None:
+        return deny
+    body = await api_body(request)
+    if body is None:
+        return msg_json(False, "bad", field="duration", status=422)
+    return await _done(await _set_duration(appt_id, _s(body, "minutes")),
+                       _screen(date_q), doctor, field="duration", f=f, screen=screen)
 
 
 @router.get("/api/chair")

@@ -29,8 +29,8 @@ from ...core import xlsx
 from ...core.layout import msg_view, react_shell, shell_model
 from ...core.risks import denied_since, merge as merge_risks
 from ...core.visits import (SVC_PALETTE, _collect_cards, _parse_date,
-                            all_status_actions, mine, my_scope, of_doctor,
-                            service_refusal, status_actions)
+                            all_status_actions, duration_refusal, mine, my_scope,
+                            of_doctor, service_refusal, status_actions)
 from . import canvas as pcanvas
 from . import chair as pchair
 from . import day as pday
@@ -508,8 +508,13 @@ async def admin_doctor(request: Request, dk: str,
 async def _add_appt(adate: str, atime: str, adoctor: str, aservice: str,
                     aname: str, aphone: str = "", anophone: str = "",
                     abirth: str = "", asms: bool | None = None,
-                    adone: bool = False) -> str:
+                    adone: bool = False, adur: str = "") -> str:
     """Ручная запись (окно «Programare nouă»): код ответа — из `MSG_BANNER`.
+
+    `adur` — длительность, выбранная в окне РУКАМИ (10.11): пусто — окно её не
+    трогало, визит берёт длительность услуги, как всегда; число из
+    `eng.DURATIONS` — визит такой длины с признаком `duration_set`. Окно шлёт
+    поле только тронутым (прайор 08-16: намерение из формы).
 
     `asms` — галочка «SMS reminder»: True/False — что сказал пациент, None —
     галочки в окне не было (разбор у `_apply_sms`).
@@ -546,6 +551,11 @@ async def _add_appt(adate: str, atime: str, adoctor: str, aservice: str,
     # читается как «программа не работает». Каждая причина называет себя.
     if not doctor or not svc:
         return "bad"
+    dur = eng.svc_duration(aservice)
+    if adur:
+        if not adur.isdigit() or int(adur) not in eng.DURATIONS:
+            return "bad_dur"
+        dur = int(adur)
     if not name:
         return "bad_name"
     # 6–15 цифр: у стран номера от 6 национальных цифр, E.164 даёт максимум 15.
@@ -556,7 +566,7 @@ async def _add_appt(adate: str, atime: str, adoctor: str, aservice: str,
         return "bad_off"  # выключенному не пишем
     if dt.minute not in (0, 30):
         return "bad_time"  # 30-мин сетка стартов
-    if not eng.fits_clinic(dt, eng.svc_duration(aservice)):
+    if not eng.fits_clinic(dt, dur):
         # визит не помещается в рабочее окно клиники (закрытие/обед)
         return "outside"
     # личный график врача (work_from/work_to) — той же проверкой окон, из
@@ -569,7 +579,7 @@ async def _add_appt(adate: str, atime: str, adoctor: str, aservice: str,
     # утром, а график сузили после обеда» — тот же постфактум, и на дневной
     # границе он остался бы невозможным. Дневная граница ниже про другое — она
     # решает, показывать ли предупреждение, а не пускать ли запись.
-    fits_doc = eng.fits_doctor(adoctor, dt, eng.svc_duration(aservice))
+    fits_doc = eng.fits_doctor(adoctor, dt, dur)
     if not eng.is_past(dt) and not fits_doc:
         return "outside_doc"
     # полная дата рождения (просьба 08-07: был только год; отдельное поле
@@ -589,7 +599,7 @@ async def _add_appt(adate: str, atime: str, adoctor: str, aservice: str,
     r = await db.admin_add(name, phone, svc["ro"], doctor, dt, birth_year=year,
                            birth_date=bdate,
                            doctor_id=adoctor, service_id=aservice,
-                           duration_min=eng.svc_duration(aservice))
+                           duration_min=dur, duration_set=bool(adur))
     msg = "ok" if isinstance(r, int) else ("dup" if r == "dup" else "conflict")
     if isinstance(r, int) and not anophone:
         await _apply_sms(r, asms)
@@ -764,7 +774,11 @@ async def _set_service(appt_id: int, sid: str) -> str:
     if cur["service_id"] == sid:
         return ""
     dk = cur["doctor_id"]
-    dur = eng.svc_duration(sid)
+    # ⭐ Ручная длительность (10.11, `duration_set`) процедурой не перебивается —
+    # и часы тогда проверять нечего: интервал визита не меняется. Правду под
+    # замком повторяет `db.set_appt_service`.
+    dur = (int(cur["duration_min"] or 60) if cur.get("duration_set")
+           else eng.svc_duration(sid))
     if dur > int(cur["duration_min"] or 60):
         start = cur["starts_at"].astimezone(eng.TZ)
         if not eng.fits_clinic(start, dur):
@@ -774,6 +788,36 @@ async def _set_service(appt_id: int, sid: str) -> str:
     code = await db.set_appt_service(appt_id, sid, eng.SERVICES[sid]["ro"], dur)
     return {"": "ok_svc", "gone": "mv_gone",
             "closed": "svc_closed"}.get(code, code)
+
+
+async def _set_duration(appt_id: int, minutes: str) -> str:
+    """Длительность визита руками (окно визита, 10.11.2026; жалоба пилота:
+    «Consultație 15′, а пациенту нужно 30′, и минуты не поменять»). Код — из
+    `MSG_BANNER`.
+
+    Тот же образец, что `_set_service`: кто вправе — `duration_refusal` (одно
+    правило с флагом окна), часы клиники и врача — только когда визит ДЛИННЕЕ,
+    график врача — только у будущего старта; сосед — `db.set_appt_duration`
+    под `_slot_lock`. Список длительностей — `eng.DURATIONS`, тот же, что у
+    услуги в настройках.
+    """
+    if not minutes.isdigit() or int(minutes) not in eng.DURATIONS:
+        return "bad_dur"
+    dur = int(minutes)
+    cur = await db.appointment_brief(appt_id)
+    if cur is None:
+        return "mv_gone"
+    if code := duration_refusal(cur):
+        return code
+    if dur > int(cur["duration_min"] or 60):
+        start = cur["starts_at"].astimezone(eng.TZ)
+        if not eng.fits_clinic(start, dur):
+            return "outside"
+        if not eng.is_past(start) and not eng.fits_doctor(cur["doctor_id"], start, dur):
+            return "outside_doc"
+    code = await db.set_appt_duration(appt_id, dur)
+    return {"": "ok_dur", "gone": "mv_gone",
+            "closed": "dur_closed"}.get(code, code)
 
 
 async def _set_status(appt_id: int, to: str) -> str:

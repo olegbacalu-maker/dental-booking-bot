@@ -542,6 +542,13 @@
 .dp-react-root .dp-card-svc { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; width: 100%; }
 .dp-react-root .dlg-form .dp-card-svc select { flex: 1 1 160px; min-width: 0; height: var(--h-ctl-s); }
 .dp-react-root .dp-card-svc .banner { flex-basis: 100%; }
+/* длительность (10.11): та же раскладка формы; у смены процедуры при ручной
+   длительности — строка «Durata rămâne N min» под кнопками */
+.dp-react-root .dlg-form .dp-card-dur select { flex: 0 1 140px; }
+.dp-react-root .dp-card-svc .dp-card-kept { flex-basis: 100%; margin: 0; }
+/* окна записи: услуга и «Durată» одной строкой, услуга берёт остаток */
+.dp-react-root .dlg-form .dp-svcrow > select:first-child { flex: 1 1 auto; min-width: 0; width: auto; }
+.dp-react-root .dlg-form .dp-svcrow > .dp-dur { flex: 0 0 104px; width: 104px; }
 /* контурная малая кнопка и ссылка-чип (фиша, дневник, «Schimbă», «Salvează comentariul») — одна семья;
    `.strong` — фирменный контур у действия, которое человек только что заказал */
 .dp-react-root .dlg-form .dp-card-chip, .dp-react-root .dlg-form .dp-card-chip:hover, .dp-react-root .dlg-form a.dp-card-chip {

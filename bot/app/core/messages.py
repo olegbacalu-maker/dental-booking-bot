@@ -120,6 +120,13 @@ MSG_BANNER = {
                           "(redeschideți-o dacă chiar trebuie schimbată)"),
     "svc_doc": ("err", "Medicul acestei programări nu face procedura aleasă — "
                        "alegeți altă procedură sau mutați programarea la alt medic"),
+    # длительность визита руками (10.11.2026, окно визита и окно записи)
+    "ok_dur": ("ok", "Durata programării a fost schimbată"),
+    "dur_closed": ("err", "Durata se schimbă doar la programările active — cea "
+                          "finalizată, anulată sau neprezentată rămâne cum a fost "
+                          "(redeschideți-o dacă chiar trebuie schimbată)"),
+    "bad_dur": ("err", "Durata aleasă nu este în listă — alegeți una dintre "
+                       "duratele propuse"),
     "ok_set": ("ok", "Setări salvate"),
     # «Rechemări» (29.10): отметка обзвона (`/api/recall/mark`) и визит с бумаги
     "ok_recall": ("ok", "Marcaj salvat"),

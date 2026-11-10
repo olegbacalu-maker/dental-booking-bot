@@ -1410,6 +1410,63 @@ describe('карточка визита: смена процедуры', () => {
   })
 })
 
+/* Длительность визита руками (10.11, жалоба пилота «Consultație 15′, а нужно
+   30′»): карандаш у минут в окне визита — тем же флагом и тем же ответом
+   `GET …/service`, что процедура; ответ — свежий день; окно записи шлёт
+   `duration` только тронутым. */
+describe('длительность визита (10.11)', () => {
+  const OPTS = { service_id: 'consult', options: [{ id: 'consult', label: 'Consultație', dur: 15 }],
+    dur: 15, dur_set: false, durations: [15, 30, 45, 60] }
+  const withDur = { ...MODEL, cards: { ...MODEL.cards, 1: { ...MODEL.cards[1]!, dur: 15 } },
+    form: { ...MODEL.form!, durations: [15, 30, 45, 60],
+      services: MODEL.form!.services.map((x) => ({ ...x, dur: 15 })) } }
+  const durPen = () => document.querySelector('dialog button[aria-label="Schimbă durata"]') as
+    HTMLButtonElement | null
+  const durForm = () => document.querySelector('dialog form.dp-card-dur') as HTMLFormElement
+
+  it('окно визита: 15 → 30 уходит числом в день экрана, окно закрывается', async () => {
+    get.mockImplementation(async (url: string) =>
+      (url.includes('/service') ? ok(OPTS) : ok(withDur)))
+    post.mockResolvedValue({ ...ok(withDur), code: 'ok_dur', text: 'Durata programării a fost schimbată' })
+    await show({ date: '2026-09-23' })
+    fireEvent.click(blk(1))
+    await waitFor(() => expect(durPen()).toBeTruthy())
+    expect(document.querySelector('dialog .dp-card-fl')?.textContent).toContain('15 min')
+    fireEvent.click(durPen() as HTMLButtonElement)
+    fireEvent.change(durForm().querySelector('select') as HTMLSelectElement, { target: { value: '30' } })
+    fireEvent.submit(durForm())
+    await waitFor(() => expect(post).toHaveBeenCalledWith(
+      '/schedule/appointments/1/duration?date=2026-09-23', { minutes: 30 }))
+    await waitFor(() => expect(document.querySelector('dialog')).toBeNull())
+    expect(document.querySelector('.toastbox')?.textContent).toContain('Durata programării a fost schimbată')
+  })
+
+  it('окно записи: тронутая «Durată» уходит в теле, нетронутая — нет', async () => {
+    get.mockImplementation(async () => ok(withDur))
+    post.mockResolvedValue(ok(withDur))
+    const addForm = () => document.querySelector('dialog form.dp-addform') as HTMLFormElement
+    const field = (ph: string) => addForm().querySelector(`input[placeholder="${ph}"]`) as HTMLInputElement
+    const fillAndSend = async () => {
+      fireEvent.change(field('Nume pacient'), { target: { value: 'Durata Test' } })
+      fireEvent.change(field('Telefon'), { target: { value: '069123456' } })
+      fireEvent.submit(addForm())
+      await waitFor(() => expect(post).toHaveBeenCalled())
+    }
+    await open('/admin/all?date=2026-09-23#addform')
+    const dur = addForm().querySelector('select[aria-label="Durată"]') as HTMLSelectElement
+    expect(dur.value).toBe('15')
+    await fillAndSend()
+    expect((post.mock.calls[0] as unknown[])[1]).not.toHaveProperty('duration')
+    cleanup()
+    post.mockClear()
+    await open('/admin/all?date=2026-09-23#addform')
+    fireEvent.change(addForm().querySelector('select[aria-label="Durată"]') as HTMLSelectElement,
+      { target: { value: '30' } })
+    await fillAndSend()
+    expect((post.mock.calls[0] as unknown[])[1]).toMatchObject({ duration: 30 })
+  })
+})
+
 /* Права врача (22.10): учётка `medic` без привязки к врачу получает пустой
    день и подсказку сервера — состоянием в потоке, не плашкой. */
 describe('права врача: подсказка учётки без врача', () => {

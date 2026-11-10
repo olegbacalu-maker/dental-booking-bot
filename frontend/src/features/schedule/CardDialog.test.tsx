@@ -64,6 +64,7 @@ interface ShowOpts {
   actions?: StatusAction[]
   note?: string
   onService?: (sid: string, fail: (t: string) => void) => Promise<boolean>
+  onDuration?: (minutes: number, fail: (t: string) => void) => Promise<boolean>
   onStatus?: (to: string) => Promise<boolean>
   onComment?: (text: string) => Promise<boolean>
   onCall?: (result: '' | 'ok' | 'noanswer') => Promise<boolean>
@@ -75,6 +76,7 @@ function show(c: VisitCardView, o: ShowOpts = {}) {
     back="/admin/all" busy={o.busy ?? false} onClose={onClose}
     onComment={o.onComment ?? ok} onStatus={o.onStatus ?? ok}
     {...(o.onService ? { onService: o.onService } : {})}
+    {...(o.onDuration ? { onDuration: o.onDuration } : {})}
     {...(o.onCall ? { onCall: o.onCall } : {})} />)
 }
 
@@ -362,5 +364,112 @@ describe('окно визита: смена процедуры', () => {
     expect(picker()?.value).toBe('long')
     // тот же визит — список не спрашивается заново на каждой перерисовке
     expect(get).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('окно визита: длительность (10.11, жалоба пилота «15′, а нужно 30′»)', () => {
+  const DURS = [15, 30, 45, 60, 90, 120]
+  const durPen = () => q('dialog button[aria-label="Schimbă durata"]') as HTMLButtonElement | null
+  const durPicker = () => q('dialog form.dp-card-dur select[aria-label="Durată"]') as HTMLSelectElement | null
+  const durBtn = (word: string) => Array.from(document.querySelectorAll('dialog form.dp-card-dur button'))
+    .find((b) => b.textContent?.trim() === word) as HTMLButtonElement
+  const durBanner = () => q('dialog form[aria-label="Durată"] .banner.err')?.textContent ?? ''
+  const facts = () => q('dialog .dp-card-fl')?.textContent ?? ''
+  const withDur = (over: Record<string, unknown> = {}) => {
+    get.mockResolvedValue({ data: { service_id: 'consult', options: OPTIONS, dur: 30,
+      dur_set: false, durations: DURS, ...over }, code: '', text: '', tone: 'ok' })
+  }
+
+  it('длительность — в строке фактов; карандаш раскрывает список сервера: нынешняя выбрана, без перемены отправлять нечего', async () => {
+    withDur()
+    show(card({ dur: 30 }), { onService: ok, onDuration: ok })
+    await waitFor(() => expect(durPen()).toBeTruthy())
+    expect(facts()).toContain('30 min')
+    expect(durPicker()).toBeNull()
+    fireEvent.click(durPen() as HTMLButtonElement)
+    expect(Array.from(durPicker()?.options ?? []).map((o) => o.textContent))
+      .toEqual(['15 min', '30 min', '45 min', '60 min', '90 min', '120 min'])
+    expect(durPicker()?.value).toBe('30')
+    expect(durBtn('Schimbă').disabled).toBe(true)
+  })
+
+  it('выбрали 45 — уходит число минут, удача закрывает окно', async () => {
+    withDur()
+    const onDuration = vi.fn(async () => true)
+    show(card({ dur: 30 }), { onService: ok, onDuration })
+    await waitFor(() => expect(durPen()).toBeTruthy())
+    fireEvent.click(durPen() as HTMLButtonElement)
+    fireEvent.change(durPicker() as HTMLSelectElement, { target: { value: '45' } })
+    await act(async () => { fireEvent.click(durBtn('Schimbă')) })
+    expect(onDuration).toHaveBeenCalledWith(45, expect.any(Function))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('⛔ отказ сервера (сосед) — словом в окне, окно открыто, выбор остаётся', async () => {
+    withDur()
+    const onDuration = vi.fn(async (_m: number, fail: (t: string) => void) => {
+      fail('Intervalul este deja ocupat la acest medic')
+      return false
+    })
+    show(card({ dur: 30 }), { onService: ok, onDuration })
+    await waitFor(() => expect(durPen()).toBeTruthy())
+    fireEvent.click(durPen() as HTMLButtonElement)
+    fireEvent.change(durPicker() as HTMLSelectElement, { target: { value: '60' } })
+    await act(async () => { fireEvent.click(durBtn('Schimbă')) })
+    await waitFor(() => expect(durBanner()).toBe('Intervalul este deja ocupat la acest medic'))
+    expect(onClose).not.toHaveBeenCalled()
+    expect(durPicker()?.value).toBe('60')
+  })
+
+  it('«Renunță» возвращает нетронутое; открыт всегда один список — процедура или длительность', async () => {
+    withDur()
+    show(card({ dur: 30 }), { onService: ok, onDuration: ok })
+    await waitFor(() => expect(durPen()).toBeTruthy())
+    fireEvent.click(durPen() as HTMLButtonElement)
+    fireEvent.change(durPicker() as HTMLSelectElement, { target: { value: '90' } })
+    fireEvent.click(pen() as HTMLButtonElement)                    // карандаш процедуры
+    expect(durPicker()).toBeNull()
+    expect(picker()).toBeTruthy()
+    fireEvent.click(durPen() as HTMLButtonElement)
+    expect(picker()).toBeNull()
+    expect(durPicker()?.value).toBe('30')                          // выбор сброшен закрытием
+    fireEvent.click(durBtn('Renunță'))
+    expect(durPicker()).toBeNull()
+    expect(durPen()).toBeTruthy()
+  })
+
+  it('длительность, заданная руками, — смена процедуры предупреждает, что её не тронет', async () => {
+    withDur({ dur_set: true })
+    show(card({ dur: 30 }), { onService: ok, onDuration: ok })
+    await waitFor(() => expect(pen()).toBeTruthy())
+    fireEvent.click(pen() as HTMLButtonElement)
+    expect(q('dialog form.dp-card-svc .dp-card-kept')?.textContent)
+      .toBe('Durata rămâne 30 min — aleasă manual.')
+  })
+
+  it('минуты услуги — в списке процедур («Consultație · 15 min»)', async () => {
+    withDur({ options: [{ id: 'consult', label: 'Consultație', dur: 15 },
+      { id: 'long', label: 'Tratament lung', dur: 120 }] })
+    show(card({ dur: 15 }), { onService: ok, onDuration: ok })
+    await waitFor(() => expect(pen()).toBeTruthy())
+    fireEvent.click(pen() as HTMLButtonElement)
+    expect(options().map((o) => o[1])).toEqual(['Consultație · 15 min', 'Tratament lung · 120 min'])
+  })
+
+  it('сервер снял флаг или нет колбэка — минуты видны, карандаша нет; нет поля — нет и строки', async () => {
+    withDur()
+    show(card({ dur: 30, status: 'done', service_edit: false }), { onService: ok, onDuration: ok })
+    await act(async () => {})
+    expect(facts()).toContain('30 min')
+    expect(durPen()).toBeNull()
+    cleanup()
+    show(card({ dur: 30 }), { onService: ok })
+    await act(async () => {})
+    expect(durPen()).toBeNull()
+    cleanup()
+    show(card(), { onService: ok, onDuration: ok })
+    await act(async () => {})
+    expect(facts()).not.toContain('min')
+    expect(durPen()).toBeNull()
   })
 })

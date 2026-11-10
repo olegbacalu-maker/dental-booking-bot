@@ -247,6 +247,17 @@ def service_refusal(r, sid: str) -> str:
     return ""
 
 
+def duration_refusal(r) -> str:
+    """Можно ли менять длительность визита `r` руками (10.11.2026): «» —
+    можно, иначе код отказа из `MSG_BANNER`. То же правило «этот визит вообще
+    правится», что у процедуры (`_visit_refusal`), — поэтому окно показывает
+    карандаш длительности по тому же флагу `service_edit`; только слово отказа
+    у закрытого визита своё (`dur_closed`: в `svc_closed` сказано «procedura»).
+    """
+    code = _visit_refusal(r)
+    return "dur_closed" if code == "svc_closed" else code
+
+
 def service_fields(r) -> dict:
     """Процедура визита на карточке дня и на блоке канвы панели (22.10), как
     `call_fields`: `service_id` — ключ услуги в clinic.json (пусто у
@@ -262,11 +273,12 @@ def service_fields(r) -> dict:
 
 
 def service_options(r) -> list[dict]:
-    """На какие услуги можно сменить процедуру визита — ключ и подпись, в
+    """На какие услуги можно сменить процедуру визита — ключ, подпись и
+    длительность услуги (минуты в списке окна, 10.11), в
     порядке clinic.json; пусто — выбора нет. Тем же `service_refusal`, по
     которому маршрут смены отказывает."""
-    return [{"id": k, "label": v["ro"]} for k, v in eng.SERVICES.items()
-            if not service_refusal(r, k)]
+    return [{"id": k, "label": v["ro"], "dur": eng.svc_duration(k)}
+            for k, v in eng.SERVICES.items() if not service_refusal(r, k)]
 
 
 def _collect_cards(rows: list) -> dict:
@@ -280,6 +292,9 @@ def _collect_cards(rows: list) -> dict:
             "name": r["name"] or "—", "phone": r["phone"] or "",
             "service": r["service"], "doctor": r["doctor"],
             "time": r["starts_at"].astimezone(eng.TZ).strftime("%H:%M"),
+            # длительность визита в минутах (10.11): окно показывает её рядом с
+            # процедурой и правит карандашом; NULL легаси-строки = 60
+            "dur": int(r.get("duration_min") or 60),
             "comment": r["comment"] or "",
             "age": _age(r["birth_year"]),
             # состояние, а не «можно ли действовать»: набор кнопок в диалоге

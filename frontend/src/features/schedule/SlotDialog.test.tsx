@@ -104,3 +104,45 @@ describe('окно пустого часа: отказ сервера — вну
     expect(banner()).toBe('')
   })
 })
+
+describe('окно пустого часа: «Durată» (10.11, жалоба пилота «15′, а нужно 30′»)', () => {
+  const FORM_D = {
+    services: [{ id: 'consult', label: 'Consultație', dur: 15 }, { id: 'long', label: 'Tratament lung', dur: 120 }],
+    durations: [15, 30, 45, 60, 90, 120], birth_max: '2026-10-17',
+  }
+  const showD = (onAdd: (body: unknown, fail: Fail) => Promise<boolean>) =>
+    render(<SlotDialog open slot={SLOT} date="2026-10-17" form={FORM_D} noteEnds={[11, 12]}
+      free={BOTH} busy={false} onClose={onClose} onAdd={onAdd} onNote={onNote} />)
+  const durSel = () => document.querySelector('dialog select[aria-label="Durată"]') as HTMLSelectElement
+  const svcSel = () => document.querySelector('dialog select[aria-label="Serviciu"]') as HTMLSelectElement
+
+  it('нетронутая — длительность услуги, идёт за сменой услуги и НЕ уходит на сервер', async () => {
+    const onAdd = vi.fn<(b: unknown, f: Fail) => Promise<boolean>>(async () => true)
+    showD(onAdd)
+    expect(Array.from(svcSel().options).map((o) => o.textContent))
+      .toEqual(['Consultație · 15 min', 'Tratament lung · 120 min'])
+    expect(durSel().value).toBe('15')
+    fireEvent.change(svcSel(), { target: { value: 'long' } })
+    expect(durSel().value).toBe('120')
+    fill()
+    await act(async () => { fireEvent.click(submit()) })
+    expect(onAdd).toHaveBeenCalledTimes(1)
+    expect(onAdd.mock.calls[0]?.[0]).not.toHaveProperty('duration')
+  })
+
+  it('тронутая — уходит числом и больше не идёт за услугой', async () => {
+    const onAdd = vi.fn<(b: unknown, f: Fail) => Promise<boolean>>(async () => true)
+    showD(onAdd)
+    fireEvent.change(durSel(), { target: { value: '30' } })
+    fireEvent.change(svcSel(), { target: { value: 'long' } })
+    expect(durSel().value).toBe('30')
+    fill()
+    await act(async () => { fireEvent.click(submit()) })
+    expect(onAdd.mock.calls[0]?.[0]).toMatchObject({ service: 'long', duration: 30 })
+  })
+
+  it('сервер не прислал список — поля нет, запись как раньше', () => {
+    show(BOTH)
+    expect(durSel()).toBeNull()
+  })
+})

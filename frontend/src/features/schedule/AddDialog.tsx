@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Icon } from '../../components/Icon'
 import { hideDialog, showDialog } from '../patients/card/dialog'
-import { day, type DayForm, type NewAppt } from './day'
+import { day, svcLabel, type DayForm, type NewAppt } from './day'
+import { DurSelect, useDurPick } from './DurPick'
 import { SmsCheck, useSmsBox } from './SmsBox'
 
 /* «Programare nouă» окном (06.10, Олег: форма внизу страницы — старый облик,
@@ -91,6 +92,8 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd }: Props)
   const [birth, setBirth] = useState('')
   const [fail, setFail] = useState('')
   const sms = useSmsBox(form.sms, phone, noPhone)
+  /* «Durată» (10.11): длительность услуги, пока не тронули (`DurPick`) */
+  const dur = useDurPick(form.services, service, form.durations)
   /* «Сегодня» — `birth_max` формы (день клиники, его дал сервер), не часы
      браузера. Галочка включена сразу (решение Олега 29.10): визит задним
      числом заводят ради бумажной истории, а забытая галочка оставила бы его
@@ -134,7 +137,7 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd }: Props)
     setFail('')
     const ok = await onAdd({ date: at, time, doctor, service, name,
       phone: noPhone ? '' : phone, nophone: noPhone, birth, ...sms.field,
-      ...(past ? { done: happened } : {}) }, setFail)
+      ...dur.field, ...(past ? { done: happened } : {}) }, setFail)
     if (ok) onClose()
   }
 
@@ -166,10 +169,13 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd }: Props)
               {f.doctors.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
             </select>
           )}
-        <select value={service} onChange={(e) => setService(e.target.value)}
-                aria-label={T.service}>
-          {form.services.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
-        </select>
+        <div className="dp-addrow dp-svcrow">
+          <select value={service} onChange={(e) => setService(e.target.value)}
+                  aria-label={T.service}>
+            {form.services.map((x) => <option key={x.id} value={x.id}>{svcLabel(x)}</option>)}
+          </select>
+          <DurSelect box={dur} />
+        </div>
         <input value={name} onChange={(e) => setName(e.target.value)}
                placeholder={T.name} required />
         <input value={noPhone ? '' : phone} onChange={(e) => setPhone(e.target.value)}

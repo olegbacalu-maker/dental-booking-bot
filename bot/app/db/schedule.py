@@ -103,9 +103,12 @@ async def admin_add(
     name: str, phone: str, service: str, doctor: str, starts_at: datetime,
     birth_year: int | None = None, birth_date: str | None = None,
     doctor_id: str | None = None, service_id: str | None = None,
-    duration_min: int = 60,
+    duration_min: int = 60, duration_set: bool = False,
 ) -> int | str | None:
-    """Ручная запись из журнала клиники. Пациент дедуплицируется по телефону."""
+    """Ручная запись из журнала клиники. Пациент дедуплицируется по телефону.
+
+    `duration_set` — длительность выбрали в окне записи руками (10.11): тогда
+    у записи ставится признак, и смена процедуры её не перебьёт."""
     digits = "".join(ch for ch in phone if ch.isdigit())
     # Пациента ищем по НОМЕРУ среди существующих, а не по ключу manual:<цифры>
     # (08-07): у пациента из Telegram ключ tg:…, и путь по ключу заводил
@@ -155,6 +158,11 @@ async def admin_add(
                 birth_date, birth_year, pid)
         elif birth_year and len(ids) == 1:
             await set_birth_year(pid, birth_year)
+    if duration_set and isinstance(r, int):
+        # Признак — отдельной строкой ПОСЛЕ брони, а не колонкой в общей
+        # вставке `_book_locked` (её зовут запись из фиши и бот-наследие):
+        # длительность уже легла верная, признак говорит только, кто её задал.
+        await _execute("UPDATE appointments SET duration_set = 1 WHERE id = ?", r)
     return r
 
 
@@ -424,6 +432,8 @@ async def set_appt_service(appt_id: int, service_id: str, service: str,
                            duration_min: int) -> str:
     """Смена процедуры у стоящей записи (22.10): ключ услуги, СНИМОК подписи и
     СНИМОК длительности — те же три колонки, что пишет бронь.
+    ⭐ Длительность, заданную руками (`duration_set`, 10.11), смена процедуры
+    НЕ трогает: присланная `duration_min` тогда игнорируется.
 
     Ответ — КОД, как у переноса: `''` — сменено (или уже та же услуга);
     `gone` — записи нет; `closed` — визит не активен; `conflict` — выросшая
@@ -443,7 +453,7 @@ async def set_appt_service(appt_id: int, service_id: str, service: str,
     async with _slot_lock():
         rows = await _fetch(
             """SELECT patient_id, doctor, doctor_id, starts_at, duration_min,
-                      status, source, service, service_id
+                      duration_set, status, source, service, service_id
                FROM appointments WHERE id = ?""", appt_id)
         if not rows or rows[0]["source"] == "note":
             return "gone"
@@ -452,6 +462,11 @@ async def set_appt_service(appt_id: int, service_id: str, service: str,
             return "closed"
         if r["service_id"] == service_id:
             return ""
+        if r["duration_set"]:
+            # ⭐ Длительность задана руками (10.11, `duration_set`): клиника
+            # поставила её сознательно, процедура её не перебивает. Тот же
+            # интервал — проверять соседа нечего (условие ниже не сработает).
+            duration_min = int(r["duration_min"] or 60)
         if duration_min > int(r["duration_min"] or 60) and await _conflicts(
                 r["doctor_id"], r["doctor"], r["starts_at"], duration_min,
                 exclude_id=appt_id):
@@ -464,6 +479,46 @@ async def set_appt_service(appt_id: int, service_id: str, service: str,
             # «›», а не стрелка: стрелки нет во вшитом шрифте (CLAUDE.md)
             await log_event(r["patient_id"], "appt_service",
                             f"Procedura schimbată: {r['service']} › {service}")
+        return ""
+
+
+async def set_appt_duration(appt_id: int, minutes: int) -> str:
+    """Длительность стоящей записи руками (10.11.2026, жалоба пилота:
+    «Consultație 15′, а пациенту нужно 30′»). Коды — как у
+    `set_appt_service`: `''` — сделано (или уже столько же), `gone`, `closed`,
+    `conflict` — выросший визит наезжает на соседа у того же врача.
+
+    ⭐ Ставит `duration_set`: дальше смена процедуры длительность не трогает.
+    ⚠️ Тот же порядок, что у процедуры: строка перечитывается ПОД
+    `_slot_lock`, сосед спрашивается у ДАННЫХ (`_conflicts`) и только когда
+    визит ДЛИННЕЕ — короче он лежит внутри уже занятого интервала.
+    ⚠️ Та же длительность — тихий успех БЕЗ записи: пересохранение без правки
+    обязано быть тождественным (прайор 08-16), ни признака, ни летописи.
+    ⛔ Заметку стойки не трогать — `gone`, и то же условие в UPDATE.
+    """
+    async with _slot_lock():
+        rows = await _fetch(
+            """SELECT patient_id, doctor, doctor_id, starts_at, duration_min,
+                      status, source, service
+               FROM appointments WHERE id = ?""", appt_id)
+        if not rows or rows[0]["source"] == "note":
+            return "gone"
+        r = rows[0]
+        if r["status"] not in ACTIVE_STATUSES:
+            return "closed"
+        was = int(r["duration_min"] or 60)
+        if minutes == was:
+            return ""
+        if minutes > was and await _conflicts(
+                r["doctor_id"], r["doctor"], r["starts_at"], minutes,
+                exclude_id=appt_id):
+            return "conflict"
+        await _execute(
+            """UPDATE appointments SET duration_min = ?, duration_set = 1
+               WHERE id = ? AND source != 'note'""", minutes, appt_id)
+        if r["patient_id"]:
+            await log_event(r["patient_id"], "appt_duration",
+                            f"Durata schimbată: {was} › {minutes} min — {r['service']}")
         return ""
 
 

@@ -376,7 +376,9 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
                       }}
                       onCall={(result) => act(() => day.call(at, doctor, tile, cardL.shown!, result))}
                       onService={(sid, fail) =>
-                        act(() => day.service(at, doctor, tile, cardL.shown!, sid), fail)} />
+                        act(() => day.service(at, doctor, tile, cardL.shown!, sid), fail)}
+                      onDuration={(min, fail) =>
+                        act(() => day.duration(at, doctor, tile, cardL.shown!, min), fail)} />
         : null}
 
       {noteL.shown !== null && shownNote

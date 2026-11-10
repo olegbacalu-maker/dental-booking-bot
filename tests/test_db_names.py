@@ -73,7 +73,7 @@ SNAPSHOT = frozenset((
     "RECALL_DDL", "recall_done_last", "recall_future", "RECALL_IDX_DDL",
     "recall_marks", "recent_activity", "relink_doctor", "_RO_COUNT", "_rowdict",
     "_same_tooth", "save_anamneza", "save_ocluzie", "save_visit_record",
-    "SCHEMA_VERSION", "_schema_version", "seed", "set_appt_call", "set_appt_service",
+    "SCHEMA_VERSION", "_schema_version", "seed", "set_appt_call", "set_appt_service", "set_appt_duration",
     "set_archived", "set_birth_year", "set_comment", "set_meta", "set_patient_lang",
     "set_plan_status", "set_mkt", "set_primary_doctor", "_set_schema_version", "set_sms_off",
     "set_status", "set_teeth", "set_tooth", "_slot_conflict_sql", "_slot_conflicts",

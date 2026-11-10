@@ -34,7 +34,9 @@ export interface Slot {
  * открыв оба.
  */
 export interface SlotFormView {
-  services: { id: string; label: string }[]
+  services: { id: string; label: string; dur?: number }[]
+  /** Длительности на выбор в «Durată» (10.11); нет поля — выбора нет. */
+  durations?: number[]
   /** Потолок поля «дата рождения» — сегодня В ЧАСАХ КЛИНИКИ. */
   birth_max: string
   /** Галочка «SMS reminder» (`day.sms_box`); нет поля — галочки нет. */

@@ -390,7 +390,7 @@ async def api_hours_save(request: Request):
 
 # ---------- услуги ----------
 
-_DURATIONS = (15, 30, 45, 60, 90, 120)      # те же, что в <select> старой таблицы
+_DURATIONS = eng.DURATIONS      # один список с длительностью визита (10.11)
 
 
 def _services_data() -> dict:
