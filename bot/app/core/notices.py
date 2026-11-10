@@ -9,7 +9,10 @@
 Windows). Поэтому `id` детерминирован: при неизменных данных он тот же на
 каждом опросе и меняется ровно тогда, когда событие надо показать СНОВА —
 новая версия, новый срок лицензии или следующий порог, новый эпизод «мало
-SMS» (после пополнения).
+SMS» (после пополнения). Обновление — `update:<версия>:<день>`: раз в сутки
+после 10:00 по времени клиники, пока не поставлено (Олег 10.11: «напоминать
+в трее… 1 раз в день хотя бы» — пилотная клиника закрыла уведомление и о
+версии больше не слышала).
 ⛔ Без сессии и без данных пациентов: маршрут отвечает оболочке этого ПК, а
 не человеку. Состояние читается из памяти процесса (`update.STATE`,
 `license.current()`, счёт SMS) — база не трогается, поэтому ответ есть и в
@@ -21,7 +24,7 @@ from __future__ import annotations
 
 import hmac
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from .. import engine as eng
 from .. import sidecar
@@ -32,6 +35,11 @@ from .auth import client_is_local
 
 V = 1                                     # версия контракта (`v` ответа)
 LICENSE_DAYS = (7, 1)                     # за сколько дней до конца (Олег 18.10)
+# С какого часа (по `eng.TZ`) напоминать об обновлении. ПК клиники часто не
+# выключают на ночь, и оболочка спрашивает раз в 30 минут: смена дня в `id`
+# ровно в полночь показала бы уведомление ночью, в пустой клинике, — и утром
+# его уже никто не увидит («показано»). С 10:00 приём уже идёт, у ПК человек.
+UPDATE_HOUR = 10
 OPEN_UPDATE = "/admin/settings/system"
 OPEN_LICENSE = "/admin/license"
 OPEN_SMS = "/admin/settings/sms"
@@ -42,14 +50,27 @@ def _stamp(dt) -> str:
     return lic.st.fmt(dt).replace("-", "").replace(":", "")
 
 
-def update_item() -> dict | None:
+def update_day(now: datetime) -> str | None:
+    """День напоминания (`YYYYMMDD` по времени клиники) — часть `id`, чтобы
+    оболочка, помнящая показанные `id`, показала обновление снова назавтра.
+    До `UPDATE_HOUR` — None: вчерашнее уже показано, сегодняшнее ждёт утра."""
+    local = now.astimezone(eng.TZ)
+    return None if local.hour < UPDATE_HOUR else local.strftime("%Y%m%d")
+
+
+def update_item(now: datetime | None = None) -> dict | None:
     """Вышла версия новее, и её можно поставить. Версия, объявленная без
     установщика (`asset_pending` у собранной программы), — ещё не повод: экран
-    Stare sistem в этот момент говорит «reverificăm automat»."""
+    Stare sistem в этот момент говорит «reverificăm automat». Напоминание —
+    раз в сутки после `UPDATE_HOUR`, пока версия новее (`update_day`).
+    `now` — для прогона; маршрут зовёт без него."""
     if not upd.newer_available() or (upd.asset_pending() and upd.is_desktop()):
         return None
+    day = update_day(now or datetime.now(eng.TZ))
+    if day is None:
+        return None
     ver = upd.STATE["latest"].lstrip("vV")
-    return {"id": f"update:{ver}", "title": "Versiune nouă DentPilot",
+    return {"id": f"update:{ver}:{day}", "title": "Versiune nouă DentPilot",
             "body": f"DentPilot {ver} este gata — actualizați în Setări › Stare sistem.",
             "open": OPEN_UPDATE}
 

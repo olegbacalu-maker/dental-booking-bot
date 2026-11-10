@@ -6,6 +6,8 @@
     loopback, иначе 404 тем же телом, что у несуществующего адреса;
   - `id` детерминирован: тот же на повторном опросе, новый — только когда
     событие надо показать снова (версия, срок и порог, эпизод «мало SMS»);
+  - обновление напоминает раз в сутки: день клиники в `id`, до 10:00 — ни
+    слова, после установки (версия не новее) — тоже;
   - пороги на границах: лицензия 8/7 дней и 1 день, SMS 31/30 и 11/10;
   - «мало SMS» — ОДНО правило: подсказка меню, баннер экрана SMS и
     уведомление говорят одно и то же одними словами;
@@ -27,6 +29,7 @@ import test_sms as ts
 
 sys.path.insert(0, str(BOT))
 
+from app import update as upd  # noqa: E402
 from app.core import notices, sms_loop  # noqa: E402
 from app.modules.settings import autostart  # noqa: E402
 
@@ -89,6 +92,30 @@ def suite_rules(res: Result) -> None:
            and sms_loop.low_text(30, False).startswith("Au rămas 30 SMS în pachet")
            and "din perioada de probă" in sms_loop.low_text(10, True), repr(texts))
 
+    # Обновление — раз в сутки после UPDATE_HOUR по времени клиники (Олег 10.11).
+    at = lambda h, m=0, d=10: datetime(2026, 11, d, h, m, tzinfo=TZ)  # noqa: E731
+    res.check("час напоминания — 10", notices.UPDATE_HOUR, 10)
+    res.check("обновление: 09:59 — рано", notices.update_day(at(9, 59)), None)
+    res.check("обновление: 10:00 — день клиники", notices.update_day(at(10)), "20261110")
+    res.check("обновление: 23:59 — тот же день", notices.update_day(at(23, 59)), "20261110")
+    res.check("обновление: 00:30 назавтра — ещё рано, не ночью", notices.update_day(at(0, 30, 11)), None)
+    res.check("обновление: 10:00 назавтра — новый день", notices.update_day(at(10, 0, 11)), "20261111")
+    res.check("обновление: 08:00 UTC = 10:00 у клиники — уже пора (час по поясу клиники)",
+              notices.update_day(datetime(2026, 11, 10, 8, 0, tzinfo=timezone.utc)), "20261110")
+    res.check("обновление: 07:59 UTC = 09:59 у клиники — рано",
+              notices.update_day(datetime(2026, 11, 10, 7, 59, tzinfo=timezone.utc)), None)
+    keep_state = dict(upd.STATE)
+    try:
+        upd.STATE.update(latest="v9.9.9", setup_url="http://127.0.0.1:9/DentPilot.exe")
+        res.check("обновление новее, 10:00 — с днём в id",
+                  (notices.update_item(at(10)) or {}).get("id"), "update:9.9.9:20261110")
+        res.check("обновление новее, 09:59 — молчит", notices.update_item(at(9, 59)), None)
+        upd.STATE.update(latest="v" + notices.eng.APP_VERSION)
+        res.check("поставлено (версия не новее) — молчит и после 10:00", notices.update_item(at(12)), None)
+    finally:
+        upd.STATE.clear()
+        upd.STATE.update(keep_state)
+
     def req(host: str, tok: str | None) -> object:
         return types.SimpleNamespace(client=types.SimpleNamespace(host=host),
                                      headers={notices.HEADER: tok} if tok is not None else {})
@@ -122,8 +149,11 @@ def suite_rules(res: Result) -> None:
 
 
 def suite_route(res: Result) -> None:
-    """404 без токена, с чужим, без оболочки; ответ без сессии; обновление."""
-    with Server(env={**SHELL, "DENTART_FAKE_UPDATE_URL": "http://127.0.0.1:9/DentPilot.exe"}) as s:
+    """404 без токена, с чужим, без оболочки; ответ без сессии; обновление —
+    раз в сутки после 10:00 (часы прогона: набор не зависит от того, в
+    котором часу его гоняют)."""
+    t0 = datetime(2026, 11, 10, 9, 59, tzinfo=TZ)
+    with Clock(t0) as clock,             Server(env={**SHELL, "DENTART_FAKE_UPDATE_URL": "http://127.0.0.1:9/DentPilot.exe"}) as s:
         nope = Client(s.url).get("/shell/nope")
         for label, headers in (("без заголовка", None), ("с чужим токеном", {notices.HEADER: secrets.token_hex(16)}),
                                ("с пустым", {notices.HEADER: ""})):
@@ -136,13 +166,23 @@ def suite_route(res: Result) -> None:
                and "no-store" in r.header("cache-control"), f"{r.status} {r.body[:200]}")
         c = Client(s.url).login()
         c.post_json("/api/settings/system/check", {})
+        res.check("обновление есть, но 09:59 — молчит (не будить ночью)", _ids(_notices(s), "update"), [])
+        clock.set(t0.replace(hour=10, minute=0))
         data = _notices(s)
         it = _item(data, "update")
-        res.check("обновление: id по версии", it.get("id"), "update:9.9.9")
+        res.check("обновление: 10:00 — id по версии и дню клиники", it.get("id"), "update:9.9.9:20261110")
         res.ok("обновление: текст с версией и экраном, клик — Stare sistem",
                it.get("body") == "DentPilot 9.9.9 este gata — actualizați în Setări › Stare sistem."
                and it.get("open") == "/admin/settings/system" and it.get("title"), repr(it))
-        res.check("повторный опрос — тот же id", _ids(_notices(s), "update"), ["update:9.9.9"])
+        res.check("повторный опрос — тот же id", _ids(_notices(s), "update"), ["update:9.9.9:20261110"])
+        clock.set(t0.replace(hour=23, minute=50))
+        res.check("в 23:50 того же дня — тот же id, второй раз не показывается",
+                  _ids(_notices(s), "update"), ["update:9.9.9:20261110"])
+        clock.set(t0 + timedelta(days=1))
+        res.check("назавтра в 09:59 — молчит", _ids(_notices(s), "update"), [])
+        clock.set(t0 + timedelta(days=1, minutes=1))
+        res.check("назавтра в 10:00 — новый id: оболочка покажет снова",
+                  _ids(_notices(s), "update"), ["update:9.9.9:20261111"])
         res.ok("ни слова о пациентах: только три вида", all(i["id"].split(":")[0] in ("update", "license", "sms")
                                                             for i in data["items"]), repr(data))
     with Server() as s:
