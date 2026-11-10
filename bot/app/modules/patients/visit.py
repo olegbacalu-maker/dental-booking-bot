@@ -46,75 +46,10 @@ READONLY_NOTE = ("Vizita este anulată sau marcată «neprezentare» — "
 # их подписи нужны и экрану шаблонов в настройках, а сосед соседа не импортирует
 _FIELDS = vtpl.FORM
 
-# «__» в текстах — место для номера зуба: видно, что вписать
-_TEMPLATES = {
-    "consult": {
-        "label": "Consultație",
-        "acuze": "Prezentare pentru consultație / control profilactic.",
-        "examen": "Mucoasa orală roz, umedă, fără leziuni. Starea dinților — "
-                  "vezi formula dentară din fișă.",
-        "diagnostic": "",
-        "tratament": "Examen clinic complet. Starea dentară și planul de "
-                     "tratament discutate cu pacientul.",
-        "recomandari": "Igienă orală de două ori pe zi, control profilactic "
-                       "peste 6 luni.",
-    },
-    "obturatie": {
-        "label": "Obturație",
-        "acuze": "Sensibilitate la rece și dulce la dintele __.",
-        "examen": "Cavitate carioasă la dintele __, sondare sensibilă, "
-                  "percuție indoloră, proba la rece pozitivă, scurtă.",
-        "diagnostic": "Carie dentară, dintele __.",
-        "tratament": "Anestezie locală. Prepararea cavității, prelucrare "
-                     "medicamentoasă, obturație fotopolimerizabilă, șlefuire "
-                     "și lustruire. Verificarea ocluziei.",
-        "recomandari": "Evitați masticația pe partea tratată timp de 2 ore.",
-    },
-    "canal": {
-        "label": "Tratament de canal",
-        "acuze": "Durere spontană, pulsatilă la dintele __.",
-        "examen": "Cavitate carioasă profundă la dintele __, comunicantă cu "
-                  "camera pulpară, percuție sensibilă.",
-        "diagnostic": "Pulpită acută, dintele __.",
-        "tratament": "Anestezie locală. Deschiderea camerei pulpare, "
-                     "extirparea pulpei, prelucrarea mecanică și "
-                     "medicamentoasă a canalelor, obturație de canal / "
-                     "pansament provizoriu.",
-        "recomandari": "Posibilă sensibilitate 2–3 zile; analgezic la nevoie. "
-                       "Prezentare la vizita următoare conform programării.",
-    },
-    "extractie": {
-        "label": "Extracție",
-        "acuze": "Durere la dintele __.",
-        "examen": "Dintele __ compromis, imposibil de restaurat.",
-        "diagnostic": "Parodontită apicală cronică, dintele __ irecuperabil.",
-        "tratament": "Anestezie locală. Extracția dintelui __, chiuretaj "
-                     "alveolar, hemostază. Recomandările post-extracționale "
-                     "explicate pacientului.",
-        "recomandari": "Nu clătiți gura 24 de ore, aplicați rece local, "
-                       "analgezic la nevoie. Control la necesitate.",
-    },
-    "detartraj": {
-        "label": "Detartraj / igienizare",
-        "acuze": "Prezentare pentru igienizare profesională.",
-        "examen": "Depuneri dentare supra- și subgingivale, gingie ușor "
-                  "congestionată la sondare.",
-        "diagnostic": "Depozite dentare. Gingivită catarală cronică.",
-        "tratament": "Detartraj cu ultrasunete, periaj profesional, air-flow. "
-                     "Instruire privind igiena orală.",
-        "recomandari": "Periaj de două ori pe zi, ață dentară zilnic, "
-                       "igienizare profesională peste 6 luni.",
-    },
-    "control": {
-        "label": "Control",
-        "acuze": "Prezentare la control programat.",
-        "examen": "Starea post-tratament satisfăcătoare, fără acuze.",
-        "diagnostic": "",
-        "tratament": "Examen de control, verificarea zonei tratate.",
-        "recomandari": "Continuarea igienei obișnuite; prezentare la "
-                       "următorul control planificat.",
-    },
-}
+# Встроенные заготовки (08-08) живут в core/visit_tpl (GENERAL): экран шаблонов
+# в настройках копирует их как отправную точку, а сосед соседа не импортирует.
+# Тексты перенесены как были, ни строки не меняя.
+_TEMPLATES = vtpl.GENERAL
 
 
 def fields() -> list[dict]:
@@ -128,8 +63,7 @@ def templates() -> list[dict]:
     """Шаблоны-заготовки данными: клиент заполняет ими ТОЛЬКО пустые поля
     (клик не должен стереть вписанное руками); тексты живут здесь, у клиента
     копии нет."""
-    return [{"id": k, "label": t["label"], "values": {f: t[f] for f, *_ in _FIELDS}}
-            for k, t in _TEMPLATES.items()]
+    return vtpl.general()
 
 
 def item_text(it: dict) -> str:

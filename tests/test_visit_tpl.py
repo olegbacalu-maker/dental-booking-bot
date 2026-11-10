@@ -120,6 +120,16 @@ def suite_settings(res: Result) -> None:
         res.ok("заглушка: каждая непустая графа помечена «Exemplu, editați»",
                all(v.startswith("Exemplu, editați") for v in ex.values() if v) and any(ex.values()),
                f"{ex}")
+        gen = {g["id"]: g for g in d["general"]}
+        res.check("общие заготовки для копии: шесть, по порядку",
+                  [(g["id"], g["label"]) for g in d["general"]],
+                  [("consult", "Consultație"), ("obturatie", "Obturație"),
+                   ("canal", "Tratament de canal"), ("extractie", "Extracție"),
+                   ("detartraj", "Detartraj / igienizare"), ("control", "Control")])
+        res.ok("в копии место зуба — метка {dinte}, «__» не осталось",
+               gen["obturatie"]["values"]["diagnostic"] == "Carie dentară, dintele {dinte}."
+               and not any("__" in v for g in d["general"] for v in g["values"].values()),
+               f"{gen['obturatie']['values']}")
         body = json.dumps(d, ensure_ascii=False).casefold()
         res.ok("ни слова о протоколах", "protocol" not in body and "протокол" not in body, "есть")
         page = c.get("/admin/settings/templates")

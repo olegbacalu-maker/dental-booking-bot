@@ -444,12 +444,12 @@
  .dlg-form input,.dlg-form select,
  .dlg-form textarea,form.add input,form.add select,.fform input,.fform select,
  .fform textarea,.pl-pag select,table.set input[type=text],
- table.set input[type=number],table.set select{
+ table.set input[type=number],table.set select,.dp-tpls .tplrow select{
    height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);border-bottom-color:var(--field-line-b);
    border-radius:var(--r-ctl);background:var(--panel);color:var(--text);font-size:var(--fs-body);outline:none;
    transition:border-color var(--dur) ease,box-shadow var(--dur) ease}
  .dlg-form textarea,.fform textarea{height:auto;padding:11px 14px}
- .dlg-form input:focus,.dlg-form select:focus,.dlg-form textarea:focus,form.add input:focus,form.add select:focus,.fform input:focus,.fform select:focus,.fform textarea:focus,.pl-pag select:focus,table.set input[type=text]:focus,table.set input[type=number]:focus,table.set select:focus{
+ .dlg-form input:focus,.dlg-form select:focus,.dlg-form textarea:focus,form.add input:focus,form.add select:focus,.fform input:focus,.fform select:focus,.fform textarea:focus,.pl-pag select:focus,table.set input[type=text]:focus,table.set input[type=number]:focus,table.set select:focus,.dp-tpls .tplrow select:focus{
    border-color:var(--focus-line);border-bottom-color:var(--focus-line-b);box-shadow:var(--ring)}
  .dlg-form input::placeholder,.dlg-form select::placeholder,.dlg-form textarea::placeholder,form.add input::placeholder,form.add select::placeholder,.fform input::placeholder,.fform select::placeholder,.fform textarea::placeholder,.pl-pag select::placeholder,table.set input[type=text]::placeholder,table.set input[type=number]::placeholder,table.set select::placeholder{color:var(--text3)}
  /* компакт: таблицы настроек (шесть списков в строке программы работы) */

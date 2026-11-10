@@ -45,6 +45,87 @@ TOOTH = "{dinte}"
 DATE = "{data}"
 NO_TOOTH = "__"
 
+# «Șabloane generale» — встроенные заготовки дневника (с 08-08, бывший
+# visit._TEMPLATES, перенесены дословно 10.11): кнопки рядом с «Din șablon» и
+# отправная точка «Copiază din șablon general» экрана настроек. Новых текстов
+# сюда не добавлять — свои тексты клиника пишет у услуги.
+# «__» в текстах — место для номера зуба: видно, что вписать
+GENERAL = {
+    "consult": {
+        "label": "Consultație",
+        "acuze": "Prezentare pentru consultație / control profilactic.",
+        "examen": "Mucoasa orală roz, umedă, fără leziuni. Starea dinților — "
+                  "vezi formula dentară din fișă.",
+        "diagnostic": "",
+        "tratament": "Examen clinic complet. Starea dentară și planul de "
+                     "tratament discutate cu pacientul.",
+        "recomandari": "Igienă orală de două ori pe zi, control profilactic "
+                       "peste 6 luni.",
+    },
+    "obturatie": {
+        "label": "Obturație",
+        "acuze": "Sensibilitate la rece și dulce la dintele __.",
+        "examen": "Cavitate carioasă la dintele __, sondare sensibilă, "
+                  "percuție indoloră, proba la rece pozitivă, scurtă.",
+        "diagnostic": "Carie dentară, dintele __.",
+        "tratament": "Anestezie locală. Prepararea cavității, prelucrare "
+                     "medicamentoasă, obturație fotopolimerizabilă, șlefuire "
+                     "și lustruire. Verificarea ocluziei.",
+        "recomandari": "Evitați masticația pe partea tratată timp de 2 ore.",
+    },
+    "canal": {
+        "label": "Tratament de canal",
+        "acuze": "Durere spontană, pulsatilă la dintele __.",
+        "examen": "Cavitate carioasă profundă la dintele __, comunicantă cu "
+                  "camera pulpară, percuție sensibilă.",
+        "diagnostic": "Pulpită acută, dintele __.",
+        "tratament": "Anestezie locală. Deschiderea camerei pulpare, "
+                     "extirparea pulpei, prelucrarea mecanică și "
+                     "medicamentoasă a canalelor, obturație de canal / "
+                     "pansament provizoriu.",
+        "recomandari": "Posibilă sensibilitate 2–3 zile; analgezic la nevoie. "
+                       "Prezentare la vizita următoare conform programării.",
+    },
+    "extractie": {
+        "label": "Extracție",
+        "acuze": "Durere la dintele __.",
+        "examen": "Dintele __ compromis, imposibil de restaurat.",
+        "diagnostic": "Parodontită apicală cronică, dintele __ irecuperabil.",
+        "tratament": "Anestezie locală. Extracția dintelui __, chiuretaj "
+                     "alveolar, hemostază. Recomandările post-extracționale "
+                     "explicate pacientului.",
+        "recomandari": "Nu clătiți gura 24 de ore, aplicați rece local, "
+                       "analgezic la nevoie. Control la necesitate.",
+    },
+    "detartraj": {
+        "label": "Detartraj / igienizare",
+        "acuze": "Prezentare pentru igienizare profesională.",
+        "examen": "Depuneri dentare supra- și subgingivale, gingie ușor "
+                  "congestionată la sondare.",
+        "diagnostic": "Depozite dentare. Gingivită catarală cronică.",
+        "tratament": "Detartraj cu ultrasunete, periaj profesional, air-flow. "
+                     "Instruire privind igiena orală.",
+        "recomandari": "Periaj de două ori pe zi, ață dentară zilnic, "
+                       "igienizare profesională peste 6 luni.",
+    },
+    "control": {
+        "label": "Control",
+        "acuze": "Prezentare la control programat.",
+        "examen": "Starea post-tratament satisfăcătoare, fără acuze.",
+        "diagnostic": "",
+        "tratament": "Examen de control, verificarea zonei tratate.",
+        "recomandari": "Continuarea igienei obișnuite; prezentare la "
+                       "următorul control planificat.",
+    },
+}
+
+
+def general() -> list[dict]:
+    """Встроенные заготовки данными: id, подпись, пять граф (пустая — "")."""
+    return [{"id": k, "label": t["label"], "values": {f: t.get(f, "") for f in FIELDS}}
+            for k, t in GENERAL.items()]
+
+
 # Заглушка для пустого шаблона: кнопка «Exemplu» экрана настроек вставляет её
 # в пустые графы. Медицинского содержания в ней нет намеренно — только где
 # что писать и как работают метки.

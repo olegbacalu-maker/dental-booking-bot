@@ -463,7 +463,8 @@ async def api_services_save(request: Request):
 
 def _templates_data() -> dict:
     """Услуги прайса с шаблоном дневника: пять граф строками (пустые — ""),
-    подписи граф, метки подстановки и заглушка «Exemplu» — всё с сервера."""
+    подписи граф, метки подстановки, заглушка «Exemplu» и встроенные
+    заготовки для копирования — всё с сервера."""
     return {
         "services": [{"id": s["id"], "label": s["ro"],
                       "tpl": {k: str((s.get("tpl") or {}).get(k) or "") for k in vtpl.FIELDS}}
@@ -471,6 +472,12 @@ def _templates_data() -> dict:
         "fields": [{"id": k, "label": lab, "rows": rows} for k, lab, rows, _ in vtpl.FORM],
         "marks": {"tooth": vtpl.TOOTH, "date": vtpl.DATE},
         "example": dict(vtpl.EXAMPLE),
+        # «Copiază din șablon general»: встроенные заготовки как отправная точка;
+        # их «__» (место зуба) в копии клиники — метка {dinte}, чтобы зуб
+        # подставлялся сам. Сами заготовки не меняются.
+        "general": [{**g, "values": {k: v.replace(vtpl.NO_TOOTH, vtpl.TOOTH)
+                                     for k, v in g["values"].items()}}
+                    for g in vtpl.general()],
         "max": vtpl.MAX_LEN,
     }
 

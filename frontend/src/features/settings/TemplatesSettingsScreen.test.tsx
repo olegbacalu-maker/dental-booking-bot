@@ -29,6 +29,10 @@ const DATA: TemplatesData = {
   marks: { tooth: '{dinte}', date: '{data}' },
   example: { ...E, diagnostic: 'Exemplu, editați: diagnosticul, dintele {dinte}.',
     recomandari: 'Exemplu, editați: recomandările.' },
+  general: [
+    { id: 'obturatie', label: 'Obturație', values: { ...E, diagnostic: 'Carie dentară, dintele {dinte}.', tratament: 'Obturație.' } },
+    { id: 'control', label: 'Control', values: { ...E, acuze: 'Prezentare la control programat.' } },
+  ],
   max: 2000,
 }
 
@@ -96,6 +100,25 @@ describe('TemplatesSettingsScreen', () => {
     expect(post).toHaveBeenCalledWith('/settings/templates', { templates: { consult: {
       diagnostic: 'Exemplu, editați: diagnosticul, dintele {dinte}.',
       recomandari: 'Exemplu, editați: recomandările.' } } })
+  })
+
+  it('10.11: «Copiază din șablon general» — текст общей заготовки в пустые графы; у заполненной услуги выбора нет', async () => {
+    get.mockResolvedValueOnce(ok(DATA))
+    open()
+    await screen.findByText('Consultație')
+    fireEvent.click(head(/Consultație/))
+    fireEvent.click(head(/Igienizare/))
+    const pick = screen.getByLabelText('Copiază din șablon general: Consultație') as HTMLSelectElement
+    expect(screen.queryByLabelText('Copiază din șablon general: Igienizare')).toBeNull()
+    expect(Array.from(pick.options).map((o) => o.textContent)).toEqual(['Copiază din șablon general…', 'Obturație', 'Control'])
+    fireEvent.change(pick, { target: { value: 'obturatie' } })
+    expect(area('tpl_consult_diagnostic').value).toBe('Carie dentară, dintele {dinte}.')
+    expect(area('tpl_consult_tratament').value).toBe('Obturație.')
+    expect(area('tpl_consult_acuze').value).toBe('')
+    expect(screen.queryByLabelText('Copiază din șablon general: Consultație')).toBeNull()
+    fireEvent.click(saveBtn())
+    expect(post).toHaveBeenCalledWith('/settings/templates', { templates: { consult: {
+      diagnostic: 'Carie dentară, dintele {dinte}.', tratament: 'Obturație.' } } })
   })
 
   it('стёртая графа уходит пустой строкой (стереть), отказ — текстом, правка остаётся', async () => {

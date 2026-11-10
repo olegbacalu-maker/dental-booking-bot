@@ -108,6 +108,8 @@ export interface TemplatesData {
   marks: { tooth: string; date: string }
   /** заглушка «Exemplu, editați» для пустого шаблона */
   example: Record<TplFieldId, string>
+  /** встроенные заготовки («Șabloane generale») для «Copiază din șablon general»; «__» уже {dinte} */
+  general: { id: string; label: string; values: Record<TplFieldId, string> }[]
   max: number
 }
 

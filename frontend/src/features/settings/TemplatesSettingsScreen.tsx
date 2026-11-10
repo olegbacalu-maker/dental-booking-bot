@@ -21,6 +21,9 @@ const T = {
   edited: 'modificat',
   example: 'Exemplu',
   exampleHint: 'pune un text-exemplu în câmpurile goale — de editat',
+  copy: 'Copiază din șablon general',
+  copyPick: 'Copiază din șablon general…',
+  copyHint: 'textul unui șablon general, ca punct de pornire — de editat',
   none: 'Lista de servicii e goală — adăugați serviciile în Setări › Servicii.',
   save: 'Salvează șabloanele',
   offline: 'Programul nu răspunde. Reîncercați.',
@@ -54,11 +57,12 @@ export function TemplatesSettingsScreen({ navigate = defaultNavigate }: Props) {
     setTouched((t) => ({ ...t, [sid]: { ...t[sid], [k]: v } }))
   const toggle = (sid: string) =>
     setOpen((o) => (o.includes(sid) ? o.filter((x) => x !== sid) : [...o, sid]))
-  const fillExample = (sid: string) => {
+  /* «Exemplu» и «Copiază din șablon general» кладут текст только в ПУСТЫЕ графы */
+  const fillFrom = (sid: string, src: Record<TplFieldId, string>) => {
     if (!data) return
     for (const f of data.fields) {
-      const ex = data.example[f.id]
-      if (ex && !value(sid, f.id).trim()) setField(sid, f.id, ex)
+      const v = src[f.id]
+      if (v && !value(sid, f.id).trim()) setField(sid, f.id, v)
     }
   }
 
@@ -126,8 +130,21 @@ export function TemplatesSettingsScreen({ navigate = defaultNavigate }: Props) {
                     </div>
                     {allEmpty && (
                       <div className="tplrow">
-                        <button type="button" disabled={saving} onClick={() => fillExample(s.id)}>{T.example}</button>
+                        <button type="button" disabled={saving} onClick={() => fillFrom(s.id, data.example)}>{T.example}</button>
                         <small className="hint dp-m0">{T.exampleHint}</small>
+                      </div>
+                    )}
+                    {allEmpty && data.general.length > 0 && (
+                      <div className="tplrow">
+                        <select value="" aria-label={`${T.copy}: ${s.label}`} disabled={saving}
+                          onChange={(e) => {
+                            const g = data.general.find((x) => x.id === e.target.value)
+                            if (g) fillFrom(s.id, g.values)
+                          }}>
+                          <option value="">{T.copyPick}</option>
+                          {data.general.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
+                        </select>
+                        <small className="hint dp-m0">{T.copyHint}</small>
                       </div>
                     )}
                   </div>

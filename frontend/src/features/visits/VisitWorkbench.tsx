@@ -24,6 +24,8 @@ const T = {
   tplHint: 'Șablonul completează doar câmpurile goale',
   /* шаблоны клиники по услуге (10.11): тексты — из Setări › Șabloane consultație */
   fromTpl: 'Din șablon',
+  /* встроенные заготовки (08-08) — подписаны, чтобы не путать с шаблонами клиники */
+  general: 'Șabloane generale:',
   fromTplHint: 'Din șablon — textele clinicii pentru serviciul vizitei și procedurile bifate, '
     + 'cu dintele și data. Completează doar câmpurile goale.',
   tplFull: 'Câmpurile sunt deja completate — șablonul nu a schimbat nimic.',
@@ -165,6 +167,7 @@ export function VisitWorkbench({ page, saving, onSave, embedded = false }: Props
                 <Icon name="note" /> {T.fromTpl}
               </button>
             )}
+            {page.templates.length > 0 && <small className="tpl-gen">{T.general}</small>}
             {page.templates.map((t) => (
               <button key={t.id} type="button" onClick={() => applyTpl(t.id)}>{t.label}</button>
             ))}

@@ -365,6 +365,8 @@
 .dp-react-root .tplrow button.tpl-svc:hover { background: var(--teal-d); border-color: var(--teal-d); color: var(--on-teal-d); }
 .dp-react-root .tplrow button.tpl-svc:disabled { opacity: .6; cursor: default; }
 .dp-tpl-note { color: var(--text2); }
+.dp-react-root .tplrow .tpl-gen { align-self: center; color: var(--text3); font-size: var(--fs-s); margin-left: 4px; }
+.dp-tpls .tplrow select { width: auto; min-width: 240px; }
 /* экран «Șabloane consultație» (10.11): услуга — карточка-раскрывашка */
 .dp-tpls .tpl-list { display: flex; flex-direction: column; gap: 10px; max-width: 820px; margin: 0 0 14px; }
 .dp-tpls .tpl-card { padding: 0; }

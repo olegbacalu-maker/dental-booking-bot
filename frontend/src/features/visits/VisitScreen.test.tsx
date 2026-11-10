@@ -105,6 +105,7 @@ describe('VisitScreen', () => {
     await screen.findByText(/vizita #7/)
     expect(screen.queryByRole('button', { name: /Din șablon/ })).toBeNull()
     expect(screen.getByText('Șablonul completează doar câmpurile goale')).toBeTruthy()
+    expect(screen.getByText('Șabloane generale:')).toBeTruthy()
   })
 
   it('⭐ 10.11: «Din șablon» — сервер получает отмеченные позиции, заполняются ТОЛЬКО пустые графы', async () => {
