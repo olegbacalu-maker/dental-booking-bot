@@ -8,8 +8,13 @@ HG 4/2026 п.141. Разведка и колонки — side-session-notes/2026
 Решения Олега 10.11 (вариант B): пишут ВСЕ вошедшие; подпись строки — вошедший
 и время ПРОГРАММЫ (клиент их не присылает и не может подменить); исправление —
 новой строкой с причиной, старая остаётся зачёркнутой; удаляет только директор
-(`PERM_SETTINGS`), мягко; «a supervizat» — другой человек своим входом; ресурс
-лампы считает программа.
+(`PERM_SETTINGS`), мягко; ресурс лампы считает программа.
+Слово Олега 10.11 (registre-people, «Вариант 1»): КТО СДЕЛАЛ — выбранный человек
+клиники (каталог «Personal», вид `staff`), а не учётка: в клинике часто одна
+учётка на всех, а убирает и стерилизует младший персонал без входа. Учётка
+остаётся «кто внёс» (`actor`, `end_actor`, `sup_by`) с временем программы;
+«a supervizat» — другой ЧЕЛОВЕК (по имени, не по id учётки): одна учётка
+вносит и уборку, и проверку, если это разные люди. Подпись — рукой на листе.
 Здесь — проверка того, что пришло, и сборка модели экрана; запись — `db/registre.py`.
 ⚠️ Ошибка ввода — `RegError(code, field)`: код уходит в `msg_json` (MSG_BANNER).
 """
@@ -24,13 +29,16 @@ from .. import engine as eng
 
 REGS = ("257", "502", "501")
 # вид → регистр (подпись вида в каталоге — клиента)
-KINDS = ("ster", "lamp", "room", "solution", "article", "pack", "norms")
+KINDS = ("ster", "lamp", "room", "solution", "article", "pack", "norms", "staff")
 TESTS = ("ok", "fail")
 BIO = ("wait", "ok", "fail")
 # условия облучения 501/e: ключ API → слово бланка
 COND = {"fara": "fără persoane", "prezenta": "în prezența persoanelor"}
 WHY_MAX = 200
 NAME_MAX = 120
+# имя человека в графе «кто»: как поле «Alt nume» клиента (80)
+PERSON_MAX = 80
+FUNC_MAX = 60
 QTY_MAX = 999
 ARTS_MAX = 20
 # лампа «на исходе»: остаток ≤ 2 % ресурса, но не меньше 50 часов
@@ -227,6 +235,9 @@ def clean_item(kind: str, b: dict) -> dict:
                         "changes": d.get("changes") if isinstance(d.get("changes"), list) else []}
     elif kind == "room":
         item["data"] = {"every": _int(d.get("every") or 7, "every", 1, 365)}
+    elif kind == "staff":
+        item["name"] = _text(b.get("name"), "name", cap=PERSON_MAX)
+        item["data"] = {"func": _text(d.get("func"), "func", need=False, cap=FUNC_MAX), "sup": bool(d.get("sup"))}
     return item
 
 
@@ -317,8 +328,37 @@ async def room_next(room: dict) -> date:
 # ---------- записи ----------
 
 def _who(user: dict | None) -> tuple[str, str]:
+    """Учётка, ВНОСЯЩАЯ запись (не исполнитель): имя и id."""
     u = user or {}
     return (u.get("name") or "recepție"), str(u.get("id") or "")
+
+
+def _person(v, field: str = "doer") -> str:
+    """Человек из окна (кнопка каталога или «Alt nume»): обязателен."""
+    s = _text(v, field, need=False, cap=PERSON_MAX)
+    if not s:
+        raise RegError("san_who", field)
+    return s
+
+
+def _same(a: str, b: str) -> bool:
+    return " ".join(a.split()).casefold() == " ".join(b.split()).casefold()
+
+
+async def remember(name: str) -> None:
+    """«Alt nume» попадает в каталог «Personal» (слово Олега): в следующий раз —
+    кнопкой. Есть такое имя (даже выключенное директором) — ничего не делаем:
+    выключенного не воскрешаем, двойника не заводим."""
+    have = await db.san_items("staff")
+    if any(_same(x["name"], name) for x in have):
+        return
+    await db.san_item_save({"kind": "staff", "name": name, "active": True, "sort": len(have),
+                            "data": {"func": "", "sup": False}})
+
+
+def doer_of(row: dict) -> str:
+    """Кто сделал: выбранный человек; у строк до шага 10 — учётка (`actor`)."""
+    return row.get("doer") or row.get("actor") or ""
 
 
 async def start_cycle(user: dict | None, b: dict) -> int:
@@ -327,10 +367,12 @@ async def start_cycle(user: dict | None, b: dict) -> int:
     p = _int(b.get("program", 0), "program", 0, max(len(progs) - 1, 0))
     prog = progs[p] if progs else {"label": "", "temp": "", "pressure": ""}
     arts = _arts(b.get("arts"), [])
+    doer = _person(b.get("doer"))
     if any(int(r["ster_id"] or 0) == ster["id"] for r in await db.san_open("257")):
         raise RegError("san_busy", "ster_id", 409)
     name, uid = _who(user)
-    return await db.san_insert("257", {
+    await remember(doer)
+    return await db.san_insert("257", {"doer": doer,
         "ster_id": ster["id"], "ster": label(ster), "program": prog["label"],
         "pressure": _text(b.get("pressure", prog.get("pressure")), "pressure", need=False, cap=10),
         "temp": _text(b.get("temp", prog.get("temp")), "temp", need=False, cap=10),
@@ -340,9 +382,10 @@ async def start_cycle(user: dict | None, b: dict) -> int:
 async def finish_cycle(user: dict | None, row_id: int, b: dict) -> None:
     vals = {"chem": _choice(b.get("chem"), TESTS, "chem"), "term": _choice(b.get("term"), TESTS, "term"),
             "bio": _choice(b.get("bio"), BIO, "bio"), "ended_at": _iso(now_utc()),
-            "end_actor": _who(user)[0]}
+            "end_actor": _who(user)[0], "end_doer": _person(b.get("doer"))}
     if not await db.san_close("257", row_id, "ended_at", vals):
         raise RegError("san_closed", "", 409)
+    await remember(vals["end_doer"])
 
 
 async def bio_result(user: dict | None, row_id: int, b: dict) -> None:
@@ -355,26 +398,41 @@ async def bio_result(user: dict | None, row_id: int, b: dict) -> None:
         raise RegError("san_closed", "", 409)
 
 
+DAYS = {"": 0, "azi": 0, "ieri": 1}
+
+
 async def add_clean(user: dict | None, b: dict) -> int:
+    """Уборка: «Azi» или «Ieri» (записать вчерашнюю — можно, будущую — нет).
+    Повтор помещения в тот же день — предупреждение клиента, не запрет."""
     room = await _active("room", b.get("room_id"))
+    back = DAYS.get(str(b.get("day") or ""))
+    if back is None:
+        raise RegError("bad_san", "day")
+    solution = _text(b.get("solution"), "solution")
+    doer = _person(b.get("doer"))
     plan = await room_next(room)
     name, uid = _who(user)
+    await remember(doer)
     return await db.san_insert("502", {
         "room_id": room["id"], "room": room["name"], "plan_date": plan.isoformat(),
-        "done_date": today().isoformat(), "solution": _text(b.get("solution"), "solution"),
-        "actor": name, "actor_id": uid})
+        "done_date": (today() - timedelta(days=back)).isoformat(), "solution": solution,
+        "actor": name, "actor_id": uid, "doer": doer})
 
 
-async def supervise(user: dict | None, row_id: int) -> None:
+async def supervise(user: dict | None, row_id: int, b: dict) -> None:
+    """«A supervizat»: выбранный человек; сам себя не проверяет — по ИМЕНИ
+    исполнителя, а не по учётке (одна учётка на клинику вносит обе подписи)."""
     row = await db.san_row("502", row_id)
     if not row or row.get("deleted_at"):
         raise RegError("san_gone", "", 404)
+    who = _person(b.get("who"), "who")
+    if _same(who, doer_of(row)):
+        raise RegError("san_self_check", "who", 409)
     name, uid = _who(user)
-    if uid and uid == (row.get("actor_id") or ""):
-        raise RegError("san_self_check", "", 409)
-    if not await db.san_close("502", row_id, "sup_at", {"sup_actor": name, "sup_id": uid,
+    if not await db.san_close("502", row_id, "sup_at", {"sup_actor": who, "sup_id": uid, "sup_by": name,
                                                          "sup_at": _iso(now_utc())}):
         raise RegError("san_closed", "", 409)
+    await remember(who)
 
 
 async def uv_on(user: dict | None, b: dict) -> int:
@@ -385,8 +443,10 @@ async def uv_on(user: dict | None, b: dict) -> int:
         raise RegError("san_uv_people", "cond", 409)
     if any(int(r["lamp_id"] or 0) == lamp["id"] for r in await db.san_open("501")):
         raise RegError("san_uv_on", "lamp_id", 409)
+    doer = _person(b.get("doer"))
     name, uid = _who(user)
-    return await db.san_insert("501", {
+    await remember(doer)
+    return await db.san_insert("501", {"doer": doer,
         "lamp_id": lamp["id"], "lamp": label(lamp), "room": lamp.get("room") or "",
         "cond": COND[cond], "on_at": _iso(now_utc()), "actor": name, "actor_id": uid})
 
@@ -422,7 +482,12 @@ async def fix(reg: str, user: dict | None, row_id: int, b: dict) -> int:
         raise RegError("san_fixed", "", 409)
     why = _why(b.get("why"))
     name, uid = _who(user)
-    base = {"fixes": row_id, "why": why, "actor": name, "actor_id": uid}
+    # исполнитель переезжает в исправление (или исправляется сам); у строк до
+    # шага 10 им была учётка — она и переезжает, уже как имя человека
+    doer = _person(b["doer"]) if b.get("doer") else doer_of(old)
+    if b.get("doer"):
+        await remember(doer)
+    base = {"fixes": row_id, "why": why, "actor": name, "actor_id": uid, "doer": doer}
     if reg == "257":
         if not old.get("ended_at"):
             raise RegError("san_open", "", 409)
@@ -440,6 +505,7 @@ async def fix(reg: str, user: dict | None, row_id: int, b: dict) -> int:
             "temp": _text(b.get("temp", old["temp"]), "temp", need=False, cap=10),
             "arts": _arts(b["arts"], []) if "arts" in b else _json_list(old["arts"]),
             "started_at": _iso(s_dt), "ended_at": _iso(e_dt), "end_actor": name,
+            "end_doer": old.get("end_doer") or old.get("end_actor") or doer,
             "chem": _choice(b.get("chem", old["chem"]), TESTS, "chem"),
             "term": _choice(b.get("term", old["term"]), TESTS, "term"),
             "bio": _choice(b.get("bio", old["bio"]), BIO, "bio"),
@@ -495,19 +561,23 @@ def _json_list(v) -> list:
 # ---------- строки для экрана, листа и Excel ----------
 
 def row_out(reg: str, r: dict, fixed: dict) -> dict:
+    # `doer` — кто сделал (человек); `legacy` — строка до шага 10: исполнитель
+    # там — учётка (`actor`), экран и лист пишут «cont (înreg. veche)»
     base = {"id": r["id"], "reg": reg, "actor": r["actor"], "at": stamp(r["created_at"]),
+            "doer": doer_of(r), "legacy": not r.get("doer"),
             "fixes": r.get("fixes"), "fixed_by": fixed.get(r["id"]), "why": r.get("why") or ""}
     if reg == "257":
         return {**base, "date": dmy(_loc(r["started_at"]).date()), "start": hm(r["started_at"]),
                 "end": hm(r.get("ended_at")), "open": not r.get("ended_at"), "ster_id": r.get("ster_id"),
                 "ster": r["ster"], "program": r["program"], "pressure": r["pressure"], "temp": r["temp"],
                 "arts": _json_list(r["arts"]), "chem": r["chem"], "term": r["term"], "bio": r["bio"],
-                "end_actor": r.get("end_actor") or "", "bio_actor": r.get("bio_actor") or "",
+                "end_actor": r.get("end_actor") or "", "end_doer": r.get("end_doer") or r.get("end_actor") or "",
+                "bio_actor": r.get("bio_actor") or "",
                 "bio_at": stamp(r.get("bio_at")), "started_at": _iso(_parse(r["started_at"]))}
     if reg == "502":
         return {**base, "room_id": r.get("room_id"), "room": r["room"], "plan": dmy(r.get("plan_date")),
                 "done": dmy(r["done_date"]), "solution": r["solution"], "sup_actor": r.get("sup_actor") or "",
-                "sup_at": stamp(r.get("sup_at")), "actor_id": r.get("actor_id") or ""}
+                "sup_by": r.get("sup_by") or "", "sup_at": stamp(r.get("sup_at")), "actor_id": r.get("actor_id") or ""}
     return {**base, "date": dmy(_loc(r["on_at"]).date()), "lamp_id": r.get("lamp_id"), "lamp": r["lamp"],
             "room": r.get("room") or "", "cond": r["cond"], "on": hm(r["on_at"]), "off": hm(r.get("off_at")),
             "open": not r.get("off_at"), "minutes": r.get("minutes"), "rest": r.get("rest_hours"),
@@ -549,13 +619,20 @@ async def model(month: str | None, user: dict | None, can_delete: bool, can_sett
             continue
         on = open501.get(lamp["id"])
         lamps.append({**lamp, "on": row_out("501", on, f501) if on else None})
+    # уборки вчера и сегодня по помещению: окно предупреждает о повторе дня
+    yday = t - timedelta(days=1)
+    near: dict[int, set] = {}
+    for c in await db.san_rows("502", yday.isoformat(), (t + timedelta(days=1)).isoformat()):
+        near.setdefault(int(c["room_id"] or 0), set()).add(c["done_date"])
     rooms = []
     for r in items["room"]:
         if not r["active"]:
             continue
         nxt = await room_next(r)
         last = await db.san_last_clean(r["id"])
-        rooms.append({**r, "next": dmy(nxt), "last": dmy(last), "due": nxt <= t, "late": nxt < t})
+        rooms.append({**r, "next": dmy(nxt), "last": dmy(last), "due": nxt <= t, "late": nxt < t,
+                      "done_azi": t.isoformat() in near.get(r["id"], set()),
+                      "done_ieri": yday.isoformat() in near.get(r["id"], set())})
     waiting = [row_out("502", r, f502) for r in await db.san_open("502")]
     m = month_of(month)
     d1, d2 = m, next_month(m)
@@ -570,6 +647,8 @@ async def model(month: str | None, user: dict | None, can_delete: bool, can_sett
         "next": next_month(m).strftime("%Y-%m"),
         "me": {"name": name, "id": uid}, "can": {"delete": can_delete, "settings": can_settings},
         "sters": sters, "lamps": lamps, "rooms": rooms, "waiting": waiting,
+        "staff": [{"name": x["name"], "func": (x["data"] or {}).get("func") or "",
+                   "sup": bool((x["data"] or {}).get("sup"))} for x in items["staff"] if x["active"]],
         "solutions": [x["name"] for x in items["solution"] if x["active"]],
         "articles": [x["name"] for x in items["article"] if x["active"]],
         "packs": [x["name"] for x in items["pack"] if x["active"]],

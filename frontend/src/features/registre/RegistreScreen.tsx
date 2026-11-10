@@ -9,15 +9,17 @@ import { defaultNavigate, useLoad } from '../../hooks/useLoad'
 import { asApiError, type ApiResult } from '../../services/api'
 import {
   dayLabel, dur, excelUrl, minutesSince, monthLabel, printUrl, regApi,
-  type Art, type Bio, type CleanRow, type CycleRow, type RegData, type RegKey, type Test, type UvRow,
+  type Art, type Bio, type CleanRow, type CycleRow, type Person, type RegData, type RegKey, type Test, type UvRow,
 } from './registre'
 
 /* «Registre» (10.11.2026, вариант B — слово Олега): санитарные регистры
    257/e (автоклав), 502/e (генеральная уборка), 501/e (УФ-лампы).
    «Azi» — плитки оборудования у кресла: одно касание до нужного окна;
    «Istoric și tipar» — журналы за месяц колонками бланка, лист и Excel.
-   Подпись строки (вошедший и время) ставит сервер; исправление — новой
-   строкой с причиной; удаляет только директор (право — `can.delete`).
+   КТО СДЕЛАЛ — человек из окна (каталог «Personal», «Alt nume» туда же),
+   учётку и время ставит сервер (registre-people 10.11, «Вариант 1» Олега);
+   подпись — рукой на листе. Исправление — новой строкой с причиной; удаляет
+   только директор (право — `can.delete`).
    Экран не живой поверхности: после команды перечитывает `GET /api/registre`
    (без кадра загрузки — прежние данные стоят до ответа). Минуты идущего цикла
    и включённой лампы считает браузер по отметке сервера. */
@@ -37,19 +39,27 @@ const T = {
     '502': 'Formular 502/e · aprobat prin Ordinul MS nr. 630 din 08.08.2016 · se păstrează 3 ani',
     '501': 'Formular 501/e · aprobat prin Ordinul MS nr. 630 din 08.08.2016 · se păstrează 3 ani',
   } as Record<RegKey, string>,
-  sub: 'Fiecare înregistrare poartă numele celui autentificat și ora programului. Corectarea — înregistrare nouă, cea veche rămâne.',
+  sub: 'Numele — cine a făcut sau a verificat, ales la înregistrare; dedesubt — contul care a înregistrat și ora programului. Semnăturile — de mână, pe foaia tipărită. Corectarea — înregistrare nouă, cea veche rămâne.',
   print: 'Tipărește', excel: 'Excel', prevM: 'Luna trecută', nextM: 'Luna următoare',
   newCycle: 'Ciclu nou', finish: 'Încheie ciclul', start: 'Pornește ciclul', running: 'În curs',
   free: 'Liber', lastCycle: 'ultimul ciclu', none: 'încă niciun ciclu',
   uvOn: 'Pornește lampa', uvOff: 'Oprește', lampOff: 'Oprită', lampOnAt: 'Pornită',
   hoursLeft: 'ore rămase din', change: 'schimbați lampa',
   cleanDone: 'Efectuată', due: 'azi', late: 'întârziată', every: 'la', days: 'zile', lastClean: 'ultima', never: 'niciodată',
-  wait: 'așteaptă verificarea', supDo: 'Am verificat', supSelf: 'verifică altă persoană',
+  wait: 'așteaptă verificarea', supDo: 'Verifică', supTitle: 'Verificarea curățeniei',
   bioWait: 'Teste biologice în incubare', bioNeg: 'Negativ (steril)', bioPos: 'Pozitiv',
   feed: 'Azi în registre', feedEmpty: 'Încă nimic azi.',
   fix: 'Corectează', del: 'Șterge', fixed: 'corectată prin nr.', fixes: 'corectează nr.',
   delAsk: (f: string, n: number) => `Ștergeți înregistrarea nr. ${n} din registrul ${f}? Rămâne în baza de date, marcată ca ștearsă; din registru și de pe foaie dispare.`,
-  signed: 'Semnează', signedHint: 'numele și ora le pune programul',
+  signed: 'Înregistrează', signedHint: 'contul și ora le pune programul · semnătura — de mână, pe foaia tipărită',
+  doer: 'A efectuat (numele, prenumele)', resp: 'Responsabil (numele, prenumele)', endDoer: 'A încheiat (numele, prenumele)',
+  uvDoer: 'Persoana responsabilă (numele, prenumele)', supWho: 'A supervizat (numele, prenumele)',
+  supHint: 'Întâi — cei marcați „verifică curățenia” în Setări › Registre sanitare. Cine a făcut curățenia nu o verifică.',
+  ownName: 'Alt nume', ownNameHint: 'se adaugă în lista personalului',
+  noStaff: 'Lista personalului este goală — scrieți numele o dată, data viitoare apare ca buton.',
+  didIt: 'a efectuat', regBy: 'înreg.', legacy: 'cont (înreg. veche)',
+  day: 'Data efectuării', azi: 'Azi', ieri: 'Ieri',
+  twice: (room: string, day: string) => `${room}: curățenia generală e deja scrisă ${day}. Încă o înregistrare? Dacă prima e greșită — „Corectează” în Istoric.`,
   cancel: 'Renunță', save: 'Salvează', close: 'Închide',
   sterilizer: 'Sterilizator', program: 'Program (regimul)', programHint: 'presiunea și temperatura vin din program',
   arts: 'Articole sterilizate', qty: 'Cantitatea',
@@ -82,6 +92,7 @@ type Dlg =
   | { kind: 'clean'; room: number }
   | { kind: 'uv'; lamp: number }
   | { kind: 'fix'; reg: RegKey; row: CycleRow | CleanRow | UvRow }
+  | { kind: 'sup'; row: CleanRow }
   | null
 
 type Act = (run: () => Promise<ApiResult<null>>, after?: () => void) => Promise<boolean>
@@ -256,17 +267,14 @@ function Azi({ d, now, busy, open, act, history }: {
                 <Icon name="check" /> {T.cleanDone}</button>
             </div>
           ))}
-          {d.waiting.map((w) => {
-            const self = w.actor_id !== '' && w.actor_id === d.me.id
-            return (
-              <div key={`w${w.id}`} className="rg-plan-r wait" data-sup={w.id}>
-                <b>{w.room}</b><small>{w.done} · {w.actor} · {w.solution}</small>
-                <span className="chip warn">{T.wait}</span>
-                <button type="button" className="dp-btn rg-tap sm" disabled={busy || self} title={self ? T.supSelf : ''}
-                  onClick={() => void act(() => regApi.sup(w.id))}><Icon name="shield" /> {self ? T.supSelf : T.supDo}</button>
-              </div>
-            )
-          })}
+          {d.waiting.map((w) => (
+            <div key={`w${w.id}`} className="rg-plan-r wait" data-sup={w.id}>
+              <b>{w.room}</b><small>{w.done} · {w.doer} · {w.solution}</small>
+              <span className="chip warn">{T.wait}</span>
+              <button type="button" className="dp-btn rg-tap sm" disabled={busy}
+                onClick={() => open({ kind: 'sup', row: w })}><Icon name="shield" /> {T.supDo}</button>
+            </div>
+          ))}
         </div>
       </>}
 
@@ -295,7 +303,7 @@ function feedLine(x: CycleRow | CleanRow | UvRow): [string, string, string] {
 
 function FeedRow({ x }: { x: CycleRow | CleanRow | UvRow }) {
   const [when, what, cls] = feedLine(x)
-  return <div className={`rg-feed-r ${cls}`}><span className="num">{when}</span><span>{what}</span><small>{x.actor}</small></div>
+  return <div className={`rg-feed-r ${cls}`}><span className="num">{when}</span><span>{what}</span><small>{x.doer}</small></div>
 }
 
 /* ---------- «Istoric și tipar» ---------- */
@@ -337,6 +345,14 @@ function History({ d, reg, setReg, setMonth, back, open, remove }: {
   )
 }
 
+/** Кто сделал + мелко «înreg. <учётка>» и время; строка до 10.11 — «cont (înreg. veche)». */
+function Who({ r, children }: { r: CycleRow | CleanRow | UvRow; children?: ReactNode }) {
+  return (
+    <span className="rg-who"><b>{r.doer}</b><small>{r.legacy ? T.legacy : `${T.regBy} ${r.actor}`}</small>
+      <small className="rg-sig">{r.at}</small>{children}</span>
+  )
+}
+
 function TestMark({ v }: { v: Test | Bio }) {
   if (v === 'ok') return <span className="rg-t ok" title={T.testOk}><Icon name="check" /></span>
   if (v === 'fail') return <span className="rg-t bad" title={T.testFail}><Icon name="close" /></span>
@@ -374,7 +390,7 @@ function T257({ rows, can, open, remove }: TProps<CycleRow>) {
         <thead>
           <tr><th rowSpan={2}>Nr.</th><th rowSpan={2}>Data</th><th rowSpan={2}>Sterilizator</th>
             <th colSpan={3}>Articole sterilizate</th><th colSpan={2}>Timpul</th><th colSpan={2}>Regimul</th>
-            <th colSpan={3}>Test-control</th><th rowSpan={2}>Semnătura, data</th><th rowSpan={2} /></tr>
+            <th colSpan={3}>Test-control</th><th rowSpan={2}>Responsabil</th><th rowSpan={2} /></tr>
           <tr><th>Denumirea</th><th>Cant.</th><th>Ambalaj</th><th>Început</th><th>Sfârșit</th>
             <th>bar</th><th>°C</th><th>Biol.</th><th>Term.</th><th>Chim.</th></tr>
         </thead>
@@ -392,8 +408,7 @@ function T257({ rows, can, open, remove }: TProps<CycleRow>) {
                 <td className="num">{c.open ? <span className="chip info">{T.running}</span> : c.end}</td>
                 <td className="num">{c.pressure || '—'}</td><td className="num">{c.temp || '—'}</td>
                 <td><TestMark v={c.bio} /></td><td><TestMark v={c.term} /></td><td><TestMark v={c.chem} /></td>
-                <td><span className="rg-who"><b>{c.actor}</b><small>{c.at}</small>
-                  {c.end_actor && c.end_actor !== c.actor ? <small>încheiat: {c.end_actor}</small> : null}</span></td>
+                <td><Who r={c}>{c.end_doer && c.end_doer !== c.doer ? <small>încheiat: {c.end_doer}</small> : null}</Who></td>
                 <td><RowActs reg="257" r={c} closed={!c.open} can={can} open={open} remove={remove} /></td>
               </tr>
             )
@@ -411,17 +426,18 @@ function T502({ rows, can, open, remove }: TProps<CleanRow>) {
         <thead>
           <tr><th rowSpan={2}>Nr.</th><th rowSpan={2}>Încăperea</th><th rowSpan={2}>Data planificării</th>
             <th rowSpan={2}>Data efectuării</th><th rowSpan={2}>Soluția dezinfectantă</th>
-            <th colSpan={2}>A efectuat</th><th colSpan={2}>A supervizat</th><th rowSpan={2} /></tr>
-          <tr><th>Numele</th><th>Semnătura</th><th>Numele</th><th>Semnătura</th></tr>
+            <th rowSpan={2}>A efectuat</th><th rowSpan={2}>A supervizat</th><th rowSpan={2} /></tr>
+          <tr />
         </thead>
         <tbody>
           {rows.map((c) => (
             <tr key={c.id} className={`rg-row${c.fixed_by ? ' old' : ''}`} data-row={c.id}>
               <td className="num">{c.id}</td><td><b>{c.room}</b><FixNote r={c} /></td>
               <td className="num">{c.plan}</td><td className="num">{c.done}</td><td>{c.solution}</td>
-              <td><b>{c.actor}</b></td><td><small className="rg-sig">{c.at}</small></td>
-              {c.sup_actor ? <><td><b>{c.sup_actor}</b></td><td><small className="rg-sig">{c.sup_at}</small></td></>
-                : <td colSpan={2}><span className="chip warn">{T.wait}</span></td>}
+              <td><Who r={c} /></td>
+              <td>{c.sup_actor
+                ? <span className="rg-who"><b>{c.sup_actor}</b><small>{c.sup_by ? `${T.regBy} ${c.sup_by}` : T.legacy}</small><small>{c.sup_at}</small></span>
+                : <span className="chip warn">{T.wait}</span>}</td>
               <td><RowActs reg="502" r={c} closed can={can} open={open} remove={remove} /></td>
             </tr>
           ))}
@@ -438,7 +454,7 @@ function T501({ rows, can, open, remove }: TProps<UvRow>) {
         <thead>
           <tr><th rowSpan={2}>Nr.</th><th rowSpan={2}>Data</th><th rowSpan={2}>Încăperea iradiată</th><th rowSpan={2}>Condițiile</th>
             <th colSpan={2}>Ora</th><th rowSpan={2}>Durata</th><th rowSpan={2}>Ore rămase</th>
-            <th rowSpan={2}>Persoana responsabilă</th><th rowSpan={2}>Semnătura</th><th rowSpan={2} /></tr>
+            <th rowSpan={2}>Persoana responsabilă</th><th rowSpan={2} /></tr>
           <tr><th>conectării</th><th>deconectării</th></tr>
         </thead>
         <tbody>
@@ -450,8 +466,7 @@ function T501({ rows, can, open, remove }: TProps<UvRow>) {
               <td className="num">{u.open ? <span className="chip info">{T.running}</span> : u.off}</td>
               <td className="num">{u.minutes ? `${u.minutes} min` : '—'}</td>
               <td className="num">{u.rest ?? '—'}</td>
-              <td><b>{u.actor}</b>{u.off_actor && u.off_actor !== u.actor ? <small>oprit: {u.off_actor}</small> : null}</td>
-              <td><small className="rg-sig">{u.at}</small></td>
+              <td><Who r={u}>{u.off_actor && u.off_actor !== u.actor ? <small>oprit: {T.regBy} {u.off_actor}</small> : null}</Who></td>
               <td><RowActs reg="501" r={u} closed={!u.open} can={can} open={open} remove={remove} /></td>
             </tr>
           ))}
@@ -498,6 +513,34 @@ function Field({ label, children, hint }: { label: string; children: ReactNode; 
 function Signer({ name }: { name: string }) {
   return <div className="rg-signer"><Icon name="user" /><span><b>{T.signed}: {name}</b><small>{T.signedHint}</small></span></div>
 }
+
+/** Кто сделал (проверил): кнопки «Personal» + «Alt nume» (уходит в каталог
+ *  сервером). Пустой список — не тупик: подсказка и поле имени. `first` —
+ *  кого поставить вперёд (проверяющие), `not` — кого нельзя (исполнитель). */
+function PersonPick({ d, value, set, first, not }: {
+  d: RegData; value: string | null; set: (v: string) => void; first?: (p: Person) => boolean; not?: string | null
+}) {
+  const all = d.staff
+  const list = first ? [...all.filter(first), ...all.filter((p) => !first(p))] : all
+  const own = value && !all.some((p) => p.name === value) ? value : null
+  const names = [...list.map((p) => p.name), ...(own ? [own] : [])]
+  return (
+    <>
+      {!all.length && <p className="rg-warn rg-empty-list"><Icon name="info" /><span>{T.noStaff}</span></p>}
+      {names.length > 0 && <Chips items={names} value={value} onPick={set} off={(n) => !!not && n === not}
+        label={(n) => {
+          const p = all.find((x) => x.name === n)
+          const tag = not && n === not ? T.didIt : p?.func
+          return <>{n}{tag ? <small> · {tag}</small> : null}</>
+        }} />}
+      <OwnText label={T.ownName} onAdd={set} />
+      <small className="hint">{T.ownName}: {T.ownNameHint}</small>
+    </>
+  )
+}
+
+/** Вошедший — в списке «Personal»: он и предлагается (врач у автоклава). */
+const meIn = (d: RegData) => (d.staff.some((p) => p.name === d.me.name) ? d.me.name : null)
 
 /** Пустой список каталога: что делать и куда идти (ссылка — только с правом). */
 function EmptyList({ text, can }: { text: string; can: boolean }) {
@@ -576,6 +619,7 @@ function Dialogs({ d, dlg, busy, close, act }: { d: RegData; dlg: Dlg; busy: boo
       <Clean d={d} dlg={dlg?.kind === 'clean' ? dlg : null} busy={busy} close={close} act={act} />
       <UvOn d={d} dlg={dlg?.kind === 'uv' ? dlg : null} busy={busy} close={close} act={act} />
       <Fix d={d} dlg={dlg?.kind === 'fix' ? dlg : null} busy={busy} close={close} act={act} />
+      <Sup d={d} dlg={dlg?.kind === 'sup' ? dlg : null} busy={busy} close={close} act={act} />
     </>
   )
 }
@@ -586,11 +630,12 @@ function NewCycle({ d, dlg, busy, close, act }: DProps<{ kind: 'new'; ster: numb
   const [ster, setSter] = useState<number | null>(null)
   const [prog, setProg] = useState(0)
   const [arts, setArts] = useState<Art[]>([])
+  const [who, setWho] = useState<string | null>(null)
   const [seen, setSeen] = useState<typeof dlg>(null)
   if (dlg !== seen) {
     setSeen(dlg)
     if (dlg) {
-      setSter(dlg.ster); setProg(0)
+      setSter(dlg.ster); setProg(0); setWho(meIn(d))
       setArts(d.articles[0] ? [{ name: d.articles[0], qty: 1, pack: d.packs[0] ?? '' }] : [])
     }
   }
@@ -599,8 +644,8 @@ function NewCycle({ d, dlg, busy, close, act }: DProps<{ kind: 'new'; ster: numb
   return (
     <Dlg open={!!dlg} title={`${T.newCycle} · 257/e`} icon="play" onClose={close}
       foot={<><Signer name={d.me.name} /><button type="button" className="rg-btn" onClick={close}>{T.cancel}</button>
-        <button type="button" className="dp-btn pri rg-tap" disabled={busy || !s || !arts.length}
-          onClick={() => { if (s) void act(() => regApi.start({ ster_id: s.id, program: prog, arts }), close) }}>
+        <button type="button" className="dp-btn pri rg-tap" disabled={busy || !s || !arts.length || !who}
+          onClick={() => { if (s && who) void act(() => regApi.start({ ster_id: s.id, program: prog, arts, doer: who }), close) }}>
           <Icon name="play" /> {T.start}</button></>}>
       <Field label={T.sterilizer}>
         <Chips items={d.sters.map((x) => x.id)} value={ster} label={(id) => d.sters.find((x) => x.id === id)?.name ?? ''}
@@ -612,6 +657,7 @@ function NewCycle({ d, dlg, busy, close, act }: DProps<{ kind: 'new'; ster: numb
             return x ? <>{x.label}<small>{x.pressure ? ` · ${x.pressure} bar` : ''}{x.min ? ` · ${x.min} min` : ''}</small></> : ''
           }} /></Field>
       <Field label={T.arts}><ArtsEdit arts={arts} set={setArts} catalog={d.articles} packs={d.packs} can={d.can.settings} /></Field>
+      <Field label={T.resp}><PersonPick d={d} value={who} set={setWho} /></Field>
       <p className="hint">{T.startHint}</p>
     </Dlg>
   )
@@ -629,21 +675,23 @@ function Finish({ d, dlg, busy, close, act }: DProps<{ kind: 'finish'; row: Cycl
   const [chem, setChem] = useState('ok')
   const [term, setTerm] = useState('ok')
   const [bio, setBio] = useState('')
+  const [who, setWho] = useState<string | null>(null)
   const [seen, setSeen] = useState<typeof dlg>(null)
-  if (dlg !== seen) { setSeen(dlg); setChem('ok'); setTerm('ok'); setBio('') }
+  if (dlg !== seen) { setSeen(dlg); setChem('ok'); setTerm('ok'); setBio(''); setWho(dlg ? dlg.row.doer : null) }
   const r = dlg?.row
   const bad = chem === 'fail' || term === 'fail' || bio === 'fail'
   return (
     <Dlg open={!!dlg} title={r ? `${T.finish} nr. ${r.id} · ${short(r.ster)}` : T.finish} icon="check" onClose={close}
       foot={<><Signer name={d.me.name} /><button type="button" className="rg-btn" onClick={close}>{T.cancel}</button>
-        <button type="button" className="dp-btn pri rg-tap" disabled={busy || !r}
-          onClick={() => { if (r) void act(() => regApi.finish(r.id, { chem: chem as Test, term: term as Test, bio: bio as Bio }), close) }}>
+        <button type="button" className="dp-btn pri rg-tap" disabled={busy || !r || !who}
+          onClick={() => { if (r && who) void act(() => regApi.finish(r.id, { chem: chem as Test, term: term as Test, bio: bio as Bio, doer: who }), close) }}>
           <Icon name="check" /> {T.finish}</button></>}>
       {r && <p className="rg-sum">{r.program} · pornit {r.start} · {r.arts.map((a) => `${a.name} ${a.qty}`).join(', ')}</p>}
       <Field label={T.chem}><TestChips value={chem} set={setChem} /></Field>
       <Field label={T.term}><TestChips value={term} set={setTerm} /></Field>
       <Field label={T.bio} hint={T.bioHint}><TestChips value={bio} set={setBio} bio /></Field>
       {bad && <p className="rg-warn"><Icon name="excl" /> {T.failWarn}</p>}
+      <Field label={T.endDoer}><PersonPick d={d} value={who} set={setWho} /></Field>
     </Dlg>
   )
 }
@@ -651,17 +699,29 @@ function Finish({ d, dlg, busy, close, act }: DProps<{ kind: 'finish'; row: Cycl
 function Clean({ d, dlg, busy, close, act }: DProps<{ kind: 'clean'; room: number }>) {
   const [room, setRoom] = useState<number | null>(null)
   const [sol, setSol] = useState<string | null>(null)
+  const [who, setWho] = useState<string | null>(null)
+  const [day, setDay] = useState<'azi' | 'ieri'>('azi')
   const [seen, setSeen] = useState<typeof dlg>(null)
-  if (dlg !== seen) { setSeen(dlg); if (dlg) { setRoom(dlg.room); setSol(d.solutions[0] ?? null) } }
+  if (dlg !== seen) {
+    setSeen(dlg)
+    if (dlg) { setRoom(dlg.room); setSol(d.solutions[0] ?? null); setWho(meIn(d)); setDay('azi') }
+  }
   const r = d.rooms.find((x) => x.id === room)
+  /* повтор того же помещения в тот же день — предупреждение, не запрет */
+  const twice = r && (day === 'azi' ? r.done_azi : r.done_ieri)
   return (
     <Dlg open={!!dlg} title={`${T.regs['502']} ${T.cleanDone.toLowerCase()} · 502/e`} icon="check" onClose={close}
       foot={<><Signer name={d.me.name} /><button type="button" className="rg-btn" onClick={close}>{T.cancel}</button>
-        <button type="button" className="dp-btn pri rg-tap" disabled={busy || !r || !sol}
-          onClick={() => { if (r && sol) void act(() => regApi.clean({ room_id: r.id, solution: sol }), close) }}>
+        <button type="button" className="dp-btn pri rg-tap" disabled={busy || !r || !sol || !who}
+          onClick={() => { if (r && sol && who) void act(() => regApi.clean({ room_id: r.id, solution: sol, doer: who, day }), close) }}>
           <Icon name="save" /> {T.save}</button></>}>
       <Field label={T.room}><Chips items={d.rooms.map((x) => x.id)} value={room} label={(id) => d.rooms.find((x) => x.id === id)?.name ?? ''} onPick={setRoom} /></Field>
-      {r && <Field label={T.plan}><b className="num">{r.next}</b></Field>}
+      <Field label={T.doer}><PersonPick d={d} value={who} set={setWho} /></Field>
+      <div className="rg-two">
+        <Field label={T.day}><Chips items={['azi', 'ieri'] as const} value={day} onPick={setDay} label={(v) => T[v]} /></Field>
+        {r && <Field label={T.plan}><b className="num">{r.next}</b></Field>}
+      </div>
+      {twice && r && <p className="rg-warn"><Icon name="excl" /> {T.twice(r.name, day === 'azi' ? 'azi' : 'ieri')}</p>}
       <Field label={T.solution}><SolPick d={d} sol={sol} set={setSol} /></Field>
     </Dlg>
   )
@@ -670,14 +730,15 @@ function Clean({ d, dlg, busy, close, act }: DProps<{ kind: 'clean'; room: numbe
 function UvOn({ d, dlg, busy, close, act }: DProps<{ kind: 'uv'; lamp: number }>) {
   const [lamp, setLamp] = useState<number | null>(null)
   const [cond, setCond] = useState<'fara' | 'prezenta'>('fara')
+  const [who, setWho] = useState<string | null>(null)
   const [seen, setSeen] = useState<typeof dlg>(null)
-  if (dlg !== seen) { setSeen(dlg); if (dlg) { setLamp(dlg.lamp); setCond('fara') } }
+  if (dlg !== seen) { setSeen(dlg); if (dlg) { setLamp(dlg.lamp); setCond('fara'); setWho(meIn(d)) } }
   const l = d.lamps.find((x) => x.id === lamp)
   return (
     <Dlg open={!!dlg} title={`${T.uvOn} · 501/e`} icon="power" onClose={close}
       foot={<><Signer name={d.me.name} /><button type="button" className="rg-btn" onClick={close}>{T.cancel}</button>
-        <button type="button" className="dp-btn pri rg-tap" disabled={busy || !l}
-          onClick={() => { if (l) void act(() => regApi.uvOn({ lamp_id: l.id, cond }), close) }}>
+        <button type="button" className="dp-btn pri rg-tap" disabled={busy || !l || !who}
+          onClick={() => { if (l && who) void act(() => regApi.uvOn({ lamp_id: l.id, cond, doer: who }), close) }}>
           <Icon name="power" /> {T.uvOn}</button></>}>
       <Field label={T.lamp}>
         <Chips items={d.lamps.map((x) => x.id)} value={lamp} off={(id) => !!d.lamps.find((x) => x.id === id)?.on}
@@ -690,6 +751,7 @@ function UvOn({ d, dlg, busy, close, act }: DProps<{ kind: 'uv'; lamp: number }>
         <Chips items={['fara', 'prezenta'] as const} value={cond} label={(v) => T[v]} onPick={setCond}
           off={(v) => v === 'prezenta' && !l?.data.screened} /></Field>
       {l?.low && <p className="rg-warn"><Icon name="excl" /> {l.room || l.name}: {l.rest} {T.hoursLeft} {l.data.hours} — {T.change}.</p>}
+      <Field label={T.uvDoer}><PersonPick d={d} value={who} set={setWho} /></Field>
     </Dlg>
   )
 }
@@ -704,9 +766,10 @@ function Fix({ d, dlg, busy, close, act }: DProps<{ kind: 'fix'; reg: RegKey; ro
   const [end, setEnd] = useState('')
   const [sol, setSol] = useState<string | null>(null)
   const [minutes, setMinutes] = useState('')
+  const [who, setWho] = useState<string | null>(null)
   const [seen, setSeen] = useState<typeof dlg>(null)
   if (dlg !== seen) {
-    setSeen(dlg); setWhy('')
+    setSeen(dlg); setWhy(''); setWho(dlg ? dlg.row.doer : null)
     if (dlg?.reg === '257') {
       const c = dlg.row as CycleRow
       setArts(c.arts); setChem(c.chem); setTerm(c.term); setBio(c.bio); setStart(c.start); setEnd(c.end)
@@ -715,9 +778,11 @@ function Fix({ d, dlg, busy, close, act }: DProps<{ kind: 'fix'; reg: RegKey; ro
   }
   const r = dlg?.row
   function body(): Record<string, unknown> {
-    if (dlg?.reg === '257') return { why, arts, chem, term, bio, start, end }
-    if (dlg?.reg === '502') return { why, solution: sol }
-    return { why, minutes: Number(minutes) }
+    // исполнитель уходит, только если его поправили: иначе сервер переносит прежнего
+    const doer = who && who !== r?.doer ? { doer: who } : {}
+    if (dlg?.reg === '257') return { why, arts, chem, term, bio, start, end, ...doer }
+    if (dlg?.reg === '502') return { why, solution: sol, ...doer }
+    return { why, minutes: Number(minutes), ...doer }
   }
   return (
     <Dlg open={!!dlg} title={r && dlg ? `${T.fix} nr. ${r.id} · ${T.forms[dlg.reg]}` : T.fix} icon="pen" onClose={close}
@@ -725,7 +790,7 @@ function Fix({ d, dlg, busy, close, act }: DProps<{ kind: 'fix'; reg: RegKey; ro
         <button type="button" className="dp-btn pri" disabled={busy || !r || !why.trim()}
           onClick={() => { if (r && dlg) void act(() => regApi.fix(dlg.reg, r.id, body()), close) }}>
           <Icon name="save" /> {T.save}</button></>}>
-      {r && <p className="rg-sum">Nr. {r.id} · {r.actor} {r.at} — {T.keep}.</p>}
+      {r && <p className="rg-sum">Nr. {r.id} · {r.doer} · {r.legacy ? T.legacy : `${T.regBy} ${r.actor}`} {r.at} — {T.keep}.</p>}
       {dlg?.reg === '257' && <>
         <Field label={T.arts}><ArtsEdit arts={arts} set={setArts} catalog={d.articles} packs={d.packs} can={d.can.settings} /></Field>
         <div className="rg-two">
@@ -739,7 +804,28 @@ function Fix({ d, dlg, busy, close, act }: DProps<{ kind: 'fix'; reg: RegKey; ro
       {dlg?.reg === '502' && <Field label={T.solution}><SolPick d={d} sol={sol} set={setSol} /></Field>}
       {dlg?.reg === '501' && <Field label={T.minutes}><input className="dp-fld rg-min" inputMode="numeric" value={minutes}
         onChange={(e) => setMinutes(e.target.value.replace(/\D/g, '').slice(0, 4))} /></Field>}
+      <Field label={dlg?.reg === '257' ? T.resp : dlg?.reg === '501' ? T.uvDoer : T.doer}><PersonPick d={d} value={who} set={setWho} /></Field>
       <Field label={T.why}><input className="dp-fld" value={why} maxLength={200} onChange={(e) => setWhy(e.target.value)} /></Field>
+    </Dlg>
+  )
+}
+
+/** «A supervizat»: выбранный человек (проверяющие — вперёд); исполнитель выключен —
+ *  сам себя не проверяет (по имени; одна учётка вносит обе подписи). */
+function Sup({ d, dlg, busy, close, act }: DProps<{ kind: 'sup'; row: CleanRow }>) {
+  const [who, setWho] = useState<string | null>(null)
+  const [seen, setSeen] = useState<typeof dlg>(null)
+  if (dlg !== seen) { setSeen(dlg); setWho(null) }
+  const r = dlg?.row
+  return (
+    <Dlg open={!!dlg} title={`${T.supTitle} · 502/e`} icon="shield" onClose={close}
+      foot={<><Signer name={d.me.name} /><button type="button" className="rg-btn" onClick={close}>{T.cancel}</button>
+        <button type="button" className="dp-btn pri rg-tap" disabled={busy || !r || !who}
+          onClick={() => { if (r && who) void act(() => regApi.sup(r.id, who), close) }}>
+          <Icon name="save" /> {T.save}</button></>}>
+      {r && <p className="rg-sum">Nr. {r.id} · {r.room} · {r.done} · {T.didIt}: <b>{r.doer}</b> · {r.solution}</p>}
+      <Field label={T.supWho} hint={T.supHint}>
+        <PersonPick d={d} value={who} set={setWho} first={(p) => p.sup} not={r?.doer ?? null} /></Field>
     </Dlg>
   )
 }

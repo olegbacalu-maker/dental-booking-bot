@@ -1,8 +1,9 @@
 import { api, type ApiResult } from '../../services/api'
 
 /* «Registre» (10.11.2026): формы ответов — bot/app/modules/registre/api.py,
-   правила — bot/app/core/registre.py. Подпись строки (кто и когда) ставит
-   СЕРВЕР: клиент имени и времени не присылает. Тексты ответов — сервера
+   правила — bot/app/core/registre.py. КТО СДЕЛАЛ — человек из окна (`doer`,
+   каталог «Personal»; registre-people 10.11); учётку, внёсшую запись, и
+   время ставит СЕРВЕР: клиент их не присылает. Тексты ответов — сервера
    (MSG_BANNER); здесь только формы и адреса. */
 
 export type RegKey = '257' | '502' | '501'
@@ -15,7 +16,11 @@ export interface Program { label: string; temp: string; pressure: string; min: n
 interface RowBase {
   id: number
   reg: RegKey
+  /** Учётка, внёсшая запись. */
   actor: string
+  /** Кто сделал — человек из окна; у строк до 10.11 (`legacy`) — та же учётка. */
+  doer: string
+  legacy: boolean
   /** «dd.mm.yyyy HH:MM» — время программы, когда строка записана. */
   at: string
   fixes: number | null
@@ -26,14 +31,15 @@ interface RowBase {
 export interface CycleRow extends RowBase {
   date: string; start: string; end: string; open: boolean; ster_id: number | null; ster: string
   program: string; pressure: string; temp: string; arts: Art[]; chem: Test; term: Test; bio: Bio
-  end_actor: string; bio_actor: string; bio_at: string
+  end_actor: string; end_doer: string; bio_actor: string; bio_at: string
   /** UTC ISO — минуты идущего цикла считает браузер. */
   started_at: string
 }
 
 export interface CleanRow extends RowBase {
   room_id: number | null; room: string; plan: string; done: string; solution: string
-  sup_actor: string; sup_at: string; actor_id: string
+  /** `sup_actor` — кто проверил (человек), `sup_by` — учётка; пусто у проверок до 10.11. */
+  sup_actor: string; sup_by: string; sup_at: string; actor_id: string
 }
 
 export interface UvRow extends RowBase {
@@ -43,7 +49,7 @@ export interface UvRow extends RowBase {
 
 export interface Item {
   id: number
-  kind: 'ster' | 'lamp' | 'room' | 'solution' | 'article' | 'pack'
+  kind: 'ster' | 'lamp' | 'room' | 'solution' | 'article' | 'pack' | 'staff'
   name: string
   nr: string
   room: string
@@ -54,6 +60,8 @@ export interface Item {
     m3?: number; hours?: number; base?: number; since?: string; screened?: boolean
     changes?: { date: string; actor: string }[]
     every?: number
+    /** «Personal»: должность и «verifică curățenia». */
+    func?: string; sup?: boolean
   }
 }
 
@@ -69,8 +77,10 @@ export interface RegData {
   can: { delete: boolean; settings: boolean }
   sters: (Item & { running: CycleRow | null; last: CycleRow | null })[]
   lamps: (Lamp & { on: UvRow | null })[]
-  rooms: (Item & { next: string; last: string; due: boolean; late: boolean })[]
+  rooms: (Item & { next: string; last: string; due: boolean; late: boolean; done_azi: boolean; done_ieri: boolean })[]
   waiting: CleanRow[]
+  /** «Personal pentru registre» — включённые люди каталога. */
+  staff: Person[]
   solutions: string[]
   articles: string[]
   packs: string[]
@@ -80,8 +90,10 @@ export interface RegData {
   rows: { '257': CycleRow[]; '502': CleanRow[]; '501': UvRow[] }
 }
 
+export interface Person { name: string; func: string; sup: boolean }
+
 export interface Catalog {
-  items: { ster: Item[]; lamp: Lamp[]; room: Item[]; solution: Item[]; article: Item[]; pack: Item[] }
+  items: { ster: Item[]; lamp: Lamp[]; room: Item[]; solution: Item[]; article: Item[]; pack: Item[]; staff: Item[] }
   norms: { id: number | null; text: string }
 }
 
@@ -89,13 +101,13 @@ const R = '/registre'
 export const regApi = {
   get: (month: string, signal?: AbortSignal): Promise<ApiResult<RegData>> =>
     api.get<RegData>(`${R}${month ? `?month=${encodeURIComponent(month)}` : ''}`, signal ? { signal } : {}),
-  start: (b: { ster_id: number; program: number; arts: Art[]; temp?: string; pressure?: string }) =>
+  start: (b: { ster_id: number; program: number; arts: Art[]; doer: string; temp?: string; pressure?: string }) =>
     api.post<null>(`${R}/257`, b),
-  finish: (id: number, b: { chem: Test; term: Test; bio: Bio }) => api.post<null>(`${R}/257/${id}/finish`, b),
+  finish: (id: number, b: { chem: Test; term: Test; bio: Bio; doer: string }) => api.post<null>(`${R}/257/${id}/finish`, b),
   bio: (id: number, bio: 'ok' | 'fail') => api.post<null>(`${R}/257/${id}/bio`, { bio }),
-  clean: (b: { room_id: number; solution: string }) => api.post<null>(`${R}/502`, b),
-  sup: (id: number) => api.post<null>(`${R}/502/${id}/sup`, {}),
-  uvOn: (b: { lamp_id: number; cond: 'fara' | 'prezenta' }) => api.post<null>(`${R}/501`, b),
+  clean: (b: { room_id: number; solution: string; doer: string; day: 'azi' | 'ieri' }) => api.post<null>(`${R}/502`, b),
+  sup: (id: number, who: string) => api.post<null>(`${R}/502/${id}/sup`, { who }),
+  uvOn: (b: { lamp_id: number; cond: 'fara' | 'prezenta'; doer: string }) => api.post<null>(`${R}/501`, b),
   uvOff: (id: number) => api.post<null>(`${R}/501/${id}/off`, {}),
   fix: (reg: RegKey, id: number, b: Record<string, unknown>) => api.post<null>(`${R}/${reg}/${id}/fix`, b),
   del: (reg: RegKey, id: number) => api.post<null>(`${R}/${reg}/${id}/delete`, {}),

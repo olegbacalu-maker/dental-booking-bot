@@ -11,7 +11,9 @@ import { catApi, dmy, type Catalog, type Item, type Lamp, type Program } from '.
 /* Setări › Registre sanitare (10.11.2026): каталог, из которого форма записи
    делает кнопки, — стерилизаторы с программами, лампы с ресурсом, помещения
    с частотой генеральной уборки, растворы, предметы и упаковка, нормативы
-   титула 257/e. Право — `PERM_SETTINGS` (директор); проверяет сервер.
+   титула 257/e, «Personal pentru registre» — кто делает и кто проверяет
+   (registre-people, 10.11: учётка им не нужна, имя выбирают в окне).
+   Право — `PERM_SETTINGS` (директор); проверяет сервер.
    Строку каталога не удаляют, а выключают («Nu se mai folosește»): записи
    журналов несут её имя снимком, а план и ресурс считаются по id. */
 
@@ -24,7 +26,12 @@ const T = {
   sec: {
     ster: ['Sterilizatoare', '257/e'], lamp: ['Lămpi bactericide', '501/e'], room: ['Încăperi și curățenia generală', '502/e'],
     solution: ['Soluții dezinfectante', '502/e'], article: ['Articole sterilizate', '257/e'], pack: ['Ambalaje', '257/e'],
+    staff: ['Personal pentru registre', '257/e · 502/e · 501/e'],
   } as Record<Kind, [string, string]>,
+  staffLead: 'Cine face sterilizarea, curățenia, pornește lămpile — și cine verifică. Cont în program nu le trebuie: numele se alege în fereastra registrului, semnătura se pune de mână pe foaia tipărită. Un nume nou scris în fereastră („Alt nume”) apare aici singur.',
+  staffEmpty: 'Lista e goală — ferestrele registrelor cer numele scris o dată, apoi îl arată ca buton.',
+  func: 'Funcția', funcHint: 'infirmieră, asistentă medicală…', sup: 'Verifică curățenia (A supervizat, 502/e)',
+  supTag: 'verifică curățenia',
   add: 'Adaugă', edit: 'Modifică', save: 'Salvează', cancel: 'Renunță',
   name: 'Denumirea', nr: 'Numărul', room: 'Încăperea', type: 'Tipul', abur: 'cu abur (autoclav)', aer: 'cu aer',
   programs: 'Programe', pLabel: 'Program', pTemp: '°C', pPress: 'bar', pMin: 'min', pAdd: 'Program', pDel: 'Șterge programul',
@@ -38,11 +45,12 @@ const T = {
   offline: 'Programul nu răspunde. Reîncercați.',
 }
 
-const KINDS: Kind[] = ['ster', 'lamp', 'room', 'solution', 'article', 'pack']
+const KINDS: Kind[] = ['staff', 'ster', 'lamp', 'room', 'solution', 'article', 'pack']
 
 interface Draft {
   id?: number | undefined; kind: Kind; name: string; nr: string; room: string; active: boolean
   type: 'abur' | 'aer'; programs: Program[]; m3: string; hours: string; base: string; since: string; screened: boolean; every: string
+  func: string; sup: boolean
 }
 
 function draftOf(kind: Kind, it?: Item, today = ''): Draft {
@@ -53,13 +61,15 @@ function draftOf(kind: Kind, it?: Item, today = ''): Draft {
     programs: d.programs?.length ? d.programs : [{ label: 'Universal 134 °C', temp: '134', pressure: '2,1', min: 5 }],
     m3: String(d.m3 ?? ''), hours: String(d.hours ?? '8000'), base: String(d.base ?? 0), since: d.since ?? today,
     screened: d.screened ?? false, every: String(d.every ?? 7),
+    func: d.func ?? '', sup: d.sup ?? false,
   }
 }
 
 function bodyOf(f: Draft): Record<string, unknown> {
   const data = f.kind === 'ster' ? { type: f.type, programs: f.programs }
     : f.kind === 'lamp' ? { m3: Number(f.m3) || 0, hours: Number(f.hours) || 0, base: Number(f.base) || 0, since: f.since, screened: f.screened }
-      : f.kind === 'room' ? { every: Number(f.every) || 7 } : {}
+      : f.kind === 'room' ? { every: Number(f.every) || 7 }
+        : f.kind === 'staff' ? { func: f.func, sup: f.sup } : {}
   return { id: f.id, kind: f.kind, name: f.name, nr: f.nr, room: f.room, active: f.active, data }
 }
 
@@ -112,10 +122,11 @@ export function RegistreSettingsScreen({ navigate = defaultNavigate }: Props) {
       </div>
       <div className="rg-set-grid">
         {KINDS.map((k) => (
-          <div key={k} className="fcard rg-card" data-kind={k}>
+          <div key={k} className={`fcard rg-card${k === 'staff' ? ' wide' : ''}`} data-kind={k}>
             <div className="rg-card-h"><b>{T.sec[k][0]}</b><small>{T.sec[k][1]}</small>
               <button type="button" className="rg-btn sm" disabled={busy} onClick={() => setEdit(draftOf(k, undefined, today))}>
                 <Icon name="plus" /> {T.add}</button></div>
+            {k === 'staff' && <p className="hint rg-lead">{c.items.staff.length ? T.staffLead : `${T.staffLead} ${T.staffEmpty}`}</p>}
             {edit && edit.kind === k && !edit.id && <Editor f={edit} set={setEdit} busy={busy} field={field}
               save={() => void run(() => catApi.save(bodyOf(edit)), () => setEdit(null))} />}
             {(c.items[k] as (Item | Lamp)[]).map((it) => (edit?.id === it.id
@@ -146,16 +157,18 @@ function Row({ it, busy, onEdit, onLampNew }: { it: Item | Lamp; busy: boolean; 
   if (it.kind === 'ster') sub = [it.nr && `nr. ${it.nr}`, d.type === 'aer' ? T.aer : T.abur, it.room].filter(Boolean).join(' · ')
   if (it.kind === 'lamp') sub = [it.nr && `nr. ${it.nr}`, it.room, d.m3 ? `${d.m3} m³` : '', d.screened ? 'ecranată' : 'deschisă', `din ${dmy(d.since ?? '')}`].filter(Boolean).join(' · ')
   if (it.kind === 'room') sub = `${T.every} ${d.every ?? 7} ${T.days}`
+  if (it.kind === 'staff') sub = d.func ?? ''
   return (
-    <div className={`rg-item${lamp?.low ? ' low' : ''}${it.active ? '' : ' off'}`} data-item={it.id}>
+    <div className={`rg-item${lamp?.low ? ' low' : ''}${it.active ? '' : ' off'}${it.kind === 'staff' ? ' staff' : ''}`} data-item={it.id}>
       <div><b>{it.name}</b>{sub && <small>{sub}</small>}{!it.active && <small>{T.off}</small>}</div>
       {it.kind === 'ster' && <div className="rg-tags">{(d.programs ?? []).map((p, i) =>
         <span key={i} className="chip mute">{p.label}{p.pressure ? ` · ${p.pressure} bar` : ''}{p.min ? ` · ${p.min} min` : ''}</span>)}</div>}
+      {it.kind === 'staff' && <div className="rg-tags">{d.sup ? <span className="chip info">{T.supTag}</span> : null}</div>}
       {lamp ? (
         <div className="rg-res"><span className="rg-prog"><i style={{ width: `${Math.min(100, Math.round(100 * lamp.used / Math.max(1, d.hours ?? 1)))}%` }} /></span>
           <small>{lamp.rest} {T.left} {d.hours}</small>
           {onLampNew && <button type="button" className={`rg-btn sm${lamp.low ? ' pri' : ''}`} disabled={busy} onClick={onLampNew}>{T.lampNew}</button>}</div>
-      ) : it.kind !== 'ster' ? <span /> : null}
+      ) : it.kind !== 'ster' && it.kind !== 'staff' ? <span /> : null}
       <button type="button" className="rg-ib" aria-label={`${T.edit} ${it.name}`} disabled={busy} onClick={onEdit}><Icon name="pen" /></button>
     </div>
   )
@@ -173,7 +186,12 @@ function Editor({ f, set, busy, field, save }: { f: Draft; set: (d: Draft | null
   return (
     <div className="rg-edit">
       <div className="rg-edit-g">
-        <L label={T.name} wide={simple}><input className={`dp-fld${bad('name')}`} value={f.name} maxLength={120} onChange={(e) => up({ name: e.target.value })} /></L>
+        <L label={f.kind === 'staff' ? 'Numele, prenumele' : T.name} wide={simple}><input className={`dp-fld${bad('name')}`} value={f.name}
+          maxLength={f.kind === 'staff' ? 80 : 120} onChange={(e) => up({ name: e.target.value })} /></L>
+        {f.kind === 'staff' && <>
+          <L label={T.func}><input className="dp-fld" value={f.func} maxLength={60} placeholder={T.funcHint} onChange={(e) => up({ func: e.target.value })} /></L>
+          <label className="rg-check wide"><input type="checkbox" checked={f.sup} onChange={(e) => up({ sup: e.target.checked })} /> {T.sup}</label>
+        </>}
         {(f.kind === 'ster' || f.kind === 'lamp') && <>
           <L label={T.nr}><input className="dp-fld" value={f.nr} maxLength={40} onChange={(e) => up({ nr: e.target.value })} /></L>
           <L label={T.room}><input className="dp-fld" value={f.room} maxLength={120} onChange={(e) => up({ room: e.target.value })} /></L>

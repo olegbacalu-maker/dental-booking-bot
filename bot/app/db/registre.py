@@ -20,22 +20,22 @@ SAN_TABLES = {"257": "san_cycles", "502": "san_cleanings", "501": "san_uv"}
 _SAN_COLS = {
     "san_cycles": ("ster_id", "ster", "program", "pressure", "temp", "arts", "started_at",
                    "ended_at", "chem", "term", "bio", "actor", "actor_id", "end_actor",
-                   "bio_actor", "bio_at", "fixes", "why", "created_at"),
+                   "bio_actor", "bio_at", "doer", "end_doer", "fixes", "why", "created_at"),
     "san_cleanings": ("room_id", "room", "plan_date", "done_date", "solution", "actor",
-                      "actor_id", "fixes", "why", "created_at"),
+                      "actor_id", "doer", "sup_actor", "sup_by", "fixes", "why", "created_at"),
     "san_uv": ("lamp_id", "lamp", "room", "cond", "on_at", "off_at", "minutes", "rest_hours",
-               "actor", "actor_id", "off_actor", "fixes", "why", "created_at"),
+               "actor", "actor_id", "off_actor", "doer", "fixes", "why", "created_at"),
 }
 # поле-замок однократного закрытия → что вместе с ним пишется
 _SAN_CLOSE = {
-    ("san_cycles", "ended_at"): ("ended_at", "chem", "term", "bio", "end_actor"),
+    ("san_cycles", "ended_at"): ("ended_at", "chem", "term", "bio", "end_actor", "end_doer"),
     ("san_cycles", "bio_at"): ("bio", "bio_actor", "bio_at"),
-    ("san_cleanings", "sup_at"): ("sup_actor", "sup_id", "sup_at"),
+    ("san_cleanings", "sup_at"): ("sup_actor", "sup_id", "sup_by", "sup_at"),
     ("san_uv", "off_at"): ("off_at", "minutes", "rest_hours", "off_actor"),
 }
 # колонка периода у журнала: момент начала или голая дата уборки
 _SAN_WHEN = {"san_cycles": "started_at", "san_cleanings": "done_date", "san_uv": "on_at"}
-SAN_KINDS = ("ster", "lamp", "room", "solution", "article", "pack", "norms")
+SAN_KINDS = ("ster", "lamp", "room", "solution", "article", "pack", "norms", "staff")
 
 
 def _san_table(reg: str) -> str:

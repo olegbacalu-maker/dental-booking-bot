@@ -20,7 +20,7 @@ from .teeth import TEETH_HIST_SINCE
 # идёт range(have+1, SCHEMA_VERSION+1) и до него не дойдёт (так шаг 4 с
 # 'waiting' в uq-индексах не исполнялся ни у одной клиники; держит
 # test_structure).
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 
 # Индексы под горячие пути (день, история пациента, «новые из бота», карточка).
@@ -169,6 +169,21 @@ SAN_DDL = [
     "CREATE INDEX IF NOT EXISTS ix_san_uv_at ON san_uv(lamp_id, on_at)",
 ]
 
+# Шаг 10 (10.11, registre-people — «Вариант 1» Олега): КТО СДЕЛАЛ — выбранный
+# человек клиники (каталог «Personal», вид `staff`), а не учётка: в клинике одна
+# учётка на всех, а убирает и стерилизует младший персонал без входа. Учётка
+# остаётся в `actor` / `end_actor` / `sup_by` как «кто внёс запись». Старые
+# строки получают '' — экран и лист показывают их по-прежнему, словом
+# «cont (înreg. veche)». Колонки только ДОБАВЛЯЮТСЯ; журналы по-прежнему
+# только дописываются (`end_doer` и `sup_by` пишет `san_close` под замком).
+SAN_PEOPLE_DDL = [
+    "ALTER TABLE san_cycles ADD COLUMN doer TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE san_cycles ADD COLUMN end_doer TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE san_cleanings ADD COLUMN doer TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE san_cleanings ADD COLUMN sup_by TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE san_uv ADD COLUMN doer TEXT NOT NULL DEFAULT ''",
+]
+
 MIGRATIONS = {
     1: [
         "CREATE INDEX IF NOT EXISTS ix_appt_starts ON appointments(starts_at)",
@@ -233,6 +248,10 @@ MIGRATIONS = {
     # 9 (10.11, «Registre»): санитарные регистры — каталог и три журнала
     # (`SAN_DDL` выше). Аддитивно и строго, как 7 и 8.
     9: SAN_DDL,
+    # 10 (10.11, registre-people): кто сделал — человек, не учётка
+    # (`SAN_PEOPLE_DDL` выше). Колонки с DEFAULT '' — старым строкам противоречить
+    # нечему; строго, как 7–9.
+    10: SAN_PEOPLE_DDL,
 }
 # Шаг, который кладёт базовый снимок истории зубов. В отличие от
 # UQ_GUARD_STEP — СТРОГИЙ: он меняет данные, и недописанный снимок не имеет

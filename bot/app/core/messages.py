@@ -467,7 +467,8 @@ MSG_BANNER = {
     "san_closed": ("err", "Înregistrarea este deja încheiată — reîncărcați pagina"),
     "san_open": ("err", "Înregistrarea este încă în curs — încheiați-o, apoi corectați"),
     "san_fixed": ("err", "Înregistrarea a fost deja corectată — corectați înregistrarea nouă"),
-    "san_self_check": ("err", "Curățenia o verifică altă persoană, cu contul său"),
+    "san_self_check": ("err", "Cine a făcut curățenia nu o poate verifica — alegeți altă persoană"),
+    "san_who": ("err", "Alegeți persoana — numele, prenumele"),
     "san_gone": ("err", "Înregistrarea nu mai există — reîncărcați pagina"),
 }
 

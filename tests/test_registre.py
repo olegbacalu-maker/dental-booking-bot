@@ -1,9 +1,11 @@
 """«Registre» — санитарные регистры 257/e, 502/e, 501/e (10.11.2026, san-registers).
 
-Решения Олега 10.11 (вариант B): пишут все вошедшие, подпись строки — вошедший
-и время программы; исправление — новой строкой с причиной, старая остаётся
-(зачёркнутой на листе); удаляет только директор, мягко; «a supervizat» —
-другой человек своим входом; ресурс лампы считает программа.
+Решения Олега 10.11 (вариант B): пишут все вошедшие; исправление — новой
+строкой с причиной, старая остаётся (зачёркнутой на листе); удаляет только
+директор, мягко; ресурс лампы считает программа. «Вариант 1» (registre-people,
+10.11): КТО СДЕЛАЛ — человек из окна (`doer`, каталог «Personal»), учётка и
+время — сервера («кто внёс»); «a supervizat» — другой ЧЕЛОВЕК по имени, одна
+учётка вносит обе подписи; «Semnătura» на листе — пустая, под руку.
 Проверяется через сервер тем же путём, что у клиники: каталог — маршрутом
 настроек, записи — API раздела, лист и Excel — адресами печати. Часы —
 подменные (`harness.Clock`): время подписи, длительность сеанса лампы и план
@@ -115,26 +117,33 @@ def suite_flow(res: Result) -> None:
 
         # --- 257/e: цикл ---
         arts = [{"name": "Instrumentar stomatologic", "qty": 12, "pack": "Pungă"}]
-        r = ana.post_json("/api/registre/257", {"ster_id": melag, "program": 0, "arts": arts,
+        res.check("без исполнителя — san_who/doer", (lambda r: (r.msg, _j(r).get("field")))(
+            ana.post_json("/api/registre/257", {"ster_id": melag, "program": 0, "arts": arts, "doer": "  "})), ("san_who", "doer"))
+        r = ana.post_json("/api/registre/257", {"ster_id": melag, "program": 0, "arts": arts, "doer": "Maria Lungu",
                                          "actor": "Подделка", "started_at": "2020-01-01"})
         res.check("старт цикла — ok", r.msg, "ok_san_start")
-        res.check("второй старт на том же автоклаве — san_busy", ana.post_json("/api/registre/257", {"ster_id": melag, "arts": arts}).msg, "san_busy")
-        res.check("без предметов — bad_san/arts", (lambda r: (r.msg, _j(r).get("field")))(ana.post_json("/api/registre/257", {"ster_id": gp, "arts": []})),
+        res.check("второй старт на том же автоклаве — san_busy",
+                  ana.post_json("/api/registre/257", {"ster_id": melag, "arts": arts, "doer": "X"}).msg, "san_busy")
+        res.check("без предметов — bad_san/arts", (lambda r: (r.msg, _j(r).get("field")))(ana.post_json("/api/registre/257", {"ster_id": gp, "arts": [], "doer": "X"})),
                   ("bad_san", "arts"))
         m = _model(ana)
         run = m["sters"][0]["running"]
-        res.check("подпись и время — сервера, не клиента", (run["actor"], run["start"], run["date"], run["temp"], run["pressure"]),
-                  ("Ana Rusu", "09:00", "10.11.2026", "134", "2,1"))
+        res.check("учётка и время — сервера, не клиента; исполнитель — из окна",
+                  (run["actor"], run["doer"], run["legacy"], run["start"], run["date"], run["temp"], run["pressure"]),
+                  ("Ana Rusu", "Maria Lungu", False, "09:00", "10.11.2026", "134", "2,1"))
         res.ok("в ленте «Azi» — идущий цикл", any(x["reg"] == "257" and x["open"] for x in m["feed"]), repr(m["feed"]))
         cid = run["id"]
         clock.set(AT + timedelta(minutes=45))
         res.check("исправить идущий — san_open", boss.post_json(f"{API}/257/{cid}/fix", {"why": "x"}).msg, "san_open")
-        r = med.post_json(f"{API}/257/{cid}/finish", {"chem": "ok", "term": "ok", "bio": "wait"})
+        res.check("закрыть без исполнителя — san_who",
+                  med.post_json(f"{API}/257/{cid}/finish", {"chem": "ok", "term": "ok"}).msg, "san_who")
+        r = med.post_json(f"{API}/257/{cid}/finish", {"chem": "ok", "term": "ok", "bio": "wait", "doer": "Ana Rusu"})
         res.check("врач закрывает цикл — ok (пишут все вошедшие)", r.msg, "ok_san_finish")
-        res.check("повтор закрытия — san_closed", med.post_json(f"{API}/257/{cid}/finish", {"chem": "fail"}).msg, "san_closed")
+        res.check("повтор закрытия — san_closed", med.post_json(f"{API}/257/{cid}/finish", {"chem": "fail", "doer": "X"}).msg, "san_closed")
         row = _model(ana)["rows"]["257"][0]
-        res.check("конец, тесты, кто закрыл", (row["end"], row["chem"], row["bio"], row["end_actor"], row["actor"]),
-                  ("09:45", "ok", "wait", "Dr. Activ Trei", "Ana Rusu"))
+        res.check("конец, тесты, кто закрыл (человек и учётка)",
+                  (row["end"], row["chem"], row["bio"], row["end_doer"], row["end_actor"], row["actor"]),
+                  ("09:45", "ok", "wait", "Ana Rusu", "Dr. Activ Trei", "Ana Rusu"))
         res.check("итог биотеста — ok", ana.post_json(f"{API}/257/{cid}/bio", {"bio": "ok"}).msg, "ok_san_bio")
         res.check("итог биотеста второй раз — san_closed", ana.post_json(f"{API}/257/{cid}/bio", {"bio": "fail"}).msg, "san_closed")
         # исправление: новой строкой, причина обязательна, старая — fixed_by
@@ -146,23 +155,34 @@ def suite_flow(res: Result) -> None:
                   (len(rows), rows[0]["fixed_by"], rows[1]["fixes"], rows[1]["why"], rows[1]["arts"][0]["qty"], rows[0]["arts"][0]["qty"]),
                   (2, rows[1]["id"], cid, "12 pungi, nu 10", 10, 12))
         res.check("биотест переехал в исправление", (rows[1]["bio"], rows[1]["bio_actor"]), ("ok", "Ana Rusu"))
+        res.check("исполнители переехали в исправление", (rows[1]["doer"], rows[1]["end_doer"]), ("Maria Lungu", "Ana Rusu"))
         res.check("повторное исправление старой — san_fixed", ana.post_json(f"{API}/257/{cid}/fix", {"why": "x"}).msg, "san_fixed")
         res.check("в базе старая строка не тронута", _sql(s, "SELECT arts FROM san_cycles WHERE id=?", cid)[0][0],
                   json.dumps(arts, ensure_ascii=False))
 
         # --- 502/e: уборка ---
-        res.check("уборка — ok", ana.post_json("/api/registre/502", {"room_id": room, "solution": "Septodor Forte 0,2 % · 60 min"}).msg, "ok_san_clean")
+        sol = "Septodor Forte 0,2 % · 60 min"
+        res.check("уборка без исполнителя — san_who", ana.post_json("/api/registre/502", {"room_id": room, "solution": sol}).msg, "san_who")
+        res.check("уборка «завтра» — bad_san/day (будущего нет)", (lambda r: (r.msg, _j(r).get("field")))(
+            ana.post_json("/api/registre/502", {"room_id": room, "solution": sol, "doer": "Ion Cebotari", "day": "maine"})), ("bad_san", "day"))
+        res.check("уборка — ok", ana.post_json("/api/registre/502", {"room_id": room, "solution": sol, "doer": "Ion Cebotari"}).msg, "ok_san_clean")
         m = _model(ana)
         cl = m["rows"]["502"][0]
-        res.check("план — сегодня (не было), сделано сегодня, автор", (cl["plan"], cl["done"], cl["actor"]),
-                  ("10.11.2026", "10.11.2026", "Ana Rusu"))
+        res.check("план — сегодня (не было), сделано сегодня, кто сделал, кто внёс",
+                  (cl["plan"], cl["done"], cl["doer"], cl["actor"]), ("10.11.2026", "10.11.2026", "Ion Cebotari", "Ana Rusu"))
+        res.check("сделано сегодня — окно знает (повтор дня — предупреждение)",
+                  (m["rooms"][0]["done_azi"], m["rooms"][0]["done_ieri"]), (True, False))
         res.check("следующая — через 7 дней, сегодня не к сроку", (m["rooms"][0]["next"], m["rooms"][0]["due"]), ("17.11.2026", False))
         res.check("ждёт проверки", [w["id"] for w in m["waiting"]], [cl["id"]])
-        res.check("сам себя не проверяет — san_self_check", ana.post_json(f"{API}/502/{cl['id']}/sup", {}).msg, "san_self_check")
-        res.check("проверяет директор — ok", boss.post_json(f"{API}/502/{cl['id']}/sup", {}).msg, "ok_san_sup")
-        res.check("вторая проверка — san_closed", med.post_json(f"{API}/502/{cl['id']}/sup", {}).msg, "san_closed")
+        res.check("проверка без человека — san_who", boss.post_json(f"{API}/502/{cl['id']}/sup", {}).msg, "san_who")
+        res.check("исполнитель сам себя не проверяет (по имени, регистр и пробелы не спасают) — san_self_check",
+                  boss.post_json(f"{API}/502/{cl['id']}/sup", {"who": " ion  CEBOTARI "}).msg, "san_self_check")
+        res.check("та же учётка вносит проверку другого человека — ok",
+                  ana.post_json(f"{API}/502/{cl['id']}/sup", {"who": "Elena Ceban"}).msg, "ok_san_sup")
+        res.check("вторая проверка — san_closed", med.post_json(f"{API}/502/{cl['id']}/sup", {"who": "X"}).msg, "san_closed")
         m = _model(ana)
-        res.check("проверено директором, ожидающих нет", (m["rows"]["502"][0]["sup_actor"], m["waiting"]), ("Director", []))
+        res.check("проверила Elena Ceban, внесла Ana Rusu, ожидающих нет",
+                  (m["rows"]["502"][0]["sup_actor"], m["rows"]["502"][0]["sup_by"], m["waiting"]), ("Elena Ceban", "Ana Rusu", []))
         r = ana.post_json(f"{API}/502/{cl['id']}/fix", {"why": "altă soluție", "solution": "Clorantoin 0,1 %"})
         m = _model(ana)
         res.check("исправление уборки снова ждёт проверки (подпись не переезжает)",
@@ -170,9 +190,10 @@ def suite_flow(res: Result) -> None:
 
         # --- 501/e: лампы ---
         res.check("лампа без экрана при людях — san_uv_people",
-                  ana.post_json("/api/registre/501", {"lamp_id": obn, "cond": "prezenta"}).msg, "san_uv_people")
-        res.check("включение — ok", ana.post_json("/api/registre/501", {"lamp_id": obn, "cond": "fara"}).msg, "ok_san_uv_on")
-        res.check("второе включение — san_uv_on", ana.post_json("/api/registre/501", {"lamp_id": obn, "cond": "fara"}).msg, "san_uv_on")
+                  ana.post_json("/api/registre/501", {"lamp_id": obn, "cond": "prezenta", "doer": "Ana Rusu"}).msg, "san_uv_people")
+        res.check("включение без исполнителя — san_who", ana.post_json("/api/registre/501", {"lamp_id": obn, "cond": "fara"}).msg, "san_who")
+        res.check("включение — ok", ana.post_json("/api/registre/501", {"lamp_id": obn, "cond": "fara", "doer": "Maria Lungu"}).msg, "ok_san_uv_on")
+        res.check("второе включение — san_uv_on", ana.post_json("/api/registre/501", {"lamp_id": obn, "cond": "fara", "doer": "X"}).msg, "san_uv_on")
         uid = _model(ana)["lamps"][0]["on"]["id"]
         clock.set(AT + timedelta(minutes=45 + 90))
         res.check("выключение — ok", med.post_json(f"{API}/501/{uid}/off", {}).msg, "ok_san_uv_off")
@@ -194,7 +215,7 @@ def suite_flow(res: Result) -> None:
                   (boss.post_json("/api/settings/registre/item", {**lamp, "data": {**lamp["data"], "changes": []}}).msg,
                    len(next(x for x in _j(boss.get(CAT))["data"]["items"]["lamp"] if x["id"] == obn)["data"]["changes"])),
                   ("ok_san_item", 1))
-        res.check("экранированная при людях — ok", ana.post_json("/api/registre/501", {"lamp_id": dezar, "cond": "prezenta"}).msg, "ok_san_uv_on")
+        res.check("экранированная при людях — ok", ana.post_json("/api/registre/501", {"lamp_id": dezar, "cond": "prezenta", "doer": "Ana Rusu"}).msg, "ok_san_uv_on")
 
         # --- удаление: только директор, мягко ---
         rid = _model(ana)["rows"]["257"][1]["id"]
@@ -237,33 +258,41 @@ def suite_print(res: Result) -> None:
         arts = [{"name": "Instrumentar stomatologic", "qty": 12, "pack": "Pungă"}]
         ids = []
         for i in range(3):
-            ana.post_json("/api/registre/257", {"ster_id": melag, "program": 0, "arts": arts})
+            ana.post_json("/api/registre/257", {"ster_id": melag, "program": 0, "arts": arts, "doer": "Maria Lungu"})
             cid = _model(ana)["sters"][0]["running"]["id"]
             clock.set(AT + timedelta(minutes=50 * (i + 1)))
-            ana.post_json(f"{API}/257/{cid}/finish", {"chem": "fail" if i == 1 else "ok", "term": "ok"})
+            ana.post_json(f"{API}/257/{cid}/finish", {"chem": "fail" if i == 1 else "ok", "term": "ok", "doer": "Maria Lungu"})
             ids.append(cid)
         ana.post_json(f"{API}/257/{ids[0]}/fix", {"why": "cantitatea", "arts": [{**arts[0], "qty": 11}]})
         boss.post_json(f"{API}/257/{ids[2]}/delete", {})
-        ana.post_json("/api/registre/502", {"room_id": room, "solution": "Septodor"})
-        ana.post_json("/api/registre/501", {"lamp_id": obn, "cond": "fara"})
+        ana.post_json("/api/registre/502", {"room_id": room, "solution": "Septodor", "doer": "Ion <b>Cebotari</b>"})
+        ana.post_json("/api/registre/501", {"lamp_id": obn, "cond": "fara", "doer": "Maria Lungu"})
         r = ana.get("/admin/registre/tipar/257?month=2026-11")
         page = r.body
         res.check("лист 257/e — 200", r.status, 200)
         for want in ("Formular nr. 257/e", "828 din 31.10.2011", "CONTROLULUI LUCRULUI".lower(), "Test-control",
                      "Biologic", "Termic", "Chimic", "corectată prin nr.", "corectează nr. %d: cantitatea" % ids[0],
                      "HG nr. 4/2026", "Responsabil de registru", "L.Ș.", "Extras din registrul electronic DentPilot",
+                     "Maria Lungu<small>înreg. Ana Rusu", "Semnăturile se pun de mână",
                      "<b>incorect</b>", "Perioada: 01.11.2026 – 30.11.2026"):
             res.ok(f"на листе: {want}", want.lower() in page.lower(), "")
         res.ok("номер страницы константой не пишется", "Pagina" not in page, "")
+        res.ok("слова «electronic» в подписи нет, «autentificat» тоже (ревизия текстов)",
+               "electronic<br>" not in page and "autentificat" not in page, "")
         res.ok("удалённая строка не печатается", f"nr. {ids[2]}" not in page, "")
         res.ok("A4 альбом", "size:A4 landscape" in page, "")
         res.ok("13 номеров колонок", all(f"<th>{i}</th>" in page for i in range(1, 14)), "")
         p502 = ana.get("/admin/registre/tipar/502?month=2026-11")
         t502 = p502.body
         res.ok("лист 502/e: колонки и срок хранения", all(w in t502 for w in ("A supervizat", "Data planificării", "3 ani", "Formular nr. 502/e")), "")
+        res.ok("лист 502/e: исполнитель экранирован, под ним учётка, «Semnătura» пустая",
+               "Ion &lt;b&gt;Cebotari&lt;/b&gt;<small>înreg. Ana Rusu" in t502 and "<b>Cebotari</b>" not in t502
+               and "<td class=sg></td>" in t502 and "electronic<br>" not in t502, "")
         p501 = ana.get("/admin/registre/tipar/501?month=2026-11")
         t501 = p501.body
         res.ok("лист 501/e: паспорт лампы и «в работе»", all(w in t501 for w in ("Rezerva orelor de lucru", "OBN-150 nr. 2", "în curs", "fără persoane")), "")
+        res.ok("лист 501/e: ответственный — человек, «Semnătura» пустая",
+               "Maria Lungu<small>înreg. Ana Rusu" in t501 and "<td class=sg></td>" in t501 and "electronic<br>" not in t501, "")
         res.check("лист неизвестного регистра — 404", ana.get("/admin/registre/tipar/999").status, 404)
         res.check("лист без входа — на вход", Client(s.url).get("/admin/registre/tipar/257").status, 303)
         x = ana.get("/admin/registre/excel/257?month=2026-11")
@@ -272,6 +301,10 @@ def suite_print(res: Result) -> None:
         z = zipfile.ZipFile(io.BytesIO(x.raw))
         sheet = z.read("xl/worksheets/sheet1.xml").decode("utf-8")
         res.ok("Excel: шапка и пометка исправления", "Test" not in sheet and "Sterilizator" in sheet and "corectată prin nr." in sheet, sheet[:300])
+        res.ok("Excel 257/e: «Responsabil» и «Înregistrat de»", all(w in sheet for w in ("Responsabil", "Înregistrat de", "Maria Lungu", "Ana Rusu")), "")
+        z5 = zipfile.ZipFile(io.BytesIO(ana.get("/admin/registre/excel/502?month=2026-11").raw))
+        s5 = z5.read("xl/worksheets/sheet1.xml").decode("utf-8")
+        res.ok("Excel 502/e: «A efectuat» и «Înregistrat de»", all(w in s5 for w in ("A efectuat", "Înregistrat de", "Ana Rusu")), s5[:300])
         res.ok("Excel: удалённой строки нет", sheet.count("<row ") == 1 + 3, str(sheet.count("<row ")))
 
 
@@ -292,7 +325,7 @@ def suite_fresh(res: Result) -> None:
         res.check("ключи старта записаны", sorted(x[0] for x in _sql(s, "SELECT key FROM schema_meta WHERE key LIKE 'san_starter_%'")),
                   ["san_starter_article", "san_starter_pack"])
         ster = m["sters"][0]["id"]
-        r = ana.post_json("/api/registre/257", {"ster_id": ster, "program": 0,
+        r = ana.post_json("/api/registre/257", {"ster_id": ster, "program": 0, "doer": "Ana Rusu",
                                                 "arts": [{"name": m["articles"][0], "qty": 3, "pack": m["packs"][0]}]})
         res.check("цикл запускается со стартовым предметом", r.msg, "ok_san_start")
         res.check("второй запрос — старт не задваивается", len(_model(ana)["articles"]), len(reg.STARTER["article"]))
@@ -304,9 +337,10 @@ def suite_fresh(res: Result) -> None:
                   len(_sql(s, "SELECT id FROM san_equipment WHERE kind='article'"))), ([], len(reg.STARTER["article"])))
         # своё слово в окне: только в запись, экранировано, длина обрезана сервером
         cid = _model(ana)["sters"][0]["running"]["id"]
-        ana.post_json(f"{API}/257/{cid}/finish", {"chem": "ok", "term": "ok"})
+        ana.post_json(f"{API}/257/{cid}/finish", {"chem": "ok", "term": "ok", "doer": "Ana Rusu"})
         own = "Spatulă <b>x</b> " + "z" * 300
-        r = ana.post_json("/api/registre/257", {"ster_id": ster, "program": 0, "arts": [{"name": own, "qty": 1, "pack": ""}]})
+        r = ana.post_json("/api/registre/257", {"ster_id": ster, "program": 0, "doer": "Ana Rusu",
+                                                "arts": [{"name": own, "qty": 1, "pack": ""}]})
         res.check("своё слово — цикл запускается", r.msg, "ok_san_start")
         row = _model(ana)["rows"]["257"][-1]
         res.check("своё слово обрезано до 120", len(row["arts"][0]["name"]), 120)
@@ -315,7 +349,8 @@ def suite_fresh(res: Result) -> None:
         res.ok("на листе своё слово экранировано", "Spatulă &lt;b&gt;x&lt;/b&gt;" in page and "<b>x</b>" not in page, "")
         res.check("уборка со своим раствором словом",
                   (boss.post_json("/api/settings/registre/item", {"kind": "room", "name": "Cabinet 1", "data": {"every": 7}}).msg,
-                   ana.post_json("/api/registre/502", {"room_id": _model(ana)["rooms"][0]["id"], "solution": "Clorhexidină 0,05 %"}).msg),
+                   ana.post_json("/api/registre/502", {"room_id": _model(ana)["rooms"][0]["id"], "solution": "Clorhexidină 0,05 %",
+                                                       "doer": "Ana Rusu"}).msg),
                   ("ok_san_item", "ok_san_clean"))
     with Clock(AT), Server(env=NO_KEY) as s:
         boss, ana, _ = _team(s)
@@ -323,3 +358,80 @@ def suite_fresh(res: Result) -> None:
         boss.post_json("/api/settings/registre/item", {"kind": "article", "name": "Freze"})
         res.check("свой список раньше старта — старт не подкладывается", _model(ana)["articles"], ["Freze"])
         res.check("упаковки при этом стартовые (свой вид — свой ключ)", len(_model(ana)["packs"]), 3)
+
+
+def suite_people(res: Result) -> None:
+    """registre-people (10.11, «Вариант 1» Олега): кто сделал — человек, не учётка.
+    Каталог «Personal»; «Alt nume» сам попадает в каталог (без двойников, выключенного
+    не воскрешает); одна учётка вносит и уборку, и проверку разных людей; «Ieri»;
+    строки до шага 10 читаются как раньше — «cont (înreg. veche)»."""
+    res.ok("версия схемы не ниже 10, шаг 10 — SAN_PEOPLE_DDL",
+           appdb.SCHEMA_VERSION >= 10 and appdb.MIGRATIONS.get(10) is appdb.SAN_PEOPLE_DDL, str(appdb.SCHEMA_VERSION))
+    res.ok("шаг 10 только добавляет колонки", all(x.startswith("ALTER TABLE san_") and " ADD COLUMN " in x
+                                                  for x in appdb.SAN_PEOPLE_DDL), "")
+    with Clock(AT) as clock, Server(env=NO_KEY) as s:
+        boss, ana, _ = _team(s)
+        items = _catalog(boss)
+        room = items["room"][0]["id"]
+        # каталог «Personal» — маршрутом настроек
+        r = boss.post_json("/api/settings/registre/item", {"kind": "staff", "name": "Elena Ceban",
+                                                           "data": {"func": "asistentă-șefă", "sup": True, "x": 1}})
+        res.check("Personal: человек заведён", r.msg, "ok_san_item")
+        res.check("Personal: без имени — bad_san/name", (lambda r: (r.msg, _j(r).get("field")))(
+            boss.post_json("/api/settings/registre/item", {"kind": "staff", "name": " "})), ("bad_san", "name"))
+        res.check("Personal: регистратуре — 403",
+                  ana.post_json("/api/settings/registre/item", {"kind": "staff", "name": "X"}).status, 403)
+        staff = _j(boss.get(CAT))["data"]["items"]["staff"]
+        res.check("Personal: только известные ключи данных", staff[0]["data"], {"func": "asistentă-șefă", "sup": True})
+        res.check("модель экрана: список людей", _model(ana)["staff"], [{"name": "Elena Ceban", "func": "asistentă-șefă", "sup": True}])
+        # одна учётка (директор) вносит уборку младшего персонала и проверку другого человека
+        sol = "Septodor"
+        res.check("«Alt nume» — уборка записана", boss.post_json("/api/registre/502", {"room_id": room, "solution": sol,
+                                                                                    "doer": "  Maria   Lungu "}).msg, "ok_san_clean")
+        m = _model(boss)
+        res.check("«Alt nume» попал в каталог (пробелы схлопнуты)", [p["name"] for p in m["staff"]], ["Elena Ceban", "Maria Lungu"])
+        cid = m["waiting"][0]["id"]
+        res.check("сам себя — нельзя, даже другой учёткой", ana.post_json(f"{API}/502/{cid}/sup", {"who": "maria lungu"}).msg,
+                  "san_self_check")
+        res.check("та же учётка (директор) вносит проверку Elena Ceban — ok",
+                  boss.post_json(f"{API}/502/{cid}/sup", {"who": "Elena Ceban"}).msg, "ok_san_sup")
+        row = _model(boss)["rows"]["502"][0]
+        res.check("строка: сделала Maria Lungu, внёс Director; проверила Elena Ceban, внёс Director",
+                  (row["doer"], row["actor"], row["sup_actor"], row["sup_by"], row["legacy"]),
+                  ("Maria Lungu", "Director", "Elena Ceban", "Director", False))
+        # «Alt nume» с именем, которое директор выключил, — не воскрешает и не двоит
+        mid = next(p for p in _j(boss.get(CAT))["data"]["items"]["staff"] if p["name"] == "Maria Lungu")
+        boss.post_json("/api/settings/registre/item", {**mid, "active": False})
+        boss.post_json("/api/registre/502", {"room_id": room, "solution": sol, "doer": "MARIA LUNGU"})
+        res.check("выключенного не воскрешает, двойника не заводит",
+                  ([p["name"] for p in _model(boss)["staff"]], len(_sql(s, "SELECT id FROM san_equipment WHERE kind='staff'"))),
+                  (["Elena Ceban"], 2))
+        # «Ieri»: вчерашняя уборка — вчерашней датой
+        boss.post_json("/api/registre/502", {"room_id": room, "solution": sol, "doer": "Ion Cebotari", "day": "ieri"})
+        m = _model(boss)
+        res.check("«Ieri» — дата вчера", m["rows"]["502"][-1]["done"], "09.11.2026")
+        res.check("окно знает и вчера, и сегодня", (m["rooms"][0]["done_azi"], m["rooms"][0]["done_ieri"]), (True, True))
+        # строка до шага 10 (doer пуст, проверка учёткой) — читается как раньше
+        con = sqlite3.connect(str(s.dir / "dental.db"))
+        con.execute("""INSERT INTO san_cleanings(room_id, room, plan_date, done_date, solution, actor, actor_id,
+                       sup_actor, sup_id, sup_at, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                    (room, "Cabinet 1", "2026-11-03", "2026-11-03", sol, "Director", "clinic", "Medic", "d3",
+                     "2026-11-04T06:00:00+00:00", "2026-11-03T17:00:00+00:00"))
+        con.commit()
+        old_id = con.execute("SELECT MAX(id) FROM san_cleanings").fetchone()[0]
+        con.close()
+        old = next(r for r in _model(boss)["rows"]["502"] if r["id"] == old_id)
+        res.check("старая строка: исполнитель — учётка, помечена legacy", (old["doer"], old["legacy"], old["sup_by"]),
+                  ("Director", True, ""))
+        page = boss.get("/admin/registre/tipar/502?month=2026-11").body
+        res.ok("лист: старая строка — «cont (înreg. veche)», и у проверки тоже",
+               "Director<small>cont (înreg. veche)" in page and "Medic<small>cont (înreg. veche)" in page, "")
+        # исправление старой строки: исполнитель переезжает именем учётки, можно поправить
+        clock.set(AT + timedelta(minutes=10))
+        r = boss.post_json(f"{API}/502/{old_id}/fix", {"why": "persoana greșită", "doer": "Ion Cebotari"})
+        fx = next(r for r in _model(boss)["rows"]["502"] if r["fixes"] == old_id)
+        res.check("исправление переписывает исполнителя (и снова ждёт проверки)",
+                  (r.msg, fx["doer"], fx["legacy"], fx["sup_actor"]), ("ok_san_fix", "Ion Cebotari", False, ""))
+        res.check("в базе старая строка не тронута", _sql(s, "SELECT doer, actor FROM san_cleanings WHERE id=?", old_id)[0],
+                  ("", "Director"))
+

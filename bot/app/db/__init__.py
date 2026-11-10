@@ -119,7 +119,7 @@ from .registre import (
     san_last_cycle, _SAN_COLS, _SAN_CLOSE, _SAN_WHEN, _san_table,
 )
 from .schema import (
-    SCHEMA_VERSION, OCLUZIE_DDL, RECALL_DDL, RECALL_IDX_DDL, SAN_DDL, MIGRATIONS, TEETH_HIST_STEP,
+    SCHEMA_VERSION, OCLUZIE_DDL, RECALL_DDL, RECALL_IDX_DDL, SAN_DDL, SAN_PEOPLE_DDL, MIGRATIONS, TEETH_HIST_STEP,
     SQLITE_CARD_SCHEMA, SQLITE_EXTRA_COLS, SQLITE_PATIENT_COLS, SQLITE_SCHEMA,
     _schema_version, _set_schema_version, _teeth_hist_base, _migrate, _sqlite_driver, init,
     close,

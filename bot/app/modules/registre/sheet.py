@@ -2,8 +2,11 @@
 
 Колонки и их номера — как на образце бланка ANSP; лист A4 альбомом, шапка
 таблицы повторяется на каждой странице (`thead`), внизу — места для подписи
-ответственного и руководителя (L.Ș.) рукой: электронная подпись строк —
-вошедший и время программы, и строка-объяснение об этом стоит на листе.
+ответственного и руководителя (L.Ș.) рукой. Графа «кто» — человек, выбранный в
+окне; под ним мелко — учётка, внёсшая запись, и время программы
+(registre-people, 10.11: «Вариант 1» Олега). Графы «Semnătura» — ПУСТЫЕ, под
+руку; у 257/e графа одна («Semnătura, data»), имя и дата в ней, место для
+подписи — под ними.
 ⚠️ Номер страницы на листе не пишется: сколько страниц выйдет, знает только
 печать (константа «Pagina 1 din 1» врала бы на втором листе месяца).
 Исправленная строка печатается зачёркнутой, с пометкой «corectată prin nr. N»
@@ -60,6 +63,8 @@ tr.old .x{text-decoration:line-through;color:#555}
 .src{margin-top:3mm;font-size:7.5pt;color:#333;border-top:.6pt solid #999;padding-top:2mm}
 .pas{margin:0 0 3mm}
 .pas td,.pas th{font-size:8.5pt}
+td.sg{min-width:22mm}
+td.sg13 .sp{display:block;height:6mm}
 """
 
 
@@ -76,6 +81,14 @@ def _note(r: dict) -> str:
     return f'<span class="note">{" · ".join(bits)}</span>'
 
 
+def _who(r: dict, name: str, by: str, at: str) -> str:
+    """Человек и мелко — кто внёс и когда. Строка до шага 10 (`legacy`):
+    человек неизвестен, в графе — учётка, помеченная как учётка."""
+    if r.get("legacy") and name == r["actor"]:
+        return f"{e(name)}<small>cont (înreg. veche), {e(at)}</small>"
+    return f"{e(name)}<small>înreg. {e(by)}, {e(at)}</small>"
+
+
 def _t257(rows: list) -> str:
     head = ("<thead><tr><th rowspan=2>Data</th><th rowspan=2>Marca. Nr sterilizatorului cu aer, cu abur "
             "(autoclavă)</th><th colspan=3>Articole sterilizate</th><th colspan=2>Timpul de sterilizare</th>"
@@ -89,11 +102,12 @@ def _t257(rows: list) -> str:
         arts = r.get("arts") or []
         bio = BIO.get(r["bio"], "—") + (f"<small>{e(r['bio_at'])}</small>" if r.get("bio_at") else "")
         end = e(r["end"]) if not r["open"] else "în curs"
-        sig = f"{e(r['actor'])}<small>{e(r['at'])}</small>"
-        if r.get("end_actor") and r["end_actor"] != r["actor"]:
-            sig += f"<small>încheiat: {e(r['end_actor'])}</small>"
+        sig = _who(r, r["doer"], r["actor"], r["at"])
+        if r.get("end_doer") and r["end_doer"] != r["doer"]:
+            sig += f"<small>încheiat: {e(r['end_doer'])}</small>"
         if r.get("bio_actor"):
-            sig += f"<small>biologic: {e(r['bio_actor'])}</small>"
+            sig += f"<small>biologic: înreg. {e(r['bio_actor'])}</small>"
+        sig += '<span class="sp"></span>'
         body.append(
             f'<tr class="{"old" if o else ""}"><td class=c>{_x(o, e(r["date"]))}{_note(r)}</td>'
             f"<td>{_x(o, e(r['ster']))}<small>{_x(o, e(r['program']))}</small></td>"
@@ -103,7 +117,7 @@ def _t257(rows: list) -> str:
             f"<td class=c>{_x(o, e(r['start']))}</td><td class=c>{_x(o, end)}</td>"
             f"<td class=c>{_x(o, e(r['pressure']) or '—')}</td><td class=c>{_x(o, e(r['temp']) or '—')}</td>"
             f"<td class=c>{_x(o, bio)}</td><td class=c>{_x(o, TEST.get(r['term'], '—'))}</td>"
-            f"<td class=c>{_x(o, TEST.get(r['chem'], '—'))}</td><td>{_x(o, sig)}</td></tr>")
+            f"<td class=c>{_x(o, TEST.get(r['chem'], '—'))}</td><td class=sg13>{_x(o, sig)}</td></tr>")
     return f"<table>{head}<tbody>{''.join(body)}{_blank(13, 3)}</tbody></table>"
 
 
@@ -117,13 +131,16 @@ def _t502(rows: list) -> str:
     body = []
     for r in rows:
         o = bool(r.get("fixed_by"))
-        sup = (f"<td>{_x(o, e(r['sup_actor']))}</td><td class=c><small>{_x(o, 'electronic<br>' + e(r['sup_at']))}"
-               "</small></td>") if r.get("sup_actor") else "<td></td><td></td>"
+        # проверка до шага 10 (`sup_by` пуст) подписана учёткой — так и названа
+        sup = "<td></td><td class=sg></td>"
+        if r.get("sup_actor"):
+            how = (f"înreg. {e(r['sup_by'])}" if r.get("sup_by") else "cont (înreg. veche)") + f", {e(r['sup_at'])}"
+            sup = f"<td>{_x(o, e(r['sup_actor']) + f'<small>{how}</small>')}</td><td class=sg></td>"
         body.append(
             f'<tr class="{"old" if o else ""}"><td class=c>{r["id"]}{_note(r) if (r.get("fixes") or o) else ""}</td>'
             f"<td>{_x(o, e(r['room']))}</td><td class=c>{_x(o, e(r['plan']))}</td>"
             f"<td class=c>{_x(o, e(r['done']))}</td><td>{_x(o, e(r['solution']))}</td>"
-            f"<td>{_x(o, e(r['actor']))}</td><td class=c><small>{_x(o, 'electronic<br>' + e(r['at']))}</small></td>"
+            f"<td>{_x(o, _who(r, r['doer'], r['actor'], r['at']))}</td><td class=sg></td>"
             f"{sup}</tr>")
     return f"<table>{head}<tbody>{''.join(body)}{_blank(9, 3)}</tbody></table>"
 
@@ -156,14 +173,14 @@ def _t501(rows: list) -> str:
     for r in rows:
         o = bool(r.get("fixed_by"))
         dur = f"{r['minutes']} min" if r.get("minutes") else "—"
-        who = e(r["actor"]) + (f"<small>oprit: {e(r['off_actor'])}</small>"
-                               if r.get("off_actor") and r["off_actor"] != r["actor"] else "")
+        who = _who(r, r["doer"], r["actor"], r["at"]) + (
+            f"<small>oprit: înreg. {e(r['off_actor'])}</small>" if r.get("off_actor") and r["off_actor"] != r["actor"] else "")
         body.append(
             f'<tr class="{"old" if o else ""}"><td class=c>{_x(o, e(r["date"]))}{_note(r)}</td>'
             f"<td>{_x(o, e(r['room']))}<small>{_x(o, e(r['lamp']))}</small></td><td>{_x(o, e(r['cond']))}</td>"
             f"<td class=c>{_x(o, e(r['on']))}</td><td class=c>{_x(o, e(r['off']) if not r['open'] else 'în curs')}</td>"
             f"<td class=c>{_x(o, dur)}</td><td class=c>{_x(o, '' if r.get('rest') is None else str(r['rest']))}</td>"
-            f"<td>{_x(o, who)}</td><td class=c><small>{_x(o, 'electronic<br>' + e(r['at']))}</small></td></tr>")
+            f"<td>{_x(o, who)}</td><td class=sg></td></tr>")
     return f"<table>{head}<tbody>{''.join(body)}{_blank(9, 3)}</tbody></table>"
 
 
@@ -200,36 +217,44 @@ def render(form: str, rows: list, d1: date, d2: date, printed: str, norms: str =
 <div>Responsabil de registru<div class="line"></div><small>numele, prenumele · semnătura</small></div>
 <div>Conducător<div class="line"></div><small>semnătura · L.Ș.</small></div>
 </div>
-<p class="src">Extras din registrul electronic DentPilot, tipărit {e(printed)}. Fiecare înregistrare poartă
-numele utilizatorului autentificat și ora programului; corectările sunt înregistrări noi, cele corectate rămân
-tăiate; înregistrările șterse nu se tipăresc.</p>
+<p class="src">Extras din registrul electronic DentPilot, tipărit {e(printed)}. Numele — persoana care a efectuat
+sau a verificat, aleasă la înregistrare; dedesubt — contul din program care a făcut înregistrarea și ora programului.
+Semnăturile se pun de mână pe acest extras. Corectările sunt înregistrări noi, cele corectate rămân tăiate;
+înregistrările șterse nu se tipăresc.</p>
 </body></html>"""
 
 
 def excel_rows(form: str, rows: list) -> tuple[list, list, list]:
     """(шапка, строки, ширины) для `core/xlsx.book` — те же колонки, что у бланка."""
+    def acct(r):
+        # учётка, внёсшая строку; у строк до шага 10 она же была исполнителем
+        return "cont (înreg. veche)" if r.get("legacy") else r["actor"]
+
     def mark(r):
         return ("corectată prin nr. %s" % r["fixed_by"]) if r.get("fixed_by") else (
             "corectează nr. %s: %s" % (r["fixes"], r["why"]) if r.get("fixes") else "")
     if form == "257":
         head = ["Nr.", "Data", "Sterilizator", "Program", "Articole", "Cantitatea", "Ambalaj", "Începutul",
-                "Sfârșitul", "Presiunea, bar", "Temperatura, °C", "Biologic", "Termic", "Chimic", "Semnat",
-                "Ora semnării", "Corectare"]
+                "Sfârșitul", "Presiunea, bar", "Temperatura, °C", "Biologic", "Termic", "Chimic", "Responsabil",
+                "Încheiat de", "Înregistrat de", "Ora înregistrării", "Corectare"]
         out = [[r["id"], r["date"], r["ster"], r["program"],
                 "; ".join(a["name"] for a in r["arts"]), "; ".join(str(a["qty"]) for a in r["arts"]),
                 "; ".join(a.get("pack") or "" for a in r["arts"]), r["start"], r["end"], r["pressure"], r["temp"],
                 {"ok": "negativ", "fail": "pozitiv", "wait": "în incubare"}.get(r["bio"], ""),
                 {"ok": "corect", "fail": "incorect"}.get(r["term"], ""),
-                {"ok": "corect", "fail": "incorect"}.get(r["chem"], ""), r["actor"], r["at"], mark(r)] for r in rows]
-        return head, out, [6, 11, 24, 18, 34, 10, 16, 9, 9, 9, 9, 11, 10, 10, 18, 16, 30]
+                {"ok": "corect", "fail": "incorect"}.get(r["chem"], ""), r["doer"], r.get("end_doer") or "",
+                acct(r), r["at"], mark(r)] for r in rows]
+        return head, out, [6, 11, 24, 18, 34, 10, 16, 9, 9, 9, 9, 11, 10, 10, 20, 20, 20, 16, 30]
     if form == "502":
         head = ["Nr.", "Încăperea", "Data planificării", "Data efectuării", "Soluția dezinfectantă",
-                "A efectuat", "Ora semnării", "A supervizat", "Ora verificării", "Corectare"]
-        out = [[r["id"], r["room"], r["plan"], r["done"], r["solution"], r["actor"], r["at"],
-                r["sup_actor"], r["sup_at"], mark(r)] for r in rows]
-        return head, out, [6, 22, 13, 13, 34, 20, 16, 20, 16, 30]
+                "A efectuat", "Înregistrat de", "Ora înregistrării", "A supervizat", "Verificare înregistrată de",
+                "Ora verificării", "Corectare"]
+        out = [[r["id"], r["room"], r["plan"], r["done"], r["solution"], r["doer"], acct(r), r["at"],
+                r["sup_actor"], r.get("sup_by") or (r["sup_actor"] and "cont (înreg. veche)"), r["sup_at"], mark(r)]
+               for r in rows]
+        return head, out, [6, 22, 13, 13, 34, 20, 20, 16, 20, 20, 16, 30]
     head = ["Nr.", "Data", "Încăperea", "Lampa", "Condițiile", "Conectare", "Deconectare", "Durata, min",
-            "Ore rămase", "Persoana responsabilă", "Ora semnării", "Corectare"]
+            "Ore rămase", "Persoana responsabilă", "Înregistrat de", "Ora înregistrării", "Corectare"]
     out = [[r["id"], r["date"], r["room"], r["lamp"], r["cond"], r["on"], r["off"], r.get("minutes") or "",
-            "" if r.get("rest") is None else r["rest"], r["actor"], r["at"], mark(r)] for r in rows]
-    return head, out, [6, 11, 20, 26, 22, 10, 11, 10, 10, 22, 16, 30]
+            "" if r.get("rest") is None else r["rest"], r["doer"], acct(r), r["at"], mark(r)] for r in rows]
+    return head, out, [6, 11, 20, 26, 22, 10, 11, 10, 10, 22, 20, 16, 30]

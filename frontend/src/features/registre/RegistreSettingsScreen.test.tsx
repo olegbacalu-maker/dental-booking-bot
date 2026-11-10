@@ -6,7 +6,8 @@ import { RegistreSettingsScreen } from './RegistreSettingsScreen'
 import type { Catalog } from './registre'
 
 /* Setări › Registre sanitare (10.11): каталог по видам, редактор строки,
-   «Lampă nouă» после вопроса, отказ сервера — его словами и полем. */
+   «Lampă nouă» после вопроса, отказ сервера — его словами и полем;
+   «Personal pentru registre» — имя, функция, «verifică curățenia» (10.11). */
 
 const { get, post } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
 vi.mock('../../services/api', async (importOriginal) => {
@@ -24,6 +25,7 @@ const CAT: Catalog = {
       data: { m3: 45, hours: 8000, base: 7000, since: '2025-03-01', screened: false, changes: [] } }],
     room: [{ id: 3, kind: 'room', name: 'Cabinet 1', nr: '', room: '', active: true, data: { every: 7 } }],
     solution: [], article: [{ id: 4, kind: 'article', name: 'Freze', nr: '', room: '', active: false, data: {} }], pack: [],
+    staff: [{ id: 5, kind: 'staff', name: 'Elena Ceban', nr: '', room: '', active: true, data: { func: 'asistentă-șefă', sup: true } }],
   },
   norms: { id: null, text: '' },
 }
@@ -76,5 +78,22 @@ describe('RegistreSettingsScreen', () => {
     expect(post).not.toHaveBeenCalled()
     fireEvent.click(within(card('lamp')).getByRole('button', { name: 'Lampă nouă' }))
     await waitFor(() => expect(post).toHaveBeenCalledWith('/settings/registre/lamp/2/new', {}))
+  })
+
+  it('«Personal pentru registre»: человек с функцией и отметкой проверяющего; новый — формой', async () => {
+    get.mockResolvedValue(ok(CAT))
+    post.mockResolvedValue(ok({ id: 6 }, 'ok_san_item', 'Lista este salvată'))
+    render(<RegistreSettingsScreen />)
+    await screen.findByText('Elena Ceban')
+    expect(card('staff').textContent).toContain('asistentă-șefă')
+    expect(card('staff').textContent).toContain('verifică curățenia')
+    fireEvent.click(within(card('staff')).getByRole('button', { name: /Adaugă/ }))
+    const ed = card('staff').querySelector('.rg-edit') as HTMLElement
+    const inputs = ed.querySelectorAll('input')
+    fireEvent.change(inputs[0]!, { target: { value: 'Maria Lungu' } })
+    fireEvent.change(inputs[1]!, { target: { value: 'infirmieră' } })
+    fireEvent.click(within(ed).getByRole('button', { name: /Salvează/ }))
+    await waitFor(() => expect(post).toHaveBeenLastCalledWith('/settings/registre/item', expect.objectContaining({
+      kind: 'staff', name: 'Maria Lungu', data: { func: 'infirmieră', sup: false } })))
   })
 })

@@ -1,9 +1,10 @@
 """JSON API «Registre» (10.11.2026): санитарные регистры 257/e, 502/e, 501/e.
 
 Правила — `core/registre.py`, запись — `db/registre.py`. Пишут ВСЕ вошедшие
-(`api_guard`): ассистентка у автоклава — такой же автор записи, как директор.
-Удаляет и правит каталог только директор (`PERM_SETTINGS`). Подпись строки
-(имя и время) ставит сервер: клиент их не присылает. Команды состояния не
+(`api_guard`). КТО СДЕЛАЛ — человек из окна (`doer`, «Personal»), учётка —
+кто внёс (registre-people, 10.11).
+Удаляет и правит каталог только директор (`PERM_SETTINGS`). Учётку и время
+ставит сервер: клиент их не присылает. Команды состояния не
 возвращают — экран перечитывает `GET /api/registre`.
 """
 from __future__ import annotations
@@ -76,7 +77,7 @@ async def api_clean_add(request: Request):
 async def api_clean_sup(request: Request, row_id: int):
     if (deny := api_guard(request)) is not None:
         return deny
-    return await _run(request, "ok_san_sup", reg.supervise(request_user(), row_id))
+    return await _run(request, "ok_san_sup", reg.supervise(request_user(), row_id, await api_body(request) or {}))
 
 
 @router.post("/api/registre/501")
