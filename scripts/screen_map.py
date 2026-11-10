@@ -269,8 +269,9 @@ B2 = {
     "/admin/settings/sms": ("—", "GET /api/settings/sms", ""),
     "/admin/stats": ("from, to", "GET /api/stats", ""),
     "/admin/rechemari": ("—", "GET /api/recall", ""),
-    "/admin/registre": ("—", "—", "МАКЕТ 10.11: данные — заглушка клиента"),
-    "/admin/settings/registre": ("—", "—", "МАКЕТ 10.11: данные — заглушка клиента"),
+    "/admin/registre": ("v?, r?, m?", "GET /api/registre",
+                        "«Azi» и «Istoric» (v=istoric) — один экран; месяц истории — из адреса"),
+    "/admin/settings/registre": ("—", "GET /api/settings/registre", ""),
 }
 
 

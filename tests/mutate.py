@@ -614,6 +614,12 @@ MUTATIONS = [
     # Якорь: константу переименовали — правило искало бы имя, которого нет.
     ("печатный лист без колонтитулов браузера", "app/core/theme.py",
      ("PRINT_PAGE_CSS = (", "PRINT_PAGE = (")),
+    # «Registre» (10.11): правка строки журнала мимо db/registre.py — «поправить
+    # время цикла на месте»; и внутри него — UPDATE без замка IS NULL.
+    ("журналы san_* только дописываются", "app/modules/registre/api.py",
+     "\nasync def _mut(db, i):\n    await db._execute('UPDATE san_cycles SET started_at = ? WHERE id = ?', 'x', i)\n"),
+    ("журналы san_* только дописываются", test_structure._DB_SAN,
+     ("f\"WHERE id = ? AND {lock} IS NULL AND deleted_at IS NULL\"", "f\"WHERE id = ?\"")),
 ]
 
 # Правки ЗАКОННЫЕ: нарушения в них нет, и правило обязано остаться

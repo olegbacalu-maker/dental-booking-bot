@@ -41,6 +41,10 @@ STATE = ("_CONN", "_SQ", "ACTOR_HOOK")
 _IMPORTED = {"annotations", "datetime", "timezone"}
 
 SNAPSHOT = frozenset((
+    # «Registre» (10.11.2026): санитарные регистры, db/registre.py + SAN_DDL шага 9
+    "SAN_DDL", "SAN_TABLES", "SAN_KINDS", "san_items", "san_item", "san_item_save", "san_insert",
+    "san_close", "san_delete", "san_row", "san_rows", "san_open", "san_fixed_ids", "san_lamp_minutes",
+    "san_last_clean", "san_last_cycle",
     "_ACT_SQL", "ACTIVE_STATUSES", "ACTOR_HOOK", "_actor_now", "add_alert",
     "add_bridge", "add_document", "add_note", "add_payment", "add_plan_item",
     "add_recall_mark", "add_visit_for_patient", "admin_add", "all_patients",

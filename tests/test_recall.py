@@ -450,7 +450,7 @@ def suite_schema(res: Result) -> None:
            appdb.RECALL_DDL in appdb.SQLITE_CARD_SCHEMA and appdb.RECALL_IDX_DDL in appdb.SQLITE_CARD_SCHEMA,
            "текст таблицы в схеме и в шаге 8 разошёлся")
     res.check("шаг 8 кладёт именно его", appdb.MIGRATIONS[8], [appdb.RECALL_DDL, appdb.RECALL_IDX_DDL])
-    res.check("версия схемы — 8", appdb.SCHEMA_VERSION, 8)
+    res.ok("версия схемы не ниже 8 (шаг 9 — Registre, 10.11)", appdb.SCHEMA_VERSION >= 8, str(appdb.SCHEMA_VERSION))
     with Server() as s:
         res.check("чистая установка: таблица и индекс есть",
                   sorted(_sql(s, "SELECT name FROM sqlite_master WHERE name IN ('recall_marks', 'ix_recall_pat')")),

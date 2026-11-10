@@ -93,6 +93,8 @@ HUB_GROUP_OF = {"/admin/settings/system": "general", "/admin/license": "general"
                 "/admin/settings/theme": "general", "/admin/settings/hours": "programari",
                 "/admin/settings/services": "programari",
                 "/admin/settings/sms": "programari",
+                # «Registre» (10.11): каталог санитарных регистров 257/e, 502/e, 501/e
+                "/admin/settings/registre": "general",
                 "/admin/medici": "medici", "/admin/settings/templates": "medici",
                 "/admin/settings/lan": "date", "/admin/settings/crypt": "date",
                 "/admin/settings/backup": "date", "/admin/settings/security": "securitate",
@@ -187,7 +189,10 @@ def _hub_tiles() -> list[dict]:
                   [{"t": f"{n_docs} activi · se editează în secțiunea Medici"}]),
              # шаблоны дневника визита по услуге (10.11): число — услуг С шаблоном
              tile("/admin/settings/templates", "note", "v", "Șabloane consultație",
-                  [{"t": _tpl_hint(cfg)}])]
+                  [{"t": _tpl_hint(cfg)}]),
+             # «Registre» (10.11): каталог, из которого регистры делают кнопки
+             tile("/admin/settings/registre", "shield", "g", "Registre sanitare",
+                  [{"t": "sterilizatoare, lămpi bactericide, încăperi"}])]
     # Licența (02.10): срок и «Plătește acum» — на странице лицензии, плитка ведёт
     # туда. Только где лицензия применяется (`lic.applies`): у песочницы, демо и
     # облака срока нет, и плитка обещала бы пустую страницу.

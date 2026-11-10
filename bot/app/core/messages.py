@@ -447,6 +447,28 @@ MSG_BANNER = {
                             "la pornire"),
     "ord_repeat": ("err", "Nimic nu a fost șters. Dacă ați cerut-o dvs., repetați "
                           "comanda din Setări"),
+    # «Registre» (10.11): санитарные регистры 257/e, 502/e, 501/e
+    "ok_san_start": ("ok", "Ciclul a pornit — ora începutului este scrisă în registru"),
+    "ok_san_finish": ("ok", "Ciclul este încheiat și scris în registru"),
+    "ok_san_bio": ("ok", "Rezultatul testului biologic este scris în registru"),
+    "ok_san_clean": ("ok", "Curățenia generală este scrisă în registru"),
+    "ok_san_sup": ("ok", "Verificarea este semnată"),
+    "ok_san_uv_on": ("ok", "Lampa este pornită — ora conectării este scrisă"),
+    "ok_san_uv_off": ("ok", "Lampa este oprită — durata și orele rămase sunt scrise"),
+    "ok_san_fix": ("ok", "Corectarea este scrisă ca înregistrare nouă; cea veche rămâne tăiată"),
+    "ok_san_del": ("ok", "Înregistrarea este ștearsă din registru"),
+    "ok_san_item": ("ok", "Lista este salvată"),
+    "ok_san_lamp_new": ("ok", "Lampa nouă: data schimbării este scrisă, orele se numără de la zero"),
+    "bad_san": ("err", "Completați câmpul marcat"),
+    "san_why": ("err", "Scrieți motivul corectării"),
+    "san_busy": ("err", "Sterilizatorul are deja un ciclu în curs — încheiați-l mai întâi"),
+    "san_uv_on": ("err", "Lampa este deja pornită"),
+    "san_uv_people": ("err", "Lampa nu este ecranată — nu se pornește în prezența persoanelor"),
+    "san_closed": ("err", "Înregistrarea este deja încheiată — reîncărcați pagina"),
+    "san_open": ("err", "Înregistrarea este încă în curs — încheiați-o, apoi corectați"),
+    "san_fixed": ("err", "Înregistrarea a fost deja corectată — corectați înregistrarea nouă"),
+    "san_self_check": ("err", "Curățenia o verifică altă persoană, cu contul său"),
+    "san_gone": ("err", "Înregistrarea nu mai există — reîncărcați pagina"),
 }
 
 

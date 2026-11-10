@@ -20,7 +20,7 @@ from .teeth import TEETH_HIST_SINCE
 # идёт range(have+1, SCHEMA_VERSION+1) и до него не дойдёт (так шаг 4 с
 # 'waiting' в uq-индексах не исполнялся ни у одной клиники; держит
 # test_structure).
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 
 # Индексы под горячие пути (день, история пациента, «новые из бота», карточка).
@@ -76,6 +76,98 @@ RECALL_DDL = """CREATE TABLE IF NOT EXISTS recall_marks(
 )"""
 RECALL_IDX_DDL = ("CREATE INDEX IF NOT EXISTS ix_recall_pat "
                   "ON recall_marks(patient_id, service_id, id)")
+
+# «Registre» (10.11.2026, санитарные регистры 257/e, 502/e, 501/e): записи
+# БЕЗ пациентов — ни одной ссылки на `patients`, стирание по 195 их не
+# касается. Каталог `san_equipment` правится (директор), три журнала — только
+# дописываются: исправление = НОВАЯ строка с `fixes` = id исправленной и
+# причиной `why`; правки строки на месте нет, кроме ОДНОКРАТНОГО закрытия
+# открытой записи (конец цикла и тесты, итог биотеста, выключение лампы,
+# подпись проверяющего — каждое пишется только в пустое поле). Удаление —
+# мягкое (`deleted_at`/`deleted_by`, только директор): строка уходит с экрана
+# и листа, но остаётся в базе. Подпись строки — `actor`/`actor_id` вошедшего
+# и время программы (UTC ISO); имена оборудования — СНИМКОМ, как врач у визита.
+# Даты-моменты (`*_at`) — UTC ISO-строки; `plan_date`/`done_date` — голые даты.
+# Шаг 9 аддитивный: новых таблиц не запрещают никакие данные, падать нечему;
+# строго, как 7 и 8 (свежая база проходит шаги с нуля и получает их так же).
+SAN_DDL = [
+    """CREATE TABLE IF NOT EXISTS san_equipment(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL,
+  name TEXT NOT NULL,
+  nr TEXT NOT NULL DEFAULT '',
+  room TEXT NOT NULL DEFAULT '',
+  data TEXT NOT NULL DEFAULT '{}',
+  active INTEGER NOT NULL DEFAULT 1,
+  sort INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT
+)""",
+    """CREATE TABLE IF NOT EXISTS san_cycles(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ster_id INTEGER,
+  ster TEXT NOT NULL,
+  program TEXT NOT NULL DEFAULT '',
+  pressure TEXT NOT NULL DEFAULT '',
+  temp TEXT NOT NULL DEFAULT '',
+  arts TEXT NOT NULL DEFAULT '[]',
+  started_at TEXT NOT NULL,
+  ended_at TEXT,
+  chem TEXT NOT NULL DEFAULT '',
+  term TEXT NOT NULL DEFAULT '',
+  bio TEXT NOT NULL DEFAULT '',
+  actor TEXT NOT NULL,
+  actor_id TEXT NOT NULL DEFAULT '',
+  end_actor TEXT NOT NULL DEFAULT '',
+  bio_actor TEXT NOT NULL DEFAULT '',
+  bio_at TEXT,
+  fixes INTEGER,
+  why TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  deleted_at TEXT,
+  deleted_by TEXT NOT NULL DEFAULT ''
+)""",
+    """CREATE TABLE IF NOT EXISTS san_cleanings(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  room_id INTEGER,
+  room TEXT NOT NULL,
+  plan_date TEXT NOT NULL DEFAULT '',
+  done_date TEXT NOT NULL,
+  solution TEXT NOT NULL DEFAULT '',
+  actor TEXT NOT NULL,
+  actor_id TEXT NOT NULL DEFAULT '',
+  sup_actor TEXT NOT NULL DEFAULT '',
+  sup_id TEXT NOT NULL DEFAULT '',
+  sup_at TEXT,
+  fixes INTEGER,
+  why TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  deleted_at TEXT,
+  deleted_by TEXT NOT NULL DEFAULT ''
+)""",
+    """CREATE TABLE IF NOT EXISTS san_uv(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lamp_id INTEGER,
+  lamp TEXT NOT NULL,
+  room TEXT NOT NULL DEFAULT '',
+  cond TEXT NOT NULL DEFAULT '',
+  on_at TEXT NOT NULL,
+  off_at TEXT,
+  minutes INTEGER,
+  rest_hours INTEGER,
+  actor TEXT NOT NULL,
+  actor_id TEXT NOT NULL DEFAULT '',
+  off_actor TEXT NOT NULL DEFAULT '',
+  fixes INTEGER,
+  why TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  deleted_at TEXT,
+  deleted_by TEXT NOT NULL DEFAULT ''
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_san_cycles_at ON san_cycles(started_at)",
+    "CREATE INDEX IF NOT EXISTS ix_san_clean_at ON san_cleanings(done_date)",
+    "CREATE INDEX IF NOT EXISTS ix_san_uv_at ON san_uv(lamp_id, on_at)",
+]
 
 MIGRATIONS = {
     1: [
@@ -138,6 +230,9 @@ MIGRATIONS = {
     # по паре. Таблица новая и аддитивная — данных, которым она противоречит,
     # нет, падать нечему; строго, как 7. Тот же DDL — в SQLITE_CARD_SCHEMA.
     8: [RECALL_DDL, RECALL_IDX_DDL],
+    # 9 (10.11, «Registre»): санитарные регистры — каталог и три журнала
+    # (`SAN_DDL` выше). Аддитивно и строго, как 7 и 8.
+    9: SAN_DDL,
 }
 # Шаг, который кладёт базовый снимок истории зубов. В отличие от
 # UQ_GUARD_STEP — СТРОГИЙ: он меняет данные, и недописанный снимок не имеет

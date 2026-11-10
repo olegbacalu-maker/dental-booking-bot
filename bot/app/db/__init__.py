@@ -24,6 +24,7 @@ Postgres-издание снято 12.10.2026 (на нём не работало
     docs      документы пациента
     finance   платежи
     erasure   закон 195: стирание и обезличивание
+    registre  санитарные регистры 257/e, 502/e, 501/e (без пациентов)
     schema    схема, миграции, init/close
 
 ⛔ **Переприсваиваемое состояние живёт ЗДЕСЬ и только здесь** — `_CONN`, `_SQ`,
@@ -112,8 +113,13 @@ from .erasure import (
     erasure_kind, _PATIENT_CHILD_TABLES, _PATIENT_GRAND_CHILDREN, delete_patient_fully,
     anonymize_patient,
 )
+from .registre import (
+    SAN_TABLES, SAN_KINDS, san_items, san_item, _san_insert_id, san_item_save, san_insert, san_close,
+    san_delete, san_row, san_rows, san_open, san_fixed_ids, san_lamp_minutes, san_last_clean,
+    san_last_cycle, _SAN_COLS, _SAN_CLOSE, _SAN_WHEN, _san_table,
+)
 from .schema import (
-    SCHEMA_VERSION, OCLUZIE_DDL, RECALL_DDL, RECALL_IDX_DDL, MIGRATIONS, TEETH_HIST_STEP,
+    SCHEMA_VERSION, OCLUZIE_DDL, RECALL_DDL, RECALL_IDX_DDL, SAN_DDL, MIGRATIONS, TEETH_HIST_STEP,
     SQLITE_CARD_SCHEMA, SQLITE_EXTRA_COLS, SQLITE_PATIENT_COLS, SQLITE_SCHEMA,
     _schema_version, _set_schema_version, _teeth_hist_base, _migrate, _sqlite_driver, init,
     close,

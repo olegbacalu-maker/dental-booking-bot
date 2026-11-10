@@ -48,6 +48,7 @@ from .modules.stats import api as stats_api
 from .modules.stats import routes as stats
 from .modules.recall import api as recall_api
 from .modules.recall import routes as recall
+from .modules.registre import api as registre_api
 from .modules.registre import routes as registre
 
 # ⛔ Без /docs, /redoc и /openapi.json (17.10): это карта всех адресов
@@ -71,7 +72,8 @@ app.include_router(stats.router)
 app.include_router(stats_api.router)      # JSON API раздела (DentPilot 2.0)
 app.include_router(recall.router)         # «Rechemări» (29.10): экран списка отзыва
 app.include_router(recall_api.router)     # JSON API раздела
-app.include_router(registre.router)       # «Registre» (МАКЕТ 10.11): санитарные регистры
+app.include_router(registre.router)       # «Registre» (10.11): санитарные регистры 257/e, 502/e, 501/e
+app.include_router(registre_api.router)   # JSON API раздела и каталога
 app.include_router(qr.router)
 app.include_router(entry.router)          # вход, установка PIN, выход
 app.include_router(entry_api.router)      # JSON-дверь: смена человека без перезагрузки

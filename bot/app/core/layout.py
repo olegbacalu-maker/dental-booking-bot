@@ -102,7 +102,7 @@ REACT_SCREENS = frozenset({"recall", "settings_clinic", "doctors_list", "doctor_
                            # Экран «у кресла» (26.09): старой страницы у него
                            # не было никогда.
                            "chair",
-                           # «Registre» (МАКЕТ 10.11, san-registers): регистры
+                           # «Registre» (10.11, san-registers): санитарные регистры
                            # 257/e, 502/e, 501/e и каталог оборудования
                            "registre", "settings_registre"})
 
@@ -182,7 +182,7 @@ SECTION_TITLE = {"dash": "Panoul principal", "prog": "Programări", "pat": "Paci
                  "med": "Medici", "stat": "Statistici", "set": "Setări",
                  # «Rechemări» (29.10): список отзыва пациентов, сразу после «Pacienți»
                  "rec": "Rechemări",
-                 # «Registre» (МАКЕТ 10.11): санитарные регистры — у ВСЕХ вошедших
+                 # «Registre» (10.11): санитарные регистры — у ВСЕХ вошедших
                  "reg": "Registre",
                  # SMS-пакет (S6): пункт секции «Sincronizări», когда сервер предлагает пакет
                  "sms": "SMS pacienți"}
@@ -230,7 +230,7 @@ def shell_model(active: str, sub: str, rail: bool = False,
     if show_recall:
         items.append({"key": "rec", "href": "/admin/rechemari", "icon": "refresh",
                       "label": SECTION_TITLE["rec"]})
-    # «Registre» (МАКЕТ 10.11): пишут все вошедшие — ассистентка у кресла тоже
+    # «Registre» (10.11, вариант B): пишут все вошедшие — ассистентка у кресла тоже
     items.append({"key": "reg", "href": "/admin/registre", "icon": "shield",
                   "label": SECTION_TITLE["reg"]})
     if show_docs:

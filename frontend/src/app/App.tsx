@@ -83,7 +83,7 @@ export const SCREENS: Record<ScreenName, Draw> = {
   settings_sms: () => <SmsSettingsScreen />,
   stats: () => <StatsScreen />,
   recall: () => <RecallScreen />,
-  // «Registre» (МАКЕТ 10.11): данные — заглушка клиента, загрузчика нет
+  // «Registre» (10.11): данные — свой `useLoad` (месяц истории — состояние экрана)
   registre: () => <RegistreScreen />,
   settings_registre: () => <RegistreSettingsScreen />,
   patients_search: () => <PatientsSearchScreen />,

@@ -108,6 +108,7 @@ _DB_SCHEMA = "app/db/schema.py"      # SCHEMA_VERSION, MIGRATIONS, SQLITE_SCHEMA
 _DB_SLOTS = "app/db/slots.py"        # _slot_lock, _BOOK_LOCK, _uq_slot_sql
 _DB_DAY = "app/db/schedule.py"       # day_appointments: выборка дня
 _DB_TEXTS = "app/db/plans.py"        # тексты летописи пациента («Plan: …»)
+_DB_SAN = "app/db/registre.py"       # журналы san_*: единственное место UPDATE (замок IS NULL)
 # Якоря бывшего layout.py (разнос 04.11): переезд имени = правка одной строки.
 _LAY_SHELL = "app/core/layout.py"     # shell_model, REACT_SCREENS, SECTION_TITLE
 _LAY_ICONS = "app/core/icons.py"      # _I, _ic
@@ -2278,3 +2279,36 @@ def suite(res: Result) -> None:
         bad.append(f"печатных бланков с кнопкой нашлось {sheets_n} — якорь правила пропал")
     res.ok("печатный лист без колонтитулов браузера", not bad,
            "дата, адрес и номер листа лягут на бумагу: " + "; ".join(bad))
+
+    # «Registre» (10.11.2026): журналы санитарных регистров (257/e, 502/e,
+    # 501/e) только ДОПИСЫВАЮТСЯ — это и есть их юридическая сила: подпись
+    # строки (кто и когда) ставит программа, исправление — новая строка с
+    # причиной, старая остаётся. UPDATE строки журнала живёт в одном месте —
+    # `db/registre.py`, и только однократным заполнением ПУСТОГО поля (замок
+    # `IS NULL` в самом SQL) или мягким удалением. Правка мимо него («поправить
+    # время цикла на месте») молча превратила бы журнал в редактируемую таблицу:
+    # ни ошибки, ни следа на листе, который подписывает руководитель.
+    _SAN = re.compile(r"\b(?:UPDATE|DELETE\s+FROM|REPLACE\s+INTO|INSERT\s+OR\s+REPLACE\s+INTO)\s+"
+                      r"(?:san_cycles|san_cleanings|san_uv)\b", re.I)
+    _SAN_ANY = re.compile(r"\b(?:UPDATE|DELETE\s+FROM)\s+\{", re.I)
+
+    def _sql_texts(tree):
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Constant) and isinstance(n.value, str):
+                yield n.lineno, n.value
+            elif isinstance(n, ast.JoinedStr):
+                yield n.lineno, "".join(v.value if isinstance(v, ast.Constant) else "{}" for v in n.values)
+
+    bad, owner = [], by_path.get(_DB_SAN)
+    for rel, tree in src:
+        for line, text in _sql_texts(tree):
+            if rel != _DB_SAN and _SAN.search(text):
+                bad.append(f"{rel}:{line} пишет журнал san_* мимо {_DB_SAN}")
+            if rel == _DB_SAN and (_SAN_ANY.search(text) or _SAN.search(text)):
+                if re.search(r"DELETE\s+FROM", text, re.I):
+                    bad.append(f"{rel}:{line} DELETE строки журнала — удаление только мягкое (deleted_at)")
+                elif "IS NULL" not in text:
+                    bad.append(f"{rel}:{line} UPDATE журнала без замка «IS NULL» — перезапись записанного")
+    if owner is None or not any(isinstance(n, ast.AsyncFunctionDef) and n.name == "san_close" for n in owner.body):
+        bad.append(f"{_DB_SAN} без san_close — якорь правила пропал")
+    res.ok("журналы san_* только дописываются", not bad, "; ".join(bad))
