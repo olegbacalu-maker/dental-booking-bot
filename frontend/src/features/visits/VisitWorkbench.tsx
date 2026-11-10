@@ -2,8 +2,9 @@ import { useState, type FormEvent } from 'react'
 import { AppLink } from '../../components/AppLink'
 import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
+import { asApiError } from '../../services/api'
 import { mdl } from '../patients/card/card'
-import type { VisitForm, VisitPage } from './visits'
+import { visits, type VisitForm, type VisitPage } from './visits'
 
 /* «Consultație» — дневник визита (C19; с 26.09 ОДИН на два места): те же
    слова, графы и кнопки, что у старой страницы. Шаблон заполняет ТОЛЬКО пустые
@@ -21,6 +22,13 @@ const T = {
   diary: 'Jurnalul consultației',
   diarySub: 'partea de jurnal a fișei 043/e',
   tplHint: 'Șablonul completează doar câmpurile goale',
+  /* шаблоны клиники по услуге (10.11): тексты — из Setări › Șabloane consultație */
+  fromTpl: 'Din șablon',
+  fromTplHint: 'Din șablon — textele clinicii pentru serviciul vizitei și procedurile bifate, '
+    + 'cu dintele și data. Completează doar câmpurile goale.',
+  tplFull: 'Câmpurile sunt deja completate — șablonul nu a schimbat nimic.',
+  tplNone: 'Serviciul vizitei și procedurile bifate nu au șablon.',
+  offline: 'Programul nu răspunde. Reîncercați.',
   linked: 'Efectuate la această vizită',
   openTitle: 'Proceduri din plan efectuate la această vizită',
   openHint: '— bifate devin «Finalizat» în plan și se leagă de vizită',
@@ -54,6 +62,8 @@ interface Draft {
   page: VisitPage
   vals: Vals
   done: number[]
+  /** слово «Din șablon», когда клик ничего не вписал (или отказ); правка его снимает */
+  note?: string
 }
 
 interface Props {
@@ -69,8 +79,11 @@ export function VisitWorkbench({ page, saving, onSave, embedded = false }: Props
   const [draft, setDraft] = useState<Draft | null>(null)
   const cur: Draft = draft && draft.page === page ? draft : { page, vals: valsOf(page), done: [] }
   const edit = (patch: Partial<Draft>) =>
-    setDraft((d) => ({ ...(d && d.page === page ? d : { page, vals: valsOf(page), done: [] }), ...patch }))
+    setDraft((d) => ({ ...(d && d.page === page ? d : { page, vals: valsOf(page), done: [] }), note: '', ...patch }))
   const setVal = (k: FieldId, v: string) => edit({ vals: { ...cur.vals, [k]: v } })
+  const [tplBusy, setTplBusy] = useState(false)
+  /* «Din șablon» — когда шаблон есть у услуги визита или у открытой позиции плана */
+  const svcTpl = page.appt.tpl || page.plan.open.some((it) => it.tpl)
 
   function applyTpl(id: string) {
     const t = page.templates.find((x) => x.id === id)
@@ -80,6 +93,33 @@ export function VisitWorkbench({ page, saving, onSave, embedded = false }: Props
       if (!next[k].trim() && t.values[k]) next[k] = t.values[k]
     }
     edit({ vals: next })
+  }
+
+  /* Тексты собирает сервер (услуга визита + отмеченные позиции, зуб, дата);
+     здесь — только правило «пустые графы»: вписанное руками клик не трогает.
+     Черновик берётся СВЕЖИЙ (функцией): пока шёл запрос, врач мог печатать. */
+  async function fromTpl() {
+    setTplBusy(true)
+    const fresh = (d: Draft | null): Draft => (d && d.page === page ? d : { page, vals: valsOf(page), done: [] })
+    try {
+      const r = await visits.template(page.appt.id, cur.done)
+      const got = r.data.values
+      const any = FIELD_IDS.some((k) => got[k])
+      setDraft((d) => {
+        const base = fresh(d)
+        const next = { ...base.vals }
+        let filled = 0
+        for (const k of FIELD_IDS) {
+          if (!next[k].trim() && got[k]) { next[k] = got[k]; filled += 1 }
+        }
+        return { ...base, vals: next, note: filled ? '' : any ? T.tplFull : T.tplNone }
+      })
+    } catch (err) {
+      const text = asApiError(err).text || T.offline
+      setDraft((d) => ({ ...fresh(d), note: text }))
+    } finally {
+      setTplBusy(false)
+    }
   }
 
   const onSubmit = async (e: FormEvent) => {
@@ -120,11 +160,17 @@ export function VisitWorkbench({ page, saving, onSave, embedded = false }: Props
         <div className="fcard">
           <h3>{T.diary} <small>· {T.diarySub}</small></h3>
           <div className="tplrow">
+            {svcTpl && (
+              <button type="button" className="tpl-svc" disabled={tplBusy} onClick={() => void fromTpl()}>
+                <Icon name="note" /> {T.fromTpl}
+              </button>
+            )}
             {page.templates.map((t) => (
               <button key={t.id} type="button" onClick={() => applyTpl(t.id)}>{t.label}</button>
             ))}
           </div>
-          <small className="hint dp-tpl-hint">{T.tplHint}</small>
+          <small className="hint dp-tpl-hint">{svcTpl ? T.fromTplHint : T.tplHint}</small>
+          {cur.note && <small className="hint dp-tpl-hint dp-tpl-note" role="status">{cur.note}</small>}
           <form className="fform" onSubmit={onSubmit}>
             {FIELD_IDS.map((k) => {
               const f = fieldOf(k)

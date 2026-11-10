@@ -98,6 +98,7 @@ import test_update_server  # noqa: E402
 import test_update_setup  # noqa: E402
 import test_visit  # noqa: E402
 import test_visit_api  # noqa: E402
+import test_visit_tpl  # noqa: E402
 from harness import run  # noqa: E402
 
 SUITES = [
@@ -366,6 +367,10 @@ SUITES = [
     ("Фиша: согласие на маркетинг — подпись листа 195", test_mkt.suite_mkt_sign),
     ("Дневник визита: JSON API", test_visit_api.suite_api),
     ("Дневник визита: узел React экрана", test_visit_api.suite_switch),
+    ("Шаблоны дневника: правило склейки чистой функцией", test_visit_tpl.suite_rule),
+    ("Шаблоны дневника: экран настроек — тронутое, тождественность, плитка", test_visit_tpl.suite_settings),
+    ("Шаблоны дневника: «Din șablon» на визите — услуги, зубы, дата", test_visit_tpl.suite_visit),
+    ("Шаблоны дневника: права — экран у директора, кнопка у всех", test_visit_tpl.suite_rights),
     ("Одонтограмма: JSON API", test_odontogram_api.suite_api),
     ("Одонтограмма: узел React экрана", test_odontogram_api.suite_switch),
     ("Одонтограмма: план зуба в модели (вкладка Tratament)", test_odontogram_api.suite_plan),

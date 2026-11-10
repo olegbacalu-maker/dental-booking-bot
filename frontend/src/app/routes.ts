@@ -25,6 +25,7 @@ export const ROUTES = [
   { path: "/admin/settings/services", screen: "settings_services" },
   { path: "/admin/settings/sms", screen: "settings_sms" },
   { path: "/admin/settings/system", screen: "settings_system" },
+  { path: "/admin/settings/templates", screen: "settings_templates" },
   { path: "/admin/settings/theme", screen: "settings_theme" },
   { path: "/admin/visit/:appt_id", screen: "visit" },
   { path: "/admin/patient/:pid/odontograma", screen: "odontogram" },

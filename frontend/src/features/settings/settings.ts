@@ -97,6 +97,23 @@ export interface ServicesData {
   doctors: { id: string; name: string }[]
 }
 
+/** Шаблоны дневника визита по услуге (10.11, `/api/settings/templates`). */
+export type TplFieldId = 'acuze' | 'examen' | 'diagnostic' | 'tratament' | 'recomandari'
+
+export interface TemplatesData {
+  /** услуги прайса по порядку; у каждой пять граф строками ("" — пусто) */
+  services: { id: string; label: string; tpl: Record<TplFieldId, string> }[]
+  fields: { id: TplFieldId; label: string; rows: number }[]
+  /** метки подстановки — слова сервера (`core/visit_tpl`) */
+  marks: { tooth: string; date: string }
+  /** заглушка «Exemplu, editați» для пустого шаблона */
+  example: Record<TplFieldId, string>
+  max: number
+}
+
+/** Только ТРОНУТЫЕ услуги и графы: нет ключа — «не сообщали» (прайор 08-16). */
+export type TemplatesForm = Record<string, Partial<Record<TplFieldId, string>>>
+
 export interface ThemeStyle {
   key: string
   label: string
@@ -490,6 +507,10 @@ export const settings = {
     api.get<ServicesData>('/settings/services', signal ? { signal } : {}),
   servicesSave: (services: ServiceEntry[]): Promise<ApiResult<ServicesData>> =>
     api.post<ServicesData>('/settings/services', { services }),
+  templates: (signal?: AbortSignal): Promise<ApiResult<TemplatesData>> =>
+    api.get<TemplatesData>('/settings/templates', signal ? { signal } : {}),
+  templatesSave: (templates: TemplatesForm): Promise<ApiResult<TemplatesData>> =>
+    api.post<TemplatesData>('/settings/templates', { templates }),
   theme: (signal?: AbortSignal): Promise<ApiResult<ThemeData>> =>
     api.get<ThemeData>('/settings/theme', signal ? { signal } : {}),
   themePalette: (hex: string, style: string): Promise<ApiResult<Record<string, string>>> =>

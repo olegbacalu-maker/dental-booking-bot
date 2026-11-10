@@ -186,6 +186,9 @@ def apply_config(cfg: dict) -> None:
         # «Rechemări» (29.10): срок отзыва {months, since} — читает core/recall
         if isinstance(svc.get("recall"), dict) and svc["recall"].get("months"):
             entry["recall"] = dict(svc["recall"])
+        # шаблон дневника визита (10.11) — читает core/visit_tpl
+        if isinstance(svc.get("tpl"), dict) and svc["tpl"]:
+            entry["tpl"] = dict(svc["tpl"])
         SERVICES[svc["id"]] = entry
         avg = _price_avg(svc.get("price", ""))
         SERVICE_PRICE[svc["ro"]] = avg

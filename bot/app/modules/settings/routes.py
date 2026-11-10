@@ -35,6 +35,7 @@ from ...core.auth import (PERM_SETTINGS, PERM_SMS, ROLE_DIRECTOR, ROLE_LABEL, _p
 from ...core.layout import _DOW_ORDER, _ic, react_shell, shell_model, standalone
 from ...core import bitlocker, dbkey, demo, theme
 from ...core import recall as crecall
+from ...core import visit_tpl as vtpl
 from ...core import license as lic
 from ...core import backup_loop, sms_loop
 from ...core.storage import _data_dir
@@ -92,7 +93,7 @@ HUB_GROUP_OF = {"/admin/settings/system": "general", "/admin/license": "general"
                 "/admin/settings/theme": "general", "/admin/settings/hours": "programari",
                 "/admin/settings/services": "programari",
                 "/admin/settings/sms": "programari",
-                "/admin/medici": "medici",
+                "/admin/medici": "medici", "/admin/settings/templates": "medici",
                 "/admin/settings/lan": "date", "/admin/settings/crypt": "date",
                 "/admin/settings/backup": "date", "/admin/settings/security": "securitate",
                 "/admin/settings/faq": "ajutor"}
@@ -120,6 +121,16 @@ def _lic_mail_hint() -> list[dict]:
     if not lic.email_unconfirmed():
         return []
     return [{"t": " · "}, {"icon": "sos", "t": "e-mail neconfirmat", "tone": "amber"}]
+
+
+def _tpl_hint(cfg: dict) -> str:
+    n = sum(1 for s in cfg["services"] if s.get("tpl"))
+    if not n:
+        return "niciun șablon încă"
+    # румынское число (правило клиента `utils/plural.roCount`): 1, 2–19, «de» с 20
+    word = ("serviciu" if n == 1 else "de servicii"
+            if n >= 20 and (n % 100 == 0 or n % 100 >= 20) else "servicii")
+    return f"{n} {word} cu șablon"
 
 
 def _lan_available() -> bool:
@@ -173,7 +184,10 @@ def _hub_tiles() -> list[dict]:
              tile("/admin/settings/services", "tooth", "g", "Servicii",
                   [{"t": f"{len(cfg['services'])} servicii"}]),
              tile("/admin/medici", "med", "b", "Medici",
-                  [{"t": f"{n_docs} activi · se editează în secțiunea Medici"}])]
+                  [{"t": f"{n_docs} activi · se editează în secțiunea Medici"}]),
+             # шаблоны дневника визита по услуге (10.11): число — услуг С шаблоном
+             tile("/admin/settings/templates", "note", "v", "Șabloane consultație",
+                  [{"t": _tpl_hint(cfg)}])]
     # Licența (02.10): срок и «Plătește acum» — на странице лицензии, плитка ведёт
     # туда. Только где лицензия применяется (`lic.applies`): у песочницы, демо и
     # облака срока нет, и плитка обещала бы пустую страницу.
@@ -510,6 +524,14 @@ async def settings_services(request: Request, msg: str = ""):
                        "setări · servicii", msg)
 
 
+@router.get("/admin/settings/templates", response_class=HTMLResponse)
+async def settings_templates(request: Request, msg: str = ""):
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    return _sec_react("settings_templates", request.url.path,
+                       "setări · șabloane consultație", msg)
+
+
 # Валидаторы по секциям: каждая страница присылает свой кусок, и проверяется
 # ровно он. Слияние с остальным конфигом делает _finish_cfg — нетронутые
 # секции переезжают КАК ЕСТЬ, без повторного разбора: прогон услуг через
@@ -676,6 +698,15 @@ def _val_services(data: dict) -> tuple[list, dict]:
             entry["recall"] = {"months": months,
                                "since": str(prev.get("since")
                                             or datetime.now(eng.TZ).date().isoformat())}
+        # Шаблон дневника визита (10.11) правит СВОЙ экран (`/api/settings/
+        # templates`), таблица услуг его не шлёт: нет ключа — переезжает из
+        # текущего конфига по id, иначе каждое сохранение прайса стирало бы
+        # тексты клиники. Ключ есть — та же проверка, что у своего экрана.
+        prev_tpl = next((x.get("tpl") for x in eng.CONFIG.get("services", [])
+                         if x.get("id") == sid), None)
+        tpl = vtpl.clean(s["tpl"]) if "tpl" in s else vtpl.clean(prev_tpl or {})
+        if tpl:
+            entry["tpl"] = tpl
         services.append(entry)
     if not services:
         raise ValueError("services")

@@ -91,7 +91,8 @@ BACKUP_LINE_SCREENS = ("settings_system", "settings_backup")
 # `parity_audit`, стенд монтажа `mount_sweep`).
 REACT_SCREENS = frozenset({"recall", "settings_clinic", "doctors_list", "doctor_card",
                            "settings_hub", "settings_lan", "settings_faq",
-                           "settings_hours", "settings_services", "settings_theme",
+                           "settings_hours", "settings_services", "settings_templates",
+                           "settings_theme",
                            "settings_security", "settings_backup",
                            "settings_crypt", "settings_system", "settings_sms", "stats",
                            "patients_search", "patient_card", "visit", "odontogram",

@@ -20,6 +20,7 @@ import { LanSettingsScreen, loadLanSettings } from '../features/settings/LanSett
 import { ChairScreen, loadChair } from '../features/schedule/ChairScreen'
 import { loadSecuritySettings, SecuritySettingsScreen } from '../features/settings/SecuritySettingsScreen'
 import { loadServicesSettings, ServicesSettingsScreen } from '../features/settings/ServicesSettingsScreen'
+import { loadTemplatesSettings, TemplatesSettingsScreen } from '../features/settings/TemplatesSettingsScreen'
 import { loadSystemSettings, SystemSettingsScreen } from '../features/settings/SystemSettingsScreen'
 import { loadSettingsHub, SettingsHubScreen } from '../features/settings/SettingsHubScreen'
 import { loadSmsSettings, SmsSettingsScreen } from '../features/settings/SmsSettingsScreen'
@@ -71,6 +72,7 @@ export const SCREENS: Record<ScreenName, Draw> = {
   settings_faq: () => <FaqScreen />,
   settings_hours: () => <HoursSettingsScreen />,
   settings_services: () => <ServicesSettingsScreen />,
+  settings_templates: () => <TemplatesSettingsScreen />,
   settings_theme: () => <ThemeSettingsScreen />,
   settings_security: () => <SecuritySettingsScreen />,
   settings_backup: () => <BackupSettingsScreen />,
@@ -112,6 +114,7 @@ const LOADS: Partial<Record<ScreenName, ScreenData>> = {
   settings_crypt: loadCryptSettings,
   settings_hours: loadHoursSettings,
   settings_services: loadServicesSettings,
+  settings_templates: loadTemplatesSettings,
   settings_security: loadSecuritySettings,
   settings_system: loadSystemSettings,
   settings_sms: loadSmsSettings,

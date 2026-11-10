@@ -34,6 +34,7 @@ from ... import update as upd
 from ...core import backup_loop, dbkey, notices, restore, sms_loop, theme
 from ...core import recall as crecall
 from ...core import sms_plan as splan
+from ...core import visit_tpl as vtpl
 from ...core.api import api_body, api_guard, api_require
 from ...core.auth import (PERM_SETTINGS, PERM_SMS, PERM_USERS, PIN_MAX, PIN_MIN_LAN, ROLE_LABEL,
                           _pin_rec, _set_auth_cookie, all_users, can, change_pin,
@@ -456,6 +457,60 @@ async def api_services_save(request: Request):
     if eng.save_config(cfg) is not None:
         return msg_json(False, "save_err", status=500)
     return msg_json(True, "ok_set", data=_services_data())
+
+
+# ---------- шаблоны дневника визита (10.11) ----------
+
+def _templates_data() -> dict:
+    """Услуги прайса с шаблоном дневника: пять граф строками (пустые — ""),
+    подписи граф, метки подстановки и заглушка «Exemplu» — всё с сервера."""
+    return {
+        "services": [{"id": s["id"], "label": s["ro"],
+                      "tpl": {k: str((s.get("tpl") or {}).get(k) or "") for k in vtpl.FIELDS}}
+                     for s in eng.CONFIG["services"]],
+        "fields": [{"id": k, "label": lab, "rows": rows} for k, lab, rows, _ in vtpl.FORM],
+        "marks": {"tooth": vtpl.TOOTH, "date": vtpl.DATE},
+        "example": dict(vtpl.EXAMPLE),
+        "max": vtpl.MAX_LEN,
+    }
+
+
+@router.get("/api/settings/templates")
+async def api_templates_get(request: Request):
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    return msg_json(True, data=_templates_data())
+
+
+@router.post("/api/settings/templates")
+async def api_templates_save(request: Request):
+    """Тело `{templates: {id услуги: {графа: текст}}}` — только ТРОНУТЫЕ
+    услуги и графы (прайор 08-16): услуги, которой нет в теле, правка не
+    касается, графа, присланная пустой, стирается. Услуга, удалённая из
+    прайса в другой вкладке, молча пропускается — шаблон без услуги некуда
+    положить. Прайс и прочие поля услуг переезжают как есть."""
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    body = await api_body(request)
+    sent = body.get("templates") if body else None
+    if not isinstance(sent, dict):
+        return msg_json(False, "bad_set", status=422)
+    services = []
+    try:
+        for s in eng.CONFIG["services"]:
+            entry = dict(s)
+            if s["id"] in sent:
+                tpl = vtpl.merge(s.get("tpl"), sent[s["id"]])
+                entry.pop("tpl", None)
+                if tpl:
+                    entry["tpl"] = tpl
+            services.append(entry)
+        cfg = _finish_cfg(services=services)
+    except (ValueError, KeyError, TypeError):
+        return msg_json(False, "bad_set", status=422)
+    if eng.save_config(cfg) is not None:
+        return msg_json(False, "save_err", status=500)
+    return msg_json(True, "ok_set", data=_templates_data())
 
 
 # ---------- вид клиники ----------

@@ -15,6 +15,8 @@ export interface VisitAppt {
   status: string
   status_label: string
   comment: string
+  /** у услуги визита есть шаблон дневника клиники (10.11, «Din șablon») */
+  tpl: boolean
 }
 
 export interface VisitRecord {
@@ -51,7 +53,7 @@ export interface VisitPage {
   plan: {
     linked: { id: number; text: string }[]
     /** `price` — MDL, 0 без цены: отметка проводит её в сольд (вопрос перед записью). */
-    open: { id: number; text: string; in_lucru: boolean; price: number }[]
+    open: { id: number; text: string; in_lucru: boolean; price: number; tpl: boolean }[]
   }
   back: string
 }
@@ -71,4 +73,9 @@ export const visits = {
     api.get<VisitPage>(`/visits/${aid}${back ? `?back=${encodeURIComponent(back)}` : ''}`,
       signal ? { signal } : {}),
   save: (aid: number, form: VisitForm) => api.post<VisitPage>(`/visits/${aid}`, form),
+  /** «Din șablon» (10.11): тексты шаблонов услуги визита и отмеченных позиций
+   *  с зубами и датой — правило сервера (`core/visit_tpl.compose`), ничего не пишет. */
+  template: (aid: number, done: number[]) =>
+    api.get<{ values: Record<string, string> }>(
+      `/visits/${aid}/template${done.length ? `?done=${done.join(',')}` : ''}`),
 }

@@ -33,6 +33,7 @@ from ... import engine as eng
 from ... import teeth_svg as tsvg
 from ...core.api import api_body, api_guard, api_own_doctor, api_require
 from ...core import pdf, recall
+from ...core import visit_tpl as vtpl
 from ...core.auth import PERM_MONEY, PERM_RECALL, can, remote_notice, request_user
 from ...core.layout import ALERT_KINDS, STATUS_LABEL, _initials, msg_json, msg_text
 from ...core.visits import my_scope
@@ -922,7 +923,9 @@ def _visit_payload(a: dict, rec: dict | None, items: list, back: str) -> dict:
                  "patient": a.get("name") or "", "service": a["service"] or "",
                  "doctor": a["doctor"] or "", "status": status,
                  "status_label": STATUS_LABEL.get(status, status),
-                 "comment": a.get("comment") or ""},
+                 "comment": a.get("comment") or "",
+                 # шаблон дневника у услуги визита (10.11, core/visit_tpl)
+                 "tpl": bool(vtpl.of(a.get("service_id") or ""))},
         "record": ({**{k: (rec.get(k) or "") for k in db.VISIT_FIELDS},
                     "created": _when(rec["created_at"]),
                     "updated": _when(rec["updated_at"]) if rec.get("updated_at") else "",
@@ -938,7 +941,9 @@ def _visit_payload(a: dict, rec: dict | None, items: list, back: str) -> dict:
             # сольд; экран спрашивает об этом так же, как «Finalizează» плана
             "open": [{"id": it["id"], "text": pvisit.item_text(it),
                       "in_lucru": it["status"] == "in_lucru",
-                      "price": it["price_mdl"] or 0}
+                      "price": it["price_mdl"] or 0,
+                      # у услуги позиции (по подписи прайса) есть шаблон дневника
+                      "tpl": bool(vtpl.of(vtpl.match_service(it["procedure"])))}
                      for it in items if it["status"] in db.PLAN_ACTIVE],
         },
         "back": back,
@@ -955,6 +960,25 @@ async def api_visit(request: Request, aid: int, back: str = ""):
         return msg_json(False, status=404)
     a, rec, items = ctx
     return msg_json(True, data=_visit_payload(a, rec, items, _visit_back(back, a["patient_id"])))
+
+
+@router.get("/api/visits/{aid}/template")
+async def api_visit_template(request: Request, aid: int, done: str = ""):
+    """«Din șablon» (10.11): тексты шаблонов услуги визита и ОТМЕЧЕННЫХ
+    позиций плана (`?done=id,id` — активные позиции ЭТОГО пациента, чужие и
+    закрытые молча отбрасываются), с зубами и датой визита. Ничего не пишет:
+    графы заполняет клиент, и только пустые. Правило — `visit_tpl.compose`."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    ctx = await _visit_ctx(aid)
+    if ctx is None:
+        return msg_json(False, status=404)
+    a, _rec, items = ctx
+    ids = {x for x in done.split(",") if x.strip()}
+    marked = [it for it in items
+              if str(it["id"]) in ids and it["status"] in db.PLAN_ACTIVE]
+    day = _when(a["starts_at"])[:10]
+    return msg_json(True, data={"values": vtpl.compose(a.get("service_id") or "", marked, day)})
 
 
 @router.post("/api/visits/{aid}")

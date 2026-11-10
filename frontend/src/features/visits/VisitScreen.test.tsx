@@ -16,7 +16,7 @@ vi.mock('../../services/api', async (importOriginal) => {
 
 const PAGE: VisitPage = {
   appt: { id: 7, when: '16.09.2026 10:00', patient_id: 3, patient: 'Vizita Test', service: 'Consultație',
-    doctor: 'Dr. Activ Doi', status: 'confirmed', status_label: 'confirmată', comment: 'de sunat înainte' },
+    doctor: 'Dr. Activ Doi', status: 'confirmed', status_label: 'confirmată', comment: 'de sunat înainte', tpl: false },
   record: { acuze: 'Durere la rece', examen: '', diagnostic: 'Pulpită 26', tratament: 'Trat', recomandari: '',
     created: '18.09.2026 11:58', updated: '', author: 'Director' },
   editable: true,
@@ -34,8 +34,8 @@ const PAGE: VisitPage = {
   ],
   plan: {
     linked: [{ id: 1, text: 'dinte 26 · Obturație 26 · 500 MDL' }],
-    open: [{ id: 2, text: 'Detartraj · 300 MDL', in_lucru: true, price: 300 },
-      { id: 4, text: 'Consult gratuit', in_lucru: false, price: 0 }],
+    open: [{ id: 2, text: 'Detartraj · 300 MDL', in_lucru: true, price: 300, tpl: false },
+      { id: 4, text: 'Consult gratuit', in_lucru: false, price: 0, tpl: false }],
   },
   back: '/admin/all?date=2026-09-16',
 }
@@ -99,6 +99,56 @@ describe('VisitScreen', () => {
     expect(area('Recomandări').value).toBe('Control peste 6 luni.')
   })
 
+  it('10.11: без шаблонов у услуг кнопки «Din șablon» нет — только заготовки', async () => {
+    get.mockResolvedValueOnce(ok(PAGE))
+    open(url(7))
+    await screen.findByText(/vizita #7/)
+    expect(screen.queryByRole('button', { name: /Din șablon/ })).toBeNull()
+    expect(screen.getByText('Șablonul completează doar câmpurile goale')).toBeTruthy()
+  })
+
+  it('⭐ 10.11: «Din șablon» — сервер получает отмеченные позиции, заполняются ТОЛЬКО пустые графы', async () => {
+    const page: VisitPage = { ...PAGE, appt: { ...PAGE.appt, tpl: true },
+      plan: { ...PAGE.plan, open: [{ ...PAGE.plan.open[0]!, tpl: true }, PAGE.plan.open[1]!] } }
+    get.mockResolvedValueOnce(ok(page))
+    open(url(7))
+    await screen.findByText(/vizita #7/)
+    expect(screen.getByText(/textele clinicii pentru serviciul vizitei/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('checkbox', { name: /Detartraj/ }))
+    fireEvent.change(area('Recomandări'), { target: { value: 'scris de medic' } })
+    get.mockResolvedValueOnce(ok({ values: { acuze: 'Din tpl acuze', examen: 'Examen 26, 16.02.2026',
+      diagnostic: 'NU — câmpul e completat', tratament: '', recomandari: 'NU — scris de medic' } }))
+    fireEvent.click(screen.getByRole('button', { name: /Din șablon/ }))
+    await waitFor(() => expect(area('Examen obiectiv').value).toBe('Examen 26, 16.02.2026'))
+    expect(get).toHaveBeenLastCalledWith('/visits/7/template?done=2')
+    expect(area('Acuze / motivul prezentării').value).toBe('Durere la rece')
+    expect(area('Diagnostic').value).toBe('Pulpită 26')
+    expect(area('Tratament efectuat').value).toBe('Trat')
+    expect(area('Recomandări').value).toBe('scris de medic')
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it('10.11: «Din șablon» без единой пустой графы или без текстов — словом, не молча; отказ — текстом сервера', async () => {
+    const page: VisitPage = { ...PAGE, appt: { ...PAGE.appt, tpl: true },
+      record: { ...PAGE.record!, examen: 'e', recomandari: 'r' } }
+    get.mockResolvedValueOnce(ok(page))
+    open(url(7))
+    await screen.findByText(/vizita #7/)
+    get.mockResolvedValueOnce(ok({ values: { acuze: 'a', examen: 'b', diagnostic: '', tratament: '', recomandari: '' } }))
+    fireEvent.click(screen.getByRole('button', { name: /Din șablon/ }))
+    expect((await screen.findByRole('status')).textContent).toMatch(/deja completate/)
+    expect(get).toHaveBeenLastCalledWith('/visits/7/template')
+    fireEvent.change(area('Diagnostic'), { target: { value: '' } })
+    expect(screen.queryByRole('status')).toBeNull()
+    get.mockResolvedValueOnce(ok({ values: { acuze: '', examen: '', diagnostic: '', tratament: '', recomandari: '' } }))
+    fireEvent.click(screen.getByRole('button', { name: /Din șablon/ }))
+    expect((await screen.findByRole('status')).textContent).toMatch(/nu au șablon/)
+    get.mockRejectedValueOnce(new ApiError({ kind: 'server', status: 500, code: '', text: 'Eroare de test' }, 's'))
+    fireEvent.click(screen.getByRole('button', { name: /Din șablon/ }))
+    expect((await screen.findByRole('status')).textContent).toBe('Eroare de test')
+    expect(area('Diagnostic').value).toBe('')
+  })
+
   it('сохранение: шлёт графы, отмеченные позиции и адрес возврата; страница подменяется, плашка сервера', async () => {
     get.mockResolvedValueOnce(ok(PAGE))
     const after: VisitPage = { ...PAGE, record: { ...PAGE.record!, tratament: 'Detartraj efectuat', updated: '18.09.2026 12:30' },
@@ -138,7 +188,7 @@ describe('VisitScreen', () => {
 
   it('позиция без цены — без вопроса; несколько — названы все отмеченные, сумма их цен', async () => {
     const many: VisitPage = { ...PAGE, plan: { linked: [], open: [...PAGE.plan.open,
-      { id: 6, text: 'dinte 26 · Obturație 26 · 1500 MDL', in_lucru: false, price: 1500 }] } }
+      { id: 6, text: 'dinte 26 · Obturație 26 · 1500 MDL', in_lucru: false, price: 1500, tpl: false }] } }
     get.mockResolvedValue(ok(many))
     post.mockResolvedValue(ok(many, 'ok_visit', 'Consultația a fost salvată'))
     const asked = vi.spyOn(window, 'confirm').mockReturnValue(true)

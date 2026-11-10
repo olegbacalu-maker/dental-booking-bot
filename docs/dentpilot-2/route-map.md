@@ -14,7 +14,7 @@
 ради роутера.
 
 
-Поверхностей **26**.
+Поверхностей **27**.
 
 
 | адрес FastAPI | маршрут React | экран | параметры узла | загрузчик |
@@ -41,6 +41,7 @@
 | `/admin/settings/services` | `/admin/settings/services` | `settings_services` | — | GET /api/settings/services |
 | `/admin/settings/sms` | `/admin/settings/sms` | `settings_sms` | — | GET /api/settings/sms |
 | `/admin/settings/system` | `/admin/settings/system` | `settings_system` | — | GET /api/settings/system |
+| `/admin/settings/templates` | `/admin/settings/templates` | `settings_templates` | — | GET /api/settings/templates |
 | `/admin/settings/theme` | `/admin/settings/theme` | `settings_theme` | — | GET /api/settings/theme |
 | `/admin/visit/{appt_id}` | `/admin/visit/:appt_id` | `visit` | aid, back | GET /api/visits/{aid} |
 | `/admin/patient/{pid}/odontograma` | `/admin/patient/:pid/odontograma` | `odontogram` | pid, t? | GET /api/patients/{pid}/odontogram |

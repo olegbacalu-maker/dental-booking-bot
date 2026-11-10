@@ -7,8 +7,11 @@ recomandari — ровно графы дневника «Fișa medicală a bolna
 запись (updated_at и автор видны под формой, оба события — в летописи).
 Кнопки удаления нет намеренно: медицинская запись правится, но не исчезает.
 
-Шаблоны-заготовки — встроенный словарь _TEMPLATES (паттерн MSG_BANNER: текст
-версионируется кодом, клиника его пока не правит). Шаблон заполняет ТОЛЬКО
+Шаблоны двух родов. Свои шаблоны клиники — у УСЛУГИ прайса («Din șablon»,
+10.11, `core/visit_tpl.py`: клиника пишет их в настройках, сервер склеивает
+по услуге визита и отмеченным позициям с зубом и датой). Рядом остаются
+встроенные заготовки _TEMPLATES (с 08-08, паттерн MSG_BANNER: текст
+версионируется кодом, клиника его не правит). Любой шаблон заполняет ТОЛЬКО
 пустые поля: клик не должен стереть вписанное руками. Национальных протоколов
 по терапевтической стоматологии в РМ нет (PCN — только кровотечение,
 остеомиелит, детская травма), поэтому это именно заготовки текста, и слово
@@ -30,6 +33,8 @@ recomandari — ровно графы дневника «Fișa medicală a bolna
 """
 from __future__ import annotations
 
+from ...core import visit_tpl as vtpl
+
 # статусы визита, которым консультацию НЕ пишут
 NO_FORM_STATUSES = ("cancelled", "noshow")
 
@@ -37,14 +42,9 @@ NO_FORM_STATUSES = ("cancelled", "noshow")
 READONLY_NOTE = ("Vizita este anulată sau marcată «neprezentare» — "
                  "consultația nu se completează.")
 
-# (name, подпись, строк textarea, placeholder)
-_FIELDS = (
-    ("acuze", "Acuze / motivul prezentării", 2, "Ce acuză pacientul…"),
-    ("examen", "Examen obiectiv", 3, "Statusul local, rezultatul examinării…"),
-    ("diagnostic", "Diagnostic", 2, "Diagnosticul stabilit…"),
-    ("tratament", "Tratament efectuat", 3, "Ce s-a efectuat la această vizită…"),
-    ("recomandari", "Recomandări", 2, "Recomandări pentru pacient…"),
-)
+# (name, подпись, строк textarea, placeholder) — графы живут в core/visit_tpl:
+# их подписи нужны и экрану шаблонов в настройках, а сосед соседа не импортирует
+_FIELDS = vtpl.FORM
 
 # «__» в текстах — место для номера зуба: видно, что вписать
 _TEMPLATES = {

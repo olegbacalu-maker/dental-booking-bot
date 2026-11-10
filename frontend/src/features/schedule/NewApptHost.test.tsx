@@ -60,7 +60,7 @@ const FORM: DayForm = {
 
 const VPAGE: VisitPage = {
   appt: { id: 3, when: '22.10.2026 09:30', patient_id: 5, patient: 'Pin Test', service: 'Consultație',
-    doctor: 'Dr. Activ Doi', status: 'confirmed', status_label: 'confirmată', comment: '' },
+    doctor: 'Dr. Activ Doi', status: 'confirmed', status_label: 'confirmată', comment: '', tpl: false },
   record: null, editable: true, note: '',
   fields: [{ id: 'acuze', label: 'Acuze / motivul prezentării', rows: 2, placeholder: '' }],
   templates: [], plan: { linked: [], open: [] },
