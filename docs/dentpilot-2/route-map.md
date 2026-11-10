@@ -14,7 +14,7 @@
 ради роутера.
 
 
-Поверхностей **27**.
+Поверхностей **28**.
 
 
 | адрес FastAPI | маршрут React | экран | параметры узла | загрузчик |
@@ -24,6 +24,7 @@
 | `/admin/cabinet` | `/admin/cabinet` | `chair` | doctor? | GET /api/chair |
 | `/admin/medici` | `/admin/medici` | `doctors_list` | — | GET /api/doctors |
 | `/admin/rechemari` | `/admin/rechemari` | `recall` | — | GET /api/recall |
+| `/admin/registre` | `/admin/registre` | `registre` | — | — |
 | `/admin/search` | `/admin/search` | `patients_search` | q?, med?, st?, ch?, dat?, sort?, page?, per? | GET /api/patients/summary + GET /api/patients |
 | `/admin/settings` | `/admin/settings` | `settings_hub` | — | GET /api/settings/hub |
 | `/admin/stats` | `/admin/stats` | `stats` | from, to | GET /api/stats |
@@ -37,11 +38,11 @@
 | `/admin/settings/faq` | `/admin/settings/faq` | `settings_faq` | — | GET /api/settings/faq |
 | `/admin/settings/hours` | `/admin/settings/hours` | `settings_hours` | — | GET /api/settings/hours |
 | `/admin/settings/lan` | `/admin/settings/lan` | `settings_lan` | — | GET /api/settings/lan |
+| `/admin/settings/registre` | `/admin/settings/registre` | `settings_registre` | — | — |
 | `/admin/settings/security` | `/admin/settings/security` | `settings_security` | — | GET /api/settings/security |
 | `/admin/settings/services` | `/admin/settings/services` | `settings_services` | — | GET /api/settings/services |
 | `/admin/settings/sms` | `/admin/settings/sms` | `settings_sms` | — | GET /api/settings/sms |
 | `/admin/settings/system` | `/admin/settings/system` | `settings_system` | — | GET /api/settings/system |
-| `/admin/settings/templates` | `/admin/settings/templates` | `settings_templates` | — | GET /api/settings/templates |
 | `/admin/settings/theme` | `/admin/settings/theme` | `settings_theme` | — | GET /api/settings/theme |
 | `/admin/visit/{appt_id}` | `/admin/visit/:appt_id` | `visit` | aid, back | GET /api/visits/{aid} |
 | `/admin/patient/{pid}/odontograma` | `/admin/patient/:pid/odontograma` | `odontogram` | pid, t? | GET /api/patients/{pid}/odontogram |
@@ -52,10 +53,12 @@
 - `/admin` — живой КАНАЛ, а не разовая загрузка: 204 «не менялось», отпечаток; день — из АДРЕСА (пусто — сегодня сервера), шапка — эхо канала
 - `/admin/all` — экран DayScreen, общий с днём врача
 - `/admin/cabinet` — экран «у кресла»: врач — из адреса или привязки учётки; опрос того же маршрута раз в 15 с (POLL_MS)
+- `/admin/registre` — МАКЕТ 10.11: данные — заглушка клиента
 - `/admin/search` — ДВА запроса разом (Promise.all) — loader обязан ждать оба
 - `/admin/doctor-card/{dk}` — ⛔ НЕ путать с /admin/doctor/{dk} — это день врача в журнале
 - `/admin/doctor/{dk}` — тот же DayScreen, отличается dk
 - `/admin/settings/clinic` — ⚠️ единственный экран НЕ на useLoad: свой useEffect
+- `/admin/settings/registre` — МАКЕТ 10.11: данные — заглушка клиента
 - `/admin/visit/{appt_id}` — ⚠️ ключ узла `aid`, а параметр пути `appt_id` — имена РАЗНЫЕ
 
 ## Чего в этой карте намеренно нет

@@ -27,6 +27,8 @@ import { loadSmsSettings, SmsSettingsScreen } from '../features/settings/SmsSett
 import { loadThemeSettings, ThemeSettingsScreen } from '../features/settings/ThemeSettingsScreen'
 import { loadStats, StatsScreen } from '../features/stats/StatsScreen'
 import { loadRecall, RecallScreen } from '../features/recall/RecallScreen'
+import { RegistreScreen } from '../features/registre/RegistreScreen'
+import { RegistreSettingsScreen } from '../features/registre/RegistreSettingsScreen'
 import { loadVisit, VisitScreen } from '../features/visits/VisitScreen'
 import { loadOdontogram, OdontogramScreen } from '../features/clinical/OdontogramScreen'
 import { loadPerio, PerioScreen } from '../features/clinical/PerioScreen'
@@ -81,6 +83,9 @@ export const SCREENS: Record<ScreenName, Draw> = {
   settings_sms: () => <SmsSettingsScreen />,
   stats: () => <StatsScreen />,
   recall: () => <RecallScreen />,
+  // «Registre» (МАКЕТ 10.11): данные — заглушка клиента, загрузчика нет
+  registre: () => <RegistreScreen />,
+  settings_registre: () => <RegistreSettingsScreen />,
   patients_search: () => <PatientsSearchScreen />,
   patient_card: (p) => <PatientCardScreen pid={Number(p.pid)} />,
   // ⚠️ Параметр пути — `appt_id`, как у сервера. Ключ узла `aid` здесь больше

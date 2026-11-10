@@ -211,6 +211,8 @@ FLAG = {"/admin/settings/clinic": "settings_clinic",
         "/admin/settings/sms": "settings_sms",
         "/admin/stats": "stats",
         "/admin/rechemari": "recall",
+        "/admin/registre": "registre",
+        "/admin/settings/registre": "settings_registre",
         "/admin/search": "patients_search",
         "/admin/patient/{pid}": "patient_card",
         "/admin/visit/{appt_id}": "visit",
@@ -267,6 +269,8 @@ B2 = {
     "/admin/settings/sms": ("—", "GET /api/settings/sms", ""),
     "/admin/stats": ("from, to", "GET /api/stats", ""),
     "/admin/rechemari": ("—", "GET /api/recall", ""),
+    "/admin/registre": ("—", "—", "МАКЕТ 10.11: данные — заглушка клиента"),
+    "/admin/settings/registre": ("—", "—", "МАКЕТ 10.11: данные — заглушка клиента"),
 }
 
 
