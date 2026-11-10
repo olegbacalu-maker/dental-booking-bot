@@ -70,6 +70,15 @@
   показывать их ровно так, как показывает экран, а визит до обновления —
   «нет данных», без догадки.
 
+* `suite_v10_retry` — шаг 10 (2.14.2, «кто сделал»: ADD COLUMN в журналы
+  регистров) ПОВТОРЯЕТСЯ: операторы шага коммитятся до записи версии, и шаг,
+  оборванный посередине, у клиники приходит снова — по базе, где колонки уже
+  есть все или часть. Голый ALTER ронял бы старт «duplicate column» при каждом
+  запуске (класс 1.20.0, находка выпуска 2.14.2). Вопрос один: программа
+  ОТКРЫВАЕТСЯ, версия доведена, колонки на месте, регистр пишется.
+* `suite_v10_retry_crypt` — то же на ЗАШИФРОВАННОЙ картотеке: у sqlcipher3 свои
+  классы исключений, `except sqlite3.…` их не ловит.
+
 Фикстурная база собирается сырым sqlite3 — это ТЕСТ-СТОРОНА (как в
 test_dbcrypt._plain_db), программа по-прежнему ходит только через db.
 """
@@ -1815,3 +1824,113 @@ def suite_v8_recall(res: Result) -> None:
                       (_meta(dbfile, "version"), objects()), (_VER, ["ix_recall_pat", "recall_marks"]))
     finally:
         _rmtree_settled(work)
+
+
+# Шаг 10 (2.14.2): колонки «кто сделал» в журналах регистров — таблица, колонка.
+_STEP10 = (("san_cycles", "doer"), ("san_cycles", "end_doer"), ("san_cleanings", "doer"),
+           ("san_cleanings", "sup_by"), ("san_uv", "doer"))
+
+
+def _v9_db(dbfile: pathlib.Path, have: tuple) -> None:
+    """База клиники на версии 9 (таблицы регистров шага 9 есть), у которой шаг 10
+    уже успел добавить колонки `have` — и оборвался до записи версии."""
+    con = _base_db(dbfile)
+    for coldef in ("doctor TEXT NOT NULL DEFAULT ''", "surfaces TEXT NOT NULL DEFAULT ''",
+                   "surface_states TEXT NOT NULL DEFAULT ''", "marks TEXT NOT NULL DEFAULT ''"):
+        con.execute(f"ALTER TABLE teeth ADD COLUMN {coldef}")
+    for sql in appdb.SAN_DDL:
+        con.execute(sql)
+    for sql in appdb.SAN_PEOPLE_DDL:
+        if any(f"ALTER TABLE {t} ADD COLUMN {c} " in sql for t, c in have):
+            con.execute(sql)
+    con.execute("INSERT INTO schema_meta(key, value) VALUES('version', '9')")
+    con.execute("INSERT INTO schema_meta(key, value) VALUES('teeth_hist_since', '2026-10-25T10:00:00+00:00')")
+    con.execute("INSERT INTO schema_meta(key, value) VALUES('act_backfill', '1')")
+    con.commit()
+    con.close()
+
+
+def _cols(con) -> list:
+    """Какие колонки шага 10 есть в базе (соединение любого драйвера)."""
+    return [(t, c) for t, c in _STEP10 if c in {r[1] for r in con.execute(f"PRAGMA table_info({t})")}]
+
+
+def suite_v10_retry(res: Result) -> None:
+    """Шаг 10 повторяется по базе, где его колонки уже есть: все (оборвался перед
+    записью версии) и одна (оборвался посередине). Старт обязан пройти."""
+    res.ok("шаг 10 — только ADD COLUMN", all(" ADD COLUMN " in x for x in appdb.SAN_PEOPLE_DDL), "")
+    for tag, have in (("все колонки уже есть", _STEP10), ("есть одна из пяти", _STEP10[2:3])):
+        work = pathlib.Path(tempfile.mkdtemp(prefix="dp_mig_step10_"))
+        try:
+            dbfile = work / "dental.db"
+            _v9_db(dbfile, have)
+            with Server(dir_=work) as s:
+                c = Client(s.url).login()
+                res.check(f"{tag}: старт прошёл, версия доведена до {_VER}", _meta(dbfile, "version"), _VER)
+                con = sqlite3.connect(str(dbfile))
+                try:
+                    res.check(f"{tag}: все колонки шага 10 на месте", _cols(con), list(_STEP10))
+                finally:
+                    con.close()
+                r = c.post_json("/api/settings/registre/item", {"kind": "room", "name": "Cabinet 1", "data": {"every": 7}})
+                room = json.loads(r.body)["data"]["id"]
+                res.check(f"{tag}: уборка пишется с исполнителем",
+                          c.post_json("/api/registre/502", {"room_id": room, "solution": "Septodor",
+                                                            "doer": "Maria Lungu"}).msg, "ok_san_clean")
+            with Server(dir_=work):
+                res.check(f"{tag}: повторный старт — версия та же", _meta(dbfile, "version"), _VER)
+        finally:
+            _rmtree_settled(work)
+    # отказ, который НЕ «колонка уже есть», глотать нельзя: колонка пропала бы молча
+    from app.db import schema as appschema  # noqa: E402 — только чистая функция
+    res.check("не ADD COLUMN или не «duplicate column» — не глотается",
+              (appschema._already_added("ALTER TABLE san_uv ADD COLUMN doer TEXT", Exception("database is locked")),
+               appschema._already_added("ALTER TABLE san_uv RENAME TO x", Exception("duplicate column name: x")),
+               appschema._already_added("ALTER TABLE san_uv ADD COLUMN doer TEXT", Exception("duplicate column name: doer"))),
+              (False, False, True))
+
+
+def suite_v10_retry_crypt(res: Result) -> None:
+    """Зашифрованная картотека (sqlcipher3): шаг 10 приходит повторно по базе,
+    где колонки уже есть. Отказ здесь — `sqlcipher3.dbapi2.OperationalError`,
+    не наследник sqlite3; старт обязан пройти так же."""
+    from app.core import dbkey  # noqa: E402
+    import sqlcipher3.dbapi2 as sqlcipher  # noqa: E402
+    res.ok("у sqlcipher3 свои классы исключений (ради этого набор)",
+           not issubclass(sqlcipher.OperationalError, sqlite3.OperationalError), "")
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_mig_step10c_"))
+    try:
+        key = dbkey.generate()
+        if not dbkey.store(key, tmp):
+            res.failed.append(("ключ не сохранился под DPAPI", "не Windows или DPAPI отказал"))
+            return
+        dbfile = tmp / "dental.db"
+
+        def crypt():
+            con = sqlcipher.connect(str(dbfile))
+            con.execute(f"PRAGMA key = {dbkey.pragma_value(key)}")
+            return con
+
+        with Server(dir_=tmp):
+            pass
+        con = crypt()
+        try:
+            res.check("свежая зашифрованная база — версия и колонки", (
+                con.execute("SELECT value FROM schema_meta WHERE key='version'").fetchone()[0], _cols(con)),
+                (_VER, list(_STEP10)))
+            con.execute("UPDATE schema_meta SET value = '9' WHERE key = 'version'")
+            con.commit()
+        finally:
+            con.close()
+        with Server(dir_=tmp) as s:
+            res.check("повтор шага 10 на зашифрованной базе: старт прошёл", Client(s.url).login().get("/api/registre").status, 200)
+        con = crypt()
+        try:
+            res.check("версия доведена, колонки на месте",
+                      (con.execute("SELECT value FROM schema_meta WHERE key='version'").fetchone()[0], _cols(con)),
+                      (_VER, list(_STEP10)))
+        finally:
+            con.close()
+    finally:
+        _rmtree_settled(tmp)
+

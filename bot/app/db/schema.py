@@ -5,6 +5,8 @@
 `MIGRATIONS` до `SCHEMA_VERSION`, страж слотов, backfill летописи, демо-засев."""
 from __future__ import annotations
 
+import re
+
 from .. import db
 from .conn import _execute, _fetchval, _utcnow_iso, log
 from .events import _backfill_activity
@@ -629,6 +631,22 @@ async def _teeth_hist_base() -> None:
         raise
 
 
+# `ALTER TABLE … ADD COLUMN` в списке шага. SQLite не знает ADD COLUMN IF NOT
+# EXISTS, а цикл ниже коммитит операторы шага ДО записи версии: шаг, оборванный
+# между ними (выключили ПК, упал старт посреди шага), при следующем старте
+# повторяется по базе, где часть колонок уже есть, — и «duplicate column» ронял
+# бы старт при КАЖДОМ запуске (2.14.2, шаг 10, класс 1.20.0). Поэтому у ADD
+# COLUMN — тот же приём, что у SQLITE_EXTRA_COLS в `init`: «duplicate column» =
+# колонка уже есть, всё прочее — наверх.
+_ADD_COLUMN = re.compile(r"\s*ALTER\s+TABLE\s+\S+\s+ADD\s+(?:COLUMN\s+)?\S", re.I)
+
+
+def _already_added(sql: str, err: BaseException) -> bool:
+    """Оператор шага — ADD COLUMN, а отказ — «колонка уже есть». Только это;
+    залоченная база, I/O, опечатка в DDL поднимаются как были."""
+    return bool(_ADD_COLUMN.match(sql)) and "duplicate column" in str(err).lower()
+
+
 async def _migrate() -> None:
     """Пошаговые миграции: каждый шаг применяется один раз и фиксируется.
     Раньше состояние базы можно было понять только по наличию колонок."""
@@ -659,7 +677,15 @@ async def _migrate() -> None:
         # правильная: этот список меняет схему или данные, и падение уместно.
         if steps[v]:
             for sql in steps[v]:
-                await db._CONN.execute(sql)
+                try:
+                    await db._CONN.execute(sql)
+                except db._SQ.OperationalError as e:
+                    # ⛔ `db._SQ`, а не модуль sqlite3: у sqlcipher3 (картотека
+                    # зашифрована) свои классы исключений, не наследники
+                    # sqlite3, — `except sqlite3.…` у такой клиники не поймал бы
+                    # ничего. Текст отказа у обоих драйверов один.
+                    if not _already_added(sql, e):
+                        raise
             await db._CONN.commit()
         await _set_schema_version(v)
     log.warning("DB migrated %s -> %s", have, SCHEMA_VERSION)

@@ -517,6 +517,8 @@ SUITES = [
     ("Миграции базы: базовый снимок истории зубов", test_migrate.suite_v6_history),
     ("Миграции базы: таблица прикуса шагом 7", test_migrate.suite_v7_ocluzie),
     ("Миграции базы: журнал отметок Rechemări шагом 8", test_migrate.suite_v8_recall),
+    ("Миграции базы: шаг 10 повторяется по базе, где колонки уже есть (2.14.2)", test_migrate.suite_v10_retry),
+    ("Миграции базы: повтор шага 10 на зашифрованной картотеке", test_migrate.suite_v10_retry_crypt),
     ("Летопись: backfill в часах клиники", test_migrate.suite_backfill_tz),
     ("Шифрование базы: код восстановления", test_dbcrypt.suite_key),
     ("Шифрование базы: переезд", test_dbcrypt.suite_convert),
