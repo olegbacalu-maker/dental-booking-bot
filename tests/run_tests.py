@@ -296,6 +296,7 @@ SUITES = [
     ("Registre: автоклав, уборка, лампа — подпись сервера, закрытие, исправление, удаление", test_registre.suite_flow),
     ("Registre: права — меню у всех, каталог и удаление у директора", test_registre.suite_rights),
     ("Registre: лист 257/e, 502/e, 501/e и Excel за месяц", test_registre.suite_print),
+    ("Registre: свежая клиника — стартовый каталог, своё слово в окне (2.14.1)", test_registre.suite_fresh),
     ("Одонтограмма: поверхности", test_teeth.suite_surfaces),
     ("Одонтограмма: молочный прикус", test_teeth.suite_milk),
     ("Одонтограмма: форма зуба", test_teeth.suite_shape),

@@ -68,6 +68,12 @@ const T = {
   offline: 'Programul nu răspunde. Reîncercați.',
   noRows: '— nicio înregistrare în luna aceasta —',
   equip: 'Echipamente',
+  /* 2.14.1 (канарейка 2.14.0): пустой список — не тупик */
+  ownArt: 'Alt articol', ownSol: 'Altă soluție', own: 'Adaugă', ownHint: 'se scrie doar în această înregistrare',
+  noArts: 'Lista de articole este goală.', noSols: 'Lista de soluții este goală.',
+  addIn: 'Adăugați în Setări › Registre sanitare', askDir: 'Directorul le adaugă în Setări › Registre sanitare.',
+  missing: 'Încă nu sunt adăugate:', missSter: 'sterilizatoarele (257/e)',
+  missLamp: 'lămpile bactericide (501/e)', missRoom: 'încăperile (502/e)',
 }
 
 type Dlg =
@@ -169,6 +175,11 @@ function Azi({ d, now, busy, open, act, history }: {
         </div>
       </div>
 
+      {(() => {
+        /* вид каталога пуст — секции нет вовсе; говорим, ЧЕГО нет и где завести */
+        const miss = [!d.sters.length && T.missSter, !d.lamps.length && T.missLamp, !d.rooms.length && T.missRoom].filter(Boolean)
+        return miss.length ? <EmptyList text={`${T.missing} ${miss.join(', ')}.`} can={d.can.settings} /> : null
+      })()}
       {d.sters.length > 0 && <>
         <h3 className="rg-h">{T.regs['257']} <small>{T.forms['257']}</small></h3>
         <div className="rg-tiles">
@@ -488,11 +499,42 @@ function Signer({ name }: { name: string }) {
   return <div className="rg-signer"><Icon name="user" /><span><b>{T.signed}: {name}</b><small>{T.signedHint}</small></span></div>
 }
 
-function ArtsEdit({ arts, set, catalog, packs }: { arts: Art[]; set: (a: Art[]) => void; catalog: string[]; packs: string[] }) {
+/** Пустой список каталога: что делать и куда идти (ссылка — только с правом). */
+function EmptyList({ text, can }: { text: string; can: boolean }) {
+  return (
+    <p className="rg-warn rg-empty-list"><Icon name="info" /><span>{text}{' '}
+      {can ? <AppLink href="/admin/settings/registre">{T.addIn}</AppLink> : T.askDir}</span></p>
+  )
+}
+
+/** Своё слово прямо в окне: только в эту запись, в каталог не попадает.
+ *  Длина — как у сервера (`core/registre.NAME_MAX` режет 120, здесь 80). */
+function OwnText({ label, onAdd }: { label: string; onAdd: (v: string) => void }) {
+  const [v, setV] = useState('')
+  const t = v.replace(/\s+/g, ' ').trim()
+  return (
+    <div className="rg-own">
+      <input className="dp-fld" aria-label={label} placeholder={label} value={v} maxLength={80}
+        onChange={(e) => setV(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter' && t) { e.preventDefault(); onAdd(t); setV('') } }} />
+      <button type="button" className="rg-btn" disabled={!t} onClick={() => { onAdd(t); setV('') }}><Icon name="plus" /> {T.own}</button>
+    </div>
+  )
+}
+
+function ArtsEdit({ arts, set, catalog, packs, can }: {
+  arts: Art[]; set: (a: Art[]) => void; catalog: string[]; packs: string[]; can: boolean
+}) {
   const upd = (i: number, p: Partial<Art>) => set(arts.map((a, j) => (j === i ? { ...a, ...p } : a)))
   const left = catalog.filter((x) => !arts.some((a) => a.name === x))
+  const add = (name: string) => {
+    const i = arts.findIndex((a) => a.name === name)
+    if (i >= 0) upd(i, { qty: Math.min(999, (arts[i]?.qty ?? 0) + 1) })
+    else set([...arts, { name, qty: 1, pack: packs[0] ?? '' }])
+  }
   return (
     <div className="rg-arts">
+      {!catalog.length && <EmptyList text={T.noArts} can={can} />}
       {arts.map((a, i) => (
         <div key={a.name} className="rg-art">
           <b>{a.name}</b>
@@ -507,9 +549,22 @@ function ArtsEdit({ arts, set, catalog, packs }: { arts: Art[]; set: (a: Art[]) 
           {packs.length > 0 && <Chips items={packs} value={a.pack} label={(v) => v} onPick={(v) => upd(i, { pack: v })} />}
         </div>
       ))}
-      {left.length > 0 && <Chips items={left} value={null} label={(v) => <><Icon name="plus" /> {v}</>}
-        onPick={(v) => set([...arts, { name: v, qty: 1, pack: packs[0] ?? '' }])} />}
+      {left.length > 0 && <Chips items={left} value={null} label={(v) => <><Icon name="plus" /> {v}</>} onPick={add} />}
+      <OwnText label={T.ownArt} onAdd={add} />
+      <small className="hint">{T.ownArt}: {T.ownHint}</small>
     </div>
+  )
+}
+
+/** Раствор: кнопки каталога + свой раствор словом (только в эту запись). */
+function SolPick({ d, sol, set }: { d: RegData; sol: string | null; set: (v: string) => void }) {
+  const own = sol && !d.solutions.includes(sol) ? sol : null
+  return (
+    <>
+      {!d.solutions.length && <EmptyList text={T.noSols} can={d.can.settings} />}
+      <Chips items={own ? [...d.solutions, own] : d.solutions} value={sol} label={(v) => v} onPick={set} />
+      <OwnText label={T.ownSol} onAdd={set} />
+    </>
   )
 }
 
@@ -556,7 +611,7 @@ function NewCycle({ d, dlg, busy, close, act }: DProps<{ kind: 'new'; ster: numb
             const x = progs[i]
             return x ? <>{x.label}<small>{x.pressure ? ` · ${x.pressure} bar` : ''}{x.min ? ` · ${x.min} min` : ''}</small></> : ''
           }} /></Field>
-      <Field label={T.arts}><ArtsEdit arts={arts} set={setArts} catalog={d.articles} packs={d.packs} /></Field>
+      <Field label={T.arts}><ArtsEdit arts={arts} set={setArts} catalog={d.articles} packs={d.packs} can={d.can.settings} /></Field>
       <p className="hint">{T.startHint}</p>
     </Dlg>
   )
@@ -607,7 +662,7 @@ function Clean({ d, dlg, busy, close, act }: DProps<{ kind: 'clean'; room: numbe
           <Icon name="save" /> {T.save}</button></>}>
       <Field label={T.room}><Chips items={d.rooms.map((x) => x.id)} value={room} label={(id) => d.rooms.find((x) => x.id === id)?.name ?? ''} onPick={setRoom} /></Field>
       {r && <Field label={T.plan}><b className="num">{r.next}</b></Field>}
-      <Field label={T.solution}><Chips items={d.solutions} value={sol} label={(v) => v} onPick={setSol} /></Field>
+      <Field label={T.solution}><SolPick d={d} sol={sol} set={setSol} /></Field>
     </Dlg>
   )
 }
@@ -672,7 +727,7 @@ function Fix({ d, dlg, busy, close, act }: DProps<{ kind: 'fix'; reg: RegKey; ro
           <Icon name="save" /> {T.save}</button></>}>
       {r && <p className="rg-sum">Nr. {r.id} · {r.actor} {r.at} — {T.keep}.</p>}
       {dlg?.reg === '257' && <>
-        <Field label={T.arts}><ArtsEdit arts={arts} set={setArts} catalog={d.articles} packs={d.packs} /></Field>
+        <Field label={T.arts}><ArtsEdit arts={arts} set={setArts} catalog={d.articles} packs={d.packs} can={d.can.settings} /></Field>
         <div className="rg-two">
           <Field label={T.startT}><input className="dp-fld" type="time" value={start} onChange={(e) => setStart(e.target.value)} /></Field>
           <Field label={T.endT}><input className="dp-fld" type="time" value={end} onChange={(e) => setEnd(e.target.value)} /></Field>
@@ -681,7 +736,7 @@ function Fix({ d, dlg, busy, close, act }: DProps<{ kind: 'fix'; reg: RegKey; ro
         <Field label={T.term}><TestChips value={term} set={setTerm} /></Field>
         <Field label={T.bio}><TestChips value={bio} set={setBio} bio /></Field>
       </>}
-      {dlg?.reg === '502' && <Field label={T.solution}><Chips items={d.solutions} value={sol} label={(v) => v} onPick={setSol} /></Field>}
+      {dlg?.reg === '502' && <Field label={T.solution}><SolPick d={d} sol={sol} set={setSol} /></Field>}
       {dlg?.reg === '501' && <Field label={T.minutes}><input className="dp-fld rg-min" inputMode="numeric" value={minutes}
         onChange={(e) => setMinutes(e.target.value.replace(/\D/g, '').slice(0, 4))} /></Field>}
       <Field label={T.why}><input className="dp-fld" value={why} maxLength={200} onChange={(e) => setWhy(e.target.value)} /></Field>

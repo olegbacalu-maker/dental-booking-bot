@@ -3325,11 +3325,22 @@ dialog.rg-dlg.wide { width: 720px; }
 .rg-set .rg-check input { width: 20px; height: 20px; accent-color: var(--teal); }
 .rg-set .rg-every { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-m); color: var(--text2); }
 .rg-set .rg-every .dp-fld { width: 64px; text-align: center; }
+/* 2.14.1: пустой список каталога — подсказка и своё слово в окне */
+.rg .rg-empty-list, .rg-dlg .rg-empty-list { display: flex; gap: 8px; align-items: flex-start; margin: 0; padding: 10px 12px;
+  border-radius: var(--r-s); background: var(--amber-soft); color: var(--amber-t); font-size: var(--fs-m); }
+.rg .rg-empty-list svg, .rg-dlg .rg-empty-list svg { flex: none; width: 16px; height: 16px; margin-top: 2px; }
+.rg .rg-empty-list a, .rg-dlg .rg-empty-list a { color: var(--teal-d); font-weight: 600; }
+.rg-dlg .rg-own { display: flex; gap: 8px; align-items: center; }
+.rg-dlg .rg-own .dp-fld { flex: 1 1 auto; min-width: 0; }
+.rg-dlg .rg-own .rg-btn { flex: none; }
+.rg-dlg .rg-own .rg-btn:disabled { opacity: .5; cursor: default; }
 /* под пальцем (планшет у кресла) — цели не меньше 44 px */
 @media (pointer: coarse) {
   .rg .rg-month button, .rg .rg-ib, .rg .rg-back { min-width: 44px; height: 44px; }
   .rg .rg-btn.sm { height: 44px; }
   .rg-set .rg-crumb a { display: inline-flex; align-items: center; min-height: 44px; }
+  .rg .rg-empty-list a, .rg-dlg .rg-empty-list a { display: inline-flex; align-items: center; min-height: 44px; }
+  .rg .rg-empty-list, .rg-dlg .rg-empty-list { align-items: center; }
 }
 @media (max-width: 900px) {
   .rg .rg-plan-r { grid-template-columns: 1fr auto; }

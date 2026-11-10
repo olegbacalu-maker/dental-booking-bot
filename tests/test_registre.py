@@ -273,3 +273,53 @@ def suite_print(res: Result) -> None:
         sheet = z.read("xl/worksheets/sheet1.xml").decode("utf-8")
         res.ok("Excel: шапка и пометка исправления", "Test" not in sheet and "Sterilizator" in sheet and "corectată prin nr." in sheet, sheet[:300])
         res.ok("Excel: удалённой строки нет", sheet.count("<row ") == 1 + 3, str(sheet.count("<row ")))
+
+
+def suite_fresh(res: Result) -> None:
+    """2.14.1 (канарейка 2.14.0): свежая клиника завела только автоклав — окно
+    «Ciclu nou» не тупик. Стартовые предметы и упаковки подставляются ОДИН раз
+    по ключу schema_meta; выключенные клиникой второй раз не навязываются;
+    своё слово — только в запись, на листе экранировано."""
+    with Clock(AT), Server(env=NO_KEY) as s:
+        boss, ana, _ = _team(s)
+        r = boss.post_json("/api/settings/registre/item", {"kind": "ster", "name": "Dent", "data": {
+            "type": "abur", "programs": [{"label": "134 °C", "temp": "134", "pressure": "2,1", "min": 5}]}})
+        res.check("свежая клиника: заведён один автоклав", r.msg, "ok_san_item")
+        m = _model(ana)
+        from app.core import registre as reg  # noqa: E402 — только слова старта
+        res.check("стартовые предметы — в каталоге", m["articles"], list(reg.STARTER["article"]))
+        res.check("стартовые упаковки — в каталоге", m["packs"], list(reg.STARTER["pack"]))
+        res.check("ключи старта записаны", sorted(x[0] for x in _sql(s, "SELECT key FROM schema_meta WHERE key LIKE 'san_starter_%'")),
+                  ["san_starter_article", "san_starter_pack"])
+        ster = m["sters"][0]["id"]
+        r = ana.post_json("/api/registre/257", {"ster_id": ster, "program": 0,
+                                                "arts": [{"name": m["articles"][0], "qty": 3, "pack": m["packs"][0]}]})
+        res.check("цикл запускается со стартовым предметом", r.msg, "ok_san_start")
+        res.check("второй запрос — старт не задваивается", len(_model(ana)["articles"]), len(reg.STARTER["article"]))
+        # клиника выключила все стартовые предметы — пустота её выбор, не повод подложить снова
+        for it in _j(boss.get(CAT))["data"]["items"]["article"]:
+            boss.post_json("/api/settings/registre/item", {**it, "active": False})
+        res.check("выключила все — список пуст", _model(ana)["articles"], [])
+        res.check("и остаётся пустым (решает ключ, не пустота)", (_model(ana)["articles"],
+                  len(_sql(s, "SELECT id FROM san_equipment WHERE kind='article'"))), ([], len(reg.STARTER["article"])))
+        # своё слово в окне: только в запись, экранировано, длина обрезана сервером
+        cid = _model(ana)["sters"][0]["running"]["id"]
+        ana.post_json(f"{API}/257/{cid}/finish", {"chem": "ok", "term": "ok"})
+        own = "Spatulă <b>x</b> " + "z" * 300
+        r = ana.post_json("/api/registre/257", {"ster_id": ster, "program": 0, "arts": [{"name": own, "qty": 1, "pack": ""}]})
+        res.check("своё слово — цикл запускается", r.msg, "ok_san_start")
+        row = _model(ana)["rows"]["257"][-1]
+        res.check("своё слово обрезано до 120", len(row["arts"][0]["name"]), 120)
+        res.check("в каталог своё слово не попало", _model(ana)["articles"], [])
+        page = ana.get("/admin/registre/tipar/257?month=2026-11").body
+        res.ok("на листе своё слово экранировано", "Spatulă &lt;b&gt;x&lt;/b&gt;" in page and "<b>x</b>" not in page, "")
+        res.check("уборка со своим раствором словом",
+                  (boss.post_json("/api/settings/registre/item", {"kind": "room", "name": "Cabinet 1", "data": {"every": 7}}).msg,
+                   ana.post_json("/api/registre/502", {"room_id": _model(ana)["rooms"][0]["id"], "solution": "Clorhexidină 0,05 %"}).msg),
+                  ("ok_san_item", "ok_san_clean"))
+    with Clock(AT), Server(env=NO_KEY) as s:
+        boss, ana, _ = _team(s)
+        # клиника, которая завела свои предметы раньше первого чтения, — без старта
+        boss.post_json("/api/settings/registre/item", {"kind": "article", "name": "Freze"})
+        res.check("свой список раньше старта — старт не подкладывается", _model(ana)["articles"], ["Freze"])
+        res.check("упаковки при этом стартовые (свой вид — свой ключ)", len(_model(ana)["packs"]), 3)

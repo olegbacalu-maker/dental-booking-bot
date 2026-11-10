@@ -184,6 +184,55 @@ describe('RegistreScreen — «Azi»', () => {
   })
 })
 
+describe('RegistreScreen — пустой каталог не тупик (2.14.1)', () => {
+  it('предметов нет: подсказка со ссылкой у директора, «Alt articol» добавляет предмет и открывает «Pornește ciclul»', async () => {
+    get.mockResolvedValue(ok(data({ articles: [], packs: [], can: { delete: true, settings: true } })))
+    post.mockResolvedValueOnce(ok(null))
+    render(<RegistreScreen />)
+    fireEvent.click(await within(await findTile('data-ster', 2)).findByRole('button', { name: /Ciclu nou/ }))
+    const d = dialog()
+    expect(within(d).getByText(/Lista de articole este goală/)).toBeTruthy()
+    expect(within(d).getByRole('link', { name: /Setări › Registre sanitare/ }).getAttribute('href')).toBe('/admin/settings/registre')
+    const start = within(d).getByRole('button', { name: /Pornește ciclul/ }) as HTMLButtonElement
+    expect(start.disabled).toBe(true)
+    const own = within(d).getByRole('textbox', { name: 'Alt articol' })
+    fireEvent.change(own, { target: { value: '  Spatulă   de ciment ' } })
+    fireEvent.click(within(d).getByRole('button', { name: /^Adaugă$/ }))
+    expect(within(d).getByText('Spatulă de ciment')).toBeTruthy()
+    expect((own as HTMLInputElement).value).toBe('')
+    expect(start.disabled).toBe(false)
+    fireEvent.click(start)
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/registre/257', {
+      ster_id: 2, program: 0, arts: [{ name: 'Spatulă de ciment', qty: 1, pack: '' }] }))
+  })
+
+  it('без права настроек — подсказка без ссылки; пустых видов — строка, чего нет', async () => {
+    get.mockResolvedValue(ok(data({ articles: [], lamps: [], rooms: [], waiting: [] })))
+    render(<RegistreScreen />)
+    expect(await screen.findByText(/Încă nu sunt adăugate: lămpile bactericide \(501\/e\), încăperile \(502\/e\)/)).toBeTruthy()
+    fireEvent.click(await within(await findTile('data-ster', 2)).findByRole('button', { name: /Ciclu nou/ }))
+    const d = dialog()
+    expect(within(d).getByText(/Directorul le adaugă/)).toBeTruthy()
+    expect(within(d).queryByRole('link')).toBeNull()
+  })
+
+  it('растворов нет: свой раствор словом → уборка уходит с ним', async () => {
+    get.mockResolvedValue(ok(data({ solutions: [] })))
+    post.mockResolvedValueOnce(ok(null))
+    render(<RegistreScreen />)
+    fireEvent.click(await within(await findTile('data-room', 9)).findByRole('button', { name: /Efectuată/ }))
+    const d = dialog()
+    expect(within(d).getByText(/Lista de soluții este goală/)).toBeTruthy()
+    const save = within(d).getByRole('button', { name: /Salvează/ }) as HTMLButtonElement
+    expect(save.disabled).toBe(true)
+    fireEvent.change(within(d).getByRole('textbox', { name: 'Altă soluție' }), { target: { value: 'Clorhexidină 0,05 %' } })
+    fireEvent.click(within(d).getByRole('button', { name: /^Adaugă$/ }))
+    expect(within(d).getByRole('button', { name: 'Clorhexidină 0,05 %' }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(save)
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/registre/502', { room_id: 9, solution: 'Clorhexidină 0,05 %' }))
+  })
+})
+
 describe('RegistreScreen — «Istoric și tipar»', () => {
   it('вкладки со счётчиками, исправленная строка зачёркнута, лист и Excel за месяц, удаления без права нет', async () => {
     get.mockResolvedValue(ok(data()))

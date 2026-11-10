@@ -230,8 +230,34 @@ def clean_item(kind: str, b: dict) -> dict:
     return item
 
 
+# Стартовый каталог (2.14.1, канарейка 2.14.0): без предметов окно «Ciclu nou»
+# было тупиком — выбрать нечего, «Pornește ciclul» серая. Подставляется ОДИН
+# раз на вид: ключ `schema_meta` говорит «каталог этого вида уже заводили», и
+# клиника, выключившая все стартовые строки, второй раз их не получит
+# (отсутствие ≠ «стереть», 08-16). Решает КЛЮЧ, а не пустота списка; у вида,
+# где клиника успела завести свои строки, старт не подкладывается, ключ ставится.
+STARTER = {
+    "article": ("Instrumentar stomatologic", "Freze și pile", "Piese de mână", "Tăvițe și pense",
+                "Material textil"),
+    "pack": ("Pungă", "Casetă", "Bix"),
+}
+STARTER_KEY = "san_starter_{kind}"
+
+
+async def ensure_starter() -> None:
+    for kind, names in STARTER.items():
+        key = STARTER_KEY.format(kind=kind)
+        if await db.get_meta(key) is not None:
+            continue
+        if not await db.san_items(kind):
+            for i, name in enumerate(names):
+                await db.san_item_save({"kind": kind, "name": name, "active": True, "sort": i, "data": {}})
+        await db.set_meta(key, today().isoformat())
+
+
 async def catalog() -> dict:
     """Каталог по видам (активные и архивные) + текст нормативов."""
+    await ensure_starter()
     rows = await db.san_items()
     out = {k: [] for k in KINDS if k != "norms"}
     norms = {"id": None, "text": ""}
