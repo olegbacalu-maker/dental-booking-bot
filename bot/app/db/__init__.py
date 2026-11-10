@@ -58,6 +58,7 @@ from .patients import (
     patient_name_by_phone, _digits, patient_id_by_key, create_patient, set_archived, _DIA,
     _fold, fold, patient_appointments, PATIENT_FIELDS, get_patient, update_patient,
     set_primary_doctor, set_birth_year, patient_alerts, add_alert, delete_alert,
+    MKT_SOURCES, MKT_EVENT, set_mkt,
 )
 from .plist import (
     _PLIST_COLS, all_patients, patients_visits, patients_debt, _PL_LAST_DOC_OF, _PL_DOCTOR,

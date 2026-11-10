@@ -420,6 +420,12 @@ SQLITE_PATIENT_COLS = [
     # напоминаний. Лист на стойке обещает «puteți renunța oricând, la recepție»
     # (acord.py, li4); цикл SMS такого пациента обходит (core/sms_loop.py).
     "sms_off INTEGER NOT NULL DEFAULT 0",
+    # Согласие на маркетинг (10.11, слово Олега): ответ пациента на «acorduri
+    # opționale › marketing» листа 195. NULL — не спрашивали, 1 — DA, 0 — NU;
+    # `mkt_at` — когда (UTC), `mkt_src` — `ecran` (подпись листа на экране) или
+    # `manual` (бумажный лист, отметка регистратуры). Nullable, без индекса и
+    # без шага миграции: ADD COLUMN переживает любые данные клиники.
+    "mkt_ok INTEGER", "mkt_at TEXT", "mkt_src TEXT",
 ]
 
 SQLITE_SCHEMA = """

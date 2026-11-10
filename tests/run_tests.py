@@ -62,6 +62,7 @@ import test_react_default  # noqa: E402
 import test_relocate  # noqa: E402
 import test_scan  # noqa: E402
 import test_sign  # noqa: E402
+import test_mkt  # noqa: E402
 import test_split  # noqa: E402
 import test_srcpin  # noqa: E402
 import test_migrate  # noqa: E402
@@ -361,6 +362,8 @@ SUITES = [
     ("Фиша: подпись на экране — машина без Edge", test_sign.suite_sign_no_edge),
     ("Фиша: подпись на экране — старт снимает хвосты печати", test_sign.suite_sign_start_sweep),
     ("Фиша: подпись на экране — листы и тело", test_sign.suite_sign_sheets),
+    ("Фиша: согласие на маркетинг — бумага, обезличивание, выгрузка", test_mkt.suite_mkt_manual),
+    ("Фиша: согласие на маркетинг — подпись листа 195", test_mkt.suite_mkt_sign),
     ("Дневник визита: JSON API", test_visit_api.suite_api),
     ("Дневник визита: узел React экрана", test_visit_api.suite_switch),
     ("Одонтограмма: JSON API", test_odontogram_api.suite_api),

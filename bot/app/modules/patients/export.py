@@ -172,7 +172,10 @@ _PROFILE_RO = [
     ("address", "Adresa"), ("insurance", "Asigurare"),
     ("primary_doctor", "Medic curant"), ("file_no", "Nr. fișă"),
     ("notes", "Note"), ("session_key", "Identificator canal"),
+    ("mkt_ok", "Acord marketing"),
 ]
+# ответ о маркетинге человеку: слово, дата и откуда (10.11)
+_MKT_SRC = {"ecran": "foaia Legea 195 semnată pe ecran", "manual": "marcat manual, foaie pe hârtie"}
 
 
 def _table(headers: list[str], rows: list[list[str]]) -> str:
@@ -196,6 +199,13 @@ def render_html(data: dict) -> str:
         # дата рождения человеку — dd.mm.yyyy, как остальные даты этого листа
         if key == "birth_date":
             return _dt(p.get(key), with_time=False)
+        if key == "mkt_ok":
+            ok = p.get("mkt_ok")
+            if ok is None:
+                return "nu s-a întrebat"
+            src = _MKT_SRC.get(p.get("mkt_src") or "", "")
+            return (("DA" if ok else "NU") + f", {_dt(p.get('mkt_at'), with_time=False)}"
+                    + (f" ({_esc(src)})" if src else ""))
         return _esc(p.get(key)) or "—"
 
     profil = _table(["Câmp", "Valoare"],

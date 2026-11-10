@@ -151,7 +151,9 @@ ACT_ICON = {"appt_new": "cal", "appt_status": "check", "appt_cancel": "ban",
             "backup_fail": "sos", "restore": "save",
             "view": "eye", "doc_view": "eye", "erase": "erase",
             # подпись бланка на экране (09.11): строка с отпечатком PDF
-            "sign": "pen"}
+            "sign": "pen",
+            # согласие на маркетинг (10.11): DA/NU с листа 195 — экран или бумага
+            "mkt": "clipboard"}
 
 # сколько строк летописи фиша показывает сразу; остальные — за кнопкой
 ACT_SHOWN = 10

@@ -168,6 +168,7 @@ PATIENT_FIELDS = ["name", "phone", "birth_date", "gender", "idnp", "email",
 
 async def get_patient(pid: int) -> dict | None:
     cols = ("id, session_key, name, phone, lang, birth_year, created_at, archived, sms_off, "
+            "mkt_ok, mkt_at, mkt_src, "
             + ", ".join(PATIENT_FIELDS[2:]))
     rows = await _fetch(
         f"SELECT {cols} FROM patients WHERE id = ?", pid)
@@ -190,6 +191,35 @@ async def set_primary_doctor(pid: int, name: str | None) -> None:
     который пишет ВСЕ поля профиля и стёр бы остальные. None — снять."""
     await log_event(pid, "profile", f"Medic curant: {name}" if name else "Medic curant scos")
     await _execute("UPDATE patients SET primary_doctor = ? WHERE id = ?", name, pid)
+
+
+# Согласие на маркетинг (10.11): ответ на «acorduri opționale › marketing» листа
+# 195. Источников ДВА — перечислением: подпись листа на экране (`ecran`) и
+# отметка регистратуры по бумажному листу (`manual`). Строка летописи — одна на
+# оба места, готовой строкой.
+MKT_SOURCES = ("ecran", "manual")
+MKT_EVENT = {
+    (True, "ecran"): "Acord marketing: DA (foaia Legea 195 semnată pe ecran)",
+    (False, "ecran"): "Acord marketing: NU (foaia Legea 195 semnată pe ecran)",
+    (True, "manual"): "Acord marketing: DA (marcat manual, foaie pe hârtie)",
+    (False, "manual"): "Acord marketing: NU (marcat manual, foaie pe hârtie)",
+}
+
+
+async def set_mkt(pid: int, ok: bool, src: str) -> bool:
+    """Ответ пациента о маркетинге. Летопись — вызывающий маршрут (он знает,
+    откуда ответ). Ответ — изменилось ли что-то, кроме даты: тот же ответ тем
+    же путём обновляет только дату (свежий лист — свежая отметка), но строки
+    летописи не стоит. ⛔ «Не спрашивали» (NULL) сюда не пишется: снять ответ
+    нельзя, только сменить."""
+    if src not in MKT_SOURCES or not isinstance(ok, bool):
+        raise ValueError("mkt")
+    changed = await _execute(
+        "UPDATE patients SET mkt_ok = ?, mkt_src = ? WHERE id = ? "
+        "AND (mkt_ok IS NULL OR mkt_ok <> ? OR COALESCE(mkt_src, '') <> ?)",
+        int(ok), src, pid, int(ok), src) > 0
+    await _execute("UPDATE patients SET mkt_at = ? WHERE id = ?", _utcnow_iso(), pid)
+    return changed
 
 
 async def set_birth_year(pid: int, year: int | None) -> None:

@@ -335,6 +335,9 @@ async def _card(pid: int, p: dict, *, views: bool, log_view: bool) -> dict:
             "lang": p.get("lang") or "ro",
             # «Fără remindere SMS» (S5): отказ пациента — своим маршрутом, как врач
             "sms_off": bool(p.get("sms_off")),
+            # согласие на маркетинг (10.11): ok — null «не спрашивали» / true DA /
+            # false NU; at — местная дата ответа; src — ecran | manual
+            "mkt": _mkt_view(p),
             # дата рождения человеку — dd.mm.yyyy, у пациента из бота только год
             "birth": (_pl_dmy(p["birth_date"]) if p.get("birth_date")
                       else str(p.get("birth_year") or "")),
@@ -517,6 +520,33 @@ async def api_patient_doctor(request: Request, pid: int):
         return _reply("bad_card", field="primary_doctor")
     code = await _set_doctor(pid, p, _s(body, "doctor"))
     return await _card_reply(request, pid, code, "primary_doctor" if code == "bad_card" else "")
+
+
+def _mkt_view(p: dict) -> dict:
+    ok = p.get("mkt_ok")
+    at = p.get("mkt_at")
+    return {"ok": None if ok is None else bool(ok),
+            "at": at.astimezone(eng.TZ).strftime("%d.%m.%Y") if ok is not None and at else "",
+            "src": (p.get("mkt_src") or "") if ok is not None else ""}
+
+
+@router.post("/api/patients/{pid}/mkt")
+async def api_patient_mkt(request: Request, pid: int):
+    """{ok: true|false} — «Acord marketing» по бумажному листу 195 (10.11):
+    отметка регистратуры, `mkt_src = manual`. Своим маршрутом, как отказ от SMS
+    (прайор 14.10: `/profile` пишет все поля). ⛔ Не bool — 422, ничего не
+    пишется: «нет поля» не значит «NU» (прайор 08-16). Летопись — на перемене."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    deny, p = await _owned(pid)
+    if deny is not None:
+        return deny
+    ok = (await api_body(request) or {}).get("ok")
+    if not isinstance(ok, bool):
+        return _reply("bad_card", field="mkt")
+    if await db.set_mkt(pid, ok, "manual"):
+        await db.log_event(pid, "mkt", db.MKT_EVENT[(ok, "manual")])
+    return await _card_reply(request, pid, "ok_card")
 
 
 @router.post("/api/patients/{pid}/sms-off")
@@ -746,6 +776,13 @@ async def api_patient_form_sign(request: Request, pid: int, key: str):
     if code != "ok_doc":
         return _reply(code)
     await db.log_event(pid, "sign", psign.event_text(key, sign, psign.sha256(data)))
+    # ответ «marketing» листа 195 — в фишу (10.11): DA/NU с экрана ставит отметку,
+    # без ответа (None) отметка прежняя
+    mkt = (sign.get("consents") or {}).get("mkt") if key == "acord195" else None
+    if isinstance(mkt, bool):
+        if await db.set_mkt(pid, mkt, "ecran"):
+            await db.log_event(pid, "mkt", db.MKT_EVENT[(mkt, "ecran")])
+        p = await db.get_patient(pid) or p       # ответ несёт фишу уже с отметкой
     docs = await db.documents(pid)
     doc = next((d for d in docs if d["category"] == cat), None)
     out = await _card(pid, p, views=_views(request), log_view=False)

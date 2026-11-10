@@ -129,6 +129,7 @@ async def anonymize_patient(pid: int) -> None:
         """UPDATE patients SET name = ?, phone = NULL, email = NULL,
              birth_date = NULL, birth_year = NULL, gender = NULL, idnp = NULL,
              address = NULL, insurance = NULL, notes = NULL,
+             mkt_ok = NULL, mkt_at = NULL, mkt_src = NULL,
              session_key = ?, archived = 1 WHERE id = ?""",
         f"Pacient anonimizat #{pid}", f"anon:{pid}", pid)
     # платежи остаются (касса клиники под номером фиши), но заметка платежа —

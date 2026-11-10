@@ -77,7 +77,7 @@ const CARD: PatientCard = {
     name: 'Pin Test', phone: '069000111', birth_date: '1985-03-07', birth: '07.03.1985', gender: 'f',
     gender_label: 'F', idnp: '2000000000001', email: 'pin@example.com', address: 'str. Pin 1',
     insurance: 'CNAM activă', primary_doctor: 'Dr. Activ Doi', file_no: 'D-5', notes: 'nota internă',
-    lang: 'ro', sms_off: false, age: 41, channel: 'recepție', created: '18.09.2026', year: '2026',
+    lang: 'ro', sms_off: false, mkt: { ok: null, at: '', src: '' }, age: 41, channel: 'recepție', created: '18.09.2026', year: '2026',
   },
   hero: {
     pills: [
@@ -1144,6 +1144,42 @@ describe('PatientCardScreen', () => {
     await tabTo('Date pacient')
     expect((document.querySelector('.dp-pedit') as HTMLElement).style.display).toBe('flex')
     expect(notes()).toBe(false)
+  })
+
+  it('10.11: «Acord marketing» в Date pacient — не спрашивали: DA/NU по бумаге; ответ с экрана и вручную — словом с датой; галочка шлёт только ok', async () => {
+    serve({ ...CARD, profile: { ...CARD.profile, mkt: { ok: null, at: '', src: '' } } })
+    const da = { ...CARD, profile: { ...CARD.profile, mkt: { ok: true, at: '10.11.2026', src: 'manual' } } }
+    const nu = { ...CARD, profile: { ...CARD.profile, mkt: { ok: false, at: '10.11.2026', src: 'manual' } } }
+    post.mockResolvedValueOnce(ok(da, 'ok_card', 'Fișa pacientului a fost actualizată'))
+      .mockResolvedValueOnce(ok(nu, 'ok_card', 'Fișa pacientului a fost actualizată'))
+    open('/admin/patient/5?tab=date')
+    await settled()
+    const row = () => document.querySelector('.dp-mkt') as HTMLElement
+    await waitFor(() => expect(row()).toBeTruthy())
+    expect(row().textContent).toContain('Acord marketing')
+    expect(row().textContent).toContain('nu s-a întrebat')
+    expect(within(row()).queryByRole('checkbox')).toBeNull()
+    fireEvent.click(within(row()).getByRole('button', { name: 'DA' }))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/patients/5/mkt', { ok: true }))
+    await waitFor(() => expect(row().textContent).toContain('marcat manual 10.11.2026 (foaie pe hârtie)'))
+    const box = within(row()).getByRole('checkbox') as HTMLInputElement
+    expect(box.checked).toBe(true)
+    fireEvent.click(box)
+    await waitFor(() => expect(post).toHaveBeenLastCalledWith('/patients/5/mkt', { ok: false }))
+    await waitFor(() => expect(row().textContent).toContain('NU'))
+    expect(row().querySelector('.notel')).toBeTruthy()
+    expect(tabOn()).toBe('Date pacient')
+  })
+
+  it('10.11: «Acord marketing» после подписи листа 195 на экране — DA «semnat pe ecran» с датой', async () => {
+    serve({ ...CARD, profile: { ...CARD.profile, mkt: { ok: true, at: '09.11.2026', src: 'ecran' } } })
+    open('/admin/patient/5?tab=date')
+    await settled()
+    await waitFor(() => expect(document.querySelector('.dp-mkt')).toBeTruthy())
+    const row = document.querySelector('.dp-mkt') as HTMLElement
+    expect(row.textContent).toContain('DA')
+    expect(row.textContent).toContain('semnat pe ecran 09.11.2026')
+    expect((within(row).getByRole('checkbox') as HTMLInputElement).checked).toBe(true)
   })
 
   it('14.10: «Medic curant» выбирается прямо в шапке — POST только врача, шапка из ответа, вкладка та же', async () => {

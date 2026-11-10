@@ -21,6 +21,13 @@ const T = {
   smsOff: 'Fără remindere SMS',
   smsOn: 'se trimit',
   smsOffTitle: 'Pacientul a renunțat la memento-urile SMS (Legea 195: dreptul la opoziție)',
+  mktRow: 'Acord marketing',
+  mktTitle: 'Răspunsul pacientului la acordul opțional de marketing de pe foaia Legea 195',
+  mktNone: 'nu s-a întrebat',
+  mktAsk: 'Răspuns pe foaia de hârtie:',
+  mktDa: 'DA', mktNu: 'NU',
+  mktEcran: 'semnat pe ecran {at}',
+  mktManual: 'marcat manual {at} (foaie pe hârtie)',
   edit: 'Editează profilul',
   ph: {
     name: 'Nume', phone: 'Telefon', idnp: 'IDNP (opțional)', email: 'E-mail', address: 'Adresă',
@@ -199,6 +206,30 @@ export function ProfileCard({ card, a, editOpen, onEditOpen, noteFocus, onNoteFo
           {' '}{p.sms_off ? T.smsOff : T.smsOn}
         </label>
         <span className="ic"><Icon name={p.sms_off ? 'phone-off' : 'chat'} /></span>
+      </div>
+      {/* согласие на маркетинг (10.11): DA/NU ставит подпись листа 195 на экране;
+          по бумажному листу — регистратура, тем же полем (отзыв — «NU») */}
+      <div className="frow dp-smsoff dp-mkt">
+        <span>{T.mktRow}</span>
+        {p.mkt.ok === null ? (
+          <span className="v" title={T.mktTitle}>
+            <span className="dp-muted">{T.mktNone}</span>{' · '}{T.mktAsk}{' '}
+            <button type="button" className="dp-link" disabled={a.busy}
+              onClick={() => { void a.act(() => patientCard.mkt(a.pid, a.views, true)) }}>{T.mktDa}</button>
+            {' / '}
+            <button type="button" className="dp-link" disabled={a.busy}
+              onClick={() => { void a.act(() => patientCard.mkt(a.pid, a.views, false)) }}>{T.mktNu}</button>
+          </span>
+        ) : (
+          <label className={`v${p.mkt.ok ? '' : ' notel'}`} title={T.mktTitle}>
+            <input type="checkbox" checked={p.mkt.ok} disabled={a.busy}
+              onChange={(e) => { void a.act(() => patientCard.mkt(a.pid, a.views, e.target.checked)) }} />
+            {' '}<b>{p.mkt.ok ? T.mktDa : T.mktNu}</b>
+            {p.mkt.at && <small className="dp-muted"> · {(p.mkt.src === 'ecran' ? T.mktEcran : T.mktManual)
+              .replace('{at}', p.mkt.at)}</small>}
+          </label>
+        )}
+        <span className="ic"><Icon name={p.mkt.ok === null ? 'clipboard' : p.mkt.ok ? 'chat' : 'phone-off'} /></span>
       </div>
       {row(T.rows.birth, p.birth, 'cal')}
       {row(T.rows.gender, p.gender_label, 'pat')}
