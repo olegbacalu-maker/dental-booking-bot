@@ -42,6 +42,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -278,21 +279,38 @@ def cmd_prerelease(ver: str) -> int:
     return 0 if ok else 1
 
 
+# Работа, поделённая на части (матрица), называется «<имя> k/N» (10.11: «Движок
+# 1/3»…«Движок 3/3», tests.yml). Части считаются одной работой: publish ждёт
+# зелёными ВСЕ N, и недостающая часть — «не проверен», а не «нечего проверять».
+_PART = re.compile(r"^(?P<base>.*\S)\s+(?P<k>\d+)/(?P<n>\d+)$")
+
+
 def ci_verdict(check_runs: list[dict]) -> tuple[str, list[str]]:
     """Что сказала автоматическая проверка (GitHub Actions) о коммите:
     `green` — все работы завершились успехом; `red` — хоть одна упала;
-    `pending` — ещё идёт или отменена (то есть коммит НЕ проверен);
-    `none` — работ нет. Второе — строки для человека.
+    `pending` — ещё идёт, отменена или части работы недостаёт (то есть коммит
+    НЕ проверен); `none` — работ нет. Второе — строки для человека.
     ⚠️ У одного коммита работа может лежать НЕСКОЛЬКО раз (прогон push, отменённый
     cancel-in-progress следующим пушем, и `workflow run --ref` на теге): считается
     НОВЕЙШАЯ запись каждой работы — 30.10 (2.6.0) отменённый дубль рядом с зелёным
-    перезапуском держал publish как «не проверен»."""
+    перезапуском держал publish как «не проверен».
+    ⚠️ Пропущенная работа (`skipped`) — не ответ, а «этот прогон её не гнал»
+    (10.11): мутация сторожей идёт только по правилу, ночной прогон пропускает
+    всё, кроме мутации. Новейшей она не становится — иначе ночной «пропуск»
+    закрыл бы красный движок того же коммита, а перезапуск без правки сторожей —
+    красную мутацию. Пропущена во ВСЕХ прогонах — работа коммиту не нужна."""
     newest: dict[str, dict] = {}
+    skipped: set[str] = set()
     for r in check_runs:
         name = r.get("name")
+        if r.get("conclusion") == "skipped":
+            skipped.add(name)
+            continue
         if name not in newest or (r.get("id") or 0) > (newest[name].get("id") or 0):
             newest[name] = r
     lines, verdict = [], "none"
+    for name in sorted(skipped - set(newest)):
+        lines.append(f"   {name}: skipped (не нужна этому коммиту)")
     for r in newest.values():
         st, concl = r.get("status"), (r.get("conclusion") or "")
         lines.append(f"   {r.get('name')}: {concl or st}")
@@ -303,13 +321,38 @@ def ci_verdict(check_runs: list[dict]) -> tuple[str, list[str]]:
             verdict = "red"
         elif verdict == "none":
             verdict = "green"
+    # части k/N: каждая из N обязана быть (пропущенная ночью часть — тоже «есть»:
+    # её ответ — в прогоне пуша; если ответа нет нигде, её нет в newest)
+    parts: dict[tuple[str, int], set[int]] = {}
+    for name in set(newest) | skipped:
+        m = _PART.match(name or "")
+        if m:
+            parts.setdefault((m["base"], int(m["n"])), set()).add(int(m["k"]))
+    for (base, n), ks in sorted(parts.items()):
+        have = {k for k in ks if f"{base} {k}/{n}" in newest}
+        lost = [k for k in range(1, n + 1) if k not in have]
+        if lost:
+            lines.append(f"   {base}: нет ответа частей "
+                         f"{', '.join(f'{k}/{n}' for k in lost)}")
+            verdict = "pending" if verdict != "red" else verdict
     return verdict, lines
 
 
 def ci_state(ref: str) -> tuple[str, list[str]]:
-    """Проверка коммита `ref` (тег или SHA) по check-runs GitHub."""
-    data = call(f"{API}/commits/{ref}/check-runs?per_page=50")
-    return ci_verdict(data.get("check_runs", []))
+    """Проверка коммита `ref` (тег или SHA) по check-runs GitHub.
+    Постранично: ночная мутация каждую ночь добавляет коммиту HEAD main по
+    прогону (с пропущенными работами), и полсотни записей на странице однажды
+    кончились бы на середине — ответ движка остался бы за краем."""
+    runs: list[dict] = []
+    page = 1
+    while True:
+        data = call(f"{API}/commits/{ref}/check-runs?per_page=100&page={page}")
+        got = data.get("check_runs", [])
+        runs += got
+        if len(got) < 100 or len(runs) >= (data.get("total_count") or 0):
+            break
+        page += 1
+    return ci_verdict(runs)
 
 
 def cmd_publish(ver: str, allow_red: bool = False) -> int:

@@ -275,6 +275,80 @@ def suite_release_setup(res: Result) -> None:
         _rmtree_settled(tmp)
 
 
+def suite_release_ci(res: Result) -> None:
+    """`release.py publish` требует зелёными все части движка, а мутацию — если шла (10.11).
+
+    ⛔ Publish двигает `latest` всем клиникам, откатить нельзя. После деления
+    движка на части (`Движок k/N`) и мутации по правилу дыры две, обе молчаливые:
+    недостающая часть («проверено всё, что есть») и пропуск (`skipped`) новее
+    настоящего ответа — ночной прогон пропускает движок, перезапуск без правки
+    сторожей пропускает мутацию, и новейшей записью «закрыл» бы красную.
+    """
+    sys.path.insert(0, str(ROOT / "scripts"))
+    with contextlib.redirect_stdout(io.StringIO()):
+        mod = importlib.import_module("release")
+    wf = (ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
+    m = re.search(r"^\s*name:\s*(.*)\$\{\{ matrix\.part \}\}/\$\{\{ strategy\.job-total \}\}\s*$",
+                  wf, re.M)
+    res.ok("в workflow есть работа частями «<имя> k/N»", m is not None, "")
+    base = (m.group(1) if m else "Движок ").rstrip()
+    n = len(re.search(r"^\s*part:\s*\[([^\]]*)\]", wf, re.M).group(1).split(","))
+    names = [f"{base} {k}/{n}" for k in range(1, n + 1)]
+    pm = mod._PART.match(names[-1])
+    res.ok("release.py читает имя части из workflow",
+           bool(pm) and pm["base"] == base and int(pm["n"]) == n, names[-1])
+    mutation = re.search(r"^  mutation:\s*\n\s*name:\s*(.+?)\s*$", wf, re.M)
+    mut = mutation.group(1) if mutation else "Мутация сторожей"
+    res.ok("в workflow есть работа мутации", mutation is not None, "")
+
+    seq = iter(range(1, 10_000))
+
+    def run(name, concl="success", status="completed"):
+        return {"id": next(seq), "name": name, "status": status,
+                "conclusion": None if status != "completed" else concl}
+
+    def push(concl_parts="success", mutation_concl="skipped"):
+        return ([run(x, concl_parts) for x in names] + [run("Сторожа тронуты?"), run(mut, mutation_concl)])
+
+    def v(runs):
+        return mod.ci_verdict(runs)[0]
+
+    res.check("все части зелёные, мутация пропущена по правилу — green", v(push()), "green")
+    res.check("все части зелёные, мутация зелёная — green", v(push(mutation_concl="success")), "green")
+    res.check("мутация красная — red", v(push(mutation_concl="failure")), "red")
+    res.check("одна часть красная — red",
+              v(push()[:-1] + [run(names[0], "failure")]), "red")
+    lost = [r for r in push() if r["name"] != names[-1]]
+    verdict, lines = mod.ci_verdict(lost)
+    res.check("части не хватает — pending, не green", verdict, "pending")
+    res.ok("и недостающая часть названа", any(f"{n}/{n}" in ln for ln in lines), str(lines))
+    res.check("часть ещё идёт — pending",
+              v([r for r in push() if r["name"] != names[0]] + [run(names[0], status="in_progress")]),
+              "pending")
+    # ночь: движок пропущен, мутация шла — ПОСЛЕ прогона пуша того же коммита.
+    # ⚠️ Функциями, а не готовыми списками: id растут по порядку вызова, и список,
+    # собранный заранее, оказался бы СТАРШЕ пуша — проверка зеленела бы и при
+    # «пропуск = новейший ответ» (так и было в первом черновике).
+    def night(mutation_concl="success"):
+        return ([run(x, "skipped") for x in names]
+                + [run("Сторожа тронуты?"), run(mut, mutation_concl)])
+
+    def rerun():
+        return [run(x) for x in names] + [run("Сторожа тронуты?"), run(mut, "skipped")]
+
+    res.check("ночной пропуск движка не закрывает красную часть пуша",
+              v(push("failure") + night()), "red")
+    res.check("ночная зелёная мутация поверх зелёного пуша — green", v(push() + night()), "green")
+    res.check("ночная красная мутация — red", v(push() + night("failure")), "red")
+    res.check("перезапуск без правки сторожей не закрывает красную мутацию",
+              v(push(mutation_concl="failure") + rerun()), "red")
+    res.check("одни пропуски частей (коммит видел только ночь) — pending",
+              v(night()), "pending")
+    res.check("отменённый дубль рядом с зелёным перезапуском — green (30.10)",
+              v([run(x, "cancelled") for x in names] + push()), "green")
+    res.check("работ нет — none", v([]), "none")
+
+
 def suite_version_source(res: Result) -> None:
     """Версия одна на программу: `version.py` — источник, остальные её повторяют.
 

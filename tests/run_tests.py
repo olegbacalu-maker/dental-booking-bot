@@ -143,11 +143,18 @@ SUITES = [
     ("Выпуск: версия одна у движка, клиента и exe", test_guards.suite_version_source),
     ("Выпуск: подпись — оба exe до дымового теста, мастер и деинсталлятор", test_guards.suite_signing),
     ("Выпуск: release.py не льёт мастер, который отвергнет клиника", test_guards.suite_release_setup),
+    ("Выпуск: publish ждёт все части движка, пропуск не закрывает красное",
+     test_guards.suite_release_ci),
     ("Выпуск: содержание выпуска — оболочка и мастер да, тесты клиента и стенды нет (dev check)",
      test_dev.suite_release_content),
     ("Рутина: временное запусков dev — на диске проекта", test_dev.suite_child_temp),
     ("Рутина: песочница dev up — на диске проекта, не в AppData", test_dev.suite_sandbox_dir),
     ("Рутина: dev up находит прошлый сервер на порту", test_dev.suite_up_listener),
+    # Сервера нет, секунды: CI делит движок на части и гонит мутацию по правилу
+    # (10.11) — потерянный набор и пропущенная нужная мутация не краснеют нигде.
+    ("Рутина: части прогона CI — все наборы ровно по разу", test_dev.suite_ci_parts),
+    ("Рутина: мутация в CI — когда тронуты сторожа, при неясности гнать",
+     test_dev.suite_ci_mutation),
     # Сервера нет, доли секунды: правило SMS по вектору, общему с прогоном
     # сервера (S2) — сегменты, которые видит клиника, и сегменты, которые
     # списывает сервер, считаются по одному файлу.
@@ -578,9 +585,39 @@ SUITES = [
     ("Копии: нет pyzipper или битый .pyd — плитки нет, хаб жив", test_backup.suite_available),
 ]
 
+def part(suites: list, k: int, n: int) -> list:
+    """Часть `k` из `n` (с единицы): наборы с номером i, где i % n == k - 1.
+
+    CI (10.11) гонит движок `n` работами разом, каждая — свою часть. По кругу,
+    а не кусками подряд и не по замерам: объединение частей — ВСЕ наборы при
+    любом их числе и порядке, новый набор попадает в часть сам, и списка,
+    который можно забыть дополнить, нет. Ровность — сама собой: наборов сотни,
+    самый долгий меньше полуминуты (по CI 2.14.0 при n=3 — 6.5 / 5.1 / 5.7 мин).
+    Держит «Рутина: части прогона CI — все наборы ровно по разу»."""
+    if not 1 <= k <= n:
+        raise ValueError(f"часть {k}/{n}: нужно 1 <= k <= n")
+    return [s for i, s in enumerate(suites) if i % n == k - 1]
+
+
+def _part_arg(arg: str) -> tuple[int, int]:
+    k, _, n = arg.partition("/")
+    return int(k), int(n)
+
+
 if __name__ == "__main__":
-    only = sys.argv[1].lower() if len(sys.argv) > 1 else ""
-    suites = [(n, f) for n, f in SUITES if not only or only in n.lower()]
+    args = sys.argv[1:]
+    chosen = SUITES
+    if args[:1] == ["--part"] and len(args) >= 2:
+        try:
+            k, n = _part_arg(args[1])
+            chosen = part(SUITES, k, n)
+        except ValueError as e:
+            print(f"--part {args[1]!r}: {e}. Пример: --part 2/3")
+            sys.exit(2)
+        print(f"Часть {k}/{n}: {len(chosen)} наборов из {len(SUITES)}")
+        args = args[2:]
+    only = args[0].lower() if args else ""
+    suites = [(nm, f) for nm, f in chosen if not only or only in nm.lower()]
     if not suites:
         print(f"Нет наборов по фильтру {only!r}. Доступные:")
         for n, _ in SUITES:

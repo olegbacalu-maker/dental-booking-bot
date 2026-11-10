@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -222,3 +223,132 @@ def suite_up_listener(res: Result) -> None:
                    hits == 10, f"порт {port}: {hits} из 10")
         res.ok(f"{name}: закрытый сокет — не слушатель",
                me not in dev._listener_pids(port), f"порт {port}")
+
+
+def _workflow() -> str:
+    return (ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
+
+
+def suite_ci_parts(res: Result) -> None:
+    """Части прогона CI — все наборы ровно по разу (10.11).
+
+    Движок в CI идёт N работами, каждая — `run_tests.py --part k/N`. Потерянный
+    набор не краснеет нигде: его просто никто не гонит. Поэтому здесь — что
+    деление покрывает всё при любом N, и что список частей в workflow — ровно
+    1..N, а N в команде — число работ, а не второе число, которое можно забыть
+    поднять.
+    """
+    rt = sys.modules.get("run_tests") or importlib.import_module("run_tests")
+    suites = rt.SUITES
+    res.ok("наборы нашлись", len(suites) > 100, f"наборов {len(suites)}")
+    for n in (1, 2, 3, 4, 7):
+        parts = [rt.part(suites, k, n) for k in range(1, n + 1)]
+        ids = [id(s) for p in parts for s in p]
+        res.ok(f"n={n}: каждый набор ровно в одной части",
+               sorted(ids) == sorted(id(s) for s in suites),
+               f"в частях {len(ids)}, наборов {len(suites)}")
+        sizes = [len(p) for p in parts]
+        res.ok(f"n={n}: части ровные (разница не больше одного)",
+               max(sizes) - min(sizes) <= 1, str(sizes))
+    for bad in ((0, 3), (4, 3), (1, 0)):
+        try:
+            rt.part(suites, *bad)
+            res.ok(f"часть {bad[0]}/{bad[1]} отвергнута", False, "прошла")
+        except ValueError:
+            res.ok(f"часть {bad[0]}/{bad[1]} отвергнута", True)
+
+    wf = _workflow()
+    m = re.search(r"^\s*part:\s*\[([^\]]*)\]", wf, re.M)
+    res.ok("в workflow есть список частей движка", m is not None, "нет `part: [...]`")
+    got = [int(x) for x in m.group(1).split(",")] if m else []
+    res.check("список частей — ровно 1..N подряд", got, list(range(1, len(got) + 1)))
+    res.ok("частей больше одной", len(got) > 1, str(got))
+    run = r"tests\run_tests.py --part ${{ matrix.part }}/${{ strategy.job-total }}"
+    res.ok("часть гонится с N = числом работ", run in wf, f"нет строки {run!r}")
+    # облако зовёт свой tests/run_tests.py через «/», движок — через «\»
+    res.ok("полного прогона движка без --part нет",
+           not re.search(r"tests\\run_tests\.py\s*$", wf, re.M), "")
+
+
+def suite_ci_mutation(res: Result) -> None:
+    """Мутация в CI — только когда тронуты сторожа, правило одно с `dev test` (10.11).
+
+    ⛔ Ошибка в сторону «не гнать» молчит: сторож сломан, мутации нет, всё
+    зелёное. Поэтому каждый неясный случай обязан давать «гнать», и пары ниже
+    это держат так же, как случай «не нужно».
+    """
+    sys.path.insert(0, str(ROOT / "scripts"))
+    dev = importlib.import_module("dev")
+    res.check("сторожа в рабочем дереве (как пишет git status на Windows)",
+              dev.guards_in([r"tests\mutate.py", "tests/test_structure.py",
+                             "scripts/mutate.py", "tests/test_dev.py"]),
+              [r"tests\mutate.py", "tests/test_structure.py"])
+    # событие → база
+    sha = "a" * 40
+    res.check("push — before события", dev.ci_base("push", {"before": sha}), sha)
+    res.check("push новой ветки (нули) — гнать", dev.ci_base("push", {"before": "0" * 40}), None)
+    res.check("push без before — гнать", dev.ci_base("push", {}), None)
+    res.check("PR — база PR",
+              dev.ci_base("pull_request", {"pull_request": {"base": {"sha": sha}}}), sha)
+    res.check("ручной запуск — родитель", dev.ci_base("workflow_dispatch", {"inputs": {}}), "HEAD^")
+    res.check("ручной с галкой — гнать",
+              dev.ci_base("workflow_dispatch", {"inputs": {"mutation": "true"}}), None)
+    res.check("ручной с галкой булевой — гнать",
+              dev.ci_base("workflow_dispatch", {"inputs": {"mutation": True}}), None)
+    res.check("ночь — гнать", dev.ci_base("schedule", {}), None)
+    res.check("неизвестное событие — гнать", dev.ci_base("merge_group", {}), None)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = pathlib.Path(tmp) / "repo"
+        repo.mkdir()
+        empty = pathlib.Path(tmp) / "empty.gitconfig"
+        empty.write_text("", encoding="utf-8")
+        env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": str(empty),
+               "GIT_AUTHOR_NAME": "dp", "GIT_AUTHOR_EMAIL": "dp@example.invalid",
+               "GIT_COMMITTER_NAME": "dp", "GIT_COMMITTER_EMAIL": "dp@example.invalid"}
+
+        def git(*args: str) -> str:
+            return subprocess.run(["git", *args], cwd=repo, env=env, check=True,
+                                  capture_output=True, text=True).stdout.strip()
+
+        def commit(files: dict) -> str:
+            for rel, text in files.items():
+                (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+                (repo / rel).write_text(text, encoding="utf-8")
+            git("add", "-A")
+            git("commit", "-q", "-m", "x")
+            return git("rev-parse", "HEAD")
+
+        git("init", "-q")
+        base = commit({"tests/mutate.py": "1\n", "tests/test_structure.py": "1\n",
+                       "tests/test_dev.py": "1\n", "scripts/mutate.py": "1\n"})
+        other = commit({"tests/test_dev.py": "2\n", "scripts/mutate.py": "2\n"})
+        guard = commit({"tests/mutate.py": "2\n"})
+        real = dev.ROOT
+        dev.ROOT = repo
+        old_env = {k: os.environ.get(k) for k in ("GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL")}
+        os.environ.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": str(empty)})
+        try:
+            res.check("правка не сторожей (и mutate.py вне tests/) — не гнать",
+                      dev.mutation_needed(base, other)[0], False)
+            res.check("правка mutate.py — гнать", dev.mutation_needed(other, guard)[0], True)
+            res.check("пуш из нескольких коммитов: сторож в середине — гнать",
+                      dev.mutation_needed(base, guard)[0], True)
+            res.check("ручной запуск: HEAD^ видит последний коммит (сторож) — гнать",
+                      dev.mutation_needed("HEAD^")[0], True)
+            res.check("неизвестная база (force-push, мелкий клон) — гнать",
+                      dev.mutation_needed("f" * 40)[0], True)
+            res.check("базы нет — гнать", dev.mutation_needed(None)[0], True)
+        finally:
+            dev.ROOT = real
+            for k, v in old_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    wf = _workflow()
+    res.ok("работа мутации ждёт решения `dev.py ci-mutate`",
+           "scripts/dev.py ci-mutate" in wf
+           and "if: needs.guards.outputs.mutate == 'true'" in wf, "")
+    res.ok("ночное расписание есть", re.search(r"^\s*schedule:\s*$", wf, re.M) is not None, "")

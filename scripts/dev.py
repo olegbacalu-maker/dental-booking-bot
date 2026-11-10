@@ -7,6 +7,7 @@ r"""Рутина разработки одной командой. Звать ч
     .\dev bench [фильтр]  стенды в живом Edge: переходы, сдвиги, ожидание, F5, монтаж, права,
                           карточка визита
     .\dev memory          сколько памяти грузится в КАЖДУЮ сессию и не пора ли резать
+    .\dev ci-mutate [база] (для CI) гнать ли мутацию: тронуты ли сторожа с базы
 
 Зачем скрипт, если команды и так известны. Инструкция «в такой ситуации запусти
 это, в такой другое» — спецификация программы, а не документ для человека:
@@ -131,13 +132,24 @@ def run(cmd: list, cwd: pathlib.Path = ROOT, env: dict | None = None) -> int:
 
 # ---------- test ----------
 
+# Сторожа: тронут любой из них — мутация обязательна. Правило ОДНО на две
+# двери: `test` здесь (рабочее дерево) и работа CI «Мутация сторожей»
+# (`ci-mutate`, разница коммитов) — 10.11, мутация в CI по правилу.
+GUARD_FILES = ("test_structure.py", "mutate.py")
+
+
+def guards_in(paths) -> list[str]:
+    """Пути сторожей среди `paths` (как их пишет git: от корня `app`)."""
+    return [f for f in paths
+            if f.replace("\\", "/").startswith("tests/")
+            and pathlib.Path(f).name in GUARD_FILES]
+
+
 def cmd_test(argv: list) -> int:
     """Прогон. Если тронуты сторожа — сперва мутация: их правит не тот, кто
     помнит правило из инструкции, а тот, кто правит код."""
     touched = [ln[3:] for ln in git("status", "--porcelain").splitlines()]
-    guards = [f for f in touched
-              if f.replace("\\", "/").startswith("tests/")
-              and pathlib.Path(f).name in ("test_structure.py", "mutate.py")]
+    guards = guards_in(touched)
     if guards:
         print(f"Тронуты сторожа ({', '.join(pathlib.Path(g).name for g in guards)})"
               " — сперва мутация.\n")
@@ -151,6 +163,74 @@ def cmd_test(argv: list) -> int:
 
 def cmd_mutate(argv: list) -> int:
     return run([PYTHON, TESTS / "mutate.py", *argv])
+
+
+# ---------- ci-mutate ----------
+#
+# Мутация сторожей — около четверти часа на раннере. До 10.11 CI гнал её на
+# каждый пуш, и прогон с мутацией дважды не уложился в 45 минут (2.14.1). Теперь
+# работа «Мутация сторожей» идёт, только если сторожа тронуты (то же правило,
+# что у `test`), и раз в сутки ночью — целиком, по расписанию.
+# ⛔ При неясности — гнать: пропущенная мутация, которая была нужна, молчит
+# (сторож сломан, а всё зелёное), лишняя стоит только времени.
+
+ZERO_SHA = "0" * 40
+
+
+def ci_base(event_name: str, event: dict) -> str | None:
+    """С чем сравнивать коммит прогона; `None` — сравнивать не с чем, гнать.
+
+    push — `before` события (весь пуш, а не последний коммит; нули — новая
+    ветка); pull_request — база PR; workflow_dispatch — родитель (`HEAD^`), а
+    флаг `mutation` формы — гнать без вопросов; schedule и всё прочее — гнать."""
+    if event_name == "push":
+        before = event.get("before") or ""
+        return None if not before or before == ZERO_SHA else before
+    if event_name == "pull_request":
+        return ((event.get("pull_request") or {}).get("base") or {}).get("sha") or None
+    if event_name == "workflow_dispatch":
+        flag = str((event.get("inputs") or {}).get("mutation", "")).lower()
+        return None if flag == "true" else "HEAD^"
+    return None
+
+
+def mutation_needed(base: str | None, head: str = "HEAD") -> tuple[bool, str]:
+    """(гнать ли, почему). Решает `guards_in` по `git diff base head`."""
+    if base is None:
+        return True, "сравнивать не с чем — мутация целиком"
+    r = subprocess.run(["git", "diff", "--name-only", base, head], cwd=str(ROOT),
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.returncode != 0:
+        why = (r.stderr or "").strip().splitlines()[:1]
+        return True, f"разница с {base} не считается ({'; '.join(why)}) — гоню"
+    guards = guards_in(r.stdout.splitlines())
+    if guards:
+        return True, f"тронуты сторожа с {base}: {', '.join(guards)}"
+    return False, f"сторожа с {base} не тронуты — мутация не нужна"
+
+
+def cmd_ci_mutate(argv: list) -> int:
+    """Для работы CI: печатает решение и пишет `mutate=true|false` в
+    $GITHUB_OUTPUT. База — аргументом или из события ($GITHUB_EVENT_NAME,
+    $GITHUB_EVENT_PATH)."""
+    if argv:
+        base = None if argv[0] in ("", "full") else argv[0]
+    else:
+        import json
+        event = {}
+        path = os.environ.get("GITHUB_EVENT_PATH")
+        if path and pathlib.Path(path).is_file():
+            event = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+        base = ci_base(os.environ.get("GITHUB_EVENT_NAME", ""), event)
+    need, why = mutation_needed(base)
+    print(why)
+    line = f"mutate={'true' if need else 'false'}"
+    print(line)
+    out = os.environ.get("GITHUB_OUTPUT")
+    if out:
+        with open(out, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    return 0
 
 
 # ---------- up ----------
@@ -702,7 +782,8 @@ def cmd_bench(argv: list) -> int:
 # ---------- точка входа ----------
 
 COMMANDS = {"test": cmd_test, "mutate": cmd_mutate, "up": cmd_up,
-            "check": cmd_check, "memory": cmd_memory, "bench": cmd_bench}
+            "check": cmd_check, "memory": cmd_memory, "bench": cmd_bench,
+            "ci-mutate": cmd_ci_mutate}
 
 
 def main(argv: list) -> int:
