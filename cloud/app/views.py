@@ -37,6 +37,17 @@ MSG = {
     "revoke_issue": ("err", "Лицензия отозвана: файл выдаёт только «Вернуть лицензию»"),
     "revoke_pay": ("err", "Лицензия отозвана: ноту абонемента не выставить — сперва «Вернуть лицензию»"),
     "revoke_add": ("err", "В кабинете есть клиника с отозванной лицензией — новую клинику не завести"),
+    # архив клиник (11.11, archive.py)
+    "archived": ("ok", "Клиника в архиве: вне списка, фильтров и писем о сроке. Файл программы архив не отзывает"),
+    "unarchived": ("ok", "Клиника возвращена из архива"),
+    "deleted": ("ok", "Клиника удалена навсегда: IDNO, e-mail и компьютер освобождены; в журнале — строка об удалении"),
+    "archive_already": ("err", "Клиника уже в архиве"),
+    "archive_not": ("err", "Клиника не в архиве — удалить навсегда можно только из архива"),
+    "delete_reason": ("err", "Впишите причину удаления — она остаётся в журнале"),
+    "delete_word": ("err", "Для удаления впишите слово УДАЛИТЬ"),
+    "delete_blocked": ("err", "Удалить нельзя: на клинике держатся деньги, отправленные SMS или подписанные бумаги — "
+                              "она остаётся в архиве (что именно — во вкладке «Архив»)"),
+    "delete_gone": ("err", "Такой клиники уже нет"),
     "issued": ("ok", "Файл выдан"),
     "issued_mailed": ("ok", "Файл выдан, письмо о лицензии отправлено (без файла: программа забирает его сама)"),
     "mailed": ("ok", "Письмо о лицензии отправлено"),
@@ -192,6 +203,8 @@ button:not(.primary):hover{border-color:var(--teal);color:var(--teal-d)}
 button.bad:not(.primary){background:#B91C1C;border-color:#B91C1C;color:#fff;font-weight:600}button.bad:not(.primary):hover{background:#991B1B;border-color:#991B1B;color:#fff}
 .card.revoked{border-color:#FCA5A5;background:linear-gradient(180deg,#FEF2F2,#fff 70%)}.card.revoked h2{color:#991B1B}
 .card.revoked .chead .ico{background:#FEE2E2;color:#B91C1C}
+.warnbox{background:#FFFBEB;border:1px solid #F1D79E;color:#92400E;border-radius:10px;padding:10px 12px;margin:0 0 10px;font-size:13.5px}
+a.btn.bad{background:#B91C1C;border-color:#B91C1C}a.btn.bad:hover{background:#991B1B;border-color:#991B1B}
 .actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .actions form{display:inline-flex;gap:6px;align-items:center;margin:0}
 .actions input{width:150px;padding:7px 10px;font-size:13px}
@@ -367,9 +380,11 @@ def _email_tag(c) -> str:
 
 
 def clinics_page(rows: list, user: str, msg: str = "", requests: list = (), state: str = "",
-                 pending: int = 0, names: int = 0) -> str:
+                 pending: int = 0, names: int = 0, archived: list = (), lives: dict | None = None) -> str:
     """Клиники (17.10 — вкладки): «Клиники» со счётчиками-фильтрами состояний и «+ Новая клиника»
-    за кнопкой; «Заявки на пробный» со счётчиком «ждёт»."""
+    за кнопкой; «Заявки на пробный» со счётчиком «ждёт»; «Архив» (11.11) — [(клиника, что не даёт удалить,
+    до какой даты работает программа)]. `rows` — только клиники вне архива; `lives` — то же «до» у них."""
+    lives = lives or {}
     now = datetime.now(timezone.utc)
     requests = list(requests)
     states = {r["id"]: "revoked" if _revoked(r) else license.state(_ts(r["valid_until"]), r["grace_days"] or 0, now)
@@ -383,8 +398,8 @@ def clinics_page(rows: list, user: str, msg: str = "", requests: list = (), stat
         f"<tr><td><a href='/admin/clinics/{esc(r['id'])}'>{esc(r['name'])}</a>{_email_tag(r)}</td>"
         f"<td class='mono'>{esc(r['idno'] or '—')}</td><td>{esc(r['plan'] or '—')}</td>"
         f"<td>{_d(r['valid_until'])}</td><td>{_tag(states[r['id']])}</td>"
-        f"<td>{r['seq'] or 0}{_renew_short(r)}</td></tr>"
-        for r in shown) or (f"<tr><td colspan='6' class='muted'>{'Пока ни одной клиники' if not rows else 'Клиник в этом состоянии нет'}</td></tr>")
+        f"<td>{r['seq'] or 0}{_renew_short(r)}</td><td>{_archive_form(r, lives.get(r['id'], ''))}</td></tr>"
+        for r in shown) or (f"<tr><td colspan='7' class='muted'>{'Пока ни одной клиники' if not rows else 'Клиник в этом состоянии нет'}</td></tr>")
     chips = _chips([("", f"Все {len(rows)}", "/admin")]
                    + [(k, f"{STATE_RU[k][1]} {n}", f"/admin?state={k}") for k, n in counts.items()], state)
     chips = chips.replace("<div class='chips'>", "<div class='chips'><span class='muted'>Состояния:</span>", 1)
@@ -403,12 +418,65 @@ def clinics_page(rows: list, user: str, msg: str = "", requests: list = (), stat
     table = (f"<div class='acts'>{_drop('+ Новая клиника', form, primary=True)}</div>{chips}"
              f"<div class='card'>{_chead('list', f'Все клиники ({len(rows)})', 'нажмите на состояние выше, чтобы оставить только такие', daily)}"
              "<table><tr><th>Клиника</th><th>IDNO</th><th>Тариф</th>"
-             f"<th>Срок до</th><th>Состояние</th><th>Файлов</th></tr>{trs}</table></div>")
+             f"<th>Срок до</th><th>Состояние</th><th>Файлов</th><th></th></tr>{trs}</table></div>")
     reqs = _requests_block(requests) or "<div class='calm'>Новых заявок на пробный период нет</div>"
+    archived = list(archived)
     body = _tabbed([("list", f"Клиники <span class='c'>{len(rows)}</span>", table, 0),
-                    ("requests", "Заявки на пробный", reqs, len(requests))])
+                    ("requests", "Заявки на пробный", reqs, len(requests)),
+                    ("archive", f"Архив <span class='c'>{len(archived)}</span>", _archive_pane(archived), 0)])
     return page("Клиники", body, user, msg, pending=pending, active="clinics", names=names,
                 lead="Клиники, их файлы лицензии и заявки на пробный период.")
+
+
+def _archive_form(c, live: str) -> str:
+    """«В архив» в строке списка (11.11, archive.py): действующий файл — предупреждение и «Сначала отозвать»."""
+    cid = esc(c["id"])
+    warn = (f"<p class='warnbox'><b>Лицензия действует</b> — программа работает до {esc(live)}. Архив её НЕ отзывает: "
+            f"программа клиники работает как работала.</p>" if live else "")
+    revoke_link = (f"<a class='btn bad' href='/admin/clinics/{cid}#lic'>Сначала отозвать лицензию</a> " if live else "")
+    form = (f"<form method='post' action='/admin/clinics/{cid}/archive'>{warn}"
+            f"<p class='muted' style='margin:0 0 8px'>Клиника уходит во вкладку «Архив»: вне списка, фильтров и цифр, писем "
+            f"о сроке нет; IDNO, e-mail и компьютер остаются за ней. «Вернуть из архива» — в любой момент.</p>"
+            f"<label>Причина (для журнала)</label><input name='reason' maxlength='300'>"
+            f"<p style='margin:12px 0 0;display:flex;gap:8px;flex-wrap:wrap'>{revoke_link}"
+            f"<button class='primary'>{'Всё равно в архив' if live else 'В архив'}</button></p></form>")
+    return _drop("В архив", form)
+
+
+def _archive_pane(archived: list) -> str:
+    """Вкладка «Архив»: дата, причина, «Вернуть из архива», «Удалить навсегда» — или почему нельзя."""
+    if not archived:
+        return "<div class='calm'>В архиве пусто</div>"
+    trs = []
+    for c, stop, live in archived:
+        cid = esc(c["id"])
+        back = (f"<form method='post' action='/admin/clinics/{cid}/unarchive' style='margin:0'>"
+                f"<button>Вернуть из архива</button></form>")
+        if stop:
+            why = ", ".join(f"{esc(label)}: {n}" for label, n in stop)
+            gone = (f"<span class='tag bad' title='денежные документы, SMS и подписанные бумаги хранятся'>"
+                    f"удалить нельзя — {why}</span>")
+        else:
+            warn = (f"<p class='warnbox'>Лицензия действует до {esc(live)}: после удаления отозвать её уже нельзя, "
+                    f"программа доработает до срока + льготы. Нужно раньше — сначала «Вернуть из архива» и «Отозвать».</p>"
+                    if live else "")
+            form = (f"<form method='post' action='/admin/clinics/{cid}/delete'>{warn}"
+                    f"<p class='muted' style='margin:0 0 8px'>Стирается клиника и всё, что на ней держится: файлы "
+                    f"лицензии, компьютеры, привязки кабинета, заявки, коды, ссылки, напоминания, SMS-настройки, акты "
+                    f"акцепта. IDNO <span class='mono'>{esc(c['idno'] or '—')}</span>, e-mail и компьютер освобождаются. "
+                    f"Учётная запись кабинета остаётся. В журнале — строка «клиника удалена».</p>"
+                    f"<label>Причина (обязательно)</label><input name='reason' maxlength='300' required>"
+                    f"<label>Впишите <b>УДАЛИТЬ</b>, чтобы подтвердить</label>"
+                    f"<input name='confirm' autocomplete='off' required placeholder='УДАЛИТЬ'>"
+                    f"<p style='margin:12px 0 0'><button class='bad'>Удалить навсегда</button></p></form>")
+            gone = _drop("Удалить навсегда…", form)
+        trs.append(f"<tr><td><a href='/admin/clinics/{cid}'>{esc(c['name'])}</a></td>"
+                   f"<td class='mono'>{esc(c['idno'] or '—')}</td><td>{esc(c['plan'] or '—')}</td>"
+                   f"<td>{_d(c['archived_at'])}</td><td>{esc(c['archived_reason'] or '—')}</td>"
+                   f"<td><div class='acts' style='margin:0'>{back}{gone}</div></td></tr>")
+    return (f"<div class='card'>{_chead('list', f'Архив ({len(archived)})', 'клиники вне списка, фильтров и цифр; удалить навсегда — только отсюда')}"
+            f"<table><tr><th>Клиника</th><th>IDNO</th><th>Тариф</th><th>В архиве с</th><th>Причина</th><th></th></tr>"
+            f"{''.join(trs)}</table></div>")
 
 
 # ---------- форма пробного периода (L14): публичные страницы, по-румынски ----------
@@ -1170,6 +1238,8 @@ AUDIT_RU = {
     "trial_declined": ("заявка скрыта", "lic"), "trial_duplicate": ("повторная заявка", "lic"),
     "trial_no_key": ("пробный не выдан", "lic"), "add_no_key": ("файл новой клинике не выдан", "lic"),
     "revoke": ("лицензия отозвана", "lic"), "restore": ("лицензия возвращена", "lic"),
+    "archive": ("клиника в архиве", "adm"), "unarchive": ("клиника из архива", "adm"),
+    "clinic_deleted": ("клиника удалена навсегда", "adm"), "delete_refused": ("удаление запрещено", "adm"),
     "payment_revoked": ("оплата при отозванной лицензии — срок не продлён", "pay"),
     "sms_sender": ("имя SMS", "sms"), "sms_toggle": ("SMS вкл./выкл.", "sms"), "sms_cap": ("потолок SMS", "sms"),
     "sms_credit": ("SMS начислены", "sms"), "sms_custom": ("свой текст SMS", "sms"), "sms_pack": ("пакет SMS", "sms"),
@@ -1641,7 +1711,15 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
     body = _tabbed([(k, t, panes[k], count.get(k, 0)) for k, t in CLINIC_TABS])
     plan_txt = (esc(sub["plan"]) + ("" if sub["plan"] == "trial" else " · " + esc(tiers.NAME[tiers.current(sub)]))
                 if sub else "без файла")
-    lead = f"{_tag('revoked' if _revoked(c) else st)} <span class='muted'>{plan_txt} · срок до {_d(sub['valid_until']) if sub else '—'} · IDNO {esc(c['idno'] or '—')}</span>"
+    arch = ""
+    if "archived_at" in c.keys() and c["archived_at"]:
+        arch = (f"<div class='card'>{_chead('list', 'Клиника в архиве', esc(c['archived_at'][:16].replace('T', ' ')) + ' UTC · ' + esc(c['archived_by'] or '—'))}"
+                f"<p style='margin:0 0 10px'><b>Причина:</b> {esc(c['archived_reason'] or '—')}</p>"
+                f"<form method='post' action='/admin/clinics/{cid}/unarchive' style='margin:0'>"
+                f"<button>Вернуть из архива</button></form></div>")
+        body = body.replace("<section class='pane' data-pane='overview'>", "<section class='pane' data-pane='overview'>" + arch, 1)
+    lead = (("<span class='tag mute'>в архиве</span> " if arch else "")
+            + f"{_tag('revoked' if _revoked(c) else st)} <span class='muted'>{plan_txt} · срок до {_d(sub['valid_until']) if sub else '—'} · IDNO {esc(c['idno'] or '—')}</span>")
     return page(c["name"], body, user, msg, pending=pending, active="clinics", lead=lead, names=names)
 
 

@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta, timezone
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import (account, auth, cabinet, config, contracts, db, fleet, jobs, license, payments, revoke, sms, sms_paper,
+from . import (account, archive, auth, cabinet, config, contracts, db, fleet, jobs, license, payments, revoke, sms, sms_paper,
                sms_rule, smsmd, smsreport, terms, trial, views, web)
 
 log = logging.getLogger("cloud")
@@ -63,12 +63,15 @@ _CLINICS_SQL = """SELECT c.*, s.plan, s.valid_until, s.grace_days,
                          (SELECT MAX(seq) FROM issues i WHERE i.clinic_id = c.id) AS seq
                   FROM clinics c LEFT JOIN subscriptions s ON s.clinic_id = c.id
                   ORDER BY c.created_at DESC"""
+# архив (archive.py): клиники вне списка, фильтров и цифр — своей вкладкой, с тем, что не даёт удалить
+_ARCHIVE_SQL = _CLINICS_SQL.replace("ORDER BY c.created_at DESC", "WHERE c.archived_at IS NOT NULL ORDER BY c.archived_at DESC")
+_CLINICS_SQL = _CLINICS_SQL.replace("ORDER BY c.created_at DESC", "WHERE c.archived_at IS NULL ORDER BY c.created_at DESC")
 
 
 # происхождения заявок — из trial.ORIGINS, а не перечислением: «Adaugă clinică» (cont_add, 26.10) иначе
 # не попала бы в очередь, а без ключа выдачи (account.start_paid) её файл ждёт Олега
 _REQUESTS_SQL = (f"SELECT c.* FROM clinics c WHERE c.origin IN ({', '.join(repr(o) for o in trial.ORIGINS)}) "
-                 "AND c.declined_at IS NULL AND NOT EXISTS (SELECT 1 FROM issues i WHERE i.clinic_id = c.id) "
+                 "AND c.declined_at IS NULL AND c.archived_at IS NULL AND NOT EXISTS (SELECT 1 FROM issues i WHERE i.clinic_id = c.id) "
                  "ORDER BY c.requested_at DESC")
 
 
@@ -80,8 +83,55 @@ def clinics(request: Request, msg: str = "", state: str = "") -> Response:
         rows = con.execute(_CLINICS_SQL).fetchall()
         requests = con.execute(_REQUESTS_SQL).fetchall()
         pending, names = web.pending_count(con), web.names_count(con)
+        lives = {r["id"]: archive.live_until(con, r) for r in rows}
+        archived = [(r, archive.blockers(con, r["id"]), archive.live_until(con, r))
+                    for r in con.execute(_ARCHIVE_SQL).fetchall()]
     return HTMLResponse(views.clinics_page(rows, auth.current_user(request), msg, requests=requests, state=state,
-                                           pending=pending, names=names))
+                                           pending=pending, names=names, archived=archived, lives=lives))
+
+
+@router.post("/admin/clinics/{cid}/archive")
+def clinic_archive(request: Request, cid: str, reason: str = Form("")) -> Response:
+    """«В архив» (11.11, archive.py): метка; действующий файл не отзывается — окно предлагает «Отозвать» раньше."""
+    if (deny := web.guard(request)) is not None:
+        return deny
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    with db.connect(immediate=True) as con:
+        c = web.clinic(con, cid)
+        if c is None:
+            return Response(status_code=404)
+        code = archive.archive(con, c, reason, auth.current_user(request))
+    return RedirectResponse(f"/admin?msg={code}", status_code=303)
+
+
+@router.post("/admin/clinics/{cid}/unarchive")
+def clinic_unarchive(request: Request, cid: str) -> Response:
+    if (deny := web.guard(request)) is not None:
+        return deny
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    with db.connect(immediate=True) as con:
+        c = web.clinic(con, cid)
+        if c is None:
+            return Response(status_code=404)
+        code = archive.unarchive(con, c, auth.current_user(request))
+    return RedirectResponse(f"/admin?msg={code}", status_code=303)
+
+
+@router.post("/admin/clinics/{cid}/delete")
+def clinic_delete(request: Request, cid: str, reason: str = Form(""), confirm: str = Form("")) -> Response:
+    """«Удалить навсегда» — только из архива; можно ли, решает живая база в этой транзакции (archive.blockers)."""
+    if (deny := web.guard(request)) is not None:
+        return deny
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    with db.connect(immediate=True) as con:
+        c = web.clinic(con, cid)
+        if c is None:
+            return RedirectResponse("/admin?msg=delete_gone", status_code=303)
+        code = archive.delete(con, c, reason, confirm, auth.current_user(request))
+    return RedirectResponse(f"/admin?msg={code}", status_code=303)
 
 
 @router.post("/admin/clinics/{cid}/decline")

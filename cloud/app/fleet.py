@@ -103,7 +103,8 @@ def behind(version: str, latest: str) -> bool:
 _ROWS = """SELECT d.*, c.name AS clinic, s.plan, s.valid_until, s.grace_days
            FROM devices d JOIN clinics c ON c.id = d.clinic_id
            LEFT JOIN subscriptions s ON s.clinic_id = c.id
-           ORDER BY d.last_seen_at DESC"""
+           WHERE c.archived_at IS NULL
+           ORDER BY d.last_seen_at DESC"""     # архивные (archive.py) — вне флота и его цифр
 
 
 def report(con: sqlite3.Connection, now: datetime | None = None) -> dict:

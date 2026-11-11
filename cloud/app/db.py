@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 23
 TS = "%Y-%m-%dT%H:%M:%SZ"
 
 
@@ -46,6 +46,16 @@ def _add_revoked(con: sqlite3.Connection) -> None:
     have = {r[1] for r in con.execute("PRAGMA table_info(clinics)")}
     for col, ddl in (("revoked_at", "TEXT"), ("revoked_by", "TEXT NOT NULL DEFAULT ''"),
                      ("revoked_reason", "TEXT NOT NULL DEFAULT ''"), ("revoked_seq", "INTEGER")):
+        if col not in have:
+            con.execute(f"ALTER TABLE clinics ADD COLUMN {col} {ddl}")
+
+
+def _add_archived(con: sqlite3.Connection) -> None:
+    """Шаг 23 (11.11, Олег «Да, с умолчаниями»): архив клиник (archive.py) — когда, кто, почему. Функцией, как
+    шаги 21–22: переживает повтор."""
+    have = {r[1] for r in con.execute("PRAGMA table_info(clinics)")}
+    for col, ddl in (("archived_at", "TEXT"), ("archived_by", "TEXT NOT NULL DEFAULT ''"),
+                     ("archived_reason", "TEXT NOT NULL DEFAULT ''")):
         if col not in have:
             con.execute(f"ALTER TABLE clinics ADD COLUMN {col} {ddl}")
 
@@ -364,6 +374,9 @@ MIGRATIONS = {
     # Отзыв лицензии (11.11, revoke.py): программа уходит в «только чтение» файлом со сроком «сейчас»;
     # строка клиники помнит, кто, когда и почему отозвал, и номер файла отзыва. Пусто — не отозвана.
     22: [_add_revoked],
+    # Архив клиник (11.11, archive.py): метка на строке — клиника вне списка, фильтров, цифр и писем ежедневной задачи;
+    # удалить навсегда — только из архива и только без денег, SMS и подписанных бумаг. Пусто — не в архиве.
+    23: [_add_archived],
 }
 
 

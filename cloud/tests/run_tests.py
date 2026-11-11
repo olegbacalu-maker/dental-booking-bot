@@ -15,6 +15,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import test_account  # noqa: E402
 import test_branches  # noqa: E402
 import test_admin  # noqa: E402
+import test_archive  # noqa: E402
 import test_clinics  # noqa: E402
 import test_contlink  # noqa: E402
 import test_contract  # noqa: E402
@@ -120,6 +121,10 @@ SUITES = [
     ("Отзыв лицензии: IDNO, ящик и компьютер заняты — нового пробного нет", test_revoke.suite_doors),
     ("Отзыв лицензии: «Вернуть» — прежний срок; срок прошёл — без файла", test_revoke.suite_restore),
     ("Отзыв лицензии: шаг схемы 22 переживает повтор", test_revoke.suite_schema),
+    ("Архив клиник: шаг схемы 23; каждая ссылка на клинику названа", test_archive.suite_schema),
+    ("Архив клиник: вне списка, флота и писем; файл не отозван; IDNO, ящик и ПК заняты", test_archive.suite_archive),
+    ("Архив клиник: удалить навсегда — слово, причина, всё стёрто, IDNO свободен, журнал", test_archive.suite_delete),
+    ("Архив клиник: деньги, SMS и подписанное запрещают удаление — по живой базе", test_archive.suite_blockers),
     ("Сервер: лимиты заявки и проверки кода — старые ключи выметаются", test_trial.suite_hits_sweep),
     ("Сервер: форма пробного — auto, один пробный на IDNO/e-mail, спам", test_trial.suite_auto),
     ("Сервер: форма пробного — approve, кнопки, скрыть", test_trial.suite_approve),
