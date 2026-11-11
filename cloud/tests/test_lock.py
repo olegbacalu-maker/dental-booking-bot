@@ -111,7 +111,7 @@ def waits(res: Result, s: Server, label: str, call, want: int) -> None:
 
 
 def _clinic(c: Client, **over) -> str:
-    fields = dict(name="Clinica Lacat", idno="1234567890123", contact_name="Ion",
+    fields = dict(name="Clinica Lacat", idno="1234567890122", contact_name="Ion",
                   email="lacat@example.md", phone="")
     fields.update(over)
     return cid_from(c.post("/admin/clinics", **fields).location)
@@ -222,7 +222,7 @@ def suite_pages(res: Result) -> None:
         c = Client(s.url).login()
         cid = _clinic(c)
         c.post(f"/admin/clinics/{cid}/issue", kind="trial")
-        fields = dict(name="Clinica Lacat Nou", idno="1234567890123", contact_name="Ion", phone="022000111",
+        fields = dict(name="Clinica Lacat Nou", idno="1234567890122", contact_name="Ion", phone="022000111",
                       address="str. Test 1")
         cab = _enter(s, "lacat@example.md")
         res.ok("кабинет открыт на клинике из админки", cab.get("/cont").status == 200)

@@ -10,8 +10,8 @@ from datetime import date, datetime, timedelta, timezone
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import (account, auth, cabinet, config, contracts, db, fleet, jobs, license, payments, sms, sms_paper, sms_rule,
-               smsmd, smsreport, terms, trial, views, web)
+from . import (account, auth, cabinet, config, contracts, db, fleet, jobs, license, payments, revoke, sms, sms_paper,
+               sms_rule, smsmd, smsreport, terms, trial, views, web)
 
 log = logging.getLogger("cloud")
 router = APIRouter()
@@ -192,6 +192,8 @@ def clinic_sibling(request: Request, cid: str, name: str = Form(""), address: st
             return Response(status_code=404)
         if not account.of_clinic(con, cid):
             return RedirectResponse(f"/admin/clinics/{cid}?msg=sibling_no_cabinet", status_code=303)
+        if revoke.in_cabinet(con, cid):
+            return RedirectResponse(f"/admin/clinics/{cid}?msg=revoke_add", status_code=303)
         outcome, new = account.add_sibling(con, c, f, auth.current_user(request))
     if outcome == trial.DUPLICATE:
         return RedirectResponse(f"/admin/clinics/{cid}?msg=sibling_duplicate", status_code=303)
@@ -470,6 +472,9 @@ def clinic_issue(request: Request, cid: str, kind: str = Form("trial"), valid_un
         c = web.clinic(con, cid)
         if c is None:
             return Response(status_code=404)
+        if revoke.is_revoked(c):
+            # поверх отзыва — только «Вернуть»: ручная выдача молча сняла бы отзыв, оставив отметку
+            return RedirectResponse(f"/admin/clinics/{cid}?msg=revoke_issue", status_code=303)
         if kind == "trial":
             plan, (valid, grace) = "trial", license.trial_dates()
         else:
@@ -491,6 +496,52 @@ def clinic_issue(request: Request, cid: str, kind: str = Form("trial"), valid_un
         if send == "1":
             box.add([(True, license.letter_latest(con, c, who))])
     code = (box.code or "issued_mailed") if send == "1" else "issued"
+    return RedirectResponse(f"/admin/clinics/{cid}?msg={code}", status_code=303)
+
+
+@router.post("/admin/clinics/{cid}/revoke")
+def clinic_revoke(request: Request, cid: str, reason: str = Form(""), confirm: str = Form(""),
+                  send: str = Form("")) -> Response:
+    """«Отозвать лицензию» (11.11, revoke.py): причина обязательна, подтверждение — вписанное слово
+    «ОТОЗВАТЬ»; письмо клинике — только галочкой (по умолчанию снята), после commit."""
+    if (deny := web.guard(request)) is not None:
+        return deny
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    who = auth.current_user(request)
+    with payments.outbox() as box, db.connect(immediate=True) as con:
+        c = web.clinic(con, cid)
+        if c is None:
+            return Response(status_code=404)
+        try:
+            code = revoke.revoke(con, c, reason, confirm, who)
+        except RuntimeError:
+            return RedirectResponse(f"/admin/clinics/{cid}?msg=no_key", status_code=303)
+        except ValueError as e:
+            return RedirectResponse(f"/admin/clinics/{cid}?msg=bad_{e}", status_code=303)
+        if code:
+            return RedirectResponse(f"/admin/clinics/{cid}?msg={code}", status_code=303)
+        if send == "1":
+            box.add([(True, revoke.letter(c, who))])
+    msg = (box.code or "revoked_mailed") if send == "1" else revoke.REVOKED
+    return RedirectResponse(f"/admin/clinics/{cid}?msg={msg}", status_code=303)
+
+
+@router.post("/admin/clinics/{cid}/restore")
+def clinic_restore(request: Request, cid: str, reason: str = Form("")) -> Response:
+    """«Вернуть лицензию»: файл с прежним сроком (revoke.restore); письма нет."""
+    if (deny := web.guard(request)) is not None:
+        return deny
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    with db.connect(immediate=True) as con:
+        c = web.clinic(con, cid)
+        if c is None:
+            return Response(status_code=404)
+        try:
+            code = revoke.restore(con, c, reason, auth.current_user(request))
+        except RuntimeError:
+            return RedirectResponse(f"/admin/clinics/{cid}?msg=no_key", status_code=303)
     return RedirectResponse(f"/admin/clinics/{cid}?msg={code}", status_code=303)
 
 

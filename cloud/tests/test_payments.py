@@ -21,7 +21,7 @@ rv = load_by_path("rsa_verify", ROOT / "bot" / "app" / "core" / "rsa_verify.py")
 KEY = __import__("json").loads((FIX / "test-key.json").read_text(encoding="utf-8"))
 KEYS = {"test": (int(KEY["n"], 16), int(KEY["e"]))}
 BANK_ENV = {"DP_BANK_BENEFICIARY": "Oleg Bacalu", "DP_BANK_IBAN": "MD00TEST0000000000000001",
-            "DP_BANK_NAME": "Banca Test", "DP_BANK_CODE": "1234567890123"}
+            "DP_BANK_NAME": "Banca Test", "DP_BANK_CODE": "1234567890122"}
 
 
 def _t(s: str) -> datetime:
@@ -45,7 +45,7 @@ def _sql(s: Server, sql: str, *args):
 
 
 def _clinic(c: Client, **over) -> str:
-    f = dict(name="Clinica Plată", idno="1234567890123", contact_name="Ion", email="plata@example.md", phone="")
+    f = dict(name="Clinica Plată", idno="1234567890122", contact_name="Ion", email="plata@example.md", phone="")
     f.update(over)
     return cid_from(c.post("/admin/clinics", **f).location)
 

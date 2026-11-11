@@ -23,6 +23,20 @@ MSG = {
     "sibling_no_cabinet": ("err", "В кабинет этой клиники ещё никто не входил — добавлять некуда"),
     "need_address": ("err", "Адрес обязателен: по нему клиники кабинета различают в списке"),
     "saved": ("ok", "Сохранено"),
+    # отзыв лицензии (11.11, revoke.py)
+    "revoked": ("ok", "Лицензия отозвана: файл со сроком «сейчас» выдан — программа уйдёт в «только чтение» при "
+                      "следующей связи (старт, раз в сутки, «Verifică acum»); SMS выключены сразу"),
+    "revoked_mailed": ("ok", "Лицензия отозвана, письмо клинике отправлено"),
+    "restored": ("ok", "Лицензия возвращена: выдан файл с прежним сроком — программа заберёт его сама"),
+    "restored_expired": ("ok", "Отзыв снят, но срок до отзыва уже прошёл — файл не выдан: оплата или «Выдать вручную»"),
+    "revoke_reason": ("err", "Впишите причину отзыва — она остаётся в журнале"),
+    "revoke_word": ("err", "Для отзыва впишите слово ОТОЗВАТЬ"),
+    "revoke_no_file": ("err", "Файла лицензии у клиники нет — отзывать нечего; заявку без файла — «Скрыть»"),
+    "revoke_already": ("err", "Лицензия уже отозвана"),
+    "revoke_not": ("err", "Лицензия не отозвана — возвращать нечего"),
+    "revoke_issue": ("err", "Лицензия отозвана: файл выдаёт только «Вернуть лицензию»"),
+    "revoke_pay": ("err", "Лицензия отозвана: ноту абонемента не выставить — сперва «Вернуть лицензию»"),
+    "revoke_add": ("err", "В кабинете есть клиника с отозванной лицензией — новую клинику не завести"),
     "issued": ("ok", "Файл выдан"),
     "issued_mailed": ("ok", "Файл выдан, письмо о лицензии отправлено (без файла: программа забирает его сама)"),
     "mailed": ("ok", "Письмо о лицензии отправлено"),
@@ -104,7 +118,8 @@ MSG = {
 }
 
 STATE_RU = {"active": ("ok", "действует"), "grace": ("warn", "льгота"),
-            "readonly": ("bad", "только чтение"), "none": ("mute", "нет файла")}
+            "readonly": ("bad", "только чтение"), "none": ("mute", "нет файла"),
+            "revoked": ("bad", "отозвана")}
 PAY_RU = {"pending": ("warn", "ожидает"), "paid": ("ok", "оплачен"), "rejected": ("bad", "отклонён")}
 KIND_RU = {"invoice": "счёт за 14 дней до конца срока", "expiring": "за 3 дня до конца срока",
            "expired": "срок истёк, идёт льгота", "last_warning": "завтра — только чтение",
@@ -174,6 +189,9 @@ button.primary,a.btn{display:inline-flex;align-items:center;justify-content:cent
 button.primary:hover,a.btn:hover{background:var(--teal-d);border-color:var(--teal-d);color:#fff}
 button:not(.primary){background:#fff;border:1px solid #D8E2DF;color:var(--ink);border-radius:9px;padding:8px 13px;font-size:13.5px;font-weight:500;white-space:nowrap}
 button:not(.primary):hover{border-color:var(--teal);color:var(--teal-d)}
+button.bad:not(.primary){background:#B91C1C;border-color:#B91C1C;color:#fff;font-weight:600}button.bad:not(.primary):hover{background:#991B1B;border-color:#991B1B;color:#fff}
+.card.revoked{border-color:#FCA5A5;background:linear-gradient(180deg,#FEF2F2,#fff 70%)}.card.revoked h2{color:#991B1B}
+.card.revoked .chead .ico{background:#FEE2E2;color:#B91C1C}
 .actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .actions form{display:inline-flex;gap:6px;align-items:center;margin:0}
 .actions input{width:150px;padding:7px 10px;font-size:13px}
@@ -283,6 +301,11 @@ def _tag(state: str) -> str:
     return f"<span class='tag {cls}'>{esc(text)}</span>"
 
 
+def _revoked(c) -> str:
+    """Когда отозвана лицензия клиники (revoke.py, 11.11) — или '': метка «отозвана» вместо состояния по датам."""
+    return (c["revoked_at"] or "") if "revoked_at" in c.keys() else ""
+
+
 def _renew_info(c, latest_seq: int) -> str:
     """Автообновление (L13): когда программа клиники спрашивала последний раз и
     какой файл у неё был — видно, дошёл ли до неё выданный файл."""
@@ -349,7 +372,8 @@ def clinics_page(rows: list, user: str, msg: str = "", requests: list = (), stat
     за кнопкой; «Заявки на пробный» со счётчиком «ждёт»."""
     now = datetime.now(timezone.utc)
     requests = list(requests)
-    states = {r["id"]: license.state(_ts(r["valid_until"]), r["grace_days"] or 0, now) for r in rows}
+    states = {r["id"]: "revoked" if _revoked(r) else license.state(_ts(r["valid_until"]), r["grace_days"] or 0, now)
+              for r in rows}
     counts = {k: 0 for k in STATE_RU}
     for st in states.values():
         counts[st] += 1
@@ -392,7 +416,11 @@ def clinics_page(rows: list, user: str, msg: str = "", requests: list = (), stat
 TRIAL_MSG = {
     "bad_terms": "Versiunea termenilor lipsește sau nu este o dată (zz.ll.aaaa).",
     "bad_name": "Indicați denumirea clinicii (2–120 de caractere).",
-    "bad_idno": "IDNO are exact 13 cifre — sau lăsați câmpul gol pentru perioada de probă.",
+    "bad_idno": ("IDNO-ul nu este corect: are 13 cifre, iar ultima este cifra de control — verificați-l în "
+                 "extrasul din Registrul de stat. Pentru perioada de probă câmpul se poate lăsa gol."),
+    # лицензия отозвана (11.11, revoke.py): программе на «Plătește acum», кабинету — на ноту
+    "revoked": "Licența clinicii a fost retrasă de DentPilot — plata abonamentului nu este disponibilă. "
+               f"Pentru detalii scrieți-ne la {config.SUPPORT_EMAIL}.",
     "bad_email": "Indicați o adresă de e-mail valabilă: pe ea primiți confirmarea și codurile de activare.",
     "too_long": "Persoana de contact sau telefonul sunt prea lungi.",
     "no_consent": "Bifați acordul cu Termenii și condițiile și Politica de confidențialitate.",
@@ -1141,6 +1169,8 @@ AUDIT_RU = {
     "issue": ("файл выдан", "lic"), "trial_request": ("заявка на пробный", "lic"),
     "trial_declined": ("заявка скрыта", "lic"), "trial_duplicate": ("повторная заявка", "lic"),
     "trial_no_key": ("пробный не выдан", "lic"), "add_no_key": ("файл новой клинике не выдан", "lic"),
+    "revoke": ("лицензия отозвана", "lic"), "restore": ("лицензия возвращена", "lic"),
+    "payment_revoked": ("оплата при отозванной лицензии — срок не продлён", "pay"),
     "sms_sender": ("имя SMS", "sms"), "sms_toggle": ("SMS вкл./выкл.", "sms"), "sms_cap": ("потолок SMS", "sms"),
     "sms_credit": ("SMS начислены", "sms"), "sms_custom": ("свой текст SMS", "sms"), "sms_pack": ("пакет SMS", "sms"),
     "sms_name": ("год имени SMS", "sms"), "sms_test": ("тестовая SMS", "sms"), "sms_export": ("выгрузка SMS", "sms"),
@@ -1210,7 +1240,15 @@ def _clinic_todo(c, sub, st: str, issues: list, payments: list, smsinfo: dict | 
             f"<a href='#pay'>Отклонить, письмо, карта</a>"))
     vu = _ts(sub["valid_until"]) if sub else None
     note = "" if pending else "<a href='#pay'>Выставить ноту</a>"
-    if st == "none":
+    if (rv := _revoked(c)):
+        # отозвана (revoke.py): срок и ноты не про неё; деньги, пришедшие после отзыва, — Олегу решать
+        for p in payments:
+            if p["status"] == "paid" and (p["paid_at"] or "") >= rv and (p["kind"] or "license") in ("license", "cabinet"):
+                out.append(_todo_li(
+                    f"Оплата <span class='mono'>{esc(p['reference'])}</span> ({p['amount']} {esc(p['currency'])}) "
+                    f"пришла при отозванной лицензии: срок не продлён — вернуть деньги или «Вернуть лицензию»",
+                    "<a href='#lic'>Лицензия</a>"))
+    elif st == "none":
         out.append(_todo_li("Файл лицензии не выдан: программа клиники не активирована", "<a href='#lic'>Выдать</a>"))
     elif st == "grace":
         out.append(_todo_li(f"Срок кончился {_d(sub['valid_until'])}, идёт льгота до "
@@ -1240,6 +1278,9 @@ def _clinic_todo(c, sub, st: str, issues: list, payments: list, smsinfo: dict | 
     return out
 
 
+_SMS_REVOKED = " · <span class='tag bad'>не уходят: лицензия отозвана</span>"
+
+
 def _tile(tab: str, icon: str, label: str, big: str, sub: str) -> str:
     return (f"<a class='tile' href='#{tab}'><span class='k'><span class='ico'>{_ic(icon, 16)}</span>{label}</span>"
             f"<span class='big'>{big}</span><span class='s'>{sub}</span></a>")
@@ -1255,7 +1296,7 @@ def _clinic_tiles(c, sub, st: str, issues: list, devices: list, accounts: list, 
     vu = _ts(sub["valid_until"]) if sub else None
     left = f" · осталось {(vu - now).days} дн." if st == "active" and vu else ""
     lic = _tile("lic", "key", "Лицензия", f"до {_d(sub['valid_until'])}" if sub else "файла нет",
-                f"{_tag(st)} {esc(sub['plan']) if sub else ''}"
+                f"{_tag('revoked' if _revoked(c) else st)} {esc(sub['plan']) if sub else ''}"
                 f"{(' · льгота ' + str(sub['grace_days']) + ' дн.') if sub else ''}{left}")
     vers = sorted({d["version"] for d in devices if d["version"]}, key=_ver_key, reverse=True)
     many = f" · компьютеров: {len(devices)}" if devices else ""
@@ -1267,7 +1308,8 @@ def _clinic_tiles(c, sub, st: str, issues: list, devices: list, accounts: list, 
     else:
         sms_t = _tile("sms", "message", "SMS", f"{smsinfo['balance']} сегм.",
                       f"имя {esc(smsinfo['sender'] or '—')} {_sender_tag(smsinfo['sender_state'])} · "
-                      f"{'включено' if smsinfo['enabled'] else 'выключено'}{' · пилот' if smsinfo['pilot'] else ''}")
+                      f"{'включено' if smsinfo['enabled'] else 'выключено'}{' · пилот' if smsinfo['pilot'] else ''}"
+                      f"{_SMS_REVOKED if _revoked(c) else ''}")
     last = max(((a["last_login_at"] or "") for a in accounts), default="")
     who = (esc(accounts[0]["email"]) if len(accounts) == 1
            else (f"записей: {len(accounts)}" if accounts else "никто не входил"))
@@ -1442,8 +1484,63 @@ def _lic_pane(c, issues: list, devices: list) -> str:
     files = (f"<div class='card'>{_chead('file', 'Выданные файлы', 'каждый следующий — с номером выше; программа берёт только новее принятого')}"
              f"<table><tr><th>№</th><th>Выдан (UTC)</th>"
              f"<th>Срок до</th><th>Льгота до</th><th>Основание</th><th>Файл</th></tr>{trs}</table></div>")
+    if _revoked(c):
+        # поверх отзыва — только «Вернуть» (revoke.py): ручная выдача сняла бы отзыв молча
+        return f"{_revoked_card(c, issues)}<div class='tiles'>{now_file}{prog}</div>{files}"
     return (f"<div class='tiles'>{now_file}{prog}</div>"
-            f"<div class='acts'>{mail_btn}{_drop('Выдать вручную', form, primary=not issues)}</div>{files}")
+            f"<div class='acts'>{mail_btn}{_drop('Выдать вручную', form, primary=not issues)}"
+            f"{_revoke_form(c) if issues else ''}</div>{files}")
+
+
+def _revoke_form(c) -> str:
+    """«Отозвать лицензию» (11.11, revoke.py): причина обязательна, подтверждение — вписанное слово, письмо
+    клинике — галочкой, по умолчанию снята (Олег: «Да, А + IDNO» с умолчаниями координатора)."""
+    cid = esc(c["id"])
+    form = (f"<form method='post' action='/admin/clinics/{cid}/revoke'>"
+            f"<p class='muted' style='margin:0 0 8px'>Облако выдаст файл со сроком «сейчас», без льготы. Программа клиники "
+            f"уйдёт в «только чтение» при следующей связи — старт, раз в сутки или «Verifică acum»; без интернета "
+            f"не узнает. Как при неуплате: картотека видна, печать, экспорт и бэкап открыты.</p>"
+            f"<ul class='muted' style='margin:0 0 10px 18px;padding:0'>"
+            f"<li>SMS перестают уходить сразу; остаток не сгорает</li>"
+            f"<li>закрыты: нота и оплата абонемента, «Adaugă clinică», «Выдать вручную», письма о сроке</li>"
+            f"<li>IDNO, e-mail и компьютер остаются за этой клиникой — нового пробного на них нет</li>"
+            f"<li>«Вернуть лицензию» выдаст файл с прежним сроком</li></ul>"
+            f"<label>Причина (обязательно, остаётся в журнале)</label>"
+            f"<textarea name='reason' rows='2' maxlength='300' required style='width:100%'></textarea>"
+            f"<label>Впишите <b>ОТОЗВАТЬ</b>, чтобы подтвердить</label>"
+            f"<input name='confirm' autocomplete='off' required placeholder='ОТОЗВАТЬ'>"
+            f"<label class='chk'><input type='checkbox' name='send' value='1'> написать клинике письмо на "
+            f"{esc(c['email'] or '— e-mail не указан')}</label>"
+            f"<p style='margin:12px 0 0'><button class='bad'>Отозвать лицензию</button></p></form>")
+    return _drop("Отозвать лицензию", form)
+
+
+def _revoked_card(c, issues: list) -> str:
+    """Плашка отозванной лицензии (обзор и «Лицензия»): кто, когда, почему, дошёл ли файл, «Вернуть»."""
+    rv = _revoked(c)
+    if not rv:
+        return ""
+    cid = esc(c["id"])
+    seq = c["revoked_seq"] or 0
+    if not c["renew_at"]:
+        prog = "программа ещё не обращалась"
+    elif (c["renew_seq"] or 0) >= seq:
+        prog = f"у программы файл № {c['renew_seq']} — отзыв у неё"
+    else:
+        prog = f"у программы файл № {c['renew_seq'] or 0} — отзыв заберёт при следующей связи"
+    prior = max((i for i in issues if i["seq"] < seq), key=lambda i: i["seq"], default=None)
+    back = (f"файл с прежним сроком: до {_d(prior['valid_until'])}, льгота до {_d(prior['grace_until'])}; "
+            f"если он уже прошёл — только снимет отзыв" if prior is not None else "только снимет отзыв")
+    form = (f"<form method='post' action='/admin/clinics/{cid}/restore'>"
+            f"<p class='muted' style='margin:0 0 8px'>Выдаст {back}. Письма клинике нет.</p>"
+            f"<label>Почему возвращаем</label><input name='reason' maxlength='300'>"
+            f"<p style='margin:12px 0 0'><button class='primary'>Вернуть лицензию</button></p></form>")
+    when = esc(rv[:16].replace("T", " ")) + " UTC · " + esc(c["revoked_by"] or "—")
+    return (f"<div class='card revoked'>{_chead('key', 'Лицензия отозвана', when)}"
+            f"<p style='margin:0 0 6px'><b>Причина:</b> {esc(c['revoked_reason'] or '—')}</p>"
+            f"<p class='muted' style='margin:0 0 10px'>Файл отзыва № {seq}, срок кончился сразу; {prog}. SMS не уходят. "
+            f"Закрыты оплата абонемента, «Adaugă clinică», «Выдать вручную» и новый пробный на этот IDNO, e-mail и "
+            f"компьютер.</p><div class='acts' style='margin:0'>{_drop('Вернуть лицензию', form)}</div></div>")
 
 
 def documents_block(c, rows: list) -> str:
@@ -1502,7 +1599,7 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
                 f"<div><label>IDNO</label><div class='v mono'>{esc(c['idno'] or '—')}</div></div>"
                 f"<div><label>Идентификатор</label><div class='v mono'>{cid}</div></div>"
                 f"</div></div>")
-    overview = (todo_html + _clinic_tiles(c, sub, st, issues, devices, accounts, smsinfo, now,
+    overview = (_revoked_card(c, issues) + todo_html + _clinic_tiles(c, sub, st, issues, devices, accounts, smsinfo, now,
                                           cabinet=[c, *cabinet], active=active)
                 + (_cabinet_card(c, list(cabinet), accounts) if cabinet or accounts else "") + contacts)
     edit = (f"<div class='card'>{_chead('building', 'Реквизиты', 'название, IDNO и контакты: на них уходят ноты и письма')}"
@@ -1544,7 +1641,7 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
     body = _tabbed([(k, t, panes[k], count.get(k, 0)) for k, t in CLINIC_TABS])
     plan_txt = (esc(sub["plan"]) + ("" if sub["plan"] == "trial" else " · " + esc(tiers.NAME[tiers.current(sub)]))
                 if sub else "без файла")
-    lead = f"{_tag(st)} <span class='muted'>{plan_txt} · срок до {_d(sub['valid_until']) if sub else '—'} · IDNO {esc(c['idno'] or '—')}</span>"
+    lead = f"{_tag('revoked' if _revoked(c) else st)} <span class='muted'>{plan_txt} · срок до {_d(sub['valid_until']) if sub else '—'} · IDNO {esc(c['idno'] or '—')}</span>"
     return page(c["name"], body, user, msg, pending=pending, active="clinics", lead=lead, names=names)
 
 
@@ -1668,6 +1765,9 @@ CONT_MSG = {
     "doc_big": f"Fișierul este prea mare: exemplarul semnat se încarcă PDF, până la {contracts.MAX_BYTES // (1024 * 1024)} MB.",
     "doc_missing": "Acest document nu este încă publicat de furnizor — reveniți mai târziu sau scrieți-ne.",
 }
+# вкладка «Abonament și plăți» отозванной клиники: ни формы ноты, ни карты (revoke.py, 11.11)
+_CONT_REVOKED_PAY = ("<p class='lic' style='margin:0'>Licența clinicii a fost retrasă de DentPilot — plata abonamentului "
+                     f"nu este disponibilă. Pentru detalii scrieți-ne la {esc(config.SUPPORT_EMAIL)}.</p>")
 _CONT_OK = {"logged_out", "registered_issued", "registered_requested", "saved", "note_created", "note_exists",
             "note_replaced", "card_paid", "clinic_added", "clinic_added_wait", "group_created",
             "group_replaced", "group_cancelled",
@@ -1676,7 +1776,8 @@ _CONT_OK = {"logged_out", "registered_issued", "registered_requested", "saved", 
 SENDER_RO = {"none": ("mute", "fără nume propriu"), "requested": ("warn", "cerere în lucru"),
              "submitted": ("warn", "la operatori"), "active": ("ok", "aprobat"), "rejected": ("bad", "respins")}
 STATE_RO = {"active": ("ok", "activă"), "grace": ("warn", "expirată — perioada de plată"),
-            "readonly": ("bad", "regim de citire"), "none": ("mute", "neactivată")}
+            "readonly": ("bad", "regim de citire"), "none": ("mute", "neactivată"),
+            "revoked": ("bad", "licență retrasă")}
 # срок на оплату первой ноты клиники из кабинета (payments.ADVANCE): активна, но не оплачена
 ADVANCE_TAG = ("warn", "nota de plată")
 PAY_RO = {"pending": ("warn", "în așteptare"), "paid": ("ok", "plătită"), "rejected": ("bad", "respinsă")}
@@ -2109,6 +2210,13 @@ def _lic_parts(c, sub, issue, st: str, now: datetime) -> dict:
                          f"codul trimis pe e-mail."), "check": "", "bar": ""}
     plan = sub["plan"] if sub else "trial"
     what = "Perioada de probă" if plan == "trial" else f"Abonamentul {tiers.NAME[tiers.current(sub)]}"
+    if _revoked(c):
+        # отозвана (11.11, revoke.py): не «după plată revine» — оплата её не вернёт
+        cls, tag = STATE_RO["revoked"]
+        return {"text": (f"Licența clinicii a fost retrasă de DentPilot la {_ro(c['revoked_at'])}. Programul este în "
+                         f"regim de citire: {esc(mail._READONLY)} Pentru detalii scrieți-ne la "
+                         f"{esc(config.SUPPORT_EMAIL)}. <span class='tag {cls}'>{esc(tag)}</span>"),
+                "check": "", "bar": "<div class='bar bad'><span style='width:100%'></span></div>"}
     d, g = _ro(issue["valid_until"]), _ro(issue["grace_until"])
     cls, tag = STATE_RO.get(st, ("mute", st))
     advance = st == "active" and issue["reason"] == pay.ADVANCE
@@ -2862,7 +2970,9 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
     pending = any(p["status"] == "pending" and p["clinic_id"] == c["id"] and (p["kind"] or "license") == "license"
                   for p in payments)
     # действие по оплате на панели программы — те же условия, что у формы ноты ниже
-    if group is not None:
+    if _revoked(c):
+        act = ""                        # лицензия отозвана: оплатой её не вернуть (revoke.py)
+    elif group is not None:
         act = "" if scoped else "<a class='btn ghost' href='/cont/nota-comuna'>Vezi nota comună</a>"
     elif pending:
         act = "<a class='btn ghost' href='#plati'>Vezi nota de plată</a>"
@@ -2922,7 +3032,7 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
             f"<form method='post' action='/cont/iesire' style='margin-top:auto'><button>Ieșire</button></form></div>")
     # одна клиника: «Adaugă clinică» — карточкой «Filiale» во вкладке Clinica (у кабинета с несколькими —
     # список «Clinicile mele» там же, кнопка в нём и в чипах под заголовком)
-    branches = "" if multi or scoped else (
+    branches = "" if multi or scoped or _revoked(c) else (
         f"<div class='card'>{_chead('building', 'Filiale', 'fiecare sediu — o clinică în acest cont')}"
         f"<div class='addline' style='border-top:0;margin-top:0;padding-top:0'><p><b>Clinica are și alte sedii?</b> "
         f"Adăugați fiecare filială ca o clinică nouă în acest cont: cu licența și abonamentul ei, aceeași intrare.</p>"
@@ -2931,7 +3041,7 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
     chip = (f"<span class='price'>perioada de probă · {tiers.NAME[cur]}</span>" if sub is None or sub["plan"] == "trial"
             else f"<span class='price'>{tiers.NAME[cur]} · {_mdl(tiers.price(sub, cur))} MDL / lună</span>")
     pays = (f"<div class='card'>{_chead('card', 'Abonament și plăți', 'abonamentul acestei clinici' if multi else 'un singur abonament pentru toată clinica', chip)}"
-            f"{_cont_payments(c, sub, payments, q, group, group_link=not scoped, sms_tab=smsshop is not None)}</div>")
+            f"{_CONT_REVOKED_PAY if _revoked(c) else _cont_payments(c, sub, payments, q, group, group_link=not scoped, sms_tab=smsshop is not None)}</div>")
     data = (f"<div class='card'>{_chead('building', 'Datele clinicii', 'apar în nota de plată și în licență')}"
             f"<form method='post' action='/cont/date{q}'><div class='grid'>"
             f"<div><label>Denumirea clinicii *</label><input name='name' value='{esc(c['name'])}' required maxlength='{trial.NAME_MAX}'></div>"

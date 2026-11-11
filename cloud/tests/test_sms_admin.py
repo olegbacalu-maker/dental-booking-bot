@@ -29,7 +29,7 @@ def suite_admin(res: Result) -> None:
                    "ещё не спрашивала про SMS" in empty and "500.00 MDL" in empty and "Сбоев нет" in empty, empty[-2000:])
             cid, token = _clinic_with_license(admin, s, "Clinica Unu", "unu@example.md")
             cid2, token2 = _clinic_with_license(admin, s, "Clinica Doi", "doi@example.md")
-            _sql(s, "UPDATE clinics SET idno='2234567890123' WHERE id=?", cid2)
+            _sql(s, "UPDATE clinics SET idno='2234567890129' WHERE id=?", cid2)
             card = admin.get(f"/admin/clinics/{cid}").body
             res.ok("карточка без счёта: «счёта ещё нет», кнопки пилота и заявки на имя с подсказкой",
                    "счёта ещё нет" in card and "value='pilot_on'" in card and "value='Clinica Unu'" in card, card[-3000:])

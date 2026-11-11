@@ -12,7 +12,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from . import (account, auth, cabinet, config, contlink, contracts, db, download, emailconf, fleet, jobs, maib, mail,
-               modele, payments, paylink, receipts, sms, sms_paper, terms, tiers, trial, views, web)
+               modele, payments, paylink, receipts, revoke, sms, sms_paper, terms, tiers, trial, views, web)
 from . import login as elogin  # ⚠️ не `login`: так зовётся маршрут входа админки (routes_admin)
 
 log = logging.getLogger("cloud")
@@ -452,6 +452,8 @@ def cont_note(request: Request, months: str = Form("1"), method: str = Form(paym
             return RedirectResponse(_cont_to(con, acc, cl["id"], "bad_months"), status_code=303)
         if terms != "1":
             return RedirectResponse(_cont_to(con, acc, cl["id"], "need_terms"), status_code=303)
+        if revoke.is_revoked(cl):
+            return RedirectResponse(_cont_to(con, acc, cl["id"], "revoked"), status_code=303)
         if len(cl["idno"] or "") != 13:
             return RedirectResponse(_cont_to(con, acc, cl["id"], "need_idno"), status_code=303)
         sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (cl["id"],)).fetchone()
@@ -916,6 +918,10 @@ def cont_add_submit(request: Request, c: str = "", name: str = Form(""), address
 def _add_unpaid(con, cl) -> str:
     """Текст отказа «Adaugă clinică», пока у клиники кабинета просрочена первая нота
     (account.overdue_first), или ''. Заявкой не считается: лимит заявок не тратит."""
+    if revoke.in_cabinet(con, cl["id"]):
+        # лицензия клиники кабинета отозвана (11.11): новая клиника получила бы файл на срок оплаты
+        # первой ноты — в обход отзыва
+        return views.cont_text("revoked")
     late = account.overdue_first(con, cl["id"])
     if late is None:
         return ""
@@ -1021,6 +1027,8 @@ def _group_submit(request: Request, form: dict, ip: str) -> Response:
                     picks.append((r, t, web.months(form.get(f"m_{r['id']}") or "1")))
             if not picks:
                 return RedirectResponse(f"{back}?msg=group_empty", status_code=303)
+            if any(revoke.is_revoked(r) for r, _, _ in picks):
+                return RedirectResponse(f"{back}?msg=revoked", status_code=303)
             payer = picks[0][0]
             if len(payer["idno"] or "") != 13:
                 return RedirectResponse(f"{back}?msg=need_idno_payer", status_code=303)

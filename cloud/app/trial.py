@@ -98,6 +98,17 @@ NAME_MAX, EMAIL_MAX, CONTACT_MAX, PHONE_MAX = 120, 120, 80, 40
 # отделяют имя от адреса или один адрес от другого.
 _EMAIL = re.compile(r"^[^@\s<>\"(),;:\[\]]+@[^@\s<>\"(),;:\[\]]+\.[A-Za-z0-9-]{2,}$")
 IDNO_RE = re.compile(r"^[0-9]{13}$")
+_IDNO_WEIGHTS = (7, 3, 1) * 4
+
+
+def idno_ok(idno: str) -> bool:
+    """IDNO заявки пробного (11.11, Олег «Да, А + IDNO»): 13 цифр, последняя — контрольная (веса 7-3-1 по
+    первым двенадцати, сумма по модулю 10; сверено на пяти настоящих публичных номерах, тот же счёт у
+    IDNP), и не все цифры одинаковые: у 0000000000000 контрольная сходится. Пустой IDNO пробному
+    по-прежнему можно — решает вызывающий. ⛔ Только новые заявки: уже заведённые клиники не проверяются."""
+    if not IDNO_RE.match(idno) or len(set(idno)) == 1:
+        return False
+    return sum(int(d) * w for d, w in zip(idno[:12], _IDNO_WEIGHTS)) % 10 == int(idno[12])
 _DOT_BLIND = ("gmail.com", "googlemail.com")   # точки в имени ящика ничего не значат
 
 
@@ -165,7 +176,7 @@ def clean(fields: dict) -> tuple[dict, str]:
     f["email"] = f["email"].replace(" ", "")
     if not 2 <= len(f["name"]) <= NAME_MAX:
         return f, "bad_name"
-    if f["idno"] and not IDNO_RE.match(f["idno"]):
+    if f["idno"] and not idno_ok(f["idno"]):
         return f, "bad_idno"
     if not f["email"] or len(f["email"]) > EMAIL_MAX or not _EMAIL.match(f["email"]):
         return f, "bad_email"

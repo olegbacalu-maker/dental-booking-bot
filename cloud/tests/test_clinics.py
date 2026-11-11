@@ -7,7 +7,7 @@ from harness import Client, Result, Server, cid_from
 def suite(res: Result) -> None:
     with Server() as s:
         c = Client(s.url).login()
-        r = c.post("/admin/clinics", name="Clinica Exemplu", idno="1234567890123",
+        r = c.post("/admin/clinics", name="Clinica Exemplu", idno="1234567890122",
                    contact_name="Ion Popescu", email="clinica@example.md", phone="+373 60 000 000")
         res.ok("новая клиника: на карточку с кодом",
                r.status == 303 and r.location.startswith("/admin/clinics/c_")
@@ -19,7 +19,7 @@ def suite(res: Result) -> None:
                "Clinica Exemplu" in page and "нет файла" in page, "нет в списке")
         card = c.get(f"/admin/clinics/{cid}").body
         res.ok("карточка: IDNO, контакт, e-mail, форма выдачи",
-               "1234567890123" in card and "Ion Popescu" in card and "clinica@example.md" in card
+               "1234567890122" in card and "Ion Popescu" in card and "clinica@example.md" in card
                and "Лицензия вручную" in card and "Файлов ещё не выдавали" in card)
         r = c.post("/admin/clinics", name="", idno="")
         res.check("без названия: отказ", r.location, "/admin?msg=bad_name")
@@ -27,7 +27,7 @@ def suite(res: Result) -> None:
         res.check("IDNO не 13 цифр: отказ", r.location, "/admin?msg=bad_idno")
         r = c.post("/admin/clinics", name="Fără IDNO", idno="")
         res.ok("без IDNO завести можно (пробный файл)", r.status == 303 and "msg=clinic_ok" in r.location)
-        r = c.post(f"/admin/clinics/{cid}/edit", name="Clinica Exemplu SRL", idno="1234567890123",
+        r = c.post(f"/admin/clinics/{cid}/edit", name="Clinica Exemplu SRL", idno="1234567890122",
                    contact_name="Ion Popescu", email="nou@example.md", phone="", address="Chișinău")
         res.check("правка реквизитов: сохранено", r.location, f"/admin/clinics/{cid}?msg=saved")
         card = c.get(f"/admin/clinics/{cid}").body
@@ -56,7 +56,7 @@ def suite_tabs(res: Result) -> None:
     странице, «Ждёт вас» по состоянию, редкие формы за кнопкой, журнал словами с фильтрами."""
     with Server() as s:
         c = Client(s.url).login()
-        cid = cid_from(c.post("/admin/clinics", name="Clinica Filă", idno="1234567890123",
+        cid = cid_from(c.post("/admin/clinics", name="Clinica Filă", idno="1234567890122",
                               contact_name="Ion", email="file@example.md").location)
         card = c.get(f"/admin/clinics/{cid}").body
         res.ok("семь вкладок и семь разделов, обзор первым, оплата перед лицензией",
@@ -108,7 +108,7 @@ def suite_tabs(res: Result) -> None:
                f"{r.status} {r.location!r}")
         card = c.get(f"/admin/clinics/{cid}").body
         res.ok("после подтверждения снова спокойно", "Ничего не ждёт" in card)
-        c.post(f"/admin/clinics/{cid}/edit", name="Clinica Filă", idno="1234567890123", contact_name="Ion",
+        c.post(f"/admin/clinics/{cid}/edit", name="Clinica Filă", idno="1234567890122", contact_name="Ion",
                email="", phone="", address="")
         res.ok("без e-mail: «Ждёт вас» просит вписать его",
                "нет e-mail" in _pane(c.get(f"/admin/clinics/{cid}").body, "overview"))
@@ -142,7 +142,7 @@ def suite_menu(res: Result) -> None:
     причиной; Журнал — слова и фильтры; счётчики шапки — на каждой странице."""
     with Server() as s:
         c = Client(s.url).login()
-        a = cid_from(c.post("/admin/clinics", name="Clinica Activă", idno="1234567890123", email="a@example.md").location)
+        a = cid_from(c.post("/admin/clinics", name="Clinica Activă", idno="1234567890122", email="a@example.md").location)
         b = cid_from(c.post("/admin/clinics", name="Clinica Fără Fișier", email="b@example.md").location)
         c.post(f"/admin/clinics/{a}/issue", kind="trial")
         c.post(f"/admin/clinics/{a}/payments", months="1", amount="", method="transfer")

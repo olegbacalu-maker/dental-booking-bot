@@ -38,7 +38,7 @@ import re
 import sqlite3
 from datetime import date, datetime, time, timedelta, timezone
 
-from . import cabinet, config, db, license, mail, sms_rule, smsmd, tiers
+from . import cabinet, config, db, license, mail, revoke, sms_rule, smsmd, tiers
 
 log = logging.getLogger("cloud.sms")
 UTC = timezone.utc
@@ -293,6 +293,10 @@ def blocked(con: sqlite3.Connection, clinic_id: str, acc: sqlite3.Row | None, no
     if not offered(acc):
         return "sms_not_offered"
     if acc is not None and not acc["enabled"]:
+        return "sms_off"
+    if revoke.is_revoked(con.execute("SELECT * FROM clinics WHERE id=?", (clinic_id,)).fetchone()):
+        # лицензия отозвана (11.11): SMS гаснут сразу, тумблер не трогаем — «Вернуть» возвращает как было.
+        # Код «sms_off» программа знает с 2.0.9 («Modulul SMS este oprit» + контакты); остаток цел
         return "sms_off"
     sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (clinic_id,)).fetchone()
     if not plan_ok(sub, now):

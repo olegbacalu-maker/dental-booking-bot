@@ -64,7 +64,7 @@ def _upload(c: Client, data: bytes, doc: str = "contract", q: str = ""):
     return c._do("/cont/documente/incarca" + q, body, {"Content-Type": ctype})
 
 
-def _clinic(admin: Client, name: str, email: str, idno: str = "1234567890123") -> str:
+def _clinic(admin: Client, name: str, email: str, idno: str = "1234567890122") -> str:
     return cid_from(admin.post("/admin/clinics", name=name, idno=idno, contact_name="Ion", email=email,
                                phone="").location)
 
@@ -142,7 +142,7 @@ def suite_cabinet(res: Result) -> None:
         with Server(env=env) as s:
             admin = Client(s.url).login()
             cid = _clinic(admin, "Clinica Docs", "docs@example.md")
-            cid2 = _clinic(admin, "Clinica Alta", "alta@example.md", idno="2234567890123")
+            cid2 = _clinic(admin, "Clinica Alta", "alta@example.md", idno="2234567890129")
             res.check("миграция 20: таблица clinic_contracts",
                       _one(s, "SELECT count(*) FROM sqlite_master WHERE name='clinic_contracts'"), 1)
             anon = Client(s.url)
@@ -213,7 +213,7 @@ def suite_cabinet(res: Result) -> None:
             st, h, body = _raw(cab, "/cont/documente/1/clinica.pdf")
             res.ok("свой экземпляр: 200, вложением с nosniff, байт в байт",
                    st == 200 and body == signed and h.get("content-disposition", "").startswith("attachment;")
-                   and "semnat-1234567890123-1.pdf" in h.get("content-disposition", "")
+                   and "semnat-1234567890122-1.pdf" in h.get("content-disposition", "")
                    and h.get("x-content-type-options") == "nosniff", f"{st} {h}")
             res.check("несуществующая строка — 404", _raw(cab, "/cont/documente/99/clinica.pdf")[0], 404)
 

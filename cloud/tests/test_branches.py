@@ -33,8 +33,8 @@ rv = load_by_path("rsa_verify", ROOT / "bot" / "app" / "core" / "rsa_verify.py")
 KEY = json.loads((FIX / "test-key.json").read_text(encoding="utf-8"))
 KEYS = {"test": (int(KEY["n"], 16), int(KEY["e"]))}
 BANK_ENV = {"DP_BANK_BENEFICIARY": "Oleg Bacalu", "DP_BANK_IBAN": "MD00TEST0000000000000001",
-            "DP_BANK_NAME": "Banca Test", "DP_BANK_CODE": "1234567890123"}
-IDNO = "1003600012345"
+            "DP_BANK_NAME": "Banca Test", "DP_BANK_CODE": "1234567890122"}
+IDNO = "1003600012344"   # контрольная 7-3-1 сходится (trial.idno_ok, 11.11)
 DIRECTOR = "director@zambet.md"
 MAIN = dict(name="Clinica Zambet", idno=IDNO, contact_name="Ion Rusu", phone="022123456", consent="1")
 BRANCH = dict(name="Zambet Botanica", address="bd. Dacia 27, Chisinau", phone="022555010",
@@ -296,14 +296,14 @@ def suite_cabinet(res: Result) -> None:
                repr(same)[:900])
         # чужая клиника с другим IDNO — заведена программой другого человека
         other = Client(s.url)
-        st, _d = _api(other, "/v1/trial", dict(name="Clinica Straina", idno="2000000000001", contact_name="X",
+        st, _d = _api(other, "/v1/trial", dict(name="Clinica Straina", idno="2000000000004", contact_name="X",
                                                email="straina@example.md", phone="", consent="1"))
         res.check("чужая клиника заведена", st, 200)
-        r, code = _add(c, main, idno="2000000000001", email="nou@zambet.md", name="Furt")
+        r, code = _add(c, main, idno="2000000000004", email="nou@zambet.md", name="Furt")
         res.ok("IDNO чужой клиники — 409 «add_duplicate», ничего не заведено, письмо Олегу",
                r.status == 409 and "nu este în contul" in r.body and not code
                and not _sql(s, "SELECT 1 FROM clinics WHERE name='Furt'"), r.body[-600:])
-        r = c.post(f"/cont/date?c={bid}", name="Zambet Botanica SRL", idno="2000000000001", contact_name="",
+        r = c.post(f"/cont/date?c={bid}", name="Zambet Botanica SRL", idno="2000000000004", contact_name="",
                    phone="", address="x")
         res.check("реквизиты: IDNO чужой клиники — idno_taken", r.location, f"/cont?c={bid}&msg=idno_taken")
 
@@ -413,7 +413,7 @@ def suite_code(res: Result) -> None:
     with Server(env=env) as s:
         c, main, bid, _code0 = _cabinet_with_branch(s)
         other = _enter(s, "alt@other.md")
-        other.post("/cont/inregistrare", name="Alta Clinica", idno="3000000000003", contact_name="A", phone="1",
+        other.post("/cont/inregistrare", name="Alta Clinica", idno="3000000000001", contact_name="A", phone="1",
                    consent="1")
         oid = _sql(s, "SELECT id FROM clinics WHERE name='Alta Clinica'")[0][0]
         foreign = _new_code(other, oid)
@@ -770,7 +770,7 @@ def suite_admin(res: Result) -> None:
                              idno="9999999999999", contact_name="", phone="").location,
                   f"/admin/clinics/{main}?msg=sibling_duplicate")
         other = Client(s.url)
-        _api(other, "/v1/trial", dict(name="Clinica Straina", idno="2000000000001", contact_name="X",
+        _api(other, "/v1/trial", dict(name="Clinica Straina", idno="2000000000004", contact_name="X",
                                       email="straina@example.md", phone="", consent="1"))
         r, code = _add(c, main, email="straina@example.md", name="Furt2")
         res.ok("«Adaugă clinică» с ящиком чужой клиники — 409, ничего не заведено",

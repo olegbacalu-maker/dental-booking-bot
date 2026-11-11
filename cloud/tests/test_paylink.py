@@ -33,7 +33,7 @@ def _link(anon: Client, token: str):
 def suite_paylink(res: Result) -> None:
     with Server(env={**BANK_ENV}) as s:
         admin = Client(s.url).login()
-        cid = cid_from(admin.post("/admin/clinics", name="Clinica Plată Program", idno="1234567890123",
+        cid = cid_from(admin.post("/admin/clinics", name="Clinica Plată Program", idno="1234567890122",
                                   email="plata@example.md").location)
         admin.post(f"/admin/clinics/{cid}/issue", kind="trial")
         tok = _token(s, cid)
@@ -118,7 +118,7 @@ def suite_paylink(res: Result) -> None:
         res.check("без IDNO нота не создаётся — pay_need_idno",
                   anon.post(path2, months="1", method="transfer", terms="1").location, f"{path2}?msg=pay_need_idno")
         res.check("IDNO другой клиники — idno_taken",
-                  anon.post(path2, months="1", method="transfer", idno="1234567890123", terms="1").location,
+                  anon.post(path2, months="1", method="transfer", idno="1234567890122", terms="1").location,
                   f"{path2}?msg=idno_taken")
         res.check("кривой IDNO — bad_idno", anon.post(path2, months="1", method="transfer", idno="12",
                                                      terms="1").location,

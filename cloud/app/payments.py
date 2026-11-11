@@ -55,7 +55,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from . import db, license, maib, mail, receipts, sms, tiers
+from . import db, license, maib, mail, receipts, revoke, sms, tiers
 
 log = logging.getLogger("cloud.payments")
 
@@ -325,12 +325,16 @@ def notify_paid(con: sqlite3.Connection, payment: sqlite3.Row, who: str) -> list
         for ln in lines_of(con, payment["id"]):
             c = con.execute("SELECT * FROM clinics WHERE id=?", (ln["clinic_id"],)).fetchone()
             payer = c["id"] == payment["clinic_id"]
+            if revoke.is_revoked(c) and not payer:
+                continue                # срок не продлён (_prolong) — письма о лицензии нет
             out.append((payer, license.letter_latest(con, c, who, receipt=receipt if payer else None,
                                                      summary=summary if payer else "")))
         return out
     if payment["kind"] in (SMS, SMS_NAME):
         return [(True, (sms.letter_pack if payment["kind"] == SMS else sms.letter_name)(
             con, clinic, fresh, who, receipt=receipt, summary=summary))]
+    if revoke.is_revoked(clinic):
+        return []                       # срок не продлён (_prolong): письмо «licența valabilă până la…» солгало бы
     return [(True, license.letter_latest(con, clinic, who, receipt=receipt, summary=summary))]
 
 
@@ -625,6 +629,13 @@ def _prolong(con: sqlite3.Connection, clinic: sqlite3.Row, line: sqlite3.Row, pa
     → (выдача, (начало периода, новый конец)) — период для cont de plată."""
     sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (clinic["id"],)).fetchone()
     now = datetime.now(timezone.utc).replace(microsecond=0)
+    if revoke.is_revoked(clinic):
+        # ⛔ лицензия отозвана (revoke.py): деньги, пришедшие по старой ссылке или переводом, записаны
+        # (нота paid), но срок не продлевается и файл не выдаётся — иначе оплата молча сняла бы отзыв.
+        # Олег видит строку в «Ждёт вас»: вернуть деньги или «Вернуть» лицензию
+        db.audit(con, who, "payment_revoked", clinic["id"],
+                 f"{payment['reference']}{note}: {line['amount']} MDL пришли при отозванной лицензии — срок не продлён")
+        return (0, ""), (now, now)
     current = db.parse_ts(sub["valid_until"]) if sub else None
     first = advance_start(con, clinic["id"])
     if first is not None and current is not None and current >= now:

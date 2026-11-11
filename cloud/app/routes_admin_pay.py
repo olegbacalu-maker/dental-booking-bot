@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from . import auth, db, maib, payments, receipts, sms, tiers, views, web
+from . import auth, db, maib, payments, receipts, revoke, sms, tiers, views, web
 
 log = logging.getLogger("cloud")
 router = APIRouter()
@@ -75,6 +75,8 @@ def payment_new(request: Request, cid: str, months: str = Form("1"), amount: str
         c = web.clinic(con, cid)
         if c is None:
             return Response(status_code=404)
+        if revoke.is_revoked(c):
+            return RedirectResponse(f"/admin/clinics/{cid}?msg=revoke_pay", status_code=303)
         sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (cid,)).fetchone()
         t = tier if tier in tiers.TIERS else tiers.pick(sub)
         if t not in tiers.TIERS:

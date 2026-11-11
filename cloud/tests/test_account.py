@@ -39,10 +39,10 @@ KEYS = {"test": (int(KEY["n"], 16), int(KEY["e"]))}
 CLIENT_ID, CLIENT_SECRET = "123-test.apps.googleusercontent.com", "GOCSPX-test-secret"
 CALLBACK = "https://cloud.dentpilot.md/auth/google/callback"
 BANK_ENV = {"DP_BANK_BENEFICIARY": "Oleg Bacalu", "DP_BANK_IBAN": "MD00TEST0000000000000001",
-            "DP_BANK_NAME": "Banca Test", "DP_BANK_CODE": "1234567890123"}
+            "DP_BANK_NAME": "Banca Test", "DP_BANK_CODE": "1234567890122"}
 ASSET_URL = "https://github.com/olegbacalu-maker/dental-booking-bot/releases/download/v1.35.3/DentPilot-Setup-1.35.3.zip"
 DIRECTOR = dict(sub="g-director-1", email="director@clinica-test.md", name="Ana Director", email_verified=True)
-CLINIC = dict(name="Clinica Cont", idno="1234567890123", contact_name="Ana", phone="069111222", consent="1")
+CLINIC = dict(name="Clinica Cont", idno="1234567890122", contact_name="Ana", phone="069111222", consent="1")
 
 
 class _Quiet(http.server.ThreadingHTTPServer):
@@ -384,7 +384,7 @@ def suite_email_login(res: Result) -> None:
         res.ok("регистрация: ящик входа показан, не редактируется, без слова Google",
                page.status == 200 and "director@clinica-noua.md" in page.body and "name='email'" not in page.body
                and "contul Google" not in page.body, page.body[-800:])
-        r = anon.post("/cont/inregistrare", **dict(CLINIC, name="Clinica Nouă E-mail", idno="3333333333333"))
+        r = anon.post("/cont/inregistrare", **dict(CLINIC, name="Clinica Nouă E-mail", idno="3333333333332"))
         res.ok("регистрация прошла: пробный выдан, запись привязана к новой клинике",
                r.status == 303 and r.location == "/cont?msg=registered_issued"
                and _sql(s, "SELECT c.email FROM accounts a JOIN clinics c ON c.id=a.clinic_id")
@@ -505,7 +505,7 @@ def suite_cabinet(res: Result) -> None:
                and rv.open_envelope(admin.get(f"/admin/clinics/{cid}/issues/2/license.json").body, KEYS)[1].seq == 2,
                home.body[-2500:])
         # реквизиты
-        r = c.post("/cont/date", name="Clinica Cont SRL", idno="1234567890123", contact_name="Ana P.",
+        r = c.post("/cont/date", name="Clinica Cont SRL", idno="1234567890122", contact_name="Ana P.",
                    phone="069000000", address="str. Test 1")
         res.ok("реквизиты сохранены", r.location == "/cont?msg=saved"
                and _sql(s, "SELECT name, address FROM clinics")[0] == ("Clinica Cont SRL", "str. Test 1"))
@@ -513,7 +513,7 @@ def suite_cabinet(res: Result) -> None:
         other = cid_from(admin.post("/admin/clinics", name="Altă Clinică", idno="9999999999999").location)
         res.check("IDNO другой клиники — idno_taken",
                   c.post("/cont/date", name="Clinica Cont SRL", idno="9999999999999").location, "/cont?msg=idno_taken")
-        res.check("IDNO не изменился", _sql(s, "SELECT idno FROM clinics WHERE id=?", cid)[0][0], "1234567890123")
+        res.check("IDNO не изменился", _sql(s, "SELECT idno FROM clinics WHERE id=?", cid)[0][0], "1234567890122")
         res.ok("e-mail из кабинета не правится", _sql(s, "SELECT email FROM clinics WHERE id=?", cid)[0][0] == DIRECTOR["email"])
         res.ok("чужой Origin на реквизитах — 403",
                c.post("/cont/date", name="X Y", headers={"Origin": "http://evil.example", "Host": f"127.0.0.1:{s.port}"}).status == 403)
@@ -545,7 +545,7 @@ def suite_link_and_duplicate(res: Result) -> None:
     g = FakeGoogle()
     with Server(env={**g.env, "DP_TRIAL_MODE": "approve", "DP_TRIAL_NOTIFY": "oleg@example.md"}) as s:
         admin = Client(s.url).login()
-        cid = cid_from(admin.post("/admin/clinics", name="Clinica Veche", idno="1111111111111",
+        cid = cid_from(admin.post("/admin/clinics", name="Clinica Veche", idno="1111111111114",
                                   email="Director@Clinica-Test.md").location)
         c = Client(s.url)
         r = _google_login(c, s, g)
@@ -563,7 +563,7 @@ def suite_link_and_duplicate(res: Result) -> None:
         d = Client(s.url)
         res.check("новый ящик — регистрация", _google_login(d, s, g).location, "/cont/inregistrare")
         n = len(_letters(s))
-        r = d.post("/cont/inregistrare", name="Clinica Veche", idno="1111111111111", consent="1")
+        r = d.post("/cont/inregistrare", name="Clinica Veche", idno="1111111111114", consent="1")
         res.ok("тот же IDNO: страница кода (200), ящик клиники не назван, клиники второй нет, запись не привязана",
                r.status == 200 and "name='code'" in r.body and "name='verify_id'" in r.body
                and "clinica-test.md" not in r.body.lower() and len(_sql(s, "SELECT 1 FROM clinics")) == 1
@@ -601,7 +601,7 @@ def suite_link_and_duplicate(res: Result) -> None:
         b = Client(s.url)
         _google_login(b, s, g)
         n = len(_letters(s))
-        r = b.post("/cont/inregistrare", name="Clinica Veche", idno="1111111111111", consent="1")
+        r = b.post("/cont/inregistrare", name="Clinica Veche", idno="1111111111114", consent="1")
         vid_b = re.search(r"name='verify_id' value='([^']+)'", r.body).group(1)
         code_b = re.search(r"codul: (\d{6})", [body for t, _, body, _ in _letters(s)[n:] if t == "Director@Clinica-Test.md"][0]).group(1)
         for _ in range(trial.CODE_ATTEMPTS):
@@ -610,9 +610,9 @@ def suite_link_and_duplicate(res: Result) -> None:
         res.ok("после пяти ошибок верный код сгорел: 400, не привязано",
                r.status == 400 and _acc_clinic(s, "burn@gmail.com") is None, f"{r.status}")
         # клиника без ящика: кода не отправить — 409 словами
-        cid_nomail = cid_from(admin.post("/admin/clinics", name="Clinica Fără Mail", idno="2222222222222").location)
+        cid_nomail = cid_from(admin.post("/admin/clinics", name="Clinica Fără Mail", idno="2222222222228").location)
         n = len(_letters(s))
-        r = b.post("/cont/inregistrare", name="Clinica Fără Mail", idno="2222222222222", consent="1")
+        r = b.post("/cont/inregistrare", name="Clinica Fără Mail", idno="2222222222228", consent="1")
         res.ok("IDNO клиники без e-mail: 409 «codul nu a putut fi trimis», Олегу письмо, записи нет",
                r.status == 409 and "nu a putut fi trimis" in r.body and _acc_clinic(s, "burn@gmail.com") is None
                and len(_letters(s)) == n + 1 and _letters(s)[-1][0] == "oleg@example.md", f"{r.status}")
@@ -693,10 +693,10 @@ def suite_rules(res: Result) -> None:
         res.check(label, account.verify(claims, nonce, now)[1], want)
     res.check("JWT из двух частей — не токен", account._claims("a.b"), None)
     res.check("JWT с мусором в теле — не токен", account._claims("a.!!!.c"), None)
-    f, code = account.clean_edit(dict(name=" Clinica  X ", idno="1234 5678 90123", address="a" * 201))
+    f, code = account.clean_edit(dict(name=" Clinica  X ", idno="1234 5678 90122", address="a" * 201))
     res.ok("реквизиты: адрес длиннее 200 — too_long, пробелы схлопнуты", code == "too_long" and f["name"] == "Clinica X")
     res.check("реквизиты: IDNO из 12 цифр", account.clean_edit(dict(name="Xy", idno="123456789012"))[1], "bad_idno")
-    res.check("реквизиты: всё чисто", account.clean_edit(dict(name="Xy", idno="1234567890123"))[1], "")
+    res.check("реквизиты: всё чисто", account.clean_edit(dict(name="Xy", idno="1234567890122"))[1], "")
     tok = auth.account_cookie("a_1")
     res.ok("кука кабинета читается своим видом и не читается чужими",
            auth._read("account", tok) == "a_1" and auth._read("admin", tok) is None and auth._read("oauth", tok) is None)

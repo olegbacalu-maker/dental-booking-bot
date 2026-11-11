@@ -22,13 +22,13 @@ sys.path.insert(0, str(CLOUD))
 from app import pdf, receipts  # noqa: E402 — чистые функции сервера
 
 SELLER_ENV = {"DP_BANK_BENEFICIARY": "Oleg Bacalu", "DP_BANK_IBAN": "MD00TEST0000000000000001",
-              "DP_BANK_NAME": "Banca Test", "DP_BANK_CODE": "1234567890123",
+              "DP_BANK_NAME": "Banca Test", "DP_BANK_CODE": "1234567890122",
               "DP_SELLER_ADDRESS": "mun. Chișinău, str. Testelor 1"}
 SNAPSHOT = {"number": "DP-2026-000007", "issued_at": "2026-10-17T09:15:00Z",
             "seller": {"name": "Oleg Bacalu", "form": receipts.SELLER_FORM, "idno": "1026023148339",
                        "iban": "MD24AG000225100013104168", "bank": "maib", "address": "mun. Chișinău, str. T 1",
                        "email": "dentpilotpro@gmail.com", "phone": "+373 60 508 048"},
-            "buyer": {"name": "SRL „Zâmbet Sănătos”", "idno": "1012600012345",
+            "buyer": {"name": "SRL „Zâmbet Sănătos”", "idno": "1012600012348",
                       "address": "or. Cahul, str. Ștefan cel Mare 12", "email": "director@zambet.md"},
             "item": {"title": "Abonament DentPilot — program de evidență pentru clinica stomatologică",
                      "detail": "abonament pentru 12 luni, 17.10.2026 – 17.10.2027"},
@@ -47,7 +47,7 @@ def _sql(s: Server, sql: str, *args):
 
 
 def _clinic(c: Client, **over) -> str:
-    f = dict(name="Clinica Cont", idno="1234567890123", contact_name="Ion", email="cont@example.md", phone="")
+    f = dict(name="Clinica Cont", idno="1234567890122", contact_name="Ion", email="cont@example.md", phone="")
     f.update(over)
     return cid_from(c.post("/admin/clinics", **f).location)
 
@@ -142,7 +142,7 @@ def suite_pdf(res: Result) -> None:
     res.check("cont de plată из снимка: xref цел", _xref_ok(b), "")
     res.ok("cont de plată: номер, ACHITAT, стороны, сумма, способ оплаты, без TVA, режим 228/2025",
            _has_text(b, "Cont de plată nr. DP-2026-000007", "ACHITAT", "Oleg Bacalu", "IDNO 1026023148339",
-                     "IBAN MD24AG000225100013104168", "Zâmbet Sănătos", "IDNO 1012600012345", "5 489,00",
+                     "IBAN MD24AG000225100013104168", "Zâmbet Sănătos", "IDNO 1012600012348", "5 489,00",
                      "plată cu cardul (maib)", "Data: 17.10.2026", "Fără TVA", "Legea nr. 228/2025",
                      "17.10.2026 – 17.10.2027", "fără semnătură și ștampilă"), _content(b)[:400].decode("latin-1"))
     for kind, title in (("sms", "Pachet SMS"), ("sms_name", "Nume de expeditor")):
@@ -172,7 +172,7 @@ def suite_flow(res: Result) -> None:
     with Server(env={**SELLER_ENV, "DP_TRIAL_MODE": "auto"}) as s:
         c = Client(s.url).login()
         cid = _clinic(c)
-        other = _clinic(c, name="Clinica Străină", idno="9876543210987", email="alta@example.md")
+        other = _clinic(c, name="Clinica Străină", idno="9876543210988", email="alta@example.md")
         res.check("таблица receipts есть (миграция 13)",
                   _sql(s, "SELECT count(*) FROM sqlite_master WHERE name='receipts'")[0][0], 1)
         r = c.post(f"/admin/clinics/{cid}/payments", months="1", amount="", send="1")
@@ -188,9 +188,9 @@ def suite_flow(res: Result) -> None:
                and rows[0][1] == cid and rows[0][2] == ref, repr(rows)[:200])
         d = json.loads(rows[0][3])
         res.ok("снимок: продавец из окружения, адрес, покупатель из строки клиники, предмет с периодом, перевод",
-               d["seller"]["name"] == "Oleg Bacalu" and d["seller"]["idno"] == "1234567890123"
+               d["seller"]["name"] == "Oleg Bacalu" and d["seller"]["idno"] == "1234567890122"
                and d["seller"]["iban"] == "MD00TEST0000000000000001" and d["seller"]["address"] == SELLER_ENV["DP_SELLER_ADDRESS"]
-               and d["buyer"]["name"] == "Clinica Cont" and d["buyer"]["idno"] == "1234567890123"
+               and d["buyer"]["name"] == "Clinica Cont" and d["buyer"]["idno"] == "1234567890122"
                and d["item"]["title"].startswith("Abonament DentPilot") and "1 lună" in d["item"]["detail"]
                and re.search(r"\d\d\.\d\d\.\d{4} – \d\d\.\d\d\.\d{4}", d["item"]["detail"])
                and d["paid_via"] == "transfer" and d["amount"] > 0 and d["kind"] == "license", json.dumps(d, ensure_ascii=False)[:400])

@@ -49,7 +49,7 @@ rv = load_by_path("rsa_verify", ROOT / "bot" / "app" / "core" / "rsa_verify.py")
 KEY = json.loads((FIX / "test-key.json").read_text(encoding="utf-8"))
 KEYS = {"test": (int(KEY["n"], 16), int(KEY["e"]))}
 BANK_ENV = {"DP_BANK_BENEFICIARY": "Oleg Bacalu", "DP_BANK_IBAN": "MD00TEST0000000000000001",
-            "DP_BANK_NAME": "Banca Test", "DP_BANK_CODE": "1234567890123"}
+            "DP_BANK_NAME": "Banca Test", "DP_BANK_CODE": "1234567890122"}
 CLIENT, SECRET, SIGKEY = "749c564f-1a65-48e3-a4bf-b7932b6ae3db", "secret-test", "signature-key-test"
 CALLBACK = "/v1/maib/callback"
 HOST = "https://checkout.maib.md/"      # вид checkoutUrl из примера «Get checkout details»
@@ -351,7 +351,7 @@ def _sql(s: Server, sql: str, *args):
 
 
 def _clinic(c: Client, **over) -> str:
-    f = dict(name="Clinica Card", idno="1234567890123", contact_name="Ion", email="card@example.md", phone="")
+    f = dict(name="Clinica Card", idno="1234567890122", contact_name="Ion", email="card@example.md", phone="")
     f.update(over)
     return cid_from(c.post("/admin/clinics", **f).location)
 
@@ -1044,7 +1044,7 @@ def suite_mismatch(res: Result) -> None:
 
             def note(name: str) -> tuple[str, sqlite3.Row]:
                 n = len(fake.pays)
-                cid = _clinic(c, name=name, idno=str(1000000000000 + n), email=f"c{n}@example.md")
+                cid = _clinic(c, name=name, idno=str(1000000000007 + n), email=f"c{n}@example.md")
                 c.post(f"/admin/clinics/{cid}/issue", kind="dates", valid_until=f"{v:%Y-%m-%d}", grace_days="14")
                 c.post(f"/admin/clinics/{cid}/payments", months="1", amount="", send="", method="card")
                 p = _payment(s, cid)
@@ -1106,7 +1106,7 @@ def suite_mismatch(res: Result) -> None:
             res.ok("лог: предупреждение «без сверки»", "подтверждаю без сверки" in s.log(), s.log()[-600:])
 
             # 5c: строка прочитана до чужого коммита — confirm не продлевает
-            cid = _clinic(c, name="Clinica Snapshot", idno="1999999999999", email="snap@example.md")
+            cid = _clinic(c, name="Clinica Snapshot", idno="1999999999990", email="snap@example.md")
             c.post(f"/admin/clinics/{cid}/issue", kind="dates", valid_until=f"{v:%Y-%m-%d}", grace_days="14")
             c.post(f"/admin/clinics/{cid}/payments", months="1", amount="", send="", method="transfer")
             q = _payment(s, cid)

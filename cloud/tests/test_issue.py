@@ -27,7 +27,7 @@ DAY = timedelta(days=1)
 
 
 def _new_clinic(c: Client, **over) -> str:
-    fields = dict(name="Clinica Exemplu", idno="1234567890123", contact_name="Ion",
+    fields = dict(name="Clinica Exemplu", idno="1234567890122", contact_name="Ion",
                   email="clinica@example.md", phone="")
     fields.update(over)
     return cid_from(c.post("/admin/clinics", **fields).location)
@@ -55,7 +55,7 @@ def suite_issue(res: Result) -> None:
         code, claim = rv.open_envelope(f.body, KEYS)
         res.check("движок принимает файл сервера", code, "")
         res.ok("claim: клиника, IDNO, план, seq 1, страна",
-               claim is not None and claim.clinic_id == cid and claim.idno == "1234567890123"
+               claim is not None and claim.clinic_id == cid and claim.idno == "1234567890122"
                and claim.plan == "trial" and claim.seq == 1 and claim.country == "MD"
                and claim.clinic == "Clinica Exemplu", repr(claim))
         res.check("пробный: TRIAL_DAYS — месяц, как на сайте", claim.valid_until - claim.issued_at, srv.TRIAL_DAYS * DAY)

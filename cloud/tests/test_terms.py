@@ -180,7 +180,7 @@ def suite_pay_and_cabinet(res: Result) -> None:
     """Страница оплаты — акт source=pay; кабинет — список и печатная страница только своей клиники."""
     with Server(env={**BANK_ENV, "DP_TRIAL_MODE": "auto"}) as s:
         admin = Client(s.url).login()
-        cid = cid_from(admin.post("/admin/clinics", name="Clinica Plată", idno="1234567890123", contact_name="Vasile",
+        cid = cid_from(admin.post("/admin/clinics", name="Clinica Plată", idno="1234567890122", contact_name="Vasile",
                                   email="plata@example.md").location)
         admin.post(f"/admin/clinics/{cid}/issue", kind="trial")
         token = _token_of(s, cid)
@@ -199,7 +199,7 @@ def suite_pay_and_cabinet(res: Result) -> None:
         res.check("заголовок /v1/license после оплаты — CURRENT", _header(s, token), terms.CURRENT)
 
         # кабинет: список и акт своей клиники; чужой акт — 404
-        other = cid_from(admin.post("/admin/clinics", name="Clinica Străină", idno="1112223334445",
+        other = cid_from(admin.post("/admin/clinics", name="Clinica Străină", idno="1112223334440",
                                     email="straina@example.md").location)
         with db.connect() if False else sqlite3.connect(s.dir / "cloud.db") as con:
             con.row_factory = sqlite3.Row
@@ -217,7 +217,7 @@ def suite_pay_and_cabinet(res: Result) -> None:
         act = c.get(f"{terms.PAGE}/{aid}")
         res.ok("печатная страница акта: furnizor, clinica с IDNO, versiunea, data, persoana, sursa, id, печать A4",
                act.status == 200 and "Act de acceptare a Termenilor" in act.body and "Oleg Bacalu" in act.body
-               and "Clinica Plată" in act.body and "IDNO 1234567890123" in act.body and terms.CURRENT in act.body
+               and "Clinica Plată" in act.body and "IDNO 1234567890122" in act.body and terms.CURRENT in act.body
                and "Vasile" in act.body and "pagina de plată" in act.body and aid in act.body
                and "@media print" in act.body and "size:A4" in act.body and "window.print()" in act.body, act.body[-2500:])
         res.check("чужой акт — 404", c.get(f"{terms.PAGE}/{foreign['id']}").status, 404)
@@ -324,7 +324,7 @@ def suite_idem_and_audit(res: Result) -> None:
     """Миграция 19 хеширует idem и переживает повтор; срок журнала — задачей."""
     with Server() as s:
         admin = Client(s.url).login()
-        cid = cid_from(admin.post("/admin/clinics", name="Clinica Jurnal", idno="1234567890123",
+        cid = cid_from(admin.post("/admin/clinics", name="Clinica Jurnal", idno="1234567890122",
                                   email="jurnal@example.md").location)
         now = datetime.now(timezone.utc)
         old = (now - timedelta(days=config.AUDIT_KEEP_DAYS + 1)).strftime(db.TS)

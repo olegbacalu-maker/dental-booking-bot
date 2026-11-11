@@ -36,6 +36,7 @@ import test_pure  # noqa: E402
 import test_receipts  # noqa: E402
 import test_renew  # noqa: E402
 import test_robots  # noqa: E402
+import test_revoke  # noqa: E402
 import test_routes  # noqa: E402
 import test_sms  # noqa: E402
 import test_sms_admin  # noqa: E402
@@ -114,6 +115,11 @@ SUITES = [
     ("Сервер: tools check — песочница maib при боевом адресе: предупреждение", test_maib.suite_sandbox_live),
     ("Провод maib Checkout: подпись по образцу документации, поля checkout, статусы, токен, 403, возврат", test_maib.suite_wire),
     ("Сервер: форма пробного — правила: ящик, поля, лимиты", test_trial.suite_rules),
+    ("IDNO заявки пробного: контрольная 7-3-1, не все одинаковые — три двери", test_revoke.suite_idno),
+    ("Отзыв лицензии: файл «сейчас», чтение, SMS, оплата, кабинет, письма", test_revoke.suite_revoke),
+    ("Отзыв лицензии: IDNO, ящик и компьютер заняты — нового пробного нет", test_revoke.suite_doors),
+    ("Отзыв лицензии: «Вернуть» — прежний срок; срок прошёл — без файла", test_revoke.suite_restore),
+    ("Отзыв лицензии: шаг схемы 22 переживает повтор", test_revoke.suite_schema),
     ("Сервер: лимиты заявки и проверки кода — старые ключи выметаются", test_trial.suite_hits_sweep),
     ("Сервер: форма пробного — auto, один пробный на IDNO/e-mail, спам", test_trial.suite_auto),
     ("Сервер: форма пробного — approve, кнопки, скрыть", test_trial.suite_approve),

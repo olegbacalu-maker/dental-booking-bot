@@ -75,6 +75,8 @@ SNAPSHOT = [
     ("POST", "/admin/payments/{pid}/reject", "payment_reject"),
     ("POST", "/admin/clinics/{cid}/edit", "clinic_edit"),
     ("POST", "/admin/clinics/{cid}/issue", "clinic_issue"),
+    ("POST", "/admin/clinics/{cid}/revoke", "clinic_revoke"),
+    ("POST", "/admin/clinics/{cid}/restore", "clinic_restore"),
     ("POST", "/admin/clinics/{cid}/tier", "clinic_tier"),
     ("GET", "/admin/clinics/{cid}/issues/{seq}/license.json", "issue_file"),
     ("POST", "/admin/clinics/{cid}/email", "clinic_email"),

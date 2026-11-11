@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 21
+SCHEMA_VERSION = 22
 TS = "%Y-%m-%dT%H:%M:%SZ"
 
 
@@ -38,6 +38,16 @@ def _add_asked_by(con: sqlite3.Connection) -> None:
     if "asked_by" not in {r[1] for r in con.execute("PRAGMA table_info(activation_codes)")}:
         con.execute("ALTER TABLE activation_codes ADD COLUMN asked_by TEXT NOT NULL DEFAULT ''")
 
+
+
+def _add_revoked(con: sqlite3.Connection) -> None:
+    """Шаг 22 (11.11, Олег «Да, А + IDNO»): отзыв лицензии из админки (revoke.py) — когда, кто, почему
+    и номер файла отзыва (по нему «Вернуть» находит прежний срок). Функцией, как шаг 21: переживает повтор."""
+    have = {r[1] for r in con.execute("PRAGMA table_info(clinics)")}
+    for col, ddl in (("revoked_at", "TEXT"), ("revoked_by", "TEXT NOT NULL DEFAULT ''"),
+                     ("revoked_reason", "TEXT NOT NULL DEFAULT ''"), ("revoked_seq", "INTEGER")):
+        if col not in have:
+            con.execute(f"ALTER TABLE clinics ADD COLUMN {col} {ddl}")
 
 MIGRATIONS = {
     1: [
@@ -351,6 +361,9 @@ MIGRATIONS = {
     # `who|сеть адреса` (trial.asker). Тот же проситель в CODE_REPEAT получает прежний живой код,
     # без нового письма (trial.new_code). Старые строки — '' и ни с кем не совпадают.
     21: [_add_asked_by],
+    # Отзыв лицензии (11.11, revoke.py): программа уходит в «только чтение» файлом со сроком «сейчас»;
+    # строка клиники помнит, кто, когда и почему отозвал, и номер файла отзыва. Пусто — не отозвана.
+    22: [_add_revoked],
 }
 
 

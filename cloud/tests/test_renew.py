@@ -28,7 +28,7 @@ KEYS = {"test": (int(KEY["n"], 16), int(KEY["e"]))}
 
 
 def _clinic(c: Client, **over) -> str:
-    fields = dict(name="Clinica Renew", idno="1234567890123", contact_name="Ion",
+    fields = dict(name="Clinica Renew", idno="1234567890122", contact_name="Ion",
                   email="renew@example.md", phone="")
     fields.update(over)
     return cid_from(c.post("/admin/clinics", **fields).location)

@@ -70,7 +70,8 @@ def for_mail(con: sqlite3.Connection, clinic: sqlite3.Row, who: str) -> str:
 
 
 def lookup(con: sqlite3.Connection, pid: str) -> sqlite3.Row | None:
-    """Клиника живой ссылки или None: неизвестна, истекла, клиника скрыта."""
+    """Клиника живой ссылки или None: неизвестна, истекла, клиника скрыта или её лицензия отозвана
+    (revoke.py: оплата сняла бы отзыв — страница отвечает «ссылка не действует»)."""
     if not pid or len(pid) > 64:
         return None
     row = con.execute("SELECT * FROM pay_links WHERE id=?", (pid,)).fetchone()
@@ -79,7 +80,8 @@ def lookup(con: sqlite3.Connection, pid: str) -> sqlite3.Row | None:
     now = datetime.now(timezone.utc)
     if (db.parse_ts(row["expires_at"]) or now) <= now:
         return None
-    return con.execute("SELECT * FROM clinics WHERE id=? AND declined_at IS NULL", (row["clinic_id"],)).fetchone()
+    return con.execute("SELECT * FROM clinics WHERE id=? AND declined_at IS NULL AND revoked_at IS NULL",
+                       (row["clinic_id"],)).fetchone()
 
 
 def limited(ip: str) -> bool:

@@ -34,7 +34,7 @@ def suite_backup(res: Result) -> None:
     try:
         with Server() as s:
             c = Client(s.url).login()
-            cid = cid_from(c.post("/admin/clinics", name="Clinica Backup", idno="1234567890123",
+            cid = cid_from(c.post("/admin/clinics", name="Clinica Backup", idno="1234567890122",
                                   email="backup@example.md").location)
             c.post(f"/admin/clinics/{cid}/issue", kind="trial")
             original = c.get(f"/admin/clinics/{cid}/issues/1/license.json").body

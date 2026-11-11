@@ -101,8 +101,10 @@ class Report:
 
 _SUBS = """SELECT c.*, s.plan, s.price, s.tier, s.sms_until, s.valid_until, s.grace_days
            FROM subscriptions s JOIN clinics c ON c.id = s.clinic_id
-           WHERE s.valid_until IS NOT NULL AND s.cancelled_at IS NULL
+           WHERE s.valid_until IS NOT NULL AND s.cancelled_at IS NULL AND c.revoked_at IS NULL
            ORDER BY c.created_at, c.id"""
+# ⛔ отозванной клинике (revoke.py) — ни письма о сроке, ни ноты периода: «achitați» звало бы платить за
+# лицензию, которую оплата не вернёт
 
 
 def open_payment(con: sqlite3.Connection, clinic: sqlite3.Row, who: str = WHO) -> sqlite3.Row:

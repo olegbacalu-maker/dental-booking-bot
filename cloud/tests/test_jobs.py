@@ -22,7 +22,7 @@ from app import config  # noqa: E402 — прайс
 from app import license  # noqa: E402 — срок пробного
 
 BANK_ENV = {"DP_BANK_BENEFICIARY": "Oleg Bacalu", "DP_BANK_IBAN": "MD00TEST0000000000000001",
-            "DP_BANK_NAME": "Banca Test", "DP_BANK_CODE": "1234567890123"}
+            "DP_BANK_NAME": "Banca Test", "DP_BANK_CODE": "1234567890122"}
 D = timedelta(days=1)
 
 
@@ -35,7 +35,7 @@ def _sql(s: Server, sql: str, *args):
 
 
 def _clinic(c: Client, **over) -> str:
-    f = dict(name="Clinica Zilnic", idno="1234567890123", contact_name="Ion", email="zilnic@example.md", phone="")
+    f = dict(name="Clinica Zilnic", idno="1234567890122", contact_name="Ion", email="zilnic@example.md", phone="")
     f.update(over)
     return cid_from(c.post("/admin/clinics", **f).location)
 

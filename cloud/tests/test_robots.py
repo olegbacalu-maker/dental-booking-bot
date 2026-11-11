@@ -73,7 +73,7 @@ def suite_root(res: Result) -> None:
         public = {"/cont/login": anon.get("/cont/login"), "/proba": anon.get("/proba")}
         # вошедший в кабинет (код на ящик клиники, заведённой в админке): корень → его кабинет
         admin = Client(s.url).login()
-        cid_from(admin.post("/admin/clinics", name="Clinica Radacina", idno="7007007007007",
+        cid_from(admin.post("/admin/clinics", name="Clinica Radacina", idno="7007007007006",
                             email="radacina@example.md").location)
         c = Client(s.url)
         r = c.post("/cont/login/email", email="radacina@example.md")

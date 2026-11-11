@@ -18,7 +18,7 @@ from test_sms import FakeSmsMd, _clinic_with_license, _one, _sql
 sys.path.insert(0, str(CLOUD))
 from app import pdf, sms_paper  # noqa: E402 — чистые функции сервера
 
-CLINIC = {"name": "SRL „Zâmbet Sănătos”", "idno": "1012600012345", "address": "or. Cahul, str. Ștefan cel Mare 12",
+CLINIC = {"name": "SRL „Zâmbet Sănătos”", "idno": "1012600012348", "address": "or. Cahul, str. Ștefan cel Mare 12",
           "email": "director@zambet.md", "phone": "+373 299 12 345", "contact_name": "Ion Popescu"}
 _PLAIN = pdf.Standard("Helvetica", pdf._W_REG)
 
@@ -88,7 +88,7 @@ def suite_render(res: Result) -> None:
     res.check("лист: бланк sms.md с текстом без правок и заполненными пропусками", _has(
         b, sms_paper.TITLE, "Către: ROCK SOFT S.R.L", "IDNO: 1021600014623",
         "Subsemnatul, Ion Popescu in calitate de reprezentant legal al companiei SRL „Zâmbet Sănătos”",
-        "IDNO: 1012600012345", "Adresa juridica: or. Cahul, str. Ștefan cel Mare 12", "Email director@zambet.md",
+        "IDNO: 1012600012348", "Adresa juridica: or. Cahul, str. Ștefan cel Mare 12", "Email director@zambet.md",
         "Telefon +373 299 12 345", "prin prezenta solicit activarea Alias-ului SMS după cum urmeaza:",
         "Alias propus: Zambet Dent",
         "Sunt de acord ca acest Alias sa fie folosit de către Oleg Bacalu, antreprenor independent, IDNO 1026023148339",
@@ -118,7 +118,7 @@ def suite_cabinet(res: Result) -> None:
             admin = Client(s.url).login()
             cid, _token = _clinic_with_license(admin, s, "Zambet Dent", "zd@example.md")
             cid2, _token2 = _clinic_with_license(admin, s, "Clinica Doi", "doi@example.md")
-            _sql(s, "UPDATE clinics SET idno='2234567890123' WHERE id=?", cid2)
+            _sql(s, "UPDATE clinics SET idno='2234567890129' WHERE id=?", cid2)
             res.check("миграция 14: таблица sms_papers",
                       _one(s, "SELECT count(*) FROM sqlite_master WHERE name='sms_papers'"), 1)
             anon = _upload(Client(s.url), b"%PDF-1.4\n%%EOF\n")
@@ -149,7 +149,7 @@ def suite_cabinet(res: Result) -> None:
                    and "Lipsesc din <a href='#clinica'>datele clinicii</a>: adresa, telefonul" in home, home[-4000:])
             res.check("без адреса и телефона заявление не скачать — sms_paper_data",
                       _msg(cab.post("/cont/sms/cerere.pdf", rep="Ion Popescu")), "sms_paper_data")
-            cab.post("/cont/date", name="Zambet Dent", idno="1234567890123", contact_name="Ion Popescu",
+            cab.post("/cont/date", name="Zambet Dent", idno="1234567890122", contact_name="Ion Popescu",
                      phone="+373 299 12 345", address="or. Cahul, str. Ștefan cel Mare 12")
             home = cab.get("/cont").body
             res.ok("реквизиты есть — форма с представителем из контактного лица",
@@ -161,7 +161,7 @@ def suite_cabinet(res: Result) -> None:
                    and hdr.get("content-disposition") == 'attachment; filename="Cerere-alias-SMS-Zambet-Dent.pdf"'
                    and _xref_ok(b) == "", f"{st} {hdr.get('content-type')} {hdr.get('content-disposition')}")
             res.check("заявление заполнено из строки клиники и формы", _has(
-                b, "Subsemnatul, Maria Ionescu", "IDNO: 1234567890123", "Adresa juridica: or. Cahul",
+                b, "Subsemnatul, Maria Ionescu", "IDNO: 1234567890122", "Adresa juridica: or. Cahul",
                 "Email zd@example.md", "Telefon +373 299 12 345", "Alias propus: Zambet Dent",
                 "Nume si prenume: Maria Ionescu"), [])
             # загрузка подписанного

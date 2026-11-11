@@ -68,7 +68,7 @@ def suite_devices(res: Result) -> None:
     with Server(env={**gh.env, **g.env, "DP_TRIAL_MODE": "auto", "DP_TRIAL_NOTIFY": "oleg@example.md"}) as s:
         admin = Client(s.url).login()
         res.ok("флот пуст: страница говорит об этом", "ещё не выходил на связь" in admin.get("/admin/fleet").body)
-        cid = cid_from(admin.post("/admin/clinics", name="Clinica Flotă", idno="1234567890123",
+        cid = cid_from(admin.post("/admin/clinics", name="Clinica Flotă", idno="1234567890122",
                                   email=DIRECTOR["email"]).location)
         admin.post(f"/admin/clinics/{cid}/issue", kind="trial")
         token = _sql(s, "SELECT renew_token FROM clinics WHERE id=?", cid)[0][0]

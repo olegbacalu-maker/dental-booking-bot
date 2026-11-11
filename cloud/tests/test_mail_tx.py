@@ -37,7 +37,7 @@ from harness import CLOUD, Client, Result, Server, cid_from
 from app import jobs, paylink  # noqa: E402 — виды писем задачи, адрес страницы оплаты
 
 BANK_ENV = {"DP_BANK_BENEFICIARY": "Oleg Bacalu", "DP_BANK_IBAN": "MD00TEST0000000000000001",
-            "DP_BANK_NAME": "Banca Test", "DP_BANK_CODE": "1234567890123"}
+            "DP_BANK_NAME": "Banca Test", "DP_BANK_CODE": "1234567890122"}
 D = timedelta(days=1)
 THINK = 1.5         # сколько почта «думает»: с запасом на пробу соседа, меньше таймаутов клиентов
 
@@ -301,7 +301,7 @@ def suite_daily(res: Result) -> None:
         with Server(env={**BANK_ENV, **smtp.env}) as s:
             c = Client(s.url).login()
             box = "platit@example.md"
-            cid = cid_from(c.post("/admin/clinics", name="Clinica Platita", idno="1234567890123", contact_name="Ion",
+            cid = cid_from(c.post("/admin/clinics", name="Clinica Platita", idno="1234567890122", contact_name="Ion",
                                   email=box, phone="").location)
             v = datetime.now(timezone.utc).date() + 60 * D
             c.post(f"/admin/clinics/{cid}/issue", kind="dates", valid_until=f"{v:%Y-%m-%d}", grace_days="14")
@@ -562,7 +562,7 @@ def suite_trial_admin(res: Result) -> None:
     try:
         with Server(env={**BANK_ENV, **smtp.env, "DP_TRIAL_MODE": "auto", "DP_TRIAL_NOTIFY": "oleg@example.md"}) as s:
             anon = Client(s.url)
-            form = dict(name="Clinica Forma", idno="1003600011111", contact_name="Ana", phone="", consent="1")
+            form = dict(name="Clinica Forma", idno="1003600011118", contact_name="Ana", phone="", consent="1")
 
             # форма /proba
             box = "forma@example.md"
@@ -577,7 +577,7 @@ def suite_trial_admin(res: Result) -> None:
                       [("issue", "form"), ("mail", "form")])
             smtp.fail = True
             box2 = "forma2@example.md"
-            r = anon.post("/proba", email=box2, **dict(form, name="Clinica Forma Doi", idno="1003600022222"))
+            r = anon.post("/proba", email=box2, **dict(form, name="Clinica Forma Doi", idno="1003600022220"))
             smtp.fail = False
             cid2 = _cid(s, box2)
             res.ok("/proba, почта отказала: страница «Cererea a fost primită», пробный выдан, mail_failed в журнале",
@@ -596,7 +596,7 @@ def suite_trial_admin(res: Result) -> None:
                 return r_.status, json.loads(r_.body or "{}")
 
             box3 = "program@example.md"
-            (st, d), free = thinking(smtp, s, lambda: ask(box3, "Clinica Program", "1003600033333", "d_0000000000a1"))
+            (st, d), free = thinking(smtp, s, lambda: ask(box3, "Clinica Program", "1003600033332", "d_0000000000a1"))
             cid3 = _cid(s, box3)
             res.ok("/v1/trial: почта думала при свободном замке записи; issued и токен",
                    free and st == 200 and d.get("state") == "issued" and len(d.get("token", "")) >= 32,
@@ -659,7 +659,7 @@ def suite_cabinet_sms(res: Result) -> None:
            "DP_SMS_PACKS": "100:50,500:200"}
     try:
         with Server(env=env) as s:
-            box, idno = "director@example.md", "1003600055555"
+            box, idno = "director@example.md", "1003600055556"
             cab = _enter(s, smtp, box)
             n = len(smtp.to(box))
             r, free = thinking(smtp, s, lambda: cab.post("/cont/inregistrare", name="Clinica Cabinet", idno=idno,

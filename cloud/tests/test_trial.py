@@ -21,7 +21,7 @@ sys.path.insert(0, str(CLOUD))
 from app import db as cdb, license, mail, trial as ctrial  # noqa: E402 — схема, срок пробного, слова, окно кода
 KEY = json.loads((FIX / "test-key.json").read_text(encoding="utf-8"))
 KEYS = {"test": (int(KEY["n"], 16), int(KEY["e"]))}
-GOOD = dict(name="Clinica Probă", idno="1234567890123", contact_name="Ana", email="proba@example.md",
+GOOD = dict(name="Clinica Probă", idno="1234567890122", contact_name="Ana", email="proba@example.md",
             phone="069000000", consent="1")
 
 
@@ -79,7 +79,7 @@ def suite_auto(res: Result) -> None:
         code, claim = rv.open_envelope(c.get(f"/admin/clinics/{cid}/issues/1/license.json").body, KEYS)
         res.ok("файл принимает движок: trial, клиника и IDNO из формы, renew есть",
                code == "" and claim.plan == "trial" and claim.clinic == "Clinica Probă"
-               and claim.idno == "1234567890123" and claim.renew is not None, f"{code} {claim!r}")
+               and claim.idno == "1234567890122" and claim.renew is not None, f"{code} {claim!r}")
         res.check("журнал: trial_request с адресом",
                   _sql(s, "SELECT count(*) FROM audit WHERE what='trial_request' AND clinic_id=?", cid)[0][0], 1)
 
@@ -136,9 +136,9 @@ def suite_rules(res: Result) -> None:
     res.check("канонический ящик: регистр, +метка, точки gmail",
               [trial.canonical(e) for e in ("A.B+x@Gmail.COM", "ab@gmail.com", "a.b@example.md", "a.b+t@example.md")],
               ["ab@gmail.com", "ab@gmail.com", "a.b@example.md", "a.b@example.md"])
-    f, code = trial.clean(dict(name="  Clinica\n  X ", idno="1234 5678 90123", email=" a@b.md ", consent="1"))
+    f, code = trial.clean(dict(name="  Clinica\n  X ", idno="1234 5678 90122", email=" a@b.md ", consent="1"))
     res.ok("clean: пробелы схлопнуты, IDNO без пробелов, e-mail без пробелов",
-           code == "" and f["name"] == "Clinica X" and f["idno"] == "1234567890123" and f["email"] == "a@b.md", repr(f))
+           code == "" and f["name"] == "Clinica X" and f["idno"] == "1234567890122" and f["email"] == "a@b.md", repr(f))
     for label, fields, want in (("имя с запятой", dict(name="Xy", email="a,b@c.md", consent="1"), "bad_email"),
                                 ("два @", dict(name="Xy", email="a@b@c.md", consent="1"), "bad_email"),
                                 ("домен без точки", dict(name="Xy", email="a@b", consent="1"), "bad_email"),
@@ -233,16 +233,16 @@ def suite_approve(res: Result) -> None:
         res.ok("файл принимает движок", code == "" and claim.plan == "trial")
 
         # вторая заявка — скрыть; после скрытия повтор всё равно «уже есть»
-        r = anon.post("/proba", **dict(GOOD, name="A Doua", idno="9876543210987", email="doua@example.md"))
+        r = anon.post("/proba", **dict(GOOD, name="A Doua", idno="9876543210988", email="doua@example.md"))
         res.ok("вторая клиника — заявка", "Cererea a fost primită" in r.body and len(_clinics(s)) == 2)
         cid2 = _clinics(s)[1][0]
         r = c.post(f"/admin/clinics/{cid2}/decline")
         res.check("скрыть: 303 с trial_declined", r.location, "/admin?msg=trial_declined")
         res.ok("заявок в списке нет, клиника осталась, declined_at записан",
                "Заявки на пробный период" not in c.get("/admin").body and _clinics(s)[1][7])
-        r = anon.post("/proba", **dict(GOOD, name="A Doua", idno="9876543210987", email="doua2@example.md"))
+        r = anon.post("/proba", **dict(GOOD, name="A Doua", idno="9876543210988", email="doua2@example.md"))
         res.ok("«Скрыть» освобождает IDNO: новая заявка заведена третьей клиникой",
-               "Cererea a fost primită" in r.body and len(_clinics(s)) == 3 and _clinics(s)[2][2] == "9876543210987")
+               "Cererea a fost primită" in r.body and len(_clinics(s)) == 3 and _clinics(s)[2][2] == "9876543210988")
         res.check("журнал: trial_declined", _sql(s, "SELECT count(*) FROM audit WHERE what='trial_declined'")[0][0], 1)
         # перевод строки в названии — не второй заголовок письма, а пробел
         r = anon.post("/proba", **dict(GOOD, name="Clinica\r\nBcc: evil@example.md", idno="", email="crlf@example.md"))
@@ -341,7 +341,7 @@ def suite_program(res: Result) -> None:
         res.check("не JSON: 400 bad_json", (r.status, json.loads(r.body).get("code")), (400, "bad_json"))
         res.check("отказы полей клиник не заводят", len(_clinics(s)), 1)
 
-        st, d = _api(anon, dict(GOOD, name="De Ascuns", idno="1112223334445", email="skip@example.md"))
+        st, d = _api(anon, dict(GOOD, name="De Ascuns", idno="1112223334440", email="skip@example.md"))
         token2 = d.get("token", "")
         cid2 = _clinics(s)[-1][0]
         c.post(f"/admin/clinics/{cid2}/decline")
@@ -494,7 +494,7 @@ def suite_code_repeat(res: Result) -> None:
     box, oleg = "dublu@example.md", "oleg@example.md"
     try:
         with Server(env={**smtp.env, "DP_TRIAL_MODE": "auto", "DP_TRIAL_NOTIFY": oleg}) as s:
-            first = dict(GOOD, name="Clinica Dublu", idno="5005005005005", email=box)
+            first = dict(GOOD, name="Clinica Dublu", idno="5005005005000", email=box)
             st, _d = _api(Client(s.url), first)
             cid = _clinics(s)[-1][0]
             res.ok("клиника заведена (auto)", st == 200, repr(_d))
@@ -536,7 +536,7 @@ def suite_code_repeat(res: Result) -> None:
 
         # свой сервер: лимит заявок с адреса (5 в час) выше выбран
         with Server(env={**smtp.env, "DP_TRIAL_MODE": "auto"}) as s:
-            first = dict(GOOD, name="Clinica Fara Posta", idno="5005005005006", email="fara@example.md")
+            first = dict(GOOD, name="Clinica Fara Posta", idno="5005005005011", email="fara@example.md")
             _api(Client(s.url), first)
             cid = _clinics(s)[-1][0]
             smtp.fail = True

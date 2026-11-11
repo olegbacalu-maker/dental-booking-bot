@@ -34,7 +34,7 @@ from app import logmask, sms, smsmd  # noqa: E402
 
 TOKEN, DLR_SECRET = "smsmd-token-test", "dlr-secret-test"
 BANK_ENV = {"DP_BANK_BENEFICIARY": "Oleg Bacalu", "DP_BANK_IBAN": "MD00TEST0000000000000001",
-            "DP_BANK_NAME": "Banca Test", "DP_BANK_CODE": "1234567890123"}
+            "DP_BANK_NAME": "Banca Test", "DP_BANK_CODE": "1234567890122"}
 PHONE, DIGITS = "+373 69 123 456", "69123456"       # известный номер прогона: его цифр не должно остаться
 TEXT = "Buna ziua! Clinica Test va reaminteste ca maine, 17.10, la ora 12:00 aveti o programare la noi."
 D = timedelta(days=1)
@@ -235,7 +235,7 @@ def _letters(s: Server) -> list[tuple[str, str, str]]:
 
 def _clinic_with_license(admin: Client, s: Server, name: str = "Clinica Test", email_: str = "sms@example.md") -> tuple[str, str]:
     """Клиника с абонементом на 60 дней → (cid, токен программы)."""
-    cid = cid_from(admin.post("/admin/clinics", name=name, idno="1234567890123", contact_name="Ion",
+    cid = cid_from(admin.post("/admin/clinics", name=name, idno="1234567890122", contact_name="Ion",
                               email=email_, phone="").location)
     v = datetime.now(timezone.utc).date() + 60 * D
     admin.post(f"/admin/clinics/{cid}/issue", kind="dates", valid_until=f"{v:%Y-%m-%d}", grace_days="14")
@@ -346,7 +346,7 @@ def suite_send(res: Result) -> None:
     try:
         with Server(env=fake.env()) as s:
             admin = Client(s.url).login()
-            cid = cid_from(admin.post("/admin/clinics", name="Clinica Test", idno="1234567890123",
+            cid = cid_from(admin.post("/admin/clinics", name="Clinica Test", idno="1234567890122",
                                       contact_name="Ion", email="sms@example.md", phone="").location)
             token0 = _one(s, "SELECT renew_token FROM clinics WHERE id=?", cid)
             res.ok("без выдачи у клиники нет токена — программе нечем спрашивать", not token0)
@@ -558,7 +558,7 @@ def suite_send(res: Result) -> None:
                    new_until[:4] == str(datetime.now(timezone.utc).year + 1) and prog.get("/v1/sms/account")[1]["from"] == "Clinica T"
                    and "până la" in _letters(s)[-1][2], new_until)
             # пробный период: 30 SMS бесплатно, один раз
-            cid_t = cid_from(admin.post("/admin/clinics", name="Clinica Probă", idno="3334567890123",
+            cid_t = cid_from(admin.post("/admin/clinics", name="Clinica Probă", idno="3334567890129",
                                         contact_name="X", email="proba@example.md", phone="").location)
             admin.post(f"/admin/clinics/{cid_t}/issue", kind="trial")
             prog_t = Program(s.url, _one(s, "SELECT renew_token FROM clinics WHERE id=?", cid_t))
@@ -688,7 +688,7 @@ def suite_daily(res: Result) -> None:
         with Server(env=fake.env()) as s:
             admin = Client(s.url).login()
             cid, token = _clinic_with_license(admin, s)
-            cid2 = cid_from(admin.post("/admin/clinics", name="Clinica Doi", idno="2234567890123",
+            cid2 = cid_from(admin.post("/admin/clinics", name="Clinica Doi", idno="2234567890129",
                                        contact_name="X", email="doi@example.md", phone="").location)
             _sql(s, "INSERT INTO sms_accounts(clinic_id, daily_cap, updated_at, sender, sender_state, sender_live, sender_until) "
                     "VALUES(?,300,'x','Clinica Test','active','Clinica Test','2099-01-01T00:00:00Z')", cid)

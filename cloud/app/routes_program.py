@@ -12,8 +12,8 @@ from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 
-from . import (account, config, contlink, db, emailconf, fleet, license, maib, mail, payments, paylink, sms, smsmd,
-               terms, trial, updates, views, web)
+from . import (account, config, contlink, db, emailconf, fleet, license, maib, mail, payments, paylink, revoke, sms,
+               smsmd, terms, trial, updates, views, web)
 from . import login as elogin  # ⚠️ не `login`: так зовётся маршрут входа админки (routes_admin)
 
 log = logging.getLogger("cloud")
@@ -85,6 +85,9 @@ def pay_link_api(request: Request) -> Response:
         if c is None:
             return JSONResponse({"ok": False, "code": "token_unknown"}, status_code=401)
         fleet.touch(con, c["id"], fleet.from_request(request))          # флот: компьютер вышел на связь
+        if revoke.is_revoked(c):
+            # лицензия отозвана (revoke.py): ссылки оплаты нет; программа (403 = REFUSED) говорит «не принято»
+            return JSONResponse({"ok": False, "code": "revoked", "text": views.TRIAL_MSG["revoked"]}, status_code=403)
         link = paylink.create(con, c, "program")
     return JSONResponse({"ok": True, "url": paylink.url_for(link["id"]), "expires_at": link["expires_at"]})
 
