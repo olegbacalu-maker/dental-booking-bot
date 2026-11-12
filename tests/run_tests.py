@@ -44,12 +44,14 @@ import test_doctors  # noqa: E402
 import test_doctor_windows  # noqa: E402
 import test_day_actions  # noqa: E402
 import test_day_forms  # noqa: E402
+import test_gimport_core  # noqa: E402
 import test_guards  # noqa: E402
 import test_hardening  # noqa: E402
 import test_harness_client  # noqa: E402
 import test_harness_clock  # noqa: E402
 import test_harness_tmp  # noqa: E402
 import test_launcher  # noqa: E402
+import test_ics  # noqa: E402
 import test_installer  # noqa: E402
 import test_legacy  # noqa: E402
 import test_license_format  # noqa: E402
@@ -161,6 +163,14 @@ SUITES = [
     ("SMS: сегменты по общему вектору", test_sms_rule.suite_parts),
     ("SMS: номер получателя по общему вектору", test_sms_rule.suite_phones),
     ("SMS: модуль правила чистый", test_sms_rule.suite_pure),
+    ("Импорт .ics: файл — строки, время, отказы, архив", test_ics.suite_file),
+    ("Импорт .ics: правила повтора по буквальным датам", test_ics.suite_rrule),
+    ("Импорт .ics: серии образца — удалённое, изменённое, отменённое", test_ics.suite_series),
+    ("Импорт .ics: модуль чтения чистый", test_ics.suite_pure),
+    ("Импорт gimport: образцы от «сейчас» — заготовки, повторный импорт", test_gimport_core.suite_samples),
+    ("Импорт gimport: округление, пропуски, отпечаток", test_gimport_core.suite_rules),
+    ("Импорт gimport: телефон, врач, имя, пересечения", test_gimport_core.suite_hints),
+    ("Импорт gimport: конвертер чистый", test_gimport_core.suite_pure),
     ("SMS: тексты, подстановки, окно отправки, настройки", test_sms.suite_plan),
     ("SMS: провод к серверу", test_sms.suite_wire),
     ("SMS: живой цикл — накануне, в день визита, кому нет, без дубля", test_sms.suite_live),
