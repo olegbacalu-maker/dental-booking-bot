@@ -587,16 +587,54 @@ def suite_rights(res: Result) -> None:
         _rmtree_settled(d)
 
 
+def suite_round(res: Result) -> None:
+    """Начало и длина окна записи — из конвертера: начало к ближайшим пяти
+    минутам, длина как в Google, некратная пяти — вверх. В таблице время
+    остаётся как в календаре."""
+    with Server() as s:
+        c = Client(s.url).login()
+        got = loaded(res, c, cal([ev("r1", 3, "11:08", 30, "Tarziu Dan 068333222"),
+                                  ev("r2", 3, "14:07", 23, "Rotund Maria 079555123"),
+                                  ev("r3", 3, "16:00", 30, "Exact Ana 069111000"),
+                                  ev("r4", 3, "17:03", 5, "Scurt Ion 069111001")]), "загрузка")
+        res.ok("годных строк не ноль", got.get("new", 0) == 4, f"{got}")
+        r1, r2, r3, r4 = rows(listing(c))
+        res.check("11:08 на 30 минут → окно 11:10 на 30",
+                  (r1["time"], r1["minutes"], r1["preset"]["time"], r1["preset"]["duration"], r1["round"]),
+                  ("11:08", 30, "11:10", "30", {"from": "11:08–11:38", "to": "11:10–11:40"}))
+        res.check("14:07 на 23 минуты → окно 14:05 на 25",
+                  (r2["preset"]["time"], r2["preset"]["duration"], r2["round"]),
+                  ("14:05", "25", {"from": "14:07–14:30", "to": "14:05–14:30"}))
+        res.check("кратное пяти — без пометки",
+                  (r3["preset"]["time"], r3["preset"]["duration"], r3["round"]), ("16:00", "30", None))
+        res.check("17:03 на 5 минут → окно 17:05 на 5",
+                  (r4["preset"]["time"], r4["preset"]["duration"]), ("17:05", "5"))
+        res.check("в таблице — время и длина как в календаре",
+                  sql(s, "SELECT substr(starts_at, 15, 2), minutes FROM gcal_events ORDER BY starts_at"),
+                  [("08", 30), ("07", 23), ("00", 30), ("03", 5)])
+        again = loaded(res, c, cal([ev("r1", 3, "11:08", 30, "Tarziu Dan 068333222"),
+                                    ev("r2", 3, "14:07", 23, "Rotund Maria 079555123"),
+                                    ev("r3", 3, "16:00", 30, "Exact Ana 069111000"),
+                                    ev("r4", 3, "17:03", 5, "Scurt Ion 069111001")]), "вторая загрузка")
+        res.check("округлённое не выглядит изменившимся при повторной загрузке",
+                  (again["new"], again["updated"]), (0, 0))
+        # запись на час округлённого события узнаётся как уже стоящая
+        res.check("запись руками на 14:00", add_appt(c, _day(3), "14:00", "Maria Rotund", "079555123").msg, "ok")
+        res.check("запись на другом старте за округлённое событие не принимается",
+                  row(c, "Rotund Maria")["hint"]["exists"], None)
+
+
 def suite_after_grid(res: Result) -> None:
     """Старт не на :00/:30 и длительность 20 минут ложатся как есть. Верно
     только с правилом «старт с шагом 5 минут, длительность кратно 5»."""
     with Server() as s:
         c = Client(s.url).login()
         got = loaded(res, c, cal([ev("g1", 3, "09:10", 20, "Scurt Vasile 069123123"),
+                                  ev("g3", 3, "11:08", 30, "Tarziu Dan 068333222"),
                                   ev("g2", 3, "14:07", 23, "Rotund Maria 079555123")]), "загрузка")
-        res.ok("годных строк не ноль", got.get("new", 0) == 2, f"{got}")
-        g1, g2 = rows(listing(c))
-        for r_, name in ((g1, "Vasile Scurt"), (g2, "Maria Rotund")):
+        res.ok("годных строк не ноль", got.get("new", 0) == 3, f"{got}")
+        g1, g3, g2 = rows(listing(c))
+        for r_, name in ((g1, "Vasile Scurt"), (g3, "Dan Tarziu"), (g2, "Maria Rotund")):
             p = r_["preset"]
             r = c.post_json(f"/api/gcal/events/{r_['id']}/move",
                             {**p, "name": name, "service": "consult", "doctor": "d2"})
@@ -604,10 +642,11 @@ def suite_after_grid(res: Result) -> None:
         res.check("записи легли с часами и длиной события",
                   sql(s, "SELECT substr(starts_at, 12, 5), duration_min, duration_set "
                          "FROM appointments ORDER BY starts_at"),
-                  [(x, y, 1) for x, y in _utc_times(("09:10", 20), ("14:05", 25))])
+                  [(x, y, 1) for x, y in _utc_times(("09:10", 20), ("11:10", 30), ("14:05", 25))])
         res.check("исходные часы округлённого — в комментарии",
-                  sql(s, "SELECT comment FROM appointments ORDER BY starts_at")[1][0],
-                  "Google: Rotund Maria 079555123 (14:07–14:30)")
+                  [x[0] for x in sql(s, "SELECT comment FROM appointments ORDER BY starts_at")][1:],
+                  ["Google: Tarziu Dan 068333222 (11:08–11:38)",
+                   "Google: Rotund Maria 079555123 (14:07–14:30)"])
 
 
 def _utc_times(*pairs) -> list:

@@ -174,6 +174,7 @@ SUITES = [
     ("Импорт gimport: конвертер чистый", test_gimport_core.suite_pure),
     ("Google Calendar: загрузка файла, список, подсказки, меню", test_gcal.suite_load),
     ("Google Calendar: перенос в журнал, «Leagă», «Nu muta», изменившееся", test_gcal.suite_move),
+    ("Google Calendar: начало и длина окна — из конвертера", test_gcal.suite_round),
     ("Google Calendar: срок текста под поддельными часами", test_gcal.suite_expiry),
     ("Google Calendar: стирание пациента и «Șterge tot»", test_gcal.suite_erase),
     ("Google Calendar: права и режим чтения", test_gcal.suite_rights),
