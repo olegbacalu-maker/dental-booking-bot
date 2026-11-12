@@ -467,6 +467,7 @@ async def api_chair(request: Request, doctor: str = Query(""),
     data = {"date": d.isoformat(),
             "doctors": [{"dk": k, "name": n} for k, n in shown],
             "doctor": None, "chair": None, "chairs": [], "stale": [], "queue": [],
+            "rooms": [],
             "actions": all_status_actions(), "notice": _notice(scope)}
     if not dk:
         return msg_json(True, data=data)
@@ -476,7 +477,8 @@ async def api_chair(request: Request, doctor: str = Query(""),
     agenda = ppanel.agenda(d, rows, _collect_cards(rows), _svc_colors, _AG_CLS,
                            datetime.now(eng.TZ))
     data.update(pchair.model(rows, agenda["items"]),
-                doctor={"dk": dk, "name": eng.DOCTORS[dk]}, today=agenda["today"])
+                doctor={"dk": dk, "name": eng.DOCTORS[dk]}, today=agenda["today"],
+                rooms=eng.room_list(dk))
     return msg_json(True, data=data)
 
 

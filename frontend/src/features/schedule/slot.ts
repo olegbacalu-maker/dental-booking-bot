@@ -1,4 +1,4 @@
-import { clashAmong, type Occupies } from './move'
+import { clashAmong, clashLanes, type Occupies } from './move'
 
 /**
  * Пустой час: слот, его времена и то, что нужно его диалогу.
@@ -23,6 +23,8 @@ export interface Slot {
   hour: string
   /** Минута, в которую попал щелчок по сетке; нет — первая свободная. */
   minute?: number
+  /** Кабинет дорожки, в которую попал щелчок; нет — первый свободный. */
+  room?: string
 }
 
 /**
@@ -84,13 +86,14 @@ export function hourMinutes(step: number): number[] {
   return out
 }
 
-/** Старты часа, с которых запись длиной `dur` задела бы занятый блок колонки
- *  (`self` — переносимый визит, сам себе не помеха). Подсказка окну. */
-export function takenMinutes(items: Occupies[], hour: number, dur: number,
+/** Старты часа, с которых запись длиной `dur` не встала бы ни в один из
+ *  списков занятости (`lanes` — по кабинетам, `move.lanesOf`; `self` —
+ *  переносимый визит, сам себе не помеха). Подсказка окну. */
+export function takenMinutes(lanes: Occupies[][], hour: number, dur: number,
   step: number, self = -1): Set<number> {
   const out = new Set<number>()
   for (const m of hourMinutes(step)) {
-    if (clashAmong(items, hour * 60 + m, dur, self) >= 0) out.add(m)
+    if (clashLanes(lanes, hour * 60 + m, dur, self) >= 0) out.add(m)
   }
   return out
 }

@@ -114,17 +114,17 @@ describe('минуты часа и их занятость — то, что ну
     /* сосед 09:20–09:35: пятиминутный встаёт в 09:15 и в 09:35, получасовой —
        только после него */
     const items = [b(560, 15)]
-    expect([...takenMinutes(items, 9, 5, 5)]).toEqual([20, 25, 30])
-    expect([...takenMinutes(items, 9, 30, 5)]).toEqual([0, 5, 10, 15, 20, 25, 30])
+    expect([...takenMinutes([items], 9, 5, 5)]).toEqual([20, 25, 30])
+    expect([...takenMinutes([items], 9, 30, 5)]).toEqual([0, 5, 10, 15, 20, 25, 30])
   })
 
   it('сосед из следующего часа занимает концы этого', () => {
-    expect([...takenMinutes([b(600, 30)], 9, 15, 5)]).toEqual([50, 55])
+    expect([...takenMinutes([[b(600, 30)]], 9, 15, 5)]).toEqual([50, 55])
   })
 
   it('завершённый блок и сам переносимый визит — не помеха', () => {
-    expect(takenMinutes([b(540, 60, false)], 9, 30, 5).size).toBe(0)
-    expect(takenMinutes([b(540, 60, true, 7)], 9, 30, 5, 7).size).toBe(0)
-    expect(takenMinutes([b(540, 60, true, 7)], 9, 30, 5).size).toBe(12)
+    expect(takenMinutes([[b(540, 60, false)]], 9, 30, 5).size).toBe(0)
+    expect(takenMinutes([[b(540, 60, true, 7)]], 9, 30, 5, 7).size).toBe(0)
+    expect(takenMinutes([[b(540, 60, true, 7)]], 9, 30, 5).size).toBe(12)
   })
 })

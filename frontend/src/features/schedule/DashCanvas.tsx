@@ -8,8 +8,8 @@ import type { DashAppt, DashBlock, DashCanvasModel, DashColumn } from './dash'
 import type { VisitFacts } from './day'
 import { FactCols } from './FactCols'
 import { freeSpans, hourLabel, spanAt, startIn, type FreeSpan } from './slot'
-import { cellAtY, dragOf, dropMinute, endOf, hhmm, type CellRect, type Drag, type Occupies,
-  type Target } from './move'
+import { cellAtY, dragOf, dropMinute, endOf, hhmm, lanesOf, roomTag, type CellRect, type Drag, type Occupies,
+  type Room, type Target } from './move'
 
 /* Канва панели дня: колонки врачей, ряды часов, блоки с геометрией.
 
@@ -51,6 +51,7 @@ const T = {
   odo: 'Deschide odontograma',
   noAppts: 'Nicio programare în această zi',
   room: 'Cabinetul',
+  rooms: 'Cabinetele',
   zoom: 'Scara grilei',
   zoomIn: 'Mărește grila',
   zoomOut: 'Micșorează grila',
@@ -78,12 +79,13 @@ interface Props {
   onCardMenu?: ((id: number, x: number, y: number) => void) | undefined
   /** Открыть заметку стойки: полный текст и её единственная кнопка. */
   onNote: (id: number) => void
-  /** Открыть пустой час: врач, его имя, «HH:00» и минута, в которую попал
-   *  щелчок (по делению масштаба, внутри свободного отрезка). */
-  onSlot: (dk: string, name: string, hour: string, minute: number) => void
+  /** Открыть пустой час: врач, его имя, «HH:00», минута, в которую попал
+   *  щелчок (по делению масштаба, внутри свободного отрезка), и кабинет
+   *  дорожки — у врача с несколькими кабинетами. */
+  onSlot: (dk: string, name: string, hour: string, minute: number, room?: string) => void
   /** Начало броска: `null` — бросок кончился. */
   drag: Drag | null
-  /** Куда встанет визит, если бросить сейчас: «колонка|минута от полуночи». */
+  /** Куда встанет визит, если бросить сейчас: «колонка|минута от полуночи|дорожка». */
   hover: string
   onDrag: (d: Drag | null) => void
   onHover: (key: string) => void
@@ -146,7 +148,7 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
   /* подпись :05 легла бы на подпись самого часа — её деление остаётся линией */
   const marks: number[] = []
   for (let m = scale.marks; scale.marks && m < 60; m += scale.marks) if (m > 5) marks.push(m)
-  const [dropDk, dropAt] = drag && hover ? hover.split('|') : []
+  const [dropDk, dropAt, dropLane] = drag && hover ? hover.split('|') : []
 
   return (
     <div className="gridcard">
@@ -178,9 +180,17 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
             </div>
           ))}
         </div>
-        {model.columns.map((col) => (
+        {model.columns.map((col) => {
+          /* У врача с несколькими кабинетами колонка — дорожки кабинетов:
+             свободное, щелчок и бросок считаются внутри дорожки. */
+          const rooms = col.rooms ?? NO_ROOMS
+          const n = rooms.length > 1 ? rooms.length : 1
+          const realBy = lanesOf(col.blocks, rooms)
+          const seenBy = lanesOf(drawn(col.blocks), rooms)
+          return (
           <div key={col.key} className="gcol" {...(col.id ? { 'data-dk': col.id } : {})}
-            {...(drag && col.id ? dropZone(col.id, drag.grab ?? 0, scale.snap, onHover, onDrop) : {})}>
+            {...(n > 1 ? { 'data-lanes': n } : {})}
+            {...(drag && col.id ? dropZone(col.id, drag.grab ?? 0, scale.snap, rooms, onHover, onDrop) : {})}>
             {col.cells.map((open, i) => {
               /* ⛔ Закрытая ячейка БЕЗ `data-h`: «куда нельзя записать, туда
                  нельзя и перенести». Признак ОДИН на класс, на `data-h` и на
@@ -208,22 +218,29 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
                  своей длины и закрывает ячейку), а «занят ли час» и минута
                  записи — по настоящим минутам: кнопка обязана не врать.
                  Мишень переноса от этого не зависит — она ищется по координате. */
-              const real = freeSpans(col.blocks, h)
-              const seen = freeSpans(drawn(col.blocks), h)
-              const first = seen[0]
+              const real = realBy.map((lane) => freeSpans(lane, h))
+              const seen = seenBy.map((lane) => freeSpans(lane, h))
+              const li = seen.findIndex((s) => s.length > 0)
+              const first = li >= 0 ? seen[li]![0] : undefined
               const low = first ? thin(first, scale.cell || CELL_MIN) : ''
               return (
                 <button key={h} type="button" data-h={h} data-hh={hh}
-                  data-free={!first ? 'none' : first.to - first.from === 60 ? 'all' : 'part'}
+                  data-free={!first ? 'none' : n === 1 && first.to - first.from === 60 ? 'all' : 'part'}
                   {...(low ? { 'data-thin': low } : {})}
-                  className="gcell" style={first ? spanVars(first) : undefined}
+                  className="gcell" style={first ? spanVars(first, li, n) : undefined}
                   aria-label={`${T.book} ${col.name} ${T.at} ${hh}`}
-                  disabled={!real.length}
-                  onMouseMove={seen.length > 1 ? (e) => aim(e.currentTarget, e.clientY, seen) : undefined}
+                  disabled={real.every((s) => !s.length)}
+                  onMouseMove={n > 1 || (seen[0]?.length ?? 0) > 1
+                    ? (e) => aim(e.currentTarget, e.clientX, e.clientY, seen) : undefined}
                   onClick={(e) => {
                     const at = e.detail ? minuteIn(e.currentTarget, e.clientY) : null
-                    const m = startIn(real, at, scale.snap)
-                    if (m !== null) onSlot(dk, col.name, hh, m)
+                    /* дорожка под щелчком; в занятой и с клавиатуры — первая свободная */
+                    let lane = e.detail && n > 1 ? laneIn(e.currentTarget, e.clientX, n) : -1
+                    if (lane < 0 || !real[lane]?.length) lane = real.findIndex((s) => s.length > 0)
+                    const m = startIn(real[lane] ?? [], at, scale.snap)
+                    if (m === null) return
+                    if (n > 1) onSlot(dk, col.name, hh, m, rooms[lane]?.id)
+                    else onSlot(dk, col.name, hh, m)
                   }} />
               )
             })}
@@ -231,16 +248,19 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
               <div className="gdrop" data-at={hhmm(Number(dropAt))} style={{
                 top: `calc(${(Number(dropAt) - model.base_min) / 60}*var(--cell))`,
                 height: `calc(${drag.dur / 60}*var(--cell))`,
+                ...(n > 1 && dropLane ? laneBox(Number(dropLane), n) : {}),
               }} />
             )}
             {col.blocks.map((b) => (
               <Block key={b.id} block={b} waitTick={waitTick} dk={col.id ?? ''}
                 onCard={onCard} onCardMenu={onCardMenu} onNote={onNote} onDrag={onDrag}
-                fresh={fresh.has(b.id)} moved={moved.has(b.id)}
-                facts={facts?.[String(b.id)]} date={model.date} />
+                fresh={fresh.has(b.id)} moved={moved.has(b.id)} lanes={n > 1}
+                /* колонки фактов рассчитаны на блок во всю колонку — в дорожке их нет */
+                facts={n > 1 ? undefined : facts?.[String(b.id)]} date={model.date} />
             ))}
           </div>
-        ))}
+          )
+        })}
         {/* ⚠️ Линия «сейчас» — единственное, что меняется непрерывно, и
             потому её нет в модели: серверная строка с минутами делала бы
             отпечаток живого состояния всегда другим.
@@ -267,11 +287,28 @@ function drawn(blocks: DashBlock[]): Occupies[] {
   return blocks.map((b) => ({
     id: b.id, min: b.min, busy: b.busy,
     dur: Math.max(b.dur || 60, Math.round(b.height * 60)),
+    ...(b.kind === 'appt' && b.room_id !== undefined ? { room_id: b.room_id } : {}),
   }))
 }
 
-function spanVars(s: FreeSpan): React.CSSProperties {
-  return { '--ft': s.from / 60, '--fb': 1 - s.to / 60 } as React.CSSProperties
+const NO_ROOMS: readonly Room[] = []
+
+function spanVars(s: FreeSpan, lane = 0, lanes = 1): React.CSSProperties {
+  return { '--ft': s.from / 60, '--fb': 1 - s.to / 60,
+    '--fl': lane / lanes, '--fr': 1 - (lane + 1) / lanes } as React.CSSProperties
+}
+
+/** Дорожка кабинета под координатой: 0…n−1. */
+function laneIn(el: HTMLElement, x: number, n: number): number {
+  const r = el.getBoundingClientRect()
+  if (r.width <= 0) return -1
+  return Math.max(0, Math.min(n - 1, Math.floor(((x - r.left) / r.width) * n)))
+}
+
+/** Место указателя броска в дорожке — те же доли, что у блока. */
+function laneBox(lane: number, n: number): React.CSSProperties {
+  return { left: `calc(${lane}*(100% - 8px)/${n} + 4px)`, right: 'auto',
+    width: `calc((100% - 8px)/${n} - 2px)` }
 }
 
 /** Низкий отрезок: слово подсказки не влезает — остаётся плюс или одна рамка. */
@@ -290,12 +327,17 @@ function minuteIn(el: HTMLElement, y: number): number | null {
 
 /* Рамка подсказки встаёт на свободный отрезок под курсором. Мимо React: это
    оформление наведения, и рендер на каждое движение мыши был бы лишним. */
-function aim(el: HTMLElement, y: number, spans: FreeSpan[]): void {
+function aim(el: HTMLElement, x: number, y: number, lanes: FreeSpan[][]): void {
   const at = minuteIn(el, y)
-  const s = at === null ? null : spanAt(spans, at)
+  const n = lanes.length
+  let lane = n > 1 ? laneIn(el, x, n) : 0
+  if (lane < 0 || !lanes[lane]?.length) lane = lanes.findIndex((s) => s.length > 0)
+  const s = at === null || lane < 0 ? null : spanAt(lanes[lane] ?? [], at)
   if (!s) return
   el.style.setProperty('--ft', String(s.from / 60))
   el.style.setProperty('--fb', String(1 - s.to / 60))
+  el.style.setProperty('--fl', String(lane / n))
+  el.style.setProperty('--fr', String(1 - (lane + 1) / n))
   const low = thin(s, el.offsetHeight)
   if (low) el.dataset.thin = low
   else delete el.dataset.thin
@@ -312,8 +354,11 @@ function aim(el: HTMLElement, y: number, spans: FreeSpan[]): void {
  * недоступен (и его нет у события, синтезированного проверкой), поэтому
  * указатель места стоит СНАРУЖИ этого условия.
  */
-function dropZone(dk: string, grab: number, snap: number, onHover: (key: string) => void,
-  onDrop: (t: Target) => void) {
+function dropZone(dk: string, grab: number, snap: number, rooms: readonly Room[],
+  onHover: (key: string) => void, onDrop: (t: Target) => void) {
+  const n = rooms.length > 1 ? rooms.length : 1
+  const lane = (e: React.DragEvent<HTMLDivElement>) =>
+    n > 1 ? laneIn(e.currentTarget, e.clientX, n) : -1
   const at = (e: React.DragEvent<HTMLDivElement>) => {
     const rects: CellRect[] = Array.from(
       e.currentTarget.querySelectorAll<HTMLElement>('.gcell[data-h]'),
@@ -330,13 +375,15 @@ function dropZone(dk: string, grab: number, snap: number, onHover: (key: string)
       if (min === null) { onHover(''); return }
       e.preventDefault()
       if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
-      onHover(dk + '|' + min)
+      const li = lane(e)
+      onHover(dk + '|' + min + (li >= 0 ? '|' + li : ''))
     },
     onDragLeave: () => onHover(''),
     onDrop: (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault()
       const min = at(e)
-      if (min !== null) onDrop({ dk, min })
+      const room = rooms[lane(e)]?.id
+      if (min !== null) onDrop({ dk, min, ...(room ? { room } : {}) })
     },
   }
 }
@@ -383,7 +430,7 @@ function DocCard({ col, date }: { col: DashColumn; date: string }) {
             <small className={!col.orphan && col.room ? 'has-room' : undefined}>{col.orphan
               ? `${T.outside} · ${col.count} ${col.count === 1 ? T.one : T.many}`
               : col.room
-                ? <><span className="dc-room" title={`${T.room} ${col.room}`}><Icon name="door" />{col.room}</span>
+                ? <><span className="dc-room" title={`${(col.rooms?.length ?? 0) > 1 ? T.rooms : T.room} ${col.room}`}><Icon name="door" />{col.room}</span>
                     <span className="dc-spec">{' · '}{spec}</span></>
                 : spec}</small>
             {col.relink && <Relink relink={col.relink} date={date} />}
@@ -430,7 +477,7 @@ function Relink({ relink, date }: { relink: NonNullable<DashColumn['relink']>; d
 }
 
 function Block(
-  { block, waitTick, dk, onCard, onCardMenu, onNote, onDrag, fresh, moved, facts, date }:
+  { block, waitTick, dk, onCard, onCardMenu, onNote, onDrag, fresh, moved, lanes, facts, date }:
   {
     block: DashBlock; waitTick: number; dk: string
     onCard: (id: number) => void; onNote: (id: number) => void
@@ -438,6 +485,8 @@ function Block(
     onDrag: (d: Drag | null) => void
     fresh: boolean
     moved: boolean
+    /** Колонка разделена на дорожки кабинетов — на блоке метка кабинета. */
+    lanes: boolean
     facts: VisitFacts | undefined
     date: string
   },
@@ -487,11 +536,13 @@ function Block(
     )
   }
   return <ApptBlock block={block} pos={pos} waitTick={waitTick} onCard={onCard}
-    onCardMenu={onCardMenu} grab={grab} fx={fx} facts={facts} date={date} />
+    onCardMenu={onCardMenu} grab={grab} fx={fx} facts={facts} date={date}
+    room={lanes ? block.room ?? '' : ''} />
 }
 
+
 function ApptBlock(
-  { block, pos, waitTick, onCard, onCardMenu, grab, fx, facts, date }: {
+  { block, pos, waitTick, onCard, onCardMenu, grab, fx, facts, date, room }: {
     block: DashAppt; pos: React.CSSProperties; waitTick: number
     onCard: (id: number) => void
     onCardMenu?: ((id: number, x: number, y: number) => void) | undefined
@@ -499,6 +550,7 @@ function ApptBlock(
     fx: string
     facts: VisitFacts | undefined
     date: string
+    room: string
   },
 ) {
   /* Срочность — чипом в строке интервала (макет), а не только цветом: чип
@@ -545,7 +597,7 @@ function ApptBlock(
       {ico && <span className="stt"><Icon name={iconName(ico)} /></span>}
       {/* значок «есть комментарий» (03.10, просьба Олега): текст — в подсказке
           блока и в карточке по нажатию */}
-      <b data-t={block.time}>{block.name}{block.source === 'bot' && <> <Icon name="bot" /></>}
+      <b data-t={block.time}>{room && <span className="groom" title={`${T.room} ${room}`}>{roomTag(room)}</span>}{block.name}{block.source === 'bot' && <> <Icon name="bot" /></>}
         {block.comment && <> <Icon name="chat" /></>}</b>
       <small><span className="gt">{block.time} · {block.dur}′ · </span>{block.service}</small>
       {/* колонки фактов — только у дня врача (`facts`); стоят абсолютно в

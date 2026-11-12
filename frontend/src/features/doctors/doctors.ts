@@ -73,6 +73,11 @@ export interface DoctorCard {
   name: string
   spec: string
   room: string
+  /** Кабинеты врача по порядку, первый — основной. */
+  rooms?: { id: string; name: string }[]
+  /** Кабинеты клиники и потолок списка у одного врача. */
+  rooms_all?: { id: string; name: string }[]
+  rooms_max?: number
   phone: string
   email: string
   status: string
@@ -101,6 +106,8 @@ export interface DoctorProfile {
   name: string
   spec: string
   room: string
+  /** Кабинеты именами по порядку; имя известного кабинета — он же. */
+  rooms?: { name: string }[]
   phone: string
   email: string
   color: string

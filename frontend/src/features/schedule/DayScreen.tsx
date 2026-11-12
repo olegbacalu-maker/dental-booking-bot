@@ -21,7 +21,8 @@ import { CalButton } from './MiniCal'
 import { MoveDialog } from './MoveDialog'
 import { NoteDialog } from './NoteDialog'
 import { SlotDialog } from './SlotDialog'
-import { canvasBlocks, canvasColName, canvasNote, canvasOpenHours, type DashNote } from './dash'
+import { canvasBlocks, canvasColName, canvasNote, canvasOpenHours, canvasOthers, canvasRooms,
+  canvasRoomsOf, type DashNote } from './dash'
 import { useClockTick } from './dashFx'
 import { useLingering, useOpening } from '../../utils/motion'
 import { day, type DayModel } from './day'
@@ -319,7 +320,8 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
       <div className="dp-daymain">
         <DashCanvas model={m.canvas} rail={noRail} waitTick={waitTick} lineTick={lineTick}
                     onCard={setCard} onCardMenu={openMenu}
-                    onSlot={(dk, name, hour, minute) => setSlot({ dk, name, hour, minute })}
+                    onSlot={(dk, name, hour, minute, room) =>
+                      setSlot({ dk, name, hour, minute, ...(room ? { room } : {}) })}
                     onNote={openNote}
                     drag={drag} hover={hover} onDrag={setDrag} onHover={setHover} onDrop={onDrop}
                     fresh={NO_FRESH} facts={m.extras} />
@@ -342,10 +344,12 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
         : null}
 
       {slotL.shown && m.form
-        ? <SlotDialog key={`${slotL.shown.dk}|${slotL.shown.hour}|${slotL.shown.minute ?? ''}`} open={!slotL.leaving} slot={slotL.shown}
+        ? <SlotDialog key={`${slotL.shown.dk}|${slotL.shown.hour}|${slotL.shown.minute ?? ''}|${slotL.shown.room ?? ''}`} open={!slotL.leaving} slot={slotL.shown}
                       date={m.date} form={m.form}
                       noteEnds={m.note_ends} busy={busy}
                       taken={canvasBlocks(m.canvas, slotL.shown.dk)}
+                      rooms={canvasRooms(m.canvas, slotL.shown.dk)}
+                      others={canvasOthers(m.canvas, slotL.shown.dk)}
                       onClose={() => setSlot(null)}
                       onAdd={(b, fail) => act(() => day.add(at, doctor, tile, b), fail)}
                       onNote={(b, fail) => act(() => day.note(at, doctor, tile, b), fail)} />
@@ -377,7 +381,10 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
                       onService={(sid, fail) =>
                         act(() => day.service(at, doctor, tile, cardL.shown!, sid), fail)}
                       onDuration={(min, fail) =>
-                        act(() => day.duration(at, doctor, tile, cardL.shown!, min), fail)} />
+                        act(() => day.duration(at, doctor, tile, cardL.shown!, min), fail)}
+                      rooms={canvasRoomsOf(m.canvas, cardL.shown)}
+                      onRoom={(room, fail) =>
+                        act(() => day.room(at, doctor, tile, cardL.shown!, room), fail)} />
         : null}
 
       {noteL.shown !== null && shownNote
@@ -398,12 +405,14 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
                       toName={canvasColName(m.canvas, moveL.shown.target.dk)}
                       taken={canvasBlocks(m.canvas, moveL.shown.target.dk)} step={m.form?.step}
                       hours={canvasOpenHours(m.canvas, moveL.shown.target.dk)}
+                      rooms={canvasRooms(m.canvas, moveL.shown.target.dk)}
+                      others={canvasOthers(m.canvas, moveL.shown.target.dk)}
                       onClose={() => setMove(null)}
-                      onMove={(min) => {
+                      onMove={(min, room) => {
                         const { drag: d, target: t } = moveL.shown!
                         setMove(null)
                         void act(() => day.move(at, doctor, tile, d.id,
-                          { date: m.date, time: hhmm(min), doctor: t.dk }))
+                          { date: m.date, time: hhmm(min), doctor: t.dk, ...(room ? { room } : {}) }))
                       }} />
         : null}
     </section>

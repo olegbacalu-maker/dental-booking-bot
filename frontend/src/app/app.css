@@ -3377,3 +3377,20 @@ dialog.rg-dlg.wide { width: 720px; }
   .rg .rg-plan-r > :nth-child(4) { grid-column: 2; grid-row: 2; justify-self: end; }
   .rg-set .rg-set-grid { grid-template-columns: 1fr; }
 }
+
+/* кабинет: выбор в окнах записи и переноса, строка в окне визита, список в фише врача */
+.dp-react-root .dlg-form > .dp-roompick select { flex: 0 1 220px; width: auto; min-width: 0; }
+.dp-react-root .dp-card-room svg { width: 14px; height: 14px; color: var(--text3); }
+.dp-rooms { display: flex; flex-direction: column; gap: 6px; }
+.dp-rooms-row { display: flex; align-items: center; gap: 6px; }
+.dp-rooms-row input { flex: 1 1 0; min-width: 0; }
+.fform .dp-rooms-b, .fform .dp-rooms-b:hover, .fform .dp-rooms-add, .fform .dp-rooms-add:hover {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: var(--h-ctl-s); padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-ctl);
+  background: var(--panel); color: var(--text2); font-size: var(--fs-s); font-weight: 600;
+  box-shadow: none; transform: none; cursor: pointer; }
+.fform .dp-rooms-b:hover, .fform .dp-rooms-add:hover { border-color: var(--teal-line); color: var(--text); }
+.fform .dp-rooms-b:disabled { opacity: .45; cursor: default; }
+.fform .dp-rooms-b svg, .fform .dp-rooms-add svg { width: 14px; height: 14px; }
+.fform .dp-rooms-add { align-self: flex-start; }
+.chair-also { border-color: var(--line); }

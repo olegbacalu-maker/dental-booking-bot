@@ -164,13 +164,25 @@ def free_hour(dk: str, d: date, taken: list) -> int | None:
     if not b:
         return None
     f_h, to_h, bf_h, bt_h = b
-    spans = [bounds(r) for r in taken]
+    lanes = _lanes(dk, taken)
     for h in range(f_h, to_h):
         if bf_h <= h < bt_h:
             continue
-        if not any(s < (h + 1) * 60 and h * 60 < e for s, e in spans):
+        if any(not any(s < (h + 1) * 60 and h * 60 < e for s, e in spans)
+               for spans in lanes):
             return h
     return None
+
+
+def _lanes(dk: str, taken: list) -> list[list]:
+    """Занятые интервалы врача по кабинетам (один список у врача без
+    кабинетов): час свободен, пока свободен хоть один. Заметка стойки занимает
+    все кабинеты."""
+    own = eng.doctor_rooms(dk)
+    if len(own) < 2:
+        return [[bounds(r) for r in taken]]
+    return [[bounds(r) for r in taken
+             if r["source"] == "note" or eng.appt_room(r) == rid] for rid in own]
 
 
 def shown_doctors(by_col: dict) -> list[tuple[str, str]]:
@@ -217,6 +229,36 @@ def _tip(r: dict) -> str:
             + (f" · {word}" if word else ""))
 
 
+def _next_by_lane(rows: list, own: tuple) -> dict:
+    """`next_starts` внутри дорожки кабинета: сосед из другого кабинета
+    короткому блоку не мешает."""
+    if len(own) < 2 or any(r["source"] == "note" for r in rows):
+        return next_starts(rows)
+    out: dict = {}
+    for rid in own:
+        out.update(next_starts([r for r in rows if eng.appt_room(r) == rid]))
+    return out
+
+
+def _lane_places(cluster: list, own: tuple) -> dict | None:
+    """Место блока (`col`, `of`) у врача с несколькими кабинетами: дорожка —
+    кабинет по порядку списка врача. Записи одного кабинета, наложившиеся друг
+    на друга (завершённая и новая на тот же час), делят свою дорожку, а не
+    прячут одна другую. `None` — раскладка прежняя: кабинет один или в
+    кластере заметка стойки, она занимает врача целиком."""
+    if len(own) < 2 or any(r["source"] == "note" for r in cluster):
+        return None
+    lanes = [[r for r in cluster if eng.appt_room(r) == rid] for rid in own]
+    split = max(max((len(c) for c in clusters(lane)), default=1) for lane in lanes)
+    out: dict = {}
+    for i, lane in enumerate(lanes):
+        for sub in clusters(lane):
+            for j, r in enumerate(sorted(sub,
+                                         key=lambda x: x["status"] in LIVE_STATUSES)):
+                out[r["id"]] = (i * split + j, len(own) * split)
+    return out
+
+
 def blocks(rows: list, col_dk: str, base_min: int, cards, colors) -> list[dict]:
     """Блоки одной колонки: вид записи плюс ГЕОМЕТРИЯ.
 
@@ -226,17 +268,23 @@ def blocks(rows: list, col_dk: str, base_min: int, cards, colors) -> list[dict]:
     два дневных экрана.
     ⚠️ Порядок внутри кластера: неактивные раньше активных, чтобы живая запись
     легла ПОВЕРХ отменённой пары.
+    У врача с несколькими кабинетами колонка делится на дорожки кабинетов
+    (`_lane_places`): место записи говорит, где она, а свободная дорожка
+    остаётся открытой для щелчка.
     """
     out: list[dict] = []
-    nxt = next_starts(rows)
+    own = eng.doctor_rooms(col_dk)
+    nxt = _next_by_lane(rows, own)
     for cluster in clusters(rows):
+        place = _lane_places(cluster, own)
         n = len(cluster)
         for j, r in enumerate(sorted(cluster,
                                      key=lambda x: x["status"] in LIVE_STATUSES)):
             top, height = pos(r, base_min, nxt[r["id"]])
             v = pday.appt_view(r, col_dk, cards, colors)
+            col, of = place[r["id"]] if place else (j, n)
             v.update({"top": round(top, 3), "height": round(height, 3),
-                      "col": j, "of": n})
+                      "col": col, "of": of})
             if v["kind"] == "note":
                 # ⛔ Один и тот же текст живёт на экране в ДВУХ длинах: 80 в
                 # подсказке и 40 в самом блоке. Обе — данные, а не оформление:

@@ -4,6 +4,7 @@ import { hideDialog, showDialog } from '../patients/card/dialog'
 import { day, svcLabel, type DayForm, type NewAppt } from './day'
 import { DurSelect, useDurPick } from './DurPick'
 import { HourSelect, MinPick } from './MinPick'
+import { RoomSelect } from './RoomPick'
 import { SmsCheck, useSmsBox } from './SmsBox'
 
 /* «Programare nouă» окном (06.10, Олег: форма внизу страницы — старый облик,
@@ -74,7 +75,7 @@ interface Props {
   preset?: AddPreset | undefined
 }
 
-/** Чем окно открывается заполненным. `room` и `pid` окно пока не читает. */
+/** Чем окно открывается заполненным. `pid` окно пока не читает. */
 export interface AddPreset {
   date?: string
   /** «HH:MM» по сетке стартов. */
@@ -102,6 +103,7 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd, preset }
   const [doctorPick, setDoctorPick] = useState(preset?.doctor ?? '')
   const [timePick, setTimePick] = useState(seedTime ? `${seedTime.split(':')[0]}:00` : '')
   const [minute, setMinute] = useState(Number(seedTime.split(':')[1] ?? 0) || 0)
+  const [roomPick, setRoomPick] = useState(preset?.room ?? '')
   const [service, setService] = useState(
     form.services.find((x) => x.id === preset?.service)?.id ?? form.services[0]?.id ?? '')
   const [name, setName] = useState(preset?.name ?? '')
@@ -132,6 +134,9 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd, preset }
   const hour = times.includes(timePick) ? timePick : (times[0] ?? '')
   const hh = hour.split(':')[0] ?? ''
   const time = hour ? `${hh}:${String(minute).padStart(2, '0')}` : ''
+  const rooms = f.doctors.find((x) => x.id === doctor)?.rooms ?? []
+  /* выбор держится, пока он есть у врача: другой врач — снова «первый свободный» */
+  const room = rooms.length > 1 && rooms.some((r) => r.id === roomPick) ? roomPick : ''
 
   useEffect(() => {
     if (open) showDialog(ref.current)
@@ -157,7 +162,7 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd, preset }
     setFail('')
     const ok = await onAdd({ date: at, time, doctor, service, name,
       phone: noPhone ? '' : phone, nophone: noPhone, birth, ...sms.field,
-      ...dur.field, ...(past ? { done: happened } : {}) }, setFail)
+      ...dur.field, ...(room ? { room } : {}), ...(past ? { done: happened } : {}) }, setFail)
     if (ok) onClose()
   }
 
@@ -195,6 +200,8 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd, preset }
           </select>
           <DurSelect box={dur} />
         </div>
+        {rooms.length > 1
+          ? <RoomSelect rooms={rooms} value={room} onPick={setRoomPick} auto /> : null}
         <input value={name} onChange={(e) => setName(e.target.value)}
                placeholder={T.name} required />
         <input value={noPhone ? '' : phone} onChange={(e) => setPhone(e.target.value)}

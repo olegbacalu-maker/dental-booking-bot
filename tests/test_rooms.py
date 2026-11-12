@@ -397,3 +397,42 @@ def suite_profile(res: Result) -> None:
             other = json.loads(c.get("/api/doctors/d3").body)["data"]
             res.check("другой врач выбирает из справочника",
                       [x["id"] for x in other["rooms_all"]], ["r-cabinet-6", "r-chirurgie"])
+
+def suite_lanes(res: Result) -> None:
+    """Канва: у врача с несколькими кабинетами колонка — дорожки кабинетов.
+    Место блока говорит, в каком он кабинете, и свободная дорожка остаётся
+    открытой для щелчка; у врача с одним кабинетом раскладка прежняя."""
+    with Server() as s:
+        c = Client(s.url).login()
+        day = _d(1)
+        res.check("врач с одним кабинетом: блок во всю колонку",
+                  (_add(c, day, "10:00", "Singur Unu", "022730001", "d3"),
+                   [(b["col"], b["of"]) for b in _blocks(c, day, "d3").values()]), ("ok", [(0, 1)]))
+        r1, r2 = set_rooms(c, "d2", "1", "3")
+        _add(c, day, "10:00", "Banda Unu", "022730002", room=r2)
+        b = _blocks(c, day)
+        res.check("одна запись во втором кабинете стоит в своей дорожке",
+                  (b["Banda Unu"]["col"], b["Banda Unu"]["of"]), (1, 2))
+        _add(c, day, "10:00", "Banda Doi", "022730003")
+        _add(c, day, "10:30", "Banda Trei", "022730004", room=r2, duration=30)
+        b = _blocks(c, day)
+        res.check("одновременные записи — рядом, по порядку кабинетов врача",
+                  [(b[n]["room_id"], b[n]["col"], b[n]["of"]) for n in ("Banda Doi", "Banda Unu")],
+                  [(r1, 0, 2), (r2, 1, 2)])
+        col = next(x for x in day_model(c, day)["canvas"]["columns"] if x["id"] == "d2")
+        first = next(h["label"] for h, open_ in zip(day_model(c, day)["canvas"]["hours"], col["cells"]) if open_)
+        res.check("«Liber de la»: час, занятый в одном кабинете, свободен",
+                  (_add(c, day, first, "Banda Patru", "022730005"),
+                   next(x for x in day_model(c, day)["canvas"]["columns"] if x["id"] == "d2")["free"]),
+                  ("ok", first))
+        # короткий блок дотягивается до соседа своей дорожки, чужая не мешает
+        _add(c, day, "12:00", "Scurt Unu", "022730006", room=r1, duration=5)
+        _add(c, day, "12:05", "Scurt Doi", "022730007", room=r2, duration=5)
+        b = _blocks(c, day)
+        res.check("короткий блок: сосед из другого кабинета высоту не режет",
+                  (b["Scurt Unu"]["height"], b["Scurt Doi"]["height"]), (0.25, 0.25))
+        note = c.post_json(f"/api/schedule/notes?date={day}",
+                           {"date": day, "time": "14:00", "doctor": "d2", "text": "Pauza"})
+        nb = _blocks(c, day).get("Pauza") or {}
+        res.check("заметка стойки — во всю колонку", (note.msg, nb.get("col"), nb.get("of")),
+                  ("ok_note", 0, 1))

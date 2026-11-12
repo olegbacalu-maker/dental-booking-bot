@@ -4,7 +4,8 @@ import { hideDialog, showDialog } from '../patients/card/dialog'
 import { svcLabel, type NewAppt, type NewNote } from './day'
 import { DurSelect, useDurPick } from './DurPick'
 import { MinPick } from './MinPick'
-import type { Occupies } from './move'
+import { freeRoom, laneOf, lanesOf, roomShared, type Occupies, type Room } from './move'
+import { RoomSelect, sharedWarn } from './RoomPick'
 import { hourMinutes, slotTimes, takenMinutes, type Slot, type SlotFormView } from './slot'
 import { SmsCheck, useSmsBox } from './SmsBox'
 
@@ -54,6 +55,8 @@ const T = {
   close: 'Închide',
   noStart: (hh: string, dur: number) =>
     `Medicul nu are niciun început liber în ora ${hh}:00 pentru ${dur} min.`,
+  noStartRoom: (hh: string, dur: number) =>
+    `Cabinetul ales nu are niciun început liber în ora ${hh}:00 pentru ${dur} min.`,
   noFit: (at: string, dur: number) =>
     `De la ${at} nu încap ${dur} min până la următoarea programare — alegeți o durată mai scurtă sau alt început.`,
 } as const
@@ -69,14 +72,21 @@ interface Props {
   noteEnds: number[]
   /** Занятые блоки колонки врача по канве — по ним окно гасит старты. */
   taken: Occupies[]
+  /** Кабинеты врача по порядку; меньше двух — выбора в окне нет. */
+  rooms?: readonly Room[]
+  /** Блоки чужих колонок: по ним окно предупреждает о занятом кабинете. */
+  others?: Occupies[]
   busy: boolean
   onClose: () => void
   onAdd: (body: NewAppt, fail: Fail) => Promise<boolean>
   onNote: (body: NewNote, fail: Fail) => Promise<boolean>
 }
 
-export function SlotDialog({ open, slot, date, form, noteEnds, taken, busy,
-  onClose, onAdd, onNote }: Props) {
+const NO_ROOMS: readonly Room[] = []
+const NO_BLOCKS: Occupies[] = []
+
+export function SlotDialog({ open, slot, date, form, noteEnds, taken, rooms = NO_ROOMS,
+  others = NO_BLOCKS, busy, onClose, onAdd, onNote }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
   const [tab, setTab] = useState<'a' | 'n'>('a')
   const [fail, setFail] = useState('')
@@ -87,7 +97,11 @@ export function SlotDialog({ open, slot, date, form, noteEnds, taken, busy,
   const step = form.step ?? 5
   /* с длиной не по правилу считать нечего — меряем кратчайшим визитом */
   const span = dur.bad || !dur.value ? step : dur.value
-  const off = takenMinutes(taken, Number(hh), span, step)
+  const many = rooms.length > 1
+  /* кабинет выбран руками — занятость считается только по нему */
+  const [roomPick, setRoomPick] = useState(many ? slot.room ?? '' : '')
+  const scope = roomPick ? [laneOf(taken, roomPick)] : lanesOf(taken, rooms)
+  const off = takenMinutes(scope, Number(hh), span, step)
   const firstFree = hourMinutes(step).find((m) => !off.has(m))
   const none = firstFree === undefined
   /* Минута щелчка по сетке держится, даже когда услуга по умолчанию в неё не
@@ -108,6 +122,9 @@ export function SlotDialog({ open, slot, date, form, noteEnds, taken, busy,
   const [until, setUntil] = useState(0)
 
   const { atime, ntime, ends } = slotTimes(slot.hour, minute, noteEnds)
+  const start = Number(hh) * 60 + minute
+  const room = roomPick || freeRoom(taken, rooms, start, span, -1) || rooms[0]?.id || ''
+  const shared = !none && !tight && roomShared(others, room, start, span)
 
   useEffect(() => {
     if (open) showDialog(ref.current)
@@ -118,7 +135,8 @@ export function SlotDialog({ open, slot, date, form, noteEnds, taken, busy,
     e.preventDefault()
     setFail('')
     const ok = await onAdd({ date, time: atime, doctor: slot.dk, service, name,
-      phone: noPhone ? '' : phone, nophone: noPhone, birth, ...sms.field, ...dur.field }, setFail)
+      phone: noPhone ? '' : phone, nophone: noPhone, birth, ...sms.field, ...dur.field,
+      ...(roomPick ? { room: roomPick } : {}) }, setFail)
     if (ok) onClose()
   }
 
@@ -131,7 +149,8 @@ export function SlotDialog({ open, slot, date, form, noteEnds, taken, busy,
   }
 
   const pick = (m: number) => { setMinute(m); setAimed(false); setFail('') }
-  const warn = fail || (tight ? T.noFit(atime, span) : none ? T.noStart(hh, span) : '')
+  const warn = fail || (tight ? T.noFit(atime, span)
+    : none ? (roomPick ? T.noStartRoom : T.noStart)(hh, span) : '')
   const warnNode = warn ? <div className="banner err" role="alert">{warn}</div> : null
 
   return (
@@ -156,6 +175,8 @@ export function SlotDialog({ open, slot, date, form, noteEnds, taken, busy,
             </select>
             <DurSelect box={dur} />
           </div>
+          {many ? <RoomSelect rooms={rooms} value={room}
+                              onPick={(id) => { setRoomPick(id); setFail('') }} /> : null}
           <input value={name} onChange={(e) => setName(e.target.value)}
                  placeholder={T.name} required />
           <input value={noPhone ? '' : phone} onChange={(e) => setPhone(e.target.value)}
@@ -172,6 +193,7 @@ export function SlotDialog({ open, slot, date, form, noteEnds, taken, busy,
                    onChange={(e) => setBirth(e.target.value)} />
           </label>
           {warnNode}
+          {shared && !warn ? <div className="banner warn" role="status">{sharedWarn(rooms, room)}</div> : null}
           <button disabled={busy || none || tight || dur.bad}>{T.go}</button>
         </form>
       ) : (

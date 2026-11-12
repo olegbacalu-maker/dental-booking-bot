@@ -31,12 +31,16 @@ export interface Drag {
   nm: string
   /** За какое место блок взяли: px от его верха. */
   grab?: number
+  /** Кабинет, в котором запись стоит сейчас. */
+  room?: string
 }
 
 /** Куда бросили: колонка и минута начала по делению сетки. */
 export interface Target {
   dk: string
   min: number
+  /** Кабинет дорожки, в которую бросили; нет — колонка без дорожек. */
+  room?: string
 }
 
 export function hhmm(min: number): string {
@@ -113,16 +117,19 @@ export function dragOf(item: DayItem, dk: string): Drag | null {
     min: item.min,
     dur: item.dur || 60,
     nm: item.kind === 'note' ? item.text : item.name,
+    ...(item.kind === 'appt' && item.room_id ? { room: item.room_id } : {}),
   }
 }
 
 /**
  * Бросок на своё же место. ⛔ Правило браузерное, и обойтись без него нельзя:
  * сервер такой перенос ПРИНИМАЕТ (`ok_move`) и пишет строку в летопись
- * пациента, а летопись не переписывают. Сравниваются колонка и минута.
+ * пациента, а летопись не переписывают. Сравниваются колонка, минута и
+ * кабинет, когда он известен с обеих сторон: та же минута в другой дорожке —
+ * уже перенос.
  */
 export function sameSlot(d: Drag, t: Target): boolean {
-  return d.dk === t.dk && d.min === t.min
+  return d.dk === t.dk && d.min === t.min && (!d.room || !t.room || d.room === t.room)
 }
 
 /**
@@ -139,6 +146,60 @@ export interface Occupies {
   min: number
   dur: number
   busy: boolean
+  /** Кабинет записи; у заметки стойки поля нет — она занимает все кабинеты. */
+  room_id?: string
+}
+
+/** Кабинет врача, как он приходит в модели. */
+export interface Room {
+  id: string
+  name: string
+}
+
+/**
+ * Занятое по кабинетам врача: список на кабинет, а у врача с одним кабинетом
+ * (или без них) — один общий. Старт свободен, пока свободен хоть один список;
+ * то же правило у сервера (`db.busy_lanes`).
+ */
+export function lanesOf(items: Occupies[], rooms: readonly Room[]): Occupies[][] {
+  if (rooms.length < 2) return [items]
+  return rooms.map((r) => laneOf(items, r.id))
+}
+
+/** Занятое в одном кабинете: его записи и заметки стойки. */
+export function laneOf(items: Occupies[], room: string): Occupies[] {
+  return items.filter((it) => it.room_id === undefined || it.room_id === room)
+}
+
+/** Короткая метка кабинета для блока сетки: «Cabinet 2» → «2», «Chirurgie» → «Chi». */
+export function roomTag(name: string): string {
+  const rest = name.replace(/^\s*cab(inet(ul)?)?\.?\s*/i, '').trim() || name.trim()
+  return rest.length <= 4 ? rest : rest.slice(0, 3)
+}
+
+/** Помеха во ВСЕХ списках: минута первой из них или −1, если где-то свободно. */
+export function clashLanes(lanes: Occupies[][], min: number, dur: number, id: number): number {
+  let hit = -1
+  for (const lane of lanes) {
+    const c = clashAmong(lane, min, dur, id)
+    if (c < 0) return -1
+    if (hit < 0) hit = c
+  }
+  return hit
+}
+
+/** Первый по порядку кабинет врача, свободный на этот интервал; `''` — нет. */
+export function freeRoom(items: Occupies[], rooms: readonly Room[], min: number, dur: number,
+  id: number): string {
+  const lanes = lanesOf(items, rooms)
+  const i = lanes.findIndex((lane) => clashAmong(lane, min, dur, id) < 0)
+  return i >= 0 ? rooms[i]?.id ?? '' : ''
+}
+
+/** Занят ли кабинет в этот интервал записью ДРУГОГО врача (`others` — блоки
+ *  чужих колонок): повод предупредить, не отказать. */
+export function roomShared(others: Occupies[], room: string, min: number, dur: number): boolean {
+  return room !== '' && clashAmong(others.filter((it) => it.room_id === room), min, dur, -1) >= 0
 }
 
 export function clashAmong(items: Occupies[], min: number, dur: number,

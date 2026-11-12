@@ -32,6 +32,7 @@ const T = {
   queue: 'Azi urmează',
   queueEmpty: 'Nimeni nu mai așteaptă azi.',
   stale: 'Nefinalizat:',
+  also: 'Tot în cabinet',
   card: 'Fișa pacientului',
   visit: 'Fișa vizitei',
   noPatient: 'Programare fără fișă de pacient — formula dentară nu are unde se scrie.',
@@ -141,6 +142,10 @@ export function ChairScreen({ navigate = defaultNavigate }: Props) {
   }
 
   const c = data.chair
+  const rooms = data.rooms ?? []
+  const roomOf = (x: ChairItem) =>
+    rooms.length > 1 ? rooms.find((r) => r.id === x.room_id)?.name ?? '' : ''
+  const others = (data.chairs ?? []).filter((x) => x.id !== c?.id)
   return (
     <section className="dp-react-root chair">
       <div className="chair-head">
@@ -156,7 +161,7 @@ export function ChairScreen({ navigate = defaultNavigate }: Props) {
 
       {c ? (
         <div className="chair-now">
-          <div className="chair-lbl">{T.now}</div>
+          <div className="chair-lbl">{T.now}{roomOf(c) ? ` · ${roomOf(c)}` : ''}</div>
           <div className="who">{c.name}</div>
           <div className="what">{c.time} · {c.service}</div>
           <div className="chair-acts">
@@ -181,6 +186,12 @@ export function ChairScreen({ navigate = defaultNavigate }: Props) {
         <p className="chair-empty">{T.empty}</p>
       )}
 
+      {others.map((s) => (
+        <div key={s.id} className="chair-stale chair-also">
+          <span>{T.also}{roomOf(s) ? ` · ${roomOf(s)}` : ''}: <b>{s.time} {s.name}</b></span>
+          {buttons(s, (a) => a.to === 'done')}
+        </div>
+      ))}
       {data.stale.map((s) => (
         <div key={s.id} className="chair-stale">
           <span>{T.stale} <b>{s.time} {s.name}</b></span>

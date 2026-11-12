@@ -125,11 +125,29 @@ describe('DoctorCardScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Salvează' }))
     expect(await screen.findByText('Datele medicului au fost salvate')).toBeTruthy()
     expect(post).toHaveBeenCalledWith('/doctors/d2', {
-      name: 'Dr. Doi Nou', spec: 'Chirurgie', room: '3', phone: '101', email: '',
+      name: 'Dr. Doi Nou', spec: 'Chirurgie', room: '3', rooms: [{ name: '3' }], phone: '101', email: '',
       color: '#3B82F6', auto_color: false, work_from: 9, work_to: null, status: 'activ',
     })
     expect(screen.getByText('Dr. Doi Nou', { selector: 'b' })).toBeTruthy()
     expect((screen.getByLabelText('de la') as HTMLSelectElement).value).toBe('9')
+  })
+
+  it('кабинеты: второй добавляют, порядок меняют — уходит список имён, первый — основной', async () => {
+    get.mockResolvedValueOnce(ok({ ...CARD, rooms: [{ id: 'r-3', name: '3' }], rooms_all: [{ id: 'r-3', name: '3' }], rooms_max: 3 }))
+    post.mockResolvedValueOnce(ok(CARD, 'ok_med', 'Datele medicului au fost salvate'))
+    open('d2')
+    await screen.findByText('Chirurgie')
+    expect(screen.queryByRole('button', { name: /Mută mai sus/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Adaugă cabinet' }))
+    fireEvent.change(input('Cabinet 2'), { target: { value: 'Chirurgie 2' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Mută mai sus: Chirurgie 2' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Adaugă cabinet' }))
+    expect(screen.queryByRole('button', { name: 'Adaugă cabinet' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Salvează' }))
+    await screen.findByText('Datele medicului au fost salvate')
+    expect(post.mock.calls[0]?.[1]).toMatchObject({
+      room: 'Chirurgie 2', rooms: [{ name: 'Chirurgie 2' }, { name: '3' }],
+    })
   })
 
   it('сохранение: тёзка — 409 с текстом сервера', async () => {
