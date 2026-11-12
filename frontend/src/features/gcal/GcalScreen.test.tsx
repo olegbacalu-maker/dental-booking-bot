@@ -369,7 +369,7 @@ describe('GcalScreen: перенос окном записи', () => {
     await open(list())
     await openMove(6)
     expect(doctorSel().value).toBe('d3')
-    const chip = within(dialogForm() as HTMLElement).getByRole('button', { name: /Ana Rotaru/ })
+    const chip = await within(dialogForm() as HTMLElement).findByRole('button', { name: /Ana Rotaru/ })
     fireEvent.click(chip)
     expect(chip.getAttribute('aria-pressed')).toBe('true')
     expect(field('Nume pacient').disabled).toBe(true)
