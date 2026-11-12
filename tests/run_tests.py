@@ -177,6 +177,7 @@ SUITES = [
     ("Google Calendar: перенос в журнал, «Leagă», «Nu muta», изменившееся", test_gcal.suite_move),
     ("Google Calendar: начало и длина окна — из конвертера", test_gcal.suite_round),
     ("Google Calendar: старт с шагом 5 минут", test_gcal.suite_after_grid),
+    ("Google Calendar: месяц вкладки и отбор по дню", test_gcal.suite_calendar),
     ("Google Calendar: срок текста под поддельными часами", test_gcal.suite_expiry),
     ("Google Calendar: стирание пациента и «Șterge tot»", test_gcal.suite_erase),
     ("Google Calendar: права и режим чтения", test_gcal.suite_rights),

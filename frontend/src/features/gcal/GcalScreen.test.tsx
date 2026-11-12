@@ -3,9 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import { ApiError } from '../../types/api'
 import { openScreen } from '../../test/openScreen'
+import type { DashMiniCal } from '../schedule/dash'
 import type { DayForm } from '../schedule/day'
 import { GcalScreen, loadGcal } from './GcalScreen'
-import { presetOf, spanOf, type GcalList, type GcalRow } from './gcal'
+import { firstLine, presetOf, queryOf, spanOf, whereOf, type GcalList, type GcalRow } from './gcal'
 
 /* Вкладка «Google Calendar»: пустой экран и загрузка файла с итогом словами,
    список по дням, отбор и поиск, перенос обычным окном записи (заполнение,
@@ -54,8 +55,21 @@ const KNOWN = row({
 const EVIL = row({ id: 7, when: '2026-11-17T09:00', date: '2026-11-17', time: '09:00', round: null,
   title: '<img src=x onerror=alert(1)> Popa', body: '' })
 
+const cell = (date: string, over = {}) => ({ date, day: Number(date.slice(8)), other: false, today: false,
+  selected: false, busy: false, href: `/admin/google?date=${date}`, ...over })
+
+/** Неделя месяца: 16-го и 17-го есть события, 12-е — сегодня. */
+const CAL: DashMiniCal = {
+  title: 'Noiembrie 2026', weekdays: ['Lu', 'Ma', 'Mi', 'Jo', 'Vi', 'Sâ', 'Du'],
+  weeks: [[cell('2026-11-12', { today: true }), cell('2026-11-13'), cell('2026-11-14'), cell('2026-11-15'),
+    cell('2026-11-16', { busy: true }), cell('2026-11-17', { busy: true }), cell('2026-11-18')]],
+  prev: { date: '2026-10-01', href: '/admin/google?month=2026-10-01' },
+  next: { date: '2026-12-01', href: '/admin/google?month=2026-12-01' },
+}
+
 function list(over: Partial<GcalList> = {}): GcalList {
   return {
+    date: '', minical: CAL,
     source: { id: 1, kind: 'ics', name: 'Clinica Zâmbet', loaded_at: '12.11.2026 14:20', loaded_by: 'Ana', service: '' },
     f: 'nou', q: '',
     filters: [{ key: 'nou', label: 'De mutat', n: 3 }, { key: 'mutat', label: 'Mutate', n: 1 },
@@ -129,7 +143,7 @@ describe('GcalScreen: пусто и загрузка', () => {
     const file = new File(['BEGIN:VCALENDAR'], 'clinica.ics', { type: 'text/calendar' })
     fireEvent.change(document.querySelector('input[type="file"]') as HTMLInputElement, { target: { files: [file] } })
     await waitFor(() => expect(postForm).toHaveBeenCalled())
-    expect(postForm.mock.calls[0]?.[0]).toBe('/gcal/file?f=nou&q=')
+    expect(postForm.mock.calls[0]?.[0]).toBe('/gcal/file')
     expect((postForm.mock.calls[0]?.[1] as FormData).get('file')).toBe(file)
     await waitFor(() => expect(document.querySelector('.gc-report')).not.toBeNull())
     const text = document.querySelector('.gc-report')?.textContent ?? ''
@@ -162,7 +176,8 @@ describe('GcalScreen: список', () => {
     expect(r.querySelector('.gc-state')?.textContent).toBe('nemutat')
     const body = r.querySelector('details.gc-body') as HTMLDetailsElement
     expect(body.open).toBe(false)
-    expect(body.querySelector('pre')?.textContent).toContain('vine cu radiografia')
+    expect(body.querySelector('.gc-desc')?.textContent).toBe('vine cu radiografia')
+    expect(body.querySelector('pre')?.textContent).toContain('Loc: Cabinet 2')
     expect(document.body.textContent).toContain('3 evenimente')
   })
 
@@ -178,30 +193,31 @@ describe('GcalScreen: список', () => {
     expect(rowEl(6).textContent).toContain('fișă: Ana Rotaru')
   })
 
-  it('вкладки и счётчики — сервера; щелчок спрашивает список этого отбора', async () => {
-    await open(list())
+  it('вкладки и счётчики — сервера; щелчок пишет отбор в адрес и спрашивает его список', async () => {
+    const { router } = await open(list())
     expect(Array.from(document.querySelectorAll('.rc-tab')).map((x) => x.textContent))
       .toEqual(['De mutat 3', 'Mutate 1', 'Omise 2', 'Nerecunoscute 0'])
     serve(list({ f: 'mutat', days: [{ date: '2026-11-16', rows: [MOVED] }], total: 1 }))
     fireEvent.click(screen.getByRole('tab', { name: /Mutate/ }))
-    await waitFor(() => expect(get).toHaveBeenCalledWith('/gcal?f=mutat&q=', {}))
     await waitFor(() => expect(rowEl(8)).not.toBeNull())
+    expect(get).toHaveBeenCalledWith('/gcal?f=mutat', expect.anything())
+    expect(router.state.location.search).toBe('?f=mutat')
     expect(screen.getByRole('tab', { name: /Mutate/ }).getAttribute('aria-selected')).toBe('true')
   })
 
   it('поиск уходит после паузы, тем же отбором', async () => {
     await open(list())
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'rota' } })
-    await waitFor(() => expect(get).toHaveBeenCalledWith('/gcal?f=nou&q=rota', {}))
+    await waitFor(() => expect(get).toHaveBeenCalledWith('/gcal?q=rota', expect.anything()))
   })
 
   it('набрали текст и сразу сменили вкладку: отложенный поиск спрашивает новую вкладку', async () => {
     await open(list())
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'rota' } })
     fireEvent.click(screen.getByRole('tab', { name: /Omise/ }))
-    await waitFor(() => expect(get).toHaveBeenCalledWith('/gcal?f=omis&q=rota', {}))
+    await waitFor(() => expect(get).toHaveBeenCalledWith('/gcal?f=omis&q=rota', expect.anything()))
     await new Promise((r) => setTimeout(r, 400))
-    expect(get).not.toHaveBeenCalledWith('/gcal?f=nou&q=rota', {})
+    expect(get).not.toHaveBeenCalledWith('/gcal?q=rota', expect.anything())
   })
 
   it('перенесённое: ссылка на день журнала; изменившееся в Google — пометка без кнопок', async () => {
@@ -230,14 +246,14 @@ describe('GcalScreen: список', () => {
     expect(rowEl(12).querySelector('.gc-state')?.textContent).toBe('omis — de dvs.')
     post.mockResolvedValue(ok(list(), 'gc_back', 'Evenimentul este din nou în listă'))
     fireEvent.click(within(rowEl(12)).getByRole('button', { name: /Readu în listă/ }))
-    await waitFor(() => expect(post).toHaveBeenCalledWith('/gcal/events/12/skip?f=omis&q=', { on: false }))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/gcal/events/12/skip', { on: false }))
   })
 
   it('«Nu muta» шлёт команду и берёт список из её ответа', async () => {
     await open(list())
     post.mockResolvedValue(ok(list({ days: [{ date: '2026-11-17', rows: [EVIL] }], total: 1 }), 'gc_skipped', 'Nu va fi mutat'))
     fireEvent.click(within(rowEl(5)).getByRole('button', { name: 'Nu muta' }))
-    await waitFor(() => expect(post).toHaveBeenCalledWith('/gcal/events/5/skip?f=nou&q=', { on: true }))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/gcal/events/5/skip', { on: true }))
     await waitFor(() => expect(rowEl(5)).toBeNull())
     expect(document.querySelector('.toastbox')?.textContent).toContain('Nu va fi mutat')
   })
@@ -249,7 +265,55 @@ describe('GcalScreen: список', () => {
     expect(rowEl(5).textContent).toContain('Există deja în jurnal: Petru Lungu · Dr. Activ Doi · 16.11 11:10')
     post.mockResolvedValue(ok(list(), 'gc_linked', 'Legat'))
     fireEvent.click(within(rowEl(5)).getByRole('button', { name: 'Leagă' }))
-    await waitFor(() => expect(post).toHaveBeenCalledWith('/gcal/events/5/link?f=nou&q=', { appt_id: 77 }))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/gcal/events/5/link', { appt_id: 77 }))
+  })
+})
+
+describe('GcalScreen: календарь месяца', () => {
+  it('тот же календарь, что у журнала: точки дней с событиями, «сегодня», ссылки дня и месяца', async () => {
+    await open(list())
+    const side = document.querySelector('.gc-side') as HTMLElement
+    expect(side.querySelector('.mhead b')?.textContent).toBe('Noiembrie 2026')
+    expect(Array.from(side.querySelectorAll('td a')).filter((a) => a.querySelector('.dot')).map((a) => a.textContent))
+      .toEqual(['16', '17'])
+    expect(side.querySelector('td a.tdy')?.textContent).toBe('12')
+    expect(side.querySelector('td a[title="2026-11-16 · are evenimente"]')).not.toBeNull()
+    expect(within(side).getByLabelText('Luna următoare').getAttribute('href')).toBe('/admin/google?month=2026-12-01')
+    expect(side.textContent).not.toContain('Arată toate zilele')
+  })
+
+  it('нажатие на день пишет его в адрес; список — этого дня, сброс одной кнопкой', async () => {
+    const { router } = await open(list())
+    const picked = list({ date: '2026-11-17', total: 1, days: [{ date: '2026-11-17', rows: [EVIL] }],
+      minical: { ...CAL, weeks: [CAL.weeks[0]!.map((c) => ({ ...c, selected: c.date === '2026-11-17' }))] } })
+    serve(picked)
+    fireEvent.click((document.querySelector('.gc-side td a[title^="2026-11-17"]') as HTMLElement))
+    await waitFor(() => expect(document.querySelector('.gc-dayline')?.textContent).toContain('marți, 17 noiembrie 2026'))
+    expect(get).toHaveBeenCalledWith('/gcal?date=2026-11-17', expect.anything())
+    expect(document.querySelectorAll('.gc-row').length).toBe(1)
+    expect(document.querySelector('.gc-side td a.seld')?.textContent).toBe('17')
+    serve(list())
+    fireEvent.click(within(document.querySelector('.gc-side') as HTMLElement).getByRole('button', { name: /Arată toate zilele/ }))
+    await waitFor(() => expect(document.querySelectorAll('.gc-row').length).toBe(3))
+    expect(router.state.location.search).toBe('?month=2026-11-17')
+  })
+
+  it('команда строки уходит в отборе адреса: день и вкладка остаются', async () => {
+    serve(list({ f: 'omis', date: '2026-11-16' }))
+    openScreen('/admin/google', '/admin/google?f=omis&date=2026-11-16', <GcalScreen />, loadGcal)
+    await waitFor(() => expect(rowEl(5)).not.toBeNull())
+    expect(get).toHaveBeenCalledWith('/gcal?f=omis&date=2026-11-16', expect.anything())
+    post.mockResolvedValue(ok(list({ f: 'omis', date: '2026-11-16' }), 'gc_skipped', 'x'))
+    fireEvent.click(within(rowEl(5)).getByRole('button', { name: 'Nu muta' }))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/gcal/events/5/skip?f=omis&date=2026-11-16', { on: true }))
+  })
+
+  it('узкий экран: тот же месяц под кнопкой с датой', async () => {
+    await open(list())
+    const btn = document.querySelector('.gc-calbtn button') as HTMLElement
+    expect(btn.textContent).toContain('Toate zilele')
+    fireEvent.click(btn)
+    expect(document.querySelector('.gc-calbtn .dp-calpop .mcal')).not.toBeNull()
   })
 })
 
@@ -279,7 +343,7 @@ describe('GcalScreen: перенос окном записи', () => {
     post.mockResolvedValue(ok(list({ days: [{ date: '2026-11-17', rows: [EVIL] }], total: 1, appt_id: 91 }),
       'ok', 'Programare adăugată'))
     fireEvent.submit(dialogForm() as HTMLFormElement)
-    await waitFor(() => expect(post).toHaveBeenCalledWith('/gcal/events/5/move?f=nou&q=', {
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/gcal/events/5/move', {
       date: '2026-11-16', time: '11:10', doctor: 'd2', service: 'consult',
       name: 'Lungu Petru', phone: '', nophone: true, birth: '', duration: 30,
     }))
@@ -325,7 +389,7 @@ describe('GcalScreen: перенос окном записи', () => {
     fireEvent.submit(dialogForm() as HTMLFormElement)
     await waitFor(() => expect(dialogForm()?.querySelector('.banner.err')?.textContent)
       .toBe('Evenimentul este deja mutat în jurnal'))
-    await waitFor(() => expect(get).toHaveBeenCalledWith('/gcal?f=nou&q=', {}))
+    await waitFor(() => expect(get).toHaveBeenCalledWith('/gcal', {}))
   })
 })
 
@@ -356,6 +420,18 @@ describe('gcal: заполнение окна и часы строки', () => {
       name: 'Lungu Petru', phone: '' })
     expect(presetOf(row({ preset: { date: '2026-11-16', time: '', duration: '', doctor: '', service: '',
       name: '', phone: '', nophone: true } }))).toEqual({ date: '2026-11-16', doctor: '', name: '', phone: '' })
+  })
+
+  it('отбор и адрес: пустое не пишется, чтение обратно то же', () => {
+    expect(queryOf({ f: '', q: '', date: '', month: '' })).toBe('')
+    const w = { f: 'omis', q: 'ana maria', date: '2026-11-16', month: '' }
+    expect(queryOf(w)).toBe('?f=omis&q=ana+maria&date=2026-11-16')
+    expect(whereOf(new URLSearchParams(queryOf(w)))).toEqual(w)
+  })
+
+  it('в строку встаёт первая непустая строка описания', () => {
+    expect(firstLine('\n  vine cu radiografia \nLoc: Cabinet 2')).toBe('vine cu radiografia')
+    expect(firstLine('')).toBe('')
   })
 
   it('часы без округления считаются из начала и длины', () => {

@@ -6,7 +6,7 @@
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, File, Query, Request, UploadFile
+from fastapi import APIRouter, File, Request, UploadFile
 from fastapi.responses import HTMLResponse
 
 from ...core import ics
@@ -21,10 +21,16 @@ router = APIRouter()
 _GONE = {"gc_gone", "gc_moved", "gc_appt", "gc_patient", "gc_no_text"}
 
 
-async def _reply(code: str, f: str, q: str, ok: bool = True, **extra):
-    data = await gcal.listing(f, q)
+async def _list(request: Request) -> dict:
+    """Список в том отборе, в каком стоит экран: вкладка, поиск, день, месяц."""
+    at = request.query_params
+    return await gcal.listing(at.get("f", ""), at.get("q", ""), at.get("date", ""), at.get("month", ""))
+
+
+async def _reply(code: str, request: Request, **extra):
+    data = await _list(request)
     data.update(extra)
-    return msg_json(ok, code, data=data)
+    return msg_json(True, code, data=data)
 
 
 def _refuse(code: str):
@@ -39,16 +45,16 @@ async def admin_gcal(request: Request):
 
 
 @router.get("/api/gcal")
-async def api_gcal(request: Request, f: str = Query(""), q: str = Query("")):
-    """`f` — nou | mutat | omis | nerecunoscut | schimbat; `q` — поиск."""
+async def api_gcal(request: Request):
+    """`f` — nou | mutat | omis | nerecunoscut | schimbat; `q` — поиск;
+    `date` — один день; `month` — какой месяц показать в календаре."""
     if (deny := api_require(request, PERM_SCHEDULE_ALL)) is not None:
         return deny
-    return msg_json(True, data=await gcal.listing(f, q))
+    return msg_json(True, data=await _list(request))
 
 
 @router.post("/api/gcal/file")
-async def api_gcal_file(request: Request, file: UploadFile = File(...),
-                        f: str = Query(""), q: str = Query("")):
+async def api_gcal_file(request: Request, file: UploadFile = File(...)):
     """multipart `file`. На диск не кладётся: в файле имена и телефоны, а
     папка данных зашифрована не у всех."""
     if (deny := api_require(request, PERM_SCHEDULE_ALL)) is not None:
@@ -68,11 +74,11 @@ async def api_gcal_file(request: Request, file: UploadFile = File(...),
         report = await gcal.load(b"".join(chunks))
     except ics.Refused as e:
         return msg_json(False, f"gc_{e.code}", field="file", status=422)
-    return await _reply("gc_loaded", f, q, load=report)
+    return await _reply("gc_loaded", request, load=report)
 
 
 @router.post("/api/gcal/events/{eid}/move")
-async def api_gcal_move(request: Request, eid: int, f: str = Query(""), q: str = Query("")):
+async def api_gcal_move(request: Request, eid: int):
     """Тело окна записи журнала плюс `pid`, если выбрана существующая фиша."""
     if (deny := api_require(request, PERM_SCHEDULE_ALL)) is not None:
         return deny
@@ -85,11 +91,11 @@ async def api_gcal_move(request: Request, eid: int, f: str = Query(""), q: str =
     if code not in gcal.OK_CODES:
         return msg_json(False, code, field=_FIELD.get(code, ""),
                         status=409 if code in _CONFLICT else 422)
-    return await _reply(code, f, q, appt_id=appt_id)
+    return await _reply(code, request, appt_id=appt_id)
 
 
 @router.post("/api/gcal/events/{eid}/skip")
-async def api_gcal_skip(request: Request, eid: int, f: str = Query(""), q: str = Query("")):
+async def api_gcal_skip(request: Request, eid: int):
     """{on: true} — «Nu muta», {on: false} — «Readu în listă»."""
     if (deny := api_require(request, PERM_SCHEDULE_ALL)) is not None:
         return deny
@@ -97,11 +103,11 @@ async def api_gcal_skip(request: Request, eid: int, f: str = Query(""), q: str =
     if body is None or not isinstance(body.get("on"), bool):
         return msg_json(False, "gc_bad", status=422)
     code = await gcal.skip(eid, body["on"])
-    return _refuse(code) if code in _GONE else await _reply(code, f, q)
+    return _refuse(code) if code in _GONE else await _reply(code, request)
 
 
 @router.post("/api/gcal/events/{eid}/link")
-async def api_gcal_link(request: Request, eid: int, f: str = Query(""), q: str = Query("")):
+async def api_gcal_link(request: Request, eid: int):
     """{appt_id} — событие уже стоит в журнале."""
     if (deny := api_require(request, PERM_SCHEDULE_ALL)) is not None:
         return deny
@@ -109,11 +115,11 @@ async def api_gcal_link(request: Request, eid: int, f: str = Query(""), q: str =
     if body is None:
         return msg_json(False, "gc_bad", status=422)
     code = await gcal.link(eid, body.get("appt_id"))
-    return _refuse(code) if code in _GONE else await _reply(code, f, q)
+    return _refuse(code) if code in _GONE else await _reply(code, request)
 
 
 @router.post("/api/gcal/source")
-async def api_gcal_source(request: Request, f: str = Query(""), q: str = Query("")):
+async def api_gcal_source(request: Request):
     """{service} — процедура, с которой открывается окно записи."""
     if (deny := api_require(request, PERM_SCHEDULE_ALL)) is not None:
         return deny
@@ -123,7 +129,7 @@ async def api_gcal_source(request: Request, f: str = Query(""), q: str = Query("
     code = await gcal.set_service(str(body.get("service") or ""))
     if code != "gc_set":
         return _refuse(code)
-    return await _reply(code, f, q)
+    return await _reply(code, request)
 
 
 @router.post("/api/gcal/clear")
@@ -131,4 +137,5 @@ async def api_gcal_clear(request: Request):
     """«Șterge tot din Google» — только директор."""
     if (deny := api_require(request, PERM_SETTINGS)) is not None:
         return deny
-    return await _reply(await gcal.clear(), "", "")
+    code = await gcal.clear()
+    return msg_json(True, code, data=await gcal.listing())

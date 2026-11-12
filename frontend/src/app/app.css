@@ -3070,33 +3070,63 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .gc-q { height: var(--h-ctl); width: 240px; max-width: 100%; padding: 0 12px; border: 1px solid var(--line);
   border-radius: var(--r-ctl); background: var(--surface); color: var(--text); font: inherit; font-size: var(--fs-body); }
 .dp-react-root .gc-total { margin: 0; white-space: nowrap; }
-.dp-react-root .gc-day { padding: 4px 0; }
-.dp-react-root .gc-day-h { margin: 0; padding: 10px 16px 6px; font-size: var(--fs-body); font-weight: 600; color: var(--text2); }
+.dp-react-root .gc-cols { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; align-items: start; }
+.dp-react-root .gc-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.dp-react-root .gc-side { position: sticky; top: 84px; display: flex; flex-direction: column; gap: 10px; }
+.dp-react-root .gc-side .rc-btn { align-self: flex-start; }
+.dp-react-root .gc-legend { display: flex; align-items: center; gap: 6px; margin: 0 4px; }
+.dp-react-root .gc-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--teal); }
+.dp-react-root .gc-calbtn { display: none; }
+.dp-react-root .gc-calbtn .dp-calbtn > button { margin: 0; height: var(--h-ctl); }
+.dp-react-root .gc-calbtn .dp-daysub-date::first-letter { text-transform: uppercase; }
+.dp-react-root .gc-dayline { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0;
+  color: var(--text2); font-size: var(--fs-body); }
+.dp-react-root .gc-dayline > svg { width: 15px; height: 15px; color: var(--teal-d); }
+.dp-react-root .gc-dayline b { color: var(--text); font-weight: 600; }
+.dp-react-root .gc-all { height: 28px; }
+.dp-react-root .gc-day { padding: 2px 0; }
+.dp-react-root .gc-day-h { margin: 0; padding: 8px 16px 6px; font-size: var(--fs-s); font-weight: 600; color: var(--text2); }
 .dp-react-root .gc-day-h::first-letter { text-transform: uppercase; }
-.dp-react-root .gc-row { display: grid; grid-template-columns: 118px minmax(220px, 1fr) minmax(110px, auto) auto;
-  gap: 14px; align-items: start; padding: 12px 16px; border-top: 1px solid var(--line2); }
-.dp-react-root .gc-time { display: flex; flex-direction: column; gap: 2px; }
-.dp-react-root .gc-time small { color: var(--text2); font-size: var(--fs-s); }
-.dp-react-root .gc-what { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.dp-react-root .gc-title { overflow-wrap: anywhere; font-weight: 600; }
+.dp-react-root .gc-row { display: grid; grid-template-columns: 158px minmax(0, 1fr) auto auto;
+  gap: 12px; align-items: center; padding: 6px 16px; border-top: 1px solid var(--line2); font-size: var(--fs-body); }
+.dp-react-root .gc-time { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.dp-react-root .gc-time b { font-size: var(--fs-body); font-weight: 600; }
+.dp-react-root .gc-time small { color: var(--text3); font-size: var(--fs-xs); }
+.dp-react-root .gc-what { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.dp-react-root .gc-title { overflow-wrap: anywhere; font-size: var(--fs-body); font-weight: 600; }
 .dp-react-root .gc-row.dim .gc-title, .dp-react-root .gc-row.dim .gc-time b { color: var(--text2); }
 .dp-react-root .gc-what a { color: var(--teal-d); text-decoration: none; }
 .dp-react-root .gc-what a b { font-weight: 600; }
-.dp-react-root .gc-exists { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; color: var(--blue); font-size: var(--fs-s); }
+.dp-react-root .gc-what .rc-pill { padding: 1px 8px; white-space: nowrap; }
+.dp-react-root .gc-exists { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--blue); font-size: var(--fs-s); }
 .dp-react-root .gc-exists svg { width: 15px; height: 15px; }
-.dp-react-root .gc-exists .rc-btn { height: 28px; }
-.dp-react-root .gc-body { font-size: var(--fs-s); color: var(--text2); }
-.dp-react-root .gc-body pre { margin: 6px 0 0; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit;
+.dp-react-root .gc-exists .rc-btn { height: 26px; }
+.dp-react-root .gc-body { flex: 1 1 180px; min-width: 0; font-size: var(--fs-s); color: var(--text2); }
+.dp-react-root .gc-body[open] { flex-basis: 100%; }
+.dp-react-root .gc-body summary { display: flex; align-items: baseline; gap: 8px; width: auto; min-width: 0; color: var(--text2);
+  font-weight: 400; list-style: none; }
+.dp-react-root .gc-body summary::-webkit-details-marker { display: none; }
+.dp-react-root .gc-desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dp-react-root .gc-body[open] .gc-desc { display: none; }
+.dp-react-root .gc-more { flex: none; color: var(--teal-d); font-weight: 500; }
+.dp-react-root .gc-body pre { margin: 6px 0 4px; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit;
   border: 1px solid var(--line2); border-radius: var(--r-s); background: var(--fill); }
-.dp-react-root .gc-state { display: flex; justify-content: flex-start; }
-.dp-react-root .gc-row .rc-acts { flex-wrap: wrap; }
+.dp-react-root .gc-state { display: flex; justify-content: flex-end; }
+.dp-react-root .gc-row .rc-acts { flex-wrap: nowrap; }
+.dp-react-root .gc-row .rc-btn { height: 30px; padding: 0 10px; }
 .dp-react-root .gc-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 0 4px; }
 .dp-react-root .gc-foot .hint { display: flex; align-items: flex-start; gap: 6px; margin: 0; max-width: 760px; }
 .dp-react-root .gc-foot .hint svg { flex: 0 0 15px; width: 15px; height: 15px; margin-top: 2px; }
 .dp-react-root .gc-clear { border-color: var(--red-t); color: var(--red-t); }
+@media (max-width: 1500px) {
+  .dp-react-root .gc-cols { grid-template-columns: minmax(0, 1fr); }
+  .dp-react-root .gc-side { display: none; }
+  .dp-react-root .gc-calbtn { display: inline-block; }
+}
 @media (max-width: 900px) {
-  .dp-react-root .gc-row { grid-template-columns: 96px 1fr; }
-  .dp-react-root .gc-state, .dp-react-root .gc-row .rc-acts { grid-column: 2; justify-content: flex-start; }
+  .dp-react-root .gc-row { grid-template-columns: 96px 1fr; align-items: start; padding: 10px 16px; }
+  .dp-react-root .gc-time { flex-direction: column; gap: 2px; white-space: normal; }
+  .dp-react-root .gc-state, .dp-react-root .gc-row .rc-acts { grid-column: 2; justify-content: flex-start; flex-wrap: wrap; }
 }
 .dp-addnote { padding: 8px 10px; border: 1px solid var(--line2); border-radius: var(--r-ctl); background: var(--fill); overflow-wrap: anywhere; }
 .dp-addpeople { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }

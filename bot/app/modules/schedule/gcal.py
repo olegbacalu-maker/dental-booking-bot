@@ -12,6 +12,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
+from urllib.parse import quote
 
 from ... import db
 from ... import engine as eng
@@ -19,6 +20,7 @@ from ...core import gimport, ics
 from ...core.auth import PERM_SETTINGS, can, request_user
 from ...core.labels import STATUS_LABEL
 from . import day as pday
+from . import panel as ppanel
 from . import routes as sroutes
 
 log = logging.getLogger("gcal")
@@ -472,8 +474,35 @@ def _form() -> dict:
             "sms": pday.sms_box()}
 
 
-async def listing(f: str = "", q: str = "") -> dict:
-    """Вкладка данными: полоса источника, счётчики фильтров, строки по дням."""
+PAGE = "/admin/google"
+
+
+def _iso_day(text: str) -> date | None:
+    try:
+        return date.fromisoformat(text)
+    except (ValueError, TypeError):
+        return None
+
+
+def _month(days: set, f: str, q: str, day: date | None, month: date | None) -> dict:
+    """Месяц вкладки тем же построителем, что у журнала: точка — день с
+    событиями этой вкладки, ссылка дня оставляет вкладку и поиск. Листание
+    месяца день не выбирает."""
+    today = _now().date()
+    cal = ppanel.minical(day or month or today, today, pday.RO_MONTHS, base=PAGE, busy=days)
+    tail = "".join(f"&{k}={quote(v)}" for k, v in (("f", f), ("q", q)) if v)
+    for week in cal["weeks"]:
+        for c in week:
+            c["href"] += tail
+            c["selected"] = day is not None and c["date"] == day.isoformat()
+    for k in ("prev", "next"):
+        cal[k]["href"] = f"{PAGE}?month={cal[k]['date']}{tail}"
+    return cal
+
+
+async def listing(f: str = "", q: str = "", day: str = "", month: str = "") -> dict:
+    """Вкладка данными: полоса источника, счётчики фильтров, строки по дням.
+    `day` оставляет в списке один день; счётчики вкладок от него не зависят."""
     await sweep()
     f = f if f in FILTERS else F_NEW
     needle = gimport.fold(q.strip())[:80]
@@ -499,6 +528,7 @@ async def listing(f: str = "", q: str = "") -> dict:
             pad = timedelta(minutes=gimport.STEP)
             for a in await db.gcal_journal(_utc(min(dated) - pad), _utc(max(dated) + pad)):
                 journal.setdefault(_utc(a["starts_at"]), []).append(a)
+    only = _iso_day(day)
     days: dict = {}
     undated = []
     for r in shown:
@@ -507,9 +537,15 @@ async def listing(f: str = "", q: str = "") -> dict:
             days.setdefault(v["date"], []).append(v)
         else:
             undated.append(v)
+    cal = _month({date.fromisoformat(d) for d in days}, f, q.strip()[:80], only, _iso_day(month))
+    if only is not None:
+        days = {d: v for d, v in days.items() if d == only.isoformat()}
+        undated = []
+        shown = [x for v in days.values() for x in v]
     me = request_user()
     return {"source": sources[0] if sources else None, "sources": sources,
             "f": f, "q": q.strip()[:80], "counts": counts,
+            "date": only.isoformat() if only else "", "minical": cal,
             "filters": [{"key": k, "label": FILTER_LABEL[k], "n": counts[k]} for k in FILTERS
                         if k != F_CHANGED or counts[k]],
             "days": [{"date": d, "rows": days[d]} for d in sorted(days)],

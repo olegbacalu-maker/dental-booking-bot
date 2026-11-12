@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router'
 import { AppLink } from '../../components/AppLink'
 import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
@@ -10,9 +11,10 @@ import { asApiError, loginUrl } from '../../services/api'
 import { roCount } from '../../utils/plural'
 import { AddDialog } from '../schedule/AddDialog'
 import { day, type DayForm, type NewAppt } from '../schedule/day'
+import { CalButton, MiniCal } from '../schedule/MiniCal'
 import {
-  dayTitle, gcalApi, minutesOf, presetOf, shortWhen, spanOf,
-  type GcalFilter, type GcalList, type GcalLoad, type GcalRow,
+  dayTitle, firstLine, gcalApi, minutesOf, presetOf, queryOf, shortWhen, spanOf, whereOf,
+  type GcalList, type GcalLoad, type GcalRow, type GcalWhere,
 } from './gcal'
 
 /* Вкладка «Google Calendar»: события общего календаря клиники списком и
@@ -52,6 +54,12 @@ const T = {
   empty: '— niciun eveniment aici —',
   emptyNew: 'Toate evenimentele au fost mutate sau lăsate deoparte.',
   undated: 'Fără dată',
+  allDays: 'Arată toate zilele',
+  allDaysLabel: 'Toate zilele',
+  onlyDay: 'Doar',
+  emptyDay: '— niciun eveniment în această zi —',
+  legend: 'zi cu evenimente în lista aleasă',
+  withEvents: 'are evenimente',
   allDay: 'toată ziua',
   min: 'min',
   series: 'serie',
@@ -87,38 +95,40 @@ const T = {
 
 const SEARCH_MS = 300
 
-export const loadGcal: RouteLoad<GcalList> = (signal) => gcalApi.list('', '', signal)
+export const loadGcal: RouteLoad<GcalList> = (signal, _params, search) => gcalApi.list(whereOf(search), signal)
 
 interface Props {
   navigate?: (url: string) => void
 }
 
 export function GcalScreen({ navigate = defaultNavigate }: Props) {
-  const { state, retry, leaveIfSignedOut } = useRouteLoad<GcalList>(navigate)
-  const [over, setOver] = useState<GcalList | null>(null)
-  const [query, setQuery] = useState('')
+  const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<GcalList>(navigate)
+  const go = useNavigate()
+  const [search] = useSearchParams()
+  const where = whereOf(search)
+  /* отбор в момент ответа, а не в момент набора: отложенный поиск и команда
+     берут адрес, который стоит сейчас */
+  const at = useRef(where)
+  useLayoutEffect(() => { at.current = where })
+  const [query, setQuery] = useState(where.q)
   const [busy, setBusy] = useState(false)
   const [report, setReport] = useState<GcalLoad | null>(null)
   const [moving, setMoving] = useState<GcalRow | null>(null)
   const [toast, setToast] = useState<ToastState | null>(null)
   const closeToast = useCallback(() => setToast(null), [])
   const fileRef = useRef<HTMLInputElement>(null)
-  /* поздний ответ старого поиска не перекрывает свежий */
-  const seq = useRef(0)
-  /* вкладка, выбранная последней: отложенный поиск спрашивает её, а не ту,
-     что стояла при наборе */
-  const tab = useRef<GcalFilter | null>(null)
 
-  const loaded = state.status === 'ready' ? state.data : null
-  const d = over ?? loaded
-  const f = d?.f ?? 'nou'
+  /* Отбор — в адресе: день календаря — ссылка, вкладка и поиск пишут адрес
+     сами, список приносит загрузчик маршрута. */
+  const show = useCallback((next: Partial<GcalWhere>) => {
+    void go(`/admin/google${queryOf({ ...at.current, ...next })}`, { replace: true })
+  }, [go])
 
-  const run = useCallback(async (call: () => ReturnType<typeof gcalApi.list>, quiet = false) => {
-    const mine = ++seq.current
+  const run = useCallback(async (call: (w: GcalWhere) => ReturnType<typeof gcalApi.list>, quiet = false) => {
     setBusy(true)
     try {
-      const r = await call()
-      if (mine === seq.current) setOver(r.data)
+      const r = await call(at.current)
+      replace(r.data)
       if (!quiet && r.text) setToast({ tone: r.tone, text: r.text })
       return r
     } catch (e) {
@@ -128,33 +138,29 @@ export function GcalScreen({ navigate = defaultNavigate }: Props) {
     } finally {
       setBusy(false)
     }
-  }, [leaveIfSignedOut])
+  }, [leaveIfSignedOut, replace])
 
-  /* поиск — после паузы в наборе, тем же отбором */
-  const first = useRef(true)
+  /* поиск — после паузы в наборе */
   useEffect(() => {
-    if (first.current) {
-      first.current = false
-      return
-    }
-    const timer = window.setTimeout(() => { void run(() => gcalApi.list(tab.current ?? f, query), true) }, SEARCH_MS)
+    if (query === at.current.q) return
+    const timer = window.setTimeout(() => show({ q: query }), SEARCH_MS)
     return () => window.clearTimeout(timer)
-    // отбор меняет щелчок по вкладке сам; здесь — только набор текста
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, run])
+  }, [query, show])
 
   if (state.status === 'leaving') return null
   if (state.status === 'failed') {
     return <section className="dp-react-root"><LoadFailed error={state.error} onRetry={retry} /></section>
   }
-  if (!d) {
+  if (state.status === 'loading') {
     return <section className="dp-react-root" aria-busy="true"><div className="fcard" /></section>
   }
+  const d = state.data
+  const f = d.f
 
   const pickFile = () => fileRef.current?.click()
   async function upload(file: File | undefined) {
     if (!file) return
-    const r = await run(() => gcalApi.file(file, f, query), true)
+    const r = await run((w) => gcalApi.file(file, w), true)
     if (fileRef.current) fileRef.current.value = ''
     if (r) setReport(r.data.load ?? null)
   }
@@ -193,9 +199,14 @@ export function GcalScreen({ navigate = defaultNavigate }: Props) {
   const rows = d.days.reduce((n, x) => n + x.rows.length, 0) + d.undated.length
   const act = (r: GcalRow) => ({
     onMove: () => setMoving(r),
-    onSkip: (on: boolean) => { void run(() => gcalApi.skip(r.id, on, f, query)) },
-    onLink: (apptId: number) => { void run(() => gcalApi.link(r.id, apptId, f, query)) },
+    onSkip: (on: boolean) => { void run((w) => gcalApi.skip(r.id, on, w)) },
+    onLink: (apptId: number) => { void run((w) => gcalApi.link(r.id, apptId, w)) },
   })
+  const allDays = d.date ? (
+    <button type="button" className="rc-btn gc-all" onClick={() => show({ date: '', month: d.date })}>
+      <Icon name="close" /> {T.allDays}
+    </button>
+  ) : null
   return (
     <section className="dp-react-root rc gc">
       <div className="fcard gc-src">
@@ -219,42 +230,61 @@ export function GcalScreen({ navigate = defaultNavigate }: Props) {
 
       {report ? <LoadReport load={report} onClose={() => setReport(null)} /> : null}
 
-      <div className="fcard rc-head">
-        <div className="rc-tabs" role="tablist">
-          {d.filters.map((x) => (
-            <button key={x.key} type="button" role="tab" aria-selected={f === x.key}
-                    className={`rc-tab${f === x.key ? ' on' : ''}`}
-                    onClick={() => { tab.current = x.key; void run(() => gcalApi.list(x.key, query), true) }}>
-              {x.label} <span className={`rc-n${x.key === 'nou' && x.n ? ' hot' : ''}`}>{x.n}</span>
-            </button>
-          ))}
-        </div>
-        <div className="rc-tools">
-          <span className="hint gc-total">{roCount(d.total, T.total)}</span>
-          <input type="search" className="gc-q" value={query} placeholder={T.search} aria-label={T.search}
-                 onChange={(e) => setQuery(e.target.value)} />
-        </div>
-      </div>
+      <div className="gc-cols">
+        <div className="gc-main">
+          <div className="fcard rc-head">
+            <div className="rc-tabs" role="tablist">
+              {d.filters.map((x) => (
+                <button key={x.key} type="button" role="tab" aria-selected={f === x.key}
+                        className={`rc-tab${f === x.key ? ' on' : ''}`}
+                        onClick={() => show({ f: x.key, q: query })}>
+                  {x.label} <span className={`rc-n${x.key === 'nou' && x.n ? ' hot' : ''}`}>{x.n}</span>
+                </button>
+              ))}
+            </div>
+            <div className="rc-tools">
+              {/* на узком экране месяц — под кнопкой с датой, как в шапке журнала */}
+              <span className="gc-calbtn">
+                <CalButton label={d.date ? dayTitle(d.date) : T.allDaysLabel} cal={d.minical} busyWord={T.withEvents} />
+              </span>
+              <span className="hint gc-total">{roCount(d.total, T.total)}</span>
+              <input type="search" className="gc-q" value={query} placeholder={T.search} aria-label={T.search}
+                     onChange={(e) => setQuery(e.target.value)} />
+            </div>
+            {d.date ? (
+              <p className="gc-dayline">
+                <Icon name="cal" /> {T.onlyDay} <b>{dayTitle(d.date)}</b> {allDays}
+              </p>
+            ) : null}
+          </div>
 
-      {!rows ? (
-        <div className="fcard rc-empty">
-          {f === 'nou' && !d.q
-            ? <><span className="rc-empty-ico"><Icon name="check" /></span><b>{T.emptyNew}</b></>
-            : <p className="hint">{T.empty}</p>}
+          {!rows ? (
+            <div className="fcard rc-empty">
+              {f === 'nou' && !d.q && !d.date
+                ? <><span className="rc-empty-ico"><Icon name="check" /></span><b>{T.emptyNew}</b></>
+                : <p className="hint">{d.date ? T.emptyDay : T.empty}</p>}
+            </div>
+          ) : null}
+          {d.days.map((g) => (
+            <div key={g.date} className="fcard gc-day">
+              <h3 className="gc-day-h">{dayTitle(g.date)}</h3>
+              {g.rows.map((r) => <Row key={r.id} r={r} busy={busy} {...act(r)} />)}
+            </div>
+          ))}
+          {d.undated.length ? (
+            <div className="fcard gc-day">
+              <h3 className="gc-day-h">{T.undated}</h3>
+              {d.undated.map((r) => <Row key={r.id} r={r} busy={busy} {...act(r)} />)}
+            </div>
+          ) : null}
         </div>
-      ) : null}
-      {d.days.map((g) => (
-        <div key={g.date} className="fcard gc-day">
-          <h3 className="gc-day-h">{dayTitle(g.date)}</h3>
-          {g.rows.map((r) => <Row key={r.id} r={r} busy={busy} {...act(r)} />)}
-        </div>
-      ))}
-      {d.undated.length ? (
-        <div className="fcard gc-day">
-          <h3 className="gc-day-h">{T.undated}</h3>
-          {d.undated.map((r) => <Row key={r.id} r={r} busy={busy} {...act(r)} />)}
-        </div>
-      ) : null}
+
+        <aside className="gc-side">
+          <MiniCal cal={d.minical} busyWord={T.withEvents} />
+          <p className="hint gc-legend"><i className="gc-dot" /> {T.legend}</p>
+          {allDays}
+        </aside>
+      </div>
 
       <div className="gc-foot">
         <p className="hint"><Icon name="shield" /> {T.keep.replace('{n}', String(d.keep_days))}</p>
@@ -266,10 +296,10 @@ export function GcalScreen({ navigate = defaultNavigate }: Props) {
       </div>
 
       {moving ? (
-        <MoveWindow key={moving.id} row={moving} f={f} q={query} navigate={navigate}
+        <MoveWindow key={moving.id} row={moving} where={where} navigate={navigate}
                     onClose={() => setMoving(null)}
-                    onStale={() => { void run(() => gcalApi.list(f, query), true) }}
-                    onDone={(list, t) => { setOver(list); setToast(t) }} />
+                    onStale={() => { void run((w) => gcalApi.list(w), true) }}
+                    onDone={(list, t) => { replace(list); setToast(t) }} />
       ) : null}
       {toast ? <Toast {...toast} onClose={closeToast} /> : null}
     </section>
@@ -313,6 +343,7 @@ function Row({ r, busy, onMove, onSkip, onLink }: RowProps) {
   const minutes = moved ? 0 : minutesOf(r)
   const why = r.why?.text ?? ''
   const skippedSelf = r.state === 'omis' && !!why && ['all_day', 'cancelled', 'gone'].includes(r.why?.code ?? '')
+  const line = firstLine(r.body)
   return (
     <div className={`gc-row${r.state === 'omis' ? ' dim' : ''}`} data-id={r.id} data-state={r.state}>
       <div className="gc-time">
@@ -327,31 +358,29 @@ function Row({ r, busy, onMove, onSkip, onLink }: RowProps) {
             ? <AppLink href={r.appt.day_href}><b>{r.appt.patient}</b> · {r.appt.doctor} · {shortWhen(r.appt.when)}</AppLink>
             : <span className="hint">{T.noAppt}</span>
         ) : <b className="gc-title">{r.title || '—'}</b>}
-        <div className="rc-notes">
-          {r.round ? <span className="rc-pill grey">{T.rounded} {r.round.from} › {r.round.to}</span> : null}
-          {r.series ? <span className="rc-pill grey">{T.series}</span> : null}
-          {r.hint?.doctor ? <span className="rc-pill blue">{T.maybe} {r.hint.doctor.name}</span> : null}
-          {r.hint?.patients.map((p) => (
-            <span key={p.id} className="rc-pill blue">{T.card}: {p.name}</span>
-          ))}
-          {!moved && why && !skippedSelf ? <span className="rc-pill amber">{why}</span> : null}
-          {moved && r.changed ? (
-            <span className="rc-pill amber">
-              <Icon name="excl" /> {T.changed}
-              {r.gstatus ? ` — ${why}` : r.when ? ` — ${T.inGoogle} ${shortWhen(r.when)}` : ''}
-            </span>
-          ) : null}
-        </div>
+        {r.round ? <span className="rc-pill grey">{T.rounded} {r.round.from} › {r.round.to}</span> : null}
+        {r.series ? <span className="rc-pill grey">{T.series}</span> : null}
+        {r.hint?.doctor ? <span className="rc-pill blue">{T.maybe} {r.hint.doctor.name}</span> : null}
+        {r.hint?.patients.map((p) => (
+          <span key={p.id} className="rc-pill blue">{T.card}: {p.name}</span>
+        ))}
+        {!moved && why && !skippedSelf ? <span className="rc-pill amber">{why}</span> : null}
+        {moved && r.changed ? (
+          <span className="rc-pill amber">
+            <Icon name="excl" /> {T.changed}
+            {r.gstatus ? ` — ${why}` : r.when ? ` — ${T.inGoogle} ${shortWhen(r.when)}` : ''}
+          </span>
+        ) : null}
         {r.hint?.exists ? (
-          <p className="gc-exists">
+          <span className="gc-exists">
             <Icon name="info" /> {T.exists}: {r.hint.exists.text}{' '}
             <button type="button" className="rc-btn" disabled={busy}
                     onClick={() => onLink(r.hint?.exists?.appt_id ?? 0)}>{T.link}</button>
-          </p>
+          </span>
         ) : null}
         {r.body ? (
           <details className="gc-body">
-            <summary>{T.details}</summary>
+            <summary><span className="gc-desc">{line}</span><span className="gc-more">{T.details}</span></summary>
             <pre>{r.body}</pre>
           </details>
         ) : null}
@@ -384,8 +413,7 @@ function Row({ r, busy, onMove, onSkip, onLink }: RowProps) {
 
 interface MoveProps {
   row: GcalRow
-  f: GcalFilter
-  q: string
+  where: GcalWhere
   navigate: (url: string) => void
   onClose: () => void
   /** Событие уже не то, что на экране (перенёс сосед): перечитать список. */
@@ -395,7 +423,7 @@ interface MoveProps {
 
 /** Окно записи журнала над строкой события. Форму дня события даёт журнал —
  *  тот же построитель, что у «Programare nouă». */
-function MoveWindow({ row, f, q, navigate, onClose, onStale, onDone }: MoveProps) {
+function MoveWindow({ row, where, navigate, onClose, onStale, onDone }: MoveProps) {
   const [got, setGot] = useState<{ date: string; form: DayForm } | null>(null)
   const [busy, setBusy] = useState(false)
   const date = row.preset?.date ?? ''
@@ -421,7 +449,7 @@ function MoveWindow({ row, f, q, navigate, onClose, onStale, onDone }: MoveProps
   const add = async (body: NewAppt & { pid?: number }, fail: (text: string) => void): Promise<boolean> => {
     setBusy(true)
     try {
-      const r = await gcalApi.move(row.id, body, f, q)
+      const r = await gcalApi.move(row.id, body, where)
       onDone(r.data, { tone: r.tone, text: r.text, link: { href: `/admin/all?date=${body.date}`, label: T.see } })
       return true
     } catch (e) {

@@ -630,6 +630,62 @@ def suite_round(res: Result) -> None:
                   row(c, "Rotund Maria")["hint"]["exists"], None)
 
 
+def suite_calendar(res: Result) -> None:
+    """Месяц вкладки и отбор по дню: точки — дни с событиями ЭТОЙ вкладки,
+    день оставляет в списке одни свои события, счётчики вкладок от дня не
+    зависят, ссылки календаря несут вкладку и поиск."""
+    with Server() as s:
+        c = Client(s.url).login()
+        got = loaded(res, c, cal(base_events()), "загрузка")
+        res.ok("годных строк не ноль", got.get("new", 0) > 0, f"{got}")
+
+        def get(query: str) -> dict:
+            return _j(c.get("/api/gcal" + query))["data"]
+
+        def cells(data: dict) -> list:
+            return [x for w in data["minical"]["weeks"] for x in w]
+
+        def busy(data: dict) -> list:
+            return sorted(x["date"] for x in cells(data) if x["busy"])
+
+        # день +3 и +4 могут лечь в соседний месяц: месяц спрашивается по дню события
+        d3, d4 = _day(3), _day(4)
+        all_ = get(f"?month={d3}")
+        res.check("без дня: список целиком, день не выбран",
+                  (all_["date"], len(rows(all_)), [x["date"] for x in cells(all_) if x["selected"]]),
+                  ("", 3, []))
+        res.ok("точка — на дне с событиями вкладки «De mutat»", d3 in busy(all_), f"{busy(all_)}")
+        res.ok("день только с отложенным в «De mutat» точки не имеет",
+               d4 not in busy(all_), f"{busy(all_)}")
+        res.ok("во вкладке «Omise» точка — на её дне", d4 in busy(get(f"?f=omis&month={d4}")), "")
+        res.check("«сегодня» отмечено в своём месяце",
+                  [x["date"] for x in cells(get("")) if x["today"]], [clinic_today().isoformat()])
+
+        one = get(f"?date={d3}")
+        res.check("день выбран: в списке только он, счётчики вкладок прежние",
+                  (one["date"], [d["date"] for d in one["days"]], one["total"], one["counts"]),
+                  (d3, [d3], 3, all_["counts"]))
+        res.check("выбранный день отмечен в календаре",
+                  [x["date"] for x in cells(one) if x["selected"]], [d3])
+        res.check("день без событий вкладки — пустой список, а не все дни",
+                  (get(f"?date={d4}")["total"], get(f"?date={d4}")["days"]), (0, []))
+        res.check("кривая дата — как без дня", (get("?date=nu-e-data")["date"], len(rows(get("?date=nu-e-data")))),
+                  ("", 3))
+
+        q = get(f"?f=omis&q=concediu&month={d4}")
+        day_href = next(x["href"] for x in cells(q) if x["date"] == d4)
+        res.check("ссылка дня несёт вкладку и поиск", day_href, f"/admin/google?date={d4}&f=omis&q=concediu")
+        res.ok("листание месяца день не выбирает и отбор не теряет",
+               q["minical"]["next"]["href"].startswith("/admin/google?month=")
+               and q["minical"]["next"]["href"].endswith("&f=omis&q=concediu"), q["minical"]["next"]["href"])
+        res.check("поиск сужает и точки", busy(q), [d4])
+
+        a1 = row(c, "Popescu Ion")
+        r = c.post_json(f"/api/gcal/events/{a1['id']}/skip?date={d3}", {"on": True})
+        res.check("команда отвечает списком того же дня",
+                  (r.msg, _j(r)["data"]["date"], _j(r)["data"]["total"]), ("gc_skipped", d3, 2))
+
+
 def suite_after_grid(res: Result) -> None:
     """Старт не на :00/:30 и длительность 20 минут ложатся как есть. Верно
     только с правилом «старт с шагом 5 минут, длительность кратно 5»."""

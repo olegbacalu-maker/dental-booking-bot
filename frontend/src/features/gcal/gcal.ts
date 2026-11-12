@@ -1,5 +1,6 @@
 import { api, type ApiResult } from '../../services/api'
 import type { AddPreset } from '../schedule/AddDialog'
+import type { DashMiniCal } from '../schedule/dash'
 import type { NewAppt } from '../schedule/day'
 
 /* Вкладка «Google Calendar»: формы ответов — bot/app/modules/schedule/gcal_api.py.
@@ -76,6 +77,10 @@ export interface GcalList {
   days: { date: string; rows: GcalRow[] }[]
   undated: GcalRow[]
   total: number
+  /** Выбранный день списка или пусто — все дни. */
+  date: string
+  /** Месяц вкладки: точка — день с событиями этой вкладки. */
+  minical: DashMiniCal
   help: string[]
   keep_days: number
   horizon_days: number
@@ -85,22 +90,36 @@ export interface GcalList {
   appt_id?: number
 }
 
-const at = (f: string, q: string) => `?f=${encodeURIComponent(f)}&q=${encodeURIComponent(q)}`
+/** В каком отборе стоит экран; это же — параметры его адреса. */
+export interface GcalWhere { f: string; q: string; date: string; month: string }
+
+export function whereOf(search: URLSearchParams): GcalWhere {
+  return { f: search.get('f') ?? '', q: search.get('q') ?? '', date: search.get('date') ?? '',
+    month: search.get('month') ?? '' }
+}
+
+/** Параметры адреса отбора; пустые не пишутся. */
+export function queryOf(w: GcalWhere): string {
+  const q = new URLSearchParams()
+  for (const k of ['f', 'q', 'date', 'month'] as const) if (w[k]) q.set(k, w[k])
+  const s = q.toString()
+  return s ? `?${s}` : ''
+}
 
 export const gcalApi = {
-  list: (f: string, q: string, signal?: AbortSignal): Promise<ApiResult<GcalList>> =>
-    api.get<GcalList>(`/gcal${at(f, q)}`, signal ? { signal } : {}),
-  file: (file: File, f: string, q: string) => {
+  list: (w: GcalWhere, signal?: AbortSignal): Promise<ApiResult<GcalList>> =>
+    api.get<GcalList>(`/gcal${queryOf(w)}`, signal ? { signal } : {}),
+  file: (file: File, w: GcalWhere) => {
     const form = new FormData()
     form.append('file', file)
-    return api.postForm<GcalList>(`/gcal/file${at(f, q)}`, form)
+    return api.postForm<GcalList>(`/gcal/file${queryOf(w)}`, form)
   },
-  move: (id: number, body: NewAppt & { pid?: number }, f: string, q: string) =>
-    api.post<GcalList>(`/gcal/events/${id}/move${at(f, q)}`, body),
-  skip: (id: number, on: boolean, f: string, q: string) =>
-    api.post<GcalList>(`/gcal/events/${id}/skip${at(f, q)}`, { on }),
-  link: (id: number, apptId: number, f: string, q: string) =>
-    api.post<GcalList>(`/gcal/events/${id}/link${at(f, q)}`, { appt_id: apptId }),
+  move: (id: number, body: NewAppt & { pid?: number }, w: GcalWhere) =>
+    api.post<GcalList>(`/gcal/events/${id}/move${queryOf(w)}`, body),
+  skip: (id: number, on: boolean, w: GcalWhere) =>
+    api.post<GcalList>(`/gcal/events/${id}/skip${queryOf(w)}`, { on }),
+  link: (id: number, apptId: number, w: GcalWhere) =>
+    api.post<GcalList>(`/gcal/events/${id}/link${queryOf(w)}`, { appt_id: apptId }),
   clear: () => api.post<GcalList>('/gcal/clear', {}),
 }
 
@@ -144,6 +163,17 @@ export function dayTitle(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number)
   if (!y || !m || !d) return iso
   return DAY.format(new Date(y, m - 1, d, 12))
+}
+
+/** Первая строка описания — то, что встаёт в строку события. */
+export function firstLine(body: string): string {
+  return body.split(/\r?\n/).map((x) => x.trim()).find(Boolean) ?? ''
+}
+
+/** «16.11» из голой даты. */
+export function shortDay(iso: string): string {
+  const [, m = '', d = ''] = iso.split('-')
+  return `${d}.${m}`
 }
 
 /** «16.11 09:10» из «2026-11-16T09:10». */
