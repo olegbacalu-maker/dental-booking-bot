@@ -7,11 +7,12 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, File, Query, Request, UploadFile
+from fastapi.responses import HTMLResponse
 
 from ...core import ics
 from ...core.api import api_body, api_require
-from ...core.auth import PERM_SCHEDULE_ALL, PERM_SETTINGS
-from ...core.layout import msg_json
+from ...core.auth import PERM_SCHEDULE_ALL, PERM_SETTINGS, require
+from ...core.layout import msg_json, react_shell, shell_model
 from . import gcal
 from .api import _CONFLICT, _FIELD
 
@@ -28,6 +29,13 @@ async def _reply(code: str, f: str, q: str, ok: bool = True, **extra):
 
 def _refuse(code: str):
     return msg_json(False, code, status=409 if code in _GONE else 422)
+
+
+@router.get("/admin/google", response_class=HTMLResponse)
+async def admin_gcal(request: Request):
+    if (deny := require(request, PERM_SCHEDULE_ALL)) is not None:
+        return deny
+    return react_shell("gcal", request.url.path, shell_model("gcal", ""))
 
 
 @router.get("/api/gcal")

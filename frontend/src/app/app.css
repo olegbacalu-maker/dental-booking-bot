@@ -2574,6 +2574,8 @@ dialog.dp-about { width: 460px; }
 /* треугольник у пункта меню (остаток SMS): на месте точки, цветом смысла */
 .side nav a .nav-alert { margin-left: auto; display: inline-flex; color: var(--amber); }
 .side nav a .nav-alert svg { width: 16px; height: 16px; }
+.side nav a .nav-count { margin-left: auto; min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--teal);
+  color: var(--on-teal); font-size: var(--fs-xs); font-weight: 600; line-height: 18px; text-align: center; }
 
 /* odo:modes — режимы рабочего стола вкладками шапки (Олег 24.10, макет B):
    на месте прежних «Stare dinți | Parodont». Ряд не переносится — при нехватке
@@ -3046,6 +3048,62 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .hero-rc .off em { color: var(--text3); }
 .dp-react-root .hero-rc-undo { border: 0; background: none; padding: 0; font: inherit; color: var(--teal-d); font-weight: 500; cursor: pointer; text-decoration: underline; }
 .dp-react-root .dp-rc-set { color: var(--teal-d); font-weight: 600; }
+/* Google Calendar: список событий календаря клиники и перенос в журнал */
+.dp-react-root .gc-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: 40px 24px; }
+.dp-react-root .gc-empty .hint { max-width: 620px; margin: 0; }
+.dp-react-root .gc-help { margin: 0; padding-left: 20px; max-width: 620px; text-align: left; color: var(--text2);
+  font-size: var(--fs-body); display: flex; flex-direction: column; gap: 4px; }
+.dp-react-root .gc-src { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 16px; }
+.dp-react-root .gc-src-l { display: flex; align-items: center; gap: 8px; flex: 1 1 320px; min-width: 0; color: var(--text2); }
+.dp-react-root .gc-src-l b { color: var(--text); font-weight: 600; }
+.dp-react-root .gc-src-l svg { flex: 0 0 18px; width: 18px; height: 18px; color: var(--teal-d); }
+.dp-react-root .gc-how { flex-basis: 100%; color: var(--text2); font-size: var(--fs-s); }
+.dp-react-root .gc-how summary, .dp-react-root .gc-body summary { cursor: pointer; color: var(--teal-d); font-weight: 500; width: fit-content; }
+.dp-react-root .gc-how .gc-help { margin-top: 8px; }
+.dp-react-root .gc-report { display: flex; align-items: flex-start; gap: 12px; padding: 12px 16px; border-color: var(--green-soft); }
+.dp-react-root .gc-report-b { display: flex; flex-direction: column; gap: 3px; flex: 1; font-size: var(--fs-body); color: var(--text2); }
+.dp-react-root .gc-report-b b { display: flex; align-items: center; gap: 6px; color: var(--green-t); font-weight: 600; }
+.dp-react-root .gc-report-b b svg { width: 16px; height: 16px; }
+.dp-react-root .gc-warn { color: var(--amber-t); font-weight: 500; }
+.dp-react-root .gc-x { border: 0; background: none; padding: 4px; color: var(--text3); cursor: pointer; display: inline-flex; }
+.dp-react-root .gc-x svg { width: 16px; height: 16px; }
+.dp-react-root .gc-q { height: var(--h-ctl); width: 240px; max-width: 100%; padding: 0 12px; border: 1px solid var(--line);
+  border-radius: var(--r-ctl); background: var(--surface); color: var(--text); font: inherit; font-size: var(--fs-body); }
+.dp-react-root .gc-total { margin: 0; white-space: nowrap; }
+.dp-react-root .gc-day { padding: 4px 0; }
+.dp-react-root .gc-day-h { margin: 0; padding: 10px 16px 6px; font-size: var(--fs-body); font-weight: 600; color: var(--text2); }
+.dp-react-root .gc-day-h::first-letter { text-transform: uppercase; }
+.dp-react-root .gc-row { display: grid; grid-template-columns: 118px minmax(220px, 1fr) minmax(110px, auto) auto;
+  gap: 14px; align-items: start; padding: 12px 16px; border-top: 1px solid var(--line2); }
+.dp-react-root .gc-time { display: flex; flex-direction: column; gap: 2px; }
+.dp-react-root .gc-time small { color: var(--text2); font-size: var(--fs-s); }
+.dp-react-root .gc-what { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.dp-react-root .gc-title { overflow-wrap: anywhere; font-weight: 600; }
+.dp-react-root .gc-row.dim .gc-title, .dp-react-root .gc-row.dim .gc-time b { color: var(--text2); }
+.dp-react-root .gc-what a { color: var(--teal-d); text-decoration: none; }
+.dp-react-root .gc-what a b { font-weight: 600; }
+.dp-react-root .gc-exists { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; color: var(--blue); font-size: var(--fs-s); }
+.dp-react-root .gc-exists svg { width: 15px; height: 15px; }
+.dp-react-root .gc-exists .rc-btn { height: 28px; }
+.dp-react-root .gc-body { font-size: var(--fs-s); color: var(--text2); }
+.dp-react-root .gc-body pre { margin: 6px 0 0; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit;
+  border: 1px solid var(--line2); border-radius: var(--r-s); background: var(--fill); }
+.dp-react-root .gc-state { display: flex; justify-content: flex-start; }
+.dp-react-root .gc-row .rc-acts { flex-wrap: wrap; }
+.dp-react-root .gc-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 0 4px; }
+.dp-react-root .gc-foot .hint { display: flex; align-items: flex-start; gap: 6px; margin: 0; max-width: 760px; }
+.dp-react-root .gc-foot .hint svg { flex: 0 0 15px; width: 15px; height: 15px; margin-top: 2px; }
+.dp-react-root .gc-clear { border-color: var(--red-t); color: var(--red-t); }
+@media (max-width: 900px) {
+  .dp-react-root .gc-row { grid-template-columns: 96px 1fr; }
+  .dp-react-root .gc-state, .dp-react-root .gc-row .rc-acts { grid-column: 2; justify-content: flex-start; }
+}
+.dp-addnote { padding: 8px 10px; border: 1px solid var(--line2); border-radius: var(--r-ctl); background: var(--fill); overflow-wrap: anywhere; }
+.dp-addpeople { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.dp-addpeople .hint { margin: 0; }
+.dp-addperson { height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface);
+  color: var(--text); font: inherit; font-size: var(--fs-s); cursor: pointer; }
+.dp-addperson.on { border-color: var(--teal); background: var(--teal-soft); color: var(--teal-d); font-weight: 600; }
 .dp-past { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid var(--amber-soft);
   border-radius: var(--r-ctl); background: color-mix(in srgb, var(--amber-soft) 45%, transparent); }
 .dp-past-w { display: flex; align-items: center; gap: 6px; color: var(--amber-t); font-size: var(--fs-s); font-weight: 600; }

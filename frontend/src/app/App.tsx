@@ -27,6 +27,7 @@ import { loadSmsSettings, SmsSettingsScreen } from '../features/settings/SmsSett
 import { loadThemeSettings, ThemeSettingsScreen } from '../features/settings/ThemeSettingsScreen'
 import { loadStats, StatsScreen } from '../features/stats/StatsScreen'
 import { loadRecall, RecallScreen } from '../features/recall/RecallScreen'
+import { GcalScreen, loadGcal } from '../features/gcal/GcalScreen'
 import { RegistreScreen } from '../features/registre/RegistreScreen'
 import { RegistreSettingsScreen } from '../features/registre/RegistreSettingsScreen'
 import { loadVisit, VisitScreen } from '../features/visits/VisitScreen'
@@ -83,6 +84,7 @@ export const SCREENS: Record<ScreenName, Draw> = {
   settings_sms: () => <SmsSettingsScreen />,
   stats: () => <StatsScreen />,
   recall: () => <RecallScreen />,
+  gcal: () => <GcalScreen />,
   // «Registre» (10.11): данные — свой `useLoad` (месяц истории — состояние экрана)
   registre: () => <RegistreScreen />,
   settings_registre: () => <RegistreSettingsScreen />,
@@ -132,6 +134,7 @@ const LOADS: Partial<Record<ScreenName, ScreenData>> = {
   schedule_doctor: loadDay,
   stats: loadStats,
   recall: loadRecall,
+  gcal: loadGcal,
   perio: loadPerio,
   patient_card: loadPatientCard,
   visit: loadVisit,

@@ -146,6 +146,10 @@ def _base_db(path: pathlib.Path) -> sqlite3.Connection:
     con.executescript(appdb.SQLITE_SCHEMA)
     con.executescript(appdb.SQLITE_CARD_SCHEMA)
     con.execute("ALTER TABLE appointments ADD COLUMN doctor_id TEXT")
+    # Таблицы календаря есть только шагом миграции, а старт их читает: база,
+    # помеченная нынешней версией, без них не поднялась бы.
+    for sql in appdb.GCAL_DDL:
+        con.execute(sql)
     return con
 
 

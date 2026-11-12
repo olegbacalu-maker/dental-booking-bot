@@ -52,6 +52,8 @@ const T = {
   pastWarn: 'Data este în trecut.',
   happened: 'Vizita a avut loc — intră direct ca finalizată',
   happenedHint: 'Pentru istoricul de pe hârtie: vizita contează pentru Rechemări de la această dată.',
+  pickDoctor: 'Alegeți medicul…',
+  people: 'Fișă existentă:',
 } as const
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
@@ -71,11 +73,20 @@ interface Props {
   /** `fail` — слово отказа В ОКНО (как у `SlotDialog`): плашка экрана под
    *  открытым `<dialog>` не видна (top layer). Так у обоих хозяев окна — дня
    *  журнала и окна шапки (`NewApptHost`). */
-  onAdd: (body: NewAppt, fail: (text: string) => void) => Promise<boolean>
+  onAdd: (body: NewAppt & { pid?: number }, fail: (text: string) => void) => Promise<boolean>
   preset?: AddPreset | undefined
+  /** Строка над формой: откуда запись (событие календаря) — только текстом. */
+  note?: string | undefined
+  /** Фиши, похожие на пациента записи: выбранная получает запись по номеру
+   *  фиши, имя и телефон окна тогда не читаются. */
+  people?: AddPerson[] | undefined
+  /** Врача выбирает человек: без `preset.doctor` окно не ставит первого молча. */
+  askDoctor?: boolean | undefined
 }
 
-/** Чем окно открывается заполненным. `pid` окно пока не читает. */
+export interface AddPerson { id: number; name: string; phone: string }
+
+/** Чем окно открывается заполненным. */
 export interface AddPreset {
   date?: string
   /** «HH:MM» по сетке стартов. */
@@ -95,7 +106,9 @@ interface Got {
   form: DayForm | null
 }
 
-export function AddDialog({ open, form, date, of, busy, onClose, onAdd, preset }: Props) {
+export function AddDialog({
+  open, form, date, of, busy, onClose, onAdd, preset, note, people, askDoctor,
+}: Props) {
   const ref = useRef<HTMLDialogElement>(null)
   const [at, setAt] = useState(preset?.date ?? date)
   const seedTime = preset?.time ?? form.time
@@ -111,7 +124,9 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd, preset }
   const [noPhone, setNoPhone] = useState(false)
   const [birth, setBirth] = useState('')
   const [fail, setFail] = useState('')
-  const sms = useSmsBox(form.sms, phone, noPhone)
+  const [pid, setPid] = useState<number | null>(preset?.pid ?? null)
+  const person = people?.find((x) => x.id === pid) ?? null
+  const sms = useSmsBox(form.sms, person ? person.phone : phone, person ? !person.phone : noPhone)
   /* «Durată»: длительность услуги, пока не тронули (`DurPick`) */
   const dur = useDurPick(form.services, service, form, preset?.duration)
   /* «Сегодня» — `birth_max` формы (день клиники, его дал сервер), не часы
@@ -130,6 +145,7 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd, preset }
      вправе сказать «клиника закрыта» */
   const sure = !other || (got?.at === at && got.form !== null)
   const doctor = f.times[doctorPick] ? doctorPick : f.doctor
+  const noDoctor = !!askDoctor && f.doctors.length > 1 && !f.times[doctorPick]
   const times = f.times[doctor] ?? f.hours
   const hour = times.includes(timePick) ? timePick : (times[0] ?? '')
   const hh = hour.split(':')[0] ?? ''
@@ -160,8 +176,10 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd, preset }
   async function submit(e: FormEvent) {
     e.preventDefault()
     setFail('')
-    const ok = await onAdd({ date: at, time, doctor, service, name,
-      phone: noPhone ? '' : phone, nophone: noPhone, birth, ...sms.field,
+    const who = person
+      ? { name: person.name, phone: person.phone, nophone: !person.phone, pid: person.id }
+      : { name, phone: noPhone ? '' : phone, nophone: noPhone }
+    const ok = await onAdd({ date: at, time, doctor, service, ...who, birth, ...sms.field,
       ...dur.field, ...(room ? { room } : {}), ...(past ? { done: happened } : {}) }, setFail)
     if (ok) onClose()
   }
@@ -173,6 +191,7 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd, preset }
         <button type="button" onClick={onClose} aria-label={T.close}><Icon name="close" /></button>
       </div>
       <form className="dlg-form dp-addform" onSubmit={submit}>
+        {note ? <p className="hint dp-m0 dp-addnote">{note}</p> : null}
         <div className="dp-addrow">
           <label className="dlab">{T.date}
             <input type="date" value={at} onChange={(e) => setAt(e.target.value)} required />
@@ -188,8 +207,9 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd, preset }
         {f.doctors.length === 1
           ? <b className="dp-adddoc">{f.doctors[0]?.name}</b>
           : (
-            <select value={doctor} onChange={(e) => setDoctorPick(e.target.value)}
-                    aria-label={T.doctor}>
+            <select value={noDoctor ? '' : doctor} onChange={(e) => setDoctorPick(e.target.value)}
+                    aria-label={T.doctor} required={noDoctor}>
+              {noDoctor ? <option value="">{T.pickDoctor}</option> : null}
               {f.doctors.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
             </select>
           )}
@@ -202,13 +222,25 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd, preset }
         </div>
         {rooms.length > 1
           ? <RoomSelect rooms={rooms} value={room} onPick={setRoomPick} auto /> : null}
-        <input value={name} onChange={(e) => setName(e.target.value)}
-               placeholder={T.name} required />
-        <input value={noPhone ? '' : phone} onChange={(e) => setPhone(e.target.value)}
-               placeholder={T.phone} required={!noPhone} disabled={noPhone} />
+        {people?.length ? (
+          <div className="dp-addpeople">
+            <span className="hint">{T.people}</span>
+            {people.map((x) => (
+              <button key={x.id} type="button" className={`dp-addperson${pid === x.id ? ' on' : ''}`}
+                      aria-pressed={pid === x.id} onClick={() => setPid(pid === x.id ? null : x.id)}>
+                {x.name}{x.phone ? ` · ${x.phone}` : ''}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        <input value={person ? person.name : name} onChange={(e) => setName(e.target.value)}
+               placeholder={T.name} required disabled={!!person} />
+        <input value={person ? person.phone : noPhone ? '' : phone}
+               onChange={(e) => setPhone(e.target.value)}
+               placeholder={T.phone} required={!noPhone && !person} disabled={noPhone || !!person} />
         <div className="dp-addrow">
           <label className="nophone">
-            <input type="checkbox" checked={noPhone}
+            <input type="checkbox" checked={noPhone} disabled={!!person}
                    onChange={(e) => setNoPhone(e.target.checked)} /> {T.noPhone}
           </label>
           <SmsCheck box={sms} />
@@ -227,7 +259,7 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd, preset }
           </div>
         )}
         {fail ? <div className="banner err" role="alert">{fail}</div> : null}
-        <button disabled={busy || pending || !times.length || dur.bad}>{T.go}</button>
+        <button disabled={busy || pending || !times.length || dur.bad || noDoctor}>{T.go}</button>
       </form>
     </dialog>
   )

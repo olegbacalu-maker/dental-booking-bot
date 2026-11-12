@@ -176,6 +176,9 @@ def read_file(raw: bytes, now: datetime) -> list:
 
 # ---------- слияние ----------
 
+COUNTED = ("new", "updated", "same", "changed", "gone", "unparsed", "skipped", "all_day", "cancelled")
+
+
 def _core(stamp: str) -> str:
     """Отпечаток без названия: у перенесённого события текст стёрт, и смену
     одного названия сравнить не с чем."""
@@ -200,7 +203,7 @@ async def absorb(kind: str, name: str, items: list, present: set, *,
     sid = await db.gcal_source_put(kind, name, actor)
     have = await db.gcal_events_by_keys([it.key for it in items])
     now = db._utcnow_iso()
-    count = dict.fromkeys(("new", "updated", "same", "changed", "gone", "unparsed", "skipped"), 0)
+    count = dict.fromkeys(COUNTED, 0)
     inserts, updates, deletes = [], [], []
     renamed = set()
     for it in items:
@@ -209,6 +212,8 @@ async def absorb(kind: str, name: str, items: list, present: set, *,
         gstatus = G_CANCELLED if it.why == W_CANCELLED else ""
         count["unparsed"] += it.state == db.GCAL_UNPARSED
         count["skipped"] += it.state == db.GCAL_SKIPPED
+        count["all_day"] += it.state == db.GCAL_SKIPPED and it.why == W_ALL_DAY
+        count["cancelled"] += it.state == db.GCAL_SKIPPED and it.why == W_CANCELLED
         if row is None:
             inserts.append(dict(source_id=sid, ext_key=it.key, starts_at=start, minutes=it.minutes,
                                 title=it.title, body=it.body, series=int(it.series),
@@ -264,8 +269,7 @@ async def load(raw: bytes) -> dict:
     """Загрузка файла; отказ файла целиком — `ics.Refused` наверх."""
     cals = await asyncio.to_thread(read_file, raw, _now())
     names = tuple(c["name"] for c in cals)
-    total = dict.fromkeys(("new", "updated", "same", "changed", "gone", "unparsed", "skipped",
-                           "past", "beyond"), 0)
+    total = dict.fromkeys((*COUNTED, "past", "beyond"), 0)
     refused = []
     actor = _actor()
     for cal in cals:

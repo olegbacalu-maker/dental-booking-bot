@@ -3,8 +3,7 @@
 Файлы собираются здесь с датами от `clinic_today()`: образец с жёсткими
 датами через неделю оказался бы целиком в прошлом, и набор позеленел бы на
 пустом списке — поэтому каждая загрузка проверяет, что годных строк не ноль.
-Старты и длительности — те, что журнал принимает и до правила «старт с шагом
-5 минут», и после него; остальное — `suite_after_grid`, вне общего прогона.
+Старт не на получасе и длительность не из списка — `suite_after_grid`.
 """
 from __future__ import annotations
 
@@ -531,6 +530,9 @@ def suite_rights(res: Result) -> None:
                       boss.post_json("/api/settings/users", body).msg, "ok_user")
         got = loaded(res, boss, cal(base_events()), "директор загружает")
         res.ok("годных строк не ноль", got.get("new", 0) > 0, f"{got}")
+        res.check("итог называет причины пропуска: на весь день, отменено, прошло, дальше года",
+                  (got.get("all_day"), got.get("cancelled"), got.get("past"), got.get("beyond")),
+                  (1, 1, 2, 1))
         a1 = row(boss, "Popescu Ion")
 
         med = Client(s.url)
@@ -544,12 +546,16 @@ def suite_rights(res: Result) -> None:
                            ("/api/gcal/clear", {})):
             res.check(f"врач: {path.rsplit('/', 1)[-1]} — 403", med.post_json(path, body).status, 403)
         res.check("врач: загрузка — 403", upload(med, cal(base_events())).status, 403)
+        res.ok("врач: страница закрыта", med.get("/admin/google").status in (303, 307), "")
         res.ok("врач: пункта меню нет", "gcal" not in nav_keys(med), f"{nav_keys(med)}")
         res.check("врач ничего не изменил", listing(boss)["counts"]["nou"], 3)
 
         ana = Client(s.url)
         ana.post("/admin/login", password="4444", next="/admin")
         res.check("регистратура: список открыт", ana.get("/api/gcal").status, 200)
+        page = ana.get("/admin/google")
+        res.ok("регистратура: страница — экран gcal",
+               page.status == 200 and 'data-screen="gcal"' in page.body, f"{page.status}")
         res.ok("регистратура: пункт меню есть", "gcal" in nav_keys(ana), f"{nav_keys(ana)}")
         res.check("регистратура: стирать всё нельзя — кнопки нет и маршрут закрыт",
                   (listing(ana)["can"]["clear"], ana.post_json("/api/gcal/clear", {}).status),

@@ -104,7 +104,8 @@ REACT_SCREENS = frozenset({"recall", "settings_clinic", "doctors_list", "doctor_
                            "chair",
                            # «Registre» (10.11, san-registers): санитарные регистры
                            # 257/e, 502/e, 501/e и каталог оборудования
-                           "registre", "settings_registre"})
+                           "registre", "settings_registre",
+                           "gcal"})
 
 
 # Метка узла React в готовой странице (её печатает `react_shell`).
