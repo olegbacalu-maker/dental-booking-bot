@@ -1,5 +1,5 @@
 import { createRef } from 'react'
-import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DashCanvas } from './DashCanvas'
 import { clinicNow } from './dashFx'
@@ -167,7 +167,7 @@ describe('C26.5.2: канва панели — колонки, часы и ге�
     show()
     const cells = Array.from(cols()[0]!.querySelectorAll('.gcell'))
     fireEvent.click(cells[1] as HTMLElement)
-    expect(onSlot).toHaveBeenCalledWith('d2', 'Dr. Ion', '10:00')
+    expect(onSlot).toHaveBeenCalledWith('d2', 'Dr. Ion', '10:00', 0)
   })
 
   it('⛔ C26.5.3-c: закрытая ячейка молчит — признак ОДИН на вид и на нажатие', () => {
@@ -180,7 +180,7 @@ describe('C26.5.2: канва панели — колонки, часы и ге�
     expect(onSlot).not.toHaveBeenCalled()
   })
 
-  it('«+ Programare» — только на свободной половине часа; час без старта выключен (17.10)', () => {
+  it('«+ Programare» — только на свободном отрезке часа; час без старта выключен', () => {
     /* Колонка d2: 09:00 на час + 09:30 (кластер) — старта нет; 10 — пуст;
        11:00 на час — нет; 12 — заметка стойки, тоже нет. Подсказку рисует
        CSS по `data-free`, здесь проверяется признак и что выключенная ячейка
@@ -188,14 +188,14 @@ describe('C26.5.2: канва панели — колонки, часы и ге�
     show()
     const cells = Array.from(cols()[0]!.querySelectorAll('.gcell'))
     expect(cells.map((c) => c.getAttribute('data-free')))
-      .toEqual(['none', 'both', null, 'none'])
+      .toEqual(['none', 'all', null, 'none'])
     expect(cells.map((c) => c.hasAttribute('disabled')))
       .toEqual([true, false, false, true])
     fireEvent.click(cells[0] as HTMLElement)
     expect(onSlot).not.toHaveBeenCalled()
   })
 
-  it('45 минут с :00 — старта нет; получас с :30 — верх; визит с прошлого часа — низ', () => {
+  it('45 минут с :00 — свободен хвост часа; получас с :30 — верх; визит с прошлого часа — низ', () => {
     const m: DashCanvasModel = {
       ...MODEL,
       columns: [column({ blocks: [
@@ -205,9 +205,57 @@ describe('C26.5.2: канва панели — колонки, часы и ге�
       ] })],
     }
     show(m)
-    const cells = Array.from(cols()[0]!.querySelectorAll('.gcell'))
+    const cells = Array.from(cols()[0]!.querySelectorAll<HTMLElement>('.gcell'))
     expect(cells.map((c) => c.getAttribute('data-free')))
-      .toEqual(['none', 'top', null, 'bottom'])
+      .toEqual(['part', 'part', null, 'part'])
+    /* доли ячейки сверху и снизу — по ним CSS ставит рамку подсказки */
+    expect(cells.map((c) => [c.style.getPropertyValue('--ft'), c.style.getPropertyValue('--fb')]))
+      .toEqual([['0.75', '0'], ['0', '0.5'], ['', ''], ['0.5', '0']])
+  })
+
+  it('обе половины часа задеты, а дыра есть — ячейка открывает окно с минутой дыры', () => {
+    /* 09:00 на 10 минут и 09:20 на 5: свободно 09:10–09:20 и с 09:25.
+       Короткий одиночный блок нарисован до 09:35 (пол высоты) — подсказка
+       меряет по нарисованному, а «занят ли час» — по настоящим минутам. */
+    const m: DashCanvasModel = {
+      ...MODEL,
+      columns: [column({ blocks: [
+        appt({ id: 1, time: '09:00', min: 540, dur: 10, height: 0.167 }),
+        appt({ id: 2, time: '09:20', min: 560, dur: 5, top: 0.333, height: 0.25 }),
+      ] })],
+    }
+    stubRects()
+    show(m)
+    const cell = cols()[0]!.querySelector<HTMLElement>('.gcell')!
+    expect([cell.getAttribute('data-free'), cell.hasAttribute('disabled')]).toEqual(['part', false])
+    /* с клавиатуры — первый свободный старт */
+    fireEvent.click(cell)
+    expect(onSlot).toHaveBeenLastCalledWith('d2', 'Dr. Ion', '09:00', 10)
+    /* мышью в 09:12 (ряд 100–140, 108px): деление 09:00 занято — начало дыры */
+    fireEvent.click(cell, { detail: 1, clientY: 108 })
+    expect(onSlot).toHaveBeenLastCalledWith('d2', 'Dr. Ion', '09:00', 10)
+    /* мышью в 09:50 — деление 09:45 */
+    fireEvent.click(cell, { detail: 1, clientY: 133.4 })
+    expect(onSlot).toHaveBeenLastCalledWith('d2', 'Dr. Ion', '09:00', 45)
+  })
+
+  it('короткий блок: узкий зазор, хвост ниже настоящей длины бледнее, время — для мелкой строки', () => {
+    const m: DashCanvasModel = {
+      ...MODEL,
+      columns: [column({ blocks: [
+        appt({ id: 1, time: '09:00', min: 540, dur: 5, height: 0.25 }),
+        appt({ id: 2, time: '09:30', min: 570, dur: 30, top: 0.5, height: 0.5 }),
+      ] })],
+    }
+    show(m)
+    const one = document.querySelector<HTMLElement>('[data-appt="1"]')!
+    const two = document.querySelector<HTMLElement>('[data-appt="2"]')!
+    expect(one.style.height).toContain('2px')
+    expect(two.style.height).toContain('6px')
+    /* 5 минут из нарисованных 15 — треть высоты настоящая */
+    expect(one.querySelector<HTMLElement>('.gtail')?.style.top).toBe('33%')
+    expect(two.querySelector('.gtail')).toBeNull()
+    expect(one.querySelector('b')?.getAttribute('data-t')).toBe('09:00')
   })
 
   it('геометрия блока — множители модели, а пиксель часа остаётся за CSS', () => {
@@ -560,8 +608,8 @@ describe('C26.5.3-f: перенос', () => {
     stubRects()
     show(MODEL, DRAG)
     const col = cols()[0]!
-    dragTo(col, 'drop', 165)
-    /* 165 — низ ряда 10:00 (140–180), значит 10:30 */
+    dragTo(col, 'drop', 163)
+    /* 163 — ряд 10:00 (140–180), 34 минуты: ближайшее деление обычного шага — 10:30 */
     expect(onDrop).toHaveBeenCalledWith({ dk: 'd2', min: 10 * 60 + 30 })
   })
 
@@ -570,7 +618,7 @@ describe('C26.5.3-f: перенос', () => {
     show(MODEL, DRAG)
     const col = cols()[0]!
     dragTo(col, 'dragover', 145)
-    expect(onHover).toHaveBeenCalledWith('d2|10')
+    expect(onHover).toHaveBeenCalledWith('d2|615')
     /* 11:00 у этой колонки закрыт — ячейки с `data-h` нет, и мишени тоже */
     onHover.mockClear()
     dragTo(col, 'dragover', 185)
@@ -585,11 +633,83 @@ describe('C26.5.3-f: перенос', () => {
     expect(onDrop).not.toHaveBeenCalled()
   })
 
-  it('подсвечена ровно та ячейка, которую назвал экран', () => {
-    show(MODEL, DRAG, 'd2|10')
-    const cells = Array.from(cols()[0]!.querySelectorAll('.gcell'))
-    expect(cells.map((c) => c.className))
-      .toEqual(['gcell', 'gcell dropzone', 'gcell off', 'gcell'])
+  it('указатель места стоит в названной колонке, на названной минуте, длиной в визит', () => {
+    show(MODEL, DRAG, 'd2|615')
+    const mark = document.querySelectorAll<HTMLElement>('.gdrop')
+    expect(mark.length).toBe(1)
+    expect(mark[0]!.parentElement).toBe(cols()[0])
+    expect(mark[0]!.getAttribute('data-at')).toBe('10:15')
+    /* 10:15 при начале сетки в 09:00 — 1.25 часа сверху; визит на час */
+    expect([mark[0]!.style.top, mark[0]!.style.height])
+      .toEqual(['calc(1.25*var(--cell))', 'calc(1*var(--cell))'])
+    cleanup()
+    /* не тащат — указателя нет, что бы ни говорил `hover` */
+    show(MODEL, null, 'd2|615')
+    expect(document.querySelector('.gdrop')).toBeNull()
+  })
+
+  it('блок взят не за верх: время броска считается по ВЕРХУ блока', () => {
+    stubRects()
+    show(MODEL, { ...DRAG, grab: 20 })
+    /* курсор 165, верх блока 145 — ряд 10:00, 7.5 минуты: на обычном шаге 10:15 */
+    dragTo(cols()[0]!, 'drop', 165)
+    expect(onDrop).toHaveBeenCalledWith({ dk: 'd2', min: 615 })
+  })
+})
+
+describe('масштаб сетки', () => {
+  const zoomIn = () => screen.getByRole('button', { name: 'Mărește grila' })
+  const zoomOut = () => screen.getByRole('button', { name: 'Micșorează grila' })
+  const body = () => document.querySelector<HTMLElement>('.gridbody')!
+  afterEach(() => localStorage.clear())
+
+  it('три шага: обычный подгоняется под окно, крупные — с подписями минут и своим часом', () => {
+    show()
+    expect(body().getAttribute('data-zoom')).toBe('0')
+    expect(document.querySelectorAll('.gcol-time i').length).toBe(0)
+    expect((zoomOut() as HTMLButtonElement).disabled).toBe(true)
+
+    fireEvent.click(zoomIn())
+    expect(body().getAttribute('data-zoom')).toBe('1')
+    expect(body().style.getPropertyValue('--cell')).toBe('132px')
+    expect(Array.from(document.querySelectorAll('.gcol-time div:first-child i'))
+      .map((i) => i.textContent)).toEqual([':15', ':30', ':45'])
+
+    fireEvent.click(zoomIn())
+    expect(body().getAttribute('data-zoom')).toBe('2')
+    expect(body().style.getPropertyValue('--cell')).toBe('204px')
+    expect(document.querySelectorAll('.gcol-time div:first-child i').length).toBe(10)
+    expect((zoomIn() as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('выбор помнит компьютер: новая канва открывается на том же шаге, обычный — без записи', () => {
+    show()
+    fireEvent.click(zoomIn())
+    expect(localStorage.getItem('dp_grid_zoom')).toBe('1')
+    cleanup()
+    show()
+    expect(body().getAttribute('data-zoom')).toBe('1')
+    fireEvent.click(zoomOut())
+    expect(localStorage.getItem('dp_grid_zoom')).toBeNull()
+  })
+
+  it('мусор в памяти — обычный шаг', () => {
+    localStorage.setItem('dp_grid_zoom', '7')
+    show()
+    expect(body().getAttribute('data-zoom')).toBe('0')
+  })
+
+  it('на крупном шаге щелчок и бросок липнут к 5 минутам', () => {
+    localStorage.setItem('dp_grid_zoom', '1')
+    stubRects()
+    show(MODEL, { ...DRAG, grab: 20 })
+    /* блок 10:00 взят за 20px и сдвинут на 3px: 10:05 */
+    dragTo(cols()[0]!, 'drop', 163)
+    expect(onDrop).toHaveBeenCalledWith({ dk: 'd2', min: 605 })
+    /* щелчок в 10:37 (ряд 140–180) — 10:35 */
+    const cell = cols()[0]!.querySelector<HTMLElement>('.gcell[data-h="10"]')!
+    fireEvent.click(cell, { detail: 1, clientY: 165 })
+    expect(onSlot).toHaveBeenLastCalledWith('d2', 'Dr. Ion', '10:00', 35)
   })
 })
 

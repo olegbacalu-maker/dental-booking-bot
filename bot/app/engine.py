@@ -9,6 +9,8 @@ import os
 import pathlib
 import re
 import shutil
+import unicodedata
+import zlib
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -106,6 +108,12 @@ DOCTOR_META: dict[str, dict] = {}   # color / phone / room / email / photo / sta
 # держится в сетке того дня, где у него есть приёмы (урок v1.8.2 — данные
 # не должны исчезать молча).
 DOCTOR_STATES = ("activ", "concediu", "arhivat")
+# Кабинеты клиники: id → имя. Справочник `rooms` профиля плюс строка `room`
+# врача без списка — она читается на лету как его единственный кабинет.
+ROOMS: dict[str, str] = {}
+# Кабинеты врача по порядку; первый — по умолчанию.
+DOCTOR_ROOMS: dict[str, tuple[str, ...]] = {}
+ROOMS_MAX = 3
 # docs = кто выполняет услугу (нет ключа = все); один врач → бот не спрашивает
 SERVICES: dict[str, dict] = {}
 SERVICE_PRICE: dict[str, int] = {}          # подпись (ro/ru) → средняя цена
@@ -140,6 +148,66 @@ def _price_avg(price) -> int:
 RO_DOW = ["Lu", "Ma", "Mi", "Jo", "Vi", "Sâ", "Du"]
 
 
+def room_key(name: str) -> str:
+    """Ключ кабинета из его имени: кабинет, прочитанный на лету из строки
+    `room`, после сохранения врача получает тот же ключ, и записи остаются в
+    нём. Регистр, диакритика и знаки имён не различаются."""
+    flat = unicodedata.normalize("NFKD", str(name or "")).casefold()
+    slug = re.sub(r"[^a-z0-9]+", "-", flat).strip("-")
+    if not slug:
+        text = str(name or "").strip()
+        slug = f"x{zlib.crc32(text.encode('utf-8')):08x}" if text else ""
+    return f"r-{slug}" if slug else ""
+
+
+def _read_rooms(cfg: dict) -> None:
+    ROOMS.clear()
+    DOCTOR_ROOMS.clear()
+    for r in cfg.get("rooms") or []:
+        rid, name = str(r.get("id") or ""), str(r.get("name") or "").strip()
+        if rid and name:
+            ROOMS[rid] = name
+    for d in cfg["doctors"]:
+        if isinstance(d.get("rooms"), list):
+            own = [str(x) for x in d["rooms"] if str(x) in ROOMS]
+        else:
+            name = str(d.get("room") or "").strip()
+            rid = room_key(name)
+            if rid:
+                ROOMS.setdefault(rid, name)
+            own = [rid] if rid else []
+        DOCTOR_ROOMS[d["id"]] = tuple(dict.fromkeys(own))[:ROOMS_MAX]
+
+
+def doctor_rooms(dk: str | None) -> tuple[str, ...]:
+    """Кабинеты врача по порядку, первый — по умолчанию."""
+    return DOCTOR_ROOMS.get(dk or "", ())
+
+
+def room_name(rid: str | None) -> str:
+    return ROOMS.get(rid or "", "")
+
+
+def room_list(dk: str | None) -> list[dict]:
+    """Кабинеты врача для экрана: [{id, name}]."""
+    return [{"id": rid, "name": ROOMS[rid]} for rid in doctor_rooms(dk)]
+
+
+def room_plan(dk: str | None) -> dict:
+    """Кабинеты для проверки занятости (`db` профиля не читает): `own` —
+    этого врача, `names` — имена для снимка, `by_doctor` — всех врачей."""
+    return {"own": doctor_rooms(dk), "names": dict(ROOMS),
+            "by_doctor": dict(DOCTOR_ROOMS)}
+
+
+def appt_room(r) -> str:
+    """Кабинет, который запись занимает сейчас, — то же правило, что
+    `db._lane`: свой, пока числится за врачом, иначе кабинет по умолчанию."""
+    own = doctor_rooms(r.get("doctor_id"))
+    rid = r.get("room_id") or ""
+    return rid if rid in own else (own[0] if own else "")
+
+
 def apply_config(cfg: dict) -> None:
     """Применяет конфиг клиники на лету: справочники и цены."""
     global CONFIG, CLINIC_NAME, CLINIC_PHONE, CLINIC_LEGAL, CLINIC_IDNO
@@ -152,11 +220,14 @@ def apply_config(cfg: dict) -> None:
     ACTIVE_DOCTORS.clear()
     DOCTOR_SPEC.clear()
     DOCTOR_META.clear()
+    _read_rooms(cfg)
     for d in cfg["doctors"]:
         DOCTORS[d["id"]] = d["name"]
         DOCTOR_SPEC[d["id"]] = d.get("spec", "")
+        # `room` — имя кабинета по умолчанию
+        first = doctor_rooms(d["id"])[:1]
         DOCTOR_META[d["id"]] = {"color": d.get("color", ""), "phone": d.get("phone", ""),
-                                "room": d.get("room", ""),
+                                "room": ROOMS[first[0]] if first else "",
                                 "email": d.get("email", ""),
                                 "photo": d.get("photo", ""),
                                 "status": doctor_state(d),
@@ -289,19 +360,37 @@ def day_slots(d: date) -> list[datetime]:
 
 # ---------- длительности и интервалы (v1.8.0) ----------
 
-GRID_STEP = 30  # шаг сетки стартов, минут
+# Свободные часы предлагаются реже шага старта: список с шагом 5 втрое длиннее.
+START_STEP = 5
+OFFER_STEP = 15
 
-# Длительности, которые можно выбрать: у услуги в настройках и у визита руками
-# (окно визита и окно записи, 10.11.2026 — жалоба пилота «Consultație 15′, а
-# нужно 30′»). ⛔ Один список на оба места: разойдутся — услуга встанет на 90,
-# а визит этой услуги в 90 не поставишь (или наоборот).
-DURATIONS = (15, 30, 45, 60, 90, 120)
+# Потолок — окно, в котором `db/slots._conflicts` ищет соседей: визит длиннее
+# окна проверка занятости не увидит.
+DUR_STEP = 5
+DUR_MAX = 240
+
+# Быстрые значения выбора; допустимость решает `dur_ok`, а не этот список.
+DURATIONS = (5, 10, 15, 20, 30, 45, 60, 90, 120)
+
+
+def start_ok(dt: datetime) -> bool:
+    return dt.minute % START_STEP == 0 and dt.second == 0
+
+
+def dur_ok(minutes: int) -> bool:
+    """Одно правило длительности на запись, окно визита и настройки услуг."""
+    return DUR_STEP <= minutes <= DUR_MAX and minutes % DUR_STEP == 0
+
+
+def offer_step(duration: int) -> int:
+    """Шаг, которым предлагаются свободные старты услуги этой длительности."""
+    return START_STEP if duration < OFFER_STEP else OFFER_STEP
 
 
 def svc_duration(svc_key: str) -> int:
     """Длительность услуги в минутах (из конфига, дефолт 60)."""
     try:
-        return max(15, min(240, int(SERVICES.get(svc_key, {}).get("duration", 60))))
+        return max(DUR_STEP, min(DUR_MAX, int(SERVICES.get(svc_key, {}).get("duration", 60))))
     except (TypeError, ValueError):
         return 60
 
@@ -438,20 +527,52 @@ def is_past_day(d: date) -> bool:
     return d < datetime.now(TZ).date()
 
 
+# Сколько минут визита обязано лежать в рабочем окне при переносе: клиника
+# принимает и внахлёст с закрытием, такой визит должен остаться переносимым.
+MOVE_FIT = 30
+
+
+def place_refusal(dk: str, start: datetime, minutes: int, *,
+                  moving: bool = False) -> str:
+    """Можно ли поставить визит врачу: код отказа из `MSG_BANNER` или "".
+
+    Врач, сетка стартов и рабочие окна — одно правило на все входы. Занятость
+    проверяет `db` при вставке, длительность снаружи — `dur_ok` у вызывающего.
+    `moving` — визит уже существует: в окне лежат только первые `MOVE_FIT`
+    минут, а график врача проверяется и у прошедшего старта (новую запись
+    задним числом вносят и после того, как график сузили).
+    """
+    if dk not in DOCTORS:
+        return "bad"
+    if not DOCTOR_META.get(dk, {}).get("active", True):
+        return "bad_off"
+    if not start_ok(start):
+        return "bad_time"
+    need = min(minutes, MOVE_FIT) if moving else minutes
+    if not fits_clinic(start, need):
+        return "outside"
+    if (moving or not is_past(start)) and not fits_doctor(dk, start, need):
+        return "outside_doc"
+    return ""
+
+
 async def free_starts(doc_key: str, d: date, duration: int) -> list[datetime]:
-    """Свободные СТАРТЫ для услуги данной длительности: 30-мин сетка внутри
-    рабочих окон врача, интервал влезает в окно и не пересекает занятые."""
+    """Свободные СТАРТЫ для услуги данной длительности: сетка `offer_step`
+    внутри рабочих окон врача, интервал влезает в окно и не пересекает занятые."""
     now = datetime.now(TZ)
     day_start = datetime(d.year, d.month, d.day, 0, 0, tzinfo=TZ)
     day_end = day_start + timedelta(days=1)
     free: set[datetime] = set()
-    busy = await db.booked_intervals(doc_key, DOCTORS.get(doc_key, ""), day_start, day_end)
+    lanes = await db.busy_lanes(doc_key, DOCTORS.get(doc_key, ""), day_start, day_end,
+                                doctor_rooms(doc_key))
+    step = timedelta(minutes=offer_step(duration))
     for w_start, w_end in _windows(doc_key, d):
         t_cur = w_start
         while t_cur + timedelta(minutes=duration) <= w_end:
-            if t_cur > now and not _overlaps(t_cur, duration, busy):
+            if t_cur > now and any(not _overlaps(t_cur, duration, busy)
+                                   for busy in lanes):
                 free.add(t_cur)
-            t_cur += timedelta(minutes=GRID_STEP)
+            t_cur += step
     return sorted(free)
 
 

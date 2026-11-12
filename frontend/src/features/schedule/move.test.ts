@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cellAtY, clashAmong, dragOf, endOf, halfAt, hhmm, sameSlot } from './move'
+import { cellAtY, clashAmong, dragOf, dropMinute, endOf, hhmm, minuteAtY, sameSlot } from './move'
 import { canvasBlocks, canvasColName, type DashCanvasModel } from './dash'
 import type { DayItem } from './day'
 
@@ -19,13 +19,39 @@ describe('C26.5.3-f: ячейка по координате и помеха на
   /* Ряды по 40 пикселей, начиная с 100: 9-й час 100–140, 10-й 140–180. */
   const CELLS = [9, 10, 11].map((h, i) => ({ h, top: 100 + i * 40, height: 40 }))
 
-  it('ячейка ищется ПО КООРДИНАТЕ, а половина — по месту внутри неё', () => {
-    /* ⛔ Не по `e.target`: блоки лежат ПОВЕРХ ячеек и приходятся им соседями,
+  it('ячейка ищется ПО КООРДИНАТЕ, минута — по месту внутри неё', () => {
+    /* Не по `e.target`: блоки лежат ПОВЕРХ ячеек и приходятся им соседями,
        поэтому бросок на соседний визит обязан попадать в ЕГО час. */
-    expect(cellAtY(CELLS, 100)).toEqual({ h: 9, half: 0 })
-    expect(cellAtY(CELLS, 139)).toEqual({ h: 9, half: 30 })
-    expect(cellAtY(CELLS, 140)).toEqual({ h: 10, half: 0 })
-    expect(cellAtY(CELLS, 165)).toEqual({ h: 10, half: 30 })
+    expect(cellAtY(CELLS, 100)).toEqual({ h: 9, at: 0 })
+    expect(cellAtY(CELLS, 130)).toEqual({ h: 9, at: 45 })
+    expect(cellAtY(CELLS, 140)).toEqual({ h: 10, at: 0 })
+  })
+
+  it('щелчок берёт деление, В КОТОРОЕ попал: по 15 на обычном шаге, по 5 на крупном', () => {
+    expect([100, 139, 140, 165].map((y) => minuteAtY(CELLS, y, 15)))
+      .toEqual([540, 585, 600, 630])
+    expect([100, 139, 165].map((y) => minuteAtY(CELLS, y, 5)))
+      .toEqual([540, 595, 635])
+  })
+
+  it('бросок липнет к БЛИЖАЙШЕМУ делению; за концом открытых часов — к последнему', () => {
+    /* 139 — без полутора минут десять: ближайшее деление — начало 10-го часа */
+    expect(minuteAtY(CELLS, 139, 15, true)).toBe(600)
+    /* 219 — конец 11-го, 12-го в списке нет: остаётся 11:45 (11:55 при шаге 5) */
+    expect(minuteAtY(CELLS, 219, 15, true)).toBe(705)
+    expect(minuteAtY(CELLS, 219, 5, true)).toBe(715)
+  })
+
+  it('время броска — по ВЕРХУ блока: взяли за середину, сдвинули на 3px — это 5 минут', () => {
+    /* блок 10:00 (верх 140) взят в 20px от верха; час — 40px, 5 минут — 3.3px */
+    expect(dropMinute(CELLS, 160, 20, 5)).toBe(600)
+    expect(dropMinute(CELLS, 163, 20, 5)).toBe(605)
+    /* на обычном шаге тот же сдвиг остаётся на месте: деление — 15 минут */
+    expect(dropMinute(CELLS, 163, 20, 15)).toBe(600)
+    expect(dropMinute(CELLS, 166, 20, 15)).toBe(615)
+    /* верх блока ушёл выше открытых часов — считаем по курсору */
+    expect(dropMinute(CELLS, 105, 20, 5)).toBe(545)
+    expect(dropMinute(CELLS, 99, 0, 5)).toBeNull()
   })
 
   it('вне приёмных часов мишени НЕТ — ни выше сетки, ни ниже', () => {
@@ -62,13 +88,6 @@ describe('час и получас', () => {
       .toEqual(['10:00', '09:00', '13:00', '00:30'])
   })
 
-  it('верх ячейки — ровный час, низ — половина', () => {
-    const rect = { top: 100, height: 56 }
-    expect(halfAt(100, rect)).toBe(0)
-    expect(halfAt(127, rect)).toBe(0)
-    expect(halfAt(128, rect)).toBe(30)
-    expect(halfAt(155, rect)).toBe(30)
-  })
 })
 
 describe('что можно тащить', () => {

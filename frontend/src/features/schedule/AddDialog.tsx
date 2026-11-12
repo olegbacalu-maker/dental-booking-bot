@@ -3,6 +3,8 @@ import { Icon } from '../../components/Icon'
 import { hideDialog, showDialog } from '../patients/card/dialog'
 import { day, svcLabel, type DayForm, type NewAppt } from './day'
 import { DurSelect, useDurPick } from './DurPick'
+import { HourSelect, MinPick } from './MinPick'
+import { RoomSelect } from './RoomPick'
 import { SmsCheck, useSmsBox } from './SmsBox'
 
 /* «Programare nouă» окном (06.10, Олег: форма внизу страницы — старый облик,
@@ -13,10 +15,10 @@ import { SmsCheck, useSmsBox } from './SmsBox'
    колонка выключенного врача, пока у него есть записи дня, а запись ответит
    ему `bad_off`: возьми список из колонок — регистратура выбрала бы такого
    врача и получила отказ на ровном месте.
-   ⚠️ Смена врача переписывает список часов и СОХРАНЯЕТ выбранный час, если он
-   есть и у нового, — ровно как DOC_TIMES на старой странице.
-   ⚠️ Список часов один на все услуги (сервер считает его на 30 минут): у
-   часовой услуги поздний старт отобьётся кодом `outside` — та же подсказка.
+   Смена врача переписывает список часов и сохраняет выбранный час, если он
+   есть и у нового. Список часов один на все услуги: поздний старт длинной
+   услуги отобьётся кодом `outside`. Занятость минут не подсказывается —
+   канвы даты окна у окна нет.
    ⛔ Окно закрывается ТОЛЬКО на удаче: отказ («interval ocupat») оставляет
    набранное на экране, как у окна свободного часа.
 
@@ -36,7 +38,6 @@ import { SmsCheck, useSmsBox } from './SmsBox'
 const T = {
   title: 'Programare nouă',
   date: 'Data',
-  time: 'Ora',
   doctor: 'Medic',
   service: 'Serviciu',
   noPhone: 'fără telefon',
@@ -51,6 +52,8 @@ const T = {
   pastWarn: 'Data este în trecut.',
   happened: 'Vizita a avut loc — intră direct ca finalizată',
   happenedHint: 'Pentru istoricul de pe hârtie: vizita contează pentru Rechemări de la această dată.',
+  pickDoctor: 'Alegeți medicul…',
+  people: 'Fișă existentă:',
 } as const
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
@@ -70,7 +73,31 @@ interface Props {
   /** `fail` — слово отказа В ОКНО (как у `SlotDialog`): плашка экрана под
    *  открытым `<dialog>` не видна (top layer). Так у обоих хозяев окна — дня
    *  журнала и окна шапки (`NewApptHost`). */
-  onAdd: (body: NewAppt, fail: (text: string) => void) => Promise<boolean>
+  onAdd: (body: NewAppt & { pid?: number }, fail: (text: string) => void) => Promise<boolean>
+  preset?: AddPreset | undefined
+  /** Строка над формой: откуда запись (событие календаря) — только текстом. */
+  note?: string | undefined
+  /** Фиши, похожие на пациента записи: выбранная получает запись по номеру
+   *  фиши, имя и телефон окна тогда не читаются. */
+  people?: AddPerson[] | undefined
+  /** Врача выбирает человек: без `preset.doctor` окно не ставит первого молча. */
+  askDoctor?: boolean | undefined
+}
+
+export interface AddPerson { id: number; name: string; phone: string }
+
+/** Чем окно открывается заполненным. */
+export interface AddPreset {
+  date?: string
+  /** «HH:MM» по сетке стартов. */
+  time?: string
+  duration?: number
+  doctor?: string
+  service?: string
+  name?: string
+  phone?: string
+  room?: string
+  pid?: number
 }
 
 /** Форма записи на дату окна; `form: null` — не пришла. */
@@ -79,21 +106,29 @@ interface Got {
   form: DayForm | null
 }
 
-export function AddDialog({ open, form, date, of, busy, onClose, onAdd }: Props) {
+export function AddDialog({
+  open, form, date, of, busy, onClose, onAdd, preset, note, people, askDoctor,
+}: Props) {
   const ref = useRef<HTMLDialogElement>(null)
-  const [at, setAt] = useState(date)
+  const [at, setAt] = useState(preset?.date ?? date)
+  const seedTime = preset?.time ?? form.time
   const [got, setGot] = useState<Got | null>(null)
-  const [doctorPick, setDoctorPick] = useState('')
-  const [timePick, setTimePick] = useState(form.time)
-  const [service, setService] = useState(form.services[0]?.id ?? '')
-  const [name, setName] = useState('')
-  const [phone, setPhone] = useState('')
+  const [doctorPick, setDoctorPick] = useState(preset?.doctor ?? '')
+  const [timePick, setTimePick] = useState(seedTime ? `${seedTime.split(':')[0]}:00` : '')
+  const [minute, setMinute] = useState(Number(seedTime.split(':')[1] ?? 0) || 0)
+  const [roomPick, setRoomPick] = useState(preset?.room ?? '')
+  const [service, setService] = useState(
+    form.services.find((x) => x.id === preset?.service)?.id ?? form.services[0]?.id ?? '')
+  const [name, setName] = useState(preset?.name ?? '')
+  const [phone, setPhone] = useState(preset?.phone ?? '')
   const [noPhone, setNoPhone] = useState(false)
   const [birth, setBirth] = useState('')
   const [fail, setFail] = useState('')
-  const sms = useSmsBox(form.sms, phone, noPhone)
-  /* «Durată» (10.11): длительность услуги, пока не тронули (`DurPick`) */
-  const dur = useDurPick(form.services, service, form.durations)
+  const [pid, setPid] = useState<number | null>(preset?.pid ?? null)
+  const person = people?.find((x) => x.id === pid) ?? null
+  const sms = useSmsBox(form.sms, person ? person.phone : phone, person ? !person.phone : noPhone)
+  /* «Durată»: длительность услуги, пока не тронули (`DurPick`) */
+  const dur = useDurPick(form.services, service, form, preset?.duration)
   /* «Сегодня» — `birth_max` формы (день клиники, его дал сервер), не часы
      браузера. Галочка включена сразу (решение Олега 29.10): визит задним
      числом заводят ради бумажной истории, а забытая галочка оставила бы его
@@ -110,8 +145,14 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd }: Props)
      вправе сказать «клиника закрыта» */
   const sure = !other || (got?.at === at && got.form !== null)
   const doctor = f.times[doctorPick] ? doctorPick : f.doctor
+  const noDoctor = !!askDoctor && f.doctors.length > 1 && !f.times[doctorPick]
   const times = f.times[doctor] ?? f.hours
-  const time = times.includes(timePick) ? timePick : (times[0] ?? '')
+  const hour = times.includes(timePick) ? timePick : (times[0] ?? '')
+  const hh = hour.split(':')[0] ?? ''
+  const time = hour ? `${hh}:${String(minute).padStart(2, '0')}` : ''
+  const rooms = f.doctors.find((x) => x.id === doctor)?.rooms ?? []
+  /* выбор держится, пока он есть у врача: другой врач — снова «первый свободный» */
+  const room = rooms.length > 1 && rooms.some((r) => r.id === roomPick) ? roomPick : ''
 
   useEffect(() => {
     if (open) showDialog(ref.current)
@@ -135,9 +176,11 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd }: Props)
   async function submit(e: FormEvent) {
     e.preventDefault()
     setFail('')
-    const ok = await onAdd({ date: at, time, doctor, service, name,
-      phone: noPhone ? '' : phone, nophone: noPhone, birth, ...sms.field,
-      ...dur.field, ...(past ? { done: happened } : {}) }, setFail)
+    const who = person
+      ? { name: person.name, phone: person.phone, nophone: !person.phone, pid: person.id }
+      : { name, phone: noPhone ? '' : phone, nophone: noPhone }
+    const ok = await onAdd({ date: at, time, doctor, service, ...who, birth, ...sms.field,
+      ...dur.field, ...(room ? { room } : {}), ...(past ? { done: happened } : {}) }, setFail)
     if (ok) onClose()
   }
 
@@ -148,24 +191,25 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd }: Props)
         <button type="button" onClick={onClose} aria-label={T.close}><Icon name="close" /></button>
       </div>
       <form className="dlg-form dp-addform" onSubmit={submit}>
+        {note ? <p className="hint dp-m0 dp-addnote">{note}</p> : null}
         <div className="dp-addrow">
           <label className="dlab">{T.date}
             <input type="date" value={at} onChange={(e) => setAt(e.target.value)} required />
           </label>
-          <label className="dlab">{T.time}
-            <select value={time} onChange={(e) => setTimePick(e.target.value)}>
-              {times.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </label>
+          <HourSelect hours={times} value={hour} onPick={setTimePick} />
         </div>
+        {times.length
+          ? <MinPick hh={hh} value={minute} step={f.step ?? 5} onPick={setMinute} />
+          : null}
         {/* пустой список значит одно: у клиники в этот день нет часов
             (`form_spec` подменяет пустое окно врача часами клиники) */}
         {sure && !times.length ? <p className="hint dp-m0">{T.closed}</p> : null}
         {f.doctors.length === 1
           ? <b className="dp-adddoc">{f.doctors[0]?.name}</b>
           : (
-            <select value={doctor} onChange={(e) => setDoctorPick(e.target.value)}
-                    aria-label={T.doctor}>
+            <select value={noDoctor ? '' : doctor} onChange={(e) => setDoctorPick(e.target.value)}
+                    aria-label={T.doctor} required={noDoctor}>
+              {noDoctor ? <option value="">{T.pickDoctor}</option> : null}
               {f.doctors.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
             </select>
           )}
@@ -176,13 +220,27 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd }: Props)
           </select>
           <DurSelect box={dur} />
         </div>
-        <input value={name} onChange={(e) => setName(e.target.value)}
-               placeholder={T.name} required />
-        <input value={noPhone ? '' : phone} onChange={(e) => setPhone(e.target.value)}
-               placeholder={T.phone} required={!noPhone} disabled={noPhone} />
+        {rooms.length > 1
+          ? <RoomSelect rooms={rooms} value={room} onPick={setRoomPick} auto /> : null}
+        {people?.length ? (
+          <div className="dp-addpeople">
+            <span className="hint">{T.people}</span>
+            {people.map((x) => (
+              <button key={x.id} type="button" className={`dp-addperson${pid === x.id ? ' on' : ''}`}
+                      aria-pressed={pid === x.id} onClick={() => setPid(pid === x.id ? null : x.id)}>
+                {x.name}{x.phone ? ` · ${x.phone}` : ''}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        <input value={person ? person.name : name} onChange={(e) => setName(e.target.value)}
+               placeholder={T.name} required disabled={!!person} />
+        <input value={person ? person.phone : noPhone ? '' : phone}
+               onChange={(e) => setPhone(e.target.value)}
+               placeholder={T.phone} required={!noPhone && !person} disabled={noPhone || !!person} />
         <div className="dp-addrow">
           <label className="nophone">
-            <input type="checkbox" checked={noPhone}
+            <input type="checkbox" checked={noPhone} disabled={!!person}
                    onChange={(e) => setNoPhone(e.target.checked)} /> {T.noPhone}
           </label>
           <SmsCheck box={sms} />
@@ -201,7 +259,7 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd }: Props)
           </div>
         )}
         {fail ? <div className="banner err" role="alert">{fail}</div> : null}
-        <button disabled={busy || pending || !times.length}>{T.go}</button>
+        <button disabled={busy || pending || !times.length || dur.bad || noDoctor}>{T.go}</button>
       </form>
     </dialog>
   )

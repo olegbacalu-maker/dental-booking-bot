@@ -168,11 +168,11 @@ def suite_form_hours(res: Result) -> None:
 
         times = day_model(c, day, "da")["form"]["times"]["da"]
         res.ok("день утреннего врача: только его часы (9-13)",
-               times and times[0] == "09:00" and times[-1] == "12:30",
+               times and times[0] == "09:00" and times[-1] == "12:00",
                f"предложено {times[:4]}…{times[-2:]} при окне 9-13")
         times = day_model(c, day, "db")["form"]["times"]["db"]
         res.ok("день вечернего врача: только его часы (14-18)",
-               times and times[0] == "14:00" and times[-1] == "17:30",
+               times and times[0] == "14:00" and times[-1] == "17:00",
                f"предложено {times[:4]}…{times[-2:]} при окне 14-18")
         allt = day_model(c, day)["form"]["times"]
         res.ok("общий журнал: у каждого врача формы свой список",

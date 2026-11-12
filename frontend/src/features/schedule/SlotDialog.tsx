@@ -3,7 +3,10 @@ import { Icon } from '../../components/Icon'
 import { hideDialog, showDialog } from '../patients/card/dialog'
 import { svcLabel, type NewAppt, type NewNote } from './day'
 import { DurSelect, useDurPick } from './DurPick'
-import { slotTimes, type FreeHalves, type Slot, type SlotFormView } from './slot'
+import { MinPick } from './MinPick'
+import { freeRoom, laneOf, lanesOf, roomShared, type Occupies, type Room } from './move'
+import { RoomSelect, sharedWarn } from './RoomPick'
+import { hourMinutes, slotTimes, takenMinutes, type Slot, type SlotFormView } from './slot'
 import { SmsCheck, useSmsBox } from './SmsBox'
 
 /* Диалог свободной ячейки «+» (C25.5b): записать пациента ИЛИ заблокировать
@@ -18,9 +21,8 @@ import { SmsCheck, useSmsBox } from './SmsBox'
    их некому и незачем. Диалог визита добивается того же черновиком, потому что
    у него есть серверное значение, которое он показывает; здесь его нет.
 
-   ⚠️ Оба времени считает `slotTimes`, а не два обработчика по месту: получас
-   двигает время ЗАПИСИ и заголовок, начало заметки остаётся часовым, и теперь
-   это правило с проверкой, а не намерение.
+   Минута двигает время ЗАПИСИ и заголовок, начало заметки остаётся часовым
+   (`slotTimes`).
    ⚠️ Конец блокировки — голый час из `note_ends`, и только больше начала.
    Обеденный час оттуда выпал, поэтому закончить в 14:00 при обеде 13–14
    нельзя — это правило сервера, а не недосмотр списка.
@@ -34,10 +36,8 @@ import { SmsCheck, useSmsBox } from './SmsBox'
    ⛔ И отказ печатается ВНУТРИ окна (17.10): плашка экрана живёт на z-index
    80, а `<dialog>` — в top layer, и под открытым окном её не видно вовсе.
    Экран отдаёт слово отказа колбэком `fail`, а не плашкой.
-   ⭐ Занятость стартов — подсказка по канве (`free`, как `busyAt` у переноса):
-   занятый получас не нажать, оба заняты — кнопка выключена и сказано почему.
-   Правду по-прежнему говорит сервер под своим замком: пока окно открыто, час
-   мог занять второй администратор, и его отказ придёт тем же `fail`.
+   Занятость стартов — подсказка по канве с ВЫБРАННОЙ длительностью; занят
+   весь час — кнопка выключена и сказано почему. Отказ сервера придёт `fail`.
    ⭐ «SMS reminder» рядом с «fără telefon» (Олег 19.10) — `SmsBox`, та же,
    что у `AddDialog`; видна по `form.sms`. */
 const T = {
@@ -53,9 +53,12 @@ const T = {
   until: 'până la ora',
   goNote: 'Salvează notița (blochează orele)',
   close: 'Închide',
-  taken: 'ocupat',
-  bothTaken: 'Medicul are deja programări la',
-  and: 'și',
+  noStart: (hh: string, dur: number) =>
+    `Medicul nu are niciun început liber în ora ${hh}:00 pentru ${dur} min.`,
+  noStartRoom: (hh: string, dur: number) =>
+    `Cabinetul ales nu are niciun început liber în ora ${hh}:00 pentru ${dur} min.`,
+  noFit: (at: string, dur: number) =>
+    `De la ${at} nu încap ${dur} min până la următoarea programare — alegeți o durată mai scurtă sau alt început.`,
 } as const
 
 /** Слово отказа — колбэком в окно, не плашкой экрана. */
@@ -67,28 +70,49 @@ interface Props {
   date: string
   form: SlotFormView
   noteEnds: number[]
-  /** Какие старты часа свободны по канве — считает экран. */
-  free: FreeHalves
+  /** Занятые блоки колонки врача по канве — по ним окно гасит старты. */
+  taken: Occupies[]
+  /** Кабинеты врача по порядку; меньше двух — выбора в окне нет. */
+  rooms?: readonly Room[]
+  /** Блоки чужих колонок: по ним окно предупреждает о занятом кабинете. */
+  others?: Occupies[]
   busy: boolean
   onClose: () => void
   onAdd: (body: NewAppt, fail: Fail) => Promise<boolean>
   onNote: (body: NewNote, fail: Fail) => Promise<boolean>
 }
 
-export function SlotDialog({ open, slot, date, form, noteEnds, free, busy,
-  onClose, onAdd, onNote }: Props) {
+const NO_ROOMS: readonly Room[] = []
+const NO_BLOCKS: Occupies[] = []
+
+export function SlotDialog({ open, slot, date, form, noteEnds, taken, rooms = NO_ROOMS,
+  others = NO_BLOCKS, busy, onClose, onAdd, onNote }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
   const [tab, setTab] = useState<'a' | 'n'>('a')
-  const [half, setHalf] = useState<0 | 30>(free.h0 ? 0 : 30)
   const [fail, setFail] = useState('')
-  /* Канва приехала новой (после отказа экран перечитывает канал), и выбранный
-     старт стал занят: переставить на свободный ещё при отрисовке — тот же
-     приём, что у смены дня в DashScreen. Оба заняты — выбор не трогаем. */
-  const none = !free.h0 && !free.h30
-  if (!none && (half === 0 ? !free.h0 : !free.h30)) setHalf(free.h0 ? 0 : 30)
   const [service, setService] = useState(form.services[0]?.id ?? '')
-  /* «Durată» (10.11): длительность услуги, пока не тронули (`DurPick`) */
-  const dur = useDurPick(form.services, service, form.durations)
+  /* «Durată»: длительность услуги, пока не тронули (`DurPick`) */
+  const dur = useDurPick(form.services, service, form)
+  const hh = slot.hour.split(':')[0] ?? ''
+  const step = form.step ?? 5
+  /* с длиной не по правилу считать нечего — меряем кратчайшим визитом */
+  const span = dur.bad || !dur.value ? step : dur.value
+  const many = rooms.length > 1
+  /* кабинет выбран руками — занятость считается только по нему */
+  const [roomPick, setRoomPick] = useState(many ? slot.room ?? '' : '')
+  const scope = roomPick ? [laneOf(taken, roomPick)] : lanesOf(taken, rooms)
+  const off = takenMinutes(scope, Number(hh), span, step)
+  const firstFree = hourMinutes(step).find((m) => !off.has(m))
+  const none = firstFree === undefined
+  /* Минута щелчка по сетке держится, даже когда услуга по умолчанию в неё не
+     влезает: щёлкнули в дыру на 10 минут — окно говорит, что не влезло, и ждёт
+     длительности короче, а не уводит запись на другой конец часа. */
+  const [aimed, setAimed] = useState(slot.minute !== undefined)
+  const [minute, setMinute] = useState(slot.minute ?? firstFree ?? 0)
+  const tight = aimed && off.has(minute)
+  /* выбранный старт стал занят (новая канва, другая длительность) —
+     переставить на первый свободный при отрисовке */
+  if (!aimed && !none && off.has(minute)) setMinute(firstFree)
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [noPhone, setNoPhone] = useState(false)
@@ -97,8 +121,10 @@ export function SlotDialog({ open, slot, date, form, noteEnds, free, busy,
   const [text, setText] = useState('')
   const [until, setUntil] = useState(0)
 
-  const hh = slot.hour.split(':')[0] ?? ''
-  const { atime, ntime, ends } = slotTimes(slot.hour, half, noteEnds)
+  const { atime, ntime, ends } = slotTimes(slot.hour, minute, noteEnds)
+  const start = Number(hh) * 60 + minute
+  const room = roomPick || freeRoom(taken, rooms, start, span, -1) || rooms[0]?.id || ''
+  const shared = !none && !tight && roomShared(others, room, start, span)
 
   useEffect(() => {
     if (open) showDialog(ref.current)
@@ -109,7 +135,8 @@ export function SlotDialog({ open, slot, date, form, noteEnds, free, busy,
     e.preventDefault()
     setFail('')
     const ok = await onAdd({ date, time: atime, doctor: slot.dk, service, name,
-      phone: noPhone ? '' : phone, nophone: noPhone, birth, ...sms.field, ...dur.field }, setFail)
+      phone: noPhone ? '' : phone, nophone: noPhone, birth, ...sms.field, ...dur.field,
+      ...(roomPick ? { room: roomPick } : {}) }, setFail)
     if (ok) onClose()
   }
 
@@ -121,10 +148,9 @@ export function SlotDialog({ open, slot, date, form, noteEnds, free, busy,
     if (ok) onClose()
   }
 
-  const pick = (h: 0 | 30) => { setHalf(h); setFail('') }
-  const hp = (h: 0 | 30, ok: boolean) =>
-    `hp${half === h ? ' on' : ''}${ok ? '' : ' taken'}`
-  const warn = fail || (none ? `${T.bothTaken} ${hh}:00 ${T.and} ${hh}:30.` : '')
+  const pick = (m: number) => { setMinute(m); setAimed(false); setFail('') }
+  const warn = fail || (tight ? T.noFit(atime, span)
+    : none ? (roomPick ? T.noStartRoom : T.noStart)(hh, span) : '')
   const warnNode = warn ? <div className="banner err" role="alert">{warn}</div> : null
 
   return (
@@ -141,16 +167,7 @@ export function SlotDialog({ open, slot, date, form, noteEnds, free, busy,
       </div>
       {tab === 'a' ? (
         <form className="dlg-form" onSubmit={submitAppt}>
-          <div className="halfpick" role="group" aria-label="Ora">
-            <button type="button" className={hp(0, free.h0)} disabled={!free.h0}
-                    onClick={() => pick(0)}>
-              {hh}:00{!free.h0 && <small> · {T.taken}</small>}
-            </button>
-            <button type="button" className={hp(30, free.h30)} disabled={!free.h30}
-                    onClick={() => pick(30)}>
-              {hh}:30{!free.h30 && <small> · {T.taken}</small>}
-            </button>
-          </div>
+          <MinPick hh={hh} value={minute} step={step} taken={off} onPick={pick} />
           <div className="dp-addrow dp-svcrow">
             <select value={service} onChange={(e) => setService(e.target.value)}
                     aria-label={T.service}>
@@ -158,6 +175,8 @@ export function SlotDialog({ open, slot, date, form, noteEnds, free, busy,
             </select>
             <DurSelect box={dur} />
           </div>
+          {many ? <RoomSelect rooms={rooms} value={room}
+                              onPick={(id) => { setRoomPick(id); setFail('') }} /> : null}
           <input value={name} onChange={(e) => setName(e.target.value)}
                  placeholder={T.name} required />
           <input value={noPhone ? '' : phone} onChange={(e) => setPhone(e.target.value)}
@@ -174,7 +193,8 @@ export function SlotDialog({ open, slot, date, form, noteEnds, free, busy,
                    onChange={(e) => setBirth(e.target.value)} />
           </label>
           {warnNode}
-          <button disabled={busy || none}>{T.go}</button>
+          {shared && !warn ? <div className="banner warn" role="status">{sharedWarn(rooms, room)}</div> : null}
+          <button disabled={busy || none || tight || dur.bad}>{T.go}</button>
         </form>
       ) : (
         <form className="dlg-form" onSubmit={submitNote}>

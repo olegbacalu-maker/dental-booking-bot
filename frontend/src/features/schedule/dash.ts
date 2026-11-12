@@ -17,6 +17,7 @@ import type { ServerNotice } from '../../components/Notice'
 import { api } from '../../services/api'
 import type { FormService, NewAppt, NewNote, NoteView, VisitCardView } from './day'
 import type { CallResult, Desk } from './desk'
+import type { Occupies, Room } from './move'
 import type { SlotFormView } from './slot'
 
 /** Полоска «закрыто» вместо срезанных крайних часов. */
@@ -84,6 +85,9 @@ export interface DashAppt extends BlockBase {
    *  едет в каждом конверте канала, список окно спрашивает само. */
   service_id: string
   service_edit: boolean
+  /** Кабинет, который запись занимает сейчас; `''` у врача без кабинетов. */
+  room_id?: string
+  room?: string
   clickable: boolean
   bg: string
   bar: string
@@ -105,6 +109,9 @@ export interface DashColumn {
   hue: string
   photo: string
   initials: string
+  /** Кабинеты врача по порядку, первый — основной; у сироты пусто. С двумя и
+   *  больше колонка делится на дорожки кабинетов. */
+  rooms?: Room[]
   room?: string
   phone?: string
   /** Пациенты. ⛔ Заметку стойки не считает. */
@@ -156,6 +163,8 @@ export interface DashAgendaItem {
      считает браузер по тику (flow.ts) */
   doctor: string
   doctor_id: string
+  /** Кабинет записи: «свободен ли врач» и «кого задержит» считаются внутри него. */
+  room_id?: string
   phone: string
   start_ms: number
   end_ms: number
@@ -215,6 +224,11 @@ export interface DashSlotForm {
   services: FormService[]
   /** Длительности на выбор в «Durată» (10.11); нет поля — выбора нет. */
   durations?: number[]
+  /** Правило «другой» длительности: шаг и потолок, минут. */
+  dur_step?: number
+  dur_max?: number
+  /** Шаг сетки стартов, минут. */
+  step?: number
   /** Потолок поля «дата рождения» — сегодня В ЧАСАХ КЛИНИКИ. */
   birth_max: string
   /** Галочка «SMS reminder»: пакет работает и у вошедшего право SMS. */
@@ -289,6 +303,30 @@ export function canvasBlocks(c: DashCanvasModel | null | undefined, dk: string):
   return c?.columns.find((col) => col.id === dk)?.blocks ?? []
 }
 
+/** Кабинеты врача колонки по порядку. */
+export function canvasRooms(c: DashCanvasModel | null | undefined, dk: string): Room[] {
+  return c?.columns.find((col) => col.id === dk)?.rooms ?? []
+}
+
+/** Кабинеты врача, в чьей колонке стоит блок с этим номером. */
+export function canvasRoomsOf(c: DashCanvasModel | null | undefined, id: number): Room[] {
+  return c?.columns.find((col) => col.blocks.some((b) => b.id === id))?.rooms ?? []
+}
+
+/** Блоки ОСТАЛЬНЫХ колонок — по ним окно предупреждает, что кабинет в это
+ *  время занят другим врачом. */
+export function canvasOthers(c: DashCanvasModel | null | undefined, dk: string): Occupies[] {
+  return (c?.columns ?? []).filter((col) => col.id !== dk).flatMap((col) => col.blocks)
+}
+
+/** Часы «HH:00», открытые у ЭТОЙ колонки, — из них окно переноса даёт выбрать час. */
+export function canvasOpenHours(c: DashCanvasModel | null | undefined, dk: string): string[] {
+  const col = c?.columns.find((x) => x.id === dk)
+  if (!c || !col) return []
+  return c.hours.filter((_, i) => col.cells[i] === true)
+    .map((x) => `${String(x.h).padStart(2, '0')}:00`)
+}
+
 /** Блок по номеру. ⚠️ Номер один на визиты и заметки (заметка — строка
  *  `appointments` с `source='note'`), поэтому ищется блок, а вид — после. */
 export function canvasBlock(c: DashCanvasModel | null | undefined, id: number): DashBlock | null {
@@ -344,8 +382,11 @@ export const dash = {
      ЕСТЬ и он не лишний: перенос бывает и на другой день (с недели), а
      маршрут один. */
   move: (date: string, id: number,
-    body: { date: string; time: string; doctor: string }) =>
+    body: { date: string; time: string; doctor: string; room?: string }) =>
     api.post<void>(`/schedule/appointments/${id}/move${cmdQuery(date)}`, body),
+  /* кабинет записи: команда без состояния, как длительность */
+  room: (date: string, id: number, room: string) =>
+    api.post<void>(`/schedule/appointments/${id}/room${cmdQuery(date)}`, { room }),
   comment: (date: string, id: number, text: string) =>
     api.post<void>(`/schedule/appointments/${id}/comment${cmdQuery(date)}`,
       { comment: text }),

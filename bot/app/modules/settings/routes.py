@@ -93,6 +93,7 @@ HUB_GROUP_OF = {"/admin/settings/system": "general", "/admin/license": "general"
                 "/admin/settings/theme": "general", "/admin/settings/hours": "programari",
                 "/admin/settings/services": "programari",
                 "/admin/settings/sms": "programari",
+                "/admin/google": "programari",
                 # «Registre» (10.11): каталог санитарных регистров 257/e, 502/e, 501/e
                 "/admin/settings/registre": "general",
                 "/admin/medici": "medici", "/admin/settings/templates": "medici",
@@ -213,6 +214,11 @@ def _hub_tiles() -> list[dict]:
         tiles.append(tile("/admin/settings/sms", "chat", "v", "SMS pentru pacienți",
                           [{"icon": "check", "t": f"{int(acc.get('balance') or 0)} SMS rămase"}]
                           if sms_loop.active() else [{"icon": "ban", "t": "oprit", "tone": "amber"}]))
+    # Пункт меню появляется только после загрузки календаря; плитка — вход до неё.
+    gc = db.gcal_menu()
+    tiles.append(tile("/admin/google", "cal", "b", "Google Calendar",
+                      [{"t": f"{gc['todo']} de mutat în jurnal"}] if gc["on"]
+                      else [{"t": "mutați programările din calendarul Google"}]))
     _cs = dbkey.state()
     tiles.append(tile("/admin/settings/crypt", "lock", "g", "Criptarea evidenței",
                       {dbkey.OK: [{"icon": "check", "t": "activă"}],
@@ -671,7 +677,9 @@ def _val_services(data: dict) -> tuple[list, dict]:
         if price:
             entry["price"] = price
         dur_raw = str(s.get("duration", "") or "").strip()
-        if dur_raw.isdecimal() and int(dur_raw) in (15, 30, 45, 60, 90, 120):
+        if dur_raw:
+            if not dur_raw.isdecimal() or not eng.dur_ok(int(dur_raw)):
+                raise ValueError("duration")
             if int(dur_raw) != 60:
                 entry["duration"] = int(dur_raw)  # 60 = дефолт, не пишем
         color_s = str(s.get("color", "")).strip()

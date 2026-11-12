@@ -1,5 +1,6 @@
 import type { ServerNotice } from '../../components/Notice'
 import { api } from '../../services/api'
+import type { DashMiniCal } from './dash'
 
 /* Недельный календарь (C24). Формы ответа — bot/app/modules/schedule/api.py
    и week.py: состав колонок, счётчики и цвет чипа считает СЕРВЕР.
@@ -61,6 +62,8 @@ export interface WeekModel {
   days: WeekDay[]
   /** День, от которого открыли неделю: ссылки «Zi» ведут на него. */
   day: string
+  /** Месяц для кнопки дат шапки: день открывает свою неделю. */
+  minical?: DashMiniCal
   /** Подсказка-состояние сервера (22.10, права врача): учётка врача без
    *  привязки — пустая неделя и «contul nu e legat de un medic». */
   notice?: ServerNotice | null

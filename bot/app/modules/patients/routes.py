@@ -223,7 +223,7 @@ async def _appoint(pid: int, adate: str, atime: str, adoctor: str, aservice: str
         return "bad"
     doctor = eng.DOCTORS.get(adoctor)
     svc = eng.SERVICES.get(aservice)
-    if not doctor or not svc or dt.minute not in (0, 30):
+    if not doctor or not svc or not eng.start_ok(dt):
         return "bad"
     if not eng.DOCTOR_META.get(adoctor, {}).get("active", True):
         return "bad_off"   # выключенному врачу не пишем
@@ -238,7 +238,7 @@ async def _appoint(pid: int, adate: str, atime: str, adoctor: str, aservice: str
         return "outside"
     r = await db.add_visit_for_patient(pid, svc["ro"], doctor, dt,
                                        doctor_id=adoctor, service_id=aservice,
-                                       duration_min=dur)
+                                       duration_min=dur, rooms=eng.room_plan(adoctor))
     return "ok" if isinstance(r, int) else ("dup" if r == "dup" else "conflict")
 
 

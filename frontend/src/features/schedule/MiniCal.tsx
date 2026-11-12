@@ -3,10 +3,11 @@ import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import type { DashMiniCal } from './dash'
 
-/* Мини-календарь месяца — ОДИН на правую колонку главной и на шапку дня
-   врача (22.10, вариант H Олега: дата в подзаголовке открывает его). Месяц,
-   точки и ссылки строит сервер (`panel.minical`): у главной ссылки ведут на
-   `/admin`, у дня врача — на `/admin/doctor/{dk}`, и точки там только его.
+/* Мини-календарь месяца — ОДИН на правую колонку главной и на шапки раздела
+   «Programări» (дата в подзаголовке открывает его). Месяц, точки и ссылки
+   строит сервер (`panel.minical`): у главной ссылки ведут на `/admin`, у
+   общего дня — на `/admin/all`, у дня врача — на `/admin/doctor/{dk}` (точки
+   только его), у недели — на `/admin/week`.
    ⛔ Второго календаря не заводить: две копии разойдутся в метках молча. */
 
 const T = {
@@ -28,7 +29,7 @@ const T = {
  * странице, оба знака в вшитом подмножестве Inter, и замена на `chev-l`
  * развела бы два экрана визуально. Это решение, а не недосмотр.
  */
-export function MiniCal({ cal }: { cal: DashMiniCal }) {
+export function MiniCal({ cal, busyWord = T.withAppts }: { cal: DashMiniCal; busyWord?: string }) {
   return (
     <div className="mcal">
       <div className="mhead">
@@ -46,7 +47,7 @@ export function MiniCal({ cal }: { cal: DashMiniCal }) {
                   <AppLink className={[c.other && 'oth', c.today && 'tdy', c.selected && 'seld']
                     .filter(Boolean).join(' ')} href={c.href}
                     aria-current={c.selected ? 'date' : undefined}
-                    title={c.busy ? `${c.date} · ${T.withAppts}` : c.date}>
+                    title={c.busy ? `${c.date} · ${busyWord}` : c.date}>
                     {c.day}{c.busy && <i className="dot" />}
                   </AppLink>
                 </td>
@@ -60,14 +61,14 @@ export function MiniCal({ cal }: { cal: DashMiniCal }) {
 }
 
 /**
- * Дата в подзаголовке дня врача — кнопка (22.10, вариант H Олега): по
- * нажатию под ней всплывает `MiniCal` этого врача. День в календаре —
- * ссылка роутера на `/admin/doctor/{dk}?date=`, и выбор закрывает окно;
+ * Дата в подзаголовке дня и недели — кнопка: по нажатию под ней всплывает
+ * `MiniCal` этого вида. День в календаре — ссылка роутера на тот же вид с
+ * `?date=`, и выбор закрывает окно;
  * стрелки месяца листают, не закрывая. Закрывают ещё Esc и щелчок мимо.
  * ⛔ Окно поверх страницы, фокус в него не переводится: страница не
  * прокручивается и не прыгает (Олег 14.10, «без прыжков»).
  */
-export function CalButton({ label, cal }: { label: string; cal: DashMiniCal }) {
+export function CalButton({ label, cal, busyWord }: { label: string; cal: DashMiniCal; busyWord?: string }) {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLSpanElement | null>(null)
   useEffect(() => {
@@ -92,7 +93,7 @@ export function CalButton({ label, cal }: { label: string; cal: DashMiniCal }) {
       {open && (
         <span className="dp-calpop" role="dialog" aria-label={T.pick}
           onClick={(e) => { if ((e.target as HTMLElement).closest('td a')) setOpen(false) }}>
-          <MiniCal cal={cal} />
+          <MiniCal cal={cal} {...(busyWord ? { busyWord } : {})} />
         </span>
       )}
     </span>

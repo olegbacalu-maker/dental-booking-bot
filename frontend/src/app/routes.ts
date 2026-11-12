@@ -6,6 +6,7 @@ export const ROUTES = [
   { path: "/admin", screen: "schedule_dash" },
   { path: "/admin/all", screen: "schedule_all" },
   { path: "/admin/cabinet", screen: "chair" },
+  { path: "/admin/google", screen: "gcal" },
   { path: "/admin/medici", screen: "doctors_list" },
   { path: "/admin/rechemari", screen: "recall" },
   { path: "/admin/registre", screen: "registre" },

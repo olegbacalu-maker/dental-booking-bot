@@ -16,7 +16,7 @@ import json
 import urllib.parse
 from datetime import datetime
 
-from .. import brand, paths
+from .. import brand, db, paths
 from .. import engine as eng
 from . import sms_loop
 from . import theme
@@ -104,7 +104,8 @@ REACT_SCREENS = frozenset({"recall", "settings_clinic", "doctors_list", "doctor_
                            "chair",
                            # «Registre» (10.11, san-registers): санитарные регистры
                            # 257/e, 502/e, 501/e и каталог оборудования
-                           "registre", "settings_registre"})
+                           "registre", "settings_registre",
+                           "gcal"})
 
 
 # Метка узла React в готовой странице (её печатает `react_shell`).
@@ -185,6 +186,7 @@ SECTION_TITLE = {"dash": "Panoul principal", "prog": "Programări", "pat": "Paci
                  # «Registre» (10.11): санитарные регистры — у ВСЕХ вошедших
                  "reg": "Registre",
                  # SMS-пакет (S6): пункт секции «Sincronizări», когда сервер предлагает пакет
+                 "gcal": "Google Calendar",
                  "sms": "SMS pacienți"}
 
 
@@ -257,6 +259,11 @@ def shell_model(active: str, sub: str, rail: bool = False,
         if (alert := _sms_alert()):
             item["alert"] = alert
         sync.append(item)
+    # Врачу пункта нет: в общем календаре пациенты всех врачей.
+    gc = db.gcal_menu()
+    if gc["on"] and show_sched and me is not None:
+        sync.append({"key": "gcal", "href": "/admin/google", "icon": "cal",
+                     "label": SECTION_TITLE["gcal"], "count": gc["todo"]})
 
     def _sig(html_: str) -> dict:
         return {"shown": bool(html_), "html": html_}

@@ -368,7 +368,7 @@ describe('окно визита: смена процедуры', () => {
 })
 
 describe('окно визита: длительность (10.11, жалоба пилота «15′, а нужно 30′»)', () => {
-  const DURS = [15, 30, 45, 60, 90, 120]
+  const DURS = [5, 10, 15, 20, 30, 45, 60, 90, 120]
   const durPen = () => q('dialog button[aria-label="Schimbă durata"]') as HTMLButtonElement | null
   const durPicker = () => q('dialog form.dp-card-dur select[aria-label="Durată"]') as HTMLSelectElement | null
   const durBtn = (word: string) => Array.from(document.querySelectorAll('dialog form.dp-card-dur button'))
@@ -377,7 +377,7 @@ describe('окно визита: длительность (10.11, жалоба �
   const facts = () => q('dialog .dp-card-fl')?.textContent ?? ''
   const withDur = (over: Record<string, unknown> = {}) => {
     get.mockResolvedValue({ data: { service_id: 'consult', options: OPTIONS, dur: 30,
-      dur_set: false, durations: DURS, ...over }, code: '', text: '', tone: 'ok' })
+      dur_set: false, durations: DURS, dur_step: 5, dur_max: 240, ...over }, code: '', text: '', tone: 'ok' })
   }
 
   it('длительность — в строке фактов; карандаш раскрывает список сервера: нынешняя выбрана, без перемены отправлять нечего', async () => {
@@ -388,9 +388,39 @@ describe('окно визита: длительность (10.11, жалоба �
     expect(durPicker()).toBeNull()
     fireEvent.click(durPen() as HTMLButtonElement)
     expect(Array.from(durPicker()?.options ?? []).map((o) => o.textContent))
-      .toEqual(['15 min', '30 min', '45 min', '60 min', '90 min', '120 min'])
+      .toEqual(['5 min', '10 min', '15 min', '20 min', '30 min', '45 min', '60 min', '90 min', '120 min',
+        'Altă durată…'])
     expect(durPicker()?.value).toBe('30')
     expect(durBtn('Schimbă').disabled).toBe(true)
+  })
+
+  it('«Altă durată…»: 35 уходит числом; не кратное 5 и выше потолка — кнопка выключена', async () => {
+    withDur()
+    const onDuration = vi.fn(async () => true)
+    show(card({ dur: 30 }), { onService: ok, onDuration })
+    await waitFor(() => expect(durPen()).toBeTruthy())
+    fireEvent.click(durPen() as HTMLButtonElement)
+    fireEvent.change(durPicker() as HTMLSelectElement, { target: { value: 'other' } })
+    const inp = () => q('dialog form.dp-card-dur input.dp-dur-n') as HTMLInputElement
+    expect(inp().value).toBe('30')
+    for (const raw of ['37', '245', '']) {
+      fireEvent.change(inp(), { target: { value: raw } })
+      expect(durBtn('Schimbă').disabled).toBe(true)
+      expect(q('dialog form.dp-card-dur .dp-dur-rule.bad')).toBeTruthy()
+    }
+    fireEvent.change(inp(), { target: { value: '35' } })
+    expect(q('dialog form.dp-card-dur .dp-dur-rule.bad')).toBeNull()
+    await act(async () => { fireEvent.click(durBtn('Schimbă')) })
+    expect(onDuration).toHaveBeenCalledWith(35, expect.any(Function))
+  })
+
+  it('длительность вне быстрых значений (35) стоит первой строкой списка', async () => {
+    withDur({ dur: 35 })
+    show(card({ dur: 35 }), { onService: ok, onDuration: ok })
+    await waitFor(() => expect(durPen()).toBeTruthy())
+    fireEvent.click(durPen() as HTMLButtonElement)
+    expect(durPicker()?.options[0]?.textContent).toBe('35 min')
+    expect(durPicker()?.value).toBe('35')
   })
 
   it('выбрали 45 — уходит число минут, удача закрывает окно', async () => {

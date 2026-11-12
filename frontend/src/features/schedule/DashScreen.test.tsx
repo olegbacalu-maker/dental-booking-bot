@@ -795,7 +795,7 @@ describe('C26.5.3-c: диалог пустого часа', () => {
     await openSlot()
     expect(document.querySelector('dialog .dlg-head span')?.textContent)
       .toBe('Dr. Ion — 10:00')
-    expect(document.querySelectorAll('.halfpick .hp')[0]?.className).toContain('on')
+    expect(document.querySelectorAll('.dp-minpick .mp')[0]?.className).toContain('on')
     /* услуги и потолок «даты рождения» — ИЗ КОНВЕРТА, второго запроса нет */
     expect(Array.from(document.querySelectorAll('dialog select option'))
       .map((o) => o.textContent)).toEqual(['Consultație'])
@@ -816,7 +816,7 @@ describe('C26.5.3-c: диалог пустого часа', () => {
     expect(ends()).toEqual(['11', '12'])
 
     fireEvent.click(document.querySelectorAll('.tabbtn')[0] as HTMLElement)
-    fireEvent.click(document.querySelectorAll('.halfpick .hp')[1] as HTMLElement)
+    fireEvent.click(document.querySelectorAll('.dp-minpick .mp')[6] as HTMLElement)
     expect(document.querySelector('dialog .dlg-head span')?.textContent)
       .toBe('Dr. Ion — 10:30')
     expect(ends()).toEqual(['11', '12'])
@@ -977,7 +977,7 @@ describe('C26.5.3-c: диалог пустого часа', () => {
       : reply(200, model())))
     vi.stubGlobal('fetch', f as unknown as typeof fetch)
     await openSlot()
-    fireEvent.click(document.querySelectorAll('.halfpick .hp')[1] as HTMLElement)
+    fireEvent.click(document.querySelectorAll('.dp-minpick .mp')[6] as HTMLElement)
     fireEvent.click(document.querySelectorAll('.tabbtn')[1] as HTMLElement)
     fireEvent.change(document.querySelector('dialog .dlg-form input') as HTMLElement,
       { target: { value: 'Pauză de masă' } })
@@ -1216,6 +1216,59 @@ describe('C26.5.3-f: перенос перетаскиванием', () => {
       .toBe(`/api/schedule/appointments/1/move?screen=panel&date=${TODAY}`)
     expect(bodyOf(call)).toEqual({ date: TODAY, time: '10:30', doctor: 'd2' })
     expect(String(f.mock.calls[f.mock.calls.length - 1]![0])).toContain('/schedule/live')
+  })
+
+  it('час меняют в окне: бросок дал 10:30, выбрали час 09 и :05 — уходит 09:05', async () => {
+    const f = vi.fn(async (url: string) => (String(url).includes('/move')
+      ? cmdReply('ok_move', 'Programare mutată')
+      : reply(200, model())))
+    vi.stubGlobal('fetch', f as unknown as typeof fetch)
+    await show()
+    await dropAt(165)
+
+    await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
+    const hour = document.querySelector('dialog .dp-hourpick select') as HTMLSelectElement
+    expect(hour.value).toBe('10:00')
+    expect(Array.from(hour.options).map((o) => o.value)).toContain('09:00')
+    const yes = () => document.querySelectorAll('dialog .mv-act button')[1] as HTMLButtonElement
+    const mins = () => Array.from(document.querySelectorAll('dialog .dp-minpick .mp')) as HTMLButtonElement[]
+    fireEvent.change(hour, { target: { value: '09:00' } })
+    expect(document.querySelector('dialog .mv-rows')?.textContent).toContain('Dr. Ion · 09:30')
+    /* занятость пересчитана под новый час: сам визит себе не помеха */
+    expect(mins().some((b) => b.disabled)).toBe(false)
+    /* своё же место (09:00) — подтвердить нельзя */
+    fireEvent.click(mins()[0] as HTMLElement)
+    expect(yes().disabled).toBe(true)
+    fireEvent.click(mins()[1] as HTMLElement)
+    expect(yes().disabled).toBe(false)
+    fireEvent.click(yes())
+
+    await waitFor(() => expect(
+      f.mock.calls.some((c) => String(c[0]).includes('/move'))).toBe(true))
+    expect(bodyOf(f.mock.calls.find((c) => String(c[0]).includes('/move'))!))
+      .toEqual({ date: TODAY, time: '09:05', doctor: 'd2' })
+  })
+
+  it('минуту доводят в окне: бросок дал 10:30, выбрали :05 — уходит 10:05', async () => {
+    const f = vi.fn(async (url: string) => (String(url).includes('/move')
+      ? cmdReply('ok_move', 'Programare mutată')
+      : reply(200, model())))
+    vi.stubGlobal('fetch', f as unknown as typeof fetch)
+    await show()
+    await dropAt(165)
+
+    await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
+    const mins = Array.from(document.querySelectorAll('dialog .dp-minpick .mp')) as HTMLButtonElement[]
+    expect(mins).toHaveLength(12)
+    expect(mins.filter((b) => b.className.includes(' on')).map((b) => b.textContent)).toEqual([':30'])
+    fireEvent.click(mins[1] as HTMLElement)
+    expect(document.querySelector('dialog .mv-rows')?.textContent).toContain('Dr. Ion · 10:05')
+    fireEvent.click(document.querySelectorAll('dialog .mv-act button')[1] as HTMLElement)
+
+    await waitFor(() => expect(
+      f.mock.calls.some((c) => String(c[0]).includes('/move'))).toBe(true))
+    expect(bodyOf(f.mock.calls.find((c) => String(c[0]).includes('/move'))!))
+      .toEqual({ date: TODAY, time: '10:05', doctor: 'd2' })
   })
 
   it('⛔ бросок на СВОЁ ЖЕ место — не перенос: ни диалога, ни запроса', async () => {

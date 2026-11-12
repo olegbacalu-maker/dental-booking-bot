@@ -21,12 +21,13 @@ import { CalButton } from './MiniCal'
 import { MoveDialog } from './MoveDialog'
 import { NoteDialog } from './NoteDialog'
 import { SlotDialog } from './SlotDialog'
-import { canvasBlocks, canvasColName, canvasNote, type DashNote } from './dash'
+import { canvasBlocks, canvasColName, canvasNote, canvasOpenHours, canvasOthers, canvasRooms,
+  canvasRoomsOf, type DashNote } from './dash'
 import { useClockTick } from './dashFx'
 import { useLingering, useOpening } from '../../utils/motion'
 import { day, type DayModel } from './day'
-import { freeHalves, type Slot } from './slot'
-import { clashAmong, hhmm, sameSlot, type Drag, type Target } from './move'
+import type { Slot } from './slot'
+import { hhmm, sameSlot, type Drag, type Target } from './move'
 
 /* День журнала — раздел «Programări»: «Toți medicii» и день одного врача —
    один экран, разница только в параметре `doctor` (C25.5a), с записью,
@@ -319,7 +320,8 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
       <div className="dp-daymain">
         <DashCanvas model={m.canvas} rail={noRail} waitTick={waitTick} lineTick={lineTick}
                     onCard={setCard} onCardMenu={openMenu}
-                    onSlot={(dk, name, hour) => setSlot({ dk, name, hour })}
+                    onSlot={(dk, name, hour, minute, room) =>
+                      setSlot({ dk, name, hour, minute, ...(room ? { room } : {}) })}
                     onNote={openNote}
                     drag={drag} hover={hover} onDrag={setDrag} onHover={setHover} onDrop={onDrop}
                     fresh={NO_FRESH} facts={m.extras} />
@@ -342,11 +344,12 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
         : null}
 
       {slotL.shown && m.form
-        ? <SlotDialog key={`${slotL.shown.dk}|${slotL.shown.hour}`} open={!slotL.leaving} slot={slotL.shown}
+        ? <SlotDialog key={`${slotL.shown.dk}|${slotL.shown.hour}|${slotL.shown.minute ?? ''}|${slotL.shown.room ?? ''}`} open={!slotL.leaving} slot={slotL.shown}
                       date={m.date} form={m.form}
                       noteEnds={m.note_ends} busy={busy}
-                      free={freeHalves(canvasBlocks(m.canvas, slotL.shown.dk),
-                        Number(slotL.shown.hour.split(':')[0]))}
+                      taken={canvasBlocks(m.canvas, slotL.shown.dk)}
+                      rooms={canvasRooms(m.canvas, slotL.shown.dk)}
+                      others={canvasOthers(m.canvas, slotL.shown.dk)}
                       onClose={() => setSlot(null)}
                       onAdd={(b, fail) => act(() => day.add(at, doctor, tile, b), fail)}
                       onNote={(b, fail) => act(() => day.note(at, doctor, tile, b), fail)} />
@@ -378,7 +381,10 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
                       onService={(sid, fail) =>
                         act(() => day.service(at, doctor, tile, cardL.shown!, sid), fail)}
                       onDuration={(min, fail) =>
-                        act(() => day.duration(at, doctor, tile, cardL.shown!, min), fail)} />
+                        act(() => day.duration(at, doctor, tile, cardL.shown!, min), fail)}
+                      rooms={canvasRoomsOf(m.canvas, cardL.shown)}
+                      onRoom={(room, fail) =>
+                        act(() => day.room(at, doctor, tile, cardL.shown!, room), fail)} />
         : null}
 
       {noteL.shown !== null && shownNote
@@ -397,14 +403,16 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
         ? <MoveDialog open={!moveL.leaving} drag={moveL.shown.drag} target={moveL.shown.target} busy={busy}
                       fromName={canvasColName(m.canvas, moveL.shown.drag.dk)}
                       toName={canvasColName(m.canvas, moveL.shown.target.dk)}
-                      busyAt={clashAmong(canvasBlocks(m.canvas, moveL.shown.target.dk), moveL.shown.target.min,
-                        moveL.shown.drag.dur, moveL.shown.drag.id)}
+                      taken={canvasBlocks(m.canvas, moveL.shown.target.dk)} step={m.form?.step}
+                      hours={canvasOpenHours(m.canvas, moveL.shown.target.dk)}
+                      rooms={canvasRooms(m.canvas, moveL.shown.target.dk)}
+                      others={canvasOthers(m.canvas, moveL.shown.target.dk)}
                       onClose={() => setMove(null)}
-                      onMove={() => {
+                      onMove={(min, room) => {
                         const { drag: d, target: t } = moveL.shown!
                         setMove(null)
                         void act(() => day.move(at, doctor, tile, d.id,
-                          { date: m.date, time: hhmm(t.min), doctor: t.dk }))
+                          { date: m.date, time: hhmm(min), doctor: t.dk, ...(room ? { room } : {}) }))
                       }} />
         : null}
     </section>

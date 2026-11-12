@@ -66,6 +66,8 @@ _UQ_LADDER = (_ACT_SQL, _OLD_ACT_SQL)
 # Шаг миграции, который кладёт страховочные индексы. Именной, потому что он
 # единственный, кому НЕЛЬЗЯ ронять старт (см. _slot_guard_apply).
 UQ_GUARD_STEP = 4
+# Шаг, на котором индексы врача получают кабинет в ключе; старт не роняет.
+UQ_ROOM_STEP = 11
 # Метка незавершённости в schema_meta: широкие индексы не легли, стоит узкая
 # страховка. Пока метка есть, КАЖДЫЙ старт пробует доложить широкие заново.
 UQ_PENDING_KEY = "uq_waiting_pending"
@@ -100,15 +102,19 @@ def _uq_slot_sql(act_sql: str, names: tuple = ()) -> list[str]:
     отдельно, поэтому и перекладывается ровно тот, кому это нужно, и ровно под
     своим предикатом (08-16, см. _slot_guard_apply).
     """
+    # COALESCE обязателен: NULL в уникальном индексе не равен NULL, и две
+    # записи без кабинета на один час индекс пропустил бы.
     body = {
-        "uq_doctor_slot":
-            f"""CREATE UNIQUE INDEX uq_doctor_slot ON appointments(doctor, starts_at)
+        "uq_doc_room_slot":
+            f"""CREATE UNIQUE INDEX uq_doc_room_slot
+                ON appointments(doctor, COALESCE(room_id, ''), starts_at)
                 WHERE status IN {act_sql}""",
         "uq_patient_slot":
             f"""CREATE UNIQUE INDEX uq_patient_slot ON appointments(patient_id, starts_at)
                 WHERE status IN {act_sql}""",
-        "uq_doctor_slot_id":
-            f"""CREATE UNIQUE INDEX uq_doctor_slot_id ON appointments(doctor_id, starts_at)
+        "uq_docid_room_slot":
+            f"""CREATE UNIQUE INDEX uq_docid_room_slot
+                ON appointments(doctor_id, COALESCE(room_id, ''), starts_at)
                 WHERE status IN {act_sql} AND doctor_id IS NOT NULL""",
     }
     out: list[str] = []
@@ -126,7 +132,13 @@ def _uq_slot_sql(act_sql: str, names: tuple = ()) -> list[str]:
 # ЖИВЫМИ ДАННЫМИ: у клиники с двойной бронью он падает, а падение в базовой
 # схеме или в обычном шаге = «после обновления программа не открывается», и
 # навсегда (08-16).
-_UQ_SLOT = ("uq_doctor_slot", "uq_patient_slot", "uq_doctor_slot_id")
+_UQ_SLOT = ("uq_doc_room_slot", "uq_patient_slot", "uq_docid_room_slot")
+
+# Индексы врача без кабинета в ключе и их преемники. Снимаются, только когда
+# преемник уже лежит: до того старый индекс и есть защита. Старая версия
+# программы после отката кладёт их снова — отсюда проверка на каждом старте.
+_UQ_RETIRED = {"uq_doctor_slot": "uq_doc_room_slot",
+               "uq_doctor_slot_id": "uq_docid_room_slot"}
 
 # Сколько всего проверок — числом. ⚠️ Литерал «3» в текстах живёт ровно до
 # четвёртого индекса и расходится с _UQ_SLOT МОЛЧА: баннер начнёт считать
@@ -172,16 +184,18 @@ def slot_guard() -> dict:
 # перестало быть риторическим вопросом (08-16).
 def _slot_conflict_sql(act_sql: str) -> tuple[tuple[str, str, str], ...]:
     return (
-        ("uq_doctor_slot", "medic",
+        ("uq_doc_room_slot", "medic",
          f"""SELECT a.doctor AS who, a.starts_at AS starts_at, count(*) AS n
                FROM appointments a
               WHERE a.status IN {act_sql}
-              GROUP BY a.doctor, a.starts_at HAVING count(*) > 1"""),
-        ("uq_doctor_slot_id", "medic",
+              GROUP BY a.doctor, COALESCE(a.room_id, ''), a.starts_at
+             HAVING count(*) > 1"""),
+        ("uq_docid_room_slot", "medic",
          f"""SELECT min(a.doctor) AS who, a.starts_at AS starts_at, count(*) AS n
                FROM appointments a
               WHERE a.status IN {act_sql} AND a.doctor_id IS NOT NULL
-              GROUP BY a.doctor_id, a.starts_at HAVING count(*) > 1"""),
+              GROUP BY a.doctor_id, COALESCE(a.room_id, ''), a.starts_at
+             HAVING count(*) > 1"""),
         ("uq_patient_slot", "pacient",
          f"""SELECT min(p.name) AS who, a.starts_at AS starts_at, count(*) AS n
                FROM appointments a JOIN patients p ON p.id = a.patient_id
@@ -193,8 +207,8 @@ def _slot_conflict_sql(act_sql: str) -> tuple[tuple[str, str, str], ...]:
 # без этого «прежняя защита осталась» — обещание, которое баннер печатает
 # директору, а код нигде не проверял.
 _UQ_STATE = ("SELECT name AS name, COALESCE(sql,'') AS sql "
-                  "FROM sqlite_master WHERE type='index' AND name IN "
-                  "('uq_doctor_slot','uq_patient_slot','uq_doctor_slot_id')")
+             "FROM sqlite_master WHERE type='index' AND name IN ("
+             + ",".join(f"'{n}'" for n in (*_UQ_SLOT, *_UQ_RETIRED)) + ")")
 
 
 async def _slot_conflicts(act_sql: str = _ACT_SQL) -> dict[str, list[dict]]:
@@ -235,7 +249,8 @@ def _slot_rows(by_index: dict[str, list[dict]]) -> list[dict]:
 
 
 async def _uq_index_state() -> dict[str, str]:
-    """Имя слотового индекса → текст его определения, ПО ФАКТУ в базе."""
+    """Имя слотового индекса → текст его определения, ПО ФАКТУ в базе. Вместе
+    с действующими сюда попадают и снятые с вооружения (`_UQ_RETIRED`)."""
     return {r["name"]: str(r["sql"] or "")
             for r in await _fetch(_UQ_STATE)}
 
@@ -271,10 +286,17 @@ def _uq_matches(state: dict[str, str], act_sql: str) -> bool:
 # «uq_doctor_slot_id» — это разговор с базой, а не с клиникой. Словарь живёт
 # здесь, рядом с _UQ_SLOT: разъедься они, баннер назвал бы не ту проверку.
 _UQ_RO = {
-    "uq_doctor_slot": "aceeași oră la același medic",
+    "uq_doc_room_slot": "aceeași oră la același medic",
     "uq_patient_slot": "aceeași oră la același pacient",
-    "uq_doctor_slot_id": "aceeași oră la medicul redenumit",
+    "uq_docid_room_slot": "aceeași oră la medicul redenumit",
 }
+
+_UQ_WAS = {new: old for old, new in _UQ_RETIRED.items()}
+
+
+def _uq_stale(state: dict[str, str]) -> list[str]:
+    """Снятые с вооружения индексы, которые в базе ещё лежат."""
+    return [name for name in _UQ_RETIRED if name in state]
 
 
 def _uq_gone(state: dict[str, str]) -> list[str]:
@@ -285,7 +307,9 @@ def _uq_gone(state: dict[str, str]) -> list[str]:
     ожидаемого» — не «защиты нет»: такая проверка стоит и работает, просто не
     покрывает waiting-визиты.
     """
-    return [name for name in _UQ_SLOT if name not in state]
+    # пока преемник не лёг, его работу делает прежний индекс — он строже
+    return [name for name in _UQ_SLOT
+            if name not in state and _UQ_WAS.get(name) not in state]
 
 
 def uq_gone_ro(gone: list[str]) -> str:
@@ -421,6 +445,22 @@ async def _apply_uq_indexes(plan: dict[str, str]) -> None:
             log.error("uq-индекс %s (%s) не лёг: %r", name, act_sql, e)
 
 
+async def _retire_old_uq() -> None:
+    """Снять прежние индексы врача там, где преемник уже лежит и не уже.
+    Каждый своим try: отказ не трогает ни соседа, ни старт."""
+    state = await _uq_index_state()
+    for old, new in _UQ_RETIRED.items():
+        if old not in state or new not in state:
+            continue
+        if not _uq_statuses(state[new]) >= _uq_statuses(state[old]):
+            continue
+        try:
+            await db._CONN.execute(f"DROP INDEX IF EXISTS {old}")
+            await db._CONN.commit()
+        except Exception as e:  # noqa: BLE001 — старт важнее
+            log.error("прежний uq-индекс %s не снят: %r", old, e)
+
+
 async def _slot_guard_apply(repair: str = "") -> None:
     """Положить страховочные индексы, не рискуя стартом программы.
 
@@ -486,6 +526,7 @@ async def _slot_guard_apply(repair: str = "") -> None:
                 if not _uq_at_least(state, name, act)}
         if plan:
             await _apply_uq_indexes(plan)
+        await _retire_old_uq()
     except Exception as e:  # noqa: BLE001 — этот шаг НИКОГДА не роняет старт
         log.exception("страховочные uq-индексы: шаг не выполнен (%r)", e)
     await _slot_guard_verdict(rows, mark, repair)
@@ -521,7 +562,8 @@ async def _slot_guard_verdict(rows: list[dict], mark: str | None,
     # только в обратную сторону. Условие оставлено явным намеренно, хотя пустое
     # состояние и так не совпадёт: правило важнее, чем сегодняшняя реализация
     # `_uq_matches`.
-    if not unknown and not rows and _uq_matches(state, _ACT_SQL):
+    if (not unknown and not rows and _uq_matches(state, _ACT_SQL)
+            and not _uq_stale(state)):
         await _slot_guard_clear(mark, repair)
         return
     gone = [] if unknown else _uq_gone(state)
@@ -610,6 +652,10 @@ async def _slot_guard_startup() -> None:
         log.error("состояние uq-индексов на старте не прочитано: %r", e)
         return
     if _uq_matches(state, _ACT_SQL):
+        if _uq_stale(state):
+            # прежние индексы вернула старая версия после отката; снять их —
+            # не починка, строки в летописи нет
+            await _slot_guard_apply()
         return                       # всё на месте — обычный старт
     # ⚠️ Причина едет ОТСЮДА: только здесь ещё видно, чего не хватало ДО работы.
     # После _slot_guard_apply состояние уже другое, и различить «пропали» и
@@ -622,18 +668,21 @@ async def _slot_guard_startup() -> None:
 
 async def _book(pid: int, service: str, doctor: str, starts_at: datetime,
                 source: str, doctor_id: str | None, service_id: str | None,
-                duration_min: int) -> int | str | None:
+                duration_min: int, rooms: dict | None = None,
+                room: str | None = None) -> int | str | None:
     """Вставка визита пациенту, который УЖЕ известен по id. Контракт возврата
     тот же, что у create_appointment (id / None / 'dup')."""
     async with _slot_lock():
         return await _book_locked(pid, service, doctor, starts_at, source,
-                                  doctor_id, service_id, duration_min)
+                                  doctor_id, service_id, duration_min,
+                                  rooms=rooms, room=room)
 
 
 async def _book_locked(pid: int, service: str, doctor: str, starts_at: datetime,
                        source: str, doctor_id: str | None,
                        service_id: str | None,
-                       duration_min: int) -> int | str | None:
+                       duration_min: int, rooms: dict | None = None,
+                       room: str | None = None) -> int | str | None:
     """Тело брони. Звать ТОЛЬКО под _slot_lock: asyncio.Lock не реентерабелен,
     и create_appointment, которому замок нужен раньше (проверка до создания
     пациента), иначе повис бы на самом себе."""
@@ -643,20 +692,23 @@ async def _book_locked(pid: int, service: str, doctor: str, starts_at: datetime,
     # показывался регистратуре как «интервал занят у этого врача».
     # Проверка идёт первой: она точнее, чем конфликт врача, и под _slot_lock
     # так же надёжна, как индекс.
-    if await _patient_busy_at(pid, starts_at):
+    if await _patient_busy(pid, doctor_id, doctor, starts_at, duration_min):
         return "dup"
     # интервальная проверка: uq-индексы ловят только одинаковые старты,
     # пересечение 10:00(60') с 10:30(60') обязано отсекаться здесь
-    if await _conflicts(doctor_id, doctor, starts_at, duration_min):
+    lane = await _pick_room(doctor_id, doctor, starts_at, duration_min,
+                            rooms, room)
+    if lane is None:
         return None
     try:
         cur = await db._CONN.execute(
             """INSERT INTO appointments(patient_id, service, doctor, starts_at,
                                         source, doctor_id, service_id,
-                                        duration_min, created_at)
-               VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                        duration_min, room_id, room, created_at)
+               VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (pid, service, doctor, _iso(starts_at), source,
-             doctor_id, service_id, duration_min, _utcnow_iso()),
+             doctor_id, service_id, duration_min, lane or None,
+             _room_label(rooms, lane), _utcnow_iso()),
         )
         await db._CONN.commit()
         appt_id = cur.lastrowid
@@ -675,8 +727,7 @@ async def _patient_busy_at(pid: int, starts_at: datetime,
                            exclude_id: int | None = None) -> bool:
     """Есть ли у пациента активная запись РОВНО на этот старт — то же, что
     стережёт uq_patient_slot, но ответом, а не исключением. Вызывать под
-    _slot_lock. Пересечения по длительности здесь намеренно не ищем: индекс их
-    тоже не запрещает, а регистратура ставит пациента к двум врачам подряд.
+    _slot_lock.
 
     ⚠️ `exclude_id` обязателен для ПЕРЕНОСА: визит, переезжающий к другому врачу
     на тот же час, находит сам себя и без него получил бы «у пациента уже есть
@@ -690,23 +741,141 @@ async def _patient_busy_at(pid: int, starts_at: datetime,
     return any(r["id"] != exclude_id for r in rows)
 
 
-async def _conflicts(doctor_id: str | None, doctor: str, starts_at: datetime,
-                     duration_min: int, exclude_id: int | None = None) -> bool:
-    """Пересекается ли интервал с уже занятыми у этого врача. Вызывать ПОД
-    _slot_lock — уникальные индексы ловят только совпадающие старты."""
+async def _patient_busy(pid: int, doctor_id: str | None, doctor: str,
+                        starts_at: datetime, duration_min: int,
+                        exclude_id: int | None = None) -> bool:
+    """Занят ли пациент: тот же старт у кого угодно либо пересечение по
+    минутам у ЭТОГО врача (в двух его кабинетах сразу человек не сидит). У
+    разных врачей пересечение намеренно не ищем — пациента ставят к двум
+    врачам подряд."""
+    if await _patient_busy_at(pid, starts_at, exclude_id):
+        return True
+    return any(r["patient_id"] == pid for r in await _doctor_overlaps(
+        doctor_id, doctor, starts_at, duration_min, exclude_id))
+
+
+async def _doctor_overlaps(doctor_id: str | None, doctor: str,
+                           starts_at: datetime, duration_min: int,
+                           exclude_id: int | None = None) -> list:
+    """Активные записи врача, пересекающие интервал по минутам."""
     from datetime import timedelta
     pad = timedelta(minutes=240)
     rows = await _fetch(
-        f"""SELECT id, starts_at, duration_min FROM appointments
+        f"""SELECT id, patient_id, starts_at, duration_min, room_id, source
+           FROM appointments
            WHERE (doctor_id = ? OR (doctor_id IS NULL AND doctor = ?))
              AND status IN {_ACT_SQL} AND starts_at >= ? AND starts_at < ?""",
         doctor_id or "", doctor, _iso(starts_at - pad), _iso(starts_at + pad),
     )
     end = starts_at + timedelta(minutes=duration_min)
-    for r in rows:
-        if exclude_id is not None and r["id"] == exclude_id:
-            continue
-        b_start = r["starts_at"]
-        if b_start < end and starts_at < b_start + timedelta(minutes=int(r["duration_min"] or 60)):
-            return True
-    return False
+    return [r for r in rows
+            if r["id"] != exclude_id and r["starts_at"] < end
+            and starts_at < r["starts_at"] + timedelta(
+                minutes=int(r["duration_min"] or 60))]
+
+
+def _lane(room_id: str | None, own: tuple) -> str:
+    """Кабинет, который запись занимает у врача с кабинетами `own`: свой, пока
+    он числится за врачом, иначе первый (записи без кабинета и в убранном
+    кабинете). Пусто — у врача кабинетов нет."""
+    return room_id if room_id in own else (own[0] if own else "")
+
+
+def _room_label(rooms: dict | None, lane: str | None) -> str:
+    """Имя кабинета для снимка в записи."""
+    return str(((rooms or {}).get("names") or {}).get(lane, "")) if lane else ""
+
+
+async def _pick_room(doctor_id: str | None, doctor: str, starts_at: datetime,
+                     duration_min: int, rooms: dict | None = None,
+                     room: str | None = None, prefer: str | None = None,
+                     exclude_id: int | None = None,
+                     note: bool = False) -> str | None:
+    """В какой кабинет врача ложится интервал; None — некуда (занято).
+
+    `room` — кабинет назначен, другой не подставляется; иначе `prefer`
+    (кабинет, где запись уже стоит), затем первый свободный по порядку. Заметка
+    стойки занимает врача целиком — в обе стороны. Без `rooms` у врача одна
+    запись в один момент. Под _slot_lock, когда за ответом следует запись."""
+    own = tuple((rooms or {}).get("own") or ())
+    if room and room not in own:
+        return None
+    busy = await _doctor_overlaps(doctor_id, doctor, starts_at, duration_min,
+                                  exclude_id)
+    if busy and (note or any(r["source"] == "note" for r in busy)):
+        return None
+    taken = {_lane(r["room_id"], own) for r in busy}
+    if room:
+        return None if room in taken else room
+    order = ([prefer] if prefer and prefer in own else []) + list(own or ("",))
+    return next((x for x in order if x not in taken), None)
+
+
+async def _conflicts(doctor_id: str | None, doctor: str, starts_at: datetime,
+                     duration_min: int, exclude_id: int | None = None,
+                     rooms: dict | None = None, room: str | None = None,
+                     note: bool = False) -> bool:
+    """Некуда ли поставить интервал у этого врача. Вызывать ПОД _slot_lock —
+    уникальные индексы ловят только совпадающие старты."""
+    return await _pick_room(doctor_id, doctor, starts_at, duration_min, rooms,
+                            room, exclude_id=exclude_id, note=note) is None
+
+
+async def room_busy(room_id: str | None, starts_at: datetime, duration_min: int,
+                    doctor_id: str | None, rooms: dict | None,
+                    exclude_id: int | None = None) -> bool:
+    """Стоит ли в этом кабинете в это время запись ДРУГОГО врача. Повод
+    предупредить, не отказать: клиники делят кабинет между врачами по сменам.
+    Заметки стойки не считаются."""
+    from datetime import timedelta
+    if not room_id:
+        return False
+    by_doctor = (rooms or {}).get("by_doctor") or {}
+    pad = timedelta(minutes=240)
+    rows = await _fetch(
+        f"""SELECT id, doctor_id, starts_at, duration_min, room_id
+           FROM appointments
+           WHERE doctor_id IS NOT NULL AND doctor_id != ? AND source != 'note'
+             AND status IN {_ACT_SQL} AND starts_at >= ? AND starts_at < ?""",
+        doctor_id or "", _iso(starts_at - pad), _iso(starts_at + pad),
+    )
+    end = starts_at + timedelta(minutes=duration_min)
+    return any(
+        r["id"] != exclude_id and r["starts_at"] < end
+        and starts_at < r["starts_at"] + timedelta(
+            minutes=int(r["duration_min"] or 60))
+        and _lane(r["room_id"],
+                  tuple(by_doctor.get(r["doctor_id"]) or ())) == room_id
+        for r in rows)
+
+
+async def appt_room_busy(appt_id: int, rooms: dict | None) -> bool:
+    """`room_busy` для уже стоящей записи."""
+    rows = await _fetch(
+        """SELECT doctor_id, starts_at, duration_min, room_id
+           FROM appointments WHERE id = ?""", appt_id)
+    if not rows or not rows[0]["room_id"]:
+        return False
+    r = rows[0]
+    return await room_busy(r["room_id"], r["starts_at"],
+                           int(r["duration_min"] or 60), r["doctor_id"], rooms,
+                           exclude_id=appt_id)
+
+
+async def slot_probe(doctor_id: str | None, doctor: str, starts_at: datetime,
+                     duration_min: int, rooms: dict | None = None,
+                     room: str | None = None, exclude_id: int | None = None,
+                     pid: int | None = None) -> dict:
+    """Занятость «на сухую» — правилом брони, без замка и без записи (для
+    предпросмотра; правду скажет сама бронь): `room` — куда легла бы запись
+    (None — занято), `room_busy` — кабинет занят другим врачом, `dup` — пациент
+    `pid` в это время занят."""
+    lane = await _pick_room(doctor_id, doctor, starts_at, duration_min, rooms,
+                            room, exclude_id=exclude_id)
+    return {
+        "free": lane is not None, "room": lane,
+        "room_busy": bool(lane) and await room_busy(
+            lane, starts_at, duration_min, doctor_id, rooms, exclude_id),
+        "dup": pid is not None and await _patient_busy(
+            pid, doctor_id, doctor, starts_at, duration_min, exclude_id),
+    }

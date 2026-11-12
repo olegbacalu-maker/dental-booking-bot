@@ -23,6 +23,7 @@ Postgres-издание снято 12.10.2026 (на нём не работало
     records   дневник визита, анамнез, прикус
     docs      документы пациента
     finance   платежи
+    gcal      вкладка «Google Calendar»: источники и события
     erasure   закон 195: стирание и обезличивание
     registre  санитарные регистры 257/e, 502/e, 501/e (без пациентов)
     schema    схема, миграции, init/close
@@ -46,13 +47,15 @@ from .events import (
 )
 from .slots import (
     ACTIVE_STATUSES, _ACT_SQL, _BOOK_LOCK, _slot_lock, _OLD_ACT_SQL, _UQ_LADDER,
-    UQ_GUARD_STEP, UQ_PENDING_KEY, UQ_REPAIR_GONE, UQ_REPAIR_NARROW, UQ_NARROW, UQ_BROKEN,
+    UQ_GUARD_STEP, UQ_ROOM_STEP, UQ_PENDING_KEY, UQ_REPAIR_GONE, UQ_REPAIR_NARROW, UQ_NARROW, UQ_BROKEN,
     UQ_UNKNOWN, _uq_slot_sql, _UQ_SLOT, UQ_SLOT_COUNT, _SLOT_GUARD, slot_guard,
     _slot_conflict_sql, _UQ_STATE, _slot_conflicts, _slot_rows, _uq_index_state, _UQ_WORD,
     _uq_statuses, _uq_matches, _UQ_RO, _uq_gone, uq_gone_ro, _RO_COUNT, uq_event_text,
     UQ_REPAIR_TEXT, UQ_CLEARED_TEXT, UQ_COMPLETE_TEXT, _uq_mark_rows, _uq_at_least,
     _apply_uq_indexes, _slot_guard_apply, _slot_guard_verdict, _slot_guard_clear,
     _slot_guard_startup, _book, _book_locked, _patient_busy_at, _conflicts,
+    _UQ_RETIRED, _UQ_WAS, _uq_stale, _retire_old_uq, _patient_busy, _doctor_overlaps,
+    _lane, _room_label, _pick_room, room_busy, appt_room_busy, slot_probe,
 )
 from .patients import (
     patients_total, _upsert_patient, manual_key, _patient_ids_by_digits,
@@ -84,10 +87,10 @@ from .plans import (
 )
 from .schedule import (
     backfill_ids, relink_doctor, seed, create_appointment, admin_add,
-    add_visit_for_patient, add_note, _insert_note, booked_intervals, doctor_future_count,
+    add_visit_for_patient, add_note, _insert_note, busy_lanes, doctor_future_count,
     appt_patient_id, day_appointments, appointment_days, day_patient_facts, appt_calls,
     set_appt_call, set_comment, move_appointment, set_appt_service, set_appt_duration,
-    set_status,
+    set_status, set_appt_room, pin_doctor_room, _own_room,
 )
 from .teeth import (
     TEETH_HIST_SINCE, teeth_map, teeth_hist_since, teeth_map_at, teeth_history_rows,
@@ -109,8 +112,16 @@ from .finance import (
     payments_day, PAY_METHODS, payments, add_payment, get_payment, delete_payment,
     patient_finance, payments_range,
 )
+from .gcal import (
+    GCAL_NEW, GCAL_MOVED, GCAL_SKIPPED, GCAL_UNPARSED, GCAL_ERASED, GCAL_STATES, _GCAL_COLS,
+    _GCAL_MENU, gcal_menu, gcal_menu_refresh, gcal_sources, gcal_source_put,
+    gcal_source_settings, gcal_sources_prune, gcal_source_merge, gcal_events_by_keys, gcal_source_future,
+    gcal_write, gcal_rows, gcal_event, gcal_set_state, gcal_mark_moved, gcal_linked,
+    gcal_expire, gcal_clear, gcal_duration_by_hand, gcal_journal, gcal_patients, gcal_phone_keys,
+    _gcal_text_has, gcal_ids_with_phone, _gcal_erase_sql, gcal_erase,
+)
 from .erasure import (
-    erasure_kind, _PATIENT_CHILD_TABLES, _PATIENT_GRAND_CHILDREN, delete_patient_fully,
+    erasure_kind, _PATIENT_CHILD_TABLES, _PATIENT_GRAND_CHILDREN, _patient_phone, delete_patient_fully,
     anonymize_patient,
 )
 from .registre import (
@@ -119,7 +130,7 @@ from .registre import (
     san_last_cycle, _SAN_COLS, _SAN_CLOSE, _SAN_WHEN, _san_table,
 )
 from .schema import (
-    SCHEMA_VERSION, OCLUZIE_DDL, RECALL_DDL, RECALL_IDX_DDL, SAN_DDL, SAN_PEOPLE_DDL, MIGRATIONS, TEETH_HIST_STEP,
+    SCHEMA_VERSION, OCLUZIE_DDL, RECALL_DDL, RECALL_IDX_DDL, SAN_DDL, SAN_PEOPLE_DDL, GCAL_DDL, MIGRATIONS, TEETH_HIST_STEP,
     SQLITE_CARD_SCHEMA, SQLITE_EXTRA_COLS, SQLITE_PATIENT_COLS, SQLITE_SCHEMA,
     _schema_version, _set_schema_version, _teeth_hist_base, _migrate, _ADD_COLUMN, _already_added, _sqlite_driver, init,
     close,

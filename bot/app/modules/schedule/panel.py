@@ -103,6 +103,8 @@ def agenda(d: date, rows: list, cards: dict | None, colors, ag_cls: dict,
             # считает браузер по тику, как минуты ожидания, — отпечаток стоит.
             "doctor": r.get("doctor") or "",
             "doctor_id": r.get("doctor_id") or "",
+            # «свободен ли врач» и «кого задержит» экран считает внутри кабинета
+            "room_id": eng.appt_room(r),
             "phone": r.get("phone") or "",
             "start_ms": int(st.timestamp() * 1000),
             "end_ms": int((st + timedelta(minutes=dur)).timestamp() * 1000),

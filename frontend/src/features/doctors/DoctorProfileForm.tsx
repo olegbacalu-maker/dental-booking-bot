@@ -1,12 +1,12 @@
 import { useState, type FormEvent } from 'react'
 import { Icon } from '../../components/Icon'
 import { asApiError, type ApiResult } from '../../services/api'
+import { DoctorRooms } from './DoctorRooms'
 import { doctors, type DoctorCard, type DoctorProfile } from './doctors'
 
 const T = {
   name: 'Nume',
   spec: 'Specializare',
-  room: 'Cabinet',
   phone: 'Telefon intern',
   email: 'E-mail (opțional)',
   hours: 'Program personal (de la / până la)',
@@ -19,8 +19,10 @@ const T = {
 } as const
 
 function profileOf(c: DoctorCard): DoctorProfile {
+  const rooms = c.rooms?.length ? c.rooms.map((r) => ({ name: r.name }))
+    : c.room ? [{ name: c.room }] : []
   return {
-    name: c.name, spec: c.spec, room: c.room, phone: c.phone, email: c.email,
+    name: c.name, spec: c.spec, room: c.room, rooms, phone: c.phone, email: c.email,
     color: c.color, auto_color: c.auto_color,
     work_from: c.work_from, work_to: c.work_to, status: c.status,
   }
@@ -52,7 +54,10 @@ export function DoctorProfileForm({ card, onSaved, onFail }: Props) {
     setSaving(true)
     setInvalid(undefined)
     try {
-      const r = await doctors.save(card.id, form)
+      /* пустые строки списка — не кабинеты; `room` едет именем первого, как
+         его читает прежняя версия программы */
+      const rooms = (form.rooms ?? []).map((r) => ({ name: r.name.trim() })).filter((r) => r.name)
+      const r = await doctors.save(card.id, { ...form, rooms, room: rooms[0]?.name ?? '' })
       setForm(profileOf(r.data))
       onSaved(r)
     } catch (err) {
@@ -86,15 +91,15 @@ export function DoctorProfileForm({ card, onSaved, onFail }: Props) {
         maxLength={60}
         disabled={saving}
       />
+      <DoctorRooms
+        value={(form.rooms ?? []).map((r) => r.name)}
+        known={(card.rooms_all ?? []).map((r) => r.name)}
+        max={card.rooms_max ?? 3}
+        invalid={invalid === 'rooms'}
+        disabled={saving}
+        onChange={(names) => set({ rooms: names.map((name) => ({ name })) })}
+      />
       <div className="r2">
-        <input
-          value={form.room}
-          onChange={(e) => set({ room: e.target.value })}
-          placeholder={T.room}
-          aria-label={T.room}
-          maxLength={30}
-          disabled={saving}
-        />
         <input
           value={form.phone}
           onChange={(e) => set({ phone: e.target.value })}

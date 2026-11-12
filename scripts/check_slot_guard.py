@@ -1,4 +1,4 @@
-"""Канареечная проверка защиты слота (миграция, шаг 4).
+"""Канареечная проверка защиты слота (миграция, шаги 4 и 11).
 
 Отвечает на вопрос, который обычным запуском канарейки НЕ проверяется: что
 делает программа, когда в картотеке УЖЕ есть две живые записи на один час.
@@ -22,7 +22,14 @@
   4. конфликт разводится (лишняя запись убирается), песочница запускается
      снова: широкие индексы обязаны лечь сами, метка — сняться, баннер — уйти;
   5. отдельный ШАГ 3 — база, пришедшая от опубликованной 1.20.0: два индекса
-     ШИРОКИЕ, третьего нет. Обновление не имеет права их СУЗИТЬ (08-16).
+     ШИРОКИЕ, третьего нет. Обновление не имеет права их СУЗИТЬ (08-16);
+  6. ШАГ 4 — у врача две живые записи на один час в РАЗНЫХ кабинетах (шаг 11
+     схемы: кабинет в ключе индексов врача). Такая база обязана стартовать без
+     баннера, пара — остаться, а третья запись в занятый кабинет — отбиваться.
+
+Копия всегда приводится к базе ДО шага 11: индексы врача под прежними именами
+(`UQ_OLD`, без кабинета в ключе). После старта в базе обязаны лежать новые
+(`UQ`), а прежние — быть сняты.
 
 ⭐ Защита меряется ПОВЕДЕНИЕМ базы (пробная вставка + rollback), а не текстом
 индекса: индекс, который существует, но ничего не стережёт, по тексту от
@@ -51,7 +58,9 @@ KEY = "canary1234"
 MARK = "CANARY-SLOT-GUARD"          # по нему находим и убираем внесённую запись
 NARROW = "('confirmed','arrived')"  # предикат, каким он был до 1.20.0
 WIDE = "('confirmed','waiting','arrived')"   # предикат, к которому ведёт шаг 4
-UQ = ("uq_doctor_slot", "uq_patient_slot", "uq_doctor_slot_id")
+UQ = ("uq_doc_room_slot", "uq_patient_slot", "uq_docid_room_slot")
+UQ_OLD = ("uq_doctor_slot", "uq_doctor_slot_id")   # сняты шагом 11
+ROOM = "r-canary-2"                 # второй кабинет врача в шаге 4
 
 # Куда обязана доехать база после старта. Из константы ИСХОДНИКОВ, а не числом:
 # бинарник собран из этого же дерева, а записанное число отставало бы при каждом
@@ -131,9 +140,7 @@ def index_state(db: pathlib.Path) -> dict:
 def downgrade(db: pathlib.Path) -> None:
     """Копия базы становится такой, какой она была у клиники до 1.20.0."""
     sql(db,
-        "DROP INDEX IF EXISTS uq_doctor_slot",
-        "DROP INDEX IF EXISTS uq_patient_slot",
-        "DROP INDEX IF EXISTS uq_doctor_slot_id",
+        *(f"DROP INDEX IF EXISTS {n}" for n in (*UQ, *UQ_OLD)),
         f"""CREATE UNIQUE INDEX uq_doctor_slot ON appointments(doctor, starts_at)
             WHERE status IN {NARROW}""",
         f"""CREATE UNIQUE INDEX uq_patient_slot
@@ -178,9 +185,7 @@ def from_1200(db: pathlib.Path) -> None:
     права её защиту СУЗИТЬ.
     """
     sql(db,
-        "DROP INDEX IF EXISTS uq_doctor_slot",
-        "DROP INDEX IF EXISTS uq_patient_slot",
-        "DROP INDEX IF EXISTS uq_doctor_slot_id",
+        *(f"DROP INDEX IF EXISTS {n}" for n in (*UQ, *UQ_OLD)),
         f"""CREATE UNIQUE INDEX uq_doctor_slot ON appointments(doctor, starts_at)
             WHERE status IN {WIDE}""",
         f"""CREATE UNIQUE INDEX uq_patient_slot
@@ -222,6 +227,55 @@ def inject_renamed(db: pathlib.Path):
     finally:
         con.close()
     return renamed, starts_at, spare[0], spare[1]
+
+
+def inject_parallel(db: pathlib.Path):
+    """Вторая живая запись тому же врачу на тот же час — в ДРУГОМ кабинете.
+    Пациент берётся свободный в этот час: иначе вставку отбил бы индекс
+    пациента, и шаг мерил бы не то."""
+    live = rows(db, "SELECT service, doctor, starts_at, doctor_id "
+                    "FROM appointments WHERE status IN ('confirmed','arrived') "
+                    "AND doctor_id IS NOT NULL AND patient_id IS NOT NULL "
+                    "ORDER BY starts_at DESC LIMIT 1")
+    if not live:
+        return None
+    service, doctor, starts_at, did = live[0]
+    spare = [r[0] for r in rows(
+        db, "SELECT id FROM patients WHERE id NOT IN (SELECT patient_id FROM "
+            f"appointments WHERE starts_at = '{starts_at}' AND patient_id IS "
+            "NOT NULL) ORDER BY id LIMIT 2")]
+    if len(spare) < 2:
+        return None
+    con = sqlite3.connect(str(db))
+    try:
+        con.execute(
+            "INSERT INTO appointments(patient_id, service, doctor, starts_at,"
+            " status, source, created_at, doctor_id, comment, room_id)"
+            " VALUES(?,?,?,?,'confirmed','admin',?,?,?,?)",
+            (spare[0], service, doctor, starts_at,
+             time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()), did, MARK, ROOM))
+        con.commit()
+    finally:
+        con.close()
+    return doctor, starts_at, did, spare[1]
+
+
+def blocked_room(db: pathlib.Path, pid, doctor, starts_at, did, room) -> bool:
+    """Отбивает ли САМА база запись в этот кабинет. Вставка откатывается."""
+    con = sqlite3.connect(str(db))
+    try:
+        con.execute(
+            "INSERT INTO appointments(patient_id, service, doctor, starts_at,"
+            " status, source, created_at, doctor_id, comment, room_id)"
+            " VALUES(?,'Consultație',?,?,'confirmed','admin',?,?,?,?)",
+            (pid, doctor, starts_at,
+             time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()), did, MARK, room))
+        return False
+    except sqlite3.IntegrityError:
+        return True
+    finally:
+        con.rollback()
+        con.close()
 
 
 class Lab:
@@ -367,6 +421,9 @@ def main() -> int:
         idx = index_state(db)
         say(all(n in idx for n in UQ), "все три проверки на месте",
             f"индексы: {sorted(idx)}")
+        say(not any(n in idx for n in UQ_OLD),
+            "прежние индексы врача (без кабинета в ключе) сняты",
+            f"индексы: {sorted(idx)}")
         say(all("waiting" not in idx.get(n, "") for n in UQ),
             "страховка осталась узкой, а не расширилась мимо данных",
             f"индексы: {sorted(idx)}")
@@ -418,13 +475,57 @@ def main() -> int:
             say(blocked(db, *pat_dup), "обновление НЕ сузило защиту пациента",
                 "тот же слом на индексе пациента")
             idx = index_state(db)
-            say("waiting" in idx.get("uq_doctor_slot", "")
+            say("waiting" in idx.get("uq_doc_room_slot", "")
                 and "waiting" in idx.get("uq_patient_slot", ""),
                 "широкие индексы остались широкими", f"индексы: {sorted(idx)}")
-            say("uq_doctor_slot_id" in idx,
+            say("uq_docid_room_slot" in idx,
                 "недостающая проверка положена (пусть и узкой)",
                 f"индексы: {sorted(idx)}")
         stop(e, port)
+
+    # ---- ШАГ 4: врач в двух кабинетах ----
+    # Пара заводится ПОСЛЕ обновления (колонка кабинета появляется на старте)
+    # и проверяется вторым запуском: сторож сверяет индексы на каждом старте.
+    print("\nШАГ 4. Врач в двух кабинетах: две записи на один час")
+    sql(db, f"DELETE FROM appointments WHERE comment = '{MARK}'")
+    e, base, alive = run_lab(lab, exe.name, port)   # развести шаг 3, довести индексы
+    stop(e, port)
+    made = inject_parallel(db) if alive else None
+    if not made:
+        print("      ПРОПУЩЕН: в базе нет активной записи с doctor_id и пациентом "
+              "или двух пациентов, свободных в тот час. Сценарий закрыт прогоном "
+              "(test_migrate.suite_v11_rooms); на бинарнике — только тут.")
+    else:
+        doctor, when, did, free_pid = made
+        e, base, alive = run_lab(lab, exe.name, port)
+        say(alive, "программа запустилась на базе с параллельной парой")
+        if alive:
+            meta = dict(rows(db, "SELECT key, value FROM schema_meta"))
+            say(not meta.get("uq_waiting_pending"), "метки незавершённости нет")
+            say(not banner_visible(base), "баннера нет: пара в двух кабинетах законна")
+            idx = index_state(db)
+            say(sorted(idx) == sorted(UQ) and all("waiting" in idx[n] for n in UQ),
+                "в базе три широких индекса под новыми именами", f"индексы: {idx}")
+            pair = rows(db, "SELECT count(*) FROM appointments WHERE starts_at = "
+                            f"'{when}' AND doctor_id = '{did}' "
+                            "AND status IN ('confirmed','arrived')")[0][0]
+            say(pair == 2, "обе записи пары на месте", f"записей: {pair}")
+            say(blocked_room(db, free_pid, doctor, when, did, ROOM),
+                "третья запись в занятый кабинет отбита базой")
+            say(blocked_room(db, free_pid, doctor, when, did, None),
+                "третья запись без кабинета (кабинет по умолчанию занят) отбита базой")
+        stop(e, port)
+        # повтор шага 11 по той же базе: версия назад — как после оборванного старта
+        sql(db, "UPDATE schema_meta SET value='10' WHERE key='version'")
+        e, base, alive = run_lab(lab, exe.name, port)
+        say(alive, "повтор шага 11 по базе с параллельной парой: программа запустилась")
+        if alive:
+            meta = dict(rows(db, "SELECT key, value FROM schema_meta"))
+            say(meta.get("version") == SCHEMA_TARGET and not meta.get("uq_waiting_pending"),
+                f"версия снова {SCHEMA_TARGET}, метки нет", f"{meta.get('version')!r}")
+            say(not banner_visible(base), "баннера нет")
+        stop(e, port)
+    sql(db, f"DELETE FROM appointments WHERE comment = '{MARK}'")
 
     print()
     if fails:

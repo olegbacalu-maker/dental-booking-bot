@@ -274,7 +274,28 @@ MUTATIONS = [
     # ДО миграций, и сторож до этой точки не доживает. Ломается ДОБАВЛЕНИЕМ:
     # нарушение — сам литерал, а в чистом дереве его нет ни одного.
     ("один владелец", test_structure._DB_SLOTS,
-     "\n_MUT_UQ = \"CREATE UNIQUE INDEX uq_doctor_slot ON appointments(x)\"\n"),
+     "\n_MUT_UQ = \"CREATE UNIQUE INDEX uq_doc_room_slot ON appointments(x)\"\n"),
+    # свой литерал минут
+    ("у dur_ok", "app/modules/settings/routes.py",
+     "\ndef _mut_dur(n):\n    return n in (15, 30, 45, 60, 90, 120)\n"),
+    # сверка со списком быстрых значений
+    ("у dur_ok", "app/modules/schedule/api.py",
+     "\ndef _mut_dur(n):\n    return n not in eng.DURATIONS\n"),
+    # вход не спрашивает правило
+    ("у dur_ok", "app/modules/settings/routes.py",
+     ("not eng.dur_ok(int(dur_raw))", "int(dur_raw) > 999")),
+    # потолок выше окна
+    ("окно поиска соседей", "app/engine.py",
+     ("DUR_MAX = 240", "DUR_MAX = 480")),
+    # окно уже потолка
+    ("окно поиска соседей", test_structure._DB_SLOTS,
+     ("pad = timedelta(minutes=240)", "pad = timedelta(minutes=120)")),
+    # Индекс врача, потерявший кабинет в ключе: вторая запись врача на тот же
+    # час в другом кабинете отбивается самой базой, а прикладная проверка её
+    # пропускает — регистратура видит «conflict» на свободном кабинете.
+    ("кабинет в ключе", test_structure._DB_SLOTS,
+     ("ON appointments(doctor_id, COALESCE(room_id, ''), starts_at)",
+      "ON appointments(doctor_id, starts_at)")),
     # Новый путь брони, взявший процессный замок напрямую, мимо общей точки
     # входа: сегодня неотличим от правильного, а замена замка его не заденет.
     ("через _slot_lock", test_structure._DB_SLOTS,
@@ -628,6 +649,9 @@ MUTATIONS = [
 # и отключают такое правило целиком, вместе с настоящей проверкой. Формат тот
 # же, что у MUTATIONS, только ожидание обратное.
 LEGAL = [
+    # список чисел про другое (месяцы отзыва) длительностью не считается
+    ("у dur_ok", "app/modules/settings/routes.py",
+     "\ndef _mut_months(n):\n    return n in (3, 6, 12, 24)\n"),
     # отложенный импорт ВНУТРИ функции — так dbkey берёт storage; правило
     # смотрит только шапку, иначе краснело бы на том, что уже работает
     ("модули копий импортируемы лаунчером", "app/core/restore.py",
