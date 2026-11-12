@@ -653,6 +653,18 @@ def _own_room(r, rooms: dict | None) -> str | None:
     return _lane(r["room_id"], tuple((rooms or {}).get("own") or ())) or None
 
 
+async def pin_doctor_room(doctor_id: str, room: str, label: str) -> None:
+    """Записи врача без кабинета получают тот, который занимали до сих пор
+    (кабинет по умолчанию): иначе смена порядка или состава кабинетов врача
+    молча перенесла бы их в другой кабинет, поверх стоящих там записей.
+    Строка, которой в этом кабинете уже мешает другая, остаётся как была."""
+    async with _slot_lock():
+        await _execute(
+            """UPDATE OR IGNORE appointments SET room_id = ?, room = ?
+               WHERE doctor_id = ? AND room_id IS NULL AND source != 'note'""",
+            room, label, doctor_id)
+
+
 async def set_appt_room(appt_id: int, room: str, rooms: dict | None) -> str:
     """Перевод стоящей записи в другой кабинет её врача. Коды — как у
     длительности: `''` — сделано (или запись уже там, тогда без записи и без

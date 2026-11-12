@@ -249,13 +249,15 @@ def _lane_places(cluster: list, own: tuple) -> dict | None:
     if len(own) < 2 or any(r["source"] == "note" for r in cluster):
         return None
     lanes = [[r for r in cluster if eng.appt_room(r) == rid] for rid in own]
-    split = max(max((len(c) for c in clusters(lane)), default=1) for lane in lanes)
     out: dict = {}
     for i, lane in enumerate(lanes):
+        # ширину делят только одновременные записи ЭТОЙ дорожки: наложение в
+        # соседнем кабинете блок не сужает
         for sub in clusters(lane):
+            n = len(sub)
             for j, r in enumerate(sorted(sub,
                                          key=lambda x: x["status"] in LIVE_STATUSES)):
-                out[r["id"]] = (i * split + j, len(own) * split)
+                out[r["id"]] = (i * n + j, len(own) * n)
     return out
 
 
