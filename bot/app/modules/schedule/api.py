@@ -256,7 +256,7 @@ async def api_add(request: Request, date_q: str = Query("", alias="date"),
                   screen: str = Query("")):
     """Ручная запись: {date, time, doctor, service, name, phone, nophone, birth, sms?, duration?, room?}.
 
-    ⚠️ `room` — кабинет, выбранный в окне: нет ключа — сервер ставит первый
+    `room` — кабинет, выбранный в окне: нет ключа — сервер ставит первый
     свободный кабинет врача.
 
     ⚠️ `duration` — длительность, выбранная в окне РУКАМИ (10.11): нет ключа —
