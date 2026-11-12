@@ -24,7 +24,7 @@ from .teeth import TEETH_HIST_SINCE
 # идёт range(have+1, SCHEMA_VERSION+1) и до него не дойдёт (так шаг 4 с
 # 'waiting' в uq-индексах не исполнялся ни у одной клиники; держит
 # test_structure).
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 
 # Индексы под горячие пути (день, история пациента, «новые из бота», карточка).
@@ -188,6 +188,49 @@ SAN_PEOPLE_DDL = [
     "ALTER TABLE san_uv ADD COLUMN doer TEXT NOT NULL DEFAULT ''",
 ]
 
+# Вкладка «Google Calendar». Ключ события уникален по всей таблице, а не
+# внутри источника: календарь переименовывают, и с ключом «источник + UID» он
+# вернул бы перенесённые события как новые. `title`/`body` стираются после
+# переноса и по сроку, строка остаётся ради ключа. Время — как в календаре,
+# без округления: от него считается отпечаток `stamp`.
+# Каждый оператор — IF NOT EXISTS: шаг миграции повторяется.
+GCAL_DDL = [
+    """CREATE TABLE IF NOT EXISTS gcal_sources(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL DEFAULT 'ics',
+  name TEXT NOT NULL DEFAULT '',
+  ext_id TEXT NOT NULL DEFAULT '',
+  settings TEXT NOT NULL DEFAULT '',
+  loaded_at TEXT,
+  loaded_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+)""",
+    """CREATE TABLE IF NOT EXISTS gcal_events(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_id INTEGER NOT NULL REFERENCES gcal_sources(id),
+  ext_key TEXT NOT NULL,
+  starts_at TEXT,
+  minutes INTEGER NOT NULL DEFAULT 0,
+  title TEXT NOT NULL DEFAULT '',
+  body TEXT NOT NULL DEFAULT '',
+  series INTEGER NOT NULL DEFAULT 0,
+  gstatus TEXT NOT NULL DEFAULT '',
+  state TEXT NOT NULL DEFAULT 'nou',
+  why TEXT NOT NULL DEFAULT '',
+  by_hand INTEGER NOT NULL DEFAULT 0,
+  stamp TEXT NOT NULL DEFAULT '',
+  stamp_moved TEXT NOT NULL DEFAULT '',
+  appt_id INTEGER REFERENCES appointments(id),
+  moved_at TEXT,
+  moved_by TEXT NOT NULL DEFAULT '',
+  seen_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+)""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ix_gcal_key ON gcal_events(ext_key)",
+    "CREATE INDEX IF NOT EXISTS ix_gcal_state ON gcal_events(state, starts_at)",
+    "CREATE INDEX IF NOT EXISTS ix_gcal_appt ON gcal_events(appt_id)",
+]
+
 MIGRATIONS = {
     1: [
         "CREATE INDEX IF NOT EXISTS ix_appt_starts ON appointments(starts_at)",
@@ -260,6 +303,8 @@ MIGRATIONS = {
     # (UQ_ROOM_STEP) — CREATE UNIQUE INDEX идёт над живыми данными. Список
     # пуст, но не мёртв, ключ — число: всё как у шага 4.
     11: [],
+    # Таблицы вкладки «Google Calendar»: аддитивно и строго, как 7–10.
+    12: GCAL_DDL,
 }
 # Шаг, который кладёт базовый снимок истории зубов. В отличие от
 # UQ_GUARD_STEP — СТРОГИЙ: он меняет данные, и недописанный снимок не имеет

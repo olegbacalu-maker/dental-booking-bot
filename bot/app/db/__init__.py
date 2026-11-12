@@ -23,6 +23,7 @@ Postgres-издание снято 12.10.2026 (на нём не работало
     records   дневник визита, анамнез, прикус
     docs      документы пациента
     finance   платежи
+    gcal      вкладка «Google Calendar»: источники и события
     erasure   закон 195: стирание и обезличивание
     registre  санитарные регистры 257/e, 502/e, 501/e (без пациентов)
     schema    схема, миграции, init/close
@@ -111,8 +112,16 @@ from .finance import (
     payments_day, PAY_METHODS, payments, add_payment, get_payment, delete_payment,
     patient_finance, payments_range,
 )
+from .gcal import (
+    GCAL_NEW, GCAL_MOVED, GCAL_SKIPPED, GCAL_UNPARSED, GCAL_ERASED, GCAL_STATES, _GCAL_COLS,
+    _GCAL_MENU, gcal_menu, gcal_menu_refresh, gcal_sources, gcal_source_put,
+    gcal_source_settings, gcal_sources_prune, gcal_source_merge, gcal_events_by_keys, gcal_source_future,
+    gcal_write, gcal_rows, gcal_event, gcal_set_state, gcal_mark_moved, gcal_linked,
+    gcal_expire, gcal_clear, gcal_duration_by_hand, gcal_journal, gcal_patients, gcal_phone_keys,
+    _gcal_text_has, gcal_ids_with_phone, _gcal_erase_sql, gcal_erase,
+)
 from .erasure import (
-    erasure_kind, _PATIENT_CHILD_TABLES, _PATIENT_GRAND_CHILDREN, delete_patient_fully,
+    erasure_kind, _PATIENT_CHILD_TABLES, _PATIENT_GRAND_CHILDREN, _patient_phone, delete_patient_fully,
     anonymize_patient,
 )
 from .registre import (
@@ -121,7 +130,7 @@ from .registre import (
     san_last_cycle, _SAN_COLS, _SAN_CLOSE, _SAN_WHEN, _san_table,
 )
 from .schema import (
-    SCHEMA_VERSION, OCLUZIE_DDL, RECALL_DDL, RECALL_IDX_DDL, SAN_DDL, SAN_PEOPLE_DDL, MIGRATIONS, TEETH_HIST_STEP,
+    SCHEMA_VERSION, OCLUZIE_DDL, RECALL_DDL, RECALL_IDX_DDL, SAN_DDL, SAN_PEOPLE_DDL, GCAL_DDL, MIGRATIONS, TEETH_HIST_STEP,
     SQLITE_CARD_SCHEMA, SQLITE_EXTRA_COLS, SQLITE_PATIENT_COLS, SQLITE_SCHEMA,
     _schema_version, _set_schema_version, _teeth_hist_base, _migrate, _ADD_COLUMN, _already_added, _sqlite_driver, init,
     close,

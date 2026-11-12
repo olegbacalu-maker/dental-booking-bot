@@ -41,6 +41,14 @@ STATE = ("_CONN", "_SQ", "ACTOR_HOOK")
 _IMPORTED = {"annotations", "datetime", "timezone"}
 
 SNAPSHOT = frozenset((
+    # Вкладка «Google Calendar»: db/gcal.py + GCAL_DDL
+    "GCAL_DDL", "GCAL_NEW", "GCAL_MOVED", "GCAL_SKIPPED", "GCAL_UNPARSED", "GCAL_ERASED",
+    "GCAL_STATES", "gcal_menu", "gcal_menu_refresh", "gcal_sources", "gcal_source_put",
+    "gcal_source_settings", "gcal_sources_prune", "gcal_events_by_keys", "gcal_source_future",
+    "gcal_write", "gcal_rows", "gcal_event", "gcal_set_state", "gcal_mark_moved", "gcal_linked",
+    "gcal_expire", "gcal_clear", "gcal_journal", "gcal_patients",
+    "gcal_phone_keys", "gcal_ids_with_phone", "gcal_erase", "gcal_source_merge",
+    "gcal_duration_by_hand",
     # «Registre» (10.11.2026): санитарные регистры, db/registre.py + SAN_DDL шага 9
     "SAN_DDL", "SAN_PEOPLE_DDL", "SAN_TABLES", "SAN_KINDS", "san_items", "san_item", "san_item_save", "san_insert",
     "san_close", "san_delete", "san_row", "san_rows", "san_open", "san_fixed_ids", "san_lamp_minutes",
