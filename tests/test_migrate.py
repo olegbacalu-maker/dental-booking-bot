@@ -1890,6 +1890,50 @@ def suite_v10_retry(res: Result) -> None:
               (False, False, True))
 
 
+def suite_gcal_retry(res: Result) -> None:
+    """Шаг с таблицами вкладки «Google Calendar» приходит повторно: оборвался
+    перед записью версии (всё уже есть), посередине (источники есть, событий и
+    индексов нет) — и обычное обновление (нет ничего). Старт обязан пройти,
+    вкладка — работать. Номер шага берётся из словаря миграций, а не пишется
+    здесь: шаг переезжает при посадке соседних веток."""
+    step = next(k for k, v in appdb.MIGRATIONS.items() if v is appdb.GCAL_DDL)
+    res.ok("каждый оператор шага — IF NOT EXISTS",
+           len(appdb.GCAL_DDL) >= 4 and all(" IF NOT EXISTS " in x for x in appdb.GCAL_DDL), "")
+    drops = {"всё уже есть": (),
+             "оборвался после первой таблицы": ("DROP TABLE gcal_events",),
+             "обычное обновление": ("DROP TABLE gcal_events", "DROP TABLE gcal_sources")}
+    for tag, todo in drops.items():
+        work = pathlib.Path(tempfile.mkdtemp(prefix="dp_mig_gcal_"))
+        try:
+            dbfile = work / "dental.db"
+            with Server(dir_=work):
+                pass
+            con = sqlite3.connect(str(dbfile))
+            try:
+                for sql in todo:
+                    con.execute(sql)
+                con.execute("UPDATE schema_meta SET value = ? WHERE key = 'version'", (str(step - 1),))
+                con.commit()
+            finally:
+                con.close()
+            with Server(dir_=work) as s:
+                res.check(f"{tag}: старт прошёл, версия доведена до {_VER}", _meta(dbfile, "version"), _VER)
+                con = sqlite3.connect(str(dbfile))
+                try:
+                    have = sorted(r[0] for r in con.execute(
+                        "SELECT name FROM sqlite_master WHERE name LIKE '%gcal%'"))
+                finally:
+                    con.close()
+                res.check(f"{tag}: таблицы и индексы шага на месте", have,
+                          ["gcal_events", "gcal_sources", "ix_gcal_appt", "ix_gcal_key", "ix_gcal_state"])
+                c = Client(s.url).login()
+                res.check(f"{tag}: вкладка отвечает", c.get("/api/gcal").status, 200)
+            with Server(dir_=work):
+                res.check(f"{tag}: повторный старт — версия та же", _meta(dbfile, "version"), _VER)
+        finally:
+            _rmtree_settled(work)
+
+
 def suite_v10_retry_crypt(res: Result) -> None:
     """Зашифрованная картотека (sqlcipher3): шаг 10 приходит повторно по базе,
     где колонки уже есть. Отказ здесь — `sqlcipher3.dbapi2.OperationalError`,
