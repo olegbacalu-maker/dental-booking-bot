@@ -215,6 +215,11 @@ export interface DashSlotForm {
   services: FormService[]
   /** Длительности на выбор в «Durată» (10.11); нет поля — выбора нет. */
   durations?: number[]
+  /** Правило «другой» длительности: шаг и потолок, минут. */
+  dur_step?: number
+  dur_max?: number
+  /** Шаг сетки стартов, минут. */
+  step?: number
   /** Потолок поля «дата рождения» — сегодня В ЧАСАХ КЛИНИКИ. */
   birth_max: string
   /** Галочка «SMS reminder»: пакет работает и у вошедшего право SMS. */

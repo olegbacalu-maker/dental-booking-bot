@@ -85,9 +85,11 @@ def suite_model(res: Result) -> None:
                   {k: blk.get(k) for k in shared},
                   {k: card.get(k) for k in shared})
 
-        res.check("часы формы — у каждого врача формы, от открытия до 20:30",
+        res.check("часы формы — у каждого врача формы, от открытия до последнего часа",
                   {dk: (t[0], t[-1]) for dk, t in m["form"]["times"].items()},
-                  {dk: ("07:00", "20:30") for dk in ("d2", "d3", "d4")})
+                  {dk: ("07:00", "20:00") for dk in ("d2", "d3", "d4")})
+        res.check("минуту выбирает окно: шаг сетки стартов едет в форме",
+                  m["form"]["step"], 5)
         res.check("концы блокировки — открытые часы плюс один",
                   m["note_ends"], list(range(8, 22)))
         res.check("услуги — все из clinic.json, в его порядке",
@@ -207,7 +209,7 @@ def suite_actions(res: Result) -> None:
 
         for body, want, field in (
             ({**ok, "date": "not-a-date"}, "bad", "time"),
-            ({**ok, "time": "10:15"}, "bad_time", "time"),
+            ({**ok, "time": "10:07"}, "bad_time", "time"),
             ({**ok, "name": "  "}, "bad_name", "name"),
             ({**ok, "phone": "12"}, "bad_phone", "phone"),
             ({**ok, "doctor": "d1"}, "bad_off", ""),
@@ -326,7 +328,7 @@ def suite_parity(res: Result) -> None:
 
         base = {"date": day, "time": "10:00", "doctor": "d2", "service": "consult",
                 "name": "N", "phone": "069162001"}
-        for body, want in (({"time": "x"}, "bad"), ({"time": "10:15"}, "bad_time"),
+        for body, want in (({"time": "x"}, "bad"), ({"time": "10:07"}, "bad_time"),
                            ({"name": "   "}, "bad_name"), ({"phone": "12"}, "bad_phone"),
                            ({"doctor": "d1"}, "bad_off"), ({"time": "23:00"}, "outside"),
                            ({"time": "09:00"}, "conflict"),
@@ -341,7 +343,7 @@ def suite_parity(res: Result) -> None:
                              "until": 13, **body})
             res.check(f"заметка {body}: код «{want}»", _j(r)["code"], want)
 
-        for body, want in (({"time": "10:15"}, "bad_time"), ({"doctor": "d1"}, "bad_off"),
+        for body, want in (({"time": "10:07"}, "bad_time"), ({"doctor": "d1"}, "bad_off"),
                            ({"time": "23:00"}, "outside"), ({"date": "x"}, "bad")):
             r = c.post_json(f"/api/schedule/appointments/{aid}/move?date={day}",
                             {"date": day, "time": "10:00", "doctor": "d2", **body})

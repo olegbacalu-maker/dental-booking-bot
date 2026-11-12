@@ -11,6 +11,7 @@ import html
 
 from fastapi.responses import JSONResponse
 
+from .. import engine as eng
 from . import sms_loop
 from .auth import PIN_MIN_LAN
 from .icons import _ic
@@ -89,7 +90,8 @@ MSG_BANNER = {
                         "câmpul evidențiat"),
     "bad_off": ("err", "Medicul nu este activ (concediu sau arhivat) — "
                        "alegeți alt medic sau readuceți-l din concediu în Medici"),
-    "bad_time": ("err", "Ora poate fi doar fixă sau la jumătate (ex. 10:00, 10:30)"),
+    "bad_time": ("err", f"Ora de început se alege din {eng.START_STEP} în "
+                        f"{eng.START_STEP} minute (ex. 10:00, 10:05, 10:10)"),
     "ok_note": ("ok", "Notiță adăugată — ora este blocată"),
     "ok_move": ("ok", "Programare mutată"),
     # ⚠️ Оба отказа переноса говорят, ЧТО делать дальше. Перетаскивают с
@@ -125,8 +127,8 @@ MSG_BANNER = {
     "dur_closed": ("err", "Durata se schimbă doar la programările active — cea "
                           "finalizată, anulată sau neprezentată rămâne cum a fost "
                           "(redeschideți-o dacă chiar trebuie schimbată)"),
-    "bad_dur": ("err", "Durata aleasă nu este în listă — alegeți una dintre "
-                       "duratele propuse"),
+    "bad_dur": ("err", f"Durata se alege din {eng.DUR_STEP} în {eng.DUR_STEP} "
+                       f"minute, cel mult {eng.DUR_MAX} de minute"),
     "ok_set": ("ok", "Setări salvate"),
     # «Rechemări» (29.10): отметка обзвона (`/api/recall/mark`) и визит с бумаги
     "ok_recall": ("ok", "Marcaj salvat"),

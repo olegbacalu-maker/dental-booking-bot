@@ -512,8 +512,8 @@ async def _add_appt(adate: str, atime: str, adoctor: str, aservice: str,
     """Ручная запись (окно «Programare nouă»): код ответа — из `MSG_BANNER`.
 
     `adur` — длительность, выбранная в окне РУКАМИ (10.11): пусто — окно её не
-    трогало, визит берёт длительность услуги, как всегда; число из
-    `eng.DURATIONS` — визит такой длины с признаком `duration_set`. Окно шлёт
+    трогало, визит берёт длительность услуги, как всегда; число по правилу
+    `eng.dur_ok` — визит такой длины с признаком `duration_set`. Окно шлёт
     поле только тронутым (прайор 08-16: намерение из формы).
 
     `asms` — галочка «SMS reminder»: True/False — что сказал пациент, None —
@@ -553,7 +553,7 @@ async def _add_appt(adate: str, atime: str, adoctor: str, aservice: str,
         return "bad"
     dur = eng.svc_duration(aservice)
     if adur:
-        if not adur.isdigit() or int(adur) not in eng.DURATIONS:
+        if not adur.isdigit() or not eng.dur_ok(int(adur)):
             return "bad_dur"
         dur = int(adur)
     if not name:
@@ -562,26 +562,14 @@ async def _add_appt(adate: str, atime: str, adoctor: str, aservice: str,
     # Жёсткий молдавский формат отверг бы иностранца у стойки (просьба 08-07)
     if not anophone and not 6 <= len(digits) <= 15:
         return "bad_phone"
-    if not eng.DOCTOR_META.get(adoctor, {}).get("active", True):
-        return "bad_off"  # выключенному не пишем
-    if dt.minute not in (0, 30):
-        return "bad_time"  # 30-мин сетка стартов
-    if not eng.fits_clinic(dt, dur):
-        # визит не помещается в рабочее окно клиники (закрытие/обед)
-        return "outside"
-    # личный график врача (work_from/work_to) — той же проверкой окон, из
-    # которой free_starts предлагает слоты.
-    # ⚠️ Гейт применяется ТОЛЬКО к будущему: его смысл — не обещать пациенту
-    # час, когда врача нет, а у состоявшегося приёма обещать уже нечего. График
-    # могли сузить ПОСЛЕ визита, и тогда внести его постфактум стало бы нечем:
-    # фиша прошлое не берёт по замыслу, журнал — единственный вход.
-    # Граница здесь МГНОВЕННАЯ (is_past), а не дневная: «приём был сегодня
-    # утром, а график сузили после обеда» — тот же постфактум, и на дневной
-    # границе он остался бы невозможным. Дневная граница ниже про другое — она
-    # решает, показывать ли предупреждение, а не пускать ли запись.
-    fits_doc = eng.fits_doctor(adoctor, dt, dur)
-    if not eng.is_past(dt) and not fits_doc:
-        return "outside_doc"
+    # Врач, сетка стартов и рабочие окна — общим правилом с переносом. График
+    # врача в нём спрашивается только у будущего старта, и граница там
+    # мгновенная (is_past), а не дневная: «приём был сегодня утром, а график
+    # сузили после обеда» — тот же постфактум, что вчерашний визит, и фиша
+    # прошлое не берёт — журнал для него единственный вход. Дневная граница
+    # ниже про другое: она решает, показывать ли предупреждение.
+    if code := eng.place_refusal(adoctor, dt, dur):
+        return code
     # полная дата рождения (просьба 08-07: был только год; отдельное поле
     # года для вкладки, открытой до обновления, ушло 13.10 вместе с формой)
     year, bdate = None, None
@@ -726,19 +714,12 @@ async def _move_appt(appt_id: int, mdate: str, mtime: str, mdoctor: str) -> str:
     doctor = eng.DOCTORS.get(mdoctor)
     if not doctor:
         return "bad"
-    if not eng.DOCTOR_META.get(mdoctor, {}).get("active", True):
-        return "bad_off"
-    if dt.minute not in (0, 30):
-        return "bad_time"
-    if not eng.fits_clinic(dt, 30):
-        # 30 минут, а не полная длительность: визит УЖЕ существует, и требовать
-        # от него влезть в окно целиком значило бы отказывать в переносе тем,
-        # кого клиника принимает внахлёст с закрытием (так их и записали).
-        return "outside"
-    # график врача — та причина серверной перепроверки, которую называет
-    # докстринг: часы врача меняются на другом экране, а вкладка устаревает
-    if not eng.fits_doctor(mdoctor, dt, 30):
-        return "outside_doc"
+    # Длина нужна правилу окон: короткий визит обязан влезть целиком, длинный —
+    # первыми минутами (`eng.MOVE_FIT`). Визита нет — отказ скажет сам перенос.
+    cur = await db.appointment_brief(appt_id)
+    dur = int((cur or {}).get("duration_min") or 60)
+    if code := eng.place_refusal(mdoctor, dt, dur, moving=True):
+        return code
     code = await db.move_appointment(appt_id, mdoctor, doctor, dt,
                                      when=dt.strftime("%H:%M"))
     return {"": "ok_move", "gone": "mv_gone",
@@ -755,7 +736,7 @@ async def _set_service(appt_id: int, sid: str) -> str:
     ⭐ Кто и что вправе менять — ОДНО правило с окном (`visits.service_refusal`):
     по нему окно строит список, по нему же сервер отказывает.
     ⚠️ Часы проверяются, только когда визит ДЛИННЕЕ прежнего — по той же
-    причине, что у переноса (`fits_clinic(dt, 30)`): короче он лежит внутри
+    причине, что у переноса (`eng.MOVE_FIT`): короче он лежит внутри
     интервала, который уже занимал, и отказ «не влезает» не дал бы даже
     сократить визит, записанный внахлёст с закрытием.
     ⚠️ График врача — только у БУДУЩЕГО старта, как у `_add_appt`: у визита,
@@ -798,10 +779,10 @@ async def _set_duration(appt_id: int, minutes: str) -> str:
     Тот же образец, что `_set_service`: кто вправе — `duration_refusal` (одно
     правило с флагом окна), часы клиники и врача — только когда визит ДЛИННЕЕ,
     график врача — только у будущего старта; сосед — `db.set_appt_duration`
-    под `_slot_lock`. Список длительностей — `eng.DURATIONS`, тот же, что у
-    услуги в настройках.
+    под `_slot_lock`. Допустимость — `eng.dur_ok`, то же правило, что у услуги
+    в настройках.
     """
-    if not minutes.isdigit() or int(minutes) not in eng.DURATIONS:
+    if not minutes.isdigit() or not eng.dur_ok(int(minutes)):
         return "bad_dur"
     dur = int(minutes)
     cur = await db.appointment_brief(appt_id)

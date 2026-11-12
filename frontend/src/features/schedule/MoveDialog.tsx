@@ -1,7 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { hideDialog, showDialog } from '../patients/card/dialog'
-import { hhmm, type Drag, type Target } from './move'
+import { MinPick } from './MinPick'
+import { clashAmong, hhmm, sameSlot, type Drag, type Occupies, type Target } from './move'
+import { takenMinutes } from './slot'
 
 /* Подтверждение переноса (C25.5b). Диалог обязателен: перетащить мышью легко
    случайно, а визит — это человек, которому уже назвали время.
@@ -10,10 +12,12 @@ import { hhmm, type Drag, type Target } from './move'
    вернуть его можно, только зная, откуда он.
    ⚠️ Предупреждение о занятости — ПОДСКАЗКА. Правду говорит сервер под
    `_BOOK_LOCK`: пока тянули, час мог занять второй администратор.
-   ⭐ Имена колонок и минуту помехи считает ЭКРАН и передаёт готовыми: у дня
-   и у панели РАЗНЫЕ модели (и разный ключ колонки), а диалог переноса один на
-   оба. Прими он модель — пришлось бы заводить второй, и «De la» на одном
-   экране разошлось бы с другим после переименования врача. */
+   Имена колонок и блоки колонки-цели даёт ЭКРАН готовыми: у дня и у панели
+   РАЗНЫЕ модели (и разный ключ колонки), а диалог переноса один на оба. Прими
+   он модель — пришлось бы заводить второй, и «De la» на одном экране
+   разошлось бы с другим после переименования врача.
+   Бросок даёт час и грубую половину, точную минуту доводят здесь: рукой в
+   пять минут на сетке не попасть. Час и врач остаются теми, куда бросили. */
 const T = {
   title: 'Mutare programare',
   who: 'Pacient',
@@ -31,16 +35,26 @@ interface Props {
   /** Имя колонки, ИЗ которой тащат, и той, КУДА. */
   fromName: string
   toName: string
-  /** Минута помехи или −1 — подсказка, а не запрет со стороны сервера. */
-  busyAt: number
+  /** Занятые блоки колонки-цели по канве — подсказка, а не запрет сервера. */
+  taken: Occupies[]
+  /** Шаг сетки стартов, минут. */
+  step?: number | undefined
   busy: boolean
   onClose: () => void
-  onMove: () => void
+  /** Минута от полуночи, выбранная в окне. */
+  onMove: (min: number) => void
 }
 
-export function MoveDialog({ open, drag, target, fromName, toName, busyAt, busy,
+export function MoveDialog({ open, drag, target, fromName, toName, taken, step = 5, busy,
   onClose, onMove }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
+  const hour = Math.floor(target.min / 60)
+  const [minute, setMinute] = useState(target.min % 60)
+  const min = hour * 60 + minute
+  const off = takenMinutes(taken, hour, drag.dur, step, drag.id)
+  const busyAt = clashAmong(taken, min, drag.dur, drag.id)
+  /* своё же место: сервер такой перенос принял бы и записал в летопись */
+  const same = sameSlot(drag, { dk: target.dk, min })
 
   useEffect(() => {
     if (open) showDialog(ref.current)
@@ -58,8 +72,10 @@ export function MoveDialog({ open, drag, target, fromName, toName, busyAt, busy,
         <div className="mv-rows">
           <div><span>{T.who}</span><b>{drag.nm}</b></div>
           <div><span>{T.from}</span><b>{fromName} · {hhmm(drag.min)}</b></div>
-          <div><span>{T.to}</span><b>{toName} · {hhmm(target.min)}</b></div>
+          <div><span>{T.to}</span><b>{toName} · {hhmm(min)}</b></div>
         </div>
+        <MinPick hh={String(hour).padStart(2, '0')} value={minute} step={step} taken={off}
+                 onPick={setMinute} />
         {busyAt >= 0 ? (
           <div className="banner err" role="alert">
             Medicul are deja o programare la {hhmm(busyAt)}.
@@ -67,7 +83,7 @@ export function MoveDialog({ open, drag, target, fromName, toName, busyAt, busy,
         ) : null}
         <div className="mv-act">
           <button type="button" className="mv-no" onClick={onClose}>{T.no}</button>
-          <button type="button" onClick={onMove} disabled={busy || busyAt >= 0}>
+          <button type="button" onClick={() => onMove(min)} disabled={busy || busyAt >= 0 || same}>
             {T.yes}
           </button>
         </div>

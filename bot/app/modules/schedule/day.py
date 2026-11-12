@@ -92,11 +92,13 @@ def form_spec(d: date, items: list, sel_doctor: str = "",
 
     ⚠️ Часы здесь СВОИ, а не из канвы. Канва рисует непрерывный диапазон, и
     обеденный час в ней есть (заштрихованным); форма предлагает только те
-    получасовые старты, куда влезает приём.
-    ⚠️ Влезает — это всегда 30 минут, а не длительность выбранной услуги:
-    список ОДИН на все услуги. Пересчёт «по-умному» отнял бы 17:30 у
-    получасового приёма в клинике, закрывающейся в 18:00, — час, который
-    сегодня законен; а часовой визит на 17:30 всё равно отобьёт `outside`.
+    часы, в которых есть хоть один старт, куда влезает приём.
+    Едут ЧАСЫ («HH:00»), а минуту окно выбирает само с шагом `step`: полный
+    список стартов с шагом в пять минут — больше сотни строк на врача.
+    Влезает — это всегда шаг старта, а не длительность выбранной услуги:
+    список ОДИН на все услуги. Пересчёт «по-умному» отнял бы 17:55 у
+    пятиминутного приёма в клинике, закрывающейся в 18:00, — старт, который
+    законен; а часовой визит на 17:30 всё равно отобьёт `outside`.
     ⛔ Пустое окно врача подменяется часами клиники (`or hours`): пустой выбор
     часа не отправил бы время вовсе, и вместо честного отказа «Medicul nu
     lucrează la ora aleasă» вышел бы отказ разбора.
@@ -104,17 +106,14 @@ def form_spec(d: date, items: list, sel_doctor: str = "",
     потому что выключенному запись ответит `bad_off`, а колонка у него на
     канве остаётся, пока есть записи дня.
     """
-    def _starts(fits) -> list[str]:
-        out = []
-        for x in eng.day_slots(d):
-            for m in (0, 30):
-                st = x.replace(minute=m)
-                if fits(st):
-                    out.append(st.strftime("%H:%M"))
-        return out
+    step = eng.START_STEP
 
-    hours = _starts(lambda st: eng.fits_clinic(st, 30))
-    times = {dk: _starts(lambda st, k=dk: eng.fits_doctor(k, st, 30)) or hours
+    def _starts(fits) -> list[str]:
+        return [x.strftime("%H:%M") for x in eng.day_slots(d)
+                if any(fits(x.replace(minute=m)) for m in range(0, 60, step))]
+
+    hours = _starts(lambda st: eng.fits_clinic(st, step))
+    times = {dk: _starts(lambda st, k=dk: eng.fits_doctor(k, st, step)) or hours
              for dk, _n in items}
     cur = sel_doctor if sel_doctor in times else (items[0][0] if items else "")
     return {
@@ -123,14 +122,29 @@ def form_spec(d: date, items: list, sel_doctor: str = "",
         # часы клиники: ими подменяется пустое окно врача, ими же живёт форма,
         # когда активных врачей нет вовсе
         "hours": hours,
+        "step": step,
         "services": services_list(),
-        # длительности, которые окно записи даёт выбрать руками (10.11)
-        "durations": list(eng.DURATIONS),
+        **dur_choice(),
         "doctor": cur,
-        "time": sel_time if sel_time in times.get(cur, hours) else "",
+        "time": sel_time if _hour_of(sel_time) in times.get(cur, hours) else "",
         "birth_max": birth_max(),
         "sms": sms_box(),
     }
+
+
+def _hour_of(hhmm: str) -> str:
+    """Час предвыбранного времени в том виде, в каком едет список часов."""
+    hh, _, mm = hhmm.partition(":")
+    ok = mm.isdigit() and int(mm) < 60 and int(mm) % eng.START_STEP == 0
+    return f"{hh}:00" if ok else ""
+
+
+def dur_choice() -> dict:
+    """Что нужно выбору длительности: быстрые значения и правило «другой»
+    (шаг и потолок). Одна сборка на окно записи, окно визита и настройки
+    услуг: три своих списка разошлись бы молча."""
+    return {"durations": list(eng.DURATIONS), "dur_step": eng.DUR_STEP,
+            "dur_max": eng.DUR_MAX}
 
 
 def birth_max() -> str:
@@ -166,10 +180,10 @@ def slot_form(d: date) -> dict:
     ⛔ Имя `slotform`, а не `form`: у модели дня `form` несёт ещё врачей, их
     часы и предвыбор, и ключ с тем же именем, но меньшим составом — ловушка
     для следующего, кто скопирует форму записи. Панели врачи и часы не нужны:
-    врач приходит из колонки, час — из ячейки, получас — переключателем.
+    врач приходит из колонки, час — из ячейки, минута — кнопками окна.
     """
     del d  # день приходит параметром ради симметрии с `form_spec`
-    return {"services": services_list(), "durations": list(eng.DURATIONS),
+    return {"services": services_list(), **dur_choice(), "step": eng.START_STEP,
             "birth_max": birth_max(), "sms": sms_box()}
 
 

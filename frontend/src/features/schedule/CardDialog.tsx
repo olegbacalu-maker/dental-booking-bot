@@ -5,6 +5,7 @@ import { Icon } from '../../components/Icon'
 import { hideDialog, showDialog } from '../patients/card/dialog'
 import { day, svcLabel, type ServiceOption, type StatusAction, type VisitCardView } from './day'
 import { CALL_WORDS, type CallResult } from './desk'
+import { DurField, durOk, durRule, type DurRule } from './DurPick'
 
 /* Карточка визита по клику (C25.5b): что это за визит, комментарий стойки и
    кнопки исхода.
@@ -127,9 +128,9 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
   /* Список услуг врача этого визита — ответ сервера; `null` — ещё не пришёл
      (или не спрашивали), карандаша на экране нет. */
   const [svcOpts, setSvcOpts] = useState<ServiceOption[] | null>(null)
-  /* Длительность (10.11): список длительностей и «задана руками» — тем же
-     ответом, что список услуг; выбор живёт до «Renunță» или закрытия окна. */
-  const [durList, setDurList] = useState<number[] | null>(null)
+  /* Длительность: правило выбора и «задана руками» — тем же ответом, что
+     список услуг; выбор живёт до «Renunță» или закрытия окна. */
+  const [durList, setDurList] = useState<DurRule | null>(null)
   const [durSet, setDurSet] = useState(false)
   const [durOpen, setDurOpen] = useState(false)
   const [durPick, setDurPick] = useState<number | null>(null)
@@ -168,10 +169,10 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
       (r) => {
         if (ctl.signal.aborted) return
         setSvcOpts(r.data.options)
-        setDurList(r.data.durations ?? [])
+        setDurList(durRule(r.data))
         setDurSet(!!r.data.dur_set)
       },
-      () => { if (!ctl.signal.aborted) { setSvcOpts([]); setDurList([]) } },
+      () => { if (!ctl.signal.aborted) { setSvcOpts([]); setDurList(durRule({})) } },
     )
     return () => ctl.abort()
   }, [svcAsk, id])
@@ -190,10 +191,8 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
   const svcList = svcAsk && onService ? svcOpts ?? [] : []
   const svcShown = svcList.length > 0
   /* длительность — только когда она в карточке есть и сервер дал список */
-  const durShown = !!onDuration && svcAsk && !!card.dur && (durList ?? []).length > 0
+  const durShown = !!onDuration && svcAsk && !!card.dur && !!durList?.durations.length
   const durVal = durPick ?? card.dur ?? 0
-  const durOpts = durShown && !(durList ?? []).includes(card.dur ?? 0)
-    ? [card.dur ?? 0, ...(durList ?? [])] : durList ?? []
   /* Нынешней услуги в списке может не быть (легаси-строка без ключа, услугу
      убрали из clinic.json): тогда она стоит первой строкой, выбрать её нельзя. */
   const svcKnown = svcList.some((s) => s.id === card.service_id)
@@ -307,11 +306,10 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
           {durShown && durOpen && (
             <form onSubmit={saveDur} className="dp-card-svc dp-card-dur" aria-label={T.dur}>
               {durFail ? <div className="banner err" role="alert">{durFail}</div> : null}
-              <select value={durVal} aria-label={T.dur} autoFocus
-                      onChange={(e) => { setDurPick(Number(e.target.value)); setDurFail('') }}>
-                {durOpts.map((d) => <option key={d} value={d}>{d} min</option>)}
-              </select>
-              <button className="dp-card-chip strong" disabled={busy || durVal === card.dur}>
+              <DurField rule={durList!} value={durVal} label={T.dur} autoFocus
+                        onPick={(n) => { setDurPick(n); setDurFail('') }} />
+              <button className="dp-card-chip strong"
+                      disabled={busy || durVal === card.dur || !durOk(durVal, durList!)}>
                 <Icon name="pen" /> {T.svcSave}
               </button>
               <button type="button" className="dp-card-quiet" onClick={closeDur}>{T.svcCancel}</button>

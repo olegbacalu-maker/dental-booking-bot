@@ -107,6 +107,9 @@ _DB_STATE = "app/db/__init__.py"     # _CONN, _SQ, ACTOR_HOOK — перепри
 _DB_SCHEMA = "app/db/schema.py"      # SCHEMA_VERSION, MIGRATIONS, SQLITE_SCHEMA
 _DB_SLOTS = "app/db/slots.py"        # _slot_lock, _BOOK_LOCK, _uq_slot_sql
 _DB_DAY = "app/db/schedule.py"       # day_appointments: выборка дня
+# Кто принимает длительность снаружи и обязан спросить `eng.dur_ok`: запись и
+# окно визита, настройки услуг.
+_DUR_ASKERS = ("app/modules/schedule/routes.py", "app/modules/settings/routes.py")
 _DB_TEXTS = "app/db/plans.py"        # тексты летописи пациента («Plan: …»)
 _DB_SAN = "app/db/registre.py"       # журналы san_*: единственное место UPDATE (замок IS NULL)
 # Якоря бывшего layout.py (разнос 04.11): переезд имени = правка одной строки.
@@ -1059,6 +1062,76 @@ def suite(res: Result) -> None:
            "CREATE UNIQUE INDEX по слоту вне _uq_slot_sql: " + ", ".join(bad)
            + " — этот CREATE упадёт у клиники с двойной бронью там, куда "
              "сторож не доживает, и программа больше не откроется")
+
+    # ---- длительность: одно правило допустимости ----
+    # Длительность визита и услуги судит `eng.dur_ok`. Свой список по месту
+    # расходится молча: настройки услуг держали литерал рядом с `DURATIONS`, и
+    # число вне него не отказывало, а превращалось в 60 минут. Нарушение —
+    # сверка `in`/`not in` со списком быстрых значений или с литералом минут.
+    # Полярность опасная: правило ищет ИМЯ, поэтому якорь — `dur_ok` есть и
+    # его спрашивают все три входа.
+    def _minutes(node: ast.AST) -> bool:
+        if not isinstance(node, (ast.Tuple, ast.List, ast.Set)) or len(node.elts) < 3:
+            return False
+        vals = [e.value for e in node.elts
+                if isinstance(e, ast.Constant) and type(e.value) is int]
+        return len(vals) == len(node.elts) and all(
+            5 <= v <= 480 and v % 5 == 0 for v in vals)
+
+    bad = []
+    for rel, tree in src:
+        if rel == "app/engine.py":
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Compare):
+                continue
+            for op, right in zip(node.ops, node.comparators):
+                if not isinstance(op, (ast.In, ast.NotIn)):
+                    continue
+                if (isinstance(right, ast.Attribute) and right.attr == "DURATIONS") \
+                        or (isinstance(right, ast.Name) and right.id.endswith("DURATIONS")) \
+                        or _minutes(right):
+                    bad.append(f"{rel}:{node.lineno}")
+    eng_tree = by_path.get("app/engine.py")
+    has_rule = eng_tree is not None and any(
+        isinstance(n, ast.FunctionDef) and n.name == "dur_ok" for n in eng_tree.body)
+    if not has_rule:
+        bad.append("в app/engine.py нет dur_ok — якорь правила пропал")
+    for rel in _DUR_ASKERS:
+        tree = by_path.get(rel)
+        if tree is None or "dur_ok" not in _calls(tree):
+            bad.append(f"{rel} не спрашивает dur_ok")
+    res.ok("допустимость длительности спрашивают у dur_ok", not bad,
+           "длительность сверяют со своим списком: " + ", ".join(bad)
+           + " — два списка разойдутся молча, и одна дверь примет длительность, "
+             "которую отвергает другая")
+
+    # Потолок длительности держится окном, в котором проверка занятости ищет
+    # соседей: визит длиннее окна, начавшийся раньше него, она не увидит, и
+    # поверх него ляжет запись без отказа.
+    def _int_const(tree: ast.Module | None, name: str) -> int | None:
+        for n in (tree.body if tree is not None else []):
+            if isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant) \
+                    and type(n.value.value) is int \
+                    and any(isinstance(t, ast.Name) and t.id == name for t in n.targets):
+                return n.value.value
+        return None
+
+    dur_max = _int_const(eng_tree, "DUR_MAX")
+    pad = None
+    conflicts = next((n for n in ast.walk(by_path.get(_DB_SLOTS) or ast.Module(body=[], type_ignores=[]))
+                      if isinstance(n, ast.AsyncFunctionDef) and n.name == "_conflicts"), None)
+    for n in (ast.walk(conflicts) if conflicts is not None else []):
+        if isinstance(n, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == "pad" for t in n.targets) \
+                and isinstance(n.value, ast.Call):
+            for kw in n.value.keywords:
+                if kw.arg == "minutes" and isinstance(kw.value, ast.Constant):
+                    pad = kw.value.value
+    res.ok("потолок длительности не выходит за окно поиска соседей",
+           isinstance(dur_max, int) and isinstance(pad, int) and dur_max <= pad,
+           f"eng.DUR_MAX = {dur_max}, окно `pad` в db/slots._conflicts = {pad}: "
+           f"визит длиннее окна проверка занятости не увидит")
 
     # ---- замок брони: только через _slot_lock (08-20, аудит) ----
     # Одна точка входа у всех, кто занимает слот: появится второй процесс над

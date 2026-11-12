@@ -3,14 +3,13 @@ import { clashAmong, type Occupies } from './move'
 /**
  * Пустой час: слот, его времена и то, что нужно его диалогу.
  *
- * ⛔ Времён ДВА, и переключатель получаса двигает ровно одно. Запись бывает и
- * на половине часа (08-13, Олег: раньше 10:30 из диалога было не выбрать
- * вовсе — только нижней формой), а заметка остаётся почасовой: она блокирует
- * ЧАСЫ ПРИЁМА, как и ячейки сетки. Послать ей получас нельзя даже «на пробу»:
+ * Времён ДВА, и выбор минуты двигает ровно одно. Запись начинается в любую
+ * минуту с шагом сетки стартов, а заметка остаётся почасовой: она блокирует
+ * ЧАСЫ ПРИЁМА, как и ячейки сетки. Послать ей минуты нельзя даже «на пробу»:
  * `_add_note` берёт час как `int(ntime.split(":")[0])` и молча округлит вниз —
  * экран сказал бы «с 10:30», а в базе легла бы блокировка с 10:00.
  * ⭐ Оба времени считает ОДНА функция. Пока они считались по месту в двух
- * обработчиках отправки, «получас меняет только время записи» было
+ * обработчиках отправки, «минута меняет только время записи» было
  * НАМЕРЕНИЕМ; здесь это правило, и у него есть проверка (`slot.test.ts`).
  */
 
@@ -35,8 +34,13 @@ export interface Slot {
  */
 export interface SlotFormView {
   services: { id: string; label: string; dur?: number }[]
-  /** Длительности на выбор в «Durată» (10.11); нет поля — выбора нет. */
+  /** Быстрые значения «Durată»; нет поля — выбора нет. */
   durations?: number[]
+  /** Правило «другой» длительности: шаг и потолок, минут. */
+  dur_step?: number
+  dur_max?: number
+  /** Шаг сетки стартов, минут. */
+  step?: number
   /** Потолок поля «дата рождения» — сегодня В ЧАСАХ КЛИНИКИ. */
   birth_max: string
   /** Галочка «SMS reminder» (`day.sms_box`); нет поля — галочки нет. */
@@ -44,9 +48,9 @@ export interface SlotFormView {
 }
 
 export interface SlotTimes {
-  /** Время ЗАПИСИ: «HH:00» или «HH:30» — его и двигает переключатель. */
+  /** Время ЗАПИСИ: «HH:MM» — минуту и двигает выбор в окне. */
   atime: string
-  /** Начало ЗАМЕТКИ: целый час, про получас не знает. */
+  /** Начало ЗАМЕТКИ: целый час, про минуты не знает. */
   ntime: string
   /**
    * Часы, которыми может кончиться блокировка: только ПОЗЖЕ начала.
@@ -56,11 +60,11 @@ export interface SlotTimes {
   ends: number[]
 }
 
-export function slotTimes(hour: string, half: 0 | 30, noteEnds: number[]): SlotTimes {
+export function slotTimes(hour: string, minute: number, noteEnds: number[]): SlotTimes {
   const hh = hour.split(':')[0] ?? ''
   const start = Number(hh)
   return {
-    atime: `${hh}:${half ? '30' : '00'}`,
+    atime: `${hh}:${String(minute).padStart(2, '0')}`,
     ntime: `${hh}:00`,
     ends: noteEnds.filter((e) => e > start),
   }
@@ -69,6 +73,28 @@ export function slotTimes(hour: string, half: 0 | 30, noteEnds: number[]): SlotT
 /** Час ячейки канвы в тот же вид, что печатал сервер (`f"{h:02d}:00"`). */
 export function hourLabel(h: number): string {
   return `${String(h).padStart(2, '0')}:00`
+}
+
+/** Минуты часа, с которых может начаться запись: 0, 5, … 55 при шаге 5. */
+export function hourMinutes(step: number): number[] {
+  const out: number[] = []
+  for (let m = 0; m < 60; m += step > 0 ? step : 5) out.push(m)
+  return out
+}
+
+/**
+ * Какие старты часа заняты у врача для записи длиной `dur` — по блокам его
+ * колонки канвы, тем же `clashAmong`, что считает помеху переносу. `self` —
+ * визит, который переносят: сам себе он не помеха.
+ * Подсказка окну, а не правда: правду говорит сервер под своим замком.
+ */
+export function takenMinutes(items: Occupies[], hour: number, dur: number,
+  step: number, self = -1): Set<number> {
+  const out = new Set<number>()
+  for (const m of hourMinutes(step)) {
+    if (clashAmong(items, hour * 60 + m, dur, self) >= 0) out.add(m)
+  }
+  return out
 }
 
 /**

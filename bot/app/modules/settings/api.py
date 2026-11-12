@@ -391,9 +391,6 @@ async def api_hours_save(request: Request):
 
 # ---------- услуги ----------
 
-_DURATIONS = eng.DURATIONS      # один список с длительностью визита (10.11)
-
-
 def _services_data() -> dict:
     """Услуги для экрана: цена строкой (двуязычная
     — её RO), длительность числом (60 по умолчанию), цвет ключом палитры или
@@ -417,7 +414,9 @@ def _services_data() -> dict:
     return {
         "services": rows,
         "palette": dict(_PALETTE_RO),
-        "durations": list(_DURATIONS),
+        "durations": list(eng.DURATIONS),
+        "dur_step": eng.DUR_STEP,
+        "dur_max": eng.DUR_MAX,
         "recalls": [0, *crecall.MONTHS],
         "doctors": [{"id": d["id"], "name": d["name"]} for d in cfg["doctors"]],
     }
@@ -452,7 +451,11 @@ async def api_services_save(request: Request):
     try:
         services, seq = _val_services({"services": prepared})
         cfg = _finish_cfg(services=services, seq=seq)
-    except (ValueError, KeyError, TypeError, AttributeError):
+    except (ValueError, KeyError, TypeError, AttributeError) as e:
+        # длительность не по правилу называет себя: молчаливые 60 минут вместо
+        # присланного числа директор заметил бы только на записи
+        if isinstance(e, ValueError) and str(e) == "duration":
+            return msg_json(False, "bad_dur", status=422, field="duration")
         return msg_json(False, "bad_set", status=422)
     if eng.save_config(cfg) is not None:
         return msg_json(False, "save_err", status=500)

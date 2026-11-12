@@ -289,19 +289,46 @@ def day_slots(d: date) -> list[datetime]:
 
 # ---------- длительности и интервалы (v1.8.0) ----------
 
-GRID_STEP = 30  # шаг сетки стартов, минут
+GRID_STEP = 30  # пол высоты блока на канве, минут
 
-# Длительности, которые можно выбрать: у услуги в настройках и у визита руками
-# (окно визита и окно записи, 10.11.2026 — жалоба пилота «Consultație 15′, а
-# нужно 30′»). ⛔ Один список на оба места: разойдутся — услуга встанет на 90,
-# а визит этой услуги в 90 не поставишь (или наоборот).
-DURATIONS = (15, 30, 45, 60, 90, 120)
+# Старт записи — любая минута, кратная шагу. Свободные часы предлагаются реже
+# шага старта: список с шагом 5 был бы втрое длиннее, а услуге от четверти
+# часа точность в пять минут при подборе свободного места не нужна.
+START_STEP = 5
+OFFER_STEP = 15
+
+# Длительность — любая, кратная шагу, до потолка. Потолок привязан к окну, в
+# котором проверка занятости ищет соседей (`db/slots._conflicts`): визит
+# длиннее окна она не увидит, и поверх него легла бы запись без отказа.
+DUR_STEP = 5
+DUR_MAX = 240
+
+# Быстрые значения выбора длительности — у услуги в настройках и у визита.
+# Допустимость решает `dur_ok`, а не этот список: окна дают и «другую».
+DURATIONS = (5, 10, 15, 20, 30, 45, 60, 90, 120)
+
+
+def start_ok(dt: datetime) -> bool:
+    """Старт стоит на сетке стартов."""
+    return dt.minute % START_STEP == 0 and dt.second == 0
+
+
+def dur_ok(minutes: int) -> bool:
+    """Длительность, которую можно задать визиту или услуге. Одно правило на
+    запись, окно визита и настройки услуг: разойдутся — услуга встанет на 25
+    минут, а визит этой услуги в 25 не поставишь (или наоборот)."""
+    return DUR_STEP <= minutes <= DUR_MAX and minutes % DUR_STEP == 0
+
+
+def offer_step(duration: int) -> int:
+    """Шаг, которым предлагаются свободные старты услуги этой длительности."""
+    return START_STEP if duration < OFFER_STEP else OFFER_STEP
 
 
 def svc_duration(svc_key: str) -> int:
     """Длительность услуги в минутах (из конфига, дефолт 60)."""
     try:
-        return max(15, min(240, int(SERVICES.get(svc_key, {}).get("duration", 60))))
+        return max(DUR_STEP, min(DUR_MAX, int(SERVICES.get(svc_key, {}).get("duration", 60))))
     except (TypeError, ValueError):
         return 60
 
@@ -438,20 +465,60 @@ def is_past_day(d: date) -> bool:
     return d < datetime.now(TZ).date()
 
 
+# Сколько минут визита обязано лежать в рабочем окне при ПЕРЕНОСЕ. Не полная
+# длительность: визит уже существует, и требовать от него влезть целиком
+# значило бы отказывать в переносе тем, кого клиника принимает внахлёст с
+# закрытием (так их и записали).
+MOVE_FIT = 30
+
+
+def place_refusal(dk: str, start: datetime, minutes: int, *,
+                  moving: bool = False) -> str:
+    """Можно ли поставить визит врачу `dk` на `start` длиной `minutes`: код
+    отказа из `MSG_BANNER` или пустая строка.
+
+    Одно правило на ручную запись, перенос и любой другой вход, который ставит
+    визит на место: вторая копия разошлась бы молча, и один экран принимал бы
+    то, что другой отвергает.
+    Отвечает про врача, сетку стартов и рабочие окна. Занятость сюда не
+    входит — её атомарно проверяет `db` при вставке. Длительность, пришедшую
+    снаружи, вызывающий сверяет с `dur_ok` сам: длительность услуги из
+    профиля клиники принимается и некратной.
+
+    `moving` — визит уже существует: в окне обязаны лежать только первые
+    `MOVE_FIT` минут, а график врача проверяется и у прошедшего старта (у
+    новой записи — только у будущего: состоявшийся приём вносят постфактум,
+    а график могли сузить после него).
+    """
+    if dk not in DOCTORS:
+        return "bad"
+    if not DOCTOR_META.get(dk, {}).get("active", True):
+        return "bad_off"
+    if not start_ok(start):
+        return "bad_time"
+    need = min(minutes, MOVE_FIT) if moving else minutes
+    if not fits_clinic(start, need):
+        return "outside"
+    if (moving or not is_past(start)) and not fits_doctor(dk, start, need):
+        return "outside_doc"
+    return ""
+
+
 async def free_starts(doc_key: str, d: date, duration: int) -> list[datetime]:
-    """Свободные СТАРТЫ для услуги данной длительности: 30-мин сетка внутри
-    рабочих окон врача, интервал влезает в окно и не пересекает занятые."""
+    """Свободные СТАРТЫ для услуги данной длительности: сетка `offer_step`
+    внутри рабочих окон врача, интервал влезает в окно и не пересекает занятые."""
     now = datetime.now(TZ)
     day_start = datetime(d.year, d.month, d.day, 0, 0, tzinfo=TZ)
     day_end = day_start + timedelta(days=1)
     free: set[datetime] = set()
     busy = await db.booked_intervals(doc_key, DOCTORS.get(doc_key, ""), day_start, day_end)
+    step = timedelta(minutes=offer_step(duration))
     for w_start, w_end in _windows(doc_key, d):
         t_cur = w_start
         while t_cur + timedelta(minutes=duration) <= w_end:
             if t_cur > now and not _overlaps(t_cur, duration, busy):
                 free.add(t_cur)
-            t_cur += timedelta(minutes=GRID_STEP)
+            t_cur += step
     return sorted(free)
 
 

@@ -126,8 +126,8 @@ const MODEL: DayModel = {
   form: {
     doctors: [{ id: 'd2', name: 'Dr. Activ Doi', spec: '' },
       { id: 'd4', name: 'Dr. Activ Patru', spec: '' }],
-    times: { d2: ['09:00', '09:30', '10:00'], d4: ['14:00', '14:30'] },
-    hours: ['09:00', '09:30', '10:00', '14:00', '14:30'],
+    times: { d2: ['09:00', '10:00'], d4: ['14:00'] },
+    hours: ['09:00', '10:00', '14:00'],
     services: [{ id: 'consult', label: 'Consultație' }, { id: 'pain', label: 'Durere acută' }],
     doctor: 'd2', time: '', birth_max: '2026-09-19',
   },
@@ -555,13 +555,29 @@ describe('окно записи «Programare nouă»', () => {
   it('врачи и часы — из формы сервера, а не из колонок канвы', async () => {
     await openAdd()
     expect(Array.from(sel(1).options).map((o) => o.value)).toEqual(['d2', 'd4'])
-    expect(Array.from(sel(0).options).map((o) => o.value)).toEqual(['09:00', '09:30', '10:00'])
+    expect(Array.from(sel(0).options).map((o) => o.value)).toEqual(['09:00', '10:00'])
+  })
+
+  it('«Ora» — час, минута — кнопками шагом 5: уходит «10:05»', async () => {
+    post.mockResolvedValue(ok(MODEL))
+    await openAdd()
+    expect(Array.from(sel(0).options).map((o) => o.textContent)).toEqual(['09', '10'])
+    const mins = () => Array.from(addForm()?.querySelectorAll('.dp-minpick .mp') ?? []) as HTMLButtonElement[]
+    expect(mins()).toHaveLength(12)
+    expect(mins().some((b) => b.disabled)).toBe(false)
+    fireEvent.change(sel(0), { target: { value: '10:00' } })
+    fireEvent.click(mins()[1] as HTMLElement)
+    fireEvent.change(field('Nume pacient'), { target: { value: 'Ana Cinci' } })
+    fireEvent.change(field('Telefon'), { target: { value: '069111222' } })
+    fireEvent.submit(addForm() as HTMLFormElement)
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/schedule/appointments?date=2026-09-23',
+      expect.objectContaining({ time: '10:05', name: 'Ana Cinci' })))
   })
 
   it('смена врача переписывает часы', async () => {
     await openAdd()
     fireEvent.change(sel(1), { target: { value: 'd4' } })
-    expect(Array.from(sel(0).options).map((o) => o.value)).toEqual(['14:00', '14:30'])
+    expect(Array.from(sel(0).options).map((o) => o.value)).toEqual(['14:00'])
   })
 
   it('галочка «fără telefon» гасит поле и снимает требование', async () => {
@@ -720,7 +736,7 @@ describe('окно записи «Programare nouă»', () => {
       expect(closedHint()).toBe('Zi liberă — clinica este închisă')
       expect(goBtn().disabled).toBe(true)
       setDate(TUESDAY)
-      await waitFor(() => expect(hours()).toEqual(['09:00', '09:30', '10:00']))
+      await waitFor(() => expect(hours()).toEqual(['09:00', '10:00']))
       expect(get).toHaveBeenLastCalledWith(`/schedule/day?date=${TUESDAY}`, expect.anything())
       expect(closedHint()).toBe('')
       expect(goBtn().disabled).toBe(false)
@@ -737,7 +753,7 @@ describe('окно записи «Programare nouă»', () => {
       await open(`/admin/doctor/d2?date=${SUNDAY}#addform`)
       expect(hours()).toEqual([])
       setDate(TUESDAY)
-      await waitFor(() => expect(hours()).toEqual(['09:00', '09:30', '10:00']))
+      await waitFor(() => expect(hours()).toEqual(['09:00', '10:00']))
       expect(get).toHaveBeenLastCalledWith(`/schedule/day?date=${TUESDAY}&doctor=d2`,
         expect.anything())
     })
@@ -745,7 +761,7 @@ describe('окно записи «Programare nouă»', () => {
     it('и обратно: рабочий день → закрытый гасит кнопку; день экрана — без запроса', async () => {
       await openAdd(TUESDAY)
       fireEvent.change(sel(1), { target: { value: 'd4' } })
-      expect(hours()).toEqual(['14:00', '14:30'])
+      expect(hours()).toEqual(['14:00'])
       setDate(SUNDAY)
       await waitFor(() => expect(closedHint()).toBe('Zi liberă — clinica este închisă'))
       expect(hours()).toEqual([])
@@ -753,7 +769,7 @@ describe('окно записи «Programare nouă»', () => {
       const asked = get.mock.calls.length
       setDate(TUESDAY)
       /* выбранный врач пережил обе смены даты */
-      expect(hours()).toEqual(['14:00', '14:30'])
+      expect(hours()).toEqual(['14:00'])
       expect(get).toHaveBeenCalledTimes(asked)
     })
 
@@ -781,7 +797,7 @@ describe('окно записи «Programare nouă»', () => {
       await openAdd()
       setDate(TUESDAY)
       await waitFor(() => expect(goBtn().disabled).toBe(false))
-      expect(hours()).toEqual(['09:00', '09:30', '10:00'])
+      expect(hours()).toEqual(['09:00', '10:00'])
     })
 
     it('сервер ответил другим днём (кривая дата — «сегодня») — ответ не принят', async () => {
@@ -791,7 +807,7 @@ describe('окно записи «Programare nouă»', () => {
       await openAdd()
       setDate(TUESDAY)
       await waitFor(() => expect(goBtn().disabled).toBe(false))
-      expect(hours()).toEqual(['09:00', '09:30', '10:00'])
+      expect(hours()).toEqual(['09:00', '10:00'])
       expect(closedHint()).toBe('')
     })
   })
@@ -809,13 +825,13 @@ describe('окно свободного часа', () => {
     await openSlot()
     expect(document.querySelector('.dlg-head span')?.textContent)
       .toBe('Dr. Activ Trei — 09:00')
-    expect(document.querySelectorAll('.halfpick .hp')[0]?.className).toContain('on')
+    expect(document.querySelectorAll('.dp-minpick .mp')[0]?.className).toContain('on')
   })
 
   it('получас меняет ТОЛЬКО время записи', async () => {
     post.mockResolvedValue(ok(MODEL))
     await openSlot()
-    fireEvent.click(document.querySelectorAll('.halfpick .hp')[1] as HTMLElement)
+    fireEvent.click(document.querySelectorAll('.dp-minpick .mp')[6] as HTMLElement)
     expect(document.querySelector('.dlg-head span')?.textContent).toContain('09:30')
     fireEvent.change(document.querySelector('.dlg-form input[placeholder="Nume pacient"]') as HTMLElement,
       { target: { value: 'Ana' } })

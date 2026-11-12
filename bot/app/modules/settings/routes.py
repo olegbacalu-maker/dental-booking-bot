@@ -671,7 +671,9 @@ def _val_services(data: dict) -> tuple[list, dict]:
         if price:
             entry["price"] = price
         dur_raw = str(s.get("duration", "") or "").strip()
-        if dur_raw.isdecimal() and int(dur_raw) in (15, 30, 45, 60, 90, 120):
+        if dur_raw:
+            if not dur_raw.isdecimal() or not eng.dur_ok(int(dur_raw)):
+                raise ValueError("duration")
             if int(dur_raw) != 60:
                 entry["duration"] = int(dur_raw)  # 60 = дефолт, не пишем
         color_s = str(s.get("color", "")).strip()

@@ -5,6 +5,7 @@ import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
 import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
+import { DurField, durOk, durRule } from '../schedule/DurPick'
 import { settings, type ServiceEntry, type ServicesData } from './settings'
 
 const T = {
@@ -77,6 +78,11 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
     }
   }
 
+  const rule = durRule(data ?? {})
+  /* строка с длительностью не по правилу — сохранять нечего: сервер
+     откажет всему списку */
+  const badDur = list.some((r) => r.ro.trim() !== '' && !durOk(r.duration, rule))
+
   if (state.status === 'leaving') return null
   const head = <h2><Icon name="tooth" /> {T.title}</h2>
   if (state.status === 'failed') {
@@ -91,7 +97,7 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
           <thead>
             <tr>
               <th>{T.cols.ro}</th><th>{T.cols.ru}</th><th style={{ width: 150 }}>{T.cols.price}</th>
-              <th style={{ width: 90 }}>{T.cols.dur}</th><th style={{ width: 100 }}>{T.cols.recall}</th>
+              <th style={{ width: 120 }}>{T.cols.dur}</th><th style={{ width: 100 }}>{T.cols.recall}</th>
               <th style={{ width: 100 }}>{T.cols.color}</th>
               <th style={{ width: 40 }}><Icon name="sos" /></th><th style={{ width: 140 }}>{T.cols.docs}</th><th />
             </tr>
@@ -106,10 +112,8 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
                 <td><input type="text" value={s.price} placeholder={T.phPrice} aria-label={`${T.cols.price} ${i + 1}`}
                   maxLength={60} disabled={saving} onChange={(e) => patch(i, { price: e.target.value })} /></td>
                 <td>
-                  <select value={s.duration} aria-label={`${T.cols.dur} ${i + 1}`} disabled={saving}
-                    onChange={(e) => patch(i, { duration: Number(e.target.value) })}>
-                    {data.durations.map((d) => <option key={d} value={d}>{d} min</option>)}
-                  </select>
+                  <DurField rule={rule} value={s.duration} label={`${T.cols.dur} ${i + 1}`}
+                    disabled={saving} onPick={(n) => patch(i, { duration: n })} />
                 </td>
                 <td>
                   {/* кадр К6: заданный срок — бирюзой; белый список — сервера */}
@@ -153,7 +157,7 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
         <button type="button" className="addrow" onClick={add} disabled={data === null || saving}>{T.add}</button>
         <p className="hint">{T.hintA}<Icon name="sos" />{T.hintB}</p>
         <p className="hint">{T.hintR}</p>
-        <button className="savebtn" disabled={data === null || saving}><Icon name="save" /> {T.save}</button>
+        <button className="savebtn" disabled={data === null || saving || badDur}><Icon name="save" /> {T.save}</button>
       </form>
       {toast && <Toast tone={toast.tone} text={toast.text} onClose={closeToast} />}
     </section>

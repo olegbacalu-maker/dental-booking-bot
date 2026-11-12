@@ -574,7 +574,32 @@
 .dp-react-root .dp-card-svc .dp-card-kept { flex-basis: 100%; margin: 0; }
 /* окна записи: услуга и «Durată» одной строкой, услуга берёт остаток */
 .dp-react-root .dlg-form .dp-svcrow > select:first-child { flex: 1 1 auto; min-width: 0; width: auto; }
-.dp-react-root .dlg-form .dp-svcrow > .dp-dur { flex: 0 0 104px; width: 104px; }
+.dp-react-root .dlg-form .dp-svcrow > .dp-durf { flex: 0 0 auto; }
+.dp-react-root .dlg-form .dp-svcrow { flex-wrap: wrap; }
+/* «Durată»: список быстрых значений; строка «Altă durată…» открывает поле минут и подпись правила под ним */
+.dp-react-root .dp-durf { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.dp-react-root .dlg-form .dp-durf .dp-dur, .dp-react-root table.set .dp-durf .dp-dur { flex: 0 0 104px; width: 104px; }
+.dp-react-root .dlg-form .dp-durf.open .dp-dur, .dp-react-root table.set .dp-durf.open .dp-dur { flex-basis: 132px; width: 132px; }
+.dp-react-root .dlg-form .dp-durf .dp-dur-n, .dp-react-root table.set .dp-durf .dp-dur-n {
+  flex: 0 0 64px; width: 64px; text-align: center; font-variant-numeric: tabular-nums; }
+.dp-react-root .dp-durf .dp-dur-n[aria-invalid="true"] { border-color: var(--red); }
+.dp-react-root .dp-durf .dp-dur-rule { flex-basis: 100%; font-size: var(--fs-xs); color: var(--text3); }
+.dp-react-root .dp-durf .dp-dur-rule.bad { color: var(--red); }
+.dp-react-root .dlg-form .dp-svcrow > .dp-durf.open { flex-basis: 100%; }
+/* минута старта: двенадцать кнопок часа двумя рядами. Селектор с .dlg-form —
+   общий `.dlg-form button` красит любую кнопку окна фирменной заливкой */
+.dp-react-root .dp-minpick { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+.dp-react-root .dlg-form .dp-minpick .mp, .dp-react-root .dlg-form .dp-minpick .mp:hover {
+  height: var(--h-ctl-s); min-width: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r-ctl);
+  background: var(--panel); color: var(--text2); font-size: var(--fs-m); font-weight: 600;
+  font-variant-numeric: tabular-nums; cursor: pointer; box-shadow: none; transform: none; opacity: 1; }
+.dp-react-root .dlg-form .dp-minpick .mp:hover { border-color: var(--teal-line); color: var(--text); }
+.dp-react-root .dlg-form .dp-minpick .mp.on, .dp-react-root .dlg-form .dp-minpick .mp.on:hover {
+  background: var(--teal); border-color: var(--teal); color: var(--on-teal); }
+.dp-react-root .dlg-form .dp-minpick .mp.taken, .dp-react-root .dlg-form .dp-minpick .mp.taken:hover {
+  cursor: default; color: var(--text3); background: var(--fill); border-style: dashed;
+  text-decoration: line-through; }
+.dp-react-root .dlg-form .dp-minpick .mp.on.taken { border-color: var(--red); color: var(--red); }
 /* контурная малая кнопка и ссылка-чип (фиша, дневник, «Schimbă», «Salvează comentariul») — одна семья;
    `.strong` — фирменный контур у действия, которое человек только что заказал */
 .dp-react-root .dlg-form .dp-card-chip, .dp-react-root .dlg-form .dp-card-chip:hover, .dp-react-root .dlg-form a.dp-card-chip {

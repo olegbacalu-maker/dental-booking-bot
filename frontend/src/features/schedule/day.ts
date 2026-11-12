@@ -191,6 +191,8 @@ export interface ServiceOptions {
   /** Длительность задана руками — смена процедуры её не тронет. */
   dur_set?: boolean
   durations?: number[]
+  dur_step?: number
+  dur_max?: number
 }
 
 /** Услуга окна записи: ключ, подпись и длительность услуги (10.11) — ею
@@ -220,7 +222,8 @@ export interface StatusAction {
  *  врач остаётся колонкой, пока у него есть записи, а записать в него нельзя. */
 export interface DayForm {
   doctors: DayColumn[]
-  /** Часы по врачам; пустое окно врача подменено часами клиники. */
+  /** Часы («HH:00») по врачам; минуту окно выбирает само с шагом `step`.
+   *  Пустое окно врача подменено часами клиники. */
   times: Record<string, string[]>
   /** Часы клиники — ими живёт форма, когда активных врачей нет вовсе. */
   hours: string[]
@@ -228,6 +231,11 @@ export interface DayForm {
   /** Длительности на выбор в «Durată» (10.11, `eng.DURATIONS`); нет поля —
    *  выбора нет, визит берёт длительность услуги. */
   durations?: number[]
+  /** Правило «другой» длительности: шаг и потолок, минут. */
+  dur_step?: number
+  dur_max?: number
+  /** Шаг сетки стартов, минут. */
+  step?: number
   doctor: string
   time: string
   birth_max: string

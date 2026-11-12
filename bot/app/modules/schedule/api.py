@@ -38,6 +38,7 @@ from ...core.layout import msg_json
 from ...core.visits import (_collect_cards, _parse_date, all_status_actions, my_scope,
                             of_doctor, service_options)
 from . import chair as pchair
+from . import day as pday
 from . import panel as ppanel
 from .routes import (_AG_CLS, _add_appt, _add_note, _canvas_model, _chair_doctor,
                      _day_model, _move_appt, _notice, _panel_live, _set_comment,
@@ -371,7 +372,7 @@ async def api_service_options(request: Request, appt_id: int):
                                 "options": service_options(cur),
                                 "dur": int(cur["duration_min"] or 60),
                                 "dur_set": bool(cur["duration_set"]),
-                                "durations": list(eng.DURATIONS)})
+                                **pday.dur_choice()})
 
 
 @router.post("/api/schedule/appointments/{appt_id}/service")
