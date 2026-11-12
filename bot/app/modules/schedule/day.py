@@ -16,7 +16,8 @@ from ... import engine as eng
 from ...core import sms_loop
 from ...core.auth import PERM_SMS, can, request_user
 from ...core.layout import _DOW_FULL, _DOW_ORDER, STATUS_LABEL
-from ...core.visits import _age, all_status_actions, call_fields, list_rows, service_fields
+from ...core.visits import (_age, all_status_actions, call_fields, list_rows,
+                            room_fields, service_fields)
 
 
 def day_title(d: date) -> str:
@@ -118,7 +119,8 @@ def form_spec(d: date, items: list, sel_doctor: str = "",
              for dk, _n in items}
     cur = sel_doctor if sel_doctor in times else (items[0][0] if items else "")
     return {
-        "doctors": [{"id": dk, "name": name} for dk, name in items],
+        "doctors": [{"id": dk, "name": name, "rooms": eng.room_list(dk)}
+                    for dk, name in items],
         "times": times,
         # часы клиники: ими подменяется пустое окно врача, ими же живёт форма,
         # когда активных врачей нет вовсе
@@ -252,6 +254,7 @@ def appt_view(r, dk: str, cards: dict | None, colors) -> dict:
         # процедура и на что её сменить (22.10) — тем же правилом, что у
         # карточки дня: окно визита у панели и дня одно
         **service_fields(r),
+        **room_fields(r),
         "clickable": bool(cards is not None and r["id"] in cards),
         "bg": bg, "bar": bar,
         # перетаскивание — одними полями на панель и «Programări». `busy` —

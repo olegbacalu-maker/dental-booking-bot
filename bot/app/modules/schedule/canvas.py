@@ -197,8 +197,12 @@ def _tip(r: dict) -> str:
     dur = int(r.get("duration_min") or 60)
     word = (STATUS_LABEL.get(r["status"], r["status"])
             if r["status"] != "confirmed" else "")
+    # на узком блоке подсказка — единственное место, где кабинет назван
+    room = (eng.room_name(eng.appt_room(r))
+            if len(eng.doctor_rooms(r.get("doctor_id"))) > 1 else "")
     return (f"{st.strftime('%H:%M')} · {dur}′ · {r['service']}"
-            f" · {r['name'] or '—'}" + (f" · {word}" if word else ""))
+            f" · {r['name'] or '—'}" + (f" · {room}" if room else "")
+            + (f" · {word}" if word else ""))
 
 
 def blocks(rows: list, col_dk: str, base_min: int, cards, colors) -> list[dict]:
@@ -258,6 +262,8 @@ def _column(d: date, dk: str, name: str, by_col: dict, live: list,
     cap = eng.work_minutes(dk, d)
     busy = sum(int(r.get("duration_min") or 60) for r in mine)
     work = eng.doctor_hours(dk, d)
+    rooms = eng.room_list(dk)
+    room = ", ".join(x["name"] for x in rooms)
     return {
         "key": key, "id": dk, "name": name, "orphan": False,
         "spec": eng.DOCTOR_SPEC.get(dk, "") or "",
@@ -273,7 +279,8 @@ def _column(d: date, dk: str, name: str, by_col: dict, live: list,
         # подсказки: регистратура наводится на карточку именно ради номера
         # кабинета. Ветка `if meta.get("room")` пуста на демо-профиле, поэтому
         # у разработчика всё выглядит целым и без них.
-        "room": meta.get("room", "") or "", "phone": meta.get("phone", "") or "",
+        "rooms": rooms,
+        "room": room, "phone": meta.get("phone", "") or "",
         # ⛔ Считает ПАЦИЕНТОВ: заметка стойки занимает час, но «N prog.» её не
         # видит. Свести к одному списку — и число разойдётся с «Lista zilei»
         # на том же экране.
@@ -287,7 +294,7 @@ def _column(d: date, dk: str, name: str, by_col: dict, live: list,
         # Обрезается только ШИРИНА полосы — это дело рисовальщика.
         "occupancy": ({"busy": busy, "cap": cap, "pct": round(100 * busy / cap)}
                       if cap else None),
-        "title": " · ".join(x for x in [name, meta.get("room", ""),
+        "title": " · ".join(x for x in [name, room,
                                         meta.get("phone", "")] if x),
         # ⛔ Час принимает клик и перетащенный визит по ОДНОМУ признаку —
         # приёмному часу этого врача (`eng.doctor_hours`, её же спрашивает
@@ -311,7 +318,7 @@ def _orphan_column(key: str, by_col: dict, live: list, hours: list[int],
     return {
         "key": key, "id": None, "name": name, "orphan": True,
         "spec": "", "off": True, "hue": _ORPHAN_HUE,
-        "photo": "", "initials": _initials(name),
+        "photo": "", "initials": _initials(name), "rooms": [],
         "count": len(mine), "free": None, "occupancy": None, "title": "",
         "cells": [False] * len(hours),
         "blocks": blocks(by_col.get(key, []), "", base_min, cards, colors),

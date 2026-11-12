@@ -113,7 +113,11 @@ _OLD_ACT = "('confirmed','arrived')"
 # константой она не имеет права — иначе однажды опишет то, чего не бывало.
 _WIDE_ACT = "('confirmed','waiting','arrived')"
 
-_UQ = ("uq_doctor_slot", "uq_patient_slot", "uq_doctor_slot_id")
+_UQ = ("uq_doc_room_slot", "uq_patient_slot", "uq_docid_room_slot")
+
+# Имена, под которыми индексы врача жили до кабинета в ключе: такими они лежат
+# в базе клиники до шага 11, и такими их описывают фикстуры «как было».
+_UQ_OLD = ("uq_doctor_slot", "uq_patient_slot", "uq_doctor_slot_id")
 
 # Куда обязана доехать ЛЮБАЯ база после старта. Из константы, а не числом:
 # число здесь пришлось бы править при каждом новом шаге миграции, и правка
@@ -226,7 +230,7 @@ def _v2_db(dbfile: pathlib.Path) -> sqlite3.Connection:
     """База клиники, застрявшей на ВЕРСИИ 2: индексы по имени врача и по
     пациенту уже узкие, а uq_doctor_slot_id ещё НЕТ — его кладёт шаг 3."""
     con = _base_db(dbfile)
-    for name in _UQ:
+    for name in _UQ_OLD:
         con.execute(f"DROP INDEX IF EXISTS {name}")
     con.execute(f"""CREATE UNIQUE INDEX uq_doctor_slot
         ON appointments(doctor, starts_at) WHERE status IN {_OLD_ACT}""")
@@ -243,7 +247,7 @@ def _v0_db(dbfile: pathlib.Path) -> sqlite3.Connection:
     `status='confirmed'`, ещё уже запасного, и без uq_doctor_slot_id (его завёл
     шаг 3). Пару confirmed+arrived такой индекс пропускал — в этом и дыра."""
     con = _base_db(dbfile)
-    for name in _UQ:
+    for name in _UQ_OLD:
         con.execute(f"DROP INDEX IF EXISTS {name}")
     con.execute("""CREATE UNIQUE INDEX uq_doctor_slot
         ON appointments(doctor, starts_at) WHERE status='confirmed'""")
@@ -264,7 +268,7 @@ def _v1200_db(dbfile: pathlib.Path) -> sqlite3.Connection:
     которой мы только собираемся её довести.
     """
     con = _base_db(dbfile)
-    for name in _UQ:
+    for name in _UQ_OLD:
         con.execute(f"DROP INDEX IF EXISTS {name}")
     con.execute(f"""CREATE UNIQUE INDEX uq_doctor_slot
         ON appointments(doctor, starts_at) WHERE status IN {_WIDE_ACT}""")
@@ -292,6 +296,27 @@ def _v3_db(dbfile: pathlib.Path) -> sqlite3.Connection:
     con.execute("INSERT INTO schema_meta(key, value) VALUES('version', '3')")
     con.execute("INSERT INTO schema_meta(key, value) VALUES('act_backfill', '1')")
     return con
+
+
+def _room_idx(con: sqlite3.Connection, act: str) -> None:
+    """Слотовые индексы под нынешними именами (кабинет в ключе) с предикатом
+    `act` — база, уже прошедшая шаг 11. Текст свой, а не из `_uq_slot_sql`:
+    фикстура описывает состояние и за константой не уезжает."""
+    for name in (*_UQ, *_UQ_OLD):
+        con.execute(f"DROP INDEX IF EXISTS {name}")
+    for coldef in ("room_id TEXT", "room TEXT NOT NULL DEFAULT ''"):
+        try:
+            con.execute(f"ALTER TABLE appointments ADD COLUMN {coldef}")
+        except sqlite3.OperationalError:
+            pass                                  # колонка уже есть
+    con.execute(f"""CREATE UNIQUE INDEX uq_doc_room_slot
+        ON appointments(doctor, COALESCE(room_id, ''), starts_at)
+        WHERE status IN {act}""")
+    con.execute(f"""CREATE UNIQUE INDEX uq_patient_slot
+        ON appointments(patient_id, starts_at) WHERE status IN {act}""")
+    con.execute(f"""CREATE UNIQUE INDEX uq_docid_room_slot
+        ON appointments(doctor_id, COALESCE(room_id, ''), starts_at)
+        WHERE status IN {act} AND doctor_id IS NOT NULL""")
 
 
 def suite_v4(res: Result) -> None:
@@ -322,7 +347,7 @@ def suite_v4(res: Result) -> None:
         res.check(f"база с версии 3 домигрирована до {_VER}", ver, _VER)
 
         idx = _index_sql(dbfile)
-        for name in ("uq_doctor_slot", "uq_patient_slot", "uq_doctor_slot_id"):
+        for name in ("uq_doc_room_slot", "uq_patient_slot", "uq_docid_room_slot"):
             res.ok(f"{name} покрывает 'waiting'", "waiting" in idx.get(name, ""),
                    f"предикат остался старым: {idx.get(name)!r}")
         # ⚠️ Метка незавершённости на чистой базе не имеет права остаться: она
@@ -347,8 +372,8 @@ def suite_v4(res: Result) -> None:
         idx = _index_sql(dbfile)
         res.ok("повторный старт не откатывает предикат",
                all("waiting" in idx.get(n, "")
-                   for n in ("uq_doctor_slot", "uq_patient_slot",
-                             "uq_doctor_slot_id")),
+                   for n in ("uq_doc_room_slot", "uq_patient_slot",
+                             "uq_docid_room_slot")),
                f"индексы после рестарта: {idx!r}")
     finally:
         _rmtree_settled(work)
@@ -541,13 +566,13 @@ def suite_v2_conflict(res: Result) -> None:
 
         res.check(f"версия схемы доведена до {_VER}", _meta(dbfile, "version"), _VER)
         idx = _index_sql(dbfile)
-        for name in ("uq_doctor_slot", "uq_patient_slot"):
+        for name in ("uq_doc_room_slot", "uq_patient_slot"):
             sql = idx.get(name, "")
             res.ok(f"{name} лёг ШИРОКИМ: конфликт был не у него",
                    "waiting" in sql,
                    f"ступень опущена всем троим ради одного: {sql!r}")
-        sql = idx.get("uq_doctor_slot_id", "")
-        res.ok("uq_doctor_slot_id лёг узким: под широким он не ложится",
+        sql = idx.get("uq_docid_room_slot", "")
+        res.ok("uq_docid_room_slot лёг узким: под широким он не ложится",
                "confirmed" in sql and "waiting" not in sql,
                f"защиты нет или она шире данных: {sql!r}")
         # ⭐ И то же поведением: индекс, который существует, но ничего не
@@ -665,7 +690,7 @@ def suite_from_1200(res: Result) -> None:
     ⛔ Главный вопрос круга: обновление не имеет права УМЕНЬШИТЬ защиту, которая
     у клиники работала. Ступень лестницы, выбранная одна на все три индекса,
     делала ровно это: конфликт под широким предикатом есть только у
-    `uq_doctor_slot_id` (переименованный врач), но опускались на запасную
+    `uq_docid_room_slot` (переименованный врач), но опускались на запасную
     ступень все три — и база уходила с обновления с тремя УЗКИМИ. Замер до и
     после в одном прогоне это и ловит: «отбито» обязано остаться «отбито».
 
@@ -717,12 +742,12 @@ def suite_from_1200(res: Result) -> None:
                "ступень опустили всем троим")
         idx = _index_sql(dbfile)
         res.ok("широкие индексы остались широкими",
-               "waiting" in idx.get("uq_doctor_slot", "")
+               "waiting" in idx.get("uq_doc_room_slot", "")
                and "waiting" in idx.get("uq_patient_slot", ""),
                f"предикат сузился: {idx!r}")
         res.ok("третий индекс лёг тем, чем смог — узким",
-               "confirmed" in idx.get("uq_doctor_slot_id", "")
-               and "waiting" not in idx.get("uq_doctor_slot_id", ""),
+               "confirmed" in idx.get("uq_docid_room_slot", "")
+               and "waiting" not in idx.get("uq_docid_room_slot", ""),
                f"недостающая проверка не появилась вовсе: {idx!r}")
         res.ok("третья проверка не просто существует, а стережёт",
                _blocked(dbfile, 3, "Dr. Oarecare", at, "confirmed", "d2"),
@@ -778,8 +803,9 @@ def suite_selfheal_narrow(res: Result) -> None:
     work = pathlib.Path(tempfile.mkdtemp(prefix="dp_mig_heal_n_"))
     try:
         dbfile = work / "dental.db"
-        con = _v3_db(dbfile)                    # три УЗКИХ индекса
-        con.execute("UPDATE schema_meta SET value='4' WHERE key='version'")
+        con = _v3_db(dbfile)
+        _room_idx(con, _OLD_ACT)                # три УЗКИХ индекса
+        con.execute("UPDATE schema_meta SET value=? WHERE key='version'", (_VER,))
         _patients(con, "Ion Test", "Maria Test", "Vasile Test")
         con.execute(_APPT_SQL, (1, "Dr. Activ Doi", at, "confirmed", "d2"))
         con.commit()
@@ -797,7 +823,7 @@ def suite_selfheal_narrow(res: Result) -> None:
 
         res.ok("старт расширил защиту",
                _blocked(dbfile, 2, "Dr. Activ Doi", at, "waiting", "dX"),
-               "версия схемы 4, метки нет — и предикат никто не сверил")
+               "версия схемы нынешняя, метки нет — и предикат никто не сверил")
         events = _activity(dbfile, "uq_guard")
         res.check("расширение отмечено в летописи один раз", len(events), 1)
         res.ok("летопись НЕ говорит, что проверки пропадали",
@@ -816,7 +842,7 @@ def suite_selfheal_narrow(res: Result) -> None:
 
 
 def suite_selfheal(res: Result) -> None:
-    """База версии 4 БЕЗ слотовых индексов и БЕЗ метки.
+    """База нынешней версии БЕЗ слотовых индексов и БЕЗ метки.
 
     Пока `CREATE UNIQUE INDEX IF NOT EXISTS` стоял в базовой схеме, у страховки
     было самолечение: пропавший индекс возвращался при каждом старте. У
@@ -835,7 +861,7 @@ def suite_selfheal(res: Result) -> None:
         con = _base_db(dbfile)                 # базовая схема слотовых uq не кладёт
         _patients(con, "Ion Test", "Maria Test")
         con.execute(_APPT_SQL, (1, "Dr. Activ Doi", at, "confirmed", "d2"))
-        con.execute("INSERT INTO schema_meta(key, value) VALUES('version', '4')")
+        con.execute("INSERT INTO schema_meta(key, value) VALUES('version', ?)", (_VER,))
         con.execute("INSERT INTO schema_meta(key, value) VALUES('act_backfill', '1')")
         con.commit()
         con.close()
@@ -848,7 +874,7 @@ def suite_selfheal(res: Result) -> None:
 
         res.ok("старт восстановил защиту слота",
                _blocked(dbfile, 2, "Dr. Activ Doi", at, "confirmed", "d2"),
-               "версия схемы 4, метки нет — и состояние индексов никто не "
+               "версия схемы нынешняя, метки нет — и состояние индексов никто не "
                "спросил: картотека работает день без страховки слота")
         idx = _index_sql(dbfile)
         res.ok("легли все три индекса, широкие",
@@ -944,7 +970,7 @@ def suite_slot_guard_no_data(res: Result) -> None:
 
         idx = _index_sql(dbfile)
         res.ok("прежние узкие индексы остались на месте",
-               all(n in idx and "waiting" not in idx[n] for n in _UQ),
+               all(n in idx and "waiting" not in idx[n] for n in _UQ_OLD),
                f"подделка отказа не сработала, набор ничего не проверяет: {idx!r}")
         res.ok("баннер не выдумывает конфликтных часов",
                "există ore cu mai multe programări active" not in body,
@@ -977,7 +1003,7 @@ def suite_uq_apply_fails(res: Result) -> None:
         dbfile = work / "dental.db"
         con = _v3_db(dbfile)
         con.execute("DROP INDEX uq_doctor_slot_id")
-        con.execute("CREATE TABLE uq_doctor_slot_id(x)")
+        con.execute("CREATE TABLE uq_docid_room_slot(x)")
         _patients(con, "Ion Test")
         con.commit()
         con.close()
@@ -1045,7 +1071,7 @@ def suite_uq_apply_fails(res: Result) -> None:
         dbfile = work / "dental.db"
         con = _v3_db(dbfile)
         con.execute("DROP INDEX uq_doctor_slot")
-        con.execute("CREATE TABLE uq_doctor_slot(x)")   # тот же способ подделки
+        con.execute("CREATE TABLE uq_doc_room_slot(x)")   # тот же способ подделки
         _patients(con, "Ion Test")
         con.execute(_APPT_SQL, (1, "Dr. Activ Doi", at, "confirmed", "d2"))
         con.commit()
@@ -1056,7 +1082,7 @@ def suite_uq_apply_fails(res: Result) -> None:
 
         idx = _index_sql(dbfile)
         res.ok("индексы, которых отказ не касался, остались",
-               "uq_patient_slot" in idx and "uq_doctor_slot_id" in idx,
+               "uq_patient_slot" in idx and "uq_docid_room_slot" in idx,
                f"снесены все три ради одного, который не лёг: {idx!r}")
         res.ok("уцелевшая защита работает",
                _blocked(dbfile, 1, "Dr. Altul", at, "confirmed", "dX"),
@@ -1154,8 +1180,9 @@ def suite_uq_all_gone(res: Result) -> None:
     try:
         dbfile = work / "dental.db"
         con = _v3_db(dbfile)
-        for name in _UQ:
+        for name in _UQ_OLD:
             con.execute(f"DROP INDEX {name}")
+        for name in _UQ:
             con.execute(f"CREATE TABLE {name}(x)")
         _patients(con, "Ion Test")
         con.commit()
@@ -1221,7 +1248,7 @@ def suite_uq_state_unreadable(res: Result) -> None:
 
         idx = _index_sql(dbfile)
         res.ok("индексы на месте — подделка ничего не сломала",
-               all(n in idx for n in _UQ),
+               all(n in idx for n in _UQ_OLD),
                f"набор проверяет не то состояние, о котором говорит: {idx!r}")
         res.ok("защита в базе РАБОТАЕТ",
                _blocked(dbfile, 2, "Dr. Activ Doi", at, "confirmed", "dX"),
@@ -1353,8 +1380,9 @@ def suite_uq_gone_still_blocks(res: Result) -> None:
         con = _v3_db(dbfile)
         # тот же приём, что в suite_uq_all_gone: ТАБЛИЦЫ с именами индексов —
         # CREATE UNIQUE INDEX падает на каждой, и в базе не остаётся ни одной
-        for name in _UQ:
+        for name in _UQ_OLD:
             con.execute(f"DROP INDEX {name}")
+        for name in _UQ:
             con.execute(f"CREATE TABLE {name}(x)")
         con.commit()
         con.close()
@@ -1934,3 +1962,264 @@ def suite_v10_retry_crypt(res: Result) -> None:
     finally:
         _rmtree_settled(tmp)
 
+
+
+_APPT_ROOM_SQL = ("INSERT INTO appointments(patient_id, service, doctor, starts_at, "
+                  "status, source, created_at, doctor_id, room_id) "
+                  "VALUES(?, 'Consultație', ?, ?, ?, 'admin', "
+                  "'2026-01-10T08:05:00+00:00', ?, ?)")
+
+
+def _blocked_room(dbfile: pathlib.Path, *args) -> bool:
+    """Как `_blocked`, но запись несёт кабинет."""
+    con = sqlite3.connect(str(dbfile))
+    try:
+        con.execute(_APPT_ROOM_SQL, args)
+        return False
+    except sqlite3.IntegrityError:
+        return True
+    finally:
+        con.rollback()
+        con.close()
+
+
+def _v10_db(dbfile: pathlib.Path) -> sqlite3.Connection:
+    """База клиники на версии 10: три ШИРОКИХ слотовых индекса под прежними
+    именами (кабинета в ключе нет), колонок кабинета у записи ещё нет."""
+    con = _base_db(dbfile)
+    for coldef in ("doctor TEXT NOT NULL DEFAULT ''", "surfaces TEXT NOT NULL DEFAULT ''",
+                   "surface_states TEXT NOT NULL DEFAULT ''", "marks TEXT NOT NULL DEFAULT ''"):
+        con.execute(f"ALTER TABLE teeth ADD COLUMN {coldef}")
+    for sql in (*appdb.SAN_DDL, *appdb.SAN_PEOPLE_DDL):
+        con.execute(sql)
+    _old_wide_idx(con)
+    con.execute("INSERT INTO schema_meta(key, value) VALUES('version', '10')")
+    con.execute("INSERT INTO schema_meta(key, value) VALUES('teeth_hist_since', '2026-10-25T10:00:00+00:00')")
+    con.execute("INSERT INTO schema_meta(key, value) VALUES('act_backfill', '1')")
+    return con
+
+
+def _old_wide_idx(con) -> None:
+    """Индексы врача, какими их клала программа до шага 11 (и какими их вернёт
+    старая версия после отката)."""
+    con.execute(f"""CREATE UNIQUE INDEX uq_doctor_slot
+        ON appointments(doctor, starts_at) WHERE status IN {_WIDE_ACT}""")
+    con.execute(f"""CREATE UNIQUE INDEX IF NOT EXISTS uq_patient_slot
+        ON appointments(patient_id, starts_at) WHERE status IN {_WIDE_ACT}""")
+    con.execute(f"""CREATE UNIQUE INDEX uq_doctor_slot_id
+        ON appointments(doctor_id, starts_at)
+        WHERE status IN {_WIDE_ACT} AND doctor_id IS NOT NULL""")
+
+
+def suite_v11_rooms(res: Result) -> None:
+    """Шаг 11: индексы врача получают кабинет в ключе, прежние два снимаются.
+
+    Три вопроса. Обычная база версии 10 доезжает молча и защиту не теряет.
+    Шаг переживает ПОВТОР — и по базе, где он оборвался посередине (новый
+    индекс лёг, прежний ещё не снят), и по базе, где у врача уже стоит пара
+    записей на один час в двух кабинетах: старт обязан пройти, а пара —
+    остаться законной. И след отката: старая версия программы кладёт прежние
+    индексы обратно — нынешняя снимает их снова, без строки в летописи.
+    """
+    tz = ZoneInfo("Europe/Chisinau")
+    at = datetime(2026, 1, 21, 9, 0, tzinfo=tz).astimezone(
+        timezone.utc).isoformat(timespec="seconds")
+    work = pathlib.Path(tempfile.mkdtemp(prefix="dp_mig_v11_"))
+    try:
+        dbfile = work / "dental.db"
+        con = _v10_db(dbfile)
+        _patients(con, "Ion Test", "Maria Test", "Vasile Test")
+        con.execute(_APPT_SQL, (1, "Dr. Activ Doi", at, "confirmed", "d2"))
+        con.commit()
+        con.close()
+        res.ok("до обновления второй визит врачу на тот же час отбит базой",
+               _blocked(dbfile, 2, "Dr. Activ Doi", at, "confirmed", "d2"),
+               "фикстура не воспроизводит рабочую защиту")
+
+        with Server(dir_=work) as s:
+            body = _slot(Client(s.url).login())
+        res.check(f"версия схемы доведена до {_VER}", _meta(dbfile, "version"), _VER)
+        idx = _index_sql(dbfile)
+        res.check("в базе ровно три слотовых индекса — под новыми именами",
+                  sorted(idx), sorted(_UQ))
+        res.ok("у обоих индексов врача кабинет в ключе",
+               all("room_id" in idx.get(n, "") for n in ("uq_doc_room_slot", "uq_docid_room_slot")),
+               f"{idx!r}")
+        res.ok("индекс пациента кабинета не знает", "room_id" not in idx.get("uq_patient_slot", ""),
+               f"{idx.get('uq_patient_slot')!r}")
+        res.ok("все три широкие", all("waiting" in idx.get(n, "") for n in _UQ), f"{idx!r}")
+        res.check("метки незавершённости нет", _meta(dbfile, "uq_waiting_pending"), None)
+        res.check("обычная миграция не пишет в летопись", len(_activity(dbfile, "uq_guard")), 0)
+        res.ok("баннера нет", "Protecția împotriva programărilor duble" not in body, "")
+
+        res.ok("запись без кабинета на занятый час по-прежнему отбита базой",
+               _blocked(dbfile, 2, "Dr. Activ Doi", at, "waiting", "d2"),
+               "шаг 11 снял защиту у клиники, где кабинетов нет")
+        res.ok("тот же кабинет на тот же час отбит базой",
+               _blocked_room(dbfile, 2, "Dr. Activ Doi", at, "confirmed", "d2", None),
+               "NULL и NULL в ключе не сравнялись")
+        res.ok("другой кабинет на тот же час база пропускает",
+               not _blocked_room(dbfile, 2, "Dr. Activ Doi", at, "confirmed", "d2", "r-3"),
+               "прежний индекс врача остался и запрещает второй кабинет")
+        res.ok("пациент на тот же час в другом кабинете отбит своим индексом",
+               _blocked_room(dbfile, 1, "Dr. Activ Doi", at, "confirmed", "d2", "r-3"), "")
+
+        # оборванный шаг: новые индексы легли, прежние ещё не сняты, версия 10
+        con = sqlite3.connect(str(dbfile))
+        _old_wide_idx(con)
+        con.execute("UPDATE schema_meta SET value='10' WHERE key='version'")
+        con.commit()
+        con.close()
+        with Server(dir_=work):
+            pass
+        res.check("повтор оборванного шага: версия доведена, прежние индексы сняты",
+                  (_meta(dbfile, "version"), sorted(_index_sql(dbfile))), (_VER, sorted(_UQ)))
+        res.check("повтор шага в летопись не пишет", len(_activity(dbfile, "uq_guard")), 0)
+
+        # у врача пара записей на один час в двух кабинетах
+        con = sqlite3.connect(str(dbfile))
+        con.execute(_APPT_ROOM_SQL, (2, "Dr. Activ Doi", at, "confirmed", "d2", "r-3"))
+        con.commit()
+        con.close()
+        cookie = _schema_cookie(dbfile)
+        with Server(dir_=work) as s:
+            body = _slot(Client(s.url).login())
+        res.check("база с параллельной парой: повторный старт индексы не трогает",
+                  _schema_cookie(dbfile), cookie)
+        res.check("метки нет, баннера нет",
+                  (_meta(dbfile, "uq_waiting_pending"),
+                   "Protecția împotriva programărilor duble" in body), (None, False))
+        con = sqlite3.connect(str(dbfile))
+        con.execute("UPDATE schema_meta SET value='10' WHERE key='version'")
+        con.commit()
+        con.close()
+        with Server(dir_=work) as s:
+            body = _slot(Client(s.url).login())
+        res.check("повтор шага 11 по базе с параллельной парой: старт прошёл, пара цела",
+                  (_meta(dbfile, "version"), _meta(dbfile, "uq_waiting_pending"),
+                   sorted(_index_sql(dbfile)),
+                   "Protecția împotriva programărilor duble" in body),
+                  (_VER, None, sorted(_UQ), False))
+        con = sqlite3.connect(str(dbfile))
+        pair = con.execute("SELECT count(*) FROM appointments WHERE starts_at = ? "
+                           "AND status = 'confirmed'", (at,)).fetchone()[0]
+        con.close()
+        res.check("обе записи пары на месте", pair, 2)
+        res.check("летопись пуста: чинить было нечего", len(_activity(dbfile, "uq_guard")), 0)
+
+        # след отката: старая версия вернула прежний индекс (по имени врача её
+        # CREATE на паре падает; по doctor_id у легаси-пары без id — ложится)
+        con = sqlite3.connect(str(dbfile))
+        con.execute("DELETE FROM appointments WHERE room_id = 'r-3'")
+        _old_wide_idx(con)
+        con.commit()
+        con.close()
+        with Server(dir_=work):
+            pass
+        res.check("после отката и возврата прежние индексы снова сняты",
+                  sorted(_index_sql(dbfile)), sorted(_UQ))
+        res.check("снятие прежних индексов — не починка, строки в летописи нет",
+                  len(_activity(dbfile, "uq_guard")), 0)
+    finally:
+        _rmtree_settled(work)
+
+    # конфликт под НОВЫМ ключом: две записи без кабинета на один час (пару
+    # пропустил узкий предикат). Новый индекс ложится узким, прежний узкий
+    # снимается, директор видит, что развести, — как на шаге 4.
+    work = pathlib.Path(tempfile.mkdtemp(prefix="dp_mig_v11c_"))
+    try:
+        dbfile = work / "dental.db"
+        con = _v10_db(dbfile)
+        for name in _UQ_OLD:
+            con.execute(f"DROP INDEX IF EXISTS {name}")
+        con.execute(f"""CREATE UNIQUE INDEX uq_doctor_slot
+            ON appointments(doctor, starts_at) WHERE status IN {_OLD_ACT}""")
+        con.execute(f"""CREATE UNIQUE INDEX uq_patient_slot
+            ON appointments(patient_id, starts_at) WHERE status IN {_OLD_ACT}""")
+        con.execute(f"""CREATE UNIQUE INDEX uq_doctor_slot_id
+            ON appointments(doctor_id, starts_at)
+            WHERE status IN {_OLD_ACT} AND doctor_id IS NOT NULL""")
+        _patients(con, "Ion Test", "Maria Test")
+        con.execute(_APPT_SQL, (1, "Dr. Activ Doi", at, "confirmed", "d2"))
+        con.execute(_APPT_SQL, (2, "Dr. Activ Doi", at, "waiting", "d2"))
+        con.commit()
+        con.close()
+        with Server(dir_=work) as s:
+            res.ok("шаг 11 на базе с двойным часом не роняет старт", True)
+            body = _slot(Client(s.url).login())
+        idx = _index_sql(dbfile)
+        res.check(f"версия доведена до {_VER}", _meta(dbfile, "version"), _VER)
+        res.ok("новые индексы врача легли узкими — защита не слабее прежней",
+               all(n in idx and "confirmed" in idx[n] and "waiting" not in idx[n]
+                   for n in ("uq_doc_room_slot", "uq_docid_room_slot")), f"{idx!r}")
+        res.ok("узкая защита работает",
+               _blocked(dbfile, 2, "Dr. Activ Doi", at, "arrived", "d2"), f"{idx!r}")
+        res.check("метка незавершённости стоит",
+                  _meta(dbfile, "uq_waiting_pending") is not None, True)
+        res.ok("директору назван час, который развести",
+               "<b>Medic:</b> Dr. Activ Doi · 21.01.2026 09:00 · 2 programări" in body, body[:300])
+    finally:
+        _rmtree_settled(work)
+
+
+def suite_v11_rooms_crypt(res: Result) -> None:
+    """Шаг 11 на зашифрованной картотеке (sqlcipher3): индексы с выражением в
+    ключе кладутся и перекладываются тем же сторожем, прежние снимаются."""
+    from app.core import dbkey  # noqa: E402
+    import sqlcipher3.dbapi2 as sqlcipher  # noqa: E402
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_mig_v11x_"))
+    try:
+        key = dbkey.generate()
+        if not dbkey.store(key, tmp):
+            res.failed.append(("ключ не сохранился под DPAPI", "не Windows или DPAPI отказал"))
+            return
+        dbfile = tmp / "dental.db"
+
+        def crypt():
+            con = sqlcipher.connect(str(dbfile))
+            con.execute(f"PRAGMA key = {dbkey.pragma_value(key)}")
+            return con
+
+        def state(con) -> tuple:
+            return (con.execute("SELECT value FROM schema_meta WHERE key='version'").fetchone()[0],
+                    sorted(r[0] for r in con.execute(
+                        "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'uq_%'")))
+
+        with Server(dir_=tmp):
+            pass
+        con = crypt()
+        try:
+            res.check("свежая зашифрованная база — версия и новые имена индексов",
+                      state(con), (_VER, sorted(_UQ)))
+            # назад, к базе до шага 11: прежние имена, версия 10
+            for name in _UQ:
+                con.execute(f"DROP INDEX {name}")
+            _old_wide_idx(con)
+            con.execute("UPDATE schema_meta SET value = '10' WHERE key = 'version'")
+            con.commit()
+        finally:
+            con.close()
+        day = (clinic_today() + timedelta(days=1)).isoformat()
+        with Server(dir_=tmp) as s:
+            c = Client(s.url).login()
+            res.check("шаг 11 на зашифрованной базе: старт прошёл, запись работает",
+                      add_appt(c, day, "10:00", "Ion Cifrat", "022111333", "d2").msg, "ok")
+            res.check("вторая запись врачу без кабинетов на тот же час — conflict",
+                      add_appt(c, day, "10:00", "Alt Cifrat", "022111444", "d2").msg, "conflict")
+        con = crypt()
+        try:
+            res.check("версия доведена, прежние индексы сняты", state(con), (_VER, sorted(_UQ)))
+            res.check("повторный шаг (версия снова 10) — без отказа",
+                      con.execute("UPDATE schema_meta SET value = '10' WHERE key = 'version'").rowcount, 1)
+            con.commit()
+        finally:
+            con.close()
+        with Server(dir_=tmp):
+            pass
+        con = crypt()
+        try:
+            res.check("после повтора — то же состояние", state(con), (_VER, sorted(_UQ)))
+        finally:
+            con.close()
+    finally:
+        _rmtree_settled(tmp)

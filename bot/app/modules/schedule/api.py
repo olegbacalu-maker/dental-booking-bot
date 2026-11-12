@@ -41,8 +41,8 @@ from . import chair as pchair
 from . import panel as ppanel
 from .routes import (_AG_CLS, _add_appt, _add_note, _canvas_model, _chair_doctor,
                      _day_model, _move_appt, _notice, _panel_live, _set_comment,
-                     _set_duration, _set_service, _set_status, _svc_colors,
-                     _week_model)
+                     _set_duration, _set_room, _set_service, _set_status,
+                     _svc_colors, _week_model)
 
 router = APIRouter()
 
@@ -50,13 +50,13 @@ router = APIRouter()
 # чтобы клиент разбирал ответы журнала и фиши одинаково.
 # ⚠️ Пустой код — это удача: так отвечает смена статуса, у которой баннера нет.
 _OK = {"", "ok", "ok_note", "part_note", "ok_move", "ok_comment", "ok_past", "ok_past_done",
-       "ok_other", "ok_svc", "ok_dur"}
+       "ok_other", "ok_svc", "ok_dur", "ok_room", "room_busy"}
 _CONFLICT = {"conflict", "dup", "bad_off", "mv_gone", "mv_closed", "past", "bad_step",
-             "svc_closed", "svc_doc", "dur_closed"}
+             "svc_closed", "svc_doc", "dur_closed", "room_closed"}
 # какое поле формы подсветить при 422; отказ без поля оставляет его пустым
 _FIELD = {"bad": "time", "bad_time": "time", "outside": "time",
           "outside_doc": "time", "bad_name": "name", "bad_phone": "phone",
-          "bad_bd": "birth", "bad_dur": "duration"}
+          "bad_bd": "birth", "bad_dur": "duration", "bad_room": "room"}
 
 
 # Поверхности, которым состояния НЕ отдаётся вовсе. ⛔ Это ПЕРЕЧИСЛЕНИЕ, а не
@@ -253,7 +253,10 @@ async def api_canvas(request: Request, date_q: str = Query("", alias="date")):
 async def api_add(request: Request, date_q: str = Query("", alias="date"),
                   doctor: str = Query(""), f: str = Query(""),
                   screen: str = Query("")):
-    """Ручная запись: {date, time, doctor, service, name, phone, nophone, birth, sms?, duration?}.
+    """Ручная запись: {date, time, doctor, service, name, phone, nophone, birth, sms?, duration?, room?}.
+
+    ⚠️ `room` — кабинет, выбранный в окне: нет ключа — сервер ставит первый
+    свободный кабинет врача.
 
     ⚠️ `duration` — длительность, выбранная в окне РУКАМИ (10.11): нет ключа —
     длительность услуги, как было; есть — визит с признаком `duration_set`.
@@ -280,7 +283,8 @@ async def api_add(request: Request, date_q: str = Query("", alias="date"),
                            _s(body, "service"), _s(body, "name"), _s(body, "phone"),
                            "1" if body.get("nophone") else "", _s(body, "birth"),
                            sms if isinstance(sms, bool) else None,
-                           body.get("done") is True, _s(body, "duration"))
+                           body.get("done") is True, _s(body, "duration"),
+                           aroom=_s(body, "room"))
     return await _done(code, _screen(date_q), doctor, f=f, screen=screen)
 
 
@@ -419,6 +423,25 @@ async def api_duration(request: Request, appt_id: int,
                        _screen(date_q), doctor, field="duration", f=f, screen=screen)
 
 
+@router.post("/api/schedule/appointments/{appt_id}/room")
+async def api_room(request: Request, appt_id: int,
+                   date_q: str = Query("", alias="date"),
+                   doctor: str = Query(""), f: str = Query(""),
+                   screen: str = Query("")):
+    """Кабинет стоящей записи (окно визита): {room} — ключ одного из кабинетов
+    её врача. Ответ и отказы — как у длительности (`bad_room`, `room_closed`,
+    `conflict`…)."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    if (deny := await api_own_appt(appt_id)) is not None:
+        return deny
+    body = await api_body(request)
+    if body is None:
+        return msg_json(False, "bad", field="room", status=422)
+    return await _done(await _set_room(appt_id, _s(body, "room")),
+                       _screen(date_q), doctor, field="room", f=f, screen=screen)
+
+
 @router.get("/api/chair")
 async def api_chair(request: Request, doctor: str = Query(""),
                     date_q: str = Query("", alias="date")):
@@ -442,7 +465,7 @@ async def api_chair(request: Request, doctor: str = Query(""),
              else [(scope, eng.DOCTORS[scope])] if scope else [])
     data = {"date": d.isoformat(),
             "doctors": [{"dk": k, "name": n} for k, n in shown],
-            "doctor": None, "chair": None, "stale": [], "queue": [],
+            "doctor": None, "chair": None, "chairs": [], "stale": [], "queue": [],
             "actions": all_status_actions(), "notice": _notice(scope)}
     if not dk:
         return msg_json(True, data=data)
@@ -484,7 +507,8 @@ async def api_move(request: Request, appt_id: int,
                    date_q: str = Query("", alias="date"),
                    doctor: str = Query(""), f: str = Query(""),
                    screen: str = Query("")):
-    """Перенос: {date, time, doctor} — тот же маршрут, что у перетаскивания.
+    """Перенос: {date, time, doctor, room?} — тот же маршрут, что у перетаскивания.
+    Без `room` кабинет выбирает сервер (`routes._move_appt`).
 
     ⚠️ Проверки серверные и в полном составе: браузер не кладёт блок в
     закрытую ячейку, но верить ему нельзя — часы клиники и график врача
@@ -501,5 +525,5 @@ async def api_move(request: Request, appt_id: int,
     if (deny := api_own_doctor(_s(body, "doctor"))) is not None:
         return deny
     code = await _move_appt(appt_id, _s(body, "date"), _s(body, "time"),
-                            _s(body, "doctor"))
+                            _s(body, "doctor"), _s(body, "room"))
     return await _done(code, _screen(date_q), doctor, f=f, screen=screen)

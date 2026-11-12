@@ -508,13 +508,17 @@ async def admin_doctor(request: Request, dk: str,
 async def _add_appt(adate: str, atime: str, adoctor: str, aservice: str,
                     aname: str, aphone: str = "", anophone: str = "",
                     abirth: str = "", asms: bool | None = None,
-                    adone: bool = False, adur: str = "") -> str:
+                    adone: bool = False, adur: str = "",
+                    aroom: str = "") -> str:
     """Ручная запись (окно «Programare nouă»): код ответа — из `MSG_BANNER`.
 
     `adur` — длительность, выбранная в окне РУКАМИ (10.11): пусто — окно её не
     трогало, визит берёт длительность услуги, как всегда; число из
     `eng.DURATIONS` — визит такой длины с признаком `duration_set`. Окно шлёт
     поле только тронутым (прайор 08-16: намерение из формы).
+
+    `aroom` — кабинет из окна: пусто — первый свободный кабинет врача, чужой —
+    `bad_room`; занят другим врачом — запись проходит с `room_busy`.
 
     `asms` — галочка «SMS reminder»: True/False — что сказал пациент, None —
     галочки в окне не было (разбор у `_apply_sms`).
@@ -593,13 +597,17 @@ async def _add_appt(adate: str, atime: str, adoctor: str, aservice: str,
         if not (1900 <= parsed.year and parsed <= date.today()):
             return "bad_bd"
         year, bdate = parsed.year, parsed.isoformat()
+    if aroom and aroom not in eng.doctor_rooms(adoctor):
+        return "bad_room"
+    plan = eng.room_plan(adoctor)
     # ⚠️ Спрашиваем ДО записи: после неё карточка уже может быть создана этой же
     # записью, и «существующий пациент» перестанет отличаться от нового.
     existing = await db.patient_name_by_phone(phone)
     r = await db.admin_add(name, phone, svc["ro"], doctor, dt, birth_year=year,
                            birth_date=bdate,
                            doctor_id=adoctor, service_id=aservice,
-                           duration_min=dur, duration_set=bool(adur))
+                           duration_min=dur, duration_set=bool(adur),
+                           rooms=plan, room=aroom or None)
     msg = "ok" if isinstance(r, int) else ("dup" if r == "dup" else "conflict")
     if isinstance(r, int) and not anophone:
         await _apply_sms(r, asms)
@@ -627,6 +635,9 @@ async def _add_appt(adate: str, atime: str, adoctor: str, aservice: str,
         # кнопка (летопись получает строку статуса)
         if adone and isinstance(r, int) and not await db.set_status(r, "done"):
             msg = "ok_past_done"
+    # последним: предупреждения о чужой карточке и о прошедшем дне важнее
+    if msg == "ok" and await db.appt_room_busy(r, plan):
+        msg = "room_busy"
     return msg
 
 
@@ -706,7 +717,8 @@ async def _set_comment(appt_id: int, comment: str) -> str:
     return "ok_comment"
 
 
-async def _move_appt(appt_id: int, mdate: str, mtime: str, mdoctor: str) -> str:
+async def _move_appt(appt_id: int, mdate: str, mtime: str, mdoctor: str,
+                     mroom: str = "") -> str:
     """Перенос визита перетаскиванием: другой час и/или другой врач.
 
     ⚠️ Проверки те же, что у ручной записи, и по той же причине: перетащить —
@@ -716,6 +728,7 @@ async def _move_appt(appt_id: int, mdate: str, mtime: str, mdoctor: str) -> str:
     клиники и график врача меняются на другом экране.
     ⛔ Прошлое здесь НЕ проверяется, и это намеренно: визит уже существует, а
     перенос на утро того же дня — обычная работа регистратуры.
+    `mroom` — кабинет назначен; пусто — выбирает `db.move_appointment`.
     """
     try:
         d = date.fromisoformat(mdate)
@@ -739,10 +752,31 @@ async def _move_appt(appt_id: int, mdate: str, mtime: str, mdoctor: str) -> str:
     # докстринг: часы врача меняются на другом экране, а вкладка устаревает
     if not eng.fits_doctor(mdoctor, dt, 30):
         return "outside_doc"
+    if mroom and mroom not in eng.doctor_rooms(mdoctor):
+        return "bad_room"
+    plan = eng.room_plan(mdoctor)
     code = await db.move_appointment(appt_id, mdoctor, doctor, dt,
-                                     when=dt.strftime("%H:%M"))
+                                     when=dt.strftime("%H:%M"),
+                                     rooms=plan, room=mroom or None)
+    if not code and await db.appt_room_busy(appt_id, plan):
+        return "room_busy"
     return {"": "ok_move", "gone": "mv_gone",
             "closed": "mv_closed"}.get(code, code)
+
+
+async def _set_room(appt_id: int, room: str) -> str:
+    """Перевод записи в другой кабинет её врача (окно визита). Код — из
+    `MSG_BANNER`: `ok_room`, `room_busy` (переведена, кабинет занят другим
+    врачом), `bad_room`, `room_closed`, `mv_gone` (и для заметки), `conflict`.
+    """
+    cur = await db.appointment_brief(appt_id)
+    if cur is None or cur["source"] == "note":
+        return "mv_gone"
+    plan = eng.room_plan(cur["doctor_id"])
+    code = await db.set_appt_room(appt_id, room, plan)
+    if code:
+        return {"gone": "mv_gone", "closed": "room_closed"}.get(code, code)
+    return "room_busy" if await db.appt_room_busy(appt_id, plan) else "ok_room"
 
 
 async def _set_service(appt_id: int, sid: str) -> str:
@@ -785,7 +819,8 @@ async def _set_service(appt_id: int, sid: str) -> str:
             return "outside"
         if not eng.is_past(start) and not eng.fits_doctor(dk, start, dur):
             return "outside_doc"
-    code = await db.set_appt_service(appt_id, sid, eng.SERVICES[sid]["ro"], dur)
+    code = await db.set_appt_service(appt_id, sid, eng.SERVICES[sid]["ro"], dur,
+                                     rooms=eng.room_plan(dk))
     return {"": "ok_svc", "gone": "mv_gone",
             "closed": "svc_closed"}.get(code, code)
 
@@ -815,7 +850,8 @@ async def _set_duration(appt_id: int, minutes: str) -> str:
             return "outside"
         if not eng.is_past(start) and not eng.fits_doctor(cur["doctor_id"], start, dur):
             return "outside_doc"
-    code = await db.set_appt_duration(appt_id, dur)
+    code = await db.set_appt_duration(appt_id, dur,
+                                      rooms=eng.room_plan(cur["doctor_id"]))
     return {"": "ok_dur", "gone": "mv_gone",
             "closed": "dur_closed"}.get(code, code)
 
@@ -855,7 +891,7 @@ async def _set_status(appt_id: int, to: str) -> str:
     # код отказа, а не «не получилось»: «занято у медика» и «у пациента уже
     # есть запись на этот час» чинятся по-разному, и регистратуре нужно
     # знать, ЧТО именно занято (см. db.set_status)
-    code = await db.set_status(appt_id, to)
+    code = await db.set_status(appt_id, to, rooms=eng.room_plan(cur["doctor_id"]))
     if not code:
         return ""
     return code if code in {"conflict", "dup"} else "conflict"

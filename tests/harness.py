@@ -1166,6 +1166,22 @@ def add_appt(c: Client, day: str, time: str, name: str, phone: str = "",
                         "service": service, "name": name, "phone": phone, **fields})
 
 
+def set_rooms(c: Client, dk: str, *names: str) -> list[str]:
+    """Кабинеты врача — путём клиники (фиша врача, `POST /api/doctors/{dk}`):
+    остальные поля фиши уезжают как были. Ответ — ключи кабинетов по порядку
+    (первый — по умолчанию)."""
+    card = json.loads(c.get(f"/api/doctors/{dk}").body)["data"]
+    r = c.post_json(f"/api/doctors/{dk}", {
+        "name": card["name"], "spec": card["spec"], "phone": card["phone"],
+        "email": card["email"], "color": card["color"], "auto_color": card["auto_color"],
+        "work_from": "" if card["work_from"] is None else str(card["work_from"]),
+        "work_to": "" if card["work_to"] is None else str(card["work_to"]),
+        "status": card["status"], "rooms": [{"name": n} for n in names]})
+    if r.msg != "ok_med":
+        raise AssertionError(f"кабинеты врача {dk} не сохранены: {r.status} {r.body[:200]}")
+    return [x["id"] for x in json.loads(r.body)["data"]["rooms"]]
+
+
 def day_model(c: Client, day: str = "", doctor: str = "", f: str = "") -> dict:
     """День экрана «Programări» данными (`GET /api/schedule/day`): канва,
     «Lista zilei», карточки, форма. Пустой `day` — сегодня сервера."""

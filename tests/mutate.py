@@ -274,7 +274,13 @@ MUTATIONS = [
     # ДО миграций, и сторож до этой точки не доживает. Ломается ДОБАВЛЕНИЕМ:
     # нарушение — сам литерал, а в чистом дереве его нет ни одного.
     ("один владелец", test_structure._DB_SLOTS,
-     "\n_MUT_UQ = \"CREATE UNIQUE INDEX uq_doctor_slot ON appointments(x)\"\n"),
+     "\n_MUT_UQ = \"CREATE UNIQUE INDEX uq_doc_room_slot ON appointments(x)\"\n"),
+    # Индекс врача, потерявший кабинет в ключе: вторая запись врача на тот же
+    # час в другом кабинете отбивается самой базой, а прикладная проверка её
+    # пропускает — регистратура видит «conflict» на свободном кабинете.
+    ("кабинет в ключе", test_structure._DB_SLOTS,
+     ("ON appointments(doctor_id, COALESCE(room_id, ''), starts_at)",
+      "ON appointments(doctor_id, starts_at)")),
     # Новый путь брони, взявший процессный замок напрямую, мимо общей точки
     # входа: сегодня неотличим от правильного, а замена замка его не заденет.
     ("через _slot_lock", test_structure._DB_SLOTS,

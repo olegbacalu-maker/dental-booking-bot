@@ -10,7 +10,9 @@ import re
 from .. import db
 from .conn import _execute, _fetchval, _utcnow_iso, log
 from .events import _backfill_activity
-from .slots import _slot_guard_apply, _slot_guard_startup, UQ_GUARD_STEP
+from .slots import (
+    _slot_guard_apply, _slot_guard_startup, UQ_GUARD_STEP, UQ_ROOM_STEP,
+)
 from .patients import _digits, _fold
 from .schedule import seed
 from .teeth import TEETH_HIST_SINCE
@@ -22,7 +24,7 @@ from .teeth import TEETH_HIST_SINCE
 # идёт range(have+1, SCHEMA_VERSION+1) и до него не дойдёт (так шаг 4 с
 # 'waiting' в uq-индексах не исполнялся ни у одной клиники; держит
 # test_structure).
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 
 # Индексы под горячие пути (день, история пациента, «новые из бота», карточка).
@@ -254,6 +256,10 @@ MIGRATIONS = {
     # (`SAN_PEOPLE_DDL` выше). Колонки с DEFAULT '' — старым строкам противоречить
     # нечему; строго, как 7–9.
     10: SAN_PEOPLE_DDL,
+    # 11: кабинет в ключе индексов врача. Работу делает _slot_guard_apply
+    # (UQ_ROOM_STEP) — CREATE UNIQUE INDEX идёт над живыми данными. Список
+    # пуст, но не мёртв, ключ — число: всё как у шага 4.
+    11: [],
 }
 # Шаг, который кладёт базовый снимок истории зубов. В отличие от
 # UQ_GUARD_STEP — СТРОГИЙ: он меняет данные, и недописанный снимок не имеет
@@ -529,6 +535,10 @@ SQLITE_EXTRA_COLS = [
     # настройках меняют, и «не совпадает с услугой» соврало бы (прайор 08-16 —
     # намерение из формы, не угадывать по базе). Старые строки — 0, как было.
     ("appointments", "duration_set INTEGER NOT NULL DEFAULT 0"),
+    # Кабинет записи: ключ и снимок имени. NULL = кабинет врача по умолчанию,
+    # поэтому старые записи не дозаполняются.
+    ("appointments", "room_id TEXT"),
+    ("appointments", "room TEXT NOT NULL DEFAULT ''"),
 ]
 
 # Этап A1 (v1.5.0): полный профиль пациента. Все поля опциональны — клиника может
@@ -659,7 +669,7 @@ async def _migrate() -> None:
             # забытый список SQL = молчаливый no-op с записанной версией; лучше упасть
             raise RuntimeError(f"missing migration step {v} for "
                                f"{'sqlite'}")
-        if v == UQ_GUARD_STEP:
+        if v in (UQ_GUARD_STEP, UQ_ROOM_STEP):
             # ⛔ Единственный шаг, который НЕ имеет права уронить старт: он про
             # страховочный индекс, а не про данные, и расширение предиката
             # упирается в живые записи клиники. Упавший — оставлял бы версию

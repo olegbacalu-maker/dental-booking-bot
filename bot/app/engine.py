@@ -9,6 +9,8 @@ import os
 import pathlib
 import re
 import shutil
+import unicodedata
+import zlib
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -106,6 +108,12 @@ DOCTOR_META: dict[str, dict] = {}   # color / phone / room / email / photo / sta
 # держится в сетке того дня, где у него есть приёмы (урок v1.8.2 — данные
 # не должны исчезать молча).
 DOCTOR_STATES = ("activ", "concediu", "arhivat")
+# Кабинеты клиники: id → имя. Справочник `rooms` профиля плюс строка `room`
+# врача без списка — она читается на лету как его единственный кабинет.
+ROOMS: dict[str, str] = {}
+# Кабинеты врача по порядку; первый — по умолчанию.
+DOCTOR_ROOMS: dict[str, tuple[str, ...]] = {}
+ROOMS_MAX = 3
 # docs = кто выполняет услугу (нет ключа = все); один врач → бот не спрашивает
 SERVICES: dict[str, dict] = {}
 SERVICE_PRICE: dict[str, int] = {}          # подпись (ro/ru) → средняя цена
@@ -140,6 +148,66 @@ def _price_avg(price) -> int:
 RO_DOW = ["Lu", "Ma", "Mi", "Jo", "Vi", "Sâ", "Du"]
 
 
+def room_key(name: str) -> str:
+    """Ключ кабинета из его имени: кабинет, прочитанный на лету из строки
+    `room`, после сохранения врача получает тот же ключ, и записи остаются в
+    нём. Регистр, диакритика и знаки имён не различаются."""
+    flat = unicodedata.normalize("NFKD", str(name or "")).casefold()
+    slug = re.sub(r"[^a-z0-9]+", "-", flat).strip("-")
+    if not slug:
+        text = str(name or "").strip()
+        slug = f"x{zlib.crc32(text.encode('utf-8')):08x}" if text else ""
+    return f"r-{slug}" if slug else ""
+
+
+def _read_rooms(cfg: dict) -> None:
+    ROOMS.clear()
+    DOCTOR_ROOMS.clear()
+    for r in cfg.get("rooms") or []:
+        rid, name = str(r.get("id") or ""), str(r.get("name") or "").strip()
+        if rid and name:
+            ROOMS[rid] = name
+    for d in cfg["doctors"]:
+        if isinstance(d.get("rooms"), list):
+            own = [str(x) for x in d["rooms"] if str(x) in ROOMS]
+        else:
+            name = str(d.get("room") or "").strip()
+            rid = room_key(name)
+            if rid:
+                ROOMS.setdefault(rid, name)
+            own = [rid] if rid else []
+        DOCTOR_ROOMS[d["id"]] = tuple(dict.fromkeys(own))[:ROOMS_MAX]
+
+
+def doctor_rooms(dk: str | None) -> tuple[str, ...]:
+    """Кабинеты врача по порядку, первый — по умолчанию."""
+    return DOCTOR_ROOMS.get(dk or "", ())
+
+
+def room_name(rid: str | None) -> str:
+    return ROOMS.get(rid or "", "")
+
+
+def room_list(dk: str | None) -> list[dict]:
+    """Кабинеты врача для экрана: [{id, name}]."""
+    return [{"id": rid, "name": ROOMS[rid]} for rid in doctor_rooms(dk)]
+
+
+def room_plan(dk: str | None) -> dict:
+    """Кабинеты для проверки занятости (`db` профиля не читает): `own` —
+    этого врача, `names` — имена для снимка, `by_doctor` — всех врачей."""
+    return {"own": doctor_rooms(dk), "names": dict(ROOMS),
+            "by_doctor": dict(DOCTOR_ROOMS)}
+
+
+def appt_room(r) -> str:
+    """Кабинет, который запись занимает сейчас, — то же правило, что
+    `db._lane`: свой, пока числится за врачом, иначе кабинет по умолчанию."""
+    own = doctor_rooms(r.get("doctor_id"))
+    rid = r.get("room_id") or ""
+    return rid if rid in own else (own[0] if own else "")
+
+
 def apply_config(cfg: dict) -> None:
     """Применяет конфиг клиники на лету: справочники и цены."""
     global CONFIG, CLINIC_NAME, CLINIC_PHONE, CLINIC_LEGAL, CLINIC_IDNO
@@ -152,11 +220,14 @@ def apply_config(cfg: dict) -> None:
     ACTIVE_DOCTORS.clear()
     DOCTOR_SPEC.clear()
     DOCTOR_META.clear()
+    _read_rooms(cfg)
     for d in cfg["doctors"]:
         DOCTORS[d["id"]] = d["name"]
         DOCTOR_SPEC[d["id"]] = d.get("spec", "")
+        # `room` — имя кабинета по умолчанию
+        first = doctor_rooms(d["id"])[:1]
         DOCTOR_META[d["id"]] = {"color": d.get("color", ""), "phone": d.get("phone", ""),
-                                "room": d.get("room", ""),
+                                "room": ROOMS[first[0]] if first else "",
                                 "email": d.get("email", ""),
                                 "photo": d.get("photo", ""),
                                 "status": doctor_state(d),
@@ -445,11 +516,13 @@ async def free_starts(doc_key: str, d: date, duration: int) -> list[datetime]:
     day_start = datetime(d.year, d.month, d.day, 0, 0, tzinfo=TZ)
     day_end = day_start + timedelta(days=1)
     free: set[datetime] = set()
-    busy = await db.booked_intervals(doc_key, DOCTORS.get(doc_key, ""), day_start, day_end)
+    lanes = await db.busy_lanes(doc_key, DOCTORS.get(doc_key, ""), day_start, day_end,
+                                doctor_rooms(doc_key))
     for w_start, w_end in _windows(doc_key, d):
         t_cur = w_start
         while t_cur + timedelta(minutes=duration) <= w_end:
-            if t_cur > now and not _overlaps(t_cur, duration, busy):
+            if t_cur > now and any(not _overlaps(t_cur, duration, busy)
+                                   for busy in lanes):
                 free.add(t_cur)
             t_cur += timedelta(minutes=GRID_STEP)
     return sorted(free)

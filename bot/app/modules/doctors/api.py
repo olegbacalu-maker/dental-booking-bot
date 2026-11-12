@@ -32,7 +32,7 @@ router = APIRouter()
 # HTTP-код по коду ответа: отказ проверки — 422; спор с состоянием клиники
 # (тёзка, последний активный, будущие записи, услуга без врача) — 409;
 # не записался файл — 500. Тексты кодов — из MSG_BANNER.
-_HTTP = {"bad_med": 422, "bad_photo": 422, "dup_med": 409, "last_med": 409,
+_HTTP = {"bad_med": 422, "bad_photo": 422, "bad_rooms": 422, "dup_med": 409, "last_med": 409,
          "arch_busy": 409, "svc_empty": 409, "save_err": 500}
 _OK = {"ok_med", "new_med", "ok_svc_med", "ok_photo"}
 
@@ -59,6 +59,7 @@ def _summary(dk: str, name: str, rows: list, days: list) -> dict:
     return {
         "id": dk, "name": name, "spec": eng.DOCTOR_SPEC.get(dk, "") or "",
         "status": st, "room": meta.get("room", "") or "",
+        "rooms": eng.room_list(dk),
         "phone": meta.get("phone", "") or "", "hours": _doc_hours_text(dk),
         "color": _doc_hue(dk), "initials": _initials(name),
         "photo": _photo_url(dk), "archived": st == "arhivat",
@@ -95,6 +96,9 @@ async def _card(dk: str) -> dict:
     return {
         "id": dk, "name": name, "spec": eng.DOCTOR_SPEC.get(dk, "") or "",
         "room": meta.get("room", "") or "", "phone": meta.get("phone", "") or "",
+        "rooms": eng.room_list(dk),
+        "rooms_all": [{"id": k, "name": v} for k, v in eng.ROOMS.items()],
+        "rooms_max": eng.ROOMS_MAX,
         "email": meta.get("email", "") or "", "status": st,
         "color": _doc_hue(dk), "auto_color": not meta.get("color"),
         "work_from": meta.get("work_from"), "work_to": meta.get("work_to"),
@@ -180,7 +184,10 @@ async def api_doctor_save(request: Request, dk: str):
         phone=_s(body, "phone"), email=_s(body, "email"), color=_s(body, "color"),
         auto_color=bool(body.get("auto_color")),
         work_from=_s(body, "work_from"), work_to=_s(body, "work_to"),
-        status=_s(body, "status") or "activ")
+        status=_s(body, "status") or "activ",
+        rooms=body["rooms"] if isinstance(body.get("rooms"), list) else None)
+    if code == "bad_rooms":
+        return _reply(code, field="rooms")
     if code != "ok_med":
         return _reply(code, field="name" if code in ("bad_med", "dup_med") and not _s(body, "name").strip() else "")
     return _reply(code, data=await _card(dk))

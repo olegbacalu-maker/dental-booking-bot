@@ -106,6 +106,10 @@ _FILE_OK = {"app/paths.py", "desktop.py"}
 _DB_STATE = "app/db/__init__.py"     # _CONN, _SQ, ACTOR_HOOK — переприсваиваемое
 _DB_SCHEMA = "app/db/schema.py"      # SCHEMA_VERSION, MIGRATIONS, SQLITE_SCHEMA
 _DB_SLOTS = "app/db/slots.py"        # _slot_lock, _BOOK_LOCK, _uq_slot_sql
+# Слотовые индексы врача (кабинет в ключе) и все имена, под которыми слотовый
+# индекс бывал в базе: прежние два — без кабинета, их кладёт старая версия.
+_UQ_DOCTOR = ("uq_doc_room_slot", "uq_docid_room_slot")
+_UQ_NAMES = (*_UQ_DOCTOR, "uq_patient_slot", "uq_doctor_slot")
 _DB_DAY = "app/db/schedule.py"       # day_appointments: выборка дня
 _DB_TEXTS = "app/db/plans.py"        # тексты летописи пациента («Plan: …»)
 _DB_SAN = "app/db/registre.py"       # журналы san_*: единственное место UPDATE (замок IS NULL)
@@ -1030,6 +1034,32 @@ def suite(res: Result) -> None:
            f"{max(steps) if steps else None} — лишний шаг не исполнится ни у "
            f"одной клиники, недостающий уронит _migrate")
 
+    # ---- индексы врача: кабинет в ключе ----
+    # Врач ведёт по записи в каждом своём кабинете, и один старт у него законен,
+    # пока кабинеты разные. Индекс врача без кабинета в ключе запрещает вторую
+    # запись самой базой: у клиники это «conflict» на свободном кабинете, а у
+    # базы, где такая пара уже стоит, CREATE не ляжет вовсе. Имена — отдельным
+    # списком и с проверкой, что оба ещё лежат в `_uq_slot_sql`: пропадёт имя —
+    # правило искало бы несуществующее и позеленело бы навсегда.
+    keyed, plain = set(), []
+    for rel, tree in src:
+        if rel != _DB_SLOTS:
+            continue
+        for ln, text in _templates(tree):
+            if "CREATE UNIQUE INDEX" not in text.upper() or "_uq_slot_sql" not in _enclosing(tree, ln):
+                continue
+            for name in _UQ_DOCTOR:
+                if f"INDEX {name}" in text:
+                    keyed.add(name)
+                    if "room_id" not in text:
+                        plain.append(f"{name} ({rel}:{ln})")
+    res.ok("у индексов врача кабинет в ключе",
+           not plain and keyed == set(_UQ_DOCTOR),
+           ("без кабинета в ключе: " + ", ".join(plain) if plain else
+            f"в _uq_slot_sql найдены не оба индекса врача: {sorted(keyed)} — якорь "
+            f"правила пропал")
+           + " — врач с двумя кабинетами не сможет вести две записи на один час")
+
     # ---- слотовые uq-индексы: ОДИН владелец (08-16) ----
     # CREATE UNIQUE INDEX по слоту — операция НАД ЖИВЫМИ ДАННЫМИ, а не над
     # схемой: у клиники с двойной бронью он ПАДАЕТ. В базовой схеме (она идёт
@@ -1046,7 +1076,7 @@ def suite(res: Result) -> None:
         for ln, text in _templates(tree):
             if "CREATE UNIQUE INDEX" not in text.upper():
                 continue
-            if not any(n in text for n in ("uq_doctor_slot", "uq_patient_slot")):
+            if not any(n in text for n in _UQ_NAMES):
                 continue
             if rel == _DB_SLOTS and "_uq_slot_sql" in _enclosing(tree, ln):
                 anchor += 1

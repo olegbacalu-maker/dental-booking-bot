@@ -81,8 +81,23 @@ def suite_rule(res: Result) -> None:
     got = m([_row(9, "arrived", 0, arrived_min=1)], [])
     res.check("не из повестки — не в кресле", got["chair"], None)
 
+    # два кабинета — два кресла: «последний, остальные не завершены» считается
+    # внутри кабинета (`room_id` пункта повестки), а не по врачу целиком
+    rows = [_row(1, "arrived", 0, arrived_min=5), _row(2, "arrived", 1, arrived_min=70),
+            _row(3, "arrived", 2, arrived_min=30)]
+    items = [dict(_item(1, "arrived"), room_id="r-1"), dict(_item(2, "arrived"), room_id="r-3"),
+             dict(_item(3, "arrived"), room_id="r-1")]
+    got = m(rows, items)
+    res.check("в каждом кабинете сидит последний заведённый", _ids(got["chairs"]), [3, 2])
+    res.check("не завершён — только прошлый того же кабинета", _ids(got["stale"]), [1])
+    res.check("`chair` — последний заведённый из сидящих", got["chair"]["id"], 2)
+    got = m(rows[:2], [_item(1, "arrived"), _item(2, "arrived")])
+    res.check("без кабинетов — одно кресло, как было",
+              (_ids(got["chairs"]), _ids(got["stale"])), ([2], [1]))
+    res.check("никого — кресел нет", m([], [])["chairs"], [])
+
     rd = chair.resolve_doctor
-    known = {"d2": "Dr. Doi", "d3": "Dr. Trei"}
+    known ={"d2": "Dr. Doi", "d3": "Dr. Trei"}
     res.check("адрес решает", rd("d2", {"doctor_id": "d3"}, known), "d2")
     res.check("без адреса — врач учётки", rd("", {"doctor_id": "d3"}, known), "d3")
     res.check("неизвестный в адресе — врач учётки", rd("zz", {"doctor_id": "d3"}, known), "d3")

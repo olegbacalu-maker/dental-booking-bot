@@ -238,7 +238,7 @@ async def _appoint(pid: int, adate: str, atime: str, adoctor: str, aservice: str
         return "outside"
     r = await db.add_visit_for_patient(pid, svc["ro"], doctor, dt,
                                        doctor_id=adoctor, service_id=aservice,
-                                       duration_min=dur)
+                                       duration_min=dur, rooms=eng.room_plan(adoctor))
     return "ok" if isinstance(r, int) else ("dup" if r == "dup" else "conflict")
 
 

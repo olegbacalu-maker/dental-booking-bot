@@ -46,13 +46,15 @@ from .events import (
 )
 from .slots import (
     ACTIVE_STATUSES, _ACT_SQL, _BOOK_LOCK, _slot_lock, _OLD_ACT_SQL, _UQ_LADDER,
-    UQ_GUARD_STEP, UQ_PENDING_KEY, UQ_REPAIR_GONE, UQ_REPAIR_NARROW, UQ_NARROW, UQ_BROKEN,
+    UQ_GUARD_STEP, UQ_ROOM_STEP, UQ_PENDING_KEY, UQ_REPAIR_GONE, UQ_REPAIR_NARROW, UQ_NARROW, UQ_BROKEN,
     UQ_UNKNOWN, _uq_slot_sql, _UQ_SLOT, UQ_SLOT_COUNT, _SLOT_GUARD, slot_guard,
     _slot_conflict_sql, _UQ_STATE, _slot_conflicts, _slot_rows, _uq_index_state, _UQ_WORD,
     _uq_statuses, _uq_matches, _UQ_RO, _uq_gone, uq_gone_ro, _RO_COUNT, uq_event_text,
     UQ_REPAIR_TEXT, UQ_CLEARED_TEXT, UQ_COMPLETE_TEXT, _uq_mark_rows, _uq_at_least,
     _apply_uq_indexes, _slot_guard_apply, _slot_guard_verdict, _slot_guard_clear,
     _slot_guard_startup, _book, _book_locked, _patient_busy_at, _conflicts,
+    _UQ_RETIRED, _UQ_WAS, _uq_stale, _retire_old_uq, _patient_busy, _doctor_overlaps,
+    _lane, _room_label, _pick_room, room_busy, appt_room_busy, slot_probe,
 )
 from .patients import (
     patients_total, _upsert_patient, manual_key, _patient_ids_by_digits,
@@ -84,10 +86,10 @@ from .plans import (
 )
 from .schedule import (
     backfill_ids, relink_doctor, seed, create_appointment, admin_add,
-    add_visit_for_patient, add_note, _insert_note, booked_intervals, doctor_future_count,
+    add_visit_for_patient, add_note, _insert_note, busy_lanes, doctor_future_count,
     appt_patient_id, day_appointments, appointment_days, day_patient_facts, appt_calls,
     set_appt_call, set_comment, move_appointment, set_appt_service, set_appt_duration,
-    set_status,
+    set_status, set_appt_room, _own_room,
 )
 from .teeth import (
     TEETH_HIST_SINCE, teeth_map, teeth_hist_since, teeth_map_at, teeth_history_rows,
