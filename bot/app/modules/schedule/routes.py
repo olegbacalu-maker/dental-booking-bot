@@ -505,10 +505,10 @@ async def admin_doctor(request: Request, dk: str,
                        {"date": d.isoformat(), "dk": dk})
 
 
-async def _add_appt(adate: str, atime: str, adoctor: str, aservice: str,
-                    aname: str, aphone: str = "", anophone: str = "",
-                    abirth: str = "", asms: bool | None = None,
-                    adone: bool = False, adur: str = "") -> str:
+async def _book_appt(adate: str, atime: str, adoctor: str, aservice: str,
+                     aname: str, aphone: str = "", anophone: str = "",
+                     abirth: str = "", asms: bool | None = None,
+                     adone: bool = False, adur: str = "") -> tuple[str, int | None]:
     """Ручная запись (окно «Programare nouă»): код ответа — из `MSG_BANNER`.
 
     `adur` — длительность, выбранная в окне РУКАМИ (10.11): пусто — окно её не
@@ -527,13 +527,15 @@ async def _add_appt(adate: str, atime: str, adoctor: str, aservice: str,
     «Programări», и диалог часа на панели, и проверок у маршрута своих нет —
     вторая копия разошлась бы молча, и один экран принимал бы визит, который
     другой отвергает.
+
+    Ответ — код и id созданной записи (None при отказе).
     """
     try:
         d = date.fromisoformat(adate)
         hh, mm = atime.split(":")
         dt = datetime(d.year, d.month, d.day, int(hh), int(mm), tzinfo=eng.TZ)
     except (ValueError, AttributeError):
-        return "bad"
+        return "bad", None
     doctor = eng.DOCTORS.get(adoctor)
     svc = eng.SERVICES.get(aservice)
     name = aname.strip()[:80]
@@ -550,26 +552,22 @@ async def _add_appt(adate: str, atime: str, adoctor: str, aservice: str,
     # câmpurile». По такому баннеру не видно, какое поле чинить, и отказ
     # читается как «программа не работает». Каждая причина называет себя.
     if not doctor or not svc:
-        return "bad"
+        return "bad", None
     dur = eng.svc_duration(aservice)
     if adur:
         if not adur.isdigit() or not eng.dur_ok(int(adur)):
-            return "bad_dur"
+            return "bad_dur", None
         dur = int(adur)
     if not name:
-        return "bad_name"
+        return "bad_name", None
     # 6–15 цифр: у стран номера от 6 национальных цифр, E.164 даёт максимум 15.
     # Жёсткий молдавский формат отверг бы иностранца у стойки (просьба 08-07)
     if not anophone and not 6 <= len(digits) <= 15:
-        return "bad_phone"
-    # Врач, сетка стартов и рабочие окна — общим правилом с переносом. График
-    # врача в нём спрашивается только у будущего старта, и граница там
-    # мгновенная (is_past), а не дневная: «приём был сегодня утром, а график
-    # сузили после обеда» — тот же постфактум, что вчерашний визит, и фиша
-    # прошлое не берёт — журнал для него единственный вход. Дневная граница
-    # ниже про другое: она решает, показывать ли предупреждение.
+        return "bad_phone", None
+    # График врача правило спрашивает только у будущего старта (граница
+    # мгновенная): журнал — единственный вход для приёма задним числом.
     if code := eng.place_refusal(adoctor, dt, dur):
-        return code
+        return code, None
     # полная дата рождения (просьба 08-07: был только год; отдельное поле
     # года для вкладки, открытой до обновления, ушло 13.10 вместе с формой)
     year, bdate = None, None
@@ -577,9 +575,9 @@ async def _add_appt(adate: str, atime: str, adoctor: str, aservice: str,
         try:
             parsed = date.fromisoformat(abirth.strip()[:10])
         except ValueError:
-            return "bad_bd"
+            return "bad_bd", None
         if not (1900 <= parsed.year and parsed <= date.today()):
-            return "bad_bd"
+            return "bad_bd", None
         year, bdate = parsed.year, parsed.isoformat()
     # ⚠️ Спрашиваем ДО записи: после неё карточка уже может быть создана этой же
     # записью, и «существующий пациент» перестанет отличаться от нового.
@@ -615,7 +613,16 @@ async def _add_appt(adate: str, atime: str, adoctor: str, aservice: str,
         # кнопка (летопись получает строку статуса)
         if adone and isinstance(r, int) and not await db.set_status(r, "done"):
             msg = "ok_past_done"
-    return msg
+    return msg, (r if isinstance(r, int) else None)
+
+
+async def _add_appt(adate: str, atime: str, adoctor: str, aservice: str,
+                    aname: str, aphone: str = "", anophone: str = "",
+                    abirth: str = "", asms: bool | None = None,
+                    adone: bool = False, adur: str = "") -> str:
+    """Ручная запись: только код ответа — то, что нужно маршруту журнала."""
+    return (await _book_appt(adate, atime, adoctor, aservice, aname, aphone, anophone,
+                             abirth, asms, adone, adur))[0]
 
 
 async def _apply_sms(appt_id: int, want: bool | None) -> None:
@@ -714,8 +721,7 @@ async def _move_appt(appt_id: int, mdate: str, mtime: str, mdoctor: str) -> str:
     doctor = eng.DOCTORS.get(mdoctor)
     if not doctor:
         return "bad"
-    # Длина нужна правилу окон: короткий визит обязан влезть целиком, длинный —
-    # первыми минутами (`eng.MOVE_FIT`). Визита нет — отказ скажет сам перенос.
+    # визита нет — отказ скажет сам перенос
     cur = await db.appointment_brief(appt_id)
     dur = int((cur or {}).get("duration_min") or 60)
     if code := eng.place_refusal(mdoctor, dt, dur, moving=True):

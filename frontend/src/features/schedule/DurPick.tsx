@@ -1,19 +1,12 @@
 import { useState } from 'react'
 
-/* «Durată»: один выбор на окна записи («Programare nouă», окно часа на
-   панели), карандаш длительности в окне визита и строку услуги в настройках —
-   четыре своих поля разошлись бы молча.
+/* «Durată»: один выбор на окна записи, карандаш длительности в окне визита и
+   строку услуги в настройках. Быстрые значения и правило «другой» (`dur_step`,
+   `dur_max`) приезжают с сервера.
 
-   Частое — в один щелчок (быстрые значения сервера), любое другое — строкой
-   «Altă durată…», которая открывает числовое поле. Правило «кратно шагу, не
-   больше потолка» приезжает с сервера (`dur_step`, `dur_max`) и проверяется на
-   месте: опечатку «52» видно до отправки, а правду всё равно говорит сервер.
-
-   В окнах записи поле едет на сервер только тронутым (намерение из формы, не
-   угадывать по базе): пока его не трогали, оно показывает длительность
-   выбранной услуги и следует за сменой услуги, а запись берёт длительность
-   услуги. Тронули — визит ложится этой длины с признаком «задана руками», и
-   смена процедуры её потом не перебьёт. */
+   В окнах записи поле едет на сервер только тронутым: нетронутое показывает
+   длительность выбранной услуги, и запись берёт её; тронутое ложится с
+   признаком «задана руками», и смена процедуры его не перебьёт. */
 
 const T = {
   dur: 'Durată',
@@ -60,8 +53,7 @@ export function DurField({ rule, value, onPick, label = T.dur, disabled, autoFoc
   const [text, setText] = useState('')
   if (!rule.durations.length) return null
   const quick = rule.durations.includes(value)
-  /* значение вне быстрых (своя длительность, старая строка профиля) стоит
-     первой строкой списка, чтобы поле не показывало чужое число */
+  /* значение вне быстрых стоит первой строкой, иначе поле показало бы чужое число */
   const list = quick || !value || other ? rule.durations : [value, ...rule.durations]
   const bad = other && !durOk(value, rule)
   const hint = T.rule(rule.step, rule.max)
@@ -116,8 +108,10 @@ export interface DurBox {
   field: { duration?: number }
 }
 
-export function useDurPick(services: Svc[], service: string, rule: RuleFields): DurBox {
-  const [picked, setPicked] = useState<number | null>(null)
+/** `initial` — окно открыто заполненным: длительность считается тронутой. */
+export function useDurPick(services: Svc[], service: string, rule: RuleFields,
+  initial?: number): DurBox {
+  const [picked, setPicked] = useState<number | null>(initial ?? null)
   const base = services.find((s) => s.id === service)?.dur ?? 0
   const r = durRule(rule)
   return {

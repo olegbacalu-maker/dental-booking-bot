@@ -19,7 +19,7 @@ import { NoteDialog } from './NoteDialog'
 import { SlotDialog } from './SlotDialog'
 import { clinicNow, clinicTz, useClockTick } from './dashFx'
 import {
-  canvasAppt, canvasBlocks, canvasColName, canvasNote, dash, livePath,
+  canvasAppt, canvasBlocks, canvasColName, canvasNote, canvasOpenHours, dash, livePath,
   type DashAppt, type DashModel, type DashNote,
 } from './dash'
 import type { Slot } from './slot'
@@ -531,10 +531,8 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
            состоянию не появляется. */
         <SlotDialog key={`${slotL.shown.dk}|${slotL.shown.hour}`} open={!slotL.leaving} slot={slotL.shown}
           date={d.date} form={d.slotform} noteEnds={d.note_ends} busy={busy}
-          /* Занятость стартов — ПОДСКАЗКА по канве, как помеха у переноса:
-             сериализует сервер (`_slot_lock`, один критический участок на
-             «проверка + вставка»), и его отказ приходит словом в само окно
-             (`fail`), диалог остаётся открытым с набранным. */
+          /* занятость стартов — подсказка по канве; отказ сервера приходит
+             словом в само окно (`fail`) */
           taken={blocksOf(d, slotL.shown.dk)}
           onClose={() => setSlot(null)}
           onAdd={(b, fail) => act(() => dash.add(d.date, b), fail)}
@@ -549,6 +547,7 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
         <MoveDialog open={!moveL.leaving} drag={moveL.shown.drag} target={moveL.shown.target} busy={busy}
           fromName={colName(d, moveL.shown.drag.dk)} toName={colName(d, moveL.shown.target.dk)}
           taken={blocksOf(d, moveL.shown.target.dk)} step={d.slotform.step}
+          hours={canvasOpenHours(d.canvas, moveL.shown.target.dk)}
           onClose={() => setMove(null)}
           onMove={(min) => {
             /* ⚠️ Диалог закрывается ДО ответа, в отличие от записи: терять

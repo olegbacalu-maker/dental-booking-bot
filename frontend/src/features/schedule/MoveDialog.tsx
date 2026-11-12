@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { hideDialog, showDialog } from '../patients/card/dialog'
-import { MinPick } from './MinPick'
+import { HourSelect, MinPick } from './MinPick'
 import { clashAmong, hhmm, sameSlot, type Drag, type Occupies, type Target } from './move'
 import { takenMinutes } from './slot'
 
@@ -12,12 +12,10 @@ import { takenMinutes } from './slot'
    вернуть его можно, только зная, откуда он.
    ⚠️ Предупреждение о занятости — ПОДСКАЗКА. Правду говорит сервер под
    `_BOOK_LOCK`: пока тянули, час мог занять второй администратор.
-   Имена колонок и блоки колонки-цели даёт ЭКРАН готовыми: у дня и у панели
-   РАЗНЫЕ модели (и разный ключ колонки), а диалог переноса один на оба. Прими
-   он модель — пришлось бы заводить второй, и «De la» на одном экране
-   разошлось бы с другим после переименования врача.
-   Бросок даёт час и грубую половину, точную минуту доводят здесь: рукой в
-   пять минут на сетке не попасть. Час и врач остаются теми, куда бросили. */
+   Имена колонок, блоки и часы колонки-цели даёт ЭКРАН готовыми: у дня и у
+   панели разные модели, а диалог переноса один на оба.
+   Бросок даёт час и половину; точное время доводят здесь, врач остаётся тем,
+   в чью колонку бросили. */
 const T = {
   title: 'Mutare programare',
   who: 'Pacient',
@@ -37,6 +35,8 @@ interface Props {
   toName: string
   /** Занятые блоки колонки-цели по канве — подсказка, а не запрет сервера. */
   taken: Occupies[]
+  /** Рабочие часы врача-цели («HH:00»); час броска есть в списке всегда. */
+  hours: string[]
   /** Шаг сетки стартов, минут. */
   step?: number | undefined
   busy: boolean
@@ -45,11 +45,15 @@ interface Props {
   onMove: (min: number) => void
 }
 
-export function MoveDialog({ open, drag, target, fromName, toName, taken, step = 5, busy,
+export function MoveDialog({ open, drag, target, fromName, toName, taken, hours, step = 5, busy,
   onClose, onMove }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
-  const hour = Math.floor(target.min / 60)
+  const dropped = `${String(Math.floor(target.min / 60)).padStart(2, '0')}:00`
+  const [hourPick, setHourPick] = useState(dropped)
   const [minute, setMinute] = useState(target.min % 60)
+  const list = hours.includes(dropped) ? hours : [dropped, ...hours].sort()
+  const hh = hourPick.split(':')[0] ?? ''
+  const hour = Number(hh)
   const min = hour * 60 + minute
   const off = takenMinutes(taken, hour, drag.dur, step, drag.id)
   const busyAt = clashAmong(taken, min, drag.dur, drag.id)
@@ -74,8 +78,8 @@ export function MoveDialog({ open, drag, target, fromName, toName, taken, step =
           <div><span>{T.from}</span><b>{fromName} · {hhmm(drag.min)}</b></div>
           <div><span>{T.to}</span><b>{toName} · {hhmm(min)}</b></div>
         </div>
-        <MinPick hh={String(hour).padStart(2, '0')} value={minute} step={step} taken={off}
-                 onPick={setMinute} />
+        <HourSelect hours={list} value={hourPick} onPick={setHourPick} />
+        <MinPick hh={hh} value={minute} step={step} taken={off} onPick={setMinute} />
         {busyAt >= 0 ? (
           <div className="banner err" role="alert">
             Medicul are deja o programare la {hhmm(busyAt)}.

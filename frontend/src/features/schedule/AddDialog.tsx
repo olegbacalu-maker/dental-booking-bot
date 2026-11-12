@@ -3,7 +3,7 @@ import { Icon } from '../../components/Icon'
 import { hideDialog, showDialog } from '../patients/card/dialog'
 import { day, svcLabel, type DayForm, type NewAppt } from './day'
 import { DurSelect, useDurPick } from './DurPick'
-import { MinPick } from './MinPick'
+import { HourSelect, MinPick } from './MinPick'
 import { SmsCheck, useSmsBox } from './SmsBox'
 
 /* «Programare nouă» окном (06.10, Олег: форма внизу страницы — старый облик,
@@ -14,12 +14,10 @@ import { SmsCheck, useSmsBox } from './SmsBox'
    колонка выключенного врача, пока у него есть записи дня, а запись ответит
    ему `bad_off`: возьми список из колонок — регистратура выбрала бы такого
    врача и получила отказ на ровном месте.
-   Смена врача переписывает список часов и СОХРАНЯЕТ выбранный час, если он
-   есть и у нового; минута выбрана отдельно и смену врача переживает.
-   Список часов один на все услуги (сервер считает его на шаг старта): у
-   часовой услуги поздний старт отобьётся кодом `outside` — та же подсказка.
-   Занятость минут здесь не подсказывается: канвы даты окна у окна нет, отказ
-   сервера придёт словом в окно.
+   Смена врача переписывает список часов и сохраняет выбранный час, если он
+   есть и у нового. Список часов один на все услуги: поздний старт длинной
+   услуги отобьётся кодом `outside`. Занятость минут не подсказывается —
+   канвы даты окна у окна нет.
    ⛔ Окно закрывается ТОЛЬКО на удаче: отказ («interval ocupat») оставляет
    набранное на экране, как у окна свободного часа.
 
@@ -39,7 +37,6 @@ import { SmsCheck, useSmsBox } from './SmsBox'
 const T = {
   title: 'Programare nouă',
   date: 'Data',
-  time: 'Ora',
   doctor: 'Medic',
   service: 'Serviciu',
   noPhone: 'fără telefon',
@@ -74,6 +71,21 @@ interface Props {
    *  открытым `<dialog>` не видна (top layer). Так у обоих хозяев окна — дня
    *  журнала и окна шапки (`NewApptHost`). */
   onAdd: (body: NewAppt, fail: (text: string) => void) => Promise<boolean>
+  preset?: AddPreset | undefined
+}
+
+/** Чем окно открывается заполненным. `room` и `pid` окно пока не читает. */
+export interface AddPreset {
+  date?: string
+  /** «HH:MM» по сетке стартов. */
+  time?: string
+  duration?: number
+  doctor?: string
+  service?: string
+  name?: string
+  phone?: string
+  room?: string
+  pid?: number
 }
 
 /** Форма записи на дату окна; `form: null` — не пришла. */
@@ -82,22 +94,24 @@ interface Got {
   form: DayForm | null
 }
 
-export function AddDialog({ open, form, date, of, busy, onClose, onAdd }: Props) {
+export function AddDialog({ open, form, date, of, busy, onClose, onAdd, preset }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
-  const [at, setAt] = useState(date)
+  const [at, setAt] = useState(preset?.date ?? date)
+  const seedTime = preset?.time ?? form.time
   const [got, setGot] = useState<Got | null>(null)
-  const [doctorPick, setDoctorPick] = useState('')
-  const [timePick, setTimePick] = useState(form.time ? `${form.time.split(':')[0]}:00` : '')
-  const [minute, setMinute] = useState(Number(form.time.split(':')[1] ?? 0) || 0)
-  const [service, setService] = useState(form.services[0]?.id ?? '')
-  const [name, setName] = useState('')
-  const [phone, setPhone] = useState('')
+  const [doctorPick, setDoctorPick] = useState(preset?.doctor ?? '')
+  const [timePick, setTimePick] = useState(seedTime ? `${seedTime.split(':')[0]}:00` : '')
+  const [minute, setMinute] = useState(Number(seedTime.split(':')[1] ?? 0) || 0)
+  const [service, setService] = useState(
+    form.services.find((x) => x.id === preset?.service)?.id ?? form.services[0]?.id ?? '')
+  const [name, setName] = useState(preset?.name ?? '')
+  const [phone, setPhone] = useState(preset?.phone ?? '')
   const [noPhone, setNoPhone] = useState(false)
   const [birth, setBirth] = useState('')
   const [fail, setFail] = useState('')
   const sms = useSmsBox(form.sms, phone, noPhone)
   /* «Durată»: длительность услуги, пока не тронули (`DurPick`) */
-  const dur = useDurPick(form.services, service, form)
+  const dur = useDurPick(form.services, service, form, preset?.duration)
   /* «Сегодня» — `birth_max` формы (день клиники, его дал сервер), не часы
      браузера. Галочка включена сразу (решение Олега 29.10): визит задним
      числом заводят ради бумажной истории, а забытая галочка оставила бы его
@@ -158,11 +172,7 @@ export function AddDialog({ open, form, date, of, busy, onClose, onAdd }: Props)
           <label className="dlab">{T.date}
             <input type="date" value={at} onChange={(e) => setAt(e.target.value)} required />
           </label>
-          <label className="dlab">{T.time}
-            <select value={hour} onChange={(e) => setTimePick(e.target.value)}>
-              {times.map((t) => <option key={t} value={t}>{t.split(':')[0]}</option>)}
-            </select>
-          </label>
+          <HourSelect hours={times} value={hour} onPick={setTimePick} />
         </div>
         {times.length
           ? <MinPick hh={hh} value={minute} step={f.step ?? 5} onPick={setMinute} />

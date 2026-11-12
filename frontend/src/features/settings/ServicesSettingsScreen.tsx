@@ -79,8 +79,7 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
   }
 
   const rule = durRule(data ?? {})
-  /* строка с длительностью не по правилу — сохранять нечего: сервер
-     откажет всему списку */
+  /* сервер откажет всему списку из-за одной длительности не по правилу */
   const badDur = list.some((r) => r.ro.trim() !== '' && !durOk(r.duration, rule))
 
   if (state.status === 'leaving') return null

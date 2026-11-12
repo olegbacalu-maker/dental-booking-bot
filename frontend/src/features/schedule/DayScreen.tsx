@@ -21,7 +21,7 @@ import { CalButton } from './MiniCal'
 import { MoveDialog } from './MoveDialog'
 import { NoteDialog } from './NoteDialog'
 import { SlotDialog } from './SlotDialog'
-import { canvasBlocks, canvasColName, canvasNote, type DashNote } from './dash'
+import { canvasBlocks, canvasColName, canvasNote, canvasOpenHours, type DashNote } from './dash'
 import { useClockTick } from './dashFx'
 import { useLingering, useOpening } from '../../utils/motion'
 import { day, type DayModel } from './day'
@@ -397,6 +397,7 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
                       fromName={canvasColName(m.canvas, moveL.shown.drag.dk)}
                       toName={canvasColName(m.canvas, moveL.shown.target.dk)}
                       taken={canvasBlocks(m.canvas, moveL.shown.target.dk)} step={m.form?.step}
+                      hours={canvasOpenHours(m.canvas, moveL.shown.target.dk)}
                       onClose={() => setMove(null)}
                       onMove={(min) => {
                         const { drag: d, target: t } = moveL.shown!

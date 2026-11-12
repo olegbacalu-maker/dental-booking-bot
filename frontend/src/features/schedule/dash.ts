@@ -294,6 +294,14 @@ export function canvasBlocks(c: DashCanvasModel | null | undefined, dk: string):
   return c?.columns.find((col) => col.id === dk)?.blocks ?? []
 }
 
+/** Часы «HH:00», открытые у ЭТОЙ колонки, — из них окно переноса даёт выбрать час. */
+export function canvasOpenHours(c: DashCanvasModel | null | undefined, dk: string): string[] {
+  const col = c?.columns.find((x) => x.id === dk)
+  if (!c || !col) return []
+  return c.hours.filter((_, i) => col.cells[i] === true)
+    .map((x) => `${String(x.h).padStart(2, '0')}:00`)
+}
+
 /** Блок по номеру. ⚠️ Номер один на визиты и заметки (заметка — строка
  *  `appointments` с `source='note'`), поэтому ищется блок, а вид — после. */
 export function canvasBlock(c: DashCanvasModel | null | undefined, id: number): DashBlock | null {

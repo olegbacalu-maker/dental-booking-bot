@@ -452,8 +452,6 @@ async def api_services_save(request: Request):
         services, seq = _val_services({"services": prepared})
         cfg = _finish_cfg(services=services, seq=seq)
     except (ValueError, KeyError, TypeError, AttributeError) as e:
-        # длительность не по правилу называет себя: молчаливые 60 минут вместо
-        # присланного числа директор заметил бы только на записи
         if isinstance(e, ValueError) and str(e) == "duration":
             return msg_json(False, "bad_dur", status=422, field="duration")
         return msg_json(False, "bad_set", status=422)

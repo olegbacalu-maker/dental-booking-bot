@@ -1218,6 +1218,37 @@ describe('C26.5.3-f: перенос перетаскиванием', () => {
     expect(String(f.mock.calls[f.mock.calls.length - 1]![0])).toContain('/schedule/live')
   })
 
+  it('час меняют в окне: бросок дал 10:30, выбрали час 09 и :05 — уходит 09:05', async () => {
+    const f = vi.fn(async (url: string) => (String(url).includes('/move')
+      ? cmdReply('ok_move', 'Programare mutată')
+      : reply(200, model())))
+    vi.stubGlobal('fetch', f as unknown as typeof fetch)
+    await show()
+    await dropAt(165)
+
+    await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
+    const hour = document.querySelector('dialog .dp-hourpick select') as HTMLSelectElement
+    expect(hour.value).toBe('10:00')
+    expect(Array.from(hour.options).map((o) => o.value)).toContain('09:00')
+    const yes = () => document.querySelectorAll('dialog .mv-act button')[1] as HTMLButtonElement
+    const mins = () => Array.from(document.querySelectorAll('dialog .dp-minpick .mp')) as HTMLButtonElement[]
+    fireEvent.change(hour, { target: { value: '09:00' } })
+    expect(document.querySelector('dialog .mv-rows')?.textContent).toContain('Dr. Ion · 09:30')
+    /* занятость пересчитана под новый час: сам визит себе не помеха */
+    expect(mins().some((b) => b.disabled)).toBe(false)
+    /* своё же место (09:00) — подтвердить нельзя */
+    fireEvent.click(mins()[0] as HTMLElement)
+    expect(yes().disabled).toBe(true)
+    fireEvent.click(mins()[1] as HTMLElement)
+    expect(yes().disabled).toBe(false)
+    fireEvent.click(yes())
+
+    await waitFor(() => expect(
+      f.mock.calls.some((c) => String(c[0]).includes('/move'))).toBe(true))
+    expect(bodyOf(f.mock.calls.find((c) => String(c[0]).includes('/move'))!))
+      .toEqual({ date: TODAY, time: '09:05', doctor: 'd2' })
+  })
+
   it('минуту доводят в окне: бросок дал 10:30, выбрали :05 — уходит 10:05', async () => {
     const f = vi.fn(async (url: string) => (String(url).includes('/move')
       ? cmdReply('ok_move', 'Programare mutată')

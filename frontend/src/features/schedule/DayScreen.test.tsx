@@ -1,9 +1,10 @@
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import { openScreen } from '../../test/openScreen'
 import { ApiError } from '../../types/api'
+import { AddDialog } from './AddDialog'
 import { DayScreen, loadDay } from './DayScreen'
 import type { DashBlock, DashCanvasModel } from './dash'
 import type { DayForm, DayModel } from './day'
@@ -572,6 +573,25 @@ describe('окно записи «Programare nouă»', () => {
     fireEvent.submit(addForm() as HTMLFormElement)
     await waitFor(() => expect(post).toHaveBeenCalledWith('/schedule/appointments?date=2026-09-23',
       expect.objectContaining({ time: '10:05', name: 'Ana Cinci' })))
+  })
+
+  it('окно открывается заполненным из `preset`, без него — как прежде', async () => {
+    const onAdd = vi.fn<(b: unknown, f: (t: string) => void) => Promise<boolean>>(async () => true)
+    render(<AddDialog open form={{ ...MODEL.form!, durations: [15, 30, 60], dur_step: 5, dur_max: 240 }}
+      date="2026-09-23" of="" busy={false} onClose={() => {}} onAdd={onAdd}
+      preset={{ time: '10:35', duration: 25, doctor: 'd4', service: 'consult',
+        name: 'Elena Din Calendar', phone: '069333444' }} />)
+    expect(sel(0).value).toBe('14:00')        /* у d4 часа 10 нет — первый его час */
+    expect(sel(1).value).toBe('d4')
+    expect(field('Nume pacient').value).toBe('Elena Din Calendar')
+    expect(field('Telefon').value).toBe('069333444')
+    expect(Array.from(addForm()?.querySelectorAll('.dp-minpick .mp.on') ?? []).map((b) => b.textContent))
+      .toEqual([':35'])
+    expect((addForm()?.querySelector('select[aria-label="Durată"]') as HTMLSelectElement).value).toBe('25')
+    fireEvent.submit(addForm() as HTMLFormElement)
+    await waitFor(() => expect(onAdd).toHaveBeenCalled())
+    expect(onAdd.mock.calls[0]?.[0]).toMatchObject({ date: '2026-09-23', time: '14:35', doctor: 'd4',
+      service: 'consult', name: 'Elena Din Calendar', phone: '069333444', duration: 25 })
   })
 
   it('смена врача переписывает часы', async () => {

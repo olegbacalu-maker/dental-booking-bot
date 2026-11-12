@@ -576,7 +576,7 @@
 .dp-react-root .dlg-form .dp-svcrow > select:first-child { flex: 1 1 auto; min-width: 0; width: auto; }
 .dp-react-root .dlg-form .dp-svcrow > .dp-durf { flex: 0 0 auto; }
 .dp-react-root .dlg-form .dp-svcrow { flex-wrap: wrap; }
-/* «Durată»: список быстрых значений; строка «Altă durată…» открывает поле минут и подпись правила под ним */
+/* «Durată»: список, поле «другой» и правило под ним */
 .dp-react-root .dp-durf { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
 .dp-react-root .dlg-form .dp-durf .dp-dur, .dp-react-root table.set .dp-durf .dp-dur { flex: 0 0 104px; width: 104px; }
 .dp-react-root .dlg-form .dp-durf.open .dp-dur, .dp-react-root table.set .dp-durf.open .dp-dur { flex-basis: 132px; width: 132px; }
@@ -586,8 +586,9 @@
 .dp-react-root .dp-durf .dp-dur-rule { flex-basis: 100%; font-size: var(--fs-xs); color: var(--text3); }
 .dp-react-root .dp-durf .dp-dur-rule.bad { color: var(--red); }
 .dp-react-root .dlg-form .dp-svcrow > .dp-durf.open { flex-basis: 100%; }
-/* минута старта: двенадцать кнопок часа двумя рядами. Селектор с .dlg-form —
-   общий `.dlg-form button` красит любую кнопку окна фирменной заливкой */
+/* минуты старта; селектор с .dlg-form — иначе кнопку красит общий `.dlg-form button` */
+.dp-react-root .dlg-form > .dlab.dp-hourpick { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
+.dp-react-root .dlg-form > .dp-hourpick select { flex: 0 0 96px; width: 96px; }
 .dp-react-root .dp-minpick { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
 .dp-react-root .dlg-form .dp-minpick .mp, .dp-react-root .dlg-form .dp-minpick .mp:hover {
   height: var(--h-ctl-s); min-width: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r-ctl);

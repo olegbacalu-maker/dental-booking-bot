@@ -1,14 +1,27 @@
 import { hourMinutes } from './slot'
 
-/* Минута старта внутри часа — один ряд кнопок на окно свободного часа, окно
-   «Programare nouă» и окно переноса: три своих выбора разошлись бы молча.
+/* Час и минута старта — общие на окно свободного часа, «Programare nouă» и
+   окно переноса. Занятые минуты — подсказка по канве от хозяина окна; правду
+   говорит сервер под своим замком. */
 
-   Занятые минуты — подсказка по канве (их считает хозяин окна тем же
-   `clashAmong`, что помеху переносу): заведомо занятый старт не нажать.
-   Правду говорит сервер под своим замком — пока окно открыто, время мог
-   занять второй администратор. */
+const T = { group: 'Minute', taken: 'ocupat', hour: 'Ora' } as const
 
-const T = { group: 'Minute', taken: 'ocupat' } as const
+interface HourProps {
+  /** Часы «HH:00», в которые можно начать. */
+  hours: string[]
+  value: string
+  onPick: (hour: string) => void
+}
+
+export function HourSelect({ hours, value, onPick }: HourProps) {
+  return (
+    <label className="dlab dp-hourpick">{T.hour}
+      <select value={value} onChange={(e) => onPick(e.target.value)}>
+        {hours.map((t) => <option key={t} value={t}>{t.split(':')[0]}</option>)}
+      </select>
+    </label>
+  )
+}
 
 interface Props {
   /** Час «HH» — кнопка подписана полным временем для читающих с экрана. */

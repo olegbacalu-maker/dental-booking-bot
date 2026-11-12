@@ -107,8 +107,7 @@ _DB_STATE = "app/db/__init__.py"     # _CONN, _SQ, ACTOR_HOOK — перепри
 _DB_SCHEMA = "app/db/schema.py"      # SCHEMA_VERSION, MIGRATIONS, SQLITE_SCHEMA
 _DB_SLOTS = "app/db/slots.py"        # _slot_lock, _BOOK_LOCK, _uq_slot_sql
 _DB_DAY = "app/db/schedule.py"       # day_appointments: выборка дня
-# Кто принимает длительность снаружи и обязан спросить `eng.dur_ok`: запись и
-# окно визита, настройки услуг.
+# Кто принимает длительность снаружи и обязан спросить `eng.dur_ok`.
 _DUR_ASKERS = ("app/modules/schedule/routes.py", "app/modules/settings/routes.py")
 _DB_TEXTS = "app/db/plans.py"        # тексты летописи пациента («Plan: …»)
 _DB_SAN = "app/db/registre.py"       # журналы san_*: единственное место UPDATE (замок IS NULL)
@@ -1064,12 +1063,9 @@ def suite(res: Result) -> None:
              "сторож не доживает, и программа больше не откроется")
 
     # ---- длительность: одно правило допустимости ----
-    # Длительность визита и услуги судит `eng.dur_ok`. Свой список по месту
-    # расходится молча: настройки услуг держали литерал рядом с `DURATIONS`, и
-    # число вне него не отказывало, а превращалось в 60 минут. Нарушение —
-    # сверка `in`/`not in` со списком быстрых значений или с литералом минут.
-    # Полярность опасная: правило ищет ИМЯ, поэтому якорь — `dur_ok` есть и
-    # его спрашивают все три входа.
+    # Нарушение — сверка `in`/`not in` со списком быстрых значений или с
+    # литералом минут. Правило ищет ИМЯ, поэтому якорь — `dur_ok` есть и его
+    # спрашивают оба входа.
     def _minutes(node: ast.AST) -> bool:
         if not isinstance(node, (ast.Tuple, ast.List, ast.Set)) or len(node.elts) < 3:
             return False
@@ -1106,9 +1102,6 @@ def suite(res: Result) -> None:
            + " — два списка разойдутся молча, и одна дверь примет длительность, "
              "которую отвергает другая")
 
-    # Потолок длительности держится окном, в котором проверка занятости ищет
-    # соседей: визит длиннее окна, начавшийся раньше него, она не увидит, и
-    # поверх него ляжет запись без отказа.
     def _int_const(tree: ast.Module | None, name: str) -> int | None:
         for n in (tree.body if tree is not None else []):
             if isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant) \

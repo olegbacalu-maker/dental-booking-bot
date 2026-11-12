@@ -82,12 +82,8 @@ export function hourMinutes(step: number): number[] {
   return out
 }
 
-/**
- * Какие старты часа заняты у врача для записи длиной `dur` — по блокам его
- * колонки канвы, тем же `clashAmong`, что считает помеху переносу. `self` —
- * визит, который переносят: сам себе он не помеха.
- * Подсказка окну, а не правда: правду говорит сервер под своим замком.
- */
+/** Старты часа, с которых запись длиной `dur` задела бы занятый блок колонки
+ *  (`self` — переносимый визит, сам себе не помеха). Подсказка окну. */
 export function takenMinutes(items: Occupies[], hour: number, dur: number,
   step: number, self = -1): Set<number> {
   const out = new Set<number>()
