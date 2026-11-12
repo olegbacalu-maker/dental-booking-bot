@@ -47,7 +47,7 @@ SNAPSHOT = frozenset((
     "san_last_clean", "san_last_cycle",
     # кабинет у записи: занятость по кабинетам врача, индексы с кабинетом в ключе
     "appt_room_busy", "_doctor_overlaps", "_lane", "_own_room", "_patient_busy", "_pick_room",
-    "_retire_old_uq", "room_busy", "_room_label", "set_appt_room", "slot_probe", "_UQ_RETIRED",
+    "_retire_old_uq", "room_busy", "_room_label", "set_appt_room", "pin_doctor_room", "slot_probe", "_UQ_RETIRED",
     "UQ_ROOM_STEP", "_uq_stale", "_UQ_WAS",
     "_ACT_SQL", "ACTIVE_STATUSES", "ACTOR_HOOK", "_actor_now", "add_alert",
     "add_bridge", "add_document", "add_note", "add_payment", "add_plan_item",

@@ -436,3 +436,29 @@ def suite_lanes(res: Result) -> None:
         nb = _blocks(c, day).get("Pauza") or {}
         res.check("заметка стойки — во всю колонку", (note.msg, nb.get("col"), nb.get("of")),
                   ("ok_note", 0, 1))
+        # ширина блока — дело его дорожки: завершённая и новая запись на один
+        # час делят первый кабинет, второму кабинету это ширину не режет
+        day2 = _d(2)
+        _add(c, day2, "10:00", "Lat Vechi", "022730011", room=r1)
+        _post(c, _blocks(c, day2)["Lat Vechi"]["id"], "status", {"to": "done"}, day2)
+        _add(c, day2, "10:00", "Lat Nou", "022730012", room=r1)
+        _add(c, day2, "10:15", "Lat Alaturi", "022730013", room=r2, duration=15)
+        b = _blocks(c, day2)
+        res.check("наложение в одном кабинете соседнюю дорожку не сужает",
+                  [(b[n]["col"], b[n]["of"]) for n in ("Lat Vechi", "Lat Nou", "Lat Alaturi")],
+                  [(0, 4), (1, 4), (1, 2)])
+
+        # записи, сделанные до кабинетов, остаются в своём кабинете при смене порядка
+        _add(c, day2, "12:00", "Fara Cabinet", "022730014", "d3")
+        x, y = set_rooms(c, "d3", "X", "Y")
+        res.check("запись без кабинета — в первом кабинете врача",
+                  _blocks(c, day2, "d3")["Fara Cabinet"]["room_id"], x)
+        res.check("вторая на тот же час ложится во второй",
+                  (_add(c, day2, "12:00", "Cu Cabinet", "022730015", "d3"),
+                   _blocks(c, day2, "d3")["Cu Cabinet"]["room_id"]), ("ok", y))
+        set_rooms(c, "d3", "Y", "X")
+        b = _blocks(c, day2, "d3")
+        res.check("порядок кабинетов поменяли — записи остались каждая в своём",
+                  [(b[n]["room_id"], b[n]["col"], b[n]["of"]) for n in ("Fara Cabinet", "Cu Cabinet")],
+                  [(x, 1, 2), (y, 0, 2)])
+

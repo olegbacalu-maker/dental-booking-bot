@@ -89,7 +89,7 @@ from .schedule import (
     add_visit_for_patient, add_note, _insert_note, busy_lanes, doctor_future_count,
     appt_patient_id, day_appointments, appointment_days, day_patient_facts, appt_calls,
     set_appt_call, set_comment, move_appointment, set_appt_service, set_appt_duration,
-    set_status, set_appt_room, _own_room,
+    set_status, set_appt_room, pin_doctor_room, _own_room,
 )
 from .teeth import (
     TEETH_HIST_SINCE, teeth_map, teeth_hist_since, teeth_map_at, teeth_history_rows,

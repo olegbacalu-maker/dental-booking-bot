@@ -320,6 +320,12 @@ async def _save_doctor(dk: str, *, name: str, spec: str = "", room: str = "",
                            phone=phone.strip()[:30], email=email.strip()[:80],
                            color=col, work_from=wf, work_to=wt, status=st)
              if d["id"] == dk else d) for d in eng.CONFIG["doctors"]]
+    # список кабинетов меняется: записи без кабинета закрепляются за тем, в
+    # котором читались до сих пор, — новый порядок их не двигает
+    was = eng.doctor_rooms(dk)
+    if ids and tuple(ids) != was:
+        keep = was[0] if was else ids[0]
+        await db.pin_doctor_room(dk, keep, label.get(keep) or eng.room_name(keep))
     err = _save_cfg(doctors=docs, rooms=catalog) if catalog else _save_cfg(doctors=docs)
     return "save_err" if err else "ok_med"
 

@@ -318,6 +318,23 @@ describe('канва: дорожки кабинетов', () => {
     expect(onSlot).toHaveBeenLastCalledWith('d2', 'Dr. Ion', '10:00', 0, 'r-1')
   })
 
+  it('ширина блока — доля его дорожки: сосед по кабинету делит её, чужой кабинет — нет', () => {
+    /* место (`col`/`of`) считает сервер по одновременным записям ТОЙ ЖЕ дорожки */
+    draw(canvas({ blocks: [
+      appt({ id: 1, col: 0, of: 4 }), appt({ id: 2, col: 1, of: 4, name: 'Ana Rusu' }),
+      appt({ id: 3, col: 1, of: 2, room_id: 'r-2', room: 'Cabinet 2', name: 'Dan Lupu' }),
+    ] }))
+    /* доли ширины колонки: [левый край, ширина] — множители при `(100% - 8px)` */
+    const box = (id: number) => {
+      const s = (document.querySelector(`.gappt[data-appt="${id}"]`) as HTMLElement).style
+      return [s.left, s.width].map((v) => Number(/([\d.]+) \* \(100% - 8px\)/.exec(v)?.[1]))
+    }
+    expect(box(1)).toEqual([0, 0.25])
+    expect(box(2)).toEqual([0.25, 0.25])
+    /* одна в своём кабинете — вся половина колонки */
+    expect(box(3)).toEqual([0.5, 0.5])
+  })
+
   it('заняты оба кабинета — ячейка выключена', () => {
     draw(canvas({ blocks: [appt({}), appt({ id: 2, col: 1, room_id: 'r-2', room: 'Cabinet 2' })] }))
     expect(cell(9).disabled).toBe(true)
