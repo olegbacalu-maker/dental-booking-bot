@@ -462,3 +462,44 @@ def suite_lanes(res: Result) -> None:
                   [(b[n]["room_id"], b[n]["col"], b[n]["of"]) for n in ("Fara Cabinet", "Cu Cabinet")],
                   [(x, 1, 2), (y, 0, 2)])
 
+def suite_move_overlap(res: Result) -> None:
+    """Перенос и смена кабинета в кабинет, где у этого же врача уже идёт
+    визит: отказ по ПЕРЕСЕЧЕНИЮ интервалов, а не только по совпавшему старту.
+    Уникальный индекс видит один старт в одном кабинете — пересечение с другим
+    началом или длиной держит только прикладная проверка."""
+    with Server() as s:
+        c = Client(s.url).login()
+        day = _d(1)
+        # запись, сделанная до кабинетов: кабинета у неё нет, читается в первом
+        _add(c, day, "14:00", "Vechi Lung", "022740001", duration=60)
+        r1, r2 = set_rooms(c, "d2", "1", "3")
+        _add(c, day, "10:00", "Lung Unu", "022740002", room=r1, duration=60)
+        _add(c, day, "10:30", "Scurt Doi", "022740003", room=r2, duration=15)
+        _add(c, day, "14:20", "Scurt Trei", "022740004", room=r2, duration=10)
+        a2, a3 = appt_id(c, day, "Scurt Doi"), appt_id(c, day, "Scurt Trei")
+        mv = {"date": day, "doctor": "d2"}
+        res.check("та же минута, занятый кабинет названа явно — conflict",
+                  _post(c, a2, "move", {**mv, "time": "10:30", "room": r1}, day), "conflict")
+        res.check("другое начало внутри чужого визита — conflict",
+                  _post(c, a2, "move", {**mv, "time": "10:45", "room": r1}, day), "conflict")
+        res.check("начало раньше, хвост заходит на чужой визит — conflict",
+                  _post(c, a2, "move", {**mv, "time": "09:50", "room": r1}, day), "conflict")
+        res.check("смена кабинета на занятый по интервалу — conflict",
+                  _post(c, a2, "room", {"room": r1}, day), "conflict")
+        res.check("запись без кабинета занимает первый: перенос в него — conflict",
+                  (_post(c, a3, "move", {**mv, "time": "14:20", "room": r1}, day),
+                   _post(c, a3, "room", {"room": r1}, day)), ("conflict", "conflict"))
+        res.check("новая запись в занятый по интервалу кабинет — conflict",
+                  _add(c, day, "14:30", "Nou Patru", "022740005", room=r1, duration=5), "conflict")
+        b = _blocks(c, day)
+        res.check("после отказов записи стоят где стояли",
+                  [(b[n]["time"], b[n]["room_id"]) for n in ("Scurt Doi", "Scurt Trei")],
+                  [("10:30", r2), ("14:20", r2)])
+        res.check("впритык за визитом — можно",
+                  _post(c, a2, "move", {**mv, "time": "11:00", "room": r1}, day), "ok_move")
+        # порядок кабинетов поменяли: запись без кабинета осталась в своём,
+        # и правило по-прежнему отказывает
+        set_rooms(c, "d2", "3", "1")
+        res.check("после смены порядка: в кабинет старой записи — conflict, она на месте",
+                  (_post(c, a3, "move", {**mv, "time": "14:30", "room": r1}, day),
+                   _blocks(c, day)["Vechi Lung"]["room_id"]), ("conflict", r1))
