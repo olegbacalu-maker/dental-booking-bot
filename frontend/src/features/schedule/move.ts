@@ -29,9 +29,11 @@ export interface Drag {
   dur: number
   /** Имя пациента или текст заметки — то же, что `data-nm` у страницы. */
   nm: string
+  /** За какое место блок взяли: px от его верха. */
+  grab?: number
 }
 
-/** Куда бросили: колонка и минута (час ячейки плюс половина). */
+/** Куда бросили: колонка и минута начала по делению сетки. */
 export interface Target {
   dk: string
   min: number
@@ -51,23 +53,13 @@ export function endOf(time: string, dur: number): string {
 }
 
 /**
- * Половина часа берётся из МЕСТА броска внутри ячейки, а не из её номера:
- * сетка стартов 30-минутная (`engine.GRID_STEP`), и «09:30 → 10:00» обязано
- * отличаться от «09:30 → 10:30». Верх ячейки — :00, низ — :30.
- */
-export function halfAt(y: number, rect: { top: number; height: number }): 0 | 30 {
-  return y - rect.top >= rect.height / 2 ? 30 : 0
-}
-
-/**
  * Ячейка ПО КООРДИНАТЕ, а не по `e.target` (C26.5.3-f).
  *
- * ⛔ На канве панели блоки лежат ПОВЕРХ ячеек и приходятся им СОСЕДЯМИ, а не
+ * На канве панели блоки лежат ПОВЕРХ ячеек и приходятся им СОСЕДЯМИ, а не
  * детьми: событие переноса над чужим визитом целится в него, и ячейка под
- * курсором не участвует в нём никак. Ищем её перебором прямоугольников, ровно
- * как `targetAt` в `panel.js`, — иначе бросок на соседний визит попадал бы в
- * никуда вместо его часа.
- * ⚠️ `null` — курсор вне приёмных часов: закрытая ячейка мишенью не бывает, и
+ * курсором не участвует в нём никак. Ищем её перебором прямоугольников —
+ * иначе бросок на соседний визит попадал бы в никуда вместо его часа.
+ * `null` — курсор вне приёмных часов: закрытая ячейка мишенью не бывает, и
  * список ей просто не содержит (у неё нет `data-h`).
  */
 export interface CellRect {
@@ -76,13 +68,40 @@ export interface CellRect {
   height: number
 }
 
-export function cellAtY(cells: CellRect[], y: number): { h: number; half: 0 | 30 } | null {
+/** Минута часа (дробная) под координатой и её ячейка. */
+export function cellAtY(cells: CellRect[], y: number): { h: number; at: number } | null {
   for (const c of cells) {
     if (y >= c.top && y < c.top + c.height) {
-      return { h: c.h, half: halfAt(y, c) }
+      return { h: c.h, at: ((y - c.top) / c.height) * 60 }
     }
   }
   return null
+}
+
+/**
+ * Минута от полуночи под координатой, по делению `snap`. Щелчок берёт деление,
+ * В КОТОРОЕ попал (вниз), бросок — ближайшее: верх блока тянут к линии.
+ * Ближайшее деление может оказаться началом следующего часа; если тот закрыт,
+ * остаётся последнее деление этого.
+ */
+export function minuteAtY(cells: CellRect[], y: number, snap: number,
+  nearest = false): number | null {
+  const c = cellAtY(cells, y)
+  if (!c) return null
+  const m = (nearest ? Math.round(c.at / snap) : Math.floor(c.at / snap)) * snap
+  if (m < 60) return c.h * 60 + m
+  return cells.some((x) => x.h === c.h + 1) ? (c.h + 1) * 60 : c.h * 60 + 60 - snap
+}
+
+/**
+ * Куда встанет НАЧАЛО визита при броске: блок держат за точку `grab` (px от его
+ * верха), и время считается по верху блока, а не по курсору — иначе сдвиг на
+ * пять минут зависел бы от того, за какое место блок взяли. Верх вне приёмных
+ * часов — считаем по курсору.
+ */
+export function dropMinute(cells: CellRect[], y: number, grab: number,
+  snap: number): number | null {
+  return minuteAtY(cells, y - grab, snap, true) ?? minuteAtY(cells, y, snap)
 }
 
 /** Что снять с карточки, чтобы её тащить. `null` — эту запись не тащат. */
@@ -100,8 +119,7 @@ export function dragOf(item: DayItem, dk: string): Drag | null {
 /**
  * Бросок на своё же место. ⛔ Правило браузерное, и обойтись без него нельзя:
  * сервер такой перенос ПРИНИМАЕТ (`ok_move`) и пишет строку в летопись
- * пациента, а летопись не переписывают. Сравниваются колонка и минута —
- * получас считается переносом.
+ * пациента, а летопись не переписывают. Сравниваются колонка и минута.
  */
 export function sameSlot(d: Drag, t: Target): boolean {
   return d.dk === t.dk && d.min === t.min

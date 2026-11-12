@@ -21,6 +21,8 @@ export interface Slot {
   name: string
   /** Час ячейки, «HH:00». */
   hour: string
+  /** Минута, в которую попал щелчок по сетке; нет — первая свободная. */
+  minute?: number
 }
 
 /**
@@ -94,34 +96,53 @@ export function takenMinutes(items: Occupies[], hour: number, dur: number,
 }
 
 /**
- * Какие из двух стартов часа (`:00`, `:30`) свободны у врача — по блокам его
- * колонки канвы, тем же `clashAmong`, что считает помеху переносу (17.10).
+ * Свободные отрезки часа у врача — по блокам его колонки канвы, тем же
+ * `clashAmong`, что считает помеху переносу. Минуты часа, `[from, to)`.
  *
- * ⭐ Это ПОДСКАЗКА, как у диалога переноса: правду говорит сервер под своим
- * замком, пока окно открыто, час мог занять второй администратор. Подсказка
- * лишь не даёт нажать то, что по канве заведомо занято: до неё ячейка под
- * 45-минутным визитом звала «+ Programare», окно предлагало оба занятых
- * старта, а отказ «ocupat» уходил в плашку ПОД модальным окном.
- * ⚠️ Половина занята, если ЛЮБОЙ занятый блок её задевает: визит 09:00–09:45
- * занимает обе — 30-минутный слот в 09:45 канва не предлагает (шаг сетки).
+ * Это ПОДСКАЗКА, как у диалога переноса: правду говорит сервер под своим
+ * замком, пока окно открыто, час мог занять второй администратор.
  */
-export interface FreeHalves {
-  h0: boolean
-  h30: boolean
+export interface FreeSpan {
+  from: number
+  to: number
 }
 
-export function freeHalves(items: Occupies[], hour: number): FreeHalves {
-  const m = hour * 60
-  return {
-    h0: clashAmong(items, m, 30, -1) < 0,
-    h30: clashAmong(items, m + 30, 30, -1) < 0,
+export function freeSpans(items: Occupies[], hour: number, step = 5): FreeSpan[] {
+  const out: FreeSpan[] = []
+  for (const m of hourMinutes(step)) {
+    if (clashAmong(items, hour * 60 + m, step, -1) >= 0) continue
+    const last = out[out.length - 1]
+    if (last && last.to === m) last.to = m + step
+    else out.push({ from: m, to: m + step })
   }
+  return out
 }
 
-/** Значение `data-free` ячейки канвы: где рисовать «+ Programare». */
-export function freeKind(f: FreeHalves): 'both' | 'top' | 'bottom' | 'none' {
-  if (f.h0 && f.h30) return 'both'
-  if (f.h0) return 'top'
-  if (f.h30) return 'bottom'
-  return 'none'
+/** Отрезок под минутой `at`, а вне отрезков — ближайший к ней. */
+export function spanAt(spans: FreeSpan[], at: number): FreeSpan | null {
+  let best: FreeSpan | null = null
+  let gap = Infinity
+  for (const s of spans) {
+    const d = at < s.from ? s.from - at : at >= s.to ? at - s.to + 1 : 0
+    if (d < gap) { best = s; gap = d }
+  }
+  return best
+}
+
+/**
+ * С какой минуты часа открыть окно записи по щелчку в `at` (дробная минута
+ * часа; `null` — нажали с клавиатуры): деление `snap`, в которое попал
+ * щелчок, но не раньше начала свободного отрезка и не позже его последнего
+ * старта. В дыре короче двух делений целиться нечем — запись встаёт в её
+ * начало, сразу за предыдущим визитом. `null` — свободного в часе нет.
+ */
+export function startIn(spans: FreeSpan[], at: number | null, snap: number,
+  step = 5): number | null {
+  const first = spans[0]
+  if (!first) return null
+  if (at === null) return first.from
+  const s = spanAt(spans, at) ?? first
+  if (s.to - s.from < 2 * snap) return s.from
+  const m = Math.floor(at / snap) * snap
+  return Math.max(s.from, Math.min(m, s.to - step))
 }

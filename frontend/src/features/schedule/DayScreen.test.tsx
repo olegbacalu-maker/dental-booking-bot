@@ -1008,23 +1008,29 @@ describe('перетаскивание', () => {
     expect(blk(2).getAttribute('draggable')).toBeNull()
   })
 
-  it('бросок в верх ячейки даёт ровный час, в низ — половину', async () => {
+  it('бросок липнет к ближайшему делению в четверть часа', async () => {
     await show()
-    dragTo('d2', 150)
+    dragTo('d2', 141)
     await waitFor(() => expect(document.querySelector('.mv-rows')).toBeTruthy())
     expect(document.querySelectorAll('.mv-rows b')[2]?.textContent)
       .toBe('Dr. Activ Doi · 10:00')
     fireEvent.click(document.querySelector('.mv-no') as HTMLElement)
 
-    dragTo('d2', 170)
+    dragTo('d2', 161)
     await waitFor(() => expect(document.querySelector('.mv-rows')).toBeTruthy())
     expect(document.querySelectorAll('.mv-rows b')[2]?.textContent)
       .toBe('Dr. Activ Doi · 10:30')
+    fireEvent.click(document.querySelector('.mv-no') as HTMLElement)
+
+    /* окно открывается с точной минутой броска — и отмеченной кнопкой минут */
+    dragTo('d2', 151)
+    await waitFor(() => expect(document.querySelectorAll('.mv-rows b')[2]?.textContent)
+      .toBe('Dr. Activ Doi · 10:15'))
   })
 
   it('диалог говорит, КОГО и ОТКУДА двигают — и к какому врачу', async () => {
     await show()
-    dragTo('d3', 110)
+    dragTo('d3', 101)
     await waitFor(() => expect(document.querySelector('.mv-rows')).toBeTruthy())
     const b = document.querySelectorAll('.mv-rows b')
     expect([b[0]?.textContent, b[1]?.textContent, b[2]?.textContent])
@@ -1033,7 +1039,7 @@ describe('перетаскивание', () => {
 
   it('БРОСОК НА СВОЁ ЖЕ МЕСТО диалога не открывает и запроса не шлёт', async () => {
     await show()
-    dragTo('d2', 110)
+    dragTo('d2', 101)
     expect(document.querySelector('.mv-rows')).toBeNull()
     expect(post).not.toHaveBeenCalled()
   })
@@ -1049,7 +1055,7 @@ describe('перетаскивание', () => {
   it('подтверждение шлёт час, врача и дату экрана', async () => {
     post.mockResolvedValue(ok(MODEL))
     await show()
-    dragTo('d2', 150)
+    dragTo('d2', 141)
     await waitFor(() => expect(document.querySelector('.mv-rows')).toBeTruthy())
     fireEvent.click(document.querySelectorAll('.mv-act button')[1] as HTMLElement)
     await waitFor(() => expect(post).toHaveBeenCalledWith('/schedule/appointments/1/move',
@@ -1077,7 +1083,7 @@ describe('перетаскивание', () => {
       ] },
     }))
     await show()
-    dragTo('d2', 150)
+    dragTo('d2', 141)
     await waitFor(() => expect(document.querySelector('.mv-rows')).toBeTruthy())
     expect(document.querySelector('.banner.err')?.textContent)
       .toContain('Medicul are deja o programare la 10:00.')

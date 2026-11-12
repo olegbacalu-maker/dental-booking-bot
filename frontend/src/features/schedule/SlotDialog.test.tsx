@@ -68,6 +68,27 @@ describe('окно пустого часа: минута старта шагом
     expect(head()).toBe('Dr. Ion — 10:20')
   })
 
+  it('минута щелчка по сетке — выбрана сразу и держится, пока услуга в неё не влезает', () => {
+    const form = { ...FORM, services: [{ id: 'consult', label: 'Consultație', dur: 30 }],
+      durations: [10, 30], dur_step: 5, dur_max: 240 }
+    const open = (minute: number, taken: Occupies[]) =>
+      render(<SlotDialog open slot={{ ...SLOT, minute }} date="2026-10-17" form={form}
+        noteEnds={[11, 12]} taken={taken} busy={false} onClose={onClose}
+        onAdd={async () => true} onNote={onNote} />)
+    open(35, FREE)
+    expect([on(), head(), banner()]).toEqual([[':35'], 'Dr. Ion — 10:35', ''])
+    cleanup()
+    /* дыра 10:10–10:20 между визитами: услуга на 30 минут в неё не влезает —
+       минута щелчка остаётся, окно говорит почему и не даёт записать */
+    open(10, [busy(600, 10), busy(620, 40)])
+    expect([on(), head()]).toEqual([[':10'], 'Dr. Ion — 10:10'])
+    expect(banner()).toContain('De la 10:10 nu încap 30 min')
+    expect(submit().disabled).toBe(true)
+    /* длительность 10 минут — влезло */
+    fireEvent.change(document.querySelector('dialog .dp-dur') as HTMLElement, { target: { value: '10' } })
+    expect([on(), banner(), submit().disabled]).toEqual([[':10'], '', false])
+  })
+
   it('занят весь час: сказано почему, кнопка записи выключена', () => {
     show([busy(600, 60)])
     expect(off()).toHaveLength(12)

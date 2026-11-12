@@ -2,12 +2,14 @@ import { useRef } from 'react'
 import { AppLink } from '../../components/AppLink'
 import { useFlip } from '../../utils/flip'
 import { Icon, iconName } from '../../components/Icon'
-import { clinicNow, clinicTz, nowlineRows, useCardView, useFitAppts, useFitGrid, waitLabel } from './dashFx'
+import { CELL_MIN, GRID_ZOOMS, clinicNow, clinicTz, nowlineRows, useCardView, useFitAppts, useFitGrid,
+  useGridZoom, waitLabel } from './dashFx'
 import type { DashAppt, DashBlock, DashCanvasModel, DashColumn } from './dash'
 import type { VisitFacts } from './day'
 import { FactCols } from './FactCols'
-import { freeHalves, freeKind, hourLabel } from './slot'
-import { cellAtY, dragOf, endOf, type CellRect, type Drag, type Target } from './move'
+import { freeSpans, hourLabel, spanAt, startIn, type FreeSpan } from './slot'
+import { cellAtY, dragOf, dropMinute, endOf, hhmm, type CellRect, type Drag, type Occupies,
+  type Target } from './move'
 
 /* Канва панели дня: колонки врачей, ряды часов, блоки с геометрией.
 
@@ -49,6 +51,9 @@ const T = {
   odo: 'Deschide odontograma',
   noAppts: 'Nicio programare în această zi',
   room: 'Cabinetul',
+  zoom: 'Scara grilei',
+  zoomIn: 'Mărește grila',
+  zoomOut: 'Micșorează grila',
   noApptsHint: 'Alege un interval liber din calendar pentru a programa un pacient.',
 } as const
 
@@ -73,12 +78,12 @@ interface Props {
   onCardMenu?: ((id: number, x: number, y: number) => void) | undefined
   /** Открыть заметку стойки: полный текст и её единственная кнопка. */
   onNote: (id: number) => void
-  /** Открыть пустой час: врач, его имя и «HH:00» — те же три значения, что
-   *  принимал легаси-обработчик `openSlot(dk, dname, hh)`. */
-  onSlot: (dk: string, name: string, hour: string) => void
+  /** Открыть пустой час: врач, его имя, «HH:00» и минута, в которую попал
+   *  щелчок (по делению масштаба, внутри свободного отрезка). */
+  onSlot: (dk: string, name: string, hour: string, minute: number) => void
   /** Начало броска: `null` — бросок кончился. */
   drag: Drag | null
-  /** Подсвеченная ячейка: «колонка|час». */
+  /** Куда встанет визит, если бросить сейчас: «колонка|минута от полуночи». */
   hover: string
   onDrag: (d: Drag | null) => void
   onHover: (key: string) => void
@@ -110,9 +115,12 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
   const waits = model.columns.some(
     (c) => c.blocks.some((b) => b.kind === 'appt' && b.wait_since))
   const view = useCardView()
-  useFitGrid(body, rail, model.hours.length)
+  const [zoom, setZoom] = useGridZoom()
+  const scale = GRID_ZOOMS[zoom] ?? GRID_ZOOMS[0]
+  const keep = useRef<number | null>(null)
+  useFitGrid(body, rail, model.hours.length, scale.cell, keep)
   /* `fresh` и `moved` меняют className блока без новой модели — и стёрли бы ступени */
-  useFitAppts(body, waits ? waitTick : 0, model, view, fresh, moved)
+  useFitAppts(body, waits ? waitTick : 0, model, view, fresh, moved, zoom)
   /* Блок, сменивший место (перенос — свой или с другого места), доезжает до
      нового сдвигом (07.11, вторая волна): только transform, раскладку и
      ступень сжатия не трогает; на опросе без изменений — ни одного запуска. */
@@ -129,6 +137,16 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
   /* Пустой день — ни одного ВИЗИТА (заметка стойки днём не считается);
      карточка лежит поверх сетки без событий мыши, ячейки под ней кликабельны. */
   const noAppts = !model.columns.some((c) => c.blocks.some((b) => b.kind === 'appt'))
+  const pickZoom = (z: number) => {
+    const r = body.current?.getBoundingClientRect()
+    const mid = r && r.height > 0 ? (window.innerHeight / 2 - r.top) / r.height : -1
+    keep.current = mid >= 0 && mid <= 1 ? mid : null
+    setZoom(z)
+  }
+  /* подпись :05 легла бы на подпись самого часа — её деление остаётся линией */
+  const marks: number[] = []
+  for (let m = scale.marks; scale.marks && m < 60; m += scale.marks) if (m > 5) marks.push(m)
+  const [dropDk, dropAt] = drag && hover ? hover.split('|') : []
 
   return (
     <div className="gridcard">
@@ -136,21 +154,33 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
           ⚠️ `.gridcard` с overflow:clip, а не hidden: hidden сделал бы карточку
           контейнером прокрутки, и sticky прилипал бы к ней, а не к окну. */}
       <div className={`gridhead${model.tight ? ' tight' : ''}`}>
-        <div className="gh-time" />
+        <div className="gh-time">
+          <div className="gzoom" role="group" aria-label={T.zoom}>
+            <button type="button" aria-label={T.zoomOut} title={T.zoomOut}
+              disabled={zoom === 0} onClick={() => pickZoom(zoom - 1)}><Icon name="minus" /></button>
+            <button type="button" aria-label={T.zoomIn} title={T.zoomIn}
+              disabled={zoom === GRID_ZOOMS.length - 1} onClick={() => pickZoom(zoom + 1)}><Icon name="plus" /></button>
+          </div>
+        </div>
         {model.columns.map((col) => (
           <DocCard key={col.key} col={col} date={model.date} />
         ))}
       </div>
       <Band band={model.bands.top} side="gb-top" />
-      <div className="gridbody" data-day={model.date} ref={body}>
+      <div className="gridbody" data-day={model.date} data-zoom={zoom} ref={body}>
         <div className="gcol-time">
           {model.hours.map((h) => (
-            <div key={h.h} className={h.now ? 'nowh' : undefined}>{h.label}</div>
+            <div key={h.h} className={h.now ? 'nowh' : undefined}>{h.label}
+              {marks.map((m) => (
+                <i key={m} className={m % 15 ? 'gm5' : undefined}
+                  style={{ top: `${(m / 60) * 100}%` }}>:{p2(m)}</i>
+              ))}
+            </div>
           ))}
         </div>
         {model.columns.map((col) => (
           <div key={col.key} className="gcol" {...(col.id ? { 'data-dk': col.id } : {})}
-            {...(drag && col.id ? dropZone(col.id, onHover, onDrop) : {})}>
+            {...(drag && col.id ? dropZone(col.id, drag.grab ?? 0, scale.snap, onHover, onDrop) : {})}>
             {col.cells.map((open, i) => {
               /* ⛔ Закрытая ячейка БЕЗ `data-h`: «куда нельзя записать, туда
                  нельзя и перенести». Признак ОДИН на класс, на `data-h` и на
@@ -172,21 +202,37 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
                 )
               }
               const hh = hourLabel(h)
-              /* «+ Programare» — только на свободной половине часа (17.10):
-                 ячейка под визитом не зовёт записать туда, где старта нет, а
-                 полупрозрачная карточка стиля Sticlă не показывает подсказку
-                 сквозь себя. Час без свободного старта — кнопка выключена:
-                 окно слота предложило бы два занятых времени. ⚠️ Мишень
-                 переноса от этого не меняется — она ищется по координате. */
-              const free = freeKind(freeHalves(col.blocks, h))
+              /* «+ Programare» — только на свободном отрезке часа: ячейка под
+                 визитом не зовёт записать туда, где старта нет. Подсказка
+                 меряет отрезки по НАРИСОВАННЫМ блокам (короткий дотянут ниже
+                 своей длины и закрывает ячейку), а «занят ли час» и минута
+                 записи — по настоящим минутам: кнопка обязана не врать.
+                 Мишень переноса от этого не зависит — она ищется по координате. */
+              const real = freeSpans(col.blocks, h)
+              const seen = freeSpans(drawn(col.blocks), h)
+              const first = seen[0]
+              const low = first ? thin(first, scale.cell || CELL_MIN) : ''
               return (
-                <button key={h} type="button" data-h={h} data-hh={hh} data-free={free}
-                  className={hover === dk + '|' + h ? 'gcell dropzone' : 'gcell'}
+                <button key={h} type="button" data-h={h} data-hh={hh}
+                  data-free={!first ? 'none' : first.to - first.from === 60 ? 'all' : 'part'}
+                  {...(low ? { 'data-thin': low } : {})}
+                  className="gcell" style={first ? spanVars(first) : undefined}
                   aria-label={`${T.book} ${col.name} ${T.at} ${hh}`}
-                  disabled={free === 'none'}
-                  onClick={() => onSlot(dk, col.name, hh)} />
+                  disabled={!real.length}
+                  onMouseMove={seen.length > 1 ? (e) => aim(e.currentTarget, e.clientY, seen) : undefined}
+                  onClick={(e) => {
+                    const at = e.detail ? minuteIn(e.currentTarget, e.clientY) : null
+                    const m = startIn(real, at, scale.snap)
+                    if (m !== null) onSlot(dk, col.name, hh, m)
+                  }} />
               )
             })}
+            {dropDk === col.id && dropAt && model.base_min !== null && drag && (
+              <div className="gdrop" data-at={hhmm(Number(dropAt))} style={{
+                top: `calc(${(Number(dropAt) - model.base_min) / 60}*var(--cell))`,
+                height: `calc(${drag.dur / 60}*var(--cell))`,
+              }} />
+            )}
             {col.blocks.map((b) => (
               <Block key={b.id} block={b} waitTick={waitTick} dk={col.id ?? ''}
                 onCard={onCard} onCardMenu={onCardMenu} onNote={onNote} onDrag={onDrag}
@@ -215,18 +261,58 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
   )
 }
 
+/** Блоки колонки с длиной, какой они НАРИСОВАНЫ: короткий визит дотянут ниже
+ *  своих минут, и ячейка под хвостом щелчка не получит. */
+function drawn(blocks: DashBlock[]): Occupies[] {
+  return blocks.map((b) => ({
+    id: b.id, min: b.min, busy: b.busy,
+    dur: Math.max(b.dur || 60, Math.round(b.height * 60)),
+  }))
+}
+
+function spanVars(s: FreeSpan): React.CSSProperties {
+  return { '--ft': s.from / 60, '--fb': 1 - s.to / 60 } as React.CSSProperties
+}
+
+/** Низкий отрезок: слово подсказки не влезает — остаётся плюс или одна рамка. */
+function thin(s: FreeSpan, cellPx: number): 'plus' | 'bar' | '' {
+  const px = ((s.to - s.from) / 60) * cellPx - 6
+  return px < 9 ? 'bar' : px < 18 ? 'plus' : ''
+}
+
+/** Минута часа (дробная) под координатой внутри ячейки; `null` — ячейка без
+ *  высоты (среда без раскладки). */
+function minuteIn(el: HTMLElement, y: number): number | null {
+  const r = el.getBoundingClientRect()
+  if (r.height <= 0) return null
+  return Math.max(0, Math.min(59.9, ((y - r.top) / r.height) * 60))
+}
+
+/* Рамка подсказки встаёт на свободный отрезок под курсором. Мимо React: это
+   оформление наведения, и рендер на каждое движение мыши был бы лишним. */
+function aim(el: HTMLElement, y: number, spans: FreeSpan[]): void {
+  const at = minuteIn(el, y)
+  const s = at === null ? null : spanAt(spans, at)
+  if (!s) return
+  el.style.setProperty('--ft', String(s.from / 60))
+  el.style.setProperty('--fb', String(1 - s.to / 60))
+  const low = thin(s, el.offsetHeight)
+  if (low) el.dataset.thin = low
+  else delete el.dataset.thin
+}
+
 /**
- * Мишень переноса — вся КОЛОНКА, а ячейка под курсором ищется перебором её
- * прямоугольников.
+ * Мишень переноса — вся КОЛОНКА, а минута начала ищется по координате среди
+ * прямоугольников её открытых ячеек.
  *
- * ⛔ Не на ячейке, и это не оптимизация: блок визита лежит ПОВЕРХ ячеек и
+ * Не на ячейке, и это не оптимизация: блок визита лежит ПОВЕРХ ячеек и
  * перехватывает событие, а ячейка ему сосед, а не родитель, — повесь
  * обработчик на ячейку, и бросок на соседний визит уходил бы в никуда.
- * ⚠️ Без `preventDefault` браузер не отдаёт `drop` вовсе.
- * ⚠️ `dataTransfer` бывает недоступен (и его нет у события, синтезированного
- * проверкой), поэтому подсветка стоит СНАРУЖИ этого условия.
+ * Без `preventDefault` браузер не отдаёт `drop` вовсе. `dataTransfer` бывает
+ * недоступен (и его нет у события, синтезированного проверкой), поэтому
+ * указатель места стоит СНАРУЖИ этого условия.
  */
-function dropZone(dk: string, onHover: (key: string) => void,
+function dropZone(dk: string, grab: number, snap: number, onHover: (key: string) => void,
   onDrop: (t: Target) => void) {
   const at = (e: React.DragEvent<HTMLDivElement>) => {
     const rects: CellRect[] = Array.from(
@@ -235,21 +321,22 @@ function dropZone(dk: string, onHover: (key: string) => void,
       const r = el.getBoundingClientRect()
       return { h: Number(el.dataset.h), top: r.top, height: r.height }
     })
-    return cellAtY(rects, e.clientY)
+    /* курсор обязан стоять над открытым часом: закрытое мишенью не бывает */
+    return cellAtY(rects, e.clientY) ? dropMinute(rects, e.clientY, grab, snap) : null
   }
   return {
     onDragOver: (e: React.DragEvent<HTMLDivElement>) => {
-      const cell = at(e)
-      if (!cell) { onHover(''); return }
+      const min = at(e)
+      if (min === null) { onHover(''); return }
       e.preventDefault()
       if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
-      onHover(dk + '|' + cell.h)
+      onHover(dk + '|' + min)
     },
     onDragLeave: () => onHover(''),
     onDrop: (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault()
-      const cell = at(e)
-      if (cell) onDrop({ dk, min: cell.h * 60 + cell.half })
+      const min = at(e)
+      if (min !== null) onDrop({ dk, min })
     },
   }
 }
@@ -362,9 +449,12 @@ function Block(
   /* ⚠️ Те же множители, что печатал сервер: доли ячейки, ширина делится
      между пересекающимися. Считать позицию «от индекса часа» нельзя — на дне
      со сдвинутым графиком это промахивается (`base_min`). */
+  /* у блока короче получаса зазор уже: при зазоре длинного от пяти минут не
+     осталось бы ничего */
+  const tight = block.height < 0.5
   const pos: React.CSSProperties = {
-    top: `calc(${block.top}*var(--cell) + 2px)`,
-    height: `calc(${block.height}*var(--cell) - 6px)`,
+    top: `calc(${block.top}*var(--cell) + ${tight ? 1 : 2}px)`,
+    height: `calc(${block.height}*var(--cell) - ${tight ? 2 : 6}px)`,
     left: `calc(${block.col}*(100% - 8px)/${block.of} + 4px)`,
     width: `calc((100% - 8px)/${block.of} - 2px)`,
   }
@@ -375,7 +465,10 @@ function Block(
   const grab = block.movable && dk
     ? {
         draggable: true,
-        onDragStart: () => onDrag(dragOf(block, dk)),
+        onDragStart: (e: React.DragEvent<HTMLElement>) => {
+          const d = dragOf(block, dk)
+          onDrag(d && { ...d, grab: e.clientY - e.currentTarget.getBoundingClientRect().top })
+        },
         onDragEnd: () => onDrag(null),
       }
     : {}
@@ -425,6 +518,9 @@ function ApptBlock(
   const done = block.status === 'done'
   const bg = done ? 'var(--line2)' : block.bg
   const bar = done ? 'var(--text3)' : block.bar
+  /* блок дотянут ниже своей длины — хвост под настоящим концом бледнее */
+  const real = block.dur > 0 && block.height * 60 > block.dur + 0.5
+    ? Math.round((block.dur / (block.height * 60)) * 100) : 0
   return (
     <div className={`gappt${block.status === 'noshow' ? ' noshow' : ''}${done ? ' done' : ''}${urgent ? ' urg' : ''}${facts ? ' has-vf' : ''}${fx}`}
       data-appt={block.id}
@@ -434,6 +530,7 @@ function ApptBlock(
       onClick={() => onCard(block.id)}
       onContextMenu={(e) => { e.preventDefault(); onCardMenu?.(block.id, e.clientX, e.clientY) }}
       {...grab}>
+      {real > 0 && <i className="gtail" style={{ top: `${real}%` }} />}
       {/* Обе раскладки в разметке сразу, вид выбирает panel.css по
           `<html data-card>`: строка интервала (.gl1 с .gtm) первой у «времени
           впереди», имя первым у «имени впереди» (.gt — начало с длительностью).
@@ -448,7 +545,7 @@ function ApptBlock(
       {ico && <span className="stt"><Icon name={iconName(ico)} /></span>}
       {/* значок «есть комментарий» (03.10, просьба Олега): текст — в подсказке
           блока и в карточке по нажатию */}
-      <b>{block.name}{block.source === 'bot' && <> <Icon name="bot" /></>}
+      <b data-t={block.time}>{block.name}{block.source === 'bot' && <> <Icon name="bot" /></>}
         {block.comment && <> <Icon name="chat" /></>}</b>
       <small><span className="gt">{block.time} · {block.dur}′ · </span>{block.service}</small>
       {/* колонки фактов — только у дня врача (`facts`); стоят абсолютно в

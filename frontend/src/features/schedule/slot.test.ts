@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { freeHalves, freeKind, hourLabel, hourMinutes, slotTimes, takenMinutes } from './slot'
+import { freeSpans, hourLabel, hourMinutes, slotTimes, spanAt, startIn, takenMinutes } from './slot'
 import type { Occupies } from './move'
 
 /* Времена пустого часа. Проверка отвечает на ОДИН вопрос — что двигает выбор
@@ -47,35 +47,58 @@ describe('C26.5.3-c: минута двигает ОДНО время из дву
   })
 })
 
-/* Свободные старты часа по блокам колонки (17.10). ⛔ Половина занята, если
-   её задевает ЛЮБОЙ занятый блок: визит 09:00–09:45 забирает обе — слот в
-   09:45 канва не предлагает, и подсказка «+ Programare» там не нужна. */
-describe('свободные старты часа — подсказка по канве', () => {
+/* Свободные отрезки часа по блокам колонки: по ним ячейка канвы решает, звать
+   ли «+ Programare» и с какой минуты открыть окно. */
+describe('свободные отрезки часа — подсказка по канве', () => {
   const b = (min: number, dur: number, busy = true, id = 1): Occupies => ({ id, min, dur, busy })
+  /* час 14 стенда: 14:00 на 10 минут, 14:20 на 5, 14:40 на 15 */
+  const BUSY = [b(840, 10, true, 1), b(860, 5, true, 2), b(880, 15, true, 3)]
 
-  it('пустой час — оба старта свободны', () => {
-    expect(freeHalves([], 9)).toEqual({ h0: true, h30: true })
-    expect(freeKind(freeHalves([], 9))).toBe('both')
+  it('пустой час — один отрезок на весь час; занятый целиком — ни одного', () => {
+    expect(freeSpans([], 9)).toEqual([{ from: 0, to: 60 }])
+    expect(freeSpans([b(540, 60)], 9)).toEqual([])
   })
 
-  it('визит на 45 минут с :00 забирает ОБЕ половины — у ячейки нет старта', () => {
-    expect(freeHalves([b(540, 45)], 9)).toEqual({ h0: false, h30: false })
-    expect(freeKind(freeHalves([b(540, 45)], 9))).toBe('none')
+  it('обе половины задеты визитами, а дыра 14:10–14:20 — свободный отрезок', () => {
+    expect(freeSpans(BUSY, 14)).toEqual([
+      { from: 10, to: 20 }, { from: 25, to: 40 }, { from: 55, to: 60 }])
   })
 
-  it('получас с :30 оставляет верхнюю половину, визит с прошлого часа — нижнюю', () => {
-    expect(freeKind(freeHalves([b(570, 30)], 9))).toBe('top')
-    /* 08:30 на час кончается в 09:30: занята только первая половина девятого */
-    expect(freeKind(freeHalves([b(510, 60)], 9))).toBe('bottom')
+  it('визит на 45 минут оставляет хвост часа; визит с прошлого часа — его конец', () => {
+    expect(freeSpans([b(540, 45)], 9)).toEqual([{ from: 45, to: 60 }])
+    expect(freeSpans([b(510, 60)], 9)).toEqual([{ from: 30, to: 60 }])
   })
 
-  it('незанятый блок (отменённый, не пришёл) старт не отнимает; соседний час — тоже', () => {
-    expect(freeKind(freeHalves([b(540, 60, false)], 9))).toBe('both')
-    expect(freeKind(freeHalves([b(600, 60)], 9))).toBe('both')
+  it('незанятый блок (отменённый, не пришёл) отрезок не отнимает; соседний час — тоже', () => {
+    expect(freeSpans([b(540, 60, false)], 9)).toEqual([{ from: 0, to: 60 }])
+    expect(freeSpans([b(600, 60)], 9)).toEqual([{ from: 0, to: 60 }])
   })
 
-  it('заметка стойки считается как визит — блокировка это и есть занятый час', () => {
-    expect(freeKind(freeHalves([b(540, 60, true, 44)], 9))).toBe('none')
+  it('отрезок под минутой, а на занятом месте — ближайший', () => {
+    const spans = freeSpans(BUSY, 14)
+    expect(spanAt(spans, 12)).toEqual({ from: 10, to: 20 })
+    expect(spanAt(spans, 5)).toEqual({ from: 10, to: 20 })
+    expect(spanAt(spans, 50)).toEqual({ from: 55, to: 60 })
+    expect(spanAt([], 10)).toBeNull()
+  })
+
+  it('минута окна — деление щелчка, но внутри свободного отрезка', () => {
+    const spans = freeSpans(BUSY, 14)
+    /* дыра 14:10–14:20 короче двух делений обычного шага: запись встаёт в её
+       начало, куда бы в ней ни щёлкнули */
+    expect([12, 17].map((at) => startIn(spans, at, 15))).toEqual([10, 10])
+    /* на крупном шаге в той же дыре два деления — решает место щелчка */
+    expect([12, 17].map((at) => startIn(spans, at, 5))).toEqual([10, 15])
+    expect(startIn(spans, 38, 5)).toBe(35)
+    expect(startIn(spans, 59, 15)).toBe(55)
+    /* длинный отрезок: деление щелчка, но не раньше его начала */
+    const tail = freeSpans([b(840, 20)], 14)
+    expect([22, 31, 59].map((at) => startIn(tail, at, 15))).toEqual([20, 30, 45])
+    /* щелчок по занятому месту — ближайший отрезок */
+    expect(startIn(spans, 5, 15)).toBe(10)
+    /* с клавиатуры координаты нет — первый свободный старт часа */
+    expect(startIn(spans, null, 15)).toBe(10)
+    expect(startIn([], 10, 15)).toBeNull()
   })
 })
 

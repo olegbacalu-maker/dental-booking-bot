@@ -54,6 +54,8 @@ const T = {
   close: 'Închide',
   noStart: (hh: string, dur: number) =>
     `Medicul nu are niciun început liber în ora ${hh}:00 pentru ${dur} min.`,
+  noFit: (at: string, dur: number) =>
+    `De la ${at} nu încap ${dur} min până la următoarea programare — alegeți o durată mai scurtă sau alt început.`,
 } as const
 
 /** Слово отказа — колбэком в окно, не плашкой экрана. */
@@ -88,10 +90,15 @@ export function SlotDialog({ open, slot, date, form, noteEnds, taken, busy,
   const off = takenMinutes(taken, Number(hh), span, step)
   const firstFree = hourMinutes(step).find((m) => !off.has(m))
   const none = firstFree === undefined
-  const [minute, setMinute] = useState(firstFree ?? 0)
+  /* Минута щелчка по сетке держится, даже когда услуга по умолчанию в неё не
+     влезает: щёлкнули в дыру на 10 минут — окно говорит, что не влезло, и ждёт
+     длительности короче, а не уводит запись на другой конец часа. */
+  const [aimed, setAimed] = useState(slot.minute !== undefined)
+  const [minute, setMinute] = useState(slot.minute ?? firstFree ?? 0)
+  const tight = aimed && off.has(minute)
   /* выбранный старт стал занят (новая канва, другая длительность) —
      переставить на первый свободный при отрисовке */
-  if (!none && off.has(minute)) setMinute(firstFree)
+  if (!aimed && !none && off.has(minute)) setMinute(firstFree)
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [noPhone, setNoPhone] = useState(false)
@@ -123,8 +130,8 @@ export function SlotDialog({ open, slot, date, form, noteEnds, taken, busy,
     if (ok) onClose()
   }
 
-  const pick = (m: number) => { setMinute(m); setFail('') }
-  const warn = fail || (none ? T.noStart(hh, span) : '')
+  const pick = (m: number) => { setMinute(m); setAimed(false); setFail('') }
+  const warn = fail || (tight ? T.noFit(atime, span) : none ? T.noStart(hh, span) : '')
   const warnNode = warn ? <div className="banner err" role="alert">{warn}</div> : null
 
   return (
@@ -165,7 +172,7 @@ export function SlotDialog({ open, slot, date, form, noteEnds, taken, busy,
                    onChange={(e) => setBirth(e.target.value)} />
           </label>
           {warnNode}
-          <button disabled={busy || none || dur.bad}>{T.go}</button>
+          <button disabled={busy || none || tight || dur.bad}>{T.go}</button>
         </form>
       ) : (
         <form className="dlg-form" onSubmit={submitNote}>

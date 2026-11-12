@@ -106,9 +106,10 @@ describe('dashFx — вид карточки визита', () => {
 describe('dashFx — ступени сжатия блока', () => {
   /* jsdom геометрию не считает — сколько блок ПРОСИТ, подставлено по его
      классам, а сколько у него есть — атрибутом: полный вид 58 px, две строки
-     40, одна строка 20, только имя 12, пустой блок — ноль. */
+     40, одна строка 20, только имя 12, мелкая строка 10, пустой блок — ноль. */
   const NEED = (el: HTMLElement) => (el.classList.contains('bare') ? 0
-    : el.classList.contains('tiny') ? 12
+    : el.classList.contains('micro') ? 10
+      : el.classList.contains('tiny') ? 12
       : el.classList.contains('duo') ? 40
         : el.classList.contains('slim') ? 20 : 58)
   afterEach(() => {
@@ -134,9 +135,10 @@ describe('dashFx — ступени сжатия блока', () => {
     Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
       configurable: true, get() { return Number((this as HTMLElement).dataset.h ?? 0) },
     })
-    const { container } = render(createElement(Probe, { heights: [90, 42, 26, 14, 8] }))
+    const { container } = render(createElement(Probe, { heights: [90, 42, 26, 14, 11, 3] }))
     expect([...container.querySelectorAll('.gappt')].map((a) => a.className)).toEqual([
-      'gappt', 'gappt slim duo', 'gappt slim', 'gappt slim tiny', 'gappt slim tiny bare',
+      'gappt', 'gappt slim duo', 'gappt slim', 'gappt slim tiny', 'gappt slim tiny micro',
+      'gappt slim tiny micro bare',
     ])
   })
 })

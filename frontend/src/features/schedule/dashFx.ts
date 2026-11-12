@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useState, useSyncExternalStore } from 'react'
 
 /**
  * То, что панель считает В БРАУЗЕРЕ, и почему это не уехало на сервер.
@@ -27,6 +27,46 @@ export const CELL_MIN = 64
    той же длины раздул бы час до сотен пикселей, и один визит занял бы
    пол-экрана. */
 export const CELL_MAX = 96
+
+/**
+ * Шаги масштаба сетки. `cell` — высота часа, 0 — подгон под окно (обычный
+ * вид); `snap` — деление, к которому липнут щелчок и бросок; `marks` — через
+ * сколько минут подписи в колонке часов (0 — только часы).
+ * Высоты кратны 12: пять минут — целое число пикселей, линии не дрожат.
+ */
+export const GRID_ZOOMS = [
+  { cell: 0, snap: 15, marks: 0 },
+  { cell: 132, snap: 5, marks: 15 },
+  { cell: 204, snap: 5, marks: 5 },
+] as const
+
+const ZOOM_KEY = 'dp_grid_zoom'
+
+function storedZoom(): number {
+  try {
+    const z = Number(localStorage.getItem(ZOOM_KEY))
+    return z >= 1 && z < GRID_ZOOMS.length ? z : 0
+  } catch {
+    return 0
+  }
+}
+
+/** Шаг масштаба (индекс `GRID_ZOOMS`) с памятью на этом компьютере: удобство
+ *  места, как свёрнутые блоки, — не данные клиники. */
+export function useGridZoom(): [number, (z: number) => void] {
+  const [zoom, setZoom] = useState(storedZoom)
+  const pick = useCallback((z: number) => {
+    const next = Math.max(0, Math.min(GRID_ZOOMS.length - 1, z))
+    try {
+      if (next) localStorage.setItem(ZOOM_KEY, String(next))
+      else localStorage.removeItem(ZOOM_KEY)
+    } catch {
+      /* приватный режим: просто без памяти */
+    }
+    setZoom(next)
+  }, [])
+  return [zoom, pick]
+}
 
 /**
  * Высота часа в пикселях. Чистая функция: все замеры делает вызывающий.
@@ -141,6 +181,8 @@ export function useFitGrid(
   body: React.RefObject<HTMLDivElement | null>,
   rail: React.RefObject<HTMLDivElement | null>,
   hours: number,
+  fixed = 0,
+  keepRef?: React.RefObject<number | null>,
 ): void {
   /* ⚠️ Слой раскладки, а не эффект: час обязан встать ДО первой отрисовки,
      иначе сетка успевает мигнуть полом 66 и подпрыгнуть.
@@ -151,6 +193,7 @@ export function useFitGrid(
     const fit = () => {
       const gb = body.current
       if (!gb || hours < 1) return
+      if (fixed) { gb.style.setProperty('--cell', `${fixed}px`); return }
       gb.style.setProperty('--cell', `${CELL_MIN}px`)
       const sy = window.scrollY
       const top0 = gb.getBoundingClientRect().top + sy
@@ -165,9 +208,16 @@ export function useFitGrid(
       gb.style.setProperty('--cell', `${cellPx(avail, hours, over)}px`)
     }
     fit()
+    /* смена масштаба: час, стоявший посреди окна, остаётся посреди окна */
+    const gb = body.current
+    if (gb && keepRef && keepRef.current !== null) {
+      const r = gb.getBoundingClientRect()
+      window.scrollBy(0, r.top + keepRef.current * r.height - window.innerHeight / 2)
+      keepRef.current = null
+    }
     window.addEventListener('resize', fit)
     return () => window.removeEventListener('resize', fit)
-  }, [body, rail, hours])
+  }, [body, rail, hours, fixed, keepRef])
 }
 
 /**
@@ -196,7 +246,8 @@ function onCardView(changed: () => void): () => void {
 /**
  * Ступени сжатия блока, каждая следующая только если предыдущая не влезла:
  * полный вид → `slim duo` (две строки: имя со временем и статусом, под ними
- * услуга) → `slim` (одна строка) → `tiny` (только имя) → `bare`.
+ * услуга) → `slim` (одна строка) → `tiny` (только имя) → `micro` (время и имя
+ * мелкой строкой без полей: визит на 5–15 минут) → `bare`.
  *
  * ⭐ Две строки — разновидность сжатого вида, а не своя ступень рядом: блок
  * несёт и `slim`, поэтому правила полного вида (`:not(.slim)`) его не задевают.
@@ -215,21 +266,22 @@ function onCardView(changed: () => void): () => void {
  */
 export function useFitAppts(
   body: React.RefObject<HTMLDivElement | null>, tick: number, deps: unknown, view = '',
-  marks: unknown = null, marks2: unknown = null,
+  marks: unknown = null, marks2: unknown = null, zoom = 0,
 ): void {
   useLayoutEffect(() => {
     const gb = body.current
     if (!gb) return
     const over = (a: HTMLElement) => a.scrollHeight > a.clientHeight
     for (const a of gb.querySelectorAll<HTMLElement>('.gappt')) {
-      a.classList.remove('slim', 'duo', 'tiny', 'bare')
+      a.classList.remove('slim', 'duo', 'tiny', 'micro', 'bare')
       if (over(a)) a.classList.add('slim', 'duo')
       if (over(a)) a.classList.remove('duo')
       if (over(a)) a.classList.add('tiny')
+      if (over(a)) a.classList.add('micro')
       if (over(a)) a.classList.add('bare')
       fitFacts(a)
     }
-  }, [body, tick, deps, view, marks, marks2])
+  }, [body, tick, deps, view, marks, marks2, zoom])
 }
 
 /**

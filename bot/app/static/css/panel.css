@@ -592,15 +592,37 @@
  .gridbody{display:flex;position:relative;--cell:56px}
  .gcol-time{width:56px;flex:0 0 56px;border-right:1px solid var(--line2);background:var(--fill)}
  .gcol-time div{height:var(--cell);font-size:var(--fs-s);color:var(--text3);text-align:right;padding:6px 8px 0;
-   font-variant-numeric:tabular-nums}
+   font-variant-numeric:tabular-nums;position:relative}
+ /* подписи минут — только на крупных шагах масштаба; пятиминутные бледнее */
+ .gcol-time div i{position:absolute;right:8px;font-style:normal;font-size:var(--fs-xs);line-height:12px;
+   margin-top:-6px;color:var(--text3)}
+ .gcol-time div i.gm5{font-size:var(--fs-micro);opacity:.7}
+ /* масштаб сетки: две кнопки в углу шапки над колонкой часов */
+ .gzoom{display:flex;gap:2px;justify-content:center;flex-wrap:wrap;padding-top:6px}
+ .gzoom button{width:24px;height:24px;padding:0;display:grid;place-items:center;cursor:pointer;
+   border:1px solid var(--line);border-radius:var(--r-xs);background:var(--panel);color:var(--text2)}
+ .gzoom button svg{width:14px;height:14px}
+ .gzoom button:hover:not(:disabled){border-color:var(--teal);color:var(--teal-d)}
+ .gzoom button:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--teal)}
+ .gzoom button:disabled{opacity:.4;cursor:default}
  .gcol-time div.nowh{color:var(--text);font-weight:700}
  .gcol{flex:1;min-width:0;border-right:1px solid var(--line2);position:relative}
  .gcol:last-child{border-right:none}
  /* Свободный час — настоящая кнопка (макет 08.10): отсюда сброс кнопочного
     вида — рамки, фона, шрифта. */
- .gcell{display:block;width:100%;height:var(--cell);border:0;border-bottom:1px solid var(--line2);
-   padding:0;background:transparent;cursor:pointer;position:relative;font:inherit;color:inherit;text-align:left}
- .gcell:focus-visible,.gcell.dropzone{background:var(--teal-soft)}
+ /* Линия часа — рамка ячейки, деления по 15 минут — её фон (узлов в DOM не
+    прибавляется); на самом крупном шаге под ними деления по 5 минут. */
+ .gcell{display:block;width:100%;height:var(--cell);border:0;border-bottom:1px solid var(--line);
+   padding:0;background:transparent;cursor:pointer;position:relative;font:inherit;color:inherit;text-align:left;
+   --q:var(--line2);
+   background-image:linear-gradient(var(--q),var(--q)),linear-gradient(var(--q),var(--q)),linear-gradient(var(--q),var(--q));
+   background-size:100% 1px;background-repeat:no-repeat;
+   background-position:0 25%,0 50%,0 75%}
+ .gridbody[data-zoom="2"] .gcell{--q:var(--line);
+   background-image:linear-gradient(var(--q),var(--q)),linear-gradient(var(--q),var(--q)),linear-gradient(var(--q),var(--q)),
+     repeating-linear-gradient(to bottom,transparent 0 calc(100%/12 - 1px),var(--line2) calc(100%/12 - 1px) calc(100%/12));
+   background-size:100% 1px,100% 1px,100% 1px,100% 100%}
+ .gcell:focus-visible{background-color:var(--teal-soft)}
  .gcell:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--teal)}
  /* Наведение на свободный час: «+ Programare» пунктирной рамкой — слово
     Олега 08.10 («оставил бы как раньше»; макет предлагал «+ HH:00», час и так
@@ -615,10 +637,22 @@
    display:flex;align-items:center;justify-content:center;background:var(--teal-soft);
    border:1.5px dashed var(--teal);border-radius:var(--r-chip);color:var(--teal-d);
    font-size:var(--fs-s);font-weight:600}
- .gcell[data-free="top"]:hover::after,.gcell[data-free="top"]:focus-visible::after{bottom:calc(50% + 2px)}
- .gcell[data-free="bottom"]:hover::after,.gcell[data-free="bottom"]:focus-visible::after{top:calc(50% + 2px)}
+ /* рамка — на свободном отрезке часа (`--ft`/`--fb`, доли ячейки сверху и
+    снизу); в низкий отрезок слово не влезает — плюс, в совсем низкий — рамка */
+ .gcell[data-free="part"]:hover::after,.gcell[data-free="part"]:focus-visible::after{
+   top:calc(var(--ft)*100% + 2px);bottom:calc(var(--fb)*100% + 2px);overflow:hidden;white-space:nowrap}
+ .gcell[data-thin]:hover::after,.gcell[data-thin]:focus-visible::after{content:'+';font-size:var(--fs-xs);
+   line-height:1;border-width:1px}
+ .gcell[data-thin="bar"]:hover::after,.gcell[data-thin="bar"]:focus-visible::after{content:''}
  .gcell:disabled{cursor:default}
- .gcell:disabled:hover::after{content:none}
+ .gcell:disabled:hover::after,.gcell[data-free="none"]:hover::after{content:none}
+ /* куда встанет визит, если бросить сейчас: контур его длины и время начала */
+ .gdrop{position:absolute;left:4px;right:4px;z-index:4;pointer-events:none;box-sizing:border-box;min-height:2px;
+   border:1.5px dashed var(--teal);border-top:2px solid var(--teal);border-radius:var(--r-block);
+   background:var(--teal-soft);opacity:.9}
+ .gdrop::before{content:attr(data-at);position:absolute;left:6px;top:-10px;height:18px;padding:0 6px;
+   border-radius:var(--r-xs);background:var(--teal);color:var(--on-teal);font-size:var(--fs-xs);
+   font-weight:600;line-height:18px;font-variant-numeric:tabular-nums}
  /* нерабочее — серым, без штриховки (макет), с подписью на первой ячейке ряда */
  .gcell.off{cursor:default;background:var(--line2)}
  .gcell.off:hover{background:var(--line2)}
@@ -630,9 +664,13 @@
     кадров, а не выглядит дороже.
     Всплытие при наведении честное — там уже --sh2. */
  .gappt{position:absolute;left:4px;right:4px;border-radius:var(--r-block);padding:5px 8px;overflow:hidden;
-   font-size:var(--fs-s);line-height:1.35;cursor:pointer;z-index:2;
+   font-size:var(--fs-s);line-height:1.35;cursor:pointer;z-index:2;min-height:3px;
+
    box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--bar) 40%,transparent)}
  .gappt:hover{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--bar) 40%,transparent),var(--sh2)}
+ /* хвост блока, дотянутого ниже своей длины: под текстом, над заливкой */
+ .gappt .gtail{position:absolute;left:0;right:0;bottom:0;z-index:-1;pointer-events:none;
+   background:color-mix(in srgb,var(--panel) 62%,transparent)}
  /* Строка интервала с чипами (макет 08.10): интервал, «Urgent», слово статуса,
     минуты ожидания. В полном виде «времени впереди» — первой строкой, у
     «имени впереди» — третьей без интервала; в сжатых видах — только интервал
@@ -668,11 +706,9 @@
     исчезал совсем. Замерено: с 12px влезает, с 16px нет. */
  .gappt.slim b svg,.gappt.slim .stt svg{width:12px;height:12px;vertical-align:-2px}
  /* tiny — не влезла и полная строка: остаётся ТОЛЬКО ИМЯ.
-    ⚠️ Первая версия прятала здесь весь текст, и это была ошибка: самый низкий
-    блок, какой умеет сетка, — полчаса (`canvas.pos` держит этот пол — шаг
-    сетки стартов), то есть 26px при --cell:64 (было 16px, пока пол часа стоял
-    на 56 и пол блока был 0.4 часа). Одиннадцатый кегль с
-    line-height 1.1 — это 12.1px, и он туда
+    ⚠️ Первая версия прятала здесь весь текст, и это была ошибка: блок на
+    полчаса — 26px при --cell:64, на четверть часа — 14px. Одиннадцатый кегль
+    с line-height 1.1 — это 12.1px, и он туда
     входит, если убрать вертикальный padding и строчный значок у имени. Имя —
     единственное, что регистратура читает в блоке не наводя мышь, и прятать его,
     когда место есть, нельзя. Значок источника (перо/бот) уходит: он стоит на
@@ -690,12 +726,18 @@
  .gappt.tiny small{display:none}
  .gappt.tiny b svg{display:none}
  .gappt.tiny .stt{top:0}
+ /* micro — визит на 5–15 минут: время и имя одной мелкой строкой без полей.
+    Строка высотой в свой кегль: блок 14px (четверть часа при часе 64px)
+    обязан её вместить, иначе замер уведёт его в bare. */
+ .gappt.micro{padding:0 4px 0 5px;line-height:1;border-radius:var(--r-xs)}
+ .gappt.micro b{font-size:var(--fs-micro);line-height:1}
+ .gappt.micro b::before{content:attr(data-t) '\00a0';font-weight:400;font-variant-numeric:tabular-nums}
+ .gappt.micro .stt,.gappt.micro .vf{display:none}
  /* bare — страховка на случай, когда не влезает и имя: остаются цвет и полоса
     слева, то есть «кресло занято» и «какая работа», остальное в подсказке.
-    При нынешнем поле блока (полчаса) и полу часа 64px эта ветка недостижима, и
-    пусть так и останется: она здесь ровно затем, чтобы обрезанного текста не
-    было НИ ПРИ КАКОЙ высоте, а не потому, что мы её ждём. */
- .gappt.bare{padding:0}
+    Сюда приходят визиты на 5 минут, стоящие подряд, на обычном шаге масштаба
+    (полоска 3px); обрезанного текста не должно быть НИ ПРИ КАКОЙ высоте. */
+ .gappt.bare{padding:0;border-radius:2px}
  .gappt.bare b,.gappt.bare small,.gappt.bare .stt{display:none}
  .gappt.noshow{text-decoration:line-through;opacity:.75}
  /* Вид карточки визита (03.10, выбор клиники в Setări › Aspect): «время

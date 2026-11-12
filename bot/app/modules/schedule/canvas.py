@@ -50,22 +50,34 @@ def bounds(r: dict) -> tuple[int, int]:
     return s_min, s_min + int(r.get("duration_min") or 60)
 
 
-def pos(r: dict, base_min: int) -> tuple[float, float]:
+# Ниже этого блок не рисуется, пока под ним свободно: строке с именем нужно
+# место. Занятость считается по настоящей длительности, не по рисунку.
+FLOOR_MIN = 15
+
+
+def pos(r: dict, base_min: int, next_min: int | None = None) -> tuple[float, float]:
     """(top, height) блока В ДОЛЯХ ЧАСА: старт от base_min, высота — минуты.
 
-    ⚠️ Пол высоты — шаг сетки стартов (`eng.GRID_STEP`, полчаса): визит
-    начинается только в :00 или :30, поэтому короткий (15–20 мин) не делит
-    свой слот ни с кем в колонке, и блок, дотянутый до конца слота, не наедет
-    на следующий. Без пола 15 минут — полоска в 10 px, куда не влезает и
-    время (13.10: строка с именем и кнопкой зуба просит 26 px).
+    Короткий визит дотягивается до `FLOOR_MIN`, но не дальше `next_min` —
+    начала следующей записи колонки: дотянутый блок иначе лёг бы поверх
+    соседа, а кластером их `clusters` не считает (он смотрит на минуты).
     ⚠️ `base_min` — минута ПЕРВОГО ОСТАВЛЕННОГО часа, а не первого часа дня:
     после среза краёв она другая, и позиция, посчитанная от номера часа,
     уехала бы на целый час у клиники со сдвинутым графиком.
     """
-    st = r["starts_at"].astimezone(eng.TZ)
-    dur = int(r.get("duration_min") or 60)
-    top = (st.hour * 60 + st.minute - base_min) / 60
-    return top, max(dur, eng.GRID_STEP) / 60
+    s_min, e_min = bounds(r)
+    room = FLOOR_MIN if next_min is None else min(FLOOR_MIN, next_min - s_min)
+    return (s_min - base_min) / 60, max(e_min - s_min, room) / 60
+
+
+def next_starts(rows: list) -> dict:
+    """Начало ближайшей записи колонки, стоящей ПОСЛЕ конца каждой (по id)."""
+    spans = sorted(bounds(r) + (r["id"],) for r in rows)
+    out: dict = {}
+    for s_min, e_min, rid in spans:
+        later = [s for s, _e, _i in spans if s >= e_min and s > s_min]
+        out[rid] = min(later) if later else None
+    return out
 
 
 def clusters(rows: list) -> list[list]:
@@ -212,11 +224,12 @@ def blocks(rows: list, col_dk: str, base_min: int, cards, colors) -> list[dict]:
     легла ПОВЕРХ отменённой пары.
     """
     out: list[dict] = []
+    nxt = next_starts(rows)
     for cluster in clusters(rows):
         n = len(cluster)
         for j, r in enumerate(sorted(cluster,
                                      key=lambda x: x["status"] in LIVE_STATUSES)):
-            top, height = pos(r, base_min)
+            top, height = pos(r, base_min, nxt[r["id"]])
             v = pday.appt_view(r, col_dk, cards, colors)
             v.update({"top": round(top, 3), "height": round(height, 3),
                       "col": j, "of": n})

@@ -319,7 +319,7 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
       <div className="dp-daymain">
         <DashCanvas model={m.canvas} rail={noRail} waitTick={waitTick} lineTick={lineTick}
                     onCard={setCard} onCardMenu={openMenu}
-                    onSlot={(dk, name, hour) => setSlot({ dk, name, hour })}
+                    onSlot={(dk, name, hour, minute) => setSlot({ dk, name, hour, minute })}
                     onNote={openNote}
                     drag={drag} hover={hover} onDrag={setDrag} onHover={setHover} onDrop={onDrop}
                     fresh={NO_FRESH} facts={m.extras} />
@@ -342,7 +342,7 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
         : null}
 
       {slotL.shown && m.form
-        ? <SlotDialog key={`${slotL.shown.dk}|${slotL.shown.hour}`} open={!slotL.leaving} slot={slotL.shown}
+        ? <SlotDialog key={`${slotL.shown.dk}|${slotL.shown.hour}|${slotL.shown.minute ?? ''}`} open={!slotL.leaving} slot={slotL.shown}
                       date={m.date} form={m.form}
                       noteEnds={m.note_ends} busy={busy}
                       taken={canvasBlocks(m.canvas, slotL.shown.dk)}

@@ -458,7 +458,7 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
           <DashCanvas model={d.canvas} rail={rail} waitTick={waitTick}
             lineTick={lineTick} onCard={(id) => openById(d, id)}
             onCardMenu={(id, x, y) => setMenu({ id, x, y })}
-            onSlot={(dk, name, hour) => setSlot({ dk, name, hour })}
+            onSlot={(dk, name, hour, minute) => setSlot({ dk, name, hour, minute })}
             onNote={(id) => openNoteById(d, id)}
             drag={drag} hover={hover} onDrag={startDrag} onHover={setHover}
             onDrop={onDrop} fresh={fresh} moved={moved} />
@@ -529,7 +529,7 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
            ⛔ Данные — ИЗ КОНВЕРТА (`slotform`, `note_ends`), а не отдельным
            запросом: они постоянны, отпечаток не двигают, и второй двери к
            состоянию не появляется. */
-        <SlotDialog key={`${slotL.shown.dk}|${slotL.shown.hour}`} open={!slotL.leaving} slot={slotL.shown}
+        <SlotDialog key={`${slotL.shown.dk}|${slotL.shown.hour}|${slotL.shown.minute ?? ''}`} open={!slotL.leaving} slot={slotL.shown}
           date={d.date} form={d.slotform} noteEnds={d.note_ends} busy={busy}
           /* занятость стартов — подсказка по канве; отказ сервера приходит
              словом в само окно (`fail`) */
