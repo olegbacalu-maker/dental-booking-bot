@@ -220,11 +220,11 @@ def suite_api(res: Result) -> None:
         res.check("визиты: живые для списка за цифрой, всего",
                   (len(d["visits"]["live"]), d["visits"]["n_total"]), (3, 4))
         act = d["activity"]
-        res.check("летопись: 29 событий без просмотров, свежие первыми",
+        res.check("летопись: 30 событий без просмотров, свежие первыми; первая строка — откуда фиша",
                   (len(act["items"]), act["items"][0]["text"], act["items"][-1]["text"],
                    any(a["kind"] == "view" for a in act["items"])),
-                  (29, "Document încărcat: trimitere.docx",
-                   f"Programare: Consultație · Dr. Activ Doi · {_dmy(-10)} 10:00", False))
+                  (30, "Document încărcat: trimitere.docx",
+                   "Fișă creată la programarea din registru", False))
         res.check("летопись: показ 10, без просмотров, автор и час",
                   (act["shown"], act["views"], act["items"][0]["who"],
                    len(act["items"][0]["hhmm"]), act["items"][0]["icon"]),

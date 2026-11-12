@@ -36,6 +36,7 @@ from .modules.entry import routes as entry
 from .modules.license import api as license_api
 from .modules.license import routes as license_routes
 from .modules.patients import api as patients_api
+from .modules.patients import pimport_api
 from .modules.patients import routes as patients
 from .modules.migration import routes as migration
 from .modules.qr import routes as qr
@@ -62,6 +63,7 @@ log = logging.getLogger("web")
 app.include_router(patients.router)
 app.include_router(migration.router)  # экран раздвоения (P2)
 app.include_router(patients_api.router)   # JSON API раздела (DentPilot 2.0)
+app.include_router(pimport_api.router)    # импорт пациентов из файла
 app.include_router(schedule.router)
 app.include_router(schedule_api.router)  # JSON API раздела (DentPilot 2.0)
 app.include_router(doctors.router)

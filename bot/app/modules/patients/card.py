@@ -131,6 +131,7 @@ ACT_ICON = {"appt_new": "cal", "appt_status": "check", "appt_cancel": "ban",
             "tooth": "tooth", "plan_add": "plus", "plan_status": "refresh",
             "plan_del": "minus", "doc_add": "clip", "doc_del": "trash",
             "alert_add": "sos", "alert_del": "trash", "profile": "pen", "archive": "box",
+            "created": "plus", "import_fill": "pen",
             # выдача копии данных — событие, о котором спросят на проверке;
             # в общей ленте оно обязано быть заметным, а не точкой по умолчанию
             "export": "download", "acord": "clipboard", "plan_acord": "clipboard",

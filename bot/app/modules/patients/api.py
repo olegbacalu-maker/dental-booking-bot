@@ -196,6 +196,8 @@ async def api_patient_new(request: Request):
                                    s("email"), s("primary_doctor"))
     if code == "bad_pat":
         return msg_json(False, code, field="name", status=422)
+    if code == "bad_bd":
+        return msg_json(False, code, field="birth_date", status=422)
     return msg_json(True, code, data={"id": pid, "url": f"/admin/patient/{pid}?msg={code}"})
 
 

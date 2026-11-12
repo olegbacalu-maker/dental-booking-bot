@@ -127,14 +127,17 @@ PERM_SCHEDULE_ALL = "schedule_all"
 # директор; врачу нет (обзвон — работа стойки, как согласие на SMS, 22.10).
 # Строку срока в фише видит любая роль: картотека врачу открыта вся.
 PERM_RECALL = "recall"
+# Импорт пациентов из файла: работа администратора при переезде клиники,
+# директор тоже; врачу нет — импорт одним действием меняет всю картотеку.
+PERM_IMPORT = "pimport"
 
 PERMS = {
     ROLE_DIRECTOR: {PERM_MONEY, PERM_SETTINGS, PERM_USERS, PERM_DOCTORS, PERM_SMS,
-                    PERM_SCHEDULE_ALL, PERM_RECALL},
+                    PERM_SCHEDULE_ALL, PERM_RECALL, PERM_IMPORT},
     # Регистратуре каталог врачей НУЖЕН: отметить отпуск, сузить часы приёма,
     # поправить услуги — операционка стойки, иначе любой чих требует директора.
     # SMS — тоже стойка: согласие пациента спрашивает тот, кто его записывает.
-    ROLE_RECEPTIE: {PERM_DOCTORS, PERM_SMS, PERM_SCHEDULE_ALL, PERM_RECALL},
+    ROLE_RECEPTIE: {PERM_DOCTORS, PERM_SMS, PERM_SCHEDULE_ALL, PERM_RECALL, PERM_IMPORT},
     # Врачу — нет (канарейка 1.15.0, Олег): с телефона в LAN врач открывал
     # ЧУЖИЕ карточки и мог менять фото. Врачу — пациенты и записи; просмотр
     # своего расписания живёт в журнале, не в каталоге. SMS врач не видит
@@ -853,6 +856,11 @@ LOCAL_ONLY = frozenset({
     # дня и кнопка Statistici)
     "/admin/patients.xlsx",
     "/admin/export.xlsx",
+    # список пациентов файлом В программу и его отмена: зеркало выгрузки
+    "/api/pimport/check",
+    "/api/pimport/run",
+    "/api/pimport/report",
+    "/api/pimport/undo",
 })
 
 

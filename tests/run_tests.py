@@ -70,6 +70,7 @@ import test_migrate  # noqa: E402
 import test_netcheck  # noqa: E402
 import test_odontogram_api  # noqa: E402
 import test_perio  # noqa: E402
+import test_pimport  # noqa: E402
 import test_perio_api  # noqa: E402
 import test_pin  # noqa: E402
 import test_plan_acord  # noqa: E402
@@ -586,6 +587,13 @@ SUITES = [
     ("Копии: нет папки вне компьютера — строка директору", test_backup.suite_offsite),
     ("Копии: локальные хранятся по дням под поддельными часами", test_backup.suite_rotation_days),
     ("Копии: нет pyzipper или битый .pyd — плитки нет, хаб жив", test_backup.suite_available),
+    # Импорт пациентов из .xlsx/.csv: первый набор без сервера (читатель и
+    # правило дублей), остальные — на живом сервере.
+    ("Импорт пациентов: чтение файла, колонки, значения, дубли", test_pimport.suite_read),
+    ("Импорт пациентов: номер в одном виде, дата рождения, «fișă creată»", test_pimport.suite_fixes),
+    ("Импорт пациентов: проверка, порции, повтор, отчёт, отмена", test_pimport.suite_import),
+    ("Импорт пациентов: право, демо, списки сторожей", test_pimport.suite_rights),
+    ("Импорт пациентов: зашифрованная картотека", test_pimport.suite_encrypted),
 ]
 
 def part(suites: list, k: int, n: int) -> list:

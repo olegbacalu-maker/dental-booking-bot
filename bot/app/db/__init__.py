@@ -13,6 +13,7 @@ Postgres-издание снято 12.10.2026 (на нём не работало
     events    летопись пациента и клиники, кто за журналом
     slots     ⭐ защита слотов: замок брони, страховочные индексы, бронь
     patients  фиша: поиск, поля, предупреждения, свёртка диакритики
+    pimport   импорт пациентов из файла: запись об импорте, метка фиши
     plist     список «Pacienți» одной выборкой
     sms       очередь SMS-напоминаний
     recall    Rechemări
@@ -59,7 +60,11 @@ from .patients import (
     patient_name_by_phone, _digits, patient_id_by_key, create_patient, set_archived, _DIA,
     _fold, fold, patient_appointments, PATIENT_FIELDS, get_patient, update_patient,
     set_primary_doctor, set_birth_year, patient_alerts, add_alert, delete_alert,
-    MKT_SOURCES, MKT_EVENT, set_mkt,
+    MKT_SOURCES, MKT_EVENT, set_mkt, phone_key, CREATED_EVENT,
+)
+from .pimport import (
+    IMPORT_DDL, IMPORT_FILL, import_index, import_open, import_get, import_list, import_count,
+    import_mark, import_drop, import_pids, import_untouched, import_undone, fill_patient_blanks,
 )
 from .plist import (
     _PLIST_COLS, all_patients, patients_visits, patients_debt, _PL_LAST_DOC_OF, _PL_DOCTOR,

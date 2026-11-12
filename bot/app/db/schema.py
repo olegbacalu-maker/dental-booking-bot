@@ -12,6 +12,7 @@ from .conn import _execute, _fetchval, _utcnow_iso, log
 from .events import _backfill_activity
 from .slots import _slot_guard_apply, _slot_guard_startup, UQ_GUARD_STEP
 from .patients import _digits, _fold
+from .pimport import IMPORT_DDL
 from .schedule import seed
 from .teeth import TEETH_HIST_SINCE
 
@@ -548,6 +549,8 @@ SQLITE_PATIENT_COLS = [
     # `manual` (бумажный лист, отметка регистратуры). Nullable, без индекса и
     # без шага миграции: ADD COLUMN переживает любые данные клиники.
     "mkt_ok INTEGER", "mkt_at TEXT", "mkt_src TEXT",
+    # каким импортом из файла заведена фиша (patient_imports.id); NULL — руками
+    "import_id INTEGER",
 ]
 
 SQLITE_SCHEMA = """
@@ -765,6 +768,7 @@ async def init(seed_rows: list | None = None) -> None:
             if "duplicate column" not in str(e).lower():
                 raise
     await db._CONN.executescript(SQLITE_CARD_SCHEMA)
+    await db._CONN.executescript(IMPORT_DDL)
     for table, coldef in SQLITE_EXTRA_COLS:
         try:
             await db._CONN.execute(f"ALTER TABLE {table} ADD COLUMN {coldef}")

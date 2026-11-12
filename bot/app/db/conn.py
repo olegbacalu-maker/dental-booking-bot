@@ -38,7 +38,8 @@ def _parse_dt(value):
 # patients_visits: у выражения нет типа колонки, и SQLite отдаёт его строкой.
 _DT_COLS = {"starts_at", "created_at", "uploaded_at", "updated_at", "at",
             "last_at", "next_at", "done_at", "waiting_at", "arrived_at",
-            "state_at", "until_at", "visit_at", "removed_at", "mkt_at"}
+            "state_at", "until_at", "visit_at", "removed_at", "mkt_at",
+            "undone_at"}
 
 
 def _rowdict(row) -> dict:

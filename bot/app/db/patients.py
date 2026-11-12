@@ -22,8 +22,34 @@ async def patients_total() -> int:
 
 # ---------- пациенты и записи ----------
 
+def phone_key(phone) -> str:
+    """Номер в виде ДЛЯ СРАВНЕНИЯ: `+373 69 123 456`, `0037369123456`,
+    `069123456` и `69123456` — один и тот же `069123456`. Хранимое не
+    переписывается; чужие (не молдавские) номера сравниваются цифрами как есть."""
+    d = "".join(ch for ch in str(phone or "") if ch.isdigit())
+    if d.startswith("00"):
+        d = d[2:]
+    if d.startswith("373") and len(d) in (11, 12):
+        d = d[3:].lstrip("0") if len(d) == 12 else d[3:]
+    if len(d) == 8 and d[0] in "2567":
+        return "0" + d
+    return d
+
+
+# Первая строка летописи фиши: откуда человек взялся. Готовой строкой, по
+# двери заведения; у импорта в скобки встаёт имя файла.
+CREATED_EVENT = {
+    "new": "Fișă creată",
+    "appt": "Fișă creată la programarea din registru",
+    "import": "Fișă creată prin import din fișier „{}”",
+}
+
+
 async def _upsert_patient(session_key: str, name: str, phone: str,
-                          lang: str, birth_year: int | None) -> int:
+                          lang: str, birth_year: int | None,
+                          origin: str = "appt", origin_arg: str = "") -> int:
+    existed = await _fetchval(
+        "SELECT id FROM patients WHERE session_key = ?", session_key)
     # Пустой телефон — NULL, и нормализация именно ЗДЕСЬ, в единственной точке
     # записи: строка '' прошла бы фильтр phone IS NOT NULL и совпала бы по
     # цифрам с любым другим безтелефонным (см. _patient_ids_by_digits)
@@ -41,6 +67,8 @@ async def _upsert_patient(session_key: str, name: str, phone: str,
         "SELECT id FROM patients WHERE session_key = ?", (session_key,))
     row = await cur.fetchone()
     await cur.close()
+    if existed is None and origin in CREATED_EVENT:
+        await log_event(row[0], "created", CREATED_EVENT[origin].format(origin_arg))
     return row[0]
 
 
@@ -55,6 +83,7 @@ def manual_key(digits: str) -> str:
     безтелефонных: второй такой пациент молча склеился бы с первым, а
     _upsert_patient ещё и переписал бы имя — всплыло бы на подписываемой
     043/e с чужой одонтограммой."""
+    digits = phone_key(digits)
     return f"manual:{digits}" if digits else f"manual:c{secrets.token_hex(5)}"
 
 
@@ -68,12 +97,12 @@ async def _patient_ids_by_digits(digits: str) -> list[int]:
     пациент без телефона хранит NULL, но одна строка с phone='' (легаси, ручная
     правка базы) — и «все безтелефонные» совпали бы друг с другом по пустой
     строке: запись уехала бы первому попавшемуся."""
-    if not digits:
+    want = phone_key(digits)
+    if not want:
         return []
     rows = await _fetch(
         "SELECT id, phone FROM patients WHERE phone IS NOT NULL")
-    return [r["id"] for r in rows
-            if "".join(ch for ch in (r["phone"] or "") if ch.isdigit()) == digits]
+    return [r["id"] for r in rows if phone_key(r["phone"]) == want]
 
 
 async def patient_name_by_phone(phone: str) -> str | None:
@@ -118,10 +147,12 @@ async def patient_id_by_key(session_key: str) -> int | None:
 
 
 async def create_patient(session_key: str, name: str, phone: str,
-                         birth_year: int | None = None) -> int:
+                         birth_year: int | None = None, *,
+                         origin: str = "new", origin_arg: str = "") -> int:
     """Карточка без визита: регистратура завела пациента заранее (звонок,
     первичный приём без времени). Остальные поля дописывает update_patient."""
-    return await _upsert_patient(session_key, name, phone, "ro", birth_year)
+    return await _upsert_patient(session_key, name, phone, "ro", birth_year,
+                                 origin, origin_arg)
 
 
 async def set_archived(pid: int, on: bool) -> None:
@@ -175,9 +206,12 @@ async def get_patient(pid: int) -> dict | None:
     return rows[0] if rows else None
 
 
-async def update_patient(pid: int, data: dict) -> None:
-    await log_event(pid, "profile", "Fișa pacientului a fost actualizată")
-    """Обновление профиля: только известные поля, явным списком колонок."""
+async def update_patient(pid: int, data: dict, *, log: bool = True) -> None:
+    """Обновление профиля: только известные поля, явным списком колонок.
+    `log=False` — у только что заведённой фиши: её летопись уже открыта
+    строкой «fișă creată», и «actualizată» следом читалась бы как правка."""
+    if log:
+        await log_event(pid, "profile", "Fișa pacientului a fost actualizată")
     sets_lt =", ".join(f"{f} = ?" for f in PATIENT_FIELDS)
     vals = [data.get(f) for f in PATIENT_FIELDS]
     await _execute(

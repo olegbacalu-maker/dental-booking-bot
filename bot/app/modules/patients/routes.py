@@ -44,6 +44,7 @@ from . import ocluzie as poccl
 from . import odontogram as podo
 from . import perio as pperio
 from . import plan_acord as pplan
+from . import profile_rules as prules
 from . import sign as psign
 from . import visit as pvisit
 from ...core import shellopen, xlsx
@@ -137,15 +138,12 @@ async def _save_profile(pid: int, prev: dict, get) -> str:
     bd = data.get("birth_date")
     bd_year = None
     if bd:
-        try:
-            parsed = date.fromisoformat(bd)
-        except ValueError:
-            return "bad_bd"
-        if not (1900 <= parsed.year and parsed <= date.today()):
+        parsed = prules.birth_date(bd)
+        if parsed is None:
             return "bad_bd"
         data["birth_date"] = parsed.isoformat()
         bd_year = parsed.year
-    if data.get("idnp") and not re.fullmatch(r"[0-9]{13}", data["idnp"]):
+    if data.get("idnp") and not prules.idnp_shape(data["idnp"]):
         return "bad_idnp"
     await db.update_patient(pid, data)
     if bd_year:
@@ -1448,8 +1446,9 @@ async def patients_xlsx(request: Request, q: str = "", med: str = "", st: str = 
 async def _new_patient(name: str, phone: str, birth_date: str, email: str,
                        primary_doctor: str) -> tuple[str, int | None]:
     """Правило новой фиши (`POST /api/patients`, диалог «Pacient nou»): (код,
-    id фиши). bad_pat — без имени; dup_pat — фиша с таким телефоном уже есть,
-    и открывается ОНА; new_pat — заведена.
+    id фиши). bad_pat — без имени; bad_bd — дата рождения не проходит правило
+    фиши; dup_pat — фиша с таким телефоном уже есть, и открывается ОНА;
+    new_pat — заведена.
 
     ⚠️ Ключ `manual:{цифры}` СКЛЕИВАЕТ пациентов по телефону — на то он и
     заведён, чтобы бот и регистратура не плодили двойников. Поэтому при
@@ -1480,15 +1479,15 @@ async def _new_patient(name: str, phone: str, birth_date: str, email: str,
         key = db.manual_key("")
     bd, year = birth_date.strip()[:10], None
     if bd:
-        try:
-            year = date.fromisoformat(bd).year
-        except ValueError:
-            bd = ""
+        parsed = prules.birth_date(bd)
+        if parsed is None:
+            return "bad_bd", None
+        bd, year = parsed.isoformat(), parsed.year
     pid = await db.create_patient(key, name, phone, year)
     data = {f: None for f in db.PATIENT_FIELDS}
     doc = primary_doctor.strip()
     data.update({"name": name, "phone": phone or None, "birth_date": bd or None,
                  "email": email.strip()[:120] or None,
                  "primary_doctor": doc if doc in set(eng.DOCTORS.values()) else None})
-    await db.update_patient(pid, data)
+    await db.update_patient(pid, data, log=False)
     return "new_pat", pid
