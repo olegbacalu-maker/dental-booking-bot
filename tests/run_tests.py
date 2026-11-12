@@ -32,6 +32,7 @@ import test_api  # noqa: E402
 import test_backup  # noqa: E402
 import test_booking  # noqa: E402
 import test_chair  # noqa: E402
+import test_rooms  # noqa: E402
 import test_db_names  # noqa: E402
 import test_layout_names  # noqa: E402
 import test_dbcrypt  # noqa: E402
@@ -345,6 +346,10 @@ SUITES = [
     ("Кресло: кто в кресле — правило", test_chair.suite_rule),
     ("Кресло: API", test_chair.suite_api),
     ("Кресло: адрес экрана", test_chair.suite_page),
+    ("Кабинеты: занятость по кабинетам врача", test_rooms.suite_rule),
+    ("Кабинеты: смена кабинета, перенос, возврат, длительность", test_rooms.suite_commands),
+    ("Кабинеты: контракт экрана — колонка, блок, повестка, кресло, свободные старты", test_rooms.suite_models),
+    ("Кабинеты: профиль — старая строка и список из фиши врача", test_rooms.suite_profile),
     ("Настройки: хаб (JSON)", test_settings_api.suite_hub),
     ("Настройки: сеть (JSON)", test_settings_api.suite_lan),
     ("Сеть: вердикт брандмауэра по правилам exe", test_netcheck.suite_verdict),
@@ -519,6 +524,8 @@ SUITES = [
     ("Миграции базы: журнал отметок Rechemări шагом 8", test_migrate.suite_v8_recall),
     ("Миграции базы: шаг 10 повторяется по базе, где колонки уже есть (2.14.2)", test_migrate.suite_v10_retry),
     ("Миграции базы: повтор шага 10 на зашифрованной картотеке", test_migrate.suite_v10_retry_crypt),
+    ("Миграции базы: шаг 11 — кабинет в ключе индексов врача", test_migrate.suite_v11_rooms),
+    ("Миграции базы: шаг 11 на зашифрованной картотеке", test_migrate.suite_v11_rooms_crypt),
     ("Летопись: backfill в часах клиники", test_migrate.suite_backfill_tz),
     ("Шифрование базы: код восстановления", test_dbcrypt.suite_key),
     ("Шифрование базы: переезд", test_dbcrypt.suite_convert),

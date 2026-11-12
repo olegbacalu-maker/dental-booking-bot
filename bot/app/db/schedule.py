@@ -9,8 +9,8 @@ from .. import db
 from .conn import _execute, _fetch, _fetchval, _iso, _utcnow_iso, log
 from .events import _actor_now, log_event
 from .slots import (
-    _ACT_SQL, _book, _book_locked, _conflicts, _patient_busy_at, _slot_lock,
-    ACTIVE_STATUSES,
+    _ACT_SQL, _book, _book_locked, _conflicts, _lane, _patient_busy,
+    _patient_busy_at, _pick_room, _room_label, _slot_lock, ACTIVE_STATUSES,
 )
 from .patients import (
     _patient_ids_by_digits, _upsert_patient, manual_key, patient_id_by_key, set_birth_year,
@@ -79,11 +79,13 @@ async def create_appointment(
     source: str = "manual", birth_year: int | None = None,
     doctor_id: str | None = None, service_id: str | None = None,
     duration_min: int = 60,
+    rooms: dict | None = None, room: str | None = None,
 ) -> int | str | None:
     """id записи; None — интервал занят у этого врача; 'dup' — у пациента
     уже есть своя запись на это время. doctor/service = снапшоты подписи,
     doctor_id/service_id = стабильные ключи; duration_min = снапшот
-    длительности услуги на момент брони."""
+    длительности услуги на момент брони. `rooms` — кабинеты врача
+    (`eng.room_plan`), `room` — назначенный кабинет (нет — первый свободный)."""
     async with _slot_lock():
         if await patient_id_by_key(session_key) is None:
             # ⚠️ НОВОГО человека не заводим, пока слот не подтверждён: upsert
@@ -92,11 +94,13 @@ async def create_appointment(
             # Для СУЩЕСТВУЮЩЕГО порядок прежний: upsert обновляет имя/телефон
             # даже при отказе — пациент сам их продиктовал. Всё под ОДНИМ
             # замком: проверка вне его снова открыла бы окно для сироты.
-            if await _conflicts(doctor_id, doctor, starts_at, duration_min):
+            if await _conflicts(doctor_id, doctor, starts_at, duration_min,
+                                rooms=rooms, room=room):
                 return None
         pid = await _upsert_patient(session_key, name, phone, lang, birth_year)
         return await _book_locked(pid, service, doctor, starts_at, source,
-                                  doctor_id, service_id, duration_min)
+                                  doctor_id, service_id, duration_min,
+                                  rooms=rooms, room=room)
 
 
 async def admin_add(
@@ -104,6 +108,7 @@ async def admin_add(
     birth_year: int | None = None, birth_date: str | None = None,
     doctor_id: str | None = None, service_id: str | None = None,
     duration_min: int = 60, duration_set: bool = False,
+    rooms: dict | None = None, room: str | None = None,
 ) -> int | str | None:
     """Ручная запись из журнала клиники. Пациент дедуплицируется по телефону.
 
@@ -129,12 +134,14 @@ async def admin_add(
             existing_name = rows_p[0]["name"]
             has_bd = bool(rows_p[0]["birth_date"])
         r = await _book(pid, service, doctor, starts_at, "manual",
-                        doctor_id, service_id, duration_min)
+                        doctor_id, service_id, duration_min,
+                        rooms=rooms, room=room)
     else:
         r = await create_appointment(
             key, name, phone, "ro", service, doctor, starts_at,
             source="manual", birth_year=birth_year,
             doctor_id=doctor_id, service_id=service_id, duration_min=duration_min,
+            rooms=rooms, room=room,
         )
         pid = await patient_id_by_key(key)
     # дата рождения — тем же правилом, что год в upsert: новое значение, если
@@ -170,13 +177,15 @@ async def add_visit_for_patient(
     pid: int, service: str, doctor: str, starts_at: datetime,
     doctor_id: str | None = None, service_id: str | None = None,
     duration_min: int = 60,
+    rooms: dict | None = None, room: str | None = None,
 ) -> int | str | None:
     """Запись ИЗ ФИШИ: пациент уже известен по id, дедупликация по телефону
     здесь была бы вредна. Общий путь (`manual:{цифры}`) склеивает пациентов по
     номеру, а у телеграм-пациента session_key 'tg:…' — визит из его же фиши
     уехал бы новому пациенту-двойнику или соседу с тем же семейным номером."""
     return await _book(pid, service, doctor, starts_at, "manual",
-                       doctor_id, service_id, duration_min)
+                       doctor_id, service_id, duration_min,
+                       rooms=rooms, room=room)
 
 
 async def add_note(doctor: str, starts_at: datetime, text: str,
@@ -184,7 +193,7 @@ async def add_note(doctor: str, starts_at: datetime, text: str,
     """Заметка/блокировка слота: без пациента, но занимает слот врача."""
     async with _slot_lock():
         # заметка тоже обязана уважать интервалы (иначе ложится поверх визита)
-        if await _conflicts(doctor_id, doctor, starts_at, 60):
+        if await _conflicts(doctor_id, doctor, starts_at, 60, note=True):
             return None
         return await _insert_note(doctor, starts_at, text, doctor_id)
 
@@ -207,19 +216,30 @@ async def _insert_note(doctor: str, starts_at: datetime, text: str,
         return None
 
 
-async def booked_intervals(doctor_key: str, doctor_name: str,
-                           start: datetime, end: datetime) -> list:
-    """Занятые ИНТЕРВАЛЫ врача: [(старт, длительность_мин)]. Матчим по
-    стабильному doctor_id, легаси-строки без id — по снапшоту имени.
-    NULL-длительность (записи до v1.8.0) считается 60 минутами."""
+async def busy_lanes(doctor_key: str, doctor_name: str,
+                     start: datetime, end: datetime,
+                     rooms: tuple = ()) -> list[list]:
+    """Занятые ИНТЕРВАЛЫ врача по кабинетам: на каждый кабинет из `rooms` свой
+    список [(старт, длительность_мин)], у врача без кабинетов — один список.
+    Старт свободен, пока свободен хоть один список; заметка стойки стоит в
+    каждом. Матчинг и NULL-длительность (60 минут) — как у `_doctor_overlaps`."""
     rows = await _fetch(
-        f"""SELECT starts_at, duration_min FROM appointments
+        f"""SELECT starts_at, duration_min, room_id, source FROM appointments
            WHERE (doctor_id = ? OR (doctor_id IS NULL AND doctor = ?))
              AND status IN {_ACT_SQL}
              AND starts_at >= ? AND starts_at < ?""",
         doctor_key, doctor_name, _iso(start), _iso(end),
     )
-    return [(r["starts_at"], int(r["duration_min"] or 60)) for r in rows]
+    own = tuple(rooms or ())
+    lanes: dict[str, list] = {rid: [] for rid in (own or ("",))}
+    for r in rows:
+        span = (r["starts_at"], int(r["duration_min"] or 60))
+        if r["source"] == "note":
+            for lane in lanes.values():
+                lane.append(span)
+        else:
+            lanes[_lane(r["room_id"], own)].append(span)
+    return list(lanes.values())
 
 
 async def doctor_future_count(doctor_key: str, doctor_name: str,
@@ -264,6 +284,7 @@ async def day_appointments(day_start: datetime, day_end: datetime) -> list:
         """SELECT a.id, a.patient_id, a.service, a.doctor, a.doctor_id, a.service_id,
                   a.starts_at, a.duration_min, a.status, a.source,
                   a.reminded_day, a.comment, a.waiting_at, a.arrived_at,
+                  a.room_id, a.room,
                   p.name, p.phone, p.birth_year,
                   (vr.id IS NOT NULL) AS has_rec, ac.result AS call_result,
                   EXISTS(SELECT 1 FROM sms_log s WHERE s.appt_id = a.id
@@ -372,7 +393,9 @@ async def set_comment(appt_id: int, text: str) -> None:
 
 
 async def move_appointment(appt_id: int, doctor_id: str, doctor: str,
-                           starts_at: datetime, when: str = "") -> str:
+                           starts_at: datetime, when: str = "",
+                           rooms: dict | None = None,
+                           room: str | None = None) -> str:
     """Перенос визита на другое время и/или к другому врачу (перетаскивание).
 
     Ответ — КОД, а не bool: у переноса четыре разных отказа, и один «False» на
@@ -386,10 +409,14 @@ async def move_appointment(appt_id: int, doctor_id: str, doctor: str,
     пересечение 10:00(60′) с 10:30(60′) — нет.
     ⚠️ `when` — время НОВОГО старта в часах клиники, уже строкой: db не знает
     про часовой пояс (в базе UTC), а летопись читает человек.
+    `rooms` — кабинеты врача, К КОТОРОМУ переносят; `room` — назначенный
+    кабинет. Без него у того же врача запись держит свой кабинет (занят — первый
+    свободный). Без `rooms` кабинет записи не трогается.
     """
     async with _slot_lock():
         rows = await _fetch(
-            """SELECT patient_id, duration_min, status, service, starts_at
+            """SELECT patient_id, duration_min, status, service, starts_at,
+                      doctor_id, room_id
                FROM appointments WHERE id = ?""", appt_id)
         if not rows:
             return "gone"
@@ -397,10 +424,15 @@ async def move_appointment(appt_id: int, doctor_id: str, doctor: str,
         if r["status"] not in ACTIVE_STATUSES:
             return "closed"
         dur = int(r["duration_min"] or 60)
-        if await _conflicts(doctor_id, doctor, starts_at, dur, exclude_id=appt_id):
+        own = tuple((rooms or {}).get("own") or ())
+        stay = _lane(r["room_id"], own) if r["doctor_id"] == doctor_id else None
+        lane = await _pick_room(doctor_id, doctor, starts_at, dur, rooms, room,
+                                prefer=stay, exclude_id=appt_id)
+        if lane is None:
             return "conflict"
-        if r["patient_id"] and await _patient_busy_at(r["patient_id"], starts_at,
-                                                      exclude_id=appt_id):
+        if r["patient_id"] and await _patient_busy(
+                r["patient_id"], doctor_id, doctor, starts_at, dur,
+                exclude_id=appt_id):
             return "dup"
         # ⚠️ Перенос ВРЕМЕНИ снимает отметки напоминаний. Флаг значит «пациенту
         # уже сказали про ЭТОТ час», а час стал другим: без сброса журнал рядом
@@ -411,11 +443,15 @@ async def move_appointment(appt_id: int, doctor_id: str, doctor: str,
         # сказано верно, а имя врача напоминание берёт актуальное.
         moved = rows[0]["starts_at"] != starts_at
         rem_lite =", reminded_day = 0, reminded_2h = 0" if moved else ""
+        room_lite, room_args = "", ()
+        if rooms is not None:
+            room_lite = ", room_id = ?, room = ?"
+            room_args = (lane or None, _room_label(rooms, lane))
         try:
             await _execute(
                 f"""UPDATE appointments SET doctor = ?, doctor_id = ?,
-                   starts_at = ?{rem_lite} WHERE id = ?""",
-                doctor, doctor_id, _iso(starts_at), appt_id,
+                   starts_at = ?{rem_lite}{room_lite} WHERE id = ?""",
+                doctor, doctor_id, _iso(starts_at), *room_args, appt_id,
             )
         except Exception as e:  # noqa: BLE001 — uq_doctor_slot/uq_patient_slot
             if "uq_" in str(e) or "unique" in str(e).lower():
@@ -429,7 +465,7 @@ async def move_appointment(appt_id: int, doctor_id: str, doctor: str,
 
 
 async def set_appt_service(appt_id: int, service_id: str, service: str,
-                           duration_min: int) -> str:
+                           duration_min: int, rooms: dict | None = None) -> str:
     """Смена процедуры у стоящей записи (22.10): ключ услуги, СНИМОК подписи и
     СНИМОК длительности — те же три колонки, что пишет бронь.
     ⭐ Длительность, заданную руками (`duration_set`, 10.11), смена процедуры
@@ -453,7 +489,7 @@ async def set_appt_service(appt_id: int, service_id: str, service: str,
     async with _slot_lock():
         rows = await _fetch(
             """SELECT patient_id, doctor, doctor_id, starts_at, duration_min,
-                      duration_set, status, source, service, service_id
+                      duration_set, status, source, service, service_id, room_id
                FROM appointments WHERE id = ?""", appt_id)
         if not rows or rows[0]["source"] == "note":
             return "gone"
@@ -469,7 +505,7 @@ async def set_appt_service(appt_id: int, service_id: str, service: str,
             duration_min = int(r["duration_min"] or 60)
         if duration_min > int(r["duration_min"] or 60) and await _conflicts(
                 r["doctor_id"], r["doctor"], r["starts_at"], duration_min,
-                exclude_id=appt_id):
+                exclude_id=appt_id, rooms=rooms, room=_own_room(r, rooms)):
             return "conflict"
         await _execute(
             """UPDATE appointments SET service = ?, service_id = ?, duration_min = ?
@@ -482,7 +518,8 @@ async def set_appt_service(appt_id: int, service_id: str, service: str,
         return ""
 
 
-async def set_appt_duration(appt_id: int, minutes: int) -> str:
+async def set_appt_duration(appt_id: int, minutes: int,
+                            rooms: dict | None = None) -> str:
     """Длительность стоящей записи руками (10.11.2026, жалоба пилота:
     «Consultație 15′, а пациенту нужно 30′»). Коды — как у
     `set_appt_service`: `''` — сделано (или уже столько же), `gone`, `closed`,
@@ -499,7 +536,7 @@ async def set_appt_duration(appt_id: int, minutes: int) -> str:
     async with _slot_lock():
         rows = await _fetch(
             """SELECT patient_id, doctor, doctor_id, starts_at, duration_min,
-                      status, source, service
+                      status, source, service, room_id
                FROM appointments WHERE id = ?""", appt_id)
         if not rows or rows[0]["source"] == "note":
             return "gone"
@@ -511,7 +548,7 @@ async def set_appt_duration(appt_id: int, minutes: int) -> str:
             return ""
         if minutes > was and await _conflicts(
                 r["doctor_id"], r["doctor"], r["starts_at"], minutes,
-                exclude_id=appt_id):
+                exclude_id=appt_id, rooms=rooms, room=_own_room(r, rooms)):
             return "conflict"
         await _execute(
             """UPDATE appointments SET duration_min = ?, duration_set = 1
@@ -522,7 +559,8 @@ async def set_appt_duration(appt_id: int, minutes: int) -> str:
         return ""
 
 
-async def set_status(appt_id: int, status: str) -> str:
+async def set_status(appt_id: int, status: str,
+                     rooms: dict | None = None) -> str:
     """'' = получилось. Иначе КОД отказа, и их два разных:
 
     * 'conflict' — час занят У ВРАЧА (вернули визит, а слот уже отдан другому);
@@ -538,18 +576,28 @@ async def set_status(appt_id: int, status: str) -> str:
     """
     async with _slot_lock():
         rows = await _fetch(
-            """SELECT patient_id, doctor, doctor_id, starts_at, duration_min, status
+            """SELECT patient_id, doctor, doctor_id, starts_at, duration_min,
+                      status, room_id
                FROM appointments WHERE id = ?""", appt_id)
         r = rows[0] if rows else None
         if r and status in ACTIVE_STATUSES and r["status"] not in ACTIVE_STATUSES:
             # возврат в активный статус = та же пара проверок, что при новой
             # брони: uq-индексы ловят лишь совпадающие старты
-            if await _conflicts(r["doctor_id"], r["doctor"], r["starts_at"],
-                                int(r["duration_min"] or 60), exclude_id=appt_id):
+            dur = int(r["duration_min"] or 60)
+            # свой кабинет за это время могли занять — тогда в первый свободный
+            lane = await _pick_room(r["doctor_id"], r["doctor"], r["starts_at"],
+                                    dur, rooms, prefer=_own_room(r, rooms),
+                                    exclude_id=appt_id)
+            if lane is None:
                 return "conflict"
-            if r["patient_id"] and await _patient_busy_at(
-                    r["patient_id"], r["starts_at"], exclude_id=appt_id):
+            if r["patient_id"] and await _patient_busy(
+                    r["patient_id"], r["doctor_id"], r["doctor"],
+                    r["starts_at"], dur, exclude_id=appt_id):
                 return "dup"
+            if rooms is not None and lane != (r["room_id"] or ""):
+                await _execute(
+                    "UPDATE appointments SET room_id = ?, room = ? WHERE id = ?",
+                    lane or None, _room_label(rooms, lane), appt_id)
         try:
             # Штампы конвейера (08-13): «пришёл» и «зашёл в кабинет» пишутся в
             # сам визит — разница пары даёт время ожидания в приёмной.
@@ -598,3 +646,45 @@ async def set_status(appt_id: int, status: str) -> str:
                     return "dup"
                 return "conflict"
             raise
+
+
+def _own_room(r, rooms: dict | None) -> str | None:
+    """Кабинет, где запись стоит сейчас; None — у врача кабинетов нет."""
+    return _lane(r["room_id"], tuple((rooms or {}).get("own") or ())) or None
+
+
+async def set_appt_room(appt_id: int, room: str, rooms: dict | None) -> str:
+    """Перевод стоящей записи в другой кабинет её врача. Коды — как у
+    длительности: `''` — сделано (или запись уже там, тогда без записи и без
+    летописи), `gone` (и для заметки стойки), `closed`, `bad_room`,
+    `conflict` — в этом кабинете у врача на это время уже стоит запись."""
+    async with _slot_lock():
+        rows = await _fetch(
+            """SELECT patient_id, doctor, doctor_id, starts_at, duration_min,
+                      status, source, service, room_id
+               FROM appointments WHERE id = ?""", appt_id)
+        if not rows or rows[0]["source"] == "note":
+            return "gone"
+        r = rows[0]
+        if r["status"] not in ACTIVE_STATUSES:
+            return "closed"
+        own = tuple((rooms or {}).get("own") or ())
+        if not room or room not in own:
+            return "bad_room"
+        was = _lane(r["room_id"], own)
+        if was == room:
+            return ""
+        if await _conflicts(r["doctor_id"], r["doctor"], r["starts_at"],
+                            int(r["duration_min"] or 60), exclude_id=appt_id,
+                            rooms=rooms, room=room):
+            return "conflict"
+        await _execute(
+            """UPDATE appointments SET room_id = ?, room = ?
+               WHERE id = ? AND source != 'note'""",
+            room, _room_label(rooms, room), appt_id)
+        if r["patient_id"]:
+            await log_event(
+                r["patient_id"], "appt_room",
+                f"Cabinet schimbat: {_room_label(rooms, was)} › "
+                f"{_room_label(rooms, room)} — {r['service']}")
+        return ""

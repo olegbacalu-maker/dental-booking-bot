@@ -258,6 +258,14 @@ def duration_refusal(r) -> str:
     return "dur_closed" if code == "svc_closed" else code
 
 
+def room_fields(r) -> dict:
+    """Кабинет записи на карточке дня и блоке канвы: `room_id` — который она
+    занимает сейчас (`eng.appt_room`), `room` — его имя; пусты у врача без
+    кабинетов. Показывать ли, решает экран по числу кабинетов врача."""
+    rid = eng.appt_room(r)
+    return {"room_id": rid, "room": eng.room_name(rid)}
+
+
 def service_fields(r) -> dict:
     """Процедура визита на карточке дня и на блоке канвы панели (22.10), как
     `call_fields`: `service_id` — ключ услуги в clinic.json (пусто у
@@ -314,6 +322,7 @@ def _collect_cards(rows: list) -> dict:
             # процедура и на что её можно сменить (22.10) — тем же правилом,
             # что у блока канвы панели
             **service_fields(r),
+            **room_fields(r),
         }
     return cards
 

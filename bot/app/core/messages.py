@@ -129,6 +129,16 @@ MSG_BANNER = {
                           "(redeschideți-o dacă chiar trebuie schimbată)"),
     "bad_dur": ("err", f"Durata se alege din {eng.DUR_STEP} în {eng.DUR_STEP} "
                        f"minute, cel mult {eng.DUR_MAX} de minute"),
+    "ok_room": ("ok", "Cabinetul programării a fost schimbat"),
+    "room_busy": ("warn", "Salvat — atenție: în acest cabinet are programare "
+                          "și alt medic la aceeași oră"),
+    "bad_room": ("err", "Medicul nu lucrează în cabinetul ales — alegeți unul "
+                        "dintre cabinetele lui"),
+    "room_closed": ("err", "Cabinetul se schimbă doar la programările active — cea "
+                           "finalizată, anulată sau neprezentată rămâne cum a fost "
+                           "(redeschideți-o dacă chiar trebuie schimbată)"),
+    "bad_rooms": ("err", "Lista cabinetelor nu este validă — un medic poate avea "
+                         "cel mult 3 cabinete, fiecare cu nume"),
     "ok_set": ("ok", "Setări salvate"),
     # «Rechemări» (29.10): отметка обзвона (`/api/recall/mark`) и визит с бумаги
     "ok_recall": ("ok", "Marcaj salvat"),

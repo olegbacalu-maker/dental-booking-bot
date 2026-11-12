@@ -92,7 +92,7 @@ def _doctor_entry(prev: dict, **fields) -> dict:
     """Запись врача для конфига: правим поля, ничего чужого не теряем."""
     entry = dict(prev)
     entry.update(fields)
-    for k in ("spec", "room", "phone", "email", "color", "photo"):
+    for k in ("spec", "room", "rooms", "phone", "email", "color", "photo"):
         if not entry.get(k):
             entry.pop(k, None)
     for k in ("work_from", "work_to"):
@@ -238,13 +238,48 @@ async def admin_doctor_card(request: Request, dk: str, msg: str = ""):
                        {"dk": dk})
 
 
+def _pick_rooms(dk: str, room: str, rooms: list | None) -> tuple[list, dict] | None:
+    """Кабинеты врача из формы: (ключи по порядку, {ключ: имя}); None — список
+    не годится (кабинет без имени, неизвестный ключ, больше `eng.ROOMS_MAX`).
+
+    Пункт `rooms` — ключ из справочника либо имя нового (`{"id": …}`,
+    `{"name": …}` или строкой); имя уже заведённого кабинета — тот же кабинет.
+    `rooms is None` — пришла одна строка `room`: она и есть единственный
+    кабинет, а у врача с несколькими кабинеты не трогаются (поля списка в
+    форме не было)."""
+    if rooms is None:
+        cur = eng.doctor_rooms(dk)
+        if len(cur) > 1:
+            return list(cur), {}
+        rooms = [{"name": room}] if room.strip() else []
+    ids: list[str] = []
+    names: dict[str, str] = {}
+    for item in rooms:
+        if isinstance(item, dict):
+            rid, name = str(item.get("id") or ""), str(item.get("name") or "")
+        else:
+            rid, name = (str(item), "") if str(item) in eng.ROOMS else ("", str(item))
+        if not rid:
+            name = name.strip()[:30]
+            rid = eng.room_key(name)
+            if not rid:
+                return None
+            names[rid] = eng.ROOMS.get(rid) or name
+        elif rid not in eng.ROOMS:
+            return None
+        if rid not in ids:
+            ids.append(rid)
+    return (ids, names) if len(ids) <= eng.ROOMS_MAX else None
+
+
 async def _save_doctor(dk: str, *, name: str, spec: str = "", room: str = "",
                        phone: str = "", email: str = "", color: str = "",
                        auto_color: bool = False, work_from: str = "",
-                       work_to: str = "", status: str = "activ") -> str:
+                       work_to: str = "", status: str = "activ",
+                       rooms: list | None = None) -> str:
     """Правила фиши врача (зовёт JSON API). Возвращает код ответа:
-    bad_med / dup_med / last_med / arch_busy / save_err / ok_med. Часы приходят
-    строками («» = как у клиники)."""
+    bad_med / dup_med / last_med / arch_busy / bad_rooms / save_err / ok_med.
+    Часы приходят строками («» = как у клиники). Кабинеты — `_pick_rooms`."""
     nm = name.strip()[:60]
     if not nm:
         return "bad_med"
@@ -267,9 +302,25 @@ async def _save_doctor(dk: str, *, name: str, spec: str = "", room: str = "",
     col = "" if auto_color else color.strip()[:16]
     if col and not re.fullmatch(r"#[0-9a-fA-F]{6}", col):
         return "bad_med"
-    err = _patch_doctor(dk, name=nm, spec=spec.strip()[:60], room=room.strip()[:30],
-                        phone=phone.strip()[:30], email=email.strip()[:80],
-                        color=col, work_from=wf, work_to=wt, status=st)
+    picked = _pick_rooms(dk, room, rooms)
+    if picked is None:
+        return "bad_rooms"
+    ids, new_names = picked
+    # убранный у врача кабинет в справочнике остаётся: в нём стоят записи
+    catalog = [dict(r) for r in eng.CONFIG.get("rooms") or []]
+    known = {str(r.get("id")) for r in catalog}
+    for rid in ids:
+        if rid not in known:
+            catalog.append({"id": rid, "name": new_names.get(rid) or eng.ROOMS[rid],
+                            "active": True})
+    label = {str(r.get("id")): str(r.get("name") or "") for r in catalog}
+    # `room` остаётся в файле: старая версия программы (откат) читает только его
+    docs = [(_doctor_entry(d, name=nm, spec=spec.strip()[:60], rooms=ids,
+                           room=label[ids[0]] if ids else "",
+                           phone=phone.strip()[:30], email=email.strip()[:80],
+                           color=col, work_from=wf, work_to=wt, status=st)
+             if d["id"] == dk else d) for d in eng.CONFIG["doctors"]]
+    err = _save_cfg(doctors=docs, rooms=catalog) if catalog else _save_cfg(doctors=docs)
     return "save_err" if err else "ok_med"
 
 
