@@ -79,14 +79,15 @@ class Draft:
 # ---------- время ----------
 
 def round_slot(start: datetime, minutes: int) -> tuple[datetime, int]:
-    """Начало вниз до пяти минут, конец вверх: запись накрывает исходный
-    интервал целиком — пациент не опоздает, визит не станет короче, чем был
-    в календаре. Счёт в UTC: сложение в поясе шло бы по стенным часам."""
+    """Начало — к ближайшим пяти минутам, длина — как в календаре: некратное
+    время там почти всегда промах мыши, а не замысел, и визит не должен стать
+    длиннее из-за него. Растёт только длина, которая сама не кратна пяти, —
+    вверх, чтобы визит не стал короче. Счёт в UTC: смещения поясов кратны
+    пяти минутам, а перевод часов стенные минуты сдвинул бы."""
     begin = start.astimezone(timezone.utc).replace(second=0, microsecond=0)
-    end = begin + timedelta(minutes=max(0, minutes))
-    begin -= timedelta(minutes=begin.minute % STEP)
-    end += timedelta(minutes=-end.minute % STEP)
-    return begin, max(STEP, int((end - begin).total_seconds() // 60))
+    off = begin.minute % STEP
+    begin += timedelta(minutes=STEP - off if off * 2 > STEP else -off)
+    return begin, max(STEP, minutes + -minutes % STEP)
 
 
 def stamp(start: datetime, minutes: int, title: str) -> str:
@@ -188,8 +189,13 @@ def doctor_hint(title: str, doctors: dict[str, str]) -> tuple[str, tuple[str, ..
         at = [i for i, w in enumerate(words) if w == parts[-1]] if len(parts[-1]) >= 3 else []
         if at:
             hits.append(doc)
-            if any(i > 0 and words[i - 1] in _MARKS for i in at):
-                marked.append(doc)
+            for i in at:
+                # «Dr. Elena Rusu»: между словом «dr» и фамилией стоит имя врача.
+                while i > 0 and words[i - 1] in parts:
+                    i -= 1
+                if i > 0 and words[i - 1] in _MARKS:
+                    marked.append(doc)
+                    break
         elif len(parts) >= 2 and raw and raw[0].isupper() and len(raw[0]) == len(parts):
             initials = "".join(p[0] for p in parts)
             if words[0] in (initials, initials[::-1]):

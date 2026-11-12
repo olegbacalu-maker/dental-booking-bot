@@ -81,7 +81,7 @@ def _basic(res: Result, now: datetime) -> None:
               ("Cabinet 2", (("Rusu, Elena", "elena.rusu@example.com"),)))
     res.check(f"{tag} суточное событие — «проверить», не отказ", (d["a11"].kind, d["a11"].check),
               (gi.OK, gi.CHECK_LONG))
-    res.check(f"{tag} округление 9:07–9:30 -> 9:05–9:30, исходное сохранено",
+    res.check(f"{tag} округление 9:07–9:30 -> 9:05, 25 минут; исходное сохранено",
               (d["a13"].start, d["a13"].minutes, d["a13"].rounded, d["a13"].src_start, d["a13"].src_minutes),
               (t.at(now, 8, 9, 5), 25, True, t.at(now, 8, 9, 7), 23))
     res.check(f"{tag} с округлением — ровно одна строка",
@@ -163,23 +163,31 @@ def suite_rules(res: Result) -> None:
         return gi.convert(o, tz=TZ, now=NOW, doctors=DOCTORS, **kw)
 
     rounding = [
-        ("9:07–9:30 -> 9:05–9:30", (9, 7), 23, (9, 5), 25, True),
+        ("9:07–9:30 -> 9:05, 25 минут", (9, 7), 23, (9, 5), 25, True),
         ("9:10–9:30 как есть", (9, 10), 20, (9, 10), 20, False),
         ("9:00 на 23 минуты -> 25", (9, 0), 23, (9, 0), 25, True),
-        ("9:58–10:01 -> 9:55–10:05", (9, 58), 3, (9, 55), 10, True),
-        ("9:03 на 1 минуту -> 9:00, 5 минут", (9, 3), 1, (9, 0), 5, True),
+        ("11:08 на 30 минут -> 11:10, длина та же", (11, 8), 30, (11, 10), 30, True),
+        ("11:07 на 30 минут -> 11:05, длина та же", (11, 7), 30, (11, 5), 30, True),
+        ("11:12 -> 11:10", (11, 12), 30, (11, 10), 30, True),
+        ("11:13 -> 11:15", (11, 13), 30, (11, 15), 30, True),
+        ("11:11 -> 11:10", (11, 11), 45, (11, 10), 45, True),
+        ("11:14 -> 11:15", (11, 14), 45, (11, 15), 45, True),
+        ("9:58 на 3 минуты -> 10:00, 5 минут", (9, 58), 3, (10, 0), 5, True),
+        ("9:03 на 1 минуту -> 9:05, 5 минут", (9, 3), 1, (9, 5), 5, True),
         ("9:05 на 5 минут как есть", (9, 5), 5, (9, 5), 5, False),
-        ("23:58 на 4 минуты -> через полночь", (23, 58), 4, (23, 55), 10, True),
+        ("9:00 на 236 минут -> 240, без пометки", (9, 0), 236, (9, 0), 240, True),
         ("ровно 240 минут — без пометки", (9, 0), 240, (9, 0), 240, False),
     ]
-    res.ok("таблица округления не пуста", len(rounding) >= 6)
+    res.ok("таблица округления не пуста", len(rounding) >= 10)
+    d = conv(occ(_at(23, 58), 30))
+    res.check("23:58 -> полночь следующего дня", (d.start, d.minutes), (_at(0, 0, day=17), 30))
     for label, (h, m), mins, (wh, wm), wmin, wr in rounding:
         d = conv(occ(_at(h, m), mins))
         res.check(f"округление: {label}", (d.start, d.minutes, d.rounded, d.check, d.kind),
                   (_at(wh, wm), wmin, wr, "", gi.OK))
-        res.ok(f"округление: {label} — запись накрывает исходный интервал",
-               d.start <= d.src_start and d.start + timedelta(minutes=d.minutes)
-               >= d.src_start + timedelta(minutes=d.src_minutes))
+        res.ok(f"округление: {label} — сдвиг начала не больше двух минут, визит не короче, исходное на месте",
+               abs(d.start - d.src_start) <= timedelta(minutes=2) and 0 <= d.minutes - mins < 5
+               and (d.src_start, d.src_minutes) == (_at(h, m), mins))
     d = conv(occ(_at(9), 241))
     res.check("241 минута -> 245 и «проверить»", (d.minutes, d.check, d.kind), (245, gi.CHECK_LONG, gi.OK))
     d = conv(occ(_at(9), 0))
@@ -192,7 +200,7 @@ def suite_rules(res: Result) -> None:
     d = gi.convert(occ(spring, 50), tz=TZ, now=NOW, doctors={})
     res.check("округление в ночь перевода часов не теряет час",
               (d.start.astimezone(timezone.utc), d.minutes),
-              (datetime(2027, 3, 28, 0, 35, tzinfo=timezone.utc), 55))
+              (datetime(2027, 3, 28, 0, 35, tzinfo=timezone.utc), 50))
     summer = datetime(2027, 7, 5, 6, 0, tzinfo=timezone.utc)
     d = gi.convert(occ(summer, 30), tz=TZ, now=NOW, doctors={})
     res.check("лето: 06:00 UTC — это 9:00 клиники", (d.start.hour, d.start.utcoffset()), (9, timedelta(hours=3)))
@@ -281,6 +289,9 @@ DOCTOR = [
     ("Lungu Andrei consult", "", ()),
     ("Munteanu Andrei jr / turcanu", "", ("d1", "d3")),
     ("Munteanu Ion - Dr. Rusu", "d2", ("d1", "d2")),
+    ("Munteanu Ion - Dr. Elena Rusu", "d2", ("d1", "d2")),
+    ("Dr Rusu Elena - Munteanu Ion", "d2", ("d1", "d2")),
+    ("Dr . Vasilache - Moraru M - consult", "", ()),
     ("dr Rusu, dr Munteanu: consiliu", "", ("d1", "d2")),
     ("Rusufan Ion", "", ()),
     ("", "", ()),

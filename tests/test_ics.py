@@ -68,6 +68,15 @@ def fold75(text: str) -> bytes:
     return b"\r\n".join(out) + b"\r\n"
 
 
+def fold_chars(text: str) -> bytes:
+    """Перенос по 75 ЗНАКОВ: так складывает сам Google — буквы целы, зато
+    физическая строка с кириллицей вдвое длиннее 75 октетов."""
+    out = []
+    for line in text.strip("\n").split("\n"):
+        out.append("\r\n ".join([line[:75]] + [line[i:i + 74] for i in range(75, len(line), 74)]))
+    return ("\r\n".join(out) + "\r\n").encode("utf-8")
+
+
 def sample(name: str, now: datetime) -> bytes:
     return fold75(render(name, now))
 
@@ -166,6 +175,13 @@ def _basic(res: Result, now: datetime) -> None:
     res.check(f"{tag} участник: имя в кавычках с запятой и адрес", a["a7"].attendees,
               (("Rusu, Elena", "elena.rusu@example.com"),))
     res.check(f"{tag} текст напоминания VALARM в описание не подмешан", a["a7"].description, "")
+    res.check(f"{tag} посторонние поля (X-MICROSOFT-…, CLASS) событию не мешают", a["a7"].problem, "")
+    by_chars = fold_chars(render("basic", now))
+    res.ok(f"{tag} перенос по знакам длиннее 75 октетов",
+           max(len(ln) for ln in by_chars.split(b"\r\n")) > 75)
+    (cal2,) = ics.read(by_chars, TZ)
+    res.check(f"{tag} перенос по знакам читается так же, как по октетам",
+              ics.occurrences(cal2, *window(now)), list(got.values()))
     d4 = day(now, 4)
     ny = datetime(d4.year, d4.month, d4.day, 3, 0, tzinfo=ZoneInfo("America/New_York"))
     res.check(f"{tag} чужой пояс — тот же момент", (a["a8"].start, a["a8"].minutes), (ny, 60))
@@ -353,7 +369,10 @@ RRULES = [
      ["2026-12-31", "2027-01-31", "2027-03-31"]),
     ("раз в квартал без конца — только окно", "20261120T120000", "FREQ=MONTHLY;INTERVAL=3",
      ["2026-11-20", "2027-02-20"]),
-    ("через перевод часов 28.03.2027", "20270315T090000", "FREQ=WEEKLY;COUNT=4",
+    ("как пишет Google: число месяца с WKST, серия начата до окна", "20261025T193000",
+     "FREQ=MONTHLY;WKST=TU;BYMONTHDAY=25",
+     ["2026-11-25", "2026-12-25", "2027-01-25", "2027-02-25", "2027-03-25", "2027-04-25"]),
+    ("через перевод часов 28.03.2027","20270315T090000", "FREQ=WEEKLY;COUNT=4",
      ["2027-03-15", "2027-03-22", "2027-03-29", "2027-04-05"]),
 ]
 
