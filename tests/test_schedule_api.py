@@ -70,7 +70,12 @@ def suite_api(res: Result) -> None:
         # у полного журнала она null, но ключ в составе всегда
         res.check("состав", sorted(j),
                   sorted(["monday", "sunday", "prev", "next", "span", "total",
-                          "days", "day", "notice"]))
+                          "days", "day", "notice", "minical"]))
+        wcells = {x["date"]: x for w in j["minical"]["weeks"] for x in w}
+        res.check("календарь недели: день месяца открывает свою неделю, выбран день адреса",
+                  (wcells[d(1)]["href"], wcells[d(1)]["selected"],
+                   j["minical"]["next"]["href"].split("?")[0]),
+                  (f"/admin/week?date={d(1)}", True, "/admin/week"))
         res.check("границы недели и соседние недели",
                   (j["monday"], j["sunday"], j["prev"], j["next"], j["day"]),
                   (monday.isoformat(), d(6),
@@ -1334,8 +1339,12 @@ def suite_doctor_day(res: Result) -> None:
         res.ok("блоки канвы фактов не несут (едут в каждый опрос главной)",
                not any(k in b for b in _blocks(live["canvas"]) for k in ("risks", "nth", "plan")),
                f"{sorted(_blocks(live['canvas'])[0])}")
-        res.check("у общего дня календаря в модели нет (он у главной — в канале)",
-                  "minical" in general, False)
+        gcal = general.get("minical") or {}
+        gcells = {c_["date"]: c_ for w in gcal.get("weeks", []) for c_ in w}
+        res.check("календарь общего дня: ссылки — на общий день, точки всех врачей",
+                  (gcells.get(day, {}).get("href"), gcal.get("prev", {}).get("href", "").split("?")[0],
+                   gcells.get(day, {}).get("selected"), gcells.get(other, {}).get("busy")),
+                  (f"/admin/all?date={day}", "/admin/all", True, True))
 
         cal = m.get("minical") or {}
         cells = {c_["date"]: c_ for w in cal.get("weeks", []) for c_ in w}

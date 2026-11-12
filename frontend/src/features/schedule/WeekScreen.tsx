@@ -5,6 +5,7 @@ import { LoadFailed } from '../../components/LoadFailed'
 import { Notice } from '../../components/Notice'
 import { defaultNavigate } from '../../hooks/useLoad'
 import { queryParam, useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
+import { CalButton } from './MiniCal'
 import { week, type WeekDay, type WeekItem, type WeekModel } from './week'
 
 /* Недельный календарь (C24): колонки рабочих дней, компактные чипы записей.
@@ -70,7 +71,9 @@ export function WeekScreen({ navigate = defaultNavigate }: Props) {
   return (
     <section className="dp-react-root">
       <div className="nav">
-        <b>{m.span} · {m.total} {T.counted}</b>
+        {m.minical
+          ? <><CalButton label={m.span} cal={m.minical} /><span className="dp-weekcount">{m.total} {T.counted}</span></>
+          : <b>{m.span} · {m.total} {T.counted}</b>}
         <AppLink href={`/admin/week?date=${m.prev}`}
            onClick={(e) => { e.preventDefault(); go(m.prev) }}>
           <Icon name="chev-l" /> {T.week}

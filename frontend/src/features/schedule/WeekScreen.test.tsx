@@ -66,6 +66,26 @@ describe('недельный календарь', () => {
       .toEqual(MODEL.days.map((d) => `/admin/all?date=${d.date}`))
   })
 
+  it('даты шапки — кнопка календаря: день месяца открывает свою неделю', async () => {
+    const cell = (n: number) => ({ date: `2026-09-${n}`, day: n, other: false, today: n === 22,
+      selected: n === 22, busy: n === 26, href: `/admin/week?date=2026-09-${n}` })
+    get.mockResolvedValue(ok({ ...MODEL, minical: {
+      title: 'Septembrie 2026', weekdays: ['Lu', 'Ma', 'Mi', 'Jo', 'Vi', 'Sâ', 'Du'],
+      weeks: [[21, 22, 23, 24, 25, 26, 27].map(cell)],
+      prev: { date: '2026-08-01', href: '/admin/week?date=2026-08-01' },
+      next: { date: '2026-10-01', href: '/admin/week?date=2026-10-01' } } }))
+    await show()
+    const btn = document.querySelector('.nav .dp-calbtn > button') as HTMLButtonElement
+    expect(btn.textContent).toBe('21.09 – 27.09.2026')
+    expect(document.querySelector('.dp-weekcount')?.textContent).toBe('3 programări')
+    fireEvent.click(btn)
+    const pop = document.querySelector('.dp-calpop')!
+    expect(pop.querySelector('a.seld.tdy')?.textContent).toBe('22')
+    expect(pop.querySelector('a[href="/admin/week?date=2026-09-26"] .dot')).not.toBeNull()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(document.querySelector('.dp-calpop')).toBeNull()
+  })
+
   it('скрытое воскресенье не сдвигает субботу', async () => {
     await show()
     expect(cols()).toHaveLength(6)

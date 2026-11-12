@@ -1818,6 +1818,23 @@ dialog.dp-about { width: 460px; }
 /* сплошной `--panel`, не `--surface`: у Sticlă поверхность прозрачная, и
    сетка дня просвечивала бы сквозь числа */
 .dp-calpop .mcal { margin: 0; background: var(--panel); box-shadow: var(--sh3); }
+/* в ряду кнопок недели кнопка дат занимает место плашки периода; общий вид
+   `.nav b` её подписи и заголовку месяца не нужен */
+.nav .dp-calbtn > button { height: var(--h-ctl); margin: 0; padding: 0 12px; border-color: var(--teal-line);
+  background: var(--panel); color: var(--teal-d); font-size: var(--fs-body); box-shadow: var(--sh); }
+.nav .dp-calbtn b { height: auto; padding: 0; margin: 0; border: 0; border-radius: 0; background: none;
+  box-shadow: none; color: inherit; font-size: inherit; }
+.nav .dp-calbtn b::before { content: none; }
+/* ссылки календаря — клетки месяца, а не кнопки ряда `.nav a` */
+.nav .dp-calpop a, .nav .dp-calpop a:hover { padding: 0; border: 0; gap: 0; font-weight: inherit; transform: none; }
+.nav .dp-calpop a:not(.seld) { background: none; }
+.nav .dp-calpop a:not(.tdy), .nav .dp-calpop a:not(.tdy):hover { box-shadow: none; }
+.nav .dp-calpop td a:not(.seld):hover, .nav .dp-calpop .mhead a:hover { background: var(--fill); }
+.nav .dp-calpop td a:not(.seld):not(.tdy):not(.oth) { color: var(--text); }
+.nav .dp-calpop td a.oth { color: var(--text3); }
+.nav .dp-calpop td a.tdy { color: var(--teal-d); font-weight: 600; }
+.nav .dp-calpop td a.seld, .nav .dp-calpop td a.seld:hover { color: var(--on-teal); font-weight: 700; }
+.nav .dp-weekcount { margin-right: 4px; color: var(--text2); font-size: var(--fs-body); white-space: nowrap; }
 
 /* «Primul loc liber»: врач, ближайший свободный час, кнопка-контур; внизу касса */
 .dp-free {

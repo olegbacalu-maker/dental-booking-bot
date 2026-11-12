@@ -158,9 +158,13 @@ async def _week_model(d: date, scope: str | None = None) -> dict:
     monday = pweek.monday_of(d)
     start, end = pweek.week_span(monday)
     rows = [r for r in await db.day_appointments(start, end) if mine(r, scope)]
-    m = pweek.model(monday, pweek.by_day(rows),
-                    datetime.now(eng.TZ).date(), _svc_colors)
+    today = datetime.now(eng.TZ).date()
+    m = pweek.model(monday, pweek.by_day(rows), today, _svc_colors)
     m["notice"] = _notice(scope)
+    # календарь у дат шапки: день месяца открывает его неделю; точки — по
+    # журналу вошедшего, учётке без врача — ни одной
+    busy = set() if scope == "" else await _busy_days(d, scope or "")
+    m["minical"] = ppanel.minical(d, today, _RO_MONTHS, base="/admin/week", busy=busy)
     return m
 
 
@@ -283,15 +287,17 @@ async def _day_model(d: date, doctor: str = "", f: str = "",
     # дня (держит test_schedule_api), у дня врача в ней одна колонка.
     m["canvas"] = pcanvas.model(d, rows, cards, _svc_colors, only=one)
     if one and one in eng.DOCTORS:
-        # ⭐ (22.10, вариант A + H Олега) Только у дня ОДНОГО врача — по адресу
-        # или по праву: факты о пациенте карточки визита и календарь шапки.
+        # Только у дня ОДНОГО врача — по адресу или по праву: факты о
+        # пациенте карточки визита.
         # ⛔ Не в `appt_view` и не в `canvas.blocks`: они едут в каждом конверте
         # живого канала главной, и канва общего дня обязана совпадать с ним
         # (`suite_day_parity`).
         m["extras"] = await _visit_facts(d, rows)
-        m["minical"] = ppanel.minical(d, datetime.now(eng.TZ).date(), _RO_MONTHS,
-                                      base=f"/admin/doctor/{doctor}" if doctor else "/admin/all",
-                                      busy=await _busy_days(d, one))
+    # Календарь у даты шапки — у любого дня раздела: у общего точки всех
+    # врачей, у дня врача только его; ссылки ведут на тот же вид дня.
+    m["minical"] = ppanel.minical(d, datetime.now(eng.TZ).date(), _RO_MONTHS,
+                                  base=f"/admin/doctor/{doctor}" if doctor else "/admin/all",
+                                  busy=await _busy_days(d, one))
     m["notice"] = _notice(scope)
     return m
 

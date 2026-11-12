@@ -377,11 +377,34 @@ describe('день врача: колонки фактов и календарь
   const btn = () => document.querySelector('.dp-daysub .dp-calbtn > button') as HTMLButtonElement
   const pop = () => document.querySelector('.dp-calpop')
 
-  it('общий день: ни колонок у карточек, ни кнопки календаря — дата текстом', async () => {
+  it('общий день: колонок фактов нет; без календаря в модели дата — текстом', async () => {
     await show()
     expect(document.querySelector('.vf')).toBeNull()
     expect(btn()).toBeNull()
     expect(dayLabel()).toBe('Miercuri, 23 septembrie 2026')
+  })
+
+  it('общий день: дата — кнопка календаря, день открывается роутером на общем дне', async () => {
+    const all = (s: string) => s.replace('/admin/doctor/d2', '/admin/all')
+    const cal = { ...DOC.minical!,
+      weeks: DOC.minical!.weeks.map((w) => w.map((c) => ({ ...c, href: all(c.href) }))),
+      prev: { ...DOC.minical!.prev, href: all(DOC.minical!.prev.href) },
+      next: { ...DOC.minical!.next, href: all(DOC.minical!.next.href) } }
+    get.mockImplementation((url: string) => Promise.resolve(ok({
+      ...MODEL, minical: cal, date: /date=([\d-]+)/.exec(url)?.[1] ?? MODEL.date })))
+    const { router } = await show()
+    expect(btn().textContent).toBe('Miercuri, 23 septembrie 2026')
+    /* с клавиатуры: кнопка настоящая, фокус на ней остаётся, Esc закрывает */
+    btn().focus()
+    fireEvent.click(btn())
+    expect(document.activeElement).toBe(btn())
+    expect(pop()?.querySelector('a.seld')?.textContent).toBe('23')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(pop()).toBeNull()
+    fireEvent.click(btn())
+    fireEvent.click(pop()!.querySelector('a[href="/admin/all?date=2026-09-30"]')!)
+    await waitFor(() => expect(addr(router)).toBe('/admin/all?date=2026-09-30'))
+    expect(pop()).toBeNull()
   })
 
   it('день врача: у визита с фактами — колонки, у прочих — нет', async () => {
