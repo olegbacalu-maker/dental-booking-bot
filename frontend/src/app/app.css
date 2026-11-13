@@ -2569,6 +2569,9 @@ dialog.dp-about { width: 460px; }
 /* ряд кнопок пакетов: пакетов столько, сколько шлёт сервер, — на узком экране ряд переносится, а не
    выдавливает подписи из кнопок и страницу за край (05.11; общий .dp-actions не переносит) */
 .dp-react-root .dp-sms-packs { flex-wrap: wrap; }
+.dp-react-root .dp-sms-name .dp-sms-rule { flex: 0 0 100%; color: var(--text2); font-size: var(--fs-s); }
+.dp-react-root .dp-sms-name .dp-sms-rule.bad { color: var(--red); }
+.dp-react-root .dp-sms-name input[aria-invalid="true"] { border-color: var(--red); }
 .dp-react-root .dp-smsoff label.v { cursor: pointer; }
 /* треугольник у пункта меню (остаток SMS): на месте точки, цветом смысла */
 .side nav a .nav-alert { margin-left: auto; display: inline-flex; color: var(--amber); }

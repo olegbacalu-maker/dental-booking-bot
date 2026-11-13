@@ -66,6 +66,10 @@ def suite_tabs(res: Result) -> None:
                "action='/cont/date'" in panes["clinica"] and "Clinica are și alte sedii?" in panes["clinica"]
                and "href='/cont/clinica-noua'" in panes["clinica"] and "Clinicile mele" not in panes["clinica"])
         res.ok("SMS: имя отправителя", "numele expeditorului" in panes["sms"] and "action='/cont/sms/nume'" in panes["sms"])
+        res.ok("SMS: правило имени стоит под полем, поле не берёт лишнего и чужих знаков",
+               "Maximum 11 caractere: litere latine, cifre, spațiu, punct sau cratimă" in panes["sms"]
+               and "maxlength='11'" in panes["sms"] and "pattern='(?=.*[A-Za-z])[A-Za-z0-9 .\\-]{1,11}'" in panes["sms"],
+               panes["sms"][:1500])
         res.ok("Documente: PDF поставщика, акты, загрузка экземпляра — целиком во вкладке",
                "Documentele furnizorului" in panes["documente"] and "Acceptarea termenilor" in panes["documente"]
                and "action='/cont/documente/incarca'" in panes["documente"])

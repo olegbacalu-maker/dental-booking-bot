@@ -2795,13 +2795,16 @@ def _cont_sms(c, info: dict, q: str = "") -> str:
     cls, word = SENDER_RO.get(state, ("mute", state))
     tag = f"<span class='tag {cls}'>{esc(word)}</span>"
     sub = f"acum SMS-urile pleacă de la «{esc(info['from'] or 'DentPilot')}»"
-    hint = ("<p class='muted' style='margin:8px 0 0'>Până la 11 caractere: litere latine, cifre, spațiu, punct, "
-            "cratimă — denumirea juridică sau marca clinicii. Până la aprobare memento-urile pleacă de la "
+    rule = "Maximum 11 caractere: litere latine, cifre, spațiu, punct sau cratimă"
+    hint = (f"<p class='muted' style='margin:8px 0 0'>{rule} — denumirea juridică sau marca clinicii. "
+            "Până la aprobare memento-urile pleacă de la "
             "«DentPilot». Anul numelui propriu se plătește după cerere — aici sau din program, Setări › SMS.</p>")
+    # правило сервера — и браузеру: недопустимое имя останавливается до заявки, словами подсказки
+    check = f"pattern='{esc(sms.SENDER_RE.pattern.strip('^$'))}' title='{esc(rule)}'"
 
     def ask(label: str) -> str:
         return (f"<form method='post' action='/cont/sms/nume{q}'><label>Numele expeditorului</label>"
-                f"<input name='name' value='{esc(name or info['suggest'])}' maxlength='11' required style='max-width:320px'>"
+                f"<input name='name' value='{esc(name or info['suggest'])}' maxlength='11' {check} required style='max-width:320px'>"
                 f"{hint}<p style='margin:14px 0 0'><button class='primary'>{label}</button></p></form>")
 
     if state == "requested":
