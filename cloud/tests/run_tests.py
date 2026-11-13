@@ -42,6 +42,7 @@ import test_routes  # noqa: E402
 import test_sms  # noqa: E402
 import test_sms_admin  # noqa: E402
 import test_sms_cabinet  # noqa: E402
+import test_sms_guide  # noqa: E402
 import test_sms_name  # noqa: E402
 import test_sms_paper  # noqa: E402
 import test_sms_client  # noqa: E402
@@ -191,6 +192,7 @@ SUITES = [
      test_sms_paper.suite_cabinet),
     ("SMS-пакет: кабинет без пакета — раздела SMS нет", test_sms_paper.suite_not_offered),
     *test_sms_name.SUITES,
+    *test_sms_guide.SUITES,
     ("SMS-пакет из кабинета: слова ноты — письмо, реквизиты, страница возврата без «срока»; карточка пакетов",
      test_sms_cabinet.suite_words),
     ("SMS-пакет из кабинета: заказ, перевод и карта, одно зачисление, второй платёж, задача, отказы, филиал",

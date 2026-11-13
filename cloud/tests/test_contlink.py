@@ -45,6 +45,8 @@ ROUTES = {
     ("POST", "/cont/cod"): "own",
     # пакеты SMS из кабинета (05.11): остаток и пакет — своей клиники, и у филиала из кнопки тоже
     ("POST", "/cont/sms/nota"): "own",
+    # гид «своё имя отправителя» (sms_guide.py): текст и цена прайса, данных клиники нет
+    ("GET", "/cont/sms/ghid"): "own", ("GET", "/cont/sms/ghid/cadru/{key}"): "own",
     # документы (29.10, contracts.py): общие PDF — любому вошедшему, экземпляр — своей клиники
     ("GET", "/cont/documente"): "own", ("GET", "/cont/documente/{doc}.pdf"): "own",
     ("GET", "/cont/documente/{rid}/clinica.pdf"): "own", ("POST", "/cont/documente/incarca"): "own",

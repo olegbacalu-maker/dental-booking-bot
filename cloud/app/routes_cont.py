@@ -12,7 +12,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from . import (account, auth, cabinet, config, contlink, contracts, db, download, emailconf, fleet, jobs, maib, mail,
-               modele, payments, paylink, receipts, revoke, sms, sms_paper, terms, tiers, trial, views, web)
+               modele, payments, paylink, receipts, revoke, sms, sms_guide, sms_paper, terms, tiers, trial, views, web)
 from . import login as elogin  # ⚠️ не `login`: так зовётся маршрут входа админки (routes_admin)
 
 log = logging.getLogger("cloud")
@@ -755,6 +755,38 @@ async def _read_upload(request: Request, limit: int) -> tuple[str, bytes, dict]:
         return "empty", b"", {}
     body = await up.read(limit + 1)
     return "", body, {k: v for k, v in form.multi_items() if isinstance(v, str)}
+
+
+@router.get("/cont/sms/ghid", response_class=HTMLResponse)     # = sms_guide.PATH; литерал — его читает test_contlink.ROUTES
+def cont_sms_guide(request: Request, c: str = "") -> Response:
+    """Гид «своё имя отправителя» (sms_guide.py): страница за входом, без данных клиники; `?c=` —
+    в какую клинику кабинета ведут её ссылки. Клинике без пакета SMS раздел не показан — гид тоже."""
+    with db.connect() as con:
+        acc = _current_account(con, request)
+        if acc is None:
+            return _cont_login_redirect()
+        cl = account.pick(con, acc, c)
+        if cl is None:
+            return RedirectResponse("/cont", status_code=303)
+        sa = con.execute("SELECT * FROM sms_accounts WHERE clinic_id=?", (cl["id"],)).fetchone()
+        if not sms.offered(sa):
+            return RedirectResponse("/cont", status_code=303)
+        multi = len(account.clinics(con, acc)) > 1
+    return HTMLResponse(sms_guide.page(acc, config.SMS_NAME_PRICE, f"?c={cl['id']}" if multi else ""))
+
+
+@router.get("/cont/sms/ghid/cadru/{key}")
+def cont_sms_guide_frame(request: Request, key: str) -> Response:
+    """Кадр гида — файл репозитория по ключу словаря (`sms_guide.FRAMES`), только вошедшему; неизвестный
+    ключ — 404. Кадр у всех один, без данных клиники: браузеру можно его помнить."""
+    with db.connect() as con:
+        if _current_account(con, request) is None:
+            return _cont_login_redirect()
+    data = sms_guide.frame(key)
+    if data is None:
+        return Response(status_code=404)
+    return Response(data, media_type="image/webp",
+                    headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=86400"})
 
 
 def _cont_docs_back(request: Request, code: str) -> str:

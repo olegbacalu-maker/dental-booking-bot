@@ -103,6 +103,8 @@ SNAPSHOT = [
     ("POST", "/cont/sms/nume", "cont_sms_name"),
     ("POST", "/cont/sms/cerere.pdf", "cont_sms_form"),
     ("POST", "/cont/sms/cerere", "cont_sms_upload"),
+    ("GET", "/cont/sms/ghid", "cont_sms_guide"),
+    ("GET", "/cont/sms/ghid/cadru/{key}", "cont_sms_guide_frame"),
     ("GET", "/cont/documente", "cont_documents"),
     ("GET", "/cont/documente/{doc}.pdf", "cont_document_pdf"),
     ("GET", "/cont/modele/{key}", "cont_model"),
