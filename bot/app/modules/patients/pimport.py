@@ -1,10 +1,5 @@
-"""Импорт пациентов из таблицы: шапка и колонки, значения строки, дубли.
-
-Чистые функции над прочитанным файлом (`core/tabfile`) и снимком картотеки
-(`db.import_index`): один и тот же разбор отвечает и «проверь», и каждой
-порции «импортируй», поэтому состояние между запросами не хранится. Писать в
-базу умеет только `create()` и `fill()` — путём клиники, через `db`.
-"""
+"""Импорт пациентов из таблицы. Один разбор отвечает и проверке, и каждой
+порции записи, поэтому между запросами ничего не хранится."""
 from __future__ import annotations
 
 import datetime as _dt
@@ -21,7 +16,6 @@ GROUP_CAP = 300
 PREVIEW_ROWS = 8
 HEADER_SCAN = 25
 
-# Что можно назначить колонке на шаге «Coloane»; пустой id — не импортировать.
 FIELDS = [
     ("", "Nu importa"),
     ("full", "Nume și prenume"),
@@ -44,7 +38,7 @@ FIELDS = [
 FIELD_IDS = {f for f, _l in FIELDS}
 _MULTI = {"notes", "phone", "phone2"}
 
-# Слова шапки (свёрнутые `fold`); порядок полей — приоритет при равной длине.
+# порядок полей — приоритет при равной длине слова
 _WORDS = {
     "full": ["nume prenume", "nume si prenume", "numele prenumele", "numele si prenumele",
              "nume complet", "pacient", "pacientul", "client", "фио", "ф и о", "пациент",
@@ -73,14 +67,12 @@ _WORDS = {
     "notes": ["note", "notite", "observatii", "obs", "comentariu", "comentarii", "mentiuni",
               "примечание", "примечания", "заметки", "комментарий", "notes", "comment"],
 }
-# Колонки, которые узнаются, чтобы их НЕ импортировать: счётчики и то, что
-# программа сама считает в своей выгрузке списка.
+# узнаются, чтобы не импортировать: счётчики и то, что программа считает сама
 _SKIP = {"id", "nr", "nr crt", "n", "no", "п п", "n п п", "varsta", "возраст", "age", "sold",
          "sold mdl", "status", "canal", "vizite", "ultima vizita", "urmatoarea vizita",
          "inregistrat"}
 
-# Пометки строки и причины, по которым она не вошла. Экран печатает эти слова
-# как есть, своего словаря у него нет.
+# экран печатает эти слова как есть, своего словаря у него нет
 REASONS = {
     "no_name": "lipsește numele",
     "name_case": "numele a fost rescris cu majuscule doar la inițiale",
@@ -119,8 +111,6 @@ FILL_LABEL = {"birth_date": "data nașterii", "gender": "gen", "idnp": "IDNP", "
 def why(code: str, arg="") -> str:
     return REASONS[code].format(arg)
 
-
-# ---- шапка и колонки ---------------------------------------------------------
 
 _DIA = str.maketrans("ăâîșşțţё", "aaisstte")
 
@@ -171,8 +161,7 @@ def guess_columns(header: list) -> dict[int, str]:
 
 
 def find_header(rows: list) -> tuple[int, dict[int, str]]:
-    """Номер строки шапки (как в файле) и угаданные колонки; (0, {}) — шапки
-    не нашлось. Берётся первая строка, где узнано имя и ещё хоть что-то."""
+    """Первая строка, где узнано имя и ещё хоть что-то; (0, {}) — шапки нет."""
     best = (0, {})
     for rno, line in rows[:HEADER_SCAN]:
         g = guess_columns(line)
@@ -185,11 +174,8 @@ def find_header(rows: list) -> tuple[int, dict[int, str]]:
     return best
 
 
-# ---- настройки запроса --------------------------------------------------------
-
 def parse_opts(raw: str) -> dict | None:
-    """Выбор человека на шагах мастера. None — не разобрать. Чего в выборе нет,
-    то решает программа (`header`/`cols` None — угадать)."""
+    """None — не разобрать; чего в выборе нет, то угадывает программа."""
     try:
         o = json.loads(raw) if raw else {}
     except ValueError:
@@ -219,8 +205,7 @@ def parse_opts(raw: str) -> dict | None:
 
 
 def resolve(table: tabfile.Table, opts: dict) -> dict | None:
-    """Выбор, доведённый до конкретного: лист, строка шапки, колонки. None —
-    листа с таким номером нет."""
+    """Выбор, доведённый до конкретного; None — листа с таким номером нет."""
     if opts["sheet"] >= len(table.sheets):
         return None
     rows = table.sheets[opts["sheet"]].rows
@@ -238,8 +223,7 @@ def resolve(table: tabfile.Table, opts: dict) -> dict | None:
 
 
 def token(blob: bytes, res: dict) -> str:
-    """Отпечаток «этот файл с этим выбором»: импортируется ровно то, что
-    человек видел на шаге проверки."""
+    """Импортируется ровно то, что человек видел на шаге проверки."""
     canon = json.dumps({**res, "cols": {str(k): v for k, v in res["cols"].items()}},
                        sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     h = hashlib.sha256(blob)
@@ -250,8 +234,6 @@ def token(blob: bytes, res: dict) -> str:
 def ready(res: dict) -> bool:
     return bool({"full", "last", "first"} & set(res["cols"].values()))
 
-
-# ---- значения ----------------------------------------------------------------
 
 def _text(v) -> str:
     if isinstance(v, _dt.date):
@@ -269,8 +251,7 @@ def _name(parts: list) -> tuple[str, bool]:
 
 
 def phones(values: list) -> tuple[list[str], list[tuple]]:
-    """Номера ячеек в виде, в каком их пишет клиника (`069123456`), без
-    повторов, и пометки. Два столбца с одним номером дают один номер."""
+    """Номера в виде клиники (`069123456`); два столбца с одним номером — один номер."""
     out, notes, seen = [], [], set()
     for raw in values:
         for part in re.split(r"[;,/\n]|\s{2,}|(?<=\d)\s+(?=\+|0\d{2}\D?\d)", str(raw)):
@@ -303,8 +284,7 @@ _MONTHS = {m: i for i, names in enumerate([
 
 
 def parse_date(raw) -> tuple[_dt.date | None, int | None, str]:
-    """(дата, одиночный год, пометка) без проверки правдоподобия. День стоит
-    первым: «1/2/03» — первое февраля."""
+    """(дата, одиночный год, пометка). День первым: «1/2/03» — первое февраля."""
     if isinstance(raw, _dt.date):
         return raw, None, ""
     s = str(raw).strip().lower().rstrip(".г ").strip()
@@ -431,9 +411,7 @@ def _record(line: int, raw: dict, doctors: dict) -> dict | None:
 
 
 def build(table: tabfile.Table, res: dict, doctors: list) -> tuple[list, list]:
-    """Записи листа и предпросмотр. Запись — словарь полей фиши с пометками;
-    строка без единого значения в назначенных колонках не считается вовсе
-    (итоги, подписи, пустые строки)."""
+    """Строка без значений в назначенных колонках не считается: итоги, подписи."""
     rows = table.sheets[res["sheet"]].rows
     head = next((ln for rno, ln in rows if rno == res["header"]), [])
     cols = res["cols"]
@@ -455,16 +433,14 @@ def build(table: tabfile.Table, res: dict, doctors: list) -> tuple[list, list]:
     return recs, preview
 
 
-# ---- дубли --------------------------------------------------------------------
-
 def name_key(name) -> str:
     """Имя для сравнения: без регистра и диакритики, порядок слов не важен."""
     return " ".join(sorted(fold(name).split()))
 
 
 class _Index:
-    """Четыре признака «тот же человек»: IDNP, телефон и имя, имя и дата
-    рождения, одно имя при пустых прочих данных с обеих сторон."""
+    """«Тот же человек»: IDNP, телефон и имя, имя и дата рождения, одно имя
+    при пустых прочих данных с обеих сторон."""
 
     def __init__(self):
         self.idnp: dict = {}
@@ -502,9 +478,7 @@ class _Index:
 
 
 def analyse(recs: list, patients: list, force: list, iid: int = 0) -> None:
-    """Решение по каждой записи: `act` — new / exists / dup / bad, причина и
-    совпавший. `iid` — импорт, чьи фиши считаются заведёнными этим файлом
-    (отчёт после импорта называет их новыми, а не «există deja»)."""
+    """`iid` — импорт, чьи фиши отчёт называет новыми, а не «există deja»."""
     base, seen = _Index(), _Index()
     for p in patients:
         base.add(p, p["name"] or "", p["phone"], p["birth_date"], p["idnp"])
@@ -591,12 +565,9 @@ def report_rows(recs: list) -> list:
     return out
 
 
-# ---- запись -------------------------------------------------------------------
-
 async def create(rec: dict, iid: int, file_name: str) -> int:
-    """Завести фишу из записи файла — теми же функциями базы и в том же
-    порядке, что «Pacient nou». Занятый ключ телефона значит семейный номер:
-    фиша получает свой ключ, иначе она переписала бы чужую."""
+    """Путём «Pacient nou». Занятый ключ телефона — семейный номер: фиша
+    получает свой ключ, иначе переписала бы чужую."""
     digits = db._digits(rec["phone"])
     key = db.manual_key(digits)
     if digits and await db.patient_id_by_key(key) is not None:
@@ -610,7 +581,7 @@ async def create(rec: dict, iid: int, file_name: str) -> int:
 
 
 async def fill(rec: dict) -> bool:
-    """Дописать пустые поля найденной фиши; строка летописи называет какие."""
+    """Строка летописи называет, какие поля дописаны."""
     done = await db.fill_patient_blanks(rec["match"]["id"], rec)
     if done:
         await db.log_event(rec["match"]["id"], "import_fill",

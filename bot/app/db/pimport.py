@@ -23,7 +23,6 @@ CREATE TABLE IF NOT EXISTS patient_imports(
 );
 """
 
-# Что импорт вправе дописать в существующую фишу, если поле в ней пусто.
 IMPORT_FILL = ("birth_date", "gender", "idnp", "email", "address", "insurance", "file_no")
 
 
@@ -79,8 +78,7 @@ async def import_pids(iid: int, after: int = 0, limit: int = 200) -> list[int]:
 
 
 async def import_untouched(pid: int) -> bool:
-    """В фише с момента импорта ничего не делали: ни записи в журнале, ни
-    строки летописи, кроме заведения и просмотров."""
+    """Просмотр фиши не считается правкой: иначе отмена оставляла бы всё открытое."""
     rows = await _fetch(
         "SELECT (SELECT COUNT(*) FROM appointments WHERE patient_id = ?) AS appts, "
         "(SELECT COUNT(*) FROM activity WHERE patient_id = ? "
@@ -98,8 +96,7 @@ async def import_undone(iid: int, removed: int, final: bool) -> None:
 
 
 async def fill_patient_blanks(pid: int, data: dict) -> list[str]:
-    """Дописать только пустые поля фиши; заполненное не трогается. Ответ —
-    какие поля легли."""
+    """Заполненное не трогается; ответ — какие поля легли."""
     done = []
     for f in IMPORT_FILL:
         v = data.get(f)

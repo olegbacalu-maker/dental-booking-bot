@@ -1,22 +1,6 @@
 """Импорт пациентов из .xlsx / .csv (`/api/pimport/*`) и четыре починки рядом.
-
-Мастер из трёх шагов без состояния на сервере: «проверь» (файл телом запроса
-и выбор колонок) отвечает счётчиками и отпечатком, «импортируй» идёт порциями
-по 200 с тем же отпечатком. Что держит набор:
-- чтение: общие строки, строки inline и `str`, даты числом и ISO-текстом в
-  ячейке типа «дата», шапка не в первой строке, пустые строки, два листа,
-  объединённые ячейки, CSV в четырёх кодировках, отказы на чужое и опасное;
-- колонки по ключевому слову («IDNP (demo)», «Telefon internațional»);
-- дубли по трём признакам, «+373 = 069», семейный номер, повторный запуск и
-  круг «выгрузил — загрузил» дают ноль новых, обрыв между порциями;
-- право: директор и регистратура, врач — 403; из сети и в режиме чтения
-  отказывают общие сторожа (`test_pin.suite_lan_guard` идёт по всему
-  `auth.LOCAL_ONLY`, `test_license_gate.suite_readonly` — по всем пишущим
-  маршрутам), здесь проверяется, что маршруты импорта в эти списки попали;
-- починки: номер для сравнения в одном виде, дата рождения в «Pacient nou»
-  правилом фиши, строка летописи «fișă creată», IDNP без отказа по
-  контрольной цифре.
-"""
+Из сети и в режиме чтения отказывают общие сторожа; здесь — что маршруты
+импорта в их списки попали."""
 from __future__ import annotations
 
 import datetime as dt
@@ -92,8 +76,6 @@ def _sheet_text(blob: bytes) -> str:
     with zipfile.ZipFile(io.BytesIO(blob)) as z:
         return z.read("xl/worksheets/sheet1.xml").decode("utf-8")
 
-
-# ---------------------------------------------------------------- чтение файла
 
 def suite_read(res: Result) -> None:
     """Читатель таблиц: что прочитано из книги и CSV и на что он отказывает."""
@@ -184,7 +166,6 @@ def suite_read(res: Result) -> None:
                recs[0]["primary_doctor"], recs[0]["file_no"]),
               ("Popescu Ion", "069555101", "1985-03-14", "m", "Dr. Activ Doi", "17"))
 
-    # ---- CSV ----
     for fname, enc, delim, first in (("ru-utf8-bom.csv", "utf-8", ";", "Иванов Пётр"),
                                      ("ru-cp1251.csv", "cp1251", ";", "Иванов Пётр"),
                                      ("ro-utf8-virgula.csv", "utf-8", ",", "Țurcanu Ștefan"),
@@ -203,7 +184,6 @@ def suite_read(res: Result) -> None:
     res.check("Excel «Text Unicode»: UTF-16 и табуляция", (t.enc, t.delim, len(t.sheets[0].rows)),
               ("utf-16", "\t", 3))
 
-    # ---- отказы ----
     def refuse(blob, name="a.xlsx"):
         try:
             tabfile.read(blob, name)
@@ -241,7 +221,6 @@ def suite_read(res: Result) -> None:
                      "a.csv"), "too_many_rows")
     res.check("пустой файл", refuse(b"  \n", "a.csv"), "empty")
 
-    # ---- шапка и значения поштучно ----
     g = pi.guess_columns
     res.check("одиночное «Nume» — имя целиком", g(["Nr.", "Nume", "Tel."]), {1: "full", 2: "phone"})
     res.check("«Nume» рядом с «Prenume» — фамилия", g(["Nume", "Prenume"]), {0: "last", 1: "first"})
@@ -279,7 +258,6 @@ def suite_read(res: Result) -> None:
               ("", "2001234567890", 500, ["bd_bad", "idnp_check", "notes_cut"]))
     res.ok("несколько колонок в заметки — с названием колонки", rec["notes"].startswith("Obs: xxx"))
 
-    # ---- дубли: чистое правило ----
     def R(line, name, phone="", birth="", idnp=""):
         return {"line": line, "name": name, "phone": phone, "birth_date": birth, "idnp": idnp,
                 "birth_year": None, "notes_w": [], "err": ""}
@@ -318,8 +296,6 @@ def suite_read(res: Result) -> None:
     res.check("снятый пропуск «posibil» заводит фишу; совпавшую до последнего признака — нет",
               [x["act"] for x in rs2], ["new", "exists"])
 
-
-# ---------------------------------------------------------------- починки
 
 def suite_fixes(res: Result) -> None:
     """Четыре починки: номер в одном виде, дата рождения «Pacient nou»,
@@ -379,8 +355,6 @@ def suite_fixes(res: Result) -> None:
                   [x for x in _lines(c, pid) if x.startswith("Fișă creată")], ["Fișă creată"])
 
 
-# ---------------------------------------------------------------- импорт на сервере
-
 def suite_import(res: Result) -> None:
     """Проверка, порции, повтор, «+373», семейный номер, дополнение пустых
     полей, отпечаток, обрыв между порциями, круг с выгрузкой, отчёт, отмена."""
@@ -402,7 +376,6 @@ def suite_import(res: Result) -> None:
         res.check("импорт пустого файла — отказ",
                   _send(c, "run", m.raw, "model.xlsx", token=_j(r)["data"]["token"]).msg, "pi_empty")
 
-        # ---- отказы входа ----
         res.check(".xls — 422 словами про «salvați ca .xlsx»",
                   (lambda r: (r.status, r.msg, ".xlsx" in _j(r)["text"]))(
                       _send(c, "check", b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\0" * 64, "vechi.xls")),
@@ -413,7 +386,6 @@ def suite_import(res: Result) -> None:
         res.check("лист, которого нет, — 422", _send(c, "check", lib, "a.xlsx", {"sheet": 3}).msg,
                   "pi_opts")
 
-        # ---- шаг 2: предпросмотр без выбора; шаг 3: проверка ----
         hand = new_patient(c, "Testescu0 Ana", "+373 69 560 000")
         chk = _check(c, lib, "biblioteca.xlsx")
         res.check("файл: вид, листы, шапка, предпросмотр",
@@ -439,7 +411,6 @@ def suite_import(res: Result) -> None:
         res.check("проверка ничего не записала", (_total(c), _j(c.get("/api/pimport"))["data"]["imports"]),
                   (1, []))
 
-        # ---- отпечаток ----
         res.check("без отпечатка — 409", _send(c, "run", lib, "biblioteca.xlsx").msg, "pi_stale")
         res.check("другой выбор колонок с прежним отпечатком — 409",
                   _send(c, "run", lib, "biblioteca.xlsx", {"cols": {"1": "full"}},
@@ -449,7 +420,6 @@ def suite_import(res: Result) -> None:
                         token=chk["token"]).msg, "pi_stale")
         res.check("отказы ничего не записали", _total(c), 1)
 
-        # ---- импорт ----
         run = _run_all(c, lib, "biblioteca.xlsx")
         res.check("импорт: 19 новых, одна пропущена, ответ «Import finalizat»",
                   (run["last"]["code"], run["total"]["created"], run["total"]["skipped"], _total(c)),
@@ -469,7 +439,6 @@ def suite_import(res: Result) -> None:
                "Import pacienți: 19 fișe noi, 1 omise („biblioteca.xlsx”)" in c.get("/api/stats").body,
                "строки импорта в ленте нет")
 
-        # ---- повтор и «+373» ----
         again = _run_all(c, lib, "biblioteca.xlsx")
         res.check("тот же файл ещё раз — ноль новых (и безтелефонные не задвоились)",
                   (again["check"]["counts"]["create"], again["total"]["created"], _total(c)), (0, 0, 20))
@@ -481,7 +450,6 @@ def suite_import(res: Result) -> None:
         res.check("те же люди с номерами +373… — ноль новых",
                   (again["check"]["counts"]["rows"], again["total"]["created"], _total(c)), (16, 0, 20))
 
-        # ---- семейный номер и дополнение пустых полей ----
         fam = S.library_book(["Nume", "Telefon", "Adresă", "IDNP"],
                              [["Testescu1 Copil", "069560001", "str. Test 5", None],
                               ["Testescu1 Ana", "069 560 001", "str. Test 7", "1111111111116"],
@@ -510,7 +478,6 @@ def suite_import(res: Result) -> None:
         res.check("ещё раз с переключателем — дописывать нечего",
                   _run_all(c, fam, "familie.xlsx", {"fill": True})["total"]["filled"], 0)
 
-        # ---- отчёт «что не вошло» ----
         rep = _send(c, "report", lib, "biblioteca.xlsx", **{"import": run["id"]})
         text = _sheet_text(rep.raw) if rep.raw[:2] == b"PK" else rep.body
         res.check("отчёт после импорта: «există deja» только у заведённого руками, свои с пометкой — "
@@ -518,7 +485,6 @@ def suite_import(res: Result) -> None:
                   (rep.status, text.count(">există deja<"), text.count(">fișă nouă, cu observații<"),
                    text.count("<row ")), (200, 1, cnt["noted"], cnt["noted"] + 2))
 
-        # ---- отмена ----
         add_appt(c, (clinic_today() + dt.timedelta(days=5)).isoformat(), "10:00", "Testescu5 Ana",
                  "069560005")
         c.post_json(f"/api/patients/{p4}/alerts", {"kind": "allergy", "text": "latex"})
@@ -531,7 +497,6 @@ def suite_import(res: Result) -> None:
                   (_total(c), len(_find(c, "Testescu5 Ana")), len(_find(c, "Testescu7 Ana"))), (5, 1, 0))
         res.check("импорта, которого нет, — 404", c._do("/api/pimport/undo?id=999", b"", {}).status, 404)
 
-    # ---- порции, обрыв посреди, круг «выгрузил — загрузил» ----
     big = S.library_book(S.LIB_HEADER, S.lib_rows(450))
     with Server() as s:
         c = Client(s.url).login()
@@ -557,8 +522,6 @@ def suite_import(res: Result) -> None:
         res.check("круг: книга, выгруженная программой, загружена обратно — ноль новых",
                   (chk["counts"]["rows"], chk["counts"]["create"]), (450, 0))
 
-
-# ---------------------------------------------------------------- право, демо, списки сторожей
 
 def suite_rights(res: Result) -> None:
     """Директор и регистратура — да, врач — 403; демо — отказ; маршруты стоят

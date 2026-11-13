@@ -41,7 +41,6 @@ STATE = ("_CONN", "_SQ", "ACTOR_HOOK")
 _IMPORTED = {"annotations", "datetime", "timezone"}
 
 SNAPSHOT = frozenset((
-    # импорт пациентов из файла (db/pimport.py), номер для сравнения, строка «fișă creată»
     "IMPORT_DDL", "IMPORT_FILL", "import_index", "import_open", "import_get", "import_list", "import_count",
     "import_mark", "import_drop", "import_pids", "import_untouched", "import_undone", "fill_patient_blanks",
     "phone_key", "CREATED_EVENT",

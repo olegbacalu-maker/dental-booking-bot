@@ -1,11 +1,5 @@
-"""Чтение таблицы из загруженного файла: .xlsx и .csv, только стандартная
-библиотека (сторонний читатель уехал бы в собранную программу).
-
-Ответ `read()` — листы со строками; ячейка — `str`, `datetime.date` или None.
-Номер строки — тот, что человек видит в Excel: по нему экран называет, какая
-строка не вошла. Файл приходит от человека, поэтому потолки считаются ДО
-распаковки, а XML с DOCTYPE не разбирается вовсе.
-"""
+"""Чтение .xlsx и .csv стандартной библиотекой: сторонний читатель уехал бы
+в собранную программу. Файл чужой — потолки считаются до распаковки."""
 from __future__ import annotations
 
 import csv
@@ -28,7 +22,6 @@ DELIMITERS = (";", ",", "\t", "|")
 
 _OLE = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 _EPOCH = _dt.date(1899, 12, 30)
-# встроенные числовые форматы Excel, которые означают дату
 _BUILTIN_DATE = set(range(14, 23)) | set(range(27, 37)) | set(range(45, 48)) | set(range(50, 59))
 
 
@@ -68,8 +61,6 @@ def read(blob: bytes, name: str = "", *, enc: str = "", delim: str = "") -> Tabl
     rows, enc, delim = _read_csv(blob, enc, delim)
     return Table("csv", [Sheet("", rows)], enc, delim)
 
-
-# ---- xlsx -------------------------------------------------------------------
 
 def _local(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
@@ -219,8 +210,7 @@ def _sheet_rows(root, shared: list, date_styles: set, date1904: bool) -> list:
             rows[rno] = line
             if len(rows) > MAX_ROWS + 25:
                 raise Refuse("too_many_rows")
-    # Объединение по вертикали в одной колонке («один врач на десять строк»)
-    # хранит значение только в верхней ячейке; ленты по горизонтали не трогаем.
+    # объединение по вертикали хранит значение только в верхней ячейке
     for box in _kids(root, "mergeCells"):
         for m in _kids(box, "mergeCell"):
             g = re.fullmatch(r"([A-Za-z]+)(\d+):([A-Za-z]+)(\d+)", m.get("ref", ""))
@@ -274,8 +264,6 @@ def _clean(s: str) -> str | None:
     return s or None
 
 
-# ---- csv --------------------------------------------------------------------
-
 _RO = set("ăâîșțĂÂÎȘȚşţŞŢ")
 
 
@@ -291,8 +279,7 @@ def _decode(blob: bytes, enc: str) -> tuple[str, str]:
         return blob.decode("utf-8"), "utf-8"
     except UnicodeDecodeError:
         pass
-    # Однобайтные: в русском тексте почти каждый старший байт — кириллическая
-    # буква, в румынском старших байтов мало и это диакритика.
+    # в русском тексте старшие байты почти все буквы, в румынском их мало
     a, b = blob.decode("cp1251", "replace"), blob.decode("cp1250", "replace")
     cyr = sum(1 for ch in a if "а" <= ch.lower() <= "я" or ch in "ёЁ")
     ro = sum(1 for ch in b if ch in _RO)

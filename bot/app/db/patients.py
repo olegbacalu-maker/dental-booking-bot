@@ -23,9 +23,8 @@ async def patients_total() -> int:
 # ---------- пациенты и записи ----------
 
 def phone_key(phone) -> str:
-    """Номер в виде ДЛЯ СРАВНЕНИЯ: `+373 69 123 456`, `0037369123456`,
-    `069123456` и `69123456` — один и тот же `069123456`. Хранимое не
-    переписывается; чужие (не молдавские) номера сравниваются цифрами как есть."""
+    """Номер для сравнения: `+373…`, `00373…`, `069…` и без нуля — один и тот
+    же `069123456`. Хранимое не переписывается."""
     d = "".join(ch for ch in str(phone or "") if ch.isdigit())
     if d.startswith("00"):
         d = d[2:]
@@ -36,8 +35,6 @@ def phone_key(phone) -> str:
     return d
 
 
-# Первая строка летописи фиши: откуда человек взялся. Готовой строкой, по
-# двери заведения; у импорта в скобки встаёт имя файла.
 CREATED_EVENT = {
     "new": "Fișă creată",
     "appt": "Fișă creată la programarea din registru",
@@ -208,8 +205,7 @@ async def get_patient(pid: int) -> dict | None:
 
 async def update_patient(pid: int, data: dict, *, log: bool = True) -> None:
     """Обновление профиля: только известные поля, явным списком колонок.
-    `log=False` — у только что заведённой фиши: её летопись уже открыта
-    строкой «fișă creată», и «actualizată» следом читалась бы как правка."""
+    `log=False` — у только что заведённой фиши: «actualizată» читалась бы как правка."""
     if log:
         await log_event(pid, "profile", "Fișa pacientului a fost actualizată")
     sets_lt =", ".join(f"{f} = ?" for f in PATIENT_FIELDS)

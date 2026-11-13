@@ -1,10 +1,5 @@
-"""JSON API импорта пациентов из файла (`/api/pimport/*`).
-
-Сервер между шагами мастера ничего не хранит: файл держит браузер и шлёт его
-телом каждого запроса, выбор человека едет в адресе (`opts`). Телом, а не
-формой: загрузка формой кладёт большой файл во временный каталог открытым
-текстом, мимо шифрования картотеки.
-"""
+"""Импорт пациентов из файла. Файл идёт телом запроса, не формой: форма
+кладёт его во временный каталог открытым текстом, мимо шифрования картотеки."""
 from __future__ import annotations
 
 import asyncio
@@ -28,9 +23,8 @@ _REFUSE = {"old_xls": "pi_old_xls", "not_table": "pi_not_table", "too_big": "pi_
 
 
 async def _blob(request: Request) -> bytes | None:
-    """Тело запроса с потолком; None — больше потолка. Лишнее дочитывается и
-    отбрасывается: ответ посреди отправки браузер видит как обрыв сети, а не
-    как отказ со словами."""
+    """None — больше потолка. Лишнее дочитывается: ответ посреди отправки
+    браузер видит как обрыв сети, а не как отказ со словами."""
     buf, over = bytearray(), False
     async for chunk in request.stream():
         if not over:
@@ -42,8 +36,7 @@ async def _blob(request: Request) -> bytes | None:
 
 
 def _parse(blob: bytes, name: str, opts: dict):
-    """Файл и выбор → (таблица, доведённый выбор, записи, предпросмотр) или
-    код отказа. Чистая и тяжёлая — зовётся в потоке, не в цикле событий."""
+    """Разбор или код отказа. Тяжёлая — зовётся в потоке, не в цикле событий."""
     try:
         table = tabfile.read(blob, name, enc=opts["enc"], delim=opts["delim"])
     except tabfile.Refuse as e:
@@ -149,9 +142,8 @@ async def api_pimport_check(request: Request):
 
 @router.post("/api/pimport/run")
 async def api_pimport_run(request: Request):
-    """Одна порция импорта: записи `part * BATCH …` того же файла с тем же
-    выбором. Порциями — чтобы запись тысяч фиш не останавливала журнал на
-    втором ПК; повтор порции безвреден: заведённое узнаётся как «există deja»."""
+    """Порциями, чтобы запись тысяч фиш не останавливала журнал; повтор порции
+    безвреден: заведённое узнаётся как «există deja»."""
     if (deny := api_require(request, PERM_IMPORT)) is not None:
         return deny
     if (deny := local_only(request)) is not None:
@@ -209,8 +201,7 @@ async def api_pimport_run(request: Request):
 
 @router.post("/api/pimport/report")
 async def api_pimport_report(request: Request):
-    """Книга «что не вошло»: строки файла с пометкой или причиной. Строится из
-    присланного файла; `import` — номер импорта, чьи фиши считать вошедшими."""
+    """`import` — номер импорта, чьи фиши считать вошедшими."""
     if (deny := api_require(request, PERM_IMPORT)) is not None:
         return deny
     if (deny := local_only(request)) is not None:
@@ -230,8 +221,7 @@ async def api_pimport_report(request: Request):
 
 @router.post("/api/pimport/undo")
 async def api_pimport_undo(request: Request):
-    """Отмена импорта порциями: убирает фиши этого импорта, в которых с тех
-    пор ничего не делали; остальные остаются. `after` — с какой фиши дальше."""
+    """Убирает только фиши импорта, в которых с тех пор ничего не делали."""
     if (deny := api_require(request, PERM_IMPORT)) is not None:
         return deny
     if (deny := local_only(request)) is not None:

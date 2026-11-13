@@ -342,7 +342,6 @@ MSG_BANNER = {
                         "Dacă este altă persoană (numărul familiei), adăugați-o cu alt "
                         "număr sau fără număr"),
     "bad_pat": ("err", "Lipsește numele pacientului"),
-    # импорт пациентов из файла
     "pi_old_xls": ("err", "Fișier Excel vechi (.xls) sau protejat cu parolă. Deschideți-l în "
                           "Excel și salvați-l ca „Registru de lucru Excel (.xlsx)”, fără parolă"),
     "pi_not_table": ("err", "Fișierul nu este un tabel .xlsx sau .csv — verificați ce "

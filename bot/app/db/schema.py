@@ -604,7 +604,7 @@ SQLITE_PATIENT_COLS = [
     # `manual` (бумажный лист, отметка регистратуры). Nullable, без индекса и
     # без шага миграции: ADD COLUMN переживает любые данные клиники.
     "mkt_ok INTEGER", "mkt_at TEXT", "mkt_src TEXT",
-    # каким импортом из файла заведена фиша (patient_imports.id); NULL — руками
+    # patient_imports.id; NULL — заведена руками
     "import_id INTEGER",
 ]
 
