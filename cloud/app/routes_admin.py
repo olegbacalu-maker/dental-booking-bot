@@ -378,7 +378,7 @@ def clinic_sms_action(request: Request, cid: str, action: str = Form(""), value:
         return Response(status_code=403)
     who = auth.current_user(request)
     back = f"/admin/clinics/{cid}"
-    with db.connect(immediate=True) as con:
+    with payments.outbox() as box, db.connect(immediate=True) as con:
         if web.clinic(con, cid) is None:
             return Response(status_code=404)
         code = "sms_saved"
@@ -399,7 +399,7 @@ def clinic_sms_action(request: Request, cid: str, action: str = Form(""), value:
             code = sms.credit(con, cid, delta, reason, note, who) or "sms_credited"
         elif action in ("paper", "submitted", "rejected"):
             # имя общее на кабинет (26.10): шаги — у его хозяйки (главной клиники)
-            code = sms.sender_step(con, sms.name_owner(con, cid), action, who, note) or code
+            code = sms.sender_step(con, sms.name_owner(con, cid), action, who, note, box) or code
         elif action == "request":
             code = sms.request_sender(con, cid, name, who) or code
         elif action == "custom":

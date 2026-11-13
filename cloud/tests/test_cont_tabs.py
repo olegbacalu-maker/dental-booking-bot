@@ -77,7 +77,8 @@ def suite_tabs(res: Result) -> None:
         res.check("счётчиков нет: ноты нет, имя SMS не запрошено", _counts(home.body), {k: "" for k in KEYS})
 
         res.check("нота выставлена из кабинета", c.post("/cont/nota", tier="plus", months="1", terms="1").status, 303)
-        res.check("имя SMS запрошено", c.post("/cont/sms/nume", name="Zambet").location, "/cont?msg=sms_requested")
+        res.check("имя SMS запрошено (адреса у клиники нет — слова про данные)",
+                  c.post("/cont/sms/nume", name="Zambet").location, "/cont?msg=sms_requested_data")
         home = c.get("/cont")
         res.check("счётчик «ждёт вас»: 1 у Plăți (нота) и 1 у SMS (заявление не загружено)",
                   _counts(home.body), {"licenta": "", "plati": "1", "clinica": "", "sms": "1", "documente": ""})

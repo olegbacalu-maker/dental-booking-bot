@@ -138,6 +138,16 @@ SENDER_STATES = (S_NONE, S_REQUESTED, S_SUBMITTED, S_ACTIVE, S_REJECTED)
 # имя из одних цифр оператор принял бы за номер.
 SENDER_RE = re.compile(r"^(?=.*[A-Za-z])[A-Za-z0-9 .\-]{1,11}$")
 
+# Год имени — отдельно от состояния заявки: одобренное имя без оплаченного года не работает.
+Y_UNPAID, Y_PREPAID, Y_ON, Y_OVER = "unpaid", "prepaid", "on", "over"
+NAME_SOON_DAYS = 14     # за сколько дней до конца года клинике пишут о продлении
+NAME_OVER_DAYS = 30     # сколько дней после конца письмо «год кончился» ещё уместно
+# Отказ sms.md клиника читает дословно в кабинете, программе и письме — поэтому по-румынски.
+ALIAS_DEAD_RO = "numele a fost blocat de operatori (SMS.MD, starea {st})"
+# Кому SMS не продаются (blocked): выключенной клинике, без права по плану и на Basic. Без
+# одобренного имени пополнение продаётся — SMS уходят от общего имени.
+CLOSED = ("sms_unconfigured", "sms_not_offered", "sms_off", "sms_plan", "sms_basic")
+
 # ---------- ответы программе: код → (HTTP, текст по-румынски) ----------
 
 CODES = {
@@ -167,6 +177,7 @@ CODES = {
     "sms_pack": (400, "Pachetul ales nu există."),
     "sms_no_name": (503, "Numele propriu de expeditor nu este disponibil încă."),
     "sms_name_none": (409, "Alegeți mai întâi numele de expeditor al clinicii."),
+    "sms_name_paid": (409, "Anul numelui este deja plătit; se numără din ziua aprobării."),
     "sms_need_idno": (409, "Pentru nota de plată indicați IDNO-ul clinicii (13 cifre)."),
     "bad_json": (400, "Cererea nu a putut fi citită — actualizați programul."),
 }
@@ -249,6 +260,21 @@ def sender_now(acc: sqlite3.Row | None, now: datetime | None = None) -> str:
         if until is not None and until > now:
             return acc["sender_live"]
     return config.SMS_COMMON if config.SMS_COMMON_OK else ""
+
+
+def name_year(acc: sqlite3.Row | None, now: datetime | None = None) -> str:
+    """Что с оплаченным годом имени: идёт (Y_ON), оплачен и ждёт одобрения (Y_PREPAID), кончился
+    (Y_OVER), не оплачен (Y_UNPAID). Год прежнего имени переходит новому (sync_aliases срок не
+    трогает), поэтому заявка при идущем годе — Y_ON."""
+    now = now or datetime.now(UTC)
+    if acc is None:
+        return Y_UNPAID
+    until = db.parse_ts(acc["sender_until"])
+    if until is not None and until > now:
+        return Y_ON
+    if acc["sender_prepaid"]:
+        return Y_PREPAID
+    return Y_OVER if until is not None and acc["sender_state"] == S_ACTIVE else Y_UNPAID
 
 
 def name_owner(con: sqlite3.Connection, clinic_id: str) -> str:
@@ -660,11 +686,22 @@ def name_holder(con: sqlite3.Connection, clinic_id: str, name: str) -> str:
     return ""
 
 
-def request_sender(con: sqlite3.Connection, clinic_id: str, name: str, who: str) -> str:
+def name_notice(con: sqlite3.Connection, clinic_id: str, event: str) -> list:
+    """Письмо поставщику о шаге клиники по имени (заявка, загруженное заявление) → список для
+    `box.add`: без него шаг виден только счётчиком в админке."""
+    c = con.execute("SELECT * FROM clinics WHERE id=?", (clinic_id,)).fetchone()
+    acc = account(con, clinic_id)
+    subject, body = mail.sms_name_notice(event, c, acc["sender"], name_year(acc) in (Y_PREPAID, Y_ON))
+    return [(False, mail.Letter(config.TRIAL_NOTIFY, subject, body, "", "", "", f"имя SMS, {event}: письмо поставщику",
+                                code=""))]
+
+
+def request_sender(con: sqlite3.Connection, clinic_id: str, name: str, who: str, box=None) -> str:
     """Заявка на имя (клиника из программы или Олег): '' или код отказа. Прежнее
     одобренное имя работает, пока новое не станет active. Имя, которое держит или
     просит другая клиника (или общее DentPilot), — отказ sms_name_taken. Заявка филиала —
-    заявка его кабинета: ложится главной клинике (name_owner, 26.10)."""
+    заявка его кабинета: ложится главной клинике (name_owner, 26.10). `box` — payments.outbox
+    двери клиники: новая заявка уходит письмом поставщику после commit (у админки его нет)."""
     name = " ".join((name or "").split())
     if not SENDER_RE.match(name):
         return "sms_name"
@@ -678,12 +715,33 @@ def request_sender(con: sqlite3.Connection, clinic_id: str, name: str, who: str)
                 "sender_paper_id=NULL, "
                 "updated_at=? WHERE clinic_id=?", (name, S_REQUESTED, db.now_iso(), clinic_id))
     db.audit(con, who, "sms_sender", clinic_id, f"заявка на имя «{name}»")
+    if box is not None:
+        box.add(name_notice(con, clinic_id, "request"))
     return ""
 
 
-def sender_step(con: sqlite3.Connection, clinic_id: str, step: str, who: str, note: str = "") -> str:
+def name_letter(con: sqlite3.Connection, clinic_id: str, event: str, who: str) -> mail.Letter | None:
+    """Письмо клинике об исходе заявки на имя — `approved` или `rejected`, по строке счёта ПОСЛЕ
+    записи исхода; None — у клиники нет ящика. Собрать в транзакции, отправить после commit."""
+    c = con.execute("SELECT * FROM clinics WHERE id=?", (clinic_id,)).fetchone()
+    acc = account(con, clinic_id)
+    if c is None or not c["email"]:
+        return None
+    name = acc["sender"]
+    if event == "approved":
+        subject, body = mail.sms_name_approved_letter(
+            c["name"], name, acc["sender_until"] if name_year(acc) == Y_ON else None)
+    else:
+        subject, body = mail.sms_name_rejected_letter(c["name"], name, acc["sender_note"],
+                                                      sender_now(acc) or config.SMS_COMMON, bool(acc["sender_prepaid"]))
+    return mail.Letter(c["email"], subject, body, c["id"], who, f"имя SMS «{name}»: {event},",
+                       f"письмо об имени SMS клинике {c['id']}")
+
+
+def sender_step(con: sqlite3.Connection, clinic_id: str, step: str, who: str, note: str = "", box=None) -> str:
     """Шаги Олега: paper («Заявление получено»), submitted («Подано в sms.md» —
-    только с отметкой о заявлении), rejected («Отказ» с причиной). '' или код отказа."""
+    только с отметкой о заявлении), rejected («Отказ» с причиной). '' или код отказа. `box` —
+    payments.outbox вызывающего: отказ уходит клинике письмом после commit."""
     acc = ensure(con, clinic_id)
     now = db.now_iso()
     if step == "paper":
@@ -712,17 +770,22 @@ def sender_step(con: sqlite3.Connection, clinic_id: str, step: str, who: str, no
         con.execute("UPDATE sms_accounts SET sender_state=?, sender_note=?, sender_live=?, updated_at=? "
                     "WHERE clinic_id=?", (S_REJECTED, note, live, now, clinic_id))
         db.audit(con, who, "sms_sender", clinic_id, f"«{acc['sender']}» — отказ: {note}")
+        letter = name_letter(con, clinic_id, "rejected", who) if box is not None else None
+        if letter is not None:
+            box.add([(False, letter)])
         return ""
     raise ValueError(step)
 
 
-def sync_aliases(who: str = "daily") -> dict:
+def sync_aliases(who: str = "daily", send=None) -> dict:
     """Сверка имён с sms.md (GET /v3/sender-aliases): поданное и одобренное
     операторами — active (SMS уходят от него), заблокированное — rejected.
     Заявки без «Подано» не трогаются: в submitted имя идёт только с заявлением.
-    Кнопка «Активно» Олегу не нужна — состояние читает сервер."""
+    Кнопка «Активно» Олегу не нужна — состояние читает сервер. Об исходе клинике уходит письмо —
+    после commit сверки (`send` — чем отправлять вместо mail.send)."""
     out = {"active": 0, "rejected": 0}
     names = smsmd.aliases()          # бросает — пусть видит вызвавший
+    letters: list[mail.Letter | None] = []
     with db.connect(immediate=True) as con:
         for acc in con.execute("SELECT * FROM sms_accounts WHERE sender_state IN (?, ?) OR sender_live<>''",
                                (S_SUBMITTED, S_ACTIVE)).fetchall():
@@ -741,19 +804,61 @@ def sync_aliases(who: str = "daily") -> dict:
                             (S_ACTIVE, acc["sender"], until, now, acc["clinic_id"]))
                 db.audit(con, who, "sms_sender", acc["clinic_id"],
                          f"«{acc['sender']}» одобрено (sms.md)" + (f", имя оплачено до {until[:10]}" if until else ""))
+                letters.append(name_letter(con, acc["clinic_id"], "approved", who))
                 out["active"] += 1
             elif acc["sender_state"] in (S_SUBMITTED, S_ACTIVE) and st in smsmd.ALIAS_DEAD:
                 live = "" if acc["sender_live"] == acc["sender"] else acc["sender_live"]
                 con.execute("UPDATE sms_accounts SET sender_state=?, sender_note=?, sender_live=?, updated_at=? "
-                            "WHERE clinic_id=?", (S_REJECTED, f"sms.md: статус {st}", live, now, acc["clinic_id"]))
+                            "WHERE clinic_id=?", (S_REJECTED, ALIAS_DEAD_RO.format(st=st), live, now, acc["clinic_id"]))
                 db.audit(con, who, "sms_sender", acc["clinic_id"], f"«{acc['sender']}» — sms.md: статус {st}")
+                letters.append(name_letter(con, acc["clinic_id"], "rejected", who))
                 out["rejected"] += 1
             if acc["sender_live"] and acc["sender_live"] != acc["sender"] and names.get(acc["sender_live"]) in smsmd.ALIAS_DEAD:
                 # прежнее имя заблокировано, пока новое ещё ждёт: молчать, а не слать от мёртвого
                 con.execute("UPDATE sms_accounts SET sender_live='', updated_at=? WHERE clinic_id=?",
                             (now, acc["clinic_id"]))
                 db.audit(con, who, "sms_sender", acc["clinic_id"], f"прежнее «{acc['sender_live']}» заблокировано у sms.md")
+    for letter in letters:
+        if letter is not None:
+            mail.deliver(letter, via=send)
     return out
+
+
+def year_letters(now: datetime | None = None, send=None, who: str = "daily") -> list[tuple[str, str]]:
+    """Письма о конце оплаченного года имени: `sms_name_soon` — за NAME_SOON_DAYS до конца,
+    `sms_name_over` — с дня конца (окно NAME_OVER_DAYS: пропущенный день задачи письмо не теряет).
+    Раз на вид и срок: отметка `reminders` с периодом `sender_until` — продление даёт новый срок и
+    новые письма. Клинике, которой год не продать (CLOSED, отзыв, архив), не пишут.
+    → [(клиника, вид)] отправленных."""
+    now = now or datetime.now(UTC)
+    sent: list[tuple[str, str]] = []
+    with db.connect() as con:
+        rows = con.execute(
+            "SELECT c.*, a.sender, a.sender_until FROM sms_accounts a JOIN clinics c ON c.id = a.clinic_id "
+            "WHERE a.sender_state=? AND a.sender_live=a.sender AND a.sender_until IS NOT NULL "
+            "AND c.revoked_at IS NULL AND c.archived_at IS NULL ORDER BY c.created_at, c.id", (S_ACTIVE,)).fetchall()
+    for r in rows:
+        until = db.parse_ts(r["sender_until"])
+        if until is None or not r["email"]:
+            continue
+        if until - timedelta(days=NAME_SOON_DAYS) <= now < until:
+            kind = "soon"
+        elif until <= now < until + timedelta(days=NAME_OVER_DAYS):
+            kind = "over"
+        else:
+            continue
+        mark = (r["id"], f"sms_name_{kind}", r["sender_until"])
+        with db.connect() as con:
+            if con.execute("SELECT 1 FROM reminders WHERE subscription_id=? AND kind=? AND period=?", mark).fetchone():
+                continue
+            if blocked(con, r["id"], account(con, r["id"]), now) in CLOSED:
+                continue
+        subject, body = mail.sms_name_year_letter(kind, r["name"], r["sender"], r["sender_until"])
+        letter = mail.Letter(r["email"], subject, body, r["id"], who, f"год имени SMS «{r['sender']}»: {kind},",
+                             f"письмо о годе имени SMS клинике {r['id']}", remind=mark)
+        if not mail.deliver(letter, via=send):
+            sent.append((r["id"], kind))
+    return sent
 
 
 # ---------- пакет, начисление, письма ----------

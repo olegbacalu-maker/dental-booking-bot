@@ -199,8 +199,8 @@ async def sms_status(request: Request) -> Response:
 
 
 def _sms_sender(cid: str, name) -> Response:
-    with db.connect(immediate=True) as con:
-        code = sms.request_sender(con, cid, name if isinstance(name, str) else "", "program")
+    with payments.outbox() as box, db.connect(immediate=True) as con:
+        code = sms.request_sender(con, cid, name if isinstance(name, str) else "", "program", box)
         if code:
             return _sms_answer(code)
         return JSONResponse(sms.view(con, cid))

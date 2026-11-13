@@ -137,23 +137,26 @@ def suite_cabinet(res: Result) -> None:
             res.check("кривое имя — sms_name", _msg(cab.post("/cont/sms/nume", name="Zambet Dent!")), "sms_name")
             admin.post(f"/admin/clinics/{cid2}/sms", action="request", name="Doi Dent")
             res.check("чужое имя — sms_name_taken", _msg(cab.post("/cont/sms/nume", name="doi-dent")), "sms_name_taken")
-            res.check("заявка из кабинета принята", _msg(cab.post("/cont/sms/nume", name="Zambet Dent")), "sms_requested")
+            res.check("заявка из кабинета принята; реквизитов не хватает — слова про данные клиники",
+                      _msg(cab.post("/cont/sms/nume", name="Zambet Dent")), "sms_requested_data")
             res.ok("заявка: requested, журнал от ящика кабинета",
                    _one(s, "SELECT sender_state FROM sms_accounts WHERE clinic_id=?", cid) == "requested"
                    and "zd@example.md" == _one(s, "SELECT who FROM audit WHERE what='sms_sender' AND clinic_id=? "
                                                   "ORDER BY id DESC LIMIT 1", cid))
             home = cab.get("/cont").body
-            res.ok("кабинет: шаги — скачать, подписать, загрузить; не хватает адреса и телефона",
-                   "cerere în lucru" in home and "Descărcați cererea completată" in home
-                   and "Încarcă cererea semnată" in home and "enctype='multipart/form-data'" in home
-                   and "Lipsesc din <a href='#clinica'>datele clinicii</a>: adresa, telefonul" in home, home[-4000:])
+            res.ok("кабинет: не хватает адреса и телефона — названо первым, шагов и поля загрузки ещё нет",
+                   "cerere în lucru" in home and "Pentru cerere lipsesc datele clinicii: adresa, telefonul." in home
+                   and "Descărcați cererea completată" not in home and "action='/cont/sms/cerere'" not in home,
+                   home[-4000:])
             res.check("без адреса и телефона заявление не скачать — sms_paper_data",
                       _msg(cab.post("/cont/sms/cerere.pdf", rep="Ion Popescu")), "sms_paper_data")
             cab.post("/cont/date", name="Zambet Dent", idno="1234567890122", contact_name="Ion Popescu",
                      phone="+373 299 12 345", address="or. Cahul, str. Ștefan cel Mare 12")
             home = cab.get("/cont").body
-            res.ok("реквизиты есть — форма с представителем из контактного лица",
-                   "name='rep' value='Ion Popescu'" in home and "Descarcă cererea (PDF)" in home, home[-4000:])
+            res.ok("реквизиты есть — шаги: форма с представителем из контактного лица, поле загрузки",
+                   "name='rep' value='Ion Popescu'" in home and "Descarcă cererea (PDF)" in home
+                   and "Descărcați cererea completată" in home and "Încarcă cererea semnată" in home
+                   and "action='/cont/sms/cerere'" in home, home[-4000:])
             res.check("без представителя — sms_paper_rep", _msg(cab.post("/cont/sms/cerere.pdf", rep="  ")), "sms_paper_rep")
             st, hdr, b = _post_raw(cab, "/cont/sms/cerere.pdf", rep="Maria  Ionescu")
             res.ok("заявление: PDF вложением с именем по имени отправителя, xref цел",
@@ -177,8 +180,8 @@ def suite_cabinet(res: Result) -> None:
                       (_one(s, "SELECT count(*) FROM sms_papers"),
                        _one(s, "SELECT sender_paper_at FROM sms_accounts WHERE clinic_id=?", cid)), (0, None))
             signed = b"%PDF-1.7\n% semnat de Maria Ionescu\n" + bytes(range(256)) * 40 + b"\n%%EOF\n"
-            res.check("подписанное заявление принято", _msg(_upload(cab, signed, "C:\\scan\\cerere semnată.pdf")),
-                      "sms_paper_ok")
+            res.check("подписанное заявление принято (год имени не оплачен — баннер про оплату)",
+                      _msg(_upload(cab, signed, "C:\\scan\\cerere semnată.pdf")), "sms_paper_pay")
             row = _sql(s, "SELECT clinic_id, sender, body, size, filename, who FROM sms_papers")
             res.ok("файл в базе байт в байт: клиника, имя, размер, имя файла без пути, кто",
                    len(row) == 1 and row[0][0] == cid and row[0][1] == "Zambet Dent" and bytes(row[0][2]) == signed

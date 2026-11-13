@@ -125,6 +125,7 @@ def _cont_dashboard(request: Request, msg: str, c: str, tab: str = "") -> Respon
                        # год имени (05.11): цена прайса, ожидающая нота хозяйки имени, продаётся ли
                        "name_price": config.SMS_NAME_PRICE, "name_closed": smsshop["closed"],
                        "name_note": payments.open_of(con, owner["id"], payments.SMS_NAME),
+                       "year": sms.name_year(osa), "owner_href": f"/cont?c={owner['id']}#sms",
                        "idno": len(cl["idno"] or "") == 13,
                        "clinic": owner, "shared": "" if mine_name else owner["name"],
                        "data_href": "#clinica" if mine_name else f"/cont?c={owner['id']}#clinica"}
@@ -600,14 +601,16 @@ def cont_sms_name(request: Request, name: str = Form("")) -> Response:
     админки (с отказом на чужое имя); имя — кабинета (главной клиники)."""
     if not auth.same_origin_post(request):
         return Response(status_code=403)
-    with db.connect(immediate=True) as con:
+    with payments.outbox() as box, db.connect(immediate=True) as con:
         acc, cl, owner, sa = _cont_sms(request, con)
         if cl is None:
             return _cont_deny(acc)
         if sa is None:
             return RedirectResponse(_cont_to(con, acc, cl["id"], "sms_not_offered"), status_code=303)
-        code = sms.request_sender(con, owner["id"], name, acc["email"])
-        back = _cont_to(con, acc, cl["id"], code or "sms_requested")
+        code = sms.request_sender(con, owner["id"], name, acc["email"], box)
+        # без реквизитов заявление не скачать: слова о следующем шаге — про данные клиники
+        done = "sms_requested_data" if sms_paper.missing(owner) else "sms_requested"
+        back = _cont_to(con, acc, cl["id"], code or done)
     return RedirectResponse(back, status_code=303)
 
 
@@ -648,13 +651,18 @@ def _cont_paper_back(request: Request, code: str) -> str:
 
 
 def _cont_paper_save(request: Request, body: bytes, name: str) -> str:
-    with db.connect(immediate=True) as con:
+    with payments.outbox() as box, db.connect(immediate=True) as con:
         acc, cl, owner, sa = _cont_sms(request, con)
         if cl is None:
             return "login"
         if sa is None:
             return "sms_not_offered"
-        return sms_paper.attach(con, owner["id"], body, name, acc["email"]) or "sms_paper_ok"
+        code = sms_paper.attach(con, owner["id"], body, name, acc["email"], box)
+        if code:
+            return code
+        # заявление принято, а год имени не оплачен — баннер называет оплату
+        unpaid = config.SMS_NAME_PRICE and sms.name_year(sms.account(con, owner["id"])) == sms.Y_UNPAID
+        return "sms_paper_pay" if unpaid else "sms_paper_ok"
 
 
 @router.post("/cont/sms/cerere")

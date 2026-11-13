@@ -494,8 +494,8 @@ def suite_name(res: Result) -> None:
             _add(c, main)
             bid = _sql(s, "SELECT id FROM clinics WHERE name=?", BRANCH["name"])[0][0]
             sms_b = _pane(c.get(f"/cont?c={bid}").body, "sms")
-            res.ok("вид филиала: нота имени главной клиники — с оплатой, форма несёт филиал (?c=)",
-                   f"name='ref' value='{ref}'" in sms_b and f"action='/cont/sms/nota?c={bid}'" in sms_b
+            res.ok("вид филиала: имя — у главной клиники, оплаты её ноты в карточке нет",
+                   f"name='ref' value='{ref}'" not in sms_b and "se fac la clinica principală" in sms_b
                    and MAIN["name"] in sms_b, sms_b[-3000:])
             r = c.post(f"/cont/sms/nota?c={bid}", ref=ref, method="card", terms="1")
             pid = _sql(s, "SELECT provider_id FROM payments WHERE reference=?", ref)[0][0]
@@ -530,9 +530,11 @@ def suite_name(res: Result) -> None:
             res.ok("страница возврата: «plătită», имя на год, без слов про срок",
                    "plătită" in ok.body and "Nume de expeditor SMS, un an" in ok.body and TERM not in ok.body,
                    ok.body[-1200:])
-            home = c.get("/cont")
-            res.ok("после оплаты: год имени снова можно заказать (следующий), счётчик — одно заявление",
-                   "name='name' value='1'" in _pane(home.body, "sms") and _count(home.body, "sms") == "1")
+            home = c.get(f"/cont?c={main}")
+            res.ok("после оплаты до одобрения: второй год не предлагают, счётчик — одно заявление",
+                   "name='name' value='1'" not in _pane(home.body, "sms")
+                   and "Anul este plătit; se numără din ziua aprobării." in _pane(home.body, "sms")
+                   and _count(home.body, "sms") == "1")
     finally:
         fake.close()
 

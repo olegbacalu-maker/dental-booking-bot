@@ -581,13 +581,13 @@ def suite_sms_name(res: Result) -> None:
         bid = _sql(s, "SELECT id FROM clinics WHERE name=?", BRANCH["name"])[0][0]
         r = c.post(f"/cont/sms/nume?c={bid}", name="Zambet")
         res.ok("заявка на имя со страницы филиала ложится главной клинике",
-               r.location == f"/cont?c={bid}&msg=sms_requested"
+               r.location == f"/cont?c={bid}&msg=sms_requested_data"
                and _sql(s, "SELECT clinic_id, sender, sender_state FROM sms_accounts WHERE sender_state<>'none'")
                == [(main, "Zambet", "requested")], r.location)
         page = c.get(f"/cont?c={bid}")
-        res.ok("кабинет филиала: имя общее — у главной, формы несут открытую клинику",
+        res.ok("кабинет филиала: имя общее — у главной, со ссылкой на её вкладку SMS; формы заявки нет",
                "Numele expeditorului este comun" in page.body and "Clinica Zambet" in page.body
-               and f"action='/cont/sms/nume?c={bid}'" in page.body, page.body[-2500:])
+               and f"href='/cont?c={main}#sms'" in page.body and "/cont/sms/nume" not in page.body, page.body[-2500:])
         _sql(s, "UPDATE sms_accounts SET sender_state='active', sender_live='Zambet', "
                 "sender_until='2099-01-01T00:00:00Z' WHERE clinic_id=?", main)
         prog = Client(s.url)

@@ -422,7 +422,8 @@ def suite_send(res: Result) -> None:
                       _sql(s, "SELECT kind, sms_units, months, status FROM payments WHERE id=?", pid), [("sms", 100, 0, "pending")])
             issues = _one(s, "SELECT count(*) FROM issues WHERE clinic_id=?", cid)
             r = admin.post(f"/admin/payments/{pid}/confirm")
-            res.check("подтверждение — payment_confirmed_mailed", r.location, f"/admin/clinics/{cid}?msg=payment_confirmed_mailed")
+            res.check("подтверждение — словами пакета, не абонемента", r.location,
+                      f"/admin/clinics/{cid}?msg=payment_confirmed_pack_mailed")
             res.ok("пакет начислен: +100 строкой pack, файлов лицензии не прибавилось, журнал sms_pack",
                    _bal(s, cid) == 100 and _one(s, "SELECT count(*) FROM issues WHERE clinic_id=?", cid) == issues
                    and _sql(s, "SELECT reason, delta, payment_id FROM sms_ledger WHERE clinic_id=?", cid) == [("pack", 100, pid)]
@@ -718,7 +719,7 @@ def suite_daily(res: Result) -> None:
                    row2[:3] == ("active", "Clinica Doi", 0) and row2[3][:4] == str(now.year + 1), row2)
             res.check("первая: имя заблокировано у sms.md — rejected, живого имени нет",
                       _sql(s, "SELECT sender_state, sender_live, sender_note FROM sms_accounts WHERE clinic_id=?", cid),
-                      [("rejected", "", "sms.md: статус 3")])
+                      [("rejected", "", "numele a fost blocat de operatori (SMS.MD, starea 3)")])
             res.ok("баланс sms.md 500 MDL против долга — тревоги нет", "баланс sms.md 500.00 MDL" in out and "тревога" not in out)
             res.ok("журнал: имена, итог daily", _one(s, "SELECT count(*) FROM audit WHERE what='sms_sender'") == 2
                    and "SMS:" in _one(s, "SELECT detail FROM audit WHERE what='daily' ORDER BY id DESC LIMIT 1"))

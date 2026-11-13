@@ -142,10 +142,11 @@ def _clean_name(name: str) -> str:
     return "".join(ch for ch in base if ch.isprintable())[:120]
 
 
-def attach(con: sqlite3.Connection, clinic_id: str, body: bytes, name: str, who: str) -> str:
+def attach(con: sqlite3.Connection, clinic_id: str, body: bytes, name: str, who: str, box=None) -> str:
     """Подписанное заявление из кабинета → строка sms_papers и отметка «Заявление
     получено» у ТЕКУЩЕЙ заявки. '' или код отказа. Повторная загрузка заменяет
-    ссылку на новый файл (прежний остаётся в таблице)."""
+    ссылку на новый файл (прежний остаётся в таблице). `box` — payments.outbox вызывающего:
+    о загрузке поставщику уходит письмо после commit."""
     acc = sms.ensure(con, clinic_id)
     if acc["sender_state"] != sms.S_REQUESTED or not acc["sender"]:
         return "sms_paper_state"
@@ -164,6 +165,8 @@ def attach(con: sqlite3.Connection, clinic_id: str, body: bytes, name: str, who:
                 (now, cur.lastrowid, now, clinic_id))
     db.audit(con, who, "sms_sender", clinic_id,
              f"заявление на «{acc['sender']}» загружено в кабинете ({max(1, len(body) // 1024)} КБ)")
+    if box is not None:
+        box.add(sms.name_notice(con, clinic_id, "paper"))
     return ""
 
 

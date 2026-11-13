@@ -209,7 +209,7 @@ def settle_cards(who: str, rep: Report, max_age: timedelta = timedelta(days=ATTE
 def sms_daily(rep: Report, now: datetime, send, who: str) -> None:
     """SMS-пакет (S3, sms.md › «Ежедневная задача»): сгорание пакетов (S0), опрос
     статусов без уведомления, сверка имён с sms.md, «Au rămas N SMS» клиникам,
-    баланс sms.md против проданного. Каждая часть — своя; сбой одной записывается
+    письма о конце года имени, баланс sms.md против проданного. Каждая часть — своя; сбой одной записывается
     и не останавливает ни остальные, ни письма о подписках."""
     parts: list[str] = []
     try:
@@ -219,12 +219,15 @@ def sms_daily(rep: Report, now: datetime, send, who: str) -> None:
                      + (f" (не получено {polled['failed']})" if polled["failed"] else ""))
         if smsmd.enabled():
             try:
-                al = sms.sync_aliases(who)
+                al = sms.sync_aliases(who, send)
                 parts.append(f"имён одобрено {al['active']}, отказано {al['rejected']}")
             except (smsmd.Unanswered, smsmd.Refused) as e:
                 rep.skipped.append(("_sms", f"имена sms.md не сверены: {e}"))
         low = sms.low_letters(send, who)
         parts.append(f"писем об остатке {len(low)}")
+        years = sms.year_letters(now, send, who)
+        if years:
+            parts.append(f"писем о годе имени {len(years)}")
         fc = sms.float_check(now)
         if fc["error"]:
             rep.skipped.append(("_sms", f"баланс sms.md не получен: {fc['error']}"))

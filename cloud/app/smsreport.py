@@ -106,6 +106,7 @@ def _item(con: sqlite3.Connection, a: sqlite3.Row, start: datetime, end: datetim
             "sender": a["sender"], "sender_state": a["sender_state"], "sender_note": a["sender_note"],
             "sender_paper": bool(a["sender_paper_at"]), "sender_paper_file": bool(a["sender_paper_id"]), "sender_until": a["sender_until"],
             "sender_prepaid": a["sender_prepaid"], "from": sms.sender_for(con, cid, now),
+            "name_year": sms.name_year(a, now),
             # имя общее на кабинет (26.10): у филиала — главной клиники; '' — своё
             **_name_from(con, cid),
             "balance": sms.balance(con, cid), "daily_cap": a["daily_cap"],
@@ -132,12 +133,14 @@ def report(con: sqlite3.Connection, kind: str = "month", frm: date | None = None
         except (smsmd.Unanswered, smsmd.Refused) as e:
             error = str(e)
     queue = [i for i in items if i["sender_state"] in (sms.S_REQUESTED, sms.S_SUBMITTED)]
+    # одобренные имена, от которых SMS не идут: год не оплачен или кончился
+    idle = [i for i in items if i["sender_state"] == sms.S_ACTIVE and i["name_year"] in (sms.Y_UNPAID, sms.Y_OVER)]
     return {"period": {"kind": kind, "from": d1.isoformat(), "to": d2.isoformat(),
                        "start": start.strftime(db.TS), "end": end.strftime(db.TS)},
             "clinics": items, "totals": totals,
             "owed": owed, "owed_mdl": f"{owed * cost / 100:.2f}", "segment_cost": config.SMSMD_SEGMENT_COST,
             "smsmd_balance": balance, "smsmd_error": error,
-            "queue": queue, "failures": _failures(con, start, end),
+            "queue": queue, "idle": idle, "failures": _failures(con, start, end),
             "configured": smsmd.enabled(), "offered_all": config.SMS_OFFERED,
             "packs": sms.packs(), "name_price": config.SMS_NAME_PRICE,
             "counts": {"clinics": len(items), "queue": len(queue), "enabled": sum(i["enabled"] for i in items)}}

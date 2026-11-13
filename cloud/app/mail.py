@@ -273,6 +273,74 @@ def sms_name_letter(clinic: str, name: str, until: str | None, reference: str) -
     return subject, body
 
 
+SMS_TAB = "contul clinicii, fila „SMS”"
+
+
+def sms_name_approved_letter(clinic: str, name: str, until: str | None) -> tuple[str, str]:
+    """Клинике: операторы одобрили имя. `until` — конец оплаченного года; None — год не оплачен,
+    и письмо говорит это прямо: одобренное без оплаты имя не работает."""
+    subject = f"DentPilot: numele de expeditor «{name}» a fost aprobat ({clinic})"
+    if until:
+        rest = (f"De acum SMS-urile clinicii pleacă de la «{name}». Anul plătit este valabil până la "
+                f"{ro_date(until)}; cu două săptămâni înainte vă scriem pentru prelungire.")
+    else:
+        rest = (f"Anul numelui nu este încă plătit, de aceea SMS-urile pleacă în continuare de la «DentPilot». "
+                f"Plătiți anul numelui în {SMS_TAB} ({CONT_URL}), sau din program, Setări › SMS — după "
+                f"confirmarea plății SMS-urile pleacă de la «{name}».")
+    body = (f"Bună ziua,\n\n"
+            f"Operatorii de telefonie au aprobat numele de expeditor «{name}» pentru {clinic}. {rest}\n\n{FOOTER}")
+    return subject, body
+
+
+def sms_name_rejected_letter(clinic: str, name: str, why: str, sender: str, prepaid: bool) -> tuple[str, str]:
+    """Клинике: в имени отказано — причина дословно, от какого имени SMS идут теперь (`sender`) и что
+    оплаченный вперёд год (`prepaid`) остаётся за следующим именем."""
+    subject = f"DentPilot: cererea pentru numele de expeditor «{name}» a fost respinsă ({clinic})"
+    paid = " Anul deja plătit rămâne valabil pentru numele următor." if prepaid else ""
+    body = (f"Bună ziua,\n\n"
+            f"Cererea pentru numele de expeditor «{name}» ({clinic}) a fost respinsă.\n\n"
+            f"Motivul: {why}\n\n"
+            f"SMS-urile clinicii pleacă de la «{sender}». Puteți cere alt nume în {SMS_TAB} ({CONT_URL}), "
+            f"sau din program, Setări › SMS.{paid}\n\n{FOOTER}")
+    return subject, body
+
+
+def sms_name_year_letter(kind: str, clinic: str, name: str, until: str) -> tuple[str, str]:
+    """Клинике о конце оплаченного года имени: `soon` — за две недели, `over` — год кончился."""
+    how = (f"Pentru încă un an plătiți numele în {SMS_TAB} ({CONT_URL}), sau din program, Setări › SMS.")
+    if kind == "soon":
+        subject = f"DentPilot: anul numelui de expeditor «{name}» se încheie la {ro_date(until)} ({clinic})"
+        text = (f"Anul plătit pentru numele de expeditor «{name}» ({clinic}) se încheie la {ro_date(until)}. "
+                f"După această dată SMS-urile clinicii pleacă de la «DentPilot» — fără întrerupere, dar fără "
+                f"numele clinicii. {how} Anul nou se numără de la sfârșitul celui plătit.")
+    elif kind == "over":
+        subject = f"DentPilot: anul numelui de expeditor «{name}» s-a încheiat ({clinic})"
+        text = (f"Anul plătit pentru numele de expeditor «{name}» ({clinic}) s-a încheiat la {ro_date(until)}: "
+                f"SMS-urile clinicii pleacă acum de la «DentPilot». Numele rămâne aprobat. {how} După "
+                f"confirmarea plății SMS-urile pleacă din nou de la «{name}».")
+    else:
+        raise ValueError(f"kind: {kind}")
+    return subject, f"Bună ziua,\n\n{text}\n\n{FOOTER}"
+
+
+def sms_name_notice(event: str, clinic, name: str, paid: bool) -> tuple[str, str]:
+    """Поставщику: клиника попросила имя (`request`) или загрузила подписанное заявление (`paper`).
+    По-русски, как письмо о заявке на пробный: письмо своё."""
+    what = {"request": "заявка на имя SMS", "paper": "заявление на имя SMS загружено"}[event]
+    nxt = {"request": "Клиника скачивает заявление в кабинете, подписывает и загружает; о загрузке придёт "
+                      "отдельное письмо.",
+           "paper": "Скачать заявление: карточка › SMS › «Заявление клиники (PDF)». Дальше — подать имя в "
+                    "кабинете sms.md и нажать «Подано в sms.md»."}[event]
+    year = "оплачен, начнётся с одобрения" if paid else "НЕ оплачен — без оплаты одобренное имя не работает"
+    subject = f"DentPilot Cloud: {what} «{name}» — {clinic['name']}"
+    body = (f"{what[0].upper() + what[1:]}:\n\n"
+            f"  Клиника: {clinic['name']}\n  IDNO: {clinic['idno'] or '—'}\n  Имя: {name}\n"
+            f"  E-mail: {clinic['email'] or '—'}\n  Телефон: {clinic['phone'] or '—'}\n"
+            f"  Год имени: {year}\n\n"
+            f"{nxt}\nКарточка: {config.BASE_URL.rstrip('/')}/admin/clinics/{clinic['id']}#sms\n")
+    return subject, body
+
+
 def sms_pack_letter(clinic: str, units: int, balance: int, reference: str) -> tuple[str, str]:
     """Клинике: пакет начислен (после подтверждения платежа kind=sms)."""
     subject = f"DentPilot: pachetul de {units} SMS a fost activat ({clinic})"

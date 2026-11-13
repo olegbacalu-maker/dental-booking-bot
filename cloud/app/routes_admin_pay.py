@@ -247,7 +247,9 @@ def payment_confirm(request: Request, pid: int) -> Response:
         except RuntimeError:
             return RedirectResponse(f"{back}?msg=no_key", status_code=303)
         box.add(payments.notify_paid(con, p, who))
-    code = "payment_confirmed" if box.code else "payment_confirmed_mailed"
+    # у ноты SMS срока и файла нет: свои слова, иначе админка говорит «срок продлён, файл выдан»
+    what = {payments.SMS: "_pack", payments.SMS_NAME: "_name"}.get(p["kind"], "")
+    code = f"payment_confirmed{what}" + ("" if box.code else "_mailed")
     return RedirectResponse(f"{back}?msg={code}", status_code=303)
 
 
