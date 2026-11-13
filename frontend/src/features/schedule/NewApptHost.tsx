@@ -44,7 +44,11 @@ export function NewApptHost({ open, onClose, navigate = defaultNavigate }: Props
   const { shown, leaving } = useLingering(open ? true : null)
   return (
     <>
-      {shown ? <NewApptWindow open={!leaving} onClose={onClose} onDone={setToast} navigate={navigate} /> : null}
+      {/* стили окон записи живут под `.dp-react-root`, а оболочка монтирует окно вне экрана:
+          без своего контейнера минуты и длительность рисуются голыми кнопками */}
+      {shown
+        ? <div className="dp-react-root"><NewApptWindow open={!leaving} onClose={onClose} onDone={setToast} navigate={navigate} /></div>
+        : null}
       {toast ? <Toast {...toast} onClose={closeToast} /> : null}
     </>
   )

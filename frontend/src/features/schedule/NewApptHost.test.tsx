@@ -172,6 +172,22 @@ describe('«Programare nouă» с фиши — окно на месте', () => 
     expect((d.querySelector('input[placeholder="Telefon"]') as HTMLInputElement).value).toBe('')
   })
 
+  it('окно стоит в своём `.dp-react-root`: стили окон записи привязаны к этому контейнеру', async () => {
+    await onFisa()
+    fireEvent.click(newBtn())
+    await waitFor(() => expect(addDialog()?.open).toBe(true))
+    const d = addDialog() as HTMLDialogElement
+    expect(d.querySelectorAll('.dp-minpick .mp').length).toBeGreaterThan(0)
+    const box = d.closest('.dp-react-root')
+    expect(box).not.toBeNull()
+    /* стенды читают экран первым `.dp-react-root` документа: контейнер окна — не он и не внутри него */
+    expect(document.querySelector('.dp-react-root')).toBe(fisaNote().closest('.dp-react-root'))
+    expect(box).not.toBe(fisaNote().closest('.dp-react-root'))
+    fireEvent.click(screen.getByRole('button', { name: 'Închide' }))
+    await waitFor(() => expect(addDialog()).toBeNull())
+    expect(document.querySelectorAll('.dp-react-root').length).toBe(1)
+  })
+
   it('запись: без состояния (`screen=new_appt`), окно закрыто, плашка со ссылкой в журнал; фиша не тронута', async () => {
     const { router } = await onFisa()
     post.mockResolvedValue(ok(undefined, 'ok', 'Programare adăugată'))
