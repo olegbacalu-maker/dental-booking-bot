@@ -2845,7 +2845,8 @@ def _cont_sms(c, info: dict, q: str = "") -> str:
     sub = f"acum SMS-urile pleacă de la «{esc(info['from'] or 'DentPilot')}»"
     if shared:
         # филиал: имя общее, заявка и оплата — в кабинете главной клиники; здесь — только состояние
-        has = (f"Numele <b>{esc(name)}</b> {tag}" if name and state != "none" else
+        has = (f"Cererea pentru <b>{esc(name)}</b> {tag}" if name and state == "rejected" else
+               f"Numele <b>{esc(name)}</b> {tag}" if name and state != "none" else
                "Clinica principală nu a cerut încă un nume propriu de expeditor.")
         return (f"<div class='card'>{_chead('message', 'SMS · numele expeditorului', sub)}"
                 f"<p style='margin:0 0 8px'>Numele expeditorului este comun pentru clinicile din acest cont: "

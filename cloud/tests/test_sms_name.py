@@ -11,7 +11,7 @@
 - отказ sms.md клиника читает по-румынски; подтверждение ноты имени в админке говорит про имя;
 - филиал видит имя кабинета без кнопок заявки и оплаты.
 
-⛔ Цена имени здесь — подмена `DP_SMS_NAME_PRICE` стенда; настоящих цен в репозитории нет.
+Цена имени здесь — подмена `DP_SMS_NAME_PRICE` стенда; настоящих цен в репозитории нет.
 """
 import sys
 from datetime import datetime, timedelta, timezone
@@ -187,7 +187,7 @@ def suite_path(res: Result) -> None:
 
 
 def suite_unpaid(res: Result) -> None:
-    """Одобрено без оплаченного года; заявка из программы; отказ Олега с причиной."""
+    """Одобрено без оплаченного года; заявка из программы; отказ из админки с причиной."""
     fake = FakeSmsMd()
     try:
         with Server(env=fake.env()) as s:
@@ -225,10 +225,10 @@ def suite_unpaid(res: Result) -> None:
             code, _out = _run_daily(s)
             res.check("неоплаченному имени писем о конце года нет",
                       (code, _one(s, "SELECT count(*) FROM reminders WHERE kind LIKE 'sms_name_%'")), (0, 0))
-            # отказ Олега: причина дословно в письме клинике
+            # отказ из админки: причина дословно в письме клинике
             admin.post(f"/admin/clinics/{cid}/sms", action="rejected", note="Denumirea nu coincide cu marca clinicii")
             mine = _to(s, "doi@example.md")
-            res.ok("отказ Олега — письмо клинике с причиной и путём к новой заявке",
+            res.ok("отказ из админки — письмо клинике с причиной и путём к новой заявке",
                    len(mine) == n + 2 and "«Doi Dent 2» a fost respinsă" in mine[-1][1]
                    and "Motivul: Denumirea nu coincide cu marca clinicii" in mine[-1][2]
                    and "Puteți cere alt nume" in mine[-1][2], repr(mine[-1:]))
