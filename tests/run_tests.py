@@ -402,6 +402,7 @@ SUITES = [
     ("Фиша: подпись на экране — отказы", test_sign.suite_sign_refuse),
     ("Фиша: подпись на экране — машина без Edge", test_sign.suite_sign_no_edge),
     ("Фиша: подпись на экране — старт снимает хвосты печати", test_sign.suite_sign_start_sweep),
+    ("Фиша: подпись на экране — Edge вышел раньше листа", test_sign.suite_sign_late_pdf),
     ("Фиша: подпись на экране — листы и тело", test_sign.suite_sign_sheets),
     ("Фиша: согласие на маркетинг — бумага, обезличивание, выгрузка", test_mkt.suite_mkt_manual),
     ("Фиша: согласие на маркетинг — подпись листа 195", test_mkt.suite_mkt_sign),

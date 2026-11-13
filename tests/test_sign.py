@@ -14,13 +14,16 @@ import base64
 import hashlib
 import json
 import math
+import os
 import pathlib
 import re
 import struct
 import sys
+import tempfile
+import time
 import zlib
 
-from harness import Client, Result, Server, pid_by_phone
+from harness import Client, Result, Server, _rmtree_settled, pid_by_phone
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "bot"))
 
@@ -252,6 +255,90 @@ def suite_sign_no_edge(res: Result) -> None:
         res.check("подпись без Edge — 503 pdf_none с текстом",
                   (r.status, j["code"], bool(j["text"])), (503, "pdf_none", True))
         res.check("ничего не записано", len(_card(c, pid)["documents"]), 0)
+
+
+_FAKE_PDF = b"%PDF-1.4\n" + b"x" * 40000 + b"\n%%EOF\n"
+
+# Подменный Edge: пускач выходит сразу, лист дописывает оторванный от него
+# процесс — с задержкой и кусками. Настоящий Edge так себя ведёт не всегда,
+# поэтому ветку ожидания держит подмена, а не машина прогона.
+_FAKE_EDGE = r'''
+import os, subprocess, sys, time
+PDF = b"%PDF-1.4\n" + b"x" * 40000 + b"\n%%EOF\n"
+if sys.argv[1] == "write":
+    out, mode = sys.argv[2], sys.argv[3]
+    time.sleep(0.5)
+    body = PDF if mode == "late" else PDF[:30000]
+    with open(out, "wb") as f:
+        for i in range(0, len(body), 10000):
+            f.write(body[i:i + 10000])
+            f.flush()
+            time.sleep(0.15)
+    sys.exit(0)
+mode = os.environ["FAKE_EDGE"]
+out = next(a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--print-to-pdf="))
+if mode == "ready":
+    open(out, "wb").write(PDF)
+elif mode != "never":
+    subprocess.Popen([sys.executable, __file__, "write", out, mode],
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+'''
+
+
+def suite_sign_late_pdf(res: Result) -> None:
+    """Edge-пускач вышел раньше, чем лист дописан (без сервера, подменный
+    Edge): `html_to_pdf` ждёт ЦЕЛЫЙ файл, оборванный и отсутствующий — отказ
+    к потолку, а не чтение половины листа."""
+    from app.core import pdf
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_fakeedge_"))
+    script = tmp / "fake_edge.py"
+    script.write_text(_FAKE_EDGE, encoding="utf-8")
+    if sys.platform == "win32":
+        edge = tmp / "msedge.cmd"
+        edge.write_text(f'@"{sys.executable}" "{script}" %*\n', encoding="ascii")
+    else:
+        edge = tmp / "msedge"
+        edge.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n', encoding="ascii")
+        edge.chmod(0o755)
+    room = tmp / "room"
+    keep = (pdf._room, pdf.TIMEOUT_S, os.environ.get("DENTART_EDGE"), os.environ.get("FAKE_EDGE"))
+    pdf._room = lambda: room
+    os.environ["DENTART_EDGE"] = str(edge)
+
+    def run(mode: str, ceiling: float):
+        os.environ["FAKE_EDGE"] = mode
+        pdf.TIMEOUT_S = ceiling
+        t0 = time.monotonic()
+        try:
+            got = pdf.html_to_pdf("<p>Semn Test</p>")
+        except pdf.PdfError as e:
+            got = e.code
+        return got, time.monotonic() - t0
+
+    try:
+        res.ok("подменный Edge найден", pdf.available(), "подмена не завелась")
+        got, _ = run("ready", 15)
+        res.ok("лист готов к выходу Edge — отдан как есть", got == _FAKE_PDF, repr(got)[:80])
+        got, took = run("late", 15)
+        res.ok("Edge вышел сразу, лист дописан позже и кусками — дождались целого",
+               got == _FAKE_PDF, repr(got)[:80])
+        res.ok("ожидание — доли секунды, не потолок", took < 10, f"{took:.1f} с")
+        got, took = run("torn", 3)
+        res.check("лист оборван (нет %%EOF) — отказ, половина не отдана", got, "pdf_err")
+        res.ok("отказ пришёл к потолку, а не через минуту", 2.5 < took < 12, f"{took:.1f} с")
+        got, took = run("never", 2)
+        res.check("листа нет до потолка — отказ", got, "pdf_err")
+        res.ok("и здесь к потолку", 1.5 < took < 12, f"{took:.1f} с")
+        res.check("временное печати убрано при любом исходе", pdf.leftovers(), [])
+    finally:
+        pdf._room, pdf.TIMEOUT_S = keep[0], keep[1]
+        for key, old in (("DENTART_EDGE", keep[2]), ("FAKE_EDGE", keep[3])):
+            if old is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = old
+        _rmtree_settled(tmp)
 
 
 def suite_sign_sheets(res: Result) -> None:

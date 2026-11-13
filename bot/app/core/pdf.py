@@ -39,6 +39,8 @@ from . import storage
 # сколько ждать Edge. Лист печатается за ~1 с; 20 с — запас на холодный диск
 # и антивирус, после — честный отказ, а не зависшее окно подписи
 TIMEOUT_S = 20
+# шаг ожидания листа после выхода Edge: лист — секунда, чаще смотреть незачем
+_POLL_S = 0.05
 # папка печати старше этого — хвост упавшего прошлого вызова
 _STALE_S = 10 * 60
 # потолок PDF: лист — десятки КБ; больше 10 МБ — не лист
@@ -146,25 +148,46 @@ def html_to_pdf(page: str) -> bytes:
                 f"--user-data-dir={work / 'profile'}",
                 f"--print-to-pdf={out}", src.as_uri()]
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        deadline = time.monotonic() + TIMEOUT_S
         try:
             subprocess.run(args, capture_output=True, timeout=TIMEOUT_S,
                            creationflags=flags, check=False)
         except (OSError, subprocess.TimeoutExpired):
             raise PdfError("pdf_err") from None
-        try:
-            data = out.read_bytes()
-        except OSError:
-            raise PdfError("pdf_err") from None
-        if not data.startswith(b"%PDF-") or len(data) > _PDF_MAX:
-            raise PdfError("pdf_err")
-        return data
+        # выход запущенного msedge.exe — не конец печати: он бывает лишь
+        # пускачом и выходит за доли секунды, а лист дописывает фоновый Edge.
+        # Поэтому готовность — целый файл, а не код возврата; потолок общий
+        while True:
+            data = _whole_pdf(out)
+            if data is not None:
+                return data
+            if time.monotonic() >= deadline:
+                raise PdfError("pdf_err")
+            time.sleep(_POLL_S)
     finally:
         _drop(work)
 
 
+def _whole_pdf(out: pathlib.Path) -> bytes | None:
+    """Байты листа, если он дописан, иначе None. Целый — по хвосту `%%EOF`,
+    а не по замершему размеру: Edge пишет его последним, проверка не требует
+    паузы на обычном пути и не примет за готовый лист застрявшую запись.
+    Файл, занятый пишущим Edge, не читается — это тоже «ещё нет»."""
+    try:
+        if out.stat().st_size > _PDF_MAX:
+            raise PdfError("pdf_err")
+        data = out.read_bytes()
+    except OSError:
+        return None
+    if data.startswith(b"%PDF-") and data[-64:].rstrip().endswith(b"%%EOF"):
+        return data
+    return None
+
+
 def _drop(work: pathlib.Path) -> None:
-    """Снять папку печати. Edge, убитый таймаутом, может ещё держать файлы
-    профиля долю секунды — несколько попыток; не вышло — снимет `sweep`."""
+    """Снять папку печати. Edge, убитый таймаутом или дописавший лист в фоне,
+    может ещё держать файлы профиля долю секунды — несколько попыток; не
+    вышло — снимет `sweep`."""
     for _ in range(10):
         shutil.rmtree(work, ignore_errors=True)
         if not work.exists():
