@@ -99,6 +99,9 @@ const T = {
   senderUntil: 'plătit până la {date}',
   senderPh: 'Numele (ex. ZambetDent)',
   senderBtn: 'Cere numele',
+  senderRule: 'Maximum {max} caractere: litere latine, cifre, spațiu, punct sau cratimă.',
+  senderBadChar: 'Caracterul „{ch}” nu este permis: doar litere latine fără diacritice, cifre, spațiu, punct sau cratimă.',
+  senderNoLetter: 'Numele trebuie să conțină cel puțin o literă.',
   senderNameBtn: 'Comandă numele — {price} MDL / an',
   senderNameConfirm: 'Comandați numele propriu de expeditor pentru un an ({price} MDL)? Primiți nota de plată: '
     + 'o plătiți cu cardul, pe pagina de plată, sau prin transfer bancar. Nota vine și pe e-mail.',
@@ -111,6 +114,18 @@ const T = {
 
 const SENDER: Record<string, string> = {
   requested: T.senderRequested, submitted: T.senderSubmitted, active: T.senderActive, rejected: T.senderRejected,
+}
+
+/* Правило имени отправителя — двойник `SENDER_RE` сервера лицензий: поле показывает его до заявки,
+   решает по-прежнему сервер. Поле режет лишнее само, поэтому предел назван словами рядом. */
+const SENDER_MAX = 11
+const SENDER_BAD = /[^A-Za-z0-9 .-]/
+
+function senderProblem(name: string): string {
+  const bad = SENDER_BAD.exec(name)
+  if (bad) return T.senderBadChar.replace('{ch}', bad[0])
+  if (name.trim() && !/[A-Za-z]/.test(name)) return T.senderNoLetter
+  return ''
 }
 
 /* Модуль выключен в облаке — не ошибка, а состояние с путём назад (23.10):
@@ -184,6 +199,7 @@ export function SmsSettingsScreen({ navigate = defaultNavigate }: Props) {
 
   function requestSender(e: FormEvent) {
     e.preventDefault()
+    if (!sender.trim() || senderProblem(sender)) return
     void run(() => settings.smsSender(sender), (r) => { replace(r.data); setSender('') })
   }
 
@@ -209,6 +225,7 @@ export function SmsSettingsScreen({ navigate = defaultNavigate }: Props) {
   const notes: SmsNote[] = acc?.notes ?? (order ? [order] : [])
   const calm: { head: string; path: string } | undefined =
     data && data.offered && Object.hasOwn(CALM, data.blocked) ? CALM[data.blocked] : undefined
+  const senderBad = senderProblem(sender)
   const seg = (n: number) => (n <= 1 ? T.segments1 : T.segmentsN.replace('{n}', String(n)))
   const preview = (event: string, variant: string) => {
     const p = data?.previews[event]?.[variant]
@@ -381,10 +398,17 @@ export function SmsSettingsScreen({ navigate = defaultNavigate }: Props) {
           {data.can_order ? (
             <>
               {(acc.sender_state === 'none' || acc.sender_state === 'rejected') && (
-                <form className="add" onSubmit={requestSender}>
-                  <input value={sender} placeholder={T.senderPh} aria-label={T.senderPh} maxLength={11} required
-                    style={{ width: 220 }} disabled={busy} onChange={(e) => setSender(e.target.value)} />
-                  <button disabled={busy}>{T.senderBtn}</button>
+                <form className="add dp-sms-name" onSubmit={requestSender}>
+                  <input value={sender} placeholder={T.senderPh} aria-label={T.senderPh} maxLength={SENDER_MAX} required
+                    style={{ width: 220 }} disabled={busy} aria-invalid={senderBad ? true : undefined}
+                    aria-describedby="dp-sms-name-rule"
+                    onChange={(e) => setSender(e.target.value.slice(0, SENDER_MAX))} />
+                  <button disabled={busy || !sender.trim() || senderBad !== ''}>{T.senderBtn}</button>
+                  <small id="dp-sms-name-rule" className="dp-sms-rule">
+                    {T.senderRule.replace('{max}', String(SENDER_MAX))}
+                    {sender ? ` ${sender.length} / ${SENDER_MAX}` : ''}
+                  </small>
+                  {senderBad && <small className="dp-sms-rule bad" role="alert">{senderBad}</small>}
                 </form>
               )}
               {acc.sender_state !== 'none' && acc.name_price > 0 && (

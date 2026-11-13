@@ -257,6 +257,37 @@ describe('SmsSettingsScreen', () => {
     expect(screen.queryByText('Pachetele nu sunt încă disponibile.')).toBeNull()
   })
 
+  it('имя отправителя: правило стоит под полем, 12-й знак не вводится, недопустимое не уходит заявкой', async () => {
+    get.mockResolvedValueOnce(ok(BASE))
+    open()
+    await screen.findByText('42')
+    const field = screen.getByLabelText<HTMLInputElement>('Numele (ex. ZambetDent)')
+    const btn = screen.getByRole<HTMLButtonElement>('button', { name: 'Cere numele' })
+    expect(screen.getByText(/Maximum 11 caractere: litere latine, cifre, spațiu, punct sau cratimă\./)).toBeTruthy()
+    expect(field.maxLength).toBe(11)
+    expect(btn.disabled).toBe(true)
+
+    fireEvent.change(field, { target: { value: 'ZambetDental' } })
+    expect(field.value).toBe('ZambetDenta')
+    expect(screen.getByText(/11 \/ 11/)).toBeTruthy()
+    expect(btn.disabled).toBe(false)
+
+    fireEvent.change(field, { target: { value: 'Zâmbet' } })
+    expect(screen.getByRole('alert').textContent).toContain('„â”')
+    expect(field.getAttribute('aria-invalid')).toBe('true')
+    expect(btn.disabled).toBe(true)
+    fireEvent.submit(field.closest('form')!)
+
+    fireEvent.change(field, { target: { value: '12345' } })
+    expect(screen.getByRole('alert').textContent).toBe('Numele trebuie să conțină cel puțin o literă.')
+    fireEvent.submit(field.closest('form')!)
+    expect(post).not.toHaveBeenCalled()
+
+    fireEvent.change(field, { target: { value: 'Dr.Pop-2 A' } })
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(btn.disabled).toBe(false)
+  })
+
   it('отказ в вопросе — ничего не шлёт; заявка на имя — POST sender', async () => {
     get.mockResolvedValueOnce(ok(BASE))
     post.mockResolvedValueOnce(ok({ ...BASE, account: { ...BASE.account!, sender: 'ZambetDent', sender_state: 'requested' } }))
