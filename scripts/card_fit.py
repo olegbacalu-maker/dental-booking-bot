@@ -22,8 +22,8 @@
      строки, и fitAppts не видел ничего (03.10);
   4. визит на 30 минут — сжат: полный туда не влезает;
   5. у «времени впереди» сжатая строка начинается интервалом;
-  6. (13.10, вариант B) визит на 15 минут — не ниже своего получасового слота
-     (пол блока — шаг сетки стартов);
+  6. визит на 15 минут — не ниже четверти часа: пол блока канвы —
+     `canvas.FLOOR_MIN` минут, читается из исходника;
   7. в сжатом виде — имя и кнопка зуба, а статус словом: значка в углу нет;
   8. визит на 45 минут при часе 64px — две строки (`slim duo`), а не одна.
 
@@ -65,6 +65,12 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from harness import BOT, Client, Server, clinic_today  # noqa: E402
 from odo_shots import CDP, Page, login_cookie, start_edge  # noqa: E402
+
+# Пол блока — из исходника канвы: записанное здесь число разошлось бы с ней молча.
+FLOOR_MIN = int(re.search(r"^FLOOR_MIN\s*=\s*(\d+)", (BOT / "app/modules/schedule/canvas.py")
+                          .read_text(encoding="utf-8"), re.M).group(1))
+# Блок ниже своих минут на зазор между соседними записями.
+BLOCK_GAP = 2
 
 # ⛔ Свой порт отладки: 9337–9346 и 9352/9353 заняты соседними стендами, и
 # запуск на занятом МОЛЧА подключается к чужому браузеру.
@@ -292,9 +298,9 @@ def verdict(view: str, m: dict, rows: list = ROWS) -> list[str]:
         if view == "time" and b["mode"] in ("slim", "duo") and not b["startsWithTime"]:
             bad.append(f"{who} ({dur}′): сжатая строка «времени впереди» не начинается интервалом")
         # 13.10, вариант B: короткий визит читается — имя, зуб, статус словом
-        half = int(m["cell"].rstrip("px") or 0) / 2 - 6
-        if dur < 30 and b["h"] < half - 0.5:
-            bad.append(f"{who} ({dur}′): блок {b['h']}px ниже своего слота ({half}px) — пол не держится")
+        floor = int(m["cell"].rstrip("px") or 0) * FLOOR_MIN / 60 - BLOCK_GAP
+        if dur <= FLOOR_MIN and b["h"] < floor - 0.5:
+            bad.append(f"{who} ({dur}′): блок {b['h']}px ниже пола {FLOOR_MIN}′ ({floor}px) — пол не держится")
         if b["mode"] in ("slim", "duo"):
             if not b["odo"]:
                 bad.append(f"{who} ({dur}′, {b['mode']}): нет кнопки зуба")
