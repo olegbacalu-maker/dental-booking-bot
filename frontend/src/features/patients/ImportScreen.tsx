@@ -77,6 +77,7 @@ const T = {
   nothing: 'Nimic nou de importat: toți pacienții din fișier există deja sau nu intră.',
   askImport: 'Importați {what} din „{file}”? Fișele noi apar imediat în lista de pacienți.',
   askFill: ' La {n} se completează câmpurile goale.',
+  askOnlyFill: 'Completați câmpurile goale la {n} din „{file}”? Fișe noi nu se creează.',
   running: 'Se importă…',
   of: 'din',
   keepOpen: 'Nu închideți fereastra. Programările se pot face în continuare de pe celelalte calculatoare.',
@@ -242,9 +243,12 @@ export function ImportScreen({ navigate = defaultNavigate }: Props) {
   async function start() {
     if (!file || !opts || !check?.counts) return
     const n = check.counts
-    const text = T.askImport.replace('{what}', cnt(n.create, T.nPatients)).replace('{file}', file.name)
-      + (opts.fill && n.fill ? T.askFill.replace('{n}', cnt(n.fill, T.nCards)) : '')
-    if (!await ask({ text, ok: T.importBtn })) return
+    const filling = opts.fill && n.fill > 0
+    const text = n.create
+      ? T.askImport.replace('{what}', cnt(n.create, T.nPatients)).replace('{file}', file.name)
+        + (filling ? T.askFill.replace('{n}', cnt(n.fill, T.nCards)) : '')
+      : T.askOnlyFill.replace('{n}', cnt(n.fill, T.nCards)).replace('{file}', file.name)
+    if (!await ask({ text, ok: n.create ? T.importBtn : T.fillBtn })) return
     await runFrom(file, opts, check, { part: 0, parts: Math.max(check.parts ?? 1, 1), importId: 0, broken: false })
   }
 
@@ -391,7 +395,7 @@ export function ImportScreen({ navigate = defaultNavigate }: Props) {
                     disabled={busy || (check.counts.create === 0 && !(opts.fill && check.counts.fill))}>
               <Icon name="upload" /> {check.counts.create
                 ? `${T.importBtn} ${cnt(check.counts.create, T.nPatients)}`
-                : `${T.fillBtn} ${cnt(check.counts.fill, T.nCards)}`}
+                : opts.fill && check.counts.fill ? `${T.fillBtn} ${cnt(check.counts.fill, T.nCards)}` : T.importBtn}
             </button>
           </div>
         </div>

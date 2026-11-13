@@ -266,6 +266,18 @@ describe('ImportScreen: шаг «Verificare»', () => {
     await toCheck(checked({ counts: { rows: 2, create: 0, new: 0, noted: 0, exists: 2, dup: 0, bad: 0, fill: 0, family: 0 } }))
     expect(screen.getByRole('status').textContent).toMatch(/Nimic nou de importat/)
     expect((document.querySelector('.pi-go') as HTMLButtonElement).disabled).toBe(true)
+    expect(document.querySelector('.pi-go')?.textContent?.trim()).toBe('Importă')
+  })
+
+  it('новых нет, но есть что дописать: кнопка и вопрос говорят про дополнение, а не про импорт', async () => {
+    await open()
+    await toCheck(checked({ opts: { ...checked().opts, fill: true },
+      counts: { rows: 3400, create: 0, new: 0, noted: 0, exists: 3400, dup: 0, bad: 0, fill: 1200, family: 0 } }))
+    expect(document.querySelector('.pi-file')?.textContent).toContain('3 400 de rânduri cu date')
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Completează 1 200 de fișe' }))
+    await waitFor(() => expect(confirm).toHaveBeenCalled())
+    expect(confirm.mock.calls[0]?.[0]).toBe('Completați câmpurile goale la 1 200 de fișe din „pacienti.xlsx”? Fișe noi nu se creează.')
   })
 
   it('отчёт до импорта — книга из ответа, без номера импорта', async () => {
