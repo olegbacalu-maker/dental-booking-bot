@@ -8,11 +8,6 @@ import type { DayForm } from '../schedule/day'
 import { GcalScreen, loadGcal } from './GcalScreen'
 import { firstLine, presetOf, queryOf, spanOf, whereOf, type GcalList, type GcalRow } from './gcal'
 
-/* Вкладка «Google Calendar»: пустой экран и загрузка файла с итогом словами,
-   список по дням, отбор и поиск, перенос обычным окном записи (заполнение,
-   выбор врача человеком, фиша по номеру, отказ в окне), «Nu muta» и возврат,
-   пометка изменившегося, «Șterge tot» только с правом. */
-
 const { get, post, postForm } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), postForm: vi.fn() }))
 vi.mock('../../services/api', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../services/api')>()

@@ -10,7 +10,6 @@ const T = {
     `Atenție: în cabinetul ${name} are programare și alt medic la această oră.`,
 } as const
 
-/** Слово предупреждения: кабинет в это время занят записью другого врача. */
 export function sharedWarn(rooms: readonly Room[], id: string): string {
   return T.shared(rooms.find((r) => r.id === id)?.name ?? id)
 }

@@ -31,11 +31,9 @@ export interface Drag {
   nm: string
   /** За какое место блок взяли: px от его верха. */
   grab?: number
-  /** Кабинет, в котором запись стоит сейчас. */
   room?: string
 }
 
-/** Куда бросили: колонка и минута начала по делению сетки. */
 export interface Target {
   dk: string
   min: number
@@ -72,7 +70,6 @@ export interface CellRect {
   height: number
 }
 
-/** Минута часа (дробная) под координатой и её ячейка. */
 export function cellAtY(cells: CellRect[], y: number): { h: number; at: number } | null {
   for (const c of cells) {
     if (y >= c.top && y < c.top + c.height) {
@@ -83,10 +80,8 @@ export function cellAtY(cells: CellRect[], y: number): { h: number; at: number }
 }
 
 /**
- * Минута от полуночи под координатой, по делению `snap`. Щелчок берёт деление,
- * В КОТОРОЕ попал (вниз), бросок — ближайшее: верх блока тянут к линии.
- * Ближайшее деление может оказаться началом следующего часа; если тот закрыт,
- * остаётся последнее деление этого.
+ * Минута от полуночи под координатой, по делению `snap`. Щелчок берёт деление, в
+ * которое попал, бросок — ближайшее; если оно в закрытом часе — последнее этого.
  */
 export function minuteAtY(cells: CellRect[], y: number, snap: number,
   nearest = false): number | null {
@@ -98,10 +93,8 @@ export function minuteAtY(cells: CellRect[], y: number, snap: number,
 }
 
 /**
- * Куда встанет НАЧАЛО визита при броске: блок держат за точку `grab` (px от его
- * верха), и время считается по верху блока, а не по курсору — иначе сдвиг на
- * пять минут зависел бы от того, за какое место блок взяли. Верх вне приёмных
- * часов — считаем по курсору.
+ * Начало визита при броске считается по ВЕРХУ блока (`grab` — px от верха до
+ * курсора): иначе сдвиг зависел бы от того, за какое место блок взяли.
  */
 export function dropMinute(cells: CellRect[], y: number, grab: number,
   snap: number): number | null {
@@ -124,8 +117,7 @@ export function dragOf(item: DayItem, dk: string): Drag | null {
 /**
  * Бросок на своё же место. ⛔ Правило браузерное, и обойтись без него нельзя:
  * сервер такой перенос ПРИНИМАЕТ (`ok_move`) и пишет строку в летопись
- * пациента, а летопись не переписывают. Сравниваются колонка, минута и
- * кабинет, когда он известен с обеих сторон: та же минута в другой дорожке —
+ * пациента, а летопись не переписывают. Та же минута в другой дорожке кабинета —
  * уже перенос.
  */
 export function sameSlot(d: Drag, t: Target): boolean {
@@ -150,17 +142,13 @@ export interface Occupies {
   room_id?: string
 }
 
-/** Кабинет врача, как он приходит в модели. */
 export interface Room {
   id: string
   name: string
 }
 
-/**
- * Занятое по кабинетам врача: список на кабинет, а у врача с одним кабинетом
- * (или без них) — один общий. Старт свободен, пока свободен хоть один список;
- * то же правило у сервера (`db.busy_lanes`).
- */
+/** Занятое по кабинетам врача: старт свободен, пока свободен хоть один список;
+ *  то же правило у сервера (`db.busy_lanes`). */
 export function lanesOf(items: Occupies[], rooms: readonly Room[]): Occupies[][] {
   if (rooms.length < 2) return [items]
   return rooms.map((r) => laneOf(items, r.id))
@@ -196,8 +184,7 @@ export function freeRoom(items: Occupies[], rooms: readonly Room[], min: number,
   return i >= 0 ? rooms[i]?.id ?? '' : ''
 }
 
-/** Занят ли кабинет в этот интервал записью ДРУГОГО врача (`others` — блоки
- *  чужих колонок): повод предупредить, не отказать. */
+/** Занят ли кабинет записью ДРУГОГО врача (`others`): повод предупредить, не отказать. */
 export function roomShared(others: Occupies[], room: string, min: number, dur: number): boolean {
   return room !== '' && clashAmong(others.filter((it) => it.room_id === room), min, dur, -1) >= 0
 }

@@ -85,7 +85,6 @@ export interface DashAppt extends BlockBase {
    *  едет в каждом конверте канала, список окно спрашивает само. */
   service_id: string
   service_edit: boolean
-  /** Кабинет, который запись занимает сейчас; `''` у врача без кабинетов. */
   room_id?: string
   room?: string
   clickable: boolean
@@ -109,8 +108,7 @@ export interface DashColumn {
   hue: string
   photo: string
   initials: string
-  /** Кабинеты врача по порядку, первый — основной; у сироты пусто. С двумя и
-   *  больше колонка делится на дорожки кабинетов. */
+  /** Кабинеты врача по порядку; с двумя и больше колонка делится на дорожки. */
   rooms?: Room[]
   room?: string
   phone?: string
@@ -224,10 +222,8 @@ export interface DashSlotForm {
   services: FormService[]
   /** Длительности на выбор в «Durată» (10.11); нет поля — выбора нет. */
   durations?: number[]
-  /** Правило «другой» длительности: шаг и потолок, минут. */
   dur_step?: number
   dur_max?: number
-  /** Шаг сетки стартов, минут. */
   step?: number
   /** Потолок поля «дата рождения» — сегодня В ЧАСАХ КЛИНИКИ. */
   birth_max: string
@@ -303,7 +299,6 @@ export function canvasBlocks(c: DashCanvasModel | null | undefined, dk: string):
   return c?.columns.find((col) => col.id === dk)?.blocks ?? []
 }
 
-/** Кабинеты врача колонки по порядку. */
 export function canvasRooms(c: DashCanvasModel | null | undefined, dk: string): Room[] {
   return c?.columns.find((col) => col.id === dk)?.rooms ?? []
 }
@@ -313,8 +308,7 @@ export function canvasRoomsOf(c: DashCanvasModel | null | undefined, id: number)
   return c?.columns.find((col) => col.blocks.some((b) => b.id === id))?.rooms ?? []
 }
 
-/** Блоки ОСТАЛЬНЫХ колонок — по ним окно предупреждает, что кабинет в это
- *  время занят другим врачом. */
+/** Блоки ОСТАЛЬНЫХ колонок: по ним окно предупреждает о кабинете, занятом другим врачом. */
 export function canvasOthers(c: DashCanvasModel | null | undefined, dk: string): Occupies[] {
   return (c?.columns ?? []).filter((col) => col.id !== dk).flatMap((col) => col.blocks)
 }
@@ -384,7 +378,6 @@ export const dash = {
   move: (date: string, id: number,
     body: { date: string; time: string; doctor: string; room?: string }) =>
     api.post<void>(`/schedule/appointments/${id}/move${cmdQuery(date)}`, body),
-  /* кабинет записи: команда без состояния, как длительность */
   room: (date: string, id: number, room: string) =>
     api.post<void>(`/schedule/appointments/${id}/room${cmdQuery(date)}`, { room }),
   comment: (date: string, id: number, text: string) =>

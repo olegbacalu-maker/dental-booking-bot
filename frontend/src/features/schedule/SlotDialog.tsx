@@ -70,11 +70,8 @@ interface Props {
   date: string
   form: SlotFormView
   noteEnds: number[]
-  /** Занятые блоки колонки врача по канве — по ним окно гасит старты. */
   taken: Occupies[]
-  /** Кабинеты врача по порядку; меньше двух — выбора в окне нет. */
   rooms?: readonly Room[]
-  /** Блоки чужих колонок: по ним окно предупреждает о занятом кабинете. */
   others?: Occupies[]
   busy: boolean
   onClose: () => void
@@ -91,7 +88,6 @@ export function SlotDialog({ open, slot, date, form, noteEnds, taken, rooms = NO
   const [tab, setTab] = useState<'a' | 'n'>('a')
   const [fail, setFail] = useState('')
   const [service, setService] = useState(form.services[0]?.id ?? '')
-  /* «Durată»: длительность услуги, пока не тронули (`DurPick`) */
   const dur = useDurPick(form.services, service, form)
   const hh = slot.hour.split(':')[0] ?? ''
   const step = form.step ?? 5
@@ -104,14 +100,12 @@ export function SlotDialog({ open, slot, date, form, noteEnds, taken, rooms = NO
   const off = takenMinutes(scope, Number(hh), span, step)
   const firstFree = hourMinutes(step).find((m) => !off.has(m))
   const none = firstFree === undefined
-  /* Минута щелчка по сетке держится, даже когда услуга по умолчанию в неё не
-     влезает: щёлкнули в дыру на 10 минут — окно говорит, что не влезло, и ждёт
-     длительности короче, а не уводит запись на другой конец часа. */
+  /* Минута щелчка держится, даже когда услуга по умолчанию в неё не влезает: окно
+     говорит, что не влезло, а не уводит запись на другой конец часа. */
   const [aimed, setAimed] = useState(slot.minute !== undefined)
   const [minute, setMinute] = useState(slot.minute ?? firstFree ?? 0)
   const tight = aimed && off.has(minute)
-  /* выбранный старт стал занят (новая канва, другая длительность) —
-     переставить на первый свободный при отрисовке */
+  /* выбранный старт стал занят (новая канва, другая длительность) — на первый свободный */
   if (!aimed && !none && off.has(minute)) setMinute(firstFree)
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')

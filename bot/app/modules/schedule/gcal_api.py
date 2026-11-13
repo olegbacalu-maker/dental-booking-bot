@@ -1,9 +1,4 @@
-"""Вкладка «Google Calendar»: JSON API.
-
-Правила — в `gcal.py`. Перенос отвечает кодами и полями окна записи журнала:
-окно показывает отказ одинаково, откуда бы его ни открыли. Врачу вкладка
-закрыта: в общем календаре пациенты всех врачей.
-"""
+"""Вкладка «Google Calendar»: JSON API; правила — в `gcal.py`. Врачу вкладка закрыта."""
 from __future__ import annotations
 
 from fastapi import APIRouter, File, Request, UploadFile
@@ -22,7 +17,6 @@ _GONE = {"gc_gone", "gc_moved", "gc_appt", "gc_patient", "gc_no_text"}
 
 
 async def _list(request: Request) -> dict:
-    """Список в том отборе, в каком стоит экран: вкладка, поиск, день, месяц."""
     at = request.query_params
     return await gcal.listing(at.get("f", ""), at.get("q", ""), at.get("date", ""), at.get("month", ""))
 
@@ -55,8 +49,7 @@ async def api_gcal(request: Request):
 
 @router.post("/api/gcal/file")
 async def api_gcal_file(request: Request, file: UploadFile = File(...)):
-    """multipart `file`. На диск не кладётся: в файле имена и телефоны, а
-    папка данных зашифрована не у всех."""
+    """multipart `file`; на диск не кладётся: в файле имена и телефоны."""
     if (deny := api_require(request, PERM_SCHEDULE_ALL)) is not None:
         return deny
     chunks, size = [], 0
@@ -134,7 +127,6 @@ async def api_gcal_source(request: Request):
 
 @router.post("/api/gcal/clear")
 async def api_gcal_clear(request: Request):
-    """«Șterge tot din Google» — только директор."""
     if (deny := api_require(request, PERM_SETTINGS)) is not None:
         return deny
     code = await gcal.clear()

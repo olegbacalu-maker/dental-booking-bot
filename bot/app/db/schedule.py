@@ -219,10 +219,7 @@ async def _insert_note(doctor: str, starts_at: datetime, text: str,
 async def busy_lanes(doctor_key: str, doctor_name: str,
                      start: datetime, end: datetime,
                      rooms: tuple = ()) -> list[list]:
-    """Занятые ИНТЕРВАЛЫ врача по кабинетам: на каждый кабинет из `rooms` свой
-    список [(старт, длительность_мин)], у врача без кабинетов — один список.
-    Старт свободен, пока свободен хоть один список; заметка стойки стоит в
-    каждом. Матчинг и NULL-длительность (60 минут) — как у `_doctor_overlaps`."""
+    """Занятые интервалы врача списком на каждый кабинет: старт свободен, пока свободен хоть один."""
     rows = await _fetch(
         f"""SELECT starts_at, duration_min, room_id, source FROM appointments
            WHERE (doctor_id = ? OR (doctor_id IS NULL AND doctor = ?))
@@ -409,9 +406,8 @@ async def move_appointment(appt_id: int, doctor_id: str, doctor: str,
     пересечение 10:00(60′) с 10:30(60′) — нет.
     ⚠️ `when` — время НОВОГО старта в часах клиники, уже строкой: db не знает
     про часовой пояс (в базе UTC), а летопись читает человек.
-    `rooms` — кабинеты врача, К КОТОРОМУ переносят; `room` — назначенный
-    кабинет. Без него у того же врача запись держит свой кабинет (занят — первый
-    свободный). Без `rooms` кабинет записи не трогается.
+    `rooms` — кабинеты врача, К КОТОРОМУ переносят; без `room` у того же врача
+    запись держит свой кабинет (занят — первый свободный).
     """
     async with _slot_lock():
         rows = await _fetch(
@@ -654,10 +650,8 @@ def _own_room(r, rooms: dict | None) -> str | None:
 
 
 async def pin_doctor_room(doctor_id: str, room: str, label: str) -> None:
-    """Записи врача без кабинета получают тот, который занимали до сих пор
-    (кабинет по умолчанию): иначе смена порядка или состава кабинетов врача
-    молча перенесла бы их в другой кабинет, поверх стоящих там записей.
-    Строка, которой в этом кабинете уже мешает другая, остаётся как была."""
+    """Записи врача без кабинета закрепляются за тем, который занимали: иначе смена
+    списка кабинетов молча перенесла бы их в другой, поверх стоящих там."""
     async with _slot_lock():
         await _execute(
             """UPDATE OR IGNORE appointments SET room_id = ?, room = ?
@@ -666,10 +660,7 @@ async def pin_doctor_room(doctor_id: str, room: str, label: str) -> None:
 
 
 async def set_appt_room(appt_id: int, room: str, rooms: dict | None) -> str:
-    """Перевод стоящей записи в другой кабинет её врача. Коды — как у
-    длительности: `''` — сделано (или запись уже там, тогда без записи и без
-    летописи), `gone` (и для заметки стойки), `closed`, `bad_room`,
-    `conflict` — в этом кабинете у врача на это время уже стоит запись."""
+    """Перевод стоящей записи в другой кабинет её врача; коды — как у длительности."""
     async with _slot_lock():
         rows = await _fetch(
             """SELECT patient_id, doctor, doctor_id, starts_at, duration_min,

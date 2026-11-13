@@ -77,9 +77,7 @@ export interface GcalList {
   days: { date: string; rows: GcalRow[] }[]
   undated: GcalRow[]
   total: number
-  /** Выбранный день списка или пусто — все дни. */
   date: string
-  /** Месяц вкладки: точка — день с событиями этой вкладки. */
   minical: DashMiniCal
   help: string[]
   keep_days: number
@@ -98,7 +96,6 @@ export function whereOf(search: URLSearchParams): GcalWhere {
     month: search.get('month') ?? '' }
 }
 
-/** Параметры адреса отбора; пустые не пишутся. */
 export function queryOf(w: GcalWhere): string {
   const q = new URLSearchParams()
   for (const k of ['f', 'q', 'date', 'month'] as const) if (w[k]) q.set(k, w[k])
@@ -123,8 +120,7 @@ export const gcalApi = {
   clear: () => api.post<GcalList>('/gcal/clear', {}),
 }
 
-/** Заполнение окна записи из строки. Пустой врач остаётся пустым: его
- *  выбирает человек. */
+/** Заполнение окна записи из строки; пустой врач остаётся пустым — его выбирает человек. */
 export function presetOf(r: GcalRow): AddPreset {
   const p = r.preset
   if (!p) return {}
@@ -151,7 +147,6 @@ export function spanOf(r: GcalRow): string {
   return `${r.time}–${pad(Math.floor(end / 60) % 24)}:${pad(end % 60)}`
 }
 
-/** Минуты события после округления длины. */
 export function minutesOf(r: GcalRow): number {
   return Number(r.preset?.duration) || r.minutes
 }
@@ -165,7 +160,6 @@ export function dayTitle(iso: string): string {
   return DAY.format(new Date(y, m - 1, d, 12))
 }
 
-/** Первая строка описания — то, что встаёт в строку события. */
 export function firstLine(body: string): string {
   return body.split(/\r?\n/).map((x) => x.trim()).find(Boolean) ?? ''
 }

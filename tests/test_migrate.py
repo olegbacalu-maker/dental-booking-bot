@@ -115,8 +115,7 @@ _WIDE_ACT = "('confirmed','waiting','arrived')"
 
 _UQ = ("uq_doc_room_slot", "uq_patient_slot", "uq_docid_room_slot")
 
-# Имена, под которыми индексы врача жили до кабинета в ключе: такими они лежат
-# в базе клиники до шага 11, и такими их описывают фикстуры «как было».
+# Имена индексов врача до кабинета в ключе: такими они лежат в базе до шага 11.
 _UQ_OLD = ("uq_doctor_slot", "uq_patient_slot", "uq_doctor_slot_id")
 
 # Куда обязана доехать ЛЮБАЯ база после старта. Из константы, а не числом:
@@ -303,9 +302,8 @@ def _v3_db(dbfile: pathlib.Path) -> sqlite3.Connection:
 
 
 def _room_idx(con: sqlite3.Connection, act: str) -> None:
-    """Слотовые индексы под нынешними именами (кабинет в ключе) с предикатом
-    `act` — база, уже прошедшая шаг 11. Текст свой, а не из `_uq_slot_sql`:
-    фикстура описывает состояние и за константой не уезжает."""
+    """Слотовые индексы под нынешними именами с предикатом `act` — база после шага 11.
+    Текст свой, а не из `_uq_slot_sql`: фикстура за константой не уезжает."""
     for name in (*_UQ, *_UQ_OLD):
         con.execute(f"DROP INDEX IF EXISTS {name}")
     for coldef in ("room_id TEXT", "room TEXT NOT NULL DEFAULT ''"):
@@ -1923,11 +1921,9 @@ def suite_v10_retry(res: Result) -> None:
 
 
 def suite_gcal_retry(res: Result) -> None:
-    """Шаг с таблицами вкладки «Google Calendar» приходит повторно: оборвался
-    перед записью версии (всё уже есть), посередине (источники есть, событий и
-    индексов нет) — и обычное обновление (нет ничего). Старт обязан пройти,
-    вкладка — работать. Номер шага берётся из словаря миграций, а не пишется
-    здесь: шаг переезжает при посадке соседних веток."""
+    """Шаг с таблицами «Google Calendar» приходит повторно: оборвался перед записью
+    версии, посередине — и обычное обновление. Номер шага берётся из словаря
+    миграций: шаг переезжает при посадке соседних веток."""
     step = next(k for k, v in appdb.MIGRATIONS.items() if v is appdb.GCAL_DDL)
     res.ok("каждый оператор шага — IF NOT EXISTS",
            len(appdb.GCAL_DDL) >= 4 and all(" IF NOT EXISTS " in x for x in appdb.GCAL_DDL), "")
@@ -2032,8 +2028,7 @@ def _blocked_room(dbfile: pathlib.Path, *args) -> bool:
 
 
 def _v10_db(dbfile: pathlib.Path) -> sqlite3.Connection:
-    """База клиники на версии 10: три ШИРОКИХ слотовых индекса под прежними
-    именами (кабинета в ключе нет), колонок кабинета у записи ещё нет."""
+    """База на версии 10: три ШИРОКИХ индекса под прежними именами, колонок кабинета нет."""
     con = _base_db(dbfile)
     for coldef in ("doctor TEXT NOT NULL DEFAULT ''", "surfaces TEXT NOT NULL DEFAULT ''",
                    "surface_states TEXT NOT NULL DEFAULT ''", "marks TEXT NOT NULL DEFAULT ''"):
@@ -2048,8 +2043,7 @@ def _v10_db(dbfile: pathlib.Path) -> sqlite3.Connection:
 
 
 def _old_wide_idx(con) -> None:
-    """Индексы врача, какими их клала программа до шага 11 (и какими их вернёт
-    старая версия после отката)."""
+    """Индексы врача до шага 11 — такими их вернёт и старая версия после отката."""
     con.execute(f"""CREATE UNIQUE INDEX uq_doctor_slot
         ON appointments(doctor, starts_at) WHERE status IN {_WIDE_ACT}""")
     con.execute(f"""CREATE UNIQUE INDEX IF NOT EXISTS uq_patient_slot
@@ -2062,12 +2056,9 @@ def _old_wide_idx(con) -> None:
 def suite_v11_rooms(res: Result) -> None:
     """Шаг 11: индексы врача получают кабинет в ключе, прежние два снимаются.
 
-    Три вопроса. Обычная база версии 10 доезжает молча и защиту не теряет.
-    Шаг переживает ПОВТОР — и по базе, где он оборвался посередине (новый
-    индекс лёг, прежний ещё не снят), и по базе, где у врача уже стоит пара
-    записей на один час в двух кабинетах: старт обязан пройти, а пара —
-    остаться законной. И след отката: старая версия программы кладёт прежние
-    индексы обратно — нынешняя снимает их снова, без строки в летописи.
+    База версии 10 доезжает молча; шаг переживает повтор (оборван посередине; у
+    врача уже пара записей на один час в двух кабинетах); прежние индексы, которые
+    вернула старая версия после отката, снимаются снова без строки в летописи.
     """
     tz = ZoneInfo("Europe/Chisinau")
     at = datetime(2026, 1, 21, 9, 0, tzinfo=tz).astimezone(
@@ -2171,9 +2162,8 @@ def suite_v11_rooms(res: Result) -> None:
     finally:
         _rmtree_settled(work)
 
-    # конфликт под НОВЫМ ключом: две записи без кабинета на один час (пару
-    # пропустил узкий предикат). Новый индекс ложится узким, прежний узкий
-    # снимается, директор видит, что развести, — как на шаге 4.
+    # конфликт под НОВЫМ ключом: две записи без кабинета на один час. Новый индекс
+    # ложится узким, директор видит, что развести, — как на шаге 4.
     work = pathlib.Path(tempfile.mkdtemp(prefix="dp_mig_v11c_"))
     try:
         dbfile = work / "dental.db"
@@ -2211,8 +2201,7 @@ def suite_v11_rooms(res: Result) -> None:
 
 
 def suite_v11_rooms_crypt(res: Result) -> None:
-    """Шаг 11 на зашифрованной картотеке (sqlcipher3): индексы с выражением в
-    ключе кладутся и перекладываются тем же сторожем, прежние снимаются."""
+    """Шаг 11 на зашифрованной картотеке (sqlcipher3): индексы с выражением в ключе."""
     from app.core import dbkey  # noqa: E402
     import sqlcipher3.dbapi2 as sqlcipher  # noqa: E402
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_mig_v11x_"))

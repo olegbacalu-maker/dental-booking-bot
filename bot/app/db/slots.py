@@ -134,9 +134,8 @@ def _uq_slot_sql(act_sql: str, names: tuple = ()) -> list[str]:
 # навсегда (08-16).
 _UQ_SLOT = ("uq_doc_room_slot", "uq_patient_slot", "uq_docid_room_slot")
 
-# Индексы врача без кабинета в ключе и их преемники. Снимаются, только когда
-# преемник уже лежит: до того старый индекс и есть защита. Старая версия
-# программы после отката кладёт их снова — отсюда проверка на каждом старте.
+# Прежние индексы врача и их преемники. Снимаются, только когда преемник уже
+# лежит; старая версия после отката кладёт их снова — отсюда сверка на каждом старте.
 _UQ_RETIRED = {"uq_doctor_slot": "uq_doc_room_slot",
                "uq_doctor_slot_id": "uq_docid_room_slot"}
 
@@ -295,7 +294,6 @@ _UQ_WAS = {new: old for old, new in _UQ_RETIRED.items()}
 
 
 def _uq_stale(state: dict[str, str]) -> list[str]:
-    """Снятые с вооружения индексы, которые в базе ещё лежат."""
     return [name for name in _UQ_RETIRED if name in state]
 
 
@@ -653,8 +651,7 @@ async def _slot_guard_startup() -> None:
         return
     if _uq_matches(state, _ACT_SQL):
         if _uq_stale(state):
-            # прежние индексы вернула старая версия после отката; снять их —
-            # не починка, строки в летописи нет
+            # прежние индексы вернула старая версия после отката: снять их — не починка, без летописи
             await _slot_guard_apply()
         return                       # всё на месте — обычный старт
     # ⚠️ Причина едет ОТСЮДА: только здесь ещё видно, чего не хватало ДО работы.
@@ -744,10 +741,7 @@ async def _patient_busy_at(pid: int, starts_at: datetime,
 async def _patient_busy(pid: int, doctor_id: str | None, doctor: str,
                         starts_at: datetime, duration_min: int,
                         exclude_id: int | None = None) -> bool:
-    """Занят ли пациент: тот же старт у кого угодно либо пересечение по
-    минутам у ЭТОГО врача (в двух его кабинетах сразу человек не сидит). У
-    разных врачей пересечение намеренно не ищем — пациента ставят к двум
-    врачам подряд."""
+    """Тот же старт у кого угодно либо пересечение по минутам у ЭТОГО врача (у разных не ищем)."""
     if await _patient_busy_at(pid, starts_at, exclude_id):
         return True
     return any(r["patient_id"] == pid for r in await _doctor_overlaps(
@@ -757,7 +751,6 @@ async def _patient_busy(pid: int, doctor_id: str | None, doctor: str,
 async def _doctor_overlaps(doctor_id: str | None, doctor: str,
                            starts_at: datetime, duration_min: int,
                            exclude_id: int | None = None) -> list:
-    """Активные записи врача, пересекающие интервал по минутам."""
     from datetime import timedelta
     pad = timedelta(minutes=240)
     rows = await _fetch(
@@ -775,14 +768,11 @@ async def _doctor_overlaps(doctor_id: str | None, doctor: str,
 
 
 def _lane(room_id: str | None, own: tuple) -> str:
-    """Кабинет, который запись занимает у врача с кабинетами `own`: свой, пока
-    он числится за врачом, иначе первый (записи без кабинета и в убранном
-    кабинете). Пусто — у врача кабинетов нет."""
+    """Кабинет, который запись занимает: свой, пока числится за врачом, иначе первый."""
     return room_id if room_id in own else (own[0] if own else "")
 
 
 def _room_label(rooms: dict | None, lane: str | None) -> str:
-    """Имя кабинета для снимка в записи."""
     return str(((rooms or {}).get("names") or {}).get(lane, "")) if lane else ""
 
 
@@ -791,12 +781,8 @@ async def _pick_room(doctor_id: str | None, doctor: str, starts_at: datetime,
                      room: str | None = None, prefer: str | None = None,
                      exclude_id: int | None = None,
                      note: bool = False) -> str | None:
-    """В какой кабинет врача ложится интервал; None — некуда (занято).
-
-    `room` — кабинет назначен, другой не подставляется; иначе `prefer`
-    (кабинет, где запись уже стоит), затем первый свободный по порядку. Заметка
-    стойки занимает врача целиком — в обе стороны. Без `rooms` у врача одна
-    запись в один момент. Под _slot_lock, когда за ответом следует запись."""
+    """В какой кабинет врача ложится интервал; None — некуда. Назначенный `room` другим
+    не подменяется. Под _slot_lock, когда за ответом следует запись."""
     own = tuple((rooms or {}).get("own") or ())
     if room and room not in own:
         return None
@@ -824,9 +810,7 @@ async def _conflicts(doctor_id: str | None, doctor: str, starts_at: datetime,
 async def room_busy(room_id: str | None, starts_at: datetime, duration_min: int,
                     doctor_id: str | None, rooms: dict | None,
                     exclude_id: int | None = None) -> bool:
-    """Стоит ли в этом кабинете в это время запись ДРУГОГО врача. Повод
-    предупредить, не отказать: клиники делят кабинет между врачами по сменам.
-    Заметки стойки не считаются."""
+    """Запись ДРУГОГО врача в этом кабинете в это время: повод предупредить, не отказать."""
     from datetime import timedelta
     if not room_id:
         return False
@@ -866,10 +850,7 @@ async def slot_probe(doctor_id: str | None, doctor: str, starts_at: datetime,
                      duration_min: int, rooms: dict | None = None,
                      room: str | None = None, exclude_id: int | None = None,
                      pid: int | None = None) -> dict:
-    """Занятость «на сухую» — правилом брони, без замка и без записи (для
-    предпросмотра; правду скажет сама бронь): `room` — куда легла бы запись
-    (None — занято), `room_busy` — кабинет занят другим врачом, `dup` — пациент
-    `pid` в это время занят."""
+    """Занятость «на сухую», без замка и без записи: для предпросмотра."""
     lane = await _pick_room(doctor_id, doctor, starts_at, duration_min, rooms,
                             room, exclude_id=exclude_id)
     return {

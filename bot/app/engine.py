@@ -108,8 +108,7 @@ DOCTOR_META: dict[str, dict] = {}   # color / phone / room / email / photo / sta
 # держится в сетке того дня, где у него есть приёмы (урок v1.8.2 — данные
 # не должны исчезать молча).
 DOCTOR_STATES = ("activ", "concediu", "arhivat")
-# Кабинеты клиники: id → имя. Справочник `rooms` профиля плюс строка `room`
-# врача без списка — она читается на лету как его единственный кабинет.
+# id → имя: справочник `rooms` плюс строка `room` врача без списка (его единственный кабинет)
 ROOMS: dict[str, str] = {}
 # Кабинеты врача по порядку; первый — по умолчанию.
 DOCTOR_ROOMS: dict[str, tuple[str, ...]] = {}
@@ -149,9 +148,7 @@ RO_DOW = ["Lu", "Ma", "Mi", "Jo", "Vi", "Sâ", "Du"]
 
 
 def room_key(name: str) -> str:
-    """Ключ кабинета из его имени: кабинет, прочитанный на лету из строки
-    `room`, после сохранения врача получает тот же ключ, и записи остаются в
-    нём. Регистр, диакритика и знаки имён не различаются."""
+    """Ключ считается из имени — тем же правилом и для строки `room`, прочитанной на лету."""
     flat = unicodedata.normalize("NFKD", str(name or "")).casefold()
     slug = re.sub(r"[^a-z0-9]+", "-", flat).strip("-")
     if not slug:
@@ -180,7 +177,6 @@ def _read_rooms(cfg: dict) -> None:
 
 
 def doctor_rooms(dk: str | None) -> tuple[str, ...]:
-    """Кабинеты врача по порядку, первый — по умолчанию."""
     return DOCTOR_ROOMS.get(dk or "", ())
 
 
@@ -189,20 +185,17 @@ def room_name(rid: str | None) -> str:
 
 
 def room_list(dk: str | None) -> list[dict]:
-    """Кабинеты врача для экрана: [{id, name}]."""
     return [{"id": rid, "name": ROOMS[rid]} for rid in doctor_rooms(dk)]
 
 
 def room_plan(dk: str | None) -> dict:
-    """Кабинеты для проверки занятости (`db` профиля не читает): `own` —
-    этого врача, `names` — имена для снимка, `by_doctor` — всех врачей."""
+    """Кабинеты для проверки занятости: `db` профиля не читает, их приносит вызывающий."""
     return {"own": doctor_rooms(dk), "names": dict(ROOMS),
             "by_doctor": dict(DOCTOR_ROOMS)}
 
 
 def appt_room(r) -> str:
-    """Кабинет, который запись занимает сейчас, — то же правило, что
-    `db._lane`: свой, пока числится за врачом, иначе кабинет по умолчанию."""
+    """Кабинет, который запись занимает сейчас; то же правило у `db._lane` — менять парой."""
     own = doctor_rooms(r.get("doctor_id"))
     rid = r.get("room_id") or ""
     return rid if rid in own else (own[0] if own else "")
@@ -224,7 +217,6 @@ def apply_config(cfg: dict) -> None:
     for d in cfg["doctors"]:
         DOCTORS[d["id"]] = d["name"]
         DOCTOR_SPEC[d["id"]] = d.get("spec", "")
-        # `room` — имя кабинета по умолчанию
         first = doctor_rooms(d["id"])[:1]
         DOCTOR_META[d["id"]] = {"color": d.get("color", ""), "phone": d.get("phone", ""),
                                 "room": ROOMS[first[0]] if first else "",
@@ -364,8 +356,8 @@ def day_slots(d: date) -> list[datetime]:
 START_STEP = 5
 OFFER_STEP = 15
 
-# Потолок — окно, в котором `db/slots._conflicts` ищет соседей: визит длиннее
-# окна проверка занятости не увидит.
+# Потолок не больше окна `pad`, в котором `db/slots.py` ищет соседей: визит
+# длиннее окна проверка занятости не увидит.
 DUR_STEP = 5
 DUR_MAX = 240
 
@@ -378,12 +370,10 @@ def start_ok(dt: datetime) -> bool:
 
 
 def dur_ok(minutes: int) -> bool:
-    """Одно правило длительности на запись, окно визита и настройки услуг."""
     return DUR_STEP <= minutes <= DUR_MAX and minutes % DUR_STEP == 0
 
 
 def offer_step(duration: int) -> int:
-    """Шаг, которым предлагаются свободные старты услуги этой длительности."""
     return START_STEP if duration < OFFER_STEP else OFFER_STEP
 
 
@@ -534,14 +524,8 @@ MOVE_FIT = 30
 
 def place_refusal(dk: str, start: datetime, minutes: int, *,
                   moving: bool = False) -> str:
-    """Можно ли поставить визит врачу: код отказа из `MSG_BANNER` или "".
-
-    Врач, сетка стартов и рабочие окна — одно правило на все входы. Занятость
-    проверяет `db` при вставке, длительность снаружи — `dur_ok` у вызывающего.
-    `moving` — визит уже существует: в окне лежат только первые `MOVE_FIT`
-    минут, а график врача проверяется и у прошедшего старта (новую запись
-    задним числом вносят и после того, как график сузили).
-    """
+    """Можно ли поставить визит врачу: код отказа из `MSG_BANNER` или "". Занятость и
+    длительность сюда не входят; `moving` — визит уже стоит (в окне — первые `MOVE_FIT` минут)."""
     if dk not in DOCTORS:
         return "bad"
     if not DOCTOR_META.get(dk, {}).get("active", True):
@@ -557,8 +541,6 @@ def place_refusal(dk: str, start: datetime, minutes: int, *,
 
 
 async def free_starts(doc_key: str, d: date, duration: int) -> list[datetime]:
-    """Свободные СТАРТЫ для услуги данной длительности: сетка `offer_step`
-    внутри рабочих окон врача, интервал влезает в окно и не пересекает занятые."""
     now = datetime.now(TZ)
     day_start = datetime(d.year, d.month, d.day, 0, 0, tzinfo=TZ)
     day_end = day_start + timedelta(days=1)

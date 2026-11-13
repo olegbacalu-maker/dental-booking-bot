@@ -653,7 +653,6 @@
  .gcol[data-lanes="3"]::before{background:
    linear-gradient(90deg,transparent calc(33.33% - .5px),var(--line2) 0,var(--line2) calc(33.33% + .5px),transparent 0),
    linear-gradient(90deg,transparent calc(66.67% - .5px),var(--line2) 0,var(--line2) calc(66.67% + .5px),transparent 0)}
- /* метка кабинета на блоке: коротко, перед именем */
  .gappt .groom{display:inline-block;margin-right:4px;padding:0 4px;border-radius:var(--r-xs);
    background:var(--panel);box-shadow:inset 0 0 0 1px var(--line);color:var(--text2);
    font-size:var(--fs-micro);font-weight:600;line-height:1.5;vertical-align:1px}

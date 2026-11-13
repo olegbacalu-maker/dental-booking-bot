@@ -1,19 +1,7 @@
 """Чтение файла календаря (.ics или .zip экспорта Google Calendar).
 
-Модуль чистый, как sms_rule.py: без импортов проекта, без диска и окружения —
-байты на входе, события на выходе. Пояс клиники приходит аргументом.
-
-Два шага:
-  read(raw, tz)                      -> [Calendar]    что лежит в файле
-  occurrences(cal, win_from, win_to) -> [Occurrence]  готовые события: одиночные
-                                        как есть, серии развёрнуты в окне
-
-Правило модуля: ничего не пропадает молча. Файл, который читать нельзя, —
-Refused с кодом. Событие, которое читать не умеем (ежегодная серия, незнакомый
-пояс, битая дата), — Occurrence с problem и названием: человек внесёт его
-руками. Слова для экрана здесь не живут: коды причин переводит тот, кто
-показывает.
-"""
+Модуль чистый, и ничего не пропадает молча: нечитаемый файл — Refused с кодом,
+нечитаемое событие — Occurrence с problem и названием (человек внесёт его руками)."""
 from __future__ import annotations
 
 import calendar
@@ -28,8 +16,7 @@ from zoneinfo import ZoneInfo
 MAX_FILE = 20 * 1024 * 1024
 MAX_EVENTS = 20000
 MAX_STEPS = 5000
-# Архив «все календари» — несколько файлов; распакованное вместе ограничено
-# кратным потолка одного файла.
+# Архив «все календари»: распакованное вместе ограничено кратным потолка одного файла.
 ZIP_RATIO = 4
 ZIP_CALENDARS = 50
 
@@ -89,7 +76,6 @@ class Unparsed(Exception):
 
 @dataclass
 class Event:
-    """VEVENT как он записан в файле."""
     uid: str = ""
     rid: date | datetime | None = None
     rid_range: bool = False
@@ -118,8 +104,7 @@ class Calendar:
 
 @dataclass(frozen=True)
 class Occurrence:
-    """Готовое событие — вход конвертера. Его же соберёт синхронизация по API:
-    там серии развёрнуты самим Google, а ключ строится тем же occurrence_key."""
+    """Готовое событие — вход конвертера; тот же вид соберёт и синхронизация по API."""
     key: str
     start: datetime | None = None
     minutes: int = 0
@@ -137,13 +122,10 @@ class Occurrence:
 
 
 def occurrence_key(uid: str, day: date | None = None) -> str:
-    """Ключ события для повторного импорта. У вхождения серии — дата, не
-    момент: сдвиг времени всей серии оставляет ключи на месте, и повторный
-    импорт видит «изменилась», а не пачку новых рядом со старыми."""
+    """Ключ события для повторного импорта. У вхождения серии — дата, не момент:
+    сдвиг времени всей серии оставляет ключи на месте."""
     return uid if day is None else f"{uid}|{day:%Y%m%d}"
 
-
-# ---------- строки ----------
 
 _BOM = b"\xef\xbb\xbf"
 
@@ -211,8 +193,6 @@ def plain(text: str) -> str:
     return "\n".join(r for r in rows if r)
 
 
-# ---------- время ----------
-
 _TZID = re.compile(r"[A-Za-z0-9_+\-]+(?:/[A-Za-z0-9_+\-]+)*")
 _DATE = re.compile(r"(\d{4})(\d\d)(\d\d)")
 _STAMP = re.compile(r"(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d)(Z?)")
@@ -229,8 +209,7 @@ def zone(name: str) -> ZoneInfo | None:
 
 
 def _when(value: str, params: dict, cal_tz: ZoneInfo | None) -> date | datetime:
-    """Дата «весь день» либо момент с поясом. Секунды отбрасываются: журнал
-    считает минутами."""
+    """Дата «весь день» либо момент с поясом; секунды отбрасываются: журнал считает минутами."""
     v = value.strip()
     try:
         m = _DATE.fullmatch(v)
@@ -268,8 +247,6 @@ def _duration(value: str) -> timedelta:
     td = timedelta(weeks=w, days=d, hours=h, minutes=mi, seconds=s)
     return -td if m.group(1) == "-" else td
 
-
-# ---------- файл ----------
 
 def _header(lines: list[str], name: str) -> str | None:
     head = name + ":"
@@ -318,8 +295,7 @@ def _set(ev: Event, name: str, params: dict, value: str, cal_tz: ZoneInfo | None
 
 def parse(raw: bytes, tz: ZoneInfo, *, max_bytes: int = MAX_FILE,
           max_events: int = MAX_EVENTS, source: str = "") -> Calendar:
-    """Один файл .ics. tz — пояс клиники: в нём читается время без пояса,
-    когда календарь своего пояса не назвал."""
+    """Один файл .ics; `tz` — пояс клиники для времени без пояса."""
     if len(raw) > max_bytes:
         raise Refused(TOO_BIG)
     lines = _lines(raw)
@@ -365,9 +341,7 @@ def parse(raw: bytes, tz: ZoneInfo, *, max_bytes: int = MAX_FILE,
 
 def read(raw: bytes, tz: ZoneInfo, *, max_bytes: int = MAX_FILE,
          max_events: int = MAX_EVENTS) -> list[Calendar]:
-    """Файл клиники: .ics либо архив с несколькими календарями. Вид файла
-    опознаётся содержимым, не именем. У календаря архива, который не
-    прочитался, заполнено refused; если не прочитался ни один — Refused."""
+    """Файл клиники: .ics либо архив; вид опознаётся содержимым, не именем."""
     if len(raw) > max_bytes:
         raise Refused(TOO_BIG)
     if raw[:2] != b"PK":
@@ -404,8 +378,6 @@ def read(raw: bytes, tz: ZoneInfo, *, max_bytes: int = MAX_FILE,
     return out
 
 
-# ---------- серии ----------
-
 _DAYS = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
 _RULE_KEYS = {"FREQ", "INTERVAL", "BYDAY", "BYMONTHDAY", "COUNT", "UNTIL", "WKST"}
 _BYDAY = re.compile(r"([+-]?\d{1,2})?(MO|TU|WE|TH|FR|SA|SU)")
@@ -421,9 +393,8 @@ def _number(rule: dict, key: str, default: int | None) -> int | None:
 
 
 def _rule(text: str) -> dict:
-    """Разобранное правило повтора. Всё, чего не умеет диалог повтора Google
-    кроме «ежегодно», сюда не входит и уходит в «не разобрано» целой серией:
-    половина правила, понятая по-своему, дала бы записи не в те дни."""
+    """Разобранное правило повтора. Чего не умеем — уходит в «не разобрано» целой
+    серией: половина правила, понятая по-своему, дала бы записи не в те дни."""
     rule: dict = {}
     for part in text.split(";"):
         if not part.strip():
@@ -574,8 +545,6 @@ def _series_day(when: date | datetime, tz) -> date:
     return when
 
 
-# ---------- готовые события ----------
-
 def _minutes(ev: Event) -> int:
     if ev.end is not None:
         if not isinstance(ev.end, datetime) or not isinstance(ev.start, datetime):
@@ -612,10 +581,8 @@ def _one(ev: Event, key: str, start, *, series: bool, moved: bool = False,
 
 
 def occurrences(cal: Calendar, win_from: datetime, win_to: datetime) -> list[Occurrence]:
-    """Готовые события календаря. Одиночные и изменённые вхождения отдаются
-    все, в том числе прошедшие, — что с ними делать, решает конвертер. Серия
-    разворачивается только в окне [win_from, win_to]: без него серия без конца
-    дала бы записи на годы."""
+    """Готовые события: одиночные — все, и прошедшие (решает конвертер); серия — только
+    в окне, иначе серия без конца дала бы записи на годы."""
     masters: dict[str, Event] = {}
     changed: dict[str, set] = {}
     for ev in cal.events:

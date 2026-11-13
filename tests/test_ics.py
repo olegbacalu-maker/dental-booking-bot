@@ -1,14 +1,10 @@
 """Чтение файла календаря (`app/core/ics.py`): сервер не поднимается.
 
-Образцы `tests/fixtures/ics/*.tpl` — шаблоны: `{D3}` в них — дата «опорный
-понедельник + 3 дня», а опорный понедельник считается от переданного «сейчас».
-Жёсткие даты сгнили бы за неделю: все события ушли бы в прошлое, и проверки
-вида «лишнего нет» позеленели бы на пустом списке. Поэтому наборы гоняют
-образцы и от настоящего «сейчас», и от нескольких назначенных (по обе стороны
-перевода часов), и первой проверкой требуют, что образцы нашлись.
-
-Таблица правил повтора — наоборот, с буквальными датами: окно развёртки
-приходит аргументом, и от сегодняшнего дня она не зависит.
+Образцы `tests/fixtures/ics/*.tpl` — шаблоны с датами от переданного «сейчас»:
+жёсткие даты за неделю ушли бы в прошлое, и проверки «лишнего нет» позеленели
+бы на пустом списке. Наборы гоняют образцы от настоящего «сейчас» и от
+назначенных (по обе стороны перевода часов). Таблица правил повтора — с
+буквальными датами: окно развёртки приходит аргументом.
 """
 import ast
 import io
@@ -30,8 +26,6 @@ ALLOWED_IMPORTS = {"__future__", "calendar", "html", "io", "re", "zipfile",
                    "dataclasses", "datetime", "zoneinfo"}
 TEMPLATES = ("basic", "series", "shared")
 
-
-# ---------- образцы ----------
 
 def base_day(now: datetime) -> date:
     """Опорный понедельник: через одну-две недели от «сейчас» — дни недели
@@ -113,8 +107,6 @@ def occs(raw: bytes, win_from: datetime, win_to: datetime) -> list:
     (cal,) = ics.read(raw, TZ)
     return ics.occurrences(cal, win_from, win_to)
 
-
-# ---------- файл ----------
 
 def suite_file(res: Result) -> None:
     found = [n for n in TEMPLATES if (FIX / f"{n}.ics.tpl").is_file()]
@@ -331,8 +323,6 @@ def _zip(res: Result) -> None:
     res.check("архив: потолок числа календарей", refusal(lambda: ics.read(many, TZ)), ics.TOO_BIG)
 
 
-# ---------- правила повтора: буквальные даты ----------
-
 WIN = (datetime(2026, 11, 12, 10, 0, tzinfo=TZ), datetime(2027, 5, 11, 10, 0, tzinfo=TZ))
 
 # (что проверяется, DTSTART по Кишинёву, правило, ожидаемые дни по порядку)
@@ -471,8 +461,6 @@ def suite_rrule(res: Result) -> None:
     res.check("у каждой причины отказа серии есть строка таблицы", sorted(series_codes - codes), [])
 
 
-# ---------- серии образца: удалённое, изменённое, отменённое ----------
-
 def suite_series(res: Result) -> None:
     res.ok("образец серий нашёлся", (FIX / "series.ics.tpl").is_file())
     for now in nows():
@@ -513,8 +501,6 @@ def suite_series(res: Result) -> None:
         res.ok(f"{tag} давно закончившаяся серия ничего не даёт", "s6" not in by)
         res.check(f"{tag} ключи не повторяются", len({o.key for o in got}), len(got))
 
-
-# ---------- чистота модуля ----------
 
 def pure(res: Result, module, allowed: set, project: set) -> None:
     res.ok(f"{module.name}: модуль нашёлся", module.is_file(), str(module))

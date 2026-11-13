@@ -1,11 +1,8 @@
 # -*- coding: utf-8 -*-
 """Кабинет у записи: врач ведёт по записи в каждом своём кабинете.
 
-Главное, что стережётся: у врача с ОДНИМ кабинетом (и без кабинета вовсе) не
-меняется ничего — вторая запись на занятое время по-прежнему `conflict`; у
-врача с двумя — вторая проходит и ложится во второй кабинет, третья отбита.
-Заметка стойки занимает врача целиком, пациент в двух кабинетах одного врача
-сразу не сидит, а кабинет, занятый другим врачом, — предупреждение, не отказ.
+Главное: у врача с ОДНИМ кабинетом (и без кабинета) не меняется ничего —
+вторая запись на занятое время по-прежнему `conflict`.
 """
 from __future__ import annotations
 
@@ -29,7 +26,6 @@ def _add(c: Client, day: str, time: str, name: str, phone: str,
 
 
 def _blocks(c: Client, day: str, dk: str = "d2") -> dict:
-    """Блоки колонки врача по имени пациента."""
     col = next(x for x in day_model(c, day)["canvas"]["columns"] if x["id"] == dk)
     return {b.get("name") or b.get("text"): b for b in col["blocks"]}
 
@@ -43,7 +39,6 @@ def suite_rule(res: Result) -> None:
     with Server() as s:
         c = Client(s.url).login()
 
-        # --- один кабинет и ни одного: как было ---
         day = _d(2)
         res.check("врач без кабинета: первая запись", _add(c, day, "10:00", "Fara Unu", "022700001", "d3"), "ok")
         res.check("врач без кабинета: вторая на тот же старт — conflict",
@@ -59,7 +54,6 @@ def suite_rule(res: Result) -> None:
                   _add(c, day, "10:30", "Unu Trei", "022700013", "d4", room=one[0]), "conflict")
         res.check("один кабинет: запись несёт его", _blocks(c, day, "d4")["Unu Unu"]["room_id"], one[0])
 
-        # --- два кабинета ---
         r1, r2 = set_rooms(c, "d2", "1", "3")
         res.check("первая запись — в кабинет по умолчанию",
                   (_add(c, day, "10:00", "Doi Unu", "022700021"), _blocks(c, day)["Doi Unu"]["room_id"]),
@@ -86,7 +80,6 @@ def suite_rule(res: Result) -> None:
         res.check("кабинет другого врача — тоже bad_room",
                   _add(c, day, "12:00", "Ales Trei", "022700033", room=one[0]), "bad_room")
 
-        # --- заметка стойки занимает врача целиком ---
         day = _d(4)
         note = c.post_json("/api/schedule/notes", {"date": day, "time": "14:00", "doctor": "d2",
                                                    "text": "Lipsește"})
@@ -131,7 +124,6 @@ def suite_rule(res: Result) -> None:
         res.check("тот же пациент к другому врачу на тот же старт — dup, как было",
                   _add(c, day, "10:00", "Acelasi Om", "022700060", "d4"), "dup")
 
-        # --- кабинет занят другим врачом: предупреждение, запись проходит ---
         day = _d(7)
         shared = set_rooms(c, "d3", "1")
         res.check("кабинет с тем же именем — тот же кабинет", shared[0], r1)
@@ -145,7 +137,6 @@ def suite_rule(res: Result) -> None:
 
 
 def suite_commands(res: Result) -> None:
-    """Смена кабинета записи, перенос, возврат статуса, длительность."""
     with Server() as s:
         c = Client(s.url).login()
         r1, r2 = set_rooms(c, "d2", "1", "3")
@@ -224,8 +215,6 @@ def suite_commands(res: Result) -> None:
 
 
 def suite_models(res: Result) -> None:
-    """Контракт экрана: колонка, блок, карточка, повестка, форма, кресло,
-    свободные старты, подсказка."""
     with Server() as s:
         c = Client(s.url).login()
         day = clinic_today().isoformat()
@@ -278,7 +267,6 @@ def suite_models(res: Result) -> None:
                   (sorted(x["name"] for x in j["chairs"]), j["stale"]), (["Model Doi", "Model Unu"], []))
         res.ok("`chair` — один из сидящих", (j["chair"] or {}).get("name") in ("Model Unu", "Model Doi"), "")
 
-        # врачи: список и фиша
         docs = json.loads(c.get("/api/doctors").body)["data"]["doctors"]
         d2 = next(x for x in docs if x["id"] == "d2")
         res.check("список врачей: кабинеты и имя первого", (d2["rooms"], d2["room"]), (want, "1"))
@@ -332,8 +320,7 @@ def _doc_body(card: dict, **over) -> dict:
 
 
 def suite_profile(res: Result) -> None:
-    """Профиль: старая строка `room` читается на лету, список кабинетов
-    заводится из фиши врача."""
+    """Старая строка `room` читается на лету, список кабинетов заводится из фиши врача."""
     # профиль читается на старте: первый сервер только даёт папку с файлом
     with Server() as s0:
         cfg = json.loads(s0.clinic.read_text(encoding="utf-8"))
@@ -399,9 +386,7 @@ def suite_profile(res: Result) -> None:
                       [x["id"] for x in other["rooms_all"]], ["r-cabinet-6", "r-chirurgie"])
 
 def suite_lanes(res: Result) -> None:
-    """Канва: у врача с несколькими кабинетами колонка — дорожки кабинетов.
-    Место блока говорит, в каком он кабинете, и свободная дорожка остаётся
-    открытой для щелчка; у врача с одним кабинетом раскладка прежняя."""
+    """Канва: у врача с несколькими кабинетами колонка — дорожки кабинетов."""
     with Server() as s:
         c = Client(s.url).login()
         day = _d(1)
@@ -436,8 +421,7 @@ def suite_lanes(res: Result) -> None:
         nb = _blocks(c, day).get("Pauza") or {}
         res.check("заметка стойки — во всю колонку", (note.msg, nb.get("col"), nb.get("of")),
                   ("ok_note", 0, 1))
-        # ширина блока — дело его дорожки: завершённая и новая запись на один
-        # час делят первый кабинет, второму кабинету это ширину не режет
+        # завершённая и новая запись на один час делят первый кабинет; второму это ширину не режет
         day2 = _d(2)
         _add(c, day2, "10:00", "Lat Vechi", "022730011", room=r1)
         _post(c, _blocks(c, day2)["Lat Vechi"]["id"], "status", {"to": "done"}, day2)
@@ -463,10 +447,9 @@ def suite_lanes(res: Result) -> None:
                   [(x, 1, 2), (y, 0, 2)])
 
 def suite_move_overlap(res: Result) -> None:
-    """Перенос и смена кабинета в кабинет, где у этого же врача уже идёт
-    визит: отказ по ПЕРЕСЕЧЕНИЮ интервалов, а не только по совпавшему старту.
-    Уникальный индекс видит один старт в одном кабинете — пересечение с другим
-    началом или длиной держит только прикладная проверка."""
+    """Перенос и смена кабинета туда, где у этого же врача уже идёт визит: отказ по
+    ПЕРЕСЕЧЕНИЮ интервалов. Уникальный индекс видит только совпавший старт —
+    пересечение держит прикладная проверка."""
     with Server() as s:
         c = Client(s.url).login()
         day = _d(1)
@@ -497,8 +480,7 @@ def suite_move_overlap(res: Result) -> None:
                   [("10:30", r2), ("14:20", r2)])
         res.check("впритык за визитом — можно",
                   _post(c, a2, "move", {**mv, "time": "11:00", "room": r1}, day), "ok_move")
-        # порядок кабинетов поменяли: запись без кабинета осталась в своём,
-        # и правило по-прежнему отказывает
+        # порядок кабинетов поменяли: запись без кабинета осталась в своём
         set_rooms(c, "d2", "3", "1")
         res.check("после смены порядка: в кабинет старой записи — conflict, она на месте",
                   (_post(c, a3, "move", {**mv, "time": "14:30", "room": r1}, day),

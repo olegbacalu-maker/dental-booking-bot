@@ -239,14 +239,8 @@ async def admin_doctor_card(request: Request, dk: str, msg: str = ""):
 
 
 def _pick_rooms(dk: str, room: str, rooms: list | None) -> tuple[list, dict] | None:
-    """Кабинеты врача из формы: (ключи по порядку, {ключ: имя}); None — список
-    не годится (кабинет без имени, неизвестный ключ, больше `eng.ROOMS_MAX`).
-
-    Пункт `rooms` — ключ из справочника либо имя нового (`{"id": …}`,
-    `{"name": …}` или строкой); имя уже заведённого кабинета — тот же кабинет.
-    `rooms is None` — пришла одна строка `room`: она и есть единственный
-    кабинет, а у врача с несколькими кабинеты не трогаются (поля списка в
-    форме не было)."""
+    """Кабинеты врача из формы: (ключи по порядку, {ключ: имя}); None — список не годится.
+    `rooms is None` — список не сообщали: у врача с несколькими кабинеты не трогаются."""
     if rooms is None:
         cur = eng.doctor_rooms(dk)
         if len(cur) > 1:
@@ -320,8 +314,7 @@ async def _save_doctor(dk: str, *, name: str, spec: str = "", room: str = "",
                            phone=phone.strip()[:30], email=email.strip()[:80],
                            color=col, work_from=wf, work_to=wt, status=st)
              if d["id"] == dk else d) for d in eng.CONFIG["doctors"]]
-    # список кабинетов меняется: записи без кабинета закрепляются за тем, в
-    # котором читались до сих пор, — новый порядок их не двигает
+    # список меняется: записи без кабинета закрепляются за тем, в котором читались до сих пор
     was = eng.doctor_rooms(dk)
     if ids and tuple(ids) != was:
         keep = was[0] if was else ids[0]
