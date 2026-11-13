@@ -45,7 +45,6 @@ export interface DayAppt {
   /** Визит занимает интервал (те же статусы, что считает сервер). */
   busy: boolean
   movable: boolean
-  /** Кабинет, который запись занимает сейчас. */
   room_id?: string
   room?: string
 }
@@ -88,7 +87,6 @@ export interface DayColumn {
   name: string
   /** Специальность; у выключенного врача сюда дописано «· inactiv». */
   spec: string
-  /** Кабинеты врача по порядку — у врачей формы записи (`form.doctors`). */
   rooms?: { id: string; name: string }[]
 }
 
@@ -128,8 +126,7 @@ export interface VisitCardView {
    *  процедурой и правит карандашом по тому же флагу `service_edit`. Нет поля
    *  — строки длительности нет. */
   dur?: number
-  /** Кабинет, который запись занимает сейчас (`visits.room_fields`); окно
-   *  показывает его только у врача с несколькими кабинетами. */
+  /** Кабинет, который запись занимает сейчас; окно показывает его у врача с несколькими. */
   room_id?: string
   room?: string
 }
@@ -453,7 +450,6 @@ export const day = {
     api.post<DayModel>(
       `/schedule/appointments/${id}/duration${screen(at, doctor, f)}`, { minutes }),
 
-  /** Перевод записи в другой кабинет её врача: ответ — свежий день. */
   room: (at: string, doctor: string, f: string, id: number, room: string) =>
     api.post<DayModel>(
       `/schedule/appointments/${id}/room${screen(at, doctor, f)}`, { room }),

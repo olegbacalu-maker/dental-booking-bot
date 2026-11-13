@@ -86,10 +86,8 @@ interface Props {
 
 export interface AddPerson { id: number; name: string; phone: string }
 
-/** Чем окно открывается заполненным. */
 export interface AddPreset {
   date?: string
-  /** «HH:MM» по сетке стартов. */
   time?: string
   duration?: number
   doctor?: string
@@ -127,7 +125,6 @@ export function AddDialog({
   const [pid, setPid] = useState<number | null>(preset?.pid ?? null)
   const person = people?.find((x) => x.id === pid) ?? null
   const sms = useSmsBox(form.sms, person ? person.phone : phone, person ? !person.phone : noPhone)
-  /* «Durată»: длительность услуги, пока не тронули (`DurPick`) */
   const dur = useDurPick(form.services, service, form, preset?.duration)
   /* «Сегодня» — `birth_max` формы (день клиники, его дал сервер), не часы
      браузера. Галочка включена сразу (решение Олега 29.10): визит задним

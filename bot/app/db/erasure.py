@@ -93,9 +93,8 @@ async def delete_patient_fully(pid: int) -> None:
     по построению, и int() рядом это закрепляет.
     """
     pid = int(pid)
-    # События календаря — раньше записей: перенесённое ссылается на запись.
-    # Событие не удаляется, а пустеет: по ключу файл календаря не вернёт
-    # человека в список. Номер читается до скрипта, пока он ещё в фише.
+    # События календаря — раньше записей (перенесённое ссылается на запись);
+    # номер читается до скрипта, пока он ещё в фише.
     loose = await gcal_ids_with_phone(await _patient_phone(pid))
     gcal = [_gcal_erase_sql("appt_id IN (SELECT id FROM appointments "
                             f"WHERE patient_id = {pid})") + ";"]
@@ -140,8 +139,7 @@ async def anonymize_patient(pid: int) -> None:
     Дневник приёма (visit_records) НЕ трогаем: acuze/diagnostic/tratament —
     та самая клиническая запись, ради которой фиша и хранится под номером.
     """
-    # События календаря с его номером — первыми: следующий шаг стирает
-    # телефон, и повтор их бы уже не нашёл.
+    # события с его номером — первыми: следующий шаг стирает телефон
     await gcal_erase(await gcal_ids_with_phone(await _patient_phone(pid)))
     await _execute(
         """UPDATE patients SET name = ?, phone = NULL, email = NULL,

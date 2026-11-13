@@ -17,10 +17,8 @@ import {
   type GcalList, type GcalLoad, type GcalRow, type GcalWhere,
 } from './gcal'
 
-/* Вкладка «Google Calendar»: события общего календаря клиники списком и
-   перенос в журнал обычным окном записи. Правила, слова фильтров, причин и
-   отказов — сервера; экран держит только отбор, поиск и окна.
-   Список после каждой команды приходит в её ответе — второго запроса нет. */
+/* Вкладка «Google Calendar»: правила, слова фильтров, причин и отказов — сервера;
+   экран держит только отбор, поиск и окна. Список после команды приходит в её ответе. */
 const T = {
   title: 'Evenimentele din Google Calendar',
   lead: 'Încărcați calendarul clinicii și mutați programările în jurnal, una câte una, cu fereastra obișnuită de programare.',
@@ -140,7 +138,6 @@ export function GcalScreen({ navigate = defaultNavigate }: Props) {
     }
   }, [leaveIfSignedOut, replace])
 
-  /* поиск — после паузы в наборе */
   useEffect(() => {
     if (query === at.current.q) return
     const timer = window.setTimeout(() => show({ q: query }), SEARCH_MS)
@@ -306,7 +303,6 @@ export function GcalScreen({ navigate = defaultNavigate }: Props) {
   )
 }
 
-/** Итог загрузки словами: что принято и что оставлено в стороне, с причиной. */
 function LoadReport({ load, onClose }: { load: GcalLoad; onClose: () => void }) {
   const part = (n: number, forms: Parameters<typeof roCount>[1]) => (n ? [roCount(n, forms)] : [])
   const taken = [...part(load.new, T.nNew), ...part(load.updated, T.nUpdated), ...part(load.same, T.nSame)]
@@ -421,8 +417,7 @@ interface MoveProps {
   onDone: (list: GcalList, toast: ToastState) => void
 }
 
-/** Окно записи журнала над строкой события. Форму дня события даёт журнал —
- *  тот же построитель, что у «Programare nouă». */
+/** Окно записи журнала над строкой события; форму дня даёт журнал. */
 function MoveWindow({ row, where, navigate, onClose, onStale, onDone }: MoveProps) {
   const [got, setGot] = useState<{ date: string; form: DayForm } | null>(null)
   const [busy, setBusy] = useState(false)

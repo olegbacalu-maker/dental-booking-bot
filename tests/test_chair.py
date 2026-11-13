@@ -81,8 +81,7 @@ def suite_rule(res: Result) -> None:
     got = m([_row(9, "arrived", 0, arrived_min=1)], [])
     res.check("не из повестки — не в кресле", got["chair"], None)
 
-    # два кабинета — два кресла: «последний, остальные не завершены» считается
-    # внутри кабинета (`room_id` пункта повестки), а не по врачу целиком
+    # два кабинета — два кресла: «не завершён» считается внутри кабинета, не по врачу
     rows = [_row(1, "arrived", 0, arrived_min=5), _row(2, "arrived", 1, arrived_min=70),
             _row(3, "arrived", 2, arrived_min=30)]
     items = [dict(_item(1, "arrived"), room_id="r-1"), dict(_item(2, "arrived"), room_id="r-3"),

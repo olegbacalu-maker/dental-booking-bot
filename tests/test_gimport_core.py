@@ -30,8 +30,6 @@ def occ(start: datetime | None, minutes: int = 30, title: str = "", **kw) -> ics
     return ics.Occurrence(key=kw.pop("key", "k1"), start=start, minutes=minutes, title=title, **kw)
 
 
-# ---------- образцы от «сейчас» ----------
-
 def suite_samples(res: Result) -> None:
     res.check("образцы нашлись", [n for n in t.TEMPLATES if (t.FIX / f"{n}.ics.tpl").is_file()],
               list(t.TEMPLATES))
@@ -108,7 +106,6 @@ def _shared(res: Result, now: datetime) -> None:
 
 
 def _again(res: Result, now: datetime) -> None:
-    """Повторный импорт: что уже лежит, что изменилось, что новое."""
     tag = f"[{now:%d.%m.%Y %H:%M}]"
     first = drafts("basic", now)
     stored = {x.key: x.stamp for x in first.values() if x.kind == gi.OK}
@@ -148,8 +145,6 @@ def _again(res: Result, now: datetime) -> None:
     res.check(f"{tag} одно вхождение перенесли на другой день: тот же ключ, «изменилась»",
               gi.compare(drafts("series", now).values(), once)[key8], gi.CHANGED)
 
-
-# ---------- правила конвертера ----------
 
 NOW = datetime(2026, 11, 12, 10, 0, tzinfo=TZ)
 

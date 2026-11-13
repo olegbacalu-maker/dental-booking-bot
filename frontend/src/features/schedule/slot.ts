@@ -40,10 +40,8 @@ export interface SlotFormView {
   services: { id: string; label: string; dur?: number }[]
   /** Быстрые значения «Durată»; нет поля — выбора нет. */
   durations?: number[]
-  /** Правило «другой» длительности: шаг и потолок, минут. */
   dur_step?: number
   dur_max?: number
-  /** Шаг сетки стартов, минут. */
   step?: number
   /** Потолок поля «дата рождения» — сегодня В ЧАСАХ КЛИНИКИ. */
   birth_max: string
@@ -79,16 +77,14 @@ export function hourLabel(h: number): string {
   return `${String(h).padStart(2, '0')}:00`
 }
 
-/** Минуты часа, с которых может начаться запись: 0, 5, … 55 при шаге 5. */
 export function hourMinutes(step: number): number[] {
   const out: number[] = []
   for (let m = 0; m < 60; m += step > 0 ? step : 5) out.push(m)
   return out
 }
 
-/** Старты часа, с которых запись длиной `dur` не встала бы ни в один из
- *  списков занятости (`lanes` — по кабинетам, `move.lanesOf`; `self` —
- *  переносимый визит, сам себе не помеха). Подсказка окну. */
+/** Старты часа, с которых запись длиной `dur` не встаёт ни в один из списков
+ *  занятости (`lanes` — по кабинетам); подсказка окну. */
 export function takenMinutes(lanes: Occupies[][], hour: number, dur: number,
   step: number, self = -1): Set<number> {
   const out = new Set<number>()
@@ -99,11 +95,9 @@ export function takenMinutes(lanes: Occupies[][], hour: number, dur: number,
 }
 
 /**
- * Свободные отрезки часа у врача — по блокам его колонки канвы, тем же
- * `clashAmong`, что считает помеху переносу. Минуты часа, `[from, to)`.
+ * Свободные отрезки часа у врача по блокам его колонки канвы; минуты часа, `[from, to)`.
  *
- * Это ПОДСКАЗКА, как у диалога переноса: правду говорит сервер под своим
- * замком, пока окно открыто, час мог занять второй администратор.
+ * Это ПОДСКАЗКА: правду говорит сервер под своим замком.
  */
 export interface FreeSpan {
   from: number
@@ -133,11 +127,9 @@ export function spanAt(spans: FreeSpan[], at: number): FreeSpan | null {
 }
 
 /**
- * С какой минуты часа открыть окно записи по щелчку в `at` (дробная минута
- * часа; `null` — нажали с клавиатуры): деление `snap`, в которое попал
- * щелчок, но не раньше начала свободного отрезка и не позже его последнего
- * старта. В дыре короче двух делений целиться нечем — запись встаёт в её
- * начало, сразу за предыдущим визитом. `null` — свободного в часе нет.
+ * С какой минуты часа открыть окно записи по щелчку в `at` (`null` — с клавиатуры):
+ * деление `snap` под щелчком, но внутри свободного отрезка. В дыре короче двух
+ * делений запись встаёт в её начало. `null` — свободного в часе нет.
  */
 export function startIn(spans: FreeSpan[], at: number | null, snap: number,
   step = 5): number | null {

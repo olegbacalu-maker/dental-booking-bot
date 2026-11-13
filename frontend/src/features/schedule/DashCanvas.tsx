@@ -79,9 +79,8 @@ interface Props {
   onCardMenu?: ((id: number, x: number, y: number) => void) | undefined
   /** Открыть заметку стойки: полный текст и её единственная кнопка. */
   onNote: (id: number) => void
-  /** Открыть пустой час: врач, его имя, «HH:00», минута, в которую попал
-   *  щелчок (по делению масштаба, внутри свободного отрезка), и кабинет
-   *  дорожки — у врача с несколькими кабинетами. */
+  /** Открыть пустой час: врач, его имя, «HH:00», минута щелчка (по делению
+   *  масштаба) и кабинет дорожки — у врача с несколькими кабинетами. */
   onSlot: (dk: string, name: string, hour: string, minute: number, room?: string) => void
   /** Начало броска: `null` — бросок кончился. */
   drag: Drag | null
@@ -181,8 +180,7 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
           ))}
         </div>
         {model.columns.map((col) => {
-          /* У врача с несколькими кабинетами колонка — дорожки кабинетов:
-             свободное, щелчок и бросок считаются внутри дорожки. */
+          /* у врача с несколькими кабинетами свободное, щелчок и бросок считаются внутри дорожки */
           const rooms = col.rooms ?? NO_ROOMS
           const n = rooms.length > 1 ? rooms.length : 1
           const realBy = lanesOf(col.blocks, rooms)
@@ -212,12 +210,9 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
                 )
               }
               const hh = hourLabel(h)
-              /* «+ Programare» — только на свободном отрезке часа: ячейка под
-                 визитом не зовёт записать туда, где старта нет. Подсказка
-                 меряет отрезки по НАРИСОВАННЫМ блокам (короткий дотянут ниже
-                 своей длины и закрывает ячейку), а «занят ли час» и минута
-                 записи — по настоящим минутам: кнопка обязана не врать.
-                 Мишень переноса от этого не зависит — она ищется по координате. */
+              /* «+ Programare» — только на свободном отрезке часа. Подсказка меряет
+                 отрезки по НАРИСОВАННЫМ блокам (короткий дотянут ниже своей длины), а
+                 «занят ли час» и минута записи — по настоящим минутам. */
               const real = realBy.map((lane) => freeSpans(lane, h))
               const seen = seenBy.map((lane) => freeSpans(lane, h))
               const li = seen.findIndex((s) => s.length > 0)
@@ -298,14 +293,12 @@ function spanVars(s: FreeSpan, lane = 0, lanes = 1): React.CSSProperties {
     '--fl': lane / lanes, '--fr': 1 - (lane + 1) / lanes } as React.CSSProperties
 }
 
-/** Дорожка кабинета под координатой: 0…n−1. */
 function laneIn(el: HTMLElement, x: number, n: number): number {
   const r = el.getBoundingClientRect()
   if (r.width <= 0) return -1
   return Math.max(0, Math.min(n - 1, Math.floor(((x - r.left) / r.width) * n)))
 }
 
-/** Место указателя броска в дорожке — те же доли, что у блока. */
 function laneBox(lane: number, n: number): React.CSSProperties {
   return { left: `calc(${lane}*(100% - 8px)/${n} + 4px)`, right: 'auto',
     width: `calc((100% - 8px)/${n} - 2px)` }
@@ -317,8 +310,7 @@ function thin(s: FreeSpan, cellPx: number): 'plus' | 'bar' | '' {
   return px < 9 ? 'bar' : px < 18 ? 'plus' : ''
 }
 
-/** Минута часа (дробная) под координатой внутри ячейки; `null` — ячейка без
- *  высоты (среда без раскладки). */
+/** Минута часа (дробная) под координатой; `null` — ячейка без высоты (среда без раскладки). */
 function minuteIn(el: HTMLElement, y: number): number | null {
   const r = el.getBoundingClientRect()
   if (r.height <= 0) return null
@@ -485,7 +477,6 @@ function Block(
     onDrag: (d: Drag | null) => void
     fresh: boolean
     moved: boolean
-    /** Колонка разделена на дорожки кабинетов — на блоке метка кабинета. */
     lanes: boolean
     facts: VisitFacts | undefined
     date: string

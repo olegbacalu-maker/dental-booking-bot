@@ -1,16 +1,7 @@
 """Импорт из Google Calendar: готовое событие -> заготовка строки журнала.
 
-Модуль чистый: из проекта знает только ics.py (вид готового события), ни базы,
-ни часов, ни настроек клиники — пояс, «сейчас» и список врачей приходят
-аргументами. Ему всё равно, пришло событие из файла или из ответа API.
-
-  convert(occ, tz=…, now=…, doctors=…) -> Draft
-  overlaps([(ключ, группа, старт, минуты)]) -> пары ключей, занявших одно время
-  compare(заготовки, {ключ: отпечаток}) -> новая / та же / изменилась
-
-Заготовка — не запись: врач, телефон и имя здесь только подсказки, которые
-утверждает человек. Слова для экрана здесь не живут — только коды.
-"""
+Модуль чистый: из проекта знает только ics.py. Заготовка — не запись: врач,
+телефон и имя здесь только подсказки, которые утверждает человек."""
 from __future__ import annotations
 
 import hashlib
@@ -23,8 +14,6 @@ from . import ics
 
 STEP = 5
 MAX_MINUTES = 240
-
-# ---- вид заготовки ----
 
 OK = "ok"
 SKIPPED = "skipped"
@@ -76,14 +65,9 @@ class Draft:
     stamp: str = ""
 
 
-# ---------- время ----------
-
 def round_slot(start: datetime, minutes: int) -> tuple[datetime, int]:
-    """Начало — к ближайшим пяти минутам, длина — как в календаре: некратное
-    время там почти всегда промах мыши, а не замысел, и визит не должен стать
-    длиннее из-за него. Растёт только длина, которая сама не кратна пяти, —
-    вверх, чтобы визит не стал короче. Счёт в UTC: смещения поясов кратны
-    пяти минутам, а перевод часов стенные минуты сдвинул бы."""
+    """Начало — к ближайшим пяти минутам, длина — как в календаре; длина, не кратная
+    пяти, — вверх. Счёт в UTC: перевод часов сдвинул бы стенные минуты."""
     begin = start.astimezone(timezone.utc).replace(second=0, microsecond=0)
     off = begin.minute % STEP
     begin += timedelta(minutes=STEP - off if off * 2 > STEP else -off)
@@ -91,14 +75,11 @@ def round_slot(start: datetime, minutes: int) -> tuple[datetime, int]:
 
 
 def stamp(start: datetime, minutes: int, title: str) -> str:
-    """Отпечаток события для повторного импорта — от значений ФАЙЛА, не от
-    округлённых: иначе событие 9:07 каждый раз выглядело бы изменившимся.
-    Название — хешем: отпечаток ляжет в таблицу, где имён быть не должно."""
+    """Отпечаток — от значений ФАЙЛА, не от округлённых: иначе событие 9:07 каждый
+    раз выглядело бы изменившимся. Название — хешем: в таблице имён быть не должно."""
     digest = hashlib.sha256(title.encode("utf-8")).hexdigest()[:16]
     return f"{start.astimezone(timezone.utc):%Y%m%dT%H%MZ}|{minutes}|{digest}"
 
-
-# ---------- телефон ----------
 
 # Дата — с точкой или дробью (день.месяц.год) либо год-месяц-день. Через дефис
 # «12-34-56» пишут номер, не дату; и кусок номера «069.12.03.85» — не дата.
@@ -134,9 +115,7 @@ def _normal(groups: list[str], plus: bool) -> str:
 
 
 def phones(text: str) -> tuple[str, ...]:
-    """Телефоны из свободного текста, каждый в одном виде: молдавский — восемь
-    цифр без нуля и кода страны, чужой — с плюсом. Принимаются только
-    узнаваемые формы; дата рождения, сумма и IDNP номером не становятся."""
+    """Телефоны из текста, только узнаваемые формы: дата рождения, сумма и IDNP номером не становятся."""
     out: list[str] = []
     for run in _RUN.finditer(_DATEISH.sub(" | ", text or "")):
         groups = re.findall(r"\d+", run.group())
@@ -154,8 +133,6 @@ def phones(text: str) -> tuple[str, ...]:
             i += 1
     return tuple(out)
 
-
-# ---------- врач и имя ----------
 
 _WORD = re.compile(r"[^\W\d_]+")
 _NAME = re.compile(r"[^\W\d_]+(?:-[^\W\d_]+)*")
@@ -175,10 +152,9 @@ def _doctor_words(name: str) -> list[str]:
 
 
 def doctor_hint(title: str, doctors: dict[str, str]) -> tuple[str, tuple[str, ...]]:
-    """(врач или "", все совпавшие). Сравнивается только фамилия — последнее
-    слово имени врача — и инициалы первым словом названия: имя врача слишком
-    часто оказывается именем пациента. Совпали двое — подсказки нет, выбирает
-    человек; исключение — когда ровно один из них назван со словом «dr»."""
+    """(врач или "", все совпавшие). Сравнивается только фамилия и инициалы первым
+    словом: имя врача слишком часто оказывается именем пациента. Совпали двое —
+    выбирает человек, кроме случая, когда ровно один назван со словом «dr»."""
     raw = _WORD.findall(title or "")
     words = [fold(w) for w in raw]
     hits, marked = [], []
@@ -205,9 +181,7 @@ def doctor_hint(title: str, doctors: dict[str, str]) -> tuple[str, tuple[str, ..
 
 
 def patient_guess(title: str, doctors: dict[str, str]) -> str:
-    """Заготовка имени пациента: название без цифр, без врача, названного со
-    словом «dr», и без инициалов врача в начале. Слова услуги прилипают —
-    утверждать эту строку без человека нельзя."""
+    """Заготовка имени пациента; слова услуги прилипают — без человека не утверждать."""
     raw = _NAME.findall(title or "")
     words = [fold(w) for w in raw]
     names = [_doctor_words(n) for n in doctors.values()]
@@ -231,12 +205,9 @@ def patient_guess(title: str, doctors: dict[str, str]) -> str:
     return " ".join(keep[:NAME_WORDS])
 
 
-# ---------- событие -> заготовка ----------
-
 def convert(occ: ics.Occurrence, *, tz, now: datetime, doctors: dict[str, str],
             until: datetime | None = None) -> Draft:
-    """tz — пояс клиники, now — «сейчас» с поясом, doctors — {ключ: имя},
-    until — конец выбранного периода (позже него — «пропущено», не потеря)."""
+    """`until` — конец выбранного периода: позже него — «пропущено», не потеря."""
     base = dict(key=occ.key, title=occ.title, description=occ.description,
                 location=occ.location, attendees=tuple(occ.attendees),
                 series=occ.series, moved=occ.moved, note=occ.note)
@@ -275,13 +246,8 @@ def convert_all(occs, *, tz, now: datetime, doctors: dict[str, str],
     return sorted(drafts, key=lambda d: (d.start or d.src_start or far, d.key))
 
 
-# ---------- пересечения и повторный импорт ----------
-
 def overlaps(rows) -> list[tuple[str, str]]:
-    """rows — (ключ, группа, старт, минуты); группа — то, что не может быть в
-    двух местах сразу (врач, позже врач и кабинет). Пары ключей одной группы,
-    чьи интервалы пересекаются; касание концом не считается. Строки без
-    группы не сравниваются: врач ещё не назначен."""
+    """rows — (ключ, группа, старт, минуты): пары ключей одной группы с пересечением интервалов."""
     by_group: dict = {}
     for k, group, start, minutes in rows:
         if group and start is not None:
@@ -299,7 +265,6 @@ def overlaps(rows) -> list[tuple[str, str]]:
 
 
 def compare(drafts, stored: dict[str, str]) -> dict[str, str]:
-    """stored — {ключ: отпечаток прошлого импорта}. Годные заготовки делятся
-    на новые, те же и изменившиеся; остальные сюда не входят."""
+    """{ключ: новая / та же / изменилась} для годных заготовок; `stored` — отпечатки прошлого импорта."""
     return {d.key: NEW if d.key not in stored else SAME if stored[d.key] == d.stamp else CHANGED
             for d in drafts if d.kind == OK}

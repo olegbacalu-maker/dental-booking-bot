@@ -40,7 +40,6 @@ export interface ChairData {
   chair: ChairItem | null
   /** Сидящие по кабинетам врача (по одному на кабинет); `chair` — последний. */
   chairs?: ChairItem[]
-  /** Кабинеты врача: с двумя и больше экран называет кабинет сидящего. */
   rooms?: { id: string; name: string }[]
   /** Заведены в кабинет раньше того, кто в кресле, и не завершены. */
   stale: ChairItem[]

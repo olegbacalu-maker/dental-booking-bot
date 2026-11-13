@@ -1,10 +1,6 @@
 """Вкладка «Google Calendar»: правила.
 
-События календаря клиники лежат в картотеке, человек переносит их в журнал
-окном записи. Файл читает программа на компьютере клиники; наружу не уходит
-ничего. Модуль стоит в журнале, а не отдельно: переносу нужно правило записи
-журнала, а модуль соседа не импортирует.
-"""
+Модуль стоит в журнале: переносу нужно правило записи журнала, а модуль соседа не импортирует."""
 from __future__ import annotations
 
 import asyncio
@@ -92,11 +88,8 @@ def _actor() -> str:
     return (request_user() or {}).get("name") or "recepție"
 
 
-# ---------- пришедшее событие ----------
-
 @dataclass(frozen=True)
 class Item:
-    """Событие источника для слияния; откуда оно пришло, слиянию всё равно."""
     key: str
     state: str
     why: str = ""
@@ -176,8 +169,6 @@ def read_file(raw: bytes, now: datetime) -> list:
     return out
 
 
-# ---------- слияние ----------
-
 COUNTED = ("new", "updated", "same", "changed", "gone", "unparsed", "skipped", "all_day", "cancelled")
 
 
@@ -188,7 +179,6 @@ def _core(stamp: str) -> str:
 
 
 def changed(row: dict) -> bool:
-    """Перенесённое событие с тех пор изменилось в календаре."""
     return row["state"] == db.GCAL_MOVED and (
         row["gstatus"] in (G_CANCELLED, G_GONE)
         or _core(row["stamp"]) != _core(row["stamp_moved"]))
@@ -196,12 +186,8 @@ def changed(row: dict) -> bool:
 
 async def absorb(kind: str, name: str, items: list, present: set, *,
                  actor: str, names: tuple = ()) -> dict:
-    """Слить пришедший набор событий источника с лежащим.
-
-    `present` — ключи всех событий источника, включая прошедшие: по ним
-    «пропало из календаря» отличается от «прошло». Решение человека сильнее
-    источника: строку с `by_hand` загрузка не перекладывает, запись журнала не
-    трогает никогда."""
+    """Слить пришедший набор событий источника с лежащим. `present` — ключи всех событий,
+    включая прошедшие: по ним «пропало» отличается от «прошло»."""
     sid = await db.gcal_source_put(kind, name, actor)
     have = await db.gcal_events_by_keys([it.key for it in items])
     now = db._utcnow_iso()
@@ -290,15 +276,12 @@ async def load(raw: bytes) -> dict:
     return {**total, "refused": refused}
 
 
-# ---------- срок текста ----------
-
 async def sweep() -> int:
     """Текст непереносённого события старше срока стирается; ключ остаётся."""
     return await db.gcal_expire(_utc(_now() - timedelta(days=KEEP_DAYS)))
 
 
 async def startup() -> None:
-    """Старт программы: убрать просроченный текст и узнать, есть ли вкладка."""
     await sweep()
     await db.gcal_menu_refresh()
 
@@ -321,8 +304,6 @@ def sweep_async() -> None:
         _tasks.append(asyncio.get_running_loop().create_task(_loop()))
 
 
-# ---------- список ----------
-
 def _local(dt: datetime) -> datetime:
     return dt.astimezone(eng.TZ)
 
@@ -333,7 +314,6 @@ def _span(start: datetime, minutes: int) -> str:
 
 
 class _People:
-    """Картотека глазами подсказки: кто по номеру, кто по точному имени."""
 
     def __init__(self, patients: list):
         self.by_phone: dict = {}
@@ -442,7 +422,6 @@ def _view(row: dict, people: _People, journal: dict, service: str) -> dict:
 
 
 def _bucket(row: dict) -> tuple:
-    """В какие фильтры попадает строка."""
     if row["state"] == db.GCAL_MOVED:
         return (F_MOVED, F_CHANGED) if changed(row) else (F_MOVED,)
     return (row["state"],)
@@ -485,9 +464,7 @@ def _iso_day(text: str) -> date | None:
 
 
 def _month(days: set, f: str, q: str, day: date | None, month: date | None) -> dict:
-    """Месяц вкладки тем же построителем, что у журнала: точка — день с
-    событиями этой вкладки, ссылка дня оставляет вкладку и поиск. Листание
-    месяца день не выбирает."""
+    """Месяц вкладки — построителем журнала; ссылка дня оставляет вкладку и поиск."""
     today = _now().date()
     cal = ppanel.minical(day or month or today, today, pday.RO_MONTHS, base=PAGE, busy=days)
     tail = "".join(f"&{k}={quote(v)}" for k, v in (("f", f), ("q", q)) if v)
@@ -501,8 +478,7 @@ def _month(days: set, f: str, q: str, day: date | None, month: date | None) -> d
 
 
 async def listing(f: str = "", q: str = "", day: str = "", month: str = "") -> dict:
-    """Вкладка данными: полоса источника, счётчики фильтров, строки по дням.
-    `day` оставляет в списке один день; счётчики вкладок от него не зависят."""
+    """Вкладка данными; `day` оставляет в списке один день, счётчики вкладок от него не зависят."""
     await sweep()
     f = f if f in FILTERS else F_NEW
     needle = gimport.fold(q.strip())[:80]
@@ -555,8 +531,6 @@ async def listing(f: str = "", q: str = "", day: str = "", month: str = "") -> d
             "max_mb": MAX_FILE // (1024 * 1024),
             "can": {"clear": can(me, PERM_SETTINGS) or me is None}}
 
-
-# ---------- перенос в журнал ----------
 
 OK_CODES = frozenset({"ok", "ok_other", "ok_past", "ok_past_done", "room_busy"})
 
@@ -614,8 +588,7 @@ async def _journal_add(body: dict, pid: int | None) -> tuple:
 
 
 def _comment(row: dict) -> str:
-    """Что от события остаётся в записи: название, исходные часы, если запись
-    их округлила, и начало описания."""
+    """Что от события остаётся в записи: название, исходные часы (если округлены), начало описания."""
     text = "Google: " + (row["title"] or "(fără titlu)")
     src = row["starts_at"]
     if src is not None and row["why"] != W_ALL_DAY and row["minutes"] > 0:
@@ -648,8 +621,7 @@ async def move(eid: int, body: dict) -> tuple:
 
 
 async def link(eid: int, appt_id) -> str:
-    """Связать со стоящей записью, второй не создавая; её комментарий, если
-    он есть, не трогается."""
+    """Связать со стоящей записью, второй не создавая; её комментарий не трогается."""
     row = await db.gcal_event(eid)
     if row is None or row["state"] == db.GCAL_ERASED:
         return "gc_gone"

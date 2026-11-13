@@ -161,8 +161,7 @@ async def _week_model(d: date, scope: str | None = None) -> dict:
     today = datetime.now(eng.TZ).date()
     m = pweek.model(monday, pweek.by_day(rows), today, _svc_colors)
     m["notice"] = _notice(scope)
-    # календарь у дат шапки: день месяца открывает его неделю; точки — по
-    # журналу вошедшего, учётке без врача — ни одной
+    # точки — по журналу вошедшего; учётке без врача — ни одной
     busy = set() if scope == "" else await _busy_days(d, scope or "")
     m["minical"] = ppanel.minical(d, today, _RO_MONTHS, base="/admin/week", busy=busy)
     return m
@@ -287,14 +286,11 @@ async def _day_model(d: date, doctor: str = "", f: str = "",
     # дня (держит test_schedule_api), у дня врача в ней одна колонка.
     m["canvas"] = pcanvas.model(d, rows, cards, _svc_colors, only=one)
     if one and one in eng.DOCTORS:
-        # Только у дня ОДНОГО врача — по адресу или по праву: факты о
-        # пациенте карточки визита.
+        # Факты о пациенте карточки визита — только у дня ОДНОГО врача.
         # ⛔ Не в `appt_view` и не в `canvas.blocks`: они едут в каждом конверте
         # живого канала главной, и канва общего дня обязана совпадать с ним
         # (`suite_day_parity`).
         m["extras"] = await _visit_facts(d, rows)
-    # Календарь у даты шапки — у любого дня раздела: у общего точки всех
-    # врачей, у дня врача только его; ссылки ведут на тот же вид дня.
     m["minical"] = ppanel.minical(d, datetime.now(eng.TZ).date(), _RO_MONTHS,
                                   base=f"/admin/doctor/{doctor}" if doctor else "/admin/all",
                                   busy=await _busy_days(d, one))
@@ -574,8 +570,6 @@ async def _book_appt(adate: str, atime: str, adoctor: str, aservice: str,
     # Жёсткий молдавский формат отверг бы иностранца у стойки (просьба 08-07)
     if not anophone and not 6 <= len(digits) <= 15:
         return "bad_phone", None
-    # График врача правило спрашивает только у будущего старта (граница
-    # мгновенная): журнал — единственный вход для приёма задним числом.
     if code := eng.place_refusal(adoctor, dt, dur):
         return code, None
     # полная дата рождения (просьба 08-07: был только год; отдельное поле
@@ -730,7 +724,6 @@ async def _move_appt(appt_id: int, mdate: str, mtime: str, mdoctor: str,
     клиники и график врача меняются на другом экране.
     ⛔ Прошлое здесь НЕ проверяется, и это намеренно: визит уже существует, а
     перенос на утро того же дня — обычная работа регистратуры.
-    `mroom` — кабинет назначен; пусто — выбирает `db.move_appointment`.
     """
     try:
         d = date.fromisoformat(mdate)
@@ -759,10 +752,7 @@ async def _move_appt(appt_id: int, mdate: str, mtime: str, mdoctor: str,
 
 
 async def _set_room(appt_id: int, room: str) -> str:
-    """Перевод записи в другой кабинет её врача (окно визита). Код — из
-    `MSG_BANNER`: `ok_room`, `room_busy` (переведена, кабинет занят другим
-    врачом), `bad_room`, `room_closed`, `mv_gone` (и для заметки), `conflict`.
-    """
+    """Перевод записи в другой кабинет её врача; код — из `MSG_BANNER`."""
     cur = await db.appointment_brief(appt_id)
     if cur is None or cur["source"] == "note":
         return "mv_gone"
@@ -827,8 +817,7 @@ async def _set_duration(appt_id: int, minutes: str) -> str:
     Тот же образец, что `_set_service`: кто вправе — `duration_refusal` (одно
     правило с флагом окна), часы клиники и врача — только когда визит ДЛИННЕЕ,
     график врача — только у будущего старта; сосед — `db.set_appt_duration`
-    под `_slot_lock`. Допустимость — `eng.dur_ok`, то же правило, что у услуги
-    в настройках.
+    под `_slot_lock`.
     """
     if not minutes.isdigit() or not eng.dur_ok(int(minutes)):
         return "bad_dur"

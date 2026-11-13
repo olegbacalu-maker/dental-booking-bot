@@ -1,9 +1,8 @@
 """Вкладка «Google Calendar»: события календаря клиники и их перенос в журнал.
 
-Файлы собираются здесь с датами от `clinic_today()`: образец с жёсткими
-датами через неделю оказался бы целиком в прошлом, и набор позеленел бы на
-пустом списке — поэтому каждая загрузка проверяет, что годных строк не ноль.
-Старт не на получасе и длительность не из списка — `suite_after_grid`.
+Файлы собираются с датами от `clinic_today()`: образец с жёсткими датами через
+неделю ушёл бы в прошлое, и набор позеленел бы на пустом списке — поэтому
+каждая загрузка проверяет, что годных строк не ноль.
 """
 from __future__ import annotations
 
@@ -22,8 +21,6 @@ KEY_ENV = {"DENTART_LICENSE_KEYS": str(FIXTURES / "license" / "test-key.json")}
 D2 = "Dr. Activ Doi"
 
 
-# ---------- файл календаря ----------
-
 def _day(n: int) -> str:
     return (clinic_today() + timedelta(days=n)).isoformat()
 
@@ -34,8 +31,7 @@ def _stamp(n: int, hhmm: str) -> str:
 
 def ev(uid: str, n: int, hhmm: str, minutes: int, title: str, *, desc: str = "",
        status: str = "", allday: bool = False, rrule: str = "") -> str:
-    """Одно событие: день — через `n` дней от сегодня клиники, часы — стенные
-    часы Кишинёва."""
+    """Одно событие: день — через `n` дней от сегодня клиники, часы — стенные часы Кишинёва."""
     if allday:
         d0 = (clinic_today() + timedelta(days=n)).strftime("%Y%m%d")
         d1 = (clinic_today() + timedelta(days=n + 1)).strftime("%Y%m%d")
@@ -76,8 +72,6 @@ def base_events() -> list:
     ]
 
 
-# ---------- помощники ----------
-
 def _j(r) -> dict:
     return json.loads(r.body)
 
@@ -87,7 +81,6 @@ def upload(c: Client, raw: bytes, name: str = "calendar.ics"):
 
 
 def loaded(res: Result, c: Client, raw: bytes, tag: str) -> dict:
-    """Загрузка, которая обязана пройти; отчёт загрузки."""
     r = upload(c, raw)
     res.check(f"{tag}: файл принят", (r.status, r.msg), (200, "gc_loaded"))
     return _j(r)["data"]["load"] if r.status == 200 else {}
@@ -128,11 +121,7 @@ def move_body(n: int, hhmm: str, name: str, phone: str = "", doctor: str = "d2",
             "name": name, "phone": phone, "nophone": not phone, **more}
 
 
-# ---------- наборы ----------
-
 def suite_load(res: Result) -> None:
-    """Загрузка: что легло в список, что отложено само, что не сохранено;
-    подсказки строки; повторная загрузка; меню и плитка."""
     with Server() as s:
         c = Client(s.url).login()
         res.ok("до загрузки пункта меню нет", "gcal" not in nav_keys(c), f"{nav_keys(c)}")
@@ -239,8 +228,6 @@ def suite_load(res: Result) -> None:
 
 
 def suite_move(res: Result) -> None:
-    """Перенос в журнал тем же правилом, что окно записи; отказ тем же кодом;
-    фиша по id; «Leagă»; «Nu muta» и обратно; изменившееся событие."""
     with Server() as s:
         c = Client(s.url).login()
         got = loaded(res, c, cal(base_events()), "загрузка")
@@ -260,7 +247,6 @@ def suite_move(res: Result) -> None:
         res.check("после отказов событие на месте, записи нет",
                   (listing(c)["counts"]["nou"], len(day_model(c, _day(3))["list"])), (3, 0))
 
-        # ---- перенос ----
         r = c.post_json(f"/api/gcal/events/{a1['id']}/move",
                         move_body(3, "09:00", "Ion Popescu", "069123456"))
         res.check("перенос прошёл кодом окна записи", (r.status, r.msg), (200, "ok"))
@@ -335,7 +321,6 @@ def suite_move(res: Result) -> None:
         res.check("привязка к записи, которой нет, — отказ",
                   (c.post_json(f"/api/gcal/events/{a7['id']}/link", {"appt_id": 99999}).msg), "gc_appt")
 
-        # ---- «Nu muta» и обратно ----
         r = c.post_json(f"/api/gcal/events/{a7['id']}/skip", {"on": True})
         res.check("«Nu muta»", (r.status, r.msg, _j(r)["data"]["counts"]["omis"]), (200, "gc_skipped", 3))
         loaded(res, c, cal(base_events() + fresh), "загрузка после «Nu muta»")
@@ -378,8 +363,7 @@ def suite_move(res: Result) -> None:
 
 
 def suite_expiry(res: Result) -> None:
-    """Срок: текст непереносённого события стирается через 7 дней после его
-    даты, ключ остаётся; повторная загрузка строку не возвращает."""
+    """Текст непереносённого события стирается через 7 дней после его даты, ключ остаётся."""
     work = pathlib.Path(tempfile.mkdtemp(prefix="dp_test_"))
     try:
         _expiry(res, work)
@@ -431,9 +415,8 @@ def _expiry(res: Result, work: pathlib.Path) -> None:
 
 
 def suite_erase(res: Result) -> None:
-    """Стирание и обезличивание пациента убирают события его записей и
-    непереносённые события с его телефоном; «Șterge tot» оставляет только
-    ключи перенесённого; в базе не остаётся ни имени, ни номера."""
+    """Стирание и обезличивание пациента убирают события его записей и непереносённые
+    события с его телефоном: в базе не остаётся ни имени, ни номера."""
     work = pathlib.Path(tempfile.mkdtemp(prefix="dp_test_"))
     try:
         with Server(dir_=work) as s:
@@ -475,7 +458,6 @@ def suite_erase(res: Result) -> None:
                       sql(s, "SELECT state, title FROM gcal_events WHERE ext_key = 'm4@google.com'"),
                       [("sters", "")])
 
-            # «Șterge tot»
             m3 = row(c, "Alt Om")
             c.post_json(f"/api/gcal/events/{m3['id']}/move", move_body(3, "11:00", "Alt Om", "069333444"))
             r = c.post_json("/api/gcal/clear", {})
@@ -519,8 +501,7 @@ def suite_erase(res: Result) -> None:
 
 
 def suite_rights(res: Result) -> None:
-    """Вкладку видят директор и регистратура; врач — 403 и без пункта меню;
-    «Șterge tot» — только директор; режим «только чтение» — 423."""
+    """Вкладка — директору и регистратуре; врачу — 403 и без пункта меню; «только чтение» — 423."""
     with Server(env=NO_KEY) as s:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
@@ -594,9 +575,7 @@ def suite_rights(res: Result) -> None:
 
 
 def suite_round(res: Result) -> None:
-    """Начало и длина окна записи — из конвертера: начало к ближайшим пяти
-    минутам, длина как в Google, некратная пяти — вверх. В таблице время
-    остаётся как в календаре."""
+    """Начало и длина окна записи — из конвертера; в таблице время остаётся как в календаре."""
     with Server() as s:
         c = Client(s.url).login()
         got = loaded(res, c, cal([ev("r1", 3, "11:08", 30, "Tarziu Dan 068333222"),
@@ -631,9 +610,7 @@ def suite_round(res: Result) -> None:
 
 
 def suite_calendar(res: Result) -> None:
-    """Месяц вкладки и отбор по дню: точки — дни с событиями ЭТОЙ вкладки,
-    день оставляет в списке одни свои события, счётчики вкладок от дня не
-    зависят, ссылки календаря несут вкладку и поиск."""
+    """Месяц вкладки и отбор по дню: точки — дни с событиями ЭТОЙ вкладки; счётчики от дня не зависят."""
     with Server() as s:
         c = Client(s.url).login()
         got = loaded(res, c, cal(base_events()), "загрузка")
@@ -687,8 +664,7 @@ def suite_calendar(res: Result) -> None:
 
 
 def suite_after_grid(res: Result) -> None:
-    """Старт не на :00/:30 и длительность 20 минут ложатся как есть. Верно
-    только с правилом «старт с шагом 5 минут, длительность кратно 5»."""
+    """Старт не на :00/:30 и длительность 20 минут ложатся как есть."""
     with Server() as s:
         c = Client(s.url).login()
         got = loaded(res, c, cal([ev("g1", 3, "09:10", 20, "Scurt Vasile 069123123"),

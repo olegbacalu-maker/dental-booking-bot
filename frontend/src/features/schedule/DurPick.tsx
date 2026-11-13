@@ -1,11 +1,9 @@
 import { useState } from 'react'
 
-/* «Durată»: один выбор на окна записи, карандаш длительности в окне визита и
-   строку услуги в настройках. Быстрые значения и правило «другой» (`dur_step`,
-   `dur_max`) приезжают с сервера.
+/* «Durată»: один выбор на окна записи, окно визита и строку услуги в
+   настройках; быстрые значения и правило «другой» приезжают с сервера.
 
-   В окнах записи поле едет на сервер только тронутым: нетронутое показывает
-   длительность выбранной услуги, и запись берёт её; тронутое ложится с
+   В окнах записи поле едет на сервер только тронутым: тронутое ложится с
    признаком «задана руками», и смена процедуры его не перебьёт. */
 
 const T = {
@@ -15,7 +13,6 @@ const T = {
   rule: (step: number, max: number) => `din ${step} în ${step} minute, cel mult ${max}`,
 } as const
 
-/** Что сервер говорит о длительности: быстрые значения и правило «другой». */
 export interface DurRule {
   durations: number[]
   step: number
@@ -47,7 +44,6 @@ interface FieldProps {
 
 const OTHER = 'other'
 
-/** Список быстрых значений со строкой «Altă durată…» и полем под неё. */
 export function DurField({ rule, value, onPick, label = T.dur, disabled, autoFocus }: FieldProps) {
   const [other, setOther] = useState(false)
   const [text, setText] = useState('')

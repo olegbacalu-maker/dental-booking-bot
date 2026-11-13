@@ -1,9 +1,6 @@
-"""Вкладка «Google Calendar»: источники и события календаря клиники.
+"""Вкладка «Google Calendar»: выборки и запись; правила — `modules/schedule/gcal.py`.
 
-Только выборки и запись; правила — `modules/schedule/gcal.py`.
-Текст события (`title`, `body`) — имена и телефоны без фиши: живёт до переноса
-и не дольше срока. Строка без текста остаётся ради ключа, иначе повторная
-загрузка вернула бы событие новым."""
+Строку события не удалять, а обнулять: ключ нужен повторной загрузке."""
 from __future__ import annotations
 
 import re
@@ -13,8 +10,7 @@ from .conn import _execute, _fetch, _fetchval, _utcnow_iso
 from .slots import _ACT_SQL
 
 GCAL_NEW, GCAL_MOVED, GCAL_SKIPPED, GCAL_UNPARSED = "nou", "mutat", "omis", "nerecunoscut"
-# Событие стёртого пациента: текста нет, строку не видит ни один список и не
-# трогает загрузка — она держит ключ, чтобы файл не вернул человека обратно.
+# Событие стёртого пациента: строка без текста держит ключ, чтобы файл не вернул человека.
 GCAL_ERASED = "sters"
 GCAL_STATES = (GCAL_NEW, GCAL_MOVED, GCAL_SKIPPED, GCAL_UNPARSED, GCAL_ERASED)
 
@@ -22,13 +18,11 @@ _GCAL_COLS = ("source_id", "ext_key", "starts_at", "minutes", "title", "body", "
               "gstatus", "state", "why", "by_hand", "stamp", "stamp_moved", "seen_at",
               "created_at")
 
-# Меню собирается без запроса к базе (`shell_model` не корутина): ответ лежит
-# здесь и обновляется каждой записью модуля.
+# `shell_model` не корутина: ответ для меню лежит здесь, обновляет его каждая запись модуля.
 _GCAL_MENU = {"on": False, "todo": 0}
 
 
 def gcal_menu() -> dict:
-    """Показывать ли пункт «Google Calendar» и сколько событий ждут переноса."""
     return dict(_GCAL_MENU)
 
 
@@ -41,16 +35,12 @@ async def gcal_menu_refresh() -> None:
     _GCAL_MENU["todo"] = int(todo or 0)
 
 
-# ---------- источники ----------
-
 async def gcal_sources() -> list:
-    """Загруженные календари, последний загруженный — первым."""
     return await _fetch(
         "SELECT * FROM gcal_sources WHERE loaded_at IS NOT NULL ORDER BY loaded_at DESC, id DESC")
 
 
 async def gcal_source_put(kind: str, name: str, actor: str) -> int:
-    """Источник по виду и имени календаря: есть — отметить загрузку, нет — завести."""
     now = _utcnow_iso()
     sid = await _fetchval(
         "SELECT id FROM gcal_sources WHERE kind = ? AND name = ? ORDER BY id LIMIT 1", kind, name)
@@ -72,24 +62,18 @@ async def gcal_source_settings(sid: int, settings: str) -> None:
 
 
 async def gcal_sources_prune() -> None:
-    """Источник без единого события больше ничего не значит: календарь
-    переименовали, и его события ушли к новому имени."""
+    """Источник без событий остаётся после переименования календаря."""
     await _execute(
         "DELETE FROM gcal_sources WHERE id NOT IN (SELECT DISTINCT source_id FROM gcal_events)")
 
 
 async def gcal_source_merge(old: int, new: int) -> None:
-    """Календарь переименовали: все строки прежнего источника уходят к новому
-    имени, прежний исчезает."""
     await _execute("UPDATE gcal_events SET source_id = ? WHERE source_id = ?", new, old)
     await _execute("DELETE FROM gcal_sources WHERE id = ?", old)
 
 
-# ---------- события ----------
-
 async def gcal_events_by_keys(keys: list) -> dict:
-    """Строки по ключам Google: {ключ: строка}. Кусками — у SQLite потолок
-    числа параметров, а в календаре за год тысячи событий."""
+    """{ключ: строка}; кусками — у SQLite потолок числа параметров."""
     out: dict = {}
     for i in range(0, len(keys), 400):
         part = keys[i:i + 400]
@@ -107,8 +91,7 @@ async def gcal_source_future(sid: int) -> list:
 
 
 async def gcal_write(inserts: list, updates: list, deletes: list) -> None:
-    """Итог загрузки одной транзакцией. Имена колонок идут в SQL текстом,
-    поэтому только из `_GCAL_COLS`."""
+    """Итог загрузки одной транзакцией; имена колонок идут в SQL текстом — только из `_GCAL_COLS`."""
     conn = db._CONN
     try:
         for row in inserts:
@@ -132,8 +115,7 @@ async def gcal_write(inserts: list, updates: list, deletes: list) -> None:
 
 
 async def gcal_rows() -> list:
-    """Что показывает вкладка: будущие события и не разобранные без даты, пока
-    у них есть текст. К перенесённым — запись журнала с пациентом."""
+    """Строки вкладки: будущие события и не разобранные без даты, пока у них есть текст."""
     return await _fetch(
         """SELECT e.*, a.starts_at AS appt_when, a.doctor AS appt_doctor,
                   a.doctor_id AS appt_doctor_id, a.status AS appt_status,
@@ -153,8 +135,7 @@ async def gcal_event(eid: int) -> dict | None:
 
 
 async def gcal_set_state(eid: int, state: str, was: tuple) -> bool:
-    """Решение человека о строке («не переносить» и обратно). Условие на
-    прежнее состояние стоит в самом UPDATE: второй щелчок — ноль строк."""
+    """Решение человека о строке; прежнее состояние — условием в UPDATE: второй щелчок меняет ноль строк."""
     marks = ",".join("?" for _ in was)
     n = await _execute(
         f"UPDATE gcal_events SET state = ?, by_hand = 1 WHERE id = ? AND state IN ({marks})",
@@ -164,8 +145,7 @@ async def gcal_set_state(eid: int, state: str, was: tuple) -> bool:
 
 
 async def gcal_mark_moved(eid: int, appt_id: int, actor: str) -> bool:
-    """Событие связано с записью журнала, его текст стёрт. Уже перенесённое
-    не перевязывается — условие в самом UPDATE."""
+    """Событие связано с записью, его текст стёрт; уже перенесённое не перевязывается."""
     n = await _execute(
         """UPDATE gcal_events SET state = ?, appt_id = ?, title = '', body = '',
                   stamp_moved = stamp, gstatus = '', moved_at = ?, moved_by = ?
@@ -176,14 +156,12 @@ async def gcal_mark_moved(eid: int, appt_id: int, actor: str) -> bool:
 
 
 async def gcal_linked(appt_id: int) -> bool:
-    """Запись журнала уже держит событие календаря."""
     return bool(await _fetchval(
         "SELECT COUNT(*) FROM gcal_events WHERE appt_id = ?", appt_id))
 
 
 async def gcal_expire(before: str) -> int:
-    """Срок текста: у события, чья дата раньше `before`, название и описание
-    стираются; у события без даты счёт идёт от последней загрузки."""
+    """Стирает текст событий раньше `before`; у события без даты счёт — от последней загрузки."""
     n = await _execute(
         """UPDATE gcal_events SET title = '', body = ''
            WHERE (title != '' OR body != '')
@@ -194,8 +172,7 @@ async def gcal_expire(before: str) -> int:
 
 
 async def gcal_clear() -> int:
-    """«Șterge tot din Google»: неперенесённое уходит, календари забываются.
-    Ключи перенесённых и стёртых остаются — без них загрузка задвоила бы журнал."""
+    """«Șterge tot din Google»; ключи перенесённых и стёртых остаются — иначе загрузка задвоила бы журнал."""
     n = int(await _fetchval(
         "SELECT COUNT(*) FROM gcal_events WHERE state NOT IN (?, ?)",
         GCAL_MOVED, GCAL_ERASED) or 0)
@@ -214,17 +191,13 @@ COMMIT;"""
     return n
 
 
-# ---------- журнал и картотека глазами вкладки ----------
-
 async def gcal_duration_by_hand(appt_id: int) -> None:
-    """Длительность записи пришла из события, а не с услуги: смена процедуры
-    её не перебьёт. Тот же признак ставит окно записи журнала."""
+    """Длительность пришла из события: смена процедуры её не перебьёт."""
     await _execute("UPDATE appointments SET duration_set = 1 WHERE id = ?", appt_id)
 
 
 async def gcal_journal(start: str, end: str) -> list:
-    """Живые записи журнала в окне — по ним вкладка узнаёт событие, которое
-    уже внесли руками."""
+    """Живые записи журнала в окне: по ним вкладка узнаёт событие, уже внесённое руками."""
     return await _fetch(
         f"""SELECT a.id, a.patient_id, a.starts_at, a.doctor, a.doctor_id, p.name
             FROM appointments a JOIN patients p ON p.id = a.patient_id
@@ -233,17 +206,12 @@ async def gcal_journal(start: str, end: str) -> list:
 
 
 async def gcal_patients() -> list:
-    """Фиши для подсказки «кто это»: имя и телефон. Архивные и обезличенные
-    не предлагаются."""
+    """Фиши для подсказки «кто это»; архивные не предлагаются."""
     return await _fetch("SELECT id, name, phone FROM patients WHERE archived = 0")
 
 
-# ---------- телефон в свободном тексте ----------
-
 def gcal_phone_keys(phone: str) -> set:
-    """Номер фиши в тех видах, в каких его отдаёт разбор текста события:
-    молдавский — восемь цифр, чужой — с плюсом. Номер, который разбор не
-    узнал, остаётся своими цифрами."""
+    """Номер фиши в видах, в каких его отдаёт разбор текста: молдавский — восемь цифр, чужой — с плюсом."""
     from ..core import gimport          # db лежит ниже core: импорт отложен
     digits = "".join(ch for ch in (phone or "") if ch.isdigit())
     keys = set(gimport.phones(phone or ""))
@@ -263,7 +231,6 @@ def _gcal_text_has(text: str, keys: set) -> bool:
 
 
 async def gcal_ids_with_phone(phone: str) -> list:
-    """Неперенесённые события, в тексте которых стоит этот номер."""
     keys = gcal_phone_keys(phone)
     if not keys:
         return []

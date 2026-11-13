@@ -1167,9 +1167,7 @@ def add_appt(c: Client, day: str, time: str, name: str, phone: str = "",
 
 
 def set_rooms(c: Client, dk: str, *names: str) -> list[str]:
-    """Кабинеты врача — путём клиники (фиша врача, `POST /api/doctors/{dk}`):
-    остальные поля фиши уезжают как были. Ответ — ключи кабинетов по порядку
-    (первый — по умолчанию)."""
+    """Кабинеты врача — путём клиники (фиша врача); ответ — ключи кабинетов по порядку."""
     card = json.loads(c.get(f"/api/doctors/{dk}").body)["data"]
     r = c.post_json(f"/api/doctors/{dk}", {
         "name": card["name"], "spec": card["spec"], "phone": card["phone"],

@@ -256,8 +256,7 @@ async def api_add(request: Request, date_q: str = Query("", alias="date"),
                   screen: str = Query("")):
     """Ручная запись: {date, time, doctor, service, name, phone, nophone, birth, sms?, duration?, room?}.
 
-    `room` — кабинет, выбранный в окне: нет ключа — сервер ставит первый
-    свободный кабинет врача.
+    `room` — нет ключа: сервер ставит первый свободный кабинет врача.
 
     ⚠️ `duration` — длительность, выбранная в окне РУКАМИ (10.11): нет ключа —
     длительность услуги, как было; есть — визит с признаком `duration_set`.
@@ -429,9 +428,7 @@ async def api_room(request: Request, appt_id: int,
                    date_q: str = Query("", alias="date"),
                    doctor: str = Query(""), f: str = Query(""),
                    screen: str = Query("")):
-    """Кабинет стоящей записи (окно визита): {room} — ключ одного из кабинетов
-    её врача. Ответ и отказы — как у длительности (`bad_room`, `room_closed`,
-    `conflict`…)."""
+    """Кабинет стоящей записи (окно визита): {room} — ключ кабинета её врача."""
     if (deny := api_guard(request)) is not None:
         return deny
     if (deny := await api_own_appt(appt_id)) is not None:
@@ -511,7 +508,6 @@ async def api_move(request: Request, appt_id: int,
                    doctor: str = Query(""), f: str = Query(""),
                    screen: str = Query("")):
     """Перенос: {date, time, doctor, room?} — тот же маршрут, что у перетаскивания.
-    Без `room` кабинет выбирает сервер (`routes._move_appt`).
 
     ⚠️ Проверки серверные и в полном составе: браузер не кладёт блок в
     закрытую ячейку, но верить ему нельзя — часы клиники и график врача

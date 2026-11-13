@@ -1,13 +1,11 @@
 import { hourMinutes } from './slot'
 
-/* Час и минута старта — общие на окно свободного часа, «Programare nouă» и
-   окно переноса. Занятые минуты — подсказка по канве от хозяина окна; правду
-   говорит сервер под своим замком. */
+/* Час и минута старта — общие на окна записи и переноса. Занятые минуты —
+   подсказка по канве; правду говорит сервер под своим замком. */
 
 const T = { group: 'Minute', taken: 'ocupat', hour: 'Ora' } as const
 
 interface HourProps {
-  /** Часы «HH:00», в которые можно начать. */
   hours: string[]
   value: string
   onPick: (hour: string) => void
@@ -28,7 +26,6 @@ interface Props {
   hh: string
   value: number
   step?: number
-  /** Минуты часа, занятые по канве; нет — подсказки нет. */
   taken?: ReadonlySet<number>
   onPick: (minute: number) => void
 }

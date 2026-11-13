@@ -132,7 +132,6 @@ def form_spec(d: date, items: list, sel_doctor: str = "",
 
 
 def _hour_of(hhmm: str) -> str:
-    """Час предвыбранного времени в виде списка часов; не по сетке — пусто."""
     hh, _, mm = hhmm.partition(":")
     ok = mm.isdigit() and int(mm) < 60 and int(mm) % eng.START_STEP == 0
     return f"{hh}:00" if ok else ""
