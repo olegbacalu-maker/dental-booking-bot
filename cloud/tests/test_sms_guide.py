@@ -73,7 +73,8 @@ def suite_page(res: Result) -> None:
                r.status == 200 and f"<h1>{sms_guide.TITLE}</h1>" in r.body and "Contul clinicii" in r.body
                and "action='/cont/iesire'" in r.body and "href='/cont#sms'" in r.body, f"{r.status} {r.body[:400]}")
         res.ok("цена года имени на странице — из прайса сервера",
-               "Numele propriu se plătește pe un an: 77 MDL." in _text(r.body) and "Plătiți anul numelui" in r.body)
+               "Numele propriu se plătește pe un an: 77 MDL." in _text(r.body) and "Plătiți anul numelui" in r.body
+               and "Prețul — 77 MDL pe an." in _text(r.body))
         res.ok("на странице нет данных клиники", IDNO not in r.body and "Ion Rusu" not in r.body)
         res.ok("ссылка на гид — в карточке имени, пока имени нет", _link(_pane(c.get("/cont").body, "sms")))
         _add(c, main)
@@ -92,7 +93,7 @@ def suite_page(res: Result) -> None:
         _register(s, c)
         text = _text(c.get(GUIDE).body)
         res.ok("другой прайс сервера — другая цена на странице, прежней нет",
-               "pe un an: 91 MDL." in text and "77" not in text, text[:300])
+               "pe un an: 91 MDL." in text and "Prețul — 91 MDL pe an." in text and "77" not in text, text[:300])
     with Server(env=ENV) as s:
         c = _enter(s, DIRECTOR)
         _register(s, c)
@@ -152,7 +153,7 @@ def suite_words(res: Result) -> None:
             program = "".join(f.read_text(encoding="utf-8", errors="replace")
                               for f in sorted((ROOT / "bot" / "app").rglob("*.py")))
             res.ok("исходники программы нашлись", len(program) > 100_000)
-            res.check("⛔ слова гида в «ёлочках» — те же, что в кабинете (или слово программы, пример)",
+            res.check("слова гида в «ёлочках» — те же, что в кабинете (или слово программы, пример)",
                       [w for w in words if not _named(w, seen) and w not in EXAMPLES
                        and not (w in PROGRAM and w in program)], [])
             res.check("список слов программы не гниёт: каждое названо в гиде", [w for w in PROGRAM if w not in words], [])
@@ -206,7 +207,7 @@ def suite_frames(res: Result) -> None:
                    and hdr.get("cache-control") == "private, max-age=86400", f"{status} {hdr}")
         got = [c.get(f"{GUIDE}/cadru/{k}").status for k in
                ("nimic", "pasi.webp", "..%2Fmodele%2Fbitlocker.html", "%2E%2E%2F%2E%2E%2Fsms.py")]
-        res.check("⛔ кадр — только по ключу словаря: неизвестный ключ, имя файла и путь — 404", got, [404] * 4)
+        res.check("кадр — только по ключу словаря: неизвестный ключ, имя файла и путь — 404", got, [404] * 4)
 
 
 SUITES = [

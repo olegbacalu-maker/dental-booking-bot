@@ -24,7 +24,7 @@ ASSETS = pathlib.Path(__file__).resolve().parent / "assets" / "ghid-sms"
 # ключ адреса → (файл, ширина, высота, подпись); файл берётся только из этого словаря, не из адреса
 FRAMES = {
     "cere": ("cere-numele.webp", 1500, 480, "Fila «SMS»: câmpul pentru nume și butonul de cerere."),
-    "pasi": ("pasi.webp", 1500, 736, "Pașii din cartelă, după cerere (date de exemplu)."),
+    "pasi": ("pasi.webp", 1500, 739, "Pașii din cartelă, după cerere (date de exemplu)."),
     "operatori": ("la-operatori.webp", 1500, 362, "Cererea este depusă la operatori."),
     "aprobat": ("aprobat.webp", 1500, 335, "Numele este aprobat și plătit: SMS-urile pleacă de la el."),
 }
@@ -102,7 +102,7 @@ def page(acc, price: int, q: str = "") -> str:
              f"este deja folosit sau cerut de altă clinică, contul vă spune și alegeți altul.</p>"
              f"<p>În cont se intră la cloud.dentpilot.md/cont, cu Google sau cu codul primit pe e-mail; din program — "
              f"cu butonul «Deschide contul clinicii», pe pagina «Licență».</p>{_fig('cere')}")
-    pay = step("pay", f"{cost} Sub pași, în aceeași cartelă, bifați «Am citit și accept Termenii și condițiile "
+    pay = step("pay", f"Prețul — {views._mdl(price)} MDL pe an. Sub pași, în aceeași cartelă, bifați «Am citit și accept Termenii și condițiile "
                       f"DentPilot», apoi alegeți {_q(card_btn)} sau {_q(views.NAME_TRANSFER)} (nota vine și pe "
                       f"e-mail). Anul se numără din ziua în care operatorii aprobă numele, nu din ziua plății. După "
                       f"confirmarea plății, la acest pas scrie {_q(views.NAME_PAID)} și "
