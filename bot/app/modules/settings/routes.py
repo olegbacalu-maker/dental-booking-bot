@@ -98,6 +98,7 @@ HUB_GROUP_OF = {"/admin/settings/system": "general", "/admin/license": "general"
                 "/admin/settings/registre": "general",
                 "/admin/medici": "medici", "/admin/settings/templates": "medici",
                 "/admin/settings/lan": "date", "/admin/settings/crypt": "date",
+                "/admin/patients/import": "date",
                 "/admin/settings/backup": "date", "/admin/settings/security": "securitate",
                 "/admin/settings/faq": "ajutor"}
 
@@ -237,6 +238,8 @@ def _hub_tiles() -> list[dict]:
         else:
             bkp_short = [{"t": "încă nu s-a făcut o copie"}]
         tiles.append(tile("/admin/settings/backup", "save", "b", "Copie de rezervă", bkp_short))
+    tiles.append(tile("/admin/patients/import", "upload", "v", "Import pacienți",
+                      [{"t": "lista pacienților din Excel sau CSV"}]))
     if _pin_rec():
         tiles.append(tile("/admin/settings/security", "users", "g",
                           "Securitate și utilizatori",

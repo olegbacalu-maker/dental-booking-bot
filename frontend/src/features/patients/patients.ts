@@ -40,6 +40,8 @@ export interface PatientsPage {
   /** Открыто не с ПК программы — выгрузки файлом там же (`auth.LOCAL_ONLY`,
    *  02.11): слова сервера вместо кнопки. Нет или `null` — кнопка есть. */
   remote?: ServerNotice | null
+  /** Право на импорт из файла: кнопка «Importă» рядом с «Exportă». */
+  can_import?: boolean
 }
 
 export interface Tile {

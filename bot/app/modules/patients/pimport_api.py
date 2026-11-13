@@ -5,14 +5,14 @@ from __future__ import annotations
 import asyncio
 
 from fastapi import APIRouter, Request
-from fastapi.responses import Response
+from fastapi.responses import HTMLResponse, Response
 
 from ... import db
 from ... import engine as eng
 from ...core import tabfile, xlsx
 from ...core.api import api_require
-from ...core.auth import PERM_IMPORT, local_only, remote_notice
-from ...core.layout import msg_json
+from ...core.auth import PERM_IMPORT, local_only, remote_notice, require
+from ...core.layout import msg_json, react_shell, shell_model
 from . import pimport as pi
 
 router = APIRouter()
@@ -76,6 +76,19 @@ def _import_view(r: dict) -> dict:
             "rows": r["rows"], "created": r["created"], "filled": r["filled"],
             "skipped": r["skipped"], "removed": r["removed"],
             "undone": r["undone_at"] is not None, "can_undo": left > 0}
+
+
+PAGE = "/admin/patients/import"
+_CRUMBS = [{"href": "/admin/search", "icon": "chev-l", "label": "Pacienți"}]
+
+
+@router.get(PAGE, response_class=HTMLResponse)
+async def admin_pimport(request: Request):
+    """В разделе «Pacienți», не в «Setări»: регистратура настроек не видит."""
+    if (deny := require(request, PERM_IMPORT)) is not None:
+        return deny
+    return react_shell("patients_import", request.url.path,
+                       shell_model("pat", "import din fișier Excel sau CSV", crumbs=_CRUMBS))
 
 
 @router.get("/api/pimport")

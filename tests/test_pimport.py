@@ -14,7 +14,7 @@ import urllib.parse
 import zipfile
 
 from harness import (BOT, FIXTURES, Client, Result, Server, _rmtree_settled, add_appt,
-                     clinic_today, new_patient)
+                     clinic_today, new_patient, shell_model)
 import pimport_samples as S
 
 sys.path.insert(0, str(BOT))
@@ -22,6 +22,9 @@ sys.path.insert(0, str(BOT))
 FIX = FIXTURES / "pimport"
 NO_KEY = {"ADMIN_KEY": ""}
 D = dt.date
+
+
+PAGE = "/admin/patients/import"
 
 
 def _j(r) -> dict:
@@ -367,6 +370,8 @@ def suite_import(res: Result) -> None:
                   ([], {"bytes": 10 * 1024 * 1024, "rows": 20000, "batch": 200}, None))
         res.ok("список полей для выбора колонки начинается с «Nu importa»",
                home["fields"][0] == {"id": "", "label": "Nu importa"} and len(home["fields"]) == 17)
+        res.check("вход по ключу сервера: кнопка «Importă» в списке пациентов есть",
+                  _j(c.get("/api/patients"))["data"]["can_import"], True)
         m = c.get("/api/pimport/model.xlsx")
         res.ok("файл-модель — книга с шапкой, которую импорт узнаёт сам",
                m.status == 200 and m.raw[:2] == b"PK" and "Nume și prenume" in _sheet_text(m.raw))
@@ -537,7 +542,8 @@ def suite_rights(res: Result) -> None:
               {p for p in auth.LOCAL_ONLY if "pimport" in p}, posts)
     res.ok("ни один не разрешён в режиме чтения",
            not any(license_state.allowed(p) for p in posts))
-    res.ok("демо закрывает раздел целиком", "/api/pimport" in demo.BLOCKED)
+    res.ok("демо закрывает раздел целиком: и маршруты, и страницу",
+           {"/api/pimport", PAGE} <= set(demo.BLOCKED))
     with Server(env=NO_KEY) as s:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
@@ -554,6 +560,18 @@ def suite_rights(res: Result) -> None:
             r = _send(med, what, lib)
             res.check(f"врач: {what} — 403 no_access", (r.status, r.msg), (403, "no_access"))
         res.check("регистратура видит экран", ana.get("/api/pimport").status, 200)
+        page = ana.get(PAGE)
+        res.ok("страница экрана у регистратуры — узел React в разделе «Pacienți»",
+               page.status == 200 and 'data-screen="patients_import"' in page.body
+               and "/admin/settings" not in json.dumps(shell_model(page.body)["frame"]["crumbs"]),
+               f"{page.status}")
+        res.ok("врач: страница закрыта", med.get(PAGE).status in (303, 307), "")
+        res.check("кнопка «Importă» в списке пациентов — по праву: директор, регистратура, врач",
+                  [_j(c.get("/api/patients"))["data"]["can_import"] for c in (boss, ana, med)],
+                  [True, True, False])
+        tiles = {t["href"]: t for t in _j(boss.get("/api/settings/hub"))["data"]["tiles"]}
+        res.check("плитка «Import pacienți» у директора в группе «Date și rețea»",
+                  tiles.get(PAGE, {}).get("group"), "date")
         run = _run_all(ana, lib, "biblioteca.xlsx")
         res.check("регистратура импортирует; в записи об импорте — её имя",
                   (run["total"]["created"], run["total"]["actor"]), (20, "Ana R"))
@@ -568,6 +586,11 @@ def suite_rights(res: Result) -> None:
         res.check("демо: проверка файла — 403 demo_off", (lambda r: (r.status, r.msg))(_send(c, "check", lib)),
                   (403, "demo_off"))
         res.check("демо: экран импорта — 403 demo_off", c.get("/api/pimport").msg, "demo_off")
+        res.ok("демо: страницы импорта нет, плитки в настройках тоже",
+               'data-screen="patients_import"' not in c.get(PAGE).body
+               and PAGE not in c.get("/api/settings/hub").body, "")
+        res.check("демо: кнопки «Importă» в списке пациентов нет",
+                  _j(c.get("/api/patients"))["data"]["can_import"], False)
 
 
 def suite_encrypted(res: Result) -> None:

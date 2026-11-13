@@ -17,6 +17,7 @@ export const ROUTES = [
   { path: "/admin/doctor-card/:dk", screen: "doctor_card" },
   { path: "/admin/doctor/:dk", screen: "schedule_doctor" },
   { path: "/admin/patient/:pid", screen: "patient_card" },
+  { path: "/admin/patients/import", screen: "patients_import" },
   { path: "/admin/settings/backup", screen: "settings_backup" },
   { path: "/admin/settings/clinic", screen: "settings_clinic" },
   { path: "/admin/settings/crypt", screen: "settings_crypt" },

@@ -44,6 +44,8 @@ const T = {
   resetTitle: 'Scoate toate filtrele',
   exportBtn: 'Exportă',
   exportTitle: 'Lista filtrată, ca registru Excel',
+  importBtn: 'Importă',
+  importTitle: 'Pacienți dintr-un fișier Excel sau CSV',
   add: 'Adaugă pacient',
   shownOne: 'afișat din',
   shownMany: 'afișați din',
@@ -286,6 +288,11 @@ export function PatientsSearchScreen({ navigate = defaultNavigate, debounceMs = 
         {remote ? <NoticeInline n={remote} /> : (
           <AppLink className="dp-btn" href={exportUrl} title={T.exportTitle}>
             <Icon name="download" /> {T.exportBtn}
+          </AppLink>
+        )}
+        {data?.page.can_import && !remote && (
+          <AppLink className="dp-btn" href="/admin/patients/import" title={T.importTitle}>
+            <Icon name="upload" /> {T.importBtn}
           </AppLink>
         )}
         <button type="button" className="dp-btn pri" onClick={() => setAdding(true)}>

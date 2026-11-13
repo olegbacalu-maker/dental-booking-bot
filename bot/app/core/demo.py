@@ -50,6 +50,7 @@ BLOCKED = (
     "/admin/license", "/api/license", "/admin/migration",
     # импорт пациентов файлом: слот демо общий на всех посетителей
     "/api/pimport",
+    "/admin/patients/import",
 )
 
 # Загрузка файла в демо — до 8 МБ (у клиники 25): копия живёт час, а место на

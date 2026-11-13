@@ -32,9 +32,9 @@ from ... import db
 from ... import engine as eng
 from ... import teeth_svg as tsvg
 from ...core.api import api_body, api_guard, api_own_doctor, api_require
-from ...core import pdf, recall
+from ...core import demo, pdf, recall
 from ...core import visit_tpl as vtpl
-from ...core.auth import PERM_MONEY, PERM_RECALL, can, remote_notice, request_user
+from ...core.auth import PERM_IMPORT, PERM_MONEY, PERM_RECALL, can, remote_notice, request_user
 from ...core.layout import ALERT_KINDS, STATUS_LABEL, _initials, msg_json, msg_text
 from ...core.visits import my_scope
 from . import anamneza as panam
@@ -127,6 +127,8 @@ async def api_patients(request: Request, q: str = "", med: str = "", st: str = "
         "hidden_arh": hidden, "n_arh": n_arh,
         # «Exportă» (книга по отбору) — только с ПК программы (`auth.LOCAL_ONLY`)
         "remote": remote_notice(request),
+        "can_import": ((me := request_user()) is None or can(me, PERM_IMPORT))
+        and not demo.refuses("/admin/patients/import"),
     })
 
 

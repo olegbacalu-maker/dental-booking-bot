@@ -3499,3 +3499,80 @@ dialog.rg-dlg.wide { width: 720px; }
 .fform .dp-rooms-b svg, .fform .dp-rooms-add svg { width: 14px; height: 14px; }
 .fform .dp-rooms-add { align-self: flex-start; }
 .chair-also { border-color: var(--line); }
+
+/* импорт пациентов из файла: шаги, таблица колонок, группы проверки, прошлые импорты */
+.dp-react-root.pi { display: flex; flex-direction: column; gap: 14px; }
+.pi .pi-steps { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 0; padding: 0; list-style: none;
+  color: var(--text3); font-size: var(--fs-body); font-weight: 500; }
+.pi .pi-steps li { display: inline-flex; align-items: center; gap: 8px; }
+.pi .pi-steps span { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 999px;
+  border: 1px solid var(--line); font-size: var(--fs-s); font-weight: 600; }
+.pi .pi-steps .on { color: var(--text); font-weight: 600; }
+.pi .pi-steps .on span { background: var(--teal); border-color: var(--teal); color: var(--on-teal); }
+.pi .pi-steps .past span { border-color: var(--teal-line); color: var(--teal-d); }
+.pi .hint { margin: 0; }
+.pi .pi-pick, .pi .pi-done { display: flex; flex-direction: column; align-items: center; text-align: center;
+  gap: 10px; padding: 32px 24px; }
+.pi .pi-pick .hint, .pi .pi-done .hint { max-width: 640px; }
+.pi .pi-pick .dp-btn, .pi .pi-go { width: auto; }
+.pi .pi-model { margin: 0; font-size: var(--fs-s); }
+.pi .pi-how { max-width: 640px; text-align: left; color: var(--text2); font-size: var(--fs-s); }
+.pi .pi-how summary { cursor: pointer; color: var(--teal-d); font-weight: 500; width: fit-content; margin: 0 auto; }
+.pi .pi-how ul { margin: 8px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.pi .rc-empty-ico.ok { background: var(--green-soft); color: var(--green-t); }
+.pi .pi-file { display: flex; align-items: center; gap: 10px; padding: 10px 16px; font-size: var(--fs-body); }
+.pi .pi-file > svg { width: 18px; height: 18px; color: var(--text3); flex: none; }
+.pi .pi-file > span { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.pi .pi-cols, .pi .pi-fill, .pi .pi-past, .pi .pi-run { display: flex; flex-direction: column; gap: 12px; padding: 16px; }
+.pi .pi-opts { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+.pi .pi-opts label { display: inline-flex; align-items: center; gap: 8px; color: var(--text2); font-size: var(--fs-m); }
+.pi .pi-num { width: 72px; height: var(--h-ctl); padding: 0 8px; border: 1px solid var(--line);
+  border-radius: var(--r-ctl); background: var(--panel); color: var(--text); font: inherit; }
+.pi .pi-scroll { overflow-x: auto; border: 1px solid var(--line2); border-radius: var(--r-ctl); }
+.pi .pi-table { width: 100%; border-collapse: collapse; font-size: var(--fs-m); }
+.pi .pi-table th, .pi .pi-table td { padding: 7px 10px; text-align: left; vertical-align: top;
+  border-bottom: 1px solid var(--line2); }
+.pi .pi-table tr:last-child td { border-bottom: 0; }
+.pi .pi-table th { color: var(--text2); font-size: var(--fs-s); font-weight: 600; background: var(--fill); white-space: nowrap; }
+.pi .pi-preview th { min-width: 196px; }
+.pi .pi-preview th:first-child { min-width: 0; }
+.pi .pi-preview th .dp-sel { display: block; width: 100%; height: var(--h-ctl-s); padding: 0 24px 0 8px; font-size: var(--fs-m); }
+.pi .pi-preview th.on .dp-sel { border-color: var(--teal-line); }
+.pi .pi-preview th small { display: block; margin-top: 4px; font-weight: 500; color: var(--text3);
+  max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.pi .pi-preview td { white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.pi .pi-preview td.off { color: var(--text3); }
+.pi .pi-ln { color: var(--text3); font-variant-numeric: tabular-nums; width: 1%; white-space: nowrap; }
+.pi .pi-acts { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; }
+.pi .pi-done .pi-acts { justify-content: center; }
+.pi .pi-need { color: var(--amber-t); font-size: var(--fs-m); }
+.pi .pi-check { display: flex; flex-direction: column; gap: 12px; }
+.pi .pi-counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px;
+  margin: 0; padding: 0; list-style: none; }
+.pi .pi-count { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border: 1px solid var(--line);
+  border-radius: var(--r-card); background: var(--panel); color: var(--text2); font-size: var(--fs-m); }
+.pi .pi-count b { font-size: var(--fs-xl); line-height: 26px; color: var(--text); font-variant-numeric: tabular-nums; }
+.pi .pi-count.new b { color: var(--green-t); }
+.pi .pi-count.bad b { color: var(--red-t); }
+.pi .pi-count.dup b, .pi .pi-count.noted b { color: var(--amber-t); }
+.pi .pi-count.zero b { color: var(--text3); }
+.pi .pi-group { padding: 0; }
+.pi .pi-group summary { display: flex; align-items: center; gap: 8px; padding: 12px 16px; cursor: pointer; font-size: var(--fs-body); }
+.pi .pi-group summary svg { width: 14px; height: 14px; color: var(--text3); transition: transform var(--dur-fast) ease; }
+.pi .pi-group[open] summary svg { transform: rotate(90deg); }
+.pi .pi-group .pi-scroll { border-width: 1px 0 0; border-radius: 0; max-height: 420px; overflow-y: auto; }
+.pi .pi-group > .hint { padding: 10px 16px; }
+.pi .pi-badge { padding: 1px 8px; border-radius: 999px; background: var(--line2); color: var(--text2);
+  font-size: var(--fs-s); font-weight: 600; }
+.pi .pi-said { display: flex; flex-direction: column; gap: 2px; min-width: 240px; }
+.pi .pi-said a { color: var(--teal-d); font-weight: 500; width: fit-content; }
+.pi .pi-force, .pi .pi-fill label { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.pi .pi-fill label { font-weight: 600; font-size: var(--fs-body); }
+.pi .pi-run { align-items: stretch; }
+.pi .pi-run progress { width: 100%; height: 10px; accent-color: var(--teal); }
+.pi .pi-run-n { font-size: var(--fs-h2); font-weight: 600; font-variant-numeric: tabular-nums; }
+.pi .pi-done-n { margin: 0; font-size: var(--fs-body); }
+.pi .pi-past h3 { margin: 0; font-size: var(--fs-body); }
+.pi .pi-past .dim td { color: var(--text3); }
+.pi .pi-fname { overflow-wrap: anywhere; }
+.pi .pi-td-act { width: 1%; text-align: right; white-space: nowrap; }

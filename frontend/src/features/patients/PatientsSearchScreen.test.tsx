@@ -107,6 +107,23 @@ describe('PatientsSearchScreen', () => {
     expect(screen.getByRole('note').textContent).toMatch(/doar pe calculatorul principal/)
   })
 
+  it('«Importă» рядом с «Exportă» — только по праву сервера и только на ПК программы', async () => {
+    serve({ '': { ...PAGE, can_import: true } })
+    open()
+    expect(await screen.findByText('Avans Popescu')).toBeTruthy()
+    expect(screen.getByRole('link', { name: /Importă/ }).getAttribute('href')).toBe('/admin/patients/import')
+    cleanup()
+    serve()
+    open()
+    expect(await screen.findByText('Avans Popescu')).toBeTruthy()
+    expect(document.querySelector('a[href="/admin/patients/import"]')).toBeNull()
+    cleanup()
+    serve({ '': { ...PAGE, can_import: true, remote: { code: 'only_local', tone: 'warn', text: 'doar pe calculatorul principal' } } })
+    open()
+    expect(await screen.findByText('Avans Popescu')).toBeTruthy()
+    expect(document.querySelector('a[href="/admin/patients/import"]')).toBeNull()
+  })
+
   it('строки: имя, «возраст · канал» второй строкой, долг и аванс, статус словами сервера, врач с последнего визита', async () => {
     serve()
     open()
