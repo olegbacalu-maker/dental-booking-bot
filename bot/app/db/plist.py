@@ -182,6 +182,8 @@ class _PlQuery:
                          f"{self.arg(f['stale_cut'], dt=True)})")
         if f.get("ch"):
             conds.append(f"{_PL_CANAL} = {self.arg(f['ch'])}")
+        if f.get("imp"):
+            conds.append(f"p.import_id = {self.arg(int(f['imp']))}")
         # ноль — ни в долг, ни в аванс: рассчитавшийся пациент не должен
         # всплывать в списке, который регистратура открывает, чтобы звонить
         if f.get("dat") == "da":

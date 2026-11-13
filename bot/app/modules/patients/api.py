@@ -32,12 +32,13 @@ from ... import db
 from ... import engine as eng
 from ... import teeth_svg as tsvg
 from ...core.api import api_body, api_guard, api_own_doctor, api_require
-from ...core import pdf, recall
+from ...core import demo, pdf, recall
 from ...core import visit_tpl as vtpl
-from ...core.auth import PERM_MONEY, PERM_RECALL, can, remote_notice, request_user
+from ...core.auth import PERM_IMPORT, PERM_MONEY, PERM_RECALL, can, remote_notice, request_user
 from ...core.layout import ALERT_KINDS, STATUS_LABEL, _initials, msg_json, msg_text
 from ...core.visits import my_scope
 from . import anamneza as panam
+from .pimport_api import _import_view
 from . import card as pcard
 from . import fisa043 as pfisa
 from . import ocluzie as poccl
@@ -98,10 +99,22 @@ def _row(p: dict, now: datetime) -> dict:
     }
 
 
+async def _import_label(imp: int) -> dict | None:
+    """Подпись отбора «только фиши этого импорта»; импорта нет — слово вместо подписи."""
+    if not imp:
+        return None
+    run = await db.import_get(imp)
+    if run is None:
+        return {"id": imp, "gone": True, "text": msg_text("pi_gone")}
+    v = _import_view(run)
+    return {"id": imp, "gone": False, "file": v["file"], "at": v["at"],
+            "left": v["created"] - v["removed"], "undone": v["undone"]}
+
+
 @router.get("/api/patients")
 async def api_patients(request: Request, q: str = "", med: str = "", st: str = "",
                        ch: str = "", dat: str = "", sort: str = "last",
-                       page: int = 1, per: int = 20):
+                       page: int = 1, per: int = 20, imp: int = 0):
     """Страница списка. Неизвестные st/ch/dat/sort/per откатываются к «все» и
     «по умолчанию» (`_pl_select`); page за пределом — последняя."""
     if (deny := api_guard(request)) is not None:
@@ -109,7 +122,7 @@ async def api_patients(request: Request, q: str = "", med: str = "", st: str = "
     now = datetime.now(eng.TZ)
     sort = sort if sort in _PL_SORTS else "last"
     per = per if per in _PL_PER else 20
-    f = _pl_select(now, q, med, st, ch, dat)
+    f = _pl_select(now, q, med, st, ch, dat, imp)
     page = max(1, page)
     rows = await db.patients_rows(f, sort, per, (page - 1) * per)
     # счёт едет в строках; пустая страница за пределом — считаем и схлопываем
@@ -127,6 +140,9 @@ async def api_patients(request: Request, q: str = "", med: str = "", st: str = "
         "hidden_arh": hidden, "n_arh": n_arh,
         # «Exportă» (книга по отбору) — только с ПК программы (`auth.LOCAL_ONLY`)
         "remote": remote_notice(request),
+        "import": await _import_label(f["imp"]),
+        "can_import": ((me := request_user()) is None or can(me, PERM_IMPORT))
+        and not demo.refuses("/admin/patients/import"),
     })
 
 
@@ -196,6 +212,8 @@ async def api_patient_new(request: Request):
                                    s("email"), s("primary_doctor"))
     if code == "bad_pat":
         return msg_json(False, code, field="name", status=422)
+    if code == "bad_bd":
+        return msg_json(False, code, field="birth_date", status=422)
     return msg_json(True, code, data={"id": pid, "url": f"/admin/patient/{pid}?msg={code}"})
 
 

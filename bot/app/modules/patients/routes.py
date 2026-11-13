@@ -44,6 +44,7 @@ from . import ocluzie as poccl
 from . import odontogram as podo
 from . import perio as pperio
 from . import plan_acord as pplan
+from . import profile_rules as prules
 from . import sign as psign
 from . import visit as pvisit
 from ...core import shellopen, xlsx
@@ -137,15 +138,12 @@ async def _save_profile(pid: int, prev: dict, get) -> str:
     bd = data.get("birth_date")
     bd_year = None
     if bd:
-        try:
-            parsed = date.fromisoformat(bd)
-        except ValueError:
-            return "bad_bd"
-        if not (1900 <= parsed.year and parsed <= date.today()):
+        parsed = prules.birth_date(bd)
+        if parsed is None:
             return "bad_bd"
         data["birth_date"] = parsed.isoformat()
         bd_year = parsed.year
-    if data.get("idnp") and not re.fullmatch(r"[0-9]{13}", data["idnp"]):
+    if data.get("idnp") and not prules.idnp_shape(data["idnp"]):
         return "bad_idnp"
     await db.update_patient(pid, data)
     if bd_year:
@@ -1203,7 +1201,7 @@ def _pl_stale_cut(now: datetime) -> datetime:
     return now - timedelta(days=_PL_INACTIVE_DAYS + 1)
 
 
-def _pl_select(now: datetime, q: str, med: str, st: str, ch: str, dat: str) -> dict:
+def _pl_select(now: datetime, q: str, med: str, st: str, ch: str, dat: str, imp: int = 0) -> dict:
     """Отбор списка словарём для `db.patients_rows` — один на экран (`GET
     /api/patients`) и на книгу `.xlsx`: кто виден в списке, тот и уезжает в
     Excel. Неизвестные st/ch/dat откатываются к «все». Архивные скрыты, пока
@@ -1214,7 +1212,8 @@ def _pl_select(now: datetime, q: str, med: str, st: str, ch: str, dat: str) -> d
     ch = ch if ch in _PL_CANAL else ""
     dat = dat if dat in ("da", "avans") else ""
     return {"q": q, "terms": _pl_terms(q), "med": med, "st": st, "ch": ch, "dat": dat,
-            "show_archived": bool(q) or st == "arhivat",
+            "imp": max(0, imp),
+            "show_archived": bool(q) or st == "arhivat" or imp > 0,
             "stale_cut": _pl_stale_cut(now), "now": now}
 
 
@@ -1258,7 +1257,7 @@ def _pl_trend(cur: int, prev: int) -> str:
 @router.get("/admin/search", response_class=HTMLResponse)
 async def admin_search(request: Request, q: str = "", med: str = "", st: str = "",
                        ch: str = "", sort: str = "last", page: int = 1,
-                       per: int = 20, msg: str = "", dat: str = ""):
+                       per: int = 20, msg: str = "", dat: str = "", imp: int = 0):
     if (deny := _guard(request)) is not None:
         return deny
     # отбор из адреса уезжает параметрами узла, чтобы ссылки «?q=телефон»
@@ -1271,6 +1270,8 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
         params["page"] = str(page)
     if per != 20:
         params["per"] = str(per)
+    if imp > 0:
+        params["imp"] = str(imp)
     # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
     # подпись печатает сам экран (08.10): «12 afișați din 19 · +9 luna
     # aceasta» — числа списка, а не описание раздела
@@ -1391,7 +1392,7 @@ async def _peek_html(pid: int) -> str | None:
 
 @router.get("/admin/patients.xlsx")
 async def patients_xlsx(request: Request, q: str = "", med: str = "", st: str = "",
-                        ch: str = "", sort: str = "last", dat: str = ""):
+                        ch: str = "", sort: str = "last", dat: str = "", imp: int = 0):
     """Список КНИГОЙ Excel; кнопка «Exportă» экрана ведёт сюда с его отбором.
     Выборка та же, что у экрана (`_pl_select` → `db.patients_rows`), только
     целиком: выгружают ВЫБОРКУ, а не её страницу. Книга, а не CSV: CSV не
@@ -1404,7 +1405,7 @@ async def patients_xlsx(request: Request, q: str = "", med: str = "", st: str = 
     if (deny := local_only(request, page=True)) is not None:
         return deny
     now = datetime.now(eng.TZ)
-    rows = await db.patients_rows(_pl_select(now, q, med, st, ch, dat),
+    rows = await db.patients_rows(_pl_select(now, q, med, st, ch, dat, imp),
                                   sort if sort in _PL_SORTS else "last", None, 0)
 
     def _d(v):
@@ -1448,8 +1449,9 @@ async def patients_xlsx(request: Request, q: str = "", med: str = "", st: str = 
 async def _new_patient(name: str, phone: str, birth_date: str, email: str,
                        primary_doctor: str) -> tuple[str, int | None]:
     """Правило новой фиши (`POST /api/patients`, диалог «Pacient nou»): (код,
-    id фиши). bad_pat — без имени; dup_pat — фиша с таким телефоном уже есть,
-    и открывается ОНА; new_pat — заведена.
+    id фиши). bad_pat — без имени; bad_bd — дата рождения не проходит правило
+    фиши; dup_pat — фиша с таким телефоном уже есть, и открывается ОНА;
+    new_pat — заведена.
 
     ⚠️ Ключ `manual:{цифры}` СКЛЕИВАЕТ пациентов по телефону — на то он и
     заведён, чтобы бот и регистратура не плодили двойников. Поэтому при
@@ -1480,15 +1482,15 @@ async def _new_patient(name: str, phone: str, birth_date: str, email: str,
         key = db.manual_key("")
     bd, year = birth_date.strip()[:10], None
     if bd:
-        try:
-            year = date.fromisoformat(bd).year
-        except ValueError:
-            bd = ""
+        parsed = prules.birth_date(bd)
+        if parsed is None:
+            return "bad_bd", None
+        bd, year = parsed.isoformat(), parsed.year
     pid = await db.create_patient(key, name, phone, year)
     data = {f: None for f in db.PATIENT_FIELDS}
     doc = primary_doctor.strip()
     data.update({"name": name, "phone": phone or None, "birth_date": bd or None,
                  "email": email.strip()[:120] or None,
                  "primary_doctor": doc if doc in set(eng.DOCTORS.values()) else None})
-    await db.update_patient(pid, data)
+    await db.update_patient(pid, data, log=False)
     return "new_pat", pid

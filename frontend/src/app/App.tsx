@@ -28,6 +28,7 @@ import { loadThemeSettings, ThemeSettingsScreen } from '../features/settings/The
 import { loadStats, StatsScreen } from '../features/stats/StatsScreen'
 import { loadRecall, RecallScreen } from '../features/recall/RecallScreen'
 import { GcalScreen, loadGcal } from '../features/gcal/GcalScreen'
+import { ImportScreen, loadPimport } from '../features/patients/ImportScreen'
 import { RegistreScreen } from '../features/registre/RegistreScreen'
 import { RegistreSettingsScreen } from '../features/registre/RegistreSettingsScreen'
 import { loadVisit, VisitScreen } from '../features/visits/VisitScreen'
@@ -89,6 +90,7 @@ export const SCREENS: Record<ScreenName, Draw> = {
   registre: () => <RegistreScreen />,
   settings_registre: () => <RegistreSettingsScreen />,
   patients_search: () => <PatientsSearchScreen />,
+  patients_import: () => <ImportScreen />,
   patient_card: (p) => <PatientCardScreen pid={Number(p.pid)} />,
   // ⚠️ Параметр пути — `appt_id`, как у сервера. Ключ узла `aid` здесь больше
   // не читается: адрес визита разбирает роутер, а имена у них РАЗНЫЕ. `back`
@@ -139,6 +141,7 @@ const LOADS: Partial<Record<ScreenName, ScreenData>> = {
   patient_card: loadPatientCard,
   visit: loadVisit,
   patients_search: loadPatientsSearch,
+  patients_import: loadPimport,
   settings_clinic: loadClinicSettings,
   // ⭐ Панель: загрузчик добывает ПЕРВЫЙ ответ живого канала (B4); опрос — `useLive`.
   schedule_dash: loadDash,

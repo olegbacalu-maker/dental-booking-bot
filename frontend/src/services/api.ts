@@ -28,6 +28,8 @@ export interface RequestOptions {
   body?: unknown
   /** Файл(ы): multipart/form-data. Заголовок с boundary ставит браузер сам. */
   form?: FormData
+  /** Файл телом запроса как есть: сервер читает его потоком, мимо временного каталога. */
+  raw?: Blob
 }
 
 /**
@@ -41,11 +43,9 @@ export interface ApiResult<T> {
   tone: Tone
 }
 
-async function request<T>(
-  method: 'GET' | 'POST',
-  path: string,
-  options: RequestOptions = {},
-): Promise<ApiResult<T>> {
+const RAW_HEADERS = { 'Content-Type': 'application/octet-stream' } as const
+
+async function send(method: 'GET' | 'POST', path: string, options: RequestOptions): Promise<Response> {
   let response: Response
   try {
     response = await fetch(`${API_ROOT}${path}`, {
@@ -60,11 +60,13 @@ async function request<T>(
       // но страховка остаётся: она стоит одну строку.
       redirect: 'manual',
       ...(options.signal ? { signal: options.signal } : {}),
-      ...(options.form
-        ? { body: options.form }
-        : options.body === undefined
-          ? {}
-          : { headers: JSON_HEADERS, body: JSON.stringify(options.body) }),
+      ...(options.raw
+        ? { headers: RAW_HEADERS, body: options.raw }
+        : options.form
+          ? { body: options.form }
+          : options.body === undefined
+            ? {}
+            : { headers: JSON_HEADERS, body: JSON.stringify(options.body) }),
     })
   } catch (error) {
     // Движок не ответил. Программа при этом жива — падать нельзя.
@@ -74,7 +76,15 @@ async function request<T>(
   if (response.type === 'opaqueredirect' || response.status === 0) {
     throw fail({ kind: 'unauthenticated' })
   }
+  return response
+}
 
+async function request<T>(
+  method: 'GET' | 'POST',
+  path: string,
+  options: RequestOptions = {},
+): Promise<ApiResult<T>> {
+  const response = await send(method, path, options)
   const envelope = await readEnvelope<T>(response)
 
   if (response.ok && envelope?.ok) {
@@ -85,18 +95,29 @@ async function request<T>(
       tone: envelope.tone ?? 'ok',
     }
   }
+  throw refusal(response, envelope)
+}
 
+/** Ответ-файл (книга отчёта): удача — тело как есть, отказ — тот же конверт со словами. */
+async function download(path: string, raw: Blob): Promise<Blob> {
+  const response = await send('POST', path, { raw })
+  const type = response.headers.get('content-type') ?? ''
+  if (response.ok && !type.includes('application/json')) return response.blob()
+  throw refusal(response, await readEnvelope<unknown>(response))
+}
+
+function refusal<T>(response: Response, envelope: ApiEnvelope<T> | null): ApiError {
   const code = envelope?.code ?? ''
   const text = envelope?.text ?? ''
   switch (response.status) {
     case 401:
-      throw fail({ kind: 'unauthenticated' })
+      return fail({ kind: 'unauthenticated' })
     case 403:
-      throw fail({ kind: 'forbidden', code, text })
+      return fail({ kind: 'forbidden', code, text })
     case 409:
-      throw fail({ kind: 'conflict', code, text })
+      return fail({ kind: 'conflict', code, text })
     case 422:
-      throw fail({
+      return fail({
         kind: 'validation',
         code,
         text,
@@ -104,7 +125,7 @@ async function request<T>(
         ...(envelope?.data !== undefined ? { data: envelope.data } : {}),
       })
     default:
-      throw fail({ kind: 'server', status: response.status, code, text })
+      return fail({ kind: 'server', status: response.status, code, text })
   }
 }
 
@@ -172,4 +193,7 @@ export const api = {
     request<T>('POST', path, { ...options, body }),
   postForm: <T>(path: string, form: FormData, options?: RequestOptions) =>
     request<T>('POST', path, { ...options, form }),
+  postRaw: <T>(path: string, raw: Blob, options?: RequestOptions) =>
+    request<T>('POST', path, { ...options, raw }),
+  download,
 }

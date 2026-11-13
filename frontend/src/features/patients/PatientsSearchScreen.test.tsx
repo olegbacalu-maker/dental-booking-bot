@@ -85,7 +85,9 @@ afterEach(() => {
 describe('filters', () => {
   it('из параметров узла и обратно в адрес — без значений по умолчанию', () => {
     const f = filtersFromParams({ q: 'balan', st: 'inactiv', per: '10', sort: 'zzz', page: '3' })
-    expect(f).toEqual({ q: 'balan', med: '', st: 'inactiv', ch: '', dat: '', sort: 'last', page: 3, per: 10 })
+    expect(f).toEqual({ q: 'balan', med: '', st: 'inactiv', ch: '', dat: '', imp: '', sort: 'last', page: 3, per: 10 })
+    expect(filtersToQuery(filtersFromParams({ imp: '7', q: 'ana' }))).toBe('?q=ana&imp=7')
+    expect(['abc', '0', '-3', '7;drop'].map((imp) => filtersFromParams({ imp }).imp)).toEqual(['', '', '', ''])
     expect(filtersToQuery(f)).toBe('?q=balan&st=inactiv&per=10&page=3')
     expect(filtersToQuery(f, false)).toBe('?q=balan&st=inactiv&per=10')
     expect(filtersToQuery(filtersFromParams({}))).toBe('')
@@ -105,6 +107,50 @@ describe('PatientsSearchScreen', () => {
     expect(await screen.findByText('Avans Popescu')).toBeTruthy()
     expect(document.querySelector('a[href^="/admin/patients.xlsx"]')).toBeNull()
     expect(screen.getByRole('note').textContent).toMatch(/doar pe calculatorul principal/)
+  })
+
+  it('отбор по импорту: строка «Doar din importul…», запрос несёт imp, «Arată toți pacienții» снимает его', async () => {
+    const only = { ...PAGE, rows: [ROW2], total: 1,
+      import: { id: 7, gone: false, file: 'pacienti.xlsx', at: '13.11.2026 09:32', left: 36, undone: false } }
+    serve({ '?imp=7': only, '': PAGE })
+    const { router } = open('/admin/search?imp=7')
+    expect(await screen.findByText('Dumitru Ganea')).toBeTruthy()
+    expect(pageCalls()).toEqual(['/patients?imp=7'])
+    const line = document.querySelector('.dp-pl-only') as HTMLElement
+    expect(line.textContent).toContain('Doar din importul „pacienti.xlsx” · 13.11.2026 09:32 · 36 de fișe')
+    expect(document.querySelector('a[href^="/admin/patients.xlsx"]')?.getAttribute('href')).toBe('/admin/patients.xlsx?imp=7')
+    fireEvent.click(screen.getByRole('button', { name: 'Arată toți pacienții' }))
+    expect(await screen.findByText('Avans Popescu')).toBeTruthy()
+    expect(router.state.location.search).toBe('')
+    expect(document.querySelector('.dp-pl-only')).toBeNull()
+  })
+
+  it('отбор по импорту: отменённый — словом; импорта нет — слова сервера и выход ко всем', async () => {
+    serve({ '?imp=7': { ...PAGE, import: { id: 7, gone: false, file: 'a.csv', at: '13.11.2026 09:32', left: 1, undone: true } },
+      '?imp=9': { ...PAGE, rows: [], total: 0, import: { id: 9, gone: true, text: 'Importul nu mai există sau a fost anulat' } } })
+    open('/admin/search?imp=7')
+    await waitFor(() => expect(document.querySelector('.dp-pl-only')?.textContent).toContain('1 fișă · import anulat'))
+    cleanup()
+    open('/admin/search?imp=9')
+    await waitFor(() => expect(document.querySelector('.dp-pl-only')?.textContent).toContain('Importul nu mai există sau a fost anulat'))
+    expect(screen.getByRole('button', { name: 'Arată toți pacienții' })).toBeTruthy()
+  })
+
+  it('«Importă» рядом с «Exportă» — только по праву сервера и только на ПК программы', async () => {
+    serve({ '': { ...PAGE, can_import: true } })
+    open()
+    expect(await screen.findByText('Avans Popescu')).toBeTruthy()
+    expect(screen.getByRole('link', { name: /Importă/ }).getAttribute('href')).toBe('/admin/patients/import')
+    cleanup()
+    serve()
+    open()
+    expect(await screen.findByText('Avans Popescu')).toBeTruthy()
+    expect(document.querySelector('a[href="/admin/patients/import"]')).toBeNull()
+    cleanup()
+    serve({ '': { ...PAGE, can_import: true, remote: { code: 'only_local', tone: 'warn', text: 'doar pe calculatorul principal' } } })
+    open()
+    expect(await screen.findByText('Avans Popescu')).toBeTruthy()
+    expect(document.querySelector('a[href="/admin/patients/import"]')).toBeNull()
   })
 
   it('строки: имя, «возраст · канал» второй строкой, долг и аванс, статус словами сервера, врач с последнего визита', async () => {

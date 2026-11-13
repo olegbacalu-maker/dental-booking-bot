@@ -11,6 +11,7 @@ import {
   queryParam, searchChangeKeepsData, useRouteLoad, type RouteLoad, type ScreenData,
 } from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
+import { roCount } from '../../utils/plural'
 import { NewPatientDialog } from './NewPatientDialog'
 import { PatientPeek, type PeekState } from './PatientPeek'
 import { PatientsTable } from './PatientsTable'
@@ -44,6 +45,12 @@ const T = {
   resetTitle: 'Scoate toate filtrele',
   exportBtn: 'Exportă',
   exportTitle: 'Lista filtrată, ca registru Excel',
+  importBtn: 'Importă',
+  importTitle: 'Pacienți dintr-un fișier Excel sau CSV',
+  onlyImport: 'Doar din importul',
+  nCards: { one: '{n} fișă', few: '{n} fișe', many: '{n} de fișe' },
+  undone: 'import anulat',
+  showAll: 'Arată toți pacienții',
   add: 'Adaugă pacient',
   shownOne: 'afișat din',
   shownMany: 'afișați din',
@@ -66,7 +73,7 @@ interface Props {
   debounceMs?: number
 }
 
-const KEYS = ['q', 'med', 'st', 'ch', 'dat', 'sort', 'page', 'per'] as const
+const KEYS = ['q', 'med', 'st', 'ch', 'dat', 'imp', 'sort', 'page', 'per'] as const
 
 /** Предпросмотра нет и панель никуда не едет — одна ссылка на всех. */
 const NO_PEEK: { peek: PeekState | null; ghost: PeekState | null } = { peek: null, ghost: null }
@@ -288,6 +295,11 @@ export function PatientsSearchScreen({ navigate = defaultNavigate, debounceMs = 
             <Icon name="download" /> {T.exportBtn}
           </AppLink>
         )}
+        {data?.page.can_import && !remote && (
+          <AppLink className="dp-btn" href="/admin/patients/import" title={T.importTitle}>
+            <Icon name="upload" /> {T.importBtn}
+          </AppLink>
+        )}
         <button type="button" className="dp-btn pri" onClick={() => setAdding(true)}>
           <Icon name="plus" /> {T.add}
         </button>
@@ -338,6 +350,19 @@ export function PatientsSearchScreen({ navigate = defaultNavigate, debounceMs = 
           </AppLink>
         )}
       </form>
+      {data?.page.import ? (
+        <p className="dp-pl-only" role="status">
+          <Icon name="upload" />
+          {data.page.import.gone ? <span>{data.page.import.text}</span> : (
+            <span>
+              {T.onlyImport} <b>„{data.page.import.file}”</b> · {data.page.import.at}
+              {' · '}{roCount(data.page.import.left ?? 0, T.nCards)}
+              {data.page.import.undone ? ` · ${T.undone}` : ''}
+            </span>
+          )}
+          <button type="button" className="dp-link" onClick={() => set({ imp: '' })}>{T.showAll}</button>
+        </p>
+      ) : null}
       <div className="dp-pl-grid">
         <div className="dp-card dp-pl-list">
           {data && (

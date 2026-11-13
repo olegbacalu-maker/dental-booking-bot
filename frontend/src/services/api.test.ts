@@ -40,6 +40,32 @@ describe('services/api — конверт и разбор отказов', () =>
     expect(init.redirect).toBe('manual')
   })
 
+  it('файл телом запроса: тело как есть, тип octet-stream; отказ — тот же конверт', async () => {
+    const fetchMock = vi.fn(async () => reply(200, envelope(true, '', { data: { ready: true } })))
+    vi.stubGlobal('fetch', fetchMock)
+    const file = new Blob(['PK'])
+    expect((await api.postRaw<{ ready: boolean }>('/pimport/check?name=a.xlsx', file)).data).toEqual({ ready: true })
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('/api/pimport/check?name=a.xlsx')
+    expect(init.body).toBe(file)
+    expect(init.headers).toEqual({ 'Content-Type': 'application/octet-stream' })
+
+    vi.stubGlobal('fetch', vi.fn(async () => reply(413, envelope(false, 'pi_too_big'))))
+    const e = await failureOf(api.postRaw('/pimport/check', file))
+    expect(e.failure).toEqual({ kind: 'server', status: 413, code: 'pi_too_big', text: 'text:pi_too_big' })
+  })
+
+  it('ответ-файл: удача — тело книги, отказ словами — ApiError, а не «скачанный» конверт', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, 'PK-book', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')))
+    expect(await (await api.download('/pimport/report', new Blob(['x']))).text()).toBe('PK-book')
+
+    vi.stubGlobal('fetch', vi.fn(async () => reply(403, envelope(false, 'only_local'))))
+    expect((await failureOf(api.download('/pimport/report', new Blob(['x'])))).failure)
+      .toEqual({ kind: 'forbidden', code: 'only_local', text: 'text:only_local' })
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, envelope(true))))
+    expect((await failureOf(api.download('/pimport/report', new Blob(['x'])))).failure.kind).toBe('server')
+  })
+
   it('POST шлёт JSON-тело с заголовком', async () => {
     const fetchMock = vi.fn(async () => reply(200, envelope(true)))
     vi.stubGlobal('fetch', fetchMock)

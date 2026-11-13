@@ -342,6 +342,20 @@ MSG_BANNER = {
                         "Dacă este altă persoană (numărul familiei), adăugați-o cu alt "
                         "număr sau fără număr"),
     "bad_pat": ("err", "Lipsește numele pacientului"),
+    "pi_old_xls": ("err", "Fișier Excel vechi (.xls) sau protejat cu parolă. Deschideți-l în "
+                          "Excel și salvați-l ca „Registru de lucru Excel (.xlsx)”, fără parolă"),
+    "pi_not_table": ("err", "Fișierul nu este un tabel .xlsx sau .csv — verificați ce "
+                            "fișier ați ales"),
+    "pi_too_big": ("err", "Fișierul este prea mare (peste 10 MB) — împărțiți-l în două"),
+    "pi_rows": ("err", "Fișierul are peste 20 000 de rânduri — împărțiți-l în două"),
+    "pi_empty": ("err", "Fișierul nu conține rânduri cu date"),
+    "pi_opts": ("err", "Alegerea coloanelor nu a putut fi citită — reluați pasul"),
+    "pi_no_name": ("err", "Alegeți coloana cu numele pacientului"),
+    "pi_stale": ("warn", "Fișierul sau alegerea coloanelor s-au schimbat după verificare — "
+                         "verificați din nou"),
+    "pi_gone": ("err", "Importul nu mai există sau a fost anulat"),
+    "pi_done": ("ok", "Import finalizat"),
+    "pi_undone": ("ok", "Import anulat — fișele fără programări și fără date au fost șterse"),
     # демо с сайта (core/demo.py): экран спрятан шлюзом, а не правом
     "demo_off": ("err", "În versiunea demonstrativă această secțiune nu este disponibilă"),
     "no_access": ("err", "Secțiunea este rezervată directorului clinicii. "

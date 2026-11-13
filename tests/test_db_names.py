@@ -41,6 +41,9 @@ STATE = ("_CONN", "_SQ", "ACTOR_HOOK")
 _IMPORTED = {"annotations", "datetime", "timezone"}
 
 SNAPSHOT = frozenset((
+    "IMPORT_DDL", "IMPORT_FILL", "import_index", "import_open", "import_get", "import_list", "import_count",
+    "import_mark", "import_drop", "import_pids", "import_untouched", "import_undone", "fill_patient_blanks",
+    "phone_key", "CREATED_EVENT",
     # Вкладка «Google Calendar»: db/gcal.py + GCAL_DDL
     "GCAL_DDL", "GCAL_NEW", "GCAL_MOVED", "GCAL_SKIPPED", "GCAL_UNPARSED", "GCAL_ERASED",
     "GCAL_STATES", "gcal_menu", "gcal_menu_refresh", "gcal_sources", "gcal_source_put",
