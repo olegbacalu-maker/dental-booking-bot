@@ -32,8 +32,8 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 TESTS = pathlib.Path(__file__).resolve().parent
 CLOUD = TESTS.parent
 ROOT = CLOUD.parent
-# что наборы читают за пределами cloud/ (harness.FIX, load_by_path движка, страницы сайта)
-NEIGHBOURS = ("bot", "tests/fixtures", "docs/site")
+# что наборы читают за пределами cloud/ (harness.FIX, load_by_path движка, страницы сайта, файлы развёртывания)
+NEIGHBOURS = ("bot", "tests/fixtures", "docs/site", ".gitignore")
 SKIP = shutil.ignore_patterns(".venv", "__pycache__", "*.pyc", ".pytest_cache")
 
 # (что ломается, файл в cloud/, было, стало, наборы, кусок названия проверки, которая обязана покраснеть)
@@ -205,6 +205,14 @@ MUTATIONS = [
      "app/routes_admin.py", "        lives = {r[\"id\"]: archive.live_until(con, r) for r in rows}",
      "        lives = {}",
      ["test_archive.suite_archive"], "строка списка: «В архив»"),
+    # --- предел тела в Caddy у маршрутов загрузки файла ---
+    ("предел загрузки в десятичных мегабайтах: ниже того, что дочитывает приложение",
+     "deploy/Caddyfile", "\t\t\tmax_size 32MiB\n", "\t\t\tmax_size 32MB\n",
+     ["test_deploy.suite_files"], "не ниже того, что дочитывает приложение"),
+    ("маршрут загрузки выпал из своего предела и режется общим",
+     "deploy/Caddyfile", "\t@upload path /cont/sms/cerere /cont/documente/incarca\n",
+     "\t@upload path /cont/sms/cerere\n",
+     ["test_deploy.suite_files"], "ровно у маршрутов загрузки файла"),
 ]
 
 RUNNER = ("import importlib, sys\n"
@@ -220,6 +228,8 @@ def _copy(dst: pathlib.Path) -> pathlib.Path:
     for rel in NEIGHBOURS:
         if (ROOT / rel).is_dir():
             shutil.copytree(ROOT / rel, dst / rel, ignore=SKIP)
+        elif (ROOT / rel).is_file():
+            shutil.copyfile(ROOT / rel, dst / rel)
     return dst / "cloud"
 
 

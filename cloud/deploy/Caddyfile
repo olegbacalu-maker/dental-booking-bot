@@ -3,10 +3,6 @@
 # docker-compose.yml; без Docker (systemd) — 127.0.0.1:8090.
 cloud.dentpilot.md {
 	encode gzip
-	# формы админки и /proba — килобайты; поток гигабайт в публичную форму — нет
-	request_body {
-		max_size 256KB
-	}
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options nosniff
@@ -20,5 +16,21 @@ cloud.dentpilot.md {
 		Referrer-Policy strict-origin-when-cross-origin
 		-Server
 	}
-	reverse_proxy cloud:8090
+	# Загрузки подписанных PDF читает само приложение и на слишком большой файл
+	# отвечает страницей кабинета; предел ниже его потолка чтения отдал бы
+	# клинике голый 413 вместо этих слов. MiB, не MB: MB здесь десятичные.
+	@upload path /cont/sms/cerere /cont/documente/incarca
+	handle @upload {
+		request_body {
+			max_size 32MiB
+		}
+		reverse_proxy cloud:8090
+	}
+	# формы админки и /proba — килобайты; поток гигабайт в публичную форму — нет
+	handle {
+		request_body {
+			max_size 256KB
+		}
+		reverse_proxy cloud:8090
+	}
 }

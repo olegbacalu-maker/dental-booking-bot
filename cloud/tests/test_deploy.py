@@ -5,6 +5,8 @@
 сервер на копии в чистой папке, и главное — файл лицензии из копии байт в
 байт тот же, что выдавал живой сервер.
 """
+import ast
+import importlib
 import json
 import os
 import pathlib
@@ -27,6 +29,65 @@ def _tools(s: Server, *args, env: dict | None = None) -> tuple[int, str]:
     p = subprocess.run([sys.executable, "-m", "app.tools", *args], cwd=str(CLOUD), env=env or s.env,
                        capture_output=True, text=True, encoding="utf-8", timeout=120)
     return p.returncode, p.stdout + p.stderr
+
+
+_SIZE_UNITS = {"B": 1, "KB": 1000, "MB": 1000 ** 2, "GB": 1000 ** 3, "KIB": 1024, "MIB": 1024 ** 2, "GIB": 1024 ** 3}
+
+
+def _caddy_bytes(value: str) -> int:
+    """Размер так, как его читает Caddy (go-humanize): KB и MB десятичные, KiB и MiB двоичные."""
+    m = re.fullmatch(r"(\d+)([A-Za-z]*)", value)
+    return int(m.group(1)) * _SIZE_UNITS[(m.group(2) or "B").upper()]
+
+
+def _caddy_limits(caddy: str) -> tuple[dict, int | None]:
+    """→ ({адрес: предел тела} по блокам handle с именованным matcher'ом пути, предел остальных адресов)."""
+    paths = {name: rest.split() for name, rest in re.findall(r"^\s*@(\w+)\s+path\s+(.+)$", caddy, re.M)}
+    named, rest = {}, None
+    for _indent, matcher, body in re.findall(r"^([ \t]+)handle(?: @(\w+))? \{\n(.*?)^\1\}", caddy, re.M | re.S):
+        size = re.search(r"^\s*max_size\s+(\S+)", body, re.M)
+        if size is None:
+            continue
+        if matcher:
+            named.update(dict.fromkeys(paths.get(matcher, []), _caddy_bytes(size.group(1))))
+        else:
+            rest = _caddy_bytes(size.group(1))
+    return named, rest
+
+
+def _app_uploads() -> dict:
+    """Маршруты, читающие тело сами (`request.stream()` — у себя или в помощнике модуля), по исходникам:
+    → {адрес: сколько байт тела приложение дочитывает, прежде чем ответить «файл велик»}."""
+    found = {}
+    for src in sorted((CLOUD / "app").glob("routes_*.py")):
+        tree = ast.parse(src.read_text(encoding="utf-8"))
+        funcs = {n.name: n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+
+        def reads(fn) -> list:
+            """Функции, чьё чтение тела исполняет fn: она сама и помощники модуля, которых она зовёт."""
+            calls = {c.func.id for c in ast.walk(fn) if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}
+            chain = [fn] + [funcs[name] for name in sorted(calls & set(funcs))]
+            return [f for f in chain if any(isinstance(c, ast.Attribute) and c.attr == "stream" for c in ast.walk(f))]
+
+        def drains(fn) -> list:
+            out = []
+            for node in ast.walk(fn):
+                if not isinstance(node, ast.Assign):
+                    continue
+                target, value = node.targets[0], node.value
+                pairs = zip(target.elts, value.elts) if isinstance(target, ast.Tuple) else [(target, value)]
+                out += [eval(compile(ast.Expression(v), "<drain>", "eval"), {"__builtins__": {}})
+                        for t, v in pairs if isinstance(t, ast.Name) and t.id == "drain"]
+            return out
+
+        for fn in funcs.values():
+            for dec in fn.decorator_list:
+                if not (isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute) and dec.func.attr == "post"):
+                    continue
+                readers = reads(fn)
+                if readers:
+                    found[dec.args[0].value] = max(d for f in readers for d in drains(f))
+    return found
 
 
 def suite_backup(res: Result) -> None:
@@ -184,6 +245,21 @@ def suite_files(res: Result) -> None:
     policy = re.search(r"^\s*Referrer-Policy\s+(\S+)", caddy, re.M)
     res.ok("Caddyfile: Referrer-Policy не no-referrer (иначе Origin: null в формах → 403)",
            policy is not None and policy.group(1) != "no-referrer", policy.group(0) if policy else "нет строки")
+    # Тесты идут без Caddy: предел тела в нём ниже того, что читает приложение, виден только клинике —
+    # голой страницей 413 вместо слов кабинета «файл велик».
+    uploads = _app_uploads()
+    named, rest = _caddy_limits(caddy)
+    res.ok("маршруты загрузки файла в исходниках нашлись", len(uploads) >= 2, str(uploads))
+    res.check("Caddyfile: свой предел тела ровно у маршрутов загрузки файла", sorted(named), sorted(uploads))
+    low = {path: (named.get(path), need) for path, need in uploads.items() if (named.get(path) or 0) < need}
+    res.ok("Caddyfile: предел тела у загрузки не ниже того, что дочитывает приложение", not low, str(low))
+    ceilings = {name: importlib.import_module(f"app.{name}").MAX_BYTES for name in ("sms_paper", "contracts")}
+    res.ok("Caddyfile: предел тела у загрузки выше потолка файла с запасом на обёртку формы",
+           bool(named) and min(named.values()) > max(ceilings.values()) + 64 * 1024, f"{named} / {ceilings}")
+    res.ok("Caddyfile: у остальных адресов предел тела остался малым",
+           rest is not None and rest <= 1024 * 1024, str(rest))
+    res.check("Caddyfile: каждый reverse_proxy — на один и тот же порт",
+              set(re.findall(r"^\s*reverse_proxy\s+(\S+)", caddy, re.M)), {f"cloud:{port}"})
     res.ok("Caddy: X-Forwarded-For принимается только за прокси",
            '"--proxy-headers", "--forwarded-allow-ips", "*"' in compose and "8090" not in compose.split("ports:")[1].split("volumes:")[0])
     res.ok("контейнер назван так, как зовёт cron",
