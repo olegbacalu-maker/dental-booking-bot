@@ -1201,7 +1201,7 @@ def _pl_stale_cut(now: datetime) -> datetime:
     return now - timedelta(days=_PL_INACTIVE_DAYS + 1)
 
 
-def _pl_select(now: datetime, q: str, med: str, st: str, ch: str, dat: str) -> dict:
+def _pl_select(now: datetime, q: str, med: str, st: str, ch: str, dat: str, imp: int = 0) -> dict:
     """Отбор списка словарём для `db.patients_rows` — один на экран (`GET
     /api/patients`) и на книгу `.xlsx`: кто виден в списке, тот и уезжает в
     Excel. Неизвестные st/ch/dat откатываются к «все». Архивные скрыты, пока
@@ -1212,7 +1212,8 @@ def _pl_select(now: datetime, q: str, med: str, st: str, ch: str, dat: str) -> d
     ch = ch if ch in _PL_CANAL else ""
     dat = dat if dat in ("da", "avans") else ""
     return {"q": q, "terms": _pl_terms(q), "med": med, "st": st, "ch": ch, "dat": dat,
-            "show_archived": bool(q) or st == "arhivat",
+            "imp": max(0, imp),
+            "show_archived": bool(q) or st == "arhivat" or imp > 0,
             "stale_cut": _pl_stale_cut(now), "now": now}
 
 
@@ -1256,7 +1257,7 @@ def _pl_trend(cur: int, prev: int) -> str:
 @router.get("/admin/search", response_class=HTMLResponse)
 async def admin_search(request: Request, q: str = "", med: str = "", st: str = "",
                        ch: str = "", sort: str = "last", page: int = 1,
-                       per: int = 20, msg: str = "", dat: str = ""):
+                       per: int = 20, msg: str = "", dat: str = "", imp: int = 0):
     if (deny := _guard(request)) is not None:
         return deny
     # отбор из адреса уезжает параметрами узла, чтобы ссылки «?q=телефон»
@@ -1269,6 +1270,8 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
         params["page"] = str(page)
     if per != 20:
         params["per"] = str(per)
+    if imp > 0:
+        params["imp"] = str(imp)
     # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
     # подпись печатает сам экран (08.10): «12 afișați din 19 · +9 luna
     # aceasta» — числа списка, а не описание раздела
@@ -1389,7 +1392,7 @@ async def _peek_html(pid: int) -> str | None:
 
 @router.get("/admin/patients.xlsx")
 async def patients_xlsx(request: Request, q: str = "", med: str = "", st: str = "",
-                        ch: str = "", sort: str = "last", dat: str = ""):
+                        ch: str = "", sort: str = "last", dat: str = "", imp: int = 0):
     """Список КНИГОЙ Excel; кнопка «Exportă» экрана ведёт сюда с его отбором.
     Выборка та же, что у экрана (`_pl_select` → `db.patients_rows`), только
     целиком: выгружают ВЫБОРКУ, а не её страницу. Книга, а не CSV: CSV не
@@ -1402,7 +1405,7 @@ async def patients_xlsx(request: Request, q: str = "", med: str = "", st: str = 
     if (deny := local_only(request, page=True)) is not None:
         return deny
     now = datetime.now(eng.TZ)
-    rows = await db.patients_rows(_pl_select(now, q, med, st, ch, dat),
+    rows = await db.patients_rows(_pl_select(now, q, med, st, ch, dat, imp),
                                   sort if sort in _PL_SORTS else "last", None, 0)
 
     def _d(v):

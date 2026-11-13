@@ -578,8 +578,39 @@ def suite_rights(res: Result) -> None:
         pid = _find(boss, "Testescu2 Ana")[0]["id"]
         res.check("в летописи фиши автор — она же",
                   _card(boss, pid)["activity"]["items"][0]["who"], "Ana R")
-        res.check("директор отменяет импорт",
-                  _j(boss._do(f"/api/pimport/undo?id={run['id']}", b"", {}))["data"]["total"]["removed"], 20)
+        new_patient(boss, "Testescu2 Strain", "069555990")
+        iid = run["id"]
+
+        def lst(c, more=""):
+            return _j(c.get(f"/api/patients?per=50&imp={iid}{more}"))["data"]
+
+        only = lst(boss)
+        res.check("список по импорту: только его фиши, подпись — файл и сколько осталось",
+                  (only["total"], only["import"]["file"], only["import"]["left"], only["import"]["gone"]),
+                  (20, "biblioteca.xlsx", 20, False))
+        res.ok("заведённый руками в отбор не попал",
+               "Testescu2 Strain" not in [r["name"] for r in only["rows"]]
+               and len(_find(boss, "Testescu2")) > lst(boss, "&q=Testescu2")["total"] > 0, "")
+        res.check("поиск внутри отбора", [r["name"] for r in lst(boss, "&q=Testescu2+Ana")["rows"]],
+                  ["Testescu2 Ana"])
+        res.check("врач видит картотеку — тот же отбор по прямому адресу", lst(med)["total"], 20)
+        gone = _j(boss.get("/api/patients?imp=99999"))
+        res.check("импорта с таким номером нет — пустой список со словом, не отказ",
+                  (gone["ok"], gone["data"]["total"], gone["data"]["import"]["gone"],
+                   bool(gone["data"]["import"]["text"])), (True, 0, True, True))
+        res.check("без отбора подписи нет", _j(boss.get("/api/patients"))["data"]["import"], None)
+        res.ok("страница списка несёт отбор в параметрах узла",
+               "&quot;imp&quot;: &quot;%d&quot;" % iid in boss.get(f"/admin/search?imp={iid}").body
+               or '"imp": "%d"' % iid in boss.get(f"/admin/search?imp={iid}").body, "")
+        booked = add_appt(boss, (clinic_today() + dt.timedelta(days=5)).isoformat(), "10:00", "Testescu2 Ana",
+                          _find(boss, "Testescu2 Ana")[0]["phone"])
+        res.ok("у импортированного пациента появилась запись", booked.msg.startswith("ok"), booked.msg)
+        res.check("директор отменяет импорт: фиша с записью остаётся",
+                  _j(boss._do(f"/api/pimport/undo?id={iid}", b"", {}))["data"]["total"]["removed"], 19)
+        left = lst(boss)
+        res.check("после отмены отбор ведёт к оставшимся фишам",
+                  ([r["name"] for r in left["rows"]], left["import"]["left"], left["import"]["undone"]),
+                  (["Testescu2 Ana"], 1, True))
         res.check("без входа — 401", _send(Client(s.url), "check", lib).status, 401)
     with Server(env={"DENTART_DEMO": "1"}) as s:
         c = Client(s.url).login()

@@ -42,6 +42,8 @@ export interface PatientsPage {
   remote?: ServerNotice | null
   /** Право на импорт из файла: кнопка «Importă» рядом с «Exportă». */
   can_import?: boolean
+  /** Отбор по импорту (`?imp=`): чей это список; `gone` — импорта нет, `text` — слова сервера. */
+  import?: { id: number; gone: boolean; text?: string; file?: string; at?: string; left?: number; undone?: boolean } | null
 }
 
 export interface Tile {
@@ -77,6 +79,8 @@ export interface Filters {
   st: string
   ch: string
   dat: string
+  /** Номер импорта из файла: в списке только его фиши; пусто — все. */
+  imp: string
   sort: string
   page: number
   per: number
@@ -86,7 +90,7 @@ export const SORTS = ['last', 'name', 'new', 'debt'] as const
 const PERS = [10, 20, 50]
 
 export const DEFAULT_FILTERS: Filters = {
-  q: '', med: '', st: '', ch: '', dat: '', sort: 'last', page: 1, per: 20,
+  q: '', med: '', st: '', ch: '', dat: '', imp: '', sort: 'last', page: 1, per: 20,
 }
 
 /** Отбор из параметров узла (адрес принадлежит серверу — он их и кладёт). */
@@ -100,6 +104,7 @@ export function filtersFromParams(p: Record<string, string>): Filters {
     st: p.st ?? '',
     ch: p.ch ?? '',
     dat: p.dat ?? '',
+    imp: /^[1-9]\d{0,9}$/.test(p.imp ?? '') ? (p.imp ?? '') : '',
     sort: (SORTS as readonly string[]).includes(sort) ? sort : 'last',
     page: Number.isInteger(page) && page > 0 ? page : 1,
     per: PERS.includes(per) ? per : 20,
@@ -114,6 +119,7 @@ export function filtersToQuery(f: Filters, withPage = true): string {
   if (f.st) u.set('st', f.st)
   if (f.ch) u.set('ch', f.ch)
   if (f.dat) u.set('dat', f.dat)
+  if (f.imp) u.set('imp', f.imp)
   if (f.sort !== 'last') u.set('sort', f.sort)
   if (f.per !== 20) u.set('per', String(f.per))
   if (withPage && f.page > 1) u.set('page', String(f.page))
@@ -127,7 +133,7 @@ export function sameFilters(a: Filters, b: Filters): boolean {
 
 /** Есть ли отбор помимо порядка и размера страницы (для «Resetează» и пустого вида). */
 export function isDirty(f: Filters): boolean {
-  return Boolean(f.q || f.med || f.st || f.ch || f.dat)
+  return Boolean(f.q || f.med || f.st || f.ch || f.dat || f.imp)
 }
 
 export const patients = {

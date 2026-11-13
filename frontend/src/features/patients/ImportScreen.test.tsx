@@ -319,7 +319,7 @@ describe('ImportScreen: импорт', () => {
     expect(sent.map((q) => [q.get('part'), q.get('import'), q.get('token')]))
       .toEqual([['0', '0', 'tok32'], ['1', '3', 'tok32'], ['2', '3', 'tok32']])
     expect(document.querySelector('.pi-done-n')?.textContent).toBe('400 de fișe noi · 3 rânduri omise')
-    expect(screen.getByRole('link', { name: /Vezi pacienții/ }).getAttribute('href')).toBe('/admin/search')
+    expect(document.querySelector('.pi-done a')?.getAttribute('href')).toBe('/admin/search?imp=3')
     expect(document.body.textContent).toContain('Fișierul sursă rămâne pe calculator')
     await waitFor(() => expect(screen.getByRole('button', { name: /Anulează importul/ })).toBeTruthy())
     download.mockResolvedValue(new Blob(['x']))
@@ -380,6 +380,13 @@ describe('ImportScreen: прошлые импорты и отмена', () => {
     expect(rows[0]?.textContent).toContain('12.11.2026 14:44Ana Rpacienti.xlsx180 de fișe noi')
     expect(rows[1]?.textContent).toContain('40 de fișe noi · anulat — au rămas 37 de fișe')
     expect(screen.getAllByRole('button', { name: /Anulează importul/ })).toHaveLength(1)
+  })
+
+  it('«Vezi pacienții» в строке импорта ведёт к списку только его фиш; у отменённого — к оставшимся, без остатка ссылки нет', async () => {
+    await open(home({ imports: [RUN, { ...RUN, id: 2, created: 40, removed: 3, undone: true },
+      { ...RUN, id: 1, created: 5, removed: 5, undone: true, can_undo: false }] }))
+    expect(Array.from(document.querySelectorAll('.pi-past tbody tr')).map((tr) => tr.querySelector('a')?.getAttribute('href') ?? null))
+      .toEqual(['/admin/search?imp=3', '/admin/search?imp=2', null])
   })
 
   it('отмена порциями после вопроса; итог честный: сколько осталось и почему', async () => {

@@ -115,6 +115,9 @@ const OPEN_GROUPS = new Set(['dup', 'bad'])
 /** Слово при числе, как `roCount`, но разряды числа — пробелом. */
 const cnt = (n: number, forms: Record<RoForm, string>): string => forms[roForm(n)].replace('{n}', num(n))
 
+/** «Pacienți» со списком только фиш этого импорта. */
+const listOf = (id: number): string => `/admin/search?imp=${id}`
+
 type Step = 'file' | 'cols' | 'check' | 'run' | 'done'
 interface Progress { part: number; parts: number; importId: number; broken: boolean }
 
@@ -434,7 +437,9 @@ export function ImportScreen({ navigate = defaultNavigate }: Props) {
                     onClick={() => { void report(result.id) }}>
               <Icon name="download" /> {T.report}
             </button>
-            <AppLink className="rc-btn pri" href="/admin/search"><Icon name="pat" /> {T.toPatients}</AppLink>
+            <AppLink className="rc-btn pri" href={result.created > result.removed ? listOf(result.id) : '/admin/search'}>
+              <Icon name="pat" /> {T.toPatients}
+            </AppLink>
             <button type="button" className="rc-btn" onClick={restart}><Icon name="upload" /> {T.other}</button>
           </div>
           <p className="hint">{T.source}</p>
@@ -459,6 +464,9 @@ export function ImportScreen({ navigate = defaultNavigate }: Props) {
                       ? ` — ${cnt(r.created - r.removed, T.left)}` : ''}</> : null}
                   </td>
                   <td className="pi-td-act">
+                    {r.created > r.removed ? (
+                      <AppLink className="rc-btn" href={listOf(r.id)}><Icon name="pat" /> {T.toPatients}</AppLink>
+                    ) : null}
                     {r.can_undo && !r.undone && !home.remote ? (
                       <button type="button" className="rc-btn" disabled={working || undoing !== 0}
                               onClick={() => { void undo(r) }}>

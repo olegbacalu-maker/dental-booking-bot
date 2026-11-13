@@ -123,7 +123,7 @@ function Overlay({ navigate, debounceMs, onClose }: OverlayProps) {
       setBusy(true)
       setErr('')
       patients
-        .page({ q: text, med: '', st: '', ch: '', dat: '', sort: 'last',
+        .page({ q: text, med: '', st: '', ch: '', dat: '', imp: '', sort: 'last',
                 page: 1, per: LIMIT }, ac.signal)
         .then((r) => {
           setFound({ asked: text, rows: r.data.rows.slice(0, LIMIT) })

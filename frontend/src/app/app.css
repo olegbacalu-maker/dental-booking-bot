@@ -3576,3 +3576,9 @@ dialog.rg-dlg.wide { width: 720px; }
 .pi .pi-past .dim td { color: var(--text3); }
 .pi .pi-fname { overflow-wrap: anywhere; }
 .pi .pi-td-act { width: 1%; text-align: right; white-space: nowrap; }
+.pi .pi-td-act .rc-btn + .rc-btn { margin-left: 6px; }
+.dp-react-root .dp-pl-only { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0;
+  padding: 8px 14px; border: 1px solid var(--teal-line); border-radius: var(--r-ctl); background: var(--teal-soft);
+  color: var(--text); font-size: var(--fs-m); }
+.dp-react-root .dp-pl-only svg { width: 15px; height: 15px; color: var(--teal-d); flex: none; }
+.dp-react-root .dp-pl-only > span { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
