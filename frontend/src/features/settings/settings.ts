@@ -92,6 +92,8 @@ export interface ServicesData {
   services: ServiceEntry[]
   palette: Record<string, string>
   durations: number[]
+  dur_step?: number
+  dur_max?: number
   /** Белый список сроков отзыва с нулём впереди (`core/recall.MONTHS`). */
   recalls: number[]
   doctors: { id: string; name: string }[]

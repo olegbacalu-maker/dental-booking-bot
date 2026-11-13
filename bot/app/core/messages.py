@@ -11,6 +11,7 @@ import html
 
 from fastapi.responses import JSONResponse
 
+from .. import engine as eng
 from . import sms_loop
 from .auth import PIN_MIN_LAN
 from .icons import _ic
@@ -89,7 +90,8 @@ MSG_BANNER = {
                         "câmpul evidențiat"),
     "bad_off": ("err", "Medicul nu este activ (concediu sau arhivat) — "
                        "alegeți alt medic sau readuceți-l din concediu în Medici"),
-    "bad_time": ("err", "Ora poate fi doar fixă sau la jumătate (ex. 10:00, 10:30)"),
+    "bad_time": ("err", f"Ora de început se alege din {eng.START_STEP} în "
+                        f"{eng.START_STEP} minute (ex. 10:00, 10:05, 10:10)"),
     "ok_note": ("ok", "Notiță adăugată — ora este blocată"),
     "ok_move": ("ok", "Programare mutată"),
     # ⚠️ Оба отказа переноса говорят, ЧТО делать дальше. Перетаскивают с
@@ -125,8 +127,18 @@ MSG_BANNER = {
     "dur_closed": ("err", "Durata se schimbă doar la programările active — cea "
                           "finalizată, anulată sau neprezentată rămâne cum a fost "
                           "(redeschideți-o dacă chiar trebuie schimbată)"),
-    "bad_dur": ("err", "Durata aleasă nu este în listă — alegeți una dintre "
-                       "duratele propuse"),
+    "bad_dur": ("err", f"Durata se alege din {eng.DUR_STEP} în {eng.DUR_STEP} "
+                       f"minute, cel mult {eng.DUR_MAX} de minute"),
+    "ok_room": ("ok", "Cabinetul programării a fost schimbat"),
+    "room_busy": ("warn", "Salvat — atenție: în acest cabinet are programare "
+                          "și alt medic la aceeași oră"),
+    "bad_room": ("err", "Medicul nu lucrează în cabinetul ales — alegeți unul "
+                        "dintre cabinetele lui"),
+    "room_closed": ("err", "Cabinetul se schimbă doar la programările active — cea "
+                           "finalizată, anulată sau neprezentată rămâne cum a fost "
+                           "(redeschideți-o dacă chiar trebuie schimbată)"),
+    "bad_rooms": ("err", "Lista cabinetelor nu este validă — un medic poate avea "
+                         "cel mult 3 cabinete, fiecare cu nume"),
     "ok_set": ("ok", "Setări salvate"),
     # «Rechemări» (29.10): отметка обзвона (`/api/recall/mark`) и визит с бумаги
     "ok_recall": ("ok", "Marcaj salvat"),
@@ -476,6 +488,28 @@ MSG_BANNER = {
     "ok_san_lamp_new": ("ok", "Lampa nouă: data schimbării este scrisă, orele se numără de la zero"),
     "bad_san": ("err", "Completați câmpul marcat"),
     "san_why": ("err", "Scrieți motivul corectării"),
+    # Вкладка «Google Calendar» (modules/schedule/gcal.py)
+    "gc_loaded": ("ok", "Fișierul a fost citit — evenimentele sunt în listă"),
+    "gc_no_file": ("err", "Alegeți fișierul exportat din Google Calendar"),
+    "gc_not_calendar": ("err", "Acesta nu este un fișier de calendar — exportați calendarul din "
+                               "Google Calendar și încărcați fișierul .ics sau arhiva .zip"),
+    "gc_not_utf8": ("err", "Fișierul nu poate fi citit: textul nu este în UTF-8 — exportați "
+                           "calendarul din nou din Google Calendar"),
+    "gc_too_big": ("err", "Fișierul este prea mare — limita este 20 MB"),
+    "gc_too_many": ("err", "Fișierul are prea multe evenimente pentru a fi citit"),
+    "gc_bad_zip": ("err", "Arhiva .zip este deteriorată — descărcați-o din nou din Google Calendar"),
+    "gc_zip_empty": ("err", "În arhivă nu este niciun calendar"),
+    "gc_gone": ("err", "Evenimentul nu mai este în listă — reîncărcați pagina"),
+    "gc_moved": ("err", "Evenimentul este deja mutat în jurnal"),
+    "gc_patient": ("err", "Fișa aleasă nu mai există — alegeți alt pacient"),
+    "gc_appt": ("err", "Programarea aleasă nu mai există în jurnal"),
+    "gc_no_text": ("err", "Textul evenimentului a fost șters la termen — nu mai poate fi readus în listă"),
+    "gc_skipped": ("ok", "Evenimentul nu va fi mutat — îl găsiți la „Omise”"),
+    "gc_back": ("ok", "Evenimentul este din nou în listă"),
+    "gc_linked": ("ok", "Evenimentul este legat de programarea din jurnal"),
+    "gc_set": ("ok", "Salvat"),
+    "gc_cleared": ("ok", "Evenimentele din Google Calendar au fost șterse din program"),
+    "gc_bad": ("err", "Date invalide"),
     "san_busy": ("err", "Sterilizatorul are deja un ciclu în curs — încheiați-l mai întâi"),
     "san_uv_on": ("err", "Lampa este deja pornită"),
     "san_uv_people": ("err", "Lampa nu este ecranată — nu se pornește în prezența persoanelor"),

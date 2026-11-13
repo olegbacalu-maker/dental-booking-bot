@@ -23,6 +23,7 @@ export interface ChairItem {
   clickable: boolean
   patient_id: number | null
   wait_since: number | null
+  room_id?: string
 }
 
 export interface ChairDoctor {
@@ -37,6 +38,10 @@ export interface ChairData {
   /** `null` — врач не выбран: ни в адресе, ни привязкой учётки. */
   doctor: ChairDoctor | null
   chair: ChairItem | null
+  /** Сидящие по кабинетам врача (по одному на кабинет); `chair` — последний. */
+  chairs?: ChairItem[]
+  /** Кабинеты врача: с двумя и больше экран называет кабинет сидящего. */
+  rooms?: { id: string; name: string }[]
   /** Заведены в кабинет раньше того, кто в кресле, и не завершены. */
   stale: ChairItem[]
   queue: ChairItem[]

@@ -184,7 +184,7 @@ async def patient_appointments(patient_id: int, limit: int = 20) -> list:
     limit=1000): на ней стоит цифра «визитов всего», и с двадцаткой она врала
     бы у давнего пациента."""
     return await _fetch(
-        """SELECT id, service, doctor, starts_at, status, source, comment
+        """SELECT id, service, doctor, starts_at, status, source, comment, room
            FROM appointments WHERE patient_id = ?
            ORDER BY starts_at DESC LIMIT ?""",
         patient_id, limit,

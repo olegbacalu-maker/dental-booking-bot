@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from .. import db
 from .conn import _execute, _fetch, _fetchval, _iso, _utcnow_iso, log
+from .gcal import _gcal_erase_sql, gcal_erase, gcal_ids_with_phone, gcal_menu_refresh
 from .slots import _ACT_SQL
 
 
@@ -71,6 +72,10 @@ _PATIENT_CHILD_TABLES = ("payments", "activity", "patient_alerts", "teeth",
 _PATIENT_GRAND_CHILDREN = (("perio_teeth", "exam_id", "perio_exams"),)
 
 
+async def _patient_phone(pid: int) -> str:
+    return await _fetchval("SELECT phone FROM patients WHERE id = ?", pid) or ""
+
+
 async def delete_patient_fully(pid: int) -> None:
     """Физическое удаление: строка пациента и ВСЁ, что на неё ссылается.
 
@@ -88,10 +93,19 @@ async def delete_patient_fully(pid: int) -> None:
     по построению, и int() рядом это закрепляет.
     """
     pid = int(pid)
+    # События календаря — раньше записей: перенесённое ссылается на запись.
+    # Событие не удаляется, а пустеет: по ключу файл календаря не вернёт
+    # человека в список. Номер читается до скрипта, пока он ещё в фише.
+    loose = await gcal_ids_with_phone(await _patient_phone(pid))
+    gcal = [_gcal_erase_sql("appt_id IN (SELECT id FROM appointments "
+                            f"WHERE patient_id = {pid})") + ";"]
+    if loose:
+        gcal.append(_gcal_erase_sql("id IN (" + ",".join(str(i) for i in loose) + ")") + ";")
     script = "BEGIN IMMEDIATE;\n" + "\n".join(
-        [f"DELETE FROM {t} WHERE {key} IN "
-         f"(SELECT id FROM {parent} WHERE patient_id = {pid});"
-         for t, key, parent in _PATIENT_GRAND_CHILDREN]
+        gcal
+        + [f"DELETE FROM {t} WHERE {key} IN "
+           f"(SELECT id FROM {parent} WHERE patient_id = {pid});"
+           for t, key, parent in _PATIENT_GRAND_CHILDREN]
         + [f"DELETE FROM {t} WHERE patient_id = {pid};"
            for t in _PATIENT_CHILD_TABLES]
     ) + f"\nDELETE FROM patients WHERE id = {pid};\nCOMMIT;"
@@ -108,6 +122,7 @@ async def delete_patient_fully(pid: int) -> None:
         # этого окна не заводим.
         await db._CONN.rollback()
         raise
+    await gcal_menu_refresh()
     log.warning("patient %s deleted (erasure request, no medical records)", pid)
 
 
@@ -125,6 +140,9 @@ async def anonymize_patient(pid: int) -> None:
     Дневник приёма (visit_records) НЕ трогаем: acuze/diagnostic/tratament —
     та самая клиническая запись, ради которой фиша и хранится под номером.
     """
+    # События календаря с его номером — первыми: следующий шаг стирает
+    # телефон, и повтор их бы уже не нашёл.
+    await gcal_erase(await gcal_ids_with_phone(await _patient_phone(pid)))
     await _execute(
         """UPDATE patients SET name = ?, phone = NULL, email = NULL,
              birth_date = NULL, birth_year = NULL, gender = NULL, idnp = NULL,

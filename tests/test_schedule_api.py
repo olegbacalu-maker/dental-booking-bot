@@ -70,7 +70,12 @@ def suite_api(res: Result) -> None:
         # у полного журнала она null, но ключ в составе всегда
         res.check("состав", sorted(j),
                   sorted(["monday", "sunday", "prev", "next", "span", "total",
-                          "days", "day", "notice"]))
+                          "days", "day", "notice", "minical"]))
+        wcells = {x["date"]: x for w in j["minical"]["weeks"] for x in w}
+        res.check("календарь недели: день месяца открывает свою неделю, выбран день адреса",
+                  (wcells[d(1)]["href"], wcells[d(1)]["selected"],
+                   j["minical"]["next"]["href"].split("?")[0]),
+                  (f"/admin/week?date={d(1)}", True, "/admin/week"))
         res.check("границы недели и соседние недели",
                   (j["monday"], j["sunday"], j["prev"], j["next"], j["day"]),
                   (monday.isoformat(), d(6),
@@ -489,7 +494,8 @@ def suite_live_envelope(res: Result) -> None:
                    sorted(env["slotform"]),
                    all(isinstance(x, int) for x in env["note_ends"])),
                   (sorted(env["actions"]), True,
-                   ["birth_max", "durations", "services", "sms"], True))
+                   ["birth_max", "dur_max", "dur_step", "durations", "services", "sms",
+                    "step"], True))
         # ⛔ Потолок даты рождения — СЕГОДНЯ В ЧАСАХ КЛИНИКИ. Считанный от
         # `date.today()`, он переворачивал бы отпечаток в полночь по часам
         # машины и расходился бы под `TZ=UTC0` с остальной моделью.
@@ -1012,8 +1018,8 @@ def suite_duration(res: Result) -> None:
     """Длительность визита руками (10.11.2026, жалоба пилота: «Consultație 15′,
     пациенту нужно 30′, и минуты в программе не поменять»).
 
-    Маршрут `POST /api/schedule/appointments/{id}/duration` {minutes}: только
-    значения `eng.DURATIONS`, сосед — `_conflicts` под `_slot_lock` (когда визит
+    Маршрут `POST /api/schedule/appointments/{id}/duration` {minutes}: любая
+    длительность по правилу `eng.dur_ok` (кратно 5, до 240), сосед — `_conflicts` под `_slot_lock` (когда визит
     длиннее), часы клиники; закрытый визит — `dur_closed`; ставит признак
     `duration_set`, и смена процедуры такую длительность НЕ перебивает. Окно
     записи шлёт `duration` только тронутым. Пересохранение без правки —
@@ -1049,20 +1055,28 @@ def suite_duration(res: Result) -> None:
             d = _j(c.get(f"/api/schedule/appointments/{aid}/service")).get("data") or {}
             return d.get("dur"), d.get("dur_set"), d.get("durations")
 
+        def rule(aid: int) -> tuple:
+            d = _j(c.get(f"/api/schedule/appointments/{aid}/service")).get("data") or {}
+            return d.get("dur_step"), d.get("dur_max")
+
         def feed(aid: int) -> list[str]:
             pid = day_model(c, day)["cards"][str(aid)]["pid"]
             return [a["text"] for a in _j(c.get(
                 f"/api/patients/{pid}/activity?views=1"))["data"]["items"]]
 
+        QUICK = [5, 10, 15, 20, 30, 45, 60, 90, 120]
         m = day_model(c, day)
         res.check("форма записи: услуги с минутами и список длительностей",
                   ([(x["id"], x["dur"]) for x in m["form"]["services"]
                     if x["id"] in ("consult", "long")], m["form"]["durations"]),
-                  ([("consult", 60), ("long", 120)], [15, 30, 45, 60, 90, 120]))
+                  ([("consult", 60), ("long", 120)], QUICK))
+        res.check("правило «другой» длительности — в форме записи и в окне визита",
+                  ((m["form"]["dur_step"], m["form"]["dur_max"]), rule(a1)),
+                  ((5, 240), (5, 240)))
         res.check("окно визита: длительность, не задана руками, список; услуги с минутами",
                   (info(a1), [(o["id"], o["dur"]) for o in _j(c.get(
                       f"/api/schedule/appointments/{a1}/service"))["data"]["options"]]),
-                  ((60, False, [15, 30, 45, 60, 90, 120]),
+                  ((60, False, QUICK),
                    [("consult", 60), ("pain", 60), ("long", 120)]))
 
         # короче — соседа не спрашиваем
@@ -1101,11 +1115,18 @@ def suite_duration(res: Result) -> None:
         res.check("нетронутая длительность: процедура → long берёт 120",
                   (r.status, row(a3)), (200, ("long", 120, 120)))
 
-        # значения вне списка и мусор
-        for bad in (25, 0, "x", 240):
+        # не по правилу (не кратно 5, ноль, выше потолка) и мусор
+        for bad in (7, 0, "x", 245, 3):
             r = dur(a2, bad)
-            res.check(f"длительность {bad!r} вне списка — 422 bad_dur", (r.status, r.msg),
+            res.check(f"длительность {bad!r} не по правилу — 422 bad_dur", (r.status, r.msg),
                       (422, "bad_dur"))
+        # любая кратная 5: 25 минут — вне быстрых значений, но законна
+        r = dur(a2, 25)
+        res.check("10:00 60 → 25 — удача", (r.status, r.msg, row(a2)[1:]),
+                  (200, "ok_dur", (25, 25)))
+        r = dur(a2, 60)
+        res.check("и обратно 25 → 60 (сосед в 13:00 не мешает)", (r.status, r.msg),
+                  (200, "ok_dur"))
         # часы клиники: 20:00 + 90 = 21:30 при закрытии в 21:00
         r = dur(a4, 90)
         res.check("20:00 → 90 не влезает в часы клиники — outside", (r.status, r.msg),
@@ -1138,8 +1159,18 @@ def suite_duration(res: Result) -> None:
         a6 = appt_id(c, day, "Dur Sase")
         res.check("запись без поля: длительность услуги, признака нет",
                   (r.msg, row(a6), info(a6)[1]), ("ok", ("consult", 60, 60), False))
-        r = add_appt(c, day, "18:00", "Dur Sapte", "069818000", duration=20)
-        res.check("запись с duration=20 (вне списка) — bad_dur", r.msg, "bad_dur")
+        r = add_appt(c, day, "18:00", "Dur Sapte", "069818000", duration=7)
+        res.check("запись с duration=7 (не кратно 5) — bad_dur", r.msg, "bad_dur")
+        r = add_appt(c, day, "18:00", "Dur Sapte", "069818000", duration=245)
+        res.check("запись с duration=245 (выше потолка) — bad_dur", r.msg, "bad_dur")
+        r = add_appt(c, day, "18:05", "Dur Sapte", "069818000", duration=25)
+        a7 = appt_id(c, day, "Dur Sapte")
+        res.check("запись 18:05 на 25 минут — старт по 5 минут, длина кратна 5",
+                  (r.msg, row(a7)), ("ok", ("consult", 25, 25)))
+        r = add_appt(c, day, "18:30", "Dur Sapte Bis", "069818301", duration=5)
+        res.check("сосед впритык к концу (18:30 после 18:05–18:30) — принят", r.msg, "ok")
+        r = add_appt(c, day, "18:25", "Dur Sapte Ter", "069818251", duration=5)
+        res.check("а на пять минут раньше — conflict", r.msg, "conflict")
         r = add_appt(c, day, "16:30", "Dur Opt", "069816300", duration=15)
         res.check("запись 16:30 при 16:00–17:00 — conflict", r.msg, "conflict")
         # длина окна идёт и в часы клиники: 20:30 + 60 (услуга) — после закрытия,
@@ -1308,8 +1339,12 @@ def suite_doctor_day(res: Result) -> None:
         res.ok("блоки канвы фактов не несут (едут в каждый опрос главной)",
                not any(k in b for b in _blocks(live["canvas"]) for k in ("risks", "nth", "plan")),
                f"{sorted(_blocks(live['canvas'])[0])}")
-        res.check("у общего дня календаря в модели нет (он у главной — в канале)",
-                  "minical" in general, False)
+        gcal = general.get("minical") or {}
+        gcells = {c_["date"]: c_ for w in gcal.get("weeks", []) for c_ in w}
+        res.check("календарь общего дня: ссылки — на общий день, точки всех врачей",
+                  (gcells.get(day, {}).get("href"), gcal.get("prev", {}).get("href", "").split("?")[0],
+                   gcells.get(day, {}).get("selected"), gcells.get(other, {}).get("busy")),
+                  (f"/admin/all?date={day}", "/admin/all", True, True))
 
         cal = m.get("minical") or {}
         cells = {c_["date"]: c_ for w in cal.get("weeks", []) for c_ in w}

@@ -45,6 +45,9 @@ export interface DayAppt {
   /** Визит занимает интервал (те же статусы, что считает сервер). */
   busy: boolean
   movable: boolean
+  /** Кабинет, который запись занимает сейчас. */
+  room_id?: string
+  room?: string
 }
 
 export interface DayNote {
@@ -85,6 +88,8 @@ export interface DayColumn {
   name: string
   /** Специальность; у выключенного врача сюда дописано «· inactiv». */
   spec: string
+  /** Кабинеты врача по порядку — у врачей формы записи (`form.doctors`). */
+  rooms?: { id: string; name: string }[]
 }
 
 /** Карточка визита — ПОЛНАЯ, включая комментарий целиком (в сетке он обрезан
@@ -123,6 +128,10 @@ export interface VisitCardView {
    *  процедурой и правит карандашом по тому же флагу `service_edit`. Нет поля
    *  — строки длительности нет. */
   dur?: number
+  /** Кабинет, который запись занимает сейчас (`visits.room_fields`); окно
+   *  показывает его только у врача с несколькими кабинетами. */
+  room_id?: string
+  room?: string
 }
 
 /**
@@ -172,6 +181,8 @@ export interface DayCard {
   service_edit: boolean
   /** Длительность визита в минутах (10.11, `_collect_cards`). */
   dur?: number
+  room_id?: string
+  room?: string
 }
 
 /** Услуга, на которую можно сменить процедуру визита: ключ clinic.json,
@@ -191,6 +202,8 @@ export interface ServiceOptions {
   /** Длительность задана руками — смена процедуры её не тронет. */
   dur_set?: boolean
   durations?: number[]
+  dur_step?: number
+  dur_max?: number
 }
 
 /** Услуга окна записи: ключ, подпись и длительность услуги (10.11) — ею
@@ -220,7 +233,8 @@ export interface StatusAction {
  *  врач остаётся колонкой, пока у него есть записи, а записать в него нельзя. */
 export interface DayForm {
   doctors: DayColumn[]
-  /** Часы по врачам; пустое окно врача подменено часами клиники. */
+  /** Часы («HH:00») по врачам; минуту окно выбирает само с шагом `step`.
+   *  Пустое окно врача подменено часами клиники. */
   times: Record<string, string[]>
   /** Часы клиники — ими живёт форма, когда активных врачей нет вовсе. */
   hours: string[]
@@ -228,6 +242,11 @@ export interface DayForm {
   /** Длительности на выбор в «Durată» (10.11, `eng.DURATIONS`); нет поля —
    *  выбора нет, визит берёт длительность услуги. */
   durations?: number[]
+  /** Правило «другой» длительности: шаг и потолок, минут. */
+  dur_step?: number
+  dur_max?: number
+  /** Шаг сетки стартов, минут. */
+  step?: number
   doctor: string
   time: string
   birth_max: string
@@ -372,6 +391,8 @@ export interface NewAppt {
   /** «Durată» (10.11) — только ТРОНУТАЯ: нет поля — длительность услуги, есть
    *  — визит такой длины, и смена процедуры её не перебьёт. */
   duration?: number
+  /** Кабинет — только ВЫБРАННЫЙ в окне; нет поля — первый свободный у врача. */
+  room?: string
 }
 
 export interface NewNote {
@@ -432,8 +453,13 @@ export const day = {
     api.post<DayModel>(
       `/schedule/appointments/${id}/duration${screen(at, doctor, f)}`, { minutes }),
 
+  /** Перевод записи в другой кабинет её врача: ответ — свежий день. */
+  room: (at: string, doctor: string, f: string, id: number, room: string) =>
+    api.post<DayModel>(
+      `/schedule/appointments/${id}/room${screen(at, doctor, f)}`, { room }),
+
   move: (at: string, doctor: string, f: string, id: number,
-         body: { date: string; time: string; doctor: string }) =>
+         body: { date: string; time: string; doctor: string; room?: string }) =>
     api.post<DayModel>(
       `/schedule/appointments/${id}/move${screen(at, doctor, f)}`, body),
 

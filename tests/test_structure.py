@@ -106,7 +106,13 @@ _FILE_OK = {"app/paths.py", "desktop.py"}
 _DB_STATE = "app/db/__init__.py"     # _CONN, _SQ, ACTOR_HOOK — переприсваиваемое
 _DB_SCHEMA = "app/db/schema.py"      # SCHEMA_VERSION, MIGRATIONS, SQLITE_SCHEMA
 _DB_SLOTS = "app/db/slots.py"        # _slot_lock, _BOOK_LOCK, _uq_slot_sql
+# Слотовые индексы врача (кабинет в ключе) и все имена, под которыми слотовый
+# индекс бывал в базе: прежние два — без кабинета, их кладёт старая версия.
+_UQ_DOCTOR = ("uq_doc_room_slot", "uq_docid_room_slot")
+_UQ_NAMES = (*_UQ_DOCTOR, "uq_patient_slot", "uq_doctor_slot")
 _DB_DAY = "app/db/schedule.py"       # day_appointments: выборка дня
+# Кто принимает длительность снаружи и обязан спросить `eng.dur_ok`.
+_DUR_ASKERS = ("app/modules/schedule/routes.py", "app/modules/settings/routes.py")
 _DB_TEXTS = "app/db/plans.py"        # тексты летописи пациента («Plan: …»)
 _DB_SAN = "app/db/registre.py"       # журналы san_*: единственное место UPDATE (замок IS NULL)
 # Якоря бывшего layout.py (разнос 04.11): переезд имени = правка одной строки.
@@ -1030,6 +1036,32 @@ def suite(res: Result) -> None:
            f"{max(steps) if steps else None} — лишний шаг не исполнится ни у "
            f"одной клиники, недостающий уронит _migrate")
 
+    # ---- индексы врача: кабинет в ключе ----
+    # Врач ведёт по записи в каждом своём кабинете, и один старт у него законен,
+    # пока кабинеты разные. Индекс врача без кабинета в ключе запрещает вторую
+    # запись самой базой: у клиники это «conflict» на свободном кабинете, а у
+    # базы, где такая пара уже стоит, CREATE не ляжет вовсе. Имена — отдельным
+    # списком и с проверкой, что оба ещё лежат в `_uq_slot_sql`: пропадёт имя —
+    # правило искало бы несуществующее и позеленело бы навсегда.
+    keyed, plain = set(), []
+    for rel, tree in src:
+        if rel != _DB_SLOTS:
+            continue
+        for ln, text in _templates(tree):
+            if "CREATE UNIQUE INDEX" not in text.upper() or "_uq_slot_sql" not in _enclosing(tree, ln):
+                continue
+            for name in _UQ_DOCTOR:
+                if f"INDEX {name}" in text:
+                    keyed.add(name)
+                    if "room_id" not in text:
+                        plain.append(f"{name} ({rel}:{ln})")
+    res.ok("у индексов врача кабинет в ключе",
+           not plain and keyed == set(_UQ_DOCTOR),
+           ("без кабинета в ключе: " + ", ".join(plain) if plain else
+            f"в _uq_slot_sql найдены не оба индекса врача: {sorted(keyed)} — якорь "
+            f"правила пропал")
+           + " — врач с двумя кабинетами не сможет вести две записи на один час")
+
     # ---- слотовые uq-индексы: ОДИН владелец (08-16) ----
     # CREATE UNIQUE INDEX по слоту — операция НАД ЖИВЫМИ ДАННЫМИ, а не над
     # схемой: у клиники с двойной бронью он ПАДАЕТ. В базовой схеме (она идёт
@@ -1046,7 +1078,7 @@ def suite(res: Result) -> None:
         for ln, text in _templates(tree):
             if "CREATE UNIQUE INDEX" not in text.upper():
                 continue
-            if not any(n in text for n in ("uq_doctor_slot", "uq_patient_slot")):
+            if not any(n in text for n in _UQ_NAMES):
                 continue
             if rel == _DB_SLOTS and "_uq_slot_sql" in _enclosing(tree, ln):
                 anchor += 1
@@ -1059,6 +1091,71 @@ def suite(res: Result) -> None:
            "CREATE UNIQUE INDEX по слоту вне _uq_slot_sql: " + ", ".join(bad)
            + " — этот CREATE упадёт у клиники с двойной бронью там, куда "
              "сторож не доживает, и программа больше не откроется")
+
+    # ---- длительность: одно правило допустимости ----
+    # Нарушение — сверка `in`/`not in` со списком быстрых значений или с
+    # литералом минут. Правило ищет ИМЯ, поэтому якорь — `dur_ok` есть и его
+    # спрашивают оба входа.
+    def _minutes(node: ast.AST) -> bool:
+        if not isinstance(node, (ast.Tuple, ast.List, ast.Set)) or len(node.elts) < 3:
+            return False
+        vals = [e.value for e in node.elts
+                if isinstance(e, ast.Constant) and type(e.value) is int]
+        return len(vals) == len(node.elts) and all(
+            5 <= v <= 480 and v % 5 == 0 for v in vals)
+
+    bad = []
+    for rel, tree in src:
+        if rel == "app/engine.py":
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Compare):
+                continue
+            for op, right in zip(node.ops, node.comparators):
+                if not isinstance(op, (ast.In, ast.NotIn)):
+                    continue
+                if (isinstance(right, ast.Attribute) and right.attr == "DURATIONS") \
+                        or (isinstance(right, ast.Name) and right.id.endswith("DURATIONS")) \
+                        or _minutes(right):
+                    bad.append(f"{rel}:{node.lineno}")
+    eng_tree = by_path.get("app/engine.py")
+    has_rule = eng_tree is not None and any(
+        isinstance(n, ast.FunctionDef) and n.name == "dur_ok" for n in eng_tree.body)
+    if not has_rule:
+        bad.append("в app/engine.py нет dur_ok — якорь правила пропал")
+    for rel in _DUR_ASKERS:
+        tree = by_path.get(rel)
+        if tree is None or "dur_ok" not in _calls(tree):
+            bad.append(f"{rel} не спрашивает dur_ok")
+    res.ok("допустимость длительности спрашивают у dur_ok", not bad,
+           "длительность сверяют со своим списком: " + ", ".join(bad)
+           + " — два списка разойдутся молча, и одна дверь примет длительность, "
+             "которую отвергает другая")
+
+    def _int_const(tree: ast.Module | None, name: str) -> int | None:
+        for n in (tree.body if tree is not None else []):
+            if isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant) \
+                    and type(n.value.value) is int \
+                    and any(isinstance(t, ast.Name) and t.id == name for t in n.targets):
+                return n.value.value
+        return None
+
+    dur_max = _int_const(eng_tree, "DUR_MAX")
+    # соседей ищут две выборки (врача и кабинета): узкое окно любой из них
+    # прячет длинный визит
+    pads = []
+    for n in ast.walk(by_path.get(_DB_SLOTS) or ast.Module(body=[], type_ignores=[])):
+        if isinstance(n, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == "pad" for t in n.targets) \
+                and isinstance(n.value, ast.Call):
+            for kw in n.value.keywords:
+                if kw.arg == "minutes" and isinstance(kw.value, ast.Constant):
+                    pads.append(kw.value.value)
+    pad = min(pads) if pads else None
+    res.ok("потолок длительности не выходит за окно поиска соседей",
+           isinstance(dur_max, int) and isinstance(pad, int) and dur_max <= pad,
+           f"eng.DUR_MAX = {dur_max}, самое узкое окно `pad` в db/slots = {pad}: "
+           f"визит длиннее окна проверка занятости не увидит")
 
     # ---- замок брони: только через _slot_lock (08-20, аудит) ----
     # Одна точка входа у всех, кто занимает слот: появится второй процесс над

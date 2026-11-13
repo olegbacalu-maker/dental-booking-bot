@@ -158,8 +158,13 @@ def suite(res: Result) -> None:
         # --- прочие отказы, каждый со своим текстом ---
         res.check("пустое имя", add(c, _d(3), "10:30", name="   "), "bad_name")
         res.check("врач в архиве", add(c, _d(3), "11:00", doctor="d1"), "bad_off")
-        res.check("время не по получасовой сетке",
-                  add(c, _d(3), "11:15"), "bad_time")
+        res.check("время не по сетке стартов (шаг 5 минут)",
+                  add(c, _d(3), "11:07"), "bad_time")
+        res.check("четверть часа — законный старт",
+                  add(c, _d(3), "11:15", name="Sfert Ora", phone="022700815"), "ok")
+        res.check("пять минут после часа — тоже (у другого врача)",
+                  add(c, _d(3), "11:05", doctor="d3", name="Cinci Minute",
+                      phone="022700805"), "ok")
         res.check("неизвестная услуга",
                   add(c, _d(3), "12:00", service="nope"), "bad")
         res.check("неизвестный врач",
@@ -251,7 +256,11 @@ def suite_move(res: Result) -> None:
         res.check("перенос на полчаса вперёд", move("10:30"), "ok_move")
         res.check("новый час виден в списке",
                   _row_of(c, day, "Mutat Unu").get("time"), "10:30")
-        res.check("четверть часа не принимается", move("10:15"), "bad_time")
+        res.check("минута не по сетке стартов не принимается", move("10:07"), "bad_time")
+        res.check("перенос на пять минут — принят", move("10:35"), "ok_move")
+        res.check("новая минута видна в списке",
+                  _row_of(c, day, "Mutat Unu").get("time"), "10:35")
+        res.check("и обратно на получас", move("10:30"), "ok_move")
         res.check("выключенному врачу не переносим", move("11:00", "d1"), "bad_off")
 
         # --- занятый интервал ---

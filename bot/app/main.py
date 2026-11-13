@@ -41,6 +41,8 @@ from .modules.patients import routes as patients
 from .modules.migration import routes as migration
 from .modules.qr import routes as qr
 from .modules.schedule import api as schedule_api
+from .modules.schedule import gcal as schedule_gcal
+from .modules.schedule import gcal_api as schedule_gcal_api
 from .modules.schedule import routes as schedule
 from .modules.settings import api as settings_api
 from .modules.settings import lan as settings_lan
@@ -66,6 +68,7 @@ app.include_router(patients_api.router)   # JSON API раздела (DentPilot 2
 app.include_router(pimport_api.router)    # импорт пациентов из файла
 app.include_router(schedule.router)
 app.include_router(schedule_api.router)  # JSON API раздела (DentPilot 2.0)
+app.include_router(schedule_gcal_api.router)   # вкладка «Google Calendar»
 app.include_router(doctors.router)
 app.include_router(doctors_api.router)    # JSON API раздела (DentPilot 2.0)
 app.include_router(settings.router)
@@ -249,6 +252,9 @@ async def startup() -> None:
     # восстановлении уходит в ленту здесь, при старте.
     await backup_loop.startup()
     backup_loop.start_async()
+    # Текст непереносённых событий календаря живёт до срока.
+    await schedule_gcal.startup()
+    schedule_gcal.sweep_async()
     await _backfill_ids()
     if paths.is_frozen():
         _sweep_watch_copy()

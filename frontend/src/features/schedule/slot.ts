@@ -1,16 +1,15 @@
-import { clashAmong, type Occupies } from './move'
+import { clashAmong, clashLanes, type Occupies } from './move'
 
 /**
  * Пустой час: слот, его времена и то, что нужно его диалогу.
  *
- * ⛔ Времён ДВА, и переключатель получаса двигает ровно одно. Запись бывает и
- * на половине часа (08-13, Олег: раньше 10:30 из диалога было не выбрать
- * вовсе — только нижней формой), а заметка остаётся почасовой: она блокирует
- * ЧАСЫ ПРИЁМА, как и ячейки сетки. Послать ей получас нельзя даже «на пробу»:
+ * Времён ДВА, и выбор минуты двигает ровно одно. Запись начинается в любую
+ * минуту с шагом сетки стартов, а заметка остаётся почасовой: она блокирует
+ * ЧАСЫ ПРИЁМА, как и ячейки сетки. Послать ей минуты нельзя даже «на пробу»:
  * `_add_note` берёт час как `int(ntime.split(":")[0])` и молча округлит вниз —
  * экран сказал бы «с 10:30», а в базе легла бы блокировка с 10:00.
  * ⭐ Оба времени считает ОДНА функция. Пока они считались по месту в двух
- * обработчиках отправки, «получас меняет только время записи» было
+ * обработчиках отправки, «минута меняет только время записи» было
  * НАМЕРЕНИЕМ; здесь это правило, и у него есть проверка (`slot.test.ts`).
  */
 
@@ -22,6 +21,10 @@ export interface Slot {
   name: string
   /** Час ячейки, «HH:00». */
   hour: string
+  /** Минута, в которую попал щелчок по сетке; нет — первая свободная. */
+  minute?: number
+  /** Кабинет дорожки, в которую попал щелчок; нет — первый свободный. */
+  room?: string
 }
 
 /**
@@ -35,8 +38,13 @@ export interface Slot {
  */
 export interface SlotFormView {
   services: { id: string; label: string; dur?: number }[]
-  /** Длительности на выбор в «Durată» (10.11); нет поля — выбора нет. */
+  /** Быстрые значения «Durată»; нет поля — выбора нет. */
   durations?: number[]
+  /** Правило «другой» длительности: шаг и потолок, минут. */
+  dur_step?: number
+  dur_max?: number
+  /** Шаг сетки стартов, минут. */
+  step?: number
   /** Потолок поля «дата рождения» — сегодня В ЧАСАХ КЛИНИКИ. */
   birth_max: string
   /** Галочка «SMS reminder» (`day.sms_box`); нет поля — галочки нет. */
@@ -44,9 +52,9 @@ export interface SlotFormView {
 }
 
 export interface SlotTimes {
-  /** Время ЗАПИСИ: «HH:00» или «HH:30» — его и двигает переключатель. */
+  /** Время ЗАПИСИ: «HH:MM» — минуту и двигает выбор в окне. */
   atime: string
-  /** Начало ЗАМЕТКИ: целый час, про получас не знает. */
+  /** Начало ЗАМЕТКИ: целый час, про минуты не знает. */
   ntime: string
   /**
    * Часы, которыми может кончиться блокировка: только ПОЗЖЕ начала.
@@ -56,11 +64,11 @@ export interface SlotTimes {
   ends: number[]
 }
 
-export function slotTimes(hour: string, half: 0 | 30, noteEnds: number[]): SlotTimes {
+export function slotTimes(hour: string, minute: number, noteEnds: number[]): SlotTimes {
   const hh = hour.split(':')[0] ?? ''
   const start = Number(hh)
   return {
-    atime: `${hh}:${half ? '30' : '00'}`,
+    atime: `${hh}:${String(minute).padStart(2, '0')}`,
     ntime: `${hh}:00`,
     ends: noteEnds.filter((e) => e > start),
   }
@@ -71,35 +79,73 @@ export function hourLabel(h: number): string {
   return `${String(h).padStart(2, '0')}:00`
 }
 
-/**
- * Какие из двух стартов часа (`:00`, `:30`) свободны у врача — по блокам его
- * колонки канвы, тем же `clashAmong`, что считает помеху переносу (17.10).
- *
- * ⭐ Это ПОДСКАЗКА, как у диалога переноса: правду говорит сервер под своим
- * замком, пока окно открыто, час мог занять второй администратор. Подсказка
- * лишь не даёт нажать то, что по канве заведомо занято: до неё ячейка под
- * 45-минутным визитом звала «+ Programare», окно предлагало оба занятых
- * старта, а отказ «ocupat» уходил в плашку ПОД модальным окном.
- * ⚠️ Половина занята, если ЛЮБОЙ занятый блок её задевает: визит 09:00–09:45
- * занимает обе — 30-минутный слот в 09:45 канва не предлагает (шаг сетки).
- */
-export interface FreeHalves {
-  h0: boolean
-  h30: boolean
+/** Минуты часа, с которых может начаться запись: 0, 5, … 55 при шаге 5. */
+export function hourMinutes(step: number): number[] {
+  const out: number[] = []
+  for (let m = 0; m < 60; m += step > 0 ? step : 5) out.push(m)
+  return out
 }
 
-export function freeHalves(items: Occupies[], hour: number): FreeHalves {
-  const m = hour * 60
-  return {
-    h0: clashAmong(items, m, 30, -1) < 0,
-    h30: clashAmong(items, m + 30, 30, -1) < 0,
+/** Старты часа, с которых запись длиной `dur` не встала бы ни в один из
+ *  списков занятости (`lanes` — по кабинетам, `move.lanesOf`; `self` —
+ *  переносимый визит, сам себе не помеха). Подсказка окну. */
+export function takenMinutes(lanes: Occupies[][], hour: number, dur: number,
+  step: number, self = -1): Set<number> {
+  const out = new Set<number>()
+  for (const m of hourMinutes(step)) {
+    if (clashLanes(lanes, hour * 60 + m, dur, self) >= 0) out.add(m)
   }
+  return out
 }
 
-/** Значение `data-free` ячейки канвы: где рисовать «+ Programare». */
-export function freeKind(f: FreeHalves): 'both' | 'top' | 'bottom' | 'none' {
-  if (f.h0 && f.h30) return 'both'
-  if (f.h0) return 'top'
-  if (f.h30) return 'bottom'
-  return 'none'
+/**
+ * Свободные отрезки часа у врача — по блокам его колонки канвы, тем же
+ * `clashAmong`, что считает помеху переносу. Минуты часа, `[from, to)`.
+ *
+ * Это ПОДСКАЗКА, как у диалога переноса: правду говорит сервер под своим
+ * замком, пока окно открыто, час мог занять второй администратор.
+ */
+export interface FreeSpan {
+  from: number
+  to: number
+}
+
+export function freeSpans(items: Occupies[], hour: number, step = 5): FreeSpan[] {
+  const out: FreeSpan[] = []
+  for (const m of hourMinutes(step)) {
+    if (clashAmong(items, hour * 60 + m, step, -1) >= 0) continue
+    const last = out[out.length - 1]
+    if (last && last.to === m) last.to = m + step
+    else out.push({ from: m, to: m + step })
+  }
+  return out
+}
+
+/** Отрезок под минутой `at`, а вне отрезков — ближайший к ней. */
+export function spanAt(spans: FreeSpan[], at: number): FreeSpan | null {
+  let best: FreeSpan | null = null
+  let gap = Infinity
+  for (const s of spans) {
+    const d = at < s.from ? s.from - at : at >= s.to ? at - s.to + 1 : 0
+    if (d < gap) { best = s; gap = d }
+  }
+  return best
+}
+
+/**
+ * С какой минуты часа открыть окно записи по щелчку в `at` (дробная минута
+ * часа; `null` — нажали с клавиатуры): деление `snap`, в которое попал
+ * щелчок, но не раньше начала свободного отрезка и не позже его последнего
+ * старта. В дыре короче двух делений целиться нечем — запись встаёт в её
+ * начало, сразу за предыдущим визитом. `null` — свободного в часе нет.
+ */
+export function startIn(spans: FreeSpan[], at: number | null, snap: number,
+  step = 5): number | null {
+  const first = spans[0]
+  if (!first) return null
+  if (at === null) return first.from
+  const s = spanAt(spans, at) ?? first
+  if (s.to - s.from < 2 * snap) return s.from
+  const m = Math.floor(at / snap) * snap
+  return Math.max(s.from, Math.min(m, s.to - step))
 }

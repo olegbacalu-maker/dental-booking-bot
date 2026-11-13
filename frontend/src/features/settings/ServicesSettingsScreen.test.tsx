@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, screen } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import { ApiError } from '../../types/api'
@@ -19,7 +19,9 @@ const DATA: ServicesData = {
     { id: 'pain', ro: 'Durere acută', ru: 'Острая боль', price: '', duration: 60, color: 'red', urgent: true, docs: ['d2'] },
   ],
   palette: { green: 'verde', red: 'roșu' },
-  durations: [15, 30, 45, 60, 90, 120],
+  durations: [5, 10, 15, 20, 30, 45, 60, 90, 120],
+  dur_step: 5,
+  dur_max: 240,
   recalls: [0, 3, 4, 6, 9, 12, 24],
   doctors: [{ id: 'd2', name: 'Dr. Doi' }, { id: 'd3', name: 'Dr. Trei' }],
 }
@@ -100,6 +102,28 @@ describe('ServicesSettingsScreen', () => {
       { ...DATA.services[0], price: '1200 MDL', recall: 6 },
       { ...DATA.services[1], recall: 12 },
     ] })
+  })
+
+  it('длительность: быстрые значения и «Altă durată…»; 25 уходит числом, 7 запирает сохранение', async () => {
+    get.mockResolvedValueOnce(ok(DATA))
+    post.mockResolvedValueOnce(ok(DATA, 'ok_set', 'Setări salvate'))
+    open()
+    await screen.findByDisplayValue('Consultație')
+    const dur = screen.getByLabelText('Durată 1') as HTMLSelectElement
+    expect(Array.from(dur.options).map((o) => o.textContent)).toEqual(
+      ['5 min', '10 min', '15 min', '20 min', '30 min', '45 min', '60 min', '90 min', '120 min', 'Altă durată…'])
+    fireEvent.change(dur, { target: { value: 'other' } })
+    const inp = screen.getByLabelText('Durată 1 (min)') as HTMLInputElement
+    const save = screen.getByRole('button', { name: /Salvează serviciile/ }) as HTMLButtonElement
+    fireEvent.change(inp, { target: { value: '7' } })
+    expect(save.disabled).toBe(true)
+    expect(document.querySelector('.dp-dur-rule.bad')?.textContent).toBe('din 5 în 5 minute, cel mult 240')
+    fireEvent.change(inp, { target: { value: '25' } })
+    expect(save.disabled).toBe(false)
+    fireEvent.click(save)
+    await waitFor(() => expect(post).toHaveBeenCalled())
+    const sent = post.mock.calls[0]?.[1] as { services: { duration: number }[] }
+    expect(sent.services[0]?.duration).toBe(25)
   })
 
   it('отказ сервера — текст в плашке, правки остаются', async () => {

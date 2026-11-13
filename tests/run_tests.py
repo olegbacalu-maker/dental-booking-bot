@@ -32,6 +32,7 @@ import test_api  # noqa: E402
 import test_backup  # noqa: E402
 import test_booking  # noqa: E402
 import test_chair  # noqa: E402
+import test_rooms  # noqa: E402
 import test_db_names  # noqa: E402
 import test_layout_names  # noqa: E402
 import test_dbcrypt  # noqa: E402
@@ -44,12 +45,15 @@ import test_doctors  # noqa: E402
 import test_doctor_windows  # noqa: E402
 import test_day_actions  # noqa: E402
 import test_day_forms  # noqa: E402
+import test_gcal  # noqa: E402
+import test_gimport_core  # noqa: E402
 import test_guards  # noqa: E402
 import test_hardening  # noqa: E402
 import test_harness_client  # noqa: E402
 import test_harness_clock  # noqa: E402
 import test_harness_tmp  # noqa: E402
 import test_launcher  # noqa: E402
+import test_ics  # noqa: E402
 import test_installer  # noqa: E402
 import test_legacy  # noqa: E402
 import test_license_format  # noqa: E402
@@ -162,6 +166,22 @@ SUITES = [
     ("SMS: сегменты по общему вектору", test_sms_rule.suite_parts),
     ("SMS: номер получателя по общему вектору", test_sms_rule.suite_phones),
     ("SMS: модуль правила чистый", test_sms_rule.suite_pure),
+    ("Импорт .ics: файл — строки, время, отказы, архив", test_ics.suite_file),
+    ("Импорт .ics: правила повтора по буквальным датам", test_ics.suite_rrule),
+    ("Импорт .ics: серии образца — удалённое, изменённое, отменённое", test_ics.suite_series),
+    ("Импорт .ics: модуль чтения чистый", test_ics.suite_pure),
+    ("Импорт gimport: образцы от «сейчас» — заготовки, повторный импорт", test_gimport_core.suite_samples),
+    ("Импорт gimport: округление, пропуски, отпечаток", test_gimport_core.suite_rules),
+    ("Импорт gimport: телефон, врач, имя, пересечения", test_gimport_core.suite_hints),
+    ("Импорт gimport: конвертер чистый", test_gimport_core.suite_pure),
+    ("Google Calendar: загрузка файла, список, подсказки, меню", test_gcal.suite_load),
+    ("Google Calendar: перенос в журнал, «Leagă», «Nu muta», изменившееся", test_gcal.suite_move),
+    ("Google Calendar: начало и длина окна — из конвертера", test_gcal.suite_round),
+    ("Google Calendar: старт с шагом 5 минут", test_gcal.suite_after_grid),
+    ("Google Calendar: месяц вкладки и отбор по дню", test_gcal.suite_calendar),
+    ("Google Calendar: срок текста под поддельными часами", test_gcal.suite_expiry),
+    ("Google Calendar: стирание пациента и «Șterge tot»", test_gcal.suite_erase),
+    ("Google Calendar: права и режим чтения", test_gcal.suite_rights),
     ("SMS: тексты, подстановки, окно отправки, настройки", test_sms.suite_plan),
     ("SMS: провод к серверу", test_sms.suite_wire),
     ("SMS: живой цикл — накануне, в день визита, кому нет, без дубля", test_sms.suite_live),
@@ -346,6 +366,12 @@ SUITES = [
     ("Кресло: кто в кресле — правило", test_chair.suite_rule),
     ("Кресло: API", test_chair.suite_api),
     ("Кресло: адрес экрана", test_chair.suite_page),
+    ("Кабинеты: занятость по кабинетам врача", test_rooms.suite_rule),
+    ("Кабинеты: смена кабинета, перенос, возврат, длительность", test_rooms.suite_commands),
+    ("Кабинеты: контракт экрана — колонка, блок, повестка, кресло, свободные старты", test_rooms.suite_models),
+    ("Кабинеты: профиль — старая строка и список из фиши врача", test_rooms.suite_profile),
+    ("Кабинеты: канва — дорожки кабинетов в колонке врача", test_rooms.suite_lanes),
+    ("Кабинеты: перенос в занятый кабинет — отказ по пересечению интервалов", test_rooms.suite_move_overlap),
     ("Настройки: хаб (JSON)", test_settings_api.suite_hub),
     ("Настройки: сеть (JSON)", test_settings_api.suite_lan),
     ("Сеть: вердикт брандмауэра по правилам exe", test_netcheck.suite_verdict),
@@ -520,6 +546,9 @@ SUITES = [
     ("Миграции базы: журнал отметок Rechemări шагом 8", test_migrate.suite_v8_recall),
     ("Миграции базы: шаг 10 повторяется по базе, где колонки уже есть (2.14.2)", test_migrate.suite_v10_retry),
     ("Миграции базы: повтор шага 10 на зашифрованной картотеке", test_migrate.suite_v10_retry_crypt),
+    ("Миграции базы: шаг 11 — кабинет в ключе индексов врача", test_migrate.suite_v11_rooms),
+    ("Миграции базы: шаг 11 на зашифрованной картотеке", test_migrate.suite_v11_rooms_crypt),
+    ("Миграции базы: шаг таблиц Google Calendar повторяется", test_migrate.suite_gcal_retry),
     ("Летопись: backfill в часах клиники", test_migrate.suite_backfill_tz),
     ("Шифрование базы: код восстановления", test_dbcrypt.suite_key),
     ("Шифрование базы: переезд", test_dbcrypt.suite_convert),

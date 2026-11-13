@@ -5,6 +5,8 @@ import { Icon } from '../../components/Icon'
 import { hideDialog, showDialog } from '../patients/card/dialog'
 import { day, svcLabel, type ServiceOption, type StatusAction, type VisitCardView } from './day'
 import { CALL_WORDS, type CallResult } from './desk'
+import type { Room } from './move'
+import { DurField, durOk, durRule, type DurRule } from './DurPick'
 
 /* Карточка визита по клику (C25.5b): что это за визит, комментарий стойки и
    кнопки исхода.
@@ -60,6 +62,8 @@ const T = {
   /* смена процедуры при длительности, заданной руками (10.11): процедура её
      не перебивает — сказать до «Schimbă», а не удивить после */
   durKept: (n: number) => `Durata rămâne ${n} min — aleasă manual.`,
+  room: 'Cabinet',
+  roomChange: 'Schimbă cabinetul',
   close: 'Închide',
 } as const
 
@@ -105,10 +109,16 @@ interface Props {
    *  `GET …/service` (список длительностей с сервера); `true` — сменено, окно
    *  закрывается; отказ (сосед, закрытый визит) — словом в `fail`, В ОКНЕ. */
   onDuration?: (minutes: number, fail: (text: string) => void) => Promise<boolean>
+  /** Кабинеты врача этой записи; с двумя и больше окно называет кабинет и
+   *  даёт перевести запись в другой (`onRoom`, тем же карандашом). */
+  rooms?: readonly Room[]
+  onRoom?: (room: string, fail: (text: string) => void) => Promise<boolean>
 }
 
+const NO_ROOMS: readonly Room[] = []
+
 export function CardDialog({ open, id, card, actions, note = '', back, busy,
-  onClose, onComment, onStatus, onCall, onService, onDuration }: Props) {
+  onClose, onComment, onStatus, onCall, onService, onDuration, rooms = NO_ROOMS, onRoom }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
   /* Черновик и то, чем его засеяли, — ОДНИМ состоянием: «тронут ли» решается
      сравнением этих двух, и оба нужны на рендере (кнопка сохранения), где
@@ -127,13 +137,21 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
   /* Список услуг врача этого визита — ответ сервера; `null` — ещё не пришёл
      (или не спрашивали), карандаша на экране нет. */
   const [svcOpts, setSvcOpts] = useState<ServiceOption[] | null>(null)
-  /* Длительность (10.11): список длительностей и «задана руками» — тем же
-     ответом, что список услуг; выбор живёт до «Renunță» или закрытия окна. */
-  const [durList, setDurList] = useState<number[] | null>(null)
+  /* Длительность: правило выбора и «задана руками» — тем же ответом, что
+     список услуг; выбор живёт до «Renunță» или закрытия окна. */
+  const [durList, setDurList] = useState<DurRule | null>(null)
   const [durSet, setDurSet] = useState(false)
   const [durOpen, setDurOpen] = useState(false)
   const [durPick, setDurPick] = useState<number | null>(null)
   const [durFail, setDurFail] = useState('')
+  const [roomOpen, setRoomOpen] = useState(false)
+  const [roomPick, setRoomPick] = useState<string | null>(null)
+  const [roomFail, setRoomFail] = useState('')
+  const roomVal = roomPick ?? card.room_id ?? ''
+  /* кабинет называется только там, где их у врача несколько; карандаш — по
+     тому же флагу сервера, что у процедуры: у закрытой записи его нет */
+  const roomShown = rooms.length > 1 && !!card.room
+  const roomEdit = roomShown && !!onRoom && !note && card.service_edit
   const svcAsk = (!!onService || !!onDuration) && !note && card.service_edit
   /* ⭐ Черновик держит СЕБЯ, а не экран (C26.5.3-b). Пока его не трогали —
      приехавшее значение пересевает поле, и правка со второго рабочего места
@@ -168,10 +186,10 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
       (r) => {
         if (ctl.signal.aborted) return
         setSvcOpts(r.data.options)
-        setDurList(r.data.durations ?? [])
+        setDurList(durRule(r.data))
         setDurSet(!!r.data.dur_set)
       },
-      () => { if (!ctl.signal.aborted) { setSvcOpts([]); setDurList([]) } },
+      () => { if (!ctl.signal.aborted) { setSvcOpts([]); setDurList(durRule({})) } },
     )
     return () => ctl.abort()
   }, [svcAsk, id])
@@ -190,10 +208,8 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
   const svcList = svcAsk && onService ? svcOpts ?? [] : []
   const svcShown = svcList.length > 0
   /* длительность — только когда она в карточке есть и сервер дал список */
-  const durShown = !!onDuration && svcAsk && !!card.dur && (durList ?? []).length > 0
+  const durShown = !!onDuration && svcAsk && !!card.dur && !!durList?.durations.length
   const durVal = durPick ?? card.dur ?? 0
-  const durOpts = durShown && !(durList ?? []).includes(card.dur ?? 0)
-    ? [card.dur ?? 0, ...(durList ?? [])] : durList ?? []
   /* Нынешней услуги в списке может не быть (легаси-строка без ключа, услугу
      убрали из clinic.json): тогда она стоит первой строкой, выбрать её нельзя. */
   const svcKnown = svcList.some((s) => s.id === card.service_id)
@@ -225,9 +241,23 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
     setDurPick(null)
   }
 
+  async function saveRoom(e: FormEvent) {
+    e.preventDefault()
+    if (!onRoom) return
+    setRoomFail('')
+    if (await onRoom(roomVal, setRoomFail)) onClose()
+  }
+
+  function closeRoom() {
+    setRoomOpen(false)
+    setRoomFail('')
+    setRoomPick(null)
+  }
+
   /* открыт всегда один список: второй карандаш закрывает первый */
-  function openSvc() { closeDur(); setSvcOpen(true) }
-  function openDur() { closeSvc(); setDurOpen(true) }
+  function openSvc() { closeDur(); closeRoom(); setSvcOpen(true) }
+  function openDur() { closeSvc(); closeRoom(); setDurOpen(true) }
+  function openRoom() { closeSvc(); closeDur(); setRoomOpen(true) }
 
   /* Сохранённый комментарий закрывает окно, как исход визита (14.10, слово
      Олега: «вкладка по идее должна закрыться»); отказ оставляет окно с
@@ -278,6 +308,16 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
               </span>
             ) : null}
             {card.doctor ? <span className="dp-card-w"><span className="dp-card-dot">·</span>{card.doctor}</span> : null}
+            {roomShown ? (
+              <span className="dp-card-w dp-card-room">
+                <span className="dp-card-dot">·</span><Icon name="door" /> {card.room}
+                {roomEdit && !roomOpen && (
+                  <button type="button" className="dp-card-pen" disabled={busy}
+                    title={T.roomChange} aria-label={T.roomChange}
+                    onClick={openRoom}><Icon name="pen" /></button>
+                )}
+              </span>
+            ) : null}
           </div>
           {(card.phone || card.age) ? (
             <div className="dp-card-fl dp-card-sub">
@@ -307,14 +347,26 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
           {durShown && durOpen && (
             <form onSubmit={saveDur} className="dp-card-svc dp-card-dur" aria-label={T.dur}>
               {durFail ? <div className="banner err" role="alert">{durFail}</div> : null}
-              <select value={durVal} aria-label={T.dur} autoFocus
-                      onChange={(e) => { setDurPick(Number(e.target.value)); setDurFail('') }}>
-                {durOpts.map((d) => <option key={d} value={d}>{d} min</option>)}
-              </select>
-              <button className="dp-card-chip strong" disabled={busy || durVal === card.dur}>
+              <DurField rule={durList!} value={durVal} label={T.dur} autoFocus
+                        onPick={(n) => { setDurPick(n); setDurFail('') }} />
+              <button className="dp-card-chip strong"
+                      disabled={busy || durVal === card.dur || !durOk(durVal, durList!)}>
                 <Icon name="pen" /> {T.svcSave}
               </button>
               <button type="button" className="dp-card-quiet" onClick={closeDur}>{T.svcCancel}</button>
+            </form>
+          )}
+          {roomEdit && roomOpen && (
+            <form onSubmit={saveRoom} className="dp-card-svc dp-card-dur" aria-label={T.room}>
+              {roomFail ? <div className="banner err" role="alert">{roomFail}</div> : null}
+              <select value={roomVal} aria-label={T.room} autoFocus
+                      onChange={(e) => { setRoomPick(e.target.value); setRoomFail('') }}>
+                {rooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+              <button className="dp-card-chip strong" disabled={busy || roomVal === card.room_id}>
+                <Icon name="pen" /> {T.svcSave}
+              </button>
+              <button type="button" className="dp-card-quiet" onClick={closeRoom}>{T.svcCancel}</button>
             </form>
           )}
         </div>

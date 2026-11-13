@@ -52,8 +52,8 @@ const ok = <T,>(data: T, code = '', text = '', tone: 'ok' | 'warn' = 'ok'): ApiR
 const TODAY = '2026-10-22'
 const FORM: DayForm = {
   doctors: [{ id: 'd2', name: 'Dr. Activ Doi', spec: '' }, { id: 'd3', name: 'Dr. Activ Trei', spec: '' }],
-  times: { d2: ['09:00', '09:30', '10:00'], d3: ['10:00', '10:30'] },
-  hours: ['09:00', '09:30', '10:00', '10:30'],
+  times: { d2: ['09:00', '10:00'], d3: ['10:00'] },
+  hours: ['09:00', '10:00'],
   services: [{ id: 'consult', label: 'Consultație' }],
   doctor: 'd2', time: '09:30', birth_max: TODAY,
 }

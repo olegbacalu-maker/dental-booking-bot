@@ -574,7 +574,33 @@
 .dp-react-root .dp-card-svc .dp-card-kept { flex-basis: 100%; margin: 0; }
 /* окна записи: услуга и «Durată» одной строкой, услуга берёт остаток */
 .dp-react-root .dlg-form .dp-svcrow > select:first-child { flex: 1 1 auto; min-width: 0; width: auto; }
-.dp-react-root .dlg-form .dp-svcrow > .dp-dur { flex: 0 0 104px; width: 104px; }
+.dp-react-root .dlg-form .dp-svcrow > .dp-durf { flex: 0 0 auto; }
+.dp-react-root .dlg-form .dp-svcrow { flex-wrap: wrap; }
+/* «Durată»: список, поле «другой» и правило под ним */
+.dp-react-root .dp-durf { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.dp-react-root .dlg-form .dp-durf .dp-dur, .dp-react-root table.set .dp-durf .dp-dur { flex: 0 0 104px; width: 104px; }
+.dp-react-root .dlg-form .dp-durf.open .dp-dur, .dp-react-root table.set .dp-durf.open .dp-dur { flex-basis: 132px; width: 132px; }
+.dp-react-root .dlg-form .dp-durf .dp-dur-n, .dp-react-root table.set .dp-durf .dp-dur-n {
+  flex: 0 0 64px; width: 64px; text-align: center; font-variant-numeric: tabular-nums; }
+.dp-react-root .dp-durf .dp-dur-n[aria-invalid="true"] { border-color: var(--red); }
+.dp-react-root .dp-durf .dp-dur-rule { flex-basis: 100%; font-size: var(--fs-xs); color: var(--text3); }
+.dp-react-root .dp-durf .dp-dur-rule.bad { color: var(--red); }
+.dp-react-root .dlg-form .dp-svcrow > .dp-durf.open { flex-basis: 100%; }
+/* минуты старта; селектор с .dlg-form — иначе кнопку красит общий `.dlg-form button` */
+.dp-react-root .dlg-form > .dlab.dp-hourpick { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
+.dp-react-root .dlg-form > .dp-hourpick select { flex: 0 0 96px; width: 96px; }
+.dp-react-root .dp-minpick { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+.dp-react-root .dlg-form .dp-minpick .mp, .dp-react-root .dlg-form .dp-minpick .mp:hover {
+  height: var(--h-ctl-s); min-width: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r-ctl);
+  background: var(--panel); color: var(--text2); font-size: var(--fs-m); font-weight: 600;
+  font-variant-numeric: tabular-nums; cursor: pointer; box-shadow: none; transform: none; opacity: 1; }
+.dp-react-root .dlg-form .dp-minpick .mp:hover { border-color: var(--teal-line); color: var(--text); }
+.dp-react-root .dlg-form .dp-minpick .mp.on, .dp-react-root .dlg-form .dp-minpick .mp.on:hover {
+  background: var(--teal); border-color: var(--teal); color: var(--on-teal); }
+.dp-react-root .dlg-form .dp-minpick .mp.taken, .dp-react-root .dlg-form .dp-minpick .mp.taken:hover {
+  cursor: default; color: var(--text3); background: var(--fill); border-style: dashed;
+  text-decoration: line-through; }
+.dp-react-root .dlg-form .dp-minpick .mp.on.taken { border-color: var(--red); color: var(--red); }
 /* контурная малая кнопка и ссылка-чип (фиша, дневник, «Schimbă», «Salvează comentariul») — одна семья;
    `.strong` — фирменный контур у действия, которое человек только что заказал */
 .dp-react-root .dlg-form .dp-card-chip, .dp-react-root .dlg-form .dp-card-chip:hover, .dp-react-root .dlg-form a.dp-card-chip {
@@ -1792,6 +1818,23 @@ dialog.dp-about { width: 460px; }
 /* сплошной `--panel`, не `--surface`: у Sticlă поверхность прозрачная, и
    сетка дня просвечивала бы сквозь числа */
 .dp-calpop .mcal { margin: 0; background: var(--panel); box-shadow: var(--sh3); }
+/* в ряду кнопок недели кнопка дат занимает место плашки периода; общий вид
+   `.nav b` её подписи и заголовку месяца не нужен */
+.nav .dp-calbtn > button { height: var(--h-ctl); margin: 0; padding: 0 12px; border-color: var(--teal-line);
+  background: var(--panel); color: var(--teal-d); font-size: var(--fs-body); box-shadow: var(--sh); }
+.nav .dp-calbtn b { height: auto; padding: 0; margin: 0; border: 0; border-radius: 0; background: none;
+  box-shadow: none; color: inherit; font-size: inherit; }
+.nav .dp-calbtn b::before { content: none; }
+/* ссылки календаря — клетки месяца, а не кнопки ряда `.nav a` */
+.nav .dp-calpop a, .nav .dp-calpop a:hover { padding: 0; border: 0; gap: 0; font-weight: inherit; transform: none; }
+.nav .dp-calpop a:not(.seld) { background: none; }
+.nav .dp-calpop a:not(.tdy), .nav .dp-calpop a:not(.tdy):hover { box-shadow: none; }
+.nav .dp-calpop td a:not(.seld):hover, .nav .dp-calpop .mhead a:hover { background: var(--fill); }
+.nav .dp-calpop td a:not(.seld):not(.tdy):not(.oth) { color: var(--text); }
+.nav .dp-calpop td a.oth { color: var(--text3); }
+.nav .dp-calpop td a.tdy { color: var(--teal-d); font-weight: 600; }
+.nav .dp-calpop td a.seld, .nav .dp-calpop td a.seld:hover { color: var(--on-teal); font-weight: 700; }
+.nav .dp-weekcount { margin-right: 4px; color: var(--text2); font-size: var(--fs-body); white-space: nowrap; }
 
 /* «Primul loc liber»: врач, ближайший свободный час, кнопка-контур; внизу касса */
 .dp-free {
@@ -2531,6 +2574,8 @@ dialog.dp-about { width: 460px; }
 /* треугольник у пункта меню (остаток SMS): на месте точки, цветом смысла */
 .side nav a .nav-alert { margin-left: auto; display: inline-flex; color: var(--amber); }
 .side nav a .nav-alert svg { width: 16px; height: 16px; }
+.side nav a .nav-count { margin-left: auto; min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--teal);
+  color: var(--on-teal); font-size: var(--fs-xs); font-weight: 600; line-height: 18px; text-align: center; }
 
 /* odo:modes — режимы рабочего стола вкладками шапки (Олег 24.10, макет B):
    на месте прежних «Stare dinți | Parodont». Ряд не переносится — при нехватке
@@ -3003,6 +3048,92 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .hero-rc .off em { color: var(--text3); }
 .dp-react-root .hero-rc-undo { border: 0; background: none; padding: 0; font: inherit; color: var(--teal-d); font-weight: 500; cursor: pointer; text-decoration: underline; }
 .dp-react-root .dp-rc-set { color: var(--teal-d); font-weight: 600; }
+/* Google Calendar: список событий календаря клиники и перенос в журнал */
+.dp-react-root .gc-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: 40px 24px; }
+.dp-react-root .gc-empty .hint { max-width: 620px; margin: 0; }
+.dp-react-root .gc-help { margin: 0; padding-left: 20px; max-width: 620px; text-align: left; color: var(--text2);
+  font-size: var(--fs-body); display: flex; flex-direction: column; gap: 4px; }
+.dp-react-root .gc-src { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 16px; }
+.dp-react-root .gc-src-l { display: flex; align-items: center; gap: 8px; flex: 1 1 320px; min-width: 0; color: var(--text2); }
+.dp-react-root .gc-src-l b { color: var(--text); font-weight: 600; }
+.dp-react-root .gc-src-l svg { flex: 0 0 18px; width: 18px; height: 18px; color: var(--teal-d); }
+.dp-react-root .gc-how { flex-basis: 100%; color: var(--text2); font-size: var(--fs-s); }
+.dp-react-root .gc-how summary, .dp-react-root .gc-body summary { cursor: pointer; color: var(--teal-d); font-weight: 500; width: fit-content; }
+.dp-react-root .gc-how .gc-help { margin-top: 8px; }
+.dp-react-root .gc-report { display: flex; align-items: flex-start; gap: 12px; padding: 12px 16px; border-color: var(--green-soft); }
+.dp-react-root .gc-report-b { display: flex; flex-direction: column; gap: 3px; flex: 1; font-size: var(--fs-body); color: var(--text2); }
+.dp-react-root .gc-report-b b { display: flex; align-items: center; gap: 6px; color: var(--green-t); font-weight: 600; }
+.dp-react-root .gc-report-b b svg { width: 16px; height: 16px; }
+.dp-react-root .gc-warn { color: var(--amber-t); font-weight: 500; }
+.dp-react-root .gc-x { border: 0; background: none; padding: 4px; color: var(--text3); cursor: pointer; display: inline-flex; }
+.dp-react-root .gc-x svg { width: 16px; height: 16px; }
+.dp-react-root .gc-q { height: var(--h-ctl); width: 240px; max-width: 100%; padding: 0 12px; border: 1px solid var(--line);
+  border-radius: var(--r-ctl); background: var(--surface); color: var(--text); font: inherit; font-size: var(--fs-body); }
+.dp-react-root .gc-total { margin: 0; white-space: nowrap; }
+.dp-react-root .gc-cols { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; align-items: start; }
+.dp-react-root .gc-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.dp-react-root .gc-side { position: sticky; top: 84px; display: flex; flex-direction: column; gap: 10px; }
+.dp-react-root .gc-side .rc-btn { align-self: flex-start; }
+.dp-react-root .gc-legend { display: flex; align-items: center; gap: 6px; margin: 0 4px; }
+.dp-react-root .gc-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--teal); }
+.dp-react-root .gc-calbtn { display: none; }
+.dp-react-root .gc-calbtn .dp-calbtn > button { margin: 0; height: var(--h-ctl); }
+.dp-react-root .gc-calbtn .dp-daysub-date::first-letter { text-transform: uppercase; }
+.dp-react-root .gc-dayline { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0;
+  color: var(--text2); font-size: var(--fs-body); }
+.dp-react-root .gc-dayline > svg { width: 15px; height: 15px; color: var(--teal-d); }
+.dp-react-root .gc-dayline b { color: var(--text); font-weight: 600; }
+.dp-react-root .gc-all { height: 28px; }
+.dp-react-root .gc-day { padding: 2px 0; }
+.dp-react-root .gc-day-h { margin: 0; padding: 8px 16px 6px; font-size: var(--fs-s); font-weight: 600; color: var(--text2); }
+.dp-react-root .gc-day-h::first-letter { text-transform: uppercase; }
+.dp-react-root .gc-row { display: grid; grid-template-columns: 158px minmax(0, 1fr) auto auto;
+  gap: 12px; align-items: center; padding: 6px 16px; border-top: 1px solid var(--line2); font-size: var(--fs-body); }
+.dp-react-root .gc-time { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.dp-react-root .gc-time b { font-size: var(--fs-body); font-weight: 600; }
+.dp-react-root .gc-time small { color: var(--text3); font-size: var(--fs-xs); }
+.dp-react-root .gc-what { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.dp-react-root .gc-title { overflow-wrap: anywhere; font-size: var(--fs-body); font-weight: 600; }
+.dp-react-root .gc-row.dim .gc-title, .dp-react-root .gc-row.dim .gc-time b { color: var(--text2); }
+.dp-react-root .gc-what a { color: var(--teal-d); text-decoration: none; }
+.dp-react-root .gc-what a b { font-weight: 600; }
+.dp-react-root .gc-what .rc-pill { padding: 1px 8px; white-space: nowrap; }
+.dp-react-root .gc-exists { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--blue); font-size: var(--fs-s); }
+.dp-react-root .gc-exists svg { width: 15px; height: 15px; }
+.dp-react-root .gc-exists .rc-btn { height: 26px; }
+.dp-react-root .gc-body { flex: 1 1 180px; min-width: 0; font-size: var(--fs-s); color: var(--text2); }
+.dp-react-root .gc-body[open] { flex-basis: 100%; }
+.dp-react-root .gc-body summary { display: flex; align-items: baseline; gap: 8px; width: auto; min-width: 0; color: var(--text2);
+  font-weight: 400; list-style: none; }
+.dp-react-root .gc-body summary::-webkit-details-marker { display: none; }
+.dp-react-root .gc-desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dp-react-root .gc-body[open] .gc-desc { display: none; }
+.dp-react-root .gc-more { flex: none; color: var(--teal-d); font-weight: 500; }
+.dp-react-root .gc-body pre { margin: 6px 0 4px; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit;
+  border: 1px solid var(--line2); border-radius: var(--r-s); background: var(--fill); }
+.dp-react-root .gc-state { display: flex; justify-content: flex-end; }
+.dp-react-root .gc-row .rc-acts { flex-wrap: nowrap; }
+.dp-react-root .gc-row .rc-btn { height: 30px; padding: 0 10px; }
+.dp-react-root .gc-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 0 4px; }
+.dp-react-root .gc-foot .hint { display: flex; align-items: flex-start; gap: 6px; margin: 0; max-width: 760px; }
+.dp-react-root .gc-foot .hint svg { flex: 0 0 15px; width: 15px; height: 15px; margin-top: 2px; }
+.dp-react-root .gc-clear { border-color: var(--red-t); color: var(--red-t); }
+@media (max-width: 1500px) {
+  .dp-react-root .gc-cols { grid-template-columns: minmax(0, 1fr); }
+  .dp-react-root .gc-side { display: none; }
+  .dp-react-root .gc-calbtn { display: inline-block; }
+}
+@media (max-width: 900px) {
+  .dp-react-root .gc-row { grid-template-columns: 96px 1fr; align-items: start; padding: 10px 16px; }
+  .dp-react-root .gc-time { flex-direction: column; gap: 2px; white-space: normal; }
+  .dp-react-root .gc-state, .dp-react-root .gc-row .rc-acts { grid-column: 2; justify-content: flex-start; flex-wrap: wrap; }
+}
+.dp-addnote { padding: 8px 10px; border: 1px solid var(--line2); border-radius: var(--r-ctl); background: var(--fill); overflow-wrap: anywhere; }
+.dp-addpeople { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.dp-addpeople .hint { margin: 0; }
+.dp-addperson { height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface);
+  color: var(--text); font: inherit; font-size: var(--fs-s); cursor: pointer; }
+.dp-addperson.on { border-color: var(--teal); background: var(--teal-soft); color: var(--teal-d); font-weight: 600; }
 .dp-past { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid var(--amber-soft);
   border-radius: var(--r-ctl); background: color-mix(in srgb, var(--amber-soft) 45%, transparent); }
 .dp-past-w { display: flex; align-items: center; gap: 6px; color: var(--amber-t); font-size: var(--fs-s); font-weight: 600; }
@@ -3351,3 +3482,20 @@ dialog.rg-dlg.wide { width: 720px; }
   .rg .rg-plan-r > :nth-child(4) { grid-column: 2; grid-row: 2; justify-self: end; }
   .rg-set .rg-set-grid { grid-template-columns: 1fr; }
 }
+
+/* кабинет: выбор в окнах записи и переноса, строка в окне визита, список в фише врача */
+.dp-react-root .dlg-form > .dp-roompick select { flex: 0 1 220px; width: auto; min-width: 0; }
+.dp-react-root .dp-card-room svg { width: 14px; height: 14px; color: var(--text3); }
+.dp-rooms { display: flex; flex-direction: column; gap: 6px; }
+.dp-rooms-row { display: flex; align-items: center; gap: 6px; }
+.dp-rooms-row input { flex: 1 1 0; min-width: 0; }
+.fform .dp-rooms-b, .fform .dp-rooms-b:hover, .fform .dp-rooms-add, .fform .dp-rooms-add:hover {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: var(--h-ctl-s); padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-ctl);
+  background: var(--panel); color: var(--text2); font-size: var(--fs-s); font-weight: 600;
+  box-shadow: none; transform: none; cursor: pointer; }
+.fform .dp-rooms-b:hover, .fform .dp-rooms-add:hover { border-color: var(--teal-line); color: var(--text); }
+.fform .dp-rooms-b:disabled { opacity: .45; cursor: default; }
+.fform .dp-rooms-b svg, .fform .dp-rooms-add svg { width: 14px; height: 14px; }
+.fform .dp-rooms-add { align-self: flex-start; }
+.chair-also { border-color: var(--line); }

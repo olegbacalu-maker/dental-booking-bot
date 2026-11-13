@@ -19,13 +19,14 @@ import { NoteDialog } from './NoteDialog'
 import { SlotDialog } from './SlotDialog'
 import { clinicNow, clinicTz, useClockTick } from './dashFx'
 import {
-  canvasAppt, canvasBlocks, canvasColName, canvasNote, dash, livePath,
+  canvasAppt, canvasBlocks, canvasColName, canvasNote, canvasOpenHours, canvasOthers, canvasRooms,
+  canvasRoomsOf, dash, livePath,
   type DashAppt, type DashModel, type DashNote,
 } from './dash'
-import { freeHalves, type Slot } from './slot'
+import type { Slot } from './slot'
 import { freshOf, movedOf, readSeen, writeSeen, FRESH_MS, MOVED_MS } from './fresh'
 import { useLingering, useOpening } from '../../utils/motion'
-import { clashAmong, hhmm, sameSlot, type Drag, type Target } from './move'
+import { hhmm, sameSlot, type Drag, type Target } from './move'
 
 /**
  * Панель дня (`/admin`) на React — C26.5.2.
@@ -458,7 +459,8 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
           <DashCanvas model={d.canvas} rail={rail} waitTick={waitTick}
             lineTick={lineTick} onCard={(id) => openById(d, id)}
             onCardMenu={(id, x, y) => setMenu({ id, x, y })}
-            onSlot={(dk, name, hour) => setSlot({ dk, name, hour })}
+            onSlot={(dk, name, hour, minute, room) =>
+              setSlot({ dk, name, hour, minute, ...(room ? { room } : {}) })}
             onNote={(id) => openNoteById(d, id)}
             drag={drag} hover={hover} onDrag={startDrag} onHover={setHover}
             onDrop={onDrop} fresh={fresh} moved={moved} />
@@ -506,7 +508,9 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
              а не из ответа. */
           onService={(sid, fail) => act(() => dash.service(d.date, cardL.shown!.id, sid), fail)}
           /* длительность (10.11) — так же: команда, новая длительность едет каналом */
-          onDuration={(min, fail) => act(() => dash.duration(d.date, cardL.shown!.id, min), fail)} />
+          onDuration={(min, fail) => act(() => dash.duration(d.date, cardL.shown!.id, min), fail)}
+          rooms={canvasRoomsOf(d.canvas, cardL.shown.id)}
+          onRoom={(room, fail) => act(() => dash.room(d.date, cardL.shown!.id, room), fail)} />
       )}
       {noteL.shown !== null && openNote && (
         /* ⛔ Кнопка приходит С СЕРВЕРА по состоянию заметки — той же матрицей,
@@ -529,13 +533,13 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
            ⛔ Данные — ИЗ КОНВЕРТА (`slotform`, `note_ends`), а не отдельным
            запросом: они постоянны, отпечаток не двигают, и второй двери к
            состоянию не появляется. */
-        <SlotDialog key={`${slotL.shown.dk}|${slotL.shown.hour}`} open={!slotL.leaving} slot={slotL.shown}
+        <SlotDialog key={`${slotL.shown.dk}|${slotL.shown.hour}|${slotL.shown.minute ?? ''}|${slotL.shown.room ?? ''}`} open={!slotL.leaving} slot={slotL.shown}
           date={d.date} form={d.slotform} noteEnds={d.note_ends} busy={busy}
-          /* Занятость стартов — ПОДСКАЗКА по канве, как `busyAt` у переноса
-             (17.10): сериализует сервер (`_slot_lock`, один критический
-             участок на «проверка + вставка»), и его отказ приходит словом
-             в само окно (`fail`), диалог остаётся открытым с набранным. */
-          free={freeHalves(blocksOf(d, slotL.shown.dk), Number(slotL.shown.hour.split(':')[0]))}
+          /* занятость стартов — подсказка по канве; отказ сервера приходит
+             словом в само окно (`fail`) */
+          taken={blocksOf(d, slotL.shown.dk)}
+          rooms={canvasRooms(d.canvas, slotL.shown.dk)}
+          others={canvasOthers(d.canvas, slotL.shown.dk)}
           onClose={() => setSlot(null)}
           onAdd={(b, fail) => act(() => dash.add(d.date, b), fail)}
           onNote={(b, fail) => act(() => dash.note(d.date, b), fail)} />
@@ -548,17 +552,19 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
            пока тянули, час мог занять второй администратор. */
         <MoveDialog open={!moveL.leaving} drag={moveL.shown.drag} target={moveL.shown.target} busy={busy}
           fromName={colName(d, moveL.shown.drag.dk)} toName={colName(d, moveL.shown.target.dk)}
-          busyAt={clashAmong(blocksOf(d, moveL.shown.target.dk), moveL.shown.target.min,
-            moveL.shown.drag.dur, moveL.shown.drag.id)}
+          taken={blocksOf(d, moveL.shown.target.dk)} step={d.slotform.step}
+          hours={canvasOpenHours(d.canvas, moveL.shown.target.dk)}
+          rooms={canvasRooms(d.canvas, moveL.shown.target.dk)}
+          others={canvasOthers(d.canvas, moveL.shown.target.dk)}
           onClose={() => setMove(null)}
-          onMove={() => {
+          onMove={(min, room) => {
             /* ⚠️ Диалог закрывается ДО ответа, в отличие от записи: терять
                здесь нечего — набранного в нём нет, — а ответом служит сам
                блок, который либо переехал, либо остался на месте. */
             const { drag: what, target: to } = moveL.shown!
             setMove(null)
             void act(() => dash.move(d.date, what.id,
-              { date: d.date, time: hhmm(to.min), doctor: to.dk }))
+              { date: d.date, time: hhmm(min), doctor: to.dk, ...(room ? { room } : {}) }))
           }} />
       )}
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}

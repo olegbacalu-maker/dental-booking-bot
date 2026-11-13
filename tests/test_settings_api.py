@@ -607,7 +607,9 @@ def suite_services(res: Result) -> None:
         res.ok("без врачей — пустой список", by["consult"]["docs"] == [], f"{by['consult']}")
         res.check("палитра — шесть ключей", set(d["palette"]),
                   {"green", "blue", "amber", "violet", "red", "teal"})
-        res.check("длительности как в старом списке", d["durations"], [15, 30, 45, 60, 90, 120])
+        res.check("длительности: быстрые значения и правило «другой»",
+                  (d["durations"], d["dur_step"], d["dur_max"]),
+                  ([5, 10, 15, 20, 30, 45, 60, 90, 120], 5, 240))
         res.check("врачи для галочек", [x["id"] for x in d["doctors"]], ["d1", "d2", "d3", "d4"])
 
         rows = d["services"] + [{"id": "", "ro": "Albire", "ru": "Отбеливание",
@@ -646,6 +648,29 @@ def suite_services(res: Result) -> None:
         res.check("не список — 422", c.post_json(api, {"services": "x"}).status, 422)
         res.check("строка не объект — 422", c.post_json(api, {"services": ["x"]}).status, 422)
         res.check("отказы файл не тронули", len(_cfg(s)["services"]), 6)
+
+        # длительность — любая кратная 5 до потолка; не по правилу — отказ с
+        # полем, а не молчаливые 60 минут
+        def with_dur(minutes) -> list:
+            return [{**x, "duration": minutes} if x["id"] == "consult" else x for x in current]
+
+        r = c.post_json(api, {"services": with_dur(25)})
+        res.check("длительность 25 сохраняется", (_j(r)["code"], next(
+            x.get("duration") for x in _cfg(s)["services"] if x["id"] == "consult")),
+            ("ok_set", 25))
+        res.check("и возвращается экрану", next(
+            x["duration"] for x in _j(r)["data"]["services"] if x["id"] == "consult"), 25)
+        for bad in (7, 0, 245, "x"):
+            r = c.post_json(api, {"services": with_dur(bad)})
+            res.check(f"длительность {bad!r} — 422 bad_dur с полем",
+                      (r.status, _j(r)["code"], _j(r).get("field")),
+                      (422, "bad_dur", "duration"))
+        res.check("отказ длительность в файле не тронул", next(
+            x.get("duration") for x in _cfg(s)["services"] if x["id"] == "consult"), 25)
+        res.check("вернуть 60 — ключ из файла уходит (умолчание не пишется)",
+                  (_j(c.post_json(api, {"services": with_dur(60)}))["code"],
+                   "duration" in next(x for x in _cfg(s)["services"] if x["id"] == "consult")),
+                  ("ok_set", False))
 
         r = c.post_json(api, {"services": [x for x in current if x["id"] != "orphan"]})
         res.check("удаление услуги — ok_set", _j(r)["code"], "ok_set")

@@ -50,22 +50,34 @@ def bounds(r: dict) -> tuple[int, int]:
     return s_min, s_min + int(r.get("duration_min") or 60)
 
 
-def pos(r: dict, base_min: int) -> tuple[float, float]:
+# Ниже этого блок не рисуется, пока под ним свободно: строке с именем нужно
+# место. Занятость считается по настоящей длительности, не по рисунку.
+FLOOR_MIN = 15
+
+
+def pos(r: dict, base_min: int, next_min: int | None = None) -> tuple[float, float]:
     """(top, height) блока В ДОЛЯХ ЧАСА: старт от base_min, высота — минуты.
 
-    ⚠️ Пол высоты — шаг сетки стартов (`eng.GRID_STEP`, полчаса): визит
-    начинается только в :00 или :30, поэтому короткий (15–20 мин) не делит
-    свой слот ни с кем в колонке, и блок, дотянутый до конца слота, не наедет
-    на следующий. Без пола 15 минут — полоска в 10 px, куда не влезает и
-    время (13.10: строка с именем и кнопкой зуба просит 26 px).
+    Короткий визит дотягивается до `FLOOR_MIN`, но не дальше `next_min` —
+    начала следующей записи колонки: дотянутый блок иначе лёг бы поверх
+    соседа, а кластером их `clusters` не считает (он смотрит на минуты).
     ⚠️ `base_min` — минута ПЕРВОГО ОСТАВЛЕННОГО часа, а не первого часа дня:
     после среза краёв она другая, и позиция, посчитанная от номера часа,
     уехала бы на целый час у клиники со сдвинутым графиком.
     """
-    st = r["starts_at"].astimezone(eng.TZ)
-    dur = int(r.get("duration_min") or 60)
-    top = (st.hour * 60 + st.minute - base_min) / 60
-    return top, max(dur, eng.GRID_STEP) / 60
+    s_min, e_min = bounds(r)
+    room = FLOOR_MIN if next_min is None else min(FLOOR_MIN, next_min - s_min)
+    return (s_min - base_min) / 60, max(e_min - s_min, room) / 60
+
+
+def next_starts(rows: list) -> dict:
+    """Начало ближайшей записи колонки, стоящей ПОСЛЕ конца каждой (по id)."""
+    spans = sorted(bounds(r) + (r["id"],) for r in rows)
+    out: dict = {}
+    for s_min, e_min, rid in spans:
+        later = [s for s, _e, _i in spans if s >= e_min and s > s_min]
+        out[rid] = min(later) if later else None
+    return out
 
 
 def clusters(rows: list) -> list[list]:
@@ -152,13 +164,25 @@ def free_hour(dk: str, d: date, taken: list) -> int | None:
     if not b:
         return None
     f_h, to_h, bf_h, bt_h = b
-    spans = [bounds(r) for r in taken]
+    lanes = _lanes(dk, taken)
     for h in range(f_h, to_h):
         if bf_h <= h < bt_h:
             continue
-        if not any(s < (h + 1) * 60 and h * 60 < e for s, e in spans):
+        if any(not any(s < (h + 1) * 60 and h * 60 < e for s, e in spans)
+               for spans in lanes):
             return h
     return None
+
+
+def _lanes(dk: str, taken: list) -> list[list]:
+    """Занятые интервалы врача по кабинетам (один список у врача без
+    кабинетов): час свободен, пока свободен хоть один. Заметка стойки занимает
+    все кабинеты."""
+    own = eng.doctor_rooms(dk)
+    if len(own) < 2:
+        return [[bounds(r) for r in taken]]
+    return [[bounds(r) for r in taken
+             if r["source"] == "note" or eng.appt_room(r) == rid] for rid in own]
 
 
 def shown_doctors(by_col: dict) -> list[tuple[str, str]]:
@@ -197,8 +221,44 @@ def _tip(r: dict) -> str:
     dur = int(r.get("duration_min") or 60)
     word = (STATUS_LABEL.get(r["status"], r["status"])
             if r["status"] != "confirmed" else "")
+    # на узком блоке подсказка — единственное место, где кабинет назван
+    room = (eng.room_name(eng.appt_room(r))
+            if len(eng.doctor_rooms(r.get("doctor_id"))) > 1 else "")
     return (f"{st.strftime('%H:%M')} · {dur}′ · {r['service']}"
-            f" · {r['name'] or '—'}" + (f" · {word}" if word else ""))
+            f" · {r['name'] or '—'}" + (f" · {room}" if room else "")
+            + (f" · {word}" if word else ""))
+
+
+def _next_by_lane(rows: list, own: tuple) -> dict:
+    """`next_starts` внутри дорожки кабинета: сосед из другого кабинета
+    короткому блоку не мешает."""
+    if len(own) < 2 or any(r["source"] == "note" for r in rows):
+        return next_starts(rows)
+    out: dict = {}
+    for rid in own:
+        out.update(next_starts([r for r in rows if eng.appt_room(r) == rid]))
+    return out
+
+
+def _lane_places(cluster: list, own: tuple) -> dict | None:
+    """Место блока (`col`, `of`) у врача с несколькими кабинетами: дорожка —
+    кабинет по порядку списка врача. Записи одного кабинета, наложившиеся друг
+    на друга (завершённая и новая на тот же час), делят свою дорожку, а не
+    прячут одна другую. `None` — раскладка прежняя: кабинет один или в
+    кластере заметка стойки, она занимает врача целиком."""
+    if len(own) < 2 or any(r["source"] == "note" for r in cluster):
+        return None
+    lanes = [[r for r in cluster if eng.appt_room(r) == rid] for rid in own]
+    out: dict = {}
+    for i, lane in enumerate(lanes):
+        # ширину делят только одновременные записи ЭТОЙ дорожки: наложение в
+        # соседнем кабинете блок не сужает
+        for sub in clusters(lane):
+            n = len(sub)
+            for j, r in enumerate(sorted(sub,
+                                         key=lambda x: x["status"] in LIVE_STATUSES)):
+                out[r["id"]] = (i * n + j, len(own) * n)
+    return out
 
 
 def blocks(rows: list, col_dk: str, base_min: int, cards, colors) -> list[dict]:
@@ -210,16 +270,23 @@ def blocks(rows: list, col_dk: str, base_min: int, cards, colors) -> list[dict]:
     два дневных экрана.
     ⚠️ Порядок внутри кластера: неактивные раньше активных, чтобы живая запись
     легла ПОВЕРХ отменённой пары.
+    У врача с несколькими кабинетами колонка делится на дорожки кабинетов
+    (`_lane_places`): место записи говорит, где она, а свободная дорожка
+    остаётся открытой для щелчка.
     """
     out: list[dict] = []
+    own = eng.doctor_rooms(col_dk)
+    nxt = _next_by_lane(rows, own)
     for cluster in clusters(rows):
+        place = _lane_places(cluster, own)
         n = len(cluster)
         for j, r in enumerate(sorted(cluster,
                                      key=lambda x: x["status"] in LIVE_STATUSES)):
-            top, height = pos(r, base_min)
+            top, height = pos(r, base_min, nxt[r["id"]])
             v = pday.appt_view(r, col_dk, cards, colors)
+            col, of = place[r["id"]] if place else (j, n)
             v.update({"top": round(top, 3), "height": round(height, 3),
-                      "col": j, "of": n})
+                      "col": col, "of": of})
             if v["kind"] == "note":
                 # ⛔ Один и тот же текст живёт на экране в ДВУХ длинах: 80 в
                 # подсказке и 40 в самом блоке. Обе — данные, а не оформление:
@@ -258,6 +325,8 @@ def _column(d: date, dk: str, name: str, by_col: dict, live: list,
     cap = eng.work_minutes(dk, d)
     busy = sum(int(r.get("duration_min") or 60) for r in mine)
     work = eng.doctor_hours(dk, d)
+    rooms = eng.room_list(dk)
+    room = ", ".join(x["name"] for x in rooms)
     return {
         "key": key, "id": dk, "name": name, "orphan": False,
         "spec": eng.DOCTOR_SPEC.get(dk, "") or "",
@@ -273,7 +342,8 @@ def _column(d: date, dk: str, name: str, by_col: dict, live: list,
         # подсказки: регистратура наводится на карточку именно ради номера
         # кабинета. Ветка `if meta.get("room")` пуста на демо-профиле, поэтому
         # у разработчика всё выглядит целым и без них.
-        "room": meta.get("room", "") or "", "phone": meta.get("phone", "") or "",
+        "rooms": rooms,
+        "room": room, "phone": meta.get("phone", "") or "",
         # ⛔ Считает ПАЦИЕНТОВ: заметка стойки занимает час, но «N prog.» её не
         # видит. Свести к одному списку — и число разойдётся с «Lista zilei»
         # на том же экране.
@@ -287,7 +357,7 @@ def _column(d: date, dk: str, name: str, by_col: dict, live: list,
         # Обрезается только ШИРИНА полосы — это дело рисовальщика.
         "occupancy": ({"busy": busy, "cap": cap, "pct": round(100 * busy / cap)}
                       if cap else None),
-        "title": " · ".join(x for x in [name, meta.get("room", ""),
+        "title": " · ".join(x for x in [name, room,
                                         meta.get("phone", "")] if x),
         # ⛔ Час принимает клик и перетащенный визит по ОДНОМУ признаку —
         # приёмному часу этого врача (`eng.doctor_hours`, её же спрашивает
@@ -311,7 +381,7 @@ def _orphan_column(key: str, by_col: dict, live: list, hours: list[int],
     return {
         "key": key, "id": None, "name": name, "orphan": True,
         "spec": "", "off": True, "hue": _ORPHAN_HUE,
-        "photo": "", "initials": _initials(name),
+        "photo": "", "initials": _initials(name), "rooms": [],
         "count": len(mine), "free": None, "occupancy": None, "title": "",
         "cells": [False] * len(hours),
         "blocks": blocks(by_col.get(key, []), "", base_min, cards, colors),

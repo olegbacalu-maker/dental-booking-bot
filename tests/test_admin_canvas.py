@@ -249,14 +249,34 @@ def suite_geometry(res: Result) -> None:
         res.check("СТЫК впритык (10:00 сразу после 09:00–10:00) — не кластер",
                   [g3[x]["of"] for x in (tight, tight2)], [1, 1])
 
-        # --- пол высоты: короткий визит занимает свой слот целиком (13.10) ---
-        # Начало — только :00/:30 (`eng.GRID_STEP`), поэтому 15 минут не делят
-        # слот ни с кем в колонке: блок в полчаса не наедет на следующий, а
-        # строке с именем и кнопкой зуба нужно его место.
+        # --- высота по минутам; короткий дотянут до четверти часа, пока под
+        # ним свободно, и никогда не дальше начала соседа ---
         _sql(s, "UPDATE appointments SET duration_min = 15 WHERE id = ?", tight)
         g3 = {x["id"]: x for x in _col(_canvas(c, day), "d3").get("blocks", [])}
-        res.check("ПОЛ высоты — шаг сетки стартов: визит на 15 минут — полчаса",
-                  g3[tight]["height"], 0.5)
+        res.check("визит на 15 минут — четверть часа, не полчаса",
+                  g3[tight]["height"], 0.25)
+        _sql(s, "UPDATE appointments SET duration_min = 5 WHERE id = ?", tight)
+        g3 = {x["id"]: x for x in _col(_canvas(c, day), "d3").get("blocks", [])}
+        res.check("одиночный визит на 5 минут дотянут до четверти часа",
+                  g3[tight]["height"], 0.25)
+        for hh, i in (("09:05", 11), ("09:10", 12), ("09:30", 13)):
+            c.post_json("/api/schedule/appointments", {
+                "date": day, "time": hh, "doctor": "d3", "service": "consult",
+                "name": f"Scurt {i}", "phone": f"0691900{i}", "duration": 5})
+        col = sorted(_col(_canvas(c, day), "d3").get("blocks", []),
+                     key=lambda x: x["min"])
+        short = [x for x in col if x["min"] < 600]
+        if not res.check("якорь: четыре коротких визита до 10:00",
+                         [x["min"] for x in short], [540, 545, 550, 570]):
+            return
+        res.check("соседи по 5 минут: высота до начала следующего, одиночный — четверть",
+                  [x["height"] for x in short], [0.083, 0.083, 0.25, 0.25])
+        res.ok("НИ ОДИН блок колонки не заходит на следующий",
+               all(a["top"] + a["height"] <= b["top"] + 0.002
+                   for a, b in zip(col, col[1:])),
+               str([(x["top"], x["height"]) for x in col]))
+        res.check("короткие соседи — не кластер: каждый во всю ширину",
+                  [x["of"] for x in short], [1, 1, 1, 1])
 
 
 # ------------------------------------------- отбор «Lista zilei» по адресу

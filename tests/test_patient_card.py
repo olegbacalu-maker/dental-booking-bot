@@ -601,6 +601,10 @@ def suite_actions(res: Result) -> None:
         j = _j(c.get(f"/api/patients/{pid}/slots?date={_d(3)}&doctor=d2&service=consult"))
         res.ok("часы врача на дату — список HH:MM", j["ok"] and len(j["data"]["slots"]) > 5
                and re.fullmatch(r"\d\d:\d\d", j["data"]["slots"][0]), f"{j}")
+        res.check("свободные старты предлагаются через четверть часа",
+                  sorted({t[3:] for t in j["data"]["slots"]}), ["00", "15", "30", "45"])
+        st, j = _act(c, pid, "/appoint", {"date": _d(3), "time": "09:07", "doctor": "d2", "service": "consult"})
+        res.check("минута не по сетке стартов — 422 bad", (st, j["code"]), (422, "bad"))
         res.check("врач не по услуге — пусто",
                   _j(c.get(f"/api/patients/{pid}/slots?date={_d(3)}&doctor=d3&service=long"))["data"]["slots"], [])
         st, j = _act(c, pid, "/appoint", {"date": "x", "time": "09:00", "doctor": "d2", "service": "consult"})

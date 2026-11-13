@@ -71,6 +71,7 @@ function Item({ it, active }: { it: NavItem; active: string }) {
       {it.alert
         ? <span className="nav-alert" title={it.alert} aria-label={it.alert}><Icon name="sos" /></span>
         : it.dot && <span className={`dot ${it.dot}`} />}
+      {it.count ? <span className="nav-count">{it.count}</span> : null}
     </>
   )
   const cls = it.key === active ? 'on' : ''

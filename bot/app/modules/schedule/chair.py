@@ -37,10 +37,13 @@ def model(rows: list, items: list) -> dict:
     кресло, второй сборки слова статуса нет.
 
     ⭐ В кресле — тот, кого ПОСЛЕДНИМ завели в кабинет (`arrived_at`, штамп
-    конвейера 08-13). Несколько `arrived` у одного врача — это забытое
+    конвейера 08-13). Несколько `arrived` В ОДНОМ КАБИНЕТЕ — это забытое
     «Finalizează» у прошлого пациента, а не два человека в одном кресле:
     последний щелчок «În cabinet» и есть тот, кто сидит. Остальные `arrived`
-    идут в `stale` — видны строкой «не завершён», а не прячутся. Строка без
+    того же кабинета идут в `stale` — видны строкой «не завершён», а не
+    прячутся. У врача с несколькими кабинетами кресел столько же: `chairs` —
+    сидящие по кабинетам (кабинет — `room_id` пункта повестки), `chair` —
+    последний из них. Строка без
     штампа (старше 08-13) — по времени приёма, и она всегда старше любой
     строки со штампом.
     Очередь: `waiting` — кто раньше пришёл (`wait_since`), затем `confirmed` —
@@ -59,10 +62,15 @@ def model(rows: list, items: list) -> dict:
 
     arrived = sorted((r for r in rows if r["status"] == CHAIR and r["id"] in by_id),
                      key=when)
-    chair = by_id[arrived[-1]["id"]] if arrived else None
-    stale = [by_id[r["id"]] for r in arrived[:-1]]
+    # позже в списке — позже вошёл: остаётся последний каждого кабинета
+    last = {by_id[r["id"]].get("room_id") or "": r["id"] for r in arrived}
+    seated = set(last.values())
+    chairs = [by_id[r["id"]] for r in arrived if r["id"] in seated]
+    chair = chairs[-1] if chairs else None
+    stale = [by_id[r["id"]] for r in arrived if r["id"] not in seated]
     waiting = sorted((it for it in items if it["status"] == QUEUE[0]),
                      key=lambda it: (it.get("wait_since") is None,
                                      it.get("wait_since") or 0))
     later = [it for it in items if it["status"] == QUEUE[1]]
-    return {"chair": chair, "stale": stale, "queue": waiting + later}
+    return {"chair": chair, "chairs": chairs, "stale": stale,
+            "queue": waiting + later}

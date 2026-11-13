@@ -50,7 +50,8 @@ export interface Flow {
 }
 
 const mins = (ms: number) => Math.floor(ms / 60_000)
-const docOf = (it: DashAgendaItem) => it.doctor_id || it.doctor
+/* у врача с несколькими кабинетами очередь своя у каждого кабинета */
+const docOf = (it: DashAgendaItem) => `${it.doctor_id || it.doctor}|${it.room_id ?? ''}`
 
 export function flowOf(items: DashAgendaItem[], now: number): Flow {
   const late: FlowRow[] = []
