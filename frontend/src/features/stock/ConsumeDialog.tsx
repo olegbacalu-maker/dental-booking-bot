@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { ask as askBox } from '../../components/confirm'
 import { hideDialog, showDialog } from '../../components/dialog'
 import { Icon } from '../../components/Icon'
 import { asApiError } from '../../services/api'
@@ -132,5 +133,28 @@ export function useConsume(say: (text: string, tone: 'ok' | 'warn' | 'err') => v
     <ConsumeDialog key={open.k} target={open.t} data={open.data} onClose={() => setOpen(null)}
       onDone={(text, tone) => { setPending((p) => p.filter((x) => x !== open.t.id)); say(text, tone ?? 'ok') }} />
   ) : null
-  return { afterFinal, reopened, pendingFrom, chip, node }
+  /** «Anulează materialele»: всё живое списанное по позиции возвращается на склад обратными строками; позиция снова ждёт
+   *  подтверждения — повторно списать можно через «Materiale de confirmat». */
+  const undo = useCallback(async (t: Target, onUndone: (id: number) => void) => {
+    try {
+      const d = (await stockApi.planProposal(t.id)).data
+      const live = d.moves.filter((m) => !m.undone && m.qty_milli < 0)
+      const list = live.map((m) => `${m.item} ${qtyText(-m.qty_milli, m.unit)}${m.lot ? ` (lot ${m.lot})` : ''}`).join(', ')
+      if (!(await askBox({ title: 'Anulează materialele', ok: 'Anulează materialele',
+        text: `Anulați materialele scăzute pentru „${t.what}”?${list ? ` Se întorc în stoc: ${list}.` : ''} Poziția rămâne finalizată; materialele se pot confirma din nou.` }))) return
+      const res = await stockApi.planUndo(t.id)
+      setPending((p) => (p.includes(t.id) ? p : [...p, t.id]))
+      onUndone(t.id)
+      say(res.text || 'Materialele poziției s-au întors în stoc.', 'ok')
+    } catch (e) {
+      say(asApiError(e).text || 'Nu s-a anulat.', 'err')
+    }
+  }, [say])
+  const undoBtn = (t: Target, onUndone: (id: number) => void): ReactNode => (
+    <button type="button" className="st-undo-btn" title="Materialele scăzute pentru această poziție se întorc în stoc"
+      aria-label={`Anulează materialele: ${t.what}`} onClick={() => { void undo(t, onUndone) }}>
+      <Icon name="undo" /> Anulează materialele
+    </button>
+  )
+  return { afterFinal, reopened, pendingFrom, chip, undoBtn, node }
 }

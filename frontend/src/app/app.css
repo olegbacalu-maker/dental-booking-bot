@@ -4134,3 +4134,7 @@ dialog.st-cons .st-tc .st-qrow { flex-wrap: nowrap; }
 dialog.st-cons .st-tc td:nth-child(4) { min-width: 220px; }
 dialog.st-dlg .st-tc .st-act-c .st-qrow { flex-wrap: nowrap; gap: 2px; }
 .dp-react-root .dp-svc-mat { min-width: 52px; justify-content: center; }
+.dp-react-root .pact .st-undo-btn { display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 10px; border: 1px solid var(--line);
+  border-radius: var(--r-ctl); background: var(--panel); color: var(--text2); font: inherit; font-size: var(--fs-s); white-space: nowrap; cursor: pointer; }
+.dp-react-root .pact .st-undo-btn:hover { border-color: var(--amber); color: var(--amber-t); }
+.dp-react-root .pact .st-undo-btn svg { width: 14px; height: 14px; }

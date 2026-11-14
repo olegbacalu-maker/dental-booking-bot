@@ -91,11 +91,13 @@ interface Props {
   rowExtra?: (it: PlanItem) => ReactNode
   /** Позиция сменила статус (после ответа сервера): склад предлагает или возвращает материалы её услуги. */
   afterStep?: (it: PlanItem, to: string) => void
+  /** Действие строки рядом с кнопкой шага (склад: «Anulează materialele»). */
+  rowAct?: (it: PlanItem) => ReactNode
 }
 
 interface MenuAt { it: PlanItem; x: number; y: number }
 
-export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterStep }: Props) {
+export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterStep, rowAct }: Props) {
   const plan = card.plan
   const tabs = card.options.tab_states
   /* вкладка: выбор человека живёт, пока сервер не сменил вкладку по
@@ -256,6 +258,7 @@ export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterStep
             <span className={`pbadge ${it.status}`}>{it.label}</span>
             <span className="pm">{it.price ? `${mdl(it.price)} ${T.mdl}` : '—'}</span>
             <span className="pact">
+              {rowAct?.(it)}
               {word && (
                 <button type="button" className={nextCls} title={title} disabled={a.busy} onClick={() => { void step(it) }}>
                   <Icon name={nextIcon} /> {word}

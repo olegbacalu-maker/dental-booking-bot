@@ -391,8 +391,14 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
   const [perioStale, setPerioStale] = useState<CardData | null>(null)
   /* материалы со склада приходят только с загрузкой фиши; ответ действия (`replace`) их не несёт — держим прежние */
   const loadedStock = state.status === 'ready' ? state.data.stockOut : undefined
+  const [stockBase, setStockBase] = useState<PatientMove[] | null | undefined>(undefined)
   const [stockOut, setStockOut] = useState<PatientMove[] | null>(null)
-  if (loadedStock !== undefined && loadedStock !== stockOut) setStockOut(loadedStock)
+  if (loadedStock !== undefined && loadedStock !== stockBase) {
+    setStockBase(loadedStock)
+    setStockOut(loadedStock)
+  }
+  /* позиции с живым списанием по техкарте — у них в строке плана «Anulează materialele» */
+  const consumedIds = [...new Set((stockOut ?? []).filter((r) => r.source === 'tehcard' && !r.undone && r.plan_item_id).map((r) => r.plan_item_id!))]
   const onPerioChanged = useCallback(() => {
     if (state.status === 'ready') setPerioStale(state.data)
   }, [state])
@@ -517,6 +523,9 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
           <>
             <PlanCard card={card} a={a} onTooth={onTooth}
               rowExtra={(it) => <>{L.chip(it)}{consume.chip({ id: it.id, what: planWhat(it) })}</>}
+              rowAct={(it) => (it.status === 'finalizat' && consumedIds.includes(it.id)
+                ? consume.undoBtn({ id: it.id, what: planWhat(it) }, (id) => setStockOut((rows) => rows?.map((r) => (r.plan_item_id === id ? { ...r, undone: true } : r)) ?? rows))
+                : null)}
               afterStep={(it, to) => (to === 'finalizat' ? consume.afterFinal({ id: it.id, what: planWhat(it), service: it.service_id }) : consume.reopened(it.id))}
               onUploadSigned={(category) => { setDocsPick({ category, k: Date.now() }); goTab('docs') }} />
             <LabBlock lab={L} />

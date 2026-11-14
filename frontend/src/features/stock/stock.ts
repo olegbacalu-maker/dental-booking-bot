@@ -166,7 +166,11 @@ export interface BuyGroup { supplier_id: number | null; supplier: string; phone:
 export interface BuyData { today: string; prefs: Prefs; groups: BuyGroup[]; counts: { low: number; ordered: number; late: number }; can: Can }
 
 /** Что ушло пациенту со склада (`GET /api/stock/patient/{pid}`): медзапись фиши — материал и лот импланта. */
-export interface PatientMove { id: number; at: string; on: string; item: string; unit: string; qty_milli: number; lot: string; exp_on: string | null; note: string; actor: string; undone: boolean }
+export interface PatientMove {
+  id: number; at: string; on: string; item: string; unit: string; qty_milli: number; lot: string; exp_on: string | null; note: string; actor: string; undone: boolean
+  /** Позиция плана и откуда строка: по ним фиша знает, у какой позиции есть списание по техкарте. */
+  plan_item_id?: number | null; source?: string
+}
 
 /* ---- ступень 2: техкарта и списание по позиции плана (контракт › «Ступень 2») ---- */
 export interface TechLine { item_id: number; item: string; unit: string; qty_milli: number; optional: boolean; active: boolean }

@@ -1822,3 +1822,35 @@ describe('Materiale pe pacient (склад)', () => {
     expect(screen.queryByLabelText('Materiale pe pacient')).toBeNull()
   })
 })
+
+describe('«Anulează materialele» в строке плана', () => {
+  const ROWS = [
+    { id: 8, at: '2026-11-14T10:00:00Z', on: '2026-11-14', item: 'Pastă profilactică', unit: 'g', qty_milli: -5000, lot: '', exp_on: null,
+      note: '', actor: 'Dr. Activ Doi', undone: false, plan_item_id: 2, source: 'tehcard' },
+  ]
+  const PLAN = { plan: { id: 2, pid: 5, procedure: 'Detartraj', tooth: null, status: 'finalizat', service_id: 'hygiene', service: 'Igienizare', doctor: '' },
+    mode: 'confirmare', state: 'done', lines: [], can: { stock: false, money: false, settings: false },
+    moves: [{ id: 8, at: '', on: '', kind: 'consum', kind_label: 'Pe pacient', item_id: 3, item: 'Pastă profilactică', unit: 'g', qty_milli: -5000,
+      doc: null, lot: '', exp_on: null, pid: 5, patient: '', fisa: '', reason: 'pacient', reason_label: '', note: '', actor: '', source: 'manual',
+      fixes: null, undone: false, undoable: false }] }
+
+  it('только у finalizat-позиции со списанием по техкарте; вопрос с перечнем, слова сервера, позиция снова ждёт', async () => {
+    serve()
+    const base = get.getMockImplementation()!
+    get.mockImplementation((path: string) => (path === '/stock/patient/5' ? Promise.resolve(ok({ rows: ROWS }))
+      : path === '/stock/plan/2' ? Promise.resolve(ok(PLAN)) : base(path)))
+    post.mockResolvedValueOnce(ok({}, 'ok_stock_tc_undo', 'Materialele poziției s-au întors în stoc'))
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    open('/admin/patient/5?tab=plan')
+    expect(await screen.findByText('Coroană 11', { selector: '.pp' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Anulează materialele: Coroană/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /^Finalizate/ }))
+    const btn = await screen.findByRole('button', { name: 'Anulează materialele: Detartraj' })
+    fireEvent.click(btn)
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/stock/plan/2/undo', {}))
+    expect(String(confirm.mock.calls.at(-1)?.[0])).toContain('Pastă profilactică 5 g')
+    expect(await screen.findByText('Materialele poziției s-au întors în stoc')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Anulează materialele: Detartraj/ })).toBeNull()
+    expect(screen.getByRole('button', { name: /Materiale de confirmat/ })).toBeTruthy()
+  })
+})
