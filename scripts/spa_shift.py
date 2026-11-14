@@ -19,8 +19,8 @@
 их бы не считала. Виды перехода: ссылка меню оболочки (`menu`), щелчок по пункту меню раздела (`tab`), смена
 адреса на другую фишу как «Назад» роутера (`pop`).
 
-Окна — 1366×768 и 1440×900 (ноутбуки клиник). Адрес, которого нет в меню оболочки этой сборки (раздел ещё
-не вышел), — SKIP с причиной.
+Окна — 1366×768 и 1440×900 (ноутбуки клиник). Все разделы `TARGETS` уже в меню оболочки: перехода нет — RED
+(ссылка из меню пропала), а не пропуск.
 
 Пара: `LabListScreen` на своём `useLoad` (без строки в `LOADS`) стенд обязан красить на `/admin/lab`.
 """
@@ -54,8 +54,9 @@ TRACE = False
 
 SOURCES = ["/admin", "/admin/search", "/admin/patient/{pid}", "/admin/all", "/admin/settings"]
 # Разделы с меню слева (`SideMenu`) и их соседи; новый такой раздел — сюда. Вид: ссылка меню оболочки или адрес
-# «Назад» (у «Setări › Laboratoare» ссылки в меню нет). Раздел, которого в меню этой сборки нет, — SKIP.
-TARGETS = [("/admin/lab", "menu"), ("/admin/settings/lab", "pop"), ("/admin/stoc", "menu")]
+# «Назад» (у настроек раздела ссылки в меню нет). Раздел, которого в меню нет, — RED.
+TARGETS = [("/admin/lab", "menu"), ("/admin/settings/lab", "pop"), ("/admin/stoc", "menu"),
+           ("/admin/settings/stoc", "pop")]
 # Вкладки фиши: меню слева в режиме вкладок, тот же `SideMenu`.
 CARD_TABS = ".dp-rail [role=tab]"
 
@@ -232,7 +233,9 @@ def run(out: pathlib.Path | None, only: str, port: int = PORT) -> int:
     red = done = 0
     for r in rows:
         if r.get("skip"):
-            print(f"SKIP {r['size']} {r['what']:<46} перехода нет в этой сборке (ссылки нет в меню)")
+            done += 1
+            red += 1
+            print(f"RED {r['size']} {r['what']:<46} перехода нет: ссылки нет в меню оболочки")
             continue
         done += 1
         busy = r["first"] is not None and r["busy"]
