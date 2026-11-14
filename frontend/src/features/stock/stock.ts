@@ -163,6 +163,9 @@ export interface BuyRow {
 export interface BuyGroup { supplier_id: number | null; supplier: string; phone: string; email: string; rows: BuyRow[] }
 export interface BuyData { today: string; prefs: Prefs; groups: BuyGroup[]; counts: { low: number; ordered: number; late: number }; can: Can }
 
+/** Что ушло пациенту со склада (`GET /api/stock/patient/{pid}`): медзапись фиши — материал и лот импланта. */
+export interface PatientMove { id: number; at: string; on: string; item: string; unit: string; qty_milli: number; lot: string; exp_on: string | null; note: string; actor: string; undone: boolean }
+
 /** Модель экрана «Stoc» одним загрузчиком: список склада и данные открытого раздела. */
 export interface StockModel {
   list: ListData
@@ -262,6 +265,7 @@ export const stockApi = {
   importRun: (file: Blob, name: string, opts: ImOpts, token: string): Promise<ApiResult<{ id: number; created: number; rests: number; skipped: number }>> =>
     api.postRaw(`/stock/import/run${qs({ name, opts: JSON.stringify(opts), token })}`, file),
   importUndo: (id: number): Promise<ApiResult<unknown>> => api.post(`/stock/import/${id}/undo`, {}),
+  patient: (pid: number, signal?: AbortSignal): Promise<ApiResult<{ rows: PatientMove[] }>> => api.get(`/stock/patient/${pid}`, opt(signal)),
 }
 
 /** Лист «De cumpărat» сервера: отмеченные строки и поправленные упаковки. */

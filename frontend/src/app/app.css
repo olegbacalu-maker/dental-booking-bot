@@ -4081,3 +4081,16 @@ dialog.st-dlg .dp-btn.ghost, .st .dp-btn.ghost { color: var(--text2); }
 .st .st-pad { padding: 0 16px 12px; }
 .st .st-supedit { border-bottom: 1px solid var(--line); background: var(--fill); }
 .st .st-foot .dp-btn.danger { border-color: var(--red); color: var(--red-t); }
+.st-pat { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; }
+.st-pat h3 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0; font-size: var(--fs-body); }
+.st-pat h3 svg { width: 16px; height: 16px; color: var(--teal-d); align-self: center; }
+.st-pat h3 small { color: var(--text3); font-size: var(--fs-s); font-weight: 500; }
+.st-pat .rg-scroll { overflow-x: auto; }
+.st-pat .st-pat-tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-m); }
+.st-pat .st-pat-tbl th { padding: 7px 10px; background: var(--fill); color: var(--text2); font-size: var(--fs-s); font-weight: 600; text-align: left; }
+.st-pat .st-pat-tbl th.num, .st-pat .st-pat-tbl td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.st-pat .st-pat-tbl td { padding: 8px 10px; border-bottom: 1px solid var(--line2); vertical-align: top; }
+.st-pat .st-pat-tbl td small { display: block; color: var(--text3); font-size: var(--fs-s); }
+.st-pat .st-pat-tbl tr.st-off-r td { color: var(--text3); }
+.st-pat .st-mute { color: var(--text3); }
+.st-pat .st-warnt { color: var(--amber-t); font-weight: 600; }

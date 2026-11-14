@@ -1786,3 +1786,39 @@ describe('ProfileCard: «Salvează profilul» без прыжка (22.10)', () =
     expect(scroll).not.toHaveBeenCalled()
   })
 })
+
+describe('Materiale pe pacient (склад)', () => {
+  const ROWS = [
+    { id: 7, at: '2026-11-12T10:00:00Z', on: '2026-11-12', item: 'Implant Osstem TSIII 4.0×10', unit: 'buc', qty_milli: -1000,
+      lot: 'TS4010-2405', exp_on: '2029-04-12', note: '', actor: 'Dr. Elena Rusu', undone: false },
+  ]
+  const withStock = (rows: unknown) => {
+    serve()
+    const base = get.getMockImplementation()!
+    get.mockImplementation((path: string) => (path === '/stock/patient/5' ? Promise.resolve(ok({ rows })) : base(path)))
+  }
+
+  it('блок под планом: материал, количество, лот, срок и кто — из загрузчика фиши', async () => {
+    withStock(ROWS)
+    open('/admin/patient/5?tab=plan')
+    const box = await screen.findByLabelText('Materiale pe pacient')
+    expect(box.textContent).toContain('Implant Osstem TSIII 4.0×10')
+    expect(box.textContent).toContain('1 buc')
+    expect(box.textContent).toContain('TS4010-2405')
+    expect(box.textContent).toContain('valabil până la 12.04.2029')
+    expect(box.textContent).toContain('Dr. Elena Rusu')
+    expect(get).toHaveBeenCalledWith('/stock/patient/5', expect.anything())
+  })
+
+  it('пусто или склад отказал — блока нет, фиша открыта', async () => {
+    withStock([])
+    open('/admin/patient/5?tab=plan')
+    await screen.findByText('Plan de tratament', { exact: false })
+    expect(screen.queryByLabelText('Materiale pe pacient')).toBeNull()
+    cleanup()
+    serve()
+    open('/admin/patient/5?tab=plan')
+    await screen.findByText('Plan de tratament', { exact: false })
+    expect(screen.queryByLabelText('Materiale pe pacient')).toBeNull()
+  })
+})

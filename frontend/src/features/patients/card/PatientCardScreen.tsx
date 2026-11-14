@@ -34,6 +34,8 @@ import { examOf, perio, type PerioModel } from '../../clinical/perio'
 import { useCoarse } from '../../clinical/touch'
 import { PlanCard } from './PlanCard'
 import { LabBlock, LabSummary, usePatientLab, type PatientLabModel } from '../../lab/PatientLab'
+import { StockOutBlock } from '../../stock/PatientStock'
+import { stockApi, type PatientMove } from '../../stock/stock'
 import { ProfileCard } from './ProfileCard'
 import { NextVisitCard, VisitsCard } from './VisitsCard'
 import type { CardActions } from './actions'
@@ -120,9 +122,12 @@ const qs = (tab: Tab, views: boolean, sub: number | null = null): string => {
   return s ? `?${s}` : ''
 }
 
-/** Фиша плюс её одонтограмма, лист пародонтограммы и заказы лаборатории — одним кадром. После ответа
- *  действия (`replace`) этих полей нет: вкладки и блок заказов к тому моменту держат модели сами. */
-type CardData = PatientCard & { odontogram?: Odontogram | null; perioSheet?: PerioModel | null; lab?: PatientData | null }
+/** Фиша плюс её одонтограмма, лист пародонтограммы, заказы лаборатории и материалы со склада — одним кадром.
+ *  После ответа действия (`replace`) этих полей нет: вкладки, блок заказов и блок материалов к тому моменту
+ *  держат модели сами. */
+type CardData = PatientCard & {
+  odontogram?: Odontogram | null; perioSheet?: PerioModel | null; lab?: PatientData | null; stockOut?: PatientMove[] | null
+}
 
 /* ⭐ Одонтограмма — ВМЕСТЕ с фишей, до первого кадра. Своим запросом после
    монтирования она приезжала на ~50 мс позже фиши и роняла всё, что под ней,
@@ -139,13 +144,15 @@ type CardData = PatientCard & { odontogram?: Odontogram | null; perioSheet?: Per
 const loadCard: RouteLoad<CardData> = async (signal, params, q) => {
   const pid = Number(params.pid)
   const exam = tabOf(q) === 'perio' ? examOf(q) : null
-  const [r, odontogram, perioSheet, lab] = await Promise.all([
+  const [r, odontogram, perioSheet, lab, stockOut] = await Promise.all([
     patientCard.get(pid, viewsOf(q), signal),
     Promise.resolve().then(() => chart.get(pid, signal)).then((x) => x.data, () => null),
     Promise.resolve().then(() => perio.get(pid, exam, signal)).then((x) => x.data, () => null),
     Promise.resolve().then(() => labApi.patient(pid, signal)).then((x) => x.data, () => null),
+    /* материалы со склада: отказ склада фишу не роняет — блока просто нет */
+    Promise.resolve().then(() => stockApi.patient(pid, signal)).then((x) => x.data.rows, () => null),
   ])
-  return { ...r, data: { ...r.data, odontogram, perioSheet, lab } }
+  return { ...r, data: { ...r.data, odontogram, perioSheet, lab, stockOut } }
 }
 
 /**
@@ -376,6 +383,10 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
      работает»). Засев ЭТИХ данных фиши снимается, и вкладка одонтограммы при
      возврате грузит модель сама; новая загрузка фиши засевает снова. */
   const [perioStale, setPerioStale] = useState<CardData | null>(null)
+  /* материалы со склада приходят только с загрузкой фиши; ответ действия (`replace`) их не несёт — держим прежние */
+  const loadedStock = state.status === 'ready' ? state.data.stockOut : undefined
+  const [stockOut, setStockOut] = useState<PatientMove[] | null>(null)
+  if (loadedStock !== undefined && loadedStock !== stockOut) setStockOut(loadedStock)
   const onPerioChanged = useCallback(() => {
     if (state.status === 'ready') setPerioStale(state.data)
   }, [state])
@@ -501,6 +512,7 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
             <PlanCard card={card} a={a} onTooth={onTooth} rowExtra={L.chip}
               onUploadSigned={(category) => { setDocsPick({ category, k: Date.now() }); goTab('docs') }} />
             <LabBlock lab={L} />
+            <StockOutBlock rows={stockOut} />
             <FinanceCard card={card} a={a} />
           </>
         )}
