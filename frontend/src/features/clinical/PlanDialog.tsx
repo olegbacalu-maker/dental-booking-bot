@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Icon } from '../../components/Icon'
 import { hideDialog, showDialog } from '../../components/dialog'
 import type { Odontogram, PlanAdd } from './chart'
+import { serviceIdFor, ServiceList } from '../patients/card/planService'
 import { useLingering } from '../../utils/motion'
 
 /* «Adaugă în plan» с зуба (01.10; Олег 27.09: «одонтограмма с планом не
@@ -63,7 +64,8 @@ export function PlanDialog({ model, n, busy, invalid, onClose, onSave }: Props) 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     if (n === null) return
-    const ok = await onSave({ tooth: String(n), ...form })
+    const ok = await onSave({ tooth: String(n), ...form,
+                              service_id: serviceIdFor(model.services ?? [], form.procedure) })
     if (ok) setSeen(null)
   }
 
@@ -76,7 +78,9 @@ export function PlanDialog({ model, n, busy, invalid, onClose, onSave }: Props) 
       <form className="dlg-form" onSubmit={onSubmit}>
         {info && <p className="hint dp-m0">{info.title}</p>}
         <input ref={first} value={form.procedure} onChange={(e) => set({ procedure: e.target.value })} placeholder={T.ph.proc}
-               aria-label={T.ph.proc} maxLength={120} required aria-invalid={invalid || undefined} />
+               aria-label={T.ph.proc} maxLength={120} required aria-invalid={invalid || undefined}
+               list="dp-plan-dlg-services" />
+        <ServiceList id="dp-plan-dlg-services" services={model.services ?? []} />
         <select value={form.doctor} onChange={(e) => set({ doctor: e.target.value })} aria-label={T.ph.doctor}>
           <option value="">{T.ph.doctor}</option>
           {model.doctors.map((d) => <option key={d} value={d}>{d}</option>)}

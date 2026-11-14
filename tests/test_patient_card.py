@@ -11,9 +11,11 @@
 `suite_actions` гоняет действия фиши через JSON: отказ проверки 422 с полем,
 спор с состоянием 409, удача — свежая фиша.
 """
+import io
 import json
 import re
 import sqlite3
+import zipfile
 from datetime import timedelta
 
 from harness import (Client, Result, Server, clinic_today, day_model, new_patient,
@@ -722,6 +724,89 @@ def suite_actions(res: Result) -> None:
                   [(a["text"], a["who"]) for a in j["data"]["activity"]["items"] if a["kind"] == "alert_del"],
                   [("Atenționare ștearsă: Penicilină", "Ana")])
         res.ok("регистратуре фиша открыта", _card(rec, pid)["name"] == "Bani Test", "закрыта")
+
+
+def suite_plan_keys(res: Result) -> None:
+    """Позиция плана хранит ключ услуги прайса и врача по id (по ним считаются
+    техкарта, лаборатория и % врача): ключ — только у позиции, взятой из прайса
+    и не дописанной; свободный текст — NULL; смена статуса ключей не трогает;
+    позиции без ключей запуск не дозаполняет догадкой по тексту. Ключи едут в
+    ответе фиши, в плане зуба и в выгрузке по 195-му."""
+    s1 = Server(keep_dir=True)
+    try:
+        with s1:
+            c = Client(s1.url).login()
+            pid = new_patient(c, "Plan Keys", "069555010")
+
+            def add(body: dict) -> dict:
+                st, j = _act(c, pid, "/plan", body)
+                assert j["code"] == "ok_card", j
+                return max(j["data"]["plan"]["items"], key=lambda it: it["id"])
+
+            def keys(it: dict) -> tuple:
+                return it["procedure"], it["service_id"], it["doctor_id"], it["doctor"]
+
+            it = add({"procedure": "Igienizare", "service_id": "hygiene", "doctor": "Dr. Activ Doi"})
+            res.check("из прайса: ключ услуги и врач по id рядом со снимками", keys(it),
+                      ("Igienizare", "hygiene", "d2", "Dr. Activ Doi"))
+            picked = it["id"]
+            res.check("свободный текст: без ключа услуги; без врача — без id",
+                      keys(add({"procedure": "Obturație 26 MO", "tooth": "26"})),
+                      ("Obturație 26 MO", None, None, ""))
+            res.check("взяли из прайса и дописали — уже свободный текст",
+                      keys(add({"procedure": "Igienizare + fluorizare", "service_id": "hygiene",
+                                "doctor": "Dr. Activ Trei"})),
+                      ("Igienizare + fluorizare", None, "d3", "Dr. Activ Trei"))
+            res.check("чужой ключ услуги не пишется",
+                      keys(add({"procedure": "Igienizare", "service_id": "zzz"}))[1], None)
+            res.check("ключ по русскому имени той же услуги",
+                      keys(add({"procedure": "Гигиена", "service_id": "hygiene"}))[1], "hygiene")
+            res.check("врач не из списка — снимок есть, id нет",
+                      keys(add({"procedure": "Detartraj", "doctor": "Dr. Străin"}))[2:],
+                      (None, "Dr. Străin"))
+            res.check("выключенный врач — id тоже (DOCTORS, не ACTIVE_DOCTORS)",
+                      keys(add({"procedure": "Control", "doctor": "Dr. Arhivat Unu"}))[2], "d1")
+
+            for to, motiv in (("in_lucru", ""), ("finalizat", ""), ("in_lucru", ""),
+                              ("refuzat", "nu vrea"), ("planificat", "")):
+                st, j = _act(c, pid, f"/plan/{picked}/status", {"to": to, "motiv": motiv})
+                assert st == 200, (to, j)
+            it = next(x for x in j["data"]["plan"]["items"] if x["id"] == picked)
+            res.check("смена статуса по всем рёбрам — ключи целы (поля в теле нет)",
+                      (it["status"], it["service_id"], it["doctor_id"]), ("planificat", "hygiene", "d2"))
+
+            r = c.post_json(f"/api/patients/{pid}/plan?odo=1",
+                            {"procedure": "Igienizare", "tooth": "16", "service_id": "hygiene",
+                             "doctor": "Dr. Activ Doi"})
+            m = _j(r)["data"]
+            card = _card(c, pid)
+            res.check("одонтограмма несёт прайс фиши (подсказки диалога зуба)",
+                      m.get("services"), card["appoint"]["services"])
+            row = max(card["plan"]["items"], key=lambda x: x["id"])
+            res.check("план с зуба пишет те же ключи", (row["tooth"], row["service_id"], row["doctor_id"]),
+                      (16, "hygiene", "d2"))
+
+            z = zipfile.ZipFile(io.BytesIO(c.get(f"/admin/patient/{pid}/export").raw))
+            plan = json.loads(z.read("date-pacient.json").decode("utf-8"))["plan_tratament"]
+            res.check("выгрузка по 195-му: ключи в плане",
+                      {(x["service_id"], x["doctor_id"]) for x in plan if x["id"] == picked},
+                      {("hygiene", "d2")})
+
+        con = sqlite3.connect(str(s1.dir / "dental.db"))
+        try:
+            con.execute("INSERT INTO plan_items(patient_id, procedure, doctor, created_at) "
+                        "VALUES(?, 'Igienizare', 'Dr. Activ Doi', '2026-01-01T00:00:00+00:00')", (pid,))
+            con.commit()
+        finally:
+            con.close()
+        with Server(dir_=s1.dir) as s2:
+            c = Client(s2.url).login()
+            old = max(_card(c, pid)["plan"]["items"], key=lambda x: x["id"])
+            res.check("позиция без ключей после перезапуска так и остаётся без них",
+                      (old["procedure"], old["service_id"], old["doctor_id"]),
+                      ("Igienizare", None, None))
+    finally:
+        s1.drop()
 
 
 def suite_switch(res: Result) -> None:

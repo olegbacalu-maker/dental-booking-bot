@@ -6,6 +6,7 @@ import { placeMenu, useMenuDismiss } from '../../../components/menu'
 import type { CardActions } from './actions'
 import { hideDialog, showDialog } from './dialog'
 import { mdl, patientCard, type PatientCard, type PlanForm, type PlanItem } from './card'
+import { serviceIdFor, ServiceList } from './planService'
 import { printHref } from './print'
 import { SignDialog } from './sign/SignDialog'
 import { useLingering } from '../../../utils/motion'
@@ -115,7 +116,9 @@ export function PlanCard({ card, a, onTooth, onUploadSigned }: Props) {
   async function onAdd(e: FormEvent) {
     e.preventDefault()
     setInvalid(false)
-    const err = await a.act(() => patientCard.addPlan(a.pid, a.views, form))
+    const services = card.appoint.services
+    const err = await a.act(() => patientCard.addPlan(a.pid, a.views,
+      { ...form, service_id: serviceIdFor(services, form.procedure) }))
     if (err?.field) setInvalid(true)
     else if (!err) setForm({ tooth: '', procedure: '', doctor: '', price: '', due_date: '' })
   }
@@ -282,7 +285,9 @@ export function PlanCard({ card, a, onTooth, onUploadSigned }: Props) {
             </optgroup>
           </select>
           <input value={form.procedure} onChange={(e) => set({ procedure: e.target.value })} placeholder={T.ph.proc}
-                 aria-label={T.ph.proc} maxLength={120} required aria-invalid={invalid || undefined} />
+                 aria-label={T.ph.proc} maxLength={120} required aria-invalid={invalid || undefined}
+                 list="dp-plan-services" />
+          <ServiceList id="dp-plan-services" services={card.appoint.services} />
         </div>
         <div className="r2">
           <select value={form.doctor} onChange={(e) => set({ doctor: e.target.value })} aria-label={T.ph.doctor}>

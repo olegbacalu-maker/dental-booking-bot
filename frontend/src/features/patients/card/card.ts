@@ -88,6 +88,10 @@ export interface PlanItem {
   procedure: string
   doctor: string
   status: string
+  /** Ключ услуги прайса; null — свободный текст или позиция старше ключа. */
+  service_id: string | null
+  /** Врач по id рядом со снимком имени `doctor`; null — не опознан. */
+  doctor_id: string | null
   label: string
   price: number | null
   due: string
@@ -297,6 +301,7 @@ export interface PlanForm {
   doctor: string
   price: string
   due_date: string
+  service_id?: string
 }
 
 export interface AppointForm {

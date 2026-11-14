@@ -585,6 +585,10 @@ SQLITE_EXTRA_COLS = [
     # поэтому старые записи не дозаполняются.
     ("appointments", "room_id TEXT"),
     ("appointments", "room TEXT NOT NULL DEFAULT ''"),
+    # Позиция плана: ключ услуги прайса и врача рядом со снимками procedure/doctor.
+    # NULL — свободный текст или позиция старше колонки; догадкой не дозаполняются.
+    ("plan_items", "service_id TEXT"),
+    ("plan_items", "doctor_id TEXT"),
 ]
 
 # Этап A1 (v1.5.0): полный профиль пациента. Все поля опциональны — клиника может

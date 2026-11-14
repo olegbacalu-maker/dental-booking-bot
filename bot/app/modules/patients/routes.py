@@ -599,8 +599,22 @@ def _tooth_args(tooth: int, state: str, note: str, doctor: str, *,
             "state0": state0 if state0 in TOOTH_STATES else None, "marks": marks}
 
 
+def _plan_service_id(service_id: str, procedure: str) -> str | None:
+    """Ключ услуги — только если текст позиции остался именем этой услуги:
+    выбрали из прайса и дописали своё — это уже свободный текст."""
+    svc = eng.SERVICES.get(service_id.strip())
+    return service_id.strip() if svc and procedure in (svc["ro"], svc["ru"]) else None
+
+
+def _plan_doctor_id(name: str) -> str | None:
+    """Врач формы приходит именем из списка врачей; два врача с одним именем
+    ключа не дают — неверный id хуже пустого."""
+    ids = [k for k, v in eng.DOCTORS.items() if v == name] if name else []
+    return ids[0] if len(ids) == 1 else None
+
+
 async def _add_plan(pid: int, tooth: str, procedure: str, doctor: str,
-                    price: str, due_date: str) -> str:
+                    price: str, due_date: str, service_id: str = "") -> str:
     """Позиция плана: зуб и цена приходят строками, как из формы; чужой
     номер зуба и кривой срок молча обнуляются, цена режется до миллиона."""
     if not procedure.strip():
@@ -616,8 +630,10 @@ async def _add_plan(pid: int, tooth: str, procedure: str, doctor: str,
         date.fromisoformat(due) if due else None
     except ValueError:
         due = ""
-    await db.add_plan_item(pid, t, procedure.strip()[:120], doctor.strip()[:80],
-                           pr, due)
+    proc, doc = procedure.strip()[:120], doctor.strip()[:80]
+    await db.add_plan_item(pid, t, proc, doc, pr, due,
+                           service_id=_plan_service_id(service_id, proc),
+                           doctor_id=_plan_doctor_id(doc))
     return "ok_card"
 
 

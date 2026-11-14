@@ -71,6 +71,7 @@ const MODEL: Odontogram = {
   materials: [{ id: 'zirconiu', label: 'Zirconiu' }, { id: 'alt', label: 'Alt material…' }],
   patient: { id: 5, name: 'Odonto Pin', primary_doctor: '' },
   doctors: ['Dr. Activ Doi', 'Dr. Activ Trei'],
+  services: [{ id: 'consult', label: 'Consultație' }, { id: 'hygiene', label: 'Igienizare' }],
   perio: { '16': { at: '18.09.2026', exam: 7, text: 'PD 3 2 3 / 4 2 5 · sângerare 2/6' } },
 }
 
@@ -850,7 +851,7 @@ describe('зуб → план (01.10)', () => {
     fireEvent.click(within(dlg()).getByRole('button', { name: 'Adaugă în plan' }))
     expect(await screen.findByText('Fișa pacientului a fost actualizată')).toBeTruthy()
     expect(post).toHaveBeenCalledWith('/patients/5/plan?odo=1', {
-      tooth: '16', procedure: 'Coroană zirconiu', doctor: 'Dr. Activ Doi', price: '1500', due_date: '',
+      tooth: '16', procedure: 'Coroană zirconiu', doctor: 'Dr. Activ Doi', price: '1500', due_date: '', service_id: '',
     })
     await waitFor(() => expect(dlg().hasAttribute('open')).toBe(false))
     /* ответ плана — модель с позицией: дуга на месте, ни одного GET после ответа, «Tratament» уже знает позицию */
@@ -866,6 +867,27 @@ describe('зуб → план (01.10)', () => {
     expect(within(dlg()).getByText('21', { selector: 'b' })).toBeTruthy()
     expect(proc().value).toBe('')
     expect((within(dlg()).getByLabelText('Medic —') as HTMLSelectElement).value).toBe('')
+  })
+
+  it('процедура из прайса: подсказки — услуги модели, ключ уходит только при точном имени', async () => {
+    post.mockResolvedValue(ok(MODEL, 'ok_card', 'Fișa pacientului a fost actualizată'))
+    open()
+    await waitFor(() => expect(btn(16)).toBeTruthy())
+    fireEvent.contextMenu(btn(16), { clientX: 300, clientY: 200 })
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Adaugă în plan' }))
+    const list = document.getElementById(proc().getAttribute('list') ?? '') as HTMLDataListElement
+    expect([...list.options].map((o) => o.value)).toEqual(['Consultație', 'Igienizare'])
+    fireEvent.change(proc(), { target: { value: ' Igienizare ' } })
+    fireEvent.click(within(dlg()).getByRole('button', { name: 'Adaugă în plan' }))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/patients/5/plan?odo=1',
+      expect.objectContaining({ procedure: ' Igienizare ', service_id: 'hygiene' })))
+    await waitFor(() => expect(dlg().hasAttribute('open')).toBe(false))
+    fireEvent.contextMenu(btn(21))
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Adaugă în plan' }))
+    fireEvent.change(proc(), { target: { value: 'Igienizare + fluor' } })
+    fireEvent.click(within(dlg()).getByRole('button', { name: 'Adaugă în plan' }))
+    await waitFor(() => expect(post).toHaveBeenLastCalledWith('/patients/5/plan?odo=1',
+      expect.objectContaining({ tooth: '21', procedure: 'Igienizare + fluor', service_id: '' })))
   })
 
   it('из инспектора: отказ сервера подсвечивает поле и оставляет диалог; «Închide» закрывает', async () => {

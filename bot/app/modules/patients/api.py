@@ -277,7 +277,7 @@ def _plan_item(it: dict, today) -> dict:
         # врач — по правилу листа 043/e (у выполненной на визите — врач
         # визита); кого планировали — рядом, клиент его пока не рисует
         "doctor": pfisa.plan_doctor(it), "planned_doctor": it["doctor"] or "",
-        "status": st,
+        "status": st, "service_id": it.get("service_id"), "doctor_id": it.get("doctor_id"),
         "label": pcard.PLAN_LABEL.get(st, st), "price": it["price_mdl"],
         "due": "" if due == "—" else due, "overdue": overdue,
         "done": pcard.done_view(it),
@@ -287,6 +287,11 @@ def _plan_item(it: dict, today) -> dict:
         "refusable": st in pcard.PLAN_REFUSABLE,
         "deletable": st == "planificat",
     }
+
+
+def _service_options() -> list[dict]:
+    """Прайс для форм фиши и одонтограммы: окно записи и выбор позиции плана."""
+    return [{"id": k, "label": v["ro"]} for k, v in eng.SERVICES.items()]
 
 
 def _options() -> dict:
@@ -440,7 +445,7 @@ async def _card(pid: int, p: dict, *, views: bool, log_view: bool) -> dict:
             "shown": pcard.ACT_SHOWN, "views": views,
         },
         "appoint": {
-            "services": [{"id": k, "label": v["ro"]} for k, v in eng.SERVICES.items()],
+            "services": _service_options(),
             "doctors": ap["svc_docs"], "names": dict(eng.ACTIVE_DOCTORS),
             "primary": ap["prim"], "today": now.date().isoformat(),
         },
@@ -678,7 +683,8 @@ async def api_patient_ocluzie(request: Request, pid: int):
 
 @router.post("/api/patients/{pid}/plan")
 async def api_patient_plan_add(request: Request, pid: int):
-    """{tooth, procedure, doctor, price, due_date} — строками, как из формы.
+    """{tooth, procedure, doctor, price, due_date, service_id} — строками, как
+    из формы; `service_id` — ключ услуги, когда позицию взяли из прайса.
 
     `?odo=1` — позиция С ЗУБА («Adaugă în plan» одонтограммы, 24.10): в ответе
     свежая МОДЕЛЬ одонтограммы — в ней план зуба (вкладка «Tratament» панели),
@@ -692,7 +698,8 @@ async def api_patient_plan_add(request: Request, pid: int):
         return deny
     body = await api_body(request)
     code = await _add_plan(pid, _s(body, "tooth"), _s(body, "procedure"),
-                           _s(body, "doctor"), _s(body, "price"), _s(body, "due_date"))
+                           _s(body, "doctor"), _s(body, "price"), _s(body, "due_date"),
+                           _s(body, "service_id"))
     field = "procedure" if code == "bad_card" else ""
     if request.query_params.get("odo") == "1":
         return await _odo_reply(pid, code, ok={"ok_card"}, field=field,
@@ -1044,6 +1051,7 @@ async def _odontogram(pid: int, p: dict) -> dict:
     m["patient"] = {"id": pid, "name": p["name"] or "",
                     "primary_doctor": p.get("primary_doctor") or ""}
     m["doctors"] = list(eng.DOCTORS.values())
+    m["services"] = _service_options()
     # ⭐ Последний пародонтальный замер по зубам — «зуб 16 один объект»
     # (контракт clinical-chart.md › «Один зуб на оба инструмента»). Осмотр тот
     # же, что печатается в 043/e: `perio_last` пропускает пустые листы.

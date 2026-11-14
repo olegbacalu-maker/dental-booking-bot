@@ -81,7 +81,7 @@ def suite_api(res: Result) -> None:
         res.check("состав", sorted(d),
                   sorted(["teeth", "history", "arches", "arc", "milk_open", "bridges", "legend",
                           "states", "marks", "surfaces", "surface_states", "bridge_roles",
-                          "materials", "patient", "doctors", "perio", "perio_layer", "palette",
+                          "materials", "patient", "doctors", "services", "perio", "perio_layer", "palette",
                           "tooth_states",
                           "modes", "plan", "visits", "ocluzie"]))
         res.check("план зуба: у пациента без плана — пустой словарь", d["plan"], {})

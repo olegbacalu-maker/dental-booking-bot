@@ -37,6 +37,7 @@ async def plan_items(pid: int) -> list:
     # не JOIN: doctor/status/id/created_at есть в обеих таблицах.
     return await _fetch(
         """SELECT id, tooth, procedure, doctor, status, price_mdl, due_date,
+                  service_id, doctor_id,
                   done_at, appointment_id, refuz_motiv, created_at,
                   (SELECT a.doctor FROM appointments a
                     WHERE a.id = plan_items.appointment_id) AS visit_doctor
@@ -69,12 +70,14 @@ async def plan_item_status(item_id: int, pid: int) -> str | None:
 
 async def add_plan_item(pid: int, tooth: int | None, procedure: str,
                         doctor: str, price_mdl: int | None,
-                        due_date: str = "") -> None:
+                        due_date: str = "", service_id: str | None = None,
+                        doctor_id: str | None = None) -> None:
     await _execute(
         """INSERT INTO plan_items(patient_id, tooth, procedure, doctor, price_mdl,
-                                  due_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?)""",
+                                  due_date, service_id, doctor_id, created_at)
+           VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         pid, tooth, procedure, doctor, price_mdl, due_date or None,
-                _utcnow_iso(),
+        service_id or None, doctor_id or None, _utcnow_iso(),
     )
     await log_event(pid, "plan_add",
                     f"Plan: + {procedure}" + (f" (dinte {tooth})" if tooth else ""),

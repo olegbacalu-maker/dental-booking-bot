@@ -103,10 +103,10 @@ const CARD: PatientCard = {
   recall: [],
   plan: {
     items: [
-      { id: 1, tooth: 11, procedure: 'Coroană 11', doctor: 'Dr. Activ Doi', status: 'in_lucru', label: 'În lucru', price: 1200, due: '', overdue: false, done: '', motiv: '', next: 'finalizat', refusable: true, deletable: false },
-      { id: 3, tooth: 48, procedure: 'Extracție 48', doctor: '', status: 'planificat', label: 'Planificat', price: 700, due: '01.01.2020', overdue: true, done: '', motiv: '', next: 'in_lucru', refusable: true, deletable: true },
-      { id: 2, tooth: null, procedure: 'Detartraj', doctor: '', status: 'finalizat', label: 'Finalizat', price: 500, due: '', overdue: false, done: '18.09.2026', motiv: '', next: 'in_lucru', refusable: false, deletable: false },
-      { id: 5, tooth: 36, procedure: 'Implant 36', doctor: '', status: 'refuzat', label: 'Refuzat', price: 9000, due: '', overdue: false, done: '18.09.2026', motiv: 'refuză implantul', next: 'planificat', refusable: false, deletable: false },
+      { id: 1, tooth: 11, procedure: 'Coroană 11', doctor: 'Dr. Activ Doi', status: 'in_lucru', service_id: null, doctor_id: null, label: 'În lucru', price: 1200, due: '', overdue: false, done: '', motiv: '', next: 'finalizat', refusable: true, deletable: false },
+      { id: 3, tooth: 48, procedure: 'Extracție 48', doctor: '', status: 'planificat', service_id: null, doctor_id: null, label: 'Planificat', price: 700, due: '01.01.2020', overdue: true, done: '', motiv: '', next: 'in_lucru', refusable: true, deletable: true },
+      { id: 2, tooth: null, procedure: 'Detartraj', doctor: '', status: 'finalizat', service_id: null, doctor_id: null, label: 'Finalizat', price: 500, due: '', overdue: false, done: '18.09.2026', motiv: '', next: 'in_lucru', refusable: false, deletable: false },
+      { id: 5, tooth: 36, procedure: 'Implant 36', doctor: '', status: 'refuzat', service_id: null, doctor_id: null, label: 'Refuzat', price: 9000, due: '', overdue: false, done: '18.09.2026', motiv: 'refuză implantul', next: 'planificat', refusable: false, deletable: false },
     ],
     counts: { planificat: 1, in_lucru: 1, finalizat: 1, refuzat: 1 },
     n_act: 2, default_tab: 'act', total: 1900, total_done: 500, n_track: 3, pct_done: 33,
@@ -350,6 +350,26 @@ describe('PatientCardScreen', () => {
     expect(document.querySelectorAll('.plan-row').length).toBe(4)
     expect(screen.getByText('refuză implantul').className).toBe('pmotiv')
     expect(within(rowOf('Implant 36')).getByText('Reia')).toBeTruthy()
+  })
+
+  it('план: процедура из прайса уходит с ключом услуги, дописанная — без', async () => {
+    serve()
+    post.mockResolvedValue(ok(CARD, 'ok_card', 'Fișa pacientului a fost actualizată'))
+    open('/admin/patient/5?tab=plan')
+    await screen.findByText('Pin Test', { selector: 'h2' })
+    const proc = screen.getByLabelText('Procedură (ex. Coroană zirconiu)') as HTMLInputElement
+    const list = document.getElementById(proc.getAttribute('list') ?? '') as HTMLDataListElement
+    expect([...list.options].map((o) => o.value)).toEqual(['Consultație', 'Igienizare'])
+    fireEvent.change(proc, { target: { value: 'Igienizare' } })
+    fireEvent.change(screen.getByLabelText('Medic —'), { target: { value: 'Dr. Activ Doi' } })
+    fireEvent.click(screen.getByRole('button', { name: '+ Adaugă în plan' }))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/patients/5/plan',
+      { tooth: '', procedure: 'Igienizare', doctor: 'Dr. Activ Doi', price: '', due_date: '', service_id: 'hygiene' }))
+    await waitFor(() => expect(proc.value).toBe(''))
+    fireEvent.change(proc, { target: { value: 'Igienizare profesională' } })
+    fireEvent.click(screen.getByRole('button', { name: '+ Adaugă în plan' }))
+    await waitFor(() => expect(post).toHaveBeenLastCalledWith('/patients/5/plan',
+      expect.objectContaining({ procedure: 'Igienizare profesională', service_id: '' })))
   })
 
   it('план: Finalizează шлёт переход, фиша подменяется, плашка сервера', async () => {
@@ -1426,7 +1446,7 @@ describe('PatientCardScreen', () => {
       plan: {
         ...CARD.plan, n_act: 3, total: 4900,
         items: [
-          { id: 9, tooth: 11, procedure: 'Coroană zirconiu', doctor: 'Dr. Activ Doi', status: 'planificat', label: 'Planificat', price: 3000, due: '', overdue: false, done: '', motiv: '', next: 'in_lucru', refusable: true, deletable: true },
+          { id: 9, tooth: 11, procedure: 'Coroană zirconiu', doctor: 'Dr. Activ Doi', status: 'planificat', service_id: null, doctor_id: null, label: 'Planificat', price: 3000, due: '', overdue: false, done: '', motiv: '', next: 'in_lucru', refusable: true, deletable: true },
           ...CARD.plan.items,
         ],
       },
@@ -1461,7 +1481,7 @@ describe('PatientCardScreen', () => {
     fireEvent.click(within(dlg).getByRole('button', { name: 'Adaugă în plan' }))
     expect(await screen.findByText('Fișa pacientului a fost actualizată')).toBeTruthy()
     expect(post).toHaveBeenCalledWith('/patients/5/plan?odo=1&card=1&views=1', {
-      tooth: '11', procedure: 'Coroană zirconiu', doctor: 'Dr. Activ Doi', price: '3000', due_date: '',
+      tooth: '11', procedure: 'Coroană zirconiu', doctor: 'Dr. Activ Doi', price: '3000', due_date: '', service_id: '',
     })
     /* диалог закрывает эффект — после коммита плашки, поэтому ждём */
     await waitFor(() => expect(dlg.hasAttribute('open')).toBe(false))

@@ -172,6 +172,8 @@ export interface Odontogram {
   modes?: ChartMode[]
   patient: { id: number; name: string; primary_doctor: string }
   doctors: string[]
+  /** прайс клиники — подсказки процедуры в «Adaugă în plan» */
+  services?: { id: string; label: string }[]
   /** Последний пародонтальный замер по зубам: дата, id осмотра и ГОТОВАЯ
    *  фраза сервера. ⛔ Своей фразы у клиента нет — слова про глубину и степени
    *  живут в `perio.py`, как `sfx` у поверхностей. Пусто, если осмотра с
@@ -283,6 +285,7 @@ export interface PlanAdd {
   doctor: string
   price: string
   due_date: string
+  service_id?: string
 }
 
 /** Подпись поверхности на экране: у верхней челюсти язычная — нёбная, «P»;
