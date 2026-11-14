@@ -156,6 +156,20 @@ describe('окно пустого часа: «Durată»', () => {
   const durInp = () => document.querySelector('dialog input.dp-dur-n') as HTMLInputElement
   const svcSel = () => document.querySelector('dialog select[aria-label="Serviciu"]') as HTMLSelectElement
 
+  it('под заголовком — строка времени: день, начало–конец; идёт за минутой, услугой и длительностью; у заметки её нет', () => {
+    showD(async () => true)
+    const when = () => document.querySelector('dialog .dp-when')?.textContent?.replace(/\s+/g, ' ').trim()
+    expect(when()).toBe('sâmbătă, 17.10 · 10:00–10:15')
+    fireEvent.click(at(':25'))
+    expect(when()).toBe('sâmbătă, 17.10 · 10:25–10:40')
+    fireEvent.change(svcSel(), { target: { value: 'long' } })
+    expect(when()).toBe('sâmbătă, 17.10 · 10:25–12:25')
+    fireEvent.change(durSel(), { target: { value: '45' } })
+    expect(when()).toBe('sâmbătă, 17.10 · 10:25–11:10')
+    fireEvent.click(document.querySelector('dialog .dlg-tabs .tabbtn:last-child') as HTMLElement)
+    expect(document.querySelector('dialog .dp-when')).toBeNull()
+  })
+
   it('нетронутая — длительность услуги, идёт за сменой услуги и НЕ уходит на сервер', async () => {
     const onAdd = vi.fn<(b: unknown, f: Fail) => Promise<boolean>>(async () => true)
     showD(onAdd)

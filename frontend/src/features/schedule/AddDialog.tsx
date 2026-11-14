@@ -6,6 +6,7 @@ import { DurSelect, useDurPick } from './DurPick'
 import { HourSelect, MinPick } from './MinPick'
 import { RoomSelect } from './RoomPick'
 import { SmsCheck, useSmsBox } from './SmsBox'
+import { whenLine } from './when'
 
 /* «Programare nouă» окном (06.10, Олег: форма внизу страницы — старый облик,
    на панели новая запись открывается окном). Ручная запись по телефону и у
@@ -187,6 +188,9 @@ export function AddDialog({
         <span><Icon name="plus" /> {T.title}</span>
         <button type="button" onClick={onClose} aria-label={T.close}><Icon name="close" /></button>
       </div>
+      <p className="dp-when" data-empty={hour ? undefined : ''}>
+        <Icon name="clock" /> <span>{whenLine(at, hour, minute, dur.bad ? 0 : dur.value)}</span>
+      </p>
       <form className="dlg-form dp-addform" onSubmit={submit}>
         {note ? <p className="hint dp-m0 dp-addnote">{note}</p> : null}
         <div className="dp-addrow">

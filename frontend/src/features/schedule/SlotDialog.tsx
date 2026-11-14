@@ -8,6 +8,7 @@ import { freeRoom, laneOf, lanesOf, roomShared, type Occupies, type Room } from 
 import { RoomSelect, sharedWarn } from './RoomPick'
 import { hourMinutes, slotTimes, takenMinutes, type Slot, type SlotFormView } from './slot'
 import { SmsCheck, useSmsBox } from './SmsBox'
+import { whenLine } from './when'
 
 /* Диалог свободной ячейки «+» (C25.5b): записать пациента ИЛИ заблокировать
    часы заметкой стойки. Разметка — те же классы, что печатает `_slot_modal`.
@@ -153,6 +154,9 @@ export function SlotDialog({ open, slot, date, form, noteEnds, taken, rooms = NO
         <span>{slot.name} — {atime}</span>
         <button type="button" onClick={onClose} aria-label={T.close}><Icon name="close" /></button>
       </div>
+      {tab === 'a' ? (
+        <p className="dp-when"><Icon name="clock" /> <span>{whenLine(date, slot.hour, minute, dur.bad ? 0 : dur.value)}</span></p>
+      ) : null}
       <div className="dlg-tabs">
         <button type="button" className={`tabbtn${tab === 'a' ? ' on' : ''}`}
                 onClick={() => setTab('a')}><Icon name="user" /> {T.appt}</button>

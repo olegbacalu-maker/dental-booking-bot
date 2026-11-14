@@ -188,6 +188,21 @@ describe('«Programare nouă» с фиши — окно на месте', () => 
     expect(document.querySelectorAll('.dp-react-root').length).toBe(1)
   })
 
+  it('шапка окна оболочки показывает выбранное время и меняется на минуте', async () => {
+    await onFisa()
+    get.mockImplementation((path: string) => path === '/schedule/day'
+      ? Promise.resolve(ok({ date: TODAY, form: { ...FORM, services: [{ id: 'consult', label: 'Consultație', dur: 30 }] } }))
+      : Promise.reject(OFFLINE))
+    fireEvent.click(newBtn())
+    await waitFor(() => expect(addDialog()?.open).toBe(true))
+    const d = addDialog() as HTMLDialogElement
+    const when = () => d.querySelector('.dp-when')?.textContent?.replace(/\s+/g, ' ').trim() ?? ''
+    expect(d.closest('.dp-react-root')?.contains(d.querySelector('.dp-when'))).toBe(true)
+    expect(when()).toBe('joi, 22.10 · 09:30–10:00')
+    fireEvent.click(screen.getByRole('button', { name: '09:45' }))
+    expect(when()).toBe('joi, 22.10 · 09:45–10:15')
+  })
+
   it('запись: без состояния (`screen=new_appt`), окно закрыто, плашка со ссылкой в журнал; фиша не тронута', async () => {
     const { router } = await onFisa()
     post.mockResolvedValue(ok(undefined, 'ok', 'Programare adăugată'))

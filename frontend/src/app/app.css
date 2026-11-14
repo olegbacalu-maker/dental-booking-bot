@@ -3193,6 +3193,12 @@ dialog.dp-about { width: 460px; }
   .dp-react-root .gc-time { flex-direction: column; gap: 2px; white-space: normal; }
   .dp-react-root .gc-state, .dp-react-root .gc-row .rc-acts { grid-column: 2; justify-content: flex-start; flex-wrap: wrap; }
 }
+/* Высота строки времени занята с первого кадра: без выбранного часа текст «alegeți ora», окно не прыгает. */
+.dp-when { display: flex; align-items: center; gap: 8px; min-height: 36px; margin: 0; padding: 6px 16px;
+  background: var(--teal-soft); color: var(--teal-d); font-size: var(--fs-body); font-weight: 600;
+  border-bottom: 1px solid var(--line); }
+.dp-when svg { flex: 0 0 auto; }
+.dp-when[data-empty] { color: var(--text3); font-weight: 500; }
 .dp-addnote { padding: 8px 10px; border: 1px solid var(--line2); border-radius: var(--r-ctl); background: var(--fill); overflow-wrap: anywhere; }
 .dp-addpeople { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .dp-addpeople .hint { margin: 0; }

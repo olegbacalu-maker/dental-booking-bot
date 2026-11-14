@@ -529,6 +529,27 @@ describe('окно записи «Programare nouă»', () => {
     expect(addr(router)).toBe('/admin/all?date=2026-09-22')
   })
 
+  it('шапка окна показывает выбранное время сразу: дата, час, минуты, длительность', async () => {
+    const withDur = { ...MODEL.form!, services: [{ id: 'consult', label: 'Consultație', dur: 30 }],
+      durations: [15, 30, 60], dur_step: 5, dur_max: 240 }
+    get.mockImplementation((url: string) => dayOfUrl(url).then((r) => ({ ...r, data: { ...r.data, form: withDur } })))
+    await openAdd('2026-09-23')
+    const when = () => document.querySelector('dialog .dp-when')?.textContent?.replace(/\s+/g, ' ').trim()
+    const dlg = document.querySelector('dialog') as HTMLElement
+    expect(dlg.querySelector('.dlg-head')?.nextElementSibling).toBe(dlg.querySelector('.dp-when'))
+    fireEvent.change(dlg.querySelector('select.dp-dur') as HTMLSelectElement, { target: { value: '60' } })
+    expect(when()).toBe('miercuri, 23.09 · 09:00–10:00')
+    fireEvent.click(screen.getByRole('button', { name: '09:25' }))
+    expect(when()).toBe('miercuri, 23.09 · 09:25–10:25')
+    fireEvent.change(dlg.querySelector('select.dp-dur') as HTMLSelectElement, { target: { value: '30' } })
+    expect(when()).toBe('miercuri, 23.09 · 09:25–09:55')
+    fireEvent.change(sel(0), { target: { value: '10:00' } })
+    expect(when()).toBe('miercuri, 23.09 · 10:25–10:55')
+    fireEvent.change(addForm()?.querySelector('input[type="date"]') as HTMLInputElement,
+      { target: { value: '2026-09-24' } })
+    expect(when()).toMatch(/^joi, 24\.09 · /)
+  })
+
   /* ⭐ (07.10, решение Олега) Закрытие окна день НЕ перечитывает. Снятие
      якоря роутер по умолчанию считает перезагрузкой — в отличие от
      постановки, — и «Închide» слал второй GET: окно висело до ответа, а
