@@ -6,6 +6,8 @@ import { defaultNavigate } from '../../hooks/useLoad'
 import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
 import { DurField, durOk, durRule } from '../schedule/DurPick'
+import { ReplaceDialog, TechCardDialog } from '../stock/TechCard'
+import { stockApi, type TechCards } from '../stock/stock'
 import { settings, type ServiceEntry, type ServicesData } from './settings'
 
 const T = {
@@ -35,8 +37,17 @@ interface Props {
   navigate?: (url: string) => void
 }
 
-/** Данные экрана грузит роутер (B2.2), App.tsx › LOADS. */
-export const loadServicesSettings: RouteLoad<ServicesData> = (signal) => settings.services(signal)
+type ServicesModel = ServicesData & { techcards?: TechCards | null }
+
+/** Данные экрана грузит роутер (B2.2), App.tsx › LOADS; техкарты склада — тем же загрузчиком,
+ *  отказ склада экран услуг не роняет (колонки «Materiale» просто нет). */
+export const loadServicesSettings: RouteLoad<ServicesModel> = async (signal) => {
+  const [r, techcards] = await Promise.all([
+    settings.services(signal),
+    Promise.resolve().then(() => stockApi.techcards(signal)).then((x) => ('cards' in x.data ? x.data : null)).catch(() => null),
+  ])
+  return { ...r, data: { ...r.data, techcards } }
+}
 
 /**
  * Таблица услуг — те же колонки и то же тело запроса, что у старой страницы;
@@ -44,13 +55,19 @@ export const loadServicesSettings: RouteLoad<ServicesData> = (signal) => setting
  * отказе не пропадают: они живут в состоянии экрана, не в перерисованной форме.
  */
 export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
-  const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<ServicesData>(navigate)
+  const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<ServicesModel>(navigate)
+  /* техкарты приходят только с загрузкой; ответ сохранения прайса их не несёт — держим прежние */
+  const loadedTc = state.status === 'ready' ? state.data.techcards : undefined
+  const [tc, setTc] = useState<TechCards | null>(null)
+  if (loadedTc !== undefined && loadedTc !== tc) setTc(loadedTc)
+  const [tcOpen, setTcOpen] = useState<{ svc: string; name: string } | null>(null)
+  const [replacing, setReplacing] = useState(false)
   const [rows, setRows] = useState<ServiceEntry[] | null>(null)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<ToastState | null>(null)
   const closeToast = useCallback(() => setToast(null), [])
 
-  const data: ServicesData | null = state.status === 'ready' ? state.data : null
+  const data: ServicesModel | null = state.status === 'ready' ? state.data : null
   const list = rows ?? data?.services ?? []
   const patch = (i: number, p: Partial<ServiceEntry>) =>
     setRows(list.map((r, k) => (k === i ? { ...r, ...p } : r)))
@@ -98,7 +115,8 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
               <th>{T.cols.ro}</th><th>{T.cols.ru}</th><th style={{ width: 150 }}>{T.cols.price}</th>
               <th style={{ width: 120 }}>{T.cols.dur}</th><th style={{ width: 100 }}>{T.cols.recall}</th>
               <th style={{ width: 100 }}>{T.cols.color}</th>
-              <th style={{ width: 40 }}><Icon name="sos" /></th><th style={{ width: 140 }}>{T.cols.docs}</th><th />
+              <th style={{ width: 40 }}><Icon name="sos" /></th><th style={{ width: 140 }}>{T.cols.docs}</th>
+              {tc && <th style={{ width: 130 }}>Materiale</th>}<th />
             </tr>
           </thead>
           <tbody>
@@ -145,6 +163,16 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
                     {s.docs.length === 0 && <small>{T.allDocs}</small>}
                   </div>
                 </td>
+                {tc && (
+                  <td>
+                    <button type="button" className="dp-svc-mat" disabled={!s.id || saving}
+                      title={s.id ? 'Materialele care se scad la finalizarea serviciului' : 'Salvați serviciul întâi'}
+                      onClick={() => setTcOpen({ svc: s.id, name: s.ro || s.id })}>
+                      <Icon name="box" /> {tc.cards[s.id]?.length ? `${tc.cards[s.id]!.length} materiale` : 'Adaugă'}
+                      {tc.cards[s.id]?.some((l) => !l.active) && <i className="st-dot" title="un material e în arhivă" />}
+                    </button>
+                  </td>
+                )}
                 <td>
                   <button type="button" className="rowdel" aria-label={`${T.remove} ${i + 1}`} disabled={saving}
                     onClick={() => remove(i)}><Icon name="close" /></button>
@@ -156,8 +184,18 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
         <button type="button" className="addrow" onClick={add} disabled={data === null || saving}>{T.add}</button>
         <p className="hint">{T.hintA}<Icon name="sos" />{T.hintB}</p>
         <p className="hint">{T.hintR}</p>
+        {tc && (
+          <p className="hint dp-svc-tc">Coloana «Materiale»: ce se scade din stoc la «Finalizată» în planul pacientului.
+            {Object.values(tc.cards).some((l) => l.length) && (
+              <button type="button" className="dp-link" onClick={() => setReplacing(true)}>Înlocuiește materialul în toate serviciile</button>
+            )}
+          </p>
+        )}
         <button className="savebtn" disabled={data === null || saving || badDur}><Icon name="save" /> {T.save}</button>
       </form>
+      {tc && tcOpen && <TechCardDialog key={tcOpen.svc} svc={tcOpen.svc} name={tcOpen.name} tc={tc} onClose={() => setTcOpen(null)}
+        onSaved={(lines, text) => { setTc({ ...tc, cards: { ...tc.cards, [tcOpen.svc]: lines } }); setToast({ tone: 'ok', text }) }} />}
+      {tc && replacing && <ReplaceDialog tc={tc} onClose={() => setReplacing(false)} onDone={(text) => { setToast({ tone: 'ok', text }); retry() }} />}
       {toast && <Toast tone={toast.tone} text={toast.text} onClose={closeToast} />}
     </section>
   )

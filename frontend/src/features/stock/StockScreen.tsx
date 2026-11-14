@@ -8,6 +8,7 @@ import { defaultNavigate, type LoadState } from '../../hooks/useLoad'
 import type { RouteLoad, ScreenData } from '../../hooks/useRouteLoad'
 import { roCount } from '../../utils/plural'
 import { BuyView } from './BuyView'
+import { ConsumView } from './ConsumView'
 import { ImportView } from './ImportView'
 import { InventoryView } from './InventoryView'
 import { InvoiceView } from './InvoiceView'
@@ -22,7 +23,7 @@ import { MATERIALE, stockApi, type Filter, type ListData, type StockModel, type 
 
 /** Ключи адреса, от которых зависят данные раздела; `f`, `cat`, `q` остатков данных не меняют. */
 export const JOURNAL_KEYS = ['item', 'kind', 'from', 'to', 'actor', 'supplier'] as const
-const VIEW_KEYS = ['v', 'doc', ...JOURNAL_KEYS]
+const VIEW_KEYS = ['v', 'doc', 'by', ...JOURNAL_KEYS]
 
 const loadModel: RouteLoad<StockModel> = async (signal, _params, q) => {
   const v = q.get('v') ?? ''
@@ -33,6 +34,7 @@ const loadModel: RouteLoad<StockModel> = async (signal, _params, q) => {
         : v === 'inventar' ? stockApi.docs('inventar', signal).then((r) => ({ docs: r.data }))
           : v === 'jurnal' ? stockApi.moves(Object.fromEntries(JOURNAL_KEYS.map((k) => [k, q.get(k) ?? ''])), signal).then((r) => ({ moves: r.data }))
             : v === 'cumparat' ? stockApi.buy(signal).then((r) => ({ buy: r.data }))
+              : v === 'consum' ? stockApi.consum({ by: q.get('by') ?? '', from: q.get('from') ?? '', to: q.get('to') ?? '' }, signal).then((r) => ({ consum: r.data }))
               : v === 'import' ? stockApi.importHome(signal).then((r) => ({ imp: r.data }))
                 : Promise.resolve({})
   const [list, more] = await Promise.all([stockApi.list(signal), extra])
@@ -67,7 +69,8 @@ export function useStockCtx(): Ctx {
 
 const VIEWS: [View, string, SideItem<string>['icon']][] = [
   ['stoc', 'Stoc', 'box'], ['intrari', 'Intrări (facturi)', 'download'], ['jurnal', 'Mișcări', 'clipboard'],
-  ['inventar', 'Inventariere', 'check'], ['cumparat', 'De cumpărat', 'note'], ['import', 'Import din Excel', 'upload'],
+  ['inventar', 'Inventariere', 'check'], ['cumparat', 'De cumpărat', 'note'], ['consum', 'Consum', 'stat'],
+  ['import', 'Import din Excel', 'upload'],
 ]
 const COMANDATE = { one: '1 comandat', few: '{n} comandate', many: '{n} de comandate' }
 const isView = (s: string | null): s is View => VIEWS.some(([k]) => k === s)
@@ -149,6 +152,7 @@ export function StockScreen({ navigate = defaultNavigate }: { navigate?: (url: s
           {v === 'jurnal' && <JournalView data={model?.moves ?? null} />}
           {v === 'inventar' && <InventoryView docs={model?.docs ?? null} doc={model?.doc ?? null} />}
           {v === 'cumparat' && <BuyView data={model?.buy ?? null} />}
+          {v === 'consum' && <ConsumView data={model?.consum ?? null} />}
           {v === 'import' && <ImportView home={model?.imp ?? null} />}
         </SideMenu>
         {out && <OutDialog key={out.k} item={out.item} onClose={() => setOut(null)} />}

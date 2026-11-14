@@ -7,7 +7,7 @@ import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
 import { useRouteLoad, type ScreenData } from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
-import { stockApi, type ListData, type Supplier } from './stock'
+import { stockApi, type ConsumeMode, type ListData, type Supplier } from './stock'
 import { F } from './parts'
 
 type Draft = { id?: number; name: string; idno: string; phone: string; email: string; note: string; active: boolean }
@@ -19,7 +19,7 @@ export const loadStockSettings: ScreenData = (signal) => stockApi.list(signal)
 export function StockSettingsScreen({ navigate = defaultNavigate }: { navigate?: (url: string) => void }) {
   const { state, retry } = useRouteLoad<ListData>(navigate)
   const [toast, setToast] = useState<ToastState | null>(null)
-  const [days, setDays] = useState<{ exp: string; ord: string } | null>(null)
+  const [days, setDays] = useState<{ exp: string; ord: string; mode: ConsumeMode } | null>(null)
   const [edit, setEdit] = useState<Draft | null>(null)
   const [bad, setBad] = useState<{ field: string; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
@@ -27,13 +27,13 @@ export function StockSettingsScreen({ navigate = defaultNavigate }: { navigate?:
   if (state.status === 'failed') return <section className="dp-react-root"><LoadFailed error={state.error} onRetry={retry} /></section>
   if (state.status !== 'ready') return <section className="dp-react-root" aria-busy="true"><div className="fcard" /></section>
   const d = state.data
-  const cur = days ?? { exp: String(d.prefs.exp_days), ord: String(d.prefs.order_days) }
+  const cur = days ?? { exp: String(d.prefs.exp_days), ord: String(d.prefs.order_days), mode: d.prefs.consume_mode ?? 'confirmare' }
   const say = (text: string, tone: ToastState['tone'] = 'ok') => setToast({ text, tone })
 
   async function savePrefs() {
     setBusy(true)
     try {
-      await stockApi.prefs({ exp_days: Number(cur.exp), order_days: Number(cur.ord) })
+      await stockApi.prefs({ exp_days: Number(cur.exp), order_days: Number(cur.ord), consume_mode: cur.mode })
       setDays(null)
       retry()
       say('Setările stocului salvate.')
@@ -61,7 +61,7 @@ export function StockSettingsScreen({ navigate = defaultNavigate }: { navigate?:
   return (
     <section className="dp-react-root rg st">
       <div className="fcard st-inv">
-        <div className="rg-bar"><span className="rg-ttl"><b>Semnale</b><small>ce apare în „Expiră curând” și când se stinge nota „comandat”</small></span>
+        <div className="rg-bar"><span className="rg-ttl"><b>Semnale și scădere</b><small>ce apare în „Expiră curând”, când se stinge nota „comandat” și cum se scad materialele la finalizare</small></span>
           <AppLink className="rg-btn" href="/admin/stoc"><Icon name="box" /> La stoc</AppLink></div>
         <div className="st-inv-b">
           <div className="st-two">
@@ -74,8 +74,19 @@ export function StockSettingsScreen({ navigate = defaultNavigate }: { navigate?:
                 onChange={(e) => { setDays({ ...cur, ord: e.target.value.replace(/\D/g, '').slice(0, 2) }); setBad(null) }} />
             </F>
           </div>
+          <F label="Scădere la finalizare" bad={b('consume_mode')}
+            hint={cur.mode === 'confirmare' ? 'la „Finalizată” în plan se deschide lista materialelor serviciului — se corectează și se confirmă'
+              : cur.mode === 'automat' ? 'materialele serviciului se scad singure la „Finalizată”; corecția — la inventariere'
+                : 'materialele se scad doar de mână, din „Stoc”'}>
+            <span className="dp-seg st-seg" role="group" aria-label="Scădere la finalizare">
+              {([['fara', 'fără'], ['confirmare', 'cu confirmare'], ['automat', 'automat']] as [ConsumeMode, string][]).map(([k, label]) => (
+                <button key={k} type="button" className={cur.mode === k ? 'on' : ''} aria-pressed={cur.mode === k} disabled={!d.can.settings}
+                  onClick={() => { setDays({ ...cur, mode: k }); setBad(null) }}>{label}</button>
+              ))}
+            </span>
+          </F>
           {b('prefs') && <p className="st-err" role="alert">{b('prefs')}</p>}
-          {!d.can.settings && <p className="st-note"><Icon name="lock" /> Aceste zile le schimbă directorul.</p>}
+          {!d.can.settings && <p className="st-note"><Icon name="lock" /> Aceste setări le schimbă directorul.</p>}
         </div>
         {d.can.settings && days && (
           <div className="rg-dlg-f st-foot"><button type="button" className="dp-btn pri" disabled={busy} onClick={() => { void savePrefs() }}><Icon name="save" /> Salvează</button></div>

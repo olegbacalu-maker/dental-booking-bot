@@ -34,6 +34,7 @@ import { examOf, perio, type PerioModel } from '../../clinical/perio'
 import { useCoarse } from '../../clinical/touch'
 import { PlanCard } from './PlanCard'
 import { LabBlock, LabSummary, usePatientLab, type PatientLabModel } from '../../lab/PatientLab'
+import { useConsume } from '../../stock/ConsumeDialog'
 import { StockOutBlock } from '../../stock/PatientStock'
 import { stockApi, type PatientMove } from '../../stock/stock'
 import { ProfileCard } from './ProfileCard'
@@ -150,7 +151,7 @@ const loadCard: RouteLoad<CardData> = async (signal, params, q) => {
     Promise.resolve().then(() => perio.get(pid, exam, signal)).then((x) => x.data, () => null),
     Promise.resolve().then(() => labApi.patient(pid, signal)).then((x) => x.data, () => null),
     /* материалы со склада: отказ склада фишу не роняет — блока просто нет */
-    Promise.resolve().then(() => stockApi.patient(pid, signal)).then((x) => x.data.rows, () => null),
+    Promise.resolve().then(() => stockApi.patient(pid, signal)).then((x) => x.data.rows ?? null).catch(() => null),
   ])
   return { ...r, data: { ...r.data, odontogram, perioSheet, lab, stockOut } }
 }
@@ -368,6 +369,8 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
 
   const failCb = useCallback((e: unknown) => { fail(e) }, [fail])
   const say = useCallback((t: ToastState) => setToast(t), [])
+  /* списание материалов при «Finalizată» (режим «cu confirmare»): окно у экрана, не у карточки плана */
+  const consume = useConsume(useCallback((text: string, tone: ToastState['tone']) => setToast({ text, tone }), []))
   /* зуб записан — свежая фиша приезжает В ОТВЕТЕ записи (`?card=1`, режим
      ленты — из адреса): пилюли шапки и летопись зависят от зубов.
      ⛔ Не перечитывать `patientCard.get`: GET фиши — это ОТКРЫТИЕ, и каждое
@@ -510,6 +513,7 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
         {tab === 'plan' && (
           <>
             <PlanCard card={card} a={a} onTooth={onTooth} rowExtra={L.chip}
+              afterFinal={(it) => consume.afterFinal({ id: it.id, what: `${it.procedure}${it.tooth ? ` · dintele ${it.tooth}` : ''}`, service: it.service_id })}
               onUploadSigned={(category) => { setDocsPick({ category, k: Date.now() }); goTab('docs') }} />
             <LabBlock lab={L} />
             <StockOutBlock rows={stockOut} />
@@ -555,6 +559,7 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
       </SideMenu>
       )
       }}</WithLab>
+      {consume.node}
       <AppointDialog open={booking} name={card.name} appoint={card.appoint} a={a} onClose={() => setBooking(false)} />
       {toast && <Toast tone={toast.tone} text={toast.text} onClose={closeToast} />}
     </section>
