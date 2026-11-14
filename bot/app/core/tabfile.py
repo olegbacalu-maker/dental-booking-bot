@@ -38,6 +38,7 @@ class Refuse(Exception):
 class Sheet:
     name: str
     rows: list = field(default_factory=list)      # [(номер строки, [ячейки])]
+    bands: set = field(default_factory=set)       # строки-разделы: одна ячейка на всю ширину
 
 
 @dataclass
@@ -180,14 +181,16 @@ def _read_xlsx(blob: bytes) -> list:
         path = target.lstrip("/") if target.startswith("/") else "xl/" + target
         if path not in names:
             continue
+        bands: set = set()
         out.append(Sheet(sh.get("name", ""), _sheet_rows(_xml(z, path), shared,
-                                                         date_styles, date1904)))
+                                                         date_styles, date1904, bands), bands))
     if not out:
         raise Refuse("empty")
     return out
 
 
-def _sheet_rows(root, shared: list, date_styles: set, date1904: bool) -> list:
+def _sheet_rows(root, shared: list, date_styles: set, date1904: bool,
+                bands: set | None = None) -> list:
     data = _kid(root, "sheetData")
     rows: dict[int, list] = {}
     last = 0
@@ -214,6 +217,9 @@ def _sheet_rows(root, shared: list, date_styles: set, date1904: bool) -> list:
     for box in _kids(root, "mergeCells"):
         for m in _kids(box, "mergeCell"):
             g = re.fullmatch(r"([A-Za-z]+)(\d+):([A-Za-z]+)(\d+)", m.get("ref", ""))
+            if (g and bands is not None and g.group(2) == g.group(4)
+                    and _col_index(g.group(3)) - _col_index(g.group(1)) >= 2):
+                bands.add(int(g.group(2)))
             if not g or g.group(1).upper() != g.group(3).upper():
                 continue
             ci, top, bottom = _col_index(g.group(1)), int(g.group(2)), int(g.group(4))

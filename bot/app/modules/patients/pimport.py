@@ -15,6 +15,7 @@ BATCH = 200
 GROUP_CAP = 300
 PREVIEW_ROWS = 8
 HEADER_SCAN = 25
+DOCS_CAP = 500
 
 FIELDS = [
     ("", "Nu importa"),
@@ -48,8 +49,9 @@ _WORDS = {
     "patr": ["patronimic", "отчество", "middle name"],
     "appt": ["data programarii", "programare", "programarea", "programarii", "data vizitei",
              "дата записи", "запись", "appointment"],
-    "birth": ["data nasterii", "data nast", "nasterii", "nascut", "data de nastere",
-              "anul nasterii", "дата рождения", "рождения", "д р", "др", "родился",
+    "birth": ["data nasterii", "data nast", "data nas", "data nasc", "data n", "d n", "nasterii",
+              "nascut", "data de nastere", "anul nasterii", "anul nast", "дата рожд", "д рожд",
+              "год рожд", "г р", "дата рождения", "рождения", "д р", "др", "родился",
               "год рождения", "birth date", "date of birth", "birth", "dob", "birthday"],
     "idnp": ["idnp", "cod personal", "codul personal", "cnp", "личный код",
              "идентификационный номер"],
@@ -61,20 +63,22 @@ _WORDS = {
     "address": ["adresa", "adresa de domiciliu", "domiciliu", "localitate", "oras", "адрес",
                 "город", "address"],
     "insurance": ["asigurare", "polita", "cnam", "полис", "страховка", "insurance"],
-    "doctor": ["medic", "medicul", "medic curant", "doctor", "врач", "лечащий врач"],
+    "doctor": ["medic", "medicul", "medic curant", "doctor", "doctorul", "dr", "medic stomatolog",
+               "stomatolog", "врач", "лечащий врач", "доктор", "стоматолог"],
     "file_no": ["nr fisa", "nr fisei", "nr dosar", "numar fisa", "fisa", "номер карты", "карта",
                 "file no"],
-    "notes": ["note", "notite", "observatii", "obs", "comentariu", "comentarii", "mentiuni",
+    "notes": ["nota", "note", "notite", "observatii", "obs", "comentariu", "comentarii", "mentiuni",
               "примечание", "примечания", "заметки", "комментарий", "notes", "comment"],
 }
 # узнаются, чтобы не импортировать: счётчики и то, что программа считает сама
 _SKIP = {"id", "nr", "nr crt", "n", "no", "п п", "n п п", "varsta", "возраст", "age", "sold",
          "sold mdl", "status", "canal", "vizite", "ultima vizita", "urmatoarea vizita",
-         "inregistrat"}
+         "inregistrat", "loc nastere", "locul nasterii", "locul de nastere", "место рождения"}
 
 # экран печатает эти слова как есть, своего словаря у него нет
 REASONS = {
     "no_name": "lipsește numele",
+    "title": "pare un titlu, nu un pacient („{}”)",
     "name_case": "numele a fost rescris cu majuscule doar la inițiale",
     "tel_zero": "zero adăugat la începutul telefonului",
     "tel_foreign": "număr străin, păstrat cum este în fișier",
@@ -183,7 +187,7 @@ def parse_opts(raw: str) -> dict | None:
     if not isinstance(o, dict):
         return None
     out = {"sheet": 0, "header": None, "cols": None, "enc": "", "delim": "",
-           "fill": False, "force": []}
+           "fill": False, "force": [], "docs": {}}
     try:
         out["sheet"] = int(o.get("sheet") or 0)
         if o.get("header") is not None:
@@ -191,7 +195,10 @@ def parse_opts(raw: str) -> dict | None:
         if o.get("cols") is not None:
             out["cols"] = {int(k): str(v) for k, v in dict(o["cols"]).items() if v}
         out["force"] = sorted({int(x) for x in (o.get("force") or [])})
+        out["docs"] = {str(k)[:120]: str(v)[:40] for k, v in dict(o.get("docs") or {}).items() if v}
     except (TypeError, ValueError):
+        return None
+    if len(out["docs"]) > DOCS_CAP:
         return None
     if out["sheet"] < 0 or (out["header"] or 0) < 0:
         return None
@@ -219,7 +226,7 @@ def resolve(table: tabfile.Table, opts: dict) -> dict | None:
         cols = guessed
     return {"sheet": opts["sheet"], "header": header, "cols": dict(sorted(cols.items())),
             "enc": table.enc, "delim": table.delim, "fill": opts["fill"],
-            "force": opts["force"]}
+            "force": opts["force"], "docs": dict(sorted((opts.get("docs") or {}).items()))}
 
 
 def token(blob: bytes, res: dict) -> str:
@@ -250,11 +257,40 @@ def _name(parts: list) -> tuple[str, bool]:
     return s[:120], recased
 
 
+def _local(s) -> bool:
+    k = db.phone_key(s)
+    return len(k) == 9 and k[0] == "0"
+
+
+def _numbers(chunk: str) -> list[str]:
+    """Группы через пробел или дефис — один номер, если вместе он полный:
+    «060 000 205» не делится, хотя вторая группа и похожа на начало номера.
+    Делится только то, где каждая часть — полный номер сама."""
+    out = []
+    for part in re.split(r"(?<=\d)[\s\-–.]*(?=\+)", chunk):
+        if _local(part):
+            out.append(part)
+            continue
+        acc, cut = [], []
+        for g in re.split(r"[\s\-–]+", part.strip()):
+            acc.append(g)
+            if _local(" ".join(acc)):
+                cut.append(" ".join(acc))
+                acc = []
+        rest = db._digits(" ".join(acc))
+        if cut and (len(cut) > 1 or rest) and (not rest or 10 <= len(rest) <= 15):
+            out.extend(cut + ([" ".join(acc)] if rest else []))
+        else:
+            out.append(part)
+    return out
+
+
 def phones(values: list) -> tuple[list[str], list[tuple]]:
     """Номера в виде клиники (`069123456`); два столбца с одним номером — один номер."""
     out, notes, seen = [], [], set()
     for raw in values:
-        for part in re.split(r"[;,/\n]|\s{2,}|(?<=\d)\s+(?=\+|0\d{2}\D?\d)", str(raw)):
+        parts = [p for chunk in re.split(r"[;,/\n]", str(raw)) for p in _numbers(chunk)]
+        for part in parts:
             d = db._digits(part)
             if not d:
                 continue
@@ -263,7 +299,8 @@ def phones(values: list) -> tuple[list[str], list[tuple]]:
                 num = key
                 if len(d) == 8:
                     notes.append(("tel_zero", ""))
-            elif 6 <= len(d) <= 15:
+            elif 6 <= len(d) <= 15 and not (d[0] == "0" and d[1:2] != "0"):
+                # с одного нуля пишут только наши номера: не той длины — не прочитан
                 plus = part.strip().startswith("+") or d.startswith("00")
                 num = ("+" if plus else "") + (d[2:] if d.startswith("00") else d)
                 notes.append(("tel_foreign", ""))
@@ -311,12 +348,93 @@ def parse_date(raw) -> tuple[_dt.date | None, int | None, str]:
         return None, None, "bd_bad"
 
 
+_CYR = dict(zip("абвгдезийклмнопрстуфхцыэ", "abvgdeziiklmnoprstufhtie"))
+_CYR.update({"ё": "e", "ж": "j", "ч": "c", "ш": "s", "щ": "s", "ю": "iu", "я": "ia", "ъ": "",
+             "ь": "", "і": "i"})
+# одно звучание — одна запись: «Чобану» и «Ciobanu», «Цуркану» и «Țurcanu», «Георге» и «Gheorghe»
+_SOUND = [("sh", "s"), ("ch", "c"), ("zh", "j"), ("ts", "t"), ("gh", "g"), ("kh", "h"), ("dj", "g"),
+          ("k", "c"), ("y", "i"), ("w", "v"), ("q", "c"), ("x", "cs")]
+_TITLES = {"dr", "doctor", "doctorul", "doctora", "medic", "medicul", "med", "stomatolog", "dna",
+           "dl", "dnul", "vrac"}
+
+
+def _sound(word: str) -> str:
+    w = "".join(_CYR.get(ch, ch) for ch in word)
+    for a, b in _SOUND:
+        w = w.replace(a, b)
+    w = re.sub(r"([cg])i(?=[aou])", r"\1", w)      # «Cio-», «Giu-» звучат как «Чо-», «Джу-»
+    return re.sub(r"(.)\1+", r"\1", w)
+
+
+def doc_words(name) -> list[str]:
+    """Слова имени врача без званий; кириллица и латиница сводятся к одному
+    звучанию, буква с точкой («E.») остаётся инициалом."""
+    s = re.sub(r"(?i)\bд\s*[-.]\s*р\b\.?", " dr ", str(name or ""))
+    return [w for w in (_sound(x) for x in fold(s).split()) if w and w not in _TITLES]
+
+
+def _doc_score(said: list[str], doc: list[str]) -> int:
+    """0 — не он. Каждое полное слово — слово врача, каждый инициал — первая
+    буква другого слова; одни инициалы — только все сразу («E. R.»)."""
+    full = [w for w in said if len(w) > 1]
+    left = list(doc)
+    for w in full:
+        if w not in left:
+            return 0
+        left.remove(w)
+    for ch in (w for w in said if len(w) == 1):
+        hit = next((x for x in left if x[0] == ch), None)
+        if hit is None:
+            return 0
+        left.remove(hit)
+    if not said or (not full and (len(said) < 2 or left)):
+        return 0
+    # «Rusu Elena» ближе к «Rusu Elena», чем к «Rusu Elena Maria»
+    return 100 * (len(full) + len(said)) - len(left)
+
+
+NO_DOCTOR = "-"
+
+
+class Doctors:
+    """Врачи клиники для импорта и решение человека по каждому написанию."""
+
+    def __init__(self, names: dict | None = None, choice: dict | None = None):
+        self.names = dict(names or {})
+        self.choice = dict(choice or {})
+        self._words = {d: doc_words(n) for d, n in self.names.items()}
+        self._auto: dict = {}
+
+    def auto(self, key: str, src: str) -> tuple[str, list]:
+        """(врач или "", все, кто подошёл одинаково хорошо)."""
+        if key not in self._auto:
+            said = doc_words(src)
+            scores = {d: _doc_score(said, w) for d, w in self._words.items()}
+            best = max(scores.values(), default=0)
+            cands = sorted(d for d, s in scores.items() if s and s == best)
+            self._auto[key] = (cands[0] if len(cands) == 1 else "", cands)
+        return self._auto[key]
+
+    def pick(self, key: str, src: str) -> str:
+        """Врач, `NO_DOCTOR` или "" — не узнан и не выбран."""
+        c = self.choice.get(key, "")
+        if c == NO_DOCTOR or c in self.names:
+            return c
+        return self.auto(key, src)[0]
+
+
+def doc_key(src) -> str:
+    """Одно решение на одно написание: регистр, точки, звание, порядок слов и
+    алфавит не важны — «dr. Rusu E.» и «Е. Русу» решаются один раз."""
+    return (" ".join(sorted(doc_words(src))) or fold(src))[:120]
+
+
 _GENDER = {"m": "m", "f": "f", "м": "m", "ж": "f", "b": "m", "masculin": "m", "feminin": "f",
            "barbat": "m", "femeie": "f", "муж": "m", "жен": "f", "мужской": "m",
            "женский": "f", "male": "m", "female": "f"}
 
 
-def _record(line: int, raw: dict, doctors: dict) -> dict | None:
+def _record(line: int, raw: dict, doctors: Doctors) -> dict | None:
     """Строка файла как будущая фиша. None — в назначенных колонках пусто."""
     if not raw:
         return None
@@ -333,6 +451,9 @@ def _record(line: int, raw: dict, doctors: dict) -> dict | None:
     rec["name"] = name
     if not name or not re.search(r"[^\W\d_]", name):
         rec["err"] = "no_name"
+    elif re.search(r"\d", name) and set(raw) <= {"full", "last", "first", "patr"}:
+        # «Total: 48», «Ianuarie 2024» в колонке имени: в имени человека цифр нет
+        rec["err"] = "title"
     elif recased:
         w.append(("name_case", ""))
 
@@ -386,13 +507,15 @@ def _record(line: int, raw: dict, doctors: dict) -> dict | None:
     for f in ("email", "address", "insurance", "file_no"):
         rec[f] = one(f)[:200]
 
-    rec["primary_doctor"] = ""
-    if raw.get("doctor"):
-        src = one("doctor")
-        hit = doctors.get(fold(src))
-        if hit:
-            rec["primary_doctor"] = hit
-        else:
+    rec["primary_doctor"] = rec["doc_key"] = rec["doc_src"] = ""
+    src = one("doctor")
+    if src:
+        key = rec["doc_key"] = doc_key(src)
+        rec["doc_src"] = src
+        hit = doctors.pick(key, src)
+        if hit in doctors.names:
+            rec["primary_doctor"] = doctors.names[hit]
+        elif hit != NO_DOCTOR:
             w.append(("doc_unknown", src[:60]))
             extra.append(f"Medic: {src}")
 
@@ -410,27 +533,50 @@ def _record(line: int, raw: dict, doctors: dict) -> dict | None:
     return rec
 
 
-def build(table: tabfile.Table, res: dict, doctors: list) -> tuple[list, list]:
-    """Строка без значений в назначенных колонках не считается: итоги, подписи."""
-    rows = table.sheets[res["sheet"]].rows
+def build(table: tabfile.Table, res: dict, doctors: dict) -> tuple[list, list]:
+    """Строка без значений в назначенных колонках не считается: итоги, подписи;
+    строка-раздел (одна ячейка на всю ширину) — тоже. `doctors` — id → имя."""
+    sheet = table.sheets[res["sheet"]]
+    rows = sheet.rows
     head = next((ln for rno, ln in rows if rno == res["header"]), [])
     cols = res["cols"]
-    by_fold = {fold(d): d for d in doctors}
+    docs = Doctors(doctors, res.get("docs"))
     recs, preview = [], []
     for rno, line in rows:
         if rno <= res["header"]:
             continue
         if len(preview) < PREVIEW_ROWS:
             preview.append({"line": rno, "cells": [_text(c) for c in line]})
+        if rno in sheet.bands:
+            continue
         raw: dict = {}
         for i, f in cols.items():
             if i < len(line) and line[i] is not None:
                 title = _text(head[i]) if i < len(head) else ""
                 raw.setdefault(f, []).append((title, line[i]))
-        rec = _record(rno, raw, by_fold)
+        rec = _record(rno, raw, docs)
         if rec is not None:
             recs.append(rec)
     return recs, preview
+
+
+def doctor_list(recs: list, doctors: dict, choice: dict | None = None) -> list:
+    """Шаг «Medici»: каждое написание врача в файле — один раз, с тем, кого
+    узнала программа, и с выбором человека. Строки без имени не в счёт."""
+    docs = Doctors(doctors, choice)
+    out: dict = {}
+    for rec in recs:
+        key = rec["doc_key"]
+        if not key or rec["err"]:
+            continue
+        if key not in out:
+            auto, cands = docs.auto(key, rec["doc_src"])
+            c = docs.choice.get(key, "")
+            out[key] = {"key": key, "value": rec["doc_src"][:80], "rows": 0, "auto": auto,
+                        "cands": cands if not auto else [],
+                        "choice": c if c == NO_DOCTOR or c in docs.names else ""}
+        out[key]["rows"] += 1
+    return sorted(out.values(), key=lambda x: (bool(x["auto"]), -x["rows"], x["key"]))
 
 
 def name_key(name) -> str:
@@ -486,7 +632,7 @@ def analyse(recs: list, patients: list, force: list, iid: int = 0) -> None:
     for rec in recs:
         rec.update(act="new", reason="", match=None, forceable=False, fill=[], mine=False)
         if rec["err"]:
-            rec.update(act="bad", reason=why(rec["err"]))
+            rec.update(act="bad", reason=why(rec["err"], rec["name"][:40]))
             continue
         hit = base.match(rec)
         if hit:

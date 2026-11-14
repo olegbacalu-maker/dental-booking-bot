@@ -37,6 +37,8 @@ export interface PiOpts {
   delim: string
   fill: boolean
   force: number[]
+  /** Решение по написанию врача в файле: id врача или NO_DOCTOR; нет ключа — как узнала программа. */
+  docs: Record<string, string>
 }
 
 export interface PiRow {
@@ -72,11 +74,38 @@ export interface PiCounts {
   family: number
 }
 
+/** Одно написание врача в файле (шаг «Medici»). */
+export interface PiDoctor {
+  key: string
+  value: string
+  rows: number
+  /** Врач, которого узнала программа, или "". */
+  auto: string
+  /** Если не узнан: кто подошёл одинаково хорошо. */
+  cands: string[]
+  /** Выбор человека: id, NO_DOCTOR или "". */
+  choice: string
+}
+
+export interface PiClinicDoctor { id: string; name: string; active: boolean }
+
+export const NO_DOCTOR = '-'
+
+/** Решение по написанию: выбор человека сильнее узнанного; "" — пустое значение снимает выбор. */
+export function chooseDoctor(docs: Record<string, string>, key: string, value: string): Record<string, string> {
+  const next = { ...docs }
+  if (value) next[key] = value
+  else delete next[key]
+  return next
+}
+
 export interface PiCheck {
   file: { name: string; kind: string; size: number; sheets: { name: string; rows: number }[]; enc: string; delim: string }
   opts: PiOpts
   columns: { index: number; letter: string; title: string; field: string }[]
   preview: { line: number; cells: string[] }[]
+  doctors: PiDoctor[]
+  clinic_doctors: PiClinicDoctor[]
   ready: boolean
   counts: PiCounts | null
   groups: PiGroup[]

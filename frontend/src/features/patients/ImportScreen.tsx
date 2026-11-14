@@ -11,7 +11,7 @@ import { asApiError } from '../../services/api'
 import type { ApiError } from '../../types/api'
 import { roForm, type RoForm } from '../../utils/plural'
 import {
-  assign, hasName, MODEL_HREF, num, pimportApi, saveBlob,
+  assign, chooseDoctor, hasName, MODEL_HREF, NO_DOCTOR, num, pimportApi, saveBlob,
   type PiCheck, type PiGroup, type PiHome, type PiImport, type PiOpts, type PiRow,
 } from './pimport'
 
@@ -20,6 +20,7 @@ import {
    на сервере, поэтому экран хранит только выбор человека и последний ответ. */
 const T = {
   steps: ['Fișier', 'Coloane', 'Verificare'],
+  stepsDocs: ['Fișier', 'Coloane', 'Medici', 'Verificare'],
   lead: 'Aduceți lista pacienților dintr-un tabel Excel sau CSV. Nimic nu se scrie în evidență până la ultimul pas.',
   pick: 'Alege fișierul (.xlsx sau .csv)',
   reading: 'Se citește fișierul…',
@@ -50,6 +51,26 @@ const T = {
   verify: 'Verifică',
   verifying: 'Se verifică…',
   toCols: 'Înapoi la coloane',
+  toDocs: 'Înapoi la medici',
+  docsLead: 'Programul a căutat medicii din fișier printre medicii clinicii. Verificați și alegeți acolo unde nu i-a '
+    + 'recunoscut. Medicul ales devine „Medic curant” în fișa pacientului; o alegere se aplică tuturor rândurilor '
+    + 'cu aceeași scriere.',
+  docsUnknown: { one: '{n} scriere nerecunoscută', few: '{n} scrieri nerecunoscute', many: '{n} de scrieri nerecunoscute' },
+  docsUnknownTail: ' — rândurile intră fără medic, iar numele din fișier rămâne în notițe.',
+  inFile: 'În fișier',
+  rows: 'Rânduri',
+  doctor: 'Medic în DentPilot',
+  docState: 'Cum',
+  docAuto: 'recunoscut',
+  docChosen: 'ales de dvs.',
+  docNone: 'fără medic',
+  docUnknown: 'nu recunosc',
+  docPick: '— alegeți medicul —',
+  noDoctor: 'Fără medic',
+  inactive: 'inactiv',
+  docInactive: 'medic inactiv în clinică',
+  docCands: 'se potrivesc: {names}',
+  docsGo: 'Continuă',
   total: { one: '{n} rând cu date', few: '{n} rânduri cu date', many: '{n} de rânduri cu date' },
   name: 'Nume',
   phone: 'Telefon',
@@ -118,7 +139,7 @@ const cnt = (n: number, forms: Record<RoForm, string>): string => forms[roForm(n
 /** «Pacienți» со списком только фиш этого импорта. */
 const listOf = (id: number): string => `/admin/search?imp=${id}`
 
-type Step = 'file' | 'cols' | 'check' | 'run' | 'done'
+type Step = 'file' | 'cols' | 'docs' | 'check' | 'run' | 'done'
 interface Progress { part: number; parts: number; importId: number; broken: boolean }
 
 export const loadPimport: RouteLoad<PiHome> = (signal) => pimportApi.home(signal)
@@ -176,7 +197,9 @@ export function ImportScreen({ navigate = defaultNavigate }: Props) {
       if (!alive.current) return
       setCheck(r.data)
       setOpts(r.data.opts)
-      if (to) setStep(to === 'check' && !r.data.ready ? 'cols' : to)
+      /* без колонки врача шагу «Medici» нечего показать */
+      if (to === 'docs' && !r.data.doctors.length) to = 'check'
+      if (to) setStep((to === 'check' || to === 'docs') && !r.data.ready ? 'cols' : to)
     } catch (e) {
       fail(e)
     } finally {
@@ -299,14 +322,16 @@ export function ImportScreen({ navigate = defaultNavigate }: Props) {
            accept=".xlsx,.csv,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
            onChange={(e) => pick(e.target.files?.[0])} />
   )
-  const at = step === 'file' ? 0 : step === 'cols' ? 1 : 2
+  const hasDocs = Boolean(check?.doctors.length)
+  const steps = hasDocs ? T.stepsDocs : T.steps
+  const at = step === 'file' ? 0 : step === 'cols' ? 1 : step === 'docs' ? 2 : steps.length - 1
   const working = busy || step === 'run'
 
   return (
     <section className="dp-react-root pi" aria-busy={busy}>
       {toast ? <Toast {...toast} onClose={closeToast} /> : null}
       <ol className="pi-steps" aria-label="Pași">
-        {T.steps.map((label, i) => (
+        {steps.map((label, i) => (
           <li key={label} className={i === at ? 'on' : i < at ? 'past' : ''} aria-current={i === at ? 'step' : undefined}>
             <span>{i + 1}</span> {label}
           </li>
@@ -351,7 +376,13 @@ export function ImportScreen({ navigate = defaultNavigate }: Props) {
         <Columns home={home} check={check} opts={opts} busy={busy}
                  onOpts={setOpts}
                  onReread={(next) => { void verify(file, next, null) }}
-                 onVerify={() => { void verify(file, opts, 'check') }} />
+                 onVerify={() => { void verify(file, opts, 'docs') }} />
+      ) : null}
+
+      {file && check && opts && step === 'docs' ? (
+        <Doctors check={check} busy={busy}
+                 onPick={(key, value) => { void verify(file, { ...opts, docs: chooseDoctor(opts.docs, key, value) }, null) }}
+                 onBack={() => setStep('cols')} onNext={() => setStep('check')} />
       ) : null}
 
       {file && check?.counts && opts && step === 'check' ? (
@@ -387,8 +418,8 @@ export function ImportScreen({ navigate = defaultNavigate }: Props) {
             <div className="banner warn" role="status">{T.nothing}</div>
           ) : null}
           <div className="pi-acts">
-            <button type="button" className="rc-btn" disabled={busy} onClick={() => setStep('cols')}>
-              <Icon name="chev-l" /> {T.toCols}
+            <button type="button" className="rc-btn" disabled={busy} onClick={() => setStep(hasDocs ? 'docs' : 'cols')}>
+              <Icon name="chev-l" /> {hasDocs ? T.toDocs : T.toCols}
             </button>
             <button type="button" className="rc-btn" disabled={busy} title={T.reportHint}
                     onClick={() => { void report() }}>
@@ -568,6 +599,73 @@ function Columns({ home, check, opts, busy, onOpts, onReread, onVerify }: Column
         {named ? null : <span className="pi-need" role="note">{T.noName}</span>}
         <button type="button" className="dp-btn pri pi-go" disabled={busy || !named} onClick={onVerify}>
           <Icon name="check" /> {busy ? T.verifying : T.verify}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+interface DoctorsProps {
+  check: PiCheck
+  busy: boolean
+  onPick: (key: string, value: string) => void
+  onBack: () => void
+  onNext: () => void
+}
+
+function Doctors({ check, busy, onPick, onBack, onNext }: DoctorsProps) {
+  const byId = new Map(check.clinic_doctors.map((d) => [d.id, d]))
+  const unknown = check.doctors.filter((d) => !d.auto && !d.choice).length
+  return (
+    <div className="fcard pi-cols pi-docs">
+      <p className="hint">{T.docsLead}</p>
+      {unknown ? (
+        <div className="banner warn" role="status">{cnt(unknown, T.docsUnknown)}{T.docsUnknownTail}</div>
+      ) : null}
+      <div className="pi-scroll">
+        <table className="pi-table">
+          <thead>
+            <tr><th>{T.inFile}</th><th>{T.rows}</th><th>{T.doctor}</th><th>{T.docState}</th></tr>
+          </thead>
+          <tbody>
+            {check.doctors.map((d) => {
+              const value = d.choice || d.auto
+              const picked = value && value !== NO_DOCTOR ? byId.get(value) : undefined
+              const state = d.choice === NO_DOCTOR ? T.docNone : d.choice ? T.docChosen : d.auto ? T.docAuto : T.docUnknown
+              const cands = d.cands.map((id) => byId.get(id)?.name).filter(Boolean)
+              return (
+                <tr key={d.key} className={value ? '' : 'pi-doc-unknown'}>
+                  <td>{d.value}</td>
+                  <td className="pi-ln">{num(d.rows)}</td>
+                  <td>
+                    <select className="dp-sel" aria-label={`${T.doctor}: ${d.value}`} disabled={busy} value={value}
+                            onChange={(e) => onPick(d.key, e.target.value)}>
+                      {value ? null : <option value="">{T.docPick}</option>}
+                      {check.clinic_doctors.map((c) => (
+                        <option key={c.id} value={c.id}>{c.active ? c.name : `${c.name} (${T.inactive})`}</option>
+                      ))}
+                      <option value={NO_DOCTOR}>{T.noDoctor}</option>
+                    </select>
+                  </td>
+                  <td>
+                    <div className="pi-said">
+                      <span>{state}</span>
+                      {picked && !picked.active ? <small className="dp-muted">{T.docInactive}</small> : null}
+                      {!value && cands.length ? <small className="dp-muted">{T.docCands.replace('{names}', cands.join(', '))}</small> : null}
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="pi-acts">
+        <button type="button" className="rc-btn" disabled={busy} onClick={onBack}>
+          <Icon name="chev-l" /> {T.toCols}
+        </button>
+        <button type="button" className="dp-btn pri pi-go" disabled={busy} onClick={onNext}>
+          <Icon name="check" /> {T.docsGo}
         </button>
       </div>
     </div>

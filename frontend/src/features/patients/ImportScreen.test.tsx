@@ -4,7 +4,9 @@ import type { ApiResult } from '../../services/api'
 import { ApiError } from '../../types/api'
 import { openScreen } from '../../test/openScreen'
 import { ImportScreen, loadPimport } from './ImportScreen'
-import { assign, hasName, num, type PiCheck, type PiGroup, type PiHome, type PiImport, type PiRow } from './pimport'
+import {
+  assign, chooseDoctor, hasName, num, type PiCheck, type PiDoctor, type PiGroup, type PiHome, type PiImport, type PiRow,
+} from './pimport'
 
 /* Импорт пациентов: файл телом запроса, шаг колонок с угаданным выбором,
    проверка со словами сервера, запись порциями с продолжением после обрыва,
@@ -58,11 +60,12 @@ const GROUPS: PiGroup[] = [
 function checked(over: Partial<PiCheck> = {}): PiCheck {
   return {
     file: { name: 'pacienti.xlsx', kind: 'xlsx', size: 16212, sheets: [{ name: 'Pacienți', rows: 404 }], enc: '', delim: '' },
-    opts: { sheet: 0, header: 1, cols: { 1: 'full', 2: 'birth', 3: 'phone' }, enc: '', delim: '', fill: false, force: [] },
+    opts: { sheet: 0, header: 1, cols: { 1: 'full', 2: 'birth', 3: 'phone' }, enc: '', delim: '', fill: false, force: [], docs: {} },
     columns: [{ index: 0, letter: 'A', title: 'ID', field: '' }, { index: 1, letter: 'B', title: 'Nume și prenume', field: 'full' },
       { index: 2, letter: 'C', title: 'Data nașterii', field: 'birth' }, { index: 3, letter: 'D', title: 'Telefon', field: 'phone' }],
     preview: [{ line: 2, cells: ['1', 'Ana Test', '01.01.1950', '069111222'] },
       { line: 3, cells: ['2', '<b>Ion</b>', '', ''] }],
+    doctors: [], clinic_doctors: [],
     ready: true,
     counts: { rows: 403, create: 400, new: 398, noted: 2, exists: 2, dup: 0, bad: 1, fill: 1, family: 3 },
     groups: GROUPS, token: 'tok32', parts: 3,
@@ -216,6 +219,97 @@ describe('ImportScreen: шаг «Coloane»', () => {
     expect(optsOf(lastRaw()[0]).header).toBe(1)
     await waitFor(() => expect(postRaw).toHaveBeenCalledTimes(2))
     expect(stepNow()).toBe('Coloane')
+  })
+})
+
+const CLINIC = [{ id: 'd1', name: 'Dr. Elena Rusu', active: true }, { id: 'd2', name: 'Dr. Ion Rusu', active: true },
+  { id: 'd3', name: 'Dr. Vechi Arhivat', active: false }]
+const doc = (over: Partial<PiDoctor>): PiDoctor => ({ key: 'k', value: 'v', rows: 1, auto: '', cands: [], choice: '', ...over })
+const DOCS: PiDoctor[] = [
+  doc({ key: 'popescu', value: 'Popescu', rows: 2 }),
+  doc({ key: 'rusu', value: 'Dr. Rusu', cands: ['d1', 'd2'] }),
+  doc({ key: 'e rusu', value: 'Rusu E.', rows: 14, auto: 'd1' }),
+  doc({ key: 'arhivat', value: 'Arhivat', auto: 'd3' }),
+]
+const withDocs = (over: Partial<PiCheck> = {}) => checked({ doctors: DOCS, clinic_doctors: CLINIC, ...over })
+const docSelect = (value: string) => screen.getByLabelText(`Medic în DentPilot: ${value}`) as HTMLSelectElement
+const docRow = (value: string) => docSelect(value).closest('tr') as HTMLElement
+
+async function toDocs(c: PiCheck = withDocs()) {
+  await toCols(c)
+  fireEvent.click(screen.getByRole('button', { name: /Verifică/ }))
+  await waitFor(() => expect(document.querySelector('.pi-docs')).not.toBeNull())
+}
+
+describe('ImportScreen: шаг «Medici»', () => {
+  it('без колонки врача шага нет: три шага, «Verifică» ведёт сразу к проверке', async () => {
+    await open()
+    await toCheck()
+    expect(Array.from(document.querySelectorAll('.pi-steps li')).map((x) => x.textContent?.replace(/^\d+\s*/, '')))
+      .toEqual(['Fișier', 'Coloane', 'Verificare'])
+    expect(screen.getByRole('button', { name: /Înapoi la coloane/ })).toBeTruthy()
+  })
+
+  it('с колонкой врача — четвёртый шаг: написание, сколько строк, кого узнала программа', async () => {
+    await open()
+    await toDocs()
+    expect(stepNow()).toBe('Medici')
+    expect(document.querySelectorAll('.pi-steps li').length).toBe(4)
+    expect(['Popescu', 'Dr. Rusu', 'Rusu E.', 'Arhivat'].map((v) => docSelect(v).value)).toEqual(['', '', 'd1', 'd3'])
+    expect(docRow('Rusu E.').textContent).toContain('14')
+    expect(docRow('Rusu E.').textContent).toContain('recunoscut')
+    expect(docRow('Popescu').textContent).toContain('nu recunosc')
+    expect(docRow('Dr. Rusu').textContent).toContain('se potrivesc: Dr. Elena Rusu, Dr. Ion Rusu')
+    expect(screen.getByRole('status').textContent)
+      .toBe('2 scrieri nerecunoscute — rândurile intră fără medic, iar numele din fișier rămâne în notițe.')
+  })
+
+  it('в списке — все врачи клиники, выключенный помечен, и «Fără medic»; пустой пункт только у не узнанного', async () => {
+    await open()
+    await toDocs()
+    const labels = (v: string) => Array.from(docSelect(v).options).map((o) => o.textContent)
+    expect(labels('Popescu')).toEqual(['— alegeți medicul —', 'Dr. Elena Rusu', 'Dr. Ion Rusu', 'Dr. Vechi Arhivat (inactiv)', 'Fără medic'])
+    expect(labels('Rusu E.')).toEqual(['Dr. Elena Rusu', 'Dr. Ion Rusu', 'Dr. Vechi Arhivat (inactiv)', 'Fără medic'])
+    expect(docRow('Arhivat').textContent).toContain('medic inactiv în clinică')
+  })
+
+  it('выбор — одно решение на написание: уходит в docs и перепроверяет файл, шаг остаётся', async () => {
+    await open()
+    await toDocs()
+    postRaw.mockResolvedValue(ok(withDocs({ opts: { ...checked().opts, docs: { popescu: 'd2' } },
+      doctors: [doc({ ...DOCS[0], choice: 'd2' }), ...DOCS.slice(1)] })))
+    fireEvent.change(docSelect('Popescu'), { target: { value: 'd2' } })
+    await waitFor(() => expect(optsOf(lastRaw()[0]).docs).toEqual({ popescu: 'd2' }))
+    await waitFor(() => expect(docSelect('Popescu').value).toBe('d2'))
+    expect(docRow('Popescu').textContent).toContain('ales de dvs.')
+    expect(stepNow()).toBe('Medici')
+    fireEvent.change(docSelect('Dr. Rusu'), { target: { value: '-' } })
+    await waitFor(() => expect(optsOf(lastRaw()[0]).docs).toEqual({ popescu: 'd2', rusu: '-' }))
+  })
+
+  it('«Continuă» — к проверке без нового запроса; оттуда «Înapoi la medici»; «Înapoi la coloane» — к колонкам', async () => {
+    await open()
+    await toDocs()
+    const calls = postRaw.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: /Continuă/ }))
+    await waitFor(() => expect(stepNow()).toBe('Verificare'))
+    expect(postRaw.mock.calls.length).toBe(calls)
+    fireEvent.click(screen.getByRole('button', { name: /Înapoi la medici/ }))
+    await waitFor(() => expect(stepNow()).toBe('Medici'))
+    fireEvent.click(screen.getByRole('button', { name: /Înapoi la coloane/ }))
+    await waitFor(() => expect(stepNow()).toBe('Coloane'))
+  })
+
+  it('импорт уходит с выбором врачей', async () => {
+    await open()
+    await toDocs(withDocs({ opts: { ...checked().opts, docs: { popescu: '-' } } }))
+    fireEvent.click(screen.getByRole('button', { name: /Continuă/ }))
+    await waitFor(() => expect(stepNow()).toBe('Verificare'))
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    postRaw.mockResolvedValue(runReply(0, true))
+    fireEvent.click(screen.getByRole('button', { name: /Importă 400/ }))
+    await waitFor(() => expect(lastRaw()[0].startsWith('/pimport/run?')).toBe(true))
+    expect(optsOf(lastRaw()[0]).docs).toEqual({ popescu: '-' })
   })
 })
 
@@ -412,6 +506,13 @@ describe('ImportScreen: прошлые импорты и отмена', () => {
     post.mockResolvedValueOnce(ok({ done: true, after: 180, removed: 180, kept: 0, total: RUN }, 'pi_undone', 'Import anulat'))
     fireEvent.click(screen.getByRole('button', { name: /Anulează importul/ }))
     expect(await screen.findByText('Import anulat')).toBeTruthy()
+  })
+})
+
+describe('pimport: выбор врача', () => {
+  it('выбор кладётся по написанию; пустое значение снимает выбор, прочие не тронуты', () => {
+    expect(chooseDoctor({ a: 'd1' }, 'b', '-')).toEqual({ a: 'd1', b: '-' })
+    expect(chooseDoctor({ a: 'd1', b: '-' }, 'b', '')).toEqual({ a: 'd1' })
   })
 })
 

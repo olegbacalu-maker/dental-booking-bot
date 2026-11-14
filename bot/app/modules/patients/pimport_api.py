@@ -44,7 +44,7 @@ def _parse(blob: bytes, name: str, opts: dict):
     res = pi.resolve(table, opts)
     if res is None:
         return "pi_opts"
-    recs, preview = pi.build(table, res, list(eng.DOCTORS.values()))
+    recs, preview = pi.build(table, res, dict(eng.DOCTORS))
     if len(recs) > tabfile.MAX_ROWS:
         return "pi_rows"
     return table, res, recs, preview
@@ -142,6 +142,9 @@ async def api_pimport_check(request: Request):
                      "title": pi._text(head[i]) if i < len(head) else "",
                      "field": res["cols"].get(i, "")} for i in range(width)],
         "preview": preview,
+        "doctors": pi.doctor_list(recs, dict(eng.DOCTORS), res["docs"]),
+        "clinic_doctors": [{"id": d, "name": n, "active": d in eng.ACTIVE_DOCTORS}
+                           for d, n in eng.DOCTORS.items()],
         "ready": pi.ready(res),
         "counts": None, "groups": [], "token": "",
     }

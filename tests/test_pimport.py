@@ -92,7 +92,7 @@ def suite_read(res: Result) -> None:
     def recs_of(blob, name="a.xlsx", sheet=0, doctors=()):
         t = tabfile.read(blob, name)
         r = pi.resolve(t, {**pi.parse_opts(""), "sheet": sheet})
-        return t, r, pi.build(t, r, list(doctors))[0]
+        return t, r, pi.build(t, r, {f"d{i}": n for i, n in enumerate(doctors)})[0]
 
     book = S.excel_book([("Pacienți", S.CLINIC, ["A1:F1"]), ("Ascuns", [["Nume"], ["Nimeni"]], []),
                          ("Русский", S.RU_SHEET, ["A2:A4"])], hidden=("Ascuns",))
@@ -244,6 +244,95 @@ def suite_read(res: Result) -> None:
               (ph(["+37369555101", "069555101"])[0], ph(["069555101", "022555104"])[0]),
               (["069555101"], ["069555101", "022555104"]))
     res.check("иностранный остаётся как есть, с плюсом", ph(["+7 911 555-01-07"])[0], ["+79115550107"])
+    res.check("группы через пробел — один номер, и когда вторая группа начинается с нуля",
+              [ph([x]) for x in ("060 000 205", "079 012 345", "+373 600 00 203", "(060) 000-223",
+                                 "0600-00-222", "060.000.205", "tel. 060 000 226", "0 69 555 101")],
+              [(["060000205"], []), (["079012345"], []), (["060000203"], []), (["060000223"], []),
+               (["060000222"], []), (["060000205"], []), (["060000226"], []), (["069555101"], [])])
+    res.check("два номера: по запятой, «;», «/», строке — и когда каждая часть сама полный номер",
+              [ph([x])[0] for x in ("079 012 345, 060 000 205", "079 012 345; 060 000 205",
+                                    "079012345/060000205", "079 012 345\n060 000 205",
+                                    "069555103 022555104", "079 012 345 060 000 205",
+                                    "079-012-345-060-000-205", "mob. 079 012 345 fix 022 555 104")],
+              [["079012345", "060000205"]] * 4 + [["069555103", "022555104"]]
+              + [["079012345", "060000205"]] * 2 + [["079012345", "022555104"]])
+    res.check("иностранный после нашего: по «+» и по длине; один иностранный не делится",
+              [ph([x]) for x in ("060 000 205 +40 700 000 209", "069555101 89115550107", "+40 700 000 209")],
+              [(["060000205", "+40700000209"], [("tel_foreign", "")]),
+               (["069555101", "89115550107"], [("tel_foreign", "")]),
+               (["+40700000209"], [("tel_foreign", "")])])
+    res.check("непрочитанное остаётся непрочитанным", (ph(["12345"]), ph(["060 000"])),
+              (([], [("tel_bad", "12345")]), ([], [("tel_bad", "060 000")])))
+
+    res.check("шапка «как в жизни»: «Дата рожд.» и «Notă» узнаются, «Vârstă» и «Nr.» — нет",
+              g(["Nr.", "ФИО", "Tel.", "Дата рожд.", "IDNP", "Пол", "Адрес", "Notă", "Vârstă"]),
+              {1: "full", 2: "phone", 3: "birth", 4: "idnp", 5: "gender", 6: "address", 7: "notes"})
+    res.check("дата рождения сокращённо: Д.Р., Г.Р., год рожд., D.N., Data naș., Data n., Anul nașt.",
+              [g(["Nume", h]).get(1) for h in ("Д.Р.", "Г.Р.", "год рожд.", "D.N.", "Data naș.",
+                                               "Data n.", "Data nasc.", "Anul nașt.")], ["birth"] * 8)
+    res.check("врач: Medic, Dr., Doctor, Лечащий врач, Стоматолог, Medic stomatolog",
+              [g(["Nume", h]).get(1) for h in ("Medic", "Dr.", "Doctor", "Лечащий врач", "Стоматолог",
+                                               "Medic stomatolog")], ["doctor"] * 6)
+    res.check("чужое не перехвачено: место рождения пропущено, «Nota medicului» — заметки, "
+              "«Data programării» — запись",
+              g(["Nume", "Locul nașterii", "Место рождения", "Nota medicului", "Data programării",
+                 "Data nașterii", "Medic curant"]),
+              {0: "full", 3: "notes", 4: "appt", 5: "birth", 6: "doctor"})
+
+    book = S.excel_book([("S", [["Nume", "Telefon", "Data nașterii", "Notă"],
+                                ["Ianuarie 2024"],
+                                ["Popescu Ion", "060 000 205", D(1985, 3, 14), "x"],
+                                ["Total: 2 înregistrări"],
+                                ["Gîscă Petru"],
+                                ["Rusu Ana 2", "069555120"]], ["A2:D2"])])
+    _t, r, recs = recs_of(book)
+    by = {x["line"]: x for x in recs}
+    res.check("строка-раздел (одна ячейка на всю ширину) пропущена молча; «Total» в колонке имени — "
+              "«Nu intră» словами; одно имя — пациент",
+              (sorted(by), by[4]["err"], pi.why(by[4]["err"], by[4]["name"]), by[5]["err"]),
+              ([3, 4, 5, 6], "title", "pare un titlu, nu un pacient („Total: 2 înregistrări”)", ""))
+    res.check("имя с цифрой, но с телефоном — не титул", (by[6]["err"], by[6]["phone"]), ("", "069555120"))
+    res.check("номер «060 000 205» в строке — чистый, без пометок",
+              (by[3]["phone"], by[3]["notes_w"], by[3]["notes"]), ("060000205", [], "x"))
+
+    docs = {"d1": "Dr. Elena Rusu", "d2": "Ion Rusu", "d3": "Ciobanu Gheorghe", "d4": "Țurcanu Maria"}
+    dd = pi.Doctors(docs)
+    auto = {v: dd.auto(pi.doc_key(v), v) for v in (
+        "Dr. Elena Rusu", "rusu elena", "Rusu E.", "E. Rusu", "E.R.", "Е. Русу", "Русу Елена", "д-р Чобану",
+        "Чобану Георге", "Dr Ciobanu", "Цуркану М.", "TURCANU MARIA", "Врач Русу Ион", "Dr. Rusu",
+        "Popescu", "Dr.")}
+    res.check("врач узнан: полное имя в любом порядке, «Rusu E.», инициалы, без регистра и диакритики, "
+              "кириллица, «д-р» и «врач»",
+              {v: a[0] for v, a in auto.items()},
+              {"Dr. Elena Rusu": "d1", "rusu elena": "d1", "Rusu E.": "d1", "E. Rusu": "d1", "E.R.": "d1",
+               "Е. Русу": "d1", "Русу Елена": "d1", "д-р Чобану": "d3", "Чобану Георге": "d3",
+               "Dr Ciobanu": "d3", "Цуркану М.": "d4", "TURCANU MARIA": "d4", "Врач Русу Ион": "d2",
+               "Dr. Rusu": "", "Popescu": "", "Dr.": ""})
+    res.check("двое подошли одинаково — не угадывается, оба названы", auto["Dr. Rusu"][1], ["d1", "d2"])
+    rows = [["Nume", "Medic"], ["Unu Test", "Rusu E."], ["Doi Test", "rusu  e"], ["Trei Test", "Dr. Rusu"],
+            ["Patru Test", "Popescu"], ["Cinci Test", "Popescu"], [None, "Popescu"]]
+    blob = S.excel_book([("S", rows, [])])
+    t = tabfile.read(blob, "a.xlsx")
+    r = pi.resolve(t, pi.parse_opts(""))
+    recs = pi.build(t, r, docs)[0]
+    res.check("без выбора: узнанный — врач фиши; не узнанный — пометка и заметка",
+              [(x["primary_doctor"], x["notes"]) for x in recs[:4]],
+              [("Dr. Elena Rusu", ""), ("Dr. Elena Rusu", ""), ("", "Medic: Dr. Rusu"), ("", "Medic: Popescu")])
+    res.check("шаг «Medici»: одно написание — одна строка (регистр и точки не важны), сперва не узнанные",
+              [(x["value"], x["rows"], x["auto"], x["cands"], x["choice"])
+               for x in pi.doctor_list(recs, docs)],
+              [("Popescu", 2, "", [], ""), ("Dr. Rusu", 1, "", ["d1", "d2"], ""), ("Rusu E.", 2, "d1", [], "")])
+    pick = {pi.doc_key("Dr. Rusu"): "d2", pi.doc_key("Popescu"): pi.NO_DOCTOR, pi.doc_key("Rusu E."): "d9"}
+    r = pi.resolve(t, {**pi.parse_opts(json.dumps({"docs": pick})), "sheet": 0})
+    recs = pi.build(t, r, docs)[0]
+    res.check("выбор человека: «Dr. Rusu» → Ion Rusu, «Popescu» → fără medic (без пометки), "
+              "врача, которого нет, выбор не меняет",
+              [(x["primary_doctor"], x["notes"], x["notes_w"]) for x in recs],
+              [("Dr. Elena Rusu", "", [])] * 2 + [("Ion Rusu", "", [])] + [("", "", [])] * 3)
+    res.check("выбор едет в отпечатке", pi.token(blob, r) != pi.token(blob, pi.resolve(t, pi.parse_opts(""))),
+              True)
+    res.check("слишком много решений — кривой выбор",
+              pi.parse_opts(json.dumps({"docs": {str(i): "d1" for i in range(pi.DOCS_CAP + 1)}})), None)
     today = dt.date.today()
     pd = pi.parse_date
     res.check("двузначный год: больше текущего — прошлый век",
@@ -526,6 +615,59 @@ def suite_import(res: Result) -> None:
         chk = _check(c, xl.raw, "pacienti_export.xlsx")
         res.check("круг: книга, выгруженная программой, загружена обратно — ноль новых",
                   (chk["counts"]["rows"], chk["counts"]["create"]), (450, 0))
+
+
+def suite_doctors(res: Result) -> None:
+    """Врач фиши из колонки файла: что узнано, выбор человека на одно написание,
+    выключенный врач, ничего до «Importă», отмена снимает фиши вместе с врачом."""
+    rows = [["Nume", "Telefon", "Medic"],
+            ["Medicescu Unu", "069561001", "Activ Doi"],
+            ["Medicescu Doi", "069561002", "dr. activ doi"],
+            ["Medicescu Trei", "069561003", "Д-р Актив Трей"],
+            ["Medicescu Patru", "069561004", "A. Patru"],
+            ["Medicescu Cinci", "069561005", "Arhivat U."],
+            ["Medicescu Sase", "069561006", "Dr. Activ"],
+            ["Medicescu Sapte", "069561007", "Popescu"],
+            ["Medicescu Opt", "069561008", "Popescu"],
+            ["Medicescu Noua", "069561009", None]]
+    blob = S.excel_book([("Pacienți", rows, [])])
+    with Server() as s:
+        c = Client(s.url).login()
+        chk = _check(c, blob, "medici.xlsx")
+        res.check("колонка «Medic» узнана сама", chk["opts"]["cols"], {"0": "full", "1": "phone", "2": "doctor"})
+        res.check("врачи клиники для выбора: все, выключенный помечен",
+                  [(d["id"], d["active"]) for d in chk["clinic_doctors"]],
+                  [("d1", False), ("d2", True), ("d3", True), ("d4", True)])
+        res.check("шаг «Medici»: написание → врач (звание и регистр не важны); не узнанные первыми, "
+                  "с кандидатами",
+                  [(d["value"], d["rows"], d["auto"], d["cands"]) for d in chk["doctors"]],
+                  [("Popescu", 2, "", []), ("Dr. Activ", 1, "", ["d2", "d3", "d4"]),
+                   ("Activ Doi", 2, "d2", []), ("A. Patru", 1, "d4", []), ("Д-р Актив Трей", 1, "d3", []),
+                   ("Arhivat U.", 1, "d1", [])])
+        noted = {row["name"]: row["notes"] for g in chk["groups"] for row in g["rows"]}
+        res.check("не узнанный без выбора — пометка в строке", noted["Medicescu Sapte"],
+                  ["medicul „Popescu” nu este în lista clinicii, trecut în notițe"])
+        res.check("проверка ничего не записала", _total(c), 0)
+
+        key = {d["value"]: d["key"] for d in chk["doctors"]}
+        opts = {"docs": {key["Dr. Activ"]: "d3", key["Popescu"]: "-"}}
+        chk2 = _check(c, blob, "medici.xlsx", opts)
+        res.check("выбор человека виден в ответе и снимает пометки",
+                  ([d["choice"] for d in chk2["doctors"]][:2], chk2["counts"]["noted"]), (["-", "d3"], 0))
+        res.check("со старым отпечатком после выбора — 409",
+                  _send(c, "run", blob, "medici.xlsx", opts, token=chk["token"]).msg, "pi_stale")
+        run = _run_all(c, blob, "medici.xlsx", opts)
+        res.check("импорт: девять фиш", run["total"]["created"], 9)
+        doc = {x["name"]: _card(c, x["id"])["profile"]["primary_doctor"]
+               for x in _j(c.get(f"/api/patients?imp={run['id']}&per=50"))["data"]["rows"]}
+        res.check("врач фиши — как «Setează medicul»: имя врача клиники; выключенный — тоже; "
+                  "«fără medic» и пустая ячейка — без врача",
+                  doc, {"Medicescu Unu": "Dr. Activ Doi", "Medicescu Doi": "Dr. Activ Doi",
+                        "Medicescu Trei": "Dr. Activ Trei", "Medicescu Patru": "Dr. Activ Patru",
+                        "Medicescu Cinci": "Dr. Arhivat Unu", "Medicescu Sase": "Dr. Activ Trei",
+                        "Medicescu Sapte": "", "Medicescu Opt": "", "Medicescu Noua": ""})
+        und = _j(c._do(f"/api/pimport/undo?id={run['id']}", b"", {}))
+        res.check("отмена убирает фиши вместе с врачом", (und["data"]["total"]["removed"], _total(c)), (9, 0))
 
 
 def suite_rights(res: Result) -> None:
