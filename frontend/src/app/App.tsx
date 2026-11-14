@@ -31,8 +31,8 @@ import { GcalScreen, loadGcal } from '../features/gcal/GcalScreen'
 import { ImportScreen, loadPimport } from '../features/patients/ImportScreen'
 import { LabListScreen, loadLabList } from '../features/lab/LabListScreen'
 import { LabSettingsScreen, loadLabSettings } from '../features/lab/LabSettingsScreen'
-import { StockScreen } from '../features/stock/StockScreen'
-import { StockSettingsScreen } from '../features/stock/StockSettingsScreen'
+import { loadStock, StockScreen } from '../features/stock/StockScreen'
+import { loadStockSettings, StockSettingsScreen } from '../features/stock/StockSettingsScreen'
 import { RegistreScreen } from '../features/registre/RegistreScreen'
 import { RegistreSettingsScreen } from '../features/registre/RegistreSettingsScreen'
 import { loadVisit, VisitScreen } from '../features/visits/VisitScreen'
@@ -159,6 +159,8 @@ const LOADS: Partial<Record<ScreenName, ScreenData>> = {
   // счётчиками приезжает следующим кадром (стенд `spa_shift`, правило `test_structure`).
   lab: loadLabList,
   settings_lab: loadLabSettings,
+  stock: loadStock,
+  settings_stock: loadStockSettings,
 }
 
 /**

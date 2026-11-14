@@ -1,11 +1,9 @@
-import { useCallback, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
-import { LoadFailed } from '../../components/LoadFailed'
-import { useLoad } from '../../hooks/useLoad'
 import { asApiError } from '../../services/api'
 import { dmy, num, stockApi, type ImCheck, type ImHome, type ImOpts, type ImRow } from './stock'
-import { useBindRetry, useStockCtx } from './StockScreen'
+import { useStockCtx } from './StockScreen'
 
 /* Импорт каталога и начальных остатков — по образцу импорта пациентов: файл остаётся в браузере и уходит телом
    каждого запроса; разбор и проверка — на сервере, экран хранит только выбор человека и последний ответ. */
@@ -14,11 +12,8 @@ type Step = 'file' | 'cols' | 'check' | 'done'
 
 const ACT: Record<ImRow['act'], string> = { new: 'nou', exists: 'există — se sare', merged: 'unit cu un rând de mai sus', error: 'greșeală' }
 
-export function ImportView() {
-  const { navigate, say, refresh, go } = useStockCtx()
-  const load = useCallback((signal: AbortSignal) => stockApi.importHome(signal), [])
-  const { state, retry } = useLoad<ImHome>(load, navigate)
-  useBindRetry(retry)
+export function ImportView({ home }: { home: ImHome | null }) {
+  const { say, refresh, go } = useStockCtx()
   const fileRef = useRef<HTMLInputElement>(null)
   const [step, setStep] = useState<Step>('file')
   const [file, setFile] = useState<File | null>(null)
@@ -28,9 +23,7 @@ export function ImportView() {
   const [err, setErr] = useState('')
   const [done, setDone] = useState<{ id: number; created: number; rests: number; skipped: number } | null>(null)
 
-  if (state.status === 'failed') return <LoadFailed error={state.error} onRetry={retry} />
-  if (state.status !== 'ready') return <div className="fcard rg-body" aria-busy="true" />
-  const home = state.data
+  if (!home) return <div className="fcard rg-body" aria-busy="true" />
 
   async function verify(f: File, o: ImOpts, to: Step) {
     setBusy(true)
@@ -60,7 +53,6 @@ export function ImportView() {
       setDone(r.data)
       setStep('done')
       refresh()
-      retry()
     } catch (e) {
       const er = asApiError(e)
       setErr(er.text || 'Importul nu s-a făcut.')
@@ -74,7 +66,6 @@ export function ImportView() {
     try {
       await stockApi.importUndo(id)
       refresh()
-      retry()
       if (done?.id === id) { setDone(null); setStep('file'); setFile(null) }
       say('Importul anulat.')
     } catch (e) { say(asApiError(e).text || 'Nu se poate anula.', 'err') }
@@ -157,7 +148,9 @@ export function ImportView() {
                 ))}</tr>
               </thead>
               <tbody>
-                {check.rows.slice(0, 6).map((r) => (
+                {check.preview ? check.preview.map((r) => (
+                  <tr key={r.line}><td className="pi-ln">{r.line}</td>{check.columns.map((c) => <td key={c.index} className={fieldOf(c.index) ? '' : 'off'}>{r.cells[c.index] ?? ''}</td>)}</tr>
+                )) : check.rows.slice(0, 6).map((r) => (
                   <tr key={r.line}><td className="pi-ln">{r.line}</td>{check.columns.map((c) => <td key={c.index} className={fieldOf(c.index) ? '' : 'off'}>{cell(r, fieldOf(c.index))}</td>)}</tr>
                 ))}
               </tbody>

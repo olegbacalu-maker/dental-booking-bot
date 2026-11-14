@@ -3,8 +3,9 @@ import { createMemoryRouter } from 'react-router'
 import { RouterProvider } from 'react-router/dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buy, buyRow, CAN_DESK, dash, imCheck, imHome, imRow, item, list, move, ok } from '../../test/stock'
+import { openScreen } from '../../test/openScreen'
 import { DashStock } from './DashStock'
-import { StockScreen } from './StockScreen'
+import { loadStock, StockScreen } from './StockScreen'
 
 /* «Stoc»: остатки и меню слева из `/api/stock`, деньги — только с правом, «Deschis» с отменой, «Comandat»,
    накладная в единицах расхода, «похоже на…» в импорте, плашка главной с крестиком. */
@@ -21,9 +22,7 @@ function open(url = '/admin/stoc', routes: Record<string, unknown> = {}) {
     const key = Object.keys(routes).find((k) => path.startsWith(k))
     return Promise.resolve(ok(key ? routes[key] : list()))
   })
-  const router = createMemoryRouter([{ path: '/admin/stoc', element: <StockScreen navigate={nav} /> }], { initialEntries: [url] })
-  render(<RouterProvider router={router} />)
-  return router
+  return openScreen('/admin/stoc', url, <StockScreen navigate={nav} />, loadStock).router
 }
 
 afterEach(() => { cleanup(); get.mockReset(); post.mockReset(); postRaw.mockReset(); nav.mockReset(); vi.restoreAllMocks(); localStorage.clear() })
@@ -70,6 +69,19 @@ describe('StockScreen', () => {
     await waitFor(() => expect(router.state.location.search).toContain('f=arh'))
   })
 
+  it('данные — загрузчиком маршрута: фильтр остатков не перечитывает, раздел приходит вместе со списком', async () => {
+    const router = open('/admin/stoc', { '/stock/buy': buy([buyRow()]) })
+    await screen.findByText('Septanest 1:100 000')
+    const before = get.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: /Sub prag/ }))
+    await waitFor(() => expect(router.state.location.search).toContain('f=low'))
+    expect(get.mock.calls.length).toBe(before)
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Stoc' })).getByRole('button', { name: /De cumpărat/ }))
+    await screen.findByText(/Comandat tot|Filtek Z550 A2/)
+    const paths = get.mock.calls.slice(before).map((c) => String(c[0]))
+    expect(paths).toEqual(expect.arrayContaining(['/stock', '/stock/buy']))
+  })
+
   it('«Deschis» — одной кнопкой, без окна; «Anulează» отменяет строку журнала', async () => {
     post.mockResolvedValueOnce(ok({ id: 77, qty_milli: 2000, neg: false })).mockResolvedValueOnce(ok({}))
     open()
@@ -85,8 +97,7 @@ describe('StockScreen', () => {
       lots: [{ lot: 'TS-2405', exp_on: '2029-04-12', qty_milli: 1000 }] })
     get.mockImplementation((path: string) => Promise.resolve(ok(path.startsWith('/patients') ? { rows: [{ id: 4, name: 'Vasile Rotaru' }] } : list({ items: [implant] }))))
     post.mockResolvedValue(ok({ id: 1, qty_milli: 0, neg: false }))
-    const router = createMemoryRouter([{ path: '/admin/stoc', element: <StockScreen navigate={nav} /> }], { initialEntries: ['/admin/stoc'] })
-    render(<RouterProvider router={router} />)
+    openScreen('/admin/stoc', '/admin/stoc', <StockScreen navigate={nav} />, loadStock)
     const tr = (await screen.findByText('Implant Osstem 4.0')).closest('tr')!
     fireEvent.click(within(tr).getByRole('button', { name: /Scade/ }))
     const dlg = await screen.findByRole('dialog', { name: 'Scoate din stoc' })

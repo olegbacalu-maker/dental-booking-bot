@@ -1,10 +1,11 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { createContext, useCallback, useContext, useState } from 'react'
+import { useLoaderData, useRevalidator, useSearchParams, type ShouldRevalidateFunction } from 'react-router'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { SideMenu, type SideItem } from '../../components/SideMenu'
 import { Toast, type ToastState } from '../../components/Toast'
-import { defaultNavigate, useLoad } from '../../hooks/useLoad'
+import { defaultNavigate, type LoadState } from '../../hooks/useLoad'
+import type { RouteLoad, ScreenData } from '../../hooks/useRouteLoad'
 import { roCount } from '../../utils/plural'
 import { BuyView } from './BuyView'
 import { ImportView } from './ImportView'
@@ -13,22 +14,45 @@ import { InvoiceView } from './InvoiceView'
 import { JournalView } from './JournalView'
 import { OutDialog } from './OutDialog'
 import { RestView } from './RestView'
-import { MATERIALE, stockApi, type Filter, type ListData, type View } from './stock'
+import { MATERIALE, stockApi, type Filter, type ListData, type StockModel, type View } from './stock'
 
-/* Корень раздела: меню слева (разделы и категории), данные списка — и меню, и таблице остатков. Разделы
-   грузят своё сами; после команды любой из них зовёт `refresh` — перечитываются список и раздел. */
+/* Корень раздела: меню слева (разделы и категории) и раздел справа. Данные — ОДНИМ загрузчиком маршрута
+   (`loadStock` в LOADS): список склада и то, что нужно открытому разделу, приходят вместе до первого кадра,
+   и экран не дорисовывает блоки после данных. Фильтр, категория и поиск остатков — на клиенте, без загрузки. */
 
-/** Раздел отдаёт корню своё перечитывание, пока смонтирован. */
-export function useBindRetry(retry: () => void): void {
-  const { bind } = useStockCtx()
-  useEffect(() => { bind(retry); return () => bind(null) }, [bind, retry])
+/** Ключи адреса, от которых зависят данные раздела; `f`, `cat`, `q` остатков данных не меняют. */
+export const JOURNAL_KEYS = ['item', 'kind', 'from', 'to', 'actor', 'supplier'] as const
+const VIEW_KEYS = ['v', 'doc', ...JOURNAL_KEYS]
+
+const loadModel: RouteLoad<StockModel> = async (signal, _params, q) => {
+  const v = q.get('v') ?? ''
+  const docId = Number(q.get('doc')) || 0
+  const extra: Promise<Partial<StockModel>> =
+    (v === 'intrari' || v === 'inventar') && docId > 0 ? stockApi.doc(docId, signal).then((r) => ({ doc: r.data }))
+      : v === 'intrari' ? stockApi.docs('factura', signal).then((r) => ({ docs: r.data }))
+        : v === 'inventar' ? stockApi.docs('inventar', signal).then((r) => ({ docs: r.data }))
+          : v === 'jurnal' ? stockApi.moves(Object.fromEntries(JOURNAL_KEYS.map((k) => [k, q.get(k) ?? ''])), signal).then((r) => ({ moves: r.data }))
+            : v === 'cumparat' ? stockApi.buy(signal).then((r) => ({ buy: r.data }))
+              : v === 'import' ? stockApi.importHome(signal).then((r) => ({ imp: r.data }))
+                : Promise.resolve({})
+  const [list, more] = await Promise.all([stockApi.list(signal), extra])
+  return { ...list, data: { list: list.data, ...more } }
 }
+
+/** Повтор (`revalidate`) и смена раздела, документа или фильтров журнала — загрузка; фильтр остатков — нет. */
+const viewChangeOnly: ShouldRevalidateFunction = ({ currentUrl, nextUrl, defaultShouldRevalidate }) => {
+  if (currentUrl.pathname !== nextUrl.pathname || currentUrl.href === nextUrl.href) return defaultShouldRevalidate
+  const a = currentUrl.searchParams
+  const b = nextUrl.searchParams
+  return VIEW_KEYS.some((k) => (a.get(k) ?? '') !== (b.get(k) ?? '')) ? defaultShouldRevalidate : false
+}
+
+export const loadStock: ScreenData = { load: loadModel as RouteLoad<unknown>, shouldRevalidate: viewChangeOnly }
 
 interface Ctx {
   say: (text: string, tone?: ToastState['tone'], link?: ToastState['link']) => void
+  /** Перечитать модель экрана: меню и открытый раздел. На время повтора на экране остаются прежние данные. */
   refresh: () => void
-  /** Раздел отдаёт своё перечитывание: команда в одном месте обновляет и меню, и раздел. */
-  bind: (f: (() => void) | null) => void
   list: ListData | null
   navigate: (url: string) => void
   go: (v: View, extra?: Record<string, string>) => void
@@ -60,13 +84,10 @@ export function StockScreen({ navigate = defaultNavigate }: { navigate?: (url: s
   const find = v === 'stoc' ? q.get('q') ?? '' : ''
   const [toast, setToast] = useState<ToastState | null>(null)
   const [out, setOut] = useState<{ item: number; k: number } | null>(null)
-  const load = useCallback((signal: AbortSignal) => stockApi.list(signal), [])
-  const { state, retry } = useLoad<ListData>(load, navigate)
-  const listRetry = useRef(retry)
-  const viewRetry = useRef<(() => void) | null>(null)
-  useEffect(() => { listRetry.current = retry }, [retry])
-  const refresh = useCallback(() => { listRetry.current(); viewRetry.current?.() }, [])
-  const bind = useCallback((fn: (() => void) | null) => { viewRetry.current = fn }, [])
+  /* не `useRouteLoad`: тот на повторе показывает загрузку, и открытый черновик накладной потерял бы строки */
+  const loaded = useLoaderData() as LoadState<StockModel> | undefined
+  const { revalidate } = useRevalidator()
+  const refresh = useCallback(() => { void revalidate() }, [revalidate])
   const say = useCallback((text: string, tone: ToastState['tone'] = 'ok', link?: ToastState['link']) =>
     setToast(link ? { text, tone, link } : { text, tone }), [])
   const go = useCallback((to: View, extra: Record<string, string> = {}) => {
@@ -76,10 +97,11 @@ export function StockScreen({ navigate = defaultNavigate }: { navigate?: (url: s
     setQ(p)
   }, [setQ])
 
-  if (state.status === 'leaving') return null
-  if (state.status === 'failed') return <section className="dp-react-root"><LoadFailed error={state.error} onRetry={retry} /></section>
-  const data = state.status === 'ready' ? state.data : null
-  const ctx: Ctx = { say, refresh, bind, list: data, navigate, go, out: (item) => setOut({ item, k: Date.now() }) }
+  if (loaded?.status === 'leaving') return null
+  if (loaded?.status === 'failed') return <section className="dp-react-root"><LoadFailed error={loaded.error} onRetry={refresh} /></section>
+  const model = loaded?.status === 'ready' ? loaded.data : null
+  const data = model?.list ?? null
+  const ctx: Ctx = { say, refresh, list: data, navigate, go, out: (item) => setOut({ item, k: Date.now() }) }
 
   const cats = catsOf(data)
   const ordered = orderedOf(data)
@@ -111,7 +133,7 @@ export function StockScreen({ navigate = defaultNavigate }: { navigate?: (url: s
 
   return (
     <StockCtx.Provider value={ctx}>
-      <section className="dp-react-root rg st" aria-busy={state.status === 'loading' || undefined}>
+      <section className="dp-react-root rg st" aria-busy={!model || undefined}>
         <SideMenu label="Stoc" items={items} value={value} onPick={pick}>
           <div className="fcard rg-head st-head">
             <b className="st-ttl">{v === 'stoc' && cat ? cat : title}</b>
@@ -123,11 +145,11 @@ export function StockScreen({ navigate = defaultNavigate }: { navigate?: (url: s
           </div>
           {v === 'stoc' && data && <Alerts d={data} />}
           {v === 'stoc' && <RestView data={data} f={f} cat={cat} find={find} />}
-          {v === 'intrari' && <InvoiceView />}
-          {v === 'jurnal' && <JournalView />}
-          {v === 'inventar' && <InventoryView />}
-          {v === 'cumparat' && <BuyView />}
-          {v === 'import' && <ImportView />}
+          {v === 'intrari' && <InvoiceView docs={model?.docs ?? null} doc={model?.doc ?? null} />}
+          {v === 'jurnal' && <JournalView data={model?.moves ?? null} />}
+          {v === 'inventar' && <InventoryView docs={model?.docs ?? null} doc={model?.doc ?? null} />}
+          {v === 'cumparat' && <BuyView data={model?.buy ?? null} />}
+          {v === 'import' && <ImportView home={model?.imp ?? null} />}
         </SideMenu>
         {out && <OutDialog key={out.k} item={out.item} onClose={() => setOut(null)} />}
         {toast && <Toast {...toast} onClose={() => setToast(null)} />}

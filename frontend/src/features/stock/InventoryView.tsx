@@ -1,25 +1,22 @@
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
+import { useSearchParams } from 'react-router'
 import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
-import { LoadFailed } from '../../components/LoadFailed'
-import { useLoad } from '../../hooks/useLoad'
 import { asApiError } from '../../services/api'
 import { dmy, lei, num, parseQty, qtyText, stockApi, type Doc, type DocData, type DocsData, type ListData } from './stock'
 import { Empty } from './parts'
-import { useBindRetry, useStockCtx } from './StockScreen'
+import { useStockCtx } from './StockScreen'
 
 /** Инвентаризация: «în program» против «pe raft», черновик на завтра, «Aplică» — разница строками журнала. */
-export function InventoryView() {
-  const { navigate, list, refresh } = useStockCtx()
-  const [open, setOpen] = useState<number | 'nou' | null>(null)
-  const load = useCallback((signal: AbortSignal) => stockApi.docs('inventar', signal), [])
-  const { state, retry } = useLoad<DocsData>(load, navigate)
-  useBindRetry(retry)
+export function InventoryView({ docs: data, doc }: { docs: DocsData | null; doc: DocData | null }) {
+  const { list, go } = useStockCtx()
+  const [q] = useSearchParams()
+  const open = q.get('doc')
+  const back = () => go('inventar')
   if (!list) return <div className="fcard rg-body" aria-busy="true" />
-  if (open === 'nou') return <Start list={list} onCancel={() => setOpen(null)} onMade={(id) => { refresh(); setOpen(id) }} />
-  if (open !== null) return <Sheet key={open} id={open} list={list} onDone={() => { setOpen(null); retry() }} />
-  if (state.status === 'failed') return <LoadFailed error={state.error} onRetry={retry} />
-  if (state.status !== 'ready') return <div className="fcard rg-body" aria-busy="true" />
+  if (open === 'nou') return <Start list={list} onCancel={back} onMade={(id) => go('inventar', { doc: String(id) })} />
+  if (open) return doc ? <Count key={doc.doc.id} doc={doc.doc} list={list} onDone={back} /> : <div className="fcard st-inv" aria-busy="true" />
+  if (!data) return <div className="fcard rg-body" aria-busy="true" />
   if (!list.items.length) {
     return (
       <Empty ico="check" title="Inventarierea are nevoie de catalog">
@@ -27,12 +24,12 @@ export function InventoryView() {
       </Empty>
     )
   }
-  const docs = state.data.docs
+  const docs = data.docs
   return (
     <div className="fcard rg-body">
       <div className="rg-bar">
         <span className="rg-ttl"><b>Inventarieri</b><small>o dată pe lună sau pe trimestru; se poate și doar pe o categorie</small></span>
-        <button type="button" className="rg-btn pri" onClick={() => setOpen('nou')}><Icon name="plus" /> Inventariere nouă</button>
+        <button type="button" className="rg-btn pri" onClick={() => go('inventar', { doc: 'nou' })}><Icon name="plus" /> Inventariere nouă</button>
       </div>
       {docs.length === 0 ? <p className="hint rg-none">Încă nu s-a făcut nicio inventariere.</p> : (
         <div className="rg-scroll">
@@ -46,7 +43,7 @@ export function InventoryView() {
                   <td>{d.note || 'tot stocul'}</td>
                   <td className="num">{d.lines}</td>
                   <td><span className={`st-pill ${d.status === 'ciorna' ? 'warn' : 'ok'}`}>{d.status_label}</span><small>{d.actor}</small></td>
-                  <td className="st-act-c"><button type="button" className="rg-btn sm" onClick={() => setOpen(d.id)}>
+                  <td className="st-act-c"><button type="button" className="rg-btn sm" onClick={() => go('inventar', { doc: String(d.id) })}>
                     {d.status === 'ciorna' ? <><Icon name="pen" /> Continuă</> : <><Icon name="eye" /> Deschide</>}</button></td>
                 </tr>
               ))}
@@ -96,15 +93,6 @@ function Start({ list, onCancel, onMade }: { list: ListData; onCancel: () => voi
       </div>
     </div>
   )
-}
-
-function Sheet({ id, list, onDone }: { id: number; list: ListData; onDone: () => void }) {
-  const { navigate } = useStockCtx()
-  const load = useCallback((signal: AbortSignal) => stockApi.doc(id, signal), [id])
-  const { state, retry } = useLoad<DocData>(load, navigate)
-  if (state.status === 'failed') return <LoadFailed error={state.error} onRetry={retry} />
-  if (state.status !== 'ready') return <div className="fcard st-inv" aria-busy="true" />
-  return <Count doc={state.data.doc} list={list} onDone={onDone} />
 }
 
 const plain = (milli: number) => num(milli, 3).split('.').join('')

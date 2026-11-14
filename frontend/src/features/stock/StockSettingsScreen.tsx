@@ -1,10 +1,11 @@
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import { AppLink } from '../../components/AppLink'
 import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
-import { defaultNavigate, useLoad } from '../../hooks/useLoad'
+import { defaultNavigate } from '../../hooks/useLoad'
+import { useRouteLoad, type ScreenData } from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
 import { stockApi, type ListData, type Supplier } from './stock'
 import { F } from './parts'
@@ -12,10 +13,11 @@ import { F } from './parts'
 type Draft = { id?: number; name: string; idno: string; phone: string; email: string; note: string; active: boolean }
 const NEW: Draft = { name: '', idno: '', phone: '', email: '', note: '', active: true }
 
+export const loadStockSettings: ScreenData = (signal) => stockApi.list(signal)
+
 /** Setări › Stoc: когда «expiră în curând» и когда гаснет «comandat»; справочник поставщиков. */
 export function StockSettingsScreen({ navigate = defaultNavigate }: { navigate?: (url: string) => void }) {
-  const load = useCallback((signal: AbortSignal) => stockApi.list(signal), [])
-  const { state, retry } = useLoad<ListData>(load, navigate)
+  const { state, retry } = useRouteLoad<ListData>(navigate)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [days, setDays] = useState<{ exp: string; ord: string } | null>(null)
   const [edit, setEdit] = useState<Draft | null>(null)

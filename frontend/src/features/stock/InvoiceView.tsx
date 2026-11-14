@@ -1,9 +1,7 @@
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
-import { LoadFailed } from '../../components/LoadFailed'
-import { useLoad } from '../../hooks/useLoad'
 import { asApiError } from '../../services/api'
 import { ItemDialog } from './ItemDialog'
 import {
@@ -11,27 +9,23 @@ import {
   type Doc, type DocData, type DocsData, type Item, type LineIn, type ListData,
 } from './stock'
 import { Empty, F } from './parts'
-import { useBindRetry, useStockCtx } from './StockScreen'
+import { useStockCtx } from './StockScreen'
 
 interface Row { id?: number; item_id: number; packs: string; sum: string; exp_on: string; lot: string }
 const EMPTY: Row = { item_id: 0, packs: '', sum: '', exp_on: '', lot: '' }
 
 /** Приход по накладной: список и редактор черновика (адрес `?v=intrari&doc=`). */
-export function InvoiceView() {
-  const { navigate, go, list } = useStockCtx()
+export function InvoiceView({ docs: data, doc }: { docs: DocsData | null; doc: DocData | null }) {
+  const { go, list, refresh } = useStockCtx()
   const [q] = useSearchParams()
   const open = q.get('doc')
-  const load = useCallback((signal: AbortSignal) => stockApi.docs('factura', signal), [])
-  const { state, retry } = useLoad<DocsData>(load, navigate)
-  useBindRetry(retry)
   if (open) {
-    if (!list) return <div className="fcard st-inv" aria-busy="true" />
+    if (!list || (open !== 'nou' && !doc)) return <div className="fcard st-inv" aria-busy="true" />
     return open === 'nou' ? <Form key="nou" doc={null} list={list} onDone={() => go('intrari')} />
-      : <Editor key={open} id={Number(open)} list={list} onDone={() => go('intrari')} />
+      : <Form key={doc!.doc.id} doc={doc!.doc} list={list} onDone={() => go('intrari')} reload={refresh} />
   }
-  if (state.status === 'failed') return <LoadFailed error={state.error} onRetry={retry} />
-  if (state.status !== 'ready') return <div className="fcard rg-body" aria-busy="true" />
-  const { docs, can } = state.data
+  if (!data) return <div className="fcard rg-body" aria-busy="true" />
+  const { docs, can } = data
   if (!docs.length) {
     return (
       <Empty ico="download" title="Încă nu e nicio factură">
@@ -68,16 +62,6 @@ export function InvoiceView() {
       </div>
     </div>
   )
-}
-
-function Editor({ id, list, onDone }: { id: number; list: ListData; onDone: () => void }) {
-  const { navigate } = useStockCtx()
-  /* редактор не отдаёт перечитывание корню: перечитанный документ стёр бы несохранённые строки черновика */
-  const load = useCallback((signal: AbortSignal) => stockApi.doc(id, signal), [id])
-  const { state, retry } = useLoad<DocData>(load, navigate)
-  if (state.status === 'failed') return <LoadFailed error={state.error} onRetry={retry} />
-  if (state.status !== 'ready') return <div className="fcard st-inv" aria-busy="true" />
-  return <Form doc={state.data.doc} list={list} onDone={onDone} reload={retry} />
 }
 
 const packsOf = (qty: number | null, packQty: number) => (qty == null ? '' : num(Math.round((qty / packQty) * 1000), 3).split('.').join(''))

@@ -63,7 +63,7 @@ export interface ListData {
   prefs: Prefs
   words: Words
   cats: string[]
-  counts: { all: number; low: number; neg: number; soon: number; expired: number; ordered: number; archive: number; bulk: number }
+  counts: { all: number; low: number; neg: number; soon: number; expired: number; ordered: number; late?: number; archive: number; bulk: number }
   items: Item[]
   suppliers: Supplier[]
   drafts: { factura: number; inventar: number }
@@ -163,8 +163,18 @@ export interface BuyRow {
 export interface BuyGroup { supplier_id: number | null; supplier: string; phone: string; email: string; rows: BuyRow[] }
 export interface BuyData { today: string; prefs: Prefs; groups: BuyGroup[]; counts: { low: number; ordered: number; late: number }; can: Can }
 
+/** Модель экрана «Stoc» одним загрузчиком: список склада и данные открытого раздела. */
+export interface StockModel {
+  list: ListData
+  docs?: DocsData
+  doc?: DocData
+  moves?: MovesData
+  buy?: BuyData
+  imp?: ImHome
+}
+
 export interface DashData {
-  low: number; neg: number; ordered: number; soon: number; expired: number
+  low: number; neg: number; ordered: number; late?: number; soon: number; expired: number
   low_items: { id: number; name: string }[]
   exp_items: { id: number; name: string; exp_on: string; days: number }[]
 }
@@ -183,6 +193,8 @@ export interface ImCheck {
   file: { name: string; kind: string; size: number; sheets: { name: string; rows: number }[] }
   opts: { sheet: number; header: number; cols: Record<string, string> }
   columns: ImColumn[]
+  /** Первые строки под шапкой сырыми ячейками — для выбора колонок. */
+  preview?: { line: number; cells: string[] }[]
   ready: boolean
   rows: ImRow[]
   counts: { new: number; exists: number; merged: number; errors: number; rests: number; similar: number }

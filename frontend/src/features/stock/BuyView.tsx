@@ -1,26 +1,20 @@
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
-import { LoadFailed } from '../../components/LoadFailed'
-import { useLoad } from '../../hooks/useLoad'
 import { asApiError } from '../../services/api'
 import { roCount } from '../../utils/plural'
 import { buyPrintHref, dmy, lei, MATERIALE, orderState, qtyText, stockApi, type BuyData } from './stock'
 import { Empty } from './parts'
-import { useBindRetry, useStockCtx } from './StockScreen'
+import { useStockCtx } from './StockScreen'
 
 /** «De cumpărat»: ниже порога по поставщикам; «Comandat» — лёгкая отметка, чтобы не заказать дважды (не заказ). */
-export function BuyView() {
-  const { navigate, say, refresh } = useStockCtx()
-  const load = useCallback((signal: AbortSignal) => stockApi.buy(signal), [])
-  const { state, retry } = useLoad<BuyData>(load, navigate)
-  useBindRetry(retry)
+export function BuyView({ data }: { data: BuyData | null }) {
+  const { say, refresh } = useStockCtx()
   const [n, setN] = useState<Record<number, string>>({})
   const [off, setOff] = useState<number[]>([])
   const [busy, setBusy] = useState(false)
-  if (state.status === 'failed') return <LoadFailed error={state.error} onRetry={retry} />
-  if (state.status !== 'ready') return <div className="fcard rg-body" aria-busy="true" />
-  const { groups, counts, can, prefs } = state.data
+  if (!data) return <div className="fcard rg-body" aria-busy="true" />
+  const { groups, counts, can, prefs } = data
   if (!counts.low) {
     return (
       <Empty ico="check" title="Nimic sub prag">
