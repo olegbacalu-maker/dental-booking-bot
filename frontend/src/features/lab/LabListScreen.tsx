@@ -86,17 +86,15 @@ export function LabListScreen({ navigate = defaultNavigate }: { navigate?: (url:
           <div className="rg-scroll">
             <table className="rg-tbl lb-tbl">
               <thead>
-                <tr><th>Nr.</th><th>Pacient</th><th>Dinți</th><th>Lucrarea</th><th>Laborator</th><th>Termen</th>
+                <tr><th>Pacient</th><th>Lucrarea</th><th>Termen</th>
                   <th>Programare</th><th>Stare</th>{withMoney && <th className="num">Preț lab.</th>}<th /></tr>
               </thead>
               <tbody>
                 {rows.map((o) => (
                   <tr key={o.id} className={`${o.late ? 'lb-late-r' : o.visit_wait ? 'lb-warn-r' : ''}${isOpen(o) ? '' : ' lb-done-r'}`} data-st={o.status}>
-                    <td className="num">{o.nr}</td>
-                    <td className="lb-pat"><AppLink href={`/admin/patient/${o.pid}?tab=plan`}><b>{o.patient}</b></AppLink><small>{o.doctor || '—'}</small></td>
-                    <td className="num">{teethText(o.teeth)}</td>
-                    <td>{o.work}{o.urgent && <UrgentTag />}</td>
-                    <td>{o.lab}</td>
+                    <td className="lb-pat"><AppLink href={`/admin/patient/${o.pid}?tab=plan`}><b>{o.patient}</b></AppLink>
+                      <small>nr. {o.nr}{o.doctor ? ` · ${o.doctor}` : ''}</small></td>
+                    <td className="lb-work">{o.work}{o.urgent && <UrgentTag />}<small>{o.teeth.length ? `${teethText(o.teeth)} · ` : ''}{o.lab}</small></td>
                     <td><Due o={o} /></td>
                     <td><Appt a={isOpen(o) ? o.next_appt : null} warn={o.visit_wait} /></td>
                     <td><StatusPill o={o} /></td>

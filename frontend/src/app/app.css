@@ -3749,7 +3749,8 @@ dialog.lb-dlg .lb-hist-h .lnk { display: inline-flex; align-items: center; gap: 
 dialog.lb-dlg .lb-hist-h svg { width: 14px; height: 14px; }
 dialog.lb-dlg .rg-dlg-f > .lb-cancel { margin-right: auto; }
 dialog.lb-dlg .rg-dlg-f > .lb-cancel ~ button:first-of-type { margin-left: 0; }
-.lb .lb-tbl td.lb-pat { min-width: 150px; }
+.lb .lb-tbl td.lb-pat { min-width: 130px; }
+.lb .lb-tbl td.lb-work { min-width: 140px; }
 .lb .lb-tbl td.lb-pat b { white-space: nowrap; }
 .lb .lb-tbl td.lb-act-c { width: 1%; white-space: nowrap; }
 .lb-dash-t { display: flex; flex-direction: column; gap: 2px; }
@@ -3763,7 +3764,7 @@ dialog.lb-dlg .lb-hist li.undone { color: var(--text3); text-decoration: line-th
 dialog.lb-dlg .lb-steps-box { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px; border-radius: var(--r-s); background: var(--fill); }
 
 /* ---- меню раздела слева (SideMenu): «Laborator», раскладка B «Stoc» ---- */
-.dp-split { display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 14px; align-items: start; }
+.dp-split { display: grid; grid-template-columns: 208px minmax(0, 1fr); gap: 14px; align-items: start; }
 .dp-split-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .dp-rail { position: sticky; top: 12px; display: flex; flex-direction: column; gap: 2px; padding: 8px; }
 .dp-ri { display: flex; align-items: center; gap: 10px; min-height: 40px; margin: 0; padding: 0 10px; border: 0; border-radius: var(--r-s); background: none;
@@ -3794,3 +3795,4 @@ dialog.lb-dlg .lb-steps-box { display: flex; flex-wrap: wrap; gap: 8px; padding:
 .lb-dash .lb-dash-x:focus-visible { outline: none; box-shadow: var(--ring); }
 .lb-dash .lb-dash-x svg { width: 16px; height: 16px; }
 @media (pointer: coarse) { .lb-dash .lb-dash-x { width: 44px; height: 44px; } }
+.lb .lb-tbl .lb-act.multi { flex-wrap: wrap; max-width: 250px; row-gap: 4px; }

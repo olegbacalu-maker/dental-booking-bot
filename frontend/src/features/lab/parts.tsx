@@ -72,9 +72,10 @@ const STEP_ICON: Partial<Record<Step['act'], Parameters<typeof Icon>[0]['name']>
 
 /** Кнопки строки: главный шаг и (после примерки) этап или переделка — как их назвал сервер; наряд; окно. */
 export function RowActs({ o, host }: { o: OrderRow; host: LabHost }) {
-  const steps = (o.steps ?? []).filter((s) => s.main || s.act === 'etapa' || s.act === 'refacere')
+  /* в строке — главный шаг; этап и переделку — только после примерки, остальное в окне заказа */
+  const steps = (o.steps ?? []).filter((s) => s.main || (o.status === 'proba' && (s.act === 'etapa' || s.act === 'refacere')))
   return (
-    <span className="lb-act">
+    <span className={`lb-act${steps.length > 1 ? ' multi' : ''}`}>
       {steps.map((s) => (
         <button key={s.act} type="button" className={`lb-go${s.main ? '' : ' alt'}${s.act === 'finalizat' ? ' fin' : ''}`}
           disabled={host.busy} onClick={() => host.act(o, s.act)}>
