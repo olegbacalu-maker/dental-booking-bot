@@ -118,6 +118,8 @@ _DB_TEXTS = "app/db/plans.py"        # тексты летописи пацие�
 _DB_SAN = "app/db/registre.py"       # журналы san_*: единственное место UPDATE (замок IS NULL)
 _DB_LAB = "app/db/lab.py"            # заказы в лабораторию: история только дописывается
 _DB_STOCK = "app/db/stock.py"        # журнал склада: только INSERT, и только здесь
+# Разделы с меню слева, которые обязаны найтись правилу «раздел с меню слева берёт данные загрузчиком».
+_SIDE_MENU_KNOWN = {"patient_card", "lab", "stock"}
 # Якоря бывшего layout.py (разнос 04.11): переезд имени = правка одной строки.
 _LAY_SHELL = "app/core/layout.py"     # shell_model, REACT_SCREENS, SECTION_TITLE
 _LAY_ICONS = "app/core/icons.py"      # _I, _ic
@@ -1525,8 +1527,9 @@ def suite(res: Result) -> None:
     # фиши. Раздел с
     # `SideMenu` (фиша, «Laborator», склад) — строка в `LOADS` App.tsx, и ни один его локальный модуль, вплоть
     # до блоков внутри вкладок, не зовёт `useLoad`. Стенд того же — `scripts/spa_shift.py`.
-    # Полярность опасная: правило зелено, если не нашло ни одного раздела с меню — отсюда якорь «не меньше двух».
-    bad, side = [], 0
+    # Полярность опасная: правило зелено, если не нашло ни одного раздела с меню — отсюда якорь по ИМЕНАМ известных
+    # разделов: счёт «не меньше N» слепнет с каждым новым разделом (пропажа одного не опускает его ниже N).
+    bad, side = [], set()
     app_code = _client_code(app_tsx.read_text(encoding="utf-8")) if app_tsx.exists() else ""
     comp_file = {name.strip().removeprefix("type ").strip(): src_
                  for names, src_ in re.findall(r"import\s*\{([^}]*)\}\s*from\s*'([^']+)'", app_code)
@@ -1551,7 +1554,7 @@ def suite(res: Result) -> None:
         if top is None or not re.search(r"from\s*'[./]*components/SideMenu'",
                                         _client_code(top.read_text(encoding="utf-8"))):
             continue
-        side += 1
+        side.add(name)
         if name not in loads:
             bad.append(f"{name}: нет строки в LOADS App.tsx")
         seen, todo = set(), [top]
@@ -1565,8 +1568,8 @@ def suite(res: Result) -> None:
             bad += [f"{name}: {rel}:{code.count(chr(10), 0, m.start()) + 1} зовёт useLoad"
                     for m in re.finditer(r"(?<![\w.])useLoad\s*[<(]", code)]
             todo += _local(f)
-    if side < 2:
-        bad.append(f"разделов с SideMenu в SCREENS App.tsx нашлось {side} — якорь правила пропал")
+    if lost := sorted(_SIDE_MENU_KNOWN - side):
+        bad.append(f"разделы {lost} без SideMenu в SCREENS App.tsx — якорь правила пропал")
     res.ok("раздел с меню слева берёт данные загрузчиком маршрута", not bad,
            "свой useLoad встаёт пустым меню, а таблица и счётчики приезжают следующим кадром — прыжок при "
            "каждом переходе: " + "; ".join(bad))

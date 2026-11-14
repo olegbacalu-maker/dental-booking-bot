@@ -265,6 +265,11 @@ MUTATIONS = [
     # ЯКОРЬ: раздел перестал звать SideMenu — правило искало бы среди одного.
     ("меню слева берёт данные загрузчиком", "_frontend/features/lab/LabListScreen.tsx",
      ("import { SideMenu, type SideItem } from '../../components/SideMenu'\n", "")),
+    # Тот же якорь у склада: «не меньше двух» разделов пропажу одного из трёх не заметил бы.
+    ("меню слева берёт данные загрузчиком", "_frontend/features/stock/StockScreen.tsx",
+     ("import { SideMenu, type SideItem } from '../../components/SideMenu'\n", "")),
+    ("меню слева берёт данные загрузчиком", "_frontend/app/App.tsx",
+     ("  stock: loadStock,\n", "")),
     # Ровно тот дефект, что жил с 08-13: шаг 4 есть в обоих словарях миграций,
     # версия осталась 3 — цикл _migrate до шага не доходит, и «missing
     # migration step» молчит (он ловит отсутствующие шаги, не лишние).
