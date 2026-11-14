@@ -98,6 +98,7 @@ HUB_GROUP_OF = {"/admin/settings/system": "general", "/admin/license": "general"
                 "/admin/settings/registre": "general",
                 "/admin/medici": "medici", "/admin/settings/templates": "medici",
                 "/admin/settings/lab": "medici",
+                "/admin/settings/stoc": "general",
                 "/admin/settings/lan": "date", "/admin/settings/crypt": "date",
                 "/admin/patients/import": "date",
                 "/admin/settings/backup": "date", "/admin/settings/security": "securitate",
@@ -195,6 +196,8 @@ def _hub_tiles() -> list[dict]:
                   [{"t": _tpl_hint(cfg)}]),
              tile("/admin/settings/lab", "box", "b", "Laboratoare",
                   [{"t": "tehnică dentară · zile lucrătoare · fișa de comandă"}]),
+             tile("/admin/settings/stoc", "box", "g", "Stoc",
+                  [{"t": "furnizori · expiră în curând · nota „comandat”"}]),
              # «Registre» (10.11): каталог, из которого регистры делают кнопки
              tile("/admin/settings/registre", "shield", "g", "Registre sanitare",
                   [{"t": "sterilizatoare, lămpi bactericide, încăperi"}])]

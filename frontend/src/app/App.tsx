@@ -31,6 +31,8 @@ import { GcalScreen, loadGcal } from '../features/gcal/GcalScreen'
 import { ImportScreen, loadPimport } from '../features/patients/ImportScreen'
 import { LabListScreen, loadLabList } from '../features/lab/LabListScreen'
 import { LabSettingsScreen, loadLabSettings } from '../features/lab/LabSettingsScreen'
+import { StockScreen } from '../features/stock/StockScreen'
+import { StockSettingsScreen } from '../features/stock/StockSettingsScreen'
 import { RegistreScreen } from '../features/registre/RegistreScreen'
 import { RegistreSettingsScreen } from '../features/registre/RegistreSettingsScreen'
 import { loadVisit, VisitScreen } from '../features/visits/VisitScreen'
@@ -94,6 +96,8 @@ export const SCREENS: Record<ScreenName, Draw> = {
   // фильтр, лаборатория и поиск — адрес; данные — загрузчик маршрута, команды — его повтор
   lab: () => <LabListScreen />,
   settings_lab: () => <LabSettingsScreen />,
+  stock: () => <StockScreen />,
+  settings_stock: () => <StockSettingsScreen />,
   patients_search: () => <PatientsSearchScreen />,
   patients_import: () => <ImportScreen />,
   patient_card: (p) => <PatientCardScreen pid={Number(p.pid)} />,

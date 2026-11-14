@@ -20,7 +20,7 @@ from .. import brand, db, paths
 from .. import engine as eng
 from . import sms_loop
 from . import theme
-from .auth import (PERM_DOCTORS, PERM_LABS, PERM_MONEY, PERM_RECALL, PERM_SCHEDULE_ALL, PERM_SETTINGS, PERM_SMS,
+from .auth import (PERM_DOCTORS, PERM_LABS, PERM_MONEY, PERM_STOCK, PERM_RECALL, PERM_SCHEDULE_ALL, PERM_SETTINGS, PERM_SMS,
                    PIN_MAX, ROLE_LABEL, _pin_rec, can, request_user, schedule_scope)
 from .icons import _ic
 from .messages import msg_banner, msg_json, msg_state, msg_text, msg_view
@@ -107,7 +107,9 @@ REACT_SCREENS = frozenset({"recall", "settings_clinic", "doctors_list", "doctor_
                            "registre", "settings_registre",
                            "gcal", "patients_import",
                            # заказы в лабораторию и каталог лабораторий
-                           "lab", "settings_lab"})
+                           "lab", "settings_lab",
+                           # склад материалов и его настройки
+                           "stock", "settings_stock"})
 
 
 # Метка узла React в готовой странице (её печатает `react_shell`).
@@ -188,6 +190,7 @@ SECTION_TITLE = {"dash": "Panoul principal", "prog": "Programări", "pat": "Paci
                  # «Registre» (10.11): санитарные регистры — у ВСЕХ вошедших
                  "reg": "Registre",
                  "lab": "Laborator",
+                 "stoc": "Stoc",
                  # SMS-пакет (S6): пункт секции «Sincronizări», когда сервер предлагает пакет
                  "gcal": "Google Calendar",
                  "sms": "SMS pacienți"}
@@ -229,6 +232,8 @@ def shell_model(active: str, sub: str, rail: bool = False,
     show_recall = can(me, PERM_RECALL) or me is None
     # каталог лабораторий: стойка и директор, врачу — нет
     show_labs = can(me, PERM_LABS) or me is None
+    # склад ведут стойка и директор; врач материалы своего визита увидит в фише, не здесь
+    show_stock = can(me, PERM_STOCK) or me is None
     th = theme.current()
 
     items = [{"key": "dash", "href": "/admin", "icon": "home", "label": SECTION_TITLE["dash"]},
@@ -242,6 +247,8 @@ def shell_model(active: str, sub: str, rail: bool = False,
     # «Registre» (10.11, вариант B): пишут все вошедшие — ассистентка у кресла тоже
     items.append({"key": "reg", "href": "/admin/registre", "icon": "shield",
                   "label": SECTION_TITLE["reg"]})
+    if show_stock:
+        items.append({"key": "stoc", "href": "/admin/stoc", "icon": "box", "label": SECTION_TITLE["stoc"]})
     if show_docs:
         items.append({"key": "med", "href": "/admin/medici", "icon": "med",
                       "label": SECTION_TITLE["med"]})
@@ -281,7 +288,8 @@ def shell_model(active: str, sub: str, rail: bool = False,
                       "initials": _initials(me["name"]),
                       "can": {"money": show_money, "settings": show_set,
                               "doctors": show_docs, "schedule_all": show_sched,
-                              "recall": show_recall, "labs": show_labs},
+                              "recall": show_recall, "labs": show_labs,
+                              "stock": show_stock},
                       # ключ СВОЕГО врача у журнала, суженного до него
                       # (`auth.schedule_scope`); пусто — журнал всех или ничей
                       "doctor": schedule_scope(me, eng.DOCTORS) or ""} if me else None),

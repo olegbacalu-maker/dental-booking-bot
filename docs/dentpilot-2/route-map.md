@@ -14,7 +14,7 @@
 ради роутера.
 
 
-Поверхностей **33**.
+Поверхностей **35**.
 
 
 | адрес FastAPI | маршрут React | экран | параметры узла | загрузчик |
@@ -30,6 +30,7 @@
 | `/admin/search` | `/admin/search` | `patients_search` | q?, med?, st?, ch?, dat?, sort?, page?, per? | GET /api/patients/summary + GET /api/patients |
 | `/admin/settings` | `/admin/settings` | `settings_hub` | — | GET /api/settings/hub |
 | `/admin/stats` | `/admin/stats` | `stats` | from, to | GET /api/stats |
+| `/admin/stoc` | `/admin/stoc` | `stock` | v?, f?, cat?, q?, doc? | GET /api/stock |
 | `/admin/week` | `/admin/week` | `schedule_week` | date | GET /api/schedule/week |
 | `/admin/doctor-card/{dk}` | `/admin/doctor-card/:dk` | `doctor_card` | dk | GET /api/doctors/{dk} |
 | `/admin/doctor/{dk}` | `/admin/doctor/:dk` | `schedule_doctor` | date, dk | GET /api/schedule/day |
@@ -46,6 +47,7 @@
 | `/admin/settings/security` | `/admin/settings/security` | `settings_security` | — | GET /api/settings/security |
 | `/admin/settings/services` | `/admin/settings/services` | `settings_services` | — | GET /api/settings/services |
 | `/admin/settings/sms` | `/admin/settings/sms` | `settings_sms` | — | GET /api/settings/sms |
+| `/admin/settings/stoc` | `/admin/settings/stoc` | `settings_stock` | — | GET /api/settings/stock |
 | `/admin/settings/system` | `/admin/settings/system` | `settings_system` | — | GET /api/settings/system |
 | `/admin/settings/templates` | `/admin/settings/templates` | `settings_templates` | — | GET /api/settings/templates |
 | `/admin/settings/theme` | `/admin/settings/theme` | `settings_theme` | — | GET /api/settings/theme |
@@ -61,6 +63,7 @@
 - `/admin/lab` — фильтр, поиск и лаборатория — из адреса
 - `/admin/registre` — «Azi» и «Istoric» (v=istoric) — один экран; месяц истории — из адреса
 - `/admin/search` — ДВА запроса разом (Promise.all) — loader обязан ждать оба
+- `/admin/stoc` — раздел, фильтр, категория, поиск и документ — из адреса
 - `/admin/doctor-card/{dk}` — ⛔ НЕ путать с /admin/doctor/{dk} — это день врача в журнале
 - `/admin/doctor/{dk}` — тот же DayScreen, отличается dk
 - `/admin/settings/clinic` — ⚠️ единственный экран НЕ на useLoad: свой useEffect

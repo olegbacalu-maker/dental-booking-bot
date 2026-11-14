@@ -13,6 +13,7 @@
  * Обе живут в `dashFx.ts`.
  */
 
+import type { DashData as StockDash } from '../stock/stock'
 import type { DashData } from '../lab/lab'
 import type { ServerNotice } from '../../components/Notice'
 import { api } from '../../services/api'
@@ -265,6 +266,8 @@ export interface DashModel {
   notice?: ServerNotice | null
   /** Работы лаборатории про сегодня: опоздания, визит без работы, готовое к выдаче. */
   lab?: DashData | null
+  /** Склад: ниже порога и сроки; `null` — врачу и пустому складу. */
+  stock?: StockDash | null
 }
 
 /**
