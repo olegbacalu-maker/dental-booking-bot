@@ -1,10 +1,9 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { createMemoryRouter } from 'react-router'
-import { RouterProvider } from 'react-router/dom'
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../../types/api'
 import { CAN_DOC, form, list, ok, order, row } from '../../test/lab'
-import { LabListScreen } from './LabListScreen'
+import { openScreen } from '../../test/openScreen'
+import { LabListScreen, loadLabList } from './LabListScreen'
 
 /* Список «Laborator»: строки и фильтры с сервера, шаги строки — словами
    сервера, этап и переделка — своими окнами, новый заказ — пациент поиском,
@@ -18,9 +17,7 @@ vi.mock('../../services/api', async (importOriginal) => {
 
 const nav = vi.fn()
 function open(url = '/admin/lab') {
-  const router = createMemoryRouter([{ path: '/admin/lab', element: <LabListScreen navigate={nav} /> }], { initialEntries: [url] })
-  render(<RouterProvider router={router} />)
-  return router
+  return openScreen('/admin/lab', url, <LabListScreen navigate={nav} />, loadLabList, nav).router
 }
 
 afterEach(() => { cleanup(); get.mockReset(); post.mockReset(); nav.mockReset(); vi.restoreAllMocks() })
@@ -83,6 +80,25 @@ describe('LabListScreen', () => {
     await waitFor(() => expect(get).toHaveBeenCalledTimes(2))
     fireEvent.click(within(screen.getByText('Ion Popescu').closest('tr')!).getByRole('button', { name: /E gata/ }))
     expect(await screen.findByText('Pasul nu se potrivește')).toBeTruthy()
+  })
+
+  it('повтор после команды держит прежний список до ответа: меню и таблица не гаснут', async () => {
+    let answer: (v: unknown) => void = () => {}
+    get.mockResolvedValueOnce(ok(list([row()])))
+    get.mockImplementationOnce(() => new Promise((r) => { answer = r }))
+    post.mockResolvedValueOnce(ok(null, 'ok_lab_step', 'Pasul e notat'))
+    open()
+    const tr = (await screen.findByText('Ion Popescu')).closest('tr')!
+    fireEvent.click(within(tr).getByRole('button', { name: /E gata/ }))
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2))
+    const root = document.querySelector('.dp-react-root')!
+    await waitFor(() => expect(root.getAttribute('aria-busy')).toBe('true'))
+    expect(screen.getByText('Ion Popescu')).toBeTruthy()
+    expect(within(screen.getByRole('navigation', { name: 'Comenzi laborator' })).getByRole('button', { name: /În lucru/ })
+      .querySelector('.rg-n')).toBeTruthy()
+    answer(ok(list([row({ patient: 'Elena Cara' })])))
+    expect(await screen.findByText('Elena Cara')).toBeTruthy()
+    expect(root.getAttribute('aria-busy')).toBeNull()
   })
 
   it('после примерки: «Refacere» — причина и кто платит обязательны, уходят в тело', async () => {

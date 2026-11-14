@@ -29,8 +29,8 @@ import { loadStats, StatsScreen } from '../features/stats/StatsScreen'
 import { loadRecall, RecallScreen } from '../features/recall/RecallScreen'
 import { GcalScreen, loadGcal } from '../features/gcal/GcalScreen'
 import { ImportScreen, loadPimport } from '../features/patients/ImportScreen'
-import { LabListScreen } from '../features/lab/LabListScreen'
-import { LabSettingsScreen } from '../features/lab/LabSettingsScreen'
+import { LabListScreen, loadLabList } from '../features/lab/LabListScreen'
+import { LabSettingsScreen, loadLabSettings } from '../features/lab/LabSettingsScreen'
 import { RegistreScreen } from '../features/registre/RegistreScreen'
 import { RegistreSettingsScreen } from '../features/registre/RegistreSettingsScreen'
 import { loadVisit, VisitScreen } from '../features/visits/VisitScreen'
@@ -91,7 +91,7 @@ export const SCREENS: Record<ScreenName, Draw> = {
   // «Registre» (10.11): данные — свой `useLoad` (месяц истории — состояние экрана)
   registre: () => <RegistreScreen />,
   settings_registre: () => <RegistreSettingsScreen />,
-  // данные — свой `useLoad`: фильтр и поиск — состояние адреса, команды перечитывают список
+  // фильтр, лаборатория и поиск — адрес; данные — загрузчик маршрута, команды — его повтор
   lab: () => <LabListScreen />,
   settings_lab: () => <LabSettingsScreen />,
   patients_search: () => <PatientsSearchScreen />,
@@ -151,6 +151,10 @@ const LOADS: Partial<Record<ScreenName, ScreenData>> = {
   // ⭐ Панель: загрузчик добывает ПЕРВЫЙ ответ живого канала (B4); опрос — `useLive`.
   schedule_dash: loadDash,
   chair: loadChair,
+  // Раздел с меню слева (`SideMenu`) — только здесь: свой `useLoad` встаёт пустым меню, и таблица со
+  // счётчиками приезжает следующим кадром (стенд `spa_shift`, правило `test_structure`).
+  lab: loadLabList,
+  settings_lab: loadLabSettings,
 }
 
 /**

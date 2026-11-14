@@ -149,7 +149,11 @@ const LOADING = { status: 'loading' } as const
  * Данные экрана из загрузчика маршрута — с тем же набором, что у `useLoad`:
  * повтор, подмена ответом POST и уход на вход при 401.
  */
-export function useRouteLoad<T>(navigate: (url: string) => void = defaultNavigate) {
+export function useRouteLoad<T>(navigate: (url: string) => void = defaultNavigate, { keep = false }: {
+  /** Повтор держит прежние данные на экране (`reloading` — идёт повтор): экран, чьи команды состояния не
+      возвращают и перечитываются повтором, иначе гас бы до пустого меню на каждой команде. */
+  keep?: boolean
+} = {}) {
   /* `undefined` — роутер ещё рисует первый кадр (`hydrateFallbackElement`). */
   const data = useLoaderData() as LoadState<T> | undefined
   const { state: rv, revalidate } = useRevalidator()
@@ -165,7 +169,9 @@ export function useRouteLoad<T>(navigate: (url: string) => void = defaultNavigat
 
   /* ⚠️ Во время повтора роутер держит ПРЕЖНИЕ данные (отказ) до ответа;
      экран же, как и с `useLoad`, обязан показать загрузку. */
-  const state: LoadState<T> = rv === 'loading' || data === undefined ? LOADING : own ?? data
+  const shown = own ?? data
+  const state: LoadState<T> = data === undefined || (rv === 'loading' && !(keep && shown?.status === 'ready'))
+    ? LOADING : shown!
   /* Идёт переход роутером (другой адрес, новый ответ загрузчика ещё не пришёл).
      На экране пока ПРЕЖНИЕ данные; экран, которому их нельзя править в этот
      миг (осмотр пародонтограммы), сам решает показать загрузку. */
@@ -183,5 +189,5 @@ export function useRouteLoad<T>(navigate: (url: string) => void = defaultNavigat
     return true
   }, [navigate])
 
-  return { state, pending, retry, replace, leaveIfSignedOut }
+  return { state, pending, reloading: rv === 'loading', retry, replace, leaveIfSignedOut }
 }

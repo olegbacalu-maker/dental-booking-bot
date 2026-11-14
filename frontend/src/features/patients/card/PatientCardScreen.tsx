@@ -23,7 +23,7 @@ import { daysLabel, HeroKpi, type AddKind } from './HeroKpi'
 import { SummaryTiles, TodoCard, todoRows } from './Overview'
 import { SideMenu, type SideItem } from '../../../components/SideMenu'
 import { roCount } from '../../../utils/plural'
-import { isOpen } from '../../lab/lab'
+import { isOpen, labApi, type PatientData } from '../../lab/lab'
 import { recallApi } from '../../recall/recall'
 import { chart, type Odontogram } from '../../clinical/chart'
 import { OdontogramTab } from '../../clinical/OdontogramTab'
@@ -120,9 +120,9 @@ const qs = (tab: Tab, views: boolean, sub: number | null = null): string => {
   return s ? `?${s}` : ''
 }
 
-/** Фиша плюс её одонтограмма и лист пародонтограммы — одним кадром. После ответа
- *  действия (`replace`) этих полей нет: вкладки к тому моменту держат модели сами. */
-type CardData = PatientCard & { odontogram?: Odontogram | null; perioSheet?: PerioModel | null }
+/** Фиша плюс её одонтограмма, лист пародонтограммы и заказы лаборатории — одним кадром. После ответа
+ *  действия (`replace`) этих полей нет: вкладки и блок заказов к тому моменту держат модели сами. */
+type CardData = PatientCard & { odontogram?: Odontogram | null; perioSheet?: PerioModel | null; lab?: PatientData | null }
 
 /* ⭐ Одонтограмма — ВМЕСТЕ с фишей, до первого кадра. Своим запросом после
    монтирования она приезжала на ~50 мс позже фиши и роняла всё, что под ней,
@@ -133,16 +133,19 @@ type CardData = PatientCard & { odontogram?: Odontogram | null; perioSheet?: Per
    Лист пародонтограммы — тем же путём (07.10): своим запросом вкладка первым
    кадром рисовала «Se încarcă…», страница укорачивалась, и прокрутка прыгала
    наверх (Олег: «прыжок страницы»). Осмотр — из адреса, если фиша открыта на
-   этой вкладке, иначе свежий; не тот осмотр вкладка не возьмёт (`PerioTab`). */
+   этой вкладке, иначе свежий; не тот осмотр вкладка не возьмёт (`PerioTab`).
+   Заказы лаборатории — тем же путём: своим запросом после коммита они переставляли «De făcut», плитки
+   Rezumat и подпись «Plan» меню (между фишами — на треть экрана), а до ответа показывали заказы прежней фиши. */
 const loadCard: RouteLoad<CardData> = async (signal, params, q) => {
   const pid = Number(params.pid)
   const exam = tabOf(q) === 'perio' ? examOf(q) : null
-  const [r, odontogram, perioSheet] = await Promise.all([
+  const [r, odontogram, perioSheet, lab] = await Promise.all([
     patientCard.get(pid, viewsOf(q), signal),
     Promise.resolve().then(() => chart.get(pid, signal)).then((x) => x.data, () => null),
     Promise.resolve().then(() => perio.get(pid, exam, signal)).then((x) => x.data, () => null),
+    Promise.resolve().then(() => labApi.patient(pid, signal)).then((x) => x.data, () => null),
   ])
-  return { ...r, data: { ...r.data, odontogram, perioSheet } }
+  return { ...r, data: { ...r.data, odontogram, perioSheet, lab } }
 }
 
 /**
@@ -548,9 +551,9 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
 
 /** Заказы лаборатории живут своей загрузкой: хук нужен уже готовой фише, то есть после ранних `return` экрана. */
 function WithLab({ card, say, children }: {
-  card: PatientCard; say: (t: ToastState) => void; children: (L: PatientLabModel) => ReactNode
+  card: CardData; say: (t: ToastState) => void; children: (L: PatientLabModel) => ReactNode
 }) {
-  const L = usePatientLab(card, (text, tone) => say({ text, tone }))
+  const L = usePatientLab(card, (text, tone) => say({ text, tone }), card.lab)
   return <>{children(L)}{L.host.node}</>
 }
 

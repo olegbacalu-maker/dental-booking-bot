@@ -11,6 +11,7 @@
 """
 import ast
 import importlib.util
+import pathlib
 import re
 
 from harness import BOT, ROOT, Result
@@ -1516,6 +1517,58 @@ def suite(res: Result) -> None:
     res.ok("подтверждение — своим окном, а не window.confirm", not bad,
            "вопрос перед удалением задаёт ask() из components/confirm, окно — ConfirmHost: "
            + "; ".join(bad))
+
+    # ---- раздел с меню слева берёт данные загрузчиком маршрута ----
+    # Экран со своим `useLoad` при переходе роутером встаёт сразу — меню без счётчиков, шапка, пустая таблица, —
+    # а данные приезжают следующим кадром и перекладывают страницу; тем же путём прыгали блоки внутри вкладок
+    # фиши. Раздел с
+    # `SideMenu` (фиша, «Laborator», склад) — строка в `LOADS` App.tsx, и ни один его локальный модуль, вплоть
+    # до блоков внутри вкладок, не зовёт `useLoad`. Стенд того же — `scripts/spa_shift.py`.
+    # Полярность опасная: правило зелено, если не нашло ни одного раздела с меню — отсюда якорь «не меньше двух».
+    bad, side = [], 0
+    app_code = _client_code(app_tsx.read_text(encoding="utf-8")) if app_tsx.exists() else ""
+    comp_file = {name.strip().removeprefix("type ").strip(): src_
+                 for names, src_ in re.findall(r"import\s*\{([^}]*)\}\s*from\s*'([^']+)'", app_code)
+                 for name in names.split(",") if name.strip()}
+    block = lambda head: (re.search(head + r"[^{]*\{(.*?)\n\}", app_code, re.S) or [None, ""])[1]  # noqa: E731
+    screens = re.findall(r"^\s*(\w+): \([^)]*\) => <(\w+)", block(r"export const SCREENS"), re.M)
+    loads = set(re.findall(r"^\s*(\w+):", _client_code(block(r"const LOADS")), re.M))
+
+    def _resolve(f: pathlib.Path, spec: str) -> list[pathlib.Path]:
+        base = (f.parent / spec).resolve()
+        return [c for c in (base.with_name(base.name + ".tsx"), base.with_name(base.name + ".ts"),
+                            base / "index.tsx", base / "index.ts") if c.is_file()][:1]
+
+    def _local(f: pathlib.Path) -> list[pathlib.Path]:
+        return [c for spec in re.findall(r"from\s*'(\.[^']*)'", _client_code(f.read_text(encoding="utf-8")))
+                for c in _resolve(f, spec)]
+
+    use_load_home = (FRONTEND / "hooks" / "useLoad.ts").resolve()
+    for name, comp in screens:
+        spec = comp_file.get(comp, "")
+        top = next(iter(_resolve(app_tsx, spec)), None) if spec.startswith(".") else None
+        if top is None or not re.search(r"from\s*'[./]*components/SideMenu'",
+                                        _client_code(top.read_text(encoding="utf-8"))):
+            continue
+        side += 1
+        if name not in loads:
+            bad.append(f"{name}: нет строки в LOADS App.tsx")
+        seen, todo = set(), [top]
+        while todo:
+            f = todo.pop()
+            if f in seen or f == use_load_home:
+                continue
+            seen.add(f)
+            code = _client_code(f.read_text(encoding="utf-8"))
+            rel = f.relative_to(FRONTEND.resolve()).as_posix()
+            bad += [f"{name}: {rel}:{code.count(chr(10), 0, m.start()) + 1} зовёт useLoad"
+                    for m in re.finditer(r"(?<![\w.])useLoad\s*[<(]", code)]
+            todo += _local(f)
+    if side < 2:
+        bad.append(f"разделов с SideMenu в SCREENS App.tsx нашлось {side} — якорь правила пропал")
+    res.ok("раздел с меню слева берёт данные загрузчиком маршрута", not bad,
+           "свой useLoad встаёт пустым меню, а таблица и счётчики приезжают следующим кадром — прыжок при "
+           "каждом переходе: " + "; ".join(bad))
 
     # ---- цвет врача считает ОДИН `_doc_hue` (19.09) ----
     # Палитра `_DOC_HUES` — внутренность формулы, а не общее добро: взять её

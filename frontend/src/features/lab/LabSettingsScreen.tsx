@@ -1,10 +1,11 @@
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import { AppLink } from '../../components/AppLink'
 import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
-import { defaultNavigate, useLoad } from '../../hooks/useLoad'
+import { defaultNavigate } from '../../hooks/useLoad'
+import { useRouteLoad, type ScreenData } from '../../hooks/useRouteLoad'
 import { asApiError, type ApiResult } from '../../services/api'
 import { roCount } from '../../utils/plural'
 import { COMENZI, labApi, WEEKDAYS, type Lab, type SettingsData } from './lab'
@@ -16,10 +17,13 @@ const draftOf = (l: Lab): Draft => ({ id: l.id, name: l.name, phone: l.phone, em
   workdays: l.workdays, active: l.active, idno: l.data.idno ?? '' })
 const wdText = (w: string) => (w === '12345' ? 'luni–vineri' : WEEKDAYS.filter(([k]) => w.includes(k)).map(([, n]) => n).join(', ') || '—')
 
+/** Каталог грузит роутер: экран встаёт одним кадром с таблицей. */
+export const loadLabSettings: ScreenData = (signal) => labApi.settings(signal)
+
 /** Setări › Laboratoare: каталог, из которого окно заказа делает кнопки и считает срок по рабочим дням. */
 export function LabSettingsScreen({ navigate = defaultNavigate }: { navigate?: (url: string) => void }) {
-  const load = useCallback((signal: AbortSignal) => labApi.settings(signal), [])
-  const { state, retry } = useLoad<SettingsData>(load, navigate)
+  /* после сохранения — повтор; прежний каталог держится, пока не придёт новый */
+  const { state, reloading, retry } = useRouteLoad<SettingsData>(navigate, { keep: true })
   const [edit, setEdit] = useState<Draft | null>(null)
   const [field, setField] = useState('')
   const [busy, setBusy] = useState(false)
@@ -57,7 +61,7 @@ export function LabSettingsScreen({ navigate = defaultNavigate }: { navigate?: (
   }
 
   return (
-    <section className="dp-react-root rg rg-set lb" aria-busy={state.status === 'loading' || undefined}>
+    <section className="dp-react-root rg rg-set lb" aria-busy={state.status === 'loading' || reloading || undefined}>
       <p className="rg-crumb"><AppLink href="/admin/settings">Setări</AppLink> › Laboratoare</p>
       <div className="fcard rg-head">
         <div className="rg-ttl"><b>Laboratoare de tehnică dentară</b>

@@ -1,11 +1,12 @@
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import { SideMenu, type SideItem } from '../../components/SideMenu'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
-import { defaultNavigate, useLoad } from '../../hooks/useLoad'
+import { defaultNavigate } from '../../hooks/useLoad'
+import { queryParam, useRouteLoad, type ScreenData } from '../../hooks/useRouteLoad'
 import { api } from '../../services/api'
 import { roCount } from '../../utils/plural'
 import { useLabHost } from './host'
@@ -20,18 +21,24 @@ const FILTERS: [Filter, string, SideItem<Filter>['icon']][] = [
 const isFilter = (s: string | null): s is Filter => FILTERS.some(([k]) => k === s)
 const RED: Filter[] = ['intarziate', 'vizita']
 
+/** Фильтр, лаборатория и поиск — из адреса; один разбор на загрузчик и экран. */
+function listQuery(q: URLSearchParams): { f: Filter; lab: number; q: string } {
+  const f = queryParam(q, 'f')
+  return { f: isFilter(f) ? f : 'lucru', lab: Number(queryParam(q, 'lab')) || 0, q: queryParam(q, 'q') }
+}
+
+/** Список грузит роутер: экран встаёт одним кадром с таблицей и счётчиками меню, смена фильтра держит прежний. */
+export const loadLabList: ScreenData = (signal, _params, q) => labApi.list(listQuery(q), signal)
+
 /** Общий список заказов клиники: что у техника, что опаздывает, что забирать, у кого визит без работы. */
 export function LabListScreen({ navigate = defaultNavigate }: { navigate?: (url: string) => void }) {
   const [q, setQ] = useSearchParams()
-  const qf = q.get('f')
-  const f: Filter = isFilter(qf) ? qf : 'lucru'
-  const labF = Number(q.get('lab')) || 0
-  const find = q.get('q') ?? ''
+  const { f, lab: labF, q: find } = listQuery(q)
   const [typed, setTyped] = useState(find)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [picking, setPicking] = useState(false)
-  const load = useCallback((signal: AbortSignal) => labApi.list({ f, lab: labF, q: find }, signal), [f, labF, find])
-  const { state, retry } = useLoad<ListData>(load, navigate)
+  /* команды раздела состояния не возвращают: повтор держит прежний список, а не гасит меню и таблицу */
+  const { state, reloading, retry } = useRouteLoad<ListData>(navigate, { keep: true })
   const host = useLabHost(retry, (text, tone) => setToast({ text, tone }), navigate)
   const set = (k: string, v: string) => {
     const p = new URLSearchParams(q)
@@ -49,7 +56,7 @@ export function LabListScreen({ navigate = defaultNavigate }: { navigate?: (url:
   const empty = data !== null && data.counts.toate === 0
 
   return (
-    <section className="dp-react-root rg lb" aria-busy={state.status === 'loading' || undefined}>
+    <section className="dp-react-root rg lb" aria-busy={state.status === 'loading' || reloading || undefined}>
       <SideMenu label="Comenzi laborator" value={f} onPick={(k) => set('f', k === 'lucru' ? '' : k)}
         items={FILTERS.filter(([k]) => k !== 'anulate' || k === f || (data?.counts.anulate ?? 0) > 0)
           .map(([k, label, icon]) => ({ key: k, label, icon, count: data?.counts[k], tone: RED.includes(k) ? 'bad' : '' }))}>

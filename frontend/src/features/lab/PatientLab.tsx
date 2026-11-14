@@ -1,6 +1,7 @@
-import { useCallback, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Icon } from '../../components/Icon'
-import { useLoad } from '../../hooks/useLoad'
+import { defaultNavigate, type LoadState } from '../../hooks/useLoad'
+import { asApiError, loginUrl } from '../../services/api'
 import type { PatientCard, PlanItem } from '../patients/card/card'
 import { useLabHost } from './host'
 import { dm, isLabWork, isOpen, labApi, type PatientData } from './lab'
@@ -8,11 +9,49 @@ import { Appt, Due, RowActs, StatusPill, teethText, TONE, UrgentTag } from './pa
 
 const planOpen = (it: PlanItem) => it.status === 'planificat' || it.status === 'in_lucru'
 
-/** Заказы одной фиши: своя загрузка (вкладки фишу не перечитывают), окна и значок для строки плана. */
-export function usePatientLab(card: PatientCard, say: (text: string, tone: 'ok' | 'err') => void) {
+interface Held { pid: number; seed: PatientData | null | undefined; state: LoadState<PatientData>; ask: number; done: number }
+
+const held = (pid: number, seed: PatientData | null | undefined, ask: number): Held => seed
+  ? { pid, seed, state: { status: 'ready', data: seed }, ask, done: ask }
+  : { pid, seed, state: { status: 'loading' }, ask: ask + 1, done: ask }
+
+/**
+ * Заказы фиши: первый ответ приносит загрузчик фиши (`seed`), дальше блок перечитывает себя сам — после команды
+ * заказа, не трогая фишу. `seed`: `undefined` — фишу подменил ответ действия, заказы прежние; `null` — загрузчик
+ * их не добыл, блок идёт сам. Повтор держит прежние строки до ответа; другая фиша прежних не показывает ни кадра.
+ */
+function useHeldLab(pid: number, seed: PatientData | null | undefined) {
+  const [h, setH] = useState<Held>(() => held(pid, seed, 0))
+  let cur = h
+  if (pid !== h.pid || (seed !== undefined && seed !== h.seed)) {
+    cur = held(pid, seed, h.ask)
+    setH(cur)
+  }
+  const { ask, done } = cur
+  useEffect(() => {
+    if (ask === done) return
+    const ctl = new AbortController()
+    const put = (state: LoadState<PatientData>) => {
+      if (!ctl.signal.aborted) setH((x) => (x.pid === pid && x.ask === ask ? { ...x, state, done: ask } : x))
+    }
+    labApi.patient(pid, ctl.signal).then((r) => put({ status: 'ready', data: r.data }), (e: unknown) => {
+      const err = asApiError(e)
+      if (err.failure.kind === 'unauthenticated') {
+        put({ status: 'leaving' })
+        defaultNavigate(loginUrl())
+      } else put({ status: 'failed', error: err })
+    })
+    return () => ctl.abort()
+  }, [pid, ask, done])
+  const retry = useCallback(() => setH((x) => ({ ...x, ask: x.ask + 1 })), [])
+  return { state: cur.state, retry }
+}
+
+/** Заказы одной фиши: окна и значок для строки плана. */
+export function usePatientLab(card: PatientCard, say: (text: string, tone: 'ok' | 'err') => void,
+  seed?: PatientData | null) {
   const pid = card.id
-  const load = useCallback((signal: AbortSignal) => labApi.patient(pid, signal), [pid])
-  const { state, retry } = useLoad<PatientData>(load)
+  const { state, retry } = useHeldLab(pid, seed)
   const host = useLabHost(retry, say)
   const data = state.status === 'ready' ? state.data : null
   const badge = (id: number) => data?.plan[String(id)]

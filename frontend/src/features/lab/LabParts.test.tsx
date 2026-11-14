@@ -6,8 +6,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../../types/api'
 import { CAN_DOC, form, lab, ok, patient, row, settings } from '../../test/lab'
 import type { PatientCard, PlanItem } from '../patients/card/card'
+import type { PatientData } from './lab'
 import { DashLab } from './DashLab'
-import { LabSettingsScreen } from './LabSettingsScreen'
+import { openScreen } from '../../test/openScreen'
+import { LabSettingsScreen, loadLabSettings } from './LabSettingsScreen'
 import { LabBlock, LabSummary, usePatientLab } from './PatientLab'
 
 /* Блок фиши (значок строки плана, блок под планом, «Rezumat»), каталог
@@ -33,8 +35,8 @@ const CARD = {
   plan: { items: [item({}), item({ id: 4, tooth: 36, procedure: 'Coroană zirconiu pe implant' }), item({ id: 2, tooth: 16, procedure: 'Obturație compozit' })] },
 } as unknown as PatientCard
 
-function Fisa() {
-  const L = usePatientLab(CARD, () => {})
+function Fisa({ card = CARD, seed }: { card?: PatientCard; seed?: PatientData | null }) {
+  const L = usePatientLab(card, () => {}, seed)
   return (
     <>
       {CARD.plan.items.map((it) => <div key={it.id} data-plan={it.id}>{it.procedure}{L.chip(it)}</div>)}
@@ -58,6 +60,23 @@ describe('фиша: заказы пациента', () => {
     expect(block.textContent).toContain('1 întârziată')
     expect(block.textContent).toContain('Dental Lab Prim')
     expect(document.querySelector('.lb-sum')!.textContent).toContain('Coroană')
+  })
+
+  it('заказы от загрузчика фиши: первый кадр уже с ними, своего запроса нет; другая фиша без них — не чужие строки', async () => {
+    const seeded = patient([row()])
+    const router = createMemoryRouter([{ path: '*', element: <Fisa seed={seeded} /> }], { initialEntries: ['/x'] })
+    const { rerender } = render(<RouterProvider router={router} />)
+    expect(document.getElementById('laborator')!.textContent).toContain('1 întârziată')
+    expect(get).not.toHaveBeenCalled()
+    let answer: (v: unknown) => void = () => {}
+    get.mockImplementationOnce(() => new Promise((r) => { answer = r }))
+    const other = { ...CARD, id: 5 } as PatientCard
+    const r2 = createMemoryRouter([{ path: '*', element: <Fisa card={other} /> }], { initialEntries: ['/x'] })
+    rerender(<RouterProvider router={r2} />)
+    await waitFor(() => expect(get).toHaveBeenCalledWith('/lab/patient/5', expect.anything()))
+    expect(document.getElementById('laborator')!.textContent).not.toContain('întârziată')
+    answer(ok(patient([])))
+    expect(await screen.findByText(/Nicio comandă pentru acest pacient/)).toBeTruthy()
   })
 
   it('«Comandă la laborator» у строки плана — форма с предвыбранной позицией', async () => {
@@ -87,7 +106,7 @@ describe('Setări › Laboratoare', () => {
   it('каталог: рабочие дни словами, счёт заказов; правка дней уходит строкой цифр', async () => {
     get.mockResolvedValue(ok(settings([lab(), lab({ id: 2, name: 'ArtDent', workdays: '123456', orders: 0, open: 0, active: false })])))
     post.mockResolvedValue(ok({ id: 1 }, 'ok_lab_item', 'Laboratorul e salvat'))
-    mount(<LabSettingsScreen />)
+    openScreen('/x', '/x', <LabSettingsScreen />, loadLabSettings)
     expect(await screen.findByText('Dental Lab Prim')).toBeTruthy()
     expect(document.body.textContent).toContain('7 zile lucrătoare · luni–vineri')
     expect(document.body.textContent).toContain('4 comenzi, 2 în lucru')
@@ -103,7 +122,7 @@ describe('Setări › Laboratoare', () => {
   it('пустой каталог — сразу форма; отказ — словами сервера и полем', async () => {
     get.mockResolvedValue(ok(settings([], { can: { money: false, labs: true, settings: false } })))
     post.mockRejectedValueOnce(new ApiError({ kind: 'validation', code: 'lab_bad', text: 'Există deja', field: 'name' }, 'v'))
-    mount(<LabSettingsScreen />)
+    openScreen('/x', '/x', <LabSettingsScreen />, loadLabSettings)
     const name = await screen.findByPlaceholderText('ex. Dental Lab Prim')
     expect(screen.queryByText('Fișa de comandă')).toBeNull()
     fireEvent.change(name, { target: { value: 'Dental Lab Prim' } })
