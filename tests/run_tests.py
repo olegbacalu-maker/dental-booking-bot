@@ -28,6 +28,7 @@ import test_anamneza  # noqa: E402
 import test_ocluzie  # noqa: E402
 import test_recall  # noqa: E402
 import test_registre  # noqa: E402
+import test_lab  # noqa: E402
 import test_api  # noqa: E402
 import test_backup  # noqa: E402
 import test_booking  # noqa: E402
@@ -326,6 +327,15 @@ SUITES = [
     ("Registre: лист 257/e, 502/e, 501/e и Excel за месяц", test_registre.suite_print),
     ("Registre: свежая клиника — стартовый каталог, своё слово в окне (2.14.1)", test_registre.suite_fresh),
     ("Registre: кто сделал — человек, не учётка; Personal, Alt nume, проверка по имени, Ieri, старые строки", test_registre.suite_people),
+    ("Laborator: срок в рабочих днях и шапка из истории — чистые правила", test_lab.suite_rules),
+    ("Laborator: шаг 13 — таблицы, индексы, без имени пациента", test_lab.suite_schema),
+    ("Laborator: шаг 13 переживает повтор и обрыв", test_lab.suite_retry),
+    ("Laborator: заказ от отправки до конца — шаги, этап, переделка, отмена, правка", test_lab.suite_flow),
+    ("Laborator: список, опоздание, gata de ridicat, визит без работы, плашка", test_lab.suite_lists),
+    ("Laborator: права — каталог, цена, врач видит все заказы", test_lab.suite_rights),
+    ("Laborator: каталог — двойник, рабочие дни, удаление только без заказов", test_lab.suite_catalog),
+    ("Laborator: лист наряда — что о пациенте, событие печати", test_lab.suite_print),
+    ("Laborator: закон 195 — копия, обезличивание, состав удаления", test_lab.suite_195),
     ("Одонтограмма: поверхности", test_teeth.suite_surfaces),
     ("Одонтограмма: молочный прикус", test_teeth.suite_milk),
     ("Одонтограмма: форма зуба", test_teeth.suite_shape),

@@ -56,6 +56,10 @@ SNAPSHOT = frozenset((
     "SAN_DDL", "SAN_PEOPLE_DDL", "SAN_TABLES", "SAN_KINDS", "san_items", "san_item", "san_item_save", "san_insert",
     "san_close", "san_delete", "san_row", "san_rows", "san_open", "san_fixed_ids", "san_lamp_minutes",
     "san_last_clean", "san_last_cycle",
+    # заказы в лабораторию: db/lab.py + LAB_DDL шага 13
+    "LAB_DDL", "LAB_OPEN", "LAB_CLOSED", "LAB_STATUSES", "labs_all", "lab_get", "lab_by_name", "lab_save",
+    "lab_delete", "lab_order_create", "lab_order_write", "lab_order_head", "lab_orders_rows", "lab_items",
+    "lab_events", "lab_order_ids", "lab_last_prices", "lab_next_appts", "lab_plan_item", "lab_appt_patient",
     # кабинет у записи: занятость по кабинетам врача, индексы с кабинетом в ключе
     "appt_room_busy", "_doctor_overlaps", "_lane", "_own_room", "_patient_busy", "_pick_room",
     "_retire_old_uq", "room_busy", "_room_label", "set_appt_room", "pin_doctor_room", "slot_probe", "_UQ_RETIRED",

@@ -27,6 +27,7 @@ Postgres-издание снято 12.10.2026 (на нём не работало
     gcal      вкладка «Google Calendar»: источники и события
     erasure   закон 195: стирание и обезличивание
     registre  санитарные регистры 257/e, 502/e, 501/e (без пациентов)
+    lab       заказы в зуботехническую лабораторию и каталог лабораторий
     schema    схема, миграции, init/close
 
 ⛔ **Переприсваиваемое состояние живёт ЗДЕСЬ и только здесь** — `_CONN`, `_SQ`,
@@ -134,8 +135,15 @@ from .registre import (
     san_delete, san_row, san_rows, san_open, san_fixed_ids, san_lamp_minutes, san_last_clean,
     san_last_cycle, _SAN_COLS, _SAN_CLOSE, _SAN_WHEN, _san_table,
 )
+from .lab import (
+    LAB_OPEN, LAB_CLOSED, LAB_STATUSES, _LAB_COLS, _ORDER_COLS, _HEAD_COLS, _ITEM_COLS, _js,
+    labs_all, lab_get, lab_by_name, lab_save, lab_delete, lab_order_create, _items_insert,
+    _event_insert, lab_order_write, lab_order_head, lab_orders_rows, lab_items, lab_events,
+    lab_order_ids, lab_last_prices, lab_next_appts, lab_plan_item, lab_appt_patient,
+)
 from .schema import (
-    SCHEMA_VERSION, OCLUZIE_DDL, RECALL_DDL, RECALL_IDX_DDL, SAN_DDL, SAN_PEOPLE_DDL, GCAL_DDL, MIGRATIONS, TEETH_HIST_STEP,
+    SCHEMA_VERSION, OCLUZIE_DDL, RECALL_DDL, RECALL_IDX_DDL, SAN_DDL, SAN_PEOPLE_DDL, GCAL_DDL, LAB_DDL,
+    MIGRATIONS, TEETH_HIST_STEP,
     SQLITE_CARD_SCHEMA, SQLITE_EXTRA_COLS, SQLITE_PATIENT_COLS, SQLITE_SCHEMA,
     _schema_version, _set_schema_version, _teeth_hist_base, _migrate, _ADD_COLUMN, _already_added, _sqlite_driver, init,
     close,

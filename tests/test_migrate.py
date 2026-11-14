@@ -149,6 +149,9 @@ def _base_db(path: pathlib.Path) -> sqlite3.Connection:
     # помеченная нынешней версией, без них не поднялась бы.
     for sql in appdb.GCAL_DDL:
         con.execute(sql)
+    # заказы лаборатории — тоже только шагом; их читают стирание и выгрузка пациента
+    for sql in appdb.LAB_DDL:
+        con.execute(sql)
     return con
 
 

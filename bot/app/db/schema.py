@@ -25,7 +25,7 @@ from .teeth import TEETH_HIST_SINCE
 # идёт range(have+1, SCHEMA_VERSION+1) и до него не дойдёт (так шаг 4 с
 # 'waiting' в uq-индексах не исполнялся ни у одной клиники; держит
 # test_structure).
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 
 # Индексы под горячие пути (день, история пациента, «новые из бота», карточка).
@@ -232,6 +232,94 @@ GCAL_DDL = [
     "CREATE INDEX IF NOT EXISTS ix_gcal_appt ON gcal_events(appt_id)",
 ]
 
+# Заказы в зуботехническую лабораторию. Заказ — письменное назначение изделия
+# на заказ: не удаляется, только `anulat`, номер `nr` сквозной и не повторяется.
+# Имени пациента в этих таблицах нет — печать берёт его из `patients`, и
+# обезличивание чистить здесь нечего. `lab_events` только дописывается: статус
+# и даты шапки — копия, пересчитываемая из истории (`core/lab.replay`).
+# Сроки (`*_on`) — голые даты, `at` — UTC. Цена — целые бани, снимком.
+# Уникальный индекс назван `ix_`: наборы стража слотов считают своими все `uq_%`.
+LAB_DDL = [
+    """CREATE TABLE IF NOT EXISTS labs(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  phone TEXT NOT NULL DEFAULT '',
+  email TEXT NOT NULL DEFAULT '',
+  contact TEXT NOT NULL DEFAULT '',
+  days INTEGER NOT NULL DEFAULT 7,
+  workdays TEXT NOT NULL DEFAULT '12345',
+  data TEXT NOT NULL DEFAULT '{}',
+  active INTEGER NOT NULL DEFAULT 1,
+  sort INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT
+)""",
+    """CREATE TABLE IF NOT EXISTS lab_orders(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nr INTEGER NOT NULL,
+  patient_id INTEGER NOT NULL REFERENCES patients(id),
+  doctor_id TEXT NOT NULL DEFAULT '',
+  doctor TEXT NOT NULL DEFAULT '',
+  lab_id INTEGER REFERENCES labs(id),
+  lab TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'trimis',
+  stage INTEGER NOT NULL DEFAULT 1,
+  sent_on TEXT,
+  due_on TEXT,
+  received_on TEXT,
+  done_on TEXT,
+  appointment_id INTEGER,
+  urgent INTEGER NOT NULL DEFAULT 0,
+  impression TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  cur TEXT NOT NULL DEFAULT '',
+  cur_amount INTEGER,
+  rate TEXT NOT NULL DEFAULT '',
+  data TEXT NOT NULL DEFAULT '{}',
+  actor TEXT NOT NULL DEFAULT '',
+  actor_id TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT
+)""",
+    """CREATE TABLE IF NOT EXISTS lab_order_items(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id INTEGER NOT NULL REFERENCES lab_orders(id),
+  sort INTEGER NOT NULL DEFAULT 0,
+  plan_item_id INTEGER,
+  service_id TEXT,
+  work TEXT NOT NULL,
+  material TEXT NOT NULL DEFAULT '',
+  shade TEXT NOT NULL DEFAULT '',
+  teeth TEXT NOT NULL DEFAULT '',
+  qty INTEGER NOT NULL DEFAULT 1,
+  grp INTEGER,
+  price_bani INTEGER,
+  status TEXT
+)""",
+    """CREATE TABLE IF NOT EXISTS lab_events(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id INTEGER NOT NULL REFERENCES lab_orders(id),
+  item_id INTEGER,
+  kind TEXT NOT NULL,
+  on_date TEXT,
+  due_on TEXT,
+  cause TEXT NOT NULL DEFAULT '',
+  payer TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  data TEXT NOT NULL DEFAULT '{}',
+  actor TEXT NOT NULL DEFAULT '',
+  actor_id TEXT NOT NULL DEFAULT '',
+  doer TEXT NOT NULL DEFAULT '',
+  at TEXT NOT NULL
+)""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ix_lab_nr ON lab_orders(nr)",
+    "CREATE INDEX IF NOT EXISTS ix_lab_patient ON lab_orders(patient_id)",
+    "CREATE INDEX IF NOT EXISTS ix_lab_status ON lab_orders(status, due_on)",
+    "CREATE INDEX IF NOT EXISTS ix_lab_items_order ON lab_order_items(order_id)",
+    "CREATE INDEX IF NOT EXISTS ix_lab_items_plan ON lab_order_items(plan_item_id)",
+    "CREATE INDEX IF NOT EXISTS ix_lab_events_order ON lab_events(order_id, at)",
+]
+
 MIGRATIONS = {
     1: [
         "CREATE INDEX IF NOT EXISTS ix_appt_starts ON appointments(starts_at)",
@@ -306,6 +394,9 @@ MIGRATIONS = {
     11: [],
     # Таблицы вкладки «Google Calendar»: аддитивно и строго, как 7–10.
     12: GCAL_DDL,
+    # Заказы в лабораторию (`LAB_DDL` выше): аддитивно, каждый оператор IF NOT
+    # EXISTS — шаг переживает повтор; строго, как 7–12.
+    13: LAB_DDL,
 }
 # Шаг, который кладёт базовый снимок истории зубов. В отличие от
 # UQ_GUARD_STEP — СТРОГИЙ: он меняет данные, и недописанный снимок не имеет

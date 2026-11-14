@@ -83,6 +83,33 @@ def status_view(status: str, call: str | None = "") -> tuple[str, str]:
     return status, STATUS_LABEL.get(status, status)
 
 
+# Заказ в лабораторию: статус, событие истории, причина переделки, кто за неё
+# платит, как снят оттиск. Экран берёт слова из ответов сервера, своих не держит.
+LAB_STATUS_LABEL = {
+    "trimis": "Trimis la laborator",
+    "gata": "Gata la laborator",
+    "primit": "Primit în clinică",
+    "proba": "La probă",
+    "finalizat": "Finalizat",
+    "anulat": "Anulat",
+}
+LAB_EVENT_LABEL = {
+    **LAB_STATUS_LABEL,
+    "etapa": "Etapa următoare",
+    "refacere": "Refacere",
+    "anulat": "Comandă anulată",
+    "anulare_pas": "Pas anulat",
+    "termen": "Termen schimbat",
+    "pret": "Preț schimbat",
+    "laborator": "Laborator schimbat",
+    "tiparit": "Fișa de comandă tipărită",
+    "editat": "Comandă modificată",
+}
+LAB_CAUSE = {"culoare": "Culoare", "adaptare": "Adaptare / prindere", "ocluzie": "Ocluzie",
+             "fractura": "Fractură / ciob", "alta": "Altă cauză"}
+LAB_PAYER = {"laborator": "Laboratorul (garanție)", "clinica": "Clinica", "pacient": "Pacientul"}
+LAB_IMPRESSION = {"amprenta": "Amprentă", "scanare": "Scanare intraorală", "model": "Model"}
+
 # статусы, при которых слот занят — единый источник правды в db/slots.py
 LIVE_STATUSES = db.ACTIVE_STATUSES
 

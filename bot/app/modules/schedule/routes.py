@@ -25,6 +25,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from ... import db
 from ... import engine as eng
 from ...core.auth import _guard, local_only, request_user
+from ...core import lab as clab
 from ...core import xlsx
 from ...core.layout import msg_view, react_shell, shell_model
 from ...core.risks import denied_since, merge as merge_risks
@@ -425,6 +426,9 @@ async def _panel_live(d: date, now: datetime, scope: str | None = None) -> dict:
         # завтра и касса не зависят от листания календаря. В конверте — чтобы
         # отметка звонка со второго места доехала живым каналом, как запись.
         "desk": await pdesk.desk_model(now, scope),
+        # заказы в лабораторию (просрочено, gata de ridicat, визит без работы) —
+        # про СЕГОДНЯ и только по дню, как desk; цен в плашке нет
+        "lab": await clab.dash_model(request_user(), now.date(), scope),
         # подсказка учётки без врача (22.10) — состоянием, в том же конверте
         "notice": _notice(scope),
     }

@@ -44,6 +44,9 @@ async def erasure_kind(pid: int) -> str:
     # прикус (26.10) — запись объективного осмотра, графа 043/e: медзапись,
     # как анамнез
     occl = await _n("SELECT COUNT(*) FROM ocluzie WHERE patient_id = ?", pid)
+    # заказ в лабораторию — назначение изделия на заказ, то есть лечение; отменённый
+    # тоже: назначение было выписано
+    lab = await _n("SELECT COUNT(*) FROM lab_orders WHERE patient_id = ?", pid)
     now = datetime.now(timezone.utc)
     happened = await _n(
         """SELECT COUNT(*) FROM appointments WHERE patient_id = ?
@@ -51,7 +54,7 @@ async def erasure_kind(pid: int) -> str:
                 OR (status = 'confirmed' AND starts_at < ?))""",
         pid, _iso(now))
     return ("anon" if (teeth or plan or docs or happened or pays or consult
-                       or anam or punti or perio or occl) else "delete")
+                       or anam or punti or perio or occl or lab) else "delete")
 
 
 # Таблицы, ссылающиеся на пациента, — в порядке удаления: дети раньше родителя
@@ -61,7 +64,7 @@ async def erasure_kind(pid: int) -> str:
 _PATIENT_CHILD_TABLES = ("payments", "activity", "patient_alerts", "teeth",
                          "teeth_history", "plan_items", "documents", "anamneza",
                          "ocluzie", "bridges", "bridges_removed", "recall_marks",
-                         "perio_exams", "visit_records", "sms_log", "appointments")
+                         "perio_exams", "lab_orders", "visit_records", "sms_log", "appointments")
 
 # ⚠️ Внуки: таблицы, которые висят НЕ на пациенте, а на его записи. У
 # `perio_teeth` нет patient_id вовсе, и общий шаблон «DELETE ... WHERE
@@ -73,7 +76,9 @@ _PATIENT_CHILD_TABLES = ("payments", "activity", "patient_alerts", "teeth",
 # `appointments` настоящий, и без неё полное удаление контакта, которому
 # позвонили, падало на внешнем ключе.
 _PATIENT_GRAND_CHILDREN = (("perio_teeth", "exam_id", "perio_exams"),
-                           ("appt_calls", "appointment_id", "appointments"))
+                           ("appt_calls", "appointment_id", "appointments"),
+                           ("lab_order_items", "order_id", "lab_orders"),
+                           ("lab_events", "order_id", "lab_orders"))
 
 
 async def _patient_phone(pid: int) -> str:

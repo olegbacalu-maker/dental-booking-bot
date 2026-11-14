@@ -28,6 +28,7 @@ from datetime import date, datetime
 from ... import db
 from ... import engine as eng
 from ... import teeth_svg as tsvg
+from ...core import lab as clab
 from ...core import recall as crecall
 from ...core.layout import ALERT_KINDS, SOURCE_LABEL, STATUS_LABEL
 from . import anamneza as panam
@@ -137,6 +138,9 @@ async def collect(pid: int) -> dict | None:
         # отметки обзвона «Rechemări» (29.10): обработка его данных — та же
         # таблица, что стирает удаление
         "rechemari": await db.recall_marks(pid),
+        # заказы в лабораторию — те же таблицы, что стирает удаление; цены
+        # лаборатории — расчёт клиники с лабораторией, не данные пациента
+        "laborator": await clab.export_rows(pid),
         "consultatii": await db.patient_visit_records(pid),
         "plati": await db.payments(pid),
         "documente": await db.documents_with_paths(pid),
@@ -394,6 +398,24 @@ def render_html(data: dict) -> str:
         [[_dt(c["starts_at"]), _esc(c["service"]), _esc(c["doctor"]) or "—",
           _esc(c["diagnostic"]) or "—", _consemnari(c)]
          for c in data["consultatii"]])
+    def _lab_lines(o: dict) -> str:
+        return "<br>".join(
+            _esc(" · ".join(x for x in (it["lucrare"], it["material"], it["culoare"],
+                                        ", ".join(str(t) for t in it["dinti"])) if x))
+            for it in o["lucrari"]) or "—"
+
+    def _lab_steps(o: dict) -> str:
+        return "<br>".join(
+            f"{_dt(s['data'], with_time=False)} {_esc(s['pas'])}"
+            + (f" ({_esc(s['cauza'])})" if s["cauza"] else "")
+            + (f" — {_esc(s['nota'])}" if s["nota"] else "") + (" [anulat]" if s["anulat"] else "")
+            for s in o["istoric"]) or "—"
+
+    laborator = _table(
+        ["Nr", "Laborator", "Medic", "Lucrări", "Stare", "Trimis", "Termen", "Istoric"],
+        [[_esc(o["nr"]), _esc(o["laborator"]) or "—", _esc(o["medic"]) or "—", _lab_lines(o),
+          _esc(o["stare"]), _dt(o["trimis"], with_time=False), _dt(o["termen"], with_time=False),
+          _lab_steps(o)] for o in data.get("laborator", [])])
     istoric = _table(
         ["Data", "Autor", "Eveniment"],
         [[_dt(e["at"]), _esc(e["actor"]), _esc(e["text"])]
@@ -436,6 +458,7 @@ def render_html(data: dict) -> str:
 <h2>Punți scoase ({len(data.get('punti_scoase', []))})</h2>{punti_scoase}
 <h2>Parodontogramă ({len(data.get('parodont', []))} examene)</h2>{parodont}
 <h2>Plan de tratament ({len(data['plan_tratament'])})</h2>{plan}
+<h2>Comenzi la laboratorul dentar ({len(data.get('laborator', []))})</h2>{laborator}
 <h2>Consultații ({len(data['consultatii'])})</h2>{consultatii}
 <h2>Plăți ({len(data['plati'])})</h2>{plati}
 <h2>Documente ({len(data['documente'])})</h2>{documente}

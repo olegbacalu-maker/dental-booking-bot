@@ -53,6 +53,8 @@ from .modules.recall import api as recall_api
 from .modules.recall import routes as recall
 from .modules.registre import api as registre_api
 from .modules.registre import routes as registre
+from .modules.lab import api as lab_api
+from .modules.lab import routes as lab
 
 # ⛔ Без /docs, /redoc и /openapi.json (17.10): это карта всех адресов
 # программы, и отдавалась она без входа — в том числе любому в сети клиники.
@@ -79,6 +81,8 @@ app.include_router(recall.router)         # «Rechemări» (29.10): экран �
 app.include_router(recall_api.router)     # JSON API раздела
 app.include_router(registre.router)       # «Registre» (10.11): санитарные регистры 257/e, 502/e, 501/e
 app.include_router(registre_api.router)   # JSON API раздела и каталога
+app.include_router(lab.router)            # заказы в лабораторию: лист наряда
+app.include_router(lab_api.router)        # JSON API заказов и каталога лабораторий
 app.include_router(qr.router)
 app.include_router(entry.router)          # вход, установка PIN, выход
 app.include_router(entry_api.router)      # JSON-дверь: смена человека без перезагрузки

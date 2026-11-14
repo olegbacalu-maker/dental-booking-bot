@@ -518,6 +518,27 @@ MSG_BANNER = {
     "san_self_check": ("err", "Cine a făcut curățenia nu o poate verifica — alegeți altă persoană"),
     "san_who": ("err", "Alegeți persoana — numele, prenumele"),
     "san_gone": ("err", "Înregistrarea nu mai există — reîncărcați pagina"),
+    # Заказы в зуботехническую лабораторию (core/lab.py)
+    "ok_lab_new": ("ok", "Comanda este trimisă la laborator"),
+    "ok_lab_save": ("ok", "Comanda este salvată"),
+    "ok_lab_step": ("ok", "Pasul este scris în istoricul comenzii"),
+    "ok_lab_etapa": ("ok", "Lucrarea pleacă la laborator pentru etapa următoare"),
+    "ok_lab_refacere": ("ok", "Lucrarea pleacă la refacere — motivul este scris în istoric"),
+    "ok_lab_undo": ("ok", "Ultimul pas este anulat; rămâne vizibil în istoric"),
+    "ok_lab_cancel": ("ok", "Comanda este anulată; numărul ei rămâne în evidență"),
+    "ok_lab_item": ("ok", "Laboratorul este salvat"),
+    "ok_lab_del": ("ok", "Laboratorul este șters din listă"),
+    "ok_lab_prefs": ("ok", "Setările laboratorului sunt salvate"),
+    "lab_bad": ("err", "Completați corect câmpul marcat"),
+    "lab_need_lab": ("err", "Alegeți laboratorul sau scrieți numele lui"),
+    "lab_dup": ("err", "Un laborator cu acest nume există deja"),
+    "lab_gone": ("err", "Comanda nu mai există — reîncărcați pagina"),
+    "lab_lab_gone": ("err", "Laboratorul nu mai există — reîncărcați pagina"),
+    "lab_patient_gone": ("err", "Fișa pacientului nu mai există"),
+    "lab_step": ("err", "Pasul nu se potrivește cu starea comenzii — reîncărcați pagina"),
+    "lab_closed": ("err", "Comanda este închisă (finalizată sau anulată) și nu se mai modifică"),
+    "lab_no_undo": ("err", "Nu este niciun pas de anulat"),
+    "lab_has_orders": ("err", "Laboratorul are comenzi și nu se poate șterge — dezactivați-l"),
 }
 
 

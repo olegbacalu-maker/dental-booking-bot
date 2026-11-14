@@ -129,14 +129,18 @@ PERM_SCHEDULE_ALL = "schedule_all"
 PERM_RECALL = "recall"
 # врачу нет: импорт одним действием меняет всю картотеку
 PERM_IMPORT = "pimport"
+# каталог зуботехнических лабораторий — как каталог врачей: стойка и директор.
+# Заказы создаёт и видит любой вошедший, цену лаборатории — только PERM_MONEY.
+PERM_LABS = "labs"
 
 PERMS = {
     ROLE_DIRECTOR: {PERM_MONEY, PERM_SETTINGS, PERM_USERS, PERM_DOCTORS, PERM_SMS,
-                    PERM_SCHEDULE_ALL, PERM_RECALL, PERM_IMPORT},
+                    PERM_SCHEDULE_ALL, PERM_RECALL, PERM_IMPORT, PERM_LABS},
     # Регистратуре каталог врачей НУЖЕН: отметить отпуск, сузить часы приёма,
     # поправить услуги — операционка стойки, иначе любой чих требует директора.
     # SMS — тоже стойка: согласие пациента спрашивает тот, кто его записывает.
-    ROLE_RECEPTIE: {PERM_DOCTORS, PERM_SMS, PERM_SCHEDULE_ALL, PERM_RECALL, PERM_IMPORT},
+    ROLE_RECEPTIE: {PERM_DOCTORS, PERM_SMS, PERM_SCHEDULE_ALL, PERM_RECALL, PERM_IMPORT,
+                    PERM_LABS},
     # Врачу — нет (канарейка 1.15.0, Олег): с телефона в LAN врач открывал
     # ЧУЖИЕ карточки и мог менять фото. Врачу — пациенты и записи; просмотр
     # своего расписания живёт в журнале, не в каталоге. SMS врач не видит

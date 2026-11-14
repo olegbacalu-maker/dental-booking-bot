@@ -640,6 +640,11 @@ MUTATIONS = [
      "\nasync def _mut(db, i):\n    await db._execute('UPDATE san_cycles SET started_at = ? WHERE id = ?', 'x', i)\n"),
     ("журналы san_* только дописываются", test_structure._DB_SAN,
      ("f\"WHERE id = ? AND {lock} IS NULL AND deleted_at IS NULL\"", "f\"WHERE id = ?\"")),
+    # Заказы в лабораторию: «поправить дату шага на месте» и «удалить ошибочный заказ».
+    ("заказ в лабораторию не удаляется, история только дописывается", "app/modules/lab/api.py",
+     "\nasync def _mut(db, i):\n    await db._execute('UPDATE lab_events SET on_date = ? WHERE id = ?', 'x', i)\n"),
+    ("заказ в лабораторию не удаляется, история только дописывается", test_structure._DB_LAB,
+     "\nasync def _mut(i):\n    await _execute('DELETE FROM lab_orders WHERE id = ?', i)\n"),
 ]
 
 # Правки ЗАКОННЫЕ: нарушения в них нет, и правило обязано остаться

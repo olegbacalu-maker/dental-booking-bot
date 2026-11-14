@@ -115,6 +115,7 @@ _DB_DAY = "app/db/schedule.py"       # day_appointments: выборка дня
 _DUR_ASKERS = ("app/modules/schedule/routes.py", "app/modules/settings/routes.py")
 _DB_TEXTS = "app/db/plans.py"        # тексты летописи пациента («Plan: …»)
 _DB_SAN = "app/db/registre.py"       # журналы san_*: единственное место UPDATE (замок IS NULL)
+_DB_LAB = "app/db/lab.py"            # заказы в лабораторию: история только дописывается
 # Якоря бывшего layout.py (разнос 04.11): переезд имени = правка одной строки.
 _LAY_SHELL = "app/core/layout.py"     # shell_model, REACT_SCREENS, SECTION_TITLE
 _LAY_ICONS = "app/core/icons.py"      # _I, _ic
@@ -2406,3 +2407,26 @@ def suite(res: Result) -> None:
     if owner is None or not any(isinstance(n, ast.AsyncFunctionDef) and n.name == "san_close" for n in owner.body):
         bad.append(f"{_DB_SAN} без san_close — якорь правила пропал")
     res.ok("журналы san_* только дописываются", not bad, "; ".join(bad))
+
+    # Заказ в лабораторию — письменное назначение изделия на заказ: он не
+    # удаляется (только `anulat`), а его история `lab_events` только
+    # дописывается — отмена шага тоже событие. Статус шапки — пересчёт истории
+    # (`core/lab.replay`), и правленная или стёртая строка истории молча
+    # переписала бы, когда работу отправили и сколько было переделок.
+    # Физическое стирание пациента идёт шаблоном по `_PATIENT_GRAND_CHILDREN`
+    # (имя таблицы не литералом) и сюда не попадает намеренно.
+    _LAB_EV = re.compile(r"\b(?:UPDATE|DELETE\s+FROM|REPLACE\s+INTO|INSERT\s+OR\s+REPLACE\s+INTO)\s+lab_events\b",
+                         re.I)
+    _LAB_DROP = re.compile(r"\b(?:DELETE\s+FROM|REPLACE\s+INTO|INSERT\s+OR\s+REPLACE\s+INTO|DROP\s+TABLE)\s+"
+                           r"(?:IF\s+EXISTS\s+)?lab_orders\b", re.I)
+    bad, owner = [], by_path.get(_DB_LAB)
+    for rel, tree in src:
+        for line, text in _sql_texts(tree):
+            if _LAB_EV.search(text):
+                bad.append(f"{rel}:{line} правит или стирает историю заказа lab_events")
+            if _LAB_DROP.search(text):
+                bad.append(f"{rel}:{line} удаляет заказ lab_orders — только «anulat»")
+    if owner is None or not any(isinstance(n, ast.AsyncFunctionDef) and n.name == "_event_insert"
+                                for n in owner.body):
+        bad.append(f"{_DB_LAB} без _event_insert — якорь правила пропал")
+    res.ok("заказ в лабораторию не удаляется, история только дописывается", not bad, "; ".join(bad))
