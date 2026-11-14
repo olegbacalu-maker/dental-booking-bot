@@ -27,6 +27,11 @@
      схемы: кабинет в ключе индексов врача). Такая база обязана стартовать без
      баннера, пара — остаться, а третья запись в занятый кабинет — отбиваться.
 
+Внесённые записи берут кабинет у живой записи как есть: новые записи несут
+кабинет явно (`_book_locked`), и запись «без кабинета» рядом с ней в индексе врача не
+сталкивается — ключ индекса сам `room_id`. Что пустой кабинет = первый кабинет
+врача, знает только проверка под замком (`slots._lane`), индекс — нет.
+
 Копия всегда приводится к базе ДО шага 11: индексы врача под прежними именами
 (`UQ_OLD`, без кабинета в ключе). После старта в базе обязаны лежать новые
 (`UQ`), а прежние — быть сняты.
@@ -122,10 +127,10 @@ def sql(db: pathlib.Path, *statements: str) -> None:
         con.close()
 
 
-def rows(db: pathlib.Path, query: str) -> list:
+def rows(db: pathlib.Path, query: str, args: tuple = ()) -> list:
     con = sqlite3.connect(str(db))
     try:
-        return con.execute(query).fetchall()
+        return con.execute(query, args).fetchall()
     finally:
         con.close()
 
@@ -154,21 +159,21 @@ def downgrade(db: pathlib.Path) -> None:
 
 def inject_conflict(db: pathlib.Path) -> tuple[str, str]:
     """Второй визит тому же врачу на тот же час, статус 'waiting'."""
-    live = rows(db, "SELECT patient_id, service, doctor, starts_at, doctor_id "
+    live = rows(db, "SELECT patient_id, service, doctor, starts_at, doctor_id, room_id "
                     "FROM appointments WHERE status IN ('confirmed','arrived') "
                     "ORDER BY starts_at DESC LIMIT 1")
     if not live:
         sys.exit("в базе нет ни одной активной записи — конфликт не из чего "
                  "сделать; проверьте на базе с реальным расписанием")
-    pid, service, doctor, starts_at, did = live[0]
+    pid, service, doctor, starts_at, did, room = live[0]
     con = sqlite3.connect(str(db))
     try:
         con.execute(
             "INSERT INTO appointments(patient_id, service, doctor, starts_at,"
-            " status, source, created_at, doctor_id, comment)"
-            " VALUES(?,?,?,?,'waiting','admin',?,?,?)",
+            " status, source, created_at, doctor_id, comment, room_id)"
+            " VALUES(?,?,?,?,'waiting','admin',?,?,?,?)",
             (pid, service, doctor, starts_at,
-             time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()), did, MARK))
+             time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()), did, MARK, room))
         con.commit()
     finally:
         con.close()
@@ -202,12 +207,12 @@ def inject_renamed(db: pathlib.Path):
     пациенты выбираются запросом, а не наугад: занятый час у них означал бы, что
     вставка разбилась о ту самую широкую защиту, которую мы собрались мерить.
     """
-    live = rows(db, "SELECT patient_id, service, doctor, starts_at, doctor_id "
+    live = rows(db, "SELECT patient_id, service, doctor, starts_at, doctor_id, room_id "
                     "FROM appointments WHERE status IN ('confirmed','arrived') "
                     "AND doctor_id IS NOT NULL ORDER BY starts_at DESC LIMIT 1")
     if not live:
         return None
-    pid, service, doctor, starts_at, did = live[0]
+    pid, service, doctor, starts_at, did, room = live[0]
     spare = [r[0] for r in rows(
         db, "SELECT id FROM patients WHERE id NOT IN (SELECT patient_id FROM "
             f"appointments WHERE starts_at = '{starts_at}' AND patient_id IS "
@@ -219,27 +224,28 @@ def inject_renamed(db: pathlib.Path):
     try:
         con.execute(
             "INSERT INTO appointments(patient_id, service, doctor, starts_at,"
-            " status, source, created_at, doctor_id, comment)"
-            " VALUES(?,?,?,?,'waiting','admin',?,?,?)",
+            " status, source, created_at, doctor_id, comment, room_id)"
+            " VALUES(?,?,?,?,'waiting','admin',?,?,?,?)",
             (spare[0], service, renamed, starts_at,
-             time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()), did, MARK))
+             time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()), did, MARK, room))
         con.commit()
     finally:
         con.close()
-    return renamed, starts_at, spare[0], spare[1]
+    return renamed, starts_at, spare[0], spare[1], room
 
 
 def inject_parallel(db: pathlib.Path):
     """Вторая живая запись тому же врачу на тот же час — в ДРУГОМ кабинете.
     Пациент берётся свободный в этот час: иначе вставку отбил бы индекс
     пациента, и шаг мерил бы не то."""
-    live = rows(db, "SELECT service, doctor, starts_at, doctor_id "
-                    "FROM appointments WHERE status IN ('confirmed','arrived') "
-                    "AND doctor_id IS NOT NULL AND patient_id IS NOT NULL "
-                    "ORDER BY starts_at DESC LIMIT 1")
+    live = rows(db, "SELECT service, doctor, starts_at, doctor_id, room_id "
+                "FROM appointments WHERE status IN ('confirmed','arrived') "
+                "AND doctor_id IS NOT NULL AND patient_id IS NOT NULL "
+                "AND COALESCE(room_id, '') != ? "
+                "ORDER BY starts_at DESC LIMIT 1", (ROOM,))
     if not live:
         return None
-    service, doctor, starts_at, did = live[0]
+    service, doctor, starts_at, did, room = live[0]
     spare = [r[0] for r in rows(
         db, "SELECT id FROM patients WHERE id NOT IN (SELECT patient_id FROM "
             f"appointments WHERE starts_at = '{starts_at}' AND patient_id IS "
@@ -257,7 +263,7 @@ def inject_parallel(db: pathlib.Path):
         con.commit()
     finally:
         con.close()
-    return doctor, starts_at, did, spare[1]
+    return doctor, starts_at, did, spare[1], room
 
 
 def blocked_room(db: pathlib.Path, pid, doctor, starts_at, did, room) -> bool:
@@ -270,6 +276,31 @@ def blocked_room(db: pathlib.Path, pid, doctor, starts_at, did, room) -> bool:
             " VALUES(?,'Consultație',?,?,'confirmed','admin',?,?,?,?)",
             (pid, doctor, starts_at,
              time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()), did, MARK, room))
+        return False
+    except sqlite3.IntegrityError:
+        return True
+    finally:
+        con.rollback()
+        con.close()
+
+
+def blocked_null_pair(db: pathlib.Path, doctor, did) -> bool:
+    """Две записи врачу без кабинета на один час: вторую обязан отбить индекс
+    (COALESCE в ключе). Час далеко впереди — проверка не зависит от того, есть
+    ли в картотеке записи без кабинета. Обе вставки откатываются."""
+    when = "2099-01-05T06:00:00+00:00"
+    pids = [r[0] for r in rows(db, "SELECT id FROM patients ORDER BY id LIMIT 2")]
+    if len(pids) < 2:
+        return False
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime())
+    con = sqlite3.connect(str(db))
+    try:
+        for pid in pids:
+            con.execute(
+                "INSERT INTO appointments(patient_id, service, doctor, starts_at,"
+                " status, source, created_at, doctor_id, comment, room_id)"
+                " VALUES(?,'Consultație',?,?,'confirmed','admin',?,?,?,NULL)",
+                (pid, doctor, when, stamp, did, MARK))
         return False
     except sqlite3.IntegrityError:
         return True
@@ -338,16 +369,16 @@ def banner_visible(base: str) -> bool:
     return "Protecția împotriva programărilor duble" in admin_page(base)
 
 
-def blocked(db: pathlib.Path, pid, doctor, starts_at, status, did) -> bool:
+def blocked(db: pathlib.Path, pid, doctor, starts_at, status, did, room=None) -> bool:
     """Отбивает ли САМА база такую запись. Вставка откатывается."""
     con = sqlite3.connect(str(db))
     try:
         con.execute(
             "INSERT INTO appointments(patient_id, service, doctor, starts_at,"
-            " status, source, created_at, doctor_id, comment)"
-            " VALUES(?,'Consultație',?,?,?,'admin',?,?,?)",
+            " status, source, created_at, doctor_id, comment, room_id)"
+            " VALUES(?,'Consultație',?,?,?,'admin',?,?,?,?)",
             (pid, doctor, starts_at, status,
-             time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()), did, MARK))
+             time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()), did, MARK, room))
         return False
     except sqlite3.IntegrityError:
         return True
@@ -459,8 +490,8 @@ def main() -> int:
               "пациентов, свободных в тот час. Сценарий закрыт прогоном "
               "(test_migrate.suite_from_1200); на бинарнике — только тут.")
     else:
-        renamed, when, busy_pid, free_pid = made
-        doc_dup = (free_pid, renamed, when, "waiting", "zz-canary")
+        renamed, when, busy_pid, free_pid, room = made
+        doc_dup = (free_pid, renamed, when, "waiting", "zz-canary", room)
         pat_dup = (busy_pid, "Dr. Canary Nobody", when, "waiting", "zz-canary")
         say(blocked(db, *doc_dup), "до обновления: широкая защита врача работает",
             "фикстура не воспроизводит состояние после 1.20.0")
@@ -496,7 +527,7 @@ def main() -> int:
               "или двух пациентов, свободных в тот час. Сценарий закрыт прогоном "
               "(test_migrate.suite_v11_rooms); на бинарнике — только тут.")
     else:
-        doctor, when, did, free_pid = made
+        doctor, when, did, free_pid, room = made
         e, base, alive = run_lab(lab, exe.name, port)
         say(alive, "программа запустилась на базе с параллельной парой")
         if alive:
@@ -512,8 +543,10 @@ def main() -> int:
             say(pair == 2, "обе записи пары на месте", f"записей: {pair}")
             say(blocked_room(db, free_pid, doctor, when, did, ROOM),
                 "третья запись в занятый кабинет отбита базой")
-            say(blocked_room(db, free_pid, doctor, when, did, None),
-                "третья запись без кабинета (кабинет по умолчанию занят) отбита базой")
+            say(blocked_room(db, free_pid, doctor, when, did, room),
+                "третья запись в кабинет первой записи пары отбита базой")
+            say(blocked_null_pair(db, doctor, did),
+                "две записи без кабинета на один час отбиты базой (COALESCE в ключе)")
         stop(e, port)
         # повтор шага 11 по той же базе: версия назад — как после оборванного старта
         sql(db, "UPDATE schema_meta SET value='10' WHERE key='version'")
