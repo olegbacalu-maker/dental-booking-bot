@@ -1,3 +1,4 @@
+import { DashLab } from '../lab/DashLab'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { AppLink } from '../../components/AppLink'
@@ -454,6 +455,7 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
       {subNode(d)}
       {/* учётка врача без привязки (22.10): пустая панель и слова сервера */}
       <Notice n={d.notice} />
+      <DashLab m={d.lab} />
       <div className="dash">
         <div className="dashmain">
           <DashCanvas model={d.canvas} rail={rail} waitTick={waitTick}

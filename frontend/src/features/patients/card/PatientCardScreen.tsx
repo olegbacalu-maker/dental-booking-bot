@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
+import { startTransition, useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { useCommand } from '../../../app/bridge'
 import { AppLink } from '../../../components/AppLink'
 import { useBlocker, useLocation, useNavigate, useSearchParams } from 'react-router'
@@ -29,6 +29,7 @@ import { VisitTab } from '../../visits/VisitTab'
 import { examOf, perio, type PerioModel } from '../../clinical/perio'
 import { useCoarse } from '../../clinical/touch'
 import { PlanCard } from './PlanCard'
+import { LabBlock, LabSummary, usePatientLab, type PatientLabModel } from '../../lab/PatientLab'
 import { ProfileCard } from './ProfileCard'
 import { NextVisitCard, VisitsCard } from './VisitsCard'
 import type { CardActions } from './actions'
@@ -452,6 +453,7 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
           </button>
         ))}
       </div>
+      <WithLab card={card} say={say}>{(L) => (
       <div ref={panel} id="wpanel" role="tabpanel" aria-labelledby={`wtab-${tab}`} className="wpanel">
         {tab === 'rezumat' && (
           <div className="pv2">
@@ -470,6 +472,7 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
               <ActivityCard activity={card.activity} onViews={(on) => { void onViews(on) }} />
             </div>
             <div className="pv2-side">
+              <LabSummary lab={L} onOpen={() => goTab('plan')} />
               <AlertsCard card={card} a={a} onAnamneza={() => { setAnTick((t) => t + 1); goTab('date') }} />
               <VisitsCard card={card} hrefOf={visitHref} />
             </div>
@@ -488,8 +491,9 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
         )}
         {tab === 'plan' && (
           <>
-            <PlanCard card={card} a={a} onTooth={onTooth}
+            <PlanCard card={card} a={a} onTooth={onTooth} rowExtra={L.chip}
               onUploadSigned={(category) => { setDocsPick({ category, k: Date.now() }); goTab('docs') }} />
+            <LabBlock lab={L} />
             <FinanceCard card={card} a={a} />
           </>
         )}
@@ -529,8 +533,17 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
           </div>
         )}
       </div>
+      )}</WithLab>
       <AppointDialog open={booking} name={card.name} appoint={card.appoint} a={a} onClose={() => setBooking(false)} />
       {toast && <Toast tone={toast.tone} text={toast.text} onClose={closeToast} />}
     </section>
   )
+}
+
+/** Заказы лаборатории живут своей загрузкой: хук нужен уже готовой фише, то есть после ранних `return` экрана. */
+function WithLab({ card, say, children }: {
+  card: PatientCard; say: (t: ToastState) => void; children: (L: PatientLabModel) => ReactNode
+}) {
+  const L = usePatientLab(card, (text, tone) => say({ text, tone }))
+  return <>{children(L)}{L.host.node}</>
 }

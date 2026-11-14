@@ -29,6 +29,8 @@ import { loadStats, StatsScreen } from '../features/stats/StatsScreen'
 import { loadRecall, RecallScreen } from '../features/recall/RecallScreen'
 import { GcalScreen, loadGcal } from '../features/gcal/GcalScreen'
 import { ImportScreen, loadPimport } from '../features/patients/ImportScreen'
+import { LabListScreen } from '../features/lab/LabListScreen'
+import { LabSettingsScreen } from '../features/lab/LabSettingsScreen'
 import { RegistreScreen } from '../features/registre/RegistreScreen'
 import { RegistreSettingsScreen } from '../features/registre/RegistreSettingsScreen'
 import { loadVisit, VisitScreen } from '../features/visits/VisitScreen'
@@ -89,6 +91,9 @@ export const SCREENS: Record<ScreenName, Draw> = {
   // «Registre» (10.11): данные — свой `useLoad` (месяц истории — состояние экрана)
   registre: () => <RegistreScreen />,
   settings_registre: () => <RegistreSettingsScreen />,
+  // данные — свой `useLoad`: фильтр и поиск — состояние адреса, команды перечитывают список
+  lab: () => <LabListScreen />,
+  settings_lab: () => <LabSettingsScreen />,
   patients_search: () => <PatientsSearchScreen />,
   patients_import: () => <ImportScreen />,
   patient_card: (p) => <PatientCardScreen pid={Number(p.pid)} />,

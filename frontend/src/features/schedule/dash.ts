@@ -13,6 +13,7 @@
  * Обе живут в `dashFx.ts`.
  */
 
+import type { DashData } from '../lab/lab'
 import type { ServerNotice } from '../../components/Notice'
 import { api } from '../../services/api'
 import type { FormService, NewAppt, NewNote, NoteView, VisitCardView } from './day'
@@ -262,6 +263,8 @@ export interface DashModel {
   /** Подсказка-состояние сервера (22.10, права врача): учётка врача без
    *  привязки — пустая панель и «contul nu e legat de un medic». */
   notice?: ServerNotice | null
+  /** Работы лаборатории про сегодня: опоздания, визит без работы, готовое к выдаче. */
+  lab?: DashData | null
 }
 
 /**

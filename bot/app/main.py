@@ -55,6 +55,7 @@ from .modules.registre import api as registre_api
 from .modules.registre import routes as registre
 from .modules.lab import api as lab_api
 from .modules.lab import routes as lab
+from .modules.lab import pages as lab_pages
 
 # ⛔ Без /docs, /redoc и /openapi.json (17.10): это карта всех адресов
 # программы, и отдавалась она без входа — в том числе любому в сети клиники.
@@ -83,6 +84,7 @@ app.include_router(registre.router)       # «Registre» (10.11): санитар
 app.include_router(registre_api.router)   # JSON API раздела и каталога
 app.include_router(lab.router)            # заказы в лабораторию: лист наряда
 app.include_router(lab_api.router)        # JSON API заказов и каталога лабораторий
+app.include_router(lab_pages.router)      # «Laborator»: страницы-оболочки списка и каталога
 app.include_router(qr.router)
 app.include_router(entry.router)          # вход, установка PIN, выход
 app.include_router(entry_api.router)      # JSON-дверь: смена человека без перезагрузки

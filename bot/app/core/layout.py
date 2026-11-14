@@ -105,7 +105,9 @@ REACT_SCREENS = frozenset({"recall", "settings_clinic", "doctors_list", "doctor_
                            # «Registre» (10.11, san-registers): санитарные регистры
                            # 257/e, 502/e, 501/e и каталог оборудования
                            "registre", "settings_registre",
-                           "gcal", "patients_import"})
+                           "gcal", "patients_import",
+                           # заказы в лабораторию и каталог лабораторий
+                           "lab", "settings_lab"})
 
 
 # Метка узла React в готовой странице (её печатает `react_shell`).
@@ -185,6 +187,7 @@ SECTION_TITLE = {"dash": "Panoul principal", "prog": "Programări", "pat": "Paci
                  "rec": "Rechemări",
                  # «Registre» (10.11): санитарные регистры — у ВСЕХ вошедших
                  "reg": "Registre",
+                 "lab": "Laborator",
                  # SMS-пакет (S6): пункт секции «Sincronizări», когда сервер предлагает пакет
                  "gcal": "Google Calendar",
                  "sms": "SMS pacienți"}
@@ -229,6 +232,8 @@ def shell_model(active: str, sub: str, rail: bool = False,
     items = [{"key": "dash", "href": "/admin", "icon": "home", "label": SECTION_TITLE["dash"]},
              {"key": "prog", "href": "/admin/all", "icon": "cal", "label": SECTION_TITLE["prog"]},
              {"key": "pat", "href": "/admin/search", "icon": "pat", "label": SECTION_TITLE["pat"]}]
+    # заказы технику ведут и врач, и стойка — пункт у всех вошедших
+    items.append({"key": "lab", "href": "/admin/lab", "icon": "box", "label": SECTION_TITLE["lab"]})
     if show_recall:
         items.append({"key": "rec", "href": "/admin/rechemari", "icon": "refresh",
                       "label": SECTION_TITLE["rec"]})

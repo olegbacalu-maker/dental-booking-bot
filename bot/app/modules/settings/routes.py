@@ -97,6 +97,7 @@ HUB_GROUP_OF = {"/admin/settings/system": "general", "/admin/license": "general"
                 # «Registre» (10.11): каталог санитарных регистров 257/e, 502/e, 501/e
                 "/admin/settings/registre": "general",
                 "/admin/medici": "medici", "/admin/settings/templates": "medici",
+                "/admin/settings/lab": "medici",
                 "/admin/settings/lan": "date", "/admin/settings/crypt": "date",
                 "/admin/patients/import": "date",
                 "/admin/settings/backup": "date", "/admin/settings/security": "securitate",
@@ -192,6 +193,8 @@ def _hub_tiles() -> list[dict]:
              # шаблоны дневника визита по услуге (10.11): число — услуг С шаблоном
              tile("/admin/settings/templates", "note", "v", "Șabloane consultație",
                   [{"t": _tpl_hint(cfg)}]),
+             tile("/admin/settings/lab", "box", "b", "Laboratoare",
+                  [{"t": "tehnică dentară · zile lucrătoare · fișa de comandă"}]),
              # «Registre» (10.11): каталог, из которого регистры делают кнопки
              tile("/admin/settings/registre", "shield", "g", "Registre sanitare",
                   [{"t": "sterilizatoare, lămpi bactericide, încăperi"}])]

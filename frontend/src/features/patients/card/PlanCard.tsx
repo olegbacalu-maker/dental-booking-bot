@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { AppLink } from '../../../components/AppLink'
 import { ask } from '../../../components/confirm'
 import { Icon } from '../../../components/Icon'
@@ -87,11 +87,13 @@ interface Props {
   onTooth: (n: number) => void
   /** «Încarcă exemplarul semnat»: вкладка Documente с выбранной категорией. */
   onUploadSigned: (category: string) => void
+  /** Значок под процедурой: заказ лаборатории этой позиции. */
+  rowExtra?: (it: PlanItem) => ReactNode
 }
 
 interface MenuAt { it: PlanItem; x: number; y: number }
 
-export function PlanCard({ card, a, onTooth, onUploadSigned }: Props) {
+export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra }: Props) {
   const plan = card.plan
   const tabs = card.options.tab_states
   /* вкладка: выбор человека живёт, пока сервер не сменил вкладку по
@@ -236,6 +238,7 @@ export function PlanCard({ card, a, onTooth, onUploadSigned }: Props) {
             <span className="pp">
               {it.procedure}
               {it.motiv && <em className="pmotiv">{it.motiv}</em>}
+              {rowExtra?.(it)}
             </span>
             <span className="pd">{it.doctor || '—'}</span>
             {closed && it.done

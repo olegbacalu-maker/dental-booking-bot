@@ -14,7 +14,7 @@
 ради роутера.
 
 
-Поверхностей **31**.
+Поверхностей **33**.
 
 
 | адрес FastAPI | маршрут React | экран | параметры узла | загрузчик |
@@ -23,6 +23,7 @@
 | `/admin/all` | `/admin/all` | `schedule_all` | date, f? | GET /api/schedule/day |
 | `/admin/cabinet` | `/admin/cabinet` | `chair` | doctor? | GET /api/chair |
 | `/admin/google` | `/admin/google` | `gcal` | — | GET /api/gcal |
+| `/admin/lab` | `/admin/lab` | `lab` | f?, q?, lab? | GET /api/lab |
 | `/admin/medici` | `/admin/medici` | `doctors_list` | — | GET /api/doctors |
 | `/admin/rechemari` | `/admin/rechemari` | `recall` | — | GET /api/recall |
 | `/admin/registre` | `/admin/registre` | `registre` | v?, r?, m? | GET /api/registre |
@@ -39,6 +40,7 @@
 | `/admin/settings/crypt` | `/admin/settings/crypt` | `settings_crypt` | — | GET /api/settings/crypt |
 | `/admin/settings/faq` | `/admin/settings/faq` | `settings_faq` | — | GET /api/settings/faq |
 | `/admin/settings/hours` | `/admin/settings/hours` | `settings_hours` | — | GET /api/settings/hours |
+| `/admin/settings/lab` | `/admin/settings/lab` | `settings_lab` | — | GET /api/settings/lab |
 | `/admin/settings/lan` | `/admin/settings/lan` | `settings_lan` | — | GET /api/settings/lan |
 | `/admin/settings/registre` | `/admin/settings/registre` | `settings_registre` | — | GET /api/settings/registre |
 | `/admin/settings/security` | `/admin/settings/security` | `settings_security` | — | GET /api/settings/security |
@@ -56,6 +58,7 @@
 - `/admin` — живой КАНАЛ, а не разовая загрузка: 204 «не менялось», отпечаток; день — из АДРЕСА (пусто — сегодня сервера), шапка — эхо канала
 - `/admin/all` — экран DayScreen, общий с днём врача
 - `/admin/cabinet` — экран «у кресла»: врач — из адреса или привязки учётки; опрос того же маршрута раз в 15 с (POLL_MS)
+- `/admin/lab` — фильтр, поиск и лаборатория — из адреса
 - `/admin/registre` — «Azi» и «Istoric» (v=istoric) — один экран; месяц истории — из адреса
 - `/admin/search` — ДВА запроса разом (Promise.all) — loader обязан ждать оба
 - `/admin/doctor-card/{dk}` — ⛔ НЕ путать с /admin/doctor/{dk} — это день врача в журнале

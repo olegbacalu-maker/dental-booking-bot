@@ -215,6 +215,8 @@ FLAG = {"/admin/settings/clinic": "settings_clinic",
         "/admin/patients/import": "patients_import",
         "/admin/registre": "registre",
         "/admin/settings/registre": "settings_registre",
+        "/admin/lab": "lab",
+        "/admin/settings/lab": "settings_lab",
         "/admin/search": "patients_search",
         "/admin/patient/{pid}": "patient_card",
         "/admin/visit/{appt_id}": "visit",
@@ -276,6 +278,8 @@ B2 = {
     "/admin/registre": ("v?, r?, m?", "GET /api/registre",
                         "«Azi» и «Istoric» (v=istoric) — один экран; месяц истории — из адреса"),
     "/admin/settings/registre": ("—", "GET /api/settings/registre", ""),
+    "/admin/lab": ("f?, q?, lab?", "GET /api/lab", "фильтр, поиск и лаборатория — из адреса"),
+    "/admin/settings/lab": ("—", "GET /api/settings/lab", ""),
 }
 
 
