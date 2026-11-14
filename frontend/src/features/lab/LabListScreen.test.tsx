@@ -42,8 +42,11 @@ describe('LabListScreen', () => {
     expect(tr2.className).toContain('lb-warn-r')
     expect(tr2.textContent).toContain('mâine')
     expect(tr2.textContent).toContain('09:30')
-    expect(screen.getByRole('tab', { name: /Programare fără lucrare/ })).toBeTruthy()
-    expect(screen.queryByRole('tab', { name: /De ridicat/ })).toBeNull()
+    const menu = screen.getByRole('navigation', { name: 'Comenzi laborator' })
+    const visit = within(menu).getByRole('button', { name: /Programare fără lucrare/ })
+    expect(visit.querySelector('.rg-n')!.className).toContain('bad')
+    expect(within(menu).getByRole('button', { name: /În lucru/ }).getAttribute('aria-current')).toBe('page')
+    expect(within(menu).queryByRole('button', { name: /Anulate/ })).toBeNull()
     expect(screen.getByRole('columnheader', { name: 'Preț lab.' })).toBeTruthy()
     expect(get).toHaveBeenCalledWith('/lab', expect.anything())
   })
@@ -58,13 +61,14 @@ describe('LabListScreen', () => {
     expect(document.body.textContent).not.toContain('preț laborator')
   })
 
-  it('фильтр — в адрес и в запрос', async () => {
+  it('меню слева: фильтр — в адрес и в запрос, заголовок — пункт меню', async () => {
     get.mockResolvedValue(ok(list([row()])))
     const router = open()
     await screen.findByText('Ion Popescu')
-    fireEvent.click(screen.getByRole('tab', { name: /Întârziate/ }))
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Comenzi laborator' })).getByRole('button', { name: /Întârziate/ }))
     await waitFor(() => expect(get).toHaveBeenLastCalledWith('/lab?f=intarziate', expect.anything()))
     expect(router.state.location.search).toBe('?f=intarziate')
+    expect(await screen.findByText('Întârziate', { selector: '.lb-ttl' })).toBeTruthy()
   })
 
   it('главный шаг строки — команда сервера, потом список перечитан; отказ — словами сервера', async () => {

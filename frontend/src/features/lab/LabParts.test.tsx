@@ -113,6 +113,42 @@ describe('Setări › Laboratoare', () => {
   })
 })
 
+const R = (id: number) => ({ id, nr: id, pid: 2, patient: 'Ion Popescu', work: 'Coroană', lab: 'Dental Lab Prim', due_on: '2026-11-12', days_late: 2, next_appt: null })
+const plate = (late: number[], ready: number[] = []) => ({ late: late.map(R), ready: ready.map(R), visit: [], counts: { late: late.length, ready: ready.length, visit: 0 } })
+
+describe('плашка главной: крестик', () => {
+  afterEach(() => { vi.useRealTimers(); localStorage.clear() })
+
+  it('закрыта до конца дня; новая работа и новый день возвращают её', () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-14T10:00:00Z'))
+    mount(<DashLab m={plate([1], [6])} />)
+    fireEvent.click(within(screen.getByRole('status')).getByRole('button', { name: 'Închide' }))
+    expect(screen.queryByRole('status')).toBeNull()
+    cleanup()
+    mount(<DashLab m={plate([1], [6])} />)
+    expect(screen.queryByRole('status')).toBeNull()
+    cleanup()
+    mount(<DashLab m={plate([1], [])} />)
+    expect(screen.queryByRole('status')).toBeNull()
+    cleanup()
+    mount(<DashLab m={plate([1, 7], [6])} />)
+    expect(screen.getByRole('status').textContent).toContain('2 lucrări')
+    cleanup()
+    vi.setSystemTime(new Date('2026-11-15T10:00:00Z'))
+    mount(<DashLab m={plate([1], [6])} />)
+    expect(screen.getByRole('status')).toBeTruthy()
+  })
+
+  it('без хранилища — закрывается до перезагрузки, без падения', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked') })
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked') })
+    mount(<DashLab m={plate([1])} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Închide' }))
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+})
+
 describe('плашка главной', () => {
   it('визит без работы и опоздания красным, ссылки в список с фильтром', () => {
     const r = { id: 1, nr: 41, pid: 2, patient: 'Ion Popescu', work: 'Coroană', lab: 'Dental Lab Prim', due_on: '2026-11-12', days_late: 2, next_appt: null }

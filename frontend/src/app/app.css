@@ -3700,8 +3700,6 @@ dialog.lb-dlg .dp-btn.ghost { color: var(--text2); }
 
 /* список */
 .dp-react-root.lb .lb-find { width: 240px; }
-.lb .rg-tab.lb-late:not(.on) { border-color: var(--red); color: var(--red-t); }
-.lb .rg-tab.lb-late:not(.on) .rg-n { background: var(--red-soft); color: var(--red-t); }
 .lb .lb-tbl td { vertical-align: middle; }
 .lb .lb-tbl td a { color: var(--text); text-decoration: none; }
 .lb .lb-tbl td a:hover b { color: var(--teal-d); text-decoration: underline; }
@@ -3763,3 +3761,36 @@ dialog.lb-dlg .lnk.lb-red { color: var(--red-t); }
 dialog.lb-dlg .lb-hist-h > span { display: inline-flex; gap: 14px; }
 dialog.lb-dlg .lb-hist li.undone { color: var(--text3); text-decoration: line-through; }
 dialog.lb-dlg .lb-steps-box { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px; border-radius: var(--r-s); background: var(--fill); }
+
+/* ---- меню раздела слева (SideMenu): «Laborator», раскладка B «Stoc» ---- */
+.dp-split { display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 14px; align-items: start; }
+.dp-split-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.dp-rail { position: sticky; top: 12px; display: flex; flex-direction: column; gap: 2px; padding: 8px; }
+.dp-ri { display: flex; align-items: center; gap: 10px; min-height: 40px; margin: 0; padding: 0 10px; border: 0; border-radius: var(--r-s); background: none;
+  color: var(--text2); font: inherit; font-size: var(--fs-m); line-height: 1.2; text-align: left; cursor: pointer; }
+.dp-ri svg { width: 16px; height: 16px; flex: none; color: var(--text3); }
+.dp-ri span:first-of-type { flex: 1 1 auto; min-width: 0; }
+.dp-ri:hover { background: var(--fill); color: var(--text); }
+.dp-ri:focus-visible { outline: none; box-shadow: var(--ring); }
+.dp-ri.on { background: var(--teal-soft); color: var(--teal-d); font-weight: 600; }
+.dp-ri.on svg { color: var(--teal-d); }
+.dp-rail .rg-n { min-width: 22px; padding: 1px 7px; border-radius: 999px; background: var(--line2); color: var(--text2); font-size: var(--fs-s); text-align: center; font-variant-numeric: tabular-nums; }
+.dp-rail .rg-n.bad { background: var(--red-soft); color: var(--red-t); font-weight: 600; }
+.dp-rail .rg-n.warn { background: var(--amber-soft); color: var(--amber-t); font-weight: 600; }
+@media (max-width: 1100px) {
+  .dp-split { grid-template-columns: minmax(0, 1fr); }
+  .dp-rail { position: static; flex-direction: row; flex-wrap: wrap; }
+}
+@media (max-width: 640px) {
+  .dp-rail { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; }
+  .dp-ri { flex: none; white-space: nowrap; }
+}
+@media (pointer: coarse) { .dp-ri { min-height: 44px; } }
+.lb .lb-head { justify-content: space-between; }
+.lb .lb-ttl { font-size: var(--fs-l); }
+.lb-dash .lb-dash-x { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; margin-left: -4px; border: 0;
+  border-radius: var(--r-s); background: none; color: inherit; cursor: pointer; }
+.lb-dash .lb-dash-x:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
+.lb-dash .lb-dash-x:focus-visible { outline: none; box-shadow: var(--ring); }
+.lb-dash .lb-dash-x svg { width: 16px; height: 16px; }
+@media (pointer: coarse) { .lb-dash .lb-dash-x { width: 44px; height: 44px; } }

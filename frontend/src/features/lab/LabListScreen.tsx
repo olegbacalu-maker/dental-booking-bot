@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
+import { SideMenu, type SideItem } from '../../components/SideMenu'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate, useLoad } from '../../hooks/useLoad'
@@ -11,9 +12,10 @@ import { useLabHost } from './host'
 import { COMENZI, isOpen, labApi, money, type Filter, type ListData } from './lab'
 import { Appt, Due, RowActs, StatusPill, teethText, UrgentTag } from './parts'
 
-const FILTERS: [Filter, string][] = [
-  ['lucru', 'În lucru'], ['intarziate', 'Întârziate'], ['vizita', 'Programare fără lucrare'], ['ridicat', 'De ridicat'],
-  ['primite', 'Primite / la probă'], ['finalizate', 'Finalizate'], ['anulate', 'Anulate'], ['toate', 'Toate'],
+const FILTERS: [Filter, string, SideItem<Filter>['icon']][] = [
+  ['lucru', 'În lucru', 'box'], ['intarziate', 'Întârziate', 'sos'], ['vizita', 'Programare fără lucrare', 'cal'],
+  ['ridicat', 'De ridicat', 'door'], ['primite', 'Primite / la probă', 'tooth'], ['finalizate', 'Finalizate', 'check'],
+  ['anulate', 'Anulate', 'ban'], ['toate', 'Toate', 'clipboard'],
 ]
 const isFilter = (s: string | null): s is Filter => FILTERS.some(([k]) => k === s)
 const RED: Filter[] = ['intarziate', 'vizita']
@@ -48,16 +50,11 @@ export function LabListScreen({ navigate = defaultNavigate }: { navigate?: (url:
 
   return (
     <section className="dp-react-root rg lb" aria-busy={state.status === 'loading' || undefined}>
-      <div className="fcard rg-head">
-        <div className="rg-tabs" role="tablist" aria-label="Filtru">
-          {FILTERS.filter(([k]) => k === f || k === 'lucru' || k === 'toate' || (data?.counts[k] ?? 0) > 0).map(([k, label]) => (
-            <button key={k} type="button" role="tab" aria-selected={f === k}
-              className={`rg-tab${f === k ? ' on' : ''}${RED.includes(k) && data?.counts[k] ? ' lb-late' : ''}`}
-              onClick={() => set('f', k === 'lucru' ? '' : k)}>
-              {label} <span className="rg-n">{data?.counts[k] ?? '…'}</span>
-            </button>
-          ))}
-        </div>
+      <SideMenu label="Comenzi laborator" value={f} onPick={(k) => set('f', k === 'lucru' ? '' : k)}
+        items={FILTERS.filter(([k]) => k !== 'anulate' || k === f || (data?.counts.anulate ?? 0) > 0)
+          .map(([k, label, icon]) => ({ key: k, label, icon, count: data?.counts[k], tone: RED.includes(k) ? 'bad' : '' }))}>
+      <div className="fcard rg-head lb-head">
+        <b className="lb-ttl">{FILTERS.find(([k]) => k === f)![1]}</b>
         <form className="rg-tools" role="search" onSubmit={(e) => { e.preventDefault(); set('q', typed.trim()) }}>
           <input className="dp-fld lb-find" placeholder="Pacient, nr. fișei, lucrare" value={typed} onChange={(e) => setTyped(e.target.value)}
             onBlur={() => { if (typed.trim() !== find) set('q', typed.trim()) }} aria-label="Caută" />
@@ -117,6 +114,7 @@ export function LabListScreen({ navigate = defaultNavigate }: { navigate?: (url:
           )}
         </div>
       )}
+      </SideMenu>
       {picking && <PatientPick onClose={() => setPicking(false)} onPick={(pid) => { setPicking(false); host.create(pid) }} />}
       {host.node}
       {toast && <Toast tone={toast.tone} text={toast.text} onClose={() => setToast(null)} />}
