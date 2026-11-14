@@ -26,7 +26,7 @@ function mount(el: ReactElement, url = '/x') {
 
 afterEach(() => { cleanup(); get.mockReset(); post.mockReset(); vi.restoreAllMocks() })
 
-const item = (p: Partial<PlanItem>): PlanItem => ({ id: 3, tooth: 26, procedure: 'Coroană metalo-ceramică', doctor: 'Dr. Elena Rusu', status: 'in_lucru',
+const item = (p: Partial<PlanItem>): PlanItem => ({ id: 3, tooth: 26, procedure: 'Coroană metalo-ceramică', doctor: 'Dr. Elena Rusu', status: 'in_lucru', service_id: null, doctor_id: null,
   label: 'În lucru', price: 4500, due: '', overdue: false, done: '', motiv: '', next: 'finalizat', refusable: true, deletable: false, ...p })
 const CARD = {
   id: 2, name: 'Ion Popescu', profile: { primary_doctor: 'Dr. Elena Rusu', file_no: '' },
