@@ -47,6 +47,9 @@ async def erasure_kind(pid: int) -> str:
     # заказ в лабораторию — назначение изделия на заказ, то есть лечение; отменённый
     # тоже: назначение было выписано
     lab = await _n("SELECT COUNT(*) FROM lab_orders WHERE patient_id = ?", pid)
+    # материал, списанный на пациента (имплант и его лот), — медзапись, и строка
+    # журнала склада без неё переписала бы остаток задним числом
+    stock = await _n("SELECT COUNT(*) FROM stock_moves WHERE patient_id = ?", pid)
     now = datetime.now(timezone.utc)
     happened = await _n(
         """SELECT COUNT(*) FROM appointments WHERE patient_id = ?
@@ -54,7 +57,7 @@ async def erasure_kind(pid: int) -> str:
                 OR (status = 'confirmed' AND starts_at < ?))""",
         pid, _iso(now))
     return ("anon" if (teeth or plan or docs or happened or pays or consult
-                       or anam or punti or perio or occl or lab) else "delete")
+                       or anam or punti or perio or occl or lab or stock) else "delete")
 
 
 # Таблицы, ссылающиеся на пациента, — в порядке удаления: дети раньше родителя
@@ -64,7 +67,7 @@ async def erasure_kind(pid: int) -> str:
 _PATIENT_CHILD_TABLES = ("payments", "activity", "patient_alerts", "teeth",
                          "teeth_history", "plan_items", "documents", "anamneza",
                          "ocluzie", "bridges", "bridges_removed", "recall_marks",
-                         "perio_exams", "lab_orders", "visit_records", "sms_log", "appointments")
+                         "perio_exams", "lab_orders", "stock_moves", "visit_records", "sms_log", "appointments")
 
 # ⚠️ Внуки: таблицы, которые висят НЕ на пациенте, а на его записи. У
 # `perio_teeth` нет patient_id вовсе, и общий шаблон «DELETE ... WHERE

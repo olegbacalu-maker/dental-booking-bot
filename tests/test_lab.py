@@ -142,7 +142,7 @@ def suite_schema(res: Result) -> None:
     """Шаг 13: четыре таблицы и индексы, каждый оператор IF NOT EXISTS; имени
     пациента в заказе нет."""
     step = next((k for k, v in appdb.MIGRATIONS.items() if v is appdb.LAB_DDL), None)
-    res.ok("LAB_DDL — шаг миграции, и он последний", step == appdb.SCHEMA_VERSION, f"шаг {step}")
+    res.ok("LAB_DDL — шаг миграции 13", step == 13, f"шаг {step}")
     res.ok("каждый оператор — IF NOT EXISTS (шаг переживает повтор)",
            all(" IF NOT EXISTS " in x for x in appdb.LAB_DDL), "")
     res.ok("уникальный индекс номера назван ix_, не uq_ (uq_ — слотовые)",

@@ -30,6 +30,7 @@ import test_recall  # noqa: E402
 import test_registre  # noqa: E402
 import test_lab  # noqa: E402
 import test_lab_pages  # noqa: E402
+import test_stock  # noqa: E402
 import test_api  # noqa: E402
 import test_backup  # noqa: E402
 import test_booking  # noqa: E402
@@ -338,6 +339,14 @@ SUITES = [
     ("Laborator: лист наряда — что о пациенте, событие печати", test_lab.suite_print),
     ("Laborator: закон 195 — копия, обезличивание, состав удаления", test_lab.suite_195),
     ("Laborator: страницы списка и каталога, пункт меню, плитка, can.labs", test_lab_pages.suite_pages),
+    ("Stoc: остаток, средняя, партии, «купить», разбор импорта — чистые правила", test_stock.suite_rules),
+    ("Stoc: шаг 14 — таблицы, индексы, без имени пациента", test_stock.suite_schema),
+    ("Stoc: шаг 14 переживает повтор и обрыв", test_stock.suite_retry),
+    ("Stoc: накладная, списание в минус, Deschis, инвентаризация, суммы позже, сторно", test_stock.suite_flow),
+    ("Stoc: De cumpărat, Comandat, сроки, плашка, лист и Excel", test_stock.suite_lists),
+    ("Stoc: права — врачу нет, суммы только директору", test_stock.suite_rights),
+    ("Stoc: импорт каталога из файла — проверка, повтор, отмена", test_stock.suite_import),
+    ("Stoc: закон 195 — копия, обезличивание, состав удаления", test_stock.suite_195),
     ("Одонтограмма: поверхности", test_teeth.suite_surfaces),
     ("Одонтограмма: молочный прикус", test_teeth.suite_milk),
     ("Одонтограмма: форма зуба", test_teeth.suite_shape),

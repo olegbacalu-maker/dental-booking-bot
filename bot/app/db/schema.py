@@ -25,7 +25,7 @@ from .teeth import TEETH_HIST_SINCE
 # идёт range(have+1, SCHEMA_VERSION+1) и до него не дойдёт (так шаг 4 с
 # 'waiting' в uq-индексах не исполнялся ни у одной клиники; держит
 # test_structure).
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 
 # Индексы под горячие пути (день, история пациента, «новые из бота», карточка).
@@ -320,6 +320,133 @@ LAB_DDL = [
     "CREATE INDEX IF NOT EXISTS ix_lab_events_order ON lab_events(order_id, at)",
 ]
 
+# Склад материалов, ступень 1. Остаток не хранится: он сумма журнала
+# `stock_moves`, который только дописывается (исправление — строка `corectie`
+# с `fixes`). Количества — целые тысячные единицы расхода (`*_milli`), деньги —
+# целые бани; `cost_bani` NULL — сумма не внесена, это не ноль. Имена материала,
+# поставщика и врача кладутся снимком рядом с id; `place` '' — основной склад,
+# поле с первого дня, чтобы кабинеты не переписывали журнал. Пациента в журнале —
+# только id: имя берётся из `patients` в момент ответа.
+STOCK_DDL = [
+    """CREATE TABLE IF NOT EXISTS stock_suppliers(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  idno TEXT NOT NULL DEFAULT '',
+  phone TEXT NOT NULL DEFAULT '',
+  email TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  data TEXT NOT NULL DEFAULT '{}',
+  active INTEGER NOT NULL DEFAULT 1,
+  import_doc INTEGER,
+  created_at TEXT NOT NULL,
+  updated_at TEXT
+)""",
+    """CREATE TABLE IF NOT EXISTS stock_items(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT '',
+  unit TEXT NOT NULL,
+  pack_name TEXT NOT NULL DEFAULT '',
+  pack_qty_milli INTEGER NOT NULL DEFAULT 1000,
+  min_milli INTEGER,
+  costly INTEGER NOT NULL DEFAULT 0,
+  track_expiry INTEGER NOT NULL DEFAULT 0,
+  bulk INTEGER NOT NULL DEFAULT 0,
+  supplier_id INTEGER REFERENCES stock_suppliers(id),
+  note TEXT NOT NULL DEFAULT '',
+  data TEXT NOT NULL DEFAULT '{}',
+  active INTEGER NOT NULL DEFAULT 1,
+  sort INTEGER NOT NULL DEFAULT 0,
+  ordered_at TEXT,
+  ordered_by TEXT NOT NULL DEFAULT '',
+  import_doc INTEGER,
+  deleted_at TEXT,
+  deleted_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT
+)""",
+    """CREATE TABLE IF NOT EXISTS stock_docs(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL,
+  nr TEXT NOT NULL DEFAULT '',
+  doc_date TEXT,
+  supplier_id INTEGER REFERENCES stock_suppliers(id),
+  supplier TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'ciorna',
+  no_sums INTEGER NOT NULL DEFAULT 0,
+  total_bani INTEGER,
+  cur TEXT NOT NULL DEFAULT '',
+  cur_amount INTEGER,
+  rate TEXT NOT NULL DEFAULT '',
+  document_id INTEGER,
+  fingerprint TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  data TEXT NOT NULL DEFAULT '{}',
+  actor TEXT NOT NULL DEFAULT '',
+  actor_id TEXT NOT NULL DEFAULT '',
+  closed_at TEXT,
+  closed_by TEXT NOT NULL DEFAULT '',
+  undone_at TEXT,
+  undone_by TEXT NOT NULL DEFAULT '',
+  why TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT
+)""",
+    """CREATE TABLE IF NOT EXISTS stock_doc_lines(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  doc_id INTEGER NOT NULL REFERENCES stock_docs(id),
+  sort INTEGER NOT NULL DEFAULT 0,
+  item_id INTEGER NOT NULL REFERENCES stock_items(id),
+  qty_milli INTEGER,
+  prog_milli INTEGER,
+  cost_bani INTEGER,
+  lot TEXT NOT NULL DEFAULT '',
+  expiry TEXT,
+  note TEXT NOT NULL DEFAULT ''
+)""",
+    """CREATE TABLE IF NOT EXISTS stock_moves(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  item_id INTEGER NOT NULL REFERENCES stock_items(id),
+  item_name TEXT NOT NULL,
+  qty_milli INTEGER NOT NULL,
+  cost_bani INTEGER,
+  place TEXT NOT NULL DEFAULT '',
+  doc_id INTEGER REFERENCES stock_docs(id),
+  line_id INTEGER,
+  lot TEXT NOT NULL DEFAULT '',
+  expiry TEXT,
+  patient_id INTEGER REFERENCES patients(id),
+  appointment_id INTEGER,
+  plan_item_id INTEGER,
+  service_id TEXT,
+  doctor_id TEXT NOT NULL DEFAULT '',
+  doctor TEXT NOT NULL DEFAULT '',
+  supplier TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT 'manual',
+  reason TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  actor TEXT NOT NULL DEFAULT '',
+  actor_id TEXT NOT NULL DEFAULT '',
+  doer TEXT NOT NULL DEFAULT '',
+  fixes INTEGER,
+  why TEXT NOT NULL DEFAULT '',
+  deleted_at TEXT,
+  deleted_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_stock_moves_item ON stock_moves(item_id, place)",
+    "CREATE INDEX IF NOT EXISTS ix_stock_moves_at ON stock_moves(at)",
+    "CREATE INDEX IF NOT EXISTS ix_stock_moves_doc ON stock_moves(doc_id)",
+    "CREATE INDEX IF NOT EXISTS ix_stock_moves_fixes ON stock_moves(fixes)",
+    "CREATE INDEX IF NOT EXISTS ix_stock_moves_patient ON stock_moves(patient_id)",
+    "CREATE INDEX IF NOT EXISTS ix_stock_moves_appt ON stock_moves(appointment_id)",
+    "CREATE INDEX IF NOT EXISTS ix_stock_moves_plan ON stock_moves(plan_item_id)",
+    "CREATE INDEX IF NOT EXISTS ix_stock_lines_doc ON stock_doc_lines(doc_id)",
+    "CREATE INDEX IF NOT EXISTS ix_stock_docs_kind ON stock_docs(kind, status)",
+]
+
 MIGRATIONS = {
     1: [
         "CREATE INDEX IF NOT EXISTS ix_appt_starts ON appointments(starts_at)",
@@ -397,6 +524,9 @@ MIGRATIONS = {
     # Заказы в лабораторию (`LAB_DDL` выше): аддитивно, каждый оператор IF NOT
     # EXISTS — шаг переживает повтор; строго, как 7–12.
     13: LAB_DDL,
+    # Склад материалов (`STOCK_DDL` выше): аддитивно, каждый оператор IF NOT
+    # EXISTS — шаг переживает повтор; строго, как 7–13.
+    14: STOCK_DDL,
 }
 # Шаг, который кладёт базовый снимок истории зубов. В отличие от
 # UQ_GUARD_STEP — СТРОГИЙ: он меняет данные, и недописанный снимок не имеет

@@ -145,6 +145,8 @@ ACT_ICON = {"appt_new": "cal", "appt_status": "check", "appt_cancel": "ban",
             "recall": "refresh",
             # заказ в лабораторию и печать наряда — передача данных лаборатории
             "lab": "box", "lab_print": "print",
+            # материал со склада, списанный на пациента (лот импланта)
+            "stock": "box",
             # SMS-напоминание (S5): ушло / доставлено / не дошло или не ушло;
             # отказ пациента от SMS — отметка фиши
             "sms": "chat", "sms_ok": "check", "sms_fail": "ban", "sms_off": "phone-off",

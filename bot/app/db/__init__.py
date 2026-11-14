@@ -28,6 +28,7 @@ Postgres-издание снято 12.10.2026 (на нём не работало
     erasure   закон 195: стирание и обезличивание
     registre  санитарные регистры 257/e, 502/e, 501/e (без пациентов)
     lab       заказы в зуботехническую лабораторию и каталог лабораторий
+    stock     склад материалов: каталог, документы, журнал движений
     schema    схема, миграции, init/close
 
 ⛔ **Переприсваиваемое состояние живёт ЗДЕСЬ и только здесь** — `_CONN`, `_SQ`,
@@ -141,8 +142,20 @@ from .lab import (
     _event_insert, lab_order_write, lab_order_head, lab_orders_rows, lab_items, lab_events,
     lab_order_ids, lab_last_prices, lab_next_appts, lab_plan_item, lab_appt_patient,
 )
+from .stock import (
+    STOCK_KINDS, STOCK_OUT_REASONS, STOCK_FIX_REASONS, STOCK_DOC_KINDS, STOCK_DOC_OPEN, STOCK_DOC_CLOSED,
+    STOCK_UNDOES, _ST_SUP_COLS, _ST_ITEM_COLS, _ST_DOC_COLS, _ST_LINE_COLS, _ST_MOVE_COLS, _st_js, _st_dump,
+    _st_tx, _st_insert, stock_suppliers, stock_supplier, stock_supplier_save, stock_supplier_delete,
+    stock_items, stock_item, stock_item_save, stock_item_delete, stock_order_mark, stock_order_clear,
+    _stock_move_insert, stock_move_add, stock_moves_all, stock_move, stock_moves_query, stock_fixed,
+    stock_actors, stock_moves_patient, stock_moves_range, stock_docs, stock_doc, stock_doc_lines,
+    _st_lines_put, stock_doc_create, stock_doc_write, stock_doc_delete, stock_doc_close, stock_doc_sums,
+    stock_doc_undo, stock_import_write, stock_import_doc_by_print, stock_import_items, stock_import_suppliers,
+    stock_import_foreign_moves, stock_inventory_docs_after,
+)
 from .schema import (
     SCHEMA_VERSION, OCLUZIE_DDL, RECALL_DDL, RECALL_IDX_DDL, SAN_DDL, SAN_PEOPLE_DDL, GCAL_DDL, LAB_DDL,
+    STOCK_DDL,
     MIGRATIONS, TEETH_HIST_STEP,
     SQLITE_CARD_SCHEMA, SQLITE_EXTRA_COLS, SQLITE_PATIENT_COLS, SQLITE_SCHEMA,
     _schema_version, _set_schema_version, _teeth_hist_base, _migrate, _ADD_COLUMN, _already_added, _sqlite_driver, init,

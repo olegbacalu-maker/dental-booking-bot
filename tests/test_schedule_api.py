@@ -614,8 +614,9 @@ def suite_dash_flag(res: Result) -> None:
     day = clinic_today().isoformat()
     # `notice` — подсказка-состояние (22.10, права врача: учётка без врача);
     # у полного журнала null, но в составе конверта всегда
+    # `stock` — плашка склада (null без права или при пустом складе)
     keys = ["actions", "agenda", "canvas", "day_label", "day_long", "desk", "lab",
-            "minical", "note_actions", "note_ends", "notice", "occupancy", "slotform"]
+            "minical", "note_actions", "note_ends", "notice", "occupancy", "slotform", "stock"]
     with Server() as s:
         c = Client(s.url).login()
         page = c.get(f"/admin?date={day}").body

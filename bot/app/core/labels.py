@@ -110,6 +110,18 @@ LAB_CAUSE = {"culoare": "Culoare", "adaptare": "Adaptare / prindere", "ocluzie":
 LAB_PAYER = {"laborator": "Laboratorul (garanție)", "clinica": "Clinica", "pacient": "Pacientul"}
 LAB_IMPRESSION = {"amprenta": "Amprentă", "scanare": "Scanare intraorală", "model": "Model"}
 
+# Склад материалов: вид движения, причина, документ и его статус, единицы.
+# Коды перечислены в `db/stock.py`; слова — только здесь.
+STOCK_KIND_LABEL = {"intrare": "Intrare", "consum": "Pe pacient", "casare": "Scoatere",
+                    "inventar": "Inventariere", "corectie": "Corecție"}
+STOCK_REASON_LABEL = {"pacient": "Pe pacient", "deschis": "Pachet deschis", "expirat": "Expirat",
+                      "defect": "Defect / deteriorat", "pierdut": "Pierdut", "altul": "Alt motiv",
+                      "anulare": "Mișcare anulată", "storno": "Factură anulată", "suma": "Sumă completată",
+                      "import_anulat": "Import anulat"}
+STOCK_DOC_KIND_LABEL = {"factura": "Factură", "inventar": "Inventariere", "import": "Import din fișier"}
+STOCK_DOC_STATUS_LABEL = {"ciorna": "Ciornă", "inchis": "Înregistrat", "anulat": "Anulat"}
+STOCK_UNITS = ("buc", "g", "ml", "cm", "cutie", "pachet")
+
 # статусы, при которых слот занят — единый источник правды в db/slots.py
 LIVE_STATUSES = db.ACTIVE_STATUSES
 

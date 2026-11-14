@@ -1185,7 +1185,8 @@ def _worker_lan_guard(tmpdir: str) -> None:
         # --- опасное из сети — отказ словами ---
         bad = []
         for path in sorted(auth.LOCAL_ONLY):
-            url = path.replace("{uid}", rid)
+            # номер документа — любой: отказ из сети приходит раньше разбора
+            url = path.replace("{uid}", rid).replace("{doc_id}", "1")
             # лист и выгрузки файлом открывает браузер ссылкой — GET
             method = "GET" if path.endswith(("/sheet", ".xlsx")) else "POST"
             if path.startswith("/api/"):

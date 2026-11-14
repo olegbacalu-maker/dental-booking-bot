@@ -29,6 +29,7 @@ from ... import db
 from ... import engine as eng
 from ... import teeth_svg as tsvg
 from ...core import lab as clab
+from ...core import stock as cstock
 from ...core import recall as crecall
 from ...core.layout import ALERT_KINDS, SOURCE_LABEL, STATUS_LABEL
 from . import anamneza as panam
@@ -141,6 +142,9 @@ async def collect(pid: int) -> dict | None:
         # заказы в лабораторию — те же таблицы, что стирает удаление; цены
         # лаборатории — расчёт клиники с лабораторией, не данные пациента
         "laborator": await clab.export_rows(pid),
+        # материалы со склада, списанные на пациента (лот импланта) — та же
+        # таблица держит фишу от стирания; цены — расчёт клиники, не данные пациента
+        "materiale": await cstock.export_rows(pid),
         "consultatii": await db.patient_visit_records(pid),
         "plati": await db.payments(pid),
         "documente": await db.documents_with_paths(pid),
@@ -416,6 +420,12 @@ def render_html(data: dict) -> str:
         [[_esc(o["nr"]), _esc(o["laborator"]) or "—", _esc(o["medic"]) or "—", _lab_lines(o),
           _esc(o["stare"]), _dt(o["trimis"], with_time=False), _dt(o["termen"], with_time=False),
           _lab_steps(o)] for o in data.get("laborator", [])])
+    materiale = _table(
+        ["Data", "Material", "Cantitate", "Lot", "Valabil până la", "Notă"],
+        [[_dt(m["data"], with_time=False), _esc(m["material"]) + (" [anulat]" if m["anulat"] else ""),
+          _esc(f"{m['cantitate']} {m['unitate']}".strip()), _esc(m["lot"]) or "—",
+          _dt(m["valabil"], with_time=False) if m["valabil"] else "—", _esc(m["nota"]) or "—"]
+         for m in data.get("materiale", [])])
     istoric = _table(
         ["Data", "Autor", "Eveniment"],
         [[_dt(e["at"]), _esc(e["actor"]), _esc(e["text"])]
@@ -459,6 +469,7 @@ def render_html(data: dict) -> str:
 <h2>Parodontogramă ({len(data.get('parodont', []))} examene)</h2>{parodont}
 <h2>Plan de tratament ({len(data['plan_tratament'])})</h2>{plan}
 <h2>Comenzi la laboratorul dentar ({len(data.get('laborator', []))})</h2>{laborator}
+<h2>Materiale folosite ({len(data.get('materiale', []))})</h2>{materiale}
 <h2>Consultații ({len(data['consultatii'])})</h2>{consultatii}
 <h2>Plăți ({len(data['plati'])})</h2>{plati}
 <h2>Documente ({len(data['documente'])})</h2>{documente}

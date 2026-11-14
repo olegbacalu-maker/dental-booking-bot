@@ -152,6 +152,9 @@ def _base_db(path: pathlib.Path) -> sqlite3.Connection:
     # заказы лаборатории — тоже только шагом; их читают стирание и выгрузка пациента
     for sql in appdb.LAB_DDL:
         con.execute(sql)
+    # склад — тоже только шагом; журнал склада читают стирание и выгрузка пациента
+    for sql in appdb.STOCK_DDL:
+        con.execute(sql)
     return con
 
 

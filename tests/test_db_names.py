@@ -60,6 +60,15 @@ SNAPSHOT = frozenset((
     "LAB_DDL", "LAB_OPEN", "LAB_CLOSED", "LAB_STATUSES", "labs_all", "lab_get", "lab_by_name", "lab_save",
     "lab_delete", "lab_order_create", "lab_order_write", "lab_order_head", "lab_orders_rows", "lab_items",
     "lab_events", "lab_order_ids", "lab_last_prices", "lab_next_appts", "lab_plan_item", "lab_appt_patient",
+    # склад материалов: db/stock.py + STOCK_DDL шага 14
+    "STOCK_DDL", "STOCK_KINDS", "STOCK_OUT_REASONS", "STOCK_FIX_REASONS", "STOCK_DOC_KINDS", "STOCK_DOC_OPEN",
+    "STOCK_DOC_CLOSED", "STOCK_UNDOES", "stock_suppliers", "stock_supplier", "stock_supplier_save",
+    "stock_supplier_delete", "stock_items", "stock_item", "stock_item_save", "stock_item_delete",
+    "stock_order_mark", "stock_order_clear", "stock_move_add", "stock_moves_all", "stock_move",
+    "stock_moves_query", "stock_fixed", "stock_actors", "stock_moves_patient", "stock_moves_range", "stock_docs",
+    "stock_doc", "stock_doc_lines", "stock_doc_create", "stock_doc_write", "stock_doc_delete", "stock_doc_close",
+    "stock_doc_sums", "stock_doc_undo", "stock_import_write", "stock_import_doc_by_print", "stock_import_items",
+    "stock_import_suppliers", "stock_import_foreign_moves", "stock_inventory_docs_after",
     # кабинет у записи: занятость по кабинетам врача, индексы с кабинетом в ключе
     "appt_room_busy", "_doctor_overlaps", "_lane", "_own_room", "_patient_busy", "_pick_room",
     "_retire_old_uq", "room_busy", "_room_label", "set_appt_room", "pin_doctor_room", "slot_probe", "_UQ_RETIRED",

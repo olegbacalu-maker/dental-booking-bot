@@ -26,6 +26,7 @@ from ... import db
 from ... import engine as eng
 from ...core.auth import _guard, local_only, request_user
 from ...core import lab as clab
+from ...core import stock as cstock
 from ...core import xlsx
 from ...core.layout import msg_view, react_shell, shell_model
 from ...core.risks import denied_since, merge as merge_risks
@@ -429,6 +430,8 @@ async def _panel_live(d: date, now: datetime, scope: str | None = None) -> dict:
         # заказы в лабораторию (просрочено, gata de ridicat, визит без работы) —
         # про СЕГОДНЯ и только по дню, как desk; цен в плашке нет
         "lab": await clab.dash_model(request_user(), now.date(), scope),
+        # склад: ниже порога и сроки — про СЕГОДНЯ, только по дню; врачу — null
+        "stock": await cstock.dash_model(request_user(), now.date()),
         # подсказка учётки без врача (22.10) — состоянием, в том же конверте
         "notice": _notice(scope),
     }

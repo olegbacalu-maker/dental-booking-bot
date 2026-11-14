@@ -117,6 +117,7 @@ _DUR_ASKERS = ("app/modules/schedule/routes.py", "app/modules/settings/routes.py
 _DB_TEXTS = "app/db/plans.py"        # тексты летописи пациента («Plan: …»)
 _DB_SAN = "app/db/registre.py"       # журналы san_*: единственное место UPDATE (замок IS NULL)
 _DB_LAB = "app/db/lab.py"            # заказы в лабораторию: история только дописывается
+_DB_STOCK = "app/db/stock.py"        # журнал склада: только INSERT, и только здесь
 # Якоря бывшего layout.py (разнос 04.11): переезд имени = правка одной строки.
 _LAY_SHELL = "app/core/layout.py"     # shell_model, REACT_SCREENS, SECTION_TITLE
 _LAY_ICONS = "app/core/icons.py"      # _I, _ic
@@ -2483,3 +2484,23 @@ def suite(res: Result) -> None:
                                 for n in owner.body):
         bad.append(f"{_DB_LAB} без _event_insert — якорь правила пропал")
     res.ok("заказ в лабораторию не удаляется, история только дописывается", not bad, "; ".join(bad))
+
+    # Остаток склада — сумма журнала `stock_moves`; исправление — новая строка
+    # `corectie`. Правленная или стёртая строка молча переписала бы остаток и
+    # среднюю цену задним числом, и инвентаризация сверялась бы уже с выдумкой.
+    # Писать строку — только `db/stock._stock_move_insert`. Физическое стирание
+    # пациента идёт шаблоном по `_PATIENT_CHILD_TABLES` и сюда не попадает.
+    _ST_EDIT = re.compile(r"\b(?:UPDATE|DELETE\s+FROM|REPLACE\s+INTO|INSERT\s+OR\s+REPLACE\s+INTO|DROP\s+TABLE)\s+"
+                          r"(?:IF\s+EXISTS\s+)?stock_moves\b", re.I)
+    _ST_INS = re.compile(r"\bINSERT\s+INTO\s+stock_moves\b", re.I)
+    bad, owner = [], by_path.get(_DB_STOCK)
+    for rel, tree in src:
+        for line, text in _sql_texts(tree):
+            if _ST_EDIT.search(text):
+                bad.append(f"{rel}:{line} правит или стирает строку журнала склада stock_moves")
+            if _ST_INS.search(text) and rel != _DB_STOCK:
+                bad.append(f"{rel}:{line} пишет журнал склада мимо {_DB_STOCK}")
+    if owner is None or not any(isinstance(n, ast.AsyncFunctionDef) and n.name == "_stock_move_insert"
+                                for n in owner.body):
+        bad.append(f"{_DB_STOCK} без _stock_move_insert — якорь правила пропал")
+    res.ok("журнал склада только дописывается", not bad, "; ".join(bad))

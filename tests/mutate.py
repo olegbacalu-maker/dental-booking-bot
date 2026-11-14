@@ -654,6 +654,16 @@ MUTATIONS = [
      "\nasync def _mut(db, i):\n    await db._execute('UPDATE lab_events SET on_date = ? WHERE id = ?', 'x', i)\n"),
     ("заказ в лабораторию не удаляется, история только дописывается", test_structure._DB_LAB,
      "\nasync def _mut(i):\n    await _execute('DELETE FROM lab_orders WHERE id = ?', i)\n"),
+    # Склад: «поправить количество строки на месте», «стереть ошибочное списание»,
+    # «записать движение прямо из импорта» и переименованный якорь.
+    ("журнал склада только дописывается", "app/core/stock.py",
+     "\nasync def _mut(db, i):\n    await db._execute('UPDATE stock_moves SET qty_milli = 0 WHERE id = ?', i)\n"),
+    ("журнал склада только дописывается", test_structure._DB_STOCK,
+     "\nasync def _mut(i):\n    await _execute('DELETE FROM stock_moves WHERE id = ?', i)\n"),
+    ("журнал склада только дописывается", "app/core/stock_import.py",
+     "\nasync def _mut(db, i):\n    await db._execute('INSERT INTO stock_moves(item_id) VALUES(?)', i)\n"),
+    ("журнал склада только дописывается", test_structure._DB_STOCK,
+     ("async def _stock_move_insert(", "async def _stock_move_put(")),
 ]
 
 # Правки ЗАКОННЫЕ: нарушения в них нет, и правило обязано остаться

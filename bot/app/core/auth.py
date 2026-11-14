@@ -132,15 +132,17 @@ PERM_IMPORT = "pimport"
 # каталог зуботехнических лабораторий — как каталог врачей: стойка и директор.
 # Заказы создаёт и видит любой вошедший, цену лаборатории — только PERM_MONEY.
 PERM_LABS = "labs"
+# склад материалов: стойка и директор; врачу нет. Цены и суммы склада — PERM_MONEY.
+PERM_STOCK = "stock"
 
 PERMS = {
     ROLE_DIRECTOR: {PERM_MONEY, PERM_SETTINGS, PERM_USERS, PERM_DOCTORS, PERM_SMS,
-                    PERM_SCHEDULE_ALL, PERM_RECALL, PERM_IMPORT, PERM_LABS},
+                    PERM_SCHEDULE_ALL, PERM_RECALL, PERM_IMPORT, PERM_LABS, PERM_STOCK},
     # Регистратуре каталог врачей НУЖЕН: отметить отпуск, сузить часы приёма,
     # поправить услуги — операционка стойки, иначе любой чих требует директора.
     # SMS — тоже стойка: согласие пациента спрашивает тот, кто его записывает.
     ROLE_RECEPTIE: {PERM_DOCTORS, PERM_SMS, PERM_SCHEDULE_ALL, PERM_RECALL, PERM_IMPORT,
-                    PERM_LABS},
+                    PERM_LABS, PERM_STOCK},
     # Врачу — нет (канарейка 1.15.0, Олег): с телефона в LAN врач открывал
     # ЧУЖИЕ карточки и мог менять фото. Врачу — пациенты и записи; просмотр
     # своего расписания живёт в журнале, не в каталоге. SMS врач не видит
@@ -864,6 +866,11 @@ LOCAL_ONLY = frozenset({
     "/api/pimport/run",
     "/api/pimport/report",
     "/api/pimport/undo",
+    # склад: каталог файлом в программу и его отмена, движения месяца файлом
+    "/api/stock/import/check",
+    "/api/stock/import/run",
+    "/api/stock/import/{doc_id}/undo",
+    "/admin/stoc/miscari.xlsx",
 })
 
 
