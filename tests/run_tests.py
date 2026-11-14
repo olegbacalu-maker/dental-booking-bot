@@ -513,6 +513,8 @@ SUITES = [
     ("Закон 195: стирание по маркеру", test_privacy.suite_erase_marker),
     ("Закон 195: маркер и полное удаление",
      test_privacy.suite_erase_marker_delete),
+    ("Закон 195: стирание и отметки звонков", test_privacy.suite_erase_call_marks),
+    ("Закон 195: состав стирания по схеме", test_privacy.suite_erase_schema),
     ("Закон 195: журнал доступа", test_privacy.suite_access_log),
     ("Закон 195: формуляр информирования", test_privacy.suite_acord),
     ("Летопись: событие словом, а не кодом", test_activity.suite_words),

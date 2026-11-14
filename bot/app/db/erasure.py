@@ -69,7 +69,11 @@ _PATIENT_CHILD_TABLES = ("payments", "activity", "patient_alerts", "teeth",
 # полагаться на него нельзя: включённость `PRAGMA foreign_keys` — свойство
 # СОЕДИНЕНИЯ, и на чужом (восстановление, ремонт базы, другой драйвер)
 # измерения пережили бы стирание пациента молча. Удаляются ПЕРВЫМИ.
-_PATIENT_GRAND_CHILDREN = (("perio_teeth", "exam_id", "perio_exams"),)
+# Отметка звонка-подтверждения (`appt_calls`) — внук через запись: ключ на
+# `appointments` настоящий, и без неё полное удаление контакта, которому
+# позвонили, падало на внешнем ключе.
+_PATIENT_GRAND_CHILDREN = (("perio_teeth", "exam_id", "perio_exams"),
+                           ("appt_calls", "appointment_id", "appointments"))
 
 
 async def _patient_phone(pid: int) -> str:

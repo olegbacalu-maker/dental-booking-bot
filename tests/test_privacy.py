@@ -14,7 +14,7 @@ import time
 import zipfile
 from datetime import timedelta
 
-from harness import (BOT, Client, Result, Server, _rmtree_settled, appt_id,
+from harness import (BOT, Client, Result, Server, _rmtree_settled, add_appt, appt_id,
                      clinic_today, day_model, pid_by_phone)
 
 
@@ -382,6 +382,123 @@ def suite_erase_marker_delete(res: Result) -> None:
         found = _scan_marker(work, (_MARK, _MARK_PHONE))
         res.ok("после полного удаления маркера нет нигде",
                not found, f"уцелевшие следы: {found}")
+    finally:
+        _rmtree_settled(work)
+
+
+def suite_erase_call_marks(res: Result) -> None:
+    """Отметка звонка-подтверждения (`appt_calls`, «De confirmat — sunați»)
+    висит на ЗАПИСИ, а не на пациенте: общий шаблон «WHERE patient_id» её не
+    видит. Внешний ключ на `appointments` при этом настоящий — с включённым
+    `foreign_keys` полное удаление контакта, которому позвонили, упиралось бы
+    в него, без включённого оставляло бы отметки-сироты. И выдать копию без
+    них нельзя: «кто, когда и что ответил» — обработка его данных."""
+    work = pathlib.Path(tempfile.mkdtemp(prefix="dp_test_"))
+    try:
+        with Server(dir_=work) as s:
+            c = Client(s.url).login()
+            # --- контакт без лечения: запись на завтра, ему позвонили ---
+            add_appt(c, _d(1), "10:00", "Doar Sunat", "022600700", doctor="d3")
+            pid = _pid(c, "022600700")
+            aid = appt_id(c, _d(1), "Doar Sunat")
+            r = c.post_json(f"/api/schedule/desk/call/{aid}", {"result": "ok"})
+            res.check("отметка звонка принята", r.status, 200)
+            res.check("звонок — не лечение: фиша предлагает полное удаление",
+                      _card(c, pid)["erasure"], "delete")
+
+            z = zipfile.ZipFile(io.BytesIO(c.get(f"/admin/patient/{pid}/export").raw))
+            data = json.loads(z.read("date-pacient.json"))
+            res.check("в копии есть отметка звонка",
+                      [(m["appointment_id"], m["result"]) for m in data.get("confirmari_telefonice", [])],
+                      [(aid, "ok")])
+            page = z.read("fisa-pacient.html").decode("utf-8")
+            res.ok("и в читаемой копии — словом, а не кодом",
+                   "Confirmări telefonice" in page and "<td>confirmat</td>" in page,
+                   "раздела звонков нет или результат показан кодом")
+
+            r = c.post_json(f"/api/patients/{pid}/erase", {"confirm": "STERG"})
+            res.check("контакт, которому позвонили, удаляется физически",
+                      (r.status, r.msg), (200, "ok_del"))
+            res.check("из поиска он исчез", _rows(c, "Doar+Sunat"), [])
+
+            # --- пациент с лечением: обезличивание оставляет отметку под номером ---
+            add_appt(c, _d(1), "11:00", "Sunat Tratat", "022600701", doctor="d3")
+            pid2 = _pid(c, "022600701")
+            aid2 = appt_id(c, _d(1), "Sunat Tratat")
+            c.post_json(f"/api/schedule/desk/call/{aid2}", {"result": "noanswer"})
+            c.post_json(f"/api/patients/{pid2}/teeth/11", {"state": "carie", "note": "",
+                                                          "doctor": "d3", "surfaces": []})
+            r = c.post_json(f"/api/patients/{pid2}/erase", {"confirm": "STERG"})
+            res.check("фиша с лечением обезличена", r.msg, "ok_anon")
+            z = zipfile.ZipFile(io.BytesIO(c.get(f"/admin/patient/{pid2}/export").raw))
+            data = json.loads(z.read("date-pacient.json"))
+            res.check("у обезличенного отметка звонка в копии осталась",
+                      [(m["appointment_id"], m["result"]) for m in data.get("confirmari_telefonice", [])],
+                      [(aid2, "noanswer")])
+        con = sqlite3.connect(str(work / "dental.db"))
+        try:
+            left = sorted(r_[0] for r_ in con.execute("SELECT appointment_id FROM appt_calls"))
+            orphans = con.execute("SELECT COUNT(*) FROM appt_calls WHERE appointment_id "
+                                  "NOT IN (SELECT id FROM appointments)").fetchone()[0]
+        finally:
+            con.close()
+        res.check("в базе осталась только отметка обезличенного", left, [aid2])
+        res.check("отметок-сирот нет", orphans, 0)
+    finally:
+        _rmtree_settled(work)
+
+
+# Таблицы, которые ссылаются на запись пациента, но стираются НЕ удалением
+# строк: событие календаря принадлежит календарю клиники, у него гасится
+# текст и связь (`db.gcal._gcal_erase_sql`).
+_ERASE_BY_OTHER = {"gcal_events": "_gcal_erase_sql"}
+
+
+def suite_erase_schema(res: Result) -> None:
+    """Сторож состава стирания по СХЕМЕ живой базы: каждая таблица с внешним
+    ключом на пациента — в `_PATIENT_CHILD_TABLES`, каждая с ключом на такую
+    таблицу и без своего `patient_id` — во внуках. Новая таблица без строки в
+    списке краснеет здесь, а не через месяц у клиники с «FOREIGN KEY constraint
+    failed» на кнопке «Șterge»."""
+    sys.path.insert(0, str(BOT))
+    from app import db as appdb
+    work = pathlib.Path(tempfile.mkdtemp(prefix="dp_test_"))
+    try:
+        with Server(dir_=work):
+            pass
+        con = sqlite3.connect(str(work / "dental.db"))
+        try:
+            tables = [r_[0] for r_ in con.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+            # колонка → таблица, на которую она ссылается
+            fk_cols = {t: {r_[3]: r_[2] for r_ in con.execute(f'PRAGMA foreign_key_list("{t}")')}
+                       for t in tables}
+            fks = {t: set(v.values()) for t, v in fk_cols.items()}
+            cols = {t: {r_[1] for r_ in con.execute(f'PRAGMA table_info("{t}")')} for t in tables}
+        finally:
+            con.close()
+        res.ok("схема прочитана: ключи на пациента нашлись",
+               sum("patients" in v for v in fks.values()) >= 10, f"ключи: {fks}")
+        child = set(appdb._PATIENT_CHILD_TABLES)
+        grand = {g[0]: g for g in appdb._PATIENT_GRAND_CHILDREN}
+        miss_child = sorted(t for t, ref in fks.items() if "patients" in ref and t not in child)
+        res.ok("каждая таблица с ключом на пациента — в _PATIENT_CHILD_TABLES",
+               not miss_child, f"нет в списке стирания: {miss_child}")
+        miss_grand = sorted(
+            t for t, ref in fks.items()
+            if ref & child and "patient_id" not in cols[t]
+            and t not in grand and t not in _ERASE_BY_OTHER)
+        res.ok("каждая таблица с ключом на запись пациента — во внуках",
+               not miss_grand, f"нет в _PATIENT_GRAND_CHILDREN: {miss_grand}")
+        wrong = sorted(t for t, (_, key, parent) in grand.items()
+                       if parent not in child or fk_cols.get(t, {}).get(key) != parent)
+        res.ok("колонка внука — внешний ключ на родителя из списка", not wrong,
+               f"битые строки внуков: {wrong}")
+        # внуки и дети стираются ДО родителя: иначе внешний ключ откажет
+        order = list(appdb._PATIENT_CHILD_TABLES)
+        late = sorted(t for t in child if t in fks and set(order[:order.index(t)]) & fks[t])
+        res.ok("ребёнок стоит раньше таблицы, на которую ссылается", not late,
+               f"удаляются позже родителя: {late}")
     finally:
         _rmtree_settled(work)
 

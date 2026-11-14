@@ -53,6 +53,9 @@ _JSON = "date-pacient.json"
 _HTML = "fisa-pacient.html"
 _DOCDIR = "documente"
 
+# слова те же, что пишет в летопись маршрут отметки (`api_desk_call`)
+_CALL_WORD = {"ok": "confirmat", "noanswer": "nu răspunde"}
+
 
 def _plain(value):
     """datetime → ISO. Без этого json.dumps падает на колонках-датах: `_fetch`
@@ -98,6 +101,8 @@ async def collect(pid: int) -> dict | None:
     if not p:
         return None
     teeth = await db.teeth_map(pid)
+    appts = await db.patient_appointments(pid, _ALL)
+    calls = await db.appt_calls([a["id"] for a in appts])
     return {
         "generat_la": datetime.now(eng.TZ).isoformat(timespec="seconds"),
         # кто оператор данных — первое, что должно быть видно в копии
@@ -106,7 +111,11 @@ async def collect(pid: int) -> dict | None:
                     # оператор данных по 195-му — юрлицо, как на acord
                     "denumirea_juridica": eng.CLINIC_LEGAL, "idno": eng.CLINIC_IDNO},
         "pacient": p,
-        "programari": await db.patient_appointments(pid, _ALL),
+        "programari": appts,
+        # отметки звонка-подтверждения висят на записи, не на пациенте — та же
+        # таблица, что стирает удаление (внук `appt_calls`)
+        "confirmari_telefonice": [dict(calls[a["id"]], programare=a["starts_at"])
+                                  for a in appts if a["id"] in calls],
         "atentionari": await db.patient_alerts(pid),
         "dinti": [teeth[t] for t in sorted(teeth)],
         # мосты — конструкции ПОВЕРХ зубов (08-21): машинная копия несёт
@@ -219,6 +228,11 @@ def render_html(data: dict) -> str:
           _esc(crecall.WORD.get(m["result"], m["result"])),
           _esc(m.get("until_date")) or "—", _esc(m["actor"]) or "—"]
          for m in data.get("rechemari", [])])
+    confirmari = _table(
+        ["Programarea", "Rezultat", "Operator", "Marcat la"],
+        [[_dt(m["programare"]), _esc(_CALL_WORD.get(m["result"], m["result"])),
+          _esc(m["actor"]) or "—", _dt(m["at"])]
+         for m in data.get("confirmari_telefonice", [])])
     programari = _table(
         ["Data", "Serviciu", "Medic", "Stare", "Sursa", "Comentariu"],
         [[_dt(v["starts_at"]), _esc(v["service"]), _esc(v["doctor"]),
@@ -411,6 +425,7 @@ def render_html(data: dict) -> str:
 
 <h2>Fișa pacientului</h2>{profil}
 <h2>Programări ({len(data['programari'])})</h2>{programari}
+<h2>Confirmări telefonice ({len(data.get('confirmari_telefonice', []))})</h2>{confirmari}
 <h2>Rechemări ({len(data.get('rechemari', []))})</h2>{rechemari}
 <h2>Atenționări medicale ({len(data['atentionari'])})</h2>{atentionari}
 <h2>Anamneză</h2>{anamneza}
