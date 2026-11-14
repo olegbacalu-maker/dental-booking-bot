@@ -97,7 +97,7 @@ export function ConsumeDialog({ target, data, onClose, onDone }: {
 
 /** Хозяин окна у фиши. После «Finalizată» спрашивает склад о позиции; `pending` — открывает окно. Позиции, окно которых
  *  закрыли без решения, ждут значком «Materiale de confirmat» в строке плана (список — из загрузчика фиши). */
-export function useConsume(say: (text: string, tone: 'ok' | 'warn' | 'err') => void, loaded: number[] | null | undefined) {
+export function useConsume(say: (text: string, tone: 'ok' | 'warn' | 'err') => void, loaded: number[] | null | undefined, changed?: () => void) {
   const [open, setOpen] = useState<{ t: Target; data: PlanProposal; k: number } | null>(null)
   const [base, setBase] = useState(loaded)
   const [pending, setPending] = useState<number[]>(loaded ?? [])
@@ -126,12 +126,12 @@ export function useConsume(say: (text: string, tone: 'ok' | 'warn' | 'err') => v
     }).catch(() => { /* значки появятся при следующем открытии фиши */ })
   }, [ask])
   /** Позиция ушла из «finalizat» (Redeschide): возврат делает сервер, ждать подтверждения нечего. */
-  const reopened = useCallback((id: number) => setPending((p) => p.filter((x) => x !== id)), [])
+  const reopened = useCallback((id: number) => { setPending((p) => p.filter((x) => x !== id)); changed?.() }, [changed])
   const chip = (t: Target): ReactNode => (pending.includes(t.id)
     ? <button type="button" className="st-cons-chip" onClick={() => ask(t)}><Icon name="box" /> Materiale de confirmat</button> : null)
   const node = open ? (
     <ConsumeDialog key={open.k} target={open.t} data={open.data} onClose={() => setOpen(null)}
-      onDone={(text, tone) => { setPending((p) => p.filter((x) => x !== open.t.id)); say(text, tone ?? 'ok') }} />
+      onDone={(text, tone) => { setPending((p) => p.filter((x) => x !== open.t.id)); say(text, tone ?? 'ok'); changed?.() }} />
   ) : null
   /** «Anulează materialele»: всё живое списанное по позиции возвращается на склад обратными строками; позиция снова ждёт
    *  подтверждения — повторно списать можно через «Materiale de confirmat». */

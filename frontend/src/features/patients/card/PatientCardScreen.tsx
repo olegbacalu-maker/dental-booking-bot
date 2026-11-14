@@ -371,9 +371,21 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
 
   const failCb = useCallback((e: unknown) => { fail(e) }, [fail])
   const say = useCallback((t: ToastState) => setToast(t), [])
+  /* материалы со склада приходят только с загрузкой фиши; ответ действия (`replace`) их не несёт — держим прежние */
+  const loadedStock = state.status === 'ready' ? state.data.stockOut : undefined
+  const [stockBase, setStockBase] = useState<PatientMove[] | null | undefined>(undefined)
+  const [stockOut, setStockOut] = useState<PatientMove[] | null>(null)
+  if (loadedStock !== undefined && loadedStock !== stockBase) {
+    setStockBase(loadedStock)
+    setStockOut(loadedStock)
+  }
+  /* позиции с живым списанием по техкарте — у них в строке плана «Anulează materialele» */
+  const consumedIds = [...new Set((stockOut ?? []).filter((r) => r.source === 'tehcard' && !r.undone && r.plan_item_id).map((r) => r.plan_item_id!))]
   /* списание материалов при «Finalizată» (режим «cu confirmare»): окно у экрана, не у карточки плана */
   const consume = useConsume(useCallback((text: string, tone: ToastState['tone']) => setToast({ text, tone }), []),
-    state.status === 'ready' ? state.data.stockPending : undefined)
+    state.status === 'ready' ? state.data.stockPending : undefined,
+    /* списано или «fără» — строки склада пациента перечитываются: у позиции появится «Anulează materialele» */
+    useCallback(() => { void stockApi.patient(pid).then((r) => setStockOut(r.data.rows ?? null), () => undefined) }, [pid]))
   /* зуб записан — свежая фиша приезжает В ОТВЕТЕ записи (`?card=1`, режим
      ленты — из адреса): пилюли шапки и летопись зависят от зубов.
      ⛔ Не перечитывать `patientCard.get`: GET фиши — это ОТКРЫТИЕ, и каждое
@@ -389,16 +401,6 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
      работает»). Засев ЭТИХ данных фиши снимается, и вкладка одонтограммы при
      возврате грузит модель сама; новая загрузка фиши засевает снова. */
   const [perioStale, setPerioStale] = useState<CardData | null>(null)
-  /* материалы со склада приходят только с загрузкой фиши; ответ действия (`replace`) их не несёт — держим прежние */
-  const loadedStock = state.status === 'ready' ? state.data.stockOut : undefined
-  const [stockBase, setStockBase] = useState<PatientMove[] | null | undefined>(undefined)
-  const [stockOut, setStockOut] = useState<PatientMove[] | null>(null)
-  if (loadedStock !== undefined && loadedStock !== stockBase) {
-    setStockBase(loadedStock)
-    setStockOut(loadedStock)
-  }
-  /* позиции с живым списанием по техкарте — у них в строке плана «Anulează materialele» */
-  const consumedIds = [...new Set((stockOut ?? []).filter((r) => r.source === 'tehcard' && !r.undone && r.plan_item_id).map((r) => r.plan_item_id!))]
   const onPerioChanged = useCallback(() => {
     if (state.status === 'ready') setPerioStale(state.data)
   }, [state])
@@ -526,7 +528,7 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
               rowAct={(it) => (it.status === 'finalizat' && consumedIds.includes(it.id)
                 ? consume.undoBtn({ id: it.id, what: planWhat(it) }, (id) => setStockOut((rows) => rows?.map((r) => (r.plan_item_id === id ? { ...r, undone: true } : r)) ?? rows))
                 : null)}
-              afterStep={(it, to) => (to === 'finalizat' ? consume.afterFinal({ id: it.id, what: planWhat(it), service: it.service_id }) : consume.reopened(it.id))}
+              afterStep={(it, to) => (to === 'finalizat' ? consume.afterFinal({ id: it.id, what: planWhat(it), service: it.service_id }) : it.status === 'finalizat' ? consume.reopened(it.id) : undefined)}
               onUploadSigned={(category) => { setDocsPick({ category, k: Date.now() }); goTab('docs') }} />
             <LabBlock lab={L} />
             <StockOutBlock rows={stockOut} />
