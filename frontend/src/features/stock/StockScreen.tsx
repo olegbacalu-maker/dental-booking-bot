@@ -1,11 +1,11 @@
 import { createContext, useCallback, useContext, useState } from 'react'
-import { useLoaderData, useRevalidator, useSearchParams, type ShouldRevalidateFunction } from 'react-router'
+import { useSearchParams, type ShouldRevalidateFunction } from 'react-router'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { SideMenu, type SideItem } from '../../components/SideMenu'
 import { Toast, type ToastState } from '../../components/Toast'
-import { defaultNavigate, type LoadState } from '../../hooks/useLoad'
-import type { RouteLoad, ScreenData } from '../../hooks/useRouteLoad'
+import { defaultNavigate } from '../../hooks/useLoad'
+import { useRouteLoad, type RouteLoad, type ScreenData } from '../../hooks/useRouteLoad'
 import { roCount } from '../../utils/plural'
 import { BuyView } from './BuyView'
 import { ConsumView } from './ConsumView'
@@ -87,10 +87,9 @@ export function StockScreen({ navigate = defaultNavigate }: { navigate?: (url: s
   const find = v === 'stoc' ? q.get('q') ?? '' : ''
   const [toast, setToast] = useState<ToastState | null>(null)
   const [out, setOut] = useState<{ item: number; k: number } | null>(null)
-  /* не `useRouteLoad`: тот на повторе показывает загрузку, и открытый черновик накладной потерял бы строки */
-  const loaded = useLoaderData() as LoadState<StockModel> | undefined
-  const { revalidate } = useRevalidator()
-  const refresh = useCallback(() => { void revalidate() }, [revalidate])
+  /* `keep`: повтор после команды держит прежние данные — иначе открытый черновик накладной размонтировался бы
+     с несохранёнными строками */
+  const { state: loaded, retry: refresh } = useRouteLoad<StockModel>(navigate, { keep: true })
   const say = useCallback((text: string, tone: ToastState['tone'] = 'ok', link?: ToastState['link']) =>
     setToast(link ? { text, tone, link } : { text, tone }), [])
   const go = useCallback((to: View, extra: Record<string, string> = {}) => {
@@ -100,9 +99,9 @@ export function StockScreen({ navigate = defaultNavigate }: { navigate?: (url: s
     setQ(p)
   }, [setQ])
 
-  if (loaded?.status === 'leaving') return null
-  if (loaded?.status === 'failed') return <section className="dp-react-root"><LoadFailed error={loaded.error} onRetry={refresh} /></section>
-  const model = loaded?.status === 'ready' ? loaded.data : null
+  if (loaded.status === 'leaving') return null
+  if (loaded.status === 'failed') return <section className="dp-react-root"><LoadFailed error={loaded.error} onRetry={refresh} /></section>
+  const model = loaded.status === 'ready' ? loaded.data : null
   const data = model?.list ?? null
   const ctx: Ctx = { say, refresh, list: data, navigate, go, out: (item) => setOut({ item, k: Date.now() }) }
 

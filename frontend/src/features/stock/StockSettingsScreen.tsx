@@ -17,7 +17,7 @@ export const loadStockSettings: ScreenData = (signal) => stockApi.list(signal)
 
 /** Setări › Stoc: когда «expiră în curând» и когда гаснет «comandat»; справочник поставщиков. */
 export function StockSettingsScreen({ navigate = defaultNavigate }: { navigate?: (url: string) => void }) {
-  const { state, retry } = useRouteLoad<ListData>(navigate)
+  const { state, retry } = useRouteLoad<ListData>(navigate, { keep: true })
   const [toast, setToast] = useState<ToastState | null>(null)
   const [days, setDays] = useState<{ exp: string; ord: string; mode: ConsumeMode } | null>(null)
   const [edit, setEdit] = useState<Draft | null>(null)
