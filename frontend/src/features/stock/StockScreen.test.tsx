@@ -42,7 +42,7 @@ describe('StockScreen', () => {
     expect(screen.getByRole('columnheader', { name: 'Valoare' })).toBeTruthy()
     const menu = screen.getByRole('navigation', { name: 'Stoc' })
     expect(within(menu).getByRole('button', { name: /Anestezice/ })).toBeTruthy()
-    expect(within(menu).getByRole('button', { name: /De cumpărat/ }).textContent).toContain('din care comandate: 1')
+    expect(within(menu).getByRole('button', { name: /De cumpărat/ }).textContent).toContain('1 comandat')
     expect(screen.queryByText('Filtek Z250 (scos din uz)')).toBeNull()
     expect(screen.getByText('Mănuși nitril M').closest('.st-tile')).toBeTruthy()
   })

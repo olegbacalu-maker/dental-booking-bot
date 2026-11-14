@@ -284,7 +284,7 @@ export function dmy(s: string | null | undefined): string {
 export const packWord = (it: { pack_name: string }) => it.pack_name.split(' ')[0] || 'ambalaj'
 /** Остаток словами упаковок: «1 × cutie + 23 buc». */
 export function packText(milli: number, it: { pack_name: string; pack_qty_milli: number; unit: string }): string {
-  if (it.pack_qty_milli <= 1000 || milli < 0) return qtyText(milli, it.unit)
+  if (it.pack_qty_milli <= 1000 || milli <= 0) return qtyText(milli, it.unit)
   const whole = Math.trunc(milli / it.pack_qty_milli)
   const rest = milli - whole * it.pack_qty_milli
   const word = packWord(it)

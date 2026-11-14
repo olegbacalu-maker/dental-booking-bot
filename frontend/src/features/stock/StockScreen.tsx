@@ -45,6 +45,7 @@ const VIEWS: [View, string, SideItem<string>['icon']][] = [
   ['stoc', 'Stoc', 'box'], ['intrari', 'Intrări (facturi)', 'download'], ['jurnal', 'Mișcări', 'clipboard'],
   ['inventar', 'Inventariere', 'check'], ['cumparat', 'De cumpărat', 'note'], ['import', 'Import din Excel', 'upload'],
 ]
+const COMANDATE = { one: '1 comandat', few: '{n} comandate', many: '{n} de comandate' }
 const isView = (s: string | null): s is View => VIEWS.some(([k]) => k === s)
 const isFilter = (s: string | null): s is Filter => s === 'low' || s === 'exp' || s === 'arh'
 
@@ -81,12 +82,13 @@ export function StockScreen({ navigate = defaultNavigate }: { navigate?: (url: s
   const ctx: Ctx = { say, refresh, bind, list: data, navigate, go, out: (item) => setOut({ item, k: Date.now() }) }
 
   const cats = catsOf(data)
+  const ordered = orderedOf(data)
   const items: SideItem<string>[] = VIEWS.map(([k, label, icon]) => {
     const n = k === 'stoc' ? data?.counts.all : k === 'intrari' ? data?.drafts.factura : k === 'inventar' ? data?.drafts.inventar
       : k === 'cumparat' ? data?.counts.low : undefined
     return { key: k, label, icon, count: n || undefined, tone: k !== 'stoc' ? 'warn' : '',
       hint: k === 'intrari' && data?.drafts.factura ? 'ciorne' : k === 'inventar' && data?.drafts.inventar ? 'ciornă'
-        : k === 'cumparat' && data?.counts.ordered ? `din care comandate: ${data.counts.ordered}` : undefined }
+        : k === 'cumparat' && ordered ? roCount(ordered, COMANDATE) : undefined }
   })
   if (v === 'stoc' && cats.length > 1) {
     cats.forEach((c, i) => items.push({ key: `c:${c.name}`, label: c.name, icon: 'folder', count: c.count, sep: i === 0,
@@ -134,6 +136,11 @@ export function StockScreen({ navigate = defaultNavigate }: { navigate?: (url: s
   )
 }
 
+/** «Din care comandate» — только свежие отметки: истёкшая («n-a venit») строку снова делает обычной. */
+export function orderedOf(d: ListData | null): number {
+  return (d?.items ?? []).filter((it) => it.active && it.low && it.ordered && !it.ordered.late).length
+}
+
 /** Категории из того, что есть в каталоге (подсказки сервера `cats` шире — для окна материала). */
 function catsOf(d: ListData | null): { name: string; count: number; low: number }[] {
   const out = new Map<string, { name: string; count: number; low: number }>()
@@ -160,7 +167,7 @@ function Alerts({ d }: { d: ListData }) {
       {low > 0 && (
         <button type="button" className="st-alert warn" onClick={() => go('cumparat')}>
           <Icon name="excl" /><span><b>{low === 1 ? '1 material sub prag' : `${roCount(low, MATERIALE)} sub prag`}</b>
-            {d.counts.ordered > 0 && ` · din care comandate: ${d.counts.ordered}`} — lista „De cumpărat”</span><Icon name="chev-r" />
+            {orderedOf(d) > 0 && ` · din care comandate: ${orderedOf(d)}`} — lista „De cumpărat”</span><Icon name="chev-r" />
         </button>
       )}
       {exp > 0 && (
