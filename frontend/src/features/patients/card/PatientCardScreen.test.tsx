@@ -129,6 +129,10 @@ const CARD: PatientCard = {
     { key: 'chestionar', title: 'Chestionar anamneză', sheet: 'anamneza/print', category: 'chestionar', printed: '', signed: null, filled: '18.09.2026', sign: true },
     { key: 'fisa043', title: 'Fișa 043/e', sheet: 'fisa043', category: 'fisa043', printed: '', signed: null, sign: false },
   ],
+  todo: [
+    { code: 'debt', tone: 'bad', amount: 300 },
+    { code: 'plan_unsigned', tone: 'warn', n: 2, amount: 1900 },
+  ],
   visits: {
     history: [
       { id: 4, when: '20.09.2026 09:30', status: 'confirmed', status_label: 'confirmată', service: 'Consultație', doctor: 'Dr. Activ Doi', is_next: true, consult: '', diag: '', url: '/admin/visit/4?back=/admin/patient/5' },
@@ -219,7 +223,14 @@ const tabTo = async (name: string) => {
   fireEvent.click(strip().getByRole('tab', { name }))
   await strip().findByRole('tab', { name, selected: true })
 }
-const tabOn = () => strip().getByRole('tab', { selected: true }).textContent
+const tabOn = () => strip().getByRole('tab', { selected: true }).getAttribute('aria-label')
+/** Имена пунктов меню фиши (подпись без числа и подсказки). */
+const tabNames = () => strip().getAllByRole('tab').map((x) => x.getAttribute('aria-label'))
+/** Меню «Adaugă» шапки и его пункт. */
+const addMenu = async (item: string) => {
+  fireEvent.click(screen.getByRole('button', { name: 'Adaugă' }))
+  fireEvent.click(await screen.findByRole('menuitem', { name: item }))
+}
 
 /** F5: свежий роутер на адресе, который оставил экран; подмена сети та же, счёт вызовов — с нуля. */
 const reopen = (router: ReturnType<typeof open>['router']) => {
@@ -266,16 +277,30 @@ describe('PatientCardScreen', () => {
     expect(screen.getByText('ID #5')).toBeTruthy()
     const pills = Array.from(document.querySelectorAll('.hero-badges .pill')).map((p) => p.textContent?.trim())
     expect(pills).toEqual(['Pacient activ', 'Penicilină', 'De achitat: 300 MDL', '1 implant'])
-    // KPI: пять цифр словами старой страницы
-    /* «Ultima vizită» — датой, давность словом под ней (08.10: «ieri», не «1 zile») */
-    const kpi = Array.from(document.querySelectorAll('.kpi5 .kpi b')).map((b) => b.textContent)
-    expect(kpi).toEqual(['3', '3', '17.09.2026', '20.09', '1'])
-    expect(document.querySelectorAll('.kpi5 .kpi small')[2]?.textContent).toBe('ieri')
+    /* шапка: телефон текстом, справа — следующий визит, а не последний */
+    expect(screen.getByText('069000111', { selector: '.hero-tel' })).toBeTruthy()
+    expect(document.querySelector('.hero-side dd.v')?.textContent).toBe('20.09 · 09:30')
+    /* плитки «что дальше» — на Rezumat: визит, план, сальдо; лаборатории без заказов нет */
+    const tiles = Array.from(document.querySelectorAll('.dp-tiles .kpi b')).map((b) => b.textContent)
+    expect(tiles).toEqual(['20.09 · 09:30', '1 din 3 · 33 %', '300 MDL'])
+    /* «De făcut»: строки сервера словами экрана, красное первым */
+    expect(Array.from(document.querySelectorAll('.dp-todo li b')).map((b) => b.textContent))
+      .toEqual(['De achitat 300 MDL', 'Acordul la plan nu e semnat'])
+    /* итог визитов — то, что было тремя плитками «сколько»; давность словом («ieri», не «1 zile») */
+    expect(document.querySelector('.dp-vsum')?.textContent).toBe('3 vizite · ultima 17.09.2026 (ieri) · 1 procedură finalizată')
     /* крошки «Pacienți › Nume» — подпись раздела */
     expect(document.querySelector('.dp-react-root > .sub')?.textContent).toBe('Pacienți›Pin Test')
-    // B6: шесть вкладок, открыта «Rezumat»; с других вкладок ничего не смонтировано
-    expect(strip().getAllByRole('tab').map((x) => x.textContent))
+    // меню слева: семь разделов, открыт «Rezumat»; с других разделов ничего не смонтировано
+    expect(tabNames())
       .toEqual(['Rezumat', 'Odontogramă', 'Parodontogramă', 'Plan și plăți', 'Vizite', 'Documente', 'Date pacient'])
+    /* число — где по нему действуют, цвет — где надо действовать; подсказка — словом */
+    const plan = strip().getByRole('tab', { name: 'Plan și plăți' })
+    expect(plan.querySelector('.rg-n')?.textContent).toBe('2')
+    expect(plan.querySelector('.rg-n')?.className).toBe('rg-n bad')
+    expect(plan.querySelector('small')?.textContent).toBe('300 MDL de achitat')
+    expect(strip().getByRole('tab', { name: 'Rezumat' }).querySelector('.rg-n')?.textContent).toBe('2')
+    expect(strip().getByRole('tab', { name: 'Documente' }).querySelector('.rg-n')?.textContent).toBe('2')
+    expect(strip().getByRole('tab', { name: 'Vizite' }).querySelector('small')?.textContent).toBe('următoarea 20.09')
     expect(tabOn()).toBe('Rezumat')
     expect(router.state.location.search).toBe('')
     expect(document.querySelector('#odo')).toBeNull()
@@ -286,11 +311,10 @@ describe('PatientCardScreen', () => {
     /* B6 шаг 4: дневник открывается во вкладке Vizite, визит — адресом */
     expect((screen.getByText('+ Consultație') as HTMLAnchorElement).getAttribute('href')).toBe('/admin/patient/5?tab=vizite&visit=3')
     expect(screen.getByText(/: Pulpită 26/)).toBeTruthy()
-    expect(screen.getByText('Următoarea vizită', { selector: '.dp-next h3' })).toBeTruthy()
     expect(document.querySelectorAll('.acti').length).toBe(10)
     expect(screen.getByText('Toate evenimentele (12)')).toBeTruthy()
     expect(screen.getByText(/Penicilină/, { selector: '.alert span' })).toBeTruthy()
-    expect(screen.getByText('Acțiuni rapide')).toBeTruthy()
+    expect(screen.getByText('De făcut')).toBeTruthy()
     // план и платежи — вкладка «Plan și plăți»: вкладка «Active» прячет закрытые; просрочка; отказ с причиной
     await tabTo('Plan și plăți')
     expect(router.state.location.search).toBe('?tab=plan')
@@ -383,7 +407,8 @@ describe('PatientCardScreen', () => {
     expect(post).toHaveBeenCalledWith('/patients/5/plan/1/status', { to: 'finalizat', motiv: '' })
     // сервер сменил вкладку по умолчанию — экран последовал за ним
     expect(screen.getByText('Finalizate (1)').className).toBe('on')
-    expect(Array.from(document.querySelectorAll('.kpi5 .kpi b'))[1]?.textContent).toBe('0')
+    /* активных нет — у пункта плана нет числа */
+    expect(strip().getByRole('tab', { name: 'Plan și plăți' }).querySelector('.rg-n')).toBeNull()
   })
 
   it('план: отказ без причины — 422 с полем, поле подсвечено, текст сервера; с причиной — уходит', async () => {
@@ -412,6 +437,8 @@ describe('PatientCardScreen', () => {
     post.mockResolvedValueOnce(ok(CARD))
     open()
     await screen.findByText('Pin Test', { selector: 'h2' })
+    expect(screen.queryByLabelText('ex. Alergie: Penicilină')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Atenționare nouă' }))
     fireEvent.change(screen.getByLabelText('Atenționări medicale'), { target: { value: 'info' } })
     fireEvent.change(screen.getByLabelText('ex. Alergie: Penicilină'), { target: { value: 'Vorbește rusă' } })
     fireEvent.click(screen.getByRole('button', { name: 'Adaugă atenționare' }))
@@ -758,11 +785,11 @@ describe('PatientCardScreen', () => {
     expect(opens()).toBe(1)
   })
 
-  it('B6 быстрые действия ведут на вкладки; зуб из плана открывает одонтограмму с этим зубом', async () => {
+  it('плитка плана и меню «Adaugă» ведут в разделы; зуб из плана открывает одонтограмму с этим зубом', async () => {
     serve()
     const { router } = open()
     await screen.findByText('Pin Test', { selector: 'h2' })
-    fireEvent.click(screen.getByText('Plan de tratament'))
+    fireEvent.click(screen.getByText('Plan de tratament', { selector: '.dp-tiles .kpi-l' }))
     await strip().findByRole('tab', { name: 'Plan și plăți', selected: true })
     expect(router.state.location.search).toBe('?tab=plan')
     fireEvent.click(rowOf('Coroană 11').querySelector('button.pt') as HTMLElement)
@@ -773,17 +800,51 @@ describe('PatientCardScreen', () => {
     expect((document.activeElement as HTMLElement).dataset.n).toBe('11')
     /* всё это — переходы одного адреса: фиша открыта один раз */
     expect(opens()).toBe(1)
-    /* «Încarcă document» → Documente; «Notiță» → Date pacient с раскрытой формой */
-    await tabTo('Rezumat')
-    fireEvent.click(screen.getByText('Încarcă document'))
+    /* «Adaugă › Document» → Documente; «Notiță» → Date pacient с раскрытой формой — из любого раздела */
+    await addMenu('Document')
     await strip().findByRole('tab', { name: 'Documente', selected: true })
-    await tabTo('Rezumat')
-    fireEvent.click(screen.getByText('Notiță'))
+    await addMenu('Notiță')
     await strip().findByRole('tab', { name: 'Date pacient', selected: true })
     expect((document.querySelector('.dp-pedit') as HTMLElement).style.display).toBe('flex')
+    /* «Atenționare medicală» — Rezumat с раскрытой формой пометки */
+    await addMenu('Atenționare medicală')
+    await strip().findByRole('tab', { name: 'Rezumat', selected: true })
+    expect(screen.getByLabelText('ex. Alergie: Penicilină')).toBeTruthy()
   })
 
-  it('B6 клавиатура: ← → Home End ходят по вкладкам по кругу, фокус идёт следом', async () => {
+  it('шапка ушла под верхнюю панель — полоса пациента: имя, риски, долг, визит, «Programează»; вернулась — полосы нет', async () => {
+    /* у jsdom нет IntersectionObserver: подменный отдаёт экрану свой обратный вызов */
+    let seen: IntersectionObserverCallback | null = null
+    vi.stubGlobal('IntersectionObserver', class {
+      constructor(f: IntersectionObserverCallback) { seen = f }
+      observe() { /* кадр шлёт проверка */ }
+      disconnect() { /* нечего снимать */ }
+    })
+    const fire = (isIntersecting: boolean, top: number) => act(() => {
+      seen?.([{ isIntersecting, boundingClientRect: { top } } as IntersectionObserverEntry], {} as IntersectionObserver)
+    })
+    try {
+      serve()
+      open()
+      await settled()
+      expect(screen.queryByRole('region', { name: 'Pacientul fișei' })).toBeNull()
+      fire(false, -240)
+      const bar = within(await screen.findByRole('region', { name: 'Pacientul fișei' }))
+      expect(bar.getByText('Pin Test')).toBeTruthy()
+      expect(bar.getByText('41 ani · 069000111')).toBeTruthy()
+      /* риски — числом: пометка, две галочки и свободное поле анамнеза */
+      expect(bar.getByText('4 riscuri')).toBeTruthy()
+      expect(bar.getByText('De achitat: 300 MDL')).toBeTruthy()
+      expect(bar.getByText('20.09 · 09:30')).toBeTruthy()
+      expect(bar.getByRole('button', { name: 'Programează' })).toBeTruthy()
+      fire(true, 120)
+      await waitFor(() => expect(screen.queryByRole('region', { name: 'Pacientul fișei' })).toBeNull())
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('клавиатура меню: ↑ ↓ (и ← →) Home End ходят по разделам по кругу, фокус идёт следом', async () => {
     serve()
     const { router } = open()
     await screen.findByText('Pin Test', { selector: 'h2' })
@@ -791,8 +852,12 @@ describe('PatientCardScreen', () => {
     expect(strip().getAllByRole('tab').map((x) => x.tabIndex)).toEqual([0, -1, -1, -1, -1, -1, -1])
     fireEvent.keyDown(list, { key: 'ArrowRight' })
     await strip().findByRole('tab', { name: 'Odontogramă', selected: true })
-    expect(document.activeElement?.textContent).toBe('Odontogramă')
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Odontogramă')
     expect(router.state.location.search).toBe('?tab=odonto')
+    fireEvent.keyDown(list, { key: 'ArrowDown' })
+    await strip().findByRole('tab', { name: 'Parodontogramă', selected: true })
+    fireEvent.keyDown(list, { key: 'ArrowUp' })
+    await strip().findByRole('tab', { name: 'Odontogramă', selected: true })
     fireEvent.keyDown(list, { key: 'End' })
     await strip().findByRole('tab', { name: 'Date pacient', selected: true })
     fireEvent.keyDown(list, { key: 'ArrowRight' })
@@ -802,7 +867,7 @@ describe('PatientCardScreen', () => {
     await strip().findByRole('tab', { name: 'Date pacient', selected: true })
     fireEvent.keyDown(list, { key: 'Home' })
     await strip().findByRole('tab', { name: 'Rezumat', selected: true })
-    expect(document.activeElement?.textContent).toBe('Rezumat')
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Rezumat')
     expect(strip().getAllByRole('tab').map((x) => x.tabIndex)).toEqual([0, -1, -1, -1, -1, -1, -1])
   })
 
@@ -1157,7 +1222,7 @@ describe('PatientCardScreen', () => {
     serve()
     open()
     await settled()
-    fireEvent.click(screen.getByRole('button', { name: 'Notiță' }))
+    await addMenu('Notiță')
     await strip().findByRole('tab', { name: 'Date pacient', selected: true })
     await waitFor(() => expect(notes()).toBe(true))
     await tabTo('Rezumat')
@@ -1510,7 +1575,7 @@ describe('PatientCardScreen', () => {
     expect(diabet().checked).toBe(false)
     expect(screen.getByText('modificări nesalvate')).toBeTruthy()
     await tabTo('Rezumat')
-    expect(strip().getByRole('tab', { name: /Date pacient/ }).querySelector('.wtab-dot')).toBeTruthy()
+    expect(strip().getByRole('tab', { name: /Date pacient/ }).querySelector('.rg-n.dot')).toBeTruthy()
     await tabTo('Date pacient')
     /* до 01.10 вкладка размонтировалась и галочка возвращалась к сохранённой */
     expect(diabet().checked).toBe(false)
@@ -1526,7 +1591,7 @@ describe('PatientCardScreen', () => {
     expect(await screen.findByText('Anamneza a fost salvată')).toBeTruthy()
     expect(post).toHaveBeenCalledWith('/patients/5/anamneza', expect.objectContaining({ flags: ['cardio'] }))
     expect(screen.queryByText('modificări nesalvate')).toBeNull()
-    expect(strip().getByRole('tab', { name: /Date pacient/ }).querySelector('.wtab-dot')).toBeNull()
+    expect(strip().getByRole('tab', { name: /Date pacient/ }).querySelector('.rg-n.dot')).toBeNull()
   })
 
   it('прикус (26.10; место — 07.11, вариант D): в «Date pacient» строка со ссылкой, форма — в панели вкладки Odontogramă; черновик переживает вкладки, точка — на Odontogramă, уход называет прикус; запись — с моделью (?odo=1)', async () => {
@@ -1549,9 +1614,9 @@ describe('PatientCardScreen', () => {
     await tabTo('Rezumat')
     const odo = () => strip().getByRole('tab', { name: /Odontogramă/ })
     const date = () => strip().getByRole('tab', { name: /Date pacient/ })
-    expect(odo().querySelector('.wtab-dot')).toBeTruthy()
+    expect(odo().querySelector('.rg-n.dot')).toBeTruthy()
     expect(odo().getAttribute('title')).toBe('Ocluzie nesalvată')
-    expect(date().querySelector('.wtab-dot')).toBeNull()
+    expect(date().querySelector('.rg-n.dot')).toBeNull()
     await tabTo('Date pacient')
     expect(within(line()).getByText('Ocluzie nesalvată')).toBeTruthy()
     await tabTo('Odontogramă')
@@ -1581,7 +1646,7 @@ describe('PatientCardScreen', () => {
     await waitFor(() => expect(document.querySelector('#ocluzia .ocsum')?.textContent).toBe('overjet 3 mm'))
     expect(within(document.querySelector('#ocluzia') as HTMLElement).queryByText('modificări nesalvate')).toBeNull()
     /* прикус записан — точки на Odontogramă нет; анамнез всё ещё грязен — на Date pacient есть */
-    expect(odo().querySelector('.wtab-dot')).toBeNull()
+    expect(odo().querySelector('.rg-n.dot')).toBeNull()
     expect(date().getAttribute('title')).toBe('Anamneză nesalvată')
     await tabTo('Date pacient')
     expect(within(line()).getByText('overjet 3 mm')).toBeTruthy()

@@ -1,22 +1,18 @@
-import { useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AppLink } from '../../../components/AppLink'
 import { Icon, iconName } from '../../../components/Icon'
+import { placeMenu, useMenuDismiss } from '../../../components/menu'
 import type { ApiError } from '../../../types/api'
-import { hideDialog, showDialog } from './dialog'
-import { mdl, type PatientCard, type PlanItem, type Visit } from './card'
+import { roCount } from '../../../utils/plural'
+import type { PatientCard } from './card'
 import { printHref } from './print'
-import { useLingering } from '../../../utils/motion'
 
-/* Шапка фиши по макету Олега (08.10, промпт 2): карточка с аватаром 80px,
-   имя и плашки, строка «41 ani · canal: recepție · pacient din 2026 · ID #5»,
-   кнопки «Sună», «Programează», «Fișa 043/e»; справа «Ultima vizită» и
-   «Medic curant» — выбор прямо здесь (14.10, слово Олега: «Setează medicul»
-   вёл на форму профиля ниже). Под шапкой — баннер
-   «Anamneza nu a fost completată…» (role=alert), полоса рисков или (23.10,
-   третье состояние) серая полоса «Neagă afecțiunile din chestionar» с датой
-   опроса — анамнез собран, пациент заявил, что здоров; ниже пять
-   карточек-цифр без значков. Слова — те же, что на старой странице; сами
-   цифры, пилюли, «последний» и «следующий» визит посчитаны на сервере. */
+/* Шапка фиши: аватар, имя и пилюли сервера, строка «41 ani · 069… · canal · pacient din 2026 · ID #5», кнопки
+   «Sună», «Programează», «Fișa 043/e», «Adaugă» (меню того, что раньше было «Acțiuni rapide» Rezumat, — теперь
+   из любого раздела) и печать; справа «Următoarea vizită» и «Medic curant» (выбор прямо здесь). Последний визит
+   и счётчики «сколько» живут в Rezumat: на 1366×768 шапка с пятью плитками занимала две трети экрана над каждым
+   разделом. Под шапкой — одна из трёх плашек анамнеза (риски / не собран / «neagă») и строка отзыва.
+   Цифры, пилюли и «следующий» визит считает сервер. */
 const T = {
   years: 'ani',
   channel: 'canal:',
@@ -25,10 +21,14 @@ const T = {
   idTitle:
     'Numărul intern al fișei în program (adresa paginii, copiile de siguranță, suport). Click = copiază',
   copied: 'copiat',
+  telTitle: 'Click = copiază numărul',
   call: 'Sună',
   mail: 'E-mail',
   book: 'Programează',
   fisa: 'Fișa 043/e',
+  add: 'Adaugă',
+  addMenu: 'Adaugă în fișă',
+  print: 'Printează fișa',
   anamneza: 'Anamneză',
   riskLabel: 'Riscuri medicale',
   denies: 'Neagă afecțiunile din chestionar',
@@ -36,56 +36,44 @@ const T = {
   noneA: 'Anamneza nu a fost completată.',
   noneB: 'Întrebați pacientul înainte de tratament.',
   fill: 'Completează anamneza',
-  last: 'Ultima vizită',
-  noVisits: 'încă fără vizite',
+  next: 'Următoarea vizită',
+  notBooked: 'neprogramat',
   doctor: 'Medic curant',
   ownDoctor: 'din fișa pacientului',
   setDoctor: 'Setează medicul',
   pickDoctor: 'Alege medicul curant',
   noDoctor: 'Fără medic curant',
-  kpi: {
-    visits: ['Vizite în total', 'din'],
-    active: ['Proceduri active', 'în planul de tratament'],
-    last: ['Ultima vizită'],
-    next: ['Următoarea vizită', 'neprogramat'],
-    done: ['Proceduri finalizate', 'istoric complet'],
-  },
   today: 'azi',
   yesterday: 'ieri',
   ago: 'acum',
   days: 'zile',
-  clickHint: 'click pentru detalii',
-  panels: {
-    visits: 'Toate vizitele',
-    active: 'Proceduri active',
-    last: 'Ultima vizită',
-    next: 'Următoarea vizită',
-    done: 'Proceduri finalizate',
-  },
-  cancelled: 'anulate (nu se numără)',
-  emptyVisits: 'încă fără vizite',
-  emptyPlan: 'planul este gol',
-  emptyDone: 'încă nimic finalizat',
-  noNext: 'nicio vizită programată',
-  openPlan: 'Deschide planul de tratament',
-  bookNow: 'Programează acum',
-  tooth: 'dinte',
-  close: 'Închide',
   // строка срока «Rechemări» (29.10, кадр К5)
   rcLast: 'ultima',
   rcNext: 'următoarea',
   rcOff: 'nu reamintim',
   rcUndo: 'Anulează',
   rcGo: 'Rechemări',
+  bar: 'Pacientul fișei',
+  risks: { one: '1 risc', few: '{n} riscuri', many: '{n} de riscuri' },
+  noAnam: 'Anamneză lipsă',
 } as const
 
-type PanelKey = 'visits' | 'active' | 'last' | 'next' | 'done'
+/** Что добавить из меню «Adaugă»: экран решает, куда это ведёт. */
+export type AddKind = 'visit' | 'plan' | 'pay' | 'doc' | 'note' | 'alert'
+const ADD: { k: AddKind; icon: Parameters<typeof Icon>[0]['name']; label: string }[] = [
+  { k: 'visit', icon: 'cal', label: 'Vizită nouă' },
+  { k: 'plan', icon: 'tooth', label: 'Procedură în plan' },
+  { k: 'pay', icon: 'money', label: 'Plată' },
+  { k: 'doc', icon: 'upload', label: 'Document' },
+  { k: 'note', icon: 'note', label: 'Notiță' },
+  { k: 'alert', icon: 'sos', label: 'Atenționare medicală' },
+]
 
 interface Props {
   card: PatientCard
   onBook: () => void
-  /** «Deschide planul» из окна активных позиций — вкладка плана (B6) */
-  onPlan: () => void
+  /** Пункт меню «Adaugă». */
+  onAdd: (k: AddKind) => void
   /** «Completează anamneza» / «Anamneză ›»: вкладка «Date pacient», опросник раскрыт. */
   onAnamneza: () => void
   /** Медик курант выбран в шапке: действие фиши, отказ — ошибкой (выбор откатывается). */
@@ -108,30 +96,24 @@ export function daysLabel(days: number | null): string {
   return `${T.ago} ${days} ${T.days}`
 }
 
-function VisitRow({ v }: { v: Visit }) {
+/** Меню «Adaugă»: то же устройство, что меню строки плана (закрытие — `useMenuDismiss`). */
+function AddMenu({ x, y, onPick, onClose }: { x: number; y: number; onPick: (k: AddKind) => void; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useMenuDismiss(ref, onClose)
+  const { left, top } = placeMenu(x, y, 230, 40 + 34 * ADD.length)
   return (
-    <div className="lrow">
-      <span className="lk">{v.when.replace(' ', ' · ')}</span>
-      <b>{v.service}</b>
-      <small>{v.doctor} · {v.status_label}</small>
+    <div ref={ref} className="dp-cmenu" role="menu" aria-label={T.addMenu} style={{ left, top, width: 230 }}>
+      {ADD.map((it) => (
+        <button key={it.k} type="button" role="menuitem" className="dp-cmenu-i" onClick={() => { onClose(); onPick(it.k) }}>
+          <Icon name={it.icon} /> {it.label}
+        </button>
+      ))}
     </div>
   )
 }
 
-function PlanRow({ it, labels }: { it: PlanItem; labels: Record<string, string> }) {
-  return (
-    <div className="lrow">
-      <span className="lk">{it.tooth ? `${T.tooth} ${it.tooth}` : '—'}</span>
-      <b>{it.procedure}</b>
-      <small>
-        {it.doctor || '—'} · {labels[it.status] ?? it.status} · {it.price ? `${mdl(it.price)} MDL` : '—'}
-      </small>
-    </div>
-  )
-}
-
-export function HeroKpi({ card, onBook, onPlan, onAnamneza, onDoctor, busy, back, onRecallClear }: Props) {
-  const { profile: p, hero, kpi, plan } = card
+export function HeroKpi({ card, onBook, onAdd, onAnamneza, onDoctor, busy, back, onRecallClear }: Props) {
+  const { profile: p, hero } = card
   /* ⭐ Риски — ОДНОЙ полосой под шапкой, на всех вкладках (01.10). До B6
      анамнез стоял под предупреждениями на одной длинной странице; с вкладками
      аллергия, записанная в анамнезе, была видна только в «Date pacient», а
@@ -143,14 +125,27 @@ export function HeroKpi({ card, onBook, onPlan, onAnamneza, onDoctor, busy, back
     ...card.anamneza.marked,
     ...card.anamneza.free.map((f) => `${f.short}: ${f.text}`),
   ]
-  const dlg = useRef<HTMLDialogElement>(null)
-  const [panel, setPanel] = useState<PanelKey | null>(null)
-  /* окно гаснет за ступень (07.11): список стоит до конца */
-  const { shown: panelShown } = useLingering(panel)
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<'' | 'id' | 'tel'>('')
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const closeMenu = useCallback(() => setMenu(null), [])
   /* Выбор врача, ушедший на сервер, виден, пока не приехала свежая фиша:
      привязан к фише, с которой начат (свежая показывает своё), отказ его
      снимает — в шапке снова прежний врач. */
+  /* Шапка ушла под верхнюю панель — над разделом встаёт полоса с тем, кто перед врачом: имя, риски, долг,
+     визит, «Programează». Полоса живёт в узле нулевой высоты (`.hero-stick`) и раскладку не трогает: ни
+     прыжка при появлении, ни второго экземпляра кнопок, пока шапка видна. */
+  const heroRef = useRef<HTMLDivElement>(null)
+  const [stuck, setStuck] = useState(false)
+  useEffect(() => {
+    const el = heroRef.current
+    if (!el || typeof IntersectionObserver === 'undefined') return
+    const top = Math.round(document.querySelector('.main .top')?.getBoundingClientRect().height ?? 0)
+    const io = new IntersectionObserver(([e]) => {
+      if (e) setStuck(!e.isIntersecting && e.boundingClientRect.top < top)
+    }, { rootMargin: `-${top}px 0px 0px 0px` })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [])
   const [pick, setPick] = useState<{ card: PatientCard; v: string } | null>(null)
   const doc = pick && pick.card === card ? pick.v : p.primary_doctor
   const docs = card.options.doctors
@@ -159,18 +154,10 @@ export function HeroKpi({ card, onBook, onPlan, onAnamneza, onDoctor, busy, back
     if (await onDoctor(v)) setPick(null)
   }
 
-  function open(k: PanelKey) {
-    setPanel(k)
-    showDialog(dlg.current)
-  }
-  function close() {
-    hideDialog(dlg.current)
-    setPanel(null)
-  }
-  function copyId() {
-    if (navigator.clipboard) void navigator.clipboard.writeText(String(card.id))
-    setCopied(true)
-    window.setTimeout(() => setCopied(false), 1200)
+  function copy(what: 'id' | 'tel', text: string) {
+    if (navigator.clipboard) void navigator.clipboard.writeText(text)
+    setCopied(what)
+    window.setTimeout(() => setCopied(''), 1200)
   }
 
   const meta = [
@@ -179,61 +166,11 @@ export function HeroKpi({ card, onBook, onPlan, onAnamneza, onDoctor, busy, back
     p.file_no ? `${T.dosar} ${p.file_no}` : '',
     `${T.since} ${p.year}`,
   ].filter(Boolean)
-
-  const live = card.visits.live
-  const active = plan.items.filter((it) => card.options.tab_states.act?.includes(it.status))
-  const done = plan.items.filter((it) => it.status === 'finalizat')
-  const lastRow = live.find((v) => hero.last && v.when.startsWith(hero.last.date)) ?? null
-  const nextRow = live.find((v) => v.is_next) ?? null
-
-  /* «Ultima vizită» — ДАТОЙ, давность словом под ней (макет 08.10: «azi» при
-     дате вчерашнего дня читалось как ошибка). */
-  const kpis: { key: PanelKey; value: string; label: string; sub: string }[] = [
-    { key: 'visits', value: String(kpi.visits), label: T.kpi.visits[0], sub: `${T.kpi.visits[1]} ${p.year}` },
-    { key: 'active', value: String(kpi.active), label: T.kpi.active[0], sub: T.kpi.active[1] },
-    { key: 'last', value: hero.last ? hero.last.date : '—', label: T.kpi.last[0], sub: hero.last ? daysLabel(hero.days_ago) : T.noVisits },
-    { key: 'next', value: hero.next ? hero.next.date.slice(0, 5) : '—', label: T.kpi.next[0], sub: hero.next ? hero.next.time : T.kpi.next[1] },
-    { key: 'done', value: String(kpi.done), label: T.kpi.done[0], sub: T.kpi.done[1] },
-  ]
-
-  let body = null
-  if (panelShown === 'visits') {
-    body = (
-      <>
-        {live.length ? live.map((v) => <VisitRow key={v.id} v={v} />) : <p className="hint dp-m0">— {T.emptyVisits} —</p>}
-        {kpi.canc > 0 && <p className="hint">+ {kpi.canc} {T.cancelled}</p>}
-      </>
-    )
-  } else if (panelShown === 'active') {
-    body = (
-      <>
-        {active.length ? active.map((it) => <PlanRow key={it.id} it={it} labels={card.options.plan_labels} />) : <p className="hint dp-m0">— {T.emptyPlan} —</p>}
-        <button type="button" className="lmore" onClick={() => { close(); onPlan() }}>{T.openPlan} ›</button>
-      </>
-    )
-  } else if (panelShown === 'last') {
-    body = lastRow ? (
-      <>
-        <VisitRow v={lastRow} />
-        <p className="hint">{daysLabel(hero.days_ago)}</p>
-      </>
-    ) : <p className="hint dp-m0">— {T.emptyVisits} —</p>
-  } else if (panelShown === 'next') {
-    body = nextRow ? <VisitRow v={nextRow} /> : (
-      <>
-        <p className="hint dp-m0">— {T.noNext} —</p>
-        <button type="button" className="lbtn" onClick={() => { close(); onBook() }}>
-          <Icon name="cal" /> {T.bookNow}
-        </button>
-      </>
-    )
-  } else if (panelShown === 'done') {
-    body = done.length ? done.map((it) => <PlanRow key={it.id} it={it} labels={card.options.plan_labels} />) : <p className="hint dp-m0">— {T.emptyDone} —</p>
-  }
+  const n = hero.next
 
   return (
     <>
-      <div className="hero">
+      <div ref={heroRef} className="hero">
         <div className="hero-av">{card.initials}</div>
         <div className="hero-id">
           <div className="hero-title">
@@ -245,27 +182,41 @@ export function HeroKpi({ card, onBook, onPlan, onAnamneza, onDoctor, busy, back
             </div>
           </div>
           <div className="hero-meta">
-            {meta.map((m) => <span key={m}>{m}</span>)}
+            {meta.slice(0, 1).map((m) => <span key={m}>{m}</span>)}
+            {/* номер — текстом: стойка диктует и сверяет его, а кнопка «Sună» его не показывает */}
+            {p.phone && (
+              <span>
+                <span className="hero-tel" role="button" tabIndex={0} title={T.telTitle} onClick={() => copy('tel', p.phone)}>
+                  {copied === 'tel' ? T.copied : p.phone}
+                </span>
+              </span>
+            )}
+            {meta.slice(1).map((m) => <span key={m}>{m}</span>)}
             <span>
-              <span className="idchip" role="button" tabIndex={0} title={T.idTitle} onClick={copyId}>
-                {copied ? T.copied : `ID #${card.id}`}
+              <span className="idchip" role="button" tabIndex={0} title={T.idTitle} onClick={() => copy('id', String(card.id))}>
+                {copied === 'id' ? T.copied : `ID #${card.id}`}
               </span>
             </span>
           </div>
-          {/* «Anamneză» из шапки снята (08.10): за неё отвечают баннер под
-              шапкой и полоса рисков */}
           <div className="hero-acts">
             {p.phone && <AppLink href={`tel:${p.phone}`}><Icon name="phone" /> {T.call}</AppLink>}
             <button type="button" className="pri" onClick={onBook}><Icon name="cal" /> {T.book}</button>
             <AppLink href={printHref(card.id, 'fisa043', back)}><Icon name="file" /> {T.fisa}</AppLink>
             {p.email && <AppLink href={`mailto:${p.email}`}><Icon name="mail" /> {T.mail}</AppLink>}
+            <button type="button" aria-haspopup="menu" aria-expanded={menu ? true : undefined}
+              onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setMenu(menu ? null : { x: r.left, y: r.bottom + 4 }) }}>
+              <Icon name="plus" /> {T.add} <i className="dp-chev" aria-hidden="true" />
+            </button>
+            <button type="button" className="hero-ico" title={T.print} aria-label={T.print} onClick={() => window.print()}>
+              <Icon name="print" />
+            </button>
           </div>
         </div>
         <dl className="hero-side">
           <div>
-            <dt>{T.last}</dt>
-            <dd className="v num">{hero.last ? hero.last.date : '—'}</dd>
-            <dd className="s">{hero.last ? hero.last.service : T.noVisits}</dd>
+            <dt>{T.next}</dt>
+            <dd className="v num">{n ? `${n.date.slice(0, 5)} · ${n.time}` : '—'}</dd>
+            <dd className="s">{n ? [n.service, n.doctor].filter(Boolean).join(' · ') : T.notBooked}</dd>
           </div>
           <div>
             <dt>{T.doctor}</dt>
@@ -277,13 +228,34 @@ export function HeroKpi({ card, onBook, onPlan, onAnamneza, onDoctor, busy, back
                 value={doc} disabled={busy} onChange={(e) => { void chooseDoctor(e.target.value) }}>
                 {!doc && <option value="">{T.setDoctor}</option>}
                 {doc && !docs.includes(doc) && <option value={doc}>{doc}</option>}
-                {docs.map((n) => <option key={n} value={n}>{n}</option>)}
+                {docs.map((d) => <option key={d} value={d}>{d}</option>)}
                 {doc && <option value="">{T.noDoctor}</option>}
               </select>
             </dd>
             {doc && <dd className="s">{T.ownDoctor}</dd>}
           </div>
         </dl>
+      </div>
+      {menu && <AddMenu x={menu.x} y={menu.y} onPick={onAdd} onClose={closeMenu} />}
+      <div className="hero-stick">
+        {stuck && (
+          <div className="hero-bar" role="region" aria-label={T.bar}>
+            <span className="hero-bar-av" aria-hidden="true">{card.initials}</span>
+            <b className="hero-bar-n">{card.name || '—'}</b>
+            <span className="hero-bar-m">{[meta[0], p.phone].filter(Boolean).join(' · ')}</span>
+            {risks.length > 0
+              ? <span className="pill red" title={risks.join(' · ')}><Icon name="sos" /> {roCount(risks.length, T.risks)}</span>
+              : card.anamneza.state === 'none' && <span className="pill orange"><Icon name="excl" /> {T.noAnam}</span>}
+            {hero.pills.filter((pl) => pl.icon === 'money').map((pl) => (
+              <span key={pl.text} className={`pill ${pl.tone}`}><Icon name="money" /> {pl.text}</span>
+            ))}
+            {n && <span className="hero-bar-next"><Icon name="cal" /> {n.date.slice(0, 5)} · {n.time}</span>}
+            <span className="hero-bar-acts">
+              <button type="button" className="pri" onClick={onBook}><Icon name="cal" /> {T.book}</button>
+              <AppLink href={printHref(card.id, 'fisa043', back)}><Icon name="file" /> {T.fisa}</AppLink>
+            </span>
+          </div>
+        )}
       </div>
       {risks.length > 0 ? (
         <div className="hero-risk" role="note" aria-label={T.riskLabel}>
@@ -323,22 +295,6 @@ export function HeroKpi({ card, onBook, onPlan, onAnamneza, onDoctor, busy, back
           ))}
         </div>
       )}
-      <div className="kpi5">
-        {kpis.map((k) => (
-          <button key={k.key} type="button" className="kpi" title={`${k.label} — ${T.clickHint}`} onClick={() => open(k.key)}>
-            <span className="kpi-l">{k.label}</span>
-            <b>{k.value}</b>
-            <small>{k.sub}</small>
-          </button>
-        ))}
-      </div>
-      <dialog ref={dlg} className="wide" onClose={() => setPanel(null)}>
-        <div className="dlg-head">
-          <span>{panelShown ? T.panels[panelShown] : '—'}</span>
-          <button type="button" onClick={close} aria-label={T.close}><Icon name="close" /></button>
-        </div>
-        <div className="lbody">{body}</div>
-      </dialog>
     </>
   )
 }

@@ -669,27 +669,39 @@
 }
 .dp-react-root .dp-ag-empty { margin: 0; }
 
-/* ---- B6 «patient workspace»: полоса вкладок фиши (26.09) ----
-   Всё ступенями B5: высота контрола, кегль, радиус, длительность; подчёркивание
-   активной — фирменный цвет. Клавиатура и роли — в PatientCardScreen. */
-.dp-react-root .wtabs { display: flex; gap: 4px; margin: 4px 0 16px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
-/* Строка вкладок прокручивается, когда не влезает, но без системного скроллбара:
-   классические стрелки ▲▼ Windows рисовались справа от вкладок (разбор 08.10). */
-.dp-react-root .wtabs::-webkit-scrollbar { display: none; }
-/* вкладка 44px, активная — подчёркивание 3px фирменным (макет 08.10) */
-.dp-react-root .wtabs [role=tab] {
-  position: relative; height: var(--h-ctl); padding: 0 12px; border: none; background: none;
-  font: inherit; font-size: var(--fs-body); font-weight: 500; color: var(--text2); cursor: pointer;
-  border-radius: var(--r-xs) var(--r-xs) 0 0; white-space: nowrap;
-  transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease;
-}
-.dp-react-root .wtabs [role=tab]:hover { background: var(--line2); color: var(--text); }
-.dp-react-root .wtabs [role=tab].on { color: var(--text); font-weight: 600; }
-.dp-react-root .wtabs [role=tab].on::after {
-  content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 3px; background: var(--teal);
-}
-.dp-react-root .wtabs [role=tab]:focus-visible { outline: none; box-shadow: var(--ring); }
+/* ---- фиша пациента: раздел справа от меню (SideMenu); клавиатура и роли — в PatientCardScreen ---- */
 .dp-react-root .wpanel { display: flex; flex-direction: column; gap: 16px; }
+.dp-react-root .wpanel > .kpi5 { margin-bottom: 0; }
+.dp-react-root .dp-todo h3 small { font-size: var(--fs-s); font-weight: 400; color: var(--text3); }
+.dp-react-root .dp-todo ul { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
+.dp-react-root .dp-todo li {
+  display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px 10px;
+  border-radius: var(--r-s); background: var(--fill);
+}
+.dp-react-root .dp-todo-ic { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; }
+.dp-react-root .dp-todo-ic svg { width: 16px; height: 16px; }
+.dp-react-root .dp-todo li.bad .dp-todo-ic { background: var(--red-soft); color: var(--red-t); }
+.dp-react-root .dp-todo li.warn .dp-todo-ic { background: var(--amber-soft); color: var(--amber-t); }
+.dp-react-root .dp-todo-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dp-react-root .dp-todo-t b { font-weight: 600; }
+.dp-react-root .dp-todo-t small { font-size: var(--fs-s); color: var(--text2); }
+.dp-react-root .dp-todo .dp-btn { width: auto; white-space: nowrap; }
+@media (max-width: 640px) {
+  .dp-react-root .hero-av { display: none; }
+  .dp-react-root .dp-todo li { grid-template-columns: 32px minmax(0, 1fr); }
+  .dp-react-root .dp-todo .dp-btn { grid-column: 2; justify-self: start; }
+}
+.dp-react-root .dp-tiles .kpi :is(b, small).bad { color: var(--red-t); }
+.dp-react-root .dp-bar { display: block; height: 6px; margin: 2px 0; border-radius: 3px; background: var(--line2); overflow: hidden; }
+.dp-react-root .dp-bar i { display: block; height: 100%; background: var(--teal); }
+.dp-react-root .dp-vsum { margin: 0 0 10px; font-size: var(--fs-s); color: var(--text2); }
+.dp-react-root .dp-aadd {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 0; border: 0; background: none;
+  color: var(--teal-d); font: inherit; font-size: var(--fs-s); font-weight: 600; cursor: pointer;
+}
+.dp-react-root .dp-aadd:hover { text-decoration: underline; }
+.dp-react-root .dp-aadd:focus-visible { outline: none; box-shadow: var(--ring); }
+.dp-react-root .dp-aadd svg { width: 14px; height: 14px; }
 /* рабочий стол одонтограммы во вкладке (B6 шаг 2): без заголовка — панель
    действий слева, а не прижата вправо к пустоте */
 .dp-react-root .wpanel .odop-top .odo-actions { margin-left: 0; }
@@ -1396,7 +1408,6 @@
 }
 .dp-react-root .hero-risk-go:hover { text-decoration: underline; }
 /* точка «не сохранено» на вкладке и пилюля у опросника */
-.dp-react-root .wtab-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); margin-left: 6px; vertical-align: middle; }
 .dp-react-root .dp-unsaved { margin-left: 6px; }
 
 /* План лечения, уровень 1 (01.10): шапка колонок с теми же ширинами, что у
@@ -2315,9 +2326,9 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .dp-crumbs a { color: var(--teal-d); font-weight: 600; text-decoration: none; }
 .dp-react-root .dp-crumbs a:hover { text-decoration: underline; }
 .dp-react-root .dp-crumbs b { color: var(--text); font-weight: 600; }
-.dp-react-root .hero { gap: 20px; padding: 20px 24px; margin-bottom: 12px; }
+.dp-react-root .hero { gap: 20px; padding: 16px 20px; margin-bottom: 12px; }
 .dp-react-root .hero-av {
-  width: 80px; height: 80px; flex-basis: 80px; border-radius: var(--r-card); font-size: var(--fs-num); font-weight: 700; box-shadow: none;
+  width: 64px; height: 64px; flex-basis: 64px; border-radius: var(--r-card); font-size: var(--fs-num); font-weight: 700; box-shadow: none;
 }
 .dp-react-root .hero-id { display: flex; flex-direction: column; gap: 10px; flex: 1 1 320px; min-width: 0; }
 .dp-react-root .hero-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -2331,6 +2342,56 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .hero-meta { margin: 0; gap: 0; font-size: var(--fs-body); color: var(--text2); }
 .dp-react-root .hero-meta > span + span::before { content: '·'; margin: 0 8px; color: var(--text3); }
 .dp-react-root .hero-meta .idchip { font-variant-numeric: tabular-nums; }
+.dp-react-root .hero-meta .hero-tel { font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; cursor: copy; }
+.dp-react-root .hero-acts .hero-ico { width: var(--h-ctl); padding: 0; justify-content: center; }
+/* полоса пациента при прокрутке: узел нулевой высоты липнет под верхней панелью, полоса висит из него */
+.dp-react-root .hero-stick { position: sticky; top: var(--h-top); z-index: 15; height: 0; }
+.dp-react-root .hero-bar {
+  position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 7px 14px;
+  border: 1px solid var(--line); border-top: 0; border-radius: 0 0 var(--r-block) var(--r-block); background: var(--panel);
+  box-shadow: 0 6px 16px rgb(0 0 0 / .08); white-space: nowrap; overflow: hidden;
+}
+.dp-react-root .hero-bar-av {
+  display: grid; place-items: center; flex: 0 0 32px; width: 32px; height: 32px; border-radius: var(--r-s);
+  background: var(--teal); color: var(--on-teal); font-size: var(--fs-s); font-weight: 700;
+}
+.dp-react-root .hero-bar-n { font-size: var(--fs-l); font-weight: 700; }
+.dp-react-root .hero-bar-m { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text2); font-variant-numeric: tabular-nums; }
+.dp-react-root .hero-bar .pill {
+  display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--r-xs);
+  font-size: var(--fs-s); font-weight: 600;
+}
+.dp-react-root .hero-bar .pill svg { width: 12px; height: 12px; }
+.dp-react-root .hero-bar-next { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.dp-react-root .hero-bar-next svg { width: 14px; height: 14px; color: var(--text3); }
+.dp-react-root .hero-bar-acts { display: flex; gap: 6px; margin-left: auto; }
+.dp-react-root .hero-bar-acts :is(a, button) {
+  display: inline-flex; align-items: center; gap: 6px; height: var(--h-ctl-s); padding: 0 12px; border: 1px solid var(--line);
+  border-radius: var(--r-ctl); background: var(--surface); color: var(--text); font: inherit; font-size: var(--fs-m); font-weight: 600;
+  text-decoration: none; cursor: pointer;
+}
+.dp-react-root .hero-bar-acts .pri { background: var(--teal); border-color: var(--teal); color: var(--on-teal); }
+.dp-react-root .hero-bar-acts svg { width: 14px; height: 14px; }
+@media (prefers-reduced-motion: no-preference) {
+  .dp-react-root .hero-bar { transition: opacity var(--dur-fast) ease; }
+  @starting-style { .dp-react-root .hero-bar { opacity: 0; } }
+}
+@media (max-width: 1000px) { .dp-react-root :is(.hero-bar-m, .hero-bar-next) { display: none; } }
+@media (max-width: 640px) {
+  .dp-react-root .hero-stick { top: 56px; }
+  .dp-react-root .hero-bar { padding: 6px 10px; }
+  .dp-react-root .hero-bar .pill, .dp-react-root .hero-bar-acts a { display: none; }
+}
+/* меню фиши липнет ниже полосы пациента */
+.dp-react-root .hero-stick ~ .dp-split > .dp-rail { top: calc(var(--h-top) + 64px); }
+/* имя пациента — в шапке фиши; заголовок раздела оболочки повторял его строкой выше. Только на фише (у неё
+   есть .hero): крошки встают первой строкой сетки .content, на остальных экранах заголовок как был */
+.content:has(> .dp-react-root > .hero) > h1 { display: none; }
+.content:has(> .dp-react-root > .hero) > .dp-react-root > .sub { grid-area: auto; grid-column: 1 / -1; }
+.dp-react-root .dp-chev {
+  display: inline-block; width: 6px; height: 6px; margin: 0 2px 3px 4px; border: solid currentColor; border-width: 0 2px 2px 0;
+  transform: rotate(45deg); opacity: .7;
+}
 .dp-react-root .hero-acts { margin-top: 4px; gap: 8px; }
 .dp-react-root .hero-acts a,
 .dp-react-root .hero-acts button { height: var(--h-ctl); padding: 0 16px; font-size: var(--fs-body); font-weight: 600; color: var(--text); }
@@ -2366,6 +2427,7 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .dp-abanner > svg { width: 20px; height: 20px; flex: 0 0 20px; }
 .dp-react-root .dp-abanner > span { flex: 1 1 280px; }
 .dp-react-root .dp-abanner .dp-btn { width: auto; background: var(--panel); border-color: var(--amber); color: var(--amber-t); }
+.dp-react-root .hero ~ .dp-abanner { padding-block: 4px; }
 .dp-react-root .hero-risk { margin: 0 0 12px; border-radius: var(--r-block); }
 /* пять цифр: подпись сверху, число 24/700, пояснение; значков нет (макет) */
 .dp-react-root .kpi5 { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
@@ -2877,7 +2939,8 @@ dialog.dp-about { width: 460px; }
   .dp-react-root .dp-vp-body:has(> .odo-print[src]) > .odo-stage { display: none; }
   .dp-react-root .dp-vp-ov { display: none; }
   .content:has(.dp-odo) > :is(h1, .sub),
-  .dp-react-root:has(.dp-odo) > :is(.dp-crumbs, .hero, .hero-risk, .dp-abanner, .kpi5, .wtabs),
+  .dp-react-root:has(.dp-odo) > :is(.dp-crumbs, .hero, .hero-risk, .dp-abanner),
+  .dp-react-root .dp-split:has(.dp-odo) > .dp-rail,
   .dp-react-root .dp-odo :is(.dp-odo-head, .dp-vp-bar, details.milk:not([open])) { display: none; }
   .dp-react-root .dp-odo-print { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin: 0 0 12px; padding: 0 0 8px; border-bottom: 1px solid var(--line); }
   .dp-react-root .dp-odo-print b { font-size: var(--fs-h3); font-weight: 600; color: var(--text); }
@@ -3685,6 +3748,14 @@ dialog.lb-dlg .dp-btn.ghost { color: var(--text2); }
 .lb-ib svg { width: 16px; height: 16px; }
 .lb-more { margin-top: 8px; }
 .lb-block.big .lb-row { padding: 12px 0; }
+/* блок под планом стоит рядом с меню фиши: на 1366 ему ~840 px, а колонки на всю ширину просят ~890 —
+   сетка ужимается по ширине самого блока, а не окна (уже 1100 — своя раскладка ниже) */
+.lb-block { container-type: inline-size; }
+@media (min-width: 1101px) {
+  @container (max-width: 900px) {
+    .lb-row { grid-template-columns: 56px minmax(120px, 1.6fr) minmax(90px, 1fr) 84px 84px 128px minmax(170px, auto); gap: 8px; }
+  }
+}
 @media (max-width: 1100px) {
   .lb-row { grid-template-columns: 64px 1fr 92px 92px 140px; }
   .lb-row .lb-l, .lb-row.lb-head span:nth-child(3) { display: none; }
@@ -3766,7 +3837,7 @@ dialog.lb-dlg .lb-steps-box { display: flex; flex-wrap: wrap; gap: 8px; padding:
 /* ---- меню раздела слева (SideMenu): «Laborator», раскладка B «Stoc» ---- */
 .dp-split { display: grid; grid-template-columns: 208px minmax(0, 1fr); gap: 14px; align-items: start; }
 .dp-split-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-.dp-rail { position: sticky; top: 12px; display: flex; flex-direction: column; gap: 2px; padding: 8px; }
+.dp-rail { position: sticky; top: calc(var(--h-top) + 12px); display: flex; flex-direction: column; gap: 2px; padding: 8px; }
 .dp-ri { display: flex; align-items: center; gap: 10px; min-height: 40px; margin: 0; padding: 0 10px; border: 0; border-radius: var(--r-s); background: none;
   color: var(--text2); font: inherit; font-size: var(--fs-m); line-height: 1.2; text-align: left; cursor: pointer; }
 .dp-ri svg { width: 16px; height: 16px; flex: none; color: var(--text3); }
@@ -3787,6 +3858,24 @@ dialog.lb-dlg .lb-steps-box { display: flex; flex-wrap: wrap; gap: 8px; padding:
   .dp-ri { flex: none; white-space: nowrap; }
 }
 @media (pointer: coarse) { .dp-ri { min-height: 44px; } }
+/* подсказка под подписью, черта между группами, точка «не сохранено» (фиша пациента) */
+.dp-ri-l { display: flex; flex-direction: column; line-height: 1.25; }
+.dp-ri-l small { font-size: var(--fs-xs); font-weight: 400; color: var(--text3); }
+.dp-ri.on .dp-ri-l small { color: var(--teal-d); }
+.dp-ri-sep { display: block; height: 1px; margin: 6px; background: var(--line); }
+.dp-rail .rg-n.dot { position: relative; min-width: 8px; width: 8px; height: 8px; padding: 0; background: var(--amber); }
+/* меню одними значками: рабочему столу одонтограммы и пародонтограммы нужна ширина */
+@media (min-width: 1101px) {
+  .dp-split.narrow { grid-template-columns: 56px minmax(0, 1fr); }
+  .dp-split.narrow .dp-rail { padding: 6px; }
+  .dp-split.narrow .dp-ri { position: relative; justify-content: center; padding: 0; }
+  .dp-split.narrow .dp-ri svg { width: 18px; height: 18px; }
+  .dp-split.narrow :is(.dp-ri-l, .rg-n:not(.dot)) { display: none; }
+  .dp-split.narrow .rg-n.dot { position: absolute; top: 6px; right: 6px; }
+}
+@media (max-width: 1100px) {
+  .dp-ri-l small, .dp-ri-sep { display: none; }
+}
 .lb .lb-head { justify-content: space-between; }
 .lb .lb-ttl { font-size: var(--fs-l); }
 .lb-dash .lb-dash-x { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; margin-left: -4px; border: 0;
@@ -3796,3 +3885,7 @@ dialog.lb-dlg .lb-steps-box { display: flex; flex-wrap: wrap; gap: 8px; padding:
 .lb-dash .lb-dash-x svg { width: 16px; height: 16px; }
 @media (pointer: coarse) { .lb-dash .lb-dash-x { width: 44px; height: 44px; } }
 .lb .lb-tbl .lb-act.multi { flex-wrap: wrap; max-width: 250px; row-gap: 4px; }
+@media print {
+  .dp-react-root .dp-split:has(.dp-odo) { display: block; }
+  .dp-react-root .hero-stick { display: none; }
+}

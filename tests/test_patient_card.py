@@ -144,7 +144,14 @@ def suite_api(res: Result) -> None:
         res.check("состав ответа", sorted(d),
                   sorted(["id", "name", "initials", "archived", "erasure", "profile", "hero",
                           "kpi", "alerts", "anamneza", "ocluzie", "recall", "plan", "finance",
-                          "documents", "forms", "visits", "activity", "appoint", "options"]))
+                          "documents", "forms", "todo", "visits", "activity", "appoint",
+                          "options"]))
+        # «De făcut»: долг первым, потом согласие к плану (три активные, 1 900 MDL);
+        # визит впереди есть — «записать» нет; анамнез — плашкой, не строкой
+        res.check("De făcut: долг, неподписанное согласие к плану",
+                  d["todo"],
+                  [{"code": "debt", "tone": "bad", "amount": 300},
+                   {"code": "plan_unsigned", "tone": "warn", "n": 3, "amount": 1900}])
         res.check("пилюли: активен, ТРИ первых предупреждения, страховка, долг, импланты",
                   [(pl["tone"], pl["text"]) for pl in d["hero"]["pills"]],
                   [("green", "Pacient activ"), ("orange", "Penicilină"),
@@ -308,7 +315,12 @@ def suite_api(res: Result) -> None:
 
         # сальдо, архив и план из одних отказов — ветки, которые до 13.10 держал
         # эталон старой фиши (`suite_pin`)
-        iid = _act(c, bare, "/plan", {"procedure": "Sigilare", "price": "200"})[1]["data"]["plan"]["items"][0]["id"]
+        res.check("De făcut у пустой фиши — пусто", d["todo"], [])
+        r1 = _act(c, bare, "/plan", {"procedure": "Sigilare", "price": "200"})[1]["data"]
+        iid = r1["plan"]["items"][0]["id"]
+        res.check("De făcut: план без согласия и без записи — две строки",
+                  [(t["code"], t.get("n")) for t in r1["todo"]],
+                  [("plan_unsigned", 1), ("no_next", 1)])
         _act(c, bare, f"/plan/{iid}/status", {"to": "in_lucru"})
         _act(c, bare, f"/plan/{iid}/status", {"to": "finalizat"})
         d = _act(c, bare, "/payments", {"amount": "200", "method": "card"})[1]["data"]
@@ -326,6 +338,7 @@ def suite_api(res: Result) -> None:
         res.check("архив: серая пилюля вместо «активен»",
                   (d["archived"], ("grey", "Arhivat") in pills, ("green", "Pacient activ") in pills),
                   (True, True, False))
+        res.check("De făcut в архиве — пусто", d["todo"], [])
         rf = new_patient(c, "Doar Refuz")
         iid = _act(c, rf, "/plan", {"procedure": "Implant", "price": "100"})[1]["data"]["plan"]["items"][0]["id"]
         pl = _act(c, rf, f"/plan/{iid}/status", {"to": "refuzat", "motiv": "nu vrea"})[1]["data"]["plan"]

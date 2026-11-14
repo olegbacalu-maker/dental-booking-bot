@@ -255,6 +255,18 @@ export interface RecallLine {
   mark: { result: string; word: string; at: string; actor: string } | null
 }
 
+/** Строка «De făcut» на Rezumat: код и числа считает сервер (`card.todo_view`),
+ *  слова и кнопку подбирает экран. */
+export interface TodoItem {
+  code: 'debt' | 'plan_unsigned' | 'plan_stale' | 'no_next' | 'recall_late'
+  tone: 'bad' | 'warn'
+  n?: number
+  amount?: number
+  service?: string
+  date?: string
+  late?: string
+}
+
 export interface PatientCard {
   id: number
   name: string
@@ -274,6 +286,7 @@ export interface PatientCard {
   finance: Finance
   documents: Doc[]
   forms: Form[]
+  todo: TodoItem[]
   visits: { history: Visit[]; live: Visit[]; n_total: number }
   activity: Activity
   appoint: Appoint

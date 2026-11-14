@@ -23,6 +23,7 @@ const T = {
   kind: 'Tip atenționare',
   ph: 'ex. Alergie: Penicilină',
   add: 'Adaugă atenționare',
+  more: 'Atenționare nouă',
   del: 'Șterge',
   confirmDel: 'Ștergeți atenționarea „{what}"? Medicul nu o va mai vedea în fișă.',
 } as const
@@ -34,9 +35,13 @@ interface Props {
   onAnamneza?: (() => void) | undefined
   /** Показывать ли риски анамнеза под пометками (на вкладке с опросником — нет). */
   withAnamneza?: boolean
+  /** Форма добавления свёрнута в одну кнопку (Rezumat: место под пометки, а не под пустую форму). */
+  collapsed?: boolean
+  /** Раскрыть форму — хозяин держит это у себя, чтобы «Adaugă › Atenționare» шапки раскрывал её тоже. */
+  onExpand?: () => void
 }
 
-export function AlertsCard({ card, a, onAnamneza, withAnamneza = true }: Props) {
+export function AlertsCard({ card, a, onAnamneza, withAnamneza = true, collapsed = false, onExpand }: Props) {
   const kinds = card.options.alert_kinds
   const [kind, setKind] = useState(kinds[0]?.id ?? 'allergy')
   const [text, setText] = useState('')
@@ -93,6 +98,9 @@ export function AlertsCard({ card, a, onAnamneza, withAnamneza = true }: Props) 
           ))}
         </div>
       )}
+      {collapsed ? (
+        <button type="button" className="dp-aadd" onClick={onExpand}><Icon name="plus" /> {T.more}</button>
+      ) : (
       <form className="dp-aform" onSubmit={onSubmit}>
         <div className="dp-aform-r">
           {/* ⚠️ aria-label списка — имя карточки: так его находят проверки и читалка */}
@@ -104,6 +112,7 @@ export function AlertsCard({ card, a, onAnamneza, withAnamneza = true }: Props) 
         </div>
         <button className="dp-btn pri" disabled={a.busy || !text.trim()}><Icon name="plus" /> {T.add}</button>
       </form>
+      )}
     </div>
   )
 }

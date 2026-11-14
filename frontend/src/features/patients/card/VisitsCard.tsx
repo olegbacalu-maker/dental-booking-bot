@@ -26,6 +26,8 @@ interface Props {
   card: PatientCard
   /** адрес дневника визита; без него — адрес сервера (страница из журнала) */
   hrefOf?: (v: Visit) => string
+  /** Строка-итог под заголовком (Rezumat): сколько визитов, последний, сколько сделано. */
+  summary?: string | undefined
 }
 
 export function NextVisitCard({ card }: Props) {
@@ -40,12 +42,13 @@ export function NextVisitCard({ card }: Props) {
   )
 }
 
-export function VisitsCard({ card, hrefOf }: Props) {
+export function VisitsCard({ card, hrefOf, summary }: Props) {
   const hist = card.visits.history
   const href = (v: Visit) => (hrefOf ? hrefOf(v) : v.url)
   return (
     <div className="fcard">
       <h3>{T.title} <small>· {T.last} {hist.length}</small></h3>
+      {summary && <p className="dp-vsum">{summary}</p>}
       {hist.length ? (
         <div className="dp-vlist">
           {hist.map((v) => (

@@ -19,7 +19,11 @@ import { OcluziaCard, ocDirty, type OcDraft } from './OcluziaCard'
 import { AppointDialog } from './AppointDialog'
 import { DocumentsCard, type DocsPick } from './DocumentsCard'
 import { FinanceCard } from './FinanceCard'
-import { HeroKpi } from './HeroKpi'
+import { daysLabel, HeroKpi, type AddKind } from './HeroKpi'
+import { SummaryTiles, TodoCard, todoRows } from './Overview'
+import { SideMenu, type SideItem } from '../../../components/SideMenu'
+import { roCount } from '../../../utils/plural'
+import { isOpen } from '../../lab/lab'
 import { recallApi } from '../../recall/recall'
 import { chart, type Odontogram } from '../../clinical/chart'
 import { OdontogramTab } from '../../clinical/OdontogramTab'
@@ -33,7 +37,7 @@ import { LabBlock, LabSummary, usePatientLab, type PatientLabModel } from '../..
 import { ProfileCard } from './ProfileCard'
 import { NextVisitCard, VisitsCard } from './VisitsCard'
 import type { CardActions } from './actions'
-import { patientCard, type PatientCard, type Visit } from './card'
+import { mdl, patientCard, type PatientCard, type Visit } from './card'
 
 /* Фиша пациента (C18) — с 26.09 рабочее место с вкладками (B6, слово Олега:
    «не растянуто на весь экран, а по вкладкам»): шапка с пятью цифрами всегда
@@ -46,13 +50,13 @@ import { patientCard, type PatientCard, type Visit } from './card'
 const T = {
   patients: 'Pacienți',
   path: 'Cale',
-  quick: 'Acțiuni rapide',
   tabs: 'Secțiunile fișei',
-  newVisit: 'Vizită nouă',
-  plan: 'Plan de tratament',
-  upload: 'Încarcă document',
-  note: 'Notiță',
-  print: 'Printează fișa',
+  debt: (m: string) => `${m} MDL de achitat`,
+  atLab: (n: number) => `${n} la laborator`,
+  nextOn: (d: string) => `următoarea ${d}`,
+  visits: { one: '1 vizită', few: '{n} vizite', many: '{n} de vizite' },
+  done: { one: '1 procedură finalizată', few: '{n} proceduri finalizate', many: '{n} de proceduri finalizate' },
+  lastOn: (d: string, ago: string) => `ultima ${d} (${ago})`,
   notFound: 'Fișa nu există sau a fost ștearsă.',
   offline: 'Programul nu răspunde. Reîncercați.',
   unsaved: 'Anamneză nesalvată',
@@ -94,6 +98,9 @@ const TABS = [
   ['plan', 'Plan și plăți'], ['vizite', 'Vizite'], ['docs', 'Documente'], ['date', 'Date pacient'],
 ] as const
 type Tab = (typeof TABS)[number][0]
+const TAB_ICON: Record<Tab, SideItem<Tab>['icon']> = {
+  rezumat: 'home', odonto: 'tooth', perio: 'layers', plan: 'money', vizite: 'cal', docs: 'file', date: 'user',
+}
 const tabOf = (q: URLSearchParams): Tab => {
   const t = queryParam(q, 'tab')
   return (TABS.some(([k]) => k === t) ? t : 'rezumat') as Tab
@@ -231,6 +238,8 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
   const [anTick, setAnTick] = useState(q.get('anamneza') ? 1 : 0)
   /* «Încarcă exemplarul semnat» из плана: вкладка Documente с нужной категорией */
   const [docsPick, setDocsPick] = useState<DocsPick | null>(null)
+  /* форма пометки на Rezumat свёрнута; раскрывают её кнопка карточки и «Adaugă › Atenționare» шапки */
+  const [alertOpen, setAlertOpen] = useState(false)
   const anIsDirty = state.status === 'ready' && anDirty(anDraft, state.data.anamneza)
   const ocIsDirty = state.status === 'ready' && ocDirty(ocDraft, state.data.ocluzie)
   /* несохранённое у экрана — анамнез («Date pacient») или прикус (с 07.11 —
@@ -335,17 +344,16 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
   const closeVisit = useCallback(() => { void to(`${pathname}${qs('vizite', views)}`, { replace: true }) }, [to, pathname, views])
   /* ←/→ (Home/End) ходят по вкладкам по кругу, фокус идёт следом: кнопки все в
      DOM, активной — tabIndex 0, остальным -1 (одна остановка Tab на полосу). */
-  const onTabKey = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
+  const onTabKey = useCallback((e: KeyboardEvent<HTMLElement>) => {
     const i = TABS.findIndex(([k]) => k === tab)
-    const n = e.key === 'ArrowRight' ? (i + 1) % TABS.length
-      : e.key === 'ArrowLeft' ? (i + TABS.length - 1) % TABS.length
+    const n = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? (i + 1) % TABS.length
+      : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? (i + TABS.length - 1) % TABS.length
         : e.key === 'Home' ? 0 : e.key === 'End' ? TABS.length - 1 : -1
     const next = n < 0 ? undefined : TABS[n]
     if (!next) return
     e.preventDefault()
     goTab(next[0])
-    const btn = e.currentTarget.children[n]
-    if (btn instanceof HTMLElement) btn.focus()
+    document.getElementById(`wtab-${next[0]}`)?.focus()
   }, [tab, goTab])
 
   const failCb = useCallback((e: unknown) => { fail(e) }, [fail])
@@ -429,11 +437,19 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
   /* адрес фиши с текущей вкладкой — куда вернёт «назад» с печатного листа */
   const here = `${pathname}${qs(tab, views, sub)}`
   const a: CardActions = { pid, views, busy, act, back: here }
+  /* «Adaugă» шапки: то, что раньше было «Acțiuni rapide» на Rezumat, — из любого раздела */
+  const onAdd = (k: AddKind): void => {
+    if (k === 'visit') setBooking(true)
+    else if (k === 'plan' || k === 'pay') goTab('plan')
+    else if (k === 'doc') goTab('docs')
+    else if (k === 'note') { setEditOpen(true); setNoteFocus(true); goTab('date') }
+    else { setAlertOpen(true); goTab('rezumat') }
+  }
 
   return (
     <section className="dp-react-root" aria-busy={busy || undefined}>
       {nav}
-      <HeroKpi card={card} back={here} onBook={() => setBooking(true)} onPlan={() => goTab('plan')}
+      <HeroKpi card={card} back={here} onBook={() => setBooking(true)} onAdd={onAdd}
         onAnamneza={() => { setAnTick((t) => t + 1); goTab('date') }}
         onDoctor={(name) => act(() => patientCard.setDoctor(pid, views, name))} busy={busy}
         onRecallClear={(sid) => act(async () => {
@@ -441,42 +457,30 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
           const m = await recallApi.mark(pid, sid, 'clear')
           return { ...(await patientCard.get(pid, views)), code: m.code, text: m.text, tone: m.tone }
         })} />
-      <div ref={strip} className="wtabs" role="tablist" aria-label={T.tabs} onKeyDown={onTabKey}>
-        {TABS.map(([k, label]) => (
-          <button key={k} id={`wtab-${k}`} type="button" role="tab" aria-selected={tab === k}
-            aria-controls="wpanel" tabIndex={tab === k ? 0 : -1} className={tab === k ? 'on' : ''}
-            title={k === 'date' && anIsDirty ? T.unsaved : k === 'odonto' && ocIsDirty ? T.ocUnsavedTab : undefined}
-            onClick={() => goTab(k)}>
-            {label}
-            {/* точка — только глазу: имя вкладки для читалки и проверок остаётся прежним */}
-            {((k === 'date' && anIsDirty) || (k === 'odonto' && ocIsDirty)) && <i className="wtab-dot" aria-hidden="true" />}
-          </button>
-        ))}
-      </div>
-      <WithLab card={card} say={say}>{(L) => (
+      <WithLab card={card} say={say}>{(L) => {
+      const go = { plan: () => goTab('plan'), book: () => setBooking(true), order: (id: number) => L.host.open(id) }
+      const rows = todoRows(card, L, go)
+      return (
+      <SideMenu label={T.tabs} items={railItems(card, L, rows.length, rows.some((r) => r.tone === 'bad'), anIsDirty, ocIsDirty)}
+        value={tab} onPick={goTab} rootRef={strip} narrow={tab === 'odonto' || tab === 'perio'}
+        tabs={{ id: (k) => `wtab-${k}`, controls: 'wpanel', onKeyDown: onTabKey }}>
       <div ref={panel} id="wpanel" role="tabpanel" aria-labelledby={`wtab-${tab}`} className="wpanel">
         {tab === 'rezumat' && (
-          <div className="pv2">
-            <div className="pv2-main">
-              <NextVisitCard card={card} />
-              <div className="fcard">
-                <h3>{T.quick}</h3>
-                <div className="qa">
-                  <button type="button" onClick={() => setBooking(true)}><Icon name="plus" /> {T.newVisit}</button>
-                  <button type="button" onClick={() => goTab('plan')}><Icon name="tooth" /> {T.plan}</button>
-                  <button type="button" onClick={() => goTab('docs')}><Icon name="camera" /> {T.upload}</button>
-                  <button type="button" onClick={() => { setEditOpen(true); setNoteFocus(true); goTab('date') }}><Icon name="note" /> {T.note}</button>
-                  <button type="button" onClick={() => window.print()}><Icon name="print" /> {T.print}</button>
-                </div>
+          <>
+            <TodoCard rows={rows} />
+            <SummaryTiles card={card} lab={L} go={go} onVisits={() => goTab('vizite')} />
+            <div className="pv2">
+              <div className="pv2-main">
+                <ActivityCard activity={card.activity} onViews={(on) => { void onViews(on) }} />
               </div>
-              <ActivityCard activity={card.activity} onViews={(on) => { void onViews(on) }} />
+              <div className="pv2-side">
+                <LabSummary lab={L} onOpen={() => goTab('plan')} />
+                <AlertsCard card={card} a={a} onAnamneza={() => { setAnTick((t) => t + 1); goTab('date') }}
+                  collapsed={!alertOpen} onExpand={() => setAlertOpen(true)} />
+                <VisitsCard card={card} hrefOf={visitHref} summary={visitsSummary(card)} />
+              </div>
             </div>
-            <div className="pv2-side">
-              <LabSummary lab={L} onOpen={() => goTab('plan')} />
-              <AlertsCard card={card} a={a} onAnamneza={() => { setAnTick((t) => t + 1); goTab('date') }} />
-              <VisitsCard card={card} hrefOf={visitHref} />
-            </div>
-          </div>
+          </>
         )}
         {tab === 'odonto' && (
           <OdontogramTab pid={pid} views={views} say={say} onFail={failCb} onChanged={onToothSaved} open={toothReq}
@@ -533,7 +537,9 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
           </div>
         )}
       </div>
-      )}</WithLab>
+      </SideMenu>
+      )
+      }}</WithLab>
       <AppointDialog open={booking} name={card.name} appoint={card.appoint} a={a} onClose={() => setBooking(false)} />
       {toast && <Toast tone={toast.tone} text={toast.text} onClose={closeToast} />}
     </section>
@@ -546,4 +552,36 @@ function WithLab({ card, say, children }: {
 }) {
   const L = usePatientLab(card, (text, tone) => say({ text, tone }))
   return <>{children(L)}{L.host.node}</>
+}
+
+/** Пункты меню фиши: число — только там, где по нему действуют; цвет — только когда надо действовать. */
+function railItems(card: PatientCard, L: PatientLabModel, todo: number, todoBad: boolean,
+  anDirty: boolean, ocDirty: boolean): SideItem<Tab>[] {
+  const sold = card.finance.sold
+  const debt = sold?.kind === 'bad' ? sold.amount : 0
+  const labOpen = (L.data?.orders ?? []).filter(isOpen)
+  const labLate = labOpen.some((o) => o.late)
+  const sign = card.todo.some((t) => t.code === 'plan_unsigned' || t.code === 'plan_stale')
+  const next = card.hero.next
+  const extra: Partial<Record<Tab, Partial<SideItem<Tab>>>> = {
+    rezumat: { count: todo || undefined, tone: todoBad ? 'bad' : 'warn' },
+    odonto: { sep: true, dot: ocDirty, note: ocDirty ? T.ocUnsavedTab : undefined },
+    plan: {
+      count: card.plan.n_act || undefined, tone: debt || labLate ? 'bad' : sign ? 'warn' : '',
+      hint: [debt ? T.debt(mdl(debt)) : '', labOpen.length ? T.atLab(labOpen.length) : ''].filter(Boolean).join(' · ') || undefined,
+    },
+    vizite: { sep: true, hint: next ? T.nextOn(next.date.slice(0, 5)) : undefined },
+    docs: { count: card.documents.length || undefined },
+    date: { dot: anDirty, note: anDirty ? T.unsaved : undefined },
+  }
+  return TABS.map(([key, label]) => ({ key, label, icon: TAB_ICON[key], ...extra[key] }))
+}
+
+/** Итог под «Istoric vizite» на Rezumat — то, что раньше было тремя плитками «сколько». */
+function visitsSummary(card: PatientCard): string | undefined {
+  const { kpi, hero } = card
+  if (!kpi.visits) return undefined
+  return [roCount(kpi.visits, T.visits),
+    hero.last ? T.lastOn(hero.last.date, daysLabel(hero.days_ago)) : '',
+    kpi.done ? roCount(kpi.done, T.done) : ''].filter(Boolean).join(' · ')
 }

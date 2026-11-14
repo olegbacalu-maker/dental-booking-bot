@@ -355,8 +355,8 @@ def main() -> int:
             # B6 (26.09): ссылка на детальную живёт на вкладке «Odontogramă» —
             # сперва вкладка (тот же документ, адрес ?tab=odonto), потом ссылка
             # «Pe tot ecranul» (.dp-odo-lnk с 08.10); рядом ссылка на пародонтограмму.
-            click_el(page, "[...document.querySelectorAll('.wtabs [role=tab]')]"
-                           ".find(b => b.textContent.trim() === 'Odontogramă')")
+            click_el(page, "[...document.querySelectorAll('.dp-rail [role=tab]')]"
+                           ".find(b => b.getAttribute('aria-label') === 'Odontogramă')")
             for _ in range(100):
                 if page.js("!!document.querySelector('.dp-odo-lnk')"):
                     break

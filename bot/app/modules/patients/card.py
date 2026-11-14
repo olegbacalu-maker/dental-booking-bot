@@ -453,6 +453,36 @@ def pills(p: dict, alerts: list, debt: int, tmap: dict) -> list[dict]:
     return out
 
 
+def todo_view(archived: bool, forms: list[dict], n_act: int, nextv: dict | None,
+              sold: tuple[str, int] | None, recall_lines: list[dict]) -> list[dict]:
+    """«De făcut» на Rezumat: что по пациенту ждёт человека. Только из того, что
+    фиша уже посчитала (бланки, план, ближайший визит, сальдо, отзыв), — новых
+    выборок нет, и строка не может разойтись с вкладкой, где её закрывают.
+    Сервер отдаёт код и числа, слова и кнопку подбирает экран. Порядок: деньги
+    (красное) первыми, потом согласие, запись, отзыв. Анамнеза здесь нет: о нём
+    говорит плашка под шапкой на всех разделах. В архиве ждать нечего."""
+    if archived:
+        return []
+    out: list[dict] = []
+    if sold and sold[0] == "bad":
+        out.append({"code": "debt", "tone": "bad", "amount": sold[1]})
+    ap = next((f for f in forms if f["key"] == "acord_plan"), None)
+    if ap and ap.get("n_active"):
+        if ap.get("signed") is None:
+            out.append({"code": "plan_unsigned", "tone": "warn", "n": ap["n_active"], "amount": ap["total"]})
+        elif ap.get("stale"):
+            out.append({"code": "plan_stale", "tone": "warn", "n": ap["n_active"], "amount": ap["total"]})
+    if nextv is None:
+        if n_act:
+            out.append({"code": "no_next", "tone": "warn", "n": n_act})
+        else:
+            late = next((r for r in recall_lines if not r.get("stop") and r.get("late_days", 0) > 0), None)
+            if late:
+                out.append({"code": "recall_late", "tone": "warn", "service": late["service"],
+                            "date": late["next"], "late": late.get("late", "")})
+    return out
+
+
 def who(actor: str | None) -> str:
     """Подпись события: с ролями это ИМЯ вошедшего; «recepție» осталось у
     событий, записанных до учёток, и у фоновых задач, где человека нет."""

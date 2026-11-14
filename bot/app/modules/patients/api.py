@@ -351,6 +351,8 @@ async def _card(pid: int, p: dict, *, views: bool, log_view: bool) -> dict:
     # окно записи фиши — только к своему врачу у врача (22.10, права врача)
     ap = pcard.appoint_view(p, my_scope())
     created = p["created_at"].astimezone(eng.TZ)
+    rc = await recall.patient_lines(pid, now.date(), can(request_user(), PERM_RECALL))
+    forms = pcard.forms_view(last, docs, plan, anam, pdf.available())
     return {
         "id": pid, "name": p["name"] or "", "initials": _initials(p["name"] or "?"),
         "archived": bool(p.get("archived")), "erasure": erasure,
@@ -382,7 +384,7 @@ async def _card(pid: int, p: dict, *, views: bool, log_view: bool) -> dict:
         # «Rechemări» (29.10): срок по каждой услуге с отзывом, где есть
         # done-визит; считает тот же core/recall, что список — клиент не
         # считает. Строку видит любая роль, снять «nu mai reamintim» — право.
-        "recall": await recall.patient_lines(pid, now.date(), can(request_user(), PERM_RECALL)),
+        "recall": rc,
         "kpi": {"visits": len(vv["live"]), "active": pv["n_act"],
                 "done": pv["cnt"]["finalizat"], "canc": vv["canc"]},
         "alerts": [{"id": a["id"], "kind": a["kind"],
@@ -428,7 +430,9 @@ async def _card(pid: int, p: dict, *, views: bool, log_view: bool) -> dict:
         "documents": [_doc_row(d) for d in docs],
         # бланки программы со статусами: вкладка «Documente» — центр бумаг (01.10);
         # `sign` — подпись на экране возможна (PDF делается на этой машине, 09.11)
-        "forms": pcard.forms_view(last, docs, plan, anam, pdf.available()),
+        "forms": forms,
+        # «De făcut» на Rezumat — коды и числа из уже посчитанного выше
+        "todo": pcard.todo_view(bool(p.get("archived")), forms, pv["n_act"], nextv, sv, rc),
         "visits": {
             "history": [_visit_row(v, base, nextv, recs, now) for v in visits[:pcard.HIST_SHOWN]],
             "live": [_visit_row(v, base, nextv, recs, now) for v in vv["live"]],
