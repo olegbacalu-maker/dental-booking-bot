@@ -28,9 +28,11 @@ interface Props {
   onClose: () => void
   say: (t: ToastState) => void
   onFail: (e: unknown) => void
+  /** Дневник записан: код ответа (склад сообщает, что галочки плана ждут подтверждения материалов). */
+  onSaved?: (code: string) => void
 }
 
-export function VisitTab({ pid, aid, onClose, say, onFail }: Props) {
+export function VisitTab({ pid, aid, onClose, say, onFail, onSaved }: Props) {
   const back = `/admin/patient/${pid}?tab=vizite`
   const [got, setGot] = useState<{ aid: number; page: VisitPage | null; error: ApiError | null } | null>(null)
   const [saving, setSaving] = useState(false)
@@ -39,6 +41,8 @@ export function VisitTab({ pid, aid, onClose, say, onFail }: Props) {
   /* отказ — через ref: личность `onFail` меняется вслед за адресом, запрос от неё не зависит */
   const onFailRef = useRef(onFail)
   useEffect(() => { onFailRef.current = onFail }, [onFail])
+  const onSavedRef = useRef(onSaved)
+  useEffect(() => { onSavedRef.current = onSaved }, [onSaved])
 
   useEffect(() => {
     const ctl = new AbortController()
@@ -60,6 +64,7 @@ export function VisitTab({ pid, aid, onClose, say, onFail }: Props) {
       const r = await visits.save(aid, form)
       setGot({ aid, page: r.data, error: null })
       if (r.text) say({ tone: r.tone, text: r.text })
+      onSavedRef.current?.(r.code)
     } catch (e) {
       onFailRef.current(asApiError(e))
     } finally {

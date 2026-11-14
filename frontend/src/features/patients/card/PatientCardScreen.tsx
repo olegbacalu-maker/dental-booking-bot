@@ -525,7 +525,8 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
           </>
         )}
         {tab === 'vizite' && sub !== null && (
-          <VisitTab pid={pid} aid={sub} onClose={closeVisit} say={say} onFail={failCb} />
+          <VisitTab pid={pid} aid={sub} onClose={closeVisit} say={say} onFail={failCb}
+            onSaved={(code) => { if (code === 'ok_stock_tc_pending') consume.pendingFrom(pid) }} />
         )}
         {tab === 'vizite' && sub === null && (
           <div className="pv2">

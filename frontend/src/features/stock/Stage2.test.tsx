@@ -92,6 +92,7 @@ function Harness({ service = 'impl' as string | null, loaded = null as number[] 
   const [said, setSaid] = useState('')
   const c = useConsume((t) => setSaid(t), loaded)
   return <><button type="button" onClick={() => c.afterFinal({ id: 41, what: 'Implant · dintele 36', service })}>fin</button>
+    <button type="button" onClick={() => c.pendingFrom(4)}>consultatie</button>
     {c.chip({ id: 41, what: 'Implant · dintele 36' })}<p>{said}</p>{c.node}</>
 }
 
@@ -128,6 +129,15 @@ describe('окно при «Finalizată»', () => {
     fireEvent.click(screen.getByRole('button', { name: /Materiale de confirmat/ }))
     fireEvent.click(await screen.findByRole('button', { name: 'Fără scădere' }))
     await waitFor(() => expect(screen.queryByRole('button', { name: /Materiale de confirmat/ })).toBeNull())
+  })
+
+  it('галочки «Consultație» (ok_stock_tc_pending): ожидающие позиции — значками, первая — окном', async () => {
+    route({ '/stock/plan-pending': { rows: [{ plan_item_id: 41, procedure: 'Implant', tooth: 36, done_at: '' }] }, '/stock/plan/41': PROP })
+    render(<Harness />)
+    fireEvent.click(screen.getByRole('button', { name: 'consultatie' }))
+    expect(await screen.findByRole('dialog', { name: 'Materiale consumate' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Materiale de confirmat/ })).toBeTruthy()
+    expect(get).toHaveBeenCalledWith('/stock/plan-pending?pid=4', expect.anything())
   })
 
   it('без услуги, режим «automat» или уже решено — окна нет', async () => {

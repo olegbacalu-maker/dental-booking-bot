@@ -116,6 +116,14 @@ export function useConsume(say: (text: string, tone: 'ok' | 'warn' | 'err') => v
     }).catch(() => { /* склад недоступен — позиция уже закрыта, окно не обязательно */ })
   }, [])
   const afterFinal = useCallback((t: Target & { service: string | null }) => { if (t.service) ask(t) }, [ask])
+  /** Галочки «Consultație» закрыли позиции плана: склад говорит, какие ждут материалов, — первую открываем окном. */
+  const pendingFrom = useCallback((pid: number) => {
+    stockApi.planPending(pid).then((r) => {
+      setPending(r.data.rows.map((x) => x.plan_item_id))
+      const first = r.data.rows[0]
+      if (first) ask({ id: first.plan_item_id, what: `${first.procedure}${first.tooth ? ` · dintele ${first.tooth}` : ''}` })
+    }).catch(() => { /* значки появятся при следующем открытии фиши */ })
+  }, [ask])
   /** Позиция ушла из «finalizat» (Redeschide): возврат делает сервер, ждать подтверждения нечего. */
   const reopened = useCallback((id: number) => setPending((p) => p.filter((x) => x !== id)), [])
   const chip = (t: Target): ReactNode => (pending.includes(t.id)
@@ -124,5 +132,5 @@ export function useConsume(say: (text: string, tone: 'ok' | 'warn' | 'err') => v
     <ConsumeDialog key={open.k} target={open.t} data={open.data} onClose={() => setOpen(null)}
       onDone={(text, tone) => { setPending((p) => p.filter((x) => x !== open.t.id)); say(text, tone ?? 'ok') }} />
   ) : null
-  return { afterFinal, reopened, chip, node }
+  return { afterFinal, reopened, pendingFrom, chip, node }
 }
