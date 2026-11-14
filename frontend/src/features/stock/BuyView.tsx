@@ -36,7 +36,7 @@ export function BuyView({ data }: { data: BuyData | null }) {
     <div className="fcard rg-body">
       <div className="rg-bar">
         <span className="rg-ttl">
-          <b>De cumpărat · {roCount(counts.low, MATERIALE)} sub prag{counts.ordered - counts.late > 0 && <span className="st-mute"> · din care comandate: {counts.ordered - counts.late}</span>}</b>
+          <b>De cumpărat · {roCount(counts.low, MATERIALE)} sub prag{counts.ordered > 0 && <span className="st-mute"> · din care comandate: {counts.ordered}</span>}</b>
           <small>propunerea aduce restul la dublul pragului, în ambalaje întregi; „Comandat” e doar o notă — dispare singură la factura materialului</small>
         </span>
         <AppLink className="rg-btn" href={buyPrintHref(printed)}><Icon name="print" /> Tipărește</AppLink>
