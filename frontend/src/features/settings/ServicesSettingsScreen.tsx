@@ -44,7 +44,7 @@ type ServicesModel = ServicesData & { techcards?: TechCards | null }
 export const loadServicesSettings: RouteLoad<ServicesModel> = async (signal) => {
   const [r, techcards] = await Promise.all([
     settings.services(signal),
-    Promise.resolve().then(() => stockApi.techcards(signal)).then((x) => ('cards' in x.data ? x.data : null)).catch(() => null),
+    Promise.resolve().then(() => stockApi.techcards(signal)).then((x) => ('items' in x.data && 'services' in x.data ? x.data : null)).catch(() => null),
   ])
   return { ...r, data: { ...r.data, techcards } }
 }
@@ -62,6 +62,7 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
   if (loadedTc !== undefined && loadedTc !== tc) setTc(loadedTc)
   const [tcOpen, setTcOpen] = useState<{ svc: string; name: string } | null>(null)
   const [replacing, setReplacing] = useState(false)
+  const cardOf = (svc: string) => tc?.services.find((x) => x.id === svc)?.lines ?? []
   const [rows, setRows] = useState<ServiceEntry[] | null>(null)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<ToastState | null>(null)
@@ -168,8 +169,8 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
                     <button type="button" className="dp-svc-mat" disabled={!s.id || saving}
                       title={s.id ? 'Materialele care se scad la finalizarea serviciului' : 'Salvați serviciul întâi'}
                       onClick={() => setTcOpen({ svc: s.id, name: s.ro || s.id })}>
-                      <Icon name="box" /> {tc.cards[s.id]?.length ? `${tc.cards[s.id]!.length} materiale` : 'Adaugă'}
-                      {tc.cards[s.id]?.some((l) => !l.active) && <i className="st-dot" title="un material e în arhivă" />}
+                      <Icon name="box" /> {cardOf(s.id).length ? `${cardOf(s.id).length} materiale` : 'Adaugă'}
+                      {cardOf(s.id).some((l) => !l.active) && <i className="st-dot" title="un material e în arhivă" />}
                     </button>
                   </td>
                 )}
@@ -186,7 +187,7 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
         <p className="hint">{T.hintR}</p>
         {tc && (
           <p className="hint dp-svc-tc">Coloana «Materiale»: ce se scade din stoc la «Finalizată» în planul pacientului.
-            {Object.values(tc.cards).some((l) => l.length) && (
+            {tc.services.some((x) => x.lines.length) && (
               <button type="button" className="dp-link" onClick={() => setReplacing(true)}>Înlocuiește materialul în toate serviciile</button>
             )}
           </p>
@@ -194,7 +195,13 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
         <button className="savebtn" disabled={data === null || saving || badDur}><Icon name="save" /> {T.save}</button>
       </form>
       {tc && tcOpen && <TechCardDialog key={tcOpen.svc} svc={tcOpen.svc} name={tcOpen.name} tc={tc} onClose={() => setTcOpen(null)}
-        onSaved={(lines, text) => { setTc({ ...tc, cards: { ...tc.cards, [tcOpen.svc]: lines } }); setToast({ tone: 'ok', text }) }} />}
+        onSaved={(lines, text) => {
+          const has = tc.services.some((x) => x.id === tcOpen.svc)
+          const services = has ? tc.services.map((x) => (x.id === tcOpen.svc ? { ...x, lines, warn: lines.filter((l) => !l.active).length } : x))
+            : [...tc.services, { id: tcOpen.svc, name: tcOpen.name, lines, warn: lines.filter((l) => !l.active).length }]
+          setTc({ ...tc, services })
+          setToast({ tone: 'ok', text })
+        }} />}
       {tc && replacing && <ReplaceDialog tc={tc} onClose={() => setReplacing(false)} onDone={(text) => { setToast({ tone: 'ok', text }); retry() }} />}
       {toast && <Toast tone={toast.tone} text={toast.text} onClose={closeToast} />}
     </section>

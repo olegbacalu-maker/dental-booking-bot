@@ -4125,3 +4125,7 @@ dialog.st-cons .st-tc td.num, dialog.st-cons .st-tc th.num { text-align: right; 
 dialog.st-cons .st-tc td.num small { display: block; }
 dialog.st-cons .st-tc tr.st-off-r td { color: var(--text3); }
 dialog.st-cons .st-errt { color: var(--red-t); font-weight: 600; }
+.st-cons-chip { display: inline-flex; align-items: center; gap: 5px; width: fit-content; margin-top: 4px; padding: 2px 9px; min-height: 24px;
+  border: 1px solid var(--amber); border-radius: 999px; background: var(--amber-soft); color: var(--amber-t); font: inherit; font-size: var(--fs-s); font-weight: 600; cursor: pointer; }
+.st-cons-chip svg { width: 13px; height: 13px; }
+.pp .st-cons-chip { display: flex; }

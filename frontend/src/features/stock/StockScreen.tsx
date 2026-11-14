@@ -34,7 +34,7 @@ const loadModel: RouteLoad<StockModel> = async (signal, _params, q) => {
         : v === 'inventar' ? stockApi.docs('inventar', signal).then((r) => ({ docs: r.data }))
           : v === 'jurnal' ? stockApi.moves(Object.fromEntries(JOURNAL_KEYS.map((k) => [k, q.get(k) ?? ''])), signal).then((r) => ({ moves: r.data }))
             : v === 'cumparat' ? stockApi.buy(signal).then((r) => ({ buy: r.data }))
-              : v === 'consum' ? stockApi.consum({ by: q.get('by') ?? '', from: q.get('from') ?? '', to: q.get('to') ?? '' }, signal).then((r) => ({ consum: r.data }))
+              : v === 'consum' ? stockApi.report({ by: q.get('by') ?? '', from: q.get('from') ?? '', to: q.get('to') ?? '' }, signal).then((r) => ({ report: r.data }))
               : v === 'import' ? stockApi.importHome(signal).then((r) => ({ imp: r.data }))
                 : Promise.resolve({})
   const [list, more] = await Promise.all([stockApi.list(signal), extra])
@@ -152,7 +152,7 @@ export function StockScreen({ navigate = defaultNavigate }: { navigate?: (url: s
           {v === 'jurnal' && <JournalView data={model?.moves ?? null} />}
           {v === 'inventar' && <InventoryView docs={model?.docs ?? null} doc={model?.doc ?? null} />}
           {v === 'cumparat' && <BuyView data={model?.buy ?? null} />}
-          {v === 'consum' && <ConsumView data={model?.consum ?? null} />}
+          {v === 'consum' && <ConsumView data={model?.report ?? null} />}
           {v === 'import' && <ImportView home={model?.imp ?? null} />}
         </SideMenu>
         {out && <OutDialog key={out.k} item={out.item} onClose={() => setOut(null)} />}

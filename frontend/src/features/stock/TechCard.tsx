@@ -14,7 +14,7 @@ export function TechCardDialog({ svc, name, tc, onClose, onSaved }: {
   svc: string; name: string; tc: TechCards; onClose: () => void; onSaved: (lines: TechLine[], text: string) => void
 }) {
   const ref = useRef<HTMLDialogElement>(null)
-  const start = tc.cards[svc] ?? []
+  const start = tc.services.find((x) => x.id === svc)?.lines ?? []
   const [rows, setRows] = useState<Row[]>(() => (start.length ? start : []).map((l) => ({ item_id: l.item_id, qty: plain(l.qty_milli), optional: l.optional })))
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
@@ -30,7 +30,7 @@ export function TechCardDialog({ svc, name, tc, onClose, onSaved }: {
     return next
   })
   const live = tc.items.filter((x) => x.active)
-  const canEdit = tc.can.settings
+  const canEdit = tc.can.stock
 
   async function save() {
     const filled = rows.filter((r) => r.item_id)
@@ -40,7 +40,7 @@ export function TechCardDialog({ svc, name, tc, onClose, onSaved }: {
     try {
       const lines = filled.map((r) => ({ item_id: r.item_id, qty_milli: parseQty(r.qty), optional: r.optional }))
       const res = await stockApi.saveTechcard(svc, lines)
-      onSaved(lines.map((l, i) => ({ ...l, item: nameOf(l.item_id), unit: itemOf(l.item_id)?.unit ?? '', sort: i, active: itemOf(l.item_id)?.active ?? true })),
+      onSaved(lines.map((l) => ({ ...l, item: nameOf(l.item_id), unit: itemOf(l.item_id)?.unit ?? '', active: itemOf(l.item_id)?.active ?? true })),
         res.text || `Materialele pentru „${name}” salvate.`)
       onClose()
     } catch (e) { setErr(asApiError(e).text || 'Nu s-a salvat.') } finally { setBusy(false) }
@@ -92,7 +92,7 @@ export function TechCardDialog({ svc, name, tc, onClose, onSaved }: {
           </table>
         )}
         {canEdit && <button type="button" className="rg-btn sm st-addl" onClick={() => setRows((rs) => [...rs, { item_id: 0, qty: '', optional: false }])}><Icon name="plus" /> Adaugă material</button>}
-        {!canEdit && <p className="st-note"><Icon name="lock" /> Materialele serviciilor le schimbă directorul.</p>}
+        {!canEdit && <p className="st-note"><Icon name="lock" /> Materialele serviciilor le schimbă cine ține stocul (director, recepție).</p>}
         {err && <p className="st-err" role="alert">{err}</p>}
       </div>
       <div className="rg-dlg-f">
@@ -113,7 +113,7 @@ export function ReplaceDialog({ tc, onClose, onDone }: { tc: TechCards; onClose:
   const [busy, setBusy] = useState(false)
   useEffect(() => { showDialog(ref.current); const r = ref.current; return () => hideDialog(r) }, [])
   const used = new Map<number, { name: string; unit: string; n: number }>()
-  for (const lines of Object.values(tc.cards)) for (const l of lines) {
+  for (const sv of tc.services) for (const l of sv.lines) {
     const u = used.get(l.item_id) ?? { name: l.item, unit: l.unit, n: 0 }
     u.n += 1
     used.set(l.item_id, u)
@@ -124,7 +124,7 @@ export function ReplaceDialog({ tc, onClose, onDone }: { tc: TechCards; onClose:
   async function run() {
     if (!from || !to) { setErr('Alegeți ambele materiale.'); return }
     const dst = tc.items.find((x) => x.id === to)!
-    if (!(await ask({ text: `Înlocuiți „${src!.name}” cu „${dst.name}” în ${src!.n === 1 ? '1 serviciu' : `${src!.n} servicii`}? Cantitățile rămân aceleași.`, ok: 'Înlocuiește' }))) return
+    if (!(await ask({ text: `Înlocuiți „${src!.name}” cu „${dst.name}” în ${src!.n === 1 ? '1 serviciu' : `${src!.n} servicii`}? Cantitățile rămân aceleași; unde noul material e deja în listă, cantitățile se adună.`, ok: 'Înlocuiește' }))) return
     setBusy(true)
     try {
       const r = await stockApi.replaceInCards(from, to)

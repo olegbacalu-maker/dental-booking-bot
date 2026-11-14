@@ -1,12 +1,12 @@
 import { useSearchParams } from 'react-router'
 import { Icon } from '../../components/Icon'
-import { dmy, lei, qtyText, type ConsumBy, type ConsumData } from './stock'
+import { dmy, lei, qtyText, type ConsumBy, type ReportData } from './stock'
 import { Empty } from './parts'
 
-const BY: [ConsumBy, string][] = [['doctor', 'Medic'], ['service', 'Serviciu'], ['patient', 'Pacient']]
+const BY: [ConsumBy, string][] = [['doctor', 'Medic'], ['service', 'Serviciu'], ['patient', 'Pacient'], ['item', 'Material']]
 
 /** «Consum»: что ушло по факту работы — по врачу, услуге или пациенту за период; деньги — только с правом. */
-export function ConsumView({ data }: { data: ConsumData | null }) {
+export function ConsumView({ data }: { data: ReportData | null }) {
   /* группировка и период — в адресе: от них зависят данные загрузчика маршрута */
   const [q, setQ] = useSearchParams()
   const set = (k: string, v: string) => {
@@ -28,7 +28,7 @@ export function ConsumView({ data }: { data: ConsumData | null }) {
         <span className="st-qrow st-period"><input className="dp-fld st-date" type="date" value={data.from} max={data.to} aria-label="De la" onChange={(e) => set('from', e.target.value)} />
           <span className="st-mute">–</span><input className="dp-fld st-date" type="date" value={data.to} min={data.from} aria-label="Până la" onChange={(e) => set('to', e.target.value)} /></span>
       </div>
-      {data.groups.length === 0 ? (
+      {data.rows.length === 0 ? (
         <Empty ico="stat" title="Nimic consumat în această perioadă">
           <p className="hint">Aici se adună ce s-a scăzut pe pacienți: la „Finalizată” în plan (după fișa serviciului) și cu „Scoate din stoc › Pe pacient”.</p>
         </Empty>
@@ -37,10 +37,10 @@ export function ConsumView({ data }: { data: ConsumData | null }) {
           <table className="rg-tbl st-tbl">
             <thead><tr><th>{BY.find(([k]) => k === data.by)![1]}</th><th className="num">Scăderi</th><th>Materiale</th>{money && <th className="num">Cost</th>}</tr></thead>
             <tbody>
-              {data.groups.map((g) => (
+              {data.rows.map((g) => (
                 <tr key={g.key}>
                   <td><b>{g.label}</b></td>
-                  <td className="num">{g.moves}</td>
+                  <td className="num">{g.qty_rows}</td>
                   <td className="st-cons-items">{g.items.map((it) => (
                     <span key={it.item_id}>{it.item} <b>{qtyText(it.qty_milli, it.unit)}</b>{money && it.cost_bani ? <small> · {lei(it.cost_bani)}</small> : null}</span>
                   ))}</td>
@@ -51,7 +51,7 @@ export function ConsumView({ data }: { data: ConsumData | null }) {
           </table>
         </div>
       )}
-      {data.groups.length > 0 && (
+      {data.rows.length > 0 && (
         <p className="hint rg-foot"><Icon name="info" /> {dmy(data.from)} – {dmy(data.to)}{money && data.total_bani ? ` · cost total ${lei(data.total_bani)} (la prețul mediu din momentul scăderii)` : ''}.
           Scăderile anulate nu intră.</p>
       )}

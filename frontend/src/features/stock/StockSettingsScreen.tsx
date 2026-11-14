@@ -27,13 +27,13 @@ export function StockSettingsScreen({ navigate = defaultNavigate }: { navigate?:
   if (state.status === 'failed') return <section className="dp-react-root"><LoadFailed error={state.error} onRetry={retry} /></section>
   if (state.status !== 'ready') return <section className="dp-react-root" aria-busy="true"><div className="fcard" /></section>
   const d = state.data
-  const cur = days ?? { exp: String(d.prefs.exp_days), ord: String(d.prefs.order_days), mode: d.prefs.consume_mode ?? 'confirmare' }
+  const cur = days ?? { exp: String(d.prefs.exp_days), ord: String(d.prefs.order_days), mode: d.prefs.tc_mode ?? 'confirmare' }
   const say = (text: string, tone: ToastState['tone'] = 'ok') => setToast({ text, tone })
 
   async function savePrefs() {
     setBusy(true)
     try {
-      await stockApi.prefs({ exp_days: Number(cur.exp), order_days: Number(cur.ord), consume_mode: cur.mode })
+      await stockApi.prefs({ exp_days: Number(cur.exp), order_days: Number(cur.ord), tc_mode: cur.mode })
       setDays(null)
       retry()
       say('Setările stocului salvate.')
@@ -74,7 +74,7 @@ export function StockSettingsScreen({ navigate = defaultNavigate }: { navigate?:
                 onChange={(e) => { setDays({ ...cur, ord: e.target.value.replace(/\D/g, '').slice(0, 2) }); setBad(null) }} />
             </F>
           </div>
-          <F label="Scădere la finalizare" bad={b('consume_mode')}
+          <F label="Scădere la finalizare" bad={b('tc_mode')}
             hint={cur.mode === 'confirmare' ? 'la „Finalizată” în plan se deschide lista materialelor serviciului — se corectează și se confirmă'
               : cur.mode === 'automat' ? 'materialele serviciului se scad singure la „Finalizată”; corecția — la inventariere'
                 : 'materialele se scad doar de mână, din „Stoc”'}>

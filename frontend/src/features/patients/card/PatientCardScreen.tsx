@@ -40,7 +40,7 @@ import { stockApi, type PatientMove } from '../../stock/stock'
 import { ProfileCard } from './ProfileCard'
 import { NextVisitCard, VisitsCard } from './VisitsCard'
 import type { CardActions } from './actions'
-import { mdl, patientCard, type PatientCard, type Visit } from './card'
+import { mdl, patientCard, type PatientCard, type PlanItem, type Visit } from './card'
 
 /* Фиша пациента (C18) — с 26.09 рабочее место с вкладками (B6, слово Олега:
    «не растянуто на весь экран, а по вкладкам»): шапка с пятью цифрами всегда
@@ -123,11 +123,12 @@ const qs = (tab: Tab, views: boolean, sub: number | null = null): string => {
   return s ? `?${s}` : ''
 }
 
-/** Фиша плюс её одонтограмма, лист пародонтограммы, заказы лаборатории и материалы со склада — одним кадром.
- *  После ответа действия (`replace`) этих полей нет: вкладки, блок заказов и блок материалов к тому моменту
- *  держат модели сами. */
+/** Фиша плюс её одонтограмма, лист пародонтограммы, заказы лаборатории, материалы со склада и позиции,
+ *  ждущие решения о материалах, — одним кадром. После ответа действия (`replace`) этих полей нет: вкладки, блок
+ *  заказов и блок материалов к тому моменту держат модели сами. */
 type CardData = PatientCard & {
-  odontogram?: Odontogram | null; perioSheet?: PerioModel | null; lab?: PatientData | null; stockOut?: PatientMove[] | null
+  odontogram?: Odontogram | null; perioSheet?: PerioModel | null; lab?: PatientData | null
+  stockOut?: PatientMove[] | null; stockPending?: number[] | null
 }
 
 /* ⭐ Одонтограмма — ВМЕСТЕ с фишей, до первого кадра. Своим запросом после
@@ -145,15 +146,16 @@ type CardData = PatientCard & {
 const loadCard: RouteLoad<CardData> = async (signal, params, q) => {
   const pid = Number(params.pid)
   const exam = tabOf(q) === 'perio' ? examOf(q) : null
-  const [r, odontogram, perioSheet, lab, stockOut] = await Promise.all([
+  const [r, odontogram, perioSheet, lab, stockOut, stockPending] = await Promise.all([
     patientCard.get(pid, viewsOf(q), signal),
     Promise.resolve().then(() => chart.get(pid, signal)).then((x) => x.data, () => null),
     Promise.resolve().then(() => perio.get(pid, exam, signal)).then((x) => x.data, () => null),
     Promise.resolve().then(() => labApi.patient(pid, signal)).then((x) => x.data, () => null),
     /* материалы со склада: отказ склада фишу не роняет — блока просто нет */
     Promise.resolve().then(() => stockApi.patient(pid, signal)).then((x) => x.data.rows ?? null).catch(() => null),
+    Promise.resolve().then(() => stockApi.planPending(pid, signal)).then((x) => x.data.rows.map((p) => p.plan_item_id)).catch(() => null),
   ])
-  return { ...r, data: { ...r.data, odontogram, perioSheet, lab, stockOut } }
+  return { ...r, data: { ...r.data, odontogram, perioSheet, lab, stockOut, stockPending } }
 }
 
 /**
@@ -370,7 +372,8 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
   const failCb = useCallback((e: unknown) => { fail(e) }, [fail])
   const say = useCallback((t: ToastState) => setToast(t), [])
   /* списание материалов при «Finalizată» (режим «cu confirmare»): окно у экрана, не у карточки плана */
-  const consume = useConsume(useCallback((text: string, tone: ToastState['tone']) => setToast({ text, tone }), []))
+  const consume = useConsume(useCallback((text: string, tone: ToastState['tone']) => setToast({ text, tone }), []),
+    state.status === 'ready' ? state.data.stockPending : undefined)
   /* зуб записан — свежая фиша приезжает В ОТВЕТЕ записи (`?card=1`, режим
      ленты — из адреса): пилюли шапки и летопись зависят от зубов.
      ⛔ Не перечитывать `patientCard.get`: GET фиши — это ОТКРЫТИЕ, и каждое
@@ -512,8 +515,9 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
         )}
         {tab === 'plan' && (
           <>
-            <PlanCard card={card} a={a} onTooth={onTooth} rowExtra={L.chip}
-              afterFinal={(it) => consume.afterFinal({ id: it.id, what: `${it.procedure}${it.tooth ? ` · dintele ${it.tooth}` : ''}`, service: it.service_id })}
+            <PlanCard card={card} a={a} onTooth={onTooth}
+              rowExtra={(it) => <>{L.chip(it)}{consume.chip({ id: it.id, what: planWhat(it) })}</>}
+              afterStep={(it, to) => (to === 'finalizat' ? consume.afterFinal({ id: it.id, what: planWhat(it), service: it.service_id }) : consume.reopened(it.id))}
               onUploadSigned={(category) => { setDocsPick({ category, k: Date.now() }); goTab('docs') }} />
             <LabBlock lab={L} />
             <StockOutBlock rows={stockOut} />
@@ -565,6 +569,9 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
     </section>
   )
 }
+
+/** Позиция плана словами — в окне материалов: в плане бывает по три коронки подряд. */
+const planWhat = (it: PlanItem) => `${it.procedure}${it.tooth ? ` · dintele ${it.tooth}` : ''}`
 
 /** Заказы лаборатории живут своей загрузкой: хук нужен уже готовой фише, то есть после ранних `return` экрана. */
 function WithLab({ card, say, children }: {

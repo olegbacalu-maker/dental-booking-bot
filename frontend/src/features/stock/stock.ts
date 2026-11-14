@@ -10,12 +10,12 @@ export type Reason = 'pacient' | 'deschis' | 'expirat' | 'defect' | 'pierdut' | 
 export type Filter = 'all' | 'low' | 'exp' | 'arh'
 export type View = 'stoc' | 'intrari' | 'jurnal' | 'inventar' | 'cumparat' | 'consum' | 'import'
 export type ConsumeMode = 'fara' | 'confirmare' | 'automat'
-export type ConsumBy = 'doctor' | 'service' | 'patient'
+export type ConsumBy = 'doctor' | 'service' | 'patient' | 'item'
 export type DocKind = 'factura' | 'inventar' | 'import'
 export type DocStatus = 'ciorna' | 'inchis' | 'anulat'
 
 export interface Can { stock: boolean; money: boolean; settings: boolean }
-export interface Prefs { exp_days: number; order_days: number; consume_mode?: ConsumeMode }
+export interface Prefs { exp_days: number; order_days: number; tc_mode?: ConsumeMode }
 export interface Lot { lot: string; exp_on: string | null; qty_milli: number }
 export interface Ordered { at: string; on: string; by: string; days: number; late: boolean }
 
@@ -168,23 +168,33 @@ export interface BuyData { today: string; prefs: Prefs; groups: BuyGroup[]; coun
 /** Что ушло пациенту со склада (`GET /api/stock/patient/{pid}`): медзапись фиши — материал и лот импланта. */
 export interface PatientMove { id: number; at: string; on: string; item: string; unit: string; qty_milli: number; lot: string; exp_on: string | null; note: string; actor: string; undone: boolean }
 
-/* ---- ступень 2: техкарта и списание по факту работы ---- */
-export interface TechLine { item_id: number; item: string; unit: string; qty_milli: number; optional: boolean; sort?: number; active: boolean }
-export interface TechItem { id: number; name: string; unit: string; pack_name: string; active: boolean; costly: boolean }
-export interface TechCards { cards: Record<string, TechLine[]>; items: TechItem[]; mode: ConsumeMode; can: Can }
+/* ---- ступень 2: техкарта и списание по позиции плана (контракт › «Ступень 2») ---- */
+export interface TechLine { item_id: number; item: string; unit: string; qty_milli: number; optional: boolean; active: boolean }
+export interface TechService { id: string; name: string; lines: TechLine[]; warn: number; gone?: boolean }
+export interface TechItem { id: number; name: string; unit: string; cat: string; active: boolean }
+export interface TechCards { services: TechService[]; items: TechItem[]; can: Can }
 
-export interface Proposal {
-  item_id: number; item: string; unit: string; qty_milli: number; optional: boolean; costly: boolean; rest_milli: number
-  lots: { lot: string; exp_on: string | null; qty_milli: number }[]
+export interface PropLine {
+  item_id: number; item: string; unit: string; qty_milli: number; optional: boolean; active: boolean; on: boolean
+  costly: boolean; lot: string | null; lots: { lot: string; exp_on: string | null; qty_milli: number }[]
+  stock_milli: number; neg_after: boolean; cost_bani?: number
 }
-export interface ConsumeData { mode: ConsumeMode; done: boolean; service: string; lines: Proposal[] }
+export type PlanState = 'none' | 'pending' | 'done' | 'fara'
+export interface PlanProposal {
+  plan: { id: number; pid: number; procedure: string; tooth: number | null; status: string; service_id: string | null; service: string; doctor: string }
+  mode: ConsumeMode
+  state: PlanState
+  lines: PropLine[]
+  moves: Move[]
+  can: Can
+}
 
-export interface ConsumGroup {
-  key: string; label: string; moves: number
+export interface ReportRow {
+  key: string; label: string; qty_rows: number
   items: { item_id: number; item: string; unit: string; qty_milli: number; cost_bani?: number }[]
   cost_bani?: number
 }
-export interface ConsumData { by: ConsumBy; from: string; to: string; groups: ConsumGroup[]; total_bani?: number; can: Can }
+export interface ReportData { by: ConsumBy; from: string; to: string; rows: ReportRow[]; total_bani?: number; can: Can }
 
 /** Модель экрана «Stoc» одним загрузчиком: список склада и данные открытого раздела. */
 export interface StockModel {
@@ -194,7 +204,7 @@ export interface StockModel {
   moves?: MovesData
   buy?: BuyData
   imp?: ImHome
-  consum?: ConsumData
+  report?: ReportData
 }
 
 export interface DashData {
@@ -286,14 +296,18 @@ export const stockApi = {
   importRun: (file: Blob, name: string, opts: ImOpts, token: string): Promise<ApiResult<{ id: number; created: number; rests: number; skipped: number }>> =>
     api.postRaw(`/stock/import/run${qs({ name, opts: JSON.stringify(opts), token })}`, file),
   importUndo: (id: number): Promise<ApiResult<unknown>> => api.post(`/stock/import/${id}/undo`, {}),
-  techcards: (signal?: AbortSignal): Promise<ApiResult<TechCards>> => api.get('/stock/techcards', opt(signal)),
-  saveTechcard: (svc: string, lines: { item_id: number; qty_milli: number; optional: boolean }[]): Promise<ApiResult<unknown>> =>
-    api.post(`/stock/techcard/${encodeURIComponent(svc)}`, { lines }),
-  replaceInCards: (from_id: number, to_id: number): Promise<ApiResult<{ services: number }>> => api.post('/stock/techcard/replace', { from_id, to_id }),
-  proposal: (planItem: number, signal?: AbortSignal): Promise<ApiResult<ConsumeData>> => api.get(`/stock/consume/${planItem}`, opt(signal)),
-  consume: (planItem: number, body: { lines: { item_id: number; qty_milli: number; lot?: string }[] } | { skip: true }): Promise<ApiResult<{ n?: number }>> =>
-    api.post(`/stock/consume/${planItem}`, body),
-  consum: (p: Record<string, string>, signal?: AbortSignal): Promise<ApiResult<ConsumData>> => api.get(`/stock/consum${qs(p)}`, opt(signal)),
+  techcards: (signal?: AbortSignal): Promise<ApiResult<TechCards>> => api.get('/stock/tehcard', opt(signal)),
+  saveTechcard: (svc: string, lines: { item_id: number; qty_milli: number; optional: boolean }[]): Promise<ApiResult<{ warn: number[] }>> =>
+    api.post(`/stock/tehcard/${encodeURIComponent(svc)}`, { lines }),
+  replaceInCards: (from_item: number, to_item: number): Promise<ApiResult<{ services: number }>> => api.post('/stock/tehcard/replace', { from_item, to_item }),
+  planProposal: (planItem: number, signal?: AbortSignal): Promise<ApiResult<PlanProposal>> => api.get(`/stock/plan/${planItem}`, opt(signal)),
+  planPending: (pid: number, signal?: AbortSignal): Promise<ApiResult<{ rows: { plan_item_id: number; procedure: string; tooth: number | null; done_at: string }[] }>> =>
+    api.get(`/stock/plan-pending?pid=${pid}`, opt(signal)),
+  planConsume: (planItem: number, lines: { item_id: number; qty_milli: number; lot?: string }[]): Promise<ApiResult<{ moves: number; neg: number[] }>> =>
+    api.post(`/stock/plan/${planItem}/consume`, { lines }),
+  planSkip: (planItem: number): Promise<ApiResult<unknown>> => api.post(`/stock/plan/${planItem}/skip`, {}),
+  planUndo: (planItem: number): Promise<ApiResult<unknown>> => api.post(`/stock/plan/${planItem}/undo`, {}),
+  report: (p: Record<string, string>, signal?: AbortSignal): Promise<ApiResult<ReportData>> => api.get(`/stock/report${qs(p)}`, opt(signal)),
   patient: (pid: number, signal?: AbortSignal): Promise<ApiResult<{ rows: PatientMove[] }>> => api.get(`/stock/patient/${pid}`, opt(signal)),
 }
 

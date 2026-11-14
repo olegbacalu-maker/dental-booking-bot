@@ -89,13 +89,13 @@ interface Props {
   onUploadSigned: (category: string) => void
   /** Значок под процедурой: заказ лаборатории этой позиции. */
   rowExtra?: (it: PlanItem) => ReactNode
-  /** Позиция стала «finalizat»: склад предлагает списать материалы её услуги. */
-  afterFinal?: (it: PlanItem) => void
+  /** Позиция сменила статус (после ответа сервера): склад предлагает или возвращает материалы её услуги. */
+  afterStep?: (it: PlanItem, to: string) => void
 }
 
 interface MenuAt { it: PlanItem; x: number; y: number }
 
-export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterFinal }: Props) {
+export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterStep }: Props) {
   const plan = card.plan
   const tabs = card.options.tab_states
   /* вкладка: выбор человека живёт, пока сервер не сменил вкладку по
@@ -142,7 +142,7 @@ export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterFina
     if (it.status === 'in_lucru' && it.price
         && !await ask({ text: T.confirmFin.replace('{what}', what(it)).replace('{price}', mdl(it.price)), ok: T.fin })) return
     const err = await a.act(() => patientCard.planStatus(a.pid, a.views, it.id, it.next))
-    if (!err && it.next === 'finalizat') afterFinal?.(it)
+    if (!err) afterStep?.(it, it.next)
   }
 
   function openRefuz(it: PlanItem) {
