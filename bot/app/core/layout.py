@@ -20,7 +20,7 @@ from .. import brand, db, paths
 from .. import engine as eng
 from . import sms_loop
 from . import theme
-from .auth import (PERM_DOCTORS, PERM_MONEY, PERM_RECALL, PERM_SCHEDULE_ALL, PERM_SETTINGS, PERM_SMS,
+from .auth import (PERM_DOCTORS, PERM_LABS, PERM_MONEY, PERM_RECALL, PERM_SCHEDULE_ALL, PERM_SETTINGS, PERM_SMS,
                    PIN_MAX, ROLE_LABEL, _pin_rec, can, request_user, schedule_scope)
 from .icons import _ic
 from .messages import msg_banner, msg_json, msg_state, msg_text, msg_view
@@ -227,6 +227,8 @@ def shell_model(active: str, sub: str, rail: bool = False,
     show_sms = can(me, PERM_SMS) or me is None
     # «Rechemări» (29.10): стойка и директор; врачу пункта нет (В1 = А)
     show_recall = can(me, PERM_RECALL) or me is None
+    # каталог лабораторий: стойка и директор, врачу — нет
+    show_labs = can(me, PERM_LABS) or me is None
     th = theme.current()
 
     items = [{"key": "dash", "href": "/admin", "icon": "home", "label": SECTION_TITLE["dash"]},
@@ -279,7 +281,7 @@ def shell_model(active: str, sub: str, rail: bool = False,
                       "initials": _initials(me["name"]),
                       "can": {"money": show_money, "settings": show_set,
                               "doctors": show_docs, "schedule_all": show_sched,
-                              "recall": show_recall},
+                              "recall": show_recall, "labs": show_labs},
                       # ключ СВОЕГО врача у журнала, суженного до него
                       # (`auth.schedule_scope`); пусто — журнал всех или ничей
                       "doctor": schedule_scope(me, eng.DOCTORS) or ""} if me else None),

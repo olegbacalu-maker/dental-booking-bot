@@ -42,7 +42,9 @@ export interface ShellModel {
     initials: string
     can: { money: boolean; settings: boolean; doctors: boolean; schedule_all: boolean
       /** «Rechemări» (29.10): список отзыва — стойка и директор; не прислано — нет. */
-      recall?: boolean }
+      recall?: boolean
+      /** Каталог лабораторий: стойка и директор. */
+      labs?: boolean }
     /** Ключ СВОЕГО врача, когда журнал сужен до него (роль `medic` с привязкой,
      *  22.10); пусто — журнал всех (`can.schedule_all`) или ничей (учётка без
      *  врача: записывать некуда, кнопки «Programare nouă» нет). Кому что

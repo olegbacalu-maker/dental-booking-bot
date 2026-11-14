@@ -78,10 +78,10 @@ export function LabListScreen({ navigate = defaultNavigate }: { navigate?: (url:
           <p className="hint">Comanda se face din fișa pacientului, de la poziția din plan (coroană, punte, proteză, alignere):
             dinții, lucrarea și medicul se completează singure, iar fișa de comandă se tipărește pentru tehnician.
             Aici se vede apoi tot ce e la laborator, ce întârzie și ce e de ridicat.</p>
-          {data.labs.length === 0 && (
-            <p className="hint">Laboratoarele cu care lucrați se adaugă în <AppLink href="/admin/settings/lab">Setări › Laboratoare</AppLink>
-              {data.can.labs ? ' — sau direct în prima comandă.' : '.'}</p>
-          )}
+          {data.labs.length === 0 && (data.can.labs
+            ? <p className="hint">Laboratoarele cu care lucrați se adaugă în <AppLink href="/admin/settings/lab">Setări › Laboratoare</AppLink>
+                {' '}— sau direct în prima comandă.</p>
+            : <p className="hint">Laboratoarele le adaugă recepția în Setări › Laboratoare.</p>)}
           <button type="button" className="rg-btn pri" onClick={() => setPicking(true)}><Icon name="plus" /> Prima comandă</button>
         </div>
       ) : (
