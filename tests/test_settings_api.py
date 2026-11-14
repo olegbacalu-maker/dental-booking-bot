@@ -78,8 +78,8 @@ def suite_hub(res: Result) -> None:
         res.check("порядок внутри групп — прежний порядок плиток",
                   [t["href"] for t in d["tiles"] if t["group"] == "general"],
                   ["/admin/settings/system", "/admin/settings/clinic", "/admin/settings/theme",
-                   # «Registre» (10.11): каталог санитарных регистров — в «General» последним
-                   "/admin/settings/registre"])
+                   # «Stoc» (14.11) и «Registre» (10.11): каталоги разделов — в «General» после темы
+                   "/admin/settings/stoc", "/admin/settings/registre"])
 
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_hub_"))
     env_path = tmp / "dental.env"

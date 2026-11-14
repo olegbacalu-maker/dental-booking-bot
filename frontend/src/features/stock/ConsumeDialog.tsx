@@ -22,7 +22,7 @@ export function ConsumeDialog({ target, data, onClose, onDone }: {
   useEffect(() => { showDialog(ref.current); const r = ref.current; return () => hideDialog(r) }, [])
   const up = (i: number, p: Partial<Row>) => { setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...p } : r))); setErr('') }
 
-  async function confirm() {
+  async function consume() {
     const picked = rows.map((r, i) => ({ r, l: data.lines[i]! })).filter(({ r }) => r.on)
     if (picked.some(({ r }) => !(parseQty(r.qty) > 0))) { setErr('Cantitatea — un număr mai mare ca zero, ex. 0,3.'); return }
     setBusy(true)
@@ -88,7 +88,7 @@ export function ConsumeDialog({ target, data, onClose, onDone }: {
         </div>
         <div className="rg-dlg-f">
           <button type="button" className="dp-btn ghost" disabled={busy} onClick={() => { void skip() }}>Fără scădere</button>
-          <button type="button" className="dp-btn pri" disabled={busy} onClick={() => { void confirm() }}><Icon name="check" /> Confirmă</button>
+          <button type="button" className="dp-btn pri" disabled={busy} onClick={() => { void consume() }}><Icon name="check" /> Confirmă</button>
         </div>
       </dialog>
     </div>
