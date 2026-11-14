@@ -47,9 +47,9 @@ describe('техкарта в «Setări › Servicii»', () => {
     route({ '/settings/services': SVC, '/stock/tehcard': TC })
     post.mockResolvedValueOnce(ok({}, 'ok_stock_tc', 'Materialele serviciului salvate'))
     openScreen('/admin/settings/services', '/admin/settings/services', <ServicesSettingsScreen />, loadServicesSettings)
-    const btn = await screen.findByRole('button', { name: /2 materiale/ })
+    const btn = await screen.findByRole('button', { name: /2 materiale: Obturație/ })
     expect(btn.querySelector('.st-dot')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Adaugă' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('button', { name: 'Adaugă materiale: Nou' }).hasAttribute('disabled')).toBe(true)
     fireEvent.click(btn)
     const dlg = await screen.findByRole('dialog', { name: /Materiale: Obturație/ })
     expect(dlg.textContent).toContain('în arhivă')
@@ -62,7 +62,7 @@ describe('техкарта в «Setări › Servicii»', () => {
     fireEvent.click(within(dlg).getByRole('button', { name: /Salvează/ }))
     await waitFor(() => expect(post).toHaveBeenCalledWith('/stock/tehcard/obt',
       { lines: [{ item_id: 3, qty_milli: 400, optional: false }, { item_id: 7, qty_milli: 1000, optional: true }] }))
-    expect(await screen.findByRole('button', { name: /2 materiale/ })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: /2 materiale: Obturație/ })).toBeTruthy()
   })
 
   it('склад отказал — экран услуг жив, колонки «Materiale» нет', async () => {

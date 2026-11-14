@@ -4118,7 +4118,7 @@ dialog.st-dlg .st-addl { width: fit-content; }
 .st-host { display: contents; }
 .st .st-cons-items { display: flex; flex-wrap: wrap; gap: 4px 14px; }
 .st .st-cons-items span { white-space: nowrap; }
-.st .st-cons-items small { display: inline; color: var(--text3); }
+.st .st-tbl td.st-cons-items small { display: inline; color: var(--text3); }
 dialog.st-cons .st-cons-who { display: flex; flex-direction: column; gap: 2px; margin: 0; }
 dialog.st-cons .st-cons-who small { color: var(--text3); font-size: var(--fs-s); }
 dialog.st-cons .st-tc td.num, dialog.st-cons .st-tc th.num { text-align: right; white-space: nowrap; }
@@ -4129,3 +4129,8 @@ dialog.st-cons .st-errt { color: var(--red-t); font-weight: 600; }
   border: 1px solid var(--amber); border-radius: 999px; background: var(--amber-soft); color: var(--amber-t); font: inherit; font-size: var(--fs-s); font-weight: 600; cursor: pointer; }
 .st-cons-chip svg { width: 13px; height: 13px; }
 .pp .st-cons-chip { display: flex; }
+dialog.st-cons .st-tc .rg-chip small { white-space: nowrap; }
+dialog.st-cons .st-tc .st-qrow { flex-wrap: nowrap; }
+dialog.st-cons .st-tc td:nth-child(4) { min-width: 220px; }
+dialog.st-dlg .st-tc .st-act-c .st-qrow { flex-wrap: nowrap; gap: 2px; }
+.dp-react-root .dp-svc-mat { min-width: 52px; justify-content: center; }

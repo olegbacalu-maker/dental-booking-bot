@@ -117,7 +117,7 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
               <th style={{ width: 120 }}>{T.cols.dur}</th><th style={{ width: 100 }}>{T.cols.recall}</th>
               <th style={{ width: 100 }}>{T.cols.color}</th>
               <th style={{ width: 40 }}><Icon name="sos" /></th><th style={{ width: 140 }}>{T.cols.docs}</th>
-              {tc && <th style={{ width: 130 }}>Materiale</th>}<th />
+              {tc && <th style={{ width: 70 }} title="Materiale care se scad la finalizare">Materiale</th>}<th />
             </tr>
           </thead>
           <tbody>
@@ -167,9 +167,10 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
                 {tc && (
                   <td>
                     <button type="button" className="dp-svc-mat" disabled={!s.id || saving}
+                      aria-label={cardOf(s.id).length ? `${cardOf(s.id).length} materiale: ${s.ro}` : `Adaugă materiale: ${s.ro}`}
                       title={s.id ? 'Materialele care se scad la finalizarea serviciului' : 'Salvați serviciul întâi'}
                       onClick={() => setTcOpen({ svc: s.id, name: s.ro || s.id })}>
-                      <Icon name="box" /> {cardOf(s.id).length ? `${cardOf(s.id).length} materiale` : 'Adaugă'}
+                      <Icon name="box" /> {cardOf(s.id).length || <Icon name="plus" />}
                       {cardOf(s.id).some((l) => !l.active) && <i className="st-dot" title="un material e în arhivă" />}
                     </button>
                   </td>
