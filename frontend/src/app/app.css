@@ -4138,3 +4138,4 @@ dialog.st-dlg .st-tc .st-act-c .st-qrow { flex-wrap: nowrap; gap: 2px; }
   border-radius: var(--r-ctl); background: var(--panel); color: var(--text2); font: inherit; font-size: var(--fs-s); white-space: nowrap; cursor: pointer; }
 .dp-react-root .pact .st-undo-btn:hover { border-color: var(--amber); color: var(--amber-t); }
 .dp-react-root .pact .st-undo-btn svg { width: 14px; height: 14px; }
+dialog.st-cons .st-tc .rg-chip { white-space: nowrap; }
