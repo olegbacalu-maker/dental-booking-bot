@@ -29,6 +29,7 @@ import test_ocluzie  # noqa: E402
 import test_recall  # noqa: E402
 import test_registre  # noqa: E402
 import test_lab  # noqa: E402
+import test_lab_pages  # noqa: E402
 import test_api  # noqa: E402
 import test_backup  # noqa: E402
 import test_booking  # noqa: E402
@@ -336,6 +337,7 @@ SUITES = [
     ("Laborator: каталог — двойник, рабочие дни, удаление только без заказов", test_lab.suite_catalog),
     ("Laborator: лист наряда — что о пациенте, событие печати", test_lab.suite_print),
     ("Laborator: закон 195 — копия, обезличивание, состав удаления", test_lab.suite_195),
+    ("Laborator: страницы списка и каталога, пункт меню, плитка, can.labs", test_lab_pages.suite_pages),
     ("Одонтограмма: поверхности", test_teeth.suite_surfaces),
     ("Одонтограмма: молочный прикус", test_teeth.suite_milk),
     ("Одонтограмма: форма зуба", test_teeth.suite_shape),

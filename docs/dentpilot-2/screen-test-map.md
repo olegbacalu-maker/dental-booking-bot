@@ -5,7 +5,7 @@
 Пересобрать — `python scripts/screen_map.py`.
 
 
-Маршрутов **244** · наборов **85** · мест вызова `res.ok`/`res.check` в исходниках — **6556**.
+Маршрутов **244** · наборов **86** · мест вызова `res.ok`/`res.check` в исходниках — **6566**.
 
 
 ⚠️ Это статические МЕСТА ВЫЗОВА, а живой прогон даёт больше: часть
@@ -22,7 +22,6 @@
 
 | Маршрут | Тип | стр | Замечание |
 |---|---|---|---|
-| `GET /admin/settings/lab` | HTML | 4 | — |
 
 ⭐ Находка **не про миграцию**: `POST /admin/update/run` запускает подмену exe у клиники, а наборы называют его только отказом в демо (`test_demo`) — сам запуск не покрыт ничем. Счёт выше лексический: упоминание адреса ещё не проверка.
 
@@ -64,7 +63,7 @@
 | `GET /api/settings/faq` | JSON | 4 | admin, cont_link, dbcrypt, paylink, settings_api | 749 | — |
 | `GET /api/settings/hours` | JSON | 4 | admin, settings_api | 615 | — |
 | `POST /api/settings/hours` | JSON | 15 | admin, settings_api | 615 | — |
-| `GET /api/settings/hub` | JSON | 8 | admin, api, backup, demo, gcal, paylink, pimport, settings_api, sms, theme, update_server, visit_tpl | 1564 | — |
+| `GET /api/settings/hub` | JSON | 8 | admin, api, backup, demo, gcal, lab_pages, paylink, pimport, settings_api, sms, theme, update_server, visit_tpl | 1574 | — |
 | `GET /api/settings/lan` | JSON | 8 | admin, pin, settings_api | 842 | — |
 | `POST /api/settings/lan` | JSON | 22 | admin, pin, settings_api | 842 | — |
 | `POST /api/settings/lan/firewall` | JSON | 9 | settings_api | 286 | — |
@@ -88,7 +87,7 @@
 | `POST /api/settings/theme/logo` | JSON | 9 | backup, privacy, settings_api, theme | 655 | — |
 | `POST /api/settings/theme/logo/delete` | JSON | 7 | settings_api, theme | 396 | — |
 | `GET /api/settings/theme/palette` | JSON | 10 | settings_api, theme | 396 | — |
-| `POST /api/settings/users` | JSON | 18 | api, backup, cont_link, demo, desk, doctor_rights, doctors, gcal, lab, license_email, license_renew, migrate, patient_card, patients_api, paylink, pimport, pin, recall, registre, review2, review3_auth, settings_api, sms, stats_api, visit_api, visit_tpl | 2735 | — |
+| `POST /api/settings/users` | JSON | 18 | api, backup, cont_link, demo, desk, doctor_rights, doctors, gcal, lab, lab_pages, license_email, license_renew, migrate, patient_card, patients_api, paylink, pimport, pin, recall, registre, review2, review3_auth, settings_api, sms, stats_api, visit_api, visit_tpl | 2745 | — |
 | `POST /api/settings/users/{uid}/delete` | JSON | 9 | activity, admin, doctors, hardening, lab, license_gate, migrate, odontogram_api, patient_card, perio, perio_api, pin, plan_acord, registre, settings_api, teeth, theme | 2360 | — |
 | `GET /shell/notices` | JSON | 8 | launcher, notices | 186 | — |
 
@@ -203,7 +202,7 @@
 
 | Маршрут | Тип | стр | Наборы | Проверок | Экран React |
 |---|---|---|---|---|---|
-| `GET /admin` | HTML | 28 | admin, admin_canvas, api, backup, cont_link, dbcrypt, demo, desk, doctor_rights, doctors, gcal, hardening, lab, license_email, license_existing, license_gate, license_page, license_renew, license_terms, migrate, notices, orders, patient_card, patients_api, paylink, pimport, pin, react_default, recall, registre, review3_auth, schedule_api, settings_api, sms, split, stats_api, structure, theme, update_server, visit_api, visit_tpl | 4016 | schedule_dash |
+| `GET /admin` | HTML | 28 | admin, admin_canvas, api, backup, cont_link, dbcrypt, demo, desk, doctor_rights, doctors, gcal, hardening, lab, lab_pages, license_email, license_existing, license_gate, license_page, license_renew, license_terms, migrate, notices, orders, patient_card, patients_api, paylink, pimport, pin, react_default, recall, registre, review3_auth, schedule_api, settings_api, sms, split, stats_api, structure, theme, update_server, visit_api, visit_tpl | 4026 | schedule_dash |
 | `GET /admin/all` | HTML | 17 | admin, admin_canvas, demo, doctor_rights, doctors, gcal, pin, schedule_api, visit_api | 1264 | schedule_all |
 | `GET /admin/cabinet` | HTML | 10 | chair, doctor_rights | 122 | chair |
 | `GET /admin/doctor/{dk}` | HTML | 16 | admin, doctor_rights, pin, schedule_api | 819 | schedule_doctor |
@@ -252,14 +251,14 @@
 | `POST /admin/license/request` | 303 | 19 | license_page, license_renew, license_terms | 211 | — |
 | `POST /admin/license/terms` | 303 | 13 | license_terms | 46 | — |
 | `POST /admin/license/verify` | 303 | 12 | license_renew | 117 | — |
-| `GET /admin/login` | HTML | 42 | admin, api, backup, chair, cont_link, demo, desk, doctor_rights, doctors, gcal, hardening, lab, license_email, license_gate, license_page, license_renew, migrate, netcheck, patient_card, patients_api, paylink, pimport, pin, recall, registre, review3_auth, settings_api, sms, stats_api, theme, visit_api, visit_tpl | 3403 | — |
-| `POST /admin/login` | 303 | 27 | admin, api, backup, chair, cont_link, demo, desk, doctor_rights, doctors, gcal, hardening, lab, license_email, license_gate, license_page, license_renew, migrate, netcheck, patient_card, patients_api, paylink, pimport, pin, recall, registre, review3_auth, settings_api, sms, stats_api, theme, visit_api, visit_tpl | 3403 | — |
+| `GET /admin/login` | HTML | 42 | admin, api, backup, chair, cont_link, demo, desk, doctor_rights, doctors, gcal, hardening, lab, lab_pages, license_email, license_gate, license_page, license_renew, migrate, netcheck, patient_card, patients_api, paylink, pimport, pin, recall, registre, review3_auth, settings_api, sms, stats_api, theme, visit_api, visit_tpl | 3413 | — |
+| `POST /admin/login` | 303 | 27 | admin, api, backup, chair, cont_link, demo, desk, doctor_rights, doctors, gcal, hardening, lab, lab_pages, license_email, license_gate, license_page, license_renew, migrate, netcheck, patient_card, patients_api, paylink, pimport, pin, recall, registre, review3_auth, settings_api, sms, stats_api, theme, visit_api, visit_tpl | 3413 | — |
 | `GET /admin/logout` | 303 | 8 | demo, pin | 277 | — |
 | `GET /admin/recover` | HTML | 14 | dbcrypt, hardening | 149 | — |
 | `POST /admin/recover` | HTML | 22 | dbcrypt, hardening | 149 | — |
 | `POST /admin/security/ack` | 303 | 8 | orders, pin | 289 | — |
-| `GET /admin/setup` | HTML | 16 | api, backup, desk, doctor_rights, doctors, gcal, hardening, lab, migrate, patient_card, patients_api, pimport, pin, recall, registre, review2, review3_auth, settings_api, sms, stats_api, visit_api, visit_tpl | 2544 | — |
-| `POST /admin/setup` | HTML | 29 | api, backup, desk, doctor_rights, doctors, gcal, hardening, lab, migrate, patient_card, patients_api, pimport, pin, recall, registre, review2, review3_auth, settings_api, sms, stats_api, visit_api, visit_tpl | 2544 | — |
+| `GET /admin/setup` | HTML | 16 | api, backup, desk, doctor_rights, doctors, gcal, hardening, lab, lab_pages, migrate, patient_card, patients_api, pimport, pin, recall, registre, review2, review3_auth, settings_api, sms, stats_api, visit_api, visit_tpl | 2554 | — |
+| `POST /admin/setup` | HTML | 29 | api, backup, desk, doctor_rights, doctors, gcal, hardening, lab, lab_pages, migrate, patient_card, patients_api, pimport, pin, recall, registre, review2, review3_auth, settings_api, sms, stats_api, visit_api, visit_tpl | 2554 | — |
 | `POST /admin/setup/ask` | 303 | 13 | pin | 227 | — |
 | `POST /api/auth/login` | JSON | 36 | hardening, license_gate, pin, structure | 394 | — |
 | `POST /api/auth/logout` | JSON | 11 | license_gate, pin | 249 | — |
@@ -282,7 +281,7 @@
 
 | Маршрут | Тип | стр | Наборы | Проверок | Экран React |
 |---|---|---|---|---|---|
-| `GET /admin/lab` | HTML | 5 | lab | 152 | lab |
+| `GET /admin/lab` | HTML | 5 | lab, lab_pages | 162 | lab |
 | `GET /admin/lab/{oid}/tipar` | HTML | 9 | lab | 152 | — |
 | `GET /admin/migration` | HTML | 43 | guards, split | 119 | — |
 | `POST /admin/migration/confirm` | 303 | 32 | split | 45 | — |
@@ -290,7 +289,7 @@
 | `GET /admin/registre` | HTML | 5 | registre | 119 | registre |
 | `GET /admin/registre/excel/{form}` | FILE | 11 | registre | 119 | — |
 | `GET /admin/registre/tipar/{form}` | HTML | 20 | registre | 119 | — |
-| `GET /admin/settings/lab` | HTML | 4 | **—** | — | settings_lab |
+| `GET /admin/settings/lab` | HTML | 4 | lab_pages | 10 | settings_lab |
 | `GET /admin/settings/registre` | HTML | 4 | registre, settings_api | 405 | settings_registre |
 | `GET /api/lab` | other | 4 | lab | 152 | — |
 | `GET /api/lab/due` | JSON | 12 | lab | 152 | — |
@@ -344,5 +343,5 @@
 | 43 | `GET /admin/migration` | 2 |
 | 43 | `POST /api/patients/{pid}/forms/{key}/sign` | 40 |
 | 43 | `GET /admin/export.xlsx` | 3 |
-| 42 | `GET /admin/login` | 32 |
+| 42 | `GET /admin/login` | 33 |
 | 42 | `POST /admin/backup/export` | 7 |
