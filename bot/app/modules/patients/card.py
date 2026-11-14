@@ -143,6 +143,8 @@ ACT_ICON = {"appt_new": "cal", "appt_status": "check", "appt_cancel": "ban",
             "call": "phone",
             # отметка обзвона «Rechemări» (29.10)
             "recall": "refresh",
+            # заказ в лабораторию и печать наряда — передача данных лаборатории
+            "lab": "box", "lab_print": "print",
             # SMS-напоминание (S5): ушло / доставлено / не дошло или не ушло;
             # отказ пациента от SMS — отметка фиши
             "sms": "chat", "sms_ok": "check", "sms_fail": "ban", "sms_off": "phone-off",

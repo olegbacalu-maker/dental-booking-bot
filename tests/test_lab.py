@@ -529,6 +529,9 @@ def suite_print(res: Result) -> None:
         res.check("печать — событие tiparit (дважды открыт — два)", [e["kind"] for e in evs].count("tiparit"), 2)
         res.ok("и строка в летописи фиши",
                _sql(s, "SELECT COUNT(*) FROM activity WHERE patient_id = ? AND kind = 'lab_print'", pid)[0][0] == 2, "")
+        icons = {a["kind"]: a["icon"] for a in _get(c, f"/api/patients/{pid}")["activity"]["items"]}
+        res.check("в ленте фиши у событий лаборатории свои значки, не точка",
+                  (icons.get("lab"), icons.get("lab_print")), ("box", "print"))
         c.post_json("/api/settings/lab/prefs", {"who": "fisa"})
         page = c.get(f"/admin/lab/{oid}/tipar").body
         res.ok("выбор клиники «№ фиши»: имени на листе нет", "Maria Exemplu" not in page and "Fișa nr. F-77" in page, "")
