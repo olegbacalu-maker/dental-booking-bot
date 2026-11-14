@@ -116,6 +116,23 @@ describe('LabListScreen', () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith('/lab/order/1/cancel', { why: 'pacientul a amânat' }))
   })
 
+  it('правка открытого заказа: дата отправки не уходит, строка — целиком со своим id, цена без права не уходит', async () => {
+    get.mockImplementation((url: string) => Promise.resolve(url.startsWith('/lab/order/')
+      ? ok({ order: order({ status: 'trimis', status_label: 'Trimis la laborator' }), steps: [], can: CAN_DOC })
+      : url.startsWith('/lab/form') ? ok(form({ can: CAN_DOC })) : ok(list([row()]))))
+    post.mockResolvedValue(ok(null, 'ok_lab_save', 'Comanda e salvată'))
+    open()
+    fireEvent.click(within((await screen.findByText('Ion Popescu')).closest('tr')!).getByRole('button', { name: /Deschide comanda/ }))
+    const dlg = await screen.findByRole('dialog', { name: 'Comandă la laborator' })
+    expect(dlg.textContent).not.toContain('Preț laborator')
+    fireEvent.click(within(dlg).getByRole('button', { name: /^Salvează$/ }))
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+    const body = post.mock.calls[0]![1] as Record<string, unknown>
+    expect(post.mock.calls[0]![0]).toBe('/lab/order/1')
+    expect(body).not.toHaveProperty('sent_on')
+    expect(body.items).toEqual([{ id: 11, plan_item_id: 3, work: 'Coroană', material: 'Metalo-ceramică', shade: 'A2', teeth: [26], qty: 1, grp: null }])
+  })
+
   it('новый заказ из списка: пациент поиском, окно по форме сервера, две работы одним заказом', async () => {
     get.mockImplementation((url: string) => {
       if (url.startsWith('/patients?')) return Promise.resolve(ok({ rows: [{ id: 2, name: 'Ion Popescu', phone: '069' }] }))

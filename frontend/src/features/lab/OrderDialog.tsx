@@ -100,8 +100,8 @@ export function OrderDialog({ form, data, planItem, busy, onClose, onCreated, on
       lab_id: typing ? null : d.lab || null,
       lab_name: typing ? d.labName.trim() : '',
       doctor_id: d.doctor,
-      sent_on: d.sent,
-      due_on: d.due,
+      ...(order ? {} : { sent_on: d.sent }),
+      ...(d.due ? { due_on: d.due } : {}),
       urgent: d.urgent,
       impression: d.impression,
       note: d.note.trim(),
@@ -205,7 +205,7 @@ export function OrderDialog({ form, data, planItem, busy, onClose, onCreated, on
         </F>
         {can.money && (
           <F label="Preț laborator, MDL" bad={field === `items.${idx}.price`}
-            hint={last ? `ultima dată la acest laborator: ${money(last.price_bani)} MDL (nr. ${last.nr})` : 'nu apare pe fișa de comandă'}>
+            hint={`${line.qty > 1 ? 'pentru toate bucățile · ' : ''}${last ? `ultima dată la acest laborator: ${money(last.price_bani)} MDL (nr. ${last.nr})` : 'nu apare pe fișa de comandă'}`}>
             <input className="dp-fld lb-price" inputMode="decimal" value={lei(line.price_bani)} placeholder={last ? money(last.price_bani) : '—'} disabled={closed}
               onChange={(e) => upLine(line.key, { price_bani: toBani(e.target.value.replace(/[^\d.,]/g, '').slice(0, 9)) })} />
           </F>
@@ -268,9 +268,10 @@ export function OrderDialog({ form, data, planItem, busy, onClose, onCreated, on
             </select>
           </F>
           <F label="Trimis" bad={bad('sent_on')}>
-            <input className="dp-fld" type="date" value={d.sent} max={form.today} disabled={closed} onChange={(e) => up({ sent: e.target.value })} />
+            {/* дата отправки — шаг истории: после сохранения сервер её не меняет */}
+            <input className="dp-fld" type="date" value={d.sent} max={form.today} disabled={closed || order !== null} onChange={(e) => up({ sent: e.target.value })} />
           </F>
-          <F label="Termen de la laborator" bad={bad('due_on')} hint={d.dueTouched ? '' : 'după zilele lucrătoare ale laboratorului'}>
+          <F label="Termen de la laborator" bad={bad('due_on')} hint={d.dueTouched ? '' : d.due ? 'după zilele lucrătoare ale laboratorului' : 'gol — îl socotește programul după laborator'}>
             <input className="dp-fld" type="date" value={d.due} min={d.sent} disabled={closed} onChange={(e) => up({ due: e.target.value, dueTouched: true })} />
           </F>
         </div>

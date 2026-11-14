@@ -144,8 +144,9 @@ export interface OrderBody {
   lab_id: number | null
   lab_name: string
   doctor_id: string
-  sent_on: string
-  due_on: string
+  sent_on?: string
+  /** Нет — сервер считает срок по рабочим дням лаборатории. */
+  due_on?: string
   urgent: boolean
   impression: Impression
   note: string

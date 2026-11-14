@@ -54,7 +54,7 @@ export function Appt({ a, warn }: { a: NextAppt | null; warn: boolean }) {
   if (!a) return <span className="lb-appt mute">—</span>
   return (
     <span className={`lb-appt${warn ? ' bad' : ''}`} title={warn ? `${a.doctor} · lucrarea nu e încă în clinică` : a.doctor}>
-      {warn && <Icon name="excl" />}
+      {warn && <Icon name="sos" />}
       <b>{a.day === 'azi' ? 'azi' : a.day === 'maine' ? 'mâine' : dm(a.date)}</b> <small>{a.time}</small>
     </span>
   )

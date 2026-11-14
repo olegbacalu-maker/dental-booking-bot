@@ -3756,3 +3756,10 @@ dialog.lb-dlg .rg-dlg-f > .lb-cancel ~ button:first-of-type { margin-left: 0; }
 .lb .lb-tbl td.lb-act-c { width: 1%; white-space: nowrap; }
 .lb-dash-t { display: flex; flex-direction: column; gap: 2px; }
 .rg-set .lb-labs .rg-chip.sm { min-height: 36px; }
+.lb-block .lnk, .lb-sum .lnk, dialog.lb-dlg .lnk { padding: 0; border: 0; background: none; color: var(--teal-d); font: inherit; font-weight: 600;
+  cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.lb-block .lnk:disabled, dialog.lb-dlg .lnk:disabled { opacity: .5; cursor: default; }
+dialog.lb-dlg .lnk.lb-red { color: var(--red-t); }
+dialog.lb-dlg .lb-hist-h > span { display: inline-flex; gap: 14px; }
+dialog.lb-dlg .lb-hist li.undone { color: var(--text3); text-decoration: line-through; }
+dialog.lb-dlg .lb-steps-box { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px; border-radius: var(--r-s); background: var(--fill); }
