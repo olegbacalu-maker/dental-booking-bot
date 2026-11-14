@@ -15,6 +15,7 @@ from fastapi.responses import Response
 from ... import db
 from ...core import stock as cs
 from ...core import stock_import as si
+from ...core import stock_tc as ctc
 from ...core import tabfile, xlsx
 from ...core.api import api_body, api_guard, api_require
 from ...core.auth import PERM_MONEY, PERM_SETTINGS, PERM_STOCK, can, local_only, remote_notice, request_user
@@ -355,3 +356,74 @@ async def api_stock_import_undo(request: Request, doc_id: int):
     if (deny := local_only(request)) is not None:
         return deny
     return await _run("ok_stock_import_undo", si.undo(request_user(), doc_id))
+
+
+# ---------- ступень 2: техкарта и списание по позиции плана ----------
+
+@router.get("/api/stock/tehcard")
+async def api_stock_tehcard(request: Request):
+    if (deny := api_require(request, PERM_STOCK)) is not None:
+        return deny
+    return await _data(ctc.tehcard_model(request_user()))
+
+
+@router.post("/api/stock/tehcard/replace")
+async def api_stock_tehcard_replace(request: Request):
+    if (deny := api_require(request, PERM_STOCK)) is not None:
+        return deny
+    return await _run("ok_stock_tc_replace", ctc.replace_item(await _body(request)))
+
+
+@router.post("/api/stock/tehcard/{service_id}")
+async def api_stock_tehcard_save(request: Request, service_id: str):
+    if (deny := api_require(request, PERM_STOCK)) is not None:
+        return deny
+    return await _run("ok_stock_tc", ctc.save_tehcard(service_id, await _body(request)))
+
+
+# Позицию плана закрывает и врач у кресла: окно материалов — внутри фиши,
+# поэтому вход, а не право склада (цены решает `core/stock_tc`).
+@router.get("/api/stock/plan-pending")
+async def api_stock_plan_pending(request: Request, pid: int = 0):
+    if (deny := api_guard(request)) is not None:
+        return deny
+    return await _data(ctc.pending(pid))
+
+
+@router.get("/api/stock/plan/{plan_item_id}")
+async def api_stock_plan(request: Request, plan_item_id: int):
+    if (deny := api_guard(request)) is not None:
+        return deny
+    return await _data(ctc.plan_model(request_user(), plan_item_id))
+
+
+@router.post("/api/stock/plan/{plan_item_id}/consume")
+async def api_stock_plan_consume(request: Request, plan_item_id: int):
+    if (deny := api_guard(request)) is not None:
+        return deny
+    return await _run("ok_stock_tc_consume", ctc.consume(request_user(), plan_item_id, await _body(request)))
+
+
+@router.post("/api/stock/plan/{plan_item_id}/skip")
+async def api_stock_plan_skip(request: Request, plan_item_id: int):
+    if (deny := api_guard(request)) is not None:
+        return deny
+    return await _run("ok_stock_tc_skip", ctc.skip(request_user(), plan_item_id))
+
+
+@router.post("/api/stock/plan/{plan_item_id}/undo")
+async def api_stock_plan_undo(request: Request, plan_item_id: int):
+    if (deny := api_guard(request)) is not None:
+        return deny
+    try:
+        n = await ctc.undo(request_user(), plan_item_id, cs._text(await _body(request), "why", cs.WHY_MAX))
+    except cs.StockError as e:
+        return _fail(e)
+    return msg_json(True, "ok_stock_tc_undo") if n else msg_json(False, "stock_no_undo", status=409)
+
+
+@router.get("/api/stock/report")
+async def api_stock_report(request: Request):
+    if (deny := api_require(request, PERM_STOCK)) is not None:
+        return deny
+    return await _data(ctc.report_model(request_user(), dict(request.query_params)))

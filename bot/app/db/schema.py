@@ -436,6 +436,26 @@ STOCK_DDL = [
   deleted_by TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 )""",
+    # техкарта услуги (ступень 2): ключ — `clinic.json › services[].id`, строка — id материала
+    """CREATE TABLE IF NOT EXISTS service_materials(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  service_id TEXT NOT NULL,
+  item_id INTEGER NOT NULL REFERENCES stock_items(id),
+  qty_milli INTEGER NOT NULL,
+  sort INTEGER NOT NULL DEFAULT 0,
+  optional INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT
+)""",
+    # «Fără materiale» у позиции плана — до следующего finalizat; не журнал
+    """CREATE TABLE IF NOT EXISTS stock_plan_marks(
+  plan_item_id INTEGER PRIMARY KEY REFERENCES plan_items(id),
+  state TEXT NOT NULL DEFAULT 'fara',
+  marked_at TEXT NOT NULL,
+  actor TEXT NOT NULL DEFAULT ''
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_stock_tc_service ON service_materials(service_id, sort)",
+    "CREATE INDEX IF NOT EXISTS ix_stock_tc_item ON service_materials(item_id)",
     "CREATE INDEX IF NOT EXISTS ix_stock_moves_item ON stock_moves(item_id, place)",
     "CREATE INDEX IF NOT EXISTS ix_stock_moves_at ON stock_moves(at)",
     "CREATE INDEX IF NOT EXISTS ix_stock_moves_doc ON stock_moves(doc_id)",

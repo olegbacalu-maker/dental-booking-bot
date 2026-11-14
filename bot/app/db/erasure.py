@@ -81,7 +81,8 @@ _PATIENT_CHILD_TABLES = ("payments", "activity", "patient_alerts", "teeth",
 _PATIENT_GRAND_CHILDREN = (("perio_teeth", "exam_id", "perio_exams"),
                            ("appt_calls", "appointment_id", "appointments"),
                            ("lab_order_items", "order_id", "lab_orders"),
-                           ("lab_events", "order_id", "lab_orders"))
+                           ("lab_events", "order_id", "lab_orders"),
+                           ("stock_plan_marks", "plan_item_id", "plan_items"))
 
 
 async def _patient_phone(pid: int) -> str:

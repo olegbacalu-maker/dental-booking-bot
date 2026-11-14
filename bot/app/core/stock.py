@@ -18,7 +18,7 @@ from .. import db
 from .. import engine as eng
 from .auth import PERM_MONEY, PERM_SETTINGS, PERM_STOCK, can
 from .labels import (STOCK_DOC_KIND_LABEL, STOCK_DOC_STATUS_LABEL, STOCK_KIND_LABEL, STOCK_REASON_LABEL,
-                     STOCK_UNITS)
+                     STOCK_UNITS, TC_MODE_LABEL)
 
 # Категории макета — подсказки; поле свободное.
 CATS = ("Anestezice", "Compozite și adezive", "Endodonție", "Cimenturi", "Amprentare", "Implantologie",
@@ -30,7 +30,7 @@ QTY_MAX = 10 ** 9            # тысячные: миллион единиц
 COST_MAX = 10 ** 10          # бани: сто миллионов лей
 LINES_MAX, IDS_MAX, MOVES_LIMIT = 300, 300, 1000
 
-_META_EXP, _META_ORDER = "stock_exp_days", "stock_order_days"
+_META_EXP, _META_ORDER, _META_TC = "stock_exp_days", "stock_order_days", "stock_tc_mode"
 EXP_DAYS, ORDER_DAYS = 60, 7
 
 _IN_KINDS = ("intrare", "inventar")          # приходы, из которых считается средняя
@@ -102,7 +102,7 @@ def _money(me) -> bool:
 def words() -> dict:
     return {"units": {u: u for u in STOCK_UNITS}, "kinds": dict(STOCK_KIND_LABEL),
             "reasons": dict(STOCK_REASON_LABEL), "doc_kinds": dict(STOCK_DOC_KIND_LABEL),
-            "doc_status": dict(STOCK_DOC_STATUS_LABEL)}
+            "doc_status": dict(STOCK_DOC_STATUS_LABEL), "tc_modes": dict(TC_MODE_LABEL)}
 
 
 # ---------- настройки ----------
@@ -111,8 +111,10 @@ async def prefs() -> dict:
     async def num(key, dflt, lo, hi):
         v = await db.get_meta(key)
         return int(v) if v and v.isdigit() and lo <= int(v) <= hi else dflt
+    tc = await db.get_meta(_META_TC)
     return {"exp_days": await num(_META_EXP, EXP_DAYS, 1, 365),
-            "order_days": await num(_META_ORDER, ORDER_DAYS, 1, 60)}
+            "order_days": await num(_META_ORDER, ORDER_DAYS, 1, 60),
+            "tc_mode": tc if tc in db.STOCK_TC_MODES else "confirmare"}
 
 
 async def save_prefs(body: dict) -> None:
@@ -120,6 +122,10 @@ async def save_prefs(body: dict) -> None:
     for key, meta, lo, hi in (("exp_days", _META_EXP, 1, 365), ("order_days", _META_ORDER, 1, 60)):
         if key in body:
             vals[meta] = _int(body[key], lo, hi, key)
+    if "tc_mode" in body:
+        if body["tc_mode"] not in db.STOCK_TC_MODES:
+            raise StockError("stock_bad", "tc_mode")
+        vals[_META_TC] = body["tc_mode"]
     for meta, v in vals.items():
         await db.set_meta(meta, str(v))
 
@@ -516,7 +522,7 @@ async def patient_model(pid: int) -> dict:
         rows.append({"id": m["id"], "at": _iso(m["at"]), "on": on.isoformat() if on else None,
                      "item": m["item_name"], "unit": m.get("unit") or "", "qty_milli": -m["qty_milli"],
                      "lot": m["lot"], "exp_on": m["expiry"], "note": m["note"], "actor": m["actor"],
-                     "undone": m["id"] in undone})
+                     "undone": m["id"] in undone, "plan_item_id": m["plan_item_id"], "source": m["source"]})
     return {"rows": rows}
 
 

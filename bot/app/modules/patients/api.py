@@ -231,7 +231,7 @@ async def api_patient_new(request: Request):
 _CONFLICT = {"bad_pdel", "bad_off", "past", "dup", "conflict",
              "bad_sign_plan", "bad_sign_anam"}
 _GONE = {"alert_gone", "plan_gone", "doc_gone", "pay_gone"}
-_OK = {"", "ok", "ok_card", "ok_tel_dup", "ok_arh", "ok_unarh", "ok_anam", "ok_occl",
+_OK = {"", "ok", "ok_card", "ok_stock_tc_auto", "ok_stock_tc_back", "ok_stock_tc_pending", "ok_tel_dup", "ok_arh", "ok_unarh", "ok_anam", "ok_occl",
        "ok_pay", "pay_del", "ok_doc", "ok_anon", "ok_del", "ok_refuz", "ok_scan",
        "ok_sign"}
 

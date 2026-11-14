@@ -69,6 +69,10 @@ SNAPSHOT = frozenset((
     "stock_doc", "stock_doc_lines", "stock_doc_create", "stock_doc_write", "stock_doc_delete", "stock_doc_close",
     "stock_doc_sums", "stock_doc_undo", "stock_import_write", "stock_import_doc_by_print", "stock_import_items",
     "stock_import_suppliers", "stock_import_foreign_moves", "stock_inventory_docs_after",
+    # склад, ступень 2: техкарта и списание по позиции плана
+    "STOCK_TC_MODES", "stock_tc_rows", "stock_tc_services", "stock_tc_put", "stock_tc_replace", "stock_plan_item",
+    "stock_plan_finalized", "stock_moves_plan", "stock_plan_marked", "stock_plan_mark", "stock_plan_unmark",
+    "stock_plan_consume",
     # кабинет у записи: занятость по кабинетам врача, индексы с кабинетом в ключе
     "appt_room_busy", "_doctor_overlaps", "_lane", "_own_room", "_patient_busy", "_pick_room",
     "_retire_old_uq", "room_busy", "_room_label", "set_appt_room", "pin_doctor_room", "slot_probe", "_UQ_RETIRED",

@@ -482,3 +482,108 @@ async def stock_inventory_docs_after(item_ids: list[int], after_iso: str) -> int
             WHERE d.kind = 'inventar' AND d.status = 'inchis' AND d.closed_at >= ?
               AND l.qty_milli IS NOT NULL AND l.item_id IN ({marks})""", after_iso, *item_ids) or 0)
 
+
+# ---------- ступень 2: техкарта и списание по позиции плана ----------
+
+STOCK_TC_MODES = ("fara", "confirmare", "automat")
+# живое движение по техкарте: consum позиции, не погашенный отменой
+_TC_LIVE = """SELECT COUNT(*) FROM stock_moves m WHERE m.plan_item_id = ? AND m.source = 'tehcard'
+              AND m.kind = 'consum' AND NOT EXISTS (SELECT 1 FROM stock_moves f WHERE f.fixes = m.id
+              AND f.reason IN ('anulare', 'storno', 'import_anulat'))"""
+
+
+async def stock_tc_rows(service_id: str | None = None) -> list:
+    where, args = ("WHERE t.service_id = ?", (service_id,)) if service_id is not None else ("", ())
+    return await _fetch(
+        f"""SELECT t.*, i.name AS item_name, i.unit AS unit, i.active AS item_active,
+                   i.deleted_at AS item_deleted, i.costly AS item_costly
+            FROM service_materials t JOIN stock_items i ON i.id = t.item_id
+            {where} ORDER BY t.service_id, t.sort, t.id""", *args)
+
+
+async def stock_tc_services() -> list[str]:
+    return [r["service_id"] for r in await _fetch("SELECT DISTINCT service_id FROM service_materials")]
+
+
+async def stock_tc_put(service_id: str, lines: list) -> None:
+    """Вся техкарта услуги разом: прежние строки уходят, новые встают по порядку."""
+    now = _utcnow_iso()
+
+    async def work():
+        await db._CONN.execute("DELETE FROM service_materials WHERE service_id = ?", (service_id,))
+        for i, ln in enumerate(lines):
+            await db._CONN.execute(
+                "INSERT INTO service_materials(service_id, item_id, qty_milli, sort, optional, created_at) "
+                "VALUES(?, ?, ?, ?, ?, ?)", (service_id, ln["item_id"], ln["qty_milli"], i, ln["optional"], now))
+    await _st_tx(work)
+
+
+async def stock_tc_replace(old: int, new: int) -> int:
+    """Материал `old` → `new` во всех техкартах; где `new` уже есть — количества
+    складываются. → сколько услуг тронуто."""
+    async def work():
+        cur = await db._CONN.execute("SELECT id, service_id, qty_milli FROM service_materials WHERE item_id = ?",
+                                     (old,))
+        rows = await cur.fetchall()
+        for r in rows:
+            cur = await db._CONN.execute("SELECT id FROM service_materials WHERE service_id = ? AND item_id = ?",
+                                         (r["service_id"], new))
+            have = await cur.fetchone()
+            if have:
+                await db._CONN.execute("UPDATE service_materials SET qty_milli = qty_milli + ?, updated_at = ? "
+                                       "WHERE id = ?", (r["qty_milli"], _utcnow_iso(), have["id"]))
+                await db._CONN.execute("DELETE FROM service_materials WHERE id = ?", (r["id"],))
+            else:
+                await db._CONN.execute("UPDATE service_materials SET item_id = ?, updated_at = ? WHERE id = ?",
+                                       (new, _utcnow_iso(), r["id"]))
+        return len({r["service_id"] for r in rows})
+    return await _st_tx(work)
+
+
+async def stock_plan_item(plan_item_id: int) -> dict | None:
+    """Позиция плана целиком: ключ услуги и врача — колонки, которых у старой
+    схемы плана может не быть, поэтому `*`."""
+    rows = await _fetch("SELECT * FROM plan_items WHERE id = ?", plan_item_id)
+    return rows[0] if rows else None
+
+
+async def stock_plan_finalized(pid: int) -> list:
+    return await _fetch("SELECT * FROM plan_items WHERE patient_id = ? AND status = 'finalizat' ORDER BY id", pid)
+
+
+async def stock_moves_plan(plan_item_id: int) -> list:
+    return await _fetch(
+        """SELECT m.*, i.unit AS unit FROM stock_moves m LEFT JOIN stock_items i ON i.id = m.item_id
+           WHERE m.plan_item_id = ? AND m.source = 'tehcard' AND m.deleted_at IS NULL ORDER BY m.id""", plan_item_id)
+
+
+async def stock_plan_marked(plan_item_id: int) -> bool:
+    return bool(await _fetchval("SELECT 1 FROM stock_plan_marks WHERE plan_item_id = ?", plan_item_id))
+
+
+async def stock_plan_mark(plan_item_id: int, by: str) -> None:
+    """«Fără materiale»: позиция больше не ждёт подтверждения (до нового finalizat)."""
+    await _execute("INSERT OR REPLACE INTO stock_plan_marks(plan_item_id, state, marked_at, actor) "
+                   "VALUES(?, 'fara', ?, ?)", plan_item_id, _utcnow_iso(), by)
+
+
+async def stock_plan_unmark(plan_item_id: int) -> None:
+    await _execute("DELETE FROM stock_plan_marks WHERE plan_item_id = ?", plan_item_id)
+
+
+async def stock_plan_consume(plan_item_id: int, moves: list, *, reverse: bool = False) -> bool:
+    """Набор позиции одной транзакцией. Прямой набор пишется, только если живого
+    ещё нет — проверка внутри той же транзакции: два окна «Confirmă» не спишут
+    дважды. False — уже списано."""
+    now = _utcnow_iso()
+
+    async def work():
+        if not reverse:
+            cur = await db._CONN.execute(_TC_LIVE, (plan_item_id,))
+            if (await cur.fetchone())[0]:
+                return False
+            await db._CONN.execute("DELETE FROM stock_plan_marks WHERE plan_item_id = ?", (plan_item_id,))
+        for m in moves:
+            await _stock_move_insert(m, now)
+        return True
+    return await _st_tx(work)

@@ -47,8 +47,8 @@ from . import plan_acord as pplan
 from . import profile_rules as prules
 from . import sign as psign
 from . import visit as pvisit
-from ...core import shellopen, xlsx
-from ...core.auth import _guard, local_only
+from ...core import shellopen, stock_tc, xlsx
+from ...core.auth import _guard, local_only, request_user
 from ...core.visits import my_scope
 from ...core.layout import (ALERT_KINDS, LIVE_STATUSES, _ic, _initials, react_shell,
                             shell_model)
@@ -665,7 +665,9 @@ async def _plan_status(pid: int, item_id: int, to: str, motiv: str) -> str:
     if to in _PLAN_NEEDS_MOTIV and not why:
         return "bad_refuz"
     await db.set_plan_status(item_id, pid, to, motiv=why)
-    return "ok_refuz" if to == "refuzat" else ""
+    # склад: списание по техкарте при finalizat, возврат при Redeschide
+    tc = await stock_tc.on_plan_status(request_user(), item_id, cur, to)
+    return "ok_refuz" if to == "refuzat" else tc
 
 
 async def _plan_del(pid: int, item_id: int) -> str:
@@ -1015,6 +1017,7 @@ async def _save_visit(appt_id: int, a: dict, fields: dict, done: list) -> str:
     if not any(v.strip() for v in fields.values()):
         return "bad_visit"
     await db.save_visit_record(appt_id, pid, a["doctor"], fields)
+    tc: list[str] = []
     # отмеченные позиции плана выполнены НА этом визите: финализируем из
     # любого нефинального статуса (дневник фиксирует факт, церемония
     # in_lucru тут ни при чём) и привязываем к визиту
@@ -1029,7 +1032,9 @@ async def _save_visit(appt_id: int, a: dict, fields: dict, done: list) -> str:
         # ст.13(5) молча превратилась бы в «выполнено»
         if cur in db.PLAN_ACTIVE:
             await db.set_plan_status(iid, pid, "finalizat", appt_id)
-    return "ok_visit"
+            tc.append(await stock_tc.on_plan_status(request_user(), iid, cur, "finalizat"))
+    # склад: «есть что подтвердить» важнее «уже списано» — окно открывает экран
+    return next((c for c in ("ok_stock_tc_pending", "ok_stock_tc_auto") if c in tc), "ok_visit")
 
 
 @router.get("/admin/visit/{appt_id}", response_class=HTMLResponse)

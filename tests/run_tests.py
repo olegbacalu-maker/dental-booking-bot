@@ -31,6 +31,7 @@ import test_registre  # noqa: E402
 import test_lab  # noqa: E402
 import test_lab_pages  # noqa: E402
 import test_stock  # noqa: E402
+import test_stock_tc  # noqa: E402
 import test_api  # noqa: E402
 import test_backup  # noqa: E402
 import test_booking  # noqa: E402
@@ -347,6 +348,12 @@ SUITES = [
     ("Stoc: права — врачу нет, суммы только директору", test_stock.suite_rights),
     ("Stoc: импорт каталога из файла — проверка, повтор, отмена", test_stock.suite_import),
     ("Stoc: закон 195 — копия, обезличивание, состав удаления", test_stock.suite_195),
+    ("Stoc: техкарта в шаге 14, отметка — внук пациента", test_stock_tc.suite_schema),
+    ("Stoc: техкарта услуги — список, двойник, архив, замена во всех услугах", test_stock_tc.suite_tehcard),
+    ("Stoc: finalizat с подтверждением — окно, правки, без двойного, Redeschide, Fără materiale",
+     test_stock_tc.suite_confirm),
+    ("Stoc: finalizat «automat» и «fara», крючок «Consultație»", test_stock_tc.suite_auto),
+    ("Stoc: отчёт расхода, права ступени 2", test_stock_tc.suite_report),
     ("Одонтограмма: поверхности", test_teeth.suite_surfaces),
     ("Одонтограмма: молочный прикус", test_teeth.suite_milk),
     ("Одонтограмма: форма зуба", test_teeth.suite_shape),

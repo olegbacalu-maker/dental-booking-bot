@@ -584,6 +584,20 @@ MSG_BANNER = {
     "stock_too_big": ("err", "Fișierul este prea mare"),
     "stock_rows": ("err", "Prea multe rânduri — maximum 2000 de materiale într-un import"),
     "stock_file_empty": ("err", "Fișierul este gol"),
+    # Склад, ступень 2: техкарта и списание по позиции плана (core/stock_tc.py)
+    "ok_stock_tc": ("ok", "Fișa tehnologică a serviciului este salvată"),
+    "ok_stock_tc_replace": ("ok", "Materialul este înlocuit în toate serviciile"),
+    "ok_stock_tc_consume": ("ok", "Materialele poziției sunt scoase din stoc"),
+    "ok_stock_tc_skip": ("ok", "Poziția este închisă fără materiale"),
+    "ok_stock_tc_undo": ("ok", "Materialele poziției s-au întors în stoc"),
+    "ok_stock_tc_auto": ("ok", "Poziția este finalizată — materialele din fișa tehnologică sunt scoase din stoc"),
+    "ok_stock_tc_back": ("ok", "Poziția este redeschisă — materialele ei s-au întors în stoc"),
+    "ok_stock_tc_pending": ("ok", "Poziția este finalizată — confirmați materialele folosite"),
+    "stock_service_gone": ("err", "Serviciul nu mai este în lista de prețuri — reîncărcați pagina"),
+    "stock_plan_gone": ("err", "Poziția din plan nu mai există — reîncărcați pagina"),
+    "stock_tc_unit": ("err", "Materialele au unități diferite — înlocuirea ar schimba cantitățile"),
+    "stock_tc_done": ("err", "Materialele acestei poziții sunt deja scoase din stoc"),
+    "stock_tc_open": ("err", "Poziția nu este finalizată — materialele se confirmă după „Finalizează”"),
 }
 
 

@@ -121,6 +121,9 @@ STOCK_REASON_LABEL = {"pacient": "Pe pacient", "deschis": "Pachet deschis", "exp
 STOCK_DOC_KIND_LABEL = {"factura": "Factură", "inventar": "Inventariere", "import": "Import din fișier"}
 STOCK_DOC_STATUS_LABEL = {"ciorna": "Ciornă", "inchis": "Înregistrat", "anulat": "Anulat"}
 STOCK_UNITS = ("buc", "g", "ml", "cm", "cutie", "pachet")
+# списание по техкарте при «finalizat» позиции плана
+TC_MODE_LABEL = {"fara": "Fără scădere din stoc", "confirmare": "Cu confirmare (fereastra materialelor)",
+                 "automat": "Automat, fără fereastră"}
 
 # статусы, при которых слот занят — единый источник правды в db/slots.py
 LIVE_STATUSES = db.ACTIVE_STATUSES

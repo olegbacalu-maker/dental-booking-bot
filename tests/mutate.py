@@ -664,6 +664,11 @@ MUTATIONS = [
      "\nasync def _mut(db, i):\n    await db._execute('INSERT INTO stock_moves(item_id) VALUES(?)', i)\n"),
     ("журнал склада только дописывается", test_structure._DB_STOCK,
      ("async def _stock_move_insert(", "async def _stock_move_put(")),
+    # Склад, ступень 2: галочка «Consultație» без крючка и кнопка плана без него.
+    ("статус позиции плана — вместе с крючком склада", "app/modules/patients/routes.py",
+     ('tc.append(await stock_tc.on_plan_status(request_user(), iid, cur, "finalizat"))', 'tc.append("")')),
+    ("статус позиции плана — вместе с крючком склада", "app/modules/patients/routes.py",
+     ("tc = await stock_tc.on_plan_status(request_user(), item_id, cur, to)", 'tc = ""')),
 ]
 
 # Правки ЗАКОННЫЕ: нарушения в них нет, и правило обязано остаться

@@ -162,13 +162,17 @@ def suite_rules(res: Result) -> None:
 
 # ---------- схема ----------
 
-_TABLES = {"stock_suppliers", "stock_items", "stock_docs", "stock_doc_lines", "stock_moves"}
+_TABLES = {"stock_suppliers", "stock_items", "stock_docs", "stock_doc_lines", "stock_moves", "service_materials",
+           "stock_plan_marks"}
 
 
 def suite_schema(res: Result) -> None:
     """Шаг 14: пять таблиц и индексы, каждый оператор IF NOT EXISTS; имени пациента в журнале нет."""
     step = next((k for k, v in appdb.MIGRATIONS.items() if v is appdb.STOCK_DDL), None)
     res.ok("STOCK_DDL — шаг миграции, и он последний", step == appdb.SCHEMA_VERSION == 14, f"шаг {step}")
+    res.ok("строки техкарты и отметки «Fără materiale» — тем же шагом",
+           any("service_materials(" in x for x in appdb.STOCK_DDL)
+           and any("stock_plan_marks(" in x for x in appdb.STOCK_DDL), "")
     res.ok("каждый оператор — IF NOT EXISTS (шаг переживает повтор)",
            all(" IF NOT EXISTS " in x for x in appdb.STOCK_DDL), "")
     res.ok("уникальных индексов uq_ нет (uq_ — слотовые)", not any(" uq_" in x for x in appdb.STOCK_DDL), "")
@@ -177,7 +181,8 @@ def suite_schema(res: Result) -> None:
            "patient_id" in moves and "patient_name" not in moves and "\n  place " in moves
            and "\n  lot " in moves and "\n  qty_milli INTEGER NOT NULL" in moves, moves[:200])
     with Clock(AT), Server() as s:
-        names = {r[0] for r in _sql(s, "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'stock%'")}
+        names = {r[0] for r in _sql(s, "SELECT name FROM sqlite_master WHERE type='table' "
+                                       "AND (name LIKE 'stock%' OR name = 'service_materials')")}
         res.check("свежая база получила таблицы", names, _TABLES)
         res.check("версия схемы", _sql(s, "SELECT value FROM schema_meta WHERE key='version'")[0][0],
                   str(appdb.SCHEMA_VERSION))
@@ -186,8 +191,10 @@ def suite_schema(res: Result) -> None:
 def suite_retry(res: Result) -> None:
     """Шаг 14 приходит повторно: всё уже есть, оборвался посередине, обычное обновление с 13."""
     drops = {"всё уже есть": (),
-             "оборвался после каталога": ("DROP TABLE stock_moves", "DROP INDEX ix_stock_lines_doc"),
-             "обычное обновление": ("DROP TABLE stock_moves", "DROP TABLE stock_doc_lines", "DROP TABLE stock_docs",
+             "оборвался после каталога": ("DROP TABLE stock_moves", "DROP TABLE stock_plan_marks",
+                                          "DROP INDEX ix_stock_lines_doc"),
+             "обычное обновление": ("DROP TABLE stock_plan_marks", "DROP TABLE service_materials",
+                                    "DROP TABLE stock_moves", "DROP TABLE stock_doc_lines", "DROP TABLE stock_docs",
                                     "DROP TABLE stock_items", "DROP TABLE stock_suppliers")}
     for tag, todo in drops.items():
         work = pathlib.Path(tempfile.mkdtemp(prefix="dp_mig_stock_"))

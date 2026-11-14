@@ -2504,3 +2504,19 @@ def suite(res: Result) -> None:
                                 for n in owner.body):
         bad.append(f"{_DB_STOCK} без _stock_move_insert — якорь правила пропал")
     res.ok("журнал склада только дописывается", not bad, "; ".join(bad))
+
+    # Списание по техкарте — следствие перехода позиции плана: кто ставит
+    # статус позиции, тот зовёт крючок склада. Путь без крючка молча оставил бы
+    # склад без автосписания и без возврата при «Redeschide».
+    bad, seen = [], 0
+    for rel, tree in src:
+        if rel.startswith("app/db/"):
+            continue
+        for fn in ast.walk(tree):
+            if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) and "set_plan_status" in _calls(fn):
+                seen += 1
+                if "on_plan_status" not in _calls(fn):
+                    bad.append(f"{rel}:{fn.lineno} {fn.name}() ставит статус позиции без stock_tc.on_plan_status")
+    if seen < 2:
+        bad.append(f"нашлось {seen} мест, ставящих статус позиции плана (ждали ≥ 2) — правило ослепло")
+    res.ok("статус позиции плана — вместе с крючком склада", not bad, "; ".join(bad))
