@@ -67,6 +67,7 @@ from starlette.routing import Route
 
 from . import admit, words
 from . import seed as demo_seed
+from . import seed_live as demo_seed_live
 
 HERE = pathlib.Path(__file__).resolve().parent
 
@@ -284,12 +285,18 @@ async def reset(s: Slot) -> None:
         t = _template_dir()
         await asyncio.to_thread(lambda: (shutil.rmtree(s.dir, ignore_errors=True),
                                          shutil.copytree(t, s.dir)))
-        await asyncio.to_thread(demo_seed.seed, s.dir / "data" / "dental.db",
-                                s.dir / "clinic.json")
+        counts = await asyncio.to_thread(demo_seed.seed, s.dir / "data" / "dental.db",
+                                         s.dir / "clinic.json")
         s.key = secrets.token_urlsafe(16)
         s.proc = _spawn(s.dir, s.port, s.key)
         s.version = await _wait_health(s.base, s.proc)
         s.auth = await _login(s.base, s.key)
+        # лаборатория, склад и регистры — дверью программы, уже живой. Отказ
+        # оставляет эти разделы пустыми, но не роняет слот: журнал и фиши важнее
+        try:
+            await asyncio.to_thread(demo_seed_live.seed, s.base, s.auth, s.dir / "data" / "dental.db", counts)
+        except Exception:  # noqa: BLE001 — видно в логе; сторож — test_demo.suite_seed
+            log.exception("слот %d: засев лаборатории, склада и регистров не удался", s.i)
         s.seeded_at = _now()
         s.ready = True
         log.info("слот %d готов (порт %d)", s.i, s.port)

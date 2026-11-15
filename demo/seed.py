@@ -515,6 +515,9 @@ def seed(db_path, clinic_json, now: datetime | None = None) -> dict:
     c.commit()
     counts = {"patients": len(pats), "appointments": n_appt, "payments": n_pay, "plan_items": n_plan,
               "recall": n_recall,
+              # для `seed_live`: разделы, которые сеются дверью программы, ссылаются на пациентов
+              "showcase": {sp["name"]: pid for sp, pid in zip(SHOWCASE, show_ids)},
+              "others": pats[len(show_ids):len(show_ids) + 30],
               "today": dict(c.execute("SELECT status, COUNT(*) FROM appointments WHERE starts_at >= ? "
                                       "AND starts_at < ? GROUP BY 1",
                                       (iso(local(today, 0)), iso(local(today + timedelta(days=1), 0)))).fetchall())}

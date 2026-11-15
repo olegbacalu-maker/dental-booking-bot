@@ -163,6 +163,47 @@ def suite_demo(res: Result) -> None:
                   _upload(c, _patient(c), 9 * 1024 * 1024, "mare.pdf"), 200)
 
 
+def _suite_seed_live(res: Result, c: Client, url: str, db_file: pathlib.Path, counts: dict) -> None:
+    """«Laborator», «Stoc», «Registre» (15.11): сайт показывает их вкладками
+    первого экрана, и пустой раздел в демо — обещание без показа. Засев идёт
+    дверью программы (`demo/seed_live.py`), как его зовёт шлюз после входа."""
+    from demo import seed_live  # noqa: E402
+    ck = next((k.value for k in c.jar if k.name == "admin_auth"), "")
+    try:
+        got = seed_live.seed(url, ck, db_file, counts)
+    except seed_live.SeedError as e:
+        res.ok("засев лаборатории, склада и регистров дверью программы", False, str(e))
+        return
+    res.ok("засев лаборатории, склада и регистров дверью программы", True, str(got))
+    lab = _j(c.get("/api/lab?f=toate"))["data"]
+    st = {o["status"] for o in lab["orders"]}
+    res.ok("«Laborator»: просроченный, готовый к выдаче, в клинике и закрытый",
+           any(o["late"] for o in lab["orders"]) and any(o["ready"] for o in lab["orders"])
+           and {"trimis", "gata", "primit", "proba", "finalizat"} <= st, f"{lab['counts']} {sorted(st)}")
+    stock = _j(c.get("/api/stock"))["data"]
+    n = stock["counts"]
+    res.ok("«Stoc»: категории, ниже минимума, близкий срок, заказанный",
+           len(stock["cats"]) >= 5 and n["low"] >= 1 and n["soon"] >= 1 and n["ordered"] >= 1, str(n))
+    reg = _j(c.get("/api/registre"))["data"]
+    res.ok("«Registre»: идёт цикл автоклава, горит лампа, лампа на исходе, уборка ждёт проверки",
+           any(x.get("running") for x in reg["sters"]) and any(x.get("on") for x in reg["lamps"])
+           and any(x.get("low") for x in reg["lamps"])
+           and bool(reg["waiting"]), json.dumps({k: reg[k] for k in ("lamps", "waiting")}, ensure_ascii=False)[:400])
+    con = sqlite3.connect(db_file)
+    try:
+        hist = {t: con.execute(f"SELECT COUNT(*) FROM {t} WHERE deleted_at IS NULL").fetchone()[0]
+                for t in ("san_cycles", "san_cleanings", "san_uv")}
+        wait = con.execute("SELECT COUNT(*) FROM san_cycles WHERE bio = 'wait'").fetchone()[0]
+    finally:
+        con.close()
+    res.ok("«Registre»: история прошлых дней и биотест, ждущий результата",
+           hist["san_cycles"] >= 5 and hist["san_cleanings"] >= 4 and hist["san_uv"] >= 3 and wait >= 1,
+           f"{hist}, bio wait {wait}")
+    feed = _j(c.get(f"/api/registre?month={(clinic_now() - timedelta(days=6)):%Y-%m}"))
+    res.ok("«Registre»: прошлые строки читаются программой (колонки засева = схема)",
+           feed.get("ok") is True and len((feed["data"]["rows"] or {}).get("257") or []) >= 1, str(feed)[:300])
+
+
 def _recall_rows(db_file: pathlib.Path, clinic_json: pathlib.Path, today) -> list[dict]:
     """Список «Rechemări» засеянной базы ПРАВИЛОМ программы без сервера: те же
     выборки, что `db.recall_done_last`/`recall_future`/`recall_marks`, в чистую
@@ -300,8 +341,9 @@ def suite_seed(res: Result) -> None:
                        "acord без юрлица")
                 res.ok("фиша пациента открывается",
                        c.get(f"/admin/patient/{pid}").status == 200, "")
+            _suite_seed_live(res, c, s.url, work / "dental.db", counts)
             for path in ("/admin/all", "/admin/week", "/admin/medici", "/admin/stats",
-                         "/admin/search", "/admin/settings"):
+                         "/admin/search", "/admin/settings", "/admin/lab", "/admin/stoc", "/admin/registre"):
                 res.check(f"{path} на засеве", c.get(path).status, 200)
             st = _j(c.get("/api/stats"))
             res.ok("аналитика считается на засеве", st.get("ok") is True, str(st)[:200])
