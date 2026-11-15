@@ -62,9 +62,13 @@ def git(*args: str) -> str:
     первой строки, разрез `ln[3:]` уезжал на символ, и подхват мутации не
     срабатывал НИ РАЗУ — молча, потому что «сторожей не тронули» выглядит
     точно так же, как «список пуст»."""
-    r = subprocess.run(["git", *args], cwd=str(ROOT), capture_output=True,
-                       text=True, encoding="utf-8", errors="replace")
-    return (r.stdout or "").rstrip("\n")
+    return (git_run(*args).stdout or "").rstrip("\n")
+
+
+def git_run(*args: str) -> subprocess.CompletedProcess:
+    """git с кодом возврата — там, где отказ git значит другое, чем пустой ответ."""
+    return subprocess.run(["git", *args], cwd=str(ROOT), capture_output=True,
+                          text=True, encoding="utf-8", errors="replace")
 
 
 def temp_dir() -> pathlib.Path:
@@ -133,9 +137,12 @@ def run(cmd: list, cwd: pathlib.Path = ROOT, env: dict | None = None) -> int:
 # ---------- test ----------
 
 # Сторожа: тронут любой из них — мутация обязательна. Правило ОДНО на две
-# двери: `test` здесь (рабочее дерево) и работа CI «Мутация сторожей»
-# (`ci-mutate`, разница коммитов) — 10.11, мутация в CI по правилу.
+# двери: `test` здесь и работа CI «Мутация сторожей» (`ci-mutate`).
 GUARD_FILES = ("test_structure.py", "mutate.py")
+
+# С чем `test` сравнивает коммиты. Без fetch: прогон не ходит в сеть, а
+# локальная ссылка — то, что уже ушло на CI и что CI ещё увидит своей разницей.
+TEST_BASE = "origin/main"
 
 
 def guards_in(paths) -> list[str]:
@@ -145,14 +152,71 @@ def guards_in(paths) -> list[str]:
             and pathlib.Path(f).name in GUARD_FILES]
 
 
+def tree_paths() -> list[str]:
+    """Пути рабочего дерева, отличные от HEAD: правка, индекс, неотслеживаемые.
+
+    `-z` — без него переименование приходит строкой «старый -> новый», а
+    необычный путь — в кавычках; `--untracked-files=all` — иначе новая папка
+    приходит одной строкой, без своих файлов."""
+    items = (git_run("status", "--porcelain", "-z", "--untracked-files=all").stdout
+             or "").split("\0")
+    out, i = [], 0
+    while i < len(items):
+        entry = items[i]
+        i += 1
+        if len(entry) < 4:
+            continue
+        out.append(entry[3:])
+        if entry[0] in "RC" and i < len(items):
+            out.append(items[i])     # исходный путь переименования тоже тронут
+            i += 1
+    return out
+
+
+def test_mutation_needed(base: str = TEST_BASE) -> tuple[bool, list[str]]:
+    """(гнать ли мутацию перед прогоном, строки «почему»).
+
+    Тронуты = в коммитах от точки расхождения HEAD с `base` ИЛИ в рабочем
+    дереве. Одного дерева мало: ветка, принёсшая сторожей коммитами, на
+    посадке в main мутацию не звала — её видел только CI, уже после пуша.
+    Точка расхождения, а не сам `base`: чужие коммиты `base`, которых у нас
+    нет, нашего дерева не трогают, а свои незапушенные — трогают.
+    ⛔ При неясности — гнать, как и в CI."""
+    why: list[str] = []
+    need = False
+    if git_run("rev-parse", "--verify", "--quiet", f"{base}^{{commit}}").returncode != 0:
+        why.append(f"{base} нет — коммиты не сравниваю, смотрю только рабочее дерево")
+    else:
+        mb = git_run("merge-base", "HEAD", base)
+        point = (mb.stdout or "").strip()
+        diff = git_run("diff", "--name-only", point, "HEAD") if point else None
+        if mb.returncode != 0 or diff is None or diff.returncode != 0:
+            need = True
+            why.append(f"разница HEAD с {base} не считается — мутация обязательна")
+        else:
+            committed = guards_in(diff.stdout.splitlines())
+            where = f"в коммитах с {base} (расхождение {point[:8]})"
+            if committed:
+                need = True
+                why.append(f"{where}: {', '.join(committed)}")
+            else:
+                why.append(f"{where} сторожа не тронуты")
+    tree = guards_in(tree_paths())
+    if tree:
+        need = True
+        why.append(f"в рабочем дереве: {', '.join(tree)}")
+    else:
+        why.append("в рабочем дереве сторожа не тронуты")
+    return need, why
+
+
 def cmd_test(argv: list) -> int:
     """Прогон. Если тронуты сторожа — сперва мутация: их правит не тот, кто
     помнит правило из инструкции, а тот, кто правит код."""
-    touched = [ln[3:] for ln in git("status", "--porcelain").splitlines()]
-    guards = guards_in(touched)
-    if guards:
-        print(f"Тронуты сторожа ({', '.join(pathlib.Path(g).name for g in guards)})"
-              " — сперва мутация.\n")
+    need, why = test_mutation_needed()
+    print("Тронуты сторожа — сперва мутация:" if need else "Мутация не нужна:")
+    print("\n".join(f"  {w}" for w in why) + "\n")
+    if need:
         if cmd_mutate([]) != 0:
             print("\nМутация не прошла: правило не ловит нарушения. "
                   "Прогон не запускаю — чинить надо сторожа.")

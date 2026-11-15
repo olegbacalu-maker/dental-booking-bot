@@ -352,3 +352,131 @@ def suite_ci_mutation(res: Result) -> None:
            "scripts/dev.py ci-mutate" in wf
            and "if: needs.guards.outputs.mutate == 'true'" in wf, "")
     res.ok("ночное расписание есть", re.search(r"^\s*schedule:\s*$", wf, re.M) is not None, "")
+
+
+def suite_test_mutation(res: Result) -> None:
+    """`dev test` зовёт мутацию и тогда, когда сторожа тронуты В КОММИТАХ.
+
+    Ветка, принёсшая правило в `test_structure.py` коммитами, на посадке в
+    локальный main мутацию не звала: смотрелось только рабочее дерево, а в
+    нём было чисто. База — точка расхождения HEAD с `origin/main`, без fetch.
+    ⛔ Ошибка в сторону «не гнать» молчит, поэтому неясное — «гнать».
+    """
+    sys.path.insert(0, str(ROOT / "scripts"))
+    dev = importlib.import_module("dev")
+    res.check("база — origin/main", dev.TEST_BASE, "origin/main")
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = pathlib.Path(tmp) / "repo"
+        repo.mkdir()
+        empty = pathlib.Path(tmp) / "empty.gitconfig"
+        empty.write_text("", encoding="utf-8")
+        env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": str(empty),
+               "GIT_AUTHOR_NAME": "dp", "GIT_AUTHOR_EMAIL": "dp@example.invalid",
+               "GIT_COMMITTER_NAME": "dp", "GIT_COMMITTER_EMAIL": "dp@example.invalid"}
+
+        def git(*args: str, cwd: pathlib.Path = repo) -> str:
+            return subprocess.run(["git", *args], cwd=cwd, env=env, check=True,
+                                  capture_output=True, text=True).stdout.strip()
+
+        def write(files: dict, cwd: pathlib.Path = repo) -> None:
+            for rel, text in files.items():
+                (cwd / rel).parent.mkdir(parents=True, exist_ok=True)
+                (cwd / rel).write_text(text, encoding="utf-8")
+
+        def commit(files: dict, cwd: pathlib.Path = repo) -> str:
+            write(files, cwd)
+            git("add", "-A", cwd=cwd)
+            git("commit", "-q", "-m", "x", cwd=cwd)
+            return git("rev-parse", "HEAD", cwd=cwd)
+
+        def need() -> bool:
+            return dev.test_mutation_needed()[0]
+
+        def why() -> str:
+            return " | ".join(dev.test_mutation_needed()[1])
+
+        git("init", "-q", "-b", "main")
+        base = commit({"tests/mutate.py": "1\n", "tests/test_structure.py": "1\n",
+                       "tests/test_dev.py": "1\n", "scripts/mutate.py": "1\n"})
+        real = dev.ROOT
+        dev.ROOT = repo
+        old_env = {k: os.environ.get(k) for k in ("GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL")}
+        os.environ.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": str(empty)})
+        try:
+            # ссылки нет: как раньше — только рабочее дерево, и вслух
+            res.check("нет origin/main, чисто — не гнать", need(), False)
+            res.ok("нет origin/main — сказано строкой", "origin/main нет" in why(), why())
+            write({"tests/mutate.py": "dirty\n"})
+            res.check("нет origin/main, правка сторожа в дереве — гнать", need(), True)
+            git("checkout", "-q", "--", "tests/mutate.py")
+
+            git("update-ref", "refs/remotes/origin/main", base)
+            res.check("main = origin/main, чисто — не гнать", need(), False)
+            res.ok("причина называет базу и точку расхождения",
+                   "origin/main" in why() and base[:8] in why(), why())
+            other = commit({"tests/test_dev.py": "2\n", "scripts/mutate.py": "2\n"})
+            res.check("main впереди коммитом не сторожей (и mutate.py вне tests/) — не гнать",
+                      need(), False)
+            guard = commit({"tests/test_structure.py": "2\n"})
+            res.check("main впереди коммитом в test_structure.py (посадка) — гнать", need(), True)
+            res.ok("причина называет файл из коммитов", "tests/test_structure.py" in why(), why())
+            commit({"tests/test_dev.py": "3\n"})
+            res.check("сторож в середине незапушенных коммитов — гнать", need(), True)
+
+            git("update-ref", "refs/remotes/origin/main", guard)
+            res.check("всё запушено, чисто — не гнать", need(), False)
+            write({"tests/test_structure.py": "dirty\n"})
+            res.check("незакоммиченная правка сторожа — гнать", need(), True)
+            res.ok("причина называет рабочее дерево", "в рабочем дереве: tests/test_structure.py"
+                   in why(), why())
+            git("checkout", "-q", "--", "tests/test_structure.py")
+            write({"tests/test_structure.py": "staged\n"})
+            git("add", "tests/test_structure.py")
+            res.check("сторож только в индексе — гнать", need(), True)
+            git("reset", "-q", "--hard")
+            write({"tests/new/mutate.py": "1\n"})
+            res.check("новый неотслеживаемый сторож в новой папке — гнать", need(), True)
+            (repo / "tests/new/mutate.py").unlink()
+            git("mv", "tests/mutate.py", "tests/mutate_old.py")
+            res.check("сторож переименован (уходит старое имя) — гнать", need(), True)
+            git("reset", "-q", "--hard")
+            res.check("после отката чисто — не гнать", need(), False)
+
+            # origin/main ушёл вперёд чужим сторожем: наше дерево он не трогает
+            head = git("rev-parse", "HEAD")
+            git("checkout", "-q", "-b", "elsewhere")
+            ahead = commit({"tests/mutate.py": "remote\n"})
+            git("checkout", "-q", "main")
+            git("update-ref", "refs/remotes/origin/main", ahead)
+            res.check("origin/main впереди сторожем, которого у нас нет — не гнать",
+                      need(), False)
+            git("update-ref", "refs/remotes/origin/main", head)
+
+            git("checkout", "-q", "--detach", other)
+            git("update-ref", "refs/remotes/origin/main", base)
+            res.check("detached HEAD без сторожей — не гнать", need(), False)
+            git("checkout", "-q", "--detach", guard)
+            res.check("detached HEAD с коммитом сторожа — гнать", need(), True)
+            git("checkout", "-q", "main")
+
+            git("checkout", "-q", "--orphan", "lonely")
+            orphan = commit({"x.txt": "1\n"})
+            git("checkout", "-q", "-f", "main")
+            git("clean", "-qfd")
+            git("update-ref", "refs/remotes/origin/main", orphan)
+            res.check("нет общей истории с origin/main — гнать", need(), True)
+            git("update-ref", "refs/remotes/origin/main", head)
+
+            wt = pathlib.Path(tmp) / "wt"
+            git("worktree", "add", "-q", "-b", "feature", str(wt), "main")
+            dev.ROOT = wt
+            res.check("worktree, ветка без правок — не гнать", need(), False)
+            commit({"tests/mutate.py": "wt\n"}, cwd=wt)
+            res.check("worktree, коммит сторожа в ветке — гнать", need(), True)
+        finally:
+            dev.ROOT = real
+            for k, v in old_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
