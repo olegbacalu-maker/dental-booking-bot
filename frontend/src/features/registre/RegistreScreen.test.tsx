@@ -1,8 +1,9 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import { ApiError } from '../../types/api'
-import { RegistreScreen } from './RegistreScreen'
+import { openScreen } from '../../test/openScreen'
+import { loadRegistre, RegistreScreen } from './RegistreScreen'
 import type { CleanRow, CycleRow, RegData, UvRow } from './registre'
 
 /* «Registre» (10.11, вариант B): «Azi» — плитки оборудования, старт и
@@ -98,7 +99,7 @@ afterEach(() => { cleanup(); get.mockReset(); post.mockReset(); vi.restoreAllMoc
 describe('RegistreScreen — «Azi»', () => {
   it('плитки: идущий цикл и свободный автоклав, лампа на исходе, уборка к сроку, проверка окном, лента', async () => {
     get.mockResolvedValueOnce(ok(data()))
-    render(<RegistreScreen />)
+    openScreen('/admin/registre', '/admin/registre', <RegistreScreen />, loadRegistre)
     expect(await screen.findByText('Azi, 10 noiembrie')).toBeTruthy()
     expect(within(tile('data-ster', 1)).getByRole('button', { name: /Încheie ciclul/ })).toBeTruthy()
     expect(within(tile('data-ster', 1)).getByText('Universal 134 °C · pornit 11:20')).toBeTruthy()
@@ -119,7 +120,7 @@ describe('RegistreScreen — «Azi»', () => {
   it('«Ciclu nou»: автоклав, программа, предметы, ответственный кнопками → команда без учётки и времени, затем перечитать', async () => {
     get.mockResolvedValue(ok(data()))
     post.mockResolvedValueOnce(ok(null, 'ok_san_start', 'Ciclul a pornit'))
-    render(<RegistreScreen />)
+    openScreen('/admin/registre', '/admin/registre', <RegistreScreen />, loadRegistre)
     fireEvent.click(await within(await findTile('data-ster', 2)).findByRole('button', { name: /Ciclu nou/ }))
     const d = dialog()
     expect(within(d).getByText('Înregistrează: Ana Rusu')).toBeTruthy()
@@ -142,7 +143,7 @@ describe('RegistreScreen — «Azi»', () => {
   it('«Încheie ciclul»: тесты кнопками, неудачный — предупреждение; отказ сервера — его словами', async () => {
     get.mockResolvedValue(ok(data()))
     post.mockRejectedValueOnce(new ApiError({ kind: 'conflict', code: 'san_closed', text: 'Înregistrarea este deja încheiată — reîncărcați pagina' }, 'c'))
-    render(<RegistreScreen />)
+    openScreen('/admin/registre', '/admin/registre', <RegistreScreen />, loadRegistre)
     fireEvent.click(await within(await findTile('data-ster', 1)).findByRole('button', { name: /Încheie ciclul/ }))
     const d = dialog()
     expect(within(d).queryByText(/marcat roșu/)).toBeNull()
@@ -159,7 +160,7 @@ describe('RegistreScreen — «Azi»', () => {
   it('лампа: без экрана «в присутствии» выключено; «Oprește» — команда сразу; итог биотеста — кнопкой', async () => {
     get.mockResolvedValue(ok(data()))
     post.mockResolvedValue(ok(null, 'ok', ''))
-    render(<RegistreScreen />)
+    openScreen('/admin/registre', '/admin/registre', <RegistreScreen />, loadRegistre)
     fireEvent.click(await within(await findTile('data-lamp', 20)).findByRole('button', { name: /Pornește lampa/ }))
     const d = dialog()
     expect((within(d).getByRole('button', { name: 'în prezența persoanelor' }) as HTMLButtonElement).disabled).toBe(true)
@@ -175,7 +176,7 @@ describe('RegistreScreen — «Azi»', () => {
   it('проверка уборки: исполнитель выключен, проверяющие впереди, без выбора не сохранить', async () => {
     get.mockResolvedValue(ok(data()))
     post.mockResolvedValue(ok(null, 'ok_san_sup', ''))
-    render(<RegistreScreen />)
+    openScreen('/admin/registre', '/admin/registre', <RegistreScreen />, loadRegistre)
     fireEvent.click(await within(await findTile('data-sup', 3)).findByRole('button', { name: /Verifică/ }))
     const d = dialog()
     expect(within(d).getByText('Ion Cebotari', { selector: 'b' })).toBeTruthy()
@@ -193,7 +194,7 @@ describe('RegistreScreen — «Azi»', () => {
   it('уборка: помещение, кто сделал, раствор, «Ieri» → команда; повтор дня — предупреждение', async () => {
     get.mockResolvedValue(ok(data()))
     post.mockResolvedValueOnce(ok(null))
-    render(<RegistreScreen />)
+    openScreen('/admin/registre', '/admin/registre', <RegistreScreen />, loadRegistre)
     fireEvent.click(await within(await findTile('data-room', 9)).findByRole('button', { name: /Efectuată/ }))
     const d = dialog()
     expect(within(d).getByText('10.11.2026')).toBeTruthy()
@@ -213,7 +214,7 @@ describe('RegistreScreen — «Azi»', () => {
   it('свежая клиника: список персонала пуст — не тупик, имя словом (Alt nume)', async () => {
     get.mockResolvedValue(ok(data({ staff: [], me: { name: 'Director', id: 'clinic' } })))
     post.mockResolvedValueOnce(ok(null))
-    render(<RegistreScreen />)
+    openScreen('/admin/registre', '/admin/registre', <RegistreScreen />, loadRegistre)
     fireEvent.click(await within(await findTile('data-room', 9)).findByRole('button', { name: /Efectuată/ }))
     const d = dialog()
     expect(within(d).getByText(/Lista personalului este goală/)).toBeTruthy()
@@ -229,12 +230,12 @@ describe('RegistreScreen — «Azi»', () => {
 
   it('пустой каталог: директору — дверь в настройки, остальным — кому сказать', async () => {
     get.mockResolvedValueOnce(ok(data({ empty: true, sters: [], lamps: [], rooms: [], can: { delete: true, settings: true } })))
-    render(<RegistreScreen />)
+    openScreen('/admin/registre', '/admin/registre', <RegistreScreen />, loadRegistre)
     expect(await screen.findByText('Registrele nu au încă echipamente')).toBeTruthy()
     expect(screen.getByRole('link', { name: /Setări › Registre sanitare/ }).getAttribute('href')).toBe('/admin/settings/registre')
     cleanup()
     get.mockResolvedValueOnce(ok(data({ empty: true, sters: [], lamps: [], rooms: [] })))
-    render(<RegistreScreen />)
+    openScreen('/admin/registre', '/admin/registre', <RegistreScreen />, loadRegistre)
     expect(await screen.findByText('Registrele nu au încă echipamente')).toBeTruthy()
     expect(screen.queryByRole('link', { name: /Setări › Registre sanitare/ })).toBeNull()
   })
@@ -244,7 +245,7 @@ describe('RegistreScreen — пустой каталог не тупик (2.14.1
   it('предметов нет: подсказка со ссылкой у директора, «Alt articol» добавляет предмет и открывает «Pornește ciclul»', async () => {
     get.mockResolvedValue(ok(data({ articles: [], packs: [], can: { delete: true, settings: true } })))
     post.mockResolvedValueOnce(ok(null))
-    render(<RegistreScreen />)
+    openScreen('/admin/registre', '/admin/registre', <RegistreScreen />, loadRegistre)
     fireEvent.click(await within(await findTile('data-ster', 2)).findByRole('button', { name: /Ciclu nou/ }))
     const d = dialog()
     expect(within(d).getByText(/Lista de articole este goală/)).toBeTruthy()
@@ -262,7 +263,7 @@ describe('RegistreScreen — пустой каталог не тупик (2.14.1
 
   it('без права настроек — подсказка без ссылки; пустых видов — строка, чего нет', async () => {
     get.mockResolvedValue(ok(data({ articles: [], lamps: [], rooms: [], waiting: [] })))
-    render(<RegistreScreen />)
+    openScreen('/admin/registre', '/admin/registre', <RegistreScreen />, loadRegistre)
     expect(await screen.findByText(/Încă nu sunt adăugate: lămpile bactericide \(501\/e\), încăperile \(502\/e\)/)).toBeTruthy()
     fireEvent.click(await within(await findTile('data-ster', 2)).findByRole('button', { name: /Ciclu nou/ }))
     const d = dialog()
@@ -273,7 +274,7 @@ describe('RegistreScreen — пустой каталог не тупик (2.14.1
   it('растворов нет: свой раствор словом → уборка уходит с ним', async () => {
     get.mockResolvedValue(ok(data({ solutions: [] })))
     post.mockResolvedValueOnce(ok(null))
-    render(<RegistreScreen />)
+    openScreen('/admin/registre', '/admin/registre', <RegistreScreen />, loadRegistre)
     fireEvent.click(await within(await findTile('data-room', 9)).findByRole('button', { name: /Efectuată/ }))
     const d = dialog()
     expect(within(d).getByText(/Lista de soluții este goală/)).toBeTruthy()
@@ -290,7 +291,7 @@ describe('RegistreScreen — пустой каталог не тупик (2.14.1
 describe('RegistreScreen — «Istoric și tipar»', () => {
   it('вкладки со счётчиками, исправленная строка зачёркнута, лист и Excel за месяц, удаления без права нет', async () => {
     get.mockResolvedValue(ok(data()))
-    render(<RegistreScreen />)
+    openScreen('/admin/registre', '/admin/registre', <RegistreScreen />, loadRegistre)
     fireEvent.click(await screen.findByRole('button', { name: /Istoric și tipar/ }))
     expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(
       ['Sterilizare 257/e 4', 'Curățenie generală 502/e 3', 'Lămpi bactericide 501/e 2'])
@@ -322,7 +323,7 @@ describe('RegistreScreen — «Istoric și tipar»', () => {
     get.mockResolvedValue(ok(data({ can: { delete: true, settings: true } })))
     post.mockResolvedValue(ok(null))
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
-    render(<RegistreScreen />)
+    openScreen('/admin/registre', '/admin/registre', <RegistreScreen />, loadRegistre)
     fireEvent.click(await screen.findByRole('button', { name: /Istoric și tipar/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Corectează nr. 7' }))
     const d = dialog()

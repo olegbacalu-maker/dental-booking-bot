@@ -1,8 +1,9 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import { ApiError } from '../../types/api'
-import { RegistreSettingsScreen } from './RegistreSettingsScreen'
+import { openScreen } from '../../test/openScreen'
+import { loadRegistreSettings, RegistreSettingsScreen } from './RegistreSettingsScreen'
 import type { Catalog } from './registre'
 
 /* Setări › Registre sanitare (10.11): каталог по видам, редактор строки,
@@ -37,7 +38,7 @@ afterEach(() => { cleanup(); get.mockReset(); post.mockReset(); vi.restoreAllMoc
 describe('RegistreSettingsScreen', () => {
   it('каталог по видам: программы автоклава, ресурс лампы, частота уборки, выключенная строка', async () => {
     get.mockResolvedValueOnce(ok(CAT))
-    render(<RegistreSettingsScreen />)
+    openScreen('/admin/settings/registre', '/admin/settings/registre', <RegistreSettingsScreen />, loadRegistreSettings)
     expect(await screen.findByText('Melag 23 B+')).toBeTruthy()
     expect(card('ster').textContent).toContain('Universal 134 °C · 2,1 bar · 5 min')
     expect(card('lamp').querySelector('.rg-item')?.className).toContain('low')
@@ -50,7 +51,7 @@ describe('RegistreSettingsScreen', () => {
     get.mockResolvedValue(ok(CAT))
     post.mockRejectedValueOnce(new ApiError({ kind: 'validation', code: 'bad_san', text: 'Completați câmpul marcat', field: 'hours' }, 'v'))
     post.mockResolvedValueOnce(ok({ id: 9 }, 'ok_san_item', 'Lista este salvată'))
-    render(<RegistreSettingsScreen />)
+    openScreen('/admin/settings/registre', '/admin/settings/registre', <RegistreSettingsScreen />, loadRegistreSettings)
     await screen.findByText('Melag 23 B+')
     fireEvent.click(within(card('lamp')).getByRole('button', { name: /Adaugă/ }))
     const ed = card('lamp').querySelector('.rg-edit') as HTMLElement
@@ -71,7 +72,7 @@ describe('RegistreSettingsScreen', () => {
     get.mockResolvedValue(ok(CAT))
     post.mockResolvedValue(ok(null))
     const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
-    render(<RegistreSettingsScreen />)
+    openScreen('/admin/settings/registre', '/admin/settings/registre', <RegistreSettingsScreen />, loadRegistreSettings)
     await screen.findByText('Melag 23 B+')
     fireEvent.click(within(card('lamp')).getByRole('button', { name: 'Lampă nouă' }))
     await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
@@ -83,7 +84,7 @@ describe('RegistreSettingsScreen', () => {
   it('«Personal pentru registre»: человек с функцией и отметкой проверяющего; новый — формой', async () => {
     get.mockResolvedValue(ok(CAT))
     post.mockResolvedValue(ok({ id: 6 }, 'ok_san_item', 'Lista este salvată'))
-    render(<RegistreSettingsScreen />)
+    openScreen('/admin/settings/registre', '/admin/settings/registre', <RegistreSettingsScreen />, loadRegistreSettings)
     await screen.findByText('Elena Ceban')
     expect(card('staff').textContent).toContain('asistentă-șefă')
     expect(card('staff').textContent).toContain('verifică curățenia')

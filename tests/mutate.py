@@ -270,6 +270,14 @@ MUTATIONS = [
      ("import { SideMenu, type SideItem } from '../../components/SideMenu'\n", "")),
     ("меню слева берёт данные загрузчиком", "_frontend/app/App.tsx",
      ("  stock: loadStock,\n", "")),
+    # Экран без меню слева на своей загрузке: «Registre» вставал пустой карточкой, плитки — кадром позже.
+    ("каждый экран берёт данные загрузчиком", "_frontend/app/App.tsx",
+     ("  registre: loadRegistre,\n", "")),
+    ("каждый экран берёт данные загрузчиком", "_frontend/features/registre/RegistreSettingsScreen.tsx",
+     "\nconst _mut = () => useLoad(load)\n"),
+    # ЯКОРЬ: разбор SCREENS сломан — экранов ноль, нарушителей ноль.
+    ("каждый экран берёт данные загрузчиком", "_frontend/app/App.tsx",
+     ("export const SCREENS", "export const SCREENZ")),
     # Ровно тот дефект, что жил с 08-13: шаг 4 есть в обоих словарях миграций,
     # версия осталась 3 — цикл _migrate до шага не доходит, и «missing
     # migration step» молчит (он ловит отсутствующие шаги, не лишние).
@@ -703,6 +711,9 @@ LEGAL = [
      '\n/* пример для чтения: <a href="/admin/week">săptămâna</a> */\n'),
     # Слово в комментарии — не вызов; `useLoad` у экрана без меню слева («Registre») правило не трогает.
     ("меню слева берёт данные загрузчиком", "_frontend/features/lab/LabListScreen.tsx",
+     "\n/* пример: useLoad(load) */\n"),
+    # Слово в комментарии — не загрузка экрана.
+    ("каждый экран берёт данные загрузчиком", "_frontend/features/registre/RegistreScreen.tsx",
      "\n/* пример: useLoad(load) */\n"),
     # ⭐ Законно: свойство `a.confirm` (серверный текст вопроса) и слово в
     # комментарии — не вызов окна браузера.

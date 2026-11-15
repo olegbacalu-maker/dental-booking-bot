@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AppLink } from '../../components/AppLink'
 import { ask } from '../../components/confirm'
 import { hideDialog, showDialog } from '../../components/dialog'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
-import { defaultNavigate, useLoad } from '../../hooks/useLoad'
+import { useSearchParams } from 'react-router'
+import { defaultNavigate } from '../../hooks/useLoad'
+import { queryParam, useRouteLoad, type ScreenData } from '../../hooks/useRouteLoad'
 import { asApiError, type ApiResult } from '../../services/api'
 import {
   dayLabel, dur, excelUrl, minutesSince, monthLabel, printUrl, regApi,
@@ -98,6 +100,12 @@ type Dlg =
 type Act = (run: () => Promise<ApiResult<null>>, after?: () => void) => Promise<boolean>
 
 const q = (k: string) => new URLSearchParams(window.location.search).get(k) ?? ''
+
+/** Месяц истории — из адреса (`?m=`), один разбор на загрузчик и экран; пусто — текущий. */
+const monthOf = (sp: URLSearchParams): string => { const m = queryParam(sp, 'm'); return /^\d{4}-\d{2}$/.test(m) ? m : '' }
+
+/** Регистры грузит роутер: экран встаёт одним кадром с плитками; смена месяца держит прежний, пока не придёт новый. */
+export const loadRegistre: ScreenData = (signal, _params, sp) => regApi.get(monthOf(sp), signal)
 const short = (ster: string) => ster.split(' nr.')[0] ?? ster
 
 interface Props { navigate?: (url: string) => void }
@@ -105,9 +113,10 @@ interface Props { navigate?: (url: string) => void }
 export function RegistreScreen({ navigate = defaultNavigate }: Props) {
   const [view, setView] = useState<'azi' | 'istoric'>(q('v') === 'istoric' ? 'istoric' : 'azi')
   const [reg, setReg] = useState<RegKey>((['257', '502', '501'].includes(q('r')) ? q('r') : '257') as RegKey)
-  const [month, setMonth] = useState(/^\d{4}-\d{2}$/.test(q('m')) ? q('m') : '')
-  const load = useCallback((signal: AbortSignal) => regApi.get(month, signal), [month])
-  const { state, retry, replace, leaveIfSignedOut } = useLoad<RegData>(load, navigate)
+  const [sp, setSp] = useSearchParams()
+  const month = monthOf(sp)
+  const setMonth = (m: string) => setSp((p) => { const n = new URLSearchParams(p); n.set('m', m); return n }, { replace: true })
+  const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<RegData>(navigate)
   const [dlg, setDlg] = useState<Dlg>(null)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [busy, setBusy] = useState(false)

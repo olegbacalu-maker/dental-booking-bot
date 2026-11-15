@@ -1,10 +1,11 @@
-import { useCallback, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { AppLink } from '../../components/AppLink'
 import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
-import { defaultNavigate, useLoad } from '../../hooks/useLoad'
+import { defaultNavigate } from '../../hooks/useLoad'
+import { useRouteLoad, type ScreenData } from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
 import { catApi, dmy, type Catalog, type Item, type Lamp, type Program } from './registre'
 
@@ -75,9 +76,11 @@ function bodyOf(f: Draft): Record<string, unknown> {
 
 interface Props { navigate?: (url: string) => void }
 
+/** Каталог грузит роутер: экран встаёт одним кадром со списками. */
+export const loadRegistreSettings: ScreenData = (signal) => catApi.get(signal)
+
 export function RegistreSettingsScreen({ navigate = defaultNavigate }: Props) {
-  const load = useCallback((signal: AbortSignal) => catApi.get(signal), [])
-  const { state, retry, replace, leaveIfSignedOut } = useLoad<Catalog>(load, navigate)
+  const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<Catalog>(navigate)
   const [edit, setEdit] = useState<Draft | null>(null)
   const [norms, setNorms] = useState<string | null>(null)
   const [toast, setToast] = useState<ToastState | null>(null)

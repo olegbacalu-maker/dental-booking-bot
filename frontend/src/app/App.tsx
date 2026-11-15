@@ -33,8 +33,8 @@ import { LabListScreen, loadLabList } from '../features/lab/LabListScreen'
 import { LabSettingsScreen, loadLabSettings } from '../features/lab/LabSettingsScreen'
 import { loadStock, StockScreen } from '../features/stock/StockScreen'
 import { loadStockSettings, StockSettingsScreen } from '../features/stock/StockSettingsScreen'
-import { RegistreScreen } from '../features/registre/RegistreScreen'
-import { RegistreSettingsScreen } from '../features/registre/RegistreSettingsScreen'
+import { loadRegistre, RegistreScreen } from '../features/registre/RegistreScreen'
+import { loadRegistreSettings, RegistreSettingsScreen } from '../features/registre/RegistreSettingsScreen'
 import { loadVisit, VisitScreen } from '../features/visits/VisitScreen'
 import { loadOdontogram, OdontogramScreen } from '../features/clinical/OdontogramScreen'
 import { loadPerio, PerioScreen } from '../features/clinical/PerioScreen'
@@ -90,7 +90,7 @@ export const SCREENS: Record<ScreenName, Draw> = {
   stats: () => <StatsScreen />,
   recall: () => <RecallScreen />,
   gcal: () => <GcalScreen />,
-  // «Registre» (10.11): данные — свой `useLoad` (месяц истории — состояние экрана)
+  // месяц истории — адрес (`?m=`), вкладки «Azi/Istoric» — состояние экрана
   registre: () => <RegistreScreen />,
   settings_registre: () => <RegistreSettingsScreen />,
   // фильтр, лаборатория и поиск — адрес; данные — загрузчик маршрута, команды — его повтор
@@ -120,11 +120,13 @@ export const SCREENS: Record<ScreenName, Draw> = {
 }
 
 /**
- * Экраны, чьи данные грузит РОУТЕР (B2.2). Остальные грузят сами (`useLoad`),
- * пока не дошла их очередь. Маршрут собирает `screenRoute`: загрузчик без
- * первого кадра на время ожидания там собрать нельзя.
+ * Данные КАЖДОГО экрана грузит РОУТЕР. `Record<ScreenName, …>`, как у `SCREENS`:
+ * экран без загрузчика — ошибка tsc. Свой `useLoad` при переходе роутером встаёт
+ * пустым кадром, и содержимое приезжает следующим (стенд `spa_shift`). Маршрут
+ * собирает `screenRoute`: загрузчик без первого кадра на время ожидания там
+ * собрать нельзя.
  */
-const LOADS: Partial<Record<ScreenName, ScreenData>> = {
+const LOADS: Record<ScreenName, ScreenData> = {
   settings_hub: loadSettingsHub,
   settings_faq: loadFaq,
   settings_backup: loadBackupSettings,
@@ -161,6 +163,8 @@ const LOADS: Partial<Record<ScreenName, ScreenData>> = {
   settings_lab: loadLabSettings,
   stock: loadStock,
   settings_stock: loadStockSettings,
+  registre: loadRegistre,
+  settings_registre: loadRegistreSettings,
 }
 
 /**

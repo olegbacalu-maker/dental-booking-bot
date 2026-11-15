@@ -1574,6 +1574,26 @@ def suite(res: Result) -> None:
            "свой useLoad встаёт пустым меню, а таблица и счётчики приезжают следующим кадром — прыжок при "
            "каждом переходе: " + "; ".join(bad))
 
+    # ---- каждый экран берёт данные загрузчиком маршрута ----
+    # Тот же прыжок у экрана без меню слева: «Registre» на своём `useLoad` вставал пустой карточкой, и плитки
+    # приезжали кадром позже. Поэтому правило — про все экраны: каждое имя `SCREENS` — строка в `LOADS`, и
+    # `useLoad` не зовёт ни один модуль клиента (сам хук остаётся домом `LoadState`/`defaultNavigate`).
+    # Полярность опасная: при сломанном разборе App.tsx экранов ноль и нарушителей ноль — отсюда якорь на число.
+    bad = [f"{name}: нет строки в LOADS App.tsx" for name, _ in screens if name not in loads]
+    for f in sorted(FRONTEND.rglob("*.ts*")) if FRONTEND.exists() else []:
+        rel = f.relative_to(FRONTEND).as_posix()
+        if (f.suffix not in (".ts", ".tsx") or ".test." in f.name or rel.startswith("test/")
+                or f.resolve() == use_load_home):
+            continue
+        code = _client_code(f.read_text(encoding="utf-8"))
+        bad += [f"{rel}:{code.count(chr(10), 0, m.start()) + 1} зовёт useLoad"
+                for m in re.finditer(r"(?<![\w.])useLoad\s*[<(]", code)]
+    if len(screens) < 20:
+        bad.append(f"в SCREENS App.tsx нашлось {len(screens)} экранов — разбор сломан, якорь правила пропал")
+    res.ok("каждый экран берёт данные загрузчиком маршрута", not bad,
+           "экран со своим useLoad встаёт при переходе пустым кадром, а содержимое приезжает следующим: "
+           + "; ".join(bad))
+
     # ---- цвет врача считает ОДИН `_doc_hue` (19.09) ----
     # Палитра `_DOC_HUES` — внутренность формулы, а не общее добро: взять её
     # напрямую значит завести второй способ ответить «какого цвета этот врач».
