@@ -269,10 +269,10 @@ def _ui_texts(tree: ast.Module) -> list[tuple[int, str]]:
     cached = getattr(tree, "_ui_texts_cache", None)
     if cached is not None:
         return cached
-    inner = {id(x) for n in ast.walk(tree) if isinstance(n, ast.JoinedStr)
-             for x in ast.walk(n) if x is not n}
+    inner = {id(x) for n in _walk(tree) if isinstance(n, ast.JoinedStr)
+             for x in _walk(n) if x is not n}
     docs = set()
-    for n in ast.walk(tree):
+    for n in _walk(tree):
         if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef,
                           ast.ClassDef)) and n.body:
             first = n.body[0]
@@ -281,11 +281,11 @@ def _ui_texts(tree: ast.Module) -> list[tuple[int, str]]:
                     and isinstance(first.value.value, str)):
                 docs.add(id(first.value))
     out = []
-    for n in ast.walk(tree):
+    for n in _walk(tree):
         if id(n) in inner or id(n) in docs:
             continue
         if isinstance(n, ast.JoinedStr):
-            out.append((n.lineno, "".join(v.value for v in ast.walk(n)
+            out.append((n.lineno, "".join(v.value for v in _walk(n)
                                           if isinstance(v, ast.Constant)
                                           and isinstance(v.value, str))))
         elif isinstance(n, ast.Constant) and isinstance(n.value, str):
@@ -398,6 +398,25 @@ def _ignore_entries(text: str) -> set[str]:
             if ln.strip() and not ln.strip().startswith("#")}
 
 
+def _walk(node: ast.AST) -> tuple:
+    """`ast.walk(node)` один раз на узел: обход кладётся кортежем на сам узел.
+
+    Правила обходят одни и те же деревья заново — каждое своё, на каждый
+    модуль, и вложенные узлы ещё раз внутри обхода дерева; без кэша это
+    четыре пятых времени набора, а мутация гоняет набор на каждое правило.
+    На узле, а не в словаре по `id()`: `mutate.py` и `test_guards` гонят suite
+    по НОВЫМ деревьям в одном процессе. Словарь либо держал бы в памяти все
+    деревья всех прогонов, либо, отпустив их, отдал бы обход умершего дерева
+    новому узлу с тем же id — правило читало бы старое дерево, и мутация в
+    копии прошла бы незамеченной. Кэш умирает вместе с деревом: `_sources()`
+    разбирает файлы заново на каждый прогон. Правила узлы не правят, поэтому
+    обход, снятый один раз, верен до конца жизни дерева."""
+    nodes = getattr(node, "_walked", None)
+    if nodes is None:
+        nodes = node._walked = tuple(ast.walk(node))
+    return nodes
+
+
 def _sources() -> list[tuple[str, ast.Module]]:
     """Все модули программы: (путь от bot/ через `/`, разобранное дерево)."""
     out = []
@@ -418,7 +437,7 @@ def _calls(node: ast.AST) -> set[str]:
     почти все (`from ...core import theme`), и сегодня правило работает лишь
     потому, что писателей auth.json импортируют поимённо."""
     return {n.func.id if isinstance(n.func, ast.Name) else n.func.attr
-            for n in ast.walk(node) if isinstance(n, ast.Call)
+            for n in _walk(node) if isinstance(n, ast.Call)
             and isinstance(n.func, (ast.Name, ast.Attribute))}
 
 
@@ -437,7 +456,7 @@ def _enclosing(tree: ast.Module, lineno: int) -> set[str]:
     if spans is None:
         spans = tree._def_spans = [
             (fn.lineno, fn.end_lineno or fn.lineno, fn.name)
-            for fn in ast.walk(tree)
+            for fn in _walk(tree)
             if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))]
     return {name for lo, hi, name in spans if lo <= lineno <= hi}
 
@@ -449,14 +468,14 @@ def _templates(tree: ast.Module) -> list[tuple[int, str]]:
     части, чем `font-family` (`<style>__FONTS__ … {color}` — уже две). Поэтому
     части одного литерала склеиваются, а вложенные в него узлы вторым разом не
     разбираются: иначе один шаблон дал бы десяток «нарушителей»."""
-    inner = {id(x) for n in ast.walk(tree) if isinstance(n, ast.JoinedStr)
-             for x in ast.walk(n) if x is not n}
+    inner = {id(x) for n in _walk(tree) if isinstance(n, ast.JoinedStr)
+             for x in _walk(n) if x is not n}
     out = []
-    for n in ast.walk(tree):
+    for n in _walk(tree):
         if id(n) in inner:
             continue
         if isinstance(n, ast.JoinedStr):
-            text = "".join(v.value for v in ast.walk(n)
+            text = "".join(v.value for v in _walk(n)
                            if isinstance(v, ast.Constant)
                            and isinstance(v.value, str))
         elif isinstance(n, ast.Constant) and isinstance(n.value, str):
@@ -488,7 +507,7 @@ def suite(res: Result) -> None:
            f"под {BOT} разобрано файлов: {len(src)}")
 
     bad = [f"{rel}:{n.lineno}" for rel, tree in src if rel not in _FILE_OK
-           for n in ast.walk(tree)
+           for n in _walk(tree)
            if isinstance(n, ast.Name) and n.id == "__file__"]
     res.ok("__file__ только в paths.py и desktop.py", not bad,
            "путь «рядом с собой» вне разрешённых мест: " + ", ".join(bad))
@@ -501,7 +520,7 @@ def suite(res: Result) -> None:
     # другой файл — а для SQLite «другой файл» это не ошибка, а пустая новая
     # база: программа стартует, журнал чист, и виновата на вид миграция.
     bad = [f"{rel}:{n.lineno}" for rel, tree in src if rel != "app/paths.py"
-           for n in ast.walk(tree)
+           for n in _walk(tree)
            if isinstance(n, ast.Constant) and n.value == "///"]
     res.ok("$DATABASE_URL разбирает только paths.py", not bad,
            "второй разборщик адреса базы: " + ", ".join(bad))
@@ -513,12 +532,12 @@ def suite(res: Result) -> None:
     bad = []
     for rel, tree in src:
         safe = set()
-        for n in ast.walk(tree):
+        for n in _walk(tree):
             if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                     and n.func.attr == "split"):
-                safe.update(id(x) for x in ast.walk(n)
+                safe.update(id(x) for x in _walk(n)
                             if isinstance(x, ast.Name) and x.id == "__package__")
-        bad += [f"{rel}:{n.lineno}" for n in ast.walk(tree)
+        bad += [f"{rel}:{n.lineno}" for n in _walk(tree)
                 if isinstance(n, ast.Name) and n.id == "__package__"
                 and id(n) not in safe]
     res.ok("__package__ только через .split('.')[0]", not bad,
@@ -529,7 +548,7 @@ def suite(res: Result) -> None:
         if rel == _AUTH_MODULE:
             continue
         allowed = _ROLE_OK.get(rel, set())
-        for n in ast.walk(tree):
+        for n in _walk(tree):
             if not isinstance(n, ast.Compare):
                 continue
             if not all(isinstance(o, (ast.Eq, ast.NotEq)) for o in n.ops):
@@ -552,13 +571,13 @@ def suite(res: Result) -> None:
     # константой). Источник истины один — ключи PERMS; расхождение в ЛЮБУЮ
     # сторону красное: лишнее имя тут так же слепо, как недостающее.
     auth_mod = by_path.get(_AUTH_MODULE) or ast.Module(body=[], type_ignores=[])
-    role_const = {n.targets[0].id: n.value.value for n in ast.walk(auth_mod)
+    role_const = {n.targets[0].id: n.value.value for n in _walk(auth_mod)
                   if isinstance(n, ast.Assign) and len(n.targets) == 1
                   and isinstance(n.targets[0], ast.Name)
                   and n.targets[0].id.startswith("ROLE_")
                   and isinstance(n.value, ast.Constant)}
     perms_keys = None
-    for n in ast.walk(auth_mod):
+    for n in _walk(auth_mod):
         if (isinstance(n, ast.Assign)
                 and any(isinstance(t, ast.Name) and t.id == "PERMS"
                         for t in n.targets)
@@ -578,7 +597,7 @@ def suite(res: Result) -> None:
     # сверяются с определениями в самом auth.py. (Остальные списки — обратной
     # полярности и краснеют сами: пропал `paths.py` — не нашёлся файл; переехал
     # `users_save` — сравнение роли в нём перестало быть разрешённым.)
-    defined = {fn.name for fn in ast.walk(by_path.get(_AUTH_MODULE) or ast.Module(
+    defined = {fn.name for fn in _walk(by_path.get(_AUTH_MODULE) or ast.Module(
         body=[], type_ignores=[]))
         if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))}
     gone = sorted(_AUTH_WRITERS - defined)
@@ -593,7 +612,7 @@ def suite(res: Result) -> None:
     for rel, tree in src:
         if rel == _AUTH_MODULE:
             continue
-        for fn in ast.walk(tree):
+        for fn in _walk(tree):
             if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             called = _calls(fn)
@@ -608,7 +627,7 @@ def suite(res: Result) -> None:
         if rel not in by_path:
             bad.append(f"{rel} — нет по этому пути")
             continue
-        for n in ast.walk(by_path[rel]):
+        for n in _walk(by_path[rel]):
             if not isinstance(n, (ast.Import, ast.ImportFrom)):
                 continue
             targets = [m for m in _imported(n) if m]
@@ -656,25 +675,25 @@ def suite(res: Result) -> None:
     bad = []
     for rel in ("app/core/dbkey.py", "app/core/restore.py"):
         tree = by_path.get(rel)
-        fns = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+        fns = [n for n in _walk(tree) if isinstance(n, ast.FunctionDef)
                and n.name == "apply_pending"] if tree is not None else []
         if not fns:
             bad.append(f"{rel}: apply_pending не найдена")
         bad += [f"{rel}:{f.lineno}" for f in fns
                 if not any(isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
                            and c.func.attr == "check" and isinstance(c.func.value, ast.Name)
-                           and c.func.value.id == "orders" for c in ast.walk(f))]
+                           and c.func.value.id == "orders" for c in _walk(f))]
     res.ok("заказ лаунчеру исполняется только по подписи", not bad,
            "apply_pending без orders.check: " + ", ".join(bad))
     _ORDER_NAMES = {"DECRYPT_FILE", "PENDING_FILE", "REQUEST_FILE"}
     bad = []
     for rel, tree in src:
-        for n in ast.walk(tree):
+        for n in _walk(tree):
             if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                     and n.func.attr in ("write_text", "write_bytes")):
                 continue
             names = {x.id if isinstance(x, ast.Name) else x.attr
-                     for x in ast.walk(n.func.value)
+                     for x in _walk(n.func.value)
                      if isinstance(x, (ast.Name, ast.Attribute))}
             if names & _ORDER_NAMES:
                 bad.append(f"{rel}:{n.lineno}")
@@ -686,7 +705,7 @@ def suite(res: Result) -> None:
     # его нельзя было «починить» отложенным импортом внутри функции.
     bad = [f"{rel}:{n.lineno}" for rel, tree in src
            if rel.startswith(("app/modules/", "app/core/"))
-           for n in ast.walk(tree)
+           for n in _walk(tree)
            if any(m.split(".")[-1] == "main" for m in _imported(n) if m)]
     res.ok("модуль не импортирует main", not bad,
            "модуль знает про main.py: " + ", ".join(bad))
@@ -725,13 +744,13 @@ def suite(res: Result) -> None:
 
     rebound: dict[str, set[str]] = {}
     for rel, tree in src:
-        for g in ast.walk(tree):
+        for g in _walk(tree):
             if isinstance(g, ast.Global):
                 rebound.setdefault(rel, set()).update(g.names)
     for rel, tree in src:
-        alias = {a.asname or a.name: f for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
+        alias = {a.asname or a.name: f for n in _walk(tree) if isinstance(n, ast.ImportFrom)
                  for a in n.names if (f := _from_target(rel, n, a.name))}
-        for n in ast.walk(tree):
+        for n in _walk(tree):
             targets = (n.targets if isinstance(n, ast.Assign)
                        else [n.target] if isinstance(n, (ast.AugAssign, ast.AnnAssign)) else [])
             for tgt in targets:
@@ -745,7 +764,7 @@ def suite(res: Result) -> None:
                             (_DB_STATE, "_CONN"))
            if name not in rebound.get(f, set())]
     bad += [f"{rel}:{n.lineno} {', '.join(sorted(hit))} из {f}"
-            for rel, tree in src for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
+            for rel, tree in src for n in _walk(tree) if isinstance(n, ast.ImportFrom)
             for f in [_from_target(rel, n)] if f
             for hit in [{a.name for a in n.names} & rebound.get(f, set())] if hit]
     res.ok("переприсваиваемое имя не импортируется по значению", not bad,
@@ -761,9 +780,9 @@ def suite(res: Result) -> None:
     _DB_REBINDABLE = {"_CONN", "_SQ", "ACTOR_HOOK"}
     bad = [f"{_DB_STATE}: {n}" for n in sorted(rebound.get(_DB_STATE, set()) - _DB_REBINDABLE)]
     for rel, tree in src:
-        alias = {a.asname or a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
+        alias = {a.asname or a.name for n in _walk(tree) if isinstance(n, ast.ImportFrom)
                  for a in n.names if _from_target(rel, n, a.name) == _DB_STATE}
-        bad += [f"{rel}:{n.lineno} {n.func.id}" for n in ast.walk(tree)
+        bad += [f"{rel}:{n.lineno} {n.func.id}" for n in _walk(tree)
                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
                 and n.func.id in ("setattr", "delattr") and n.args
                 and isinstance(n.args[0], ast.Name) and n.args[0].id in alias]
@@ -783,7 +802,7 @@ def suite(res: Result) -> None:
     # через пакет: `from .. import db`, `db._CONN = …`.
     pkg = [rel for rel in by_path if rel.startswith("app/db/") and rel != _DB_STATE]
     bad = [f"{rel}:{n.lineno} {', '.join(n.names)}" for rel in pkg
-           for n in ast.walk(by_path[rel]) if isinstance(n, ast.Global)]
+           for n in _walk(by_path[rel]) if isinstance(n, ast.Global)]
     if _DB_STATE not in by_path or not pkg:
         bad.append(f"{_DB_STATE} и подмодулей нет — якорь правила пропал")
     res.ok("подмодуль db не держит переприсваиваемого состояния", not bad,
@@ -829,7 +848,7 @@ def suite(res: Result) -> None:
         text = (BOT / rel).read_text(encoding="utf-8")
         if not re.search(r"(?<![A-Za-z_])_ic\(", text) or "def _ic(" in text:
             continue
-        names = {a.asname or a.name for n in ast.walk(tree)
+        names = {a.asname or a.name for n in _walk(tree)
                  if isinstance(n, ast.ImportFrom) for a in n.names}
         if "_ic" not in names:
             bad.append(rel)
@@ -924,17 +943,17 @@ def suite(res: Result) -> None:
     has_dict = msg_tree is not None and any(
         isinstance(n, ast.Assign) and any(
             isinstance(t, ast.Name) and t.id == "MSG_BANNER" for t in n.targets)
-        for n in ast.walk(msg_tree))
+        for n in _walk(msg_tree))
     bad = [] if has_dict else [f"{_LAY_MSG}: словарь MSG_BANNER не найден"]
     # ⚠️ Список ВКЛЮЧАЕТ разрешение: файл, переставший читать словарь, не должен
     # оставаться в нём молча (список шире нужного прощал бы новое чтение там).
     bad += [f"{rel}: допущен к MSG_BANNER, но его не читает — убрать из _MSG_READERS"
             for rel in _MSG_READERS
             if not any(isinstance(n, ast.Name) and n.id == "MSG_BANNER"
-                       for n in ast.walk(by_path.get(rel) or ast.parse("")))]
+                       for n in _walk(by_path.get(rel) or ast.parse("")))]
     bad += [f"{rel}:{n.lineno}" for rel, tree in src
             if rel not in _MSG_READERS
-            for n in ast.walk(tree)
+            for n in _walk(tree)
             if (isinstance(n, ast.Name) and n.id == "MSG_BANNER")
             or (isinstance(n, ast.ImportFrom)
                 and any(a.name == "MSG_BANNER" for a in n.names))]
@@ -958,7 +977,7 @@ def suite(res: Result) -> None:
     for rel, tree in src:
         if "<script" not in (BOT / rel).read_text(encoding="utf-8"):
             continue
-        aliases = {t.id for n in ast.walk(tree) if isinstance(n, ast.Assign)
+        aliases = {t.id for n in _walk(tree) if isinstance(n, ast.Assign)
                    and isinstance(n.value, ast.Attribute) and n.value.attr == "escape"
                    for t in n.targets if isinstance(t, ast.Name)}
 
@@ -971,10 +990,10 @@ def suite(res: Result) -> None:
                                  for k in call.keywords)
 
         guarded = set()
-        for n in ast.walk(tree):
+        for n in _walk(tree):
             if isinstance(n, ast.Call) and _is_escape(n):
                 guarded.update(id(a) for a in n.args)
-        for n in ast.walk(tree):
+        for n in _walk(tree):
             if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                     and n.func.attr == "dumps" and getattr(n.func.value, "id", "") == "json"):
                 if id(n) in guarded:
@@ -1023,7 +1042,7 @@ def suite(res: Result) -> None:
     # словарь — искать станет нечего, поэтому «не нашлось» здесь тоже красное.
     db_tree = by_path.get(_DB_SCHEMA)
     consts, dictkeys = {}, {}
-    for n in ast.walk(db_tree or ast.Module(body=[], type_ignores=[])):
+    for n in _walk(db_tree or ast.Module(body=[], type_ignores=[])):
         if not (isinstance(n, ast.Assign) and len(n.targets) == 1
                 and isinstance(n.targets[0], ast.Name)):
             continue
@@ -1110,7 +1129,7 @@ def suite(res: Result) -> None:
     for rel, tree in src:
         if rel == "app/engine.py":
             continue
-        for node in ast.walk(tree):
+        for node in _walk(tree):
             if not isinstance(node, ast.Compare):
                 continue
             for op, right in zip(node.ops, node.comparators):
@@ -1146,7 +1165,7 @@ def suite(res: Result) -> None:
     # соседей ищут две выборки (врача и кабинета): узкое окно любой из них
     # прячет длинный визит
     pads = []
-    for n in ast.walk(by_path.get(_DB_SLOTS) or ast.Module(body=[], type_ignores=[])):
+    for n in _walk(by_path.get(_DB_SLOTS) or ast.Module(body=[], type_ignores=[])):
         if isinstance(n, ast.Assign) and any(
                 isinstance(t, ast.Name) and t.id == "pad" for t in n.targets) \
                 and isinstance(n.value, ast.Call):
@@ -1166,14 +1185,14 @@ def suite(res: Result) -> None:
     # ⚠️ Полярность опасная: правило ищет ИМЕНА, поэтому якорь — сам _slot_lock
     # существует.
     bad = []
-    slot_fn = next((n for n in ast.walk(by_path.get(_DB_SLOTS)
+    slot_fn = next((n for n in _walk(by_path.get(_DB_SLOTS)
                                         or ast.Module(body=[], type_ignores=[]))
                     if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
                     and n.name == "_slot_lock"), None)
     if slot_fn is None:
         bad.append(f"{_DB_SLOTS}: _slot_lock не найден — якорь правила пропал")
     for rel, tree in src:
-        for n in ast.walk(tree):
+        for n in _walk(tree):
             # ЛЮБОЕ обращение к имени, не только with-форма: прямой
             # `await _BOOK_LOCK.acquire()` или передача замка дальше обходили
             # бы сторож, смотревший на одни with (ревью 08-22). Определение
@@ -1212,7 +1231,7 @@ def suite(res: Result) -> None:
                 bad.append(f"{rel}:{ln} «{m.group(0)}»")
     entry_tree = by_path.get("app/modules/entry/routes.py")
     anchored = any(isinstance(n, ast.Call) and getattr(n.func, "id", "") == "pin_range_text"
-                   for n in ast.walk(entry_tree or ast.Module(body=[], type_ignores=[])))
+                   for n in _walk(entry_tree or ast.Module(body=[], type_ignores=[])))
     if not anchored:
         bad.append("entry/routes.py не зовёт pin_range_text — якорь правила пропал")
     res.ok("диапазон PIN в текстах — только auth.pin_range_text (зависит от сети)",
@@ -1239,12 +1258,12 @@ def suite(res: Result) -> None:
     # в core/api.py, и хотя бы один маршрут /api/ существует.
     bad, n_api, doors, door_bad = [], 0, set(), []
     api_tree = by_path.get("app/core/api.py")
-    api_defs = {fn.name for fn in ast.walk(api_tree or ast.Module(body=[], type_ignores=[]))
+    api_defs = {fn.name for fn in _walk(api_tree or ast.Module(body=[], type_ignores=[]))
                 if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))}
     if not {"api_guard", "api_require"} <= api_defs:
         bad.append("app/core/api.py: нет api_guard/api_require — якорь правила пропал")
     for rel, tree in src:
-        for fn in ast.walk(tree):
+        for fn in _walk(tree):
             if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             routes = [d.args[0].value for d in fn.decorator_list
@@ -1300,7 +1319,7 @@ def suite(res: Result) -> None:
         bad.append("app/core/api.py: нет api_own_appt — якорь правила пропал")
     cmd_re = re.compile(r"^/api/schedule/(appointments|desk/call)/\{")
     for rel, tree in src:
-        for fn in ast.walk(tree):
+        for fn in _walk(tree):
             if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             routes = [d.args[0].value for d in fn.decorator_list
@@ -1349,7 +1368,7 @@ def suite(res: Result) -> None:
             bad_cut.append(f"{rel}: файла нет — якорь правила пропал")
             continue
         found = set()
-        for node in ast.walk(tree):
+        for node in _walk(tree):
             pairs = []
             if isinstance(node, ast.Dict):
                 pairs = [(k.value, v) for k, v in zip(node.keys, node.values)
@@ -1404,7 +1423,7 @@ def suite(res: Result) -> None:
     sched = by_path.get("app/modules/schedule/api.py")
     surfaces: set[str] = set()
     if sched is not None:
-        for node in ast.walk(sched):
+        for node in _walk(sched):
             if (isinstance(node, ast.Assign)
                     and any(isinstance(t, ast.Name) and t.id == "_NO_STATE"
                             for t in node.targets)
@@ -1609,14 +1628,14 @@ def suite(res: Result) -> None:
     # упомянуты: `_doc_hue` палитру называет, и проверка «имя встречается»
     # пережила бы переименование самого объявления).
     bad = [f"{rel}:{n.lineno}" for rel, tree in src if rel != _HUE_MODULE
-           for n in ast.walk(tree)
+           for n in _walk(tree)
            if (isinstance(n, ast.Name) and n.id == _HUE_PALETTE)
            or (isinstance(n, ast.Attribute) and n.attr == _HUE_PALETTE)
            or (isinstance(n, ast.alias) and n.name == _HUE_PALETTE)]
     hue_mod = by_path.get(_HUE_MODULE) or ast.Module(body=[], type_ignores=[])
-    owns = {t.id for n in ast.walk(hue_mod) if isinstance(n, ast.Assign)
+    owns = {t.id for n in _walk(hue_mod) if isinstance(n, ast.Assign)
             for t in n.targets if isinstance(t, ast.Name)}
-    owns |= {fn.name for fn in ast.walk(hue_mod)
+    owns |= {fn.name for fn in _walk(hue_mod)
              if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))}
     if not {_HUE_PALETTE, "_doc_hue"} <= owns:
         bad.append(f"{_HUE_MODULE}: нет {_HUE_PALETTE}/_doc_hue — "
@@ -1635,7 +1654,7 @@ def suite(res: Result) -> None:
     # Правило ловится ДОБАВЛЕНИЕМ — новой такой сортировкой без `a.id`.
     _DAY_ORDER = "ORDER BY a.starts_at, a.doctor"
     ordered = [(rel, n) for rel, tree in src if rel == _DB_DAY
-               for n in ast.walk(tree)
+               for n in _walk(tree)
                if isinstance(n, ast.Constant) and isinstance(n.value, str)
                and _DAY_ORDER in n.value]
     bad = [f"{_DB_DAY}:{n.lineno}" for _rel, n in ordered
@@ -1664,7 +1683,7 @@ def suite(res: Result) -> None:
     # Переедет вход — правило покраснеет, и это правильно: повод посмотреть.
     bad = [f"{rel}:{n.lineno} → {name}" for rel, tree in src
            if rel not in _LOGIN_OK
-           for n in ast.walk(tree)
+           for n in _walk(tree)
            if isinstance(n, ast.Call) and isinstance(n.func, (ast.Name, ast.Attribute))
            for name in [n.func.id if isinstance(n.func, ast.Name) else n.func.attr]
            if name in _LOGIN_ORACLE]
@@ -1677,11 +1696,11 @@ def suite(res: Result) -> None:
     # «ничего не записано» проверяется разбором, а не снимком дерева. Снимок
     # (`tests/test_srcpin.py`) отвечает за поведение, разбор — за то, что новая
     # ветка в этой же функции не заведёт запись мимо стенда.
-    src_fn = next((fn for fn in ast.walk(auth_mod)
+    src_fn = next((fn for fn in _walk(auth_mod)
                    if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
                    and fn.name == _SRC_VERIFY), None)
     bad = [f"{_AUTH_MODULE}:{n.lineno} → {name}"
-           for n in ast.walk(src_fn or ast.Module(body=[], type_ignores=[]))
+           for n in _walk(src_fn or ast.Module(body=[], type_ignores=[]))
            if isinstance(n, ast.Call) and isinstance(n.func, (ast.Name, ast.Attribute))
            for name in [n.func.id if isinstance(n.func, ast.Name) else n.func.attr]
            if name in _SRC_WRITES]
@@ -1695,7 +1714,7 @@ def suite(res: Result) -> None:
     # устаревшим именем. Поэтому имена сверяются с ОПРЕДЕЛЕНИЯМИ — в auth.py
     # и в файлах входа (`try_login` живёт у формы, в modules/entry/routes.py).
     auth_defs = {fn.name for rel in _LOGIN_OK
-                 for fn in ast.walk(by_path.get(rel) or ast.Module(body=[], type_ignores=[]))
+                 for fn in _walk(by_path.get(rel) or ast.Module(body=[], type_ignores=[]))
                  if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef,
                                     ast.ClassDef))}
     gone = sorted((_LOGIN_ORACLE | _PIN_MATH | _SRC_OWNS) - auth_defs)
@@ -1711,7 +1730,7 @@ def suite(res: Result) -> None:
     # файла тронут. Правило не про доверие, а про то, что расхождение невидимо.
     bad = [f"{rel}:{n.lineno} → {name}" for rel, tree in src
            if rel != _AUTH_MODULE
-           for n in ast.walk(tree)
+           for n in _walk(tree)
            if isinstance(n, ast.Call) and isinstance(n.func, (ast.Name, ast.Attribute))
            for name in [n.func.id if isinstance(n.func, ast.Name) else n.func.attr]
            if name in _PIN_MATH]
@@ -1844,14 +1863,14 @@ def suite(res: Result) -> None:
     # ⚠️ Именно `lic.refuses`, не любой `.refuses`: с 01.10 в том же шлюзе стоит
     # `demo.refuses`, и правило «есть хоть один refuses» молчало бы, когда
     # ворота лицензии вынесли, — поймано мутацией в день, когда появился демо.
-    gate = [n for n in ast.walk(main_tree) if isinstance(n, ast.Call)
+    gate = [n for n in _walk(main_tree) if isinstance(n, ast.Call)
             and isinstance(n.func, ast.Attribute) and n.func.attr == "refuses"
             and isinstance(n.func.value, ast.Name) and n.func.value.id == "lic"] if main_tree else []
     if not gate:
         bad.append("app/main.py: шлюз не зовёт lic.refuses — ворот нет")
     allow = None
     lst_tree = by_path.get("app/core/license_state.py")
-    for n in ast.walk(lst_tree) if lst_tree else ():
+    for n in _walk(lst_tree) if lst_tree else ():
         if (isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "READONLY_ALLOW"
                                               for t in n.targets)
                 and isinstance(n.value, ast.Tuple)):
@@ -1881,14 +1900,14 @@ def suite(res: Result) -> None:
     # что зовёт `lic.refuses`; он обязан быть объявлен последним.
     bad = []
     regs, gate_at = [], None
-    for n in ast.walk(main_tree) if main_tree else ():
+    for n in _walk(main_tree) if main_tree else ():
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(
                 isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute)
                 and d.func.attr == "middleware" for d in n.decorator_list):
             regs.append(n.lineno)
             if any(isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
                    and c.func.attr == "refuses" and isinstance(c.func.value, ast.Name)
-                   and c.func.value.id == "lic" for c in ast.walk(n)):
+                   and c.func.value.id == "lic" for c in _walk(n)):
                 gate_at = n.lineno
         elif (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
               and n.func.attr == "add_middleware"):
@@ -1915,7 +1934,7 @@ def suite(res: Result) -> None:
         bad.append("docs/site/termeni.html не найден — договора нет")
     readonly_text = ""
     lay_tree = by_path.get(_LAY_MSG)
-    for n in ast.walk(lay_tree) if lay_tree else ():
+    for n in _walk(lay_tree) if lay_tree else ():
         if (isinstance(n, ast.Assign) and isinstance(n.value, ast.Dict)
                 and any(isinstance(t, ast.Name) and t.id == "MSG_BANNER" for t in n.targets)):
             for k, v in zip(n.value.keys, n.value.values):
@@ -1933,7 +1952,7 @@ def suite(res: Result) -> None:
         if "regim de citire" not in readonly_text or "regim de citire" not in page:
             bad.append("«regim de citire» должно быть и в баннере, и в договоре")
     days = None
-    for n in ast.walk(lst_tree) if lst_tree else ():
+    for n in _walk(lst_tree) if lst_tree else ():
         if (isinstance(n, ast.Assign) and isinstance(n.value, ast.Call)
                 and any(isinstance(t, ast.Name) and t.id == "NO_FILE_GRACE" for t in n.targets)):
             for kw in n.value.keywords:
@@ -1951,7 +1970,7 @@ def suite(res: Result) -> None:
     # которые называет программа (license.TERMS_URL, TERMS_VERSION), и
     # летопись пишет эту версию навсегда. Страницу поправили, а дату в
     # программе нет — клиника «приняла» версию, которой уже нет на сайте.
-    consts = {t.id: n.value.value for n in ast.walk(by_path.get("app/core/license.py") or ast.Module(
+    consts = {t.id: n.value.value for n in _walk(by_path.get("app/core/license.py") or ast.Module(
                   body=[], type_ignores=[]))
               if isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant)
               for t in n.targets if isinstance(t, ast.Name) and t.id in ("TERMS_URL", "TERMS_VERSION")}
@@ -1968,7 +1987,7 @@ def suite(res: Result) -> None:
     # пробный ждёт (активация без файла, 26.09): число — license.PENDING_EVERY.
     pol_path = ROOT / "docs" / "site" / "privacy.html"
     pol = " ".join(pol_path.read_text(encoding="utf-8").split()) if pol_path.exists() else ""
-    minutes = [kw.value.value for n in ast.walk(by_path.get("app/core/license.py") or ast.Module(
+    minutes = [kw.value.value for n in _walk(by_path.get("app/core/license.py") or ast.Module(
                    body=[], type_ignores=[]))
                if isinstance(n, ast.Assign) and isinstance(n.value, ast.Call)
                and any(isinstance(t, ast.Name) and t.id == "PENDING_EVERY" for t in n.targets)
@@ -1996,9 +2015,9 @@ def suite(res: Result) -> None:
         if not texts[rel]:
             bad.append(f"{rel} не найден — потоки данных описывать негде")
     empty = ast.Module(body=[], type_ignores=[])
-    hours = [b.left.value for n in ast.walk(by_path.get("app/update.py") or empty)
+    hours = [b.left.value for n in _walk(by_path.get("app/update.py") or empty)
              if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "_schedule"
-             for b in ast.walk(n)
+             for b in _walk(n)
              if isinstance(b, ast.BinOp) and isinstance(b.op, ast.Mult)
              and isinstance(b.left, ast.Constant) and isinstance(b.right, ast.Constant)
              and b.right.value == 3600]
@@ -2008,7 +2027,7 @@ def suite(res: Result) -> None:
         want = f"la fiecare {max(hours)} ore"
         bad += [f"{name} не говорит «{want}»: программа проверяет обновления раз в {max(hours)} ч"
                 for name, text in texts.items() if want not in text]
-    every = [kw.value.value for n in ast.walk(by_path.get("app/core/sms_loop.py") or empty)
+    every = [kw.value.value for n in _walk(by_path.get("app/core/sms_loop.py") or empty)
              if isinstance(n, ast.Assign) and isinstance(n.value, ast.Call)
              and any(isinstance(t, ast.Name) and t.id == "ACCOUNT_EVERY" for t in n.targets)
              for kw in n.value.keywords if kw.arg == "minutes" and isinstance(kw.value, ast.Constant)]
@@ -2047,9 +2066,9 @@ def suite(res: Result) -> None:
     if len(client) < 20:
         bad.append(f"файлов клиента нашлось {len(client)} — обход сломан, правило пусто")
     set_tree = by_path.get("app/modules/settings/routes.py")
-    hub = next((n for n in ast.walk(set_tree) if isinstance(n, ast.FunctionDef)
+    hub = next((n for n in _walk(set_tree) if isinstance(n, ast.FunctionDef)
                 and n.name == "_hub_tiles"), None) if set_tree else None
-    tiles = {n.args[3].value for n in (ast.walk(hub) if hub else ())
+    tiles = {n.args[3].value for n in (_walk(hub) if hub else ())
              if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
              and n.func.id == "tile" and len(n.args) >= 4
              and isinstance(n.args[3], ast.Constant)}
@@ -2093,16 +2112,16 @@ def suite(res: Result) -> None:
     bad = []
     lay_tree = by_path.get(_LAY_SHELL)
     funcs = {n.name: n for rel, tree in src if rel.startswith("app/core/")
-             for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+             for n in _walk(tree) if isinstance(n, ast.FunctionDef)}
 
     def _banner_calls(node) -> set:
-        return {c.func.id for c in ast.walk(node)
+        return {c.func.id for c in _walk(node)
                 if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
                 and re.fullmatch(r"_\w+_(banner|hint)", c.func.id)}
     printed = {name for name in funcs if re.fullmatch(r"_\w+_(banner|hint)", name)}
     in_model = _banner_calls(funcs["shell_model"]) if "shell_model" in funcs else set()
     keys = []
-    for n in ast.walk(funcs["shell_model"]) if "shell_model" in funcs else ():
+    for n in _walk(funcs["shell_model"]) if "shell_model" in funcs else ():
         if isinstance(n, ast.Dict):
             for k, v in zip(n.keys, n.values):
                 if isinstance(k, ast.Constant) and k.value == "signals" and isinstance(v, ast.Dict):
@@ -2133,7 +2152,7 @@ def suite(res: Result) -> None:
     bad = []
     demo_tree = by_path.get("app/core/demo.py")
     blocked = []
-    for n in ast.walk(demo_tree) if demo_tree else ():
+    for n in _walk(demo_tree) if demo_tree else ():
         if (isinstance(n, ast.Assign) and isinstance(n.value, ast.Tuple)
                 and any(isinstance(t, ast.Name) and t.id == "BLOCKED" for t in n.targets)):
             blocked = [e.value for e in n.value.elts if isinstance(e, ast.Constant)]
@@ -2155,7 +2174,7 @@ def suite(res: Result) -> None:
         consts = {t.id: n.value.value for n in tree.body if isinstance(n, ast.Assign)
                   and isinstance(n.value, ast.Constant) and isinstance(n.value.value, str)
                   for t in n.targets if isinstance(t, ast.Name)}
-        for n in ast.walk(tree):
+        for n in _walk(tree):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 for d in n.decorator_list:
                     if (isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute)
@@ -2175,7 +2194,7 @@ def suite(res: Result) -> None:
         return bool(tree) and any(
             isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
             and n.func.attr == "refuses" and isinstance(n.func.value, ast.Name)
-            and n.func.value.id == "demo" for n in ast.walk(tree))
+            and n.func.value.id == "demo" for n in _walk(tree))
     bad += [f"{rel} не зовёт demo.refuses — список есть, отказа нет"
             for rel in ("app/main.py", "app/modules/settings/routes.py") if not _asks_demo(rel)]
     res.ok("список демо-отказов не протух", not bad,
@@ -2195,10 +2214,10 @@ def suite(res: Result) -> None:
     bad = []
     auth_tree = by_path.get(_AUTH_MODULE)
     local_only = set()
-    for n in ast.walk(auth_tree) if auth_tree else ():
+    for n in _walk(auth_tree) if auth_tree else ():
         if (isinstance(n, ast.Assign)
                 and any(isinstance(t, ast.Name) and t.id == "LOCAL_ONLY" for t in n.targets)):
-            local_only = {e.value for e in ast.walk(n.value)
+            local_only = {e.value for e in _walk(n.value)
                           if isinstance(e, ast.Constant) and isinstance(e.value, str)}
     if not local_only:
         bad.append(f"{_AUTH_MODULE}: нет LOCAL_ONLY — якорь правила пропал")
@@ -2207,12 +2226,12 @@ def suite(res: Result) -> None:
     def _guard_call(stmt, names) -> bool:
         return (isinstance(stmt, ast.If) and any(
             isinstance(c, ast.Call) and isinstance(c.func, ast.Name) and c.func.id in names
-            for c in ast.walk(stmt.test))
+            for c in _walk(stmt.test))
             and len(stmt.body) == 1 and isinstance(stmt.body[0], ast.Return))
 
     seen = set()
     for rel, tree in src:
-        for fn in ast.walk(tree):
+        for fn in _walk(tree):
             if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             paths = {d.args[0].value for d in fn.decorator_list
@@ -2228,7 +2247,7 @@ def suite(res: Result) -> None:
                 rest.pop(0)
             first_local = bool(rest) and _guard_call(rest[0], {"local_only"})
             calls_local = any(isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
-                              and c.func.id == "local_only" for c in ast.walk(fn))
+                              and c.func.id == "local_only" for c in _walk(fn))
             for p in paths:
                 if p in local_only:
                     seen.add(p)
@@ -2306,9 +2325,9 @@ def suite(res: Result) -> None:
     plan_tree = by_path.get("app/core/sms_plan.py")
 
     def _texts_of(node) -> set:
-        return {c.value for c in ast.walk(node)
+        return {c.value for c in _walk(node)
                 if isinstance(c, ast.Constant) and isinstance(c.value, str)}
-    for n in ast.walk(plan_tree) if plan_tree else ():
+    for n in _walk(plan_tree) if plan_tree else ():
         if not isinstance(n, ast.Assign):
             continue
         names = {t.id for t in n.targets if isinstance(t, ast.Name)}
@@ -2332,7 +2351,7 @@ def suite(res: Result) -> None:
     if not seen & allowed:
         bad.append("в текстах TEXTS/PHONE_LINE нет ни одной подстановки — якорь правила пропал")
     if plan_tree and not any(isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "RECALL_TEXTS"
-                                                               for t in n.targets) for n in ast.walk(plan_tree)):
+                                                               for t in n.targets) for n in _walk(plan_tree)):
         bad.append("core/sms_plan.py: словаря RECALL_TEXTS не найдено — тексты Rechemări ушли из-под правила")
     res.ok("подстановки SMS — белый список", not bad,
            "в тексте SMS появились данные, которых в нём быть не может: " + "; ".join(bad))
@@ -2355,12 +2374,12 @@ def suite(res: Result) -> None:
                  ("app/core/notices.py", "sms_item")}
     bad, found, reads = [], set(), 0
     for rel, tree in src:
-        for fn in ast.walk(tree):
+        for fn in _walk(tree):
             if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) and (rel, fn.name) in low_users:
                 found.add((rel, fn.name))
                 if "low" not in _calls(fn):
                     bad.append(f"{rel}:{fn.lineno} {fn.name}() не берёт состояние у sms_loop.low()")
-        for n in ast.walk(tree):
+        for n in _walk(tree):
             name = (n.id if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
                     else n.attr if isinstance(n, ast.Attribute) else "")
             if name in ("LOW_PAID", "LOW_TRIAL"):
@@ -2371,7 +2390,7 @@ def suite(res: Result) -> None:
             if name == "LOW_DAYS" or (isinstance(n, ast.Name) and n.id == "LOW_DAYS"):
                 bad.append(f"{rel}:{n.lineno} LOW_DAYS — порог по дням снят 18.10")
             if isinstance(n, ast.Compare) and "low_limit" not in _enclosing(tree, n.lineno):
-                consts = [c.value for c in ast.walk(n) if isinstance(c, ast.Constant)]
+                consts = [c.value for c in _walk(n) if isinstance(c, ast.Constant)]
                 if "balance" in consts and any(isinstance(v, (int, float)) and not isinstance(v, bool)
                                                for v in consts):
                     bad.append(f"{rel}:{n.lineno} остаток SMS сравнивается с числом мимо low_limit")
@@ -2389,7 +2408,7 @@ def suite(res: Result) -> None:
     # телефону в сети клиники. Якорь — хотя бы один такой маршрут есть.
     bad, n_shell = [], 0
     for rel, tree in src:
-        for fn in ast.walk(tree):
+        for fn in _walk(tree):
             if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             paths_ = [d.args[0].value for d in fn.decorator_list
@@ -2413,7 +2432,7 @@ def suite(res: Result) -> None:
     # несохранённой правкой врача. Поведение держит стенд
     # `test_patient_card.suite_doc_outlives_shell`; здесь — чтобы новое
     # открытие не завело болезнь заново в другом месте.
-    bad = [f"{rel}:{n.lineno}" for rel, tree in src for n in ast.walk(tree)
+    bad = [f"{rel}:{n.lineno}" for rel, tree in src for n in _walk(tree)
            if isinstance(n, ast.Call) and isinstance(n.func, (ast.Name, ast.Attribute))
            and (n.func.id if isinstance(n.func, ast.Name) else n.func.attr) == "startfile"]
     res.ok("файл открывает только core/shellopen, не os.startfile", not bad,
@@ -2434,11 +2453,11 @@ def suite(res: Result) -> None:
                     page_css = ast.literal_eval(n.value)
         prints = any(isinstance(c, ast.Constant) and isinstance(c.value, str)
                      and re.search(r"""onclick=["']window\.print\(\)""", c.value)
-                     for c in ast.walk(tree))
+                     for c in _walk(tree))
         if not prints:
             continue
         sheets_n += 1
-        if not any(isinstance(n, ast.Attribute) and n.attr == "PRINT_PAGE_CSS" for n in ast.walk(tree)):
+        if not any(isinstance(n, ast.Attribute) and n.attr == "PRINT_PAGE_CSS" for n in _walk(tree)):
             bad.append(f"{rel}: кнопка window.print() без theme.PRINT_PAGE_CSS")
     if page_css is None:
         bad.append("theme.PRINT_PAGE_CSS не найден — якорь правила пропал")
@@ -2465,7 +2484,7 @@ def suite(res: Result) -> None:
     _SAN_ANY = re.compile(r"\b(?:UPDATE|DELETE\s+FROM)\s+\{", re.I)
 
     def _sql_texts(tree):
-        for n in ast.walk(tree):
+        for n in _walk(tree):
             if isinstance(n, ast.Constant) and isinstance(n.value, str):
                 yield n.lineno, n.value
             elif isinstance(n, ast.JoinedStr):
@@ -2535,7 +2554,7 @@ def suite(res: Result) -> None:
     for rel, tree in src:
         if rel.startswith("app/db/"):
             continue
-        for fn in ast.walk(tree):
+        for fn in _walk(tree):
             if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) and "set_plan_status" in _calls(fn):
                 seen += 1
                 if "on_plan_status" not in _calls(fn):
