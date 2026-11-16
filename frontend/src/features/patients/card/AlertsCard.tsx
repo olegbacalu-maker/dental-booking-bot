@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { ask } from '../../../components/confirm'
 import { Icon, iconName } from '../../../components/Icon'
-import type { CardActions } from './actions'
+import { useFormTouched, type CardActions } from './actions'
 import { patientCard, type Alert, type PatientCard } from './card'
 
 /* «Atenționări medicale» по макету (08.10): пустое состояние пунктиром, список
@@ -45,6 +45,7 @@ export function AlertsCard({ card, a, onAnamneza, withAnamneza = true, collapsed
   const kinds = card.options.alert_kinds
   const [kind, setKind] = useState(kinds[0]?.id ?? 'allergy')
   const [text, setText] = useState('')
+  useFormTouched(a, 'alert', text.trim() !== '')
   const [invalid, setInvalid] = useState(false)
 
   async function onSubmit(e: FormEvent) {

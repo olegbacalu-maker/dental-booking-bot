@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { ask } from '../../../components/confirm'
 import { Icon, iconName } from '../../../components/Icon'
-import type { CardActions } from './actions'
+import { useFormTouched, type CardActions } from './actions'
 import { mdl, patientCard, type PatientCard, type Payment } from './card'
 
 /* «Plăți și sold»: долг = финализированные позиции плана с ценой минус
@@ -39,6 +39,7 @@ export function FinanceCard({ card, a }: Props) {
   const [method, setMethod] = useState(methods[0]?.id ?? 'numerar')
   const [note, setNote] = useState('')
   const [invalid, setInvalid] = useState(false)
+  useFormTouched(a, 'pay', amount.trim() !== '' || note.trim() !== '')
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()

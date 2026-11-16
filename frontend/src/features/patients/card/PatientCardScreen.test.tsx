@@ -1984,6 +1984,7 @@ describe('фиша: несохранённое при уходе, перезаг
     return e.defaultPrevented
   }
   const QF = 'Părăsiți fișa fără să le salvați?'
+  const QT = 'Părăsiți secțiunea fără să le salvați?'
 
   describe('дневник визита во вкладке Vizite', () => {
     const VQ = 'Consultația are modificări nesalvate.'
@@ -2028,6 +2029,64 @@ describe('фиша: несохранённое при уходе, перезаг
       confirm.mockClear()
       await tabTo('Rezumat')
       expect(confirm).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('короткие формы карточек', () => {
+    it('позиция плана и платёж: смена вкладки и уход — вопрос, называющий обе; пустые — без вопроса', async () => {
+      serve()
+      const { router } = open('/admin/patient/5?tab=plan')
+      await settled()
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      await tabTo('Rezumat')
+      expect(confirm).not.toHaveBeenCalled()
+      await tabTo('Plan și plăți')
+      fireEvent.change(screen.getByLabelText('Procedură (ex. Coroană zirconiu)'), { target: { value: 'Coroană' } })
+      fireEvent.change(screen.getByLabelText('Suma MDL (cu minus = restituire)'), { target: { value: '300' } })
+      fireEvent.click(strip().getByRole('tab', { name: 'Rezumat' }))
+      await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(
+        `Procedura nouă din plan nu a fost adăugată. Plata nu a fost înregistrată. ${QT}`))
+      expect(router.state.location.search).toBe('?tab=plan')
+      fireEvent.click(screen.getByRole('link', { name: /Pacienți/ }))
+      await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(
+        `Procedura nouă din plan nu a fost adăugată. Plata nu a fost înregistrată. ${QF}`))
+      /* стёрли руками — форма снова пуста, вопроса нет */
+      fireEvent.change(screen.getByLabelText('Procedură (ex. Coroană zirconiu)'), { target: { value: '' } })
+      fireEvent.change(screen.getByLabelText('Suma MDL (cu minus = restituire)'), { target: { value: '' } })
+      confirm.mockClear()
+      await tabTo('Rezumat')
+      expect(confirm).not.toHaveBeenCalled()
+    })
+
+    it('профиль: раскрытая форма с правкой — вопрос; раскрытая без правки — без вопроса', async () => {
+      serve()
+      open('/admin/patient/5?tab=date')
+      await settled()
+      fireEvent.click(screen.getByText('Editează profilul'))
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      await tabTo('Rezumat')
+      expect(confirm).not.toHaveBeenCalled()
+      await tabTo('Date pacient')                     // форма раскрыта по-прежнему: это состояние экрана
+      fireEvent.change(screen.getByLabelText('Nume'), { target: { value: 'Pin Test Nou' } })
+      fireEvent.click(strip().getByRole('tab', { name: 'Rezumat' }))
+      await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(`Profilul pacientului are modificări nesalvate. ${QT}`))
+    })
+
+    it('пометка на Rezumat и выбранный файл в Documente — вопрос при смене вкладки', async () => {
+      serve()
+      open('/admin/patient/5')
+      await settled()
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      fireEvent.click(screen.getByRole('button', { name: 'Atenționare nouă' }))
+      fireEvent.change(await screen.findByLabelText(/ex\./, { selector: 'input.dp-fld' }), { target: { value: 'alergie' } })
+      fireEvent.click(strip().getByRole('tab', { name: 'Plan și plăți' }))
+      await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(`Atenționarea nu a fost adăugată. ${QT}`))
+      confirm.mockReturnValueOnce(true)
+      await tabTo('Documente')
+      const file = new File(['x'], 'radiografie.png', { type: 'image/png' })
+      fireEvent.change(document.querySelector('input[type="file"]') as HTMLInputElement, { target: { files: [file] } })
+      fireEvent.click(strip().getByRole('tab', { name: 'Rezumat' }))
+      await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(`Fișierul ales nu a fost încărcat. ${QT}`))
     })
   })
 

@@ -3,7 +3,7 @@ import { AppLink, useAppNavigate } from '../../../components/AppLink'
 import { ask } from '../../../components/confirm'
 import { Icon } from '../../../components/Icon'
 import type { IconName } from '../../../components/icons'
-import type { CardActions } from './actions'
+import { useFormTouched, type CardActions } from './actions'
 import { patientCard, type PatientCard, type ProfileForm } from './card'
 import { printHref } from './print'
 
@@ -103,6 +103,10 @@ export function ProfileCard({ card, a, editOpen, onEditOpen, noteFocus, onNoteFo
   const [draft, setDraft] = useState<Draft>(() => fresh(card))
   const cur = draft.card === card ? draft : fresh(card)
   const { form, noPhone } = cur
+  /* тронута — только раскрытая форма: свёрнутая значит «не правлю» */
+  const base = fresh(card)
+  useFormTouched(a, 'profile', editOpen && (noPhone !== base.noPhone
+    || (Object.keys(form) as (keyof ProfileForm)[]).some((k) => form[k] !== base.form[k])))
   const [invalid, setInvalid] = useState('')
   const [confirm, setConfirm] = useState('')
   const [erasing, setErasing] = useState(false)

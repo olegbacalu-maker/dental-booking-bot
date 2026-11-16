@@ -43,7 +43,7 @@ import { stockApi, type PatientMove } from '../../stock/stock'
 import { ProfileCard } from './ProfileCard'
 import { NextVisitCard, VisitsCard } from './VisitsCard'
 import { isSheetHref } from './print'
-import type { CardActions } from './actions'
+import { FORM_KEYS, type CardActions, type FormKey } from './actions'
 import { mdl, patientCard, type PatientCard, type PlanItem, type Visit } from './card'
 
 /* Фиша пациента (C18) — с 26.09 рабочее место с вкладками (B6, слово Олега:
@@ -82,7 +82,15 @@ const T = {
   leavePerio: PERIO_LEAVE,
   visitUnsaved: VISIT_UNSAVED,
   leaveVisit: VISIT_LEAVE,
+  leaveTab: 'Părăsiți secțiunea fără să le salvați?',
   leaveSheet: 'Pe foaie ajunge doar ce e salvat. Părăsiți fișa fără să le salvați?',
+  forms: {
+    profile: 'Profilul pacientului are modificări nesalvate.',
+    plan: 'Procedura nouă din plan nu a fost adăugată.',
+    pay: 'Plata nu a fost înregistrată.',
+    alert: 'Atenționarea nu a fost adăugată.',
+    doc: 'Fișierul ales nu a fost încărcat.',
+  } satisfies Record<FormKey, string>,
   leave: 'Părăsește',
 } as const
 
@@ -92,13 +100,14 @@ interface Props {
 }
 
 /** Несохранённое фиши: у экрана (анамнез, прикус) и у смонтированной вкладки
- *  (зубы, лист пародонтограммы, дневник визита). */
+ *  (зубы, лист пародонтограммы, дневник визита, короткие формы карточек). */
 interface Drafts {
   an: boolean
   oc: boolean
   odo: number[]
   perio: boolean
   visit: boolean
+  forms: FormKey[]
 }
 
 /**
@@ -119,13 +128,14 @@ function lostOn(d: Drafts, here: { pathname: string; tab: Tab; sub: number | nul
     odo: off ? d.odo : [],
     perio: d.perio && off,
     visit: d.visit && (off || intParam(q, 'visit') !== here.sub),
+    forms: off ? d.forms : [],
   }
 }
 
 /** Первые фразы вопроса — по черновику; пусто — спрашивать не о чем. */
 function draftsText(d: Drafts): string {
   return [d.an && T.anUnsaved, d.oc && T.ocUnsaved, d.odo.length > 0 && unsavedTeeth(d.odo),
-    d.perio && T.perioUnsaved, d.visit && T.visitUnsaved]
+    d.perio && T.perioUnsaved, d.visit && T.visitUnsaved, ...d.forms.map((k) => T.forms[k])]
     .filter(Boolean).join(' ')
 }
 
@@ -305,8 +315,9 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
   /* ⭐ Черновики одонтограммы (волна 2, 25.10) — зубы, о которых сообщает
      рабочий стол вкладки (`onDirty`). Их охраняет ЭТОТ же блокер: роутер
      держит один, и второй во вкладке молча выключил бы вопрос анамнеза.
-     Так же — лист пародонтограммы (`PerioTab`) и дневник визита (`VisitTab`):
-     оба живут во вкладке и умирают с её сменой. Анамнез и прикус живут у экрана и переживают вкладки — для
+     Так же — лист пародонтограммы (`PerioTab`), дневник визита (`VisitTab`) и
+     короткие формы карточек (`a.form`): всё это живёт во вкладке и умирает
+     с её сменой. Анамнез и прикус живут у экрана и переживают вкладки — для
      них только уход с фиши (`lostOn`). Грязно несколько — вопрос называет всё. */
   const [odoDirty, setOdoDirty] = useState<number[]>([])
   const onOdoDirty = useCallback((t: number[]) => setOdoDirty(t), [])
@@ -314,7 +325,10 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
   const onPerioDirty = useCallback((on: boolean) => setPerioDirty(on), [])
   const [visitDirty, setVisitDirty] = useState(false)
   const onVisitDirty = useCallback((on: boolean) => setVisitDirty(on), [])
-  const drafts: Drafts = { an: anIsDirty, oc: ocIsDirty, odo: odoDirty, perio: perioDirty, visit: visitDirty }
+  const [forms, setForms] = useState<FormKey[]>([])
+  const onForm = useCallback((k: FormKey, on: boolean) => setForms((f) => (f.includes(k) === on ? f
+    : FORM_KEYS.filter((x) => (x === k ? on : f.includes(x))))), [])
+  const drafts: Drafts = { an: anIsDirty, oc: ocIsDirty, odo: odoDirty, perio: perioDirty, visit: visitDirty, forms }
   const blocker = useBlocker(({ nextLocation }) =>
     draftsText(lostOn(drafts, { pathname, tab, sub }, nextLocation)) !== '')
   useEffect(() => {
@@ -322,19 +336,19 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
     /* Вкладка сообщает «чисто» эффектом (`onDirty`), и щелчок сразу после
        записи или после снятия вкладки застаёт блокер с прежним флагом. Здесь
        решает СВЕЖЕЕ состояние: грязного не осталось — уход без вопроса. */
-    const l = lostOn({ an: anIsDirty, oc: ocIsDirty, odo: odoDirty, perio: perioDirty, visit: visitDirty },
+    const l = lostOn({ an: anIsDirty, oc: ocIsDirty, odo: odoDirty, perio: perioDirty, visit: visitDirty, forms },
       { pathname, tab, sub }, blocker.location)
     const text = draftsText(l)
     if (!text) {
       blocker.proceed()
       return
     }
-    const q = l.away ? T.leaveCard : l.odo.length ? T.leaveOdo : l.perio ? T.leavePerio : T.leaveVisit
+    const q = l.away ? T.leaveCard : l.odo.length ? T.leaveOdo : l.perio ? T.leavePerio : l.visit ? T.leaveVisit : T.leaveTab
     void ask({ text: `${text} ${q}`, ok: T.leave, danger: true }).then((yes) => {
       if (yes) blocker.proceed()
       else blocker.reset()
     })
-  }, [blocker, anIsDirty, ocIsDirty, odoDirty, perioDirty, visitDirty, pathname, tab, sub])
+  }, [blocker, anIsDirty, ocIsDirty, odoDirty, perioDirty, visitDirty, forms, pathname, tab, sub])
   /* F5, «Reîncarcă» окна оболочки, закрытие вкладки браузера и печатный лист
      (он открывается документом) снимают страницу целиком — вопрос о всём */
   const pageWhat = draftsText(drafts)
@@ -519,7 +533,7 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
   const card = state.data
   /* адрес фиши с текущей вкладкой — куда вернёт «назад» с печатного листа */
   const here = `${pathname}${qs(tab, views, sub)}`
-  const a: CardActions = { pid, views, busy, act, back: here }
+  const a: CardActions = { pid, views, busy, act, back: here, form: onForm }
   /* Печатный лист — документ: блокер роутера его не видит, и несохранённое
      ушло бы молча. Один обработчик на все листы фиши (шапка, анкета, план,
      документы, пародонтограмма) — новый лист попадает под него сам. */

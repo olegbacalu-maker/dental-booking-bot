@@ -3,7 +3,7 @@ import { AppLink } from '../../../components/AppLink'
 import { ask } from '../../../components/confirm'
 import { Icon, iconName } from '../../../components/Icon'
 import { asApiError } from '../../../services/api'
-import type { CardActions } from './actions'
+import { useFormTouched, type CardActions } from './actions'
 import { hideDialog, showDialog } from './dialog'
 import { patientCard, scan, type Doc, type Form, type PatientCard, type ScanStatus } from './card'
 import { printHref } from './print'
@@ -77,6 +77,7 @@ const mdl = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
 export function DocumentsCard({ card, a, onFail, navigate, pick = null }: Props) {
   const cats = card.options.doc_categories
   const [file, setFile] = useState<File | null>(null)
+  useFormTouched(a, 'doc', file !== null)
   const [category, setCategory] = useState('alt')
   const [viewing, setViewing] = useState<Doc | null>(null)
   /* окно гаснет за ступень (07.11): снимок и подпись стоят до конца */

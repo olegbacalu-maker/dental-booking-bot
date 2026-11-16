@@ -3,7 +3,7 @@ import { AppLink } from '../../../components/AppLink'
 import { ask } from '../../../components/confirm'
 import { Icon } from '../../../components/Icon'
 import { placeMenu, useMenuDismiss } from '../../../components/menu'
-import type { CardActions } from './actions'
+import { useFormTouched, type CardActions } from './actions'
 import { hideDialog, showDialog } from './dialog'
 import { mdl, patientCard, type PatientCard, type PlanForm, type PlanItem } from './card'
 import { serviceIdFor, ServiceList } from './planService'
@@ -109,6 +109,7 @@ export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterStep
   const [form, setForm] = useState<PlanForm>({ tooth: '', procedure: '', doctor: '', price: '', due_date: '' })
   const [invalid, setInvalid] = useState(false)
   const set = (patch: Partial<PlanForm>) => setForm((f) => ({ ...f, ...patch }))
+  useFormTouched(a, 'plan', Object.values(form).some((v) => v !== ''))
   const refuzDlg = useRef<HTMLDialogElement>(null)
   const [refuz, setRefuz] = useState<PlanItem | null>(null)
   /* окно гаснет за ступень (07.11): название процедуры стоит до конца */
