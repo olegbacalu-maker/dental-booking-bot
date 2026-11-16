@@ -1,6 +1,6 @@
-import { startTransition, useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
+import { startTransition, useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react'
 import { useCommand } from '../../../app/bridge'
-import { AppLink } from '../../../components/AppLink'
+import { AppLink, isPlainClick } from '../../../components/AppLink'
 import { useBlocker, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { ask } from '../../../components/confirm'
 import { Icon } from '../../../components/Icon'
@@ -42,6 +42,7 @@ import { StockOutBlock } from '../../stock/PatientStock'
 import { stockApi, type PatientMove } from '../../stock/stock'
 import { ProfileCard } from './ProfileCard'
 import { NextVisitCard, VisitsCard } from './VisitsCard'
+import { isSheetHref } from './print'
 import type { CardActions } from './actions'
 import { mdl, patientCard, type PatientCard, type PlanItem, type Visit } from './card'
 
@@ -81,6 +82,7 @@ const T = {
   leavePerio: PERIO_LEAVE,
   visitUnsaved: VISIT_UNSAVED,
   leaveVisit: VISIT_LEAVE,
+  leaveSheet: 'Pe foaie ajunge doar ce e salvat. Părăsiți fișa fără să le salvați?',
   leave: 'Părăsește',
 } as const
 
@@ -333,9 +335,10 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
       else blocker.reset()
     })
   }, [blocker, anIsDirty, ocIsDirty, odoDirty, perioDirty, visitDirty, pathname, tab, sub])
-  /* F5, «Reîncarcă» окна оболочки и закрытие вкладки браузера снимают
-     страницу целиком — вопрос о всём */
-  useUnsavedPage(draftsText(drafts) || null)
+  /* F5, «Reîncarcă» окна оболочки, закрытие вкладки браузера и печатный лист
+     (он открывается документом) снимают страницу целиком — вопрос о всём */
+  const pageWhat = draftsText(drafts)
+  const leaveTo = useUnsavedPage(pageWhat || null)
 
   const fail = useCallback((e: unknown): ApiError => {
     const err = asApiError(e)
@@ -517,6 +520,16 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
   /* адрес фиши с текущей вкладкой — куда вернёт «назад» с печатного листа */
   const here = `${pathname}${qs(tab, views, sub)}`
   const a: CardActions = { pid, views, busy, act, back: here }
+  /* Печатный лист — документ: блокер роутера его не видит, и несохранённое
+     ушло бы молча. Один обработчик на все листы фиши (шапка, анкета, план,
+     документы, пародонтограмма) — новый лист попадает под него сам. */
+  const onSheet = (e: MouseEvent<HTMLElement>): void => {
+    const link = e.target instanceof Element ? e.target.closest('a[href]') : null
+    const href = link?.getAttribute('href') ?? ''
+    if (!pageWhat || !link || !isSheetHref(href) || !isPlainClick(e, link.getAttribute('target'))) return
+    e.preventDefault()
+    leaveTo(href, T.leaveSheet)
+  }
   /* «Adaugă» шапки: то, что раньше было «Acțiuni rapide» на Rezumat, — из любого раздела */
   const onAdd = (k: AddKind): void => {
     if (k === 'visit') setBooking(true)
@@ -527,7 +540,7 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
   }
 
   return (
-    <section className="dp-react-root" aria-busy={busy || undefined}>
+    <section className="dp-react-root" aria-busy={busy || undefined} onClick={onSheet}>
       {nav}
       <HeroKpi card={card} back={here} onBook={() => setBooking(true)} onAdd={onAdd}
         onAnamneza={() => { setAnTick((t) => t + 1); goTab('date') }}

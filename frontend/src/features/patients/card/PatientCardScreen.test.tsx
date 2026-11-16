@@ -1975,7 +1975,8 @@ describe('«Anulează materialele» в строке плана', () => {
 })
 
 /* Всё несохранённое фиши — под одним блокером и одним вопросом: дневник визита
-   (вкладка и визит), F5 и закрытие окна (анамнез, прикус, всё прочее). */
+   (вкладка и визит), короткие формы карточек (смена вкладки), F5 и закрытие
+   окна (анамнез, прикус, всё прочее), печатные листы (документ, а не экран). */
 describe('фиша: несохранённое при уходе, перезагрузке и печати', () => {
   const unload = () => {
     const e = new Event('beforeunload', { cancelable: true })
@@ -2076,4 +2077,57 @@ describe('фиша: несохранённое при уходе, перезаг
     })
   })
 
+  describe('печатные листы — документ, не экран', () => {
+    /** Щелчок по ссылке листа; что сделал обработчик фиши — по `defaultPrevented`
+     *  (слушатель окна идёт после React и гасит переход документа в jsdom). */
+    const clickSheet = (a: Element) => {
+      let prevented = false
+      const seen = (e: Event) => { prevented = e.defaultPrevented; e.preventDefault() }
+      window.addEventListener('click', seen)
+      fireEvent.click(a)
+      window.removeEventListener('click', seen)
+      return prevented
+    }
+    const fisa = () => screen.getAllByText('Fișa 043/e')[0]!.closest('a') as HTMLAnchorElement
+
+    it('без несохранённого — лист открывается как прежде', async () => {
+      serve()
+      open('/admin/patient/5')
+      await settled()
+      const confirm = vi.spyOn(window, 'confirm')
+      expect(clickSheet(fisa())).toBe(false)
+      expect(confirm).not.toHaveBeenCalled()
+    })
+
+    it('анамнез не записан: 043/e и анкета — сперва вопрос; отказ — на месте; согласие — лист', async () => {
+      serve()
+      open('/admin/patient/5?tab=date')
+      await settled()
+      fireEvent.click(screen.getByLabelText('Diabet zaharat'))
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
+      const Q = 'Anamneza are modificări nesalvate. Pe foaie ajunge doar ce e salvat. Părăsiți fișa fără să le salvați?'
+      expect(clickSheet(fisa())).toBe(true)
+      await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(Q))
+      expect(nav).not.toHaveBeenCalled()
+      confirm.mockReturnValueOnce(true)
+      const anketa = screen.getByText('Formular pentru pacient').closest('a') as HTMLAnchorElement
+      expect(clickSheet(anketa)).toBe(true)
+      await waitFor(() => expect(nav).toHaveBeenCalledWith(anketa.getAttribute('href')))
+      expect(confirm).toHaveBeenCalledTimes(2)
+      expect(unload()).toBe(false)     // согласились — браузер второй раз не спрашивает
+    })
+
+    it('лист пародонтограммы во вкладке — тот же вопрос фиши', async () => {
+      serve()
+      open('/admin/patient/5?tab=perio')
+      await settled()
+      await waitFor(() => expect(document.querySelector('.ptooth[data-tooth="46"] input[data-k="pd"][data-i="0"]')).toBeTruthy())
+      fireEvent.change(document.querySelector('.ptooth[data-tooth="46"] input[data-k="pd"][data-i="0"]') as HTMLInputElement, { target: { value: '7' } })
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
+      expect(clickSheet(screen.getByRole('link', { name: /Printează/ }))).toBe(true)
+      await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(
+        'Parodontograma are modificări nesalvate. Pe foaie ajunge doar ce e salvat. Părăsiți fișa fără să le salvați?'))
+      expect(confirm).toHaveBeenCalledTimes(1)
+    })
+  })
 })
