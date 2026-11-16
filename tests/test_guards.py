@@ -37,7 +37,7 @@ import tempfile
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import test_structure  # noqa: E402
-from harness import BOT, ROOT, Result, _rmtree_settled  # noqa: E402
+from harness import BOT, ROOT, Result, _rmtree_settled, link_or_copy, rewrite_copy  # noqa: E402
 
 # 🖨 — чистое эмодзи, рисует система. Живёт в исходнике \-последовательностью
 # намеренно: сам этот файл правило не читает, но знак в нём сбивал бы с толку.
@@ -57,7 +57,8 @@ def _run(rel: str | None = None, patch=None) -> Result:
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_guard_"))
     try:
         bot = tmp / "bot"
-        shutil.copytree(BOT, bot, ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copytree(BOT, bot, ignore=shutil.ignore_patterns("__pycache__"),
+                        copy_function=link_or_copy)
         if rel:
             f = bot / rel
             text = f.read_text(encoding="utf-8")
@@ -68,7 +69,7 @@ def _run(rel: str | None = None, patch=None) -> Result:
                 text = text.replace(was, now, 1)
             else:
                 text += patch
-            f.write_text(text, encoding="utf-8")
+            rewrite_copy(f, text)
         test_structure.BOT = bot
         res = Result()
         test_structure.suite(res)
@@ -298,8 +299,22 @@ def suite_release_ci(res: Result) -> None:
     res.ok("release.py читает имя части из workflow",
            bool(pm) and pm["base"] == base and int(pm["n"]) == n, names[-1])
     mutation = re.search(r"^  mutation:\s*\n\s*name:\s*(.+?)\s*$", wf, re.M)
-    mut = mutation.group(1) if mutation else "Мутация сторожей"
     res.ok("в workflow есть работа мутации", mutation is not None, "")
+    # Мутация тоже частями: шла — «<имя> k/N» на каждую часть; пропущена по
+    # правилу — ОДНА запись с нераскрытым именем: `if` работы решается до
+    # матрицы (так GitHub записал пропущенный ночью движок у 97bf03b0).
+    mut_tpl = mutation.group(1) if mutation else "Мутация сторожей"
+    mut_base = mut_tpl.split("${{")[0].rstrip()
+    block = wf[mutation.end():] if mutation else ""
+    nxt = re.search(r"^  \S", block, re.M)          # следующая работа
+    block = block[:nxt.start()] if nxt else block
+    mp = re.search(r"^\s*part:\s*\[([^\]]*)\]", block, re.M)
+    mn = len(mp.group(1).split(",")) if mp else 1
+    mut_names = ([f"{mut_base} {k}/{mn}" for k in range(1, mn + 1)]
+                 if "${{ matrix.part }}" in mut_tpl else [mut_tpl])
+    mm = mod._PART.match(mut_names[-1])
+    res.ok("release.py читает имя части мутации из workflow",
+           bool(mm) and mm["base"] == mut_base and int(mm["n"]) == mn, mut_names[-1])
 
     seq = iter(range(1, 10_000))
 
@@ -307,8 +322,14 @@ def suite_release_ci(res: Result) -> None:
         return {"id": next(seq), "name": name, "status": status,
                 "conclusion": None if status != "completed" else concl}
 
+    def mut(concl):
+        if concl == "skipped":
+            return [run(mut_tpl, "skipped")]
+        return [run(x, concl) for x in mut_names]
+
     def push(concl_parts="success", mutation_concl="skipped"):
-        return ([run(x, concl_parts) for x in names] + [run("Сторожа тронуты?"), run(mut, mutation_concl)])
+        return ([run(x, concl_parts) for x in names] + [run("Сторожа тронуты?")]
+                + mut(mutation_concl))
 
     def v(runs):
         return mod.ci_verdict(runs)[0]
@@ -316,6 +337,13 @@ def suite_release_ci(res: Result) -> None:
     res.check("все части зелёные, мутация пропущена по правилу — green", v(push()), "green")
     res.check("все части зелёные, мутация зелёная — green", v(push(mutation_concl="success")), "green")
     res.check("мутация красная — red", v(push(mutation_concl="failure")), "red")
+    res.check("одна часть мутации красная — red",
+              v(push(mutation_concl="success") + [run(mut_names[-1], "failure")]), "red")
+    gone = [r for r in push(mutation_concl="success") if r["name"] != mut_names[-1]]
+    verdict, lines = mod.ci_verdict(gone)
+    res.check("части мутации не хватает — pending, не green", verdict, "pending")
+    res.ok("и недостающая часть мутации названа",
+           any(mut_base in ln and f"{mn}/{mn}" in ln for ln in lines), str(lines))
     res.check("одна часть красная — red",
               v(push()[:-1] + [run(names[0], "failure")]), "red")
     lost = [r for r in push() if r["name"] != names[-1]]
@@ -331,10 +359,10 @@ def suite_release_ci(res: Result) -> None:
     # «пропуск = новейший ответ» (так и было в первом черновике).
     def night(mutation_concl="success"):
         return ([run(x, "skipped") for x in names]
-                + [run("Сторожа тронуты?"), run(mut, mutation_concl)])
+                + [run("Сторожа тронуты?")] + mut(mutation_concl))
 
     def rerun():
-        return [run(x) for x in names] + [run("Сторожа тронуты?"), run(mut, "skipped")]
+        return [run(x) for x in names] + [run("Сторожа тронуты?")] + mut("skipped")
 
     res.check("ночной пропуск движка не закрывает красную часть пуша",
               v(push("failure") + night()), "red")

@@ -2,7 +2,8 @@ r"""Рутина разработки одной командой. Звать ч
 
     .\dev test [-j N] [фильтр]  прогон частями разом (-j 1 — по очереди; фильтр —
                           кусок имени набора)
-    .\dev mutate          проверка сторожей test_structure на слом
+    .\dev mutate [-j N]   проверка сторожей test_structure на слом, частями разом
+                          (-j 1 — по очереди)
     .\dev up [порт]       песочница из исходников на своей базе (по умолчанию 8099)
     .\dev check           готов ли к релизу: дерево, пуш, версия, тег
     .\dev bench [фильтр]  стенды в живом Edge: переходы, сдвиги, ожидание, F5, монтаж, права,
@@ -227,7 +228,8 @@ def cmd_test(argv: list) -> int:
     print("Тронуты сторожа — сперва мутация:" if need else "Мутация не нужна:")
     print("\n".join(f"  {w}" for w in why) + "\n")
     if need:
-        if cmd_mutate([]) != 0:
+        # теми же частями, что и прогон: `-j 1` — и мутация по очереди
+        if cmd_mutate(["-j", str(jobs)]) != 0:
             print("\nМутация не прошла: правило не ловит нарушения. "
                   "Прогон не запускаю — чинить надо сторожа.")
             return 1
@@ -291,13 +293,13 @@ def _list_suites(argv: list, *flags: str) -> list[str] | None:
     return json.loads(r.stdout.strip().splitlines()[-1])
 
 
-def _runs_dir() -> pathlib.Path:
+def _runs_dir(kind: str = "dev-test") -> pathlib.Path:
     """Папка этого прогона частями: логи, отчёты и TEMP частей.
 
     Папка `temp_dir()` общая у всех worktree, и соседняя сессия может гнать
     свой прогон прямо сейчас: сносятся только папки старше `KEEP_DAYS` суток,
     а не «все, кроме последних», — чужой живой прогон так не задеть."""
-    base = temp_dir() / "dev-test"
+    base = temp_dir() / kind
     base.mkdir(parents=True, exist_ok=True)
     stale = time.time() - KEEP_DAYS * 86400
     for p in base.iterdir():
@@ -314,6 +316,8 @@ def _runs_dir() -> pathlib.Path:
 class _Part:
     """Одна часть: свой процесс, свой лог, свой отчёт, свой TEMP."""
 
+    script = "run_tests.py"
+
     def __init__(self, label: str, args: list, run_dir: pathlib.Path, tag: str):
         self.label = label
         self.log = run_dir / f"{tag}.log"
@@ -328,7 +332,7 @@ class _Part:
         self.t0 = time.monotonic()
         self.secs = 0.0
         self.proc = subprocess.Popen(
-            [str(PYTHON), str(TESTS / "run_tests.py"), *args, "--report", str(self.report)],
+            [str(PYTHON), str(TESTS / self.script), *args, "--report", str(self.report)],
             cwd=str(ROOT), env=env, stdout=self._out, stderr=subprocess.STDOUT)
 
     def done(self) -> bool:
@@ -447,12 +451,126 @@ def _summary(parts: list, expected: list[str], wall: float) -> int:
 
 
 def cmd_mutate(argv: list) -> int:
-    return run([PYTHON, TESTS / "mutate.py", *argv])
+    """Мутация сторожей. `-j N` — сколько частей гнать разом (по умолчанию
+    `default_jobs()`); `-j 1` — по-старому, одним процессом и живым выводом.
+    Прочие аргументы (`--part k/N`) уходят в mutate.py как есть, одним процессом."""
+    try:
+        jobs, argv = _parse_jobs(argv)
+    except ValueError as e:
+        print(e)
+        return 2
+    jobs = default_jobs() if jobs is None else jobs
+    if jobs == 1 or argv:
+        return run([PYTHON, TESTS / "mutate.py", *argv])
+    return run_mutate_parts(jobs)
+
+
+# ---------- mutate: части разом ----------
+#
+# Каждый прогон мутации — полный `test_structure.suite` по своей копии дерева,
+# все они независимы, а по очереди держали одно ядро около часа. Части — тот же
+# `mutate.py --part k/N`, что и в CI: по кругу индекса, у каждой части свой
+# процесс, лог, отчёт и TEMP (там её копии дерева). «Дерево без правок» и сверку
+# списка мутаций с проверками каждая часть делает сама (`mutate.main`).
+
+
+class _MutPart(_Part):
+    script = "mutate.py"
+
+    def line(self) -> str:
+        r = self.result()
+        if r is None:
+            return (f"{self.label}: УПАЛА без отчёта (код {self.proc.returncode}) "
+                    f"за {self.secs:.0f} с — {self.log}")
+        mark = "ок" if not r["bad"] and self.proc.returncode == 0 else "КРАСНАЯ"
+        return f"{self.label}: {mark}, прогонов {len(r['ran'])} за {self.secs:.0f} с"
+
+
+def _list_mutations() -> list[str] | None:
+    """Ключи всех прогонов мутации (`M<i>`, `L<i>`) — что сводка обязана увидеть."""
+    r = subprocess.run([str(PYTHON), str(TESTS / "mutate.py"), "--list"],
+                       cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", env=child_env())
+    if r.returncode != 0:
+        print((r.stdout + r.stderr).strip())
+        return None
+    import json
+    return json.loads(r.stdout.strip().splitlines()[-1])
+
+
+def run_mutate_parts(jobs: int) -> int:
+    """Мутация частями разом. Красная, если красна любая часть, упала без
+    отчёта или если хоть одна мутация не прошла ни в одной части или прошла
+    дважды (сверка по `mutate.py --list`)."""
+    expected = _list_mutations()
+    if expected is None:
+        return 2
+    n = max(1, min(jobs, len(expected)))
+    run_dir = _runs_dir("dev-mutate")
+    print(f"Мутация: {len(expected)} прогонов в {n} частях разом. Логи: {run_dir}\n")
+    t0 = time.monotonic()
+    parts: list = []
+    try:
+        parts = [_MutPart(f"часть {k}/{n}", ["--part", f"{k}/{n}"], run_dir, f"part{k}")
+                 for k in range(1, n + 1)]
+        _wait(parts)
+    except KeyboardInterrupt:
+        for p in parts:
+            p.kill()
+        print("\nПрервано.")
+        return 130
+    return _mutate_summary(parts, expected, time.monotonic() - t0)
+
+
+def _mutate_summary(parts: list, expected: list[str], wall: float) -> int:
+    """Итог частей. Молчание — красное: упавшая часть и потерянная мутация не
+    присылают ничего, и «красного нет» в сумме отчётов значило бы лишь «не
+    прислали». Одинаковые находки частей (сверка списков у каждой своя)
+    печатаются один раз."""
+    print("\n" + "=" * 60)
+    bad = 0
+    seen: list[str] = []
+    problems: list[str] = []
+    work = 0.0
+    for p in parts:
+        r = p.result()
+        if r is None or p.proc.returncode not in (0, 1):
+            bad += 1
+            print(f"  ✗ {p.label}: упала, отчёта нет или он неполон — {p.log}")
+            if r is None:
+                continue
+        seen += r["ran"]
+        work += r.get("secs") or 0
+        if r["bad"] or p.proc.returncode != 0:
+            bad += 1
+            if not r["bad"]:
+                problems.append(f"{p.label} красная без находок — {p.log}")
+        for line in r["bad"]:
+            if line not in problems:
+                problems.append(line)
+    lost = [k for k in expected if k not in seen]
+    twice = sorted({k for k in seen if seen.count(k) > 1})
+    extra = sorted(set(seen) - set(expected))
+    if lost or twice or extra:
+        bad += 1
+        if lost:
+            problems.append(f"не прошли ни в одной части: {', '.join(lost)}")
+        if twice:
+            problems.append(f"прошли дважды: {', '.join(twice)}")
+        if extra:
+            problems.append(f"не из списка мутаций: {', '.join(extra)}")
+    for line in problems:
+        print(f"  ✗ {line}")
+    print(f"\nпрогонов {len(set(seen))} из {len(expected)} в {len(parts)} частях; "
+          f"за {wall:.0f} с (по очереди было бы около {work:.0f} с)")
+    print("все сторожа краснеют" if not bad else f"красных частей и пропусков: {bad}")
+    return 1 if bad else 0
 
 
 # ---------- ci-mutate ----------
 #
-# Мутация сторожей — около четверти часа на раннере. До 10.11 CI гнал её на
+# Мутация сторожей одной работой шла до получаса на раннере (теперь частями —
+# `mutate.py --part k/N`, минуты). До 10.11 CI гнал её на
 # каждый пуш, и прогон с мутацией дважды не уложился в 45 минут (2.14.1). Теперь
 # работа «Мутация сторожей» идёт, только если сторожа тронуты (то же правило,
 # что у `test`), и раз в сутки ночью — целиком, по расписанию.

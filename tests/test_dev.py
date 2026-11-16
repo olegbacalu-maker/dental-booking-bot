@@ -262,7 +262,7 @@ def suite_ci_parts(res: Result) -> None:
     wf = _workflow()
     for label, bad in _ci_parts_problems(wf):
         res.ok(label, not bad, bad)
-    got = _ci_parts_list(wf)
+    got = _ci_parts_list(_job_block(wf, "engine"))
     res.ok("частей движка шесть или больше: три шли по 5–6.5 мин",
            len(got) >= 6, str(got))
     # Сам сторож — на сломанных workflow: каждый обязан краснеть. Иначе
@@ -293,7 +293,7 @@ def _ci_parts_list(wf: str) -> list[int]:
 
 def _ci_parts_problems(wf: str) -> list[tuple[str, str]]:
     """(проверка, что не так) по тексту workflow; пустое «что не так» — зелёная."""
-    got = _ci_parts_list(wf)
+    got = _ci_parts_list(_job_block(wf, "engine"))
     run = r"tests\run_tests.py --part ${{ matrix.part }}/${{ strategy.job-total }}"
     return [
         ("в workflow есть список частей движка", "" if got else "нет `part: [...]`"),
@@ -604,3 +604,183 @@ def suite_test_mutation(res: Result) -> None:
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
+
+
+
+def _mutate_cli(*args: str) -> subprocess.CompletedProcess:
+    """`mutate.py` подпроцессом: он импортирует `app.db` с деревом программы, а
+    в процессе прогона это чужой модуль (как у `test_layout_names`)."""
+    return subprocess.run([sys.executable, str(ROOT / "tests" / "mutate.py"), *args],
+                          cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8",
+                          errors="replace")
+
+
+def _job_block(wf: str, job: str) -> str:
+    """Текст работы `job:` в workflow — до следующей работы. Частями идут две
+    работы, и список `part:` надо брать у своей: первый в файле — чужой."""
+    m = re.search(rf"^  {job}:\s*$", wf, re.M)
+    if not m:
+        return ""
+    rest = wf[m.end():]
+    nxt = re.search(r"^  \S", rest, re.M)
+    return rest[:nxt.start()] if nxt else rest
+
+
+def _ci_mutation_problems(wf: str) -> list[tuple[str, str]]:
+    """(проверка, что не так) по работе мутации в workflow; пусто — зелёная."""
+    block = _job_block(wf, "mutation")
+    got = _ci_parts_list(block)
+    run = r"tests\mutate.py --part ${{ matrix.part }}/${{ strategy.job-total }}"
+    return [
+        ("в workflow есть работа мутации", "" if block else "нет `mutation:`"),
+        ("у мутации есть список частей", "" if got else "нет `part: [...]`"),
+        ("части мутации — ровно 1..N подряд",
+         "" if got == list(range(1, len(got) + 1)) else f"{got}"),
+        ("частей мутации больше одной", "" if len(got) > 1 else str(got)),
+        ("часть мутации гонится с N = числом работ", "" if run in block else f"нет {run!r}"),
+        ("имя работы — «<имя> k/N» (его читает release.ci_verdict)",
+         "" if re.search(r"^\s*name:.*\$\{\{ matrix\.part \}\}/\$\{\{ strategy\.job-total \}\}\s*$",
+                         block, re.M) else "имя без k/N"),
+        # облако зовёт свой tests/mutate.py через «/», движок — через «\»
+        ("мутации целиком без --part нет",
+         "есть" if re.search(r"tests\\mutate\.py\s*$", block, re.M) else ""),
+    ]
+
+
+def _cover_problems(every: list, parts: list) -> list[str]:
+    """Что не так с делением: потерянные, двойные и чужие ключи."""
+    flat = [k for p in parts for k in p]
+    return ([f"нет {k}" for k in every if k not in flat]
+            + [f"дважды {k}" for k in sorted(set(flat)) if flat.count(k) > 1]
+            + [f"чужой {k}" for k in sorted(set(flat) - set(every))])
+
+
+def suite_mutate_parts(res: Result) -> None:
+    """Части мутации — каждая правка ровно по разу, итог частями молчанием не зеленеет.
+
+    Мутация идёт частями (`mutate.py --part k/N`): `.\\dev mutate -j N` разом и
+    CI матрицей. Потерянная мутация не краснеет нигде — её просто никто не
+    гонит, и сломанный сторож остаётся незамеченным. Поэтому здесь — что
+    деление тем же кодом, что у прогона, покрывает всё при любом N; что работа
+    CI — ровно 1..N частей; что сводка `dev mutate` красна при любом молчании;
+    и сами эти проверки — на сломанных вариантах, каждый обязан краснеть.
+    """
+    import json
+    sys.path.insert(0, str(ROOT / "scripts"))
+    dev = importlib.import_module("dev")
+
+    r = _mutate_cli("--list")
+    every = json.loads(r.stdout.strip().splitlines()[-1]) if r.returncode == 0 else []
+    res.ok("мутации нашлись", len(every) > 100, f"код {r.returncode}, ключей {len(every)}")
+    res.check("ключи не повторяются", len(set(every)), len(every))
+    for n in (1, 2, 3, 4, 6, 10):
+        r = _mutate_cli("--list", "--parts", str(n))
+        parts = json.loads(r.stdout.strip().splitlines()[-1]) if r.returncode == 0 else []
+        res.check(f"n={n}: частей {n}", len(parts), n)
+        res.check(f"n={n}: каждая правка ровно в одной части", _cover_problems(every, parts), [])
+        sizes = [len(p) for p in parts] or [0]
+        res.ok(f"n={n}: части ровные (разница не больше одного)",
+               max(sizes) - min(sizes) <= 1, str(sizes))
+    # сторож деления сам краснеет на сломанном делении
+    halves = [every[::2], every[1::2]]
+    for what, broken in {"правка потерялась": [halves[0], halves[1][:-1]],
+                         "правка дважды": [halves[0] + halves[1][:1], halves[1]],
+                         "чужой ключ": [halves[0], halves[1] + ["M99999"]]}.items():
+        res.ok(f"сторож деления краснеет: {what}", bool(_cover_problems(every, broken)),
+               "зелёный на сломанном делении")
+    for bad in ("0/3", "4/3", "x"):
+        r = _mutate_cli("--part", bad)
+        res.check(f"часть {bad} отвергнута до работы", r.returncode, 2)
+
+    wf = _workflow()
+    for label, why in _ci_mutation_problems(wf):
+        res.ok(label, not why, why)
+    block = _job_block(wf, "mutation")
+    line = re.search(r"^\s*part:\s*\[[^\]]*\]", block, re.M)
+    run = r"tests\mutate.py --part ${{ matrix.part }}/${{ strategy.job-total }}"
+
+    def swap(old: str, new: str) -> str:
+        return wf.replace(block, block.replace(old, new)) if old else ""
+
+    lst = line.group(0) if line else ""
+    broken = {
+        "часть потерялась (1, 2, 4)": swap(lst, "part: [1, 2, 4]"),
+        "часть дважды (1, 2, 2)": swap(lst, "part: [1, 2, 2]"),
+        "одна часть": swap(lst, "part: [1]"),
+        "списка частей нет": swap(lst, ""),
+        "N в команде числом": swap(run, r"tests\mutate.py --part ${{ matrix.part }}/4"),
+        "мутация целиком": swap(run, r"tests\mutate.py"),
+        "имя без k/N": swap("Мутация сторожей ${{ matrix.part }}/${{ strategy.job-total }}",
+                            "Мутация сторожей"),
+    }
+    for what, text in broken.items():
+        red = [lb for lb, why in _ci_mutation_problems(text) if why]
+        res.ok(f"сторож CI мутации краснеет: {what}", bool(red), "зелёный на сломанном workflow")
+
+    # сводка `dev mutate -j`
+    class _Proc:
+        def __init__(self, code):
+            self.returncode = code
+
+    class _Fake:
+        def __init__(self, label, code, rep):
+            self.label, self.proc, self._rep, self.log = label, _Proc(code), rep, "log"
+
+        def result(self):
+            return self._rep
+
+    def rep(*keys, bad=()):
+        return {"part": None, "ran": list(keys), "bad": list(bad), "clean": [], "secs": 1.0}
+
+    def code(parts, expected):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            got = dev._mutate_summary(parts, expected, 1.0)
+        return got, out.getvalue()
+
+    exp = ["M0", "M1", "L0"]
+    good = [_Fake("часть 1/2", 0, rep("M0", "L0")), _Fake("часть 2/2", 0, rep("M1"))]
+    res.check("все части зелёные, все правки на месте — зелёный", code(good, exp)[0], 0)
+    res.check("сторож молчит в части — красный",
+              code([good[0], _Fake("часть 2/2", 1, rep("M1", bad=["правило «x» молчит"]))],
+                   exp)[0], 1)
+    res.check("часть упала без отчёта — красный",
+              code([good[0], _Fake("часть 2/2", 3221225786, None)], exp)[0], 1)
+    res.check("часть с отчётом, но кодом аварии — красный",
+              code([good[0], _Fake("часть 2/2", 3221225786, rep("M1"))], exp)[0], 1)
+    res.check("часть с кодом 1 без находок — красный",
+              code([good[0], _Fake("часть 2/2", 1, rep("M1"))], exp)[0], 1)
+    res.check("правка не прошла ни в одной части — красный", code(good, exp + ["M2"])[0], 1)
+    res.check("правка прошла дважды — красный",
+              code([good[0], _Fake("часть 2/2", 0, rep("M1", "M0"))], exp)[0], 1)
+    twin = ["набор красный ДО мутаций — сначала почини правило"]
+    _, text = code([_Fake("часть 1/2", 1, rep("M0", "L0", bad=twin)),
+                    _Fake("часть 2/2", 1, rep("M1", bad=twin))], exp)
+    res.check("одинаковая находка двух частей — одной строкой", text.count(twin[0]), 1)
+
+    # кто куда зовёт: -j 1 — по-старому, -j N — частями, `dev test` — теми же частями
+    calls: list = []
+    saved = dev.run, dev.run_mutate_parts, dev.cmd_mutate, dev.test_mutation_needed
+    try:
+        dev.run = lambda cmd, *a, **k: calls.append(("run", [str(c) for c in cmd])) or 0
+        dev.run_mutate_parts = lambda jobs: calls.append(("parts", jobs)) or 0
+        with contextlib.redirect_stdout(io.StringIO()):
+            dev.cmd_mutate(["-j", "1"])
+            dev.cmd_mutate(["-j", "4"])
+            dev.cmd_mutate(["--part", "2/3"])
+        res.check("dev mutate -j 1 — одним процессом, без частей",
+                  [c[0] for c in calls], ["run", "parts", "run"])
+        res.ok("dev mutate -j 1 зовёт mutate.py без аргументов",
+               calls[0][1][-1].endswith("mutate.py"), str(calls[0][1]))
+        res.check("dev mutate -j 4 — четыре части", calls[1][1], 4)
+        res.check("dev mutate --part 2/3 — уходит в mutate.py как есть",
+                  calls[2][1][-2:], ["--part", "2/3"])
+        got: list = []
+        dev.test_mutation_needed = lambda *a, **k: (True, ["тронуты"])
+        dev.cmd_mutate = lambda argv: got.append(list(argv)) or 1
+        with contextlib.redirect_stdout(io.StringIO()):
+            stop = [dev.cmd_test(["-j", "3"]), dev.cmd_test(["-j", "1"])]
+        res.check("dev test зовёт мутацию теми же частями", got, [["-j", "3"], ["-j", "1"]])
+        res.check("красная мутация останавливает прогон", stop, [1, 1])
+    finally:
+        dev.run, dev.run_mutate_parts, dev.cmd_mutate, dev.test_mutation_needed = saved

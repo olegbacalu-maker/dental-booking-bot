@@ -1,6 +1,10 @@
 """Проверка сторожей на слом: каждое правило `test_structure` обязано краснеть.
 
-    D:\\DentProject\\app\\.venv-desktop\\Scripts\\python.exe tests\\mutate.py
+    D:\\DentProject\\app\\.venv-desktop\\Scripts\\python.exe tests\\mutate.py [--part k/N]
+
+Обычно — `.\\dev mutate` (частями разом, `-j 1` — по очереди); CI гонит те же
+части матрицей. `--part k/N` берёт каждую N-ю правку по кругу, `--list` —
+ключи всех правок (для сверки частей), `--report путь` — итог части в JSON.
 
 Это НЕ набор проверок, а инструмент рядом с ними — как `smoke_exe.py`. В
 `run_tests.py` он не входит: проверяет он не программу, а тесты, и меняется
@@ -30,6 +34,7 @@ import pathlib
 import shutil
 import sys
 import tempfile
+import time
 
 # Кириллица в выводе: консоль раннера GitHub и PowerShell Олега бывают
 # cp1252/cp1251, и первая же строка отчёта роняла бы скрипт UnicodeEncodeError
@@ -39,7 +44,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import test_structure  # noqa: E402
-from harness import BOT, ROOT, Result  # noqa: E402
+from harness import BOT, ROOT, Result, link_or_copy, rewrite_copy  # noqa: E402
 
 sys.path.insert(0, str(BOT))
 
@@ -860,26 +865,109 @@ def _run(bot: pathlib.Path) -> Result:
 
 
 def _copy(dst: pathlib.Path) -> pathlib.Path:
-    shutil.copytree(BOT, dst, ignore=shutil.ignore_patterns("__pycache__"))
-    shutil.copytree(FRONTEND_SRC, dst / "_frontend")
+    shutil.copytree(BOT, dst, ignore=shutil.ignore_patterns("__pycache__"),
+                    copy_function=link_or_copy)
+    shutil.copytree(FRONTEND_SRC, dst / "_frontend", copy_function=link_or_copy)
     (dst / "_installer").mkdir()
     for iss in INSTALLER_DIR.glob("*.iss"):
-        shutil.copy2(iss, dst / "_installer" / iss.name)
+        link_or_copy(iss, dst / "_installer" / iss.name)
     # Файлы сборки — в `_build`, с раскладкой от корня репозитория
     # (`_build/demo/Dockerfile`): правило про статику клиента сверяет конфиг
     # vite с образом демо и обоими игнорами. Копируются ровно они, не корень.
     for rel in test_structure.BUILD_FILES:
         (dst / "_build" / rel).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(ROOT / rel, dst / "_build" / rel)
+        link_or_copy(ROOT / rel, dst / "_build" / rel)
     return dst
 
 
-def main() -> int:
+def jobs() -> list[tuple[str, str, object, object]]:
+    """Все прогоны мутации по порядку: (ключ, кусок названия, файл, правка).
+
+    Ключ — `M<i>` для MUTATIONS и `L<i>` для LEGAL: по нему `.\\dev mutate -j`
+    сверяет, что каждая правка прошла ровно в одной части. Номер, а не
+    название: у одной проверки бывает несколько мутаций."""
+    return ([(f"M{i}", *m) for i, m in enumerate(MUTATIONS)]
+            + [(f"L{i}", *m) for i, m in enumerate(LEGAL)])
+
+
+def part(items: list, k: int, n: int) -> list:
+    """Часть `k` из `n` (с единицы): прогоны с номером i, где i % n == k - 1.
+
+    Как `run_tests.part`: по кругу, а не кусками подряд — объединение частей —
+    все прогоны при любом их числе, новая мутация попадает в часть сама, и
+    списка, который можно забыть дополнить, нет. Держит «Рутина: части
+    мутации — каждая правка ровно по разу»."""
+    if not 1 <= k <= n:
+        raise ValueError(f"часть {k}/{n}: нужно 1 <= k <= n")
+    return [s for i, s in enumerate(items) if i % n == k - 1]
+
+
+def _args(argv: list) -> dict:
+    """`[--part k/N] [--report путь] [--list [--parts N]]`."""
+    opts = {"part": None, "report": None, "list": False, "parts": None}
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a in ("--part", "--report", "--parts") and i + 1 < len(argv):
+            v = argv[i + 1]
+            if a == "--part":
+                k, _, n = v.partition("/")
+                try:
+                    opts["part"] = (int(k), int(n))
+                except ValueError:
+                    raise ValueError(f"--part {v!r}: нужно k/N. Пример: --part 2/3")
+            elif a == "--parts":
+                if not v.isdigit() or int(v) < 1:
+                    raise ValueError(f"--parts {v!r}: нужно целое число от 1")
+                opts["parts"] = int(v)
+            else:
+                opts["report"] = v
+            i += 2
+            continue
+        if a == "--list":
+            opts["list"] = True
+        else:
+            raise ValueError(f"не знаю аргумента {a!r}: "
+                             "[--part k/N] [--report путь] [--list [--parts N]]")
+        i += 1
+    if opts["part"]:
+        part([], *opts["part"])            # 0/3, 4/3 — отказ до работы
+    return opts
+
+
+def main(argv: list | None = None) -> int:
+    try:
+        opts = _args(sys.argv[1:] if argv is None else argv)
+    except ValueError as e:
+        print(e)
+        return 2
+    every = jobs()
+    if opts["list"]:
+        # для `.\dev mutate -j` и сторожа частей: ключи всех прогонов, а с
+        # `--parts N` — ключи каждой из N частей тем же делением, что у прогона
+        import json
+        keys = [key for key, *_ in every]
+        if opts["parts"]:
+            n = opts["parts"]
+            keys = [[key for key, *_ in part(every, k, n)] for k in range(1, n + 1)]
+        print(json.dumps(keys, ensure_ascii=False))
+        return 0
+    chosen = part(every, *opts["part"]) if opts["part"] else every
+    if opts["part"]:
+        k, n = opts["part"]
+        print(f"Часть {k}/{n}: {len(chosen)} прогонов из {len(every)}\n")
+    t0 = time.monotonic()
     base = pathlib.Path(tempfile.mkdtemp(prefix="dp_mut_"))
     bad: list[str] = []
+    ran: list[str] = []
+    live: list[str] = []
     try:
         # 1. Исходное дерево обязано быть зелёным — иначе сравнивать не с чем.
+        #    В КАЖДОЙ части: в CI часть — своя работа на своей машине, и её
+        #    «красное» значит что-то, только если дерево без правок у неё же
+        #    зелёное. Стоит одного прогона набора.
         clean = _run(_copy(base / "clean"))
+        shutil.rmtree(base / "clean", ignore_errors=True)
         live = [label for label, _ in clean.failed]
         print(f"{'дерево без правок':<34} {live or 'зелено'}")
         if live:
@@ -887,7 +975,8 @@ def main() -> int:
 
         # 2. Список мутаций и список проверок обязаны совпадать. Проверка без
         #    мутации — сторож, которого не проверяли; мутация без проверки —
-        #    хвост от переименованного правила.
+        #    хвост от переименованного правила. Тоже в каждой части: ответ
+        #    у всех один, а часть, гонимая отдельно, обязана сказать его сама.
         labels = clean.passed
         for label in labels:
             if not any(exp in label for exp, _, _ in MUTATIONS):
@@ -896,41 +985,47 @@ def main() -> int:
             if not any(exp in label for label in labels):
                 bad.append(f"мутация «{exp}» не совпала ни с одной проверкой")
 
-        # 3. Каждое правило ломаем и ждём красного.
-        for i, (expect, rel, patch) in enumerate(MUTATIONS):
-            work = base / f"m{i}"
+        # 3. Мутация обязана краснеть, законная правка (`L…`) — остаться
+        #    ЗЕЛЁНОЙ: ложное красное отключают первым — оно читается как
+        #    поломка правила, а не как находка. Копия удаляется сразу: при
+        #    частях разом диск держал бы все копии всех частей.
+        for key, expect, rel, patch in chosen:
+            legal = key.startswith("L")
+            work = base / key
             if rel is None:
                 work.mkdir()                    # особый случай: пустое дерево
             else:
                 f = _copy(work) / rel
-                f.write_text(_apply(f.read_text(encoding="utf-8"), patch, rel,
-                                    f"мутация {expect}", bad), encoding="utf-8")
-            got = [label for label, _ in _run(work).failed]
-            hit = [g for g in got if expect in g]
-            print(f"{'  сломано: ' + expect:<34} "
-                  f"{'красное — ' + hit[0] if hit else 'ЗЕЛЁНОЕ (сторож молчит)'}")
-            if not hit:
-                bad.append(f"правило «{expect}» не заметило нарушения")
-
-        # 4. Законная правка обязана остаться ЗЕЛЁНОЙ. Ложное красное отключают
-        #    первым — оно читается как поломка правила, а не как находка.
-        for i, (expect, rel, patch) in enumerate(LEGAL):
-            work = base / f"L{i}"
-            f = _copy(work) / rel
-            f.write_text(_apply(f.read_text(encoding="utf-8"), patch, rel,
-                                f"законная правка {expect}", bad),
-                         encoding="utf-8")
+                what = "законная правка" if legal else "мутация"
+                rewrite_copy(f, _apply(f.read_text(encoding="utf-8"), patch, rel,
+                                       f"{what} {expect}", bad))
             hit = [label for label, _ in _run(work).failed if expect in label]
-            print(f"{'  законно: ' + expect:<34} "
-                  f"{'КРАСНОЕ НА РОВНОМ МЕСТЕ — ' + hit[0] if hit else 'зелено'}")
-            if hit:
-                bad.append(f"правило «{expect}» краснеет на законной правке")
+            shutil.rmtree(work, ignore_errors=True)
+            ran.append(key)
+            if legal:
+                print(f"{'  законно: ' + expect:<34} "
+                      f"{'КРАСНОЕ НА РОВНОМ МЕСТЕ — ' + hit[0] if hit else 'зелено'}")
+                if hit:
+                    bad.append(f"правило «{expect}» краснеет на законной правке")
+            else:
+                print(f"{'  сломано: ' + expect:<34} "
+                      f"{'красное — ' + hit[0] if hit else 'ЗЕЛЁНОЕ (сторож молчит)'}")
+                if not hit:
+                    bad.append(f"правило «{expect}» не заметило нарушения")
     finally:
         shutil.rmtree(base, ignore_errors=True)
         test_structure.BOT = BOT                # вернуть на настоящее дерево
         test_structure.FRONTEND = FRONTEND_SRC
         test_structure.INSTALLER = INSTALLER_DIR
         test_structure.BUILD = ROOT
+        if opts["report"]:
+            # для `.\dev mutate -j`: что прошло и что не так; пишется и при
+            # падении посреди части — недостающие ключи сводка назовёт сама
+            import json
+            pathlib.Path(opts["report"]).write_text(json.dumps(
+                {"part": opts["part"], "ran": ran, "bad": bad, "clean": live,
+                 "secs": round(time.monotonic() - t0, 1)}, ensure_ascii=False),
+                encoding="utf-8")
 
     print()
     for line in bad:
