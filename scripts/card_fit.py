@@ -39,10 +39,19 @@
 `scrollHeight` блока не растят. Макет 22.10 мерил только блок, написал «не
 переполнена», а кадр показал пятую строку, срезанную снизу.
 
+Дорожки кабинетов (врачу `LANES_DOC` заводятся два кабинета; канва делит его
+колонку на дорожки у́же 420px при любом окне) — на главной в обоих видах:
+ 12. у полного и сжатого блока дорожки кнопка зуба ВИДНА и лежит внутри
+     блока: правило «в узкой дорожке зуб уступает место имени» убирало его у
+     всех визитов такого врача, а прогон и vitest CSS не исполняют;
+ 13. зуб не накрывает текст блока — имя, интервал, услугу, слово статуса
+     (видимую часть: текст режется полем своего элемента).
+
 ⛔ Зелёный стенд сам по себе ничего не доказывает. Доказательство — ПАРЫ
 (`--pair`): та же раскладка сеткой вместо flex-переноса обязана дать красное
-по утверждению 3 или 4, а колонки без «+N» (спрятанное снова видно) — по
-утверждению 10; иначе стенд не видит того, ради чего написан.
+по утверждению 3 или 4, колонки без «+N» (спрятанное снова видно) — по
+утверждению 10, дорожка со снятым зубом — по утверждению 12; иначе стенд не
+видит того, ради чего написан.
 """
 from __future__ import annotations
 
@@ -102,6 +111,10 @@ ROWS = [
 # День врача: d2 — первые три строки ROWS и 90-минутный визит с рисками
 DOC = "d2"
 RISKY = "Proba Riscuri"
+# Дорожки: врачу с визитами на 60, 30 и 15 минут заводятся два кабинета —
+# его записи встают в первую дорожку (кабинет по умолчанию)
+LANES_DOC = "d3"
+LANE_ROOMS = [{"name": "Cabinet 1"}, {"name": "Cabinet 2"}]
 
 # Обрезанный по вертикали текст: за краем блока или внутри своей строки.
 # ⚠️ У строчных (`display:inline`, сжатая строка) своей высоты нет — у них
@@ -200,6 +213,45 @@ FACTS = r"""(() => {
       }
     }
     out.push({ title: a.getAttribute('title') || '', mode, shown, cut, more });
+  }
+  return JSON.stringify(out);
+})()"""
+
+
+# Зуб в дорожке кабинета (утверждения 12–13). Видимый текст — прямоугольники
+# текста (Range), обрезанные полем своего элемента и блоком: многоточие режет
+# строку её `overflow:hidden`, а Range отдаёт текст целиком. Сверяется значок
+# (svg), а не поле кнопки: поле 22px шире значка задевает строку над ним, не
+# закрывая букв.
+LANES = r"""(() => {
+  const cut = (p, q) => ({ left: Math.max(p.left, q.left), right: Math.min(p.right, q.right),
+    top: Math.max(p.top, q.top), bottom: Math.min(p.bottom, q.bottom) });
+  const area = (r) => r.right - r.left > 1 && r.bottom - r.top > 1;
+  const out = [];
+  for (const a of document.querySelectorAll('.gcol[data-lanes] .gappt:not(.gnote)')) {
+    const r = a.getBoundingClientRect();
+    const mode = ['bare', 'tiny', 'duo', 'slim'].find((c) => a.classList.contains(c)) || 'full';
+    const t = a.querySelector('.apact');
+    const ts = t ? getComputedStyle(t) : null;
+    const ico = t && t.querySelector('svg');
+    const ir = ico ? ico.getBoundingClientRect() : null;
+    const odo = !!t && ts.display !== 'none' && ts.visibility !== 'hidden' && !!ir && ir.width > 1;
+    const inside = odo && ir.left >= r.left - 0.5 && ir.right <= r.right + 0.5
+      && ir.top >= r.top - 0.5 && ir.bottom <= r.bottom + 0.5;
+    const over = [];
+    if (odo) {
+      for (const k of a.querySelectorAll('b, .gtm, small, .stat')) {
+        const s = getComputedStyle(k);
+        if (s.display === 'none' || !k.getClientRects().length || !(k.textContent || '').trim()) continue;
+        const box = cut(k.getBoundingClientRect(), r);
+        const rg = document.createRange();
+        rg.selectNodeContents(k);
+        for (const q of rg.getClientRects()) {
+          if (area(cut(cut(q, box), ir))) { over.push(k.className || k.tagName.toLowerCase()); break; }
+        }
+      }
+    }
+    out.push({ title: a.getAttribute('title') || '', mode, pid: !!t, odo, inside, over });
   }
   return JSON.stringify(out);
 })()"""
@@ -331,6 +383,39 @@ def verdict_facts(m: dict) -> list[str]:
     return bad
 
 
+def lanes_on(c: Client) -> None:
+    """Врачу `LANES_DOC` — два кабинета из его фиши (как заводит клиника)."""
+    card = json.loads(c.get(f"/api/doctors/{LANES_DOC}").body)["data"]
+    body = {k: card[k] for k in ("name", "spec", "phone", "email", "color", "auto_color", "status")}
+    body.update({k: "" if card[k] is None else str(card[k]) for k in ("work_from", "work_to")})
+    r = c.post_json(f"/api/doctors/{LANES_DOC}", {**body, "rooms": LANE_ROOMS})
+    if r.msg != "ok_med" or len(json.loads(r.body)["data"]["rooms"]) != len(LANE_ROOMS):
+        raise SystemExit(f"кабинеты врачу {LANES_DOC} не завелись: {r.msg}")
+
+
+def verdict_lanes(lanes: list) -> list[str]:
+    """Утверждения 12–13: зуб в дорожке кабинета."""
+    mine = [r for r in ROWS if r[0] == LANES_DOC]
+    if len(lanes) != len(mine):
+        return [f"в дорожках {len(lanes)} блоков из {len(mine)} — дорожек нет, стенд мерил не то"]
+    bad = []
+    for b in lanes:
+        dur = dur_of(b)
+        who = b["title"].split(" · ")[3] if b["title"].count(" · ") >= 3 else b["title"]
+        if b["mode"] not in ("full", "slim", "duo") or not b["pid"]:
+            continue
+        if not b["odo"]:
+            bad.append(f"{who} ({dur}′, {b['mode']}): нет кнопки зуба в дорожке кабинета")
+        elif not b["inside"]:
+            bad.append(f"{who} ({dur}′, {b['mode']}): кнопка зуба за краем блока")
+        for x in b["over"]:
+            bad.append(f"{who} ({dur}′, {b['mode']}): зуб накрывает текст ({x})")
+    if not any(b["mode"] == "full" for b in lanes) or not any(b["mode"] in ("slim", "duo") for b in lanes):
+        bad.append("в дорожке нет полного или сжатого блока — случай не засеян: "
+                   + "  ".join(f"{dur_of(b)}′={b['mode']}" for b in lanes))
+    return bad
+
+
 def run(bot: pathlib.Path | None, label: str) -> list[str]:
     """Один проход: свой сервер (из дерева `bot` или настоящего), оба вида."""
     day = (clinic_today() - timedelta(days=1)).isoformat()
@@ -363,6 +448,18 @@ def run(bot: pathlib.Path | None, label: str) -> list[str]:
                     for b in bad:
                         print(f"    ✗ {b}")
                     problems += [f"{view} {where}: {b}" for b in bad]
+            # дорожки — последним: кабинеты меняют раскладку колонки врача
+            lanes_on(c)
+            for view in VIEWS:
+                measure(page, c, view, day)
+                lanes = json.loads(page.js(LANES))
+                bad = verdict_lanes(lanes)
+                modes = "  ".join(f"{dur_of(b)}′={b['mode']}{'' if b['odo'] else '/без зуба'}"
+                                  for b in lanes)
+                print(f"{'OK ' if not bad else 'RED'} {label}: {view:<4} дорожки  {modes}")
+                for b in bad:
+                    print(f"    ✗ {b}")
+                problems += [f"{view} дорожки: {b}" for b in bad]
     finally:
         if proc:
             proc.kill()
@@ -381,6 +478,13 @@ _GRID = """
    grid-template-rows:repeat(3,minmax(0,1fr));align-content:stretch}
  [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote)>*{min-height:0}
 }
+"""
+
+
+# Третья пара: зуб в дорожке кабинета снят правилом `display:none`, как было
+# до починки. Утверждение 12 обязано это увидеть.
+_NO_LANE_ODO = """
+.gcol[data-lanes] .gappt.gappt.gappt .apact{display:none}
 """
 
 
@@ -430,7 +534,14 @@ def main(argv: list[str]) -> int:
     # красное — именно утверждением 10, а не случайным соседом
     seen_cols = any("срезана краем" in p or "переполнена" in p for p in cols)
     print(f"пара: колонки без «+N» {'видны (красное)' if seen_cols else 'НЕ ВИДНЫ — стенд слеп'}")
-    return 1 if problems or not seen or not seen_cols else 0
+    copy = broken_tree(_NO_LANE_ODO, b".gcol[data-lanes]")
+    try:
+        odo = run(copy, "без зуба")
+    finally:
+        shutil.rmtree(copy.parent, ignore_errors=True)
+    seen_odo = any("нет кнопки зуба в дорожке" in p for p in odo)
+    print(f"пара: дорожка без зуба {'видна (красное)' if seen_odo else 'НЕ ВИДНА — стенд слеп'}")
+    return 1 if problems or not seen or not seen_cols or not seen_odo else 0
 
 
 if __name__ == "__main__":
