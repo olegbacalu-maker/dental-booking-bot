@@ -686,6 +686,15 @@
    html[data-odo="off"] .gcol[data-lanes] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) small:not(.stw){padding-right:0}
    html[data-odo="off"] .gcol[data-lanes] .gappt.slim:not(.tiny):not(.gnote){padding-right:5px}
  }}
+ /* блок уже кнопки с полями (`thin` ставит замер ступеней — dashFx.THIN_W):
+    зуб закрыл бы весь блок, его там нет, и место отдаётся тексту */
+ .gcol .gappt.gappt.thin .apact{display:none}
+ @media (min-width:641px){
+   .gcol .gappt.gappt.thin:not(.slim):not(.tiny):not(.bare):not(.gnote) b,
+   .gcol .gappt.gappt.thin:not(.slim):not(.tiny):not(.bare):not(.gnote) small:not(.stw),
+   html .gcol .gappt.gappt.thin:not(.slim):not(.tiny):not(.bare):not(.gnote) .gl1{padding-right:0}
+   .gcol .gappt.gappt.thin.slim:not(.tiny):not(.gnote){padding-right:5px}
+ }
  .gcell:disabled{cursor:default}
  .gcell:disabled:hover::after,.gcell[data-free="none"]:hover::after{content:none}
  /* куда встанет визит, если бросить сейчас: контур его длины и время начала */

@@ -2,7 +2,7 @@ import { createRef } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DashCanvas } from './DashCanvas'
-import { clinicNow } from './dashFx'
+import { THIN_W, clinicNow } from './dashFx'
 import type { DashBlock, DashCanvasModel, DashColumn } from './dash'
 import type { Drag } from './move'
 
@@ -802,6 +802,21 @@ describe('кнопка одонтограммы в блоке визита', () 
       expect(document.querySelectorAll('.apact')).toHaveLength(0)
     } finally {
       unsqueeze()
+    }
+  })
+
+  it('блок уже кнопки с полями (два визита рядом в узкой дорожке) несёт `thin` — CSS прячет там зуб', () => {
+    /* jsdom ширины не знает: подставлена — узкий блок у визита 22, остальные широкие */
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+      configurable: true,
+      get(this: HTMLElement) { return this.dataset.appt === '22' ? THIN_W - 1 : THIN_W },
+    })
+    try {
+      show(LANES)
+      expect((document.querySelector('[data-appt="22"]') as HTMLElement).classList.contains('thin')).toBe(true)
+      expect((document.querySelector('[data-appt="21"]') as HTMLElement).classList.contains('thin')).toBe(false)
+    } finally {
+      delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth
     }
   })
 

@@ -283,6 +283,10 @@ function onOdo(changed: () => void): () => void {
  * ставится и снимается таймером, и до 14.10 новая запись на открытом дне
  * стояла в полном виде с обрезанной услугой — до перелистывания дня.
  */
+/** Уже этой ширины (px) блок кнопку зуба не рисует: 22px кнопки, кромка 5px,
+ *  поля 6 и 5 — тексту оставалось бы меньше 20px. */
+export const THIN_W = 56
+
 export function useFitAppts(
   body: React.RefObject<HTMLDivElement | null>, tick: number, deps: unknown, view = '',
   marks: unknown = null, marks2: unknown = null, zoom = 0,
@@ -292,6 +296,10 @@ export function useFitAppts(
     if (!gb) return
     const over = (a: HTMLElement) => a.scrollHeight > a.clientHeight
     for (const a of gb.querySelectorAll<HTMLElement>('.gappt')) {
+      /* блок уже кнопки зуба с полями (два визита рядом в дорожке кабинета)
+         зуб не рисует: он закрыл бы весь блок. jsdom ширины не знает (0) —
+         там ступени нет. Ставится ДО замера: без зуба место отдаётся тексту */
+      a.classList.toggle('thin', a.clientWidth > 0 && a.clientWidth < THIN_W)
       a.classList.remove('slim', 'duo', 'tiny', 'micro', 'bare')
       if (over(a)) a.classList.add('slim', 'duo')
       if (over(a)) a.classList.remove('duo')
