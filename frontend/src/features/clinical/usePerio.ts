@@ -23,7 +23,17 @@ interface Box {
   d: Record<number, PerioEdit>
   doctor: string
   note: string
+  /** врач и заметка, какими осмотр приехал: по ним судят о коробке не
+   *  текущего осмотра — его модели на экране нет */
+  doctor0: string
+  note0: string
 }
+
+/** Вопрос при уходе с листа, где несохранённое (`unsaved`): первая фраза и
+ *  сам вопрос — у вкладки фиши, у страницы и у ссылки на печатный лист. */
+export const PERIO_UNSAVED = 'Parodontograma are modificări nesalvate.'
+export const PERIO_LEAVE = 'Părăsiți parodontograma fără să le salvați?'
+export const PERIO_PRINT = 'Pe foaie ajunge doar ce e salvat. Părăsiți parodontograma fără să le salvați?'
 
 export type Kind = 'pd' | 'rec'
 export type Grade = 'mob' | 'furc'
@@ -37,6 +47,9 @@ export interface PerioApi {
   /** Итог: серверный, пока черновика нет, и предпросмотр, пока он есть. */
   summary: PerioSummary
   dirty: boolean
+  /** Несохранённое в ЛЮБОМ осмотре листа: коробки переживают смену осмотра,
+   *  но не уход с листа — по нему и спрашивают при уходе. */
+  unsaved: boolean
   doctor: string
   note: string
   setDoctor: (v: string) => void
@@ -57,6 +70,9 @@ function baseRows(model: PerioModel, shown: number[]): Record<number, PerioEdit>
   for (const n of shown) out[n] = rowOf(model, n)
   return out
 }
+
+const boxDirty = (b: Box): boolean =>
+  !sameRows(b.d, b.base) || b.doctor !== b.doctor0 || b.note !== b.note0
 
 function sameRows(a: Record<number, PerioEdit>, b: Record<number, PerioEdit>): boolean {
   const ka = Object.keys(a)
@@ -87,12 +103,17 @@ export function usePerio(
     d: base,
     doctor: model?.exam?.doctor ?? '',
     note: model?.exam?.note ?? '',
+    doctor0: model?.exam?.doctor ?? '',
+    note0: model?.exam?.note ?? '',
   }
   // коробка протухла, если осмотр приехал с сервера другим: запись прошла,
   // и черновик обязан отпасть сам — без эффекта и без счётчика сохранений
   const cur: Box = box && sameRows(box.base, base) ? box : fresh
   const dirty = !sameRows(cur.d, cur.base)
     || cur.doctor !== fresh.doctor || cur.note !== fresh.note
+  // текущий осмотр — по модели на экране, прочие — по своей коробке
+  const unsaved = dirty
+    || Object.entries(boxes).some(([id, b]) => Number(id) !== examId && boxDirty(b))
 
   const put = (patch: Partial<Box>) => {
     if (!model || !examId) return
@@ -182,7 +203,10 @@ export function usePerio(
       }
       return {
         ...prev,
-        [id]: { base: nb, d, doctor: m.exam?.doctor ?? '', note: m.exam?.note ?? '' },
+        [id]: {
+          base: nb, d, doctor: m.exam?.doctor ?? '', note: m.exam?.note ?? '',
+          doctor0: m.exam?.doctor ?? '', note0: m.exam?.note ?? '',
+        },
       }
     })
   }
@@ -223,6 +247,7 @@ export function usePerio(
     row,
     summary: dirty ? preview : (model?.summary ?? preview),
     dirty,
+    unsaved,
     doctor: cur.doctor,
     note: cur.note,
     setDoctor: (v) => put({ doctor: v }),

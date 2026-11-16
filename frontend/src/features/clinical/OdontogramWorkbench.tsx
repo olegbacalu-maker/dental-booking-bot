@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
-import { shellOn, useCommand } from '../../app/bridge'
+import { useCommand } from '../../app/bridge'
 import { AppLink } from '../../components/AppLink'
 import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
 import type { ToastState } from '../../components/Toast'
-import { defaultReload } from '../../hooks/useLive'
+import { useUnsavedPage } from '../../hooks/useUnsavedPage'
 import { asApiError } from '../../services/api'
 import { BridgeBar, BridgeDialog } from './BridgeTool'
 import { ComparePanel } from './ComparePanel'
@@ -91,10 +91,8 @@ import { unsavedTeeth, useChart } from './useChart'
    - уход адресом и смена вкладки фиши — блокер ВЛАДЕЛЬЦА (`onDirty` наверх):
      роутер держит один блокер, и второй здесь молча выключил бы вопрос
      анамнеза фиши;
-   - F5 и «Reîncarcă» в окне оболочки — команда страницы (`act:reload`): её
-     заявляет рабочий стол и спрашивает своим окном; `beforeunload` — только
-     без оболочки (браузер второго ПК, телефон): переходы самой оболочки
-     (прятание к часам на общем ПК) будить диалогом нельзя;
+   - F5 и «Reîncarcă» в окне оболочки, закрытие вкладки браузера —
+     `useUnsavedPage`, общий с пародонтограммой;
    - печать при черновиках — через вопрос «Salvează și tipărește»: иначе на
      бумагу ушло бы несохранённое как записанное.
    Фокус на кнопку зуба — без прокрутки (`preventScroll`): выбор в сцене или
@@ -119,8 +117,6 @@ const T = {
   frontal: 'Vedere frontală',
   ocluzal: 'Vedere ocluzală',
   three: '3D',
-  reload: 'Reîncărcați pagina fără să le salvați?',
-  reloadOk: 'Reîncarcă',
   printAsk: 'Pe foaie ajunge doar ce e salvat. Salvați acum și tipăriți?',
   printOk: 'Salvează și tipărește',
   sheet: 'Odontogramă',
@@ -281,21 +277,9 @@ export function OdontogramWorkbench({
   }, [patientName])
   /* «Tipărește…» меню окна Tauri — кнопка печати шапки ниже */
   useCommand('act:print', () => { void printChart() })
-  /* F5 и «Reîncarcă» окна оболочки: с черновиками — своим окном вопроса */
+  /* F5, «Reîncarcă» окна оболочки и закрытие вкладки браузера — с черновиками через вопрос */
   const pendingKey = c.pending.join(',')
-  useCommand('act:reload', pendingKey !== '' && (() => {
-    void ask({ text: `${unsavedTeeth(c.pending)} ${T.reload}`, ok: T.reloadOk, danger: true })
-      .then((yes) => { if (yes) defaultReload() })
-  }))
-  /* без оболочки (браузер второго ПК, телефон) — вопрос браузера на F5 и
-     закрытие вкладки; в окне оболочки не ставится: её собственные переходы
-     (прятание к часам на общем ПК) диалогом будить нельзя */
-  useEffect(() => {
-    if (pendingKey === '' || shellOn()) return
-    const stay = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
-    window.addEventListener('beforeunload', stay)
-    return () => window.removeEventListener('beforeunload', stay)
-  }, [pendingKey])
+  useUnsavedPage(pendingKey !== '' ? unsavedTeeth(c.pending) : null)
   /* несохранённые зубы — владельцу (блокер ухода); снятие стола — пустой список */
   useEffect(() => { onDirty?.(pendingKey ? pendingKey.split(',').map(Number) : []) }, [pendingKey, onDirty])
   useEffect(() => () => onDirty?.([]), [onDirty])

@@ -1,13 +1,15 @@
-import { useCallback, useState } from 'react'
-import { useNavigate, useNavigation } from 'react-router'
+import { useCallback, useEffect, useState } from 'react'
+import { useBlocker, useNavigate, useNavigation } from 'react-router'
+import { ask } from '../../components/confirm'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
 import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
+import { useUnsavedPage } from '../../hooks/useUnsavedPage'
 import { asApiError } from '../../services/api'
 import { PerioWorkbench } from './PerioWorkbench'
 import { examOf, perio, type PerioModel } from './perio'
-import { usePerio } from './usePerio'
+import { PERIO_LEAVE, PERIO_UNSAVED, usePerio } from './usePerio'
 
 /* Пародонтограмма (C23) на всю ширину: сайдбар узкий — рамку даёт сервер. Сам
    лист (дуги, ввод диктовкой, итог, шапка с осмотрами) — в `PerioWorkbench`,
@@ -16,6 +18,7 @@ import { usePerio } from './usePerio'
 const T = {
   notFound: 'Fișa nu există sau a fost ștearsă.',
   offline: 'Programul nu răspunde. Reîncercați.',
+  leave: 'Părăsește',
 } as const
 
 interface Props {
@@ -52,6 +55,19 @@ export function PerioScreen({ pid, navigate = defaultNavigate }: Props) {
     && examOf(new URLSearchParams(target?.search ?? '')) !== (data.exam?.id ?? null)
   const model = leaving ? null : data
   const c = usePerio(pid, model, replace, fail, say)
+  /* Несохранённое (любой осмотр листа: коробки переживают смену `?exam=`, но
+     не уход со страницы) — блокер здесь, у владельца, как у одонтограммы;
+     смена осмотра — тот же путь, не уход. F5 и закрытие — `useUnsavedPage`. */
+  const blocker = useBlocker(({ currentLocation, nextLocation }) =>
+    c.unsaved && currentLocation.pathname !== nextLocation.pathname)
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
+    void ask({ text: `${PERIO_UNSAVED} ${PERIO_LEAVE}`, ok: T.leave, danger: true }).then((yes) => {
+      if (yes) blocker.proceed()
+      else blocker.reset()
+    })
+  }, [blocker])
+  const leaveTo = useUnsavedPage(c.unsaved ? PERIO_UNSAVED : null)
 
   if (state.status === 'leaving') return null
   if (state.status === 'failed') {
@@ -93,7 +109,7 @@ export function PerioScreen({ pid, navigate = defaultNavigate }: Props) {
 
   return (
     <section className="dp-react-root">
-      <PerioWorkbench pid={pid} model={model} c={c} goExam={goExam} afterExam={afterExam} />
+      <PerioWorkbench pid={pid} model={model} c={c} goExam={goExam} afterExam={afterExam} leaveTo={leaveTo} />
       {toast && <Toast tone={toast.tone} text={toast.text} onClose={closeToast} />}
     </section>
   )

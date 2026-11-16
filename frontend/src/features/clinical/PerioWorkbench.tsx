@@ -1,11 +1,11 @@
 import { useRef, useState, type FocusEvent, type KeyboardEvent } from 'react'
-import { AppLink } from '../../components/AppLink'
+import { AppLink, isPlainClick } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import { PerioSummaryCard } from './PerioSummary'
 import { PerioTooth } from './PerioTooth'
 import { Perio3D } from './three/Perio3D'
 import type { PerioModel } from './perio'
-import type { Kind, PerioApi } from './usePerio'
+import { PERIO_PRINT, type Kind, type PerioApi } from './usePerio'
 
 /* Лист пародонтограммы (C23; с 26.09 ОДИН на два места): датированный осмотр,
    шесть точек на зуб, итог справа — раскладка и классы старой страницы (.perio,
@@ -61,6 +61,9 @@ interface Props {
   afterExam: (m: PerioModel | null) => void
   /** внутри фиши: без обратной ссылки и заголовка, со ссылкой «Pe tot ecranul» */
   embedded?: boolean
+  /** уход документом при несохранённом (печатный лист — не экран роутера, и
+      блокер владельца его не видит): вопрос, согласие — переход */
+  leaveTo?: ((href: string, question: string) => void) | undefined
 }
 
 const KEY_3D = 'dp_perio_3d'
@@ -72,7 +75,7 @@ function saved3d(): boolean {
   }
 }
 
-export function PerioWorkbench({ pid, model, c, goExam, afterExam, embedded = false }: Props) {
+export function PerioWorkbench({ pid, model, c, goExam, afterExam, embedded = false, leaveTo }: Props) {
   const root = useRef<HTMLDivElement>(null)
   const [show3d, setShow3d] = useState(saved3d)
   /** клетка под курсором — для 3D: зуб и точка листа */
@@ -199,6 +202,11 @@ export function PerioWorkbench({ pid, model, c, goExam, afterExam, embedded = fa
           <AppLink
             className="odo-more"
             href={`${base}/parodontograma/print?exam=${model.exam.id}`}
+            onClick={(e) => {
+              if (!c.unsaved || !leaveTo || !isPlainClick(e)) return
+              e.preventDefault()
+              leaveTo(e.currentTarget.getAttribute('href') ?? '', PERIO_PRINT)
+            }}
           >
             <Icon name="print" /> {T.print}
           </AppLink>

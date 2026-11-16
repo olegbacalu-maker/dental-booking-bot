@@ -1,9 +1,10 @@
 import { startTransition, useCallback, useEffect, useRef, useState } from 'react'
 import type { ToastState } from '../../components/Toast'
+import { useUnsavedPage } from '../../hooks/useUnsavedPage'
 import { asApiError } from '../../services/api'
 import { PerioWorkbench } from './PerioWorkbench'
 import { perio, type PerioModel } from './perio'
-import { usePerio } from './usePerio'
+import { PERIO_UNSAVED, usePerio } from './usePerio'
 
 /* Пародонтограмма во вкладке фиши (B6, шаг 3). Лист тот же, что на странице
    (`PerioWorkbench`); владелец осмотра — АДРЕС фиши (`?tab=perio&exam=`), как
@@ -33,6 +34,9 @@ interface Props {
   /** лист, приехавший с фишей (загрузчик): первый кадр вкладки — сразу лист, без
       «Se încarcă…» и прыжка страницы (07.10); не о том осмотре — не берётся */
   initial?: PerioModel | null
+  /** несохранённое в листе (любой осмотр) — фише: её блокер спрашивает при
+      уходе с вкладки и с фиши (у роутера блокер один на всех) */
+  onDirty?: ((on: boolean) => void) | undefined
 }
 
 /** Засев о том ли осмотре, что в адресе: без номера — о самом свежем (его сервер
@@ -40,7 +44,7 @@ interface Props {
 const fits = (m: PerioModel, pid: number, exam: number | null): boolean =>
   m.patient.id === pid && (m.exam?.id ?? null) === (exam === null ? (m.exams[0]?.id ?? null) : exam)
 
-export function PerioTab({ pid, exam, onExam, say, onFail, onChanged, initial = null }: Props) {
+export function PerioTab({ pid, exam, onExam, say, onFail, onChanged, initial = null, onDirty }: Props) {
   /* `req` — осмотр, ДЛЯ КОТОРОГО модель на экране (запрошенный или отвечённый
      записью); расхождение с адресом = загрузка, и лист снят с экрана. Засев
      фиши — только как начальное состояние: дальше лист ведёт себя сам */
@@ -75,6 +79,11 @@ export function PerioTab({ pid, exam, onExam, say, onFail, onChanged, initial = 
   useEffect(() => { onFailRef.current = onFail }, [onFail])
   const fail = useCallback((e: unknown) => onFailRef.current(asApiError(e)), [])
   const c = usePerio(pid, model, replace, fail, say)
+  /* коробки черновиков живут здесь и умирают со сменой вкладки: о них знает
+     блокер фиши; F5 и закрытие документа — здесь, пока вкладка стоит */
+  const leaveTo = useUnsavedPage(c.unsaved ? PERIO_UNSAVED : null)
+  useEffect(() => { onDirty?.(c.unsaved) }, [c.unsaved, onDirty])
+  useEffect(() => () => onDirty?.(false), [onDirty])
 
   useEffect(() => {
     if (fresh) return
@@ -92,5 +101,5 @@ export function PerioTab({ pid, exam, onExam, say, onFail, onChanged, initial = 
 
   if (failed) return <div className="fcard"><p className="hint dp-m0">{T.failed}</p></div>
   if (!model) return <div className="fcard dp-odo-wait" aria-busy="true"><p className="hint dp-m0">{T.loading}</p></div>
-  return <PerioWorkbench pid={pid} model={model} c={c} goExam={onExam} afterExam={afterExam} embedded />
+  return <PerioWorkbench pid={pid} model={model} c={c} goExam={onExam} afterExam={afterExam} embedded leaveTo={leaveTo} />
 }

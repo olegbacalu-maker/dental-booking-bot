@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createMemoryRouter } from 'react-router'
 import { RouterProvider } from 'react-router/dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -18,6 +18,27 @@ vi.mock('../../services/api', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../services/api')>()
   return { ...real, api: { get, post }, loginUrl: () => '/admin/login?next=x' }
 })
+/* Мост к оболочке: что заявил экран (`useCommand`) и стоит ли окно оболочки;
+   перезагрузка и уход документом — записью, jsdom документ не меняет. */
+const { claims, shell, reload, nav } = vi.hoisted(() => ({
+  claims: new Map<string, () => void>(), shell: { on: false }, reload: vi.fn(), nav: vi.fn(),
+}))
+vi.mock('../../app/bridge', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../app/bridge')>(),
+  shellOn: () => shell.on,
+  useCommand: (id: string, run: (() => void) | null | false | undefined) => {
+    if (run) claims.set(id, run)
+    else claims.delete(id)
+  },
+}))
+vi.mock('../../hooks/useLive', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../hooks/useLive')>(),
+  defaultReload: reload,
+}))
+vi.mock('../../hooks/useLoad', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../hooks/useLoad')>(),
+  defaultNavigate: nav,
+}))
 
 const UPPER = [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28]
 const LOWER = [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38]
@@ -78,6 +99,11 @@ afterEach(() => {
   localStorage.removeItem('dp_perio_3d')
   get.mockReset()
   post.mockReset()
+  claims.clear()
+  shell.on = false
+  reload.mockReset()
+  nav.mockReset()
+  vi.restoreAllMocks()
 })
 
 const PATH = '/admin/patient/:pid/parodontograma'
@@ -647,5 +673,139 @@ describe('округление предпросмотра', () => {
     // 24 точки, сумма 78 → 3.25; att 102 → 4.25; 3 кровоточат → ровно 12.5 %
     const s = summarize(rows, LIMITS)
     expect([s.bop, s.pd_mean, s.cal_mean]).toEqual([12, 3.2, 4.2])
+  })
+})
+
+/* Несохранённый осмотр при уходе: без вопроса лист терял его молча. Защита —
+   та же, что у одонтограммы: блокер владельца и окно `ask`; F5 в оболочке и
+   закрытие документа — `useUnsavedPage`. */
+describe('вопрос при уходе с несохранённым осмотром', () => {
+  const Q = 'Parodontograma are modificări nesalvate. Părăsiți parodontograma fără să le salvați?'
+  const back = () => screen.getByRole('link', { name: /Perio Pin/ })
+  const unload = () => {
+    const e = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(e)
+    return e.defaultPrevented
+  }
+
+  it('нетронутый лист — уход без вопроса', async () => {
+    const { router } = await show()
+    const confirm = vi.spyOn(window, 'confirm')
+    fireEvent.click(back())
+    await waitFor(() => expect(router.state.location.pathname).toBe('/admin/patient/5'))
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it('уход адресом — вопрос; отказ — лист и цифра на месте; согласие — уход', async () => {
+    const { router } = await show()
+    fireEvent.change(cell(11, 'pd', 0), { target: { value: '7' } })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
+    fireEvent.click(back())
+    await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(Q))
+    expect(router.state.location.pathname).toBe(SHEET)
+    expect(cell(11, 'pd', 0).value).toBe('7')
+    expect(unsaved()).toBeTruthy()
+    confirm.mockReturnValueOnce(true)
+    fireEvent.click(back())
+    await waitFor(() => expect(router.state.location.pathname).toBe('/admin/patient/5'))
+  })
+
+  it('другая фиша и одонтограмма — тоже уход', async () => {
+    const { router } = await show()
+    fireEvent.change(cell(11, 'pd', 0), { target: { value: '7' } })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    await act(() => router.navigate('/admin/patient/6/parodontograma'))
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+    fireEvent.click(screen.getByRole('link', { name: /Odontogramă/ }))
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(2))
+    expect(confirm).toHaveBeenLastCalledWith(Q)
+    expect(router.state.location.pathname).toBe(SHEET)
+  })
+
+  it('смена осмотра — не уход; черновик прошлого осмотра держит вопрос, хоть на экране другой', async () => {
+    const { router } = await show()
+    fireEvent.change(cell(11, 'pd', 0), { target: { value: '7' } })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    get.mockResolvedValue(ok({ ...MODEL, exam: MODEL.exams[1] ?? null, rows: {} }))
+    fireEvent.change(document.querySelector('.pexam') as HTMLSelectElement, { target: { value: '4' } })
+    await waitFor(() => expect((document.querySelector('.pexam') as HTMLSelectElement | null)?.value).toBe('4'))
+    expect(confirm).not.toHaveBeenCalled()
+    expect(unsaved()).toBeNull()                       // на экране — чистый осмотр 4
+    fireEvent.click(back())
+    await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(Q))
+    expect(router.state.location.pathname).toBe(SHEET)
+  })
+
+  it('записанный осмотр — уход без вопроса', async () => {
+    const { router } = await show()
+    fireEvent.change(cell(11, 'pd', 0), { target: { value: '5' } })
+    const saved: PerioModel = {
+      ...MODEL,
+      rows: { ...MODEL.rows, '11': { tooth: 11, pd: [5, 0, 0, 0, 0, 0], rec: [0, 0, 0, 0, 0, 0], bop: '000000', mob: 0, furc: 0, cal: [5, 0, 0, 0, 0, 0] } },
+    }
+    post.mockResolvedValue(ok(saved, 'ok_perio', 'Parodontograma a fost salvată'))
+    fireEvent.click(screen.getByRole('button', { name: /Salvează examenul/ }))
+    await waitFor(() => expect(unsaved()).toBeNull())
+    const confirm = vi.spyOn(window, 'confirm')
+    expect(unload()).toBe(false)
+    fireEvent.click(back())
+    await waitFor(() => expect(router.state.location.pathname).toBe('/admin/patient/5'))
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it('«Renunță» снимает вопрос', async () => {
+    const { router } = await show()
+    fireEvent.change(cell(11, 'pd', 0), { target: { value: '5' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Renunță' }))
+    const confirm = vi.spyOn(window, 'confirm')
+    fireEvent.click(back())
+    await waitFor(() => expect(router.state.location.pathname).toBe('/admin/patient/5'))
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it('врач и заметка — тоже черновик', async () => {
+    await show()
+    fireEvent.change(screen.getByLabelText('Notă'), { target: { value: 'altă notă' } })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    fireEvent.click(back())
+    await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(Q))
+  })
+
+  it('без оболочки — beforeunload только с черновиком; в окне оболочки F5 («Reîncarcă») спрашивает своим окном', async () => {
+    await show()
+    expect(unload()).toBe(false)
+    expect(claims.has('act:reload')).toBe(false)
+    fireEvent.change(cell(11, 'pd', 0), { target: { value: '5' } })
+    expect(unload()).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Renunță' }))
+    expect(unload()).toBe(false)
+    cleanup()
+    shell.on = true
+    await show()
+    fireEvent.change(cell(11, 'pd', 0), { target: { value: '5' } })
+    expect(unload()).toBe(false)                       // переходы оболочки диалогом не будим
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
+    act(() => claims.get('act:reload')!())
+    await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(
+      'Parodontograma are modificări nesalvate. Reîncărcați pagina fără să le salvați?'))
+    expect(reload).not.toHaveBeenCalled()
+    confirm.mockReturnValueOnce(true)
+    act(() => claims.get('act:reload')!())
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1))
+  })
+
+  it('печатный лист — документ, не экран: с черновиком сперва вопрос; согласие — переход без второго вопроса браузера', async () => {
+    await show()
+    fireEvent.change(cell(11, 'pd', 0), { target: { value: '5' } })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
+    const link = screen.getByRole('link', { name: /Printează/ })
+    fireEvent.click(link)
+    await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(
+      'Parodontograma are modificări nesalvate. Pe foaie ajunge doar ce e salvat. Părăsiți parodontograma fără să le salvați?'))
+    expect(nav).not.toHaveBeenCalled()
+    confirm.mockReturnValueOnce(true)
+    fireEvent.click(link)
+    await waitFor(() => expect(nav).toHaveBeenCalledWith('/admin/patient/5/parodontograma/print?exam=9'))
+    expect(unload()).toBe(false)
   })
 })

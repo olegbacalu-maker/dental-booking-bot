@@ -1701,6 +1701,100 @@ describe('PatientCardScreen', () => {
     await waitFor(() => expect(confirm).toHaveBeenLastCalledWith('Anamneza are modificări nesalvate. Părăsiți fișa fără să le salvați?'))
     expect(router.state.location.pathname).toBe('/admin/patient/5')
   })
+
+  /* Лист пародонтограммы живёт во вкладке и умирал с её сменой молча; его
+     охраняет тот же блокер фиши, что зубы и анамнез. */
+  describe('вкладка Parodontogramă: несохранённый осмотр', () => {
+    const PQ = 'Parodontograma are modificări nesalvate.'
+    const pcell = (n: number) => document.querySelector(`.ptooth[data-tooth="${n}"] input[data-k="pd"][data-i="0"]`) as HTMLInputElement
+    const sheet = async () => {
+      serve()
+      const r = open('/admin/patient/5?tab=perio')
+      await settled()
+      await waitFor(() => expect(pcell(46)).toBeTruthy())
+      return r
+    }
+
+    it('нетронутый лист — смена вкладки и уход без вопроса', async () => {
+      const { router } = await sheet()
+      const confirm = vi.spyOn(window, 'confirm')
+      await tabTo('Rezumat')
+      fireEvent.click(strip().getByRole('tab', { name: 'Parodontogramă' }))
+      await waitFor(() => expect(pcell(46)).toBeTruthy())
+      fireEvent.click(screen.getByRole('link', { name: /Pacienți/ }))
+      await waitFor(() => expect(router.state.location.pathname).toBe('/admin/search'))
+      expect(confirm).not.toHaveBeenCalled()
+    })
+
+    it('смена вкладки — вопрос; отказ — вкладка и цифра на месте; согласие — вкладка сменилась', async () => {
+      const { router } = await sheet()
+      fireEvent.change(pcell(46), { target: { value: '7' } })
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
+      fireEvent.click(strip().getByRole('tab', { name: 'Odontogramă' }))
+      await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(`${PQ} Părăsiți parodontograma fără să le salvați?`))
+      expect(tabOn()).toContain('Parodontogramă')
+      expect(router.state.location.search).toBe('?tab=perio')
+      expect(pcell(46).value).toBe('7')
+      /* смена осмотра — тот же лист, не уход */
+      confirm.mockClear()
+      fireEvent.change(screen.getByLabelText('Examen'), { target: { value: '4' } })
+      await waitFor(() => expect(router.state.location.search).toBe('?tab=perio&exam=4'))
+      expect(confirm).not.toHaveBeenCalled()
+      /* черновик осмотра 9 держит вопрос, хоть на экране осмотр 4 */
+      await waitFor(() => expect(pcell(46)).toBeTruthy())
+      confirm.mockReturnValueOnce(true)
+      fireEvent.click(strip().getByRole('tab', { name: 'Rezumat' }))
+      await strip().findByRole('tab', { name: 'Rezumat', selected: true })
+      expect(confirm).toHaveBeenLastCalledWith(`${PQ} Părăsiți parodontograma fără să le salvați?`)
+      /* согласие: лист снят, вопроса больше нет */
+      confirm.mockClear()
+      fireEvent.click(screen.getByRole('link', { name: /Pacienți/ }))
+      await waitFor(() => expect(router.state.location.pathname).toBe('/admin/search'))
+      expect(confirm).not.toHaveBeenCalled()
+    })
+
+    it('уход с фиши: раздел меню, «Pe tot ecranul», другая фиша — вопрос «Părăsiți fișa»; анамнез грязен — вопрос называет оба', async () => {
+      const { router } = await sheet()
+      fireEvent.change(pcell(46), { target: { value: '7' } })
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      fireEvent.click(screen.getByRole('link', { name: /Pacienți/ }))
+      await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(`${PQ} Părăsiți fișa fără să le salvați?`))
+      fireEvent.click(screen.getByText('Pe tot ecranul'))
+      await waitFor(() => expect(confirm).toHaveBeenCalledTimes(2))
+      await act(() => router.navigate('/admin/patient/6'))
+      await waitFor(() => expect(confirm).toHaveBeenCalledTimes(3))
+      expect(confirm).toHaveBeenLastCalledWith(`${PQ} Părăsiți fișa fără să le salvați?`)
+      expect(router.state.location.pathname).toBe('/admin/patient/5')
+      expect(pcell(46).value).toBe('7')
+      /* анамнез — у экрана; лист — во вкладке: на уходе с фиши оба */
+      confirm.mockReturnValueOnce(true)
+      await tabTo('Date pacient')
+      expect(confirm).toHaveBeenLastCalledWith(`${PQ} Părăsiți parodontograma fără să le salvați?`)
+      fireEvent.click(screen.getByLabelText('Diabet zaharat'))
+      await tabTo('Parodontogramă')
+      await waitFor(() => expect(pcell(46)).toBeTruthy())
+      fireEvent.change(pcell(46), { target: { value: '8' } })
+      confirm.mockReturnValueOnce(false)
+      fireEvent.click(screen.getByRole('link', { name: /Pacienți/ }))
+      await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(
+        `Anamneza are modificări nesalvate. ${PQ} Părăsiți fișa fără să le salvați?`))
+    })
+
+    it('записанный осмотр — смена вкладки без вопроса', async () => {
+      await sheet()
+      fireEvent.change(pcell(46), { target: { value: '5' } })
+      const saved = {
+        ...PERIO,
+        rows: { ...PERIO.rows, '46': { tooth: 46, pd: [5, 0, 0, 0, 0, 0], rec: [0, 0, 0, 0, 0, 0], bop: '000000', mob: 0, furc: 0, cal: [5, 0, 0, 0, 0, 0] } },
+      }
+      post.mockResolvedValue(ok(saved, 'ok_perio', 'Parodontograma a fost salvată'))
+      fireEvent.click(screen.getByRole('button', { name: /Salvează examenul/ }))
+      await waitFor(() => expect(screen.queryByText('Nesalvat')).toBeNull())
+      const confirm = vi.spyOn(window, 'confirm')
+      await tabTo('Rezumat')
+      expect(confirm).not.toHaveBeenCalled()
+    })
+  })
 })
 
 /* 22.10: удача «Salvează profilul» схлопывает форму, и всё под ней уезжало

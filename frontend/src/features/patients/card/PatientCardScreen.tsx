@@ -31,6 +31,7 @@ import { unsavedTeeth } from '../../clinical/useChart'
 import { PerioTab } from '../../clinical/PerioTab'
 import { VisitTab } from '../../visits/VisitTab'
 import { examOf, perio, type PerioModel } from '../../clinical/perio'
+import { PERIO_LEAVE, PERIO_UNSAVED } from '../../clinical/usePerio'
 import { useCoarse } from '../../clinical/touch'
 import { PlanCard } from './PlanCard'
 import { LabBlock, LabSummary, usePatientLab, type PatientLabModel } from '../../lab/PatientLab'
@@ -74,6 +75,8 @@ const T = {
   ocUnsaved: 'Ocluzia are modificări nesalvate.',
   leaveCard: 'Părăsiți fișa fără să le salvați?',
   leaveOdo: 'Părăsiți formula dentară fără să le salvați?',
+  perioUnsaved: PERIO_UNSAVED,
+  leavePerio: PERIO_LEAVE,
   leave: 'Părăsește',
 } as const
 
@@ -268,22 +271,38 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
      фиши. Грязны оба — вопрос называет оба. */
   const [odoDirty, setOdoDirty] = useState<number[]>([])
   const onOdoDirty = useCallback((t: number[]) => setOdoDirty(t), [])
+  /* лист пародонтограммы — так же, как зубы: его черновики живут во вкладке
+     (`usePerio` в `PerioTab`) и умирают с её сменой */
+  const [perioDirty, setPerioDirty] = useState(false)
+  const onPerioDirty = useCallback((on: boolean) => setPerioDirty(on), [])
   const blocker = useBlocker(({ currentLocation, nextLocation }) => {
     const away = currentLocation.pathname !== nextLocation.pathname
+    const nextTab = tabOf(new URLSearchParams(nextLocation.search))
     return (dirty && away)
-      || (odoDirty.length > 0 && (away || tabOf(new URLSearchParams(nextLocation.search)) !== 'odonto'))
+      || (odoDirty.length > 0 && (away || nextTab !== 'odonto'))
+      || (perioDirty && (away || nextTab !== 'perio'))
   })
   useEffect(() => {
     if (blocker.state !== 'blocked') return
+    /* Вкладка сообщает «чисто» эффектом (`onDirty`), и щелчок сразу после
+       записи или после снятия вкладки застаёт блокер с прежним флагом. Здесь
+       решает СВЕЖЕЕ состояние: грязного не осталось — уход без вопроса. */
     const away = blocker.location.pathname !== pathname
+    const nextTab = tabOf(new URLSearchParams(blocker.location.search))
+    const odo = odoDirty.length > 0 && (away || nextTab !== 'odonto')
+    const per = perioDirty && (away || nextTab !== 'perio')
+    if (!(dirty && away) && !odo && !per) {
+      blocker.proceed()
+      return
+    }
     const text = [anIsDirty && away ? T.anUnsaved : '', ocIsDirty && away ? T.ocUnsaved : '',
-      odoDirty.length ? unsavedTeeth(odoDirty) : '',
-      away ? T.leaveCard : T.leaveOdo].filter(Boolean).join(' ')
+      odo ? unsavedTeeth(odoDirty) : '', per ? T.perioUnsaved : '',
+      away ? T.leaveCard : odo ? T.leaveOdo : T.leavePerio].filter(Boolean).join(' ')
     void ask({ text, ok: T.leave, danger: true }).then((yes) => {
       if (yes) blocker.proceed()
       else blocker.reset()
     })
-  }, [blocker, anIsDirty, ocIsDirty, odoDirty, pathname])
+  }, [blocker, dirty, anIsDirty, ocIsDirty, odoDirty, perioDirty, pathname])
 
   const fail = useCallback((e: unknown): ApiError => {
     const err = asApiError(e)
@@ -519,7 +538,7 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
         )}
         {tab === 'perio' && (
           <PerioTab pid={pid} exam={sub} onExam={goExam} say={say} onFail={failCb} onChanged={onPerioChanged}
-            initial={perioStale === card ? null : card.perioSheet ?? null} />
+            initial={perioStale === card ? null : card.perioSheet ?? null} onDirty={onPerioDirty} />
         )}
         {tab === 'plan' && (
           <>
