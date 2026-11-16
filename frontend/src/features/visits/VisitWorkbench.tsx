@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { AppLink } from '../../components/AppLink'
 import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
@@ -75,11 +75,20 @@ interface Props {
   onSave: (form: VisitForm) => void | Promise<void>
   /** внутри фиши: имя пациента текстом, а не ссылкой на неё же */
   embedded?: boolean
+  /** черновик тронут / снова чист: он живёт здесь и умирает с уходом, поэтому
+      о нём знает блокер владельца (у роутера блокер один на всех) */
+  onDirty?: ((on: boolean) => void) | undefined
 }
 
-export function VisitWorkbench({ page, saving, onSave, embedded = false }: Props) {
+export function VisitWorkbench({ page, saving, onSave, embedded = false, onDirty }: Props) {
   const [draft, setDraft] = useState<Draft | null>(null)
   const cur: Draft = draft && draft.page === page ? draft : { page, vals: valsOf(page), done: [] }
+  /* записанная страница приезжает новой — черновик отпадает сам, вопроса нет */
+  const saved = valsOf(page)
+  const dirty = draft !== null && draft.page === page
+    && (FIELD_IDS.some((k) => draft.vals[k] !== saved[k]) || draft.done.length > 0)
+  useEffect(() => { onDirty?.(dirty) }, [dirty, onDirty])
+  useEffect(() => () => onDirty?.(false), [onDirty])
   const edit = (patch: Partial<Draft>) =>
     setDraft((d) => ({ ...(d && d.page === page ? d : { page, vals: valsOf(page), done: [] }), note: '', ...patch }))
   const setVal = (k: FieldId, v: string) => edit({ vals: { ...cur.vals, [k]: v } })

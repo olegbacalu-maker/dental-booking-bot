@@ -1,10 +1,9 @@
 import { startTransition, useCallback, useEffect, useRef, useState } from 'react'
 import type { ToastState } from '../../components/Toast'
-import { useUnsavedPage } from '../../hooks/useUnsavedPage'
 import { asApiError } from '../../services/api'
 import { PerioWorkbench } from './PerioWorkbench'
 import { perio, type PerioModel } from './perio'
-import { PERIO_UNSAVED, usePerio } from './usePerio'
+import { usePerio } from './usePerio'
 
 /* Пародонтограмма во вкладке фиши (B6, шаг 3). Лист тот же, что на странице
    (`PerioWorkbench`); владелец осмотра — АДРЕС фиши (`?tab=perio&exam=`), как
@@ -80,8 +79,7 @@ export function PerioTab({ pid, exam, onExam, say, onFail, onChanged, initial = 
   const fail = useCallback((e: unknown) => onFailRef.current(asApiError(e)), [])
   const c = usePerio(pid, model, replace, fail, say)
   /* коробки черновиков живут здесь и умирают со сменой вкладки: о них знает
-     блокер фиши; F5 и закрытие документа — здесь, пока вкладка стоит */
-  const leaveTo = useUnsavedPage(c.unsaved ? PERIO_UNSAVED : null)
+     блокер фиши, он же спрашивает на F5 и перед печатным листом */
   useEffect(() => { onDirty?.(c.unsaved) }, [c.unsaved, onDirty])
   useEffect(() => () => onDirty?.(false), [onDirty])
 
@@ -101,5 +99,5 @@ export function PerioTab({ pid, exam, onExam, say, onFail, onChanged, initial = 
 
   if (failed) return <div className="fcard"><p className="hint dp-m0">{T.failed}</p></div>
   if (!model) return <div className="fcard dp-odo-wait" aria-busy="true"><p className="hint dp-m0">{T.loading}</p></div>
-  return <PerioWorkbench pid={pid} model={model} c={c} goExam={onExam} afterExam={afterExam} embedded leaveTo={leaveTo} />
+  return <PerioWorkbench pid={pid} model={model} c={c} goExam={onExam} afterExam={afterExam} embedded />
 }

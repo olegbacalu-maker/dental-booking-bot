@@ -30,9 +30,11 @@ interface Props {
   onFail: (e: unknown) => void
   /** Дневник записан: код ответа (склад сообщает, что галочки плана ждут подтверждения материалов). */
   onSaved?: (code: string) => void
+  /** черновик дневника тронут — фише: её блокер спрашивает при смене вкладки, визита и уходе */
+  onDirty?: ((on: boolean) => void) | undefined
 }
 
-export function VisitTab({ pid, aid, onClose, say, onFail, onSaved }: Props) {
+export function VisitTab({ pid, aid, onClose, say, onFail, onSaved, onDirty }: Props) {
   const back = `/admin/patient/${pid}?tab=vizite`
   const [got, setGot] = useState<{ aid: number; page: VisitPage | null; error: ApiError | null } | null>(null)
   const [saving, setSaving] = useState(false)
@@ -87,7 +89,7 @@ export function VisitTab({ pid, aid, onClose, say, onFail, onSaved }: Props) {
   return (
     <div aria-busy={saving || undefined}>
       {nav}
-      <VisitWorkbench page={mine.page} saving={saving} onSave={onSave} embedded />
+      <VisitWorkbench page={mine.page} saving={saving} onSave={onSave} embedded onDirty={onDirty} />
     </div>
   )
 }

@@ -1,13 +1,16 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useBlocker } from 'react-router'
 import { AppLink } from '../../components/AppLink'
+import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
 import { queryParam, useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
+import { useUnsavedPage } from '../../hooks/useUnsavedPage'
 import { asApiError } from '../../services/api'
 import { VisitWorkbench } from './VisitWorkbench'
-import { visits, type VisitForm, type VisitPage } from './visits'
+import { VISIT_LEAVE, VISIT_UNSAVED, visits, type VisitForm, type VisitPage } from './visits'
 
 /* Дневник визита (C19) как страница — из журнала, с «Înapoi» по `?back=`.
    Сам дневник (шапка визита, графы, шаблоны, позиции плана) — в
@@ -18,6 +21,7 @@ const T = {
   card: 'Fișa pacientului',
   notFound: 'Vizita nu există sau este o notă fără pacient.',
   offline: 'Programul nu răspunde. Reîncercați.',
+  leave: 'Părăsește',
 } as const
 
 interface Props {
@@ -41,6 +45,26 @@ export function VisitScreen({ aid, navigate = defaultNavigate }: Props) {
   const [toast, setToast] = useState<ToastState | null>(null)
   const [saving, setSaving] = useState(false)
   const closeToast = useCallback(() => setToast(null), [])
+  /* Черновик дневника — у `VisitWorkbench`; блокер здесь, у владельца, как у
+     одонтограммы. Другой визит — другой путь, то есть уход. */
+  const [dirty, setDirty] = useState(false)
+  const onDirty = useCallback((on: boolean) => setDirty(on), [])
+  const blocker = useBlocker(({ currentLocation, nextLocation }) =>
+    dirty && currentLocation.pathname !== nextLocation.pathname)
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
+    /* стол сообщает «чисто» эффектом: щелчок сразу после записи застаёт
+       блокер с прежним флагом — решает свежее состояние */
+    if (!dirty) {
+      blocker.proceed()
+      return
+    }
+    void ask({ text: `${VISIT_UNSAVED} ${VISIT_LEAVE}`, ok: T.leave, danger: true }).then((yes) => {
+      if (yes) blocker.proceed()
+      else blocker.reset()
+    })
+  }, [blocker, dirty])
+  useUnsavedPage(dirty ? VISIT_UNSAVED : null)
 
   if (state.status === 'leaving') return null
 
@@ -83,7 +107,7 @@ export function VisitScreen({ aid, navigate = defaultNavigate }: Props) {
         {' '}&nbsp;·&nbsp;{' '}
         <AppLink href={`/admin/patient/${a.patient_id}`}><Icon name="id" /> {T.card}</AppLink>
       </p>
-      <VisitWorkbench page={page} saving={saving} onSave={onSave} />
+      <VisitWorkbench page={page} saving={saving} onSave={onSave} onDirty={onDirty} />
       {toast && <Toast tone={toast.tone} text={toast.text} onClose={closeToast} />}
     </section>
   )

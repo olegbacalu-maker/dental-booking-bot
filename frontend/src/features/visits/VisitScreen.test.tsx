@@ -13,6 +13,23 @@ vi.mock('../../services/api', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../services/api')>()
   return { ...real, api: { get, post }, loginUrl: () => '/admin/login?next=x' }
 })
+/* Мост к оболочке: что заявил экран (`useCommand`) и стоит ли окно оболочки;
+   перезагрузка — записью, jsdom документ не меняет. */
+const { claims, shell, reload } = vi.hoisted(() => ({
+  claims: new Map<string, () => void>(), shell: { on: false }, reload: vi.fn(),
+}))
+vi.mock('../../app/bridge', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../app/bridge')>(),
+  shellOn: () => shell.on,
+  useCommand: (id: string, run: (() => void) | null | false | undefined) => {
+    if (run) claims.set(id, run)
+    else claims.delete(id)
+  },
+}))
+vi.mock('../../hooks/useLive', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../hooks/useLive')>(),
+  defaultReload: reload,
+}))
 
 const PAGE: VisitPage = {
   appt: { id: 7, when: '16.09.2026 10:00', patient_id: 3, patient: 'Vizita Test', service: 'Consultație',
@@ -61,6 +78,9 @@ afterEach(() => {
   cleanup()
   get.mockReset()
   post.mockReset()
+  claims.clear()
+  shell.on = false
+  reload.mockReset()
   vi.restoreAllMocks()
 })
 
@@ -304,5 +324,91 @@ describe('VisitScreen', () => {
     fireEvent.click(screen.getByText('Salvează consultația'))
     await screen.findByText('Consultația a fost salvată')
     expect(post).toHaveBeenCalledWith('/visits/8', expect.anything())
+  })
+})
+
+/* Несохранённый дневник при уходе: без вопроса набранное пропадало молча.
+   Блокер — у страницы (владельца), окно — `ask`; F5 и закрытие —
+   `useUnsavedPage`, как у одонтограммы и пародонтограммы. */
+describe('вопрос при уходе с несохранённым дневником', () => {
+  const Q = 'Consultația are modificări nesalvate. Părăsiți consultația fără să le salvați?'
+  const unload = () => {
+    const e = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(e)
+    return e.defaultPrevented
+  }
+  const show = async () => {
+    get.mockResolvedValue(ok(PAGE))
+    const r = open(url(7, BACK))
+    await screen.findByText(/vizita #7/)
+    return r
+  }
+
+  it('нетронутый дневник — уход без вопроса', async () => {
+    const { router } = await show()
+    const confirm = vi.spyOn(window, 'confirm')
+    fireEvent.click(screen.getByText('Înapoi'))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/admin/all'))
+    expect(confirm).not.toHaveBeenCalled()
+    expect(unload()).toBe(false)
+  })
+
+  it('графа или отметка плана — вопрос; отказ — на месте, ввод цел; согласие — уход', async () => {
+    const { router } = await show()
+    fireEvent.change(area('Examen obiectiv'), { target: { value: 'ciornă' } })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
+    fireEvent.click(screen.getByText('Înapoi'))
+    await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(Q))
+    expect(here(router)).toBe(url(7, BACK))
+    expect(area('Examen obiectiv').value).toBe('ciornă')
+    /* фиша пациента и другой визит — тоже уход */
+    confirm.mockReturnValueOnce(false)
+    fireEvent.click(screen.getByText('Fișa pacientului'))
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(2))
+    confirm.mockReturnValueOnce(false)
+    await act(() => router.navigate(url(8, BACK)))
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(3))
+    expect(here(router)).toBe(url(7, BACK))
+    /* графу вернули как было — но отметка позиции тоже черновик */
+    fireEvent.change(area('Examen obiectiv'), { target: { value: '' } })
+    fireEvent.click(screen.getByLabelText(/Consult gratuit/))
+    confirm.mockReturnValueOnce(true)
+    fireEvent.click(screen.getByText('Înapoi'))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/admin/all'))
+    expect(confirm).toHaveBeenCalledTimes(4)
+    expect(confirm).toHaveBeenLastCalledWith(Q)
+  })
+
+  it('записанный дневник — уход без вопроса', async () => {
+    const { router } = await show()
+    fireEvent.change(area('Tratament efectuat'), { target: { value: 'Detartraj efectuat' } })
+    post.mockResolvedValueOnce(ok({ ...PAGE, record: { ...PAGE.record!, tratament: 'Detartraj efectuat' } }, 'ok_visit', 'Consultația a fost salvată'))
+    fireEvent.click(screen.getByText('Salvează consultația'))
+    await screen.findByText('Consultația a fost salvată')
+    const confirm = vi.spyOn(window, 'confirm')
+    await waitFor(() => expect(unload()).toBe(false))    // «чисто» стол сообщает эффектом
+    fireEvent.click(screen.getByText('Înapoi'))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/admin/all'))
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it('без оболочки — beforeunload только с черновиком; в окне оболочки F5 спрашивает своим окном', async () => {
+    await show()
+    expect(claims.has('act:reload')).toBe(false)
+    fireEvent.change(area('Examen obiectiv'), { target: { value: 'ciornă' } })
+    expect(unload()).toBe(true)
+    cleanup()
+    shell.on = true
+    await show()
+    fireEvent.change(area('Examen obiectiv'), { target: { value: 'ciornă' } })
+    expect(unload()).toBe(false)
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
+    act(() => claims.get('act:reload')!())
+    await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(
+      'Consultația are modificări nesalvate. Reîncărcați pagina fără să le salvați?'))
+    expect(reload).not.toHaveBeenCalled()
+    confirm.mockReturnValueOnce(true)
+    act(() => claims.get('act:reload')!())
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1))
   })
 })

@@ -7,6 +7,7 @@ import { Icon } from '../../../components/Icon'
 import { LoadFailed } from '../../../components/LoadFailed'
 import { Toast, type ToastState } from '../../../components/Toast'
 import { defaultNavigate } from '../../../hooks/useLoad'
+import { useUnsavedPage } from '../../../hooks/useUnsavedPage'
 import {
   intParam, queryParam, searchChangeKeepsData, useRouteLoad, type RouteLoad, type ScreenData,
 } from '../../../hooks/useRouteLoad'
@@ -30,6 +31,7 @@ import { OdontogramTab } from '../../clinical/OdontogramTab'
 import { unsavedTeeth } from '../../clinical/useChart'
 import { PerioTab } from '../../clinical/PerioTab'
 import { VisitTab } from '../../visits/VisitTab'
+import { VISIT_LEAVE, VISIT_UNSAVED } from '../../visits/visits'
 import { examOf, perio, type PerioModel } from '../../clinical/perio'
 import { PERIO_LEAVE, PERIO_UNSAVED } from '../../clinical/usePerio'
 import { useCoarse } from '../../clinical/touch'
@@ -77,12 +79,52 @@ const T = {
   leaveOdo: 'Părăsiți formula dentară fără să le salvați?',
   perioUnsaved: PERIO_UNSAVED,
   leavePerio: PERIO_LEAVE,
+  visitUnsaved: VISIT_UNSAVED,
+  leaveVisit: VISIT_LEAVE,
   leave: 'Părăsește',
 } as const
 
 interface Props {
   pid: number
   navigate?: (url: string) => void
+}
+
+/** Несохранённое фиши: у экрана (анамнез, прикус) и у смонтированной вкладки
+ *  (зубы, лист пародонтограммы, дневник визита). */
+interface Drafts {
+  an: boolean
+  oc: boolean
+  odo: number[]
+  perio: boolean
+  visit: boolean
+}
+
+/**
+ * Что из несохранённого пропадёт при переходе на `next`. Черновики экрана
+ * переживают вкладки — теряются только с уходом с фиши; черновики вкладки
+ * размонтируются вместе с ней — теряются и со сменой вкладки, дневник — ещё и
+ * со сменой визита. Одно правило на блокер и на текст вопроса.
+ */
+function lostOn(d: Drafts, here: { pathname: string; tab: Tab; sub: number | null },
+  next: { pathname: string; search: string }): Drafts & { away: boolean } {
+  const away = next.pathname !== here.pathname
+  const q = new URLSearchParams(next.search)
+  const off = away || tabOf(q) !== here.tab
+  return {
+    away,
+    an: d.an && away,
+    oc: d.oc && away,
+    odo: off ? d.odo : [],
+    perio: d.perio && off,
+    visit: d.visit && (off || intParam(q, 'visit') !== here.sub),
+  }
+}
+
+/** Первые фразы вопроса — по черновику; пусто — спрашивать не о чем. */
+function draftsText(d: Drafts): string {
+  return [d.an && T.anUnsaved, d.oc && T.ocUnsaved, d.odo.length > 0 && unsavedTeeth(d.odo),
+    d.perio && T.perioUnsaved, d.visit && T.visitUnsaved]
+    .filter(Boolean).join(' ')
 }
 
 /**
@@ -258,51 +300,42 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
   const [alertOpen, setAlertOpen] = useState(false)
   const anIsDirty = state.status === 'ready' && anDirty(anDraft, state.data.anamneza)
   const ocIsDirty = state.status === 'ready' && ocDirty(ocDraft, state.data.ocluzie)
-  /* несохранённое у экрана — анамнез («Date pacient») или прикус (с 07.11 —
-     панель вкладки «Odontogramă»): вопрос при уходе с фиши общий, точка — на
-     вкладке своей формы */
-  const dirty = anIsDirty || ocIsDirty
   /* ⭐ Черновики одонтограммы (волна 2, 25.10) — зубы, о которых сообщает
      рабочий стол вкладки (`onDirty`). Их охраняет ЭТОТ же блокер: роутер
      держит один, и второй во вкладке молча выключил бы вопрос анамнеза.
-     Вкладка Odontogramă при смене вкладки размонтируется, и черновик зубов
-     пропал бы молча, — поэтому для неё блокирует и смена `?tab=`; черновик
-     анамнеза живёт у экрана и переживает вкладки — для него только уход с
-     фиши. Грязны оба — вопрос называет оба. */
+     Так же — лист пародонтограммы (`PerioTab`) и дневник визита (`VisitTab`):
+     оба живут во вкладке и умирают с её сменой. Анамнез и прикус живут у экрана и переживают вкладки — для
+     них только уход с фиши (`lostOn`). Грязно несколько — вопрос называет всё. */
   const [odoDirty, setOdoDirty] = useState<number[]>([])
   const onOdoDirty = useCallback((t: number[]) => setOdoDirty(t), [])
-  /* лист пародонтограммы — так же, как зубы: его черновики живут во вкладке
-     (`usePerio` в `PerioTab`) и умирают с её сменой */
   const [perioDirty, setPerioDirty] = useState(false)
   const onPerioDirty = useCallback((on: boolean) => setPerioDirty(on), [])
-  const blocker = useBlocker(({ currentLocation, nextLocation }) => {
-    const away = currentLocation.pathname !== nextLocation.pathname
-    const nextTab = tabOf(new URLSearchParams(nextLocation.search))
-    return (dirty && away)
-      || (odoDirty.length > 0 && (away || nextTab !== 'odonto'))
-      || (perioDirty && (away || nextTab !== 'perio'))
-  })
+  const [visitDirty, setVisitDirty] = useState(false)
+  const onVisitDirty = useCallback((on: boolean) => setVisitDirty(on), [])
+  const drafts: Drafts = { an: anIsDirty, oc: ocIsDirty, odo: odoDirty, perio: perioDirty, visit: visitDirty }
+  const blocker = useBlocker(({ nextLocation }) =>
+    draftsText(lostOn(drafts, { pathname, tab, sub }, nextLocation)) !== '')
   useEffect(() => {
     if (blocker.state !== 'blocked') return
     /* Вкладка сообщает «чисто» эффектом (`onDirty`), и щелчок сразу после
        записи или после снятия вкладки застаёт блокер с прежним флагом. Здесь
        решает СВЕЖЕЕ состояние: грязного не осталось — уход без вопроса. */
-    const away = blocker.location.pathname !== pathname
-    const nextTab = tabOf(new URLSearchParams(blocker.location.search))
-    const odo = odoDirty.length > 0 && (away || nextTab !== 'odonto')
-    const per = perioDirty && (away || nextTab !== 'perio')
-    if (!(dirty && away) && !odo && !per) {
+    const l = lostOn({ an: anIsDirty, oc: ocIsDirty, odo: odoDirty, perio: perioDirty, visit: visitDirty },
+      { pathname, tab, sub }, blocker.location)
+    const text = draftsText(l)
+    if (!text) {
       blocker.proceed()
       return
     }
-    const text = [anIsDirty && away ? T.anUnsaved : '', ocIsDirty && away ? T.ocUnsaved : '',
-      odo ? unsavedTeeth(odoDirty) : '', per ? T.perioUnsaved : '',
-      away ? T.leaveCard : odo ? T.leaveOdo : T.leavePerio].filter(Boolean).join(' ')
-    void ask({ text, ok: T.leave, danger: true }).then((yes) => {
+    const q = l.away ? T.leaveCard : l.odo.length ? T.leaveOdo : l.perio ? T.leavePerio : T.leaveVisit
+    void ask({ text: `${text} ${q}`, ok: T.leave, danger: true }).then((yes) => {
       if (yes) blocker.proceed()
       else blocker.reset()
     })
-  }, [blocker, dirty, anIsDirty, ocIsDirty, odoDirty, perioDirty, pathname])
+  }, [blocker, anIsDirty, ocIsDirty, odoDirty, perioDirty, visitDirty, pathname, tab, sub])
+  /* F5, «Reîncarcă» окна оболочки и закрытие вкладки браузера снимают
+     страницу целиком — вопрос о всём */
+  useUnsavedPage(draftsText(drafts) || null)
 
   const fail = useCallback((e: unknown): ApiError => {
     const err = asApiError(e)
@@ -555,7 +588,7 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
           </>
         )}
         {tab === 'vizite' && sub !== null && (
-          <VisitTab pid={pid} aid={sub} onClose={closeVisit} say={say} onFail={failCb}
+          <VisitTab pid={pid} aid={sub} onClose={closeVisit} say={say} onFail={failCb} onDirty={onVisitDirty}
             onSaved={(code) => { if (code === 'ok_stock_tc_pending') consume.pendingFrom(pid) }} />
         )}
         {tab === 'vizite' && sub === null && (

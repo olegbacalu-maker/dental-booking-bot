@@ -5,7 +5,6 @@ import { AppLink } from '../../components/AppLink'
 import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
 import type { ToastState } from '../../components/Toast'
-import { useUnsavedPage } from '../../hooks/useUnsavedPage'
 import { asApiError } from '../../services/api'
 import { BridgeBar, BridgeDialog } from './BridgeTool'
 import { ComparePanel } from './ComparePanel'
@@ -91,8 +90,9 @@ import { unsavedTeeth, useChart } from './useChart'
    - уход адресом и смена вкладки фиши — блокер ВЛАДЕЛЬЦА (`onDirty` наверх):
      роутер держит один блокер, и второй здесь молча выключил бы вопрос
      анамнеза фиши;
-   - F5 и «Reîncarcă» в окне оболочки, закрытие вкладки браузера —
-     `useUnsavedPage`, общий с пародонтограммой;
+   - F5 и «Reîncarcă» в окне оболочки, закрытие вкладки браузера — тоже у
+     владельца (`useUnsavedPage`): на странице фиши черновиков несколько, и
+     вопрос один на всех;
    - печать при черновиках — через вопрос «Salvează și tipărește»: иначе на
      бумагу ушло бы несохранённое как записанное.
    Фокус на кнопку зуба — без прокрутки (`preventScroll`): выбор в сцене или
@@ -277,9 +277,7 @@ export function OdontogramWorkbench({
   }, [patientName])
   /* «Tipărește…» меню окна Tauri — кнопка печати шапки ниже */
   useCommand('act:print', () => { void printChart() })
-  /* F5, «Reîncarcă» окна оболочки и закрытие вкладки браузера — с черновиками через вопрос */
   const pendingKey = c.pending.join(',')
-  useUnsavedPage(pendingKey !== '' ? unsavedTeeth(c.pending) : null)
   /* несохранённые зубы — владельцу (блокер ухода); снятие стола — пустой список */
   useEffect(() => { onDirty?.(pendingKey ? pendingKey.split(',').map(Number) : []) }, [pendingKey, onDirty])
   useEffect(() => () => onDirty?.([]), [onDirty])

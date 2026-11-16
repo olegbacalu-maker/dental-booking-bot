@@ -15,6 +15,27 @@ vi.mock('../../../services/api', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../../services/api')>()
   return { ...real, api: { get, post, postForm }, loginUrl: () => '/admin/login?next=x' }
 })
+/* Мост к оболочке: что заявил экран (`useCommand`) и стоит ли окно оболочки;
+   перезагрузка и уход документом — записью, jsdom документ не меняет. */
+const { claims, shell, reload, nav } = vi.hoisted(() => ({
+  claims: new Map<string, () => void>(), shell: { on: false }, reload: vi.fn(), nav: vi.fn(),
+}))
+vi.mock('../../../app/bridge', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../app/bridge')>(),
+  shellOn: () => shell.on,
+  useCommand: (id: string, run: (() => void) | null | false | undefined) => {
+    if (run) claims.set(id, run)
+    else claims.delete(id)
+  },
+}))
+vi.mock('../../../hooks/useLive', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../hooks/useLive')>(),
+  defaultReload: reload,
+}))
+vi.mock('../../../hooks/useLoad', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../hooks/useLoad')>(),
+  defaultNavigate: nav,
+}))
 
 /* модель одонтограммы — минимальная: один зуб в каждой дуге, без мостов */
 const TOOTH = (n: number, jaw: 'sus' | 'jos') => ({
@@ -249,6 +270,10 @@ afterEach(() => {
   get.mockReset()
   post.mockReset()
   postForm.mockReset()
+  claims.clear()
+  shell.on = false
+  reload.mockReset()
+  nav.mockReset()
   vi.restoreAllMocks()
 })
 
@@ -1947,4 +1972,108 @@ describe('«Anulează materialele» в строке плана', () => {
     expect(screen.queryByRole('button', { name: /Anulează materialele: Detartraj/ })).toBeNull()
     expect(screen.getByRole('button', { name: /Materiale de confirmat/ })).toBeTruthy()
   })
+})
+
+/* Всё несохранённое фиши — под одним блокером и одним вопросом: дневник визита
+   (вкладка и визит), F5 и закрытие окна (анамнез, прикус, всё прочее). */
+describe('фиша: несохранённое при уходе, перезагрузке и печати', () => {
+  const unload = () => {
+    const e = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(e)
+    return e.defaultPrevented
+  }
+  const QF = 'Părăsiți fișa fără să le salvați?'
+
+  describe('дневник визита во вкладке Vizite', () => {
+    const VQ = 'Consultația are modificări nesalvate.'
+    const diary = async () => {
+      serve()
+      const r = open('/admin/patient/5?tab=vizite&visit=3')
+      await settled()
+      await screen.findByText('Jurnalul consultației')
+      return r
+    }
+
+    it('нетронутый — вкладка, закрытие визита, уход без вопроса', async () => {
+      const { router } = await diary()
+      const confirm = vi.spyOn(window, 'confirm')
+      fireEvent.click(screen.getByRole('button', { name: /Vizite/ }))
+      await waitFor(() => expect(router.state.location.search).toBe('?tab=vizite'))
+      await tabTo('Rezumat')
+      expect(confirm).not.toHaveBeenCalled()
+    })
+
+    it('тронутый — вопрос на закрытие визита, другой визит, смену вкладки и уход; отказ — ввод цел; записанный — без вопроса', async () => {
+      const { router } = await diary()
+      fireEvent.change(screen.getByLabelText('Examen obiectiv'), { target: { value: 'ciornă' } })
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      const VQV = `${VQ} Părăsiți consultația fără să le salvați?`
+      fireEvent.click(screen.getByRole('button', { name: /Vizite/ }))
+      await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(VQV))
+      await act(() => router.navigate('/admin/patient/5?tab=vizite&visit=4'))
+      await waitFor(() => expect(confirm).toHaveBeenCalledTimes(2))
+      fireEvent.click(strip().getByRole('tab', { name: 'Rezumat' }))
+      await waitFor(() => expect(confirm).toHaveBeenCalledTimes(3))
+      expect(confirm).toHaveBeenLastCalledWith(VQV)
+      fireEvent.click(screen.getByRole('link', { name: /Pacienți/ }))
+      await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(`${VQ} ${QF}`))
+      expect(router.state.location.search).toBe('?tab=vizite&visit=3')
+      expect((screen.getByLabelText('Examen obiectiv') as HTMLTextAreaElement).value).toBe('ciornă')
+      /* запись: страница сервера новая, черновик отпал — вопроса нет */
+      post.mockResolvedValueOnce(ok({ ...VPAGE, record: { acuze: '', examen: 'ciornă', diagnostic: '', tratament: '', recomandari: '',
+        created: '26.09.2026 14:00', updated: '', author: 'Director' } }, 'ok_visit', 'Consultația a fost salvată'))
+      fireEvent.click(screen.getByText('Salvează consultația'))
+      await screen.findByText('Consultația a fost salvată')
+      confirm.mockClear()
+      await tabTo('Rezumat')
+      expect(confirm).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('F5 и закрытие окна', () => {
+    it('анамнез: без оболочки — beforeunload; в окне оболочки «Reîncarcă» спрашивает своим окном', async () => {
+      serve()
+      open('/admin/patient/5?tab=date')
+      await settled()
+      expect(unload()).toBe(false)
+      expect(claims.has('act:reload')).toBe(false)
+      fireEvent.click(screen.getByLabelText('Diabet zaharat'))
+      await waitFor(() => expect(unload()).toBe(true))
+      cleanup()
+      shell.on = true
+      serve()
+      open('/admin/patient/5?tab=date')
+      await settled()
+      fireEvent.click(screen.getByLabelText('Diabet zaharat'))
+      expect(unload()).toBe(false)
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
+      act(() => claims.get('act:reload')!())
+      await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(
+        'Anamneza are modificări nesalvate. Reîncărcați pagina fără să le salvați?'))
+      expect(reload).not.toHaveBeenCalled()
+      confirm.mockReturnValueOnce(true)
+      act(() => claims.get('act:reload')!())
+      await waitFor(() => expect(reload).toHaveBeenCalledTimes(1))
+    })
+
+    it('прикус и зубы на вкладке Odontogramă — «Reîncarcă» называет оба', async () => {
+      shell.on = true
+      serve()
+      post.mockImplementation(() => Promise.reject(new Error('предпросмотр в этой проверке не нужен')))
+      open('/admin/patient/5?tab=odonto')
+      await settled()
+      await odoReady()
+      fireEvent.change(await screen.findByLabelText('Overjet (mm)'), { target: { value: '4' } })
+      fireEvent.click(document.querySelector('#odo .tooth-btn[data-n="11"]') as HTMLElement)
+      const insp = document.querySelector('.insp') as HTMLElement
+      fireEvent.click(within(insp).getByRole('tab', { name: /^Notițe/ }))
+      fireEvent.change(within(insp).getByLabelText('Notiță (opțional)'), { target: { value: 'ciornă' } })
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      await waitFor(() => expect(claims.has('act:reload')).toBe(true))
+      act(() => claims.get('act:reload')!())
+      await waitFor(() => expect(confirm).toHaveBeenLastCalledWith('Ocluzia are modificări nesalvate. '
+        + 'Dintele 11 are modificări nesalvate în formula dentară. Reîncărcați pagina fără să le salvați?'))
+    })
+  })
+
 })

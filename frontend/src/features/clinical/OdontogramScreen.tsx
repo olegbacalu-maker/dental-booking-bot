@@ -7,6 +7,7 @@ import { defaultNavigate } from '../../hooks/useLoad'
 import {
   intParam, searchChangeKeepsData, useRouteLoad, type RouteLoad, type ScreenData,
 } from '../../hooks/useRouteLoad'
+import { useUnsavedPage } from '../../hooks/useUnsavedPage'
 import { asApiError } from '../../services/api'
 import { OdontogramWorkbench } from './OdontogramWorkbench'
 import { chart, type Odontogram } from './chart'
@@ -61,11 +62,19 @@ export function OdontogramScreen({ pid, navigate = defaultNavigate }: Props) {
     dirty.length > 0 && currentLocation.pathname !== nextLocation.pathname)
   useEffect(() => {
     if (blocker.state !== 'blocked') return
+    /* стол сообщает о черновиках эффектом: щелчок сразу после записи застаёт
+       блокер с прежним списком — решает свежее состояние */
+    if (dirty.length === 0) {
+      blocker.proceed()
+      return
+    }
     void ask({ text: `${unsavedTeeth(dirty)} ${T.leaveOdo}`, ok: T.leave, danger: true }).then((yes) => {
       if (yes) blocker.proceed()
       else blocker.reset()
     })
   }, [blocker, dirty])
+  /* F5, «Reîncarcă» окна оболочки и закрытие вкладки браузера */
+  useUnsavedPage(dirty.length ? unsavedTeeth(dirty) : null)
 
   if (state.status === 'leaving') return null
   if (state.status === 'failed') {

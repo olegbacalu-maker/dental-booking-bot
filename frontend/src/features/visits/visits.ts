@@ -79,3 +79,7 @@ export const visits = {
     api.get<{ values: Record<string, string> }>(
       `/visits/${aid}/template${done.length ? `?done=${done.join(',')}` : ''}`),
 }
+
+/** Вопрос при уходе с несохранённым дневником — у вкладки фиши и у страницы визита. */
+export const VISIT_UNSAVED = 'Consultația are modificări nesalvate.'
+export const VISIT_LEAVE = 'Părăsiți consultația fără să le salvați?'
