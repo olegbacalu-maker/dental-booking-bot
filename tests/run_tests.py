@@ -56,6 +56,7 @@ import test_hardening  # noqa: E402
 import test_harness_client  # noqa: E402
 import test_harness_clock  # noqa: E402
 import test_harness_tmp  # noqa: E402
+import test_harness_ports  # noqa: E402
 import test_launcher  # noqa: E402
 import test_ics  # noqa: E402
 import test_installer  # noqa: E402
@@ -148,6 +149,9 @@ SUITES = [
     # лог сервера раз на много прогонов, под нагрузкой (14.10).
     ("Сторожа: опрос старта сервера дочитывает ответ",
      test_harness_client.suite_health_probe),
+    # Секунды, один сервер: части `.\dev test` идут разом, и номер порта,
+    # доставшийся двоим, не краснеет сам — набор молча говорит с чужим сервером.
+    ("Сторожа: порт сервера — один на машину", test_harness_ports.suite_ports),
     ("Выпуск: версия с «v» в check_release", test_guards.suite_release_arg),
     ("Выпуск: версия одна у движка, клиента и exe", test_guards.suite_version_source),
     ("Выпуск: подпись — оба exe до дымового теста, мастер и деинсталлятор", test_guards.suite_signing),
@@ -162,6 +166,9 @@ SUITES = [
     # Сервера нет, секунды: CI делит движок на части и гонит мутацию по правилу
     # (10.11) — потерянный набор и пропущенная нужная мутация не краснеют нигде.
     ("Рутина: части прогона CI — все наборы ровно по разу", test_dev.suite_ci_parts),
+    ("Рутина: наборы «только по одному» — в списке наборов", test_dev.suite_serial),
+    ("Рутина: dev test частями — молчание части или набора красит итог",
+     test_dev.suite_parts_summary),
     ("Рутина: мутация в CI — когда тронуты сторожа, при неясности гнать",
      test_dev.suite_ci_mutation),
     ("Рутина: dev test зовёт мутацию — сторожа в коммитах с origin/main или в дереве",
@@ -672,28 +679,88 @@ def part(suites: list, k: int, n: int) -> list:
     return [s for i, s in enumerate(suites) if i % n == k - 1]
 
 
-def _part_arg(arg: str) -> tuple[int, int]:
-    k, _, n = arg.partition("/")
-    return int(k), int(n)
+# Наборы «только по одному»: трогают общее состояние МАШИНЫ, а не своей папки, —
+# и рядом с себе подобным в соседней части краснели бы друг от друга.
+# `.\dev test`, гоняющий части разом, ставит их отдельной последней частью,
+# одна за другой (`--serial`); CI их не выделяет: у каждой его части своя машина.
+# Список ВКЛЮЧАЮЩИЙ: забытый здесь набор молча пошёл бы параллельно. Функции,
+# а не имена: переименование роняет импорт, а не правило; что каждая есть в
+# SUITES — проверяет `serial_unknown()` на старте и «Рутина: наборы только по
+# одному».
+SERIAL = (
+    # метка разрешения администратора — ОДНО значение `HKCU\Software\DentPilot`
+    # (`privileged.RESET_KEY`): оба набора стирают и ставят его
+    test_pin.suite_reset_gate,
+    test_privileged.suite_auth_reset,
+)
+
+
+def serial_unknown() -> list:
+    """Функции из SERIAL, которых нет в SUITES (пусто — список цел)."""
+    have = {id(f) for _, f in SUITES}
+    return [f.__qualname__ for f in SERIAL if id(f) not in have]
+
+
+def select(args: list) -> tuple[list, dict]:
+    """Разобрать аргументы и выбрать наборы: (наборы, опции).
+
+    `[--part k/N] [--serial | --no-serial] [--report путь] [--list] [фильтр]`.
+    Порядок: фильтр → «только по одному» → часть. Фильтр — до деления: иначе
+    `.\\dev test дети -j8` резал бы по кругу ВСЕ наборы и фильтровал части,
+    половина из которых осталась бы пустой."""
+    opts = {"part": None, "serial": None, "report": None, "list": False}
+    rest, i = [], 0
+    while i < len(args):
+        a = args[i]
+        if a == "--part" and i + 1 < len(args):
+            k, _, n = args[i + 1].partition("/")
+            try:
+                opts["part"] = (int(k), int(n))
+            except ValueError:
+                raise ValueError(f"--part {args[i + 1]!r}: нужно k/N. Пример: --part 2/3")
+            i += 2
+            continue
+        if a == "--report" and i + 1 < len(args):
+            opts["report"], i = args[i + 1], i + 2
+            continue
+        if a in ("--serial", "--no-serial"):
+            opts["serial"] = a == "--serial"
+        elif a == "--list":
+            opts["list"] = True
+        else:
+            rest.append(a)
+        i += 1
+    only = rest[0].lower() if rest else ""
+    chosen = [(nm, f) for nm, f in SUITES if not only or only in nm.lower()]
+    if opts["serial"] is not None:
+        alone = {id(f) for f in SERIAL}
+        chosen = [s for s in chosen if (id(s[1]) in alone) == opts["serial"]]
+    if opts["part"]:
+        chosen = part(chosen, *opts["part"])
+    opts["only"] = only
+    return chosen, opts
 
 
 if __name__ == "__main__":
-    args = sys.argv[1:]
-    chosen = SUITES
-    if args[:1] == ["--part"] and len(args) >= 2:
-        try:
-            k, n = _part_arg(args[1])
-            chosen = part(SUITES, k, n)
-        except ValueError as e:
-            print(f"--part {args[1]!r}: {e}. Пример: --part 2/3")
-            sys.exit(2)
-        print(f"Часть {k}/{n}: {len(chosen)} наборов из {len(SUITES)}")
-        args = args[2:]
-    only = args[0].lower() if args else ""
-    suites = [(nm, f) for nm, f in chosen if not only or only in nm.lower()]
+    if serial_unknown():
+        print("SERIAL называет наборы, которых нет в SUITES: " + ", ".join(serial_unknown()))
+        sys.exit(2)
+    try:
+        suites, opts = select(sys.argv[1:])
+    except ValueError as e:
+        print(e)
+        sys.exit(2)
+    if opts["list"]:
+        # для `.\dev test`: какие наборы он обязан увидеть в отчётах частей
+        import json
+        print(json.dumps([nm for nm, _ in suites], ensure_ascii=False))
+        sys.exit(0)
+    if opts["part"]:
+        k, n = opts["part"]
+        print(f"Часть {k}/{n}: {len(suites)} наборов из {len(SUITES)}")
     if not suites:
-        print(f"Нет наборов по фильтру {only!r}. Доступные:")
+        print(f"Нет наборов по фильтру {opts['only']!r}. Доступные:")
         for n, _ in SUITES:
             print(f"  {n}")
         sys.exit(2)
-    sys.exit(run(suites))
+    sys.exit(run(suites, report=opts["report"]))

@@ -6,7 +6,9 @@
 """
 from __future__ import annotations
 
+import contextlib
 import importlib
+import io
 import os
 import pathlib
 import re
@@ -241,7 +243,7 @@ def suite_ci_parts(res: Result) -> None:
     rt = sys.modules.get("run_tests") or importlib.import_module("run_tests")
     suites = rt.SUITES
     res.ok("наборы нашлись", len(suites) > 100, f"наборов {len(suites)}")
-    for n in (1, 2, 3, 4, 7):
+    for n in (1, 2, 3, 4, 6, 7, 10):
         parts = [rt.part(suites, k, n) for k in range(1, n + 1)]
         ids = [id(s) for p in parts for s in p]
         res.ok(f"n={n}: каждый набор ровно в одной части",
@@ -258,16 +260,138 @@ def suite_ci_parts(res: Result) -> None:
             res.ok(f"часть {bad[0]}/{bad[1]} отвергнута", True)
 
     wf = _workflow()
+    for label, bad in _ci_parts_problems(wf):
+        res.ok(label, not bad, bad)
+    got = _ci_parts_list(wf)
+    res.ok("частей движка шесть или больше: три шли по 5–6.5 мин",
+           len(got) >= 6, str(got))
+    # Сам сторож — на сломанных workflow: каждый обязан краснеть. Иначе
+    # потерянная часть прошла бы мимо так же молча, как мимо прогона.
+    line = re.search(r"^\s*part:\s*\[[^\]]*\]", wf, re.M)
+    run = r"--part ${{ matrix.part }}/${{ strategy.job-total }}"
+    broken = {
+        "часть потерялась (1, 2, 3, 5, 6)": wf.replace(line.group(0), "part: [1, 2, 3, 5, 6]")
+        if line else "",
+        "часть дважды (1, 2, 2, 3)": wf.replace(line.group(0), "part: [1, 2, 2, 3]")
+        if line else "",
+        "N в команде числом, а не числом работ": wf.replace(run, "--part ${{ matrix.part }}/6"),
+        "одна часть": wf.replace(line.group(0), "part: [1]") if line else "",
+        "списка частей нет": wf.replace(line.group(0), "") if line else "",
+    }
+    for what, text in broken.items():
+        red = [lb for lb, bad in _ci_parts_problems(text) if bad]
+        res.ok(f"сторож частей краснеет: {what}", bool(red), "зелёный на сломанном workflow")
+
+
+def _ci_parts_list(wf: str) -> list[int]:
     m = re.search(r"^\s*part:\s*\[([^\]]*)\]", wf, re.M)
-    res.ok("в workflow есть список частей движка", m is not None, "нет `part: [...]`")
-    got = [int(x) for x in m.group(1).split(",")] if m else []
-    res.check("список частей — ровно 1..N подряд", got, list(range(1, len(got) + 1)))
-    res.ok("частей больше одной", len(got) > 1, str(got))
+    try:
+        return [int(x) for x in m.group(1).split(",")] if m else []
+    except ValueError:
+        return []
+
+
+def _ci_parts_problems(wf: str) -> list[tuple[str, str]]:
+    """(проверка, что не так) по тексту workflow; пустое «что не так» — зелёная."""
+    got = _ci_parts_list(wf)
     run = r"tests\run_tests.py --part ${{ matrix.part }}/${{ strategy.job-total }}"
-    res.ok("часть гонится с N = числом работ", run in wf, f"нет строки {run!r}")
-    # облако зовёт свой tests/run_tests.py через «/», движок — через «\»
-    res.ok("полного прогона движка без --part нет",
-           not re.search(r"tests\\run_tests\.py\s*$", wf, re.M), "")
+    return [
+        ("в workflow есть список частей движка", "" if got else "нет `part: [...]`"),
+        ("список частей — ровно 1..N подряд",
+         "" if got == list(range(1, len(got) + 1)) else f"{got}"),
+        ("частей больше одной", "" if len(got) > 1 else str(got)),
+        ("часть гонится с N = числом работ", "" if run in wf else f"нет строки {run!r}"),
+        # облако зовёт свой tests/run_tests.py через «/», движок — через «\»
+        ("полного прогона движка без --part нет",
+         "есть" if re.search(r"tests\\run_tests\.py\s*$", wf, re.M) else ""),
+    ]
+
+
+def suite_parts_summary(res: Result) -> None:
+    """Сводка `.\\dev test` частями красная, если красна хоть одна часть, часть
+    упала без отчёта или в отчётах нет набора, который обязан был пройти.
+
+    Итог по частям — сумма чужих отчётов, и «всё зелёное» в ней значит лишь
+    «красного не прислали»: упавшая часть и потерянный набор не присылают
+    ничего. Поэтому каждое такое молчание здесь — красное."""
+    sys.path.insert(0, str(ROOT / "scripts"))
+    dev = importlib.import_module("dev")
+
+    class _Proc:
+        def __init__(self, code):
+            self.returncode = code
+
+    class _Fake:
+        def __init__(self, label, code, rep):
+            self.label, self.proc, self._rep, self.log = label, _Proc(code), rep, "log"
+
+        def result(self):
+            return self._rep
+
+    def rep(*names, failed=()):
+        return {"passed": len(names), "total": len(names) + len(failed),
+                "failed": [list(f) for f in failed],
+                "suites": [{"name": n, "checks": 1, "secs": 1.0, "red": 0} for n in names]}
+
+    def code(parts, expected):
+        with contextlib.redirect_stdout(io.StringIO()):
+            return dev._summary(parts, expected, 1.0)
+
+    good = [_Fake("часть 1/2", 0, rep("a", "b")), _Fake("часть 2/2", 0, rep("c"))]
+    res.check("все части зелёные, все наборы на месте — зелёный", code(good, ["a", "b", "c"]), 0)
+    res.check("красная проверка в части — красный",
+              code([good[0], _Fake("часть 2/2", 1, rep("c", failed=[("x", "y")]))],
+                   ["a", "b", "c"]), 1)
+    res.check("часть упала без отчёта — красный",
+              code([good[0], _Fake("часть 2/2", 3221225786, None)], ["a", "b", "c"]), 1)
+    res.check("часть с отчётом, но кодом аварии — красный",
+              code([good[0], _Fake("часть 2/2", 3221225786, rep("c"))], ["a", "b", "c"]), 1)
+    res.check("набор не прошёл ни в одной части — красный", code(good, ["a", "b", "c", "d"]), 1)
+    res.check("набор прошёл дважды — красный",
+              code([good[0], _Fake("часть 2/2", 0, rep("c", "a"))], ["a", "b", "c"]), 1)
+    res.check("-j: число и формы записи",
+              [dev._parse_jobs(a)[0] for a in (["-j", "3"], ["-j4"], ["--jobs=2"], ["x"])],
+              [3, 4, 2, None])
+    res.check("-j: фильтр проходит дальше как был", dev._parse_jobs(["-j", "3", "рутина"])[1],
+              ["рутина"])
+    for bad in (["-j", "0"], ["-j", "x"]):
+        try:
+            dev._parse_jobs(bad)
+            res.ok(f"-j отвергает {bad[1]!r}", False, "принял")
+        except ValueError:
+            res.ok(f"-j отвергает {bad[1]!r}", True)
+    res.ok("частей по умолчанию — хотя бы одна и не больше потолка",
+           1 <= dev.default_jobs() <= dev.JOBS_MAX, str(dev.default_jobs()))
+
+
+def suite_serial(res: Result) -> None:
+    """Наборы «только по одному» (`run_tests.SERIAL`) — в списке наборов.
+
+    `.\\dev test` гонит части разом, а эти наборы — после, по одному. Список
+    ВКЛЮЧАЮЩИЙ: набор, убранный из SUITES, но оставшийся здесь, значит, что
+    список не читали при правке, — а рядом мог появиться новый общий ресурс
+    без пометки. И деление: «разом» и «по одному» вместе — все наборы по разу."""
+    rt = sys.modules.get("run_tests") or importlib.import_module("run_tests")
+    res.ok("SERIAL не пуст", len(rt.SERIAL) > 0, "")
+    res.check("каждый набор SERIAL есть в SUITES", rt.serial_unknown(), [])
+    alone = {id(f) for f in rt.SERIAL}
+    par, _ = rt.select(["--no-serial"])
+    ser, _ = rt.select(["--serial"])
+    res.check("--serial берёт ровно SERIAL", sorted(id(f) for _, f in ser), sorted(alone))
+    res.ok("--no-serial не берёт ни одного из SERIAL",
+           not any(id(f) in alone for _, f in par), "")
+    res.check("вместе — все наборы ровно по разу",
+              sorted(id(f) for _, f in par + ser), sorted(id(f) for _, f in rt.SUITES))
+    # части параллельного прогона: фильтр до деления, объединение — всё
+    for n in (1, 5, 8, 12):
+        parts = [rt.select(["--no-serial", "--part", f"{k}/{n}"])[0] for k in range(1, n + 1)]
+        res.check(f"части разом n={n}: объединение = всё, кроме SERIAL",
+                  sorted(id(f) for p in parts for _, f in p), sorted(id(f) for _, f in par))
+    flt, _ = rt.select(["рутина"])
+    parts = [rt.select(["рутина", "--part", f"{k}/4"])[0] for k in range(1, 5)]
+    res.ok("фильтр — до деления: ни одна из 4 частей не пуста",
+           len(flt) >= 4 and all(parts), f"наборов по фильтру {len(flt)}, "
+           f"части {[len(p) for p in parts]}")
 
 
 def suite_ci_mutation(res: Result) -> None:

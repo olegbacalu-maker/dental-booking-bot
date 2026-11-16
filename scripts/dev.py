@@ -1,6 +1,7 @@
 r"""Рутина разработки одной командой. Звать через `dev.ps1` из корня `app`.
 
-    .\dev test [фильтр]   прогон (фильтр — кусок имени набора)
+    .\dev test [-j N] [фильтр]  прогон частями разом (-j 1 — по очереди; фильтр —
+                          кусок имени набора)
     .\dev mutate          проверка сторожей test_structure на слом
     .\dev up [порт]       песочница из исходников на своей базе (по умолчанию 8099)
     .\dev check           готов ли к релизу: дерево, пуш, версия, тег
@@ -212,7 +213,16 @@ def test_mutation_needed(base: str = TEST_BASE) -> tuple[bool, list[str]]:
 
 def cmd_test(argv: list) -> int:
     """Прогон. Если тронуты сторожа — сперва мутация: их правит не тот, кто
-    помнит правило из инструкции, а тот, кто правит код."""
+    помнит правило из инструкции, а тот, кто правит код.
+
+    `-j N` — сколько частей гнать разом (по умолчанию `default_jobs()`);
+    `-j 1` — по-старому, одним процессом и живым выводом."""
+    try:
+        jobs, argv = _parse_jobs(argv)
+    except ValueError as e:
+        print(e)
+        return 2
+    jobs = default_jobs() if jobs is None else jobs
     need, why = test_mutation_needed()
     print("Тронуты сторожа — сперва мутация:" if need else "Мутация не нужна:")
     print("\n".join(f"  {w}" for w in why) + "\n")
@@ -222,7 +232,218 @@ def cmd_test(argv: list) -> int:
                   "Прогон не запускаю — чинить надо сторожа.")
             return 1
         print()
-    return run([PYTHON, TESTS / "run_tests.py", *argv])
+    if jobs == 1:
+        return run([PYTHON, TESTS / "run_tests.py", *argv])
+    return run_parts(jobs, argv)
+
+
+# ---------- test: части разом ----------
+#
+# Наборы независимы (у каждого свой сервер, своя база, своя папка), и прогон
+# по очереди держит занятым одно ядро из двенадцати. Части идут разом через тот
+# же `run_tests.py --part k/N`, что и в CI, только без наборов «только по
+# одному» (`run_tests.SERIAL`): те идут после, своей частью, одна за другой.
+# Порт сервера у частей не совпадает по построению (`harness.free_port`).
+# Число частей по умолчанию — от числа ядер, с запасом на сами серверы:
+# старт uvicorn — секунды CPU, и часть держит его вместе с проверками.
+JOBS_MAX = 10
+JOBS_SPARE = 2
+# Сколько суток хранить папки прогонов частями: логи нужны прочитать после.
+KEEP_DAYS = 2
+
+
+def default_jobs() -> int:
+    return max(1, min(JOBS_MAX, (os.cpu_count() or 2) - JOBS_SPARE))
+
+
+def _parse_jobs(argv: list) -> tuple[int | None, list]:
+    """`-j N` / `-jN` / `--jobs N` / `--jobs=N` из аргументов `test`; прочее —
+    дальше в run_tests.py как было."""
+    jobs, rest, i = None, [], 0
+    while i < len(argv):
+        a = str(argv[i])
+        if a in ("-j", "--jobs") and i + 1 < len(argv):
+            jobs, i = str(argv[i + 1]), i + 2
+            continue
+        if a.startswith("-j") and a[2:].isdigit():
+            jobs = a[2:]
+        elif a.startswith("--jobs="):
+            jobs = a.split("=", 1)[1]
+        else:
+            rest.append(a)
+        i += 1
+    if jobs is None:
+        return None, rest
+    if not jobs.isdigit() or int(jobs) < 1:
+        raise ValueError(f"-j {jobs!r}: нужно целое число от 1")
+    return int(jobs), rest
+
+
+def _list_suites(argv: list, *flags: str) -> list[str] | None:
+    """Имена наборов, которые выберет run_tests.py с этими аргументами."""
+    r = subprocess.run([str(PYTHON), str(TESTS / "run_tests.py"), "--list", *flags, *argv],
+                       cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", env=child_env())
+    if r.returncode != 0:
+        print((r.stdout + r.stderr).strip())
+        return None
+    import json
+    return json.loads(r.stdout.strip().splitlines()[-1])
+
+
+def _runs_dir() -> pathlib.Path:
+    """Папка этого прогона частями: логи, отчёты и TEMP частей.
+
+    Папка `temp_dir()` общая у всех worktree, и соседняя сессия может гнать
+    свой прогон прямо сейчас: сносятся только папки старше `KEEP_DAYS` суток,
+    а не «все, кроме последних», — чужой живой прогон так не задеть."""
+    base = temp_dir() / "dev-test"
+    base.mkdir(parents=True, exist_ok=True)
+    stale = time.time() - KEEP_DAYS * 86400
+    for p in base.iterdir():
+        try:
+            if p.is_dir() and p.stat().st_mtime < stale:
+                shutil.rmtree(p, ignore_errors=True)   # только логи: песочниц там нет
+        except OSError:
+            pass
+    d = base / f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
+    d.mkdir()
+    return d
+
+
+class _Part:
+    """Одна часть: свой процесс, свой лог, свой отчёт, свой TEMP."""
+
+    def __init__(self, label: str, args: list, run_dir: pathlib.Path, tag: str):
+        self.label = label
+        self.log = run_dir / f"{tag}.log"
+        self.report = run_dir / f"{tag}.json"
+        tmp = run_dir / f"{tag}-tmp"
+        tmp.mkdir()
+        self.tmp = tmp
+        env = child_env()
+        for key in ("TEMP", "TMP", "TMPDIR"):
+            env[key] = str(tmp)
+        self._out = self.log.open("wb")
+        self.t0 = time.monotonic()
+        self.secs = 0.0
+        self.proc = subprocess.Popen(
+            [str(PYTHON), str(TESTS / "run_tests.py"), *args, "--report", str(self.report)],
+            cwd=str(ROOT), env=env, stdout=self._out, stderr=subprocess.STDOUT)
+
+    def done(self) -> bool:
+        if self.proc.poll() is None:
+            return False
+        if not self._out.closed:
+            self._out.close()
+            self.secs = time.monotonic() - self.t0
+            shutil.rmtree(self.tmp, ignore_errors=True)   # пусто: харнесс прибрал своё
+        return True
+
+    def result(self) -> dict | None:
+        import json
+        try:
+            return json.loads(self.report.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+
+    def line(self) -> str:
+        r = self.result()
+        if r is None:
+            return (f"{self.label}: УПАЛА без отчёта (код {self.proc.returncode}) "
+                    f"за {self.secs:.0f} с — {self.log}")
+        mark = "ок" if not r["failed"] and self.proc.returncode == 0 else "КРАСНАЯ"
+        return (f"{self.label}: {mark} {r['passed']}/{r['total']} за {self.secs:.0f} с, "
+                f"наборов {len(r['suites'])}")
+
+    def kill(self) -> None:
+        if self.proc.poll() is None:
+            self.proc.kill()       # серверы части гаснут с ней: их задание KILL_ON_JOB_CLOSE
+        self.done()
+
+
+def _wait(parts: list) -> None:
+    left = list(parts)
+    while left:
+        for p in list(left):
+            if p.done():
+                left.remove(p)
+                print("  " + p.line())
+        time.sleep(0.5)
+
+
+def run_parts(jobs: int, argv: list) -> int:
+    """Прогон частями разом. Красный, если красна любая часть, упала без
+    отчёта или если в отчётах не оказалось хоть одного набора, который
+    обязан был пройти (сверка по `run_tests.py --list`)."""
+    par = _list_suites(argv, "--no-serial")
+    ser = _list_suites(argv, "--serial")
+    if par is None or ser is None:
+        return 2
+    if not par and not ser:
+        return run([PYTHON, TESTS / "run_tests.py", *argv])   # скажет «нет наборов» сам
+    n = max(1, min(jobs, len(par)))
+    run_dir = _runs_dir()
+    print(f"Наборов {len(par) + len(ser)}: {len(par)} — в {n} частях разом, "
+          f"{len(ser)} после — по одному. Логи: {run_dir}\n")
+    t0 = time.monotonic()
+    parts: list = []
+    try:
+        parts = [_Part(f"часть {k}/{n}", ["--no-serial", "--part", f"{k}/{n}", *argv],
+                       run_dir, f"part{k}") for k in range(1, n + 1)] if par else []
+        _wait(parts)
+        if ser:
+            alone = _Part("по одному", ["--serial", *argv], run_dir, "serial")
+            parts.append(alone)
+            _wait([alone])
+    except KeyboardInterrupt:
+        for p in parts:
+            p.kill()
+        print("\nПрервано.")
+        return 130
+    wall = time.monotonic() - t0
+    return _summary(parts, par + ser, wall)
+
+
+def _summary(parts: list, expected: list[str], wall: float) -> int:
+    print("\n" + "=" * 60)
+    passed = total = 0
+    seen: list[str] = []
+    rows: list[dict] = []
+    bad = 0
+    for p in parts:
+        r = p.result()
+        if r is None or p.proc.returncode not in (0, 1):
+            bad += 1
+            print(f"  ✗ {p.label}: упала, отчёта нет или он неполон — {p.log}")
+            if r is None:
+                continue
+        passed += r["passed"]
+        total += r["total"]
+        seen += [s["name"] for s in r["suites"]]
+        rows += r["suites"]
+        if r["failed"]:
+            bad += 1
+            print(f"  ✗ {p.label} — лог {p.log}:")
+            for label, why in r["failed"]:
+                print(f"      ✗ {label}: {why}")
+    lost = sorted(set(expected) - set(seen))
+    twice = sorted({s for s in seen if seen.count(s) > 1})
+    if lost or twice:
+        bad += 1
+        for s in lost:
+            print(f"  ✗ набор не прошёл ни в одной части: {s}")
+        for s in twice:
+            print(f"  ✗ набор прошёл дважды: {s}")
+    slow = sorted(rows, key=lambda s: -s["secs"])[:5]
+    if slow:
+        print("\nСамые долгие наборы:")
+        for s in slow:
+            print(f"  {s['secs']:>6.1f} с  {s['name']}")
+    work = sum(s["secs"] for s in rows)
+    print(f"\n{passed}/{total} прошло, наборов {len(seen)} из {len(expected)}; "
+          f"за {wall:.0f} с (по очереди было бы около {work:.0f} с)")
+    return 1 if bad else 0
 
 
 def cmd_mutate(argv: list) -> int:
@@ -412,7 +633,7 @@ def cmd_up(argv: list) -> int:
 # экрана React — такое же содержание выпуска, как правка bot/. Таблицы своих
 # моделей зубов (frontend/models/teeth.js, 07.10) сборка копирует рядом с бандлом
 # — новое запекание моделей тоже повод для выпуска. С 2.0.0 (Tauri, 18.10)
-# клинике едут и оболочка `DentPilot.exe` (shell/, cargo), и мастер установки
+# клинике едут и оболочка Tauri (shell/, cargo), и мастер установки
 # (installer/: DentPilot.iss, установщик WebView2).
 SHIPPED = ("bot/", "frontend/src/", "frontend/models/", "frontend/package.json", "frontend/vite.config.ts",
            "shell/", "installer/")
