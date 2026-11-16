@@ -13,8 +13,9 @@ import type { Badge, Kpi, StatsData, Trend } from './stats'
 /* Раскладка «Statistici» (B8, 27.09; вид по макету Олега 08.10, промпт 2): по
    образцу открытых SaaS-шаблонов (shadcn/ui dashboard-01 — MIT, Tremor
    Dashboard OSS — Apache-2.0). В шапке — период и «comparat cu …», справа
-   «Exportă»; четыре карточки показателей (название, чип изменения, число,
-   прошлый период, спарклайн или шкала, подвал через линию); график по дням с
+   «Exportă programările» (журнал записей периода, не цифры раздела); четыре
+   карточки показателей (название, чип изменения, число, прошлый период,
+   спарклайн или шкала, подвал через линию); график по дням с
    переключателем, «Bani», «Medici», «Top servicii» и лента событий.
    Порядок чтения директора: деньги → поток пациентов → явка → загрузка, потом
    «почему» (график, врачи, услуги) и только в конце — лента событий.
@@ -24,7 +25,7 @@ import type { Badge, Kpi, StatsData, Trend } from './stats'
 const T = t('stats', {
   period: 'Perioadă',
   interval: 'Interval',
-  excel: 'Exportă',
+  excel: 'Exportă programările',
   compared: 'comparat cu',
   metric: 'Indicator',
   byDays: 'pe zile',
@@ -72,6 +73,8 @@ const PAY_COLORS: Record<string, string> = { numerar: '#0a8ea0', card: '#c8691a'
 /** Метка в углу карточки. ⛔ Цвет — из `dir` (хорошо/плохо), а не из знака:
  *  рост отмен — стрелка вверх, но красная. */
 function BadgeView({ b }: { b: Badge }) {
+  /* сравнивать не с чем (явка без закрытых визитов) — метки нет вовсе */
+  if (!b.text) return null
   return (
     <span className={b.dir ? `stx-badge ${b.dir}` : 'stx-badge'}>
       {b.icon && <Icon name={iconName(b.icon)} />}
@@ -104,16 +107,22 @@ function KpiCard({ k, live, prevName }: { k: Kpi; live: boolean; prevName: strin
         <BadgeView b={k.badge} />
       </div>
       <div className="stx-kpi-v">
-        {money
-          ? <Count value={k.value} live={live} suffix=" MDL" group />
-          : <Count value={k.value} live={live} suffix={k.pct !== undefined ? '%' : ''} />}
+        {k.value === null
+          ? <b>{k.text}</b>
+          : money
+            ? <Count value={k.value} live={live} suffix=" MDL" group />
+            : <Count value={k.value} live={live} suffix={k.pct !== undefined ? '%' : ''} />}
       </div>
       <span className="stx-prev">{prevName}: <b>{k.prev}</b></span>
       <div className="stx-kpi-f">
         {k.series && <Spark series={k.series} tone="var(--teal)" />}
         {k.pct !== undefined && <Meter pct={k.pct} tone="var(--teal)" />}
       </div>
-      <p className="stx-kpi-sub">{k.sub}</p>
+      <p className="stx-kpi-sub">
+        {k.sub}
+        {/* незакрытые визиты в явку не входят — их число и дорога в журнал */}
+        {k.open && <AppLink className="stx-open" href={k.open.href}>{k.open.text} ›</AppLink>}
+      </p>
     </div>
   )
 }
@@ -290,7 +299,10 @@ export function StatsBoard({ d, live, pick, onPick, onPreset, onApply, periodUrl
                       <td className="num">{doc.n}</td>
                       <td className="num">{doc.came}</td>
                       <td>
-                        <span className="stx-pct"><Meter pct={doc.pres} tone="var(--green)" /><em>{doc.pres}%</em></span>
+                        <span className="stx-pct">
+                          <Meter pct={doc.pres ?? 0} tone="var(--green)" />
+                          <em>{doc.pres === null ? '—' : `${doc.pres}%`}</em>
+                        </span>
                       </td>
                       <td>
                         <span className="stx-pct"><Meter pct={doc.pct} tone="var(--teal)" /><em>{doc.pct}%</em></span>

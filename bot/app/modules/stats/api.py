@@ -33,12 +33,13 @@ async def api_stats(request: Request,
     """
     if (deny := api_require(request, PERM_MONEY)) is not None:
         return deny
-    today = datetime.now(eng.TZ).date()
+    now = datetime.now(eng.TZ)
+    today = now.date()
     # `_parse_date` не падает (негодная строка = сегодня), поэтому отвергает
     # период только `period_ok`.
     d1, d2 = period(from_q, to_q, today)
     if not model.period_ok(d1, d2, today):
         return msg_json(False, "bad_period", status=422, field="from")
     # «Excel» периода — только с ПК программы (`auth.LOCAL_ONLY`)
-    return msg_json(True, data={**await model.build(d1, d2, today),
+    return msg_json(True, data={**await model.build(d1, d2, now),
                                 "remote": remote_notice(request)})

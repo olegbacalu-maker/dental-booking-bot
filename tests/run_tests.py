@@ -311,6 +311,8 @@ SUITES = [
     ("Аналитика", test_admin.suite_analytics),
     ("Аналитика (JSON)", test_stats_api.suite_stats),
     ("Аналитика: раскладка экрана (B8)", test_stats_api.suite_board),
+    ("Аналитика: явка по закрытым визитам", test_stats_api.suite_presence),
+    ("Аналитика: готовые периоды по дню клиники", test_stats_api.suite_presets),
     ("Аналитика: React-экран и право", test_stats_api.suite_switch),
     ("Бот удалён: ни следа на экранах, данные целы", test_admin.suite_bot_ui),
     ("Карточка пациента", test_admin.suite_patient_card),

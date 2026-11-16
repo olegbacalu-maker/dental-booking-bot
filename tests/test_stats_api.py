@@ -10,9 +10,9 @@
 считает день по Кишинёву, CI — по UTC, и между 21:00 и 24:00 UTC даты разные.
 """
 import json
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 
-from harness import Client, Result, Server, clinic_today
+from harness import TZ, Client, Clock, Result, Server, add_appt, appt_id, clinic_today
 
 
 
@@ -47,9 +47,12 @@ def suite_stats(res: Result) -> None:
         res.ok("выгрузка Excel — на тот же период",
                d["export_url"].endswith(f"from={d['period']['from']}&to={day}"),
                d["export_url"])
-        res.ok("готовые периоды: сегодня, 7, месяц, 30",
-               [p["key"] for p in d["presets"]] == ["azi", "d7", "luna", "d30"],
-               f"{[p['key'] for p in d['presets']]}")
+        # «Anul trecut» — только январь–март; его границы стережёт suite_presets
+        want = ["azi", "d7", "luna", "luna_trecuta", "d30", "anul"]
+        if clinic_today().month <= 3:
+            want.append("anul_trecut")
+        res.check("готовые периоды: сегодня, 7, месяц, прошлый месяц, 30, год",
+                  [p["key"] for p in d["presets"]], want)
 
         # Бот удалён 03.11.2026: доли «prin bot» в разборе нет.
         res.ok("без бота доли бота в разборе записей нет",
@@ -127,14 +130,17 @@ def suite_board(res: Result) -> None:
         res.check("деньги карточки = записанные платежи", k["incasari"]["value"], 2000)
         res.check("и строкой — та же", k["incasari"]["text"], "2 000 MDL")
         res.check("записи карточки = засеянные", k["programari"]["value"], 2)
-        res.check("явка: никто ещё не пришёл", k["prezenta"]["value"], 0)
+        # ни одного закрытого визита — процента нет вовсе, а не «0%»
+        res.check("явка без закрытых визитов — прочерк, а не ноль",
+                  (k["prezenta"]["value"], k["prezenta"]["text"]), (None, "—"))
         # 2 консультации × 60′ из 3 активных врачей × 840′ × 7 рабочих дней
         res.ok("загрузка — минуты записей из рабочих минут активных врачей",
                0 < k["ocupare"]["value"] < 5, k["ocupare"])
         # прошлая неделя пуста: процентов от нуля не бывает
         res.check("рост от нуля — «nou», а не «+∞%»", k["programari"]["badge"]["text"], "nou")
         res.ok("доли сравниваются в процентных пунктах",
-               k["prezenta"]["badge"]["text"].endswith("p.p."), k["prezenta"]["badge"])
+               k["ocupare"]["badge"]["text"].endswith("p.p."), k["ocupare"]["badge"])
+        res.check("явке не с чем сравнить — метки нет", k["prezenta"]["badge"]["text"], "")
         res.ok("минус — дефисом, а не U+2212 (его нет во вшитом Inter)",
                all("−" not in x["badge"]["text"] for x in b["kpis"]), b["kpis"])
         s_ = b["series"]
@@ -167,6 +173,116 @@ def suite_board(res: Result) -> None:
                b2["series"]["labels"])
         res.check("и ряд по неделям сходится с карточкой", sum(b2["series"]["appts"]),
                   next(x["value"] for x in b2["kpis"] if x["key"] == "programari"))
+
+
+def suite_presence(res: Result) -> None:
+    """Явка — только по ЗАКРЫТЫМ визитам (S1, разведка 16.11): делитель —
+    finalizată + nu a venit. Прошлый визит без отметки — не неявка: раньше он
+    шёл в делитель, и при нуле неявок карточка показывала «0%» и «-100 p.p.».
+    Будущие записи в явку не идут никак. Часы поддельные: «уже началось» и
+    «ещё впереди» зависят от часа прогона."""
+    # среда 11.11.2026, 15:00 по Кишинёву
+    with Clock(datetime(2026, 11, 11, 15, 0, tzinfo=TZ)), Server() as s:
+        c = Client(s.url).login()
+        mon, today = "2026-11-09", "2026-11-11"
+        for t, name, ph in (("10:00", "Prez Gata", "069000031"),
+                            ("11:00", "Prez Lipsa", "069000032"),
+                            ("12:00", "Prez Uitat", "069000033")):
+            r = add_appt(c, mon, t, name, ph)
+            res.ok(f"прошлая запись {t} заведена", r.msg in ("ok", "ok_past"), r.msg)
+        add_appt(c, today, "09:00", "Prez Azi", "069000034")
+        add_appt(c, today, "17:00", "Prez Viitor", "069000035")
+
+        def st(a: str = "", b: str = "") -> dict:
+            q = f"?from={a}&to={b}" if a else ""
+            return json.loads(c.get("/api/stats" + q).body)["data"]
+
+        def prez(d: dict) -> dict:
+            return next(x for x in d["board"]["kpis"] if x["key"] == "prezenta")
+
+        # только сегодня: 09:00 началось и не закрыто, 17:00 ещё впереди
+        p = prez(st(today, today))
+        res.check("незакрытые визиты — не неявка: процента нет, а не «0%»",
+                  (p["value"], p["text"]), (None, "—"))
+        res.check("незакрытый — один: будущий в счёт не идёт", p["open"]["n"], 1)
+        res.check("и назван словами", p["open"]["text"], "1 programare neînchisă")
+        res.check("ссылка — в журнал этого дня", p["open"]["href"], f"/admin/all?date={today}")
+        res.check("метки сравнения нет", p["badge"]["text"], "")
+
+        for name, to in (("Prez Gata", "done"), ("Prez Lipsa", "noshow")):
+            r = c.post_json(f"/api/schedule/appointments/{appt_id(c, mon, name)}/status",
+                            {"to": to})
+            res.ok(f"исход «{to}» отмечен", r.status == 200, f"{r.status} {r.body[:200]}")
+        d = st()
+        p = prez(d)
+        res.check("делитель — только закрытые: 1 из (1 + 1 неявка)", p["value"], 50)
+        res.check("текстом — тот же процент", p["text"], "50%")
+        res.check("незакрытых два: забытый в понедельник и сегодняшний 09:00",
+                  p["open"]["text"], "2 programări neînchise")
+        res.check("ссылка — на последний день с незакрытыми",
+                  p["open"]["href"], f"/admin/all?date={today}")
+        res.ok("неявка в разборе — одна", p["sub"].startswith("1 neprezentări"), p["sub"])
+        d2 = next(x for x in d["doctors"] if x["id"] == "d2")
+        res.check("явка врача — та же формула", d2["pres"], 50)
+        res.ok("у врача без закрытых визитов процента нет",
+               all(x["pres"] is None for x in d["doctors"] if x["id"] != "d2"), d["doctors"])
+
+        # ⭐ Ровно случай разведки: неявок ноль, есть незакрытые — не «0%»
+        # неявку отменяют возвратом в «programată», потом визит закрывают
+        lipsa = appt_id(c, mon, "Prez Lipsa")
+        for to in ("confirmed", "done"):
+            c.post_json(f"/api/schedule/appointments/{lipsa}/status", {"to": to})
+        p = prez(st())
+        res.check("ноль неявок при незакрытых визитах — 100%, а не 0%",
+                  (p["value"], p["sub"].split(" ")[0]), (100, "0"))
+        res.check("незакрытые по-прежнему названы", p["open"]["n"], 2)
+
+        # всё закрыто — строки о незакрытых нет
+        for name, day in (("Prez Uitat", mon), ("Prez Azi", today)):
+            c.post_json(f"/api/schedule/appointments/{appt_id(c, day, name)}/status",
+                        {"to": "done"})
+        res.check("всё закрыто — незакрытых нет", prez(st())["open"], None)
+
+
+def suite_presets(res: Result) -> None:
+    """Готовые периоды (S3) — по дню КЛИНИКИ, не по UTC. В первые часы
+    1 января по Кишинёву в UTC ещё 31 декабря: сервер, считающий по UTC,
+    показал бы «Anul acesta» прошлым годом. «Anul trecut» — только январь–март."""
+    def presets(c: Client) -> dict:
+        d = json.loads(c.get("/api/stats").body)["data"]
+        return {p["key"]: (p["from"], p["to"]) for p in d["presets"]}
+
+    with Clock(datetime(2027, 1, 1, 0, 30, tzinfo=TZ)) as clock, Server() as s:
+        c = Client(s.url).login()
+        p = presets(c)
+        res.check("1 января 00:30: год — уже новый", p["anul"], ("2027-01-01", "2027-01-01"))
+        res.check("прошлый месяц — декабрь целиком", p["luna_trecuta"],
+                  ("2026-12-01", "2026-12-31"))
+        res.check("в январе есть прошлый год целиком", p.get("anul_trecut"),
+                  ("2026-01-01", "2026-12-31"))
+        r = c.get("/api/stats?from=2026-01-01&to=2026-12-31")
+        res.check("и сервер этот период принимает", r.status, 200)
+
+        clock.set(datetime(2026, 12, 31, 23, 30, tzinfo=TZ))
+        p = presets(c)
+        res.check("31 декабря 23:30: год ещё этот", p["anul"], ("2026-01-01", "2026-12-31"))
+        res.ok("в декабре прошлого года нет", "anul_trecut" not in p, p)
+        res.check("прошлый месяц — ноябрь", p["luna_trecuta"], ("2026-11-01", "2026-11-30"))
+
+        clock.set(datetime(2027, 3, 31, 23, 50, tzinfo=TZ))
+        res.ok("31 марта прошлый год ещё есть", "anul_trecut" in presets(c), presets(c))
+        clock.set(datetime(2027, 4, 1, 0, 10, tzinfo=TZ))
+        p = presets(c)
+        res.ok("1 апреля 00:10 — уже нет", "anul_trecut" not in p, p)
+        res.check("прошлый месяц — март", p["luna_trecuta"], ("2027-03-01", "2027-03-31"))
+        res.check("порядок кнопок", list(p),
+                  ["azi", "d7", "luna", "luna_trecuta", "d30", "anul"])
+        # февраль високосного года — последний день месяца, а не 28-е
+        clock.set(datetime(2028, 3, 5, 12, 0, tzinfo=TZ))
+        res.check("прошлый месяц — февраль високосного года",
+                  presets(c)["luna_trecuta"], ("2028-02-01", "2028-02-29"))
+        res.ok("сегодня берётся у клиники", date(2028, 3, 5).isoformat()
+               == presets(c)["azi"][0], presets(c)["azi"])
 
 
 def suite_switch(res: Result) -> None:

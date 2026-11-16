@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import { groupThousands } from '../../utils/fx'
 
 /* Фигуры раздела «Statistici» (B8, 27.09; вид по макету Олега 08.10). Как и
@@ -50,8 +51,15 @@ export function Columns({ labels, hints, wdays, values, texts, unit, ariaLabel, 
   const text = (i: number) => (texts ? texts[i] : `${values[i]} ${unit}`)
   const best = values.indexOf(max)
   const every = Math.max(1, Math.ceil(labels.length / 10))
+  const last = labels.length - 1
+  /* Подпись оси — у каждого `every`-го столбца и у последнего; обычная,
+     ближе `every` к последней, молчит, иначе две даты наезжают друг на друга. */
+  const shown = (i: number) => i === last || (i % every === 0 && i + every <= last)
   return (
-    <div className="stx-cols" role="group" aria-label={ariaLabel}>
+    /* `--stx-n` — число столбцов: промежуток между ними считает CSS от него
+       (`.stx-bars`), постоянные 8px на 47 недель года не помещались в карточку. */
+    <div className="stx-cols" role="group" aria-label={ariaLabel}
+      style={{ '--stx-n': values.length } as CSSProperties}>
       <div className="stx-plot">
         {Array.from({ length: ticks + 1 }, (_, k) => (
           <div key={k} className="stx-tick" style={{ bottom: `${(100 * k) / ticks}%` }} aria-hidden="true">
@@ -71,7 +79,7 @@ export function Columns({ labels, hints, wdays, values, texts, unit, ariaLabel, 
       <div className="stx-xax" aria-hidden="true">
         {labels.map((s, i) => (
           <div key={i}>
-            {(i % every === 0 || i === labels.length - 1) ? (
+            {shown(i) ? (
               <>{wdays?.[i] ? <b>{wdays[i]}</b> : null}<span>{s}</span></>
             ) : null}
           </div>

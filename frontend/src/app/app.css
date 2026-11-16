@@ -1026,6 +1026,9 @@
   min-width: 0;
 }
 .nav.stx-head { gap: 10px; }
+/* Готовых периодов семь-восемь: на узком окне подложка переносит их в две
+   строки, а не вытягивает страницу вбок. */
+.stx-head .stx-seg { flex-wrap: wrap; }
 .dp-react-root .nav .dp-btn { width: auto; }
 
 /* Переключатель периода и показателя: сегменты в одной подложке. */
@@ -1134,6 +1137,8 @@
 }
 .stx-kpi-f { display: grid; gap: 8px; margin-top: auto; padding: 10px 0 6px; }
 .stx-kpi-sub { margin: 0; padding-top: 8px; border-top: 1px solid var(--line); font-size: var(--fs-s); color: var(--text3); }
+.stx-open { display: block; margin-top: 2px; color: var(--teal-d); font-weight: 600; text-decoration: none; }
+.stx-open:hover { text-decoration: underline; }
 .stx-kpi .spark { display: block; height: 40px; }
 .stx-kpi .spark .sp-l { stroke-width: 2; }
 .stx-kpi .spark .sp-a { opacity: .1; }
@@ -1210,7 +1215,13 @@
   position: absolute; right: calc(100% + 8px); top: -9px; font-size: var(--fs-xs); line-height: 16px;
   color: var(--text3); white-space: nowrap; font-variant-numeric: tabular-nums;
 }
-.stx-bars { position: absolute; inset: 0; display: flex; gap: 8px; }
+/* Промежуток — от числа столбцов (`--stx-n` ставит Columns): все промежутки
+   вместе не шире четверти графика, и не шире 8px. Постоянные 8px у 47 недель
+   года — 368px, больше самого графика: столбцы сжимались до нуля, а ряд
+   уезжал в соседнюю карточку. Ось X — тем же правилом, иначе даты отстанут
+   от столбцов. */
+.stx-bars, .stx-xax { gap: min(8px, calc(25% / var(--stx-n, 7))); }
+.stx-bars { position: absolute; inset: 0; display: flex; }
 .stx-bcol {
   flex: 1 1 0; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end;
   align-items: center; position: relative; outline: none; border-radius: var(--r-xs);
@@ -1235,8 +1246,12 @@
 }
 .stx-bcol:hover .stx-tip, .stx-bcol:focus-visible .stx-tip { display: block; }
 .stx-tip span { opacity: .75; }
-.stx-xax { display: flex; gap: 8px; margin-left: 44px; }
-.stx-xax > div { flex: 1 1 0; min-width: 0; text-align: center; font-size: var(--fs-xs); line-height: 16px; color: var(--text2); }
+.stx-xax { display: flex; margin-left: 44px; }
+.stx-xax > div {
+  flex: 1 1 0; min-width: 0; text-align: center; font-size: var(--fs-xs); line-height: 16px; color: var(--text2);
+  /* у узкого столбца дата шире него: пусть выходит поровну в обе стороны, а не вправо */
+  display: flex; flex-direction: column; align-items: center; white-space: nowrap;
+}
 .stx-xax b { display: block; font-weight: 600; }
 .stx-xax span { font-variant-numeric: tabular-nums; }
 .stx-scroll { overflow-x: auto; }
@@ -1271,7 +1286,10 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.stx-dl dd small { display: block; font-size: var(--fs-xs); font-weight: 400; color: var(--text3); }
+/* сравнение под суммой переносится само: в одну строку «+183 800 MDL față de
+   precedentele 320 zile» распирало dd и сжимало подпись слева в четыре строки */
+.stx-dl dd small { display: block; font-size: var(--fs-xs); font-weight: 400; color: var(--text3); white-space: normal; }
+.stx-dl dt { min-width: 9em; }
 .stx-dl .bad dd { color: var(--red-t); }
 .stx-link {
   display: inline-flex;

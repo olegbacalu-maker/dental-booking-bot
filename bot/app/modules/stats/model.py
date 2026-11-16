@@ -26,6 +26,10 @@ _WD = ("Lu", "Ma", "Mi", "Jo", "Vi", "Sâ", "Du")
 # смысл, поэтому первая доля — фирменный цвет клиники.
 _METHODS = (("numerar", "Numerar", "var(--teal)"), ("card", "Card", "var(--blue)"),
             ("transfer", "Transfer", "var(--violet)"))
+# Визит ЗАКРЫТ, когда исход известен: пришёл и отпущен или не пришёл. Явку
+# считают только закрытые: незакрытый прошлый визит — забытая отметка, а не
+# неявка, и в делителе он давал «0%» при нуле неявок.
+CLOSED = ("done", "noshow")
 # Длиннее — график переходит с дней на недели: 60 столбиков в ряд уже не читаются.
 WEEKLY_FROM = 46
 
@@ -74,8 +78,26 @@ def price(r) -> int:
     return eng.SERVICE_PRICE.get(r["service"], 0)
 
 
-def agg(rows: list) -> dict:
-    """Все цифры одного периода — из одной выборки, одним проходом."""
+def presence(done: int, noshow: int) -> int | None:
+    """Явка в процентах по ЗАКРЫТЫМ визитам; `None` — закрытых нет, и
+    процента нет вовсе: «0%» читался бы как «никто не пришёл»."""
+    return round(100 * done / (done + noshow)) if done + noshow else None
+
+
+def open_label(n: int) -> str:
+    """«1 programare neînchisă», «5 programări neînchise», «20 de …»: в
+    румынском от двадцати (кроме хвостов 01–19) между числом и словом «de»;
+    правило то же, что у клиентского `utils/plural.roForm`."""
+    if n == 1:
+        return "1 programare neînchisă"
+    de = "de " if n >= 20 and not 1 <= n % 100 <= 19 else ""
+    return f"{n} {de}programări neînchise"
+
+
+def agg(rows: list, now: datetime) -> dict:
+    """Все цифры одного периода — из одной выборки, одним проходом.
+    `now` отделяет начавшиеся визиты от будущих: будущий визит ещё не мог
+    закрыться и в явку не идёт никак."""
     appts = [r for r in rows if r["source"] != "note"]
     act = [r for r in appts if r["status"] != "cancelled"]
     return {
@@ -84,6 +106,9 @@ def agg(rows: list) -> dict:
         # человек физически в клинике, для «Au venit» это уже факт
         "done": sum(1 for r in act if r["status"] in ("done", "arrived", "waiting")),
         "noshow": sum(1 for r in act if r["status"] == "noshow"),
+        "finished": sum(1 for r in act if r["status"] == "done"),
+        # начались, а исход не отмечен (в том числе сидящие сейчас в приёмной)
+        "open": [r for r in act if r["status"] not in CLOSED and r["starts_at"] <= now],
         "cancel": len(appts) - len(act),
         "value": sum(price(r) for r in act if r["status"] != "noshow"),
         "loss": sum(price(r) for r in act if r["status"] == "noshow"),
@@ -122,6 +147,14 @@ def trend_money(cur: int, prev: int, label: str) -> dict:
             "label": label, "note": ""}
 
 
+# Сравнивать не с чем (у одного из периодов нет закрытых визитов): метки нет.
+NO_BADGE = {"dir": "", "icon": "", "text": ""}
+
+
+def no_trend(label: str) -> dict:
+    return {"dir": "", "icon": "", "value": "", "label": label, "note": ""}
+
+
 def trend_pp(cur: int, prev: int, label: str) -> dict:
     """Доля (присутствие, загрузка) сравнивается в ПРОЦЕНТНЫХ ПУНКТАХ: «92% против
     89%» — это +3 п.п., а «+3%» читалось бы как рост на три процента от 89."""
@@ -147,6 +180,25 @@ def badge(cur: int, prev: int, bad_up: bool = False, pp: bool = False) -> dict:
     else:
         text = f"{'+' if up else '-'}{abs(cur - prev) * 100 / prev:.0f}%"
     return {"dir": "up" if good else "dn", "icon": "caret-u" if up else "caret-d", "text": text}
+
+
+def preset_list(today: date) -> list[tuple[str, str, date, date]]:
+    """Готовые периоды. `today` — день КЛИНИКИ (`eng.TZ`): по UTC в первые
+    часы 1 января «Anul acesta» показал бы ещё прошлый год.
+    «Anul trecut» — только январь–март: тогда закрывают прошлый год
+    (годовой отчёт — до 10 февраля), позже кнопка лишь теснит шапку."""
+    first = today.replace(day=1)
+    last_prev = first - timedelta(days=1)
+    out = [("azi", "Azi", today, today),
+           ("d7", "7 zile", today - timedelta(days=6), today),
+           ("luna", "Luna asta", first, today),
+           ("luna_trecuta", "Luna trecută", last_prev.replace(day=1), last_prev),
+           ("d30", "30 zile", today - timedelta(days=29), today),
+           ("anul", "Anul acesta", today.replace(month=1, day=1), today)]
+    if today.month <= 3:
+        y = today.year - 1
+        out.append(("anul_trecut", "Anul trecut", date(y, 1, 1), date(y, 12, 31)))
+    return out
 
 
 def _dm(d: date) -> str:
@@ -186,8 +238,11 @@ def _buckets(days: list) -> tuple[list, list, list]:
     return idx, labels, hints
 
 
-async def build(d1: date, d2: date, today: date) -> dict:
-    """Модель раздела целиком — то, что отдаёт JSON API."""
+async def build(d1: date, d2: date, now: datetime) -> dict:
+    """Модель раздела целиком — то, что отдаёт JSON API. `now` — время
+    клиники (`eng.TZ`): от него «сегодня», готовые периоды и граница
+    начавшихся визитов."""
+    today = now.date()
     days = [d1 + timedelta(days=i) for i in range((d2 - d1).days + 1)]
     span = len(days)
 
@@ -197,8 +252,8 @@ async def build(d1: date, d2: date, today: date) -> dict:
     end = datetime(d2.year, d2.month, d2.day, tzinfo=eng.TZ) + timedelta(days=1)
     all_rows = await db.day_appointments(start_all, end)
     split = datetime(d1.year, d1.month, d1.day, tzinfo=eng.TZ)
-    cur = agg([r for r in all_rows if r["starts_at"] >= split])
-    prev = agg([r for r in all_rows if r["starts_at"] < split])
+    cur = agg([r for r in all_rows if r["starts_at"] >= split], now)
+    prev = agg([r for r in all_rows if r["starts_at"] < split], now)
     plabel = compare_label(span)
 
     # ряд записей по дням текущего периода — карточка «Programări»
@@ -207,7 +262,7 @@ async def build(d1: date, d2: date, today: date) -> dict:
     for r in cur["act"]:
         total_by_day[idx[r["starts_at"].astimezone(eng.TZ).date()]] += 1
 
-    present_pct = round(100 * cur["done"] / cur["total"]) if cur["total"] else 0
+    present_pct = presence(cur["finished"], cur["noshow"])
 
     # ---- загрузка и врачи ----
     doctors = []
@@ -218,10 +273,13 @@ async def build(d1: date, d2: date, today: date) -> dict:
         if off and not mine:
             continue   # выключенный врач без записей за период — не мусорим нулями
         came = sum(1 for r in mine if r["status"] in ("done", "arrived", "waiting"))
+        fin = sum(1 for r in mine if r["status"] == "done")
+        nos = sum(1 for r in mine if r["status"] == "noshow")
         cap = sum(eng.work_minutes(dk, day) for day in days)
         busy = sum(int(r.get("duration_min") or 60) for r in mine)
         doctors.append({"name": name, "off": off, "n": len(mine), "came": came,
-                        "pres": round(100 * came / len(mine)) if mine else 0,
+                        # явка врача — та же формула, что у карточки клиники
+                        "pres": presence(fin, nos),
                         "pct": round(100 * busy / cap) if cap else 0,
                         # аватар строки врача: цвет, инициалы и фото — как у
                         # серверного _avatar, клиент их не считает
@@ -235,7 +293,7 @@ async def build(d1: date, d2: date, today: date) -> dict:
     # ---- деньги ----
     # выручка ЗА СЕГОДНЯ — всегда про сегодня, какой бы период ни был выбран
     t_split = datetime(today.year, today.month, today.day, tzinfo=eng.TZ)
-    tv = agg(await db.day_appointments(t_split, t_split + timedelta(days=1)))["value"]
+    tv = agg(await db.day_appointments(t_split, t_split + timedelta(days=1)), now)["value"]
 
     # Încasări — НАСТОЯЩИЕ деньги: оценка по прайсу выше — прогноз, а здесь то,
     # что реально записала регистратура.
@@ -279,7 +337,13 @@ async def build(d1: date, d2: date, today: date) -> dict:
     # ---- раскладка экрана: те же агрегаты, собранные под карточки ----
     # Ни одной новой формулы денег или визитов: всё ниже — из cur/prev/pays выше.
     prev_days = [p1 + timedelta(days=i) for i in range(span)]
-    prev_present = round(100 * prev["done"] / prev["total"]) if prev["total"] else 0
+    prev_present = presence(prev["finished"], prev["noshow"])
+    # незакрытые визиты периода — числом и ссылкой на ПОСЛЕДНИЙ такой день
+    # журнала: там их закрывают, и после закрытия ссылка уходит на предыдущий
+    open_days = sorted({r["starts_at"].astimezone(eng.TZ).date() for r in cur["open"]})
+    open_link = ({"n": len(cur["open"]), "text": open_label(len(cur["open"])),
+                  "href": f"/admin/all?date={open_days[-1].isoformat()}"}
+                 if cur["open"] else None)
     prev_occ = _occupancy(prev["act"], prev_days)[0]
     # имя прошлого периода без «față de»: «luna trecută: 295 850 MDL»
     prev_name = plabel.removeprefix("față de ")
@@ -324,12 +388,17 @@ async def build(d1: date, d2: date, today: date) -> dict:
              "sub": f"{cur['done']} au venit · {cur['cancel']} anulate",
              "series": total_by_day},
             {"key": "prezenta", "label": "Rata de prezență", "icon": "checkin",
-             "text": f"{present_pct}%", "value": present_pct,
-             "badge": badge(present_pct, prev_present, pp=True),
-             "trend": trend_pp(present_pct, prev_present, plabel),
-             "prev": f"{prev_present}%",
+             # нет закрытых визитов — нет и процента: «—», без метки сравнения
+             "text": "—" if present_pct is None else f"{present_pct}%",
+             "value": present_pct,
+             "badge": (badge(present_pct, prev_present, pp=True)
+                       if None not in (present_pct, prev_present) else NO_BADGE),
+             "trend": (trend_pp(present_pct, prev_present, plabel)
+                       if None not in (present_pct, prev_present) else no_trend(plabel)),
+             "prev": "—" if prev_present is None else f"{prev_present}%",
              "sub": f"{cur['noshow']} neprezentări · cca {fmt_mdl(cur['loss'])} pierdut",
-             "pct": present_pct},
+             "pct": present_pct or 0,
+             "open": open_link},
             {"key": "ocupare", "label": "Grad de ocupare", "icon": "clock",
              "text": f"{occ_pct}%", "value": occ_pct,
              "badge": badge(occ_pct, prev_occ, pp=True),
@@ -367,10 +436,7 @@ async def build(d1: date, d2: date, today: date) -> dict:
     }
 
     # ---- периоды ----
-    presets = [("azi", "Azi", today, today),
-               ("d7", "7 zile", today - timedelta(days=6), today),
-               ("luna", "Luna asta", today.replace(day=1), today),
-               ("d30", "30 zile", today - timedelta(days=29), today)]
+    presets = preset_list(today)
     return {
         "period": {"from": d1.isoformat(), "to": d2.isoformat(),
                    "label": f"{d1.strftime('%d.%m.%Y')} — {d2.strftime('%d.%m.%Y')}",

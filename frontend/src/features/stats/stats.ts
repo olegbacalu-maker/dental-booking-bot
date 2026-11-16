@@ -46,7 +46,8 @@ export interface StatDoctor {
   off: boolean
   n: number
   came: number
-  pres: number
+  /** Явка по закрытым визитам; `null` — закрытых нет, процента нет. */
+  pres: number | null
   pct: number
   /** Аватар в строке врача: цвет, инициалы и фото считает сервер. */
   id: string
@@ -72,12 +73,22 @@ export interface KpiPart {
   pct: number
 }
 
+/** Незакрытые визиты периода (начались, исход не отмечен): число словами
+ *  сервера и последний такой день журнала. */
+export interface KpiOpen {
+  n: number
+  text: string
+  href: string
+}
+
 export interface Kpi {
   key: string
   label: string
   icon: string
   text: string
-  value: number
+  /** `null` — показателя нет (явка без единого закрытого визита): на экране
+   *  строка сервера `text`, а не «0%». */
+  value: number | null
   badge: Badge
   trend: Trend
   /** Значение прошлого периода той же длины — «luna trecută: 295 850 MDL». */
@@ -87,6 +98,8 @@ export interface Kpi {
   series?: number[]
   /** Доля 0–100 — шкала под процентом. */
   pct?: number
+  /** Только у явки: незакрытые визиты, `null` — их нет. */
+  open?: KpiOpen | null
 }
 
 export interface BoardSeries {

@@ -129,7 +129,7 @@ afterEach(() => {
 })
 
 describe('StatsScreen', () => {
-  it('из сети: вместо «Exportă» — слова сервера (02.11, журнал файлом только на ПК программы)', async () => {
+  it('из сети: вместо «Exportă programările» — слова сервера (02.11, журнал файлом только на ПК программы)', async () => {
     get.mockResolvedValueOnce(ok({ ...WEEK, remote: { code: 'only_local', tone: 'warn', text: 'Această acțiune se face doar pe calculatorul principal al clinicii' } }))
     open()
     expect(await screen.findByText('15.09.2026 — 21.09.2026')).toBeTruthy()
@@ -213,6 +213,59 @@ describe('StatsScreen', () => {
     expect(screen.getByText('Jo, 18.09.2026 · 3 000 MDL')).toBeTruthy()
     /* ⭐ Нулевой день — пустое место, а не столбик в пиксель. */
     expect(document.querySelectorAll('.stx-bar').length).toBe(2)
+  })
+
+  it('явка без закрытых визитов — строка сервера «—», без метки; незакрытые — ссылкой в журнал', async () => {
+    const kpis = BOARD.kpis.map((k) => (k.key === 'prezenta'
+      ? { ...k, text: '—', value: null, pct: 0, prev: '100%',
+          badge: { dir: '' as const, icon: '', text: '' },
+          sub: '0 neprezentări · cca 0 MDL pierdut',
+          open: { n: 6, text: '6 programări neînchise', href: '/admin/all?date=2026-09-18' } }
+      : k))
+    get.mockResolvedValueOnce(ok({
+      ...WEEK,
+      board: { ...BOARD, kpis },
+      doctors: [{ ...WEEK.doctors[0]!, pres: null }],
+    }))
+    open()
+    await screen.findByText('Rata de prezență')
+    const card = document.querySelector('[data-kpi="prezenta"]')!
+    /* ⛔ «0%» здесь читался бы как «никто не пришёл» */
+    expect(card.querySelector('.stx-kpi-v')?.textContent).toBe('—')
+    expect(card.querySelector('.stx-badge')).toBeNull()
+    expect(screen.getByRole('link', { name: /6 programări neînchise/ }).getAttribute('href'))
+      .toBe('/admin/all?date=2026-09-18')
+    /* у врача — тот же прочерк, а не «0%» */
+    expect(document.querySelector('.stx-tbl .stx-pct em')?.textContent).toBe('—')
+  })
+
+  it('кнопка выгрузки названа тем, что выгружает: журнал записей периода', async () => {
+    get.mockResolvedValueOnce(ok(WEEK))
+    open()
+    await screen.findByText('15.09.2026 — 21.09.2026')
+    const a = screen.getByRole('link', { name: 'Exportă programările' })
+    expect(a.getAttribute('href')).toBe(WEEK.export_url)
+  })
+
+  it('год по неделям: промежуток от числа столбцов, подписи оси не наезжают', async () => {
+    const n = 47
+    const labels = Array.from({ length: n }, (_, i) => `w${i}`)
+    get.mockResolvedValueOnce(ok({
+      ...WEEK,
+      board: { ...BOARD, series: { ...BOARD.series, bucket: 'week' as const, labels,
+        hints: labels.map((l) => `Săptămâna ${l}`), appts: labels.map((_, i) => (i % 5) + 1),
+        income: labels.map(() => 0), income_text: labels.map(() => '0 MDL') } },
+    }))
+    open()
+    await screen.findByText('Programări pe săptămâni')
+    const cols = document.querySelector('.stx-cols') as HTMLElement
+    /* CSS считает промежуток от `--stx-n` (app.css › .stx-bars) */
+    expect(cols.style.getPropertyValue('--stx-n')).toBe('47')
+    expect(document.querySelectorAll('.stx-bcol').length).toBe(n)
+    /* подпись — у каждой пятой и у последней; 45-я молчит: до 46-й ближе пяти */
+    const shown = [...document.querySelectorAll('.stx-xax > div')]
+      .map((d, i) => (d.textContent ? i : -1)).filter((i) => i >= 0)
+    expect(shown).toEqual([0, 5, 10, 15, 20, 25, 30, 35, 40, 46])
   })
 
   it('пустой период: фраза вместо пустой сетки', async () => {
