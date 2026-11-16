@@ -37,12 +37,152 @@ PYTHON = ROOT / ".venv-desktop" / "Scripts" / "python.exe"
 FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures"
 PIN = "test1234"
 
-def free_port() -> int:
+# ---------- порт сервера ----------
+#
+# Windows пускает ВТОРОГО слушателя на занятый порт (127.0.0.1 рядом с
+# 0.0.0.0 — молча), и запросы уходят тому, чей адрес точнее, — не обязательно
+# нашему серверу. Порт «bind на 0 и закрыть» мог в ту же секунду взять кто
+# угодно: две части параллельного прогона с одним номером — и набор одной
+# говорит с сервером и базой другой. Поэтому порт берётся в три шага:
+#   1. свой диапазон НИЖЕ динамических портов Windows (49152+): там ОС не
+#      раздаёт bind на 0 и исходящие соединения — сам по себе его не берёт никто;
+#   2. бронь — именованный мьютекс `Local\DentPilotTestPort-<порт>`: создать
+#      его может один процесс, и живёт он, пока жив владелец (смерть процесса
+#      снимает бронь сама). Ни две части прогона, ни прогоны двух сессий одного
+#      номера не получат;
+#   3. исключительная проба (`SO_EXCLUSIVEADDRUSE`) на 127.0.0.1: порт, занятый
+#      кем угодно на 127.0.0.1 или исключительно на 0.0.0.0, её не проходит.
+# После старта `Server` ещё сверяет, что порт слушает процесс ЕГО задания
+# (`_foreign_listeners`): чужак между пробой и bind — громкий отказ, не тихая
+# подмена. Держит «Сторожа: порт сервера — один на машину».
+PORT_LO, PORT_HI = 20000, 47000
+_PORT_LEASES: dict[int, object] = {}      # порт → дескриптор брони
+_port_next: int | None = None
+
+
+def _lease(port: int):
+    """Забронировать номер на машине: дескриптор брони или None (бронь чужая)."""
+    if os.name != "nt":
+        return True
+    import ctypes
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateMutexW.restype = wintypes.HANDLE
+    k32.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    h = k32.CreateMutexW(None, False, f"Local\\DentPilotTestPort-{port}")
+    if not h:
+        return None
+    if ctypes.get_last_error() == 183:          # ERROR_ALREADY_EXISTS
+        k32.CloseHandle(h)
+        return None
+    return h
+
+
+def release_port(port: int) -> None:
+    """Снять бронь порта: сервер на нём погашен. Не нашу — молча."""
+    h = _PORT_LEASES.pop(port, None)
+    if h is not None and h is not True and os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.WinDLL("kernel32")
+        k32.CloseHandle.argtypes = [wintypes.HANDLE]
+        k32.CloseHandle(h)
+
+
+def _bind_free(port: int) -> bool:
     s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
+    try:
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        s.bind(("127.0.0.1", port))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+def free_port() -> int:
+    """Свободный порт, забронированный за этим процессом (почему так — выше).
+    Бронь снимает `release_port` или смерть процесса. Обход начинается со
+    случайного места и идёт дальше по кругу: только что погашенный порт
+    (его соединения ещё в TIME_WAIT) следующим не выдаётся."""
+    global _port_next
+    span = PORT_HI - PORT_LO
+    if _port_next is None:
+        _port_next = secrets.randbelow(span)
+    for _ in range(span):
+        port = PORT_LO + _port_next
+        _port_next = (_port_next + 1) % span
+        if port in _PORT_LEASES:
+            continue
+        h = _lease(port)
+        if h is None:
+            continue
+        _PORT_LEASES[port] = h
+        if _bind_free(port):
+            return port
+        release_port(port)
+    raise RuntimeError(f"нет свободного порта в {PORT_LO}–{PORT_HI}")
+
+
+def _listener_pids(port: int) -> set[int]:
+    """PID всех, кто слушает порт по IPv4: `GetExtendedTcpTable` с классом
+    «только слушатели». Не netstat и не поле состояния: на этой машине у
+    слушающих сокетов оно мусор (подробно — `dev._listener_pids`)."""
+    if os.name != "nt":
+        return set()
+    import ctypes
+    import ctypes.wintypes as w
+    import struct
+    get = ctypes.windll.iphlpapi.GetExtendedTcpTable
+    size = w.DWORD(0)
+    get(None, ctypes.byref(size), False, socket.AF_INET, 3, 0)   # OWNER_PID_LISTENER
+    for _ in range(3):                                          # таблица могла подрасти
+        buf = ctypes.create_string_buffer(size.value + 1024)
+        size = w.DWORD(len(buf))
+        rc = get(buf, ctypes.byref(size), False, socket.AF_INET, 3, 0)
+        if rc != 122:                                           # ERROR_INSUFFICIENT_BUFFER
+            break
+    if rc != 0:
+        return set()
+    out = set()
+    # MIB_TCPROW_OWNER_PID: state, laddr, lport, raddr, rport, pid — 24 байта
+    for i in range(struct.unpack_from("<I", buf.raw, 0)[0]):
+        base = 4 + i * 24
+        if struct.unpack_from("!H", buf.raw, base + 8)[0] == port:
+            out.add(struct.unpack_from("<I", buf.raw, base + 20)[0])
+    return out
+
+
+def _job_pids(job) -> set[int] | None:
+    """PID процессов задания Windows; None — не прочитано."""
+    import ctypes
+    from ctypes import wintypes
+
+    class _List(ctypes.Structure):            # JOBOBJECT_BASIC_PROCESS_ID_LIST
+        _fields_ = [("Assigned", wintypes.DWORD), ("InList", wintypes.DWORD),
+                    ("Ids", ctypes.c_size_t * 256)]
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.QueryInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int,
+                                              ctypes.c_void_p, wintypes.DWORD,
+                                              ctypes.c_void_p]
+    lst = _List()
+    if not k32.QueryInformationJobObject(job, 3, ctypes.byref(lst), ctypes.sizeof(lst), None):
+        return None
+    return {int(lst.Ids[i]) for i in range(lst.InList)}
+
+
+def _foreign_listeners(port: int, job) -> set[int]:
+    """Кто слушает `port`, не будучи в задании `job`. Пусто — порт наш."""
+    if job is None or os.name != "nt":
+        return set()
+    ours = _job_pids(job)
+    if ours is None:
+        return set()
+    return _listener_pids(port) - ours
 
 
 class Server:
@@ -161,6 +301,13 @@ class Server:
             if not _health(self.port, deadline):
                 time.sleep(0.3)
                 continue
+            # Ответил — но кто? Чужой слушатель на нашем номере значит, что
+            # набор говорил бы с ЧУЖИМ сервером и базой (см. free_port).
+            foreign = _foreign_listeners(self.port, self._job)
+            if foreign:
+                raise self._startup_failed(
+                    f"порт {self.port} слушает чужой процесс (PID "
+                    f"{', '.join(map(str, sorted(foreign)))}), а не сервер набора")
             # ⛔ Часы, которые не встали, НЕ падают: PYTHONPATH не дошёл или
             # sitecustomize упал при импорте — `site` печатает ошибку и идёт
             # дальше, и сервер молча жил бы по настоящему времени, а набор
@@ -206,6 +353,7 @@ class Server:
                 self.proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
+        release_port(self.port)       # сервер мёртв — номер свободен для других
         try:
             self._log.close()         # до удаления папки: файл лежит в ней
         except (OSError, AttributeError):
@@ -1272,13 +1420,20 @@ class Result:
         return False
 
 
-def run(suites: list) -> int:
-    """suites = [(имя, функция(res))]. Возвращает код выхода."""
+def run(suites: list, report: str | None = None) -> int:
+    """suites = [(имя, функция(res))]. Возвращает код выхода.
+
+    report — путь JSON-отчёта: итог, красные проверки и по строке на набор
+    (имя, проверок, секунд, красных). Его читает `.\\dev test`, гоняющий
+    части разом: сводка по отчётам, а не по разбору чужого вывода."""
     res = Result()
     t0 = time.time()
+    rows = []
     for name, fn in suites:
         print(f"\n=== {name} ===")
         before = len(res.passed) + len(res.failed)
+        red_before = len(res.failed)
+        t_suite = time.time()
         tmp_before = _run_entries()
         try:
             fn(res)
@@ -1291,7 +1446,10 @@ def run(suites: list) -> int:
             res.failed.append((f"{name}: набор упал", repr(e) + where))
         _check_left(res, name, tmp_before)
         done = len(res.passed) + len(res.failed) - before
-        print(f"    проверок: {done}")
+        secs = time.time() - t_suite
+        rows.append({"name": name, "checks": done, "secs": round(secs, 1),
+                     "red": len(res.failed) - red_before})
+        print(f"    проверок: {done} · {secs:.1f} с")
     # ⚠️ Сторож уборки выше слеп, если временное пишется МИМО папки прогона:
     # чистая папка тогда значит «сюда не писали», а не «прибрали».
     print("\n=== Уборка: временное прогона ===")
@@ -1305,6 +1463,11 @@ def run(suites: list) -> int:
         print(f"  ✗ {label}: {why}")
     total = len(res.passed) + len(res.failed)
     print(f"\n{len(res.passed)}/{total} прошло за {time.time() - t0:.1f} с")
+    if report:
+        pathlib.Path(report).write_text(json.dumps(
+            {"passed": len(res.passed), "total": total, "secs": round(time.time() - t0, 1),
+             "failed": res.failed, "suites": rows}, ensure_ascii=False, indent=1),
+            encoding="utf-8")
     return 1 if res.failed else 0
 
 
