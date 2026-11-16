@@ -2,7 +2,7 @@ import { useRef } from 'react'
 import { AppLink } from '../../components/AppLink'
 import { useFlip } from '../../utils/flip'
 import { Icon, iconName } from '../../components/Icon'
-import { CELL_MIN, GRID_ZOOMS, clinicNow, clinicTz, nowlineRows, useCardView, useFitAppts, useFitGrid,
+import { CELL_MIN, GRID_ZOOMS, clinicNow, clinicTz, nowlineRows, useCardView, useFitAppts, useFitGrid, useOdoButton,
   useGridZoom, waitLabel } from './dashFx'
 import type { DashAppt, DashBlock, DashCanvasModel, DashColumn } from './dash'
 import type { VisitFacts } from './day'
@@ -116,12 +116,14 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
   const waits = model.columns.some(
     (c) => c.blocks.some((b) => b.kind === 'appt' && b.wait_since))
   const view = useCardView()
+  const odo = useOdoButton()
   const [zoom, setZoom] = useGridZoom()
   const scale = GRID_ZOOMS[zoom] ?? GRID_ZOOMS[0]
   const keep = useRef<number | null>(null)
   useFitGrid(body, rail, model.hours.length, scale.cell, keep)
   /* `fresh` и `moved` меняют className блока без новой модели — и стёрли бы ступени */
-  useFitAppts(body, waits ? waitTick : 0, model, view, fresh, moved, zoom)
+  /* кнопка зуба освобождает место в сжатой строке — ступени перемеряются и на её смене */
+  useFitAppts(body, waits ? waitTick : 0, model, odo ? view : `${view}:no-odo`, fresh, moved, zoom)
   /* Блок, сменивший место (перенос — свой или с другого места), доезжает до
      нового сдвигом (07.11, вторая волна): только transform, раскладку и
      ступень сжатия не трогает; на опросе без изменений — ни одного запуска. */
@@ -249,7 +251,7 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
             {col.blocks.map((b) => (
               <Block key={b.id} block={b} waitTick={waitTick} dk={col.id ?? ''}
                 onCard={onCard} onCardMenu={onCardMenu} onNote={onNote} onDrag={onDrag}
-                fresh={fresh.has(b.id)} moved={moved.has(b.id)} lanes={n > 1}
+                fresh={fresh.has(b.id)} moved={moved.has(b.id)} lanes={n > 1} odo={odo}
                 /* колонки фактов рассчитаны на блок во всю колонку — в дорожке их нет */
                 facts={n > 1 ? undefined : facts?.[String(b.id)]} date={model.date} />
             ))}
@@ -469,7 +471,7 @@ function Relink({ relink, date }: { relink: NonNullable<DashColumn['relink']>; d
 }
 
 function Block(
-  { block, waitTick, dk, onCard, onCardMenu, onNote, onDrag, fresh, moved, lanes, facts, date }:
+  { block, waitTick, dk, onCard, onCardMenu, onNote, onDrag, fresh, moved, lanes, odo, facts, date }:
   {
     block: DashBlock; waitTick: number; dk: string
     onCard: (id: number) => void; onNote: (id: number) => void
@@ -478,6 +480,7 @@ function Block(
     fresh: boolean
     moved: boolean
     lanes: boolean
+    odo: boolean
     facts: VisitFacts | undefined
     date: string
   },
@@ -528,12 +531,12 @@ function Block(
   }
   return <ApptBlock block={block} pos={pos} waitTick={waitTick} onCard={onCard}
     onCardMenu={onCardMenu} grab={grab} fx={fx} facts={facts} date={date}
-    room={lanes ? block.room ?? '' : ''} />
+    room={lanes ? block.room ?? '' : ''} odo={odo} />
 }
 
 
 function ApptBlock(
-  { block, pos, waitTick, onCard, onCardMenu, grab, fx, facts, date, room }: {
+  { block, pos, waitTick, onCard, onCardMenu, grab, fx, facts, date, room, odo }: {
     block: DashAppt; pos: React.CSSProperties; waitTick: number
     onCard: (id: number) => void
     onCardMenu?: ((id: number, x: number, y: number) => void) | undefined
@@ -542,6 +545,7 @@ function ApptBlock(
     facts: VisitFacts | undefined
     date: string
     room: string
+    odo: boolean
   },
 ) {
   /* Срочность — чипом в строке интервала (макет), а не только цветом: чип
@@ -595,10 +599,11 @@ function ApptBlock(
           своей полосе и ступени блока не меняют (app.css › `.vf`) */}
       {facts && <FactCols x={facts} date={date} />}
       {/* Кнопка одонтограммы в блоке (макет): только у визита С ПАЦИЕНТОМ, иначе
-          ссылка вела бы на `/None/`. ⛔ Всплытие клика останавливает — строка
-          кликабельна целиком; `draggable=false` — иначе браузер тащил бы ссылку
-          вместо блока. */}
-      {block.pid !== null && (
+          ссылка вела бы на `/None/`, и только пока клиника её не выключила
+          (`odo`; одонтограмма остаётся в меню карточки). ⛔ Всплытие клика
+          останавливает — строка кликабельна целиком; `draggable=false` — иначе
+          браузер тащил бы ссылку вместо блока. */}
+      {odo && block.pid !== null && (
         <AppLink className="apact" href={`/admin/patient/${block.pid}/odontograma`}
           aria-label={`${T.odo}: ${block.name}`} title={T.odo} draggable={false}
           onClick={(e) => e.stopPropagation()}>

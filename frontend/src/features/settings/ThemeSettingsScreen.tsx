@@ -16,6 +16,11 @@ const T = {
   font: 'Font',
   card: 'Cardul programării',
   cardWhere: 'Se aplică pe panoul principal și în Programări.',
+  odo: 'Butonul odontogramei pe programări',
+  odoHint:
+    'Dintele din colțul programării deschide odontograma pacientului. Fără bifă, ' +
+    'butonul nu apare pe panoul principal și în Programări; odontograma rămâne în ' +
+    'meniul programării (clic dreapta).',
   color: 'Culoare principală',
   customTitle: 'Culoare personalizată',
   hint:
@@ -46,6 +51,7 @@ function formOf(d: ThemeData): ThemeForm {
     menu: d.menu,
     font: d.font,
     card: d.card,
+    odo_btn: d.odo_btn,
   }
 }
 
@@ -137,6 +143,7 @@ export function ThemeSettingsScreen({ navigate = defaultNavigate }: Props) {
          обновил бы только следующий документ, а сетки этой вкладки должны
          открыться уже в новом виде (перемер подписан на атрибут — dashFx) */
       document.documentElement.dataset.card = r.data.card
+      document.documentElement.dataset.odo = r.data.odo_btn ? 'on' : 'off'
       /* полоса меню окна Tauri — в новый цвет клиники сразу, не со следующего
          документа (без оболочки — ничего) */
       shellCtxChanged()
@@ -268,6 +275,12 @@ export function ThemeSettingsScreen({ navigate = defaultNavigate }: Props) {
               ))}
             </div>
             <p className="hint">{T.cardWhere}</p>
+            <label className="th-topbar">
+              <input type="checkbox" name="odo_btn" checked={f.odo_btn} disabled={busy}
+                onChange={(e) => change({ odo_btn: e.target.checked })} />
+              {T.odo}
+            </label>
+            <p className="hint">{T.odoHint}</p>
 
             <h3 className="th-h">{T.color}</h3>
             <div className="th-colors">

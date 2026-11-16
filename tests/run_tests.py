@@ -542,6 +542,7 @@ SUITES = [
     ("Вид клиники: палитра и отказы", test_theme.suite_palette),
     ("Вид клиники: цвет на страницах", test_theme.suite_pages),
     ("Вид клиники: логотип", test_theme.suite_logo),
+    ("Вид клиники: кнопка одонтограммы на программах", test_theme.suite_odo_button),
     ("Доступ из сети (LAN)", test_admin.suite_lan),
     ("Значок приложения (манифест)", test_admin.suite_pwa),
     ("Закон 195: выгрузка данных пациента", test_privacy.suite_export),

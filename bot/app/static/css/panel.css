@@ -681,6 +681,10 @@
    .gcol[data-lanes] .gappt.slim:not(.tiny):not(.gnote) b{flex-shrink:100}
    .gcol[data-lanes] .gappt.slim:not(.tiny):not(.gnote) .gtm{flex:0 1 auto;min-width:0;
      overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+   /* кнопка выключена клиникой — место под неё отдаётся тексту */
+   html[data-odo="off"] .gcol[data-lanes] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) .gl1,
+   html[data-odo="off"] .gcol[data-lanes] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) small:not(.stw){padding-right:0}
+   html[data-odo="off"] .gcol[data-lanes] .gappt.slim:not(.tiny):not(.gnote){padding-right:5px}
  }}
  .gcell:disabled{cursor:default}
  .gcell:disabled:hover::after,.gcell[data-free="none"]:hover::after{content:none}
@@ -858,6 +862,14 @@
    .gappt.slim:not(.tiny):not(.gnote) small::before{content:none}
    [data-card="time"] .gappt.slim:not(.tiny):not(.gnote) .gt{display:none}
    .gappt.slim:not(.tiny):not(.gnote) .stt{display:none}
+   /* Кнопку одонтограммы клиника выключила (Setări › Aspect, `<html
+      data-odo="off">`; блок её не рисует) — место, которое держали под неё
+      полный и сжатый виды, отдаётся имени и услуге. Ступени `fitAppts`
+      перемеряются на смене атрибута (DashCanvas). */
+   [data-odo="off"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) b,
+   [data-odo="off"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) small:not(.stw){padding-right:0}
+   [data-odo="off"] .gappt.slim:not(.tiny):not(.gnote),
+   [data-odo="off"] .gappt.slim.duo:not(.tiny):not(.gnote){padding-right:8px}
    /* Услуга в ОДНОЙ строке — только в широкой колонке: в узкой (1366, три
       врача, ~230px) от неё оставался обрубок буквы. У «имени впереди» строка
       услуги начинается временем и режется многоточием — её не прячем. */

@@ -1761,6 +1761,9 @@ dialog.dp-about { width: 460px; }
       overflow: hidden; pointer-events: none; white-space: nowrap; line-height: 16px;
     }
     .gappt.has-vf.slim:not(.tiny) .vf { top: 2px; bottom: 2px; right: 40px; align-items: center; }
+    /* справа колонки держат место под кнопку зуба; выключена — до края */
+    [data-odo="off"] .gappt.has-vf:not(.tiny):not(.bare) .vf,
+    [data-odo="off"] .gappt.has-vf.slim:not(.tiny) .vf { right: 8px; }
   }
 }
 .vf-col {

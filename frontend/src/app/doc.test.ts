@@ -33,9 +33,9 @@ const DOC = `<!doctype html><html data-style="calm" data-card="name"><head>
 describe('readHead / applyHead', () => {
   it('голова нового адреса ложится в окно: тема, стиль, вид карточки, цвет полосы, заголовок', () => {
     const win = parse(DOC)
-    applyHead({ title: 'Nou — registru', style: 'dark', card: 'time', themeColor: '#123456',
+    applyHead({ title: 'Nou — registru', style: 'dark', card: 'time', odo: 'off', themeColor: '#123456',
       themeCss: ':root{--teal:#123456}' }, win)
-    expect(readHead(win)).toEqual({ title: 'Nou — registru', style: 'dark', card: 'time',
+    expect(readHead(win)).toEqual({ title: 'Nou — registru', style: 'dark', card: 'time', odo: 'off',
       themeColor: '#123456', themeCss: ':root{--teal:#123456}' })
   })
 

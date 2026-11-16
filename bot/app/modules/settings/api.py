@@ -549,6 +549,7 @@ def _theme_data() -> dict:
         "palettes": {st: {c: theme.palette(c, st) for c in preset_hex}
                      for st in theme.STYLES},
         "logo": theme.logo_url(), "logo_topbar": th["logo_topbar"],
+        "odo_btn": th["odo_btn"],
         "logo_max_mb": theme.LOGO_MAX // (1024 * 1024),
     }
 
@@ -576,7 +577,7 @@ async def api_theme_palette(request: Request, c: str = "", style: str = ""):
 @router.post("/api/settings/theme")
 async def api_theme_save(request: Request):
     """Поля `style`, `primary` или `custom` + hex, `menu`, `font`, `card`,
-    `logo_topbar`; проверка — `_val_theme`."""
+    `logo_topbar`, `odo_btn`; проверка — `_val_theme`."""
     if (deny := api_require(request, PERM_SETTINGS)) is not None:
         return deny
     body = await api_body(request)
@@ -588,9 +589,10 @@ async def api_theme_save(request: Request):
             "custom": str(body.get("custom") or ""),
             "menu": str(body.get("menu") or ""), "font": str(body.get("font") or ""),
             "card": str(body.get("card") or ""),
-            "logo_topbar": bool(body.get("logo_topbar"))}))
+            "logo_topbar": bool(body.get("logo_topbar")),
+            "odo_btn": body.get("odo_btn")}))
     except ValueError as e:
-        field = str(e) if str(e) in ("style", "primary", "menu", "font", "card") else ""
+        field = str(e) if str(e) in ("style", "primary", "menu", "font", "card", "odo_btn") else ""
         return msg_json(False, "bad_set", status=422, field=field)
     except (KeyError, TypeError):
         return msg_json(False, "bad_set", status=422)

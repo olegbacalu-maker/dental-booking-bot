@@ -160,7 +160,7 @@ def _doc_head() -> str:
     pre = "".join(f'\n<link rel="preload" href="/static/fonts/inter-{s}.woff2" '
                   'as="font" type="font/woff2" crossorigin>'
                   for s in FONT_PRELOAD) if th["font"] == "inter" else ""
-    return f"""<!doctype html><html lang="ro" data-style="{th['style']}" data-card="{th['card']}"><head><meta charset="utf-8">
+    return f"""<!doctype html><html lang="ro" data-style="{th['style']}" data-card="{th['card']}" data-odo="{'on' if th['odo_btn'] else 'off'}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="{th_bg}">
 <link rel="icon" type="image/svg+xml" href="/favicon.ico">{pwa_head()}

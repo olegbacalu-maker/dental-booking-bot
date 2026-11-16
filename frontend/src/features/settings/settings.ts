@@ -164,6 +164,8 @@ export interface ThemeData {
   palettes: Record<string, Record<string, Record<string, string>>>
   logo: string | null
   logo_topbar: boolean
+  /** Кнопка одонтограммы в блоке визита на сетках (по умолчанию да). */
+  odo_btn: boolean
   logo_max_mb: number
 }
 
@@ -177,6 +179,7 @@ export interface ThemeForm {
   menu: string
   font: string
   card: string
+  odo_btn: boolean
 }
 
 export interface UserRow {

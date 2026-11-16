@@ -516,13 +516,10 @@ def _logo_action(data: bytes | None) -> str:
         except (ValueError, OSError):
             return "bad_logo"
         msg = "ok_logo"
-    # ⚠️ Стиль, цвет И галочку шапки переносим ЯВНО: _finish_cfg заменяет
-    # секцию целиком, и сохранение логотипа сбросило бы выбранный цвет на
-    # фирменный зелёный (а забытая галочка молча снимала бы логотип с шапки
-    # при каждой замене файла — тот же класс, что и потеря логотипа при
-    # смене цвета).
-    cfg = _finish_cfg(theme={"style": th["style"], "primary": th["primary"],
-                             "logo": name, "logo_topbar": th["logo_topbar"]})
+    # ⚠️ Тему переносим ЦЕЛИКОМ: _finish_cfg заменяет секцию, и каждый
+    # забытый выбор молча сбрасывался бы заменой файла — цвет на фирменный
+    # зелёный, меню, шрифт, вид карточки, галочки шапки и кнопки зуба.
+    cfg = _finish_cfg(theme={**th, "logo": name})
     if eng.save_config(cfg) is not None:
         return "save_err"
     return msg
@@ -609,12 +606,19 @@ def _val_theme(data: dict) -> dict:
     card = data.get("card") or cur.get("card") or theme.DEFAULT_CARD
     if card not in theme.CARD_LABEL:
         raise ValueError("card")
+    # кнопка одонтограммы на сетках — как меню и вид карточки: нет поля —
+    # прежний выбор (старый клиент не выключит её молча), не да/нет — отказ
+    odo = data.get("odo_btn")
+    if odo is None:
+        odo = theme.current()["odo_btn"]
+    if not isinstance(odo, bool):
+        raise ValueError("odo_btn")
     # галочка «логотип в шапке» приходит ИЗ ФОРМЫ каждый раз (флажок на
     # странице всегда нарисован, когда есть логотип): нет поля = снята
     return {"style": style, "primary": theme.to_hex(rgb),
             "menu": menu, "font": font, "card": card,
             "logo": keep if keep in theme.LOGO_NAMES.values() else None,
-            "logo_topbar": bool(data.get("logo_topbar"))}
+            "logo_topbar": bool(data.get("logo_topbar")), "odo_btn": odo}
 
 
 def _val_hours(data: dict) -> dict:

@@ -737,3 +737,93 @@ describe('C26.5.2: линия «сейчас»', () => {
     expect(gb.style.getPropertyValue('--cell')).toMatch(/^\d+px$/)
   })
 })
+
+describe('кнопка одонтограммы в блоке визита', () => {
+  /* Колонка врача с двумя кабинетами — дорожки: визит в первой, второй сосед. */
+  const LANES: DashCanvasModel = {
+    ...MODEL,
+    columns: [column({
+      rooms: [{ id: 'r-1', name: 'Cabinet 1' }, { id: 'r-2', name: 'Cabinet 2' }],
+      room: 'Cabinet 1, Cabinet 2',
+      blocks: [
+        appt({ id: 21, room_id: 'r-1', room: 'Cabinet 1', name: 'Ion Popa' }),
+        appt({ id: 22, col: 1, room_id: 'r-2', room: 'Cabinet 2', name: 'Ana Rusu' }),
+        appt({ id: 23, time: '10:00', top: 1, height: 0.5, room_id: 'r-1', room: 'Cabinet 1',
+          name: 'Fara Fisa', pid: null }),
+      ],
+    })],
+  }
+  const odo = (id: number) => document.querySelector(`[data-appt="${id}"] .apact`)
+  /* jsdom геометрию не считает: «не влез» подставлен — полный вид переполнен,
+     сжатый влезает, и блок встаёт в `slim duo`, как короткий визит. */
+  const squeezed = () => Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+    configurable: true,
+    get(this: HTMLElement) { return this.classList.contains('slim') ? 0 : 100 },
+  })
+  const unsqueeze = () => { delete (HTMLElement.prototype as { scrollHeight?: number }).scrollHeight }
+  afterEach(() => { document.documentElement.removeAttribute('data-odo') })
+
+  it('по умолчанию есть у визита с пациентом и ведёт в его одонтограмму; без пациента — нет', () => {
+    show()
+    expect(odo(1)?.getAttribute('href')).toBe('/admin/patient/17/odontograma')
+    show(LANES)
+    expect(odo(23)).toBeNull()
+  })
+
+  it('дорожка двух кабинетов: зуб у визита каждой дорожки, в полном и в сжатом виде', () => {
+    show(LANES)
+    expect(document.querySelector('.gcol[data-lanes="2"]')).not.toBeNull()
+    expect([odo(21), odo(22)].every((a) => a?.getAttribute('href') === '/admin/patient/17/odontograma')).toBe(true)
+    cleanup()
+    squeezed()
+    try {
+      show(LANES)
+      const a = document.querySelector('[data-appt="21"]') as HTMLElement
+      expect(a.className).toBe('gappt slim duo')
+      expect(odo(21)).not.toBeNull()
+      expect(odo(22)).not.toBeNull()
+    } finally {
+      unsqueeze()
+    }
+  })
+
+  it('клиника выключила (`<html data-odo="off">`): кнопки нет ни в обычной колонке, ни в дорожке, ни в сжатом виде', () => {
+    document.documentElement.dataset.odo = 'off'
+    show()
+    expect(document.querySelectorAll('.apact')).toHaveLength(0)
+    cleanup()
+    show(LANES)
+    expect(document.querySelectorAll('.apact')).toHaveLength(0)
+    cleanup()
+    squeezed()
+    try {
+      show(LANES)
+      expect((document.querySelector('[data-appt="21"]') as HTMLElement).classList.contains('slim')).toBe(true)
+      expect(document.querySelectorAll('.apact')).toHaveLength(0)
+    } finally {
+      unsqueeze()
+    }
+  })
+
+  it('смена галочки ложится на открытую канву без нового опроса и перемеряет ступени', async () => {
+    /* место под зуб освобождается — «не влез» подставлен зависящим от
+       атрибута, чтобы проверка видела именно перемер на его смене */
+    Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+      configurable: true,
+      get() { return document.documentElement.dataset.odo === 'off' ? 0 : 100 },
+    })
+    try {
+      show(LANES)
+      const a = () => document.querySelector('[data-appt="21"]') as HTMLElement
+      expect(odo(21)).not.toBeNull()
+      expect(a().classList.contains('slim')).toBe(true)
+      await act(async () => { document.documentElement.dataset.odo = 'off' })
+      expect(odo(21)).toBeNull()
+      expect(a().classList.contains('slim')).toBe(false)
+      await act(async () => { document.documentElement.dataset.odo = 'on' })
+      expect(odo(21)).not.toBeNull()
+    } finally {
+      unsqueeze()
+    }
+  })
+})

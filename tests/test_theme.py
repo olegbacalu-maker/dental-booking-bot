@@ -623,3 +623,53 @@ def suite_logo(res: Result) -> None:
         res.ok("без входа логотип не подменить",
                anon.post_file("/api/settings/theme/logo", "file", "x.png",
                               PNG).status == 401, "подменился")
+
+
+def suite_odo_button(res: Result) -> None:
+    """Галочка «кнопка одонтограммы на программах» (Setări › Aspect): у старого
+    профиля поля нет — включено; выключенная едет атрибутом `<html data-odo>`;
+    без поля в теле прежний выбор цел; замена логотипа её не сбрасывает."""
+    with Server() as s:
+        c = Client(s.url).login()
+
+        def odo_attr() -> str:
+            m = re.search(r'<html[^>]* data-odo="([a-z]*)"', c.get("/admin").body)
+            return m.group(1) if m else "нет атрибута"
+
+        def screen_odo():
+            return json.loads(c.get("/api/settings/theme").body)["data"]["odo_btn"]
+
+        # апгрейд ≠ чистая установка: профиль клиники, обновлённой с версии без
+        # галочки, поля не несёт — зуб обязан остаться на месте
+        res.check("у профиля из прошлой версии поля нет (засев проверки честный)",
+                  "odo_btn" in _theme_of(s.clinic), False)
+        res.check("без поля в профиле кнопка включена: документ", odo_attr(), "on")
+        res.check("без поля в профиле кнопка включена: экран вида", screen_odo(), True)
+
+        base = {"style": "calm", "primary": "#7C3AED", "custom": ""}
+        r = c.post_json("/api/settings/theme", {**base, "card": "time", "menu": "neutral",
+                                                "odo_btn": False})
+        res.check("снятая галочка сохраняется", r.msg, "ok_theme")
+        res.check("в профиле — явное false", _theme_of(s.clinic).get("odo_btn"), False)
+        res.check("выключенная едет атрибутом документа", odo_attr(), "off")
+        res.check("экрану вида приезжает снятая галочка", screen_odo(), False)
+
+        c.post_json("/api/settings/theme", base)
+        res.check("без поля в теле прежний выбор цел", _theme_of(s.clinic).get("odo_btn"), False)
+        r = c.post_json("/api/settings/theme", {**base, "odo_btn": "nu"})
+        res.check("не да/нет — отказ с полем", (r.msg, json.loads(r.body).get("field")),
+                  ("bad_set", "odo_btn"))
+        res.check("после отказа выбор цел", _theme_of(s.clinic).get("odo_btn"), False)
+
+        # маршрут логотипа пишет секцию темы целиком: забытое поле молча
+        # включило бы кнопку обратно (и сбросило бы меню и вид карточки)
+        r = c.post_file("/api/settings/theme/logo", "file", "logo.png", PNG)
+        res.check("логотип принят", r.msg, "ok_logo")
+        th = _theme_of(s.clinic)
+        res.check("замена логотипа не трогает галочку, меню и вид карточки",
+                  (th.get("odo_btn"), th.get("menu"), th.get("card")), (False, "neutral", "time"))
+        c.post_json("/api/settings/theme/logo/delete", {})
+        res.check("удаление логотипа тоже", _theme_of(s.clinic).get("odo_btn"), False)
+
+        r = c.post_json("/api/settings/theme", {**base, "odo_btn": True})
+        res.check("галочка ставится обратно", (r.msg, odo_attr()), ("ok_theme", "on"))

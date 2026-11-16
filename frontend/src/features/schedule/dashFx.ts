@@ -242,6 +242,27 @@ function onCardView(changed: () => void): () => void {
 }
 
 /**
+ * Кнопка одонтограммы в блоке визита (`clinic.json › theme.odo_btn`, галочка
+ * в Setări › Aspect): едет атрибутом `<html data-odo>`, как вид карточки, и
+ * по той же причине подписана на атрибут — сохранение в настройках и голова
+ * чужого адреса меняют его без новой модели. Выключает только `off`: документ
+ * без атрибута (старый сервер, проверки) рисует кнопку, как раньше.
+ */
+export function useOdoButton(): boolean {
+  return useSyncExternalStore(onOdo, odoOn)
+}
+
+function odoOn(): boolean {
+  return document.documentElement.dataset.odo !== 'off'
+}
+
+function onOdo(changed: () => void): () => void {
+  const mo = new MutationObserver(changed)
+  mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-odo'] })
+  return () => mo.disconnect()
+}
+
+/**
  * Ступени сжатия блока, каждая следующая только если предыдущая не влезла:
  * полный вид → `slim duo` (две строки: имя со временем и статусом, под ними
  * услуга) → `slim` (одна строка) → `tiny` (только имя) → `micro` (время и имя

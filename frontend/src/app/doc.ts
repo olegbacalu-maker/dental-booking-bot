@@ -17,6 +17,8 @@ export interface DocHead {
   style: string
   /** `<html data-card>` — вид карточки визита на сетках (name | time). */
   card: string
+  /** `<html data-odo>` — кнопка одонтограммы в блоке визита на сетках (on | off). */
+  odo: string
   /** `<meta name="theme-color">` — цвет полосы окна. */
   themeColor: string
   /** `<style>` темы: переменные `:root`, посчитанные сервером. */
@@ -52,6 +54,7 @@ export function readHead(doc: Document): DocHead {
     title: doc.title,
     style: doc.documentElement.dataset.style ?? '',
     card: doc.documentElement.dataset.card ?? '',
+    odo: doc.documentElement.dataset.odo ?? '',
     themeColor: doc.querySelector('meta[name="theme-color"]')?.getAttribute('content') ?? '',
     themeCss: doc.head.querySelector('style')?.textContent ?? '',
   }
@@ -66,6 +69,7 @@ export function applyHead(h: DocHead, doc: Document = document): void {
   if (doc.title !== h.title) doc.title = h.title
   if (h.style && doc.documentElement.dataset.style !== h.style) doc.documentElement.dataset.style = h.style
   if (h.card && doc.documentElement.dataset.card !== h.card) doc.documentElement.dataset.card = h.card
+  if (h.odo && doc.documentElement.dataset.odo !== h.odo) doc.documentElement.dataset.odo = h.odo
   const meta = doc.querySelector('meta[name="theme-color"]')
   if (meta && h.themeColor && meta.getAttribute('content') !== h.themeColor) {
     meta.setAttribute('content', h.themeColor)

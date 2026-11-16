@@ -37,7 +37,7 @@ const THEME: ThemeData = {
     modern: { '#0E9F8A': { '--teal': '#0E9F8A' }, '#7C3AED': { '--teal': '#7C3AED' } },
     calm: { '#0E9F8A': { '--teal': '#0E9F8A' }, '#7C3AED': { '--teal': '#7C3AED' } },
   },
-  logo: null, logo_topbar: false, logo_max_mb: 2,
+  logo: null, logo_topbar: false, odo_btn: true, logo_max_mb: 2,
 }
 
 const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, text, tone: 'ok' })
@@ -54,6 +54,7 @@ afterEach(() => {
   postForm.mockReset()
   document.documentElement.removeAttribute('style')
   document.documentElement.removeAttribute('data-card')
+  document.documentElement.removeAttribute('data-odo')
 })
 
 describe('ThemeSettingsScreen', () => {
@@ -97,7 +98,7 @@ describe('ThemeSettingsScreen', () => {
     expect(await screen.findByText('Aspectul clinicii a fost salvat')).toBeTruthy()
     expect(post).toHaveBeenCalledWith('/settings/theme', {
       style: 'calm', primary: '#7C3AED', custom: '#0E9F8A', logo_topbar: false, menu: 'brand', font: 'inter',
-      card: 'name',
+      card: 'name', odo_btn: true,
     })
   })
 
@@ -117,7 +118,7 @@ describe('ThemeSettingsScreen', () => {
     expect(await screen.findByText('Aspectul salvat')).toBeTruthy()
     expect(post).toHaveBeenCalledWith('/settings/theme', {
       style: 'modern', primary: '#0E9F8A', custom: '#0E9F8A', logo_topbar: false, menu: 'neutral', font: 'system',
-      card: 'name',
+      card: 'name', odo_btn: true,
     })
   })
 
@@ -140,6 +141,24 @@ describe('ThemeSettingsScreen', () => {
     expect(document.documentElement.dataset.card).toBe('time')
   })
 
+  it('кнопка зуба на программах: галочка из ответа, снятие уезжает в сохранение и сразу ложится атрибутом документа', async () => {
+    get.mockResolvedValueOnce(ok(THEME))
+    post.mockResolvedValueOnce(ok({ ...THEME, odo_btn: false }, 'ok_theme', 'Aspectul salvat'))
+    document.documentElement.dataset.odo = 'on'
+    open()
+    await screen.findByText('Modern')
+    const box = screen.getByLabelText('Butonul odontogramei pe programări') as HTMLInputElement
+    expect(box.checked).toBe(true)
+    fireEvent.click(box)
+    /* до сохранения сетки этой вкладки остаются как были */
+    expect(document.documentElement.dataset.odo).toBe('on')
+    fireEvent.click(screen.getByRole('button', { name: 'Salvează' }))
+    expect(await screen.findByText('Aspectul salvat')).toBeTruthy()
+    expect(post).toHaveBeenCalledWith('/settings/theme', expect.objectContaining({ odo_btn: false }))
+    expect(document.documentElement.dataset.odo).toBe('off')
+    expect((screen.getByLabelText('Butonul odontogramei pe programări') as HTMLInputElement).checked).toBe(false)
+  })
+
   it('логотип: загрузка multipart, галочка шапки, удаление', async () => {
     get.mockResolvedValueOnce(ok(THEME))
     postForm.mockResolvedValueOnce(ok({ ...THEME, logo: '/clinic-logo?v=1' }, 'ok_logo', 'Logo salvat'))
@@ -157,7 +176,7 @@ describe('ThemeSettingsScreen', () => {
     expect(await screen.findByText('Aspectul salvat')).toBeTruthy()
     expect(post).toHaveBeenCalledWith('/settings/theme', {
       style: 'modern', primary: '#0E9F8A', custom: '#0E9F8A', logo_topbar: true, menu: 'brand', font: 'inter',
-      card: 'name',
+      card: 'name', odo_btn: true,
     })
     /* удаление логотипа теперь спрашивает (01.10); без хоста окна — через confirm браузера */
     vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
