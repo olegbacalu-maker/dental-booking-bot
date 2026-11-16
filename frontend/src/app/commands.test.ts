@@ -64,7 +64,7 @@ describe('меню по правам вошедшего', () => {
       'act:backupNow', 'win:datafolder', '-', 'act:switchUser', 'win:quit',
     ])
     expect(ids(menuOf('help', s))).toEqual([
-      'go:/admin/settings/faq', 'act:checkUpdate', 'go:/admin/license', 'win:mail', '-', 'act:about',
+      'act:ghid', 'go:/admin/settings/faq', 'act:checkUpdate', 'go:/admin/license', 'win:mail', '-', 'act:about',
     ])
   })
 
@@ -78,7 +78,7 @@ describe('меню по правам вошедшего', () => {
     const help = ids(menuOf('help', s))
     expect(help).not.toContain('go:/admin/settings/faq')
     expect(help).not.toContain('act:checkUpdate')
-    expect(help).toEqual(['go:/admin/license', 'win:mail', '-', 'act:about'])
+    expect(help).toEqual(['act:ghid', 'go:/admin/license', 'win:mail', '-', 'act:about'])
   })
 
   it('вход по PIN-файлу — «Schimbă persoana…» (Ctrl+L); без него — «Ieșire din cont» ссылкой', () => {
@@ -94,7 +94,7 @@ describe('меню по правам вошедшего', () => {
     expect(ids(menuOf('go', s))).toEqual([])
     expect(ids(menuOf('view', s))).toEqual(['act:reload', '-', 'win:zoomin', 'win:zoomout', 'win:zoom0', 'win:fullscreen'])
     expect(ids(menuOf('edit', s))).not.toContain('act:quickfind')
-    expect(ids(menuOf('help', s))).toEqual(['win:mail', '-', 'act:about'])
+    expect(ids(menuOf('help', s))).toEqual(['act:ghid', 'win:mail', '-', 'act:about'])
   })
 
   it('разделителей нет в начале, в конце и двух подряд — ни в одном меню, ни у кого', () => {

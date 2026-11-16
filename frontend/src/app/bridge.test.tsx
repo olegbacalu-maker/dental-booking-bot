@@ -346,6 +346,22 @@ describe('человек, вход, «Despre»', () => {
     expect(window.dpRun?.('go:/admin/medici')).toBe(false)
   })
 
+  it('«Ghid de utilizare» — у каждого, и за экраном PIN: адрес сайта новым окном, страница на месте', async () => {
+    serve()
+    post.mockResolvedValue({ data: null, code: '', text: '', tone: 'ok' })
+    const win = vi.spyOn(window, 'open').mockReturnValue(null)
+    const { router } = open('/admin/settings', node('settings_hub'))
+    expect(item('act:ghid', 'help')).toMatchObject({ label: 'Ghid de utilizare', enabled: true })
+    act(() => { expect(window.dpRun?.('act:ghid')).toBe(true) })
+    expect(win).toHaveBeenLastCalledWith('https://dentpilot.md/ghid.html', '_blank', 'noopener')
+    expect(router.state.location.pathname).toBe('/admin/settings')
+    /* за экраном PIN — тоже: руководство публичное */
+    await act(async () => { press('KeyL', { key: 'l', ctrlKey: true }) })
+    expect(await screen.findByLabelText('PIN')).toBeTruthy()
+    act(() => { expect(window.dpRun?.('act:ghid')).toBe(true) })
+    expect(win).toHaveBeenCalledTimes(2)
+  })
+
   it('«Despre DentPilot» — факты модели и версия оболочки; есть и за экраном PIN', async () => {
     serve()
     open('/admin/settings', node('settings_hub'))

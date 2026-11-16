@@ -5,7 +5,7 @@ import { defaultNavigate } from '../hooks/useLoad'
 import { defaultReload } from '../hooks/useLive'
 import type { ShellModel } from '../layouts/shell'
 import {
-  accelOf, allItems, HOMES, itemForAccel, loggedIn, MENU_IDS, menuOf, safePath,
+  accelOf, allItems, GHID_URL, HOMES, itemForAccel, loggedIn, MENU_IDS, menuOf, safePath,
   type CmdState, type MenuEntry, type MenuId,
 } from './commands'
 
@@ -220,6 +220,11 @@ function act(b: Bridge, id: string): void {
       else defaultReload()
       return
     }
+    case 'act:ghid':
+      /* новым окном, как ссылка сайта в «Despre»: оболочка отдаёт чужой адрес
+         браузеру Windows и окно не открывает, страница остаётся как была */
+      window.open(GHID_URL, '_blank', 'noopener')
+      return
     case 'act:back':
       void b.router.navigate(-1)
       return

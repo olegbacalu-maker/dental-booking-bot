@@ -19,6 +19,10 @@ import type { ShellModel } from '../layouts/shell'
  * «Ctrl+=»): её же оболочка подписывает справа от пункта.
  */
 
+/** Руководство на сайте: публичное, одно на все роли — открывается в
+ *  браузере Windows (окно программы отдаёт ему всё, что не её адрес). */
+export const GHID_URL = 'https://dentpilot.md/ghid.html'
+
 export type MenuId = 'file' | 'edit' | 'view' | 'go' | 'help'
 export const MENU_IDS: readonly MenuId[] = ['file', 'edit', 'view', 'go', 'help']
 
@@ -162,6 +166,7 @@ export function menuOf(id: MenuId, s: CmdState): MenuEntry[] {
       }
       break
     case 'help':
+      v.push(item('act:ghid', 'Ghid de utilizare'))
       if (m && can) {
         /* справка и «Stare sistem» — за правом настроек у сервера
            (`/api/settings/faq`, `/api/settings/system`) */
