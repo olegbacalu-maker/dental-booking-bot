@@ -270,10 +270,11 @@ async def _save_doctor(dk: str, *, name: str, spec: str = "", room: str = "",
                        phone: str = "", email: str = "", color: str = "",
                        auto_color: bool = False, work_from: str = "",
                        work_to: str = "", status: str = "activ",
-                       rooms: list | None = None) -> str:
+                       rooms: list | None = None, info: dict | None = None) -> str:
     """Правила фиши врача (зовёт JSON API). Возвращает код ответа:
-    bad_med / dup_med / last_med / arch_busy / bad_rooms / save_err / ok_med.
-    Часы приходят строками («» = как у клиники). Кабинеты — `_pick_rooms`."""
+    bad_med / dup_med / last_med / arch_busy / bad_rooms / rooms_busy / save_err /
+    ok_med / ok_med_moved. Часы приходят строками («» = как у клиники). Кабинеты —
+    `_pick_rooms`; при `rooms_busy` в `info` — какие записи и с кем легли бы внахлёст."""
     nm = name.strip()[:60]
     if not nm:
         return "bad_med"
@@ -300,27 +301,44 @@ async def _save_doctor(dk: str, *, name: str, spec: str = "", room: str = "",
     if picked is None:
         return "bad_rooms"
     ids, new_names = picked
-    # убранный у врача кабинет в справочнике остаётся: в нём стоят записи
-    catalog = [dict(r) for r in eng.CONFIG.get("rooms") or []]
-    known = {str(r.get("id")) for r in catalog}
-    for rid in ids:
-        if rid not in known:
-            catalog.append({"id": rid, "name": new_names.get(rid) or eng.ROOMS[rid],
-                            "active": True})
-    label = {str(r.get("id")): str(r.get("name") or "") for r in catalog}
-    # `room` остаётся в файле: старая версия программы (откат) читает только его
-    docs = [(_doctor_entry(d, name=nm, spec=spec.strip()[:60], rooms=ids,
-                           room=label[ids[0]] if ids else "",
-                           phone=phone.strip()[:30], email=email.strip()[:80],
-                           color=col, work_from=wf, work_to=wt, status=st)
-             if d["id"] == dk else d) for d in eng.CONFIG["doctors"]]
-    # список меняется: записи без кабинета закрепляются за тем, в котором читались до сих пор
+    fields = dict(name=nm, spec=spec.strip()[:60], phone=phone.strip()[:30],
+                  email=email.strip()[:80], color=col, work_from=wf, work_to=wt, status=st)
     was = eng.doctor_rooms(dk)
-    if ids and tuple(ids) != was:
-        keep = was[0] if was else ids[0]
-        await db.pin_doctor_room(dk, keep, label.get(keep) or eng.room_name(keep))
-    err = _save_cfg(doctors=docs, rooms=catalog) if catalog else _save_cfg(doctors=docs)
-    return "save_err" if err else "ok_med"
+    before: list = []
+
+    def catalog_now() -> list:
+        # убранный у врача кабинет в справочнике остаётся: в нём стоят записи
+        catalog = [dict(r) for r in eng.CONFIG.get("rooms") or []]
+        known = {str(r.get("id")) for r in catalog}
+        for rid in ids:
+            if rid not in known:
+                catalog.append({"id": rid, "name": new_names.get(rid) or eng.ROOMS[rid],
+                                "active": True})
+        return catalog
+
+    def save() -> str | None:
+        # файл собирается под замком брони из нынешнего конфига: сохранение
+        # другого врача, успевшее раньше, не затирается
+        before.append(eng.CONFIG)
+        catalog = catalog_now()
+        label = {str(r.get("id")): str(r.get("name") or "") for r in catalog}
+        # `room` остаётся в файле: старая версия программы (откат) читает только его
+        docs = [(_doctor_entry(d, rooms=ids, room=label[ids[0]] if ids else "", **fields)
+                 if d["id"] == dk else d) for d in eng.CONFIG["doctors"]]
+        return _save_cfg(doctors=docs, rooms=catalog) if catalog else _save_cfg(doctors=docs)
+
+    label = {str(r.get("id")): str(r.get("name") or "") for r in catalog_now()}
+    labels = {rid: label.get(rid) or eng.room_name(rid) for rid in (*was, *ids)}
+    res = await db.change_doctor_rooms(dk, was, tuple(ids), labels, datetime.now(eng.TZ),
+                                       save=save, undo=lambda: eng.save_config(before[-1]))
+    if res["code"] == "rooms_busy":
+        if info is not None:
+            info.update(res, names=labels)
+        return "rooms_busy"
+    if res["code"] != "ok":
+        return "save_err"
+    # переименование (кабинетов не меньше) и снятие всех — говорить «в оставшийся» не о чем
+    return "ok_med_moved" if res["moves"] and 0 < len(ids) < len(was) else "ok_med"
 
 
 def _set_services(dk: str, picked: set) -> str:

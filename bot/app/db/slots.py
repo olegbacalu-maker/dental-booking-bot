@@ -782,8 +782,11 @@ async def _pick_room(doctor_id: str | None, doctor: str, starts_at: datetime,
                      exclude_id: int | None = None,
                      note: bool = False) -> str | None:
     """В какой кабинет врача ложится интервал; None — некуда. Назначенный `room` другим
-    не подменяется. Под _slot_lock, когда за ответом следует запись."""
-    own = tuple((rooms or {}).get("own") or ())
+    не подменяется. Под _slot_lock, когда за ответом следует запись.
+    Список кабинетов — нынешний (`own_now`), а не снятый до замка: смена кабинетов
+    врача, прошедшая, пока запись ждала замка, иначе дала бы ей убранный кабинет."""
+    plan = rooms or {}
+    own = tuple(plan["own_now"]() if callable(plan.get("own_now")) else plan.get("own") or ())
     if room and room not in own:
         return None
     busy = await _doctor_overlaps(doctor_id, doctor, starts_at, duration_min,

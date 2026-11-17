@@ -8,12 +8,19 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import pathlib
+import shutil
 import sqlite3
+import subprocess
+import sys
+import tempfile
 import zipfile
 from datetime import datetime, timedelta, timezone
 
-from harness import (TZ, Client, Result, Server, add_appt, appt_id, clinic_today,
-                     day_model, new_patient, panel_live, set_rooms)
+from harness import (BOT, FIXTURES, PYTHON, TZ, Client, Result, Server, _rmtree_settled,
+                     add_appt, appt_id, clinic_today, day_model, new_patient, panel_live,
+                     set_rooms)
 
 
 def _d(offset: int) -> str:
@@ -485,3 +492,151 @@ def suite_move_overlap(res: Result) -> None:
         res.check("после смены порядка: в кабинет старой записи — conflict, она на месте",
                   (_post(c, a3, "move", {**mv, "time": "14:30", "room": r1}, day),
                    _blocks(c, day)["Vechi Lung"]["room_id"]), ("conflict", r1))
+
+
+def _save_rooms(c: Client, dk: str, *names: str):
+    """Фиша врача с другим списком кабинетов — ответ как есть (отказ не роняет набор)."""
+    card = json.loads(c.get(f"/api/doctors/{dk}").body)["data"]
+    return c.post_json(f"/api/doctors/{dk}", _doc_body(card, rooms=[{"name": n} for n in names]))
+
+
+def _lanes_of(c: Client, day: str, dk: str = "d2") -> dict:
+    return {n: (b["room_id"], b["room"]) for n, b in _blocks(c, day, dk).items()}
+
+
+def suite_room_removed(res: Result) -> None:
+    """Кабинет убрали из фиши врача: его будущие записи не ложатся молча поверх
+    записей оставшегося кабинета. До починки сохранение проходило (`ok_med`), и
+    обе записи на 10:00 читались в первом кабинете."""
+    with Server() as s:
+        c = Client(s.url).login()
+        day = _d(2)
+        r1, r3 = set_rooms(c, "d2", "1", "3")
+        _add(c, day, "10:00", "Rm Unu", "022760001", room=r1, duration=60)
+        _add(c, day, "10:00", "Rm Trei", "022760002", room=r3, duration=60)
+        r = _save_rooms(c, "d2", "1")
+        body = json.loads(r.body)
+        res.check("убрать кабинет, чья будущая запись легла бы внахлёст, — отказ 409, поле кабинетов",
+                  (r.msg, r.status, body.get("field")), ("rooms_busy", 409, "rooms"))
+        text = body.get("text", "")
+        res.ok("отказ называет кабинет, число и с кем наложится",
+               "„3”" in text and "o programare viitoare" in text and "Rm Trei" in text, text)
+        res.check("после отказа кабинеты те же, записи каждая в своём",
+                  ([x["id"] for x in json.loads(c.get("/api/doctors/d2").body)["data"]["rooms"]],
+                   _lanes_of(c, day)["Rm Trei"][0]), ([r1, r3], r3))
+
+        aid = appt_id(c, day, "Rm Trei")
+        _post(c, aid, "move", {"date": day, "doctor": "d2", "time": "12:00", "room": r3}, day)
+        r = _save_rooms(c, "d2", "1")
+        res.check("без наложения — сохранено с предупреждением, запись перешла в оставшийся",
+                  (r.msg, json.loads(r.body)["tone"], _lanes_of(c, day)["Rm Trei"]),
+                  ("ok_med_moved", "warn", (r1, "1")))
+
+        # переименование: новое имя = новый ключ, запись едет в него, а не в соседний
+        ra, rb = set_rooms(c, "d3", "A", "B")
+        _add(c, day, "15:00", "Rm Be", "022760003", "d3", room=rb, duration=30)
+        r = _save_rooms(c, "d3", "A", "Be nou")
+        res.check("переименованный кабинет: запись в нём, без лишних слов",
+                  (r.msg, _lanes_of(c, day, "d3")["Rm Be"]), ("ok_med", ("r-be-nou", "Be nou")))
+
+        # прошлое не держит: вчерашние записи внахлёст в убираемом кабинете
+        rx, ry = set_rooms(c, "d4", "X", "Y")
+        _add(c, _d(-1), "09:00", "Ieri X", "022760004", "d4", room=rx, duration=30)
+        _add(c, _d(-1), "09:00", "Ieri Y", "022760005", "d4", room=ry, duration=30)
+        res.check("прошлая запись в убираемом кабинете сохранению не мешает",
+                  _save_rooms(c, "d4", "X").msg, "ok_med")
+
+        # все кабинеты сняты: будущие записи двух кабинетов легли бы в одну колонку
+        set_rooms(c, "d4", "X", "Y")
+        _add(c, day, "11:00", "Gol X", "022760006", "d4", room=rx, duration=30)
+        _add(c, day, "11:00", "Gol Y", "022760007", "d4", room=ry, duration=30)
+        res.check("снять все кабинеты при одновременных будущих записях — отказ",
+                  (_save_rooms(c, "d4").msg, len(json.loads(c.get("/api/doctors/d4").body)["data"]["rooms"])),
+                  ("rooms_busy", 2))
+
+
+def _worker_race(tmpdir: str) -> None:
+    """Запись ждёт замка брони, пока врачу убирают кабинет. Её список кабинетов
+    снят до замка и ещё помнит убранный — запись обязана прочитать новый."""
+    import asyncio
+
+    base = pathlib.Path(tmpdir)
+    os.environ.update({"CLINIC_CONFIG": str(base / "clinic.json"),
+                       "DATABASE_URL": f"sqlite:///{base / 'dental.db'}", "ADMIN_KEY": ""})
+    sys.path.insert(0, str(BOT))
+    from app import db
+    from app import engine as eng
+    from app.modules.doctors import routes as droutes
+
+    async def spin() -> None:
+        for _ in range(50):
+            await asyncio.sleep(0)
+
+    async def main() -> None:
+        await db.init([])
+        try:
+            name = eng.DOCTORS["d2"]
+            print("rooms", await droutes._save_doctor(
+                "d2", name=name, rooms=[{"name": "1"}, {"name": "3"}]))
+            r1, r3 = eng.doctor_rooms("d2")
+            at = (datetime.now(eng.TZ) + timedelta(days=2)).replace(hour=10, minute=0, second=0,
+                                                                    microsecond=0)
+            print("first", isinstance(await db.admin_add(
+                "Rc Unu", "022780001", "Consultație", name, at, doctor_id="d2",
+                service_id="consult", rooms=eng.room_plan("d2"), room=r1), int))
+            stale = eng.room_plan("d2")
+            for n, (label, room) in enumerate((("explicit", r3), ("auto", None))):
+                # замок держит проба: смена кабинетов встаёт в очередь первой,
+                # запись со списком, снятым ДО неё, — второй
+                async with db._slot_lock():
+                    save = asyncio.ensure_future(droutes._save_doctor(
+                        "d2", name=name, rooms=[{"name": "1"}]))
+                    await spin()
+                    book = asyncio.ensure_future(db.admin_add(
+                        f"Rc {label}", f"02278001{n}", "Consultație", name, at,
+                        doctor_id="d2", service_id="consult", rooms=stale, room=room))
+                    await spin()
+                print(f"{label}_save", await save)
+                print(f"{label}_book", await book)
+                print(f"{label}_rows", await db._fetchval(
+                    "SELECT COUNT(*) FROM appointments WHERE doctor_id = 'd2' AND status = 'confirmed'"))
+                await db._execute("UPDATE appointments SET status = 'cancelled' WHERE patient_id IN "
+                                  "(SELECT id FROM patients WHERE name = ?)", f"Rc {label}")
+                await droutes._save_doctor("d2", name=name, rooms=[{"name": "1"}, {"name": "3"}])
+        finally:
+            await db.close()
+
+    asyncio.run(main())
+
+
+def suite_room_race(res: Result) -> None:
+    """Смена кабинетов врача и запись, ждавшая замка брони: запись не ложится в
+    убранный кабинет (а значит, внахлёст в оставшемся)."""
+    base = pathlib.Path(tempfile.mkdtemp(prefix="dp_rrace_"))
+    try:
+        shutil.copy(FIXTURES / "clinic_test.json", base / "clinic.json")
+        r = subprocess.run([str(PYTHON), str(pathlib.Path(__file__).resolve()), "worker-race", str(base)],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=120, env=dict(os.environ))
+        got = dict(line.split(" ", 1) for line in (r.stdout or "").splitlines() if " " in line)
+        if not res.ok("проба поднялась", r.returncode == 0 and got.get("first") == "True",
+                      f"rc={r.returncode}: {got} {(r.stderr or '')[-1200:]}"):
+            return
+        for label in ("explicit", "auto"):
+            what = "убранный кабинет назван явно" if label == "explicit" else "кабинет не выбран"
+            res.check(f"{what}: кабинет убран, ждавшая запись — отказ, в базе одна запись",
+                      (got.get(f"{label}_save"), got.get(f"{label}_book"), got.get(f"{label}_rows")),
+                      ("ok_med", "None", "1"))
+    finally:
+        _rmtree_settled(base)
+
+
+_WORKERS = {"worker-race": _worker_race}
+
+
+if __name__ == "__main__":
+    if len(sys.argv) >= 3 and sys.argv[1] in _WORKERS:
+        _WORKERS[sys.argv[1]](sys.argv[2])
+    else:
+        print("Это файл наборов. Запускать: python tests\\run_tests.py rooms")
+        sys.exit(2)

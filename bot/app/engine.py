@@ -189,9 +189,11 @@ def room_list(dk: str | None) -> list[dict]:
 
 
 def room_plan(dk: str | None) -> dict:
-    """Кабинеты для проверки занятости: `db` профиля не читает, их приносит вызывающий."""
+    """Кабинеты для проверки занятости: `db` профиля не читает, их приносит вызывающий.
+    `own_now` — тот же список, прочитанный в момент вызова: `db._pick_room` берёт его
+    под замком брони."""
     return {"own": doctor_rooms(dk), "names": dict(ROOMS),
-            "by_doctor": dict(DOCTOR_ROOMS)}
+            "by_doctor": dict(DOCTOR_ROOMS), "own_now": lambda: doctor_rooms(dk)}
 
 
 def appt_room(r) -> str:

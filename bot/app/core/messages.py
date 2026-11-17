@@ -398,6 +398,10 @@ MSG_BANNER = {
     "pdf_err": ("err", "PDF-ul nu a putut fi creat — încercați din nou sau tipăriți foaia "
                        "și încărcați-o semnată"),
     "ok_med": ("ok", "Datele medicului au fost salvate"),
+    "rooms_busy": ("err", "Cabinetul scos are programări viitoare, care s-ar suprapune în cabinetul "
+                          "rămas — mutați-le întâi în alt cabinet sau la alt medic"),
+    "ok_med_moved": ("warn", "Datele medicului au fost salvate — programările viitoare din cabinetul "
+                             "scos au trecut în cabinetul rămas"),
     "bad_med": ("err", "Date invalide — verificați câmpurile medicului"),
     "new_med": ("ok", "Medic adăugat — completați fișa lui"),
     "dup_med": ("err", "Există deja un medic cu acest nume — numele trebuie să fie unic"),
@@ -688,3 +692,15 @@ def msg_json(ok: bool, code: str = "", *, data=None, field: str = "",
     if data is not None:
         body["data"] = data
     return JSONResponse(body, status_code=status)
+
+
+def _progr(n: int) -> str:
+    return "o programare viitoare" if n == 1 else f"{n} programări viitoare"
+
+
+def rooms_busy_text(rooms: list, clash: list) -> str:
+    """Отказ убрать кабинет: какой, сколько будущих записей и с кем легли бы внахлёст."""
+    head = "; ".join(f"Cabinetul „{r['name']}” are {_progr(r['n'])}" for r in rooms)
+    who = ", ".join(f"{c['name']} {c['when']}" for c in clash[:3])
+    more = f" și încă {len(clash) - 3}" if len(clash) > 3 else ""
+    return f"{head}, care s-ar suprapune în cabinetul rămas ({who}{more}) — mutați-le întâi"

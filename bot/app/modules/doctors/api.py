@@ -20,6 +20,7 @@ from ...core.api import api_body, api_require
 from ...core.auth import PERM_DOCTORS
 from ...core.layout import (HOUR_MAX, HOUR_MIN, STATUS_LABEL, _DOC_STATE_RO,
                             _doc_hours_text, _initials, msg_json)
+from ...core.messages import rooms_busy_text
 from ...core.visits import (_doc_hue, all_status_actions,
                             photo_url as _photo_url)
 from .routes import (MAX_PHOTO_MB, _DOC_STATE_HINT, _add_doctor, _delete_photo,
@@ -33,8 +34,9 @@ router = APIRouter()
 # (тёзка, последний активный, будущие записи, услуга без врача) — 409;
 # не записался файл — 500. Тексты кодов — из MSG_BANNER.
 _HTTP = {"bad_med": 422, "bad_photo": 422, "bad_rooms": 422, "dup_med": 409, "last_med": 409,
+         "rooms_busy": 409,
          "arch_busy": 409, "svc_empty": 409, "save_err": 500}
-_OK = {"ok_med", "new_med", "ok_svc_med", "ok_photo"}
+_OK = {"ok_med", "new_med", "ok_svc_med", "ok_photo", "ok_med_moved"}
 
 
 def _reply(code: str, data=None, field: str = ""):
@@ -185,10 +187,17 @@ async def api_doctor_save(request: Request, dk: str):
         auto_color=bool(body.get("auto_color")),
         work_from=_s(body, "work_from"), work_to=_s(body, "work_to"),
         status=_s(body, "status") or "activ",
-        rooms=body["rooms"] if isinstance(body.get("rooms"), list) else None)
+        rooms=body["rooms"] if isinstance(body.get("rooms"), list) else None, info=(info := {}))
     if code == "bad_rooms":
         return _reply(code, field="rooms")
-    if code != "ok_med":
+    if code == "rooms_busy":
+        rooms = [{"name": info["names"].get(rid) or rid, "n": n} for rid, n in info["by_room"].items()]
+        clash = [{"name": r["name"] or "—",
+                  "when": r["starts_at"].astimezone(eng.TZ).strftime("%d.%m %H:%M")}
+                 for r in info["clash"]]
+        return msg_json(False, code, field="rooms", status=409, data={"rooms": rooms, "clash": clash},
+                        text=rooms_busy_text(rooms, clash))
+    if code not in ("ok_med", "ok_med_moved"):
         return _reply(code, field="name" if code in ("bad_med", "dup_med") and not _s(body, "name").strip() else "")
     return _reply(code, data=await _card(dk))
 

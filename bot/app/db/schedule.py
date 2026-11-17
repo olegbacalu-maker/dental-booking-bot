@@ -649,14 +649,90 @@ def _own_room(r, rooms: dict | None) -> str | None:
     return _lane(r["room_id"], tuple((rooms or {}).get("own") or ())) or None
 
 
-async def pin_doctor_room(doctor_id: str, room: str, label: str) -> None:
-    """Записи врача без кабинета закрепляются за тем, который занимали: иначе смена
-    списка кабинетов молча перенесла бы их в другой, поверх стоящих там."""
+def _sql_text(v) -> str:
+    """Литерал для `executescript`: параметров он не берёт."""
+    return "NULL" if v is None else "'" + str(v).replace("'", "''") + "'"
+
+
+async def _rooms_plan(doctor_id: str, was: tuple, ids: tuple, now: datetime) -> dict:
+    """Куда встанет каждая будущая запись кабинета, который у врача убирают, и какие
+    легли бы внахлёст. Без этого после сохранения они читались бы в первом
+    оставшемся кабинете поверх стоящих там. Заметка стойки не переезжает: она
+    занимает врача целиком."""
+    from datetime import timedelta
+    removed = [r for r in was if r not in ids]
+    out: dict = {"moves": [], "clash": [], "by_room": {}}
+    if not removed:
+        return out
+    rows = await _fetch(
+        f"""SELECT a.id, a.starts_at, a.duration_min, a.room_id, a.source, p.name
+           FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id
+           WHERE a.doctor_id = ? AND a.status IN {_ACT_SQL} AND a.starts_at >= ?""",
+        doctor_id, _iso(now - timedelta(minutes=240)))
+
+    def end(r):
+        return r["starts_at"] + timedelta(minutes=int(r["duration_min"] or 60))
+
+    rows = [r for r in rows if r["source"] != "note" and end(r) > now]
+    lane = {r["id"]: _lane(r["room_id"], was) for r in rows}
+    placed: dict[str, list] = {}
+    for r in rows:
+        if lane[r["id"]] not in removed:
+            placed.setdefault(lane[r["id"]], []).append(r)
+    # новый кабинет в списке — чаще всего переименованный убранный: туда первым
+    order = [x for x in ids if x not in was] + [x for x in ids if x in was] or [""]
+    for r in sorted((r for r in rows if lane[r["id"]] in removed), key=lambda x: x["starts_at"]):
+        rid = lane[r["id"]]
+        out["by_room"][rid] = out["by_room"].get(rid, 0) + 1
+        target = next((x for x in order if not any(
+            o["starts_at"] < end(r) and r["starts_at"] < end(o) for o in placed.get(x, []))), None)
+        if target is None:
+            out["clash"].append(r)
+        else:
+            placed.setdefault(target, []).append(r)
+            out["moves"].append((r["id"], target))
+    return out
+
+
+async def change_doctor_rooms(doctor_id: str, was: tuple, ids: tuple, labels: dict,
+                              now: datetime, save, undo) -> dict:
+    """Новый список кабинетов врача — одним шагом под замком брони: план, файл
+    клиники (`save`), записи одним скриптом. Между планом и сохранением не
+    вклинится ни одна запись, а запись, ждавшая замка, читает уже новый список
+    (`_pick_room` › `own_now`). Не легло в базу — файл возвращается (`undo`).
+
+    Записи без кабинета закрепляются за тем, в котором читались: иначе смена
+    порядка молча перенесла бы их в другой, поверх стоящих там (`OR IGNORE`:
+    строке, которой там мешает другая, кабинет не пишется). Записи убранного
+    кабинета переходят в оставшийся, если ложатся без наложения; легла бы хоть
+    одна внахлёст — `rooms_busy`, не меняется ничего.
+    Код: ok / rooms_busy / save_err; рядом `moves`, `clash`, `by_room`."""
     async with _slot_lock():
-        await _execute(
-            """UPDATE OR IGNORE appointments SET room_id = ?, room = ?
-               WHERE doctor_id = ? AND room_id IS NULL AND source != 'note'""",
-            room, label, doctor_id)
+        plan = await _rooms_plan(doctor_id, was, ids, now)
+        if plan["clash"]:
+            return {**plan, "code": "rooms_busy"}
+        sql = []
+        if ids and ids != was:
+            keep = was[0] if was else ids[0]
+            sql.append(
+                f"UPDATE OR IGNORE appointments SET room_id = {_sql_text(keep)}, "
+                f"room = {_sql_text(labels.get(keep, ''))} WHERE doctor_id = {_sql_text(doctor_id)} "
+                "AND room_id IS NULL AND source != 'note';")
+        for aid, target in plan["moves"]:
+            sql.append(
+                f"UPDATE appointments SET room_id = {_sql_text(target or None)}, "
+                f"room = {_sql_text(labels.get(target, '') if target else '')} WHERE id = {int(aid)};")
+        if save():
+            return {**plan, "code": "save_err"}
+        if sql:
+            try:
+                await db._CONN.executescript("\n".join(["BEGIN IMMEDIATE;", *sql, "COMMIT;"]))
+            except Exception as e:  # noqa: BLE001 — сохранение отменяется целиком
+                await db._CONN.rollback()
+                undo()
+                log.warning("change_doctor_rooms(%s) failed: %r", doctor_id, e)
+                return {**plan, "code": "save_err"}
+        return {**plan, "code": "ok"}
 
 
 async def set_appt_room(appt_id: int, room: str, rooms: dict | None) -> str:

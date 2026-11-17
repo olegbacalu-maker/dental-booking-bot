@@ -413,6 +413,8 @@ SUITES = [
     ("Кабинеты: профиль — старая строка и список из фиши врача", test_rooms.suite_profile),
     ("Кабинеты: канва — дорожки кабинетов в колонке врача", test_rooms.suite_lanes),
     ("Кабинеты: перенос в занятый кабинет — отказ по пересечению интервалов", test_rooms.suite_move_overlap),
+    ("Кабинеты: убранный кабинет не кладёт записи внахлёст", test_rooms.suite_room_removed),
+    ("Кабинеты: смена кабинетов врача и запись, ждавшая замка", test_rooms.suite_room_race),
     ("Настройки: хаб (JSON)", test_settings_api.suite_hub),
     ("Настройки: сеть (JSON)", test_settings_api.suite_lan),
     ("Сеть: вердикт брандмауэра по правилам exe", test_netcheck.suite_verdict),
