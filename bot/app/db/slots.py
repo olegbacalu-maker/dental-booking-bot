@@ -710,7 +710,8 @@ async def _book_locked(pid: int, service: str, doctor: str, starts_at: datetime,
         await db._CONN.commit()
         appt_id = cur.lastrowid
         await cur.close()
-        await _log_booking(pid, service, doctor, starts_at, source)
+        await _log_booking(pid, service, doctor, starts_at, source,
+                           CONTROL_NAME if lane == CONTROL_LANE else "")
         return appt_id
     except db._SQ.IntegrityError as e:
         await db._CONN.rollback()
@@ -767,13 +768,37 @@ async def _doctor_overlaps(doctor_id: str | None, doctor: str,
                 minutes=int(r["duration_min"] or 60))]
 
 
+# Дорожка Control врача (галочка «Programări paralele»): не кабинет, а место для
+# короткого приёма параллельно основному. Значение не может совпасть с `r-…`
+# из `eng.room_key`, в справочник `rooms` не попадает; колонка `room_id` та же,
+# индексы те же. Старая версия читает его первым кабинетом врача.
+CONTROL_LANE = "~control"
+CONTROL_NAME = "Control"
+# Имя основной дорожки у врача без кабинетов, когда рядом есть Control.
+MAIN_NAME = "Principal"
+
+
 def _lane(room_id: str | None, own: tuple) -> str:
-    """Кабинет, который запись занимает: свой, пока числится за врачом, иначе первый."""
+    """Кабинет, который запись занимает: свой, пока числится за врачом, иначе первый.
+    Дорожка Control — всегда своя: запись в ней не ложится поверх основной."""
+    if room_id == CONTROL_LANE:
+        return CONTROL_LANE
     return room_id if room_id in own else (own[0] if own else "")
 
 
 def _room_label(rooms: dict | None, lane: str | None) -> str:
+    if lane == CONTROL_LANE:
+        return CONTROL_NAME
     return str(((rooms or {}).get("names") or {}).get(lane, "")) if lane else ""
+
+
+def _plan_now(rooms: dict | None) -> tuple[tuple, bool]:
+    """Кабинеты врача и его галочка Control на этот момент (`eng.room_plan`): под замком
+    брони — нынешние, а не снятые до замка."""
+    plan = rooms or {}
+    own = plan["own_now"]() if callable(plan.get("own_now")) else plan.get("own")
+    ctl = plan["control_now"]() if callable(plan.get("control_now")) else plan.get("control")
+    return tuple(own or ()), bool(ctl)
 
 
 async def _pick_room(doctor_id: str | None, doctor: str, starts_at: datetime,
@@ -783,11 +808,14 @@ async def _pick_room(doctor_id: str | None, doctor: str, starts_at: datetime,
                      note: bool = False) -> str | None:
     """В какой кабинет врача ложится интервал; None — некуда. Назначенный `room` другим
     не подменяется. Под _slot_lock, когда за ответом следует запись.
-    Список кабинетов — нынешний (`own_now`), а не снятый до замка: смена кабинетов
-    врача, прошедшая, пока запись ждала замка, иначе дала бы ей убранный кабинет."""
-    plan = rooms or {}
-    own = tuple(plan["own_now"]() if callable(plan.get("own_now")) else plan.get("own") or ())
-    if room and room not in own:
+    Кабинеты и галочка Control — нынешние (`own_now`, `control_now`), а не снятые до
+    замка: смена кабинетов врача, прошедшая, пока запись ждала замка, иначе дала бы
+    ей убранный кабинет."""
+    own, ctl = _plan_now(rooms)
+    if room == CONTROL_LANE:
+        if not ctl:
+            return None
+    elif room and room not in own:
         return None
     busy = await _doctor_overlaps(doctor_id, doctor, starts_at, duration_min,
                                   exclude_id)
@@ -796,7 +824,12 @@ async def _pick_room(doctor_id: str | None, doctor: str, starts_at: datetime,
     taken = {_lane(r["room_id"], own) for r in busy}
     if room:
         return None if room in taken else room
-    order = ([prefer] if prefer and prefer in own else []) + list(own or ("",))
+    # Автовыбор дорожку Control не видит: в неё кладёт только явный выбор
+    # человека (`room`), иначе запись на занятый час молча уехала бы в Control
+    # вместо отказа. Исключение — `prefer`: запись, которая УЖЕ стоит в Control
+    # (перенос у того же врача, возврат статуса), держит свою дорожку.
+    keep = prefer and (prefer in own or (prefer == CONTROL_LANE and ctl))
+    order = ([prefer] if keep else []) + list(own or ("",))
     return next((x for x in order if x not in taken), None)
 
 
@@ -815,7 +848,7 @@ async def room_busy(room_id: str | None, starts_at: datetime, duration_min: int,
                     exclude_id: int | None = None) -> bool:
     """Запись ДРУГОГО врача в этом кабинете в это время: повод предупредить, не отказать."""
     from datetime import timedelta
-    if not room_id:
+    if not room_id or room_id == CONTROL_LANE:
         return False
     by_doctor = (rooms or {}).get("by_doctor") or {}
     pad = timedelta(minutes=240)

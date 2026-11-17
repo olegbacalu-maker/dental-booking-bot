@@ -22,7 +22,7 @@ import { MoveDialog } from './MoveDialog'
 import { NoteDialog } from './NoteDialog'
 import { SlotDialog } from './SlotDialog'
 import { canvasBlocks, canvasColName, canvasNote, canvasOpenHours, canvasOthers, canvasRooms,
-  canvasRoomsOf, type DashNote } from './dash'
+  canvasRoomsOf, controlSlot, type DashNote } from './dash'
 import { useClockTick } from './dashFx'
 import { useLingering, useOpening } from '../../utils/motion'
 import { day, type DayModel } from './day'
@@ -145,7 +145,7 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
      плашку сервера, отказ — только плашку. Возвращает «получилось ли», чтобы
      диалог закрывался лишь на удаче. */
   const act = useCallback(async (run: () => Promise<ApiResult<DayModel>>,
-    fail?: (text: string) => void): Promise<boolean> => {
+    fail?: (text: string, code?: string, data?: unknown) => void): Promise<boolean> => {
     setBusy(true)
     try {
       const r = await run()
@@ -158,7 +158,8 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
          модальным окном не видна (top layer), слово отказа печатает оно само */
       if (!leaveIfSignedOut(err)) {
         const text = err.text || T.offline
-        if (fail) fail(text)
+        if (fail) fail(text, 'code' in err.failure ? err.failure.code : '',
+          'data' in err.failure ? err.failure.data : undefined)
         else setToast({ tone: 'err', text })
       }
       return false
@@ -383,6 +384,8 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
                       onDuration={(min, fail) =>
                         act(() => day.duration(at, doctor, tile, cardL.shown!, min), fail)}
                       rooms={canvasRoomsOf(m.canvas, cardL.shown)}
+                      {...((qc) => (qc ? { onControl: () => { setCard(null); setSlot(qc) } } : {}))(
+                        controlSlot(m.canvas, cardL.shown, openCard.time))}
                       onRoom={(room, fail) =>
                         act(() => day.room(at, doctor, tile, cardL.shown!, room), fail)} />
         : null}

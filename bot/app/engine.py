@@ -113,6 +113,11 @@ ROOMS: dict[str, str] = {}
 # Кабинеты врача по порядку; первый — по умолчанию.
 DOCTOR_ROOMS: dict[str, tuple[str, ...]] = {}
 ROOMS_MAX = 3
+# Врачи с галочкой «Programări paralele»: у них в колонке узкая дорожка Control
+# (`db.CONTROL_LANE`). Нет поля `parallel` в clinic.json — выкл.
+DOCTOR_PARALLEL: set[str] = set()
+# Длительность, которую окно записи предлагает в дорожке Control.
+CONTROL_DUR = 15
 # docs = кто выполняет услугу (нет ключа = все); один врач → бот не спрашивает
 SERVICES: dict[str, dict] = {}
 SERVICE_PRICE: dict[str, int] = {}          # подпись (ro/ru) → средняя цена
@@ -160,6 +165,7 @@ def room_key(name: str) -> str:
 def _read_rooms(cfg: dict) -> None:
     ROOMS.clear()
     DOCTOR_ROOMS.clear()
+    DOCTOR_PARALLEL.clear()
     for r in cfg.get("rooms") or []:
         rid, name = str(r.get("id") or ""), str(r.get("name") or "").strip()
         if rid and name:
@@ -174,13 +180,39 @@ def _read_rooms(cfg: dict) -> None:
                 ROOMS.setdefault(rid, name)
             own = [rid] if rid else []
         DOCTOR_ROOMS[d["id"]] = tuple(dict.fromkeys(own))[:ROOMS_MAX]
+        if d.get("parallel") is True:
+            DOCTOR_PARALLEL.add(d["id"])
 
 
 def doctor_rooms(dk: str | None) -> tuple[str, ...]:
     return DOCTOR_ROOMS.get(dk or "", ())
 
 
+def doctor_parallel(dk: str | None) -> bool:
+    return (dk or "") in DOCTOR_PARALLEL
+
+
+def room_allowed(dk: str | None, rid: str) -> bool:
+    """Кабинет, который окно может прислать для этого врача: свой или его дорожка Control."""
+    return rid in doctor_rooms(dk) or (rid == db.CONTROL_LANE and doctor_parallel(dk))
+
+
+def doctor_lanes(dk: str | None, rows: list | None = None) -> tuple[str, ...]:
+    """Дорожки колонки на канве: кабинеты врача и последней — Control. У врача без
+    кабинетов основная дорожка — «». Control рисуется и без галочки, если в ней
+    стоят записи этого дня: данные не прячутся молча."""
+    own = doctor_rooms(dk)
+    ctl = doctor_parallel(dk) or any(
+        r.get("room_id") == db.CONTROL_LANE and r.get("source") != "note"
+        for r in rows or ())
+    if not ctl:
+        return own
+    return (own or ("",)) + (db.CONTROL_LANE,)
+
+
 def room_name(rid: str | None) -> str:
+    if rid == db.CONTROL_LANE:
+        return db.CONTROL_NAME
     return ROOMS.get(rid or "", "")
 
 
@@ -188,18 +220,32 @@ def room_list(dk: str | None) -> list[dict]:
     return [{"id": rid, "name": ROOMS[rid]} for rid in doctor_rooms(dk)]
 
 
+def lane_list(dk: str | None, rows: list | None = None) -> list[dict]:
+    """Дорожки колонки для браузера: кабинеты и Control (`control: true`). У врача без
+    кабинетов, но с Control основная дорожка — `id ""` с именем `db.MAIN_NAME`."""
+    lanes = doctor_lanes(dk, rows)
+    if db.CONTROL_LANE not in lanes:
+        return room_list(dk)
+    return [{"id": rid, "name": room_name(rid) or db.MAIN_NAME,
+             **({"control": True} if rid == db.CONTROL_LANE else {})}
+            for rid in lanes]
+
+
 def room_plan(dk: str | None) -> dict:
     """Кабинеты для проверки занятости: `db` профиля не читает, их приносит вызывающий.
-    `own_now` — тот же список, прочитанный в момент вызова: `db._pick_room` берёт его
-    под замком брони."""
+    `own_now` / `control_now` — кабинеты и галочка Control, прочитанные в момент вызова:
+    `db._pick_room` берёт их под замком брони."""
     return {"own": doctor_rooms(dk), "names": dict(ROOMS),
-            "by_doctor": dict(DOCTOR_ROOMS), "own_now": lambda: doctor_rooms(dk)}
+            "by_doctor": dict(DOCTOR_ROOMS), "own_now": lambda: doctor_rooms(dk),
+            "control_now": lambda: doctor_parallel(dk)}
 
 
 def appt_room(r) -> str:
     """Кабинет, который запись занимает сейчас; то же правило у `db._lane` — менять парой."""
     own = doctor_rooms(r.get("doctor_id"))
     rid = r.get("room_id") or ""
+    if rid == db.CONTROL_LANE:
+        return rid
     return rid if rid in own else (own[0] if own else "")
 
 
@@ -500,6 +546,15 @@ def fits_doctor(dk: str, start: datetime, duration: int) -> bool:
 def work_minutes(dk: str, d: date) -> int:
     """Рабочие минуты врача за день (для ёмкости в статистике)."""
     return sum(int((e - s).total_seconds()) // 60 for s, e in _windows(dk, d))
+
+
+def busy_minutes(rows) -> int:
+    """Занятые минуты записей — пара к `work_minutes` у каждой загрузки (шапка колонки,
+    день, карточка врача, «Statistici»): одно правило, иначе проценты разойдутся.
+    Запись в дорожке Control (параллельный короткий приём) кресла не занимает:
+    100 % значит «основная колонка полна»."""
+    return sum(int(r.get("duration_min") or 60) for r in rows
+               if r.get("room_id") != db.CONTROL_LANE)
 
 
 def is_past(dt: datetime) -> bool:

@@ -145,12 +145,51 @@ export interface Occupies {
 export interface Room {
   id: string
   name: string
+  /** Дорожка Control врача (`db.CONTROL_LANE`): узкая, последняя, только явным выбором. */
+  control?: boolean
+}
+
+/** Ключ дорожки Control — тот же, что `db.CONTROL_LANE` у сервера. */
+export const CONTROL = '~control'
+/** Длительность, которую окно предлагает в дорожке Control (`eng.CONTROL_DUR`). */
+export const CONTROL_DUR = 15
+/** Ширина дорожки Control относительно дорожки кабинета. */
+export const CONTROL_W = 0.5
+
+/** Данные отказа «врач занят» у врача с Control (`api._busy_info`). */
+export interface BusyInfo { who: string; from: string; to: string; next: string | null }
+
+export function busyInfo(data: unknown): BusyInfo | null {
+  const d = data as Partial<BusyInfo> | null | undefined
+  return d && typeof d.from === 'string' && typeof d.to === 'string'
+    ? { who: d.who ?? '', from: d.from, to: d.to, next: d.next ?? null } : null
+}
+
+export function hasControl(rooms: readonly Room[]): boolean {
+  return rooms.some((r) => r.control)
+}
+
+/** Основные дорожки: без Control. Свободное время, автовыбор и «primul liber» — только по ним. */
+export function mainLanes(rooms: readonly Room[]): readonly Room[] {
+  return hasControl(rooms) ? rooms.filter((r) => !r.control) : rooms
+}
+
+/** Края дорожек долями ширины колонки: `[0, …, 1]`, у Control — уже. */
+export function laneEdges(rooms: readonly Room[]): number[] {
+  const n = rooms.length > 1 ? rooms.length : 1
+  if (!hasControl(rooms)) return Array.from({ length: n + 1 }, (_, i) => i / n)
+  const w = rooms.map((r) => (r.control ? CONTROL_W : 1))
+  const sum = w.reduce((a, b) => a + b, 0)
+  const out = [0]
+  for (const x of w) out.push(out[out.length - 1]! + x / sum)
+  out[out.length - 1] = 1
+  return out
 }
 
 /** Занятое по кабинетам врача: старт свободен, пока свободен хоть один список;
- *  то же правило у сервера (`db.busy_lanes`). */
+ *  то же правило у сервера (`db.busy_lanes`). Одна дорожка — записи Control не в ней. */
 export function lanesOf(items: Occupies[], rooms: readonly Room[]): Occupies[][] {
-  if (rooms.length < 2) return [items]
+  if (rooms.length < 2) return [items.filter((it) => it.room_id !== CONTROL)]
   return rooms.map((r) => laneOf(items, r.id))
 }
 
@@ -186,7 +225,7 @@ export function freeRoom(items: Occupies[], rooms: readonly Room[], min: number,
 
 /** Занят ли кабинет записью ДРУГОГО врача (`others`): повод предупредить, не отказать. */
 export function roomShared(others: Occupies[], room: string, min: number, dur: number): boolean {
-  return room !== '' && clashAmong(others.filter((it) => it.room_id === room), min, dur, -1) >= 0
+  return room !== '' && room !== CONTROL && clashAmong(others.filter((it) => it.room_id === room), min, dur, -1) >= 0
 }
 
 export function clashAmong(items: Occupies[], min: number, dur: number,

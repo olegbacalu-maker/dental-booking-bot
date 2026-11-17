@@ -19,8 +19,8 @@ import type { ServerNotice } from '../../components/Notice'
 import { api } from '../../services/api'
 import type { FormService, NewAppt, NewNote, NoteView, VisitCardView } from './day'
 import type { CallResult, Desk } from './desk'
-import type { Occupies, Room } from './move'
-import type { SlotFormView } from './slot'
+import { CONTROL, type Occupies, type Room } from './move'
+import type { Slot, SlotFormView } from './slot'
 
 /** Полоска «закрыто» вместо срезанных крайних часов. */
 export interface DashBand {
@@ -303,6 +303,20 @@ export function canvasColName(c: DashCanvasModel | null | undefined, dk: string)
 /** Блоки ЭТОЙ колонки — по ним считается подсказка о помехе переноса. */
 export function canvasBlocks(c: DashCanvasModel | null | undefined, dk: string): DashBlock[] {
   return c?.columns.find((col) => col.id === dk)?.blocks ?? []
+}
+
+/** Колонка, в которой стоит блок с этим номером. */
+export function canvasColOf(c: DashCanvasModel | null | undefined, id: number): DashColumn | undefined {
+  return c?.columns.find((col) => col.blocks.some((b) => b.id === id))
+}
+
+/** «+ Control în paralel»: окно часа записи `id` в полосе Control её врача;
+ *  `null` — у врача полосы нет. */
+export function controlSlot(c: DashCanvasModel | null | undefined, id: number, time: string): Slot | null {
+  const col = canvasColOf(c, id)
+  if (!col?.id || !col.rooms?.some((r) => r.control)) return null
+  const [hh, mm] = time.split(':')
+  return { dk: col.id, name: col.name, hour: `${hh}:00`, minute: Number(mm) || 0, room: CONTROL }
 }
 
 export function canvasRooms(c: DashCanvasModel | null | undefined, dk: string): Room[] {

@@ -47,6 +47,14 @@
  13. зуб не накрывает текст блока — имя, интервал, услугу, слово статуса
      (видимую часть: текст режется полем своего элемента).
 
+Полоса Control (тому же врачу — галочка «Programări paralele» и контроль на 15
+минут поверх первого визита; кабинетов два — дорожек три, полоса уже) — там же:
+ 14. блок полосы есть, помечен (`gctl`) и стоит в своей полосе: справа от
+     блоков кабинетов, внутри колонки, ни на один не наезжает;
+ 15. утверждения 12–13 у блоков кабинетов держатся и рядом с полосой; блок уже
+     кнопки зуба (`thin`, `dashFx.THIN_W`) зуба не рисует вовсе (на 1366 у двух
+     кабинетов с полосой блок 86px — зуб накрыл бы услугу и слово статуса).
+
 ⛔ Зелёный стенд сам по себе ничего не доказывает. Доказательство — ПАРЫ
 (`--pair`): та же раскладка сеткой вместо flex-переноса обязана дать красное
 по утверждению 3 или 4, колонки без «+N» (спрятанное снова видно) — по
@@ -115,6 +123,9 @@ RISKY = "Proba Riscuri"
 # его записи встают в первую дорожку (кабинет по умолчанию)
 LANES_DOC = "d3"
 LANE_ROOMS = [{"name": "Cabinet 1"}, {"name": "Cabinet 2"}]
+# Полоса Control: контроль поверх первого визита врача дорожек
+CONTROL = "~control"
+CONTROL_ROW = ("08:00", "xray", "Proba Control")
 
 # Обрезанный по вертикали текст: за краем блока или внутри своей строки.
 # ⚠️ У строчных (`display:inline`, сжатая строка) своей высоты нет — у них
@@ -251,7 +262,10 @@ LANES = r"""(() => {
         }
       }
     }
-    out.push({ title: a.getAttribute('title') || '', mode, pid: !!t, odo, inside, over });
+    const col = a.closest('.gcol').getBoundingClientRect();
+    out.push({ title: a.getAttribute('title') || '', mode, pid: !!t, odo, inside, over,
+      ctl: a.classList.contains('gctl'), thin: a.classList.contains('thin'), left: r.left, right: r.right, top: r.top, bottom: r.bottom,
+      cl: col.left, cr: col.right });
   }
   return JSON.stringify(out);
 })()"""
@@ -402,7 +416,8 @@ def verdict_lanes(lanes: list) -> list[str]:
     for b in lanes:
         dur = dur_of(b)
         who = b["title"].split(" · ")[3] if b["title"].count(" · ") >= 3 else b["title"]
-        if b["mode"] not in ("full", "slim", "duo") or not b["pid"]:
+        # `thin` — блок уже кнопки зуба (`dashFx.THIN_W`): зуба нет по правилу
+        if b["mode"] not in ("full", "slim", "duo") or not b["pid"] or b.get("thin"):
             continue
         if not b["odo"]:
             bad.append(f"{who} ({dur}′, {b['mode']}): нет кнопки зуба в дорожке кабинета")
@@ -413,6 +428,38 @@ def verdict_lanes(lanes: list) -> list[str]:
     if not any(b["mode"] == "full" for b in lanes) or not any(b["mode"] in ("slim", "duo") for b in lanes):
         bad.append("в дорожке нет полного или сжатого блока — случай не засеян: "
                    + "  ".join(f"{dur_of(b)}′={b['mode']}" for b in lanes))
+    return bad
+
+
+def control_on(c: Client, day: str) -> None:
+    """Врачу `LANES_DOC` — галочка полосы Control и контроль поверх первого визита."""
+    r = c.post_json(f"/api/doctors/{LANES_DOC}/parallel", {"on": True})
+    if r.msg != "ok_par_on":
+        raise SystemExit(f"полоса Control врачу {LANES_DOC} не завелась: {r.msg}")
+    at, svc, name = CONTROL_ROW
+    r = c.post_json("/api/schedule/appointments", {"date": day, "time": at, "doctor": LANES_DOC,
+                                                   "service": svc, "name": name, "phone": "069999001",
+                                                   "room": CONTROL})
+    if not r.msg.startswith("ok"):
+        raise SystemExit(f"контроль в полосу не лёг: {r.msg}")
+
+
+def verdict_control(lanes: list) -> list[str]:
+    """Утверждения 14–15: полоса Control рядом с дорожками кабинетов."""
+    ctl = [b for b in lanes if b["ctl"]]
+    main = [b for b in lanes if not b["ctl"]]
+    if len(ctl) != 1:
+        return [f"блоков полосы Control {len(ctl)}, а не один — полосы нет, стенд мерил не то"]
+    c = ctl[0]
+    bad = [f"кабинеты: {x}" for x in verdict_lanes(main)]
+    if c["left"] < c["cl"] - 0.5 or c["right"] > c["cr"] + 0.5:
+        bad.append("блок Control за краем колонки")
+    for b in main:
+        if b.get("thin") and b["odo"]:
+            bad.append(f"{dur_of(b)}′: блок уже кнопки зуба, а зуб нарисован")
+        if b["right"] > c["left"] + 0.5 and b["top"] < c["bottom"] and c["top"] < b["bottom"]:
+            who = b["title"].split(" · ")[3] if b["title"].count(" · ") >= 3 else b["title"]
+            bad.append(f"блок кабинета {who} наезжает на полосу Control")
     return bad
 
 
@@ -454,12 +501,24 @@ def run(bot: pathlib.Path | None, label: str) -> list[str]:
                 measure(page, c, view, day)
                 lanes = json.loads(page.js(LANES))
                 bad = verdict_lanes(lanes)
-                modes = "  ".join(f"{dur_of(b)}′={b['mode']}{'' if b['odo'] else '/без зуба'}"
+                modes = "  ".join(f"{dur_of(b)}′={b['mode']}:{round(b['right'] - b['left'])}px{'' if b['odo'] else '/без зуба'}"
                                   for b in lanes)
                 print(f"{'OK ' if not bad else 'RED'} {label}: {view:<4} дорожки  {modes}")
                 for b in bad:
                     print(f"    ✗ {b}")
                 problems += [f"{view} дорожки: {b}" for b in bad]
+            control_on(c, day)
+            for view in VIEWS:
+                measure(page, c, view, day)
+                lanes = json.loads(page.js(LANES))
+                bad = verdict_control(lanes)
+                modes = "  ".join(f"{dur_of(b)}′={b['mode']}:{round(b['right'] - b['left'])}px{'/C' if b['ctl'] else ''}"
+                                  f"{'/thin' if b['thin'] else ''}"
+                                  f"{'' if b['odo'] else '/без зуба'}" for b in lanes)
+                print(f"{'OK ' if not bad else 'RED'} {label}: {view:<4} Control  {modes}")
+                for b in bad:
+                    print(f"    ✗ {b}")
+                problems += [f"{view} Control: {b}" for b in bad]
     finally:
         if proc:
             proc.kill()

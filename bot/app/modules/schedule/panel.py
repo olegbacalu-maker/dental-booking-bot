@@ -131,8 +131,8 @@ def occupancy_pct(day: date, rows: list, active_dks: list) -> int:
     cap = sum(eng.work_minutes(dk, day) for dk in active_dks)
     if not cap:
         return 0
-    busy = sum(int(r.get("duration_min") or 60) for r in rows
-               if r["status"] != "cancelled" and r["source"] != "note")
+    busy = eng.busy_minutes(r for r in rows
+                            if r["status"] != "cancelled" and r["source"] != "note")
     return min(round(100 * busy / cap), 100)
 
 

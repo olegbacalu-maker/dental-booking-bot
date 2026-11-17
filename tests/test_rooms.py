@@ -603,6 +603,18 @@ def _worker_race(tmpdir: str) -> None:
                 await db._execute("UPDATE appointments SET status = 'cancelled' WHERE patient_id IN "
                                   "(SELECT id FROM patients WHERE name = ?)", f"Rc {label}")
                 await droutes._save_doctor("d2", name=name, rooms=[{"name": "1"}, {"name": "3"}])
+            # галочку Control снимают, пока запись в полосу ждёт замка
+            await droutes._set_parallel("d2", True)
+            stale = eng.room_plan("d2")
+            async with db._slot_lock():
+                save = asyncio.ensure_future(droutes._set_parallel("d2", False))
+                await spin()
+                book = asyncio.ensure_future(db.admin_add(
+                    "Rc control", "022780019", "Consultație", name, at, doctor_id="d2",
+                    service_id="consult", rooms=stale, room=db.CONTROL_LANE))
+                await spin()
+            print("control_save", (await save)[0])
+            print("control_book", await book)
         finally:
             await db.close()
 
@@ -627,8 +639,179 @@ def suite_room_race(res: Result) -> None:
             res.check(f"{what}: кабинет убран, ждавшая запись — отказ, в базе одна запись",
                       (got.get(f"{label}_save"), got.get(f"{label}_book"), got.get(f"{label}_rows")),
                       ("ok_med", "None", "1"))
+        res.check("галочку Control сняли, пока запись в полосу ждала замка, — запись не легла",
+                  (got.get("control_save"), got.get("control_book")), ("ok_par_off", "None"))
     finally:
         _rmtree_settled(base)
+
+
+CTL = "~control"
+
+
+def _doctor_pct(c: Client, day: str, dk: str) -> int:
+    d = json.loads(c.get(f"/api/stats?from={day}&to={day}").body)["data"]
+    return next(x["pct"] for x in d["doctors"] if x["id"] == dk)
+
+
+def _export_rows(c: Client, day: str) -> str:
+    xl = c.get(f"/admin/export.xlsx?from={day}&to={day}")
+    with zipfile.ZipFile(io.BytesIO(xl.raw)) as z:
+        return z.read("xl/worksheets/sheet1.xml").decode("utf-8")
+
+
+def suite_control_lane(res: Result) -> None:
+    """Дорожка Control (галочка «Programări paralele»): запись туда — только явным
+    выбором человека; свободное время, «Liber de la» и загрузка её не считают."""
+    with Server() as s:
+        c = Client(s.url).login()
+        day = _d(2)
+        res.check("без галочки дорожки нет: room=~control — bad_room",
+                  _add(c, day, "10:00", "Fara Gal", "022750001", "d3", room=CTL), "bad_room")
+        r = c.post_json("/api/doctors/d3/parallel", {"on": True})
+        res.check("галочка включается, фиша врача её несёт",
+                  (r.msg, json.loads(r.body)["data"]["parallel"]), ("ok_par_on", True))
+        res.check("основная запись", _add(c, day, "10:00", "Baza Unu", "022750002", "d3", duration=60), "ok")
+        res.check("без выбора на занятый час — conflict, сервер в Control сам не кладёт",
+                  _add(c, day, "10:00", "Auto Doi", "022750003", "d3", duration=15), "conflict")
+        res.check("явный Control на тот же час — ok",
+                  _add(c, day, "10:00", "Ctl Trei", "022750004", "d3", room=CTL, duration=15), "ok")
+        res.check("Control занят по минутам — conflict",
+                  _add(c, day, "10:10", "Ctl Patru", "022750005", "d3", room=CTL, duration=15), "conflict")
+        b = _blocks(c, day, "d3")
+        res.check("канва: основная и Control — две дорожки, имя у записи «Control»",
+                  [(b[n]["room_id"], b[n]["col"], b[n]["of"]) for n in ("Baza Unu", "Ctl Trei")]
+                  + [b["Ctl Trei"]["room"]], [("", 0, 2), (CTL, 1, 2), "Control"])
+        feed = json.loads(c.get(f"/api/patients/{b['Ctl Trei']['pid']}/activity").body)["data"]["items"]
+        res.ok("летопись пациента: запись в полосе — «(Control)» после врача",
+               any("Dr. Activ Trei (Control)" in x["text"] for x in feed), f"{[x['text'] for x in feed]}")
+        col = next(x for x in day_model(c, day)["canvas"]["columns"] if x["id"] == "d3")
+        res.check("колонка: дорожки Principal и Control",
+                  [(r["id"], r["name"], r.get("control", False)) for r in col["rooms"]],
+                  [("", "Principal", False), (CTL, "Control", True)])
+        res.check("загрузка колонки без минут Control", col["occupancy"]["busy"], 60)
+        res.check("форма записи: у врача с галочкой — дорожки и признак",
+                  [(x["id"], x.get("parallel", False), len(x["rooms"]))
+                   for x in day_model(c, day)["form"]["doctors"] if x["id"] in ("d2", "d3")],
+                  [("d2", False, 0), ("d3", True, 2)])
+        # основная 11:00–12:00 занята, Control свободен — час 11 не свободен
+        _add(c, day, "11:00", "Baza Cinci", "022750006", "d3", duration=60)
+        pid = new_patient(c, "Liber Sase", "022750007")
+        slots = json.loads(c.get(f"/api/patients/{pid}/slots?date={day}&doctor=d3&service=consult").body)["data"]["slots"]
+        res.check("свободные старты (и «Primul loc liber»): час, занятый в основной, не предлагается",
+                  [t for t in slots if t.startswith(("10:", "11:"))], [])
+        res.check("у другого врача без галочки Control не принимается",
+                  _add(c, day, "12:00", "Alt Doi", "022750009", "d2", room=CTL), "bad_room")
+
+        pct = _doctor_pct(c, day, "d3")
+        _add(c, day, "11:15", "Ctl Sapte", "022750014", "d3", room=CTL, duration=30)
+        res.check("статистика: «Grad de ocupare» врача без минут Control",
+                  _doctor_pct(c, day, "d3"), pct)
+        sheet = _export_rows(c, day)
+        res.ok("Excel: колонка «Cabinet», у записи в полосе — «Control»",
+               '<t>Cabinet</t>' in sheet and '<t xml:space="preserve">Control</t>' in sheet,
+               sheet[:400])
+
+        base = appt_id(c, day, "Baza Cinci")
+        mv3 = {"date": day, "doctor": "d3"}
+        res.check("перенос в Control явным выбором (бросок на полосу) — ok, запись в полосе",
+                  (_post(c, base, "move", {**mv3, "time": "12:00", "room": CTL}, day),
+                   _blocks(c, day, "d3")["Baza Cinci"]["room_id"]), ("ok_move", CTL))
+        res.check("обратно без выбора дорожки — в основную",
+                  (_post(c, base, "move", {**mv3, "time": "12:00"}, day),
+                   _blocks(c, day, "d3")["Baza Cinci"]["room_id"]), ("ok_move", ""))
+        aid = appt_id(c, day, "Ctl Trei")
+        res.check("окно визита: из Control в основную у врача без кабинетов — занята, conflict",
+                  _post(c, aid, "room", {"room": ""}, day), "conflict")
+        _post(c, aid, "move", {**mv3, "time": "13:00", "room": CTL}, day)
+        res.check("окно визита: из Control в основную, где свободно — ok, запись без кабинета",
+                  (_post(c, aid, "room", {"room": ""}, day), _blocks(c, day, "d3")["Ctl Trei"]["room_id"]),
+                  ("ok_room", ""))
+        res.check("окно визита: пустой кабинет у записи в основной — bad_room",
+                  _post(c, aid, "room", {"room": ""}, day), "bad_room")
+        res.check("окно визита: в Control явным выбором — ok",
+                  (_post(c, aid, "room", {"room": CTL}, day), _blocks(c, day, "d3")["Ctl Trei"]["room_id"]),
+                  ("ok_room", CTL))
+
+        r = c.post_json("/api/doctors/d3/parallel", {"on": False})
+        body = json.loads(r.body)
+        res.check("снять галочку при будущих записях в Control — par_busy 409 с числом",
+                  (r.msg, r.status, body["data"]["n"]), ("par_busy", 409, 2))
+        res.ok("отказ называет число словами", "2 programări viitoare" in body["text"], body["text"])
+        res.check("после отказа галочка стоит",
+                  json.loads(c.get("/api/doctors/d3").body)["data"]["parallel"], True)
+        for n in ("Ctl Trei", "Ctl Sapte"):
+            _post(c, appt_id(c, day, n), "status", {"to": "cancelled"}, day)
+        res.check("без будущих записей в полосе — снимается",
+                  c.post_json("/api/doctors/d3/parallel", {"on": False}).msg, "ok_par_off")
+
+        r1, r2 = set_rooms(c, "d2", "1", "3")
+        c.post_json("/api/doctors/d2/parallel", {"on": True})
+        res.check("два кабинета: первые две — в кабинеты",
+                  (_add(c, day, "15:00", "Cab Unu", "022750010", duration=30),
+                   _add(c, day, "15:00", "Cab Doi", "022750011", duration=30)), ("ok", "ok"))
+        res.check("третья без выбора — conflict (Control автовыбор не видит)",
+                  _add(c, day, "15:00", "Cab Trei", "022750012", duration=15), "conflict")
+        c.post_json("/api/doctors/d4/parallel", {"on": True})
+        _add(c, day, "10:00", "Ctl Alt Med", "022750015", "d4", room=CTL, duration=15)
+        res.check("Control у двух врачей в одно время — не «кабинет занят другим врачом»",
+                  _add(c, day, "10:00", "Ctl Doi Med", "022750013", room=CTL, duration=15), "ok")
+        b = _blocks(c, day)
+        res.check("Control — третья дорожка", (b["Ctl Doi Med"]["col"], b["Ctl Doi Med"]["of"]), (2, 3))
+        aid = appt_id(c, day, "Ctl Doi Med")
+        res.check("перенос из Control без выбора дорожки — в основную (или отказ), не молча в Control",
+                  (_post(c, aid, "move", {"date": day, "doctor": "d2", "time": "15:00"}, day),
+                   _blocks(c, day)["Ctl Doi Med"]["room_id"]), ("conflict", CTL))
+        _post(c, appt_id(c, day, "Cab Doi"), "status", {"to": "cancelled"}, day)
+        res.check("убрать кабинет: записи Control не переезжают и не мешают",
+                  (_save_rooms(c, "d2", "1").msg, _blocks(c, day)["Ctl Doi Med"]["room_id"]),
+                  ("ok_med", CTL))
+
+
+def suite_control_refusal(res: Result) -> None:
+    """Отказ «врач занят» у врача с Control называет, кто занимает, до какого часа и
+    ближайшее свободное время основной колонки; у врача без Control — прежний."""
+    with Server() as s:
+        c = Client(s.url).login()
+        day = _d(2)
+        c.post_json("/api/doctors/d3/parallel", {"on": True})
+        _add(c, day, "10:00", "Pr Baza", "022770001", "d3", duration=90)
+        r = add_appt(c, day, "10:30", "Pr Nou", "022770002", "d3", duration=30)
+        body = json.loads(r.body)
+        res.check("отказ у врача с Control: кто и до какого часа, ближайшее свободное",
+                  (r.msg, r.status, body["data"]["who"], body["data"]["from"], body["data"]["to"],
+                   body["data"]["next"]), ("conflict", 409, "Pr Baza", "10:00", "11:30", "11:30"))
+        res.ok("слово отказа называет занятого", "Pr Baza" in body["text"] and "10:00–11:30" in body["text"],
+               body["text"])
+        res.check("в Control отказ сам не кладёт: записей у врача одна",
+                  [n for n in _blocks(c, day, "d3")], ["Pr Baza"])
+        _add(c, day, "10:00", "Pr Alt0", "022770004", "d4", duration=60)
+        res.check("у врача без Control отказ прежний, без данных",
+                  "data" in json.loads(add_appt(c, day, "10:00", "Pr Alt", "022770003", "d4",
+                                                duration=30).body), False)
+        res.check("длительность в Control любая",
+                  _add(c, day, "12:00", "Pr Lung", "022770005", "d3", room=CTL, duration=90), "ok")
+
+
+def suite_control_gcal(res: Result) -> None:
+    """Вкладка «Google Calendar» в полосу Control сама не кладёт; явный выбор «Control» в
+    окне переноса принимается в обеих ветках шва (`gcal._journal_add`)."""
+    from test_gcal import base_events, cal, loaded, move_body, row
+    with Server() as s:
+        c = Client(s.url).login()
+        loaded(res, c, cal(base_events()), "загрузка")
+        c.post_json("/api/doctors/d2/parallel", {"on": True})
+        a1 = row(c, "Popescu Ion")
+        day = _d(3)
+        _add(c, day, "09:00", "Ocupat Gcal", "022790001", duration=60)
+        r = c.post_json(f"/api/gcal/events/{a1['id']}/move", move_body(3, "09:00", "Ion Popescu", "069123456"))
+        res.check("на занятый час без кабинета — conflict, не в Control", r.msg, "conflict")
+        res.check("в журнале одна запись", list(_blocks(c, day)), ["Ocupat Gcal"])
+        # окно переноса — то же окно записи: «Control» в нём выбирает человек
+        pid = new_patient(c, "Ion Popescu", "069123456")
+        r = c.post_json(f"/api/gcal/events/{a1['id']}/move",
+                        move_body(3, "09:00", "Ion Popescu", "069123456", room=CTL, pid=pid))
+        res.check("явный выбор Control в окне переноса (фиша выбрана) — ok, запись в полосе",
+                  (r.msg, _blocks(c, day)["Ion Popescu"]["room_id"]), ("ok", CTL))
 
 
 _WORKERS = {"worker-race": _worker_race}

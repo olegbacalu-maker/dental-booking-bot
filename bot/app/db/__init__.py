@@ -59,6 +59,7 @@ from .slots import (
     _slot_guard_startup, _book, _book_locked, _patient_busy_at, _conflicts,
     _UQ_RETIRED, _UQ_WAS, _uq_stale, _retire_old_uq, _patient_busy, _doctor_overlaps,
     _lane, _room_label, _pick_room, room_busy, appt_room_busy, slot_probe,
+    CONTROL_LANE, CONTROL_NAME, MAIN_NAME, _plan_now,
 )
 from .patients import (
     patients_total, _upsert_patient, manual_key, _patient_ids_by_digits,
@@ -94,7 +95,7 @@ from .plans import (
 )
 from .schedule import (
     backfill_ids, relink_doctor, seed, create_appointment, admin_add,
-    add_visit_for_patient, add_note, _insert_note, busy_lanes, doctor_future_count,
+    add_visit_for_patient, add_note, _insert_note, busy_lanes, doctor_future_count, control_future_count, set_control_lane, busy_with,
     appt_patient_id, day_appointments, appointment_days, day_patient_facts, appt_calls,
     set_appt_call, set_comment, move_appointment, set_appt_service, set_appt_duration,
     set_status, set_appt_room, change_doctor_rooms, _rooms_plan, _sql_text, _own_room,

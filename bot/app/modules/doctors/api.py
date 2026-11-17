@@ -20,13 +20,13 @@ from ...core.api import api_body, api_require
 from ...core.auth import PERM_DOCTORS
 from ...core.layout import (HOUR_MAX, HOUR_MIN, STATUS_LABEL, _DOC_STATE_RO,
                             _doc_hours_text, _initials, msg_json)
-from ...core.messages import rooms_busy_text
+from ...core.messages import par_busy_text, rooms_busy_text
 from ...core.visits import (_doc_hue, all_status_actions,
                             photo_url as _photo_url)
 from .routes import (MAX_PHOTO_MB, _DOC_STATE_HINT, _add_doctor, _delete_photo,
                      _doc_rows, _doc_stats, _orphan_warning, _read_upload,
                      _reset_colors, _same_color, _save_doctor, _service_rows,
-                     _set_services, _store_photo, _week_cells)
+                     _set_parallel, _set_services, _store_photo, _week_cells)
 
 router = APIRouter()
 
@@ -34,9 +34,9 @@ router = APIRouter()
 # (тёзка, последний активный, будущие записи, услуга без врача) — 409;
 # не записался файл — 500. Тексты кодов — из MSG_BANNER.
 _HTTP = {"bad_med": 422, "bad_photo": 422, "bad_rooms": 422, "dup_med": 409, "last_med": 409,
-         "rooms_busy": 409,
+         "par_busy": 409, "rooms_busy": 409,
          "arch_busy": 409, "svc_empty": 409, "save_err": 500}
-_OK = {"ok_med", "new_med", "ok_svc_med", "ok_photo", "ok_med_moved"}
+_OK = {"ok_med", "new_med", "ok_svc_med", "ok_photo", "ok_par_on", "ok_par_off", "ok_med_moved"}
 
 
 def _reply(code: str, data=None, field: str = ""):
@@ -101,6 +101,7 @@ async def _card(dk: str) -> dict:
         "rooms": eng.room_list(dk),
         "rooms_all": [{"id": k, "name": v} for k, v in eng.ROOMS.items()],
         "rooms_max": eng.ROOMS_MAX,
+        "parallel": eng.doctor_parallel(dk),
         "email": meta.get("email", "") or "", "status": st,
         "color": _doc_hue(dk), "auto_color": not meta.get("color"),
         "work_from": meta.get("work_from"), "work_to": meta.get("work_to"),
@@ -199,6 +200,24 @@ async def api_doctor_save(request: Request, dk: str):
                         text=rooms_busy_text(rooms, clash))
     if code not in ("ok_med", "ok_med_moved"):
         return _reply(code, field="name" if code in ("bad_med", "dup_med") and not _s(body, "name").strip() else "")
+    return _reply(code, data=await _card(dk))
+
+
+@router.post("/api/doctors/{dk}/parallel")
+async def api_doctor_parallel(request: Request, dk: str):
+    """Галочка «Programări paralele (coloana Control)»: {on}. Удача — свежая фиша."""
+    if (deny := api_require(request, PERM_DOCTORS)) is not None:
+        return deny
+    if dk not in eng.DOCTORS:
+        return msg_json(False, status=404)
+    body = await api_body(request)
+    if body is None or not isinstance(body.get("on"), bool):
+        return _reply("bad_med")
+    code, n = await _set_parallel(dk, body["on"])
+    if code == "par_busy":
+        return msg_json(False, code, data={"n": n}, status=409, text=par_busy_text(n))
+    if code not in _OK:
+        return _reply(code)
     return _reply(code, data=await _card(dk))
 
 

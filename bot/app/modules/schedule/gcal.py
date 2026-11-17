@@ -571,7 +571,7 @@ async def _journal_add(body: dict, pid: int | None) -> tuple:
         dur = int(adur)
     if code := eng.place_refusal(dk, dt, dur):
         return code, None
-    if room and room not in eng.doctor_rooms(dk):
+    if room and not eng.room_allowed(dk, room):
         return "bad_room", None
     plan = eng.room_plan(dk)
     r = await db.add_visit_for_patient(pid, svc["ro"], doctor, dt, doctor_id=dk,

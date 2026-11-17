@@ -218,16 +218,18 @@ async def admin_export_xlsx(
             dt.date(), dt.strftime("%H:%M"),
             r["name"] or ("— notiță —" if r["source"] == "note" else ""),
             int(r["birth_year"]) if r["birth_year"] else "",
-            r["phone"] or "", r["service"], r["doctor"], r["source"], r["status"],
+            r["phone"] or "", r["service"], r["doctor"],
+            "" if r["source"] == "note" else eng.room_name(eng.appt_room(r)),
+            r["source"], r["status"],
             "da" if r["reminded_day"] or r.get("sms_sent") else "", r["comment"] or "",
         ])
     blob = xlsx.book(
         ["Data", "Ora", "Pacient", "An naștere", "Telefon", "Serviciu",
-         "Medic", "Sursă", "Status", "Reminder", "Comentariu"],
+         "Medic", "Cabinet", "Sursă", "Status", "Reminder", "Comentariu"],
         data,
         # ширины в знаках — под самое длинное, что в колонке реально бывает:
         # это и есть вторая половина ответа на «дата не влезает»
-        widths=[11, 7, 22, 11, 14, 26, 22, 9, 12, 10, 34],
+        widths=[11, 7, 22, 11, 14, 26, 22, 12, 9, 12, 10, 34],
     )
     fname = f"programari_{d1.isoformat()}_{d2.isoformat()}.xlsx"
     return Response(
@@ -590,7 +592,7 @@ async def _book_appt(adate: str, atime: str, adoctor: str, aservice: str,
         if not (1900 <= parsed.year and parsed <= date.today()):
             return "bad_bd", None
         year, bdate = parsed.year, parsed.isoformat()
-    if aroom and aroom not in eng.doctor_rooms(adoctor):
+    if aroom and not eng.room_allowed(adoctor, aroom):
         return "bad_room", None
     plan = eng.room_plan(adoctor)
     # ⚠️ Спрашиваем ДО записи: после неё карточка уже может быть создана этой же
@@ -746,7 +748,7 @@ async def _move_appt(appt_id: int, mdate: str, mtime: str, mdoctor: str,
     dur = int((cur or {}).get("duration_min") or 60)
     if code := eng.place_refusal(mdoctor, dt, dur, moving=True):
         return code
-    if mroom and mroom not in eng.doctor_rooms(mdoctor):
+    if mroom and not eng.room_allowed(mdoctor, mroom):
         return "bad_room"
     plan = eng.room_plan(mdoctor)
     code = await db.move_appointment(appt_id, mdoctor, doctor, dt,

@@ -22,7 +22,7 @@ import { SlotDialog } from './SlotDialog'
 import { clinicNow, clinicTz, useClockTick } from './dashFx'
 import {
   canvasAppt, canvasBlocks, canvasColName, canvasNote, canvasOpenHours, canvasOthers, canvasRooms,
-  canvasRoomsOf, dash, livePath,
+  canvasRoomsOf, controlSlot, dash, livePath,
   type DashAppt, type DashModel, type DashNote,
 } from './dash'
 import type { Slot } from './slot'
@@ -325,7 +325,7 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
      приходит без данных — человек прочтёт отказ и будет смотреть на
      несуществующую запись. */
   const act = useCallback(async (run: () => Promise<ApiResult<void>>,
-    fail?: (text: string) => void) => {
+    fail?: (text: string, code?: string, data?: unknown) => void) => {
     flying.current = true
     setBusy(true)
     try {
@@ -337,7 +337,8 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
       /* `fail` — окно, которое остаётся открытым: плашка экрана под
          модальным окном не видна (top layer), слово отказа печатает оно само */
       const text = err.text || T.offline
-      if (fail) fail(text)
+      if (fail) fail(text, 'code' in err.failure ? err.failure.code : '',
+          'data' in err.failure ? err.failure.data : undefined)
       else setToast({ tone: 'err', text })
       return false
     } finally {
@@ -514,6 +515,8 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
           /* длительность (10.11) — так же: команда, новая длительность едет каналом */
           onDuration={(min, fail) => act(() => dash.duration(d.date, cardL.shown!.id, min), fail)}
           rooms={canvasRoomsOf(d.canvas, cardL.shown.id)}
+          {...((qc) => (qc && !gone ? { onControl: () => { setCard(null); setSlot(qc) } } : {}))(
+            controlSlot(d.canvas, cardL.shown.id, openCard.time))}
           onRoom={(room, fail) => act(() => dash.room(d.date, cardL.shown!.id, room), fail)} />
       )}
       {noteL.shown !== null && openNote && (

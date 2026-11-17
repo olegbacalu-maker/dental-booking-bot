@@ -115,8 +115,10 @@ def form_spec(d: date, items: list, sel_doctor: str = "",
              for dk, _n in items}
     cur = sel_doctor if sel_doctor in times else (items[0][0] if items else "")
     return {
-        "doctors": [{"id": dk, "name": name, "rooms": eng.room_list(dk)}
+        "doctors": [{"id": dk, "name": name, "rooms": eng.lane_list(dk),
+                     **({"parallel": True} if eng.doctor_parallel(dk) else {})}
                     for dk, name in items],
+        "control_dur": eng.CONTROL_DUR,
         "times": times,
         # часы клиники: ими подменяется пустое окно врача, ими же живёт форма,
         # когда активных врачей нет вовсе

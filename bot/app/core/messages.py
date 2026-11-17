@@ -400,6 +400,11 @@ MSG_BANNER = {
     "ok_med": ("ok", "Datele medicului au fost salvate"),
     "rooms_busy": ("err", "Cabinetul scos are programări viitoare, care s-ar suprapune în cabinetul "
                           "rămas — mutați-le întâi în alt cabinet sau la alt medic"),
+    # Дорожка Control врача (галочка «Programări paralele»)
+    "ok_par_on": ("ok", "Coloana Control a fost adăugată în dreapta coloanei medicului"),
+    "ok_par_off": ("ok", "Coloana Control a fost scoasă"),
+    "par_busy": ("err", "În coloana Control sunt programări viitoare — mutați-le întâi "
+                        "în coloana principală sau la alt medic"),
     "ok_med_moved": ("warn", "Datele medicului au fost salvate — programările viitoare din cabinetul "
                              "scos au trecut în cabinetul rămas"),
     "bad_med": ("err", "Date invalide — verificați câmpurile medicului"),
@@ -704,3 +709,15 @@ def rooms_busy_text(rooms: list, clash: list) -> str:
     who = ", ".join(f"{c['name']} {c['when']}" for c in clash[:3])
     more = f" și încă {len(clash) - 3}" if len(clash) > 3 else ""
     return f"{head}, care s-ar suprapune în cabinetul rămas ({who}{more}) — mutați-le întâi"
+
+
+def par_busy_text(n: int) -> str:
+    """Отказ снять галочку Control — с числом записей в полосе."""
+    return (f"În coloana Control este {_progr(n)} — mutați-o întâi în coloana principală sau la alt medic"
+            if n == 1 else
+            f"În coloana Control sunt {_progr(n)} — mutați-le întâi în coloana principală sau la alt medic")
+
+
+def busy_doctor_text(who: str, start: str, end: str) -> str:
+    """Отказ «врач занят» с тем, кто занимает (врач с колонкой Control)."""
+    return f"Medicul are deja o programare {start}–{end}" + (f" ({who})" if who else "")

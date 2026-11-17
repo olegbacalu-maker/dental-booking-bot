@@ -4,8 +4,9 @@ import { hideDialog, showDialog } from '../patients/card/dialog'
 import { svcLabel, type NewAppt, type NewNote } from './day'
 import { DurSelect, useDurPick } from './DurPick'
 import { MinPick } from './MinPick'
-import { freeRoom, laneOf, lanesOf, roomShared, type Occupies, type Room } from './move'
-import { RoomSelect, sharedWarn } from './RoomPick'
+import { CONTROL, CONTROL_DUR, freeRoom, hasControl, laneOf, lanesOf, mainLanes, roomShared, type Occupies,
+  type Room } from './move'
+import { AsControl, RoomSelect, sharedWarn } from './RoomPick'
 import { hourMinutes, slotTimes, takenMinutes, type Slot, type SlotFormView } from './slot'
 import { SmsCheck, useSmsBox } from './SmsBox'
 import { whenLine } from './when'
@@ -62,8 +63,8 @@ const T = {
     `De la ${at} nu încap ${dur} min până la următoarea programare — alegeți o durată mai scurtă sau alt început.`,
 } as const
 
-/** Слово отказа — колбэком в окно, не плашкой экрана. */
-export type Fail = (text: string) => void
+/** Слово отказа — колбэком в окно, не плашкой экрана; `code` — код сервера (`conflict`…). */
+export type Fail = (text: string, code?: string) => void
 
 interface Props {
   open: boolean
@@ -88,8 +89,11 @@ export function SlotDialog({ open, slot, date, form, noteEnds, taken, rooms = NO
   const ref = useRef<HTMLDialogElement>(null)
   const [tab, setTab] = useState<'a' | 'n'>('a')
   const [fail, setFail] = useState('')
+  const [failCode, setFailCode] = useState('')
   const [service, setService] = useState(form.services[0]?.id ?? '')
-  const dur = useDurPick(form.services, service, form)
+  /* щелчок по полосе Control — окно сразу с короткой длительностью */
+  const dur = useDurPick(form.services, service, form,
+    slot.room === CONTROL ? CONTROL_DUR : undefined)
   const hh = slot.hour.split(':')[0] ?? ''
   const step = form.step ?? 5
   /* с длиной не по правилу считать нечего — меряем кратчайшим визитом */
@@ -97,7 +101,9 @@ export function SlotDialog({ open, slot, date, form, noteEnds, taken, rooms = NO
   const many = rooms.length > 1
   /* кабинет выбран руками — занятость считается только по нему */
   const [roomPick, setRoomPick] = useState(many ? slot.room ?? '' : '')
-  const scope = roomPick ? [laneOf(taken, roomPick)] : lanesOf(taken, rooms)
+  const ctl = hasControl(rooms)
+  /* без выбора — только основные дорожки: в Control сервер сам не кладёт */
+  const scope = roomPick ? [laneOf(taken, roomPick)] : lanesOf(taken, mainLanes(rooms))
   const off = takenMinutes(scope, Number(hh), span, step)
   const firstFree = hourMinutes(step).find((m) => !off.has(m))
   const none = firstFree === undefined
@@ -118,7 +124,7 @@ export function SlotDialog({ open, slot, date, form, noteEnds, taken, rooms = NO
 
   const { atime, ntime, ends } = slotTimes(slot.hour, minute, noteEnds)
   const start = Number(hh) * 60 + minute
-  const room = roomPick || freeRoom(taken, rooms, start, span, -1) || rooms[0]?.id || ''
+  const room = roomPick || freeRoom(taken, mainLanes(rooms), start, span, -1) || rooms[0]?.id || ''
   const shared = !none && !tight && roomShared(others, room, start, span)
 
   useEffect(() => {
@@ -126,13 +132,26 @@ export function SlotDialog({ open, slot, date, form, noteEnds, taken, rooms = NO
     else hideDialog(ref.current)
   }, [open])
 
-  async function submitAppt(e: FormEvent) {
-    e.preventDefault()
+  const failWith: Fail = (text, code) => { setFail(text); setFailCode(code ?? '') }
+
+  async function submitAppt(e: FormEvent | null, asControl = false) {
+    e?.preventDefault()
     setFail('')
+    setFailCode('')
+    const lane = asControl ? CONTROL : roomPick
+    /* «ca control» с нетронутой длительностью — короткая, как в полосе */
+    const durField = asControl && !dur.field.duration ? { duration: CONTROL_DUR } : dur.field
     const ok = await onAdd({ date, time: atime, doctor: slot.dk, service, name,
-      phone: noPhone ? '' : phone, nophone: noPhone, birth, ...sms.field, ...dur.field,
-      ...(roomPick ? { room: roomPick } : {}) }, setFail)
+      phone: noPhone ? '' : phone, nophone: noPhone, birth, ...sms.field, ...durField,
+      ...(lane ? { room: lane } : {}) }, failWith)
     if (ok) onClose()
+  }
+
+  const pickRoom = (id: string) => {
+    setRoomPick(id)
+    setFail('')
+    setFailCode('')
+    if (id === CONTROL && !dur.field.duration) dur.pick(CONTROL_DUR)
   }
 
   async function submitNote(e: FormEvent) {
@@ -143,7 +162,7 @@ export function SlotDialog({ open, slot, date, form, noteEnds, taken, rooms = NO
     if (ok) onClose()
   }
 
-  const pick = (m: number) => { setMinute(m); setAimed(false); setFail('') }
+  const pick = (m: number) => { setMinute(m); setAimed(false); setFail(''); setFailCode('') }
   const warn = fail || (tight ? T.noFit(atime, span)
     : none ? (roomPick ? T.noStartRoom : T.noStart)(hh, span) : '')
   const warnNode = warn ? <div className="banner err" role="alert">{warn}</div> : null
@@ -173,8 +192,7 @@ export function SlotDialog({ open, slot, date, form, noteEnds, taken, rooms = NO
             </select>
             <DurSelect box={dur} />
           </div>
-          {many ? <RoomSelect rooms={rooms} value={room}
-                              onPick={(id) => { setRoomPick(id); setFail('') }} /> : null}
+          {many ? <RoomSelect rooms={rooms} value={room} onPick={pickRoom} /> : null}
           <input value={name} onChange={(e) => setName(e.target.value)}
                  placeholder={T.name} required />
           <input value={noPhone ? '' : phone} onChange={(e) => setPhone(e.target.value)}
@@ -191,6 +209,10 @@ export function SlotDialog({ open, slot, date, form, noteEnds, taken, rooms = NO
                    onChange={(e) => setBirth(e.target.value)} />
           </label>
           {warnNode}
+          {/* основная занята (подсказка канвы или отказ сервера) — выход явным действием */}
+          {ctl && roomPick !== CONTROL && warn && (none || tight || failCode === 'conflict')
+            ? <AsControl disabled={busy || !name || (!noPhone && !phone)}
+                onClick={() => { void submitAppt(null, true) }} /> : null}
           {shared && !warn ? <div className="banner warn" role="status">{sharedWarn(rooms, room)}</div> : null}
           <button disabled={busy || none || tight || dur.bad}>{T.go}</button>
         </form>

@@ -35,6 +35,7 @@ from ...core.api import (api_body, api_guard, api_own_appt, api_own_doctor, api_
                          live_envelope, live_reply)
 from ...core.auth import PERM_SMS, remote_notice
 from ...core.layout import msg_json
+from ...core.messages import busy_doctor_text
 from ...core.visits import (_collect_cards, _parse_date, all_status_actions, my_scope,
                             of_doctor, service_options)
 from . import chair as pchair
@@ -285,7 +286,37 @@ async def api_add(request: Request, date_q: str = Query("", alias="date"),
                            sms if isinstance(sms, bool) else None,
                            body.get("done") is True, _s(body, "duration"),
                            aroom=_s(body, "room"))
+    if code == "conflict" and eng.doctor_parallel(_s(body, "doctor")):
+        # врач с колонкой Control: отказ называет, кто занимает, и ближайшее
+        # свободное время основной колонки — окно предлагает «ca control» или его
+        info = await _busy_info(body)
+        if info:
+            return msg_json(False, code, data=info, status=409,
+                            text=busy_doctor_text(info["who"], info["from"], info["to"]))
     return await _done(code, _screen(date_q), doctor, f=f, screen=screen)
+
+
+async def _busy_info(body: dict) -> dict | None:
+    """Кто занимает врача на присланный интервал и с какого времени свободно."""
+    try:
+        d = date.fromisoformat(_s(body, "date"))
+        hh, mm = _s(body, "time").split(":")
+        dt = datetime(d.year, d.month, d.day, int(hh), int(mm), tzinfo=eng.TZ)
+    except (ValueError, AttributeError):
+        return None
+    dk = _s(body, "doctor")
+    dur_s = _s(body, "duration")
+    dur = int(dur_s) if dur_s.isdigit() else eng.svc_duration(_s(body, "service"))
+    rows = await db.busy_with(dk, dt, dur)
+    if not rows:
+        return None
+    first = min(rows, key=lambda r: r["starts_at"])
+    end = max(r["starts_at"] + timedelta(minutes=int(r["duration_min"] or 60)) for r in rows)
+    nxt = next((t for t in await eng.free_starts(dk, d, dur) if t >= dt), None)
+    return {"who": first["name"] or "",
+            "from": first["starts_at"].astimezone(eng.TZ).strftime("%H:%M"),
+            "to": end.astimezone(eng.TZ).strftime("%H:%M"),
+            "next": nxt.strftime("%H:%M") if nxt else None}
 
 
 @router.post("/api/schedule/sms-of")
@@ -475,7 +506,7 @@ async def api_chair(request: Request, doctor: str = Query(""),
                            datetime.now(eng.TZ))
     data.update(pchair.model(rows, agenda["items"]),
                 doctor={"dk": dk, "name": eng.DOCTORS[dk]}, today=agenda["today"],
-                rooms=eng.room_list(dk))
+                rooms=eng.lane_list(dk))
     return msg_json(True, data=data)
 
 

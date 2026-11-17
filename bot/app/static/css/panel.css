@@ -653,6 +653,32 @@
  .gcol[data-lanes="3"]::before{background:
    linear-gradient(90deg,transparent calc(33.33% - .5px),var(--line2) 0,var(--line2) calc(33.33% + .5px),transparent 0),
    linear-gradient(90deg,transparent calc(66.67% - .5px),var(--line2) 0,var(--line2) calc(66.67% + .5px),transparent 0)}
+ /* дорожка Control врача: дорожки неравные, линии и подложку полосы рисует разметка
+    (`LaneLines`), прежние равные линии `data-lanes` здесь не годятся */
+ .gcol[data-ctl]::before{background:none}
+ .gcol .glane-line{position:absolute;top:0;bottom:0;width:1px;margin-left:-.5px;z-index:1;
+   pointer-events:none;background:var(--line2)}
+ .gcol .gctl-bg{position:absolute;top:0;bottom:0;right:0;z-index:0;pointer-events:none;
+   background:repeating-linear-gradient(135deg,transparent 0 6px,color-mix(in srgb,var(--line2) 45%,transparent) 6px 7px)}
+ .gh-doc.has-ctl{flex-direction:column}
+ .gh-doc .dc-lanes{position:relative;height:18px;border-top:1px solid var(--line2);flex:0 0 18px}
+ .gh-doc .dc-lanes span{position:absolute;top:0;bottom:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+   padding:0 4px;font-size:var(--fs-micro);line-height:18px;color:var(--text3);text-align:center;
+   border-left:1px solid var(--line2)}
+ .gh-doc .dc-lanes span:first-child{border-left:0}
+ .gh-doc .dc-lanes span.ctl{color:var(--text2);font-weight:600;background:var(--line2)}
+ /* блок полосы Control уже кнопки зуба (`thin`) — значок статуса тоже не рисуется:
+    он ложился поверх имени; слово статуса остаётся в подсказке */
+ .gcol[data-ctl] .gappt.thin .stt{display:none}
+ .dp-asctl{display:flex;flex-direction:column;gap:4px}
+ .dp-asctl-b{display:flex;gap:8px;flex-wrap:wrap}
+ .dp-asctl .btn-next{background:var(--panel);color:var(--teal-d);box-shadow:inset 0 0 0 1px var(--line)}
+ /* запись полосы Control отличается с первого взгляда: значок «C» и пунктирная кромка */
+ .gappt.gctl{outline:1px dashed var(--text3);outline-offset:-1px}
+ .gappt .gctl-tag{background:var(--text2);color:var(--panel);box-shadow:none}
+ .ag-b .ag-ctl{font-weight:600;color:var(--text2)}
+ .dp-card-ctl{margin-left:8px;padding:2px 8px;border-radius:var(--r-xs);border:1px dashed var(--line);
+   background:var(--panel);color:var(--teal-d);font:inherit;font-size:var(--fs-s);cursor:pointer}
  .gappt .groom{display:inline-block;margin-right:4px;padding:0 4px;border-radius:var(--r-xs);
    background:var(--panel);box-shadow:inset 0 0 0 1px var(--line);color:var(--text2);
    font-size:var(--fs-micro);font-weight:600;line-height:1.5;vertical-align:1px}

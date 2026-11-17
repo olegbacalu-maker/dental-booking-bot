@@ -77,7 +77,7 @@ def _doc_stats(dk: str, name: str, rows: list, days: list) -> dict:
     live = [r for r in _doc_rows(dk, name, rows)
             if r["source"] != "note" and r["status"] != "cancelled"]
     cap = sum(eng.work_minutes(dk, day) for day in days)
-    busy = sum(int(r.get("duration_min") or 60) for r in live)
+    busy = eng.busy_minutes(live)
     return {"n": len(live), "pct": round(100 * busy / cap) if cap else 0,
             "noshow": sum(1 for r in live if r["status"] == "noshow")}
 
@@ -92,7 +92,7 @@ def _doctor_entry(prev: dict, **fields) -> dict:
     """Запись врача для конфига: правим поля, ничего чужого не теряем."""
     entry = dict(prev)
     entry.update(fields)
-    for k in ("spec", "room", "rooms", "phone", "email", "color", "photo"):
+    for k in ("spec", "room", "rooms", "phone", "email", "color", "photo", "parallel"):
         if not entry.get(k):
             entry.pop(k, None)
     for k in ("work_from", "work_to"):
@@ -339,6 +339,21 @@ async def _save_doctor(dk: str, *, name: str, spec: str = "", room: str = "",
         return "save_err"
     # переименование (кабинетов не меньше) и снятие всех — говорить «в оставшийся» не о чем
     return "ok_med_moved" if res["moves"] and 0 < len(ids) < len(was) else "ok_med"
+
+
+async def _set_parallel(dk: str, on: bool) -> tuple[str, int]:
+    """Галочка «Programări paralele»: дорожка Control в колонке врача. Снять нельзя,
+    пока в дорожке есть будущие записи (`par_busy` и их число): без дорожки они легли
+    бы поверх основных. Проверка и файл — под замком брони (`db.set_control_lane`)."""
+    if not on and not eng.doctor_parallel(dk):
+        return "ok_par_off", 0
+    n = await db.set_control_lane(dk, on, datetime.now(eng.TZ),
+                                  save=lambda: _patch_doctor(dk, parallel=on))
+    if n is None:
+        return "save_err", 0
+    if n:
+        return "par_busy", n
+    return ("ok_par_on" if on else "ok_par_off"), 0
 
 
 def _set_services(dk: str, picked: set) -> str:

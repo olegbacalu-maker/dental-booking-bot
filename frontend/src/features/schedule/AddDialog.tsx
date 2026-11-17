@@ -4,7 +4,8 @@ import { hideDialog, showDialog } from '../patients/card/dialog'
 import { day, svcLabel, type DayForm, type NewAppt } from './day'
 import { DurSelect, useDurPick } from './DurPick'
 import { HourSelect, MinPick } from './MinPick'
-import { RoomSelect } from './RoomPick'
+import { AsControl, RoomSelect } from './RoomPick'
+import { busyInfo, CONTROL, CONTROL_DUR, type BusyInfo } from './move'
 import { SmsCheck, useSmsBox } from './SmsBox'
 import { whenLine } from './when'
 
@@ -74,7 +75,7 @@ interface Props {
   /** `fail` — слово отказа В ОКНО (как у `SlotDialog`): плашка экрана под
    *  открытым `<dialog>` не видна (top layer). Так у обоих хозяев окна — дня
    *  журнала и окна шапки (`NewApptHost`). */
-  onAdd: (body: NewAppt & { pid?: number }, fail: (text: string) => void) => Promise<boolean>
+  onAdd: (body: NewAppt & { pid?: number }, fail: (text: string, code?: string, data?: unknown) => void) => Promise<boolean>
   preset?: AddPreset | undefined
   /** Строка над формой: откуда запись (событие календаря) — только текстом. */
   note?: string | undefined
@@ -123,10 +124,13 @@ export function AddDialog({
   const [noPhone, setNoPhone] = useState(false)
   const [birth, setBirth] = useState('')
   const [fail, setFail] = useState('')
+  const [failCode, setFailCode] = useState('')
+  const [busyAt, setBusyAt] = useState<BusyInfo | null>(null)
   const [pid, setPid] = useState<number | null>(preset?.pid ?? null)
   const person = people?.find((x) => x.id === pid) ?? null
   const sms = useSmsBox(form.sms, person ? person.phone : phone, person ? !person.phone : noPhone)
-  const dur = useDurPick(form.services, service, form, preset?.duration)
+  const dur = useDurPick(form.services, service, form,
+    preset?.duration ?? (preset?.room === CONTROL ? CONTROL_DUR : undefined))
   /* «Сегодня» — `birth_max` формы (день клиники, его дал сервер), не часы
      браузера. Галочка включена сразу (решение Олега 29.10): визит задним
      числом заводят ради бумажной истории, а забытая галочка оставила бы его
@@ -149,6 +153,7 @@ export function AddDialog({
   const hh = hour.split(':')[0] ?? ''
   const time = hour ? `${hh}:${String(minute).padStart(2, '0')}` : ''
   const rooms = f.doctors.find((x) => x.id === doctor)?.rooms ?? []
+  const parallel = !!f.doctors.find((x) => x.id === doctor)?.parallel
   /* выбор держится, пока он есть у врача: другой врач — снова «первый свободный» */
   const room = rooms.length > 1 && rooms.some((r) => r.id === roomPick) ? roomPick : ''
 
@@ -171,15 +176,37 @@ export function AddDialog({
     return () => ctl.abort()
   }, [open, other, at, of])
 
-  async function submit(e: FormEvent) {
-    e.preventDefault()
+  async function submit(e: FormEvent | null, asControl = false) {
+    e?.preventDefault()
     setFail('')
+    setFailCode('')
     const who = person
       ? { name: person.name, phone: person.phone, nophone: !person.phone, pid: person.id }
       : { name, phone: noPhone ? '' : phone, nophone: noPhone }
+    const lane = asControl ? CONTROL : room
+    /* «ca control» с нетронутой длительностью — короткая, как в полосе */
+    const durField = asControl && !dur.field.duration ? { duration: CONTROL_DUR } : dur.field
     const ok = await onAdd({ date: at, time, doctor, service, ...who, birth, ...sms.field,
-      ...dur.field, ...(room ? { room } : {}), ...(past ? { done: happened } : {}) }, setFail)
+      ...durField, ...(lane ? { room: lane } : {}), ...(past ? { done: happened } : {}) },
+    (text, code, data) => { setFail(text); setFailCode(code ?? ''); setBusyAt(busyInfo(data)) })
     if (ok) onClose()
+  }
+
+  /* «Alege HH:MM»: ближайшее свободное время основной колонки — в поля часа и минуты */
+  const pickNext = (t: string) => {
+    const [h, m] = t.split(':')
+    setTimePick(`${h}:00`)
+    setMinute(Number(m) || 0)
+    setFail('')
+    setFailCode('')
+    setBusyAt(null)
+  }
+
+  const pickRoom = (id: string) => {
+    setRoomPick(id)
+    setFail('')
+    setFailCode('')
+    if (id === CONTROL && !dur.field.duration) dur.pick(CONTROL_DUR)
   }
 
   return (
@@ -222,7 +249,7 @@ export function AddDialog({
           <DurSelect box={dur} />
         </div>
         {rooms.length > 1
-          ? <RoomSelect rooms={rooms} value={room} onPick={setRoomPick} auto /> : null}
+          ? <RoomSelect rooms={rooms} value={room} onPick={pickRoom} auto /> : null}
         {people?.length ? (
           <div className="dp-addpeople">
             <span className="hint">{T.people}</span>
@@ -260,6 +287,10 @@ export function AddDialog({
           </div>
         )}
         {fail ? <div className="banner err" role="alert">{fail}</div> : null}
+        {/* отказ «врач занят» у врача с Control — та же запись в полосу, явным нажатием */}
+        {fail && failCode === 'conflict' && parallel && room !== CONTROL
+          ? <AsControl disabled={busy} onClick={() => { void submit(null, true) }}
+              next={busyAt?.next ?? null} onNext={pickNext} /> : null}
         <button disabled={busy || pending || !times.length || dur.bad || noDoctor}>{T.go}</button>
       </form>
     </dialog>

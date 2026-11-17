@@ -87,7 +87,9 @@ export interface DayColumn {
   name: string
   /** Специальность; у выключенного врача сюда дописано «· inactiv». */
   spec: string
-  rooms?: { id: string; name: string }[]
+  rooms?: { id: string; name: string; control?: boolean }[]
+  /** Галочка «Programări paralele»: у врача есть дорожка Control. */
+  parallel?: boolean
 }
 
 /** Карточка визита — ПОЛНАЯ, включая комментарий целиком (в сетке он обрезан

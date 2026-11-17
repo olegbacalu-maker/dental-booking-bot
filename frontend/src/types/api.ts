@@ -33,7 +33,7 @@ export type ApiFailure =
    *  сервер приложил к отказу (вход из сети: кого выбирать, `login_pick`). */
   | { kind: 'validation'; code: string; text: string; field?: string; data?: unknown }
   /** 409 — конфликт: занятый слот, дубль пациента, запись уже уехала. */
-  | { kind: 'conflict'; code: string; text: string }
+  | { kind: 'conflict'; code: string; text: string; data?: unknown }
   /** Сеть, таймаут, оборванный ответ. Программа продолжает работать. */
   | { kind: 'network'; detail: string }
   /** Движок ответил 500 или чем-то, чего контракт не предусматривает. */

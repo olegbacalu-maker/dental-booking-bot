@@ -115,7 +115,8 @@ function refusal<T>(response: Response, envelope: ApiEnvelope<T> | null): ApiErr
     case 403:
       return fail({ kind: 'forbidden', code, text })
     case 409:
-      return fail({ kind: 'conflict', code, text })
+      return fail({ kind: 'conflict', code, text,
+        ...(envelope?.data !== undefined ? { data: envelope.data } : {}) })
     case 422:
       return fail({
         kind: 'validation',

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
+from ... import db
 from ... import engine as eng
 from ...core.layout import LIVE_STATUSES, STATUS_LABEL, _initials
 from ...core.visits import _doc_hue, photo_url
@@ -175,6 +176,9 @@ def free_hour(dk: str, d: date, taken: list) -> int | None:
 def _lanes(dk: str, taken: list) -> list[list]:
     """Занятые интервалы врача по кабинетам: час свободен, пока свободен хоть один."""
     own = eng.doctor_rooms(dk)
+    # дорожка Control свободного часа не даёт: «Liber de la» — по основным дорожкам
+    taken = [r for r in taken if r.get("room_id") != db.CONTROL_LANE
+             or r["source"] == "note"]
     if len(own) < 2:
         return [[bounds(r) for r in taken]]
     return [[bounds(r) for r in taken
@@ -217,8 +221,10 @@ def _tip(r: dict) -> str:
     dur = int(r.get("duration_min") or 60)
     word = (STATUS_LABEL.get(r["status"], r["status"])
             if r["status"] != "confirmed" else "")
-    room = (eng.room_name(eng.appt_room(r))
-            if len(eng.doctor_rooms(r.get("doctor_id"))) > 1 else "")
+    lane = eng.appt_room(r)
+    room = (eng.room_name(lane)
+            if lane == db.CONTROL_LANE
+            or len(eng.doctor_rooms(r.get("doctor_id"))) > 1 else "")
     return (f"{st.strftime('%H:%M')} · {dur}′ · {r['service']}"
             f" · {r['name'] or '—'}" + (f" · {room}" if room else "")
             + (f" · {word}" if word else ""))
@@ -230,8 +236,14 @@ def _next_by_lane(rows: list, own: tuple) -> dict:
         return next_starts(rows)
     out: dict = {}
     for rid in own:
-        out.update(next_starts([r for r in rows if eng.appt_room(r) == rid]))
+        out.update(next_starts([r for r in rows if _in_lane(r, rid, own)]))
     return out
+
+
+def _in_lane(r: dict, rid: str, lanes: tuple) -> bool:
+    """Запись в дорожке колонки. Колонка-сирота дорожек не знает — её записи в основной."""
+    got = eng.appt_room(r)
+    return got == rid or (got not in lanes and rid == lanes[0])
 
 
 def _lane_places(cluster: list, own: tuple) -> dict | None:
@@ -239,7 +251,7 @@ def _lane_places(cluster: list, own: tuple) -> dict | None:
     один или в кластере заметка стойки: она занимает врача целиком)."""
     if len(own) < 2 or any(r["source"] == "note" for r in cluster):
         return None
-    lanes = [[r for r in cluster if eng.appt_room(r) == rid] for rid in own]
+    lanes = [[r for r in cluster if _in_lane(r, rid, own)] for rid in own]
     out: dict = {}
     for i, lane in enumerate(lanes):
         # ширину делят только одновременные записи этой дорожки
@@ -263,7 +275,7 @@ def blocks(rows: list, col_dk: str, base_min: int, cards, colors) -> list[dict]:
     У врача с несколькими кабинетами колонка делится на дорожки (`_lane_places`).
     """
     out: list[dict] = []
-    own = eng.doctor_rooms(col_dk)
+    own = eng.doctor_lanes(col_dk, rows)
     nxt = _next_by_lane(rows, own)
     for cluster in clusters(rows):
         place = _lane_places(cluster, own)
@@ -311,10 +323,10 @@ def _column(d: date, dk: str, name: str, by_col: dict, live: list,
     # Ёмкость берётся у того же `eng.work_minutes`, что считает «Statistici»,
     # иначе дашборд и статистика показывали бы разный процент про одного врача.
     cap = eng.work_minutes(dk, d)
-    busy = sum(int(r.get("duration_min") or 60) for r in mine)
+    busy = eng.busy_minutes(mine)
     work = eng.doctor_hours(dk, d)
-    rooms = eng.room_list(dk)
-    room = ", ".join(x["name"] for x in rooms)
+    room = ", ".join(x["name"] for x in eng.room_list(dk))
+    rooms = eng.lane_list(dk, by_col.get(key, []))
     return {
         "key": key, "id": dk, "name": name, "orphan": False,
         "spec": eng.DOCTOR_SPEC.get(dk, "") or "",

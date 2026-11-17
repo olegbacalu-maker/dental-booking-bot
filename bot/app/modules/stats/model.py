@@ -216,7 +216,7 @@ def _occupancy(rows: list, days: list) -> tuple[int, int, int]:
         mine = [r for r in rows if r.get("doctor_id") == dk
                 or (not r.get("doctor_id") and r["doctor"] == name)]
         cap_all += sum(eng.work_minutes(dk, day) for day in days)
-        busy_all += sum(int(r.get("duration_min") or 60) for r in mine)
+        busy_all += eng.busy_minutes(mine)
     return (round(100 * busy_all / cap_all) if cap_all else 0), busy_all, cap_all
 
 
@@ -276,7 +276,7 @@ async def build(d1: date, d2: date, now: datetime) -> dict:
         fin = sum(1 for r in mine if r["status"] == "done")
         nos = sum(1 for r in mine if r["status"] == "noshow")
         cap = sum(eng.work_minutes(dk, day) for day in days)
-        busy = sum(int(r.get("duration_min") or 60) for r in mine)
+        busy = eng.busy_minutes(mine)
         doctors.append({"name": name, "off": off, "n": len(mine), "came": came,
                         # явка врача — та же формула, что у карточки клиники
                         "pres": presence(fin, nos),

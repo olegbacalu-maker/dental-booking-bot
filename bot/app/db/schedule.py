@@ -11,6 +11,7 @@ from .events import _actor_now, log_event
 from .slots import (
     _ACT_SQL, _book, _book_locked, _conflicts, _lane, _patient_busy,
     _patient_busy_at, _pick_room, _room_label, _slot_lock, ACTIVE_STATUSES,
+    CONTROL_LANE, MAIN_NAME, _plan_now,
 )
 from .patients import (
     _patient_ids_by_digits, _upsert_patient, manual_key, patient_id_by_key, set_birth_year,
@@ -234,7 +235,9 @@ async def busy_lanes(doctor_key: str, doctor_name: str,
         if r["source"] == "note":
             for lane in lanes.values():
                 lane.append(span)
-        else:
+        elif r["room_id"] != CONTROL_LANE:
+            # дорожка Control свободное время врача не меняет: свободные старты
+            # и «Primul loc liber» — по основным дорожкам
             lanes[_lane(r["room_id"], own)].append(span)
     return list(lanes.values())
 
@@ -249,6 +252,44 @@ async def doctor_future_count(doctor_key: str, doctor_name: str,
              AND status IN {_ACT_SQL} AND starts_at >= ?""",
         doctor_key, doctor_name, _iso(now),
     ) or 0
+
+
+async def control_future_count(doctor_key: str, now: datetime) -> int:
+    """Живые записи впереди в дорожке Control врача — замок на снятие галочки: без
+    неё они легли бы поверх основных."""
+    return await _fetchval(
+        f"""SELECT COUNT(*) FROM appointments
+           WHERE doctor_id = ? AND room_id = ? AND source != 'note'
+             AND status IN {_ACT_SQL} AND starts_at >= ?""",
+        doctor_key, CONTROL_LANE, _iso(now),
+    ) or 0
+
+
+async def set_control_lane(doctor_id: str, on: bool, now: datetime, save) -> int | None:
+    """Галочка дорожки Control врача — под замком брони: снятие при будущих записях
+    в полосе отказывает их числом, иначе `save()` пишет файл клиники. Под замком —
+    чтобы запись в полосу, ждавшая замка, не легла после снятия галочки.
+    Ответ: 0 — сохранено, N — столько будущих записей держат, None — файл не записан."""
+    async with _slot_lock():
+        if not on:
+            n = await control_future_count(doctor_id, now)
+            if n:
+                return n
+        return None if save() else 0
+
+
+async def busy_with(doctor_id: str, starts_at: datetime, duration_min: int) -> list:
+    """Кто занимает врача в основных дорожках на этот интервал (отказ с именем)."""
+    from .slots import _doctor_overlaps
+    rows = [r for r in await _doctor_overlaps(doctor_id, "", starts_at, duration_min)
+            if r["room_id"] != CONTROL_LANE]
+    if not rows:
+        return []
+    names = {r["id"]: r["name"] for r in await _fetch(
+        f"""SELECT a.id, COALESCE(p.name, a.service) AS name FROM appointments a
+           LEFT JOIN patients p ON p.id = a.patient_id
+           WHERE a.id IN ({",".join("?" * len(rows))})""", *[r["id"] for r in rows])}
+    return [{**dict(r), "name": names.get(r["id"], "")} for r in rows]
 
 
 async def appt_patient_id(appt_id: int) -> int | None:
@@ -422,6 +463,10 @@ async def move_appointment(appt_id: int, doctor_id: str, doctor: str,
         dur = int(r["duration_min"] or 60)
         own = tuple((rooms or {}).get("own") or ())
         stay = _lane(r["room_id"], own) if r["doctor_id"] == doctor_id else None
+        # из Control запись без явного выбора уходит в основную дорожку: перенос на
+        # основную полосу (или окно без «Control») — это выбор основной
+        if stay == CONTROL_LANE:
+            stay = None
         lane = await _pick_room(doctor_id, doctor, starts_at, dur, rooms, room,
                                 prefer=stay, exclude_id=appt_id)
         if lane is None:
@@ -747,10 +792,13 @@ async def set_appt_room(appt_id: int, room: str, rooms: dict | None) -> str:
         r = rows[0]
         if r["status"] not in ACTIVE_STATUSES:
             return "closed"
-        own = tuple((rooms or {}).get("own") or ())
-        if not room or room not in own:
-            return "bad_room"
+        own, ctl = _plan_now(rooms)
         was = _lane(r["room_id"], own)
+        # у врача без кабинетов основная дорожка — «»: туда возвращают из Control
+        ok = (room in own or (room == CONTROL_LANE and ctl)
+              or (room == "" and not own and was == CONTROL_LANE))
+        if not ok:
+            return "bad_room"
         if was == room:
             return ""
         if await _conflicts(r["doctor_id"], r["doctor"], r["starts_at"],
@@ -760,10 +808,10 @@ async def set_appt_room(appt_id: int, room: str, rooms: dict | None) -> str:
         await _execute(
             """UPDATE appointments SET room_id = ?, room = ?
                WHERE id = ? AND source != 'note'""",
-            room, _room_label(rooms, room), appt_id)
+            room or None, _room_label(rooms, room), appt_id)
         if r["patient_id"]:
             await log_event(
                 r["patient_id"], "appt_room",
-                f"Cabinet schimbat: {_room_label(rooms, was)} › "
-                f"{_room_label(rooms, room)} — {r['service']}")
+                f"Cabinet schimbat: {_room_label(rooms, was) or MAIN_NAME} › "
+                f"{_room_label(rooms, room) or MAIN_NAME} — {r['service']}")
         return ""

@@ -94,6 +94,11 @@ def suite_rule(res: Result) -> None:
     res.check("без кабинетов — одно кресло, как было",
               (_ids(got["chairs"]), _ids(got["stale"])), ([2], [1]))
     res.check("никого — кресел нет", m([], [])["chairs"], [])
+    # дорожка Control: основной пациент и контроль в кабинете одновременно — оба сидят
+    rows = [_row(1, "arrived", 0, arrived_min=5), _row(2, "arrived", 0, arrived_min=20)]
+    got = m(rows, [dict(_item(1, "arrived"), room_id=""), dict(_item(2, "arrived"), room_id="~control")])
+    res.check("Control — своё место: основной и контроль оба в кабинете, никто не «не завершён»",
+              (_ids(got["chairs"]), _ids(got["stale"])), ([1, 2], []))
 
     rd = chair.resolve_doctor
     known ={"d2": "Dr. Doi", "d3": "Dr. Trei"}

@@ -73,10 +73,11 @@ async def log_clinic_event(kind: str, text: str, actor: str = "sistem") -> None:
 
 
 async def _log_booking(pid: int, service: str, doctor: str,
-                       starts_at: datetime, source: str) -> None:
-    """Событие «записался» — одно на все пути брони, поэтому вынесено."""
+                       starts_at: datetime, source: str, lane: str = "") -> None:
+    """Событие «записался» — одно на все пути брони, поэтому вынесено. `lane` —
+    имя дорожки, которую стоит назвать (Control: параллельный приём у того же врача)."""
     await log_event(pid, "appt_new",
-                    f"Programare: {service} · {doctor} · "
+                    f"Programare: {service} · {doctor}{f' ({lane})' if lane else ''} · "
                     f"{starts_at.strftime('%d.%m.%Y %H:%M')}",
                     actor="bot" if source == "bot" else "recepție")
 

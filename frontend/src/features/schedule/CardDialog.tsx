@@ -113,12 +113,14 @@ interface Props {
    *  даёт перевести запись в другой (`onRoom`, тем же карандашом). */
   rooms?: readonly Room[]
   onRoom?: (room: string, fail: (text: string) => void) => Promise<boolean>
+  /** «+ Control în paralel» — окно часа этой записи в полосе Control её врача. */
+  onControl?: () => void
 }
 
 const NO_ROOMS: readonly Room[] = []
 
 export function CardDialog({ open, id, card, actions, note = '', back, busy,
-  onClose, onComment, onStatus, onCall, onService, onDuration, rooms = NO_ROOMS, onRoom }: Props) {
+  onClose, onComment, onStatus, onCall, onService, onDuration, rooms = NO_ROOMS, onRoom, onControl }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
   /* Черновик и то, чем его засеяли, — ОДНИМ состоянием: «тронут ли» решается
      сравнением этих двух, и оба нужны на рендере (кнопка сохранения), где
@@ -308,6 +310,10 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
               </span>
             ) : null}
             {card.doctor ? <span className="dp-card-w"><span className="dp-card-dot">·</span>{card.doctor}</span> : null}
+            {onControl
+              ? <button type="button" className="dp-card-ctl" onClick={onControl}
+                  title="Încă un pacient la aceeași oră, în coloana Control a medicului">+ Control în paralel</button>
+              : null}
             {roomShown ? (
               <span className="dp-card-w dp-card-room">
                 <span className="dp-card-dot">·</span><Icon name="door" /> {card.room}

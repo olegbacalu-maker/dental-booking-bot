@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { hideDialog, showDialog } from '../patients/card/dialog'
 import { HourSelect, MinPick } from './MinPick'
-import { clashLanes, freeRoom, hhmm, laneOf, lanesOf, roomShared, sameSlot, type Drag, type Occupies,
+import { clashLanes, CONTROL, freeRoom, hhmm, laneOf, lanesOf, mainLanes, roomShared, sameSlot, type Drag, type Occupies,
   type Room, type Target } from './move'
-import { RoomSelect, sharedWarn } from './RoomPick'
+import { AsControl, RoomSelect, sharedWarn } from './RoomPick'
 import { takenMinutes } from './slot'
 
 /* Подтверждение переноса (C25.5b). Диалог обязателен: перетащить мышью легко
@@ -26,6 +26,7 @@ const T = {
   close: 'Închide',
   busyDoc: (at: string) => `Medicul are deja o programare la ${at}.`,
   busyRoom: (at: string) => `Cabinetul ales este ocupat de la ${at}.`,
+  asControl: 'Mută în Control',
 } as const
 
 const NO_ROOMS: readonly Room[] = []
@@ -62,14 +63,14 @@ export function MoveDialog({ open, drag, target, fromName, toName, taken, rooms 
   const min = hour * 60 + minute
   const many = rooms.length > 1
   const [roomPick, setRoomPick] = useState(many ? target.room ?? '' : '')
-  const scope = roomPick ? [laneOf(taken, roomPick)] : lanesOf(taken, rooms)
+  const scope = roomPick ? [laneOf(taken, roomPick)] : lanesOf(taken, mainLanes(rooms))
   const off = takenMinutes(scope, hour, drag.dur, step, drag.id)
   const busyAt = clashLanes(scope, min, drag.dur, drag.id)
   /* без выбора — как решит сервер: у того же врача запись остаётся в своём
      кабинете, пока он свободен, иначе первый свободный */
   const own = target.dk === drag.dk && drag.room && rooms.some((r) => r.id === drag.room)
     && clashLanes([laneOf(taken, drag.room)], min, drag.dur, drag.id) < 0 ? drag.room : ''
-  const room = roomPick || own || freeRoom(taken, rooms, min, drag.dur, drag.id)
+  const room = roomPick || (own === CONTROL ? '' : own) || freeRoom(taken, mainLanes(rooms), min, drag.dur, drag.id)
     || rooms[0]?.id || ''
   const shared = busyAt < 0
     && roomShared(others.filter((it) => it.id !== drag.id), room, min, drag.dur)
@@ -77,6 +78,9 @@ export function MoveDialog({ open, drag, target, fromName, toName, taken, rooms 
     const name = rooms.find((r) => r.id === id)?.name
     return name ? ` · ${name}` : ''
   }
+  /* основная занята, а полоса Control врача-цели свободна — выход явным нажатием */
+  const ctlFree = busyAt >= 0 && roomPick !== CONTROL && rooms.some((r) => r.control)
+    && clashLanes([laneOf(taken, CONTROL)], min, drag.dur, drag.id) < 0
   /* своё же место: сервер такой перенос принял бы и записал в летопись */
   const same = sameSlot(drag, { dk: target.dk, min, ...(many ? { room } : {}) })
 
@@ -106,6 +110,7 @@ export function MoveDialog({ open, drag, target, fromName, toName, taken, rooms 
             {(roomPick ? T.busyRoom : T.busyDoc)(hhmm(busyAt))}
           </div>
         ) : null}
+        {ctlFree ? <AsControl label={T.asControl} disabled={busy} onClick={() => onMove(min, CONTROL)} /> : null}
         {shared ? <div className="banner warn" role="status">{sharedWarn(rooms, room)}</div> : null}
         <div className="mv-act">
           <button type="button" className="mv-no" onClick={onClose}>{T.no}</button>

@@ -11,6 +11,7 @@ import { freeSlots } from './free'
 import { dm } from '../../utils/date'
 import type { DashActions, DashAgenda, DashCanvasModel, DashMiniCal } from './dash'
 import type { CallResult, Desk } from './desk'
+import { CONTROL } from './move'
 
 /* Правая колонка панели: мини-календарь, повестка, «Primul loc liber», списки
    стойки — по макету Олега (08.10, design/redesign-2026-10, промпт 1).
@@ -27,6 +28,7 @@ import type { CallResult, Desk } from './desk'
 
 const T = {
   agenda: 'Agenda zilei',
+  control: 'Control',
   empty: '— nicio programare —',
   all: 'Vezi toate programările ›',
   cons: 'Consultație',
@@ -172,7 +174,7 @@ function Agenda(
                     <> <span className="ag-cmt" title={`${T.comment}: ${it.comment}`}>
                       <Icon name="chat" /></span></>
                   )}</b>
-                  <small>{it.service}</small>
+                  <small>{it.service}{it.room_id === CONTROL ? <b className="ag-ctl"> · {T.control}</b> : null}</small>
                   <div className="ag-chips">
                     {/* срочность — чип со значком, не только цветом (макет);
                         слово и класс плашки — с сервера */}

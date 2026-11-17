@@ -16,6 +16,10 @@ const T = {
   auto: 'automată',
   state: 'Starea medicului',
   save: 'Salvează',
+  parallel: 'Programări paralele (coloana Control)',
+  parallelHint: 'Pentru pacienții care vin la un control scurt în timpul altei programări. '
+    + 'Coloana apare îngustă, în dreapta coloanei medicului; programarea intră acolo doar '
+    + 'dacă o alegeți voi.',
 } as const
 
 function profileOf(c: DoctorCard): DoctorProfile {
@@ -99,6 +103,7 @@ export function DoctorProfileForm({ card, onSaved, onFail }: Props) {
         disabled={saving}
         onChange={(names) => set({ rooms: names.map((name) => ({ name })) })}
       />
+      <ParallelBox card={card} onSaved={onSaved} onFail={onFail} />
       <div className="r2">
         <input
           value={form.phone}
@@ -171,5 +176,29 @@ export function DoctorProfileForm({ card, onSaved, onFail }: Props) {
       </select>
       <button disabled={saving}><Icon name="save" /> {T.save}</button>
     </form>
+  )
+}
+
+/** Галочка дорожки Control: сохраняется сразу, своим маршрутом — поля формы она не трогает. */
+function ParallelBox({ card, onSaved, onFail }: Props) {
+  const [busy, setBusy] = useState(false)
+  async function toggle(on: boolean) {
+    setBusy(true)
+    try {
+      onSaved(await doctors.setParallel(card.id, on))
+    } catch (err) {
+      onFail(asApiError(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="dp-parallel">
+      <label className="nophone">
+        <input type="checkbox" checked={!!card.parallel} disabled={busy}
+               onChange={(e) => { void toggle(e.target.checked) }} /> <b>{T.parallel}</b>
+      </label>
+      <small className="hint">{T.parallelHint}</small>
+    </div>
   )
 }

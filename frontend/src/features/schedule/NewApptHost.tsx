@@ -95,7 +95,7 @@ function NewApptWindow({ open, onClose, onDone, navigate }: WindowProps) {
     return () => ctl.abort()
   }, [onClose, onDone, navigate])
 
-  const add = async (body: NewAppt, fail: (text: string) => void): Promise<boolean> => {
+  const add = async (body: NewAppt, fail: (text: string, code?: string, data?: unknown) => void): Promise<boolean> => {
     setBusy(true)
     try {
       const r = await day.record(body)
@@ -105,7 +105,8 @@ function NewApptWindow({ open, onClose, onDone, navigate }: WindowProps) {
     } catch (e) {
       const err = asApiError(e)
       if (err.failure.kind === 'unauthenticated') navigate(loginUrl())
-      else fail(err.text || T.offline)
+      else fail(err.text || T.offline, 'code' in err.failure ? err.failure.code : '',
+        'data' in err.failure ? err.failure.data : undefined)
       return false
     } finally {
       setBusy(false)

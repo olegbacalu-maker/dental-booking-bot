@@ -8,7 +8,7 @@ import type { DashAppt, DashBlock, DashCanvasModel, DashColumn } from './dash'
 import type { VisitFacts } from './day'
 import { FactCols } from './FactCols'
 import { freeSpans, hourLabel, spanAt, startIn, type FreeSpan } from './slot'
-import { cellAtY, dragOf, dropMinute, endOf, hhmm, lanesOf, roomTag, type CellRect, type Drag, type Occupies,
+import { cellAtY, CONTROL, dragOf, dropMinute, endOf, hasControl, hhmm, laneEdges, lanesOf, roomTag, type CellRect, type Drag, type Occupies,
   type Room, type Target } from './move'
 
 /* Канва панели дня: колонки врачей, ряды часов, блоки с геометрией.
@@ -51,6 +51,8 @@ const T = {
   odo: 'Deschide odontograma',
   noAppts: 'Nicio programare în această zi',
   room: 'Cabinetul',
+  control: 'Control',
+  main: 'Principal',
   rooms: 'Cabinetele',
   zoom: 'Scara grilei',
   zoomIn: 'Mărește grila',
@@ -185,12 +187,20 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
           /* у врача с несколькими кабинетами свободное, щелчок и бросок считаются внутри дорожки */
           const rooms = col.rooms ?? NO_ROOMS
           const n = rooms.length > 1 ? rooms.length : 1
+          /* у врача с дорожкой Control дорожки неравные: края — доли ширины колонки */
+          const ctl = hasControl(rooms)
+          const edges = laneEdges(rooms)
           const realBy = lanesOf(col.blocks, rooms)
           const seenBy = lanesOf(drawn(col.blocks), rooms)
+          /* щелчок по занятой основной дорожке ищет свободную среди ОСНОВНЫХ: в Control
+             запись попадает только щелчком по самой полосе Control */
+          const mainIdx = rooms.map((r, i) => (r.control ? -1 : i)).filter((i) => i >= 0)
           return (
           <div key={col.key} className="gcol" {...(col.id ? { 'data-dk': col.id } : {})}
             {...(n > 1 ? { 'data-lanes': n } : {})}
+            {...(ctl ? { 'data-ctl': '' } : {})}
             {...(drag && col.id ? dropZone(col.id, drag.grab ?? 0, scale.snap, rooms, onHover, onDrop) : {})}>
+            {ctl && <LaneLines edges={edges} rooms={rooms} />}
             {col.cells.map((open, i) => {
               /* ⛔ Закрытая ячейка БЕЗ `data-h`: «куда нельзя записать, туда
                  нельзя и перенести». Признак ОДИН на класс, на `data-h` и на
@@ -224,17 +234,25 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
                 <button key={h} type="button" data-h={h} data-hh={hh}
                   data-free={!first ? 'none' : n === 1 && first.to - first.from === 60 ? 'all' : 'part'}
                   {...(low ? { 'data-thin': low } : {})}
-                  className="gcell" style={first ? spanVars(first, li, n) : undefined}
+                  className="gcell" style={first ? spanVars(first, li, edges) : undefined}
                   aria-label={`${T.book} ${col.name} ${T.at} ${hh}`}
                   disabled={real.every((s) => !s.length)}
                   onMouseMove={n > 1 || (seen[0]?.length ?? 0) > 1
-                    ? (e) => aim(e.currentTarget, e.clientX, e.clientY, seen) : undefined}
+                    ? (e) => aim(e.currentTarget, e.clientX, e.clientY, seen, edges) : undefined}
                   onClick={(e) => {
                     const at = e.detail ? minuteIn(e.currentTarget, e.clientY) : null
                     /* дорожка под щелчком; в занятой и с клавиатуры — первая свободная */
-                    let lane = e.detail && n > 1 ? laneIn(e.currentTarget, e.clientX, n) : -1
-                    if (lane < 0 || !real[lane]?.length) lane = real.findIndex((s) => s.length > 0)
+                    let lane = e.detail && n > 1 ? laneIn(e.currentTarget, e.clientX, edges) : -1
+                    if (ctl) {
+                      if (lane < 0 || (!rooms[lane]?.control && !real[lane]?.length)) {
+                        lane = mainIdx.find((i) => (real[i]?.length ?? 0) > 0) ?? mainIdx[0] ?? 0
+                      }
+                    } else if (lane < 0 || !real[lane]?.length) lane = real.findIndex((s) => s.length > 0)
+                    /* основная дорожка врача с Control занята весь час — окно всё равно
+                       открывается: оно скажет «nu are început liber» и предложит Control */
+                    const busyMain = ctl && !rooms[lane]?.control
                     const m = startIn(real[lane] ?? [], at, scale.snap)
+                      ?? (busyMain ? Math.floor((at ?? 0) / scale.snap) * scale.snap : null)
                     if (m === null) return
                     if (n > 1) onSlot(dk, col.name, hh, m, rooms[lane]?.id)
                     else onSlot(dk, col.name, hh, m)
@@ -245,11 +263,12 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
               <div className="gdrop" data-at={hhmm(Number(dropAt))} style={{
                 top: `calc(${(Number(dropAt) - model.base_min) / 60}*var(--cell))`,
                 height: `calc(${drag.dur / 60}*var(--cell))`,
-                ...(n > 1 && dropLane ? laneBox(Number(dropLane), n) : {}),
+                ...(n > 1 && dropLane ? laneBox(Number(dropLane), edges) : {}),
               }} />
             )}
             {col.blocks.map((b) => (
               <Block key={b.id} block={b} waitTick={waitTick} dk={col.id ?? ''}
+                {...(ctl ? { edges } : {})}
                 onCard={onCard} onCardMenu={onCardMenu} onNote={onNote} onDrag={onDrag}
                 fresh={fresh.has(b.id)} moved={moved.has(b.id)} lanes={n > 1} odo={odo}
                 /* колонки фактов рассчитаны на блок во всю колонку — в дорожке их нет */
@@ -290,20 +309,47 @@ function drawn(blocks: DashBlock[]): Occupies[] {
 
 const NO_ROOMS: readonly Room[] = []
 
-function spanVars(s: FreeSpan, lane = 0, lanes = 1): React.CSSProperties {
+function spanVars(s: FreeSpan, lane: number, edges: number[]): React.CSSProperties {
   return { '--ft': s.from / 60, '--fb': 1 - s.to / 60,
-    '--fl': lane / lanes, '--fr': 1 - (lane + 1) / lanes } as React.CSSProperties
+    '--fl': edges[lane] ?? 0, '--fr': 1 - (edges[lane + 1] ?? 1) } as React.CSSProperties
 }
 
-function laneIn(el: HTMLElement, x: number, n: number): number {
+/** Дорожка под координатой по краям `edges` (у Control дорожки неравные). */
+function laneIn(el: HTMLElement, x: number, edges: number[]): number {
   const r = el.getBoundingClientRect()
+  const n = edges.length - 1
   if (r.width <= 0) return -1
-  return Math.max(0, Math.min(n - 1, Math.floor(((x - r.left) / r.width) * n)))
+  const f = (x - r.left) / r.width
+  const i = edges.findIndex((e, k) => k > 0 && f < e) - 1
+  return Math.max(0, Math.min(n - 1, i < 0 ? n - 1 : i))
 }
 
-function laneBox(lane: number, n: number): React.CSSProperties {
-  return { left: `calc(${lane}*(100% - 8px)/${n} + 4px)`, right: 'auto',
-    width: `calc((100% - 8px)/${n} - 2px)` }
+function laneBox(lane: number, edges: number[]): React.CSSProperties {
+  const n = edges.length - 1
+  const a = edges[lane] ?? 0
+  const w = (edges[lane + 1] ?? 1) - a
+  /* равные дорожки — прежняя запись (её читают проверки), неравные — долями */
+  if (Math.abs(w - 1 / n) < 1e-9 && Math.abs(a - lane / n) < 1e-9) {
+    return { left: `calc(${lane}*(100% - 8px)/${n} + 4px)`, right: 'auto',
+      width: `calc((100% - 8px)/${n} - 2px)` }
+  }
+  return { left: `calc(${a}*(100% - 8px) + 4px)`, right: 'auto',
+    width: `calc(${w}*(100% - 8px) - 2px)` }
+}
+
+/** Линии между дорожками и подложка полосы Control (у колонки с Control). */
+function LaneLines({ edges, rooms }: { edges: number[]; rooms: readonly Room[] }) {
+  return (
+    <>
+      {rooms.map((r, i) => (r.control
+        ? <i key={r.id} className="gctl-bg" aria-hidden="true"
+            style={{ left: `${(edges[i] ?? 0) * 100}%` }} />
+        : null))}
+      {edges.slice(1, -1).map((e) => (
+        <i key={e} className="glane-line" aria-hidden="true" style={{ left: `${e * 100}%` }} />
+      ))}
+    </>
+  )
 }
 
 /** Низкий отрезок: слово подсказки не влезает — остаётся плюс или одна рамка. */
@@ -321,17 +367,17 @@ function minuteIn(el: HTMLElement, y: number): number | null {
 
 /* Рамка подсказки встаёт на свободный отрезок под курсором. Мимо React: это
    оформление наведения, и рендер на каждое движение мыши был бы лишним. */
-function aim(el: HTMLElement, x: number, y: number, lanes: FreeSpan[][]): void {
+function aim(el: HTMLElement, x: number, y: number, lanes: FreeSpan[][], edges: number[]): void {
   const at = minuteIn(el, y)
   const n = lanes.length
-  let lane = n > 1 ? laneIn(el, x, n) : 0
+  let lane = n > 1 ? laneIn(el, x, edges) : 0
   if (lane < 0 || !lanes[lane]?.length) lane = lanes.findIndex((s) => s.length > 0)
   const s = at === null || lane < 0 ? null : spanAt(lanes[lane] ?? [], at)
   if (!s) return
   el.style.setProperty('--ft', String(s.from / 60))
   el.style.setProperty('--fb', String(1 - s.to / 60))
-  el.style.setProperty('--fl', String(lane / n))
-  el.style.setProperty('--fr', String(1 - (lane + 1) / n))
+  el.style.setProperty('--fl', String(edges[lane] ?? 0))
+  el.style.setProperty('--fr', String(1 - (edges[lane + 1] ?? 1)))
   const low = thin(s, el.offsetHeight)
   if (low) el.dataset.thin = low
   else delete el.dataset.thin
@@ -351,8 +397,9 @@ function aim(el: HTMLElement, x: number, y: number, lanes: FreeSpan[][]): void {
 function dropZone(dk: string, grab: number, snap: number, rooms: readonly Room[],
   onHover: (key: string) => void, onDrop: (t: Target) => void) {
   const n = rooms.length > 1 ? rooms.length : 1
+  const edges = laneEdges(rooms)
   const lane = (e: React.DragEvent<HTMLDivElement>) =>
-    n > 1 ? laneIn(e.currentTarget, e.clientX, n) : -1
+    n > 1 ? laneIn(e.currentTarget, e.clientX, edges) : -1
   const at = (e: React.DragEvent<HTMLDivElement>) => {
     const rects: CellRect[] = Array.from(
       e.currentTarget.querySelectorAll<HTMLElement>('.gcell[data-h]'),
@@ -406,8 +453,11 @@ function DocCard({ col, date }: { col: DashColumn; date: string }) {
   const pct = col.occupancy ? Math.min(col.occupancy.pct, 100) : 0
   const href = col.id ? `/admin/doctor/${col.id}?date=${date}` : ''
   const face = col.photo ? <img src={col.photo} alt="" /> : col.initials
+  const rooms = col.rooms ?? NO_ROOMS
+  const ctl = hasControl(rooms)
+  const edges = ctl ? laneEdges(rooms) : []
   return (
-    <div className="gh-doc">
+    <div className={`gh-doc${ctl ? ' has-ctl' : ''}`}>
       <div className={`dcard${col.off ? ' off' : ''}`}>
         <div className="dc-top">
           {href
@@ -444,6 +494,17 @@ function DocCard({ col, date }: { col: DashColumn; date: string }) {
           </div>
         )}
       </div>
+      {/* подписи дорожек над колонкой: у врача с Control видно, где основная и где полоса */}
+      {ctl && (
+        <div className="dc-lanes" aria-hidden="true">
+          {rooms.map((r, i) => (
+            <span key={r.id} className={r.control ? 'ctl' : undefined}
+              style={{ left: `${(edges[i] ?? 0) * 100}%`, width: `${((edges[i + 1] ?? 1) - (edges[i] ?? 0)) * 100}%` }}>
+              {r.control ? T.control : r.id ? r.name : T.main}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -471,9 +532,11 @@ function Relink({ relink, date }: { relink: NonNullable<DashColumn['relink']>; d
 }
 
 function Block(
-  { block, waitTick, dk, onCard, onCardMenu, onNote, onDrag, fresh, moved, lanes, odo, facts, date }:
+  { block, waitTick, dk, onCard, onCardMenu, onNote, onDrag, fresh, moved, lanes, odo, facts, date, edges }:
   {
     block: DashBlock; waitTick: number; dk: string
+    /** Края неравных дорожек (колонка с Control); нет — дорожки равные. */
+    edges?: number[] | undefined
     onCard: (id: number) => void; onNote: (id: number) => void
     onCardMenu?: ((id: number, x: number, y: number) => void) | undefined
     onDrag: (d: Drag | null) => void
@@ -498,8 +561,10 @@ function Block(
   const pos: React.CSSProperties = {
     top: `calc(${block.top}*var(--cell) + ${tight ? 1 : 2}px)`,
     height: `calc(${block.height}*var(--cell) - ${tight ? 2 : 6}px)`,
-    left: `calc(${block.col}*(100% - 8px)/${block.of} + 4px)`,
-    width: `calc((100% - 8px)/${block.of} - 2px)`,
+    ...(edges ? unequal(block.col, block.of, edges) : {
+      left: `calc(${block.col}*(100% - 8px)/${block.of} + 4px)`,
+      width: `calc((100% - 8px)/${block.of} - 2px)`,
+    }),
   }
 
   /* ⛔ Тащится то, что разрешил СЕРВЕР (`movable`): активная запись из колонки
@@ -530,8 +595,22 @@ function Block(
     )
   }
   return <ApptBlock block={block} pos={pos} waitTick={waitTick} onCard={onCard}
-    onCardMenu={onCardMenu} grab={grab} fx={fx} facts={facts} date={date}
-    room={lanes ? block.room ?? '' : ''} odo={odo} />
+    onCardMenu={onCardMenu} grab={grab} fx={fx + (block.room_id === CONTROL ? ' gctl' : '')} facts={facts} date={date}
+    /* в полосе Control метка лишняя: полоса подписана в шапке, слово — в подсказке */
+    room={lanes && block.room_id !== CONTROL ? block.room ?? '' : ''} odo={odo} />
+}
+
+
+/** Место блока в неравных дорожках: сервер даёт `col` из `of` равных долей
+ *  (`canvas._lane_places`: дорожка × одновременные в ней), здесь — по краям. */
+function unequal(col: number, of: number, edges: number[]): React.CSSProperties {
+  const lanes = edges.length - 1
+  const per = Math.max(1, Math.round(of / lanes))
+  const i = Math.min(lanes - 1, Math.floor(col / per))
+  const j = col - i * per
+  const a = edges[i] ?? 0
+  const w = ((edges[i + 1] ?? 1) - a) / per
+  return { left: `calc(${a + j * w}*(100% - 8px) + 4px)`, width: `calc(${w}*(100% - 8px) - 2px)` }
 }
 
 
@@ -592,7 +671,7 @@ function ApptBlock(
       {ico && <span className="stt"><Icon name={iconName(ico)} /></span>}
       {/* значок «есть комментарий» (03.10, просьба Олега): текст — в подсказке
           блока и в карточке по нажатию */}
-      <b data-t={block.time}>{room && <span className="groom" title={`${T.room} ${room}`}>{roomTag(room)}</span>}{block.name}{block.source === 'bot' && <> <Icon name="bot" /></>}
+      <b data-t={block.time}>{fx.includes(' gctl') && <span className="groom gctl-tag" title={T.control}>C</span>}{room && <span className="groom" title={`${T.room} ${room}`}>{roomTag(room)}</span>}{block.name}{block.source === 'bot' && <> <Icon name="bot" /></>}
         {block.comment && <> <Icon name="chat" /></>}</b>
       <small><span className="gt">{block.time} · {block.dur}′ · </span>{block.service}</small>
       {/* колонки фактов — только у дня врача (`facts`); стоят абсолютно в

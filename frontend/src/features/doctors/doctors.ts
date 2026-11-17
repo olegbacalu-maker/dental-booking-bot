@@ -77,6 +77,8 @@ export interface DoctorCard {
   rooms?: { id: string; name: string }[]
   rooms_all?: { id: string; name: string }[]
   rooms_max?: number
+  /** Галочка «Programări paralele»: в колонке врача узкая дорожка Control. */
+  parallel?: boolean
   phone: string
   email: string
   status: string
@@ -126,6 +128,8 @@ export const doctors = {
     api.get<DoctorCard>(`/doctors/${encodeURIComponent(dk)}`, signal ? { signal } : {}),
   save: (dk: string, profile: DoctorProfile): Promise<ApiResult<DoctorCard>> =>
     api.post<DoctorCard>(`/doctors/${encodeURIComponent(dk)}`, profile),
+  setParallel: (dk: string, on: boolean): Promise<ApiResult<DoctorCard>> =>
+    api.post<DoctorCard>(`/doctors/${encodeURIComponent(dk)}/parallel`, { on }),
   setServices: (dk: string, ids: string[]): Promise<ApiResult<{ services: ServiceRow[] }>> =>
     api.post<{ services: ServiceRow[] }>(`/doctors/${encodeURIComponent(dk)}/services`, {
       services: ids,
