@@ -1,7 +1,7 @@
 import { DashLab } from '../lab/DashLab'
 import { DashStock } from '../stock/DashStock'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import { Notice } from '../../components/Notice'
@@ -385,6 +385,10 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
    * щелчок перехватывает роутер); переход по дате на `/admin` пока — полная
    * загрузка документа, его очередь — третья ступень B4.
    */
+  /* Клавиши листают от дня АДРЕСА, не от эха канала: второе нажатие до
+     ответа сервера иначе считало бы от прежнего дня и топталось на месте. */
+  useDayKeys(linkDay(at))
+
   const navNode = () => {
     const m = state.data
     const on = m ? m.date : linkDay(at)
@@ -479,7 +483,8 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
             onCall={(id, result) => { void act(() => dash.call(d.date, id, result)) }}
             onFlow={(id, to) => { void act(() => dash.status(d.date, id, to)) }}
             actions={d.actions}
-            onSlot={(dk, name, hour) => setSlot({ dk, name, hour })} />
+            onSlot={(dk, name, hour) => setSlot({ dk, name, hour })}
+            onStatus={(id, to) => { void act(() => dash.status(d.date, id, to)) }} />
         </div>
       </div>
 
@@ -632,3 +637,27 @@ const colName = (m: DashModel, dk: string) => canvasColName(m.canvas, dk)
 const blocksOf = (m: DashModel, dk: string) => canvasBlocks(m.canvas, dk)
 const findAppt = (m: DashModel | null, id: number): DashAppt | null => canvasAppt(m?.canvas, id)
 const findNote = (m: DashModel | null, id: number): DashNote | null => canvasNote(m?.canvas, id)
+
+/** Клавиши главной без Ctrl — T сегодня, ← / → день,
+ *  N «Programare nouă» (та же кнопка шапки), / поиск (Ctrl K остаётся).
+ *  Не перехватывать, когда человек печатает (поле ввода) или открыто окно. */
+function useDayKeys(on: string): void {
+  const to = useNavigate()
+  useEffect(() => {
+    function onKey(e: KeyboardEvent): void {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return
+      const t = e.target as HTMLElement | null
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return
+      if (document.querySelector('dialog[open], .qf-overlay, [role="dialog"]')) return
+      if (e.code === 'KeyT') to('/admin')
+      else if (e.code === 'ArrowLeft') to(`/admin?date=${shift(on, -1)}`)
+      else if (e.code === 'ArrowRight') to(`/admin?date=${shift(on, 1)}`)
+      else if (e.code === 'KeyN') document.querySelector<HTMLElement>('.newbtn')?.click()
+      else if (e.code === 'Slash' || e.key === '/') document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))
+      else return
+      e.preventDefault()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [on, to])
+}

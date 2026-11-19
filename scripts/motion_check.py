@@ -121,6 +121,11 @@ STYLE_SCENARIOS = ("dialog", "status", "menu", "toast", "close", "reduce")
 
 # Замеры в странице: кадры, изменения узлов, сеть, сдвиги раскладки, запуски
 # анимаций и переходов. Код программы не трогается — всё вводится по CDP.
+# Повестка у человека, который её не трогал, свёрнута (память блока `dp_fold:agenda`
+# пуста), а сценарии жмут кнопки шага и вкладки потока внутри неё. Стенд открывает её
+# так же, как открыл бы человек и как это запомнил бы компьютер, — до первого кадра.
+OPEN_AGENDA = "try { localStorage.setItem('dp_fold:agenda', '1') } catch (e) {}"
+
 INSTR = r"""(() => {
   if (window.__mc) return 1;
   const M = window.__mc = { frames: [], samples: [], muts: [], res: [], shifts: [], runs: [], on: false, sample: null };
@@ -702,6 +707,7 @@ def run_tree(cdp: CDP, bot: pathlib.Path | None, label: str, names, polls: int, 
             c = Client(s1.url).login()
             seed(c, s1.clinic, 6 if styles else 3)
             run = Run(cdp, s1.url, label, c, datetime.now(TZ).date().isoformat())
+            cdp.cmd("Page.addScriptToEvaluateOnNewDocument", source=OPEN_AGENDA)
             cdp.cmd("Page.addScriptToEvaluateOnNewDocument", source=INSTR)
             if styles:
                 for style in styles:

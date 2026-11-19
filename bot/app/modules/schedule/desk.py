@@ -15,6 +15,8 @@
 3. Primul loc liber — ближайшее свободное время у каждого врача (под
    консультацию, 30 мин): ответ на звонок «когда можно прийти?».
 4. Plan fără programare — активный план есть, будущей записи нет.
+5. Nefinalizate — визиты прошлых дней без исхода (`_unclosed`).
+6. Anulate fără reprogramare — отмены и неявки без новой записи (`_lost`).
 
 ⭐ Едет В КОНВЕРТЕ живого канала (`_panel_live` → `desk`), а не своим GET:
 состояние живой поверхности выпускается одной дверью, вместе с отпечатком;
@@ -140,6 +142,58 @@ async def _unscheduled(now: datetime) -> dict:
             "sum_s": _money(sum(x["total"] for x in items))}
 
 
+UNCLOSED_DAYS = 30  # «Nefinalizate»: сколько дней назад искать визиты без исхода
+LOST_DAYS = 14      # «Anulate fără reprogramare»: окно отмен и неявок
+_LIVE = tuple(db.ACTIVE_STATUSES)
+_MISSED = ("cancelled", "noshow")
+
+
+def _past_row(r) -> dict:
+    """Строка визита прошлого дня — одна форма у обоих списков: день и час в
+    поясе клиники, ISO-дата для ссылки на день журнала."""
+    at = _local(r["starts_at"])
+    return {"id": r["id"], "pid": r["patient_id"], "date": at.strftime("%d.%m"),
+            "time": at.strftime("%H:%M"), "iso": at.date().isoformat(),
+            "name": r["name"] or "—", "phone": r["phone"] or "", "doctor": r["doctor"] or "",
+            "status": r["status"],
+            "status_label": status_view(r["status"], r.get("call_result"))[1]}
+
+
+async def _unclosed(today: date, scope: str | None = None) -> dict:
+    """«Nefinalizate» — визиты ПРОШЛЫХ дней, оставшиеся programată / a venit /
+    în cabinet. Явка в Statistici и отсчёт Rechemări идут только от закрытых
+    визитов, и забытое «Finalizat» иначе нигде не всплывает. Сегодняшние сюда
+    не входят: у них вкладки потока над повесткой. Свежие сверху."""
+    s = _bounds(today - timedelta(days=UNCLOSED_DAYS))[0]
+    rows = [r for r in await db.past_by_status(s, _bounds(today)[0], _LIVE) if mine(r, scope)]
+    items = [_past_row(r) for r in reversed(rows)]
+    return {"items": items[:SHOW], "n": len(items)}
+
+
+async def _lost(now: datetime, scope: str | None = None) -> dict:
+    """«Anulate fără reprogramare» — отменённые и неявки за `LOST_DAYS`, кого
+    нужно позвать снова: у пациента нет ни будущей записи, ни визита ПОСЛЕ
+    отмены (пришёл позже — уже вернулся). Человек — одна строка, по последней
+    отмене; свежие сверху."""
+    today = now.date()
+    s, e = _bounds(today - timedelta(days=LOST_DAYS))[0], _bounds(today)[1]
+    ahead = {r["patient_id"] for r in await db.patients_visits(now) if r["next_at"]}
+    came: dict = {}
+    for r in await db.past_by_status(s, e, (*_LIVE, "done")):
+        came[r["patient_id"]] = r["starts_at"]            # выборка по времени: последний
+    seen: set = set()
+    items = []
+    for r in reversed(await db.past_by_status(s, e, _MISSED)):
+        pid = r["patient_id"]
+        if pid in seen or pid in ahead or not mine(r, scope):
+            continue
+        seen.add(pid)
+        if pid in came and came[pid] > r["starts_at"]:
+            continue
+        items.append(_past_row(r))
+    return {"items": items[:SHOW], "n": len(items)}
+
+
 async def _collect(today: date) -> dict:
     s, e = _bounds(today)
     debt = await db.patients_debt()
@@ -197,13 +251,17 @@ async def desk_model(now: datetime, scope: str | None = None) -> dict:
     `scope` — журнал вошедшего (22.10, права врача): обзвон и «primul loc
     liber» — только его визиты и его окно. «Plan fără programare» остаётся
     целиком: это пациенты с планом, а картотека врачу открыта вся (Олег
-    23.10); кассу врачу не отдаёт `PERM_MONEY` и без этого."""
+    23.10); кассу врачу не отдаёт `PERM_MONEY` и без этого. «Nefinalizate»
+    и «Anulate fără reprogramare» режутся по `scope`, как обзвон: врач видит
+    только свои визиты."""
     today = now.date()
     money = can(request_user(), PERM_MONEY)
     return {
         "confirm_today": await _confirm_today(today, scope),
         "confirm": await _confirm(today, scope),
         "unscheduled": await _unscheduled(now),
+        "unclosed": await _unclosed(today, scope),
+        "lost": await _lost(now, scope),
         "collect": await _collect(today) if money else None,
         "free": await _free(today, scope),
         # «Rechemări» (29.10, В5 = А — после «Plan fără programare»): счётчик

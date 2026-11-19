@@ -4,7 +4,7 @@ import { AppLink } from '../../components/AppLink'
 import { clinicNow, clinicTz, waitLabel } from './dashFx'
 import { DeskCard } from './DeskCard'
 import { Fold } from './Fold'
-import { flowOf, type Flow } from './flow'
+import { closedLast, flowOf, type Flow } from './flow'
 import { FlowBar, FlowList, flowLabels, type FlowLabels, type FlowTab, type FlowTo } from './FlowTabs'
 import { MiniCal } from './MiniCal'
 import { freeSlots } from './free'
@@ -43,7 +43,24 @@ const T = {
   cash: 'Casa azi',
   casa: 'Raport de casă',
   mdl: 'MDL',
+  view: 'Vedere',
+  compact: 'compactă',
+  full: 'detaliată',
 } as const
+
+/* Вид повестки: «compactă» — строка в одну линию (те же люди, что в сетке;
+   карточка в 146 px на 1366 уводила списки стойки на два-три экрана вниз),
+   «detaliată» — прежняя карточка с кнопками. Выбор помнит компьютер: удобство
+   места, не данные клиники; без памяти — компактный. */
+const VIEW_KEY = 'dp_ag_view'
+
+function storedCompact(): boolean {
+  try { return localStorage.getItem(VIEW_KEY) !== 'full' } catch { return true }
+}
+
+function rememberCompact(on: boolean): void {
+  try { if (on) localStorage.removeItem(VIEW_KEY); else localStorage.setItem(VIEW_KEY, 'full') } catch { /* без памяти */ }
+}
 
 interface Props {
   minical: DashMiniCal
@@ -71,11 +88,13 @@ interface Props {
   actions: DashActions
   /** «Programează» у первого свободного часа — тот же диалог, что у ячейки. */
   onSlot: (dk: string, name: string, hour: string) => void
+  /** Исход визита прошлого дня из «Nefinalizate» — та же команда статуса. */
+  onStatus?: ((id: number, to: string) => void) | undefined
 }
 
 export function DashRail(
   { minical, agenda, canvas, desk, date, waitTick, busy, onCard, onCardMenu, onCall, fresh,
-    moved = NO_MARKS, onFlow, actions, onSlot }: Props,
+    moved = NO_MARKS, onFlow, actions, onSlot, onStatus }: Props,
 ) {
   // поток — только у СЕГОДНЯ: в чужом дне «опаздывает» и «ждёт» не значат ничего
   const flow = agenda.today ? flowOf(agenda.items, waitTick) : null
@@ -88,7 +107,7 @@ export function DashRail(
         busy={busy} onFlow={onFlow} />
       <FreeCard canvas={canvas} today={agenda.today} date={date} waitTick={waitTick}
         desk={desk} busy={busy} onSlot={onSlot} />
-      <DeskCard desk={desk} busy={busy} onCall={onCall} />
+      <DeskCard desk={desk} busy={busy} onCall={onCall} onStatus={onStatus} />
     </>
   )
 }
@@ -113,6 +132,8 @@ function Agenda(
   },
 ) {
   const [tab, setTab] = useState<FlowTab>('all')
+  const [compact, setCompact] = useState(storedCompact)
+  const pick = (on: boolean): void => { setCompact(on); rememberCompact(on) }
   if (!agenda.items.length) {
     return (
       <div className="agenda">
@@ -125,7 +146,7 @@ function Agenda(
   /* Сворачивается заголовком (12.10, слово Олега) и помнит это на компьютере;
      свёрнутая оставляет счётчик дня. Почему без прыжка — `Fold`. */
   return (
-    <Fold id="agenda" className="agenda" headClass="ag-h" head={
+    <Fold id="agenda" className={`agenda${compact ? ' cmp' : ''}`} headClass="ag-h" defaultOpen={false} head={
       <>
         <b>{T.agenda}</b>
         <span>{agenda.count} {agenda.count === 1 ? T.one : T.many}</span>
@@ -152,7 +173,7 @@ function Agenda(
         )}
         {/* `aria-hidden` — невидимый список и для читалки, и для запросов по роли */}
         <div className={`ag-l${t !== 'all' ? ' off' : ''}`} aria-hidden={t !== 'all' || undefined}>
-        {agenda.items.map((it) => {
+        {closedLast(agenda.items).map((it) => {
           const wait = it.wait_since ? waitLabel(it.wait_since, waitTick) : null
           /* кнопка следующего шага — только СЕГОДНЯ: в чужом дне «пришёл»
              не значит ничего, там исходы ставят из карточки визита */
@@ -162,6 +183,7 @@ function Agenda(
               className={`ag-i${it.state === 'past' ? ' past' : ''}${it.status === 'done' ? ' done' : ''}`
                 + (fresh.has(it.id) ? ' fresh' : '') + (moved.has(it.id) ? ' moved' : '')}
               data-appt={it.id}
+              title={compact ? [it.service, it.comment && `${T.comment}: ${it.comment}`].filter(Boolean).join(' · ') : undefined}
               /* завершённый — серая полоса, не цвет услуги (09.10, как у блока сетки) */
               style={{ borderLeftColor: it.status === 'done' ? 'var(--text3)' : it.bar }}
               onClick={() => onCard(it.id)}
@@ -202,17 +224,17 @@ function Agenda(
                     </button>
                   )}
                   {it.patient_id !== null && (
-                    <AppLink className="ag-odo" href={`/admin/visit/${it.id}?back=${encodeURIComponent(`/admin?date=${date}`)}`}
+                    <AppLink className="ag-odo" title={T.cons} href={`/admin/visit/${it.id}?back=${encodeURIComponent(`/admin?date=${date}`)}`}
                       onClick={(e) => e.stopPropagation()}>
-                      <Icon name="med" />{T.cons}
+                      <Icon name="med" /><span className="ag-lbl">{T.cons}</span>
                     </AppLink>
                   )}
                   {/* «Anamneză» (09.10, слово Олега: «кнопку на главной возле
                       Consultație»): фиша на «Date pacient» с раскрытым опросником */}
                   {it.patient_id !== null && (
-                    <AppLink className="ag-anam" href={`/admin/patient/${it.patient_id}?tab=date&anamneza=1`}
+                    <AppLink className="ag-anam" title={T.anam} href={`/admin/patient/${it.patient_id}?tab=date&anamneza=1`}
                       onClick={(e) => e.stopPropagation()}>
-                      <Icon name="note" />{T.anam}
+                      <Icon name="note" /><span className="ag-lbl">{T.anam}</span>
                     </AppLink>
                   )}
                 </div>
@@ -222,7 +244,13 @@ function Agenda(
         })}
         </div>
       </div>
-      <AppLink className="ag-all" href={`/admin/all?date=${date}`}>{T.all}</AppLink>
+      <div className="ag-foot">
+        <AppLink className="ag-all" href={`/admin/all?date=${date}`}>{T.all}</AppLink>
+        <span className="ag-view" role="group" aria-label={T.view}>
+          <button type="button" aria-pressed={compact} onClick={() => pick(true)}>{T.compact}</button>
+          <button type="button" aria-pressed={!compact} onClick={() => pick(false)}>{T.full}</button>
+        </span>
+      </div>
     </Fold>
   )
 }
@@ -248,7 +276,7 @@ function FreeCard({ canvas, today, date, waitTick, desk, busy, onSlot }: {
       {/* врачи сворачиваются заголовком (12.10), касса под ними видна всегда:
           это другая строка, не «первое свободное место» */}
       {rows.length > 0 && (
-        <Fold id="free" className="dp-free-f" head={<h2>{T.free}</h2>}>
+        <Fold id="free" className="dp-free-f" head={<h2>{T.free}</h2>} defaultOpen={false}>
       {rows.map((r) => (
         <div key={r.dk} className="dp-free-row">
           <span className="av sm" style={{ borderColor: r.hue }}>{r.initials}</span>

@@ -507,6 +507,7 @@ SUITES = [
     ("Закрытый день: «Zi liberă» с одним владельцем",
      test_schedule_api.suite_free_day_owner),
     ("Правая колонка: «La recepție» — списки стойки", test_desk.suite_desk),
+    ("Правая колонка: Nefinalizate и Anulate fără reprogramare", test_desk.suite_past_lists),
     ("Демо с сайта: флаг прячет машину и учётки, не журнал", test_demo.suite_demo),
     ("Демо с сайта: засев ложится на схему программы", test_demo.suite_seed),
     ("Демо с сайта: шлюз даёт слот только навигации браузера", test_demo.suite_gate_admit),

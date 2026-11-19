@@ -19,18 +19,22 @@ import { Icon } from '../../components/Icon'
 
 const KEY = 'dp_fold:'
 
-function storedOpen(id: string): boolean {
+/** Выбор человека на этом компьютере: '1' — открыт, '0' — свёрнут; без
+ *  записи — умолчание блока. Прежняя память хранила только свёрнутое ('0'),
+ *  открытое стиралось — поэтому открытое теперь пишется явно, иначе блок со
+ *  свёрнутым умолчанием не запомнил бы, что его открыли. */
+function storedOpen(id: string, byDefault: boolean): boolean {
   try {
-    return localStorage.getItem(KEY + id) !== '0'
+    const v = localStorage.getItem(KEY + id)
+    return v === null ? byDefault : v !== '0'
   } catch {
-    return true
+    return byDefault
   }
 }
 
 function remember(id: string, open: boolean): void {
   try {
-    if (open) localStorage.removeItem(KEY + id)
-    else localStorage.setItem(KEY + id, '0')
+    localStorage.setItem(KEY + id, open ? '1' : '0')
   } catch {
     /* приватный режим: просто без памяти */
   }
@@ -86,10 +90,13 @@ interface Props {
   headClass?: string
   head: ReactNode
   children: ReactNode
+  /** Каким блок встречает человека, который его ещё не трогал. Колонка главной
+   *  свёрнута целиком: читается как оглавление с числами в шапках. */
+  defaultOpen?: boolean
 }
 
-export function Fold({ id, className, headClass = '', head, children }: Props) {
-  const [open, setOpen] = useState(() => storedOpen(id))
+export function Fold({ id, className, headClass = '', head, children, defaultOpen = true }: Props) {
+  const [open, setOpen] = useState(() => storedOpen(id, defaultOpen))
   return (
     <details className={`${className} dp-fold`} open={open} data-fold={id}
       onToggle={(e) => {

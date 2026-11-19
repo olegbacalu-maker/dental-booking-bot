@@ -2001,6 +2001,37 @@
  .ag-all{display:block;margin-top:8px;font-size:var(--fs-s);font-weight:600;
    color:var(--teal-d);text-decoration:none}
  .ag-all:hover{text-decoration:underline}
+ /* Повестка строкой в одну линию («compactă») — час, имя, слово
+    статуса, кнопка следующего шага; «Consultație» и «Anamneză» значками при
+    наведении; услуга и комментарий — подсказкой строки. */
+ .ag-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px}
+ .ag-foot .ag-all{margin-top:0}
+ .ag-view{display:inline-flex;gap:2px;font-size:var(--fs-s)}
+ .ag-view button{border:0;background:none;padding:2px 6px;border-radius:var(--r-xs);color:var(--text3);
+   font:inherit;cursor:pointer}
+ .ag-view button[aria-pressed="true"]{background:var(--fill);color:var(--text);font-weight:600}
+ .agenda.cmp .ag-l{max-height:232px}
+ .agenda.cmp .fl-tabs{margin-bottom:8px}
+ .agenda.cmp .fl-tab{min-height:32px;flex-direction:row;gap:4px;padding:4px 2px}
+ .agenda.cmp .fl-tab b{font-size:var(--fs-m);line-height:20px}
+ .agenda.cmp .fl-tab span{font-size:var(--fs-xs);overflow:hidden;text-overflow:ellipsis}
+ .agenda.cmp .ag-i{flex-direction:row;align-items:center;gap:6px;padding:5px 8px;margin-bottom:4px}
+ .agenda.cmp .ag-i:hover{transform:none}
+ .agenda.cmp .ag-r{flex:1;align-items:center;gap:8px}
+ .agenda.cmp .ag-t{flex:0 0 40px;line-height:20px;font-size:var(--fs-m)}
+ .agenda.cmp .ag-b{display:flex;align-items:center;gap:6px}
+ .agenda.cmp .ag-b b{flex:0 1 auto;line-height:20px;font-size:var(--fs-m)}
+ .agenda.cmp .ag-b small{display:none}
+ .agenda.cmp .ag-chips{margin-top:0;flex-wrap:nowrap;flex:none}
+ .agenda.cmp .ag-acts{flex:none;flex-wrap:nowrap;gap:4px}
+ .agenda.cmp .ag-acts .savebtn{flex:none;height:26px;min-height:26px;padding:0 8px;font-size:var(--fs-s)}
+ /* «Consultație» и «Anamneză» в строке не помещаются: на 1366 имя ужималось
+    до двух букв. Они остаются в «detaliată», из строки — карточка визита по
+    щелчку. Появлять их наведением нельзя: новые узлы сдвигали кнопку шага из-под
+    мыши, и щелчок уходил мимо. */
+ .agenda.cmp .ag-acts .ag-odo,.agenda.cmp .ag-acts .ag-anam{display:none}
+ .dk-t.dk-d{display:flex;flex-direction:column;line-height:16px}
+ .dk-t.dk-d small{font-size:var(--fs-s);color:var(--text3);font-weight:400}
  /* «așteaptă N min» — в агенде и в блоке сетки. Текст пишет клиент
     (dashFx.waitLabel) из отметки wait_since: серверная строка с минутами
     меняла бы отпечаток живого канала каждую минуту. Порог показа — там же.

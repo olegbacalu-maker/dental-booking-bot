@@ -45,6 +45,21 @@ export interface DeskFree {
   href: string
 }
 
+/** Строка «Nefinalizate» / «Anulate fără reprogramare»: визит прошлого дня. */
+export interface DeskPastItem {
+  id: number
+  pid: number
+  date: string
+  time: string
+  /** День визита ISO — ссылка на день журнала. */
+  iso: string
+  name: string
+  phone: string
+  doctor: string
+  status: string
+  status_label: string
+}
+
 /** Список обзвона одного дня — одна форма на «azi» и «mâine». */
 export interface DeskConfirm { day: string; date: string; items: DeskConfirmItem[]; n: number; n_ok: number; n_left: number }
 
@@ -53,6 +68,10 @@ export interface Desk {
   confirm_today: DeskConfirm
   confirm: DeskConfirm
   unscheduled: { items: DeskUnscheduledItem[]; n: number; sum_s: string }
+  /** «Nefinalizate»: визиты прошлых дней без исхода, свежие сверху. */
+  unclosed: { items: DeskPastItem[]; n: number }
+  /** «Anulate fără reprogramare»: отмены и неявки без новой записи. */
+  lost: { items: DeskPastItem[]; n: number }
   /** `null` — роли деньги не положены (PERM_MONEY): блока нет вовсе. */
   collect: {
     items: DeskCollectItem[]
