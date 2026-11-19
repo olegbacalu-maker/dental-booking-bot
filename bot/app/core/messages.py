@@ -322,6 +322,12 @@ MSG_BANNER = {
     "bad_pdel": ("err", "Se poate șterge doar o poziție neîncepută. Procedura "
                         "începută, finalizată sau refuzată rămâne în fișă — "
                         "închideți-o prin statut"),
+    # Правка закрыта тем же порогом, что удаление: начатая позиция — медзапись.
+    # Текст называет выход, иначе человек решит, что цену уже не исправить
+    "bad_pedit": ("err", "Se poate modifica doar o procedură neîncepută. După "
+                         "«Începe» procedura rămâne în fișă așa cum este — "
+                         "adăugați una nouă"),
+    "ok_pedit": ("ok", "Procedura din plan a fost modificată"),
     # ⚠️ Удаляют то, чего в фише уже нет: чаще всего его сняли со второго
     # рабочего места, пока эта вкладка стояла открытой. Текст говорит, что
     # делать, как у mv_gone; фиша в ответ не едет (patients/api.py, `_GONE`).

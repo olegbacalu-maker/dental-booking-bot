@@ -105,6 +105,7 @@ SNAPSHOT = frozenset((
     "perio_exam", "perio_exams", "perio_last", "perio_new", "perio_rows", "perio_save",
     "_PL_CANAL", "_PL_COLS", "_PL_DEBT", "_PL_DIALECT", "_PL_DOCTOR", "_PL_FROM",
     "_PL_LAST_DOC_OF", "_PL_ORDER", "PLAN_ACTIVE", "PLAN_CLOSED", "plan_item_status",
+    "plan_item", "edit_plan_item", "PLAN_EDITABLE", "_PLAN_EDIT_COLS",
     "plan_items", "plan_open_summary", "_PLIST_COLS", "_PlQuery", "preview_teeth",
     "_put_tooth", "recall_auto_sent", "recall_bookings_since", "recall_contacts_since",
     "RECALL_DDL", "recall_done_last", "recall_future", "RECALL_IDX_DDL",

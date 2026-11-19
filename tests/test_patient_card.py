@@ -15,6 +15,7 @@ import io
 import json
 import re
 import sqlite3
+import time
 import zipfile
 from datetime import timedelta
 
@@ -820,6 +821,151 @@ def suite_plan_keys(res: Result) -> None:
                       ("Igienizare", None, None))
     finally:
         s1.drop()
+
+
+def suite_plan_edit(res: Result) -> None:
+    """Правка позиции плана (`POST …/plan/{id}/edit`) и цена из прайса.
+
+    Правка — только пока позиция «planificat», и это правило сервера: начатая,
+    выполненная и отказанная отвечают 409 и не меняются. Тело несёт только
+    тронутое: ключа нет — поле цело, пустая строка — стереть; непонятное
+    значение — отказ с полем, а не молчаливая пустота. Летопись получает одну
+    строку «что было › что стало» на правку и ни одной на пересохранение без
+    правки. Ключи услуги и врача идут за текстом. Согласие, подписанное до
+    правки, перестаёт покрывать план, а день появления позиции не меняется.
+    Прайс форм плана: одна сумма — числом, диапазон и слова — подсказкой."""
+    s = Server()
+    cfg = json.loads(s.clinic.read_text(encoding="utf-8"))
+    for svc in cfg["services"]:
+        svc["price"] = {"orphan": "1 500 lei", "long": "1200–1800 MDL"}.get(svc["id"], svc["price"])
+    s.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+    with s:
+        c = Client(s.url).login()
+        pid = new_patient(c, "Plan Edit", "069555020")
+        res.check("прайс форм плана: одна сумма — числом, диапазон и слова — подсказкой",
+                  [(x["id"], x["label"], x["price"], x["price_hint"])
+                   for x in _card(c, pid)["appoint"]["services"]],
+                  [("consult", "Consultație", None, "gratuit"),
+                   ("pain", "Durere acută", None, "în aceeași zi"),
+                   ("hygiene", "Igienizare", 1000, ""),
+                   ("orphan", "Serviciu fără medic", 1500, ""),
+                   ("long", "Tratament lung", None, "1200–1800 MDL")])
+        m = _j(c.get(f"/api/patients/{pid}/odontogram"))["data"]
+        res.check("окно плана с зуба получает тот же прайс с ценами",
+                  m["services"], _card(c, pid)["appoint"]["services"])
+
+        def add(body: dict) -> int:
+            st, j = _act(c, pid, "/plan", body)
+            assert j["code"] == "ok_card", j
+            return max(it["id"] for it in j["data"]["plan"]["items"])
+
+        def row(iid: int) -> tuple:
+            it = next(x for x in _card(c, pid)["plan"]["items"] if x["id"] == iid)
+            return (it["tooth"], it["procedure"], it["doctor"], it["price"], it["due_date"],
+                    it["service_id"], it["doctor_id"], it["status"])
+
+        def edits() -> list[str]:
+            return [a["text"] for a in _feed(c, pid) if a["kind"] == "plan_edit"]
+
+        def edit(iid: int, body: dict, p: int | None = None) -> tuple:
+            st, j = _act(c, p or pid, f"/plan/{iid}/edit", body)
+            return st, j.get("code"), j.get("field"), bool(j.get("text")), "data" in j
+
+        iid = add({"procedure": "Igienizare", "service_id": "hygiene", "tooth": "16",
+                   "doctor": "Dr. Activ Doi", "price": "1000", "due_date": _d(5)})
+        it = next(x for x in _card(c, pid)["plan"]["items"] if x["id"] == iid)
+        res.check("позиция «planificat» называет себя правимой и отдаёт срок датой",
+                  (it["editable"], it["due_date"], it["due"]), (True, _d(5), _dmy(5)))
+
+        res.check("правка одной цены: удача со свежей фишей", edit(iid, {"price": "1200"}),
+                  (200, "ok_pedit", None, True, True))
+        res.check("прислана только цена — остальное цело, статус тот же", row(iid),
+                  (16, "Igienizare", "Dr. Activ Doi", 1200, _d(5), "hygiene", "d2", "planificat"))
+        res.check("летопись: что было и что стало", edits(),
+                  ["Plan: Igienizare (dinte 16) — modificat: preț 1000 MDL › 1200 MDL"])
+
+        same = {"tooth": "16", "procedure": "Igienizare", "service_id": "hygiene",
+                "doctor": "Dr. Activ Doi", "price": "1200", "due_date": _d(5)}
+        res.check("пересохранение без правки и пустое тело — тихий успех",
+                  [edit(iid, same)[:2], edit(iid, {})[:2]], [(200, ""), (200, "")])
+        res.check("пересохранение без правки строки в летопись не пишет", len(edits()), 1)
+
+        st = edit(iid, {"tooth": "", "procedure": "Igienizare + fluor", "service_id": "hygiene",
+                        "doctor": "Dr. Activ Trei", "price": "", "due_date": ""})[0]
+        res.check("все поля разом: пустая строка стирает, дописанная процедура теряет ключ услуги, "
+                  "врач получает свой id", (st, row(iid)),
+                  (200, (None, "Igienizare + fluor", "Dr. Activ Trei", None, "", None, "d3", "planificat")))
+        res.check("летопись называет каждое изменённое поле, новая процедура — последней", edits()[0],
+                  f"Plan: Igienizare — modificat: dinte 16 › —; preț 1200 MDL › —; termen {_dmy(5)} › —; "
+                  "medic Dr. Activ Doi › Dr. Activ Trei; procedură › Igienizare + fluor")
+        edit(iid, {"procedure": "Tratament lung", "service_id": "long", "tooth": "36"})
+        res.check("процедуру снова взяли из прайса — ключ услуги вернулся", row(iid)[:2] + row(iid)[5:6],
+                  (36, "Tratament lung", "long"))
+        edit(iid, {"procedure": "Гигиена"})
+        res.check("процедура сменилась без ключа в теле — прежний ключ к новому тексту не подходит",
+                  row(iid)[5], None)
+
+        before = row(iid)
+        res.check("непонятное значение — отказ с полем",
+                  [edit(iid, body)[:3] for body in ({"tooth": "99"}, {"price": "abc"}, {"procedure": "  "},
+                                                    {"due_date": "mâine"}, {"price": "1", "tooth": "x"})],
+                  [(422, "bad_card", "tooth"), (422, "bad_card", "price"), (422, "bad_card", "procedure"),
+                   (422, "bad_card", "due_date"), (422, "bad_card", "tooth")])
+        res.check("отказ ничего не записал, даже понятное поле рядом с непонятным", row(iid), before)
+
+        old = add({"procedure": "Igienizare", "service_id": "zzz", "price": "900"})
+        edit(old, {"price": "950"})
+        n = len(edits())
+        code = edit(old, {"procedure": "Igienizare", "service_id": "hygiene"})[1]
+        res.check("позиция без ключа услуги: правка цены и тот же текст с ключом его не дописывают",
+                  (row(old)[3], row(old)[5], code, len(edits())), (950, None, "", n))
+
+        closed = []
+        for to, motiv in (("in_lucru", ""), ("finalizat", ""), ("in_lucru", ""), ("refuzat", "nu vrea")):
+            assert _act(c, pid, f"/plan/{iid}/status", {"to": to, "motiv": motiv})[0] == 200, to
+            flag = next(x["editable"] for x in _card(c, pid)["plan"]["items"] if x["id"] == iid)
+            closed.append((to, flag) + edit(iid, {"price": "5"}))
+        res.check("начатая, выполненная и отказанная позиция правку не принимает (409 со словами, без фиши)",
+                  closed, [(to, False, 409, "bad_pedit", None, True, False)
+                           for to in ("in_lucru", "finalizat", "in_lucru", "refuzat")])
+        res.check("отбитая правка цену не тронула", row(iid)[3], before[3])
+        _act(c, pid, f"/plan/{iid}/status", {"to": "planificat"})
+        res.check("после «Reia» позиция снова правится", edit(iid, {"price": "700"})[1], "ok_pedit")
+
+        other = new_patient(c, "Plan Edit Alt", "069555021")
+        res.check("чужая и несуществующая позиция — 404 без фиши",
+                  [edit(iid, {"price": "1"}, other)[:2] + edit(iid, {"price": "1"}, other)[4:],
+                   edit(999999, {"price": "1"})[:2] + edit(999999, {"price": "1"})[4:]],
+                  [(404, "plan_gone", False), (404, "plan_gone", False)])
+        res.check("чужая позиция не изменилась", row(iid)[3], 700)
+
+        def acord(p: int) -> tuple:
+            f = next(x for x in _card(c, p)["forms"] if x["key"] == "acord_plan")
+            return bool(f["signed"]), f["stale"]
+
+        def stored(p: int, item: int) -> dict:
+            z = zipfile.ZipFile(io.BytesIO(c.get(f"/admin/patient/{p}/export").raw))
+            plan = json.loads(z.read("date-pacient.json").decode("utf-8"))["plan_tratament"]
+            return next(x for x in plan if x["id"] == item)
+
+        sp = new_patient(c, "Plan Semnat", "069555022")
+        st, j = _act(c, sp, "/plan", {"procedure": "Coroană 26", "tooth": "26", "price": "3000"})
+        sid = j["data"]["plan"]["items"][0]["id"]
+        born = stored(sp, sid)
+        # подпись — позже позиции хотя бы на секунду: даты в секундах, и позиция
+        # той же секунды уже считается появившейся после подписи
+        time.sleep(1.1)
+        c.post_file(f"/api/patients/{sp}/documents", "file", "acord-semnat.pdf", PDF,
+                    mime="application/pdf", category="acord_plan")
+        res.check("подписанное согласие покрывает план", acord(sp), (True, False))
+        edit(sid, {"price": "3000", "tooth": "26"}, sp)
+        res.check("пересохранение без правки согласие не трогает", acord(sp), (True, False))
+        edit(sid, {"price": "3500"}, sp)
+        res.check("правка после подписи: план изменён после подписи", acord(sp), (True, True))
+        now = stored(sp, sid)
+        res.check("день появления позиции правка не меняет, день правки записан",
+                  (now["created_at"] == born["created_at"], born.get("edited_at"), bool(now.get("edited_at"))),
+                  (True, None, True))
 
 
 def suite_switch(res: Result) -> None:

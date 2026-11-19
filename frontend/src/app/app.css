@@ -318,6 +318,18 @@
 /* просроченный срок позиции плана */
 .dp-overdue { color: var(--red-t); font-weight: 600; }
 .dp-due-hint { font-size: var(--fs-s); color: var(--text3); align-self: center; }
+/* что прайс говорит о цене выбранной услуги: под полем цены формы плана */
+.dp-price-note { font-size: var(--fs-s); color: var(--text3); }
+.dp-price-note.warn { color: var(--amber-t); font-weight: 600; }
+.dp-react-root .fform .dp-price-note { margin-top: -4px; text-align: right; }
+/* окно правки позиции плана */
+.dp-react-root .dp-plan-edit { width: 480px; }
+.dp-react-root .dp-plan-edit .pe-row { display: flex; gap: 9px; }
+.dp-react-root .dp-plan-edit .pe-row > .dlab { flex: 1 1 0; min-width: 0; }
+.dp-react-root .dp-plan-edit .dp-price-note { margin-top: -4px; }
+.dp-react-root .dp-plan-edit .pe-err { margin: 0; font-size: var(--fs-s); font-weight: 600; color: var(--red-t); display: flex; align-items: flex-start; gap: 6px; }
+.dp-react-root .dp-plan-edit .pe-err svg { flex: 0 0 auto; margin-top: 2px; }
+.dp-react-root .dp-plan-edit .pe-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 
 /* ближайший визит — карточка фирменного тона */
 .dp-next { background: var(--teal-soft); }

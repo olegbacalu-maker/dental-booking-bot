@@ -60,6 +60,43 @@ PLAN_LABEL = {"planificat": "Planificat", "in_lucru": "În lucru",
 PLAN_NEXT = {"planificat": "in_lucru", "in_lucru": "finalizat",
              "finalizat": "in_lucru", "refuzat": "planificat"}
 PLAN_REFUSABLE = ("planificat", "in_lucru")
+# Править позицию можно, только пока её не начали: с «Începe» она медзапись,
+# и удалить её тоже уже нельзя (routes._plan_del). Перечень один — у базы, там
+# же он стоит условием записи.
+PLAN_EDITABLE = db.PLAN_EDITABLE
+
+
+def plan_edit_text(old: dict, new: dict) -> str:
+    """Строка летописи правки позиции: что было и что стало, по каждому
+    изменённому полю. `old` — позиция из базы, `new` — те же поля после правки.
+    Короткие поля идут первыми, новая процедура — последней: строку летописи
+    режет общий потолок, и под нож попадает хвост названия, а не цена."""
+    def due(v) -> str:
+        try:
+            return date.fromisoformat(str(v or "")[:10]).strftime("%d.%m.%Y")
+        except ValueError:
+            return "—"
+
+    def val(v) -> str:
+        return str(v) if v not in (None, "") else "—"
+
+    def mdl(v) -> str:
+        return f"{v} MDL" if v is not None else "—"
+
+    parts = []
+    if old["tooth"] != new["tooth"]:
+        parts.append(f"dinte {val(old['tooth'])} › {val(new['tooth'])}")
+    if old["price_mdl"] != new["price_mdl"]:
+        parts.append(f"preț {mdl(old['price_mdl'])} › {mdl(new['price_mdl'])}")
+    if (old["due_date"] or "") != (new["due_date"] or ""):
+        parts.append(f"termen {due(old['due_date'])} › {due(new['due_date'])}")
+    if (old["doctor"] or "") != (new["doctor"] or ""):
+        parts.append(f"medic {val(old['doctor'])} › {val(new['doctor'])}")
+    if old["procedure"] != new["procedure"]:
+        parts.append(f"procedură › {new['procedure']}")
+    same_tooth = old["tooth"] if old["tooth"] == new["tooth"] else None
+    head = f"Plan: {old['procedure']}" + (f" (dinte {same_tooth})" if same_tooth else "")
+    return f"{head} — modificat: " + "; ".join(parts)
 
 # какие статусы показывает каждая вкладка плана — ОДИН словарь на сервер и
 # на браузер; пока правило жило выражением «не finalizat», отказ попадал в
@@ -129,7 +166,7 @@ DOC_ICON = {"radiografie": "xray", "acord": "note", "trimitere": "mail", "alt": 
 PAY_ICON = {"numerar": "cash", "card": "card", "transfer": "bank"}
 ACT_ICON = {"appt_new": "cal", "appt_status": "check", "appt_cancel": "ban",
             "tooth": "tooth", "plan_add": "plus", "plan_status": "refresh",
-            "plan_del": "minus", "doc_add": "clip", "doc_del": "trash",
+            "plan_del": "minus", "plan_edit": "pen", "doc_add": "clip", "doc_del": "trash",
             "alert_add": "sos", "alert_del": "trash", "profile": "pen", "archive": "box",
             "created": "plus", "import_fill": "pen",
             # выдача копии данных — событие, о котором спросят на проверке;
@@ -353,9 +390,11 @@ def forms_view(last: dict, docs: list, plan: list, anam: dict | None,
             f["total"] = sum(it["price_mdl"] or 0 for it in active)
             # `>=`, не `>`: даты в секундах, и позиция, заведённая в ту же
             # секунду, что скан, — тоже после подписи (поймано прогоном)
+            # правка позиции после подписи — то же самое: лист называет зуб,
+            # процедуру и цену, какими они были
             f["stale"] = bool(s and any(
-                hasattr(it.get("created_at"), "astimezone") and it["created_at"] >= s["at"]
-                for it in active))
+                hasattr(it.get(k), "astimezone") and it[k] >= s["at"]
+                for it in active for k in ("created_at", "edited_at")))
         if key == "chestionar":
             f["filled"] = _dmy((anam.get("updated_at") or anam.get("created_at"))
                                if anam else None)

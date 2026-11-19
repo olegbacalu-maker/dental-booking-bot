@@ -124,10 +124,10 @@ const CARD: PatientCard = {
   recall: [],
   plan: {
     items: [
-      { id: 1, tooth: 11, procedure: 'Coroană 11', doctor: 'Dr. Activ Doi', status: 'in_lucru', service_id: null, doctor_id: null, label: 'În lucru', price: 1200, due: '', overdue: false, done: '', motiv: '', next: 'finalizat', refusable: true, deletable: false },
-      { id: 3, tooth: 48, procedure: 'Extracție 48', doctor: '', status: 'planificat', service_id: null, doctor_id: null, label: 'Planificat', price: 700, due: '01.01.2020', overdue: true, done: '', motiv: '', next: 'in_lucru', refusable: true, deletable: true },
-      { id: 2, tooth: null, procedure: 'Detartraj', doctor: '', status: 'finalizat', service_id: null, doctor_id: null, label: 'Finalizat', price: 500, due: '', overdue: false, done: '18.09.2026', motiv: '', next: 'in_lucru', refusable: false, deletable: false },
-      { id: 5, tooth: 36, procedure: 'Implant 36', doctor: '', status: 'refuzat', service_id: null, doctor_id: null, label: 'Refuzat', price: 9000, due: '', overdue: false, done: '18.09.2026', motiv: 'refuză implantul', next: 'planificat', refusable: false, deletable: false },
+      { id: 1, tooth: 11, procedure: 'Coroană 11', doctor: 'Dr. Activ Doi', status: 'in_lucru', service_id: null, doctor_id: null, label: 'În lucru', price: 1200, due: '', overdue: false, done: '', motiv: '', next: 'finalizat', refusable: true, deletable: false, editable: false, due_date: '' },
+      { id: 3, tooth: 48, procedure: 'Extracție 48', doctor: '', status: 'planificat', service_id: null, doctor_id: null, label: 'Planificat', price: 700, due: '01.01.2020', overdue: true, done: '', motiv: '', next: 'in_lucru', refusable: true, deletable: true, editable: true, due_date: '' },
+      { id: 2, tooth: null, procedure: 'Detartraj', doctor: '', status: 'finalizat', service_id: null, doctor_id: null, label: 'Finalizat', price: 500, due: '', overdue: false, done: '18.09.2026', motiv: '', next: 'in_lucru', refusable: false, deletable: false, editable: false, due_date: '' },
+      { id: 5, tooth: 36, procedure: 'Implant 36', doctor: '', status: 'refuzat', service_id: null, doctor_id: null, label: 'Refuzat', price: 9000, due: '', overdue: false, done: '18.09.2026', motiv: 'refuză implantul', next: 'planificat', refusable: false, deletable: false, editable: false, due_date: '' },
     ],
     counts: { planificat: 1, in_lucru: 1, finalizat: 1, refuzat: 1 },
     n_act: 2, default_tab: 'act', total: 1900, total_done: 500, n_track: 3, pct_done: 33,
@@ -419,6 +419,161 @@ describe('PatientCardScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: '+ Adaugă în plan' }))
     await waitFor(() => expect(post).toHaveBeenLastCalledWith('/patients/5/plan',
       expect.objectContaining({ procedure: 'Igienizare profesională', service_id: '' })))
+  })
+
+  /* прайс с ценами: одна сумма, диапазон, услуга без цены; зуб позиции 3 — в списке формы */
+  const PRICED: PatientCard = {
+    ...CARD,
+    options: { ...CARD.options, teeth: [...CARD.options.teeth, 48] },
+    appoint: {
+      ...CARD.appoint,
+      services: [
+        { id: 'consult', label: 'Consultație', price: null, price_hint: '' },
+        { id: 'hygiene', label: 'Igienizare', price: 1000, price_hint: '' },
+        { id: 'canal', label: 'Tratament de canal', price: null, price_hint: '1200–1800 MDL' },
+      ],
+    },
+  }
+
+  it('план: цена из прайса — одна сумма подставляется, диапазон оставляет поле пустым с подсказкой, вписанное рукой не переписывается', async () => {
+    serve(PRICED)
+    post.mockResolvedValue(ok(PRICED, 'ok_card', 'Fișa pacientului a fost actualizată'))
+    open('/admin/patient/5?tab=plan')
+    await screen.findByText('Pin Test', { selector: 'h2' })
+    const proc = screen.getByLabelText('Procedură (ex. Coroană zirconiu)') as HTMLInputElement
+    const price = screen.getByLabelText('Preț MDL') as HTMLInputElement
+    const note = () => document.getElementById(price.getAttribute('aria-describedby') ?? '')?.textContent ?? null
+    expect(note()).toBeNull()
+    fireEvent.change(proc, { target: { value: 'Igienizare' } })
+    expect(price.value).toBe('1000')
+    expect(note()).toBe('din lista de prețuri')
+    /* диапазон: подставленная цена прежней услуги уходит, поле пустое, рядом диапазон */
+    fireEvent.change(proc, { target: { value: 'Tratament de canal' } })
+    expect(price.value).toBe('')
+    expect(note()).toBe('în listă: 1200–1800 MDL, scrieți prețul')
+    fireEvent.change(price, { target: { value: '1500' } })
+    expect(note()).toBe('în listă: 1200–1800 MDL')
+    /* вписанное рукой смена услуги не трогает; цена прайса — рядом */
+    fireEvent.change(proc, { target: { value: 'Igienizare' } })
+    expect(price.value).toBe('1500')
+    expect(note()).toBe('în listă: 1 000 MDL')
+    fireEvent.click(screen.getByRole('button', { name: '+ Adaugă în plan' }))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/patients/5/plan',
+      { tooth: '', procedure: 'Igienizare', doctor: '', price: '1500', due_date: '', service_id: 'hygiene' }))
+    /* после записи форма чистая, и следующая услуга снова получает цену прайса */
+    await waitFor(() => expect(proc.value).toBe(''))
+    fireEvent.change(proc, { target: { value: 'Igienizare' } })
+    expect(price.value).toBe('1000')
+  })
+
+  describe('план: «Editează»', () => {
+    const dlg = () => document.querySelector('dialog.dp-plan-edit') as HTMLDialogElement | null
+    const fld = (name: string) => within(dlg() as HTMLElement).getByLabelText(name) as HTMLInputElement
+    const save = () => within(dlg() as HTMLElement).getByRole('button', { name: 'Salvează' }) as HTMLButtonElement
+    const edit = async (row: string) => {
+      fireEvent.click(within(rowOf(row)).getByRole('button', { name: /Mai multe acțiuni/ }))
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Editează' }))
+      await waitFor(() => expect(dlg()?.hasAttribute('open')).toBe(true))
+    }
+    const planned = async (card: PatientCard = PRICED) => {
+      serve(card)
+      const r = open('/admin/patient/5?tab=plan')
+      await screen.findByText('Pin Test', { selector: 'h2' })
+      return r
+    }
+
+    it('только у позиции, которую сервер назвал правимой; окно открывается с её значениями и ничего не шлёт без правки', async () => {
+      await planned()
+      fireEvent.click(within(rowOf('Coroană 11')).getByRole('button', { name: /Mai multe acțiuni/ }))
+      expect(screen.getAllByRole('menuitem').map((x) => x.textContent?.trim())).toEqual(['Refuz'])
+      fireEvent.keyDown(document, { key: 'Escape' })
+      await edit('Extracție 48')
+      expect(screen.queryByRole('menu')).toBeNull()
+      expect([fld('Procedură').value, fld('Dinte').value, fld('Medic').value, fld('Preț, MDL').value, fld('Termen planificat').value])
+        .toEqual(['Extracție 48', '48', '', '700', ''])
+      expect(save().disabled).toBe(true)
+      /* правка и возврат к прежнему значению — снова нечего сохранять */
+      fireEvent.change(fld('Preț, MDL'), { target: { value: '800' } })
+      expect(save().disabled).toBe(false)
+      fireEvent.change(fld('Preț, MDL'), { target: { value: '700' } })
+      expect(save().disabled).toBe(true)
+      expect(post).not.toHaveBeenCalled()
+    })
+
+    it('уходит только тронутое; процедура — вместе с ключом услуги и ценой прайса; удача закрывает окно', async () => {
+      await planned()
+      post.mockResolvedValue(ok(PRICED, 'ok_pedit', 'Procedura din plan a fost modificată'))
+      await edit('Extracție 48')
+      fireEvent.change(fld('Preț, MDL'), { target: { value: '800' } })
+      fireEvent.click(save())
+      expect(await screen.findByText('Procedura din plan a fost modificată')).toBeTruthy()
+      expect(post).toHaveBeenLastCalledWith('/patients/5/plan/3/edit', { price: '800' })
+      await waitFor(() => expect(dlg()).toBeNull())
+      await edit('Extracție 48')
+      fireEvent.change(fld('Procedură'), { target: { value: 'Igienizare' } })
+      /* цена позиции вписана рукой (700 — не из прайса) — услуга её не переписывает */
+      expect(fld('Preț, MDL').value).toBe('700')
+      fireEvent.change(fld('Dinte'), { target: { value: '' } })
+      fireEvent.change(fld('Medic'), { target: { value: 'Dr. Activ Doi' } })
+      fireEvent.change(fld('Termen planificat'), { target: { value: '2026-12-01' } })
+      fireEvent.click(save())
+      await waitFor(() => expect(post).toHaveBeenLastCalledWith('/patients/5/plan/3/edit',
+        { tooth: '', procedure: 'Igienizare', doctor: 'Dr. Activ Doi', due_date: '2026-12-01', service_id: 'hygiene' }))
+    })
+
+    it('цена позиции равна прайсу — смена услуги ведёт её за собой; диапазон стирает и просит цену', async () => {
+      const card: PatientCard = {
+        ...PRICED,
+        plan: { ...PRICED.plan, items: PRICED.plan.items.map((x) => x.id === 3
+          ? { ...x, procedure: 'Igienizare', service_id: 'hygiene', price: 1000, doctor: 'Dr. Plecat', due_date: '2026-12-01' } : x) },
+      }
+      await planned(card)
+      post.mockResolvedValue(ok(card, 'ok_pedit', 'Procedura din plan a fost modificată'))
+      await edit('Igienizare')
+      /* врач позиции, которого нет в списке, остаётся выбранным, срок — датой */
+      expect([fld('Medic').value, fld('Termen planificat').value]).toEqual(['Dr. Plecat', '2026-12-01'])
+      const note = () => (dlg() as HTMLElement).querySelector('.dp-price-note')?.textContent
+      expect(note()).toBe('din lista de prețuri')
+      fireEvent.change(fld('Procedură'), { target: { value: 'Tratament de canal' } })
+      expect(fld('Preț, MDL').value).toBe('')
+      expect(note()).toBe('în listă: 1200–1800 MDL, scrieți prețul')
+      fireEvent.click(save())
+      await waitFor(() => expect(post).toHaveBeenLastCalledWith('/patients/5/plan/3/edit',
+        { procedure: 'Tratament de canal', price: '', service_id: 'canal' }))
+    })
+
+    it('отказ сервера — словами в окне, окно остаётся; виновное поле подсвечено', async () => {
+      await planned()
+      post.mockRejectedValueOnce(new ApiError({ kind: 'conflict', code: 'bad_pedit', text: 'Se poate modifica doar o procedură neîncepută' }, 'c'))
+      post.mockRejectedValueOnce(new ApiError({ kind: 'validation', code: 'bad_card', text: 'Date invalide', field: 'price' }, 'v'))
+      await edit('Extracție 48')
+      fireEvent.change(fld('Preț, MDL'), { target: { value: '800' } })
+      fireEvent.click(save())
+      expect((await within(dlg() as HTMLElement).findByRole('alert')).textContent).toContain('Se poate modifica doar o procedură neîncepută')
+      expect(dlg()?.hasAttribute('open')).toBe(true)
+      fireEvent.click(save())
+      await waitFor(() => expect(within(dlg() as HTMLElement).getByRole('alert').textContent).toContain('Date invalide'))
+      expect(fld('Preț, MDL').getAttribute('aria-invalid')).toBe('true')
+      expect(fld('Preț, MDL').value).toBe('800')
+    })
+
+    it('закрытие: без правки — сразу, с правкой — вопрос; отказ оставляет окно и ввод', async () => {
+      await planned()
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      await edit('Extracție 48')
+      fireEvent.click(within(dlg() as HTMLElement).getByRole('button', { name: 'Renunță' }))
+      await waitFor(() => expect(dlg()).toBeNull())
+      expect(confirm).not.toHaveBeenCalled()
+      await edit('Extracție 48')
+      fireEvent.change(fld('Preț, MDL'), { target: { value: '800' } })
+      fireEvent.click(within(dlg() as HTMLElement).getByRole('button', { name: 'Închide' }))
+      await waitFor(() => expect(confirm).toHaveBeenLastCalledWith('Renunțați la modificările procedurii? Nu se salvează.'))
+      expect(fld('Preț, MDL').value).toBe('800')
+      confirm.mockReturnValue(true)
+      fireEvent(dlg() as HTMLElement, new Event('cancel', { cancelable: true }))
+      await waitFor(() => expect(dlg()).toBeNull())
+      expect(post).not.toHaveBeenCalled()
+    })
   })
 
   it('план: Finalizează шлёт переход, фиша подменяется, плашка сервера', async () => {
@@ -1397,7 +1552,7 @@ describe('PatientCardScreen', () => {
     expect(within(row).queryByRole('button', { name: /Refuz/ })).toBeNull()
     fireEvent.click(within(row).getByRole('button', { name: /Mai multe acțiuni/ }))
     const menu = screen.getByRole('menu', { name: 'Extracție 48' })
-    expect(within(menu).getAllByRole('menuitem').map((b) => b.textContent?.trim())).toEqual(['Refuz', 'Șterge din plan'])
+    expect(within(menu).getAllByRole('menuitem').map((b) => b.textContent?.trim())).toEqual(['Editează', 'Refuz', 'Șterge din plan'])
     /* у начатой позиции удаления нет — только отказ */
     fireEvent.keyDown(document, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
@@ -1536,7 +1691,7 @@ describe('PatientCardScreen', () => {
       plan: {
         ...CARD.plan, n_act: 3, total: 4900,
         items: [
-          { id: 9, tooth: 11, procedure: 'Coroană zirconiu', doctor: 'Dr. Activ Doi', status: 'planificat', service_id: null, doctor_id: null, label: 'Planificat', price: 3000, due: '', overdue: false, done: '', motiv: '', next: 'in_lucru', refusable: true, deletable: true },
+          { id: 9, tooth: 11, procedure: 'Coroană zirconiu', doctor: 'Dr. Activ Doi', status: 'planificat', service_id: null, doctor_id: null, label: 'Planificat', price: 3000, due: '', overdue: false, done: '', motiv: '', next: 'in_lucru', refusable: true, deletable: true, editable: true, due_date: '' },
           ...CARD.plan.items,
         ],
       },
@@ -2056,6 +2211,50 @@ describe('фиша: несохранённое при уходе, перезаг
       confirm.mockClear()
       await tabTo('Rezumat')
       expect(confirm).not.toHaveBeenCalled()
+    })
+
+    it('позиция плана с ценой из прайса: стёртая процедура уносит подставленную цену — форма снова пуста, вопроса нет', async () => {
+      serve({ ...CARD, appoint: { ...CARD.appoint, services: [{ id: 'hygiene', label: 'Igienizare', price: 1000, price_hint: '' }] } })
+      open('/admin/patient/5?tab=plan')
+      await settled()
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      const proc = screen.getByLabelText('Procedură (ex. Coroană zirconiu)')
+      fireEvent.change(proc, { target: { value: 'Igienizare' } })
+      expect((screen.getByLabelText('Preț MDL') as HTMLInputElement).value).toBe('1000')
+      fireEvent.change(proc, { target: { value: '' } })
+      expect((screen.getByLabelText('Preț MDL') as HTMLInputElement).value).toBe('')
+      await tabTo('Rezumat')
+      expect(confirm).not.toHaveBeenCalled()
+    })
+
+    it('правка позиции плана: открытое окно с правкой — вопрос при смене вкладки; без правки и после закрытия — без вопроса', async () => {
+      serve()
+      const { router } = open('/admin/patient/5?tab=plan')
+      await settled()
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      const dlg = () => document.querySelector('dialog.dp-plan-edit') as HTMLElement
+      const edit = () => {
+        fireEvent.click(within(rowOf('Extracție 48')).getByRole('button', { name: /Mai multe acțiuni/ }))
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Editează' }))
+      }
+      /* открытое окно без правки и окно, где цену вернули к прежней, — спрашивать не о чем */
+      edit()
+      expect(dlg()).toBeTruthy()
+      await tabTo('Rezumat')
+      await tabTo('Plan și plăți')
+      edit()
+      fireEvent.change(within(dlg()).getByLabelText('Preț, MDL'), { target: { value: '800' } })
+      fireEvent.change(within(dlg()).getByLabelText('Preț, MDL'), { target: { value: '700' } })
+      await tabTo('Rezumat')
+      expect(confirm).not.toHaveBeenCalled()
+      await tabTo('Plan și plăți')
+      edit()
+      fireEvent.change(within(dlg()).getByLabelText('Preț, MDL'), { target: { value: '800' } })
+      fireEvent.click(strip().getByRole('tab', { name: 'Rezumat' }))
+      await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(
+        `Modificările procedurii din plan nu au fost salvate. ${QT}`))
+      expect(router.state.location.search).toBe('?tab=plan')
+      expect((within(dlg()).getByLabelText('Preț, MDL') as HTMLInputElement).value).toBe('800')
     })
 
     it('профиль: раскрытая форма с правкой — вопрос; раскрытая без правки — без вопроса', async () => {
