@@ -18,12 +18,14 @@ from __future__ import annotations
 import re
 
 from .. import engine as eng
+from . import prices
 
 NAME_MAX = 60
 NOTE_MAX = 120
-# текст процедуры и потолок цены — как у позиции плана фиши
+# текст процедуры — как у позиции плана фиши; потолок цены у шаблона и у
+# позиции один: строка шаблона становится позицией как есть
 PROC_MAX = 120
-PRICE_MAX = 1_000_000
+PRICE_MAX = prices.PRICE_MAX
 ROWS_MAX = 40
 TPL_MAX = 100
 FIELDS = ("name", "note", "rows")
