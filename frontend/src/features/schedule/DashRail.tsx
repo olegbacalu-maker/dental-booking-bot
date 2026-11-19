@@ -146,7 +146,7 @@ function Agenda(
   /* Сворачивается заголовком (12.10, слово Олега) и помнит это на компьютере;
      свёрнутая оставляет счётчик дня. Почему без прыжка — `Fold`. */
   return (
-    <Fold id="agenda" className={`agenda${compact ? ' cmp' : ''}`} headClass="ag-h" head={
+    <Fold id="agenda" className={`agenda${compact ? ' cmp' : ''}`} headClass="ag-h" defaultOpen={false} head={
       <>
         <b>{T.agenda}</b>
         <span>{agenda.count} {agenda.count === 1 ? T.one : T.many}</span>

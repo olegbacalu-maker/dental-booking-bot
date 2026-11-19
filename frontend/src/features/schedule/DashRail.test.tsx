@@ -539,6 +539,7 @@ describe('01.10: «La recepție» — списки стойки', () => {
 
 describe('12.10: блоки колонки сворачиваются и помнят это на компьютере (слово Олега)', () => {
   it('Agenda zilei, Primul loc liber и разделы стойки — заголовком; выбор помнит компьютер', () => {
+    localStorage.setItem('dp_fold:agenda', '1')
     show()
     const folds = Array.from(document.querySelectorAll('details.dp-fold')).map((d) => d.getAttribute('data-fold'))
     expect(folds).toEqual(expect.arrayContaining(['agenda', 'free', 'desk:collect', 'desk:confirm', 'desk:unsched']))
@@ -558,10 +559,12 @@ describe('12.10: блоки колонки сворачиваются и пом�
     expect(localStorage.getItem('dp_fold:agenda')).toBe('1')
   })
 
-  it('«Primul loc liber» и списки стойки свёрнуты, пока их не открыли; открытое — запомнено', () => {
+  it('повестка, «Primul loc liber» и списки стойки свёрнуты, пока их не открыли; открытое — запомнено', () => {
     show()
     const open = (id: string) => (document.querySelector(`details[data-fold="${id}"]`) as HTMLDetailsElement).open
-    for (const id of ['free', 'desk:collect', 'desk:confirm', 'desk:unsched']) expect(open(id)).toBe(false)
+    for (const id of ['agenda', 'free', 'desk:collect', 'desk:confirm', 'desk:unsched']) expect(open(id)).toBe(false)
+    // свёрнутая повестка держит счётчик дня в заголовке
+    expect(document.querySelector('details[data-fold="agenda"] > summary')?.textContent).toContain('3 programări')
     // число в шапке свёрнутого раздела видно: колонка читается оглавлением
     expect(document.querySelector('details[data-fold="desk:unsched"] > summary')?.textContent).toContain('9')
     const free = document.querySelector('details[data-fold="free"]') as HTMLDetailsElement
