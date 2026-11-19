@@ -170,6 +170,9 @@ describe('план: «Adaugă din șablon»', () => {
     await openInsert()
     fireEvent.change(price('Bont protetic'), { target: { value: '2800' } })
     fireEvent.change(inDlg().getByLabelText('Caută șablon…'), { target: { value: 'igien' } })
+    /* Enter в поиске гасится: поле стоит в форме окна, и браузер иначе отправил бы её — шаблон ушёл бы в план */
+    expect(fireEvent.keyDown(inDlg().getByLabelText('Caută șablon…'), { key: 'Enter' })).toBe(false)
+    expect(fireEvent.keyDown(inDlg().getByLabelText('Caută șablon…'), { key: 'a' })).toBe(true)
     const list = within(inDlg().getByRole('navigation', { name: 'Șabloanele clinicii' }))
     expect(list.getAllByRole('button').map((b) => b.querySelector('b')?.textContent)).toEqual(['Igienizare completă'])
     expect([price('Igienizare').value, note('Igienizare')]).toEqual(['1000', 'din lista de prețuri'])

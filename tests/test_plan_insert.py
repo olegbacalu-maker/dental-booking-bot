@@ -187,6 +187,32 @@ def suite_insert(res: Result) -> None:
         res.check("…и летопись та же", _adds(c, pid), feed)
         res.check("пациента нет — 404", _ins(c, 999999, {"template_id": tid})[0], 404)
 
+        # набор с зуба (окно «Adaugă în plan» одонтограммы): тот же маршрут, ответ — модель одонтограммы
+        tp = new_patient(c, "Sablon Dinte", "069777003")
+        r = c.post_json(f"/api/patients/{tp}/plan/from-template?odo=1",
+                        {"template_id": tid, "tooth": "46", "doctor": DOC, "rows": [{"i": 1}, {"i": 3}]})
+        m = _j(r)
+        res.check("с зуба (?odo=1): удача несёт модель одонтограммы с планом зуба, фиши рядом нет",
+                  (r.status, m["code"], [x["procedure"] for x in m["data"]["plan"]["46"]], "card" in m["data"],
+                   "teeth" in m["data"]),
+                  (200, "ok_ptpl_ins", ["Igienizare", "Coroană zirconiu"], False, True))
+        r = c.post_json(f"/api/patients/{tp}/plan/from-template?odo=1&card=1",
+                        {"template_id": tid, "tooth": "47", "rows": [{"i": 3}]})
+        m = _j(r)
+        res.check("…с &card=1 рядом едет фиша с тем же планом",
+                  (m["code"], len(m["data"]["card"]["plan"]["items"]), [x["procedure"] for x in m["data"]["plan"]["47"]]),
+                  ("ok_ptpl_ins", 3, ["Coroană zirconiu"]))
+        r = c.post_json(f"/api/patients/{tp}/plan/from-template?odo=1", {"template_id": "pt999"})
+        res.check("отказ с зуба — тем же кодом и статусом, без модели",
+                  (r.status, r.msg, "data" in _j(r)), (404, "tpl_gone", False))
+        r = c.post_json(f"/api/patients/{tp}/plan/from-template?odo=1", {"template_id": tid, "tooth": "99"})
+        res.check("…и с полем", (r.status, r.msg, _j(r).get("field")), (422, "bad_card", "tooth"))
+        res.check("одна строка летописи на каждый набор с зуба; у набора с одним зубом она в истории зуба",
+                  (_adds(c, tp), [h["text"] for h in _j(c.get(f"/api/patients/{tp}/odontogram"))["data"]["history"].get("47", [])]),
+                  (["Plan: adăugat din șablonul „Canal + coroană”: 2 proceduri",
+                    "Plan: adăugat din șablonul „Canal + coroană”: 1 procedură"],
+                   ["Plan: adăugat din șablonul „Canal + coroană”: 1 procedură"]))
+
         # шаблон правят в настройках, пока окно вставки открыто
         c.post_json(SETTINGS, {"templates": {hyg: {"rows": [{"service_id": "consult", "tooth": False}]}}})
         res.check("строку шаблона заменили — окно со старой строкой получает отказ, а не другую процедуру",

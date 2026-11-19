@@ -1,4 +1,5 @@
 import { api } from '../../services/api'
+import type { PlanFromTpl } from '../patients/card/card'
 import type { ServiceOption } from '../patients/card/planService'
 
 /* Клинический модуль (docs/dentpilot-2/clinical-chart.md). Формы ответов —
@@ -354,6 +355,9 @@ export const chart = {
    *  получает рядом с моделью себя (`card`). */
   addPlan: (pid: number, body: PlanAdd, q = '') =>
     api.post<Odontogram>(`${P(pid)}/plan?odo=1${q ? `&${q.replace(/^\?/, '')}` : ''}`, body),
+  /** Набор из шаблона клиники с зуба — маршрут шаблона фиши с `?odo=1`; ответ и хвост `q` — как у `addPlan`. */
+  planFromTemplate: (pid: number, body: PlanFromTpl, q = '') =>
+    api.post<Odontogram>(`${P(pid)}/plan/from-template?odo=1${q ? `&${q.replace(/^\?/, '')}` : ''}`, body),
   /** Запись прикуса из панели рабочего стола (этап 3 «ocluzie», форма — та же
    *  `OcluziaCard`): маршрут фиши с `?odo=1` — в ответе свежая МОДЕЛЬ, и сцена
    *  берёт позу и обводку сразу, своего кэша прикуса у неё нет; `q` — хвост

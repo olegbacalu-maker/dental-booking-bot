@@ -869,6 +869,63 @@ describe('зуб → план (01.10)', () => {
     expect((within(dlg()).getByLabelText('Medic —') as HTMLSelectElement).value).toBe('')
   })
 
+  it('«Din șablon…»: окно шаблонов с этим зубом; набор уходит на маршрут шаблона с ?odo=1, модель из ответа — план зуба сразу', async () => {
+    const tpls = { doctor: 'Dr. Activ Doi', templates: [{ id: 'pt1', name: 'Canal + coroană', note: '', rows: [
+      { procedure: 'Consultație', service_id: 'consult', tooth: false, price: null },
+      { procedure: 'Coroană zirconiu', service_id: '', tooth: true, price: 4500 }] }] }
+    get.mockImplementation((path: string) => Promise.resolve(path === '/patients/5/plan/templates' ? ok(tpls) : ok(MODEL)))
+    const planned: Odontogram = {
+      ...MODEL,
+      plan: { '16': [{ id: 31, procedure: 'Coroană zirconiu', status: 'planificat', label: 'Planificat', doctor: 'Dr. Activ Doi',
+        price: 4500, due: '', overdue: false, done: '', motiv: '', active: true }] },
+    }
+    post.mockResolvedValueOnce(ok(planned, 'ok_ptpl_ins', 'Procedurile din șablon au fost adăugate în plan'))
+    open()
+    await waitFor(() => expect(btn(16)).toBeTruthy())
+    fireEvent.contextMenu(btn(16), { clientX: 300, clientY: 200 })
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Adaugă în plan' }))
+    fireEvent.click(within(dlg()).getByRole('button', { name: 'Din șablon…' }))
+    /* окно одной процедуры уступило место окну шаблонов */
+    await waitFor(() => expect(dlg().hasAttribute('open')).toBe(false))
+    const tdlg = () => document.querySelector('dialog.dp-plan-tpl') as HTMLDialogElement | null
+    await waitFor(() => expect(tdlg()?.hasAttribute('open')).toBe(true))
+    const t = within(tdlg() as HTMLElement)
+    expect(await t.findByText('Coroană zirconiu')).toBeTruthy()
+    /* зуб, с которого открыли, — на весь шаблон и у строки «с зубом»; врач — медик курант с сервера */
+    expect((t.getByLabelText('Dinte (pentru tot șablonul)') as HTMLSelectElement).value).toBe('16')
+    expect((t.getByLabelText('Dintele procedurii: Coroană zirconiu') as HTMLSelectElement).value).toBe('16')
+    expect((t.getByLabelText(/^Medic/) as HTMLSelectElement).value).toBe('Dr. Activ Doi')
+    const loads = get.mock.calls.length
+    fireEvent.click(t.getByRole('button', { name: 'Adaugă 2 proceduri în plan' }))
+    expect(await screen.findByText('Procedurile din șablon au fost adăugate în plan')).toBeTruthy()
+    expect(post).toHaveBeenCalledWith('/patients/5/plan/from-template?odo=1', {
+      template_id: 'pt1', tooth: '16', doctor: 'Dr. Activ Doi',
+      rows: [{ i: 0, procedure: 'Consultație', price: '' }, { i: 1, procedure: 'Coroană zirconiu', tooth: '16', price: '4500' }],
+    })
+    await waitFor(() => expect(tdlg()).toBeNull())
+    /* ответ — модель с позицией: ни одного GET после ответа, «Tratament» зуба уже знает её */
+    expect(get.mock.calls.length).toBe(loads)
+    fireEvent.click(btn(16))
+    expect(within(inspector()).getByRole('tab', { name: /^Tratament/ }).textContent).toBe('Tratament 1')
+  })
+
+  it('«Din șablon…»: отказ сервера — словами в окне шаблонов, окно остаётся', async () => {
+    const tpls = { doctor: '', templates: [{ id: 'pt1', name: 'Igienizare completă', note: '', rows: [
+      { procedure: 'Igienizare', service_id: 'hygiene', tooth: false, price: 900 }] }] }
+    get.mockImplementation((path: string) => Promise.resolve(path === '/patients/5/plan/templates' ? ok(tpls) : ok(MODEL)))
+    post.mockRejectedValueOnce(new ApiError({ kind: 'validation', code: 'bad_card', text: 'Date invalide', field: 'price' }, 'v'))
+    open()
+    await waitFor(() => expect(btn(21)).toBeTruthy())
+    fireEvent.contextMenu(btn(21))
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Adaugă în plan' }))
+    fireEvent.click(within(dlg()).getByRole('button', { name: 'Din șablon…' }))
+    const tdlg = () => document.querySelector('dialog.dp-plan-tpl') as HTMLDialogElement
+    await waitFor(() => expect(tdlg()?.hasAttribute('open')).toBe(true))
+    fireEvent.click(await within(tdlg()).findByRole('button', { name: 'Adaugă 1 procedură în plan' }))
+    expect((await within(tdlg()).findByRole('alert')).textContent).toContain('Date invalide')
+    expect(tdlg().hasAttribute('open')).toBe(true)
+  })
+
   it('процедура из прайса: подсказки — услуги модели, ключ уходит только при точном имени', async () => {
     post.mockResolvedValue(ok(MODEL, 'ok_card', 'Fișa pacientului a fost actualizată'))
     open()

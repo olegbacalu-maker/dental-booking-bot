@@ -12,13 +12,16 @@ import { useLingering } from '../../utils/motion'
    Открывается из меню зуба и из инспектора; путь не единственный — форма
    плана во вкладке «Plan și plăți» остаётся. Врач по умолчанию — тот, кто
    записал зуб (снапшот имени в фише зуба), если он ещё в списке. Цена — из
-   прайса, когда процедуру взяли из него (`planService`). */
+   прайса, когда процедуру взяли из него (`planService`). «Din șablon…» уводит
+   в окно шаблонов клиники с этим же зубом — набор процедур вместо одной. */
 const T = {
   title: 'Adaugă în plan',
   tooth: 'dintele',
   ph: { proc: 'Procedură (ex. Coroană zirconiu)', price: 'Preț MDL', due: 'Termen planificat', doctor: 'Medic —' },
   dueHint: 'termen (opțional)',
   save: 'Adaugă în plan',
+  tpl: 'Din șablon…',
+  tplTitle: 'Adaugă pe acest dinte un set de proceduri salvat ca șablon',
   close: 'Închide',
 } as const
 
@@ -31,11 +34,13 @@ interface Props {
   invalid: boolean
   onClose: () => void
   onSave: (body: PlanAdd) => Promise<boolean>
+  /** «Din șablon…»: вместо одной процедуры — окно шаблонов с этим зубом. */
+  onTemplate?: ((n: number) => void) | undefined
 }
 
 const EMPTY = { procedure: '', doctor: '', price: '', due_date: '' }
 
-export function PlanDialog({ model, n, busy, invalid, onClose, onSave }: Props) {
+export function PlanDialog({ model, n, busy, invalid, onClose, onSave, onTemplate }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
   const first = useRef<HTMLInputElement>(null)
   const [form, setForm] = useState(EMPTY)
@@ -103,6 +108,11 @@ export function PlanDialog({ model, n, busy, invalid, onClose, onSave }: Props) 
           <input type="date" value={form.due_date} onChange={(e) => set({ due_date: e.target.value })} aria-label={T.ph.due} />
         </label>
         <button disabled={busy}><Icon name="plus" /> {T.save}</button>
+        {onTemplate && n !== null && (
+          <button type="button" className="mv-no" title={T.tplTitle} onClick={() => onTemplate(n)}>
+            <Icon name="clipboard" /> {T.tpl}
+          </button>
+        )}
       </form>
     </dialog>
   )

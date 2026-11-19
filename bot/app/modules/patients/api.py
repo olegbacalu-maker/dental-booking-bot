@@ -775,13 +775,20 @@ async def api_patient_plan_from_template(request: Request, pid: int):
     """{template_id, tooth, doctor, rows: [{i, procedure, tooth, price}]} —
     отмеченные строки шаблона одним набором: все или ни одной, одна строка
     летописи. Шаблона уже нет — 404 tpl_gone; его строки успели переписать —
-    409 tpl_changed; непонятный зуб или цена — 422 bad_card с полем."""
+    409 tpl_changed; непонятный зуб или цена — 422 bad_card с полем.
+
+    `?odo=1` — набор С ЗУБА (окно «Adaugă în plan» одонтограммы): удача несёт
+    свежую модель одонтограммы, `&card=1` — рядом и фишу, как у позиции плана с
+    зуба. Отказы те же и с теми же кодами HTTP."""
     if (deny := api_guard(request)) is not None:
         return deny
     deny, p = await _owned(pid)
     if deny is not None:
         return deny
     code, field = await _plan_from_template(pid, await api_body(request))
+    if code in _OK and request.query_params.get("odo") == "1":
+        return await _odo_reply(pid, code, ok={code},
+                                card_for=request if request.query_params.get("card") == "1" else None)
     return await _card_reply(request, pid, code, field)
 
 

@@ -143,6 +143,9 @@ export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterStep
   const [cardMenu, setCardMenu] = useState<{ x: number; y: number } | null>(null)
   const closeMenu = useCallback(() => setMenu(null), [])
   const closeCardMenu = useCallback(() => setCardMenu(null), [])
+  /* в окне вставки правили строку шаблона — та же защита ухода, что у коротких форм карточки */
+  const report = a.form
+  const tplTouched = useCallback((on: boolean) => report?.('planTpl', on), [report])
   /* сохранять шаблоном есть что, только когда в плане есть позиции */
   const canSaveTpl = plan.can_template && plan.items.length > 0
 
@@ -365,7 +368,12 @@ export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterStep
         </div>
       </form>
       {editing && <PlanEditDialog key={editing.id} card={card} a={a} it={editing} onClose={() => setEditing(null)} />}
-      {tpl === 'insert' && <PlanTemplateDialog card={card} a={a} onClose={() => setTpl(null)} />}
+      {tpl === 'insert' && (
+        <PlanTemplateDialog pid={a.pid} services={services} teeth={card.options.teeth} milk={card.options.milk}
+          doctors={card.options.doctors} primary={card.profile.primary_doctor} canTemplate={plan.can_template}
+          busy={a.busy} onTouched={tplTouched} onClose={() => setTpl(null)}
+          submit={(body) => a.act(() => patientCard.planFromTemplate(a.pid, a.views, body))} />
+      )}
       {tpl === 'save' && <PlanSaveTemplateDialog card={card} a={a} onClose={() => setTpl(null)} />}
       <dialog ref={refuzDlg} onClose={() => setRefuz(null)}>
         <div className="dlg-head">

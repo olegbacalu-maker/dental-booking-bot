@@ -6,6 +6,9 @@ import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
 import type { ToastState } from '../../components/Toast'
 import { asApiError } from '../../services/api'
+import type { ApiError } from '../../types/api'
+import type { PlanFromTpl } from '../patients/card/card'
+import { PlanTemplateDialog } from '../patients/card/PlanTemplateDialog'
 import { BridgeBar, BridgeDialog } from './BridgeTool'
 import { ComparePanel } from './ComparePanel'
 import { DentalArch } from './DentalArch'
@@ -192,6 +195,10 @@ export function OdontogramWorkbench({
   const [planBusy, setPlanBusy] = useState(false)
   const [planBad, setPlanBad] = useState(false)
   const planFrom = (n: number) => { setMenu(null); setPlanBad(false); setPlan(n) }
+  /* зуб → набор из шаблона: окно шаблонов клиники открыто для зуба `tplFor` */
+  const [tplFor, setTplFor] = useState<number | null>(null)
+  const [tplBusy, setTplBusy] = useState(false)
+  const closeTpl = useCallback(() => setTplFor(null), [])
   const [zoom, setZoom] = useState(false)
   /* выбранный зуб видов: при сравнении — подсвеченный в его списке */
   const sel = brMode ? null : cmpOn ? cmp.focus : c.selected
@@ -297,6 +304,25 @@ export function OdontogramWorkbench({
       return false
     } finally {
       setPlanBusy(false)
+    }
+  }
+
+  /* Набор из шаблона с зуба — тот же маршрут, что у плана фиши, с `?odo=1`: в
+     ответе свежая модель (план зуба во вкладке «Tratament» сразу с позициями).
+     Отказ возвращается окну — оно показывает его словами у себя. */
+  const saveTpl = async (body: PlanFromTpl): Promise<ApiError | null> => {
+    setTplBusy(true)
+    try {
+      const r = await chart.planFromTemplate(pid, body, saveQuery)
+      if (r.text) say({ tone: r.tone, text: r.text })
+      replace(r.data)
+      return null
+    } catch (e) {
+      const err = asApiError(e)
+      fail(err)
+      return err
+    } finally {
+      setTplBusy(false)
     }
   }
 
@@ -551,7 +577,14 @@ export function OdontogramWorkbench({
         <ToothMenu model={model} at={menu} current={menuCurrent} onState={menuState} marks={menuMarks} onMark={menuMark}
           onPlan={planFrom} onBridge={bridgeFrom} onClose={closeMenu} mode={mode} />
       )}
-      <PlanDialog model={model} n={plan} busy={planBusy} invalid={planBad} onClose={closePlan} onSave={savePlan} />
+      <PlanDialog model={model} n={plan} busy={planBusy} invalid={planBad} onClose={closePlan} onSave={savePlan}
+        onTemplate={(n) => { setPlan(null); setTplFor(n) }} />
+      {tplFor !== null && (
+        <PlanTemplateDialog key={tplFor} pid={pid} services={model.services ?? []}
+          teeth={[...model.arches.upper, ...model.arches.lower]} milk={[...model.arches.milk_upper, ...model.arches.milk_lower]}
+          doctors={model.doctors} primary={model.patient.primary_doctor} canTemplate={false}
+          tooth={String(tplFor)} busy={tplBusy} submit={saveTpl} onClose={closeTpl} />
+      )}
       <BridgeDialog
         model={model}
         open={brOpen}
