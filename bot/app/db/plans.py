@@ -26,6 +26,8 @@ async def plan_open_summary() -> list:
 PLAN_ACTIVE = ("planificat", "in_lucru")
 # закрытые: у них проставлен done_at и они не ждут работы
 PLAN_CLOSED = ("finalizat", "refuzat")
+# править позицию можно, только пока её не начали: с «Începe» она медзапись
+PLAN_EDITABLE = ("planificat",)
 
 
 async def plan_items(pid: int) -> list:
@@ -35,10 +37,12 @@ async def plan_items(pid: int) -> list:
     # ЗАПЛАНИРОВАН, лежит в `doctor` и не переписывается — «Redeschide»
     # обязан вернуть его. Кого печатать — fisa043.plan_doctor. Подзапрос, а
     # не JOIN: doctor/status/id/created_at есть в обеих таблицах.
+    # edited_at — когда позицию правили: согласие, подписанное раньше, нынешний
+    # план уже не покрывает, а created_at обязан остаться днём появления.
     return await _fetch(
         """SELECT id, tooth, procedure, doctor, status, price_mdl, due_date,
                   service_id, doctor_id,
-                  done_at, appointment_id, refuz_motiv, created_at,
+                  done_at, appointment_id, refuz_motiv, created_at, edited_at,
                   (SELECT a.doctor FROM appointments a
                     WHERE a.id = plan_items.appointment_id) AS visit_doctor
            FROM plan_items WHERE patient_id = ? ORDER BY id""", pid)
@@ -82,6 +86,42 @@ async def add_plan_item(pid: int, tooth: int | None, procedure: str,
     await log_event(pid, "plan_add",
                     f"Plan: + {procedure}" + (f" (dinte {tooth})" if tooth else ""),
                     tooth=tooth)
+
+
+async def plan_item(item_id: int, pid: int) -> dict | None:
+    """Позиция плана пациента как есть — правке нужно «что было»."""
+    rows = await _fetch(
+        """SELECT id, tooth, procedure, doctor, status, price_mdl, due_date,
+                  service_id, doctor_id
+           FROM plan_items WHERE id = ? AND patient_id = ?""", item_id, pid)
+    return rows[0] if rows else None
+
+
+# колонки, которые меняет правка позиции; статус, даты закрытия и привязка к
+# визиту идут только через set_plan_status
+_PLAN_EDIT_COLS = ("tooth", "procedure", "doctor", "price_mdl", "due_date",
+                   "service_id", "doctor_id")
+
+
+async def edit_plan_item(item_id: int, pid: int, changes: dict, text: str,
+                         tooth: int | None = None) -> bool:
+    """Правка позиции, пока её статус в PLAN_EDITABLE: условие стоит в самом
+    UPDATE — между проверкой статуса и записью позицию могли начать с другого
+    места. Летопись — после UPDATE и только за реально изменённую строку.
+    False — позицию уже начали или её нет."""
+    cols = [c for c in _PLAN_EDIT_COLS if c in changes]
+    if not cols:
+        return False
+    sets = ", ".join(f"{c} = ?" for c in cols)
+    open_ = ", ".join("?" for _ in PLAN_EDITABLE)
+    n = await _execute(
+        f"""UPDATE plan_items SET {sets}, edited_at = ?
+             WHERE id = ? AND patient_id = ? AND status IN ({open_})""",
+        *[changes[c] for c in cols], _utcnow_iso(), item_id, pid, *PLAN_EDITABLE)
+    if n != 1:
+        return False
+    await log_event(pid, "plan_edit", text, tooth=tooth)
+    return True
 
 
 async def set_plan_status(item_id: int, pid: int, status: str,

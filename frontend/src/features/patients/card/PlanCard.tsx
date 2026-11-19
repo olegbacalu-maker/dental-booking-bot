@@ -6,7 +6,8 @@ import { placeMenu, useMenuDismiss } from '../../../components/menu'
 import { useFormTouched, type CardActions } from './actions'
 import { hideDialog, showDialog } from './dialog'
 import { mdl, patientCard, type PatientCard, type PlanForm, type PlanItem } from './card'
-import { serviceIdFor, ServiceList } from './planService'
+import { PlanEditDialog } from './PlanEditDialog'
+import { PriceNote, priceAfterProcedure, serviceIdFor, ServiceList } from './planService'
 import { printHref } from './print'
 import { SignDialog } from './sign/SignDialog'
 import { useLingering } from '../../../utils/motion'
@@ -18,7 +19,9 @@ import { useLingering } from '../../../utils/motion'
    ⭐ Уровень 1 (01.10, слово Олега «план непонятен»): шапка колонок; одна
    главная кнопка на строку, «Refuz» и «Șterge» — в меню «⋯»; полоса согласия
    над списком (tipărit → semnat ✓, «план изменён после подписи»);
-   «Finalizează» с ценой спрашивает — прайс входит в сольд молча. */
+   «Finalizează» с ценой спрашивает — прайс входит в сольд молча.
+   «Editează» в том же меню — у позиции, которую ещё не начали (`PlanEditDialog`).
+   Цена новой строки — из прайса, когда процедуру взяли из него (`planService`). */
 const T = {
   title: 'Plan de tratament',
   active: 'plan activ:',
@@ -49,6 +52,8 @@ const T = {
   fin: 'Finalizează',
   refuz: 'Refuz',
   refuzTitle: 'Pacientul refuză procedura — se consemnează în fișă',
+  edit: 'Editează',
+  editTitle: 'Modifică dintele, procedura, medicul, prețul sau termenul (doar cât nu a fost începută)',
   del: 'Șterge din plan',
   delTitle: 'Șterge poziția (doar cât nu a fost începută)',
   confirmDel: 'Ștergeți din plan „{what}"?',
@@ -107,8 +112,11 @@ export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterStep
   const tab = tabPick.def === plan.default_tab ? tabPick.tab : plan.default_tab
   const setTab = (t: string) => setTabPick({ def: plan.default_tab, tab: t })
   const [form, setForm] = useState<PlanForm>({ tooth: '', procedure: '', doctor: '', price: '', due_date: '' })
+  /* цену в поле поставила программа, человек её не трогал */
+  const [priceAuto, setPriceAuto] = useState(false)
   const [invalid, setInvalid] = useState(false)
   const set = (patch: Partial<PlanForm>) => setForm((f) => ({ ...f, ...patch }))
+  const services = card.appoint.services
   useFormTouched(a, 'plan', Object.values(form).some((v) => v !== ''))
   const refuzDlg = useRef<HTMLDialogElement>(null)
   const [refuz, setRefuz] = useState<PlanItem | null>(null)
@@ -118,16 +126,25 @@ export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterStep
   const [motivBad, setMotivBad] = useState(false)
   const [menu, setMenu] = useState<MenuAt | null>(null)
   const [signing, setSigning] = useState(false)
+  const [editing, setEditing] = useState<PlanItem | null>(null)
   const closeMenu = useCallback(() => setMenu(null), [])
+
+  function onProcedure(value: string) {
+    const p = priceAfterProcedure(services, form.procedure, value, { price: form.price, auto: priceAuto })
+    setPriceAuto(p.auto)
+    set({ procedure: value, price: p.price })
+  }
 
   async function onAdd(e: FormEvent) {
     e.preventDefault()
     setInvalid(false)
-    const services = card.appoint.services
     const err = await a.act(() => patientCard.addPlan(a.pid, a.views,
       { ...form, service_id: serviceIdFor(services, form.procedure) }))
     if (err?.field) setInvalid(true)
-    else if (!err) setForm({ tooth: '', procedure: '', doctor: '', price: '', due_date: '' })
+    else if (!err) {
+      setForm({ tooth: '', procedure: '', doctor: '', price: '', due_date: '' })
+      setPriceAuto(false)
+    }
   }
 
   /* позиция словами — в каждом вопросе: «Ștergeți…?» без имени не говорит,
@@ -235,7 +252,7 @@ export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterStep
         const closed = closedStates.includes(it.status)
         const nextCls = it.status === 'planificat' ? 'pgo' : it.status === 'in_lucru' ? 'pgo fin' : 'pre'
         const nextIcon = it.status === 'planificat' ? 'play' : it.status === 'in_lucru' ? 'check' : 'undo'
-        const extra = it.refusable || it.deletable
+        const extra = it.editable || it.refusable || it.deletable
         return (
           <div key={it.id} className={`plan-row${closed ? ' done' : ''}`} data-st={it.status}>
             {it.tooth
@@ -278,6 +295,7 @@ export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterStep
       })}
       {menu && (
         <RowMenu at={menu} busy={a.busy} onClose={closeMenu}
+          onEdit={(it) => { closeMenu(); setEditing(it) }}
           onRefuz={(it) => { closeMenu(); openRefuz(it) }}
           onDel={(it) => { closeMenu(); void del(it) }} />
       )}
@@ -294,25 +312,28 @@ export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterStep
               {card.options.milk.map((n) => <option key={n} value={n}>{n}</option>)}
             </optgroup>
           </select>
-          <input value={form.procedure} onChange={(e) => set({ procedure: e.target.value })} placeholder={T.ph.proc}
+          <input value={form.procedure} onChange={(e) => onProcedure(e.target.value)} placeholder={T.ph.proc}
                  aria-label={T.ph.proc} maxLength={120} required aria-invalid={invalid || undefined}
                  list="dp-plan-services" />
-          <ServiceList id="dp-plan-services" services={card.appoint.services} />
+          <ServiceList id="dp-plan-services" services={services} />
         </div>
         <div className="r2">
           <select value={form.doctor} onChange={(e) => set({ doctor: e.target.value })} aria-label={T.ph.doctor}>
             <option value="">{T.ph.doctor}</option>
             {card.options.doctors.map((n) => <option key={n} value={n}>{n}</option>)}
           </select>
-          <input type="number" min={0} max={1000000} value={form.price} onChange={(e) => set({ price: e.target.value })}
-                 placeholder={T.ph.price} aria-label={T.ph.price} style={{ width: 130 }} />
+          <input type="number" min={0} max={1000000} value={form.price}
+                 onChange={(e) => { setPriceAuto(false); set({ price: e.target.value }) }}
+                 placeholder={T.ph.price} aria-label={T.ph.price} aria-describedby="dp-plan-price" style={{ width: 130 }} />
         </div>
+        <PriceNote id="dp-plan-price" services={services} procedure={form.procedure} price={form.price} />
         <div className="r2">
           <input type="date" value={form.due_date} onChange={(e) => set({ due_date: e.target.value })} title={T.ph.due} aria-label={T.ph.due} />
           <span className="dp-due-hint">{T.dueHint}</span>
         </div>
         <button disabled={a.busy}>{T.add}</button>
       </form>
+      {editing && <PlanEditDialog key={editing.id} card={card} a={a} it={editing} onClose={() => setEditing(null)} />}
       <dialog ref={refuzDlg} onClose={() => setRefuz(null)}>
         <div className="dlg-head">
           <span><Icon name="ban" /> {T.refuzDlg}</span>
@@ -334,17 +355,23 @@ export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterStep
 
 /** Меню «⋯» строки плана: отказ и удаление — редкие действия, им не место
  *  тремя кнопками в каждой строке (01.10). Закрывается, как меню карточки. */
-function RowMenu({ at, busy, onClose, onRefuz, onDel }: {
+function RowMenu({ at, busy, onClose, onEdit, onRefuz, onDel }: {
   at: MenuAt; busy: boolean; onClose: () => void
-  onRefuz: (it: PlanItem) => void; onDel: (it: PlanItem) => void
+  onEdit: (it: PlanItem) => void; onRefuz: (it: PlanItem) => void; onDel: (it: PlanItem) => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
   useMenuDismiss(ref, onClose)
   const { it } = at
-  const { left, top } = placeMenu(at.x, at.y, 220, 40 + 32 * ((it.refusable ? 1 : 0) + (it.deletable ? 1 : 0)))
+  const rows = [it.editable, it.refusable, it.deletable].filter(Boolean).length
+  const { left, top } = placeMenu(at.x, at.y, 220, 40 + 32 * rows)
   return (
     <div ref={ref} className="dp-cmenu" role="menu" aria-label={it.procedure} style={{ left, top, width: 220 }}>
       <div className="dp-cmenu-h">{it.procedure}</div>
+      {it.editable && (
+        <button type="button" role="menuitem" className="dp-cmenu-i" title={T.editTitle} disabled={busy} onClick={() => onEdit(it)}>
+          <Icon name="pen" /> {T.edit}
+        </button>
+      )}
       {it.refusable && (
         <button type="button" role="menuitem" className="dp-cmenu-i" title={T.refuzTitle} disabled={busy} onClick={() => onRefuz(it)}>
           <Icon name="ban" /> {T.refuz}

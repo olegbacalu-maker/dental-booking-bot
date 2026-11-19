@@ -10,7 +10,7 @@
 
 Фиша (`GET /api/patients/{pid}` и `POST …/{pid}/…`) — расчёты из `card.py`;
 правила действий — функции `routes._save_profile`, `_appoint`, `_add_alert`,
-`_save_anamneza`, `_save_ocluzie`, `_add_plan`, `_plan_status`, `_plan_del`, `_add_pay`,
+`_save_anamneza`, `_save_ocluzie`, `_add_plan`, `_edit_plan`, `_plan_status`, `_plan_del`, `_add_pay`,
 `_store_doc`, `_drop_doc`, `_open_doc`, `_erase` (до 13.10 те же правила
 звали и формы старой фиши). Удача действия возвращает СВЕЖУЮ фишу целиком:
 почти каждое действие двигает сразу несколько секций (план → KPI, сальдо,
@@ -32,7 +32,7 @@ from ... import db
 from ... import engine as eng
 from ... import teeth_svg as tsvg
 from ...core.api import api_body, api_guard, api_own_doctor, api_require
-from ...core import demo, pdf, recall
+from ...core import demo, pdf, prices, recall
 from ...core import visit_tpl as vtpl
 from ...core.auth import PERM_IMPORT, PERM_MONEY, PERM_RECALL, can, remote_notice, request_user
 from ...core.layout import ALERT_KINDS, STATUS_LABEL, _initials, msg_json, msg_text
@@ -49,7 +49,7 @@ from . import sign as psign
 from . import visit as pvisit
 from .routes import (_PL_BADGE, _PL_CANAL, _PL_PER, _PL_SORTS, _add_alert,
                      _add_bridge, _add_pay, _add_plan, _appoint, _del_bridge,
-                     _doc_lang, _drop_doc, _erase, _free_slots, _new_patient, _open_doc,
+                     _doc_lang, _drop_doc, _edit_plan, _erase, _free_slots, _new_patient, _open_doc,
                      _p_age, _peek_html, _perio_absent, _perio_ctx, _perio_del,
                      _pl_canal, _pl_dmy, _pl_money, _pl_new_foot, _pl_select,
                      _pl_status, _pl_trend, _plan_del, _plan_status,
@@ -228,11 +228,11 @@ async def api_patient_new(request: Request):
 # ответом на действие, оставившее строку в летописи, а несостоявшееся
 # удаление строки не оставляет — POST с выдуманным id читал бы фишу целиком
 # мимо журнала доступа (закон 195).
-_CONFLICT = {"bad_pdel", "bad_off", "past", "dup", "conflict",
+_CONFLICT = {"bad_pdel", "bad_pedit", "bad_off", "past", "dup", "conflict",
              "bad_sign_plan", "bad_sign_anam"}
 _GONE = {"alert_gone", "plan_gone", "doc_gone", "pay_gone"}
 _OK = {"", "ok", "ok_card", "ok_stock_tc_auto", "ok_stock_tc_back", "ok_stock_tc_pending", "ok_tel_dup", "ok_arh", "ok_unarh", "ok_anam", "ok_occl",
-       "ok_pay", "pay_del", "ok_doc", "ok_anon", "ok_del", "ok_refuz", "ok_scan",
+       "ok_pay", "pay_del", "ok_doc", "ok_anon", "ok_del", "ok_refuz", "ok_pedit", "ok_scan",
        "ok_sign"}
 
 
@@ -286,12 +286,18 @@ def _plan_item(it: dict, today) -> dict:
         "next": pcard.PLAN_NEXT.get(st, ""),
         "refusable": st in pcard.PLAN_REFUSABLE,
         "deletable": st == "planificat",
+        "editable": st in pcard.PLAN_EDITABLE,
+        # срок как его хранит база — форме правки (`due` — уже словами)
+        "due_date": str(it.get("due_date") or "")[:10],
     }
 
 
 def _service_options() -> list[dict]:
-    """Прайс для форм фиши и одонтограммы: окно записи и выбор позиции плана."""
-    return [{"id": k, "label": v["ro"]} for k, v in eng.SERVICES.items()]
+    """Прайс для форм фиши и одонтограммы: окно записи и выбор позиции плана.
+    С ценой услуги: одна сумма в прайсе — `price`, диапазон или слова —
+    `price_hint` (`core/prices`); форма плана подставляет первое и показывает
+    второе."""
+    return prices.options()
 
 
 def _options() -> dict:
@@ -724,6 +730,21 @@ async def api_patient_plan_status(request: Request, pid: int, item_id: int):
     code = await _plan_status(pid, item_id, _s(body, "to"), _s(body, "motiv"))
     return await _card_reply(request, pid, code, "motiv" if code == "bad_refuz" else "",
                              conflict=code == "bad_card")
+
+
+@router.post("/api/patients/{pid}/plan/{item_id}/edit")
+async def api_patient_plan_edit(request: Request, pid: int, item_id: int):
+    """{tooth, procedure, doctor, price, due_date, service_id} — строками и
+    только тронутое: ключа нет — поле не сообщали, пустая строка — стереть.
+    Позиция не «planificat» — 409 bad_pedit; непонятное значение — 422 bad_card
+    с полем; пересохранение без правки — тихий успех без строки летописи."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    deny, p = await _owned(pid)
+    if deny is not None:
+        return deny
+    code, field = await _edit_plan(pid, item_id, await api_body(request))
+    return await _card_reply(request, pid, code, field)
 
 
 @router.post("/api/patients/{pid}/plan/{item_id}/delete")

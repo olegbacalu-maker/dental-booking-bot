@@ -47,7 +47,7 @@ from . import plan_acord as pplan
 from . import profile_rules as prules
 from . import sign as psign
 from . import visit as pvisit
-from ...core import shellopen, stock_tc, xlsx
+from ...core import prices, shellopen, stock_tc, xlsx
 from ...core.auth import _guard, local_only, request_user
 from ...core.visits import my_scope
 from ...core.layout import (ALERT_KINDS, LIVE_STATUSES, _ic, _initials, react_shell,
@@ -613,28 +613,101 @@ def _plan_doctor_id(name: str) -> str | None:
     return ids[0] if len(ids) == 1 else None
 
 
+def _plan_tooth(raw: str) -> tuple[int | None, bool]:
+    """Зуб из формы плана: (номер | None, понятно ли поле); пусто — без зуба."""
+    s = raw.strip()
+    if not s:
+        return None, True
+    t = int(s) if s.isdecimal() else None
+    return (t, True) if t in _FDI_ALL else (None, False)
+
+
+def _plan_price(raw: str) -> tuple[int | None, bool]:
+    """Цена из формы плана: целые MDL, потолок — как у поля формы."""
+    s = raw.strip()
+    if not s:
+        return None, True
+    return (min(int(s), prices.PRICE_MAX), True) if s.isdecimal() else (None, False)
+
+
+def _plan_due(raw: str) -> tuple[str, bool]:
+    """Срок из формы плана: ISO-дата или пусто."""
+    due = raw.strip()[:10]
+    try:
+        date.fromisoformat(due) if due else None
+    except ValueError:
+        return "", False
+    return due, True
+
+
 async def _add_plan(pid: int, tooth: str, procedure: str, doctor: str,
                     price: str, due_date: str, service_id: str = "") -> str:
     """Позиция плана: зуб и цена приходят строками, как из формы; чужой
     номер зуба и кривой срок молча обнуляются, цена режется до миллиона."""
     if not procedure.strip():
         return "bad_card"
-    t = int(tooth) if tooth.strip().isdecimal() else None
-    if t is not None and t not in _FDI_ALL:
-        t = None
-    pr = int(price) if price.strip().isdecimal() else None
-    if pr is not None:
-        pr = min(pr, 1_000_000)  # клиентский max дублируем на сервере (PG INT)
-    due = due_date.strip()[:10]
-    try:
-        date.fromisoformat(due) if due else None
-    except ValueError:
-        due = ""
+    t, pr, due = _plan_tooth(tooth)[0], _plan_price(price)[0], _plan_due(due_date)[0]
     proc, doc = procedure.strip()[:120], doctor.strip()[:80]
     await db.add_plan_item(pid, t, proc, doc, pr, due,
                            service_id=_plan_service_id(service_id, proc),
                            doctor_id=_plan_doctor_id(doc))
     return "ok_card"
+
+
+async def _edit_plan(pid: int, item_id: int, body: dict | None) -> tuple[str, str]:
+    """Правка позиции плана, пока она «planificat»: (код, виновное поле).
+
+    Ключа в теле нет — поле не сообщали, прежнее значение цело; пустая строка —
+    стереть (зуб, врача, цену, срок). В отличие от `_add_plan` непонятное
+    значение здесь отказ, а не пустота: молча обнулить можно новую строку, но
+    не то, что уже записано. Ключи услуги и врача пересчитываются теми же
+    правилами, что при добавлении, и только когда изменился сам текст: позиция
+    старше ключей остаётся без них, пока её процедуру не переписали.
+    Пересохранение без правки ничего не пишет — ни строки, ни летописи.
+    """
+    cur = await db.plan_item(item_id, pid)
+    if cur is None:
+        return "plan_gone", ""
+    if cur["status"] not in pcard.PLAN_EDITABLE:
+        return "bad_pedit", ""
+    body = body if isinstance(body, dict) else {}
+
+    def sent(key: str) -> str | None:
+        v = body.get(key)
+        return None if v is None else str(v)
+
+    old = {"tooth": cur["tooth"], "procedure": cur["procedure"] or "",
+           "doctor": cur["doctor"] or "", "price_mdl": cur["price_mdl"],
+           "due_date": cur["due_date"] or ""}
+    new = dict(old)
+    for key, col, parse in (("tooth", "tooth", _plan_tooth), ("price", "price_mdl", _plan_price),
+                            ("due_date", "due_date", _plan_due)):
+        if (raw := sent(key)) is not None:
+            new[col], ok = parse(raw)
+            if not ok:
+                return "bad_card", key
+    if (raw := sent("procedure")) is not None:
+        new["procedure"] = raw.strip()[:120]
+        if not new["procedure"]:
+            return "bad_card", "procedure"
+    if (raw := sent("doctor")) is not None:
+        new["doctor"] = raw.strip()[:80]
+    changes = {k: v for k, v in new.items() if v != old[k]}
+    if not changes:
+        return "", ""
+    if "procedure" in changes:
+        sid = sent("service_id")
+        changes["service_id"] = _plan_service_id(
+            sid if sid is not None else cur["service_id"] or "", new["procedure"])
+    if "doctor" in changes:
+        changes["doctor_id"] = _plan_doctor_id(new["doctor"])
+    if "due_date" in changes:
+        changes["due_date"] = new["due_date"] or None
+    if await db.edit_plan_item(item_id, pid, changes, pcard.plan_edit_text(old, new),
+                               tooth=new["tooth"]):
+        return "ok_pedit", ""
+    # между чтением и записью позицию начали или сняли с другого места
+    return ("plan_gone" if await db.plan_item_status(item_id, pid) is None else "bad_pedit"), ""
 
 
 async def _add_pay(pid: int, amount: str, method: str, note: str) -> str:

@@ -87,6 +87,7 @@ const T = {
   forms: {
     profile: 'Profilul pacientului are modificări nesalvate.',
     plan: 'Procedura nouă din plan nu a fost adăugată.',
+    planEdit: 'Modificările procedurii din plan nu au fost salvate.',
     pay: 'Plata nu a fost înregistrată.',
     alert: 'Atenționarea nu a fost adăugată.',
     doc: 'Fișierul ales nu a fost încărcat.',

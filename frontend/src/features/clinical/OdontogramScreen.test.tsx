@@ -890,6 +890,39 @@ describe('зуб → план (01.10)', () => {
       expect.objectContaining({ tooth: '21', procedure: 'Igienizare + fluor', service_id: '' })))
   })
 
+  it('цена из прайса: одна сумма подставляется, диапазон оставляет поле пустым с подсказкой; новый зуб — чистая цена', async () => {
+    const priced: Odontogram = { ...MODEL, services: [
+      { id: 'hygiene', label: 'Igienizare', price: 1000, price_hint: '' },
+      { id: 'canal', label: 'Tratament de canal', price: null, price_hint: '1200–1800 MDL' },
+    ] }
+    get.mockResolvedValue(ok(priced))
+    post.mockResolvedValue(ok(priced, 'ok_card', 'Fișa pacientului a fost actualizată'))
+    open()
+    await waitFor(() => expect(btn(16)).toBeTruthy())
+    fireEvent.contextMenu(btn(16), { clientX: 300, clientY: 200 })
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Adaugă în plan' }))
+    const price = () => within(dlg()).getByLabelText('Preț MDL') as HTMLInputElement
+    const note = () => dlg().querySelector('.dp-price-note')?.textContent ?? null
+    fireEvent.change(proc(), { target: { value: 'Tratament de canal' } })
+    expect(price().value).toBe('')
+    expect(note()).toBe('în listă: 1200–1800 MDL, scrieți prețul')
+    fireEvent.change(proc(), { target: { value: 'Igienizare' } })
+    expect(price().value).toBe('1000')
+    expect(note()).toBe('din lista de prețuri')
+    fireEvent.click(within(dlg()).getByRole('button', { name: 'Adaugă în plan' }))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/patients/5/plan?odo=1',
+      expect.objectContaining({ tooth: '16', procedure: 'Igienizare', price: '1000', service_id: 'hygiene' })))
+    await waitFor(() => expect(dlg().hasAttribute('open')).toBe(false))
+    /* другой зуб: форма чистая, и вписанная рукой цена услугой не переписывается */
+    fireEvent.contextMenu(btn(21))
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Adaugă în plan' }))
+    expect(price().value).toBe('')
+    fireEvent.change(price(), { target: { value: '900' } })
+    fireEvent.change(proc(), { target: { value: 'Igienizare' } })
+    expect(price().value).toBe('900')
+    expect(note()).toBe('în listă: 1 000 MDL')
+  })
+
   it('из инспектора: отказ сервера подсвечивает поле и оставляет диалог; «Închide» закрывает', async () => {
     post.mockRejectedValueOnce(new ApiError({ kind: 'validation', code: 'bad_card', text: 'Date invalide', field: 'procedure' }, 'v'))
     open(21)

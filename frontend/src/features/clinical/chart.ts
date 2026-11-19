@@ -1,4 +1,5 @@
 import { api } from '../../services/api'
+import type { ServiceOption } from '../patients/card/planService'
 
 /* Клинический модуль (docs/dentpilot-2/clinical-chart.md). Формы ответов —
    bot/app/modules/patients/api.py (`_odontogram`) и odontogram.model:
@@ -173,7 +174,7 @@ export interface Odontogram {
   patient: { id: number; name: string; primary_doctor: string }
   doctors: string[]
   /** прайс клиники — подсказки процедуры в «Adaugă în plan» */
-  services?: { id: string; label: string }[]
+  services?: ServiceOption[]
   /** Последний пародонтальный замер по зубам: дата, id осмотра и ГОТОВАЯ
    *  фраза сервера. ⛔ Своей фразы у клиента нет — слова про глубину и степени
    *  живут в `perio.py`, как `sfx` у поверхностей. Пусто, если осмотра с

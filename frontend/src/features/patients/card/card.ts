@@ -1,4 +1,5 @@
 import { api, type ApiResult } from '../../../services/api'
+import type { ServiceOption } from './planService'
 import type { Sheet } from './print'
 
 /* Формы ответов — bot/app/modules/patients/api.py (`_card`). Все расчёты
@@ -102,6 +103,10 @@ export interface PlanItem {
   next: string
   refusable: boolean
   deletable: boolean
+  /** Позицию можно править (пока её не начали); порог держит сервер. */
+  editable: boolean
+  /** Срок как в базе (ISO-дата или пусто) — полю формы правки; `due` — словами. */
+  due_date: string
 }
 
 export interface Plan {
@@ -207,7 +212,7 @@ export interface Activity {
 }
 
 export interface Appoint {
-  services: { id: string; label: string }[]
+  services: ServiceOption[]
   doctors: Record<string, string[]>
   names: Record<string, string>
   primary: string
@@ -317,6 +322,9 @@ export interface PlanForm {
   service_id?: string
 }
 
+/** Правка позиции плана: только тронутые поля; пустая строка — стереть. */
+export type PlanEdit = Partial<PlanForm>
+
 export interface AppointForm {
   date: string
   time: string
@@ -371,6 +379,8 @@ export const patientCard = {
     api.post<PatientCard>(`${P(pid)}/ocluzie${V(views)}`, fields),
   addPlan: (pid: number, views: boolean, form: PlanForm) =>
     api.post<PatientCard>(`${P(pid)}/plan${V(views)}`, form),
+  editPlan: (pid: number, views: boolean, iid: number, body: PlanEdit) =>
+    api.post<PatientCard>(`${P(pid)}/plan/${iid}/edit${V(views)}`, body),
   planStatus: (pid: number, views: boolean, iid: number, to: string, motiv = '') =>
     api.post<PatientCard>(`${P(pid)}/plan/${iid}/status${V(views)}`, { to, motiv }),
   delPlan: (pid: number, views: boolean, iid: number) =>

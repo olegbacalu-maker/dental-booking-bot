@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Icon } from '../../components/Icon'
 import { hideDialog, showDialog } from '../../components/dialog'
 import type { Odontogram, PlanAdd } from './chart'
-import { serviceIdFor, ServiceList } from '../patients/card/planService'
+import { PriceNote, priceAfterProcedure, serviceIdFor, ServiceList } from '../patients/card/planService'
 import { useLingering } from '../../utils/motion'
 
 /* «Adaugă în plan» с зуба (01.10; Олег 27.09: «одонтограмма с планом не
@@ -11,7 +11,8 @@ import { useLingering } from '../../utils/motion'
    врач, цена, срок), правила и тексты — сервера (`_add_plan`, `ok_card`).
    Открывается из меню зуба и из инспектора; путь не единственный — форма
    плана во вкладке «Plan și plăți» остаётся. Врач по умолчанию — тот, кто
-   записал зуб (снапшот имени в фише зуба), если он ещё в списке. */
+   записал зуб (снапшот имени в фише зуба), если он ещё в списке. Цена — из
+   прайса, когда процедуру взяли из него (`planService`). */
 const T = {
   title: 'Adaugă în plan',
   tooth: 'dintele',
@@ -38,6 +39,8 @@ export function PlanDialog({ model, n, busy, invalid, onClose, onSave }: Props) 
   const ref = useRef<HTMLDialogElement>(null)
   const first = useRef<HTMLInputElement>(null)
   const [form, setForm] = useState(EMPTY)
+  const [auto, setAuto] = useState(false)
+  const services = model.services ?? []
   // новый зуб — чистая форма с его врачом; выводится при отрисовке, без эффекта
   const [seen, setSeen] = useState<number | null>(null)
   /* окно гаснет за ступень (07.11): номер зуба и подпись стоят до конца */
@@ -47,6 +50,7 @@ export function PlanDialog({ model, n, busy, invalid, onClose, onSave }: Props) 
     setSeen(n)
     const own = info?.doctor && model.doctors.includes(info.doctor) ? info.doctor : ''
     setForm({ ...EMPTY, doctor: own })
+    setAuto(false)
   }
   const set = (patch: Partial<typeof EMPTY>) => setForm((f) => ({ ...f, ...patch }))
 
@@ -61,11 +65,17 @@ export function PlanDialog({ model, n, busy, invalid, onClose, onSave }: Props) 
     } else hideDialog(ref.current)
   }, [n])
 
+  function onProcedure(value: string) {
+    const p = priceAfterProcedure(services, form.procedure, value, { price: form.price, auto })
+    setAuto(p.auto)
+    set({ procedure: value, price: p.price })
+  }
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     if (n === null) return
     const ok = await onSave({ tooth: String(n), ...form,
-                              service_id: serviceIdFor(model.services ?? [], form.procedure) })
+                              service_id: serviceIdFor(services, form.procedure) })
     if (ok) setSeen(null)
   }
 
@@ -77,16 +87,18 @@ export function PlanDialog({ model, n, busy, invalid, onClose, onSave }: Props) 
       </div>
       <form className="dlg-form" onSubmit={onSubmit}>
         {info && <p className="hint dp-m0">{info.title}</p>}
-        <input ref={first} value={form.procedure} onChange={(e) => set({ procedure: e.target.value })} placeholder={T.ph.proc}
+        <input ref={first} value={form.procedure} onChange={(e) => onProcedure(e.target.value)} placeholder={T.ph.proc}
                aria-label={T.ph.proc} maxLength={120} required aria-invalid={invalid || undefined}
                list="dp-plan-dlg-services" />
-        <ServiceList id="dp-plan-dlg-services" services={model.services ?? []} />
+        <ServiceList id="dp-plan-dlg-services" services={services} />
         <select value={form.doctor} onChange={(e) => set({ doctor: e.target.value })} aria-label={T.ph.doctor}>
           <option value="">{T.ph.doctor}</option>
           {model.doctors.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
-        <input type="number" min={0} max={1000000} value={form.price} onChange={(e) => set({ price: e.target.value })}
-               placeholder={T.ph.price} aria-label={T.ph.price} />
+        <input type="number" min={0} max={1000000} value={form.price}
+               onChange={(e) => { setAuto(false); set({ price: e.target.value }) }}
+               placeholder={T.ph.price} aria-label={T.ph.price} aria-describedby="dp-plan-dlg-price" />
+        <PriceNote id="dp-plan-dlg-price" services={services} procedure={form.procedure} price={form.price} />
         <label className="dlab">{T.dueHint}
           <input type="date" value={form.due_date} onChange={(e) => set({ due_date: e.target.value })} aria-label={T.ph.due} />
         </label>
