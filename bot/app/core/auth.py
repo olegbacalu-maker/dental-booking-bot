@@ -134,15 +134,19 @@ PERM_IMPORT = "pimport"
 PERM_LABS = "labs"
 # склад материалов: стойка и директор; врачу нет. Цены и суммы склада — PERM_MONEY.
 PERM_STOCK = "stock"
+# шаблоны клиники — консультации и плана лечения: стойка и директор; врачу нет.
+# Вставить готовый шаблон может любой, кто видит план, — это не правка каталога.
+PERM_TEMPLATES = "templates"
 
 PERMS = {
     ROLE_DIRECTOR: {PERM_MONEY, PERM_SETTINGS, PERM_USERS, PERM_DOCTORS, PERM_SMS,
-                    PERM_SCHEDULE_ALL, PERM_RECALL, PERM_IMPORT, PERM_LABS, PERM_STOCK},
+                    PERM_SCHEDULE_ALL, PERM_RECALL, PERM_IMPORT, PERM_LABS, PERM_STOCK,
+                    PERM_TEMPLATES},
     # Регистратуре каталог врачей НУЖЕН: отметить отпуск, сузить часы приёма,
     # поправить услуги — операционка стойки, иначе любой чих требует директора.
     # SMS — тоже стойка: согласие пациента спрашивает тот, кто его записывает.
     ROLE_RECEPTIE: {PERM_DOCTORS, PERM_SMS, PERM_SCHEDULE_ALL, PERM_RECALL, PERM_IMPORT,
-                    PERM_LABS, PERM_STOCK},
+                    PERM_LABS, PERM_STOCK, PERM_TEMPLATES},
     # Врачу — нет (канарейка 1.15.0, Олег): с телефона в LAN врач открывал
     # ЧУЖИЕ карточки и мог менять фото. Врачу — пациенты и записи; просмотр
     # своего расписания живёт в журнале, не в каталоге. SMS врач не видит
@@ -160,6 +164,13 @@ def can(user: dict | None, perm: str) -> bool:
     if not user:
         return False
     return perm in PERMS.get(user.get("role", ""), set())
+
+
+# Хаб «Setări» открыт тому, у кого есть право хотя бы на одну его плитку: право
+# плитки — `PERM_SETTINGS`, кроме перечисленных в `settings.routes.HUB_TILE_PERM`.
+# Список здесь, а не в модуле настроек: пункт меню рисует `layout`, а он модулей
+# не знает.
+HUB_PERMS = (PERM_SETTINGS, PERM_TEMPLATES)
 
 
 def schedule_scope(user: dict | None, known) -> str | None:
@@ -464,15 +475,17 @@ def _guard(request: Request) -> RedirectResponse | None:
         f"/admin/login?next={urllib.parse.quote(q, safe='')}", status_code=303)
 
 
-def require(request: Request, perm: str) -> RedirectResponse | None:
-    """Охрана раздела по праву: сперва вход, потом разрешение.
+def require(request: Request, *perms: str) -> RedirectResponse | None:
+    """Охрана раздела по праву: сперва вход, потом разрешение. Прав несколько —
+    хватает ЛЮБОГО из них (хаб настроек: у кого есть хоть одна плитка).
 
     ⚠️ Звать в КАЖДОМ маршруте раздела, включая POST-ы. Спрятанный пункт меню —
     это не защита: адрес набирается руками, а форма отправляется из чего угодно.
     """
     if (deny := _guard(request)) is not None:
         return deny
-    if can(current_user(request), perm):
+    me = current_user(request)
+    if any(can(me, p) for p in perms):
         return None
     return RedirectResponse("/admin?msg=no_access", status_code=303)
 

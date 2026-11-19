@@ -49,7 +49,7 @@
 | `/admin/settings/sms` | `/admin/settings/sms` | `settings_sms` | — | GET /api/settings/sms |
 | `/admin/settings/stoc` | `/admin/settings/stoc` | `settings_stock` | — | GET /api/settings/stock |
 | `/admin/settings/system` | `/admin/settings/system` | `settings_system` | — | GET /api/settings/system |
-| `/admin/settings/templates` | `/admin/settings/templates` | `settings_templates` | — | GET /api/settings/templates |
+| `/admin/settings/templates` | `/admin/settings/templates` | `settings_templates` | tab? | GET /api/settings/templates + GET /api/settings/plan-templates |
 | `/admin/settings/theme` | `/admin/settings/theme` | `settings_theme` | — | GET /api/settings/theme |
 | `/admin/visit/{appt_id}` | `/admin/visit/:appt_id` | `visit` | aid, back | GET /api/visits/{aid} |
 | `/admin/patient/{pid}/odontograma` | `/admin/patient/:pid/odontograma` | `odontogram` | pid, t? | GET /api/patients/{pid}/odontogram |
@@ -67,6 +67,7 @@
 - `/admin/doctor-card/{dk}` — ⛔ НЕ путать с /admin/doctor/{dk} — это день врача в журнале
 - `/admin/doctor/{dk}` — тот же DayScreen, отличается dk
 - `/admin/settings/clinic` — ⚠️ единственный экран НЕ на useLoad: свой useEffect
+- `/admin/settings/templates` — обе вкладки одним ответом загрузчика; `?tab=plan` его не перезапускает
 - `/admin/visit/{appt_id}` — ⚠️ ключ узла `aid`, а параметр пути `appt_id` — имена РАЗНЫЕ
 
 ## Чего в этой карте намеренно нет

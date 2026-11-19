@@ -20,7 +20,8 @@ from .. import brand, db, paths
 from .. import engine as eng
 from . import sms_loop
 from . import theme
-from .auth import (PERM_DOCTORS, PERM_LABS, PERM_MONEY, PERM_STOCK, PERM_RECALL, PERM_SCHEDULE_ALL, PERM_SETTINGS, PERM_SMS,
+from .auth import (HUB_PERMS, PERM_DOCTORS, PERM_LABS, PERM_MONEY, PERM_STOCK, PERM_RECALL, PERM_SCHEDULE_ALL,
+                   PERM_SETTINGS, PERM_SMS, PERM_TEMPLATES,
                    PIN_MAX, ROLE_LABEL, _pin_rec, can, request_user, schedule_scope)
 from .icons import _ic
 from .messages import msg_banner, msg_json, msg_state, msg_text, msg_view
@@ -222,6 +223,10 @@ def shell_model(active: str, sub: str, rail: bool = False,
     me = request_user()
     show_money = can(me, PERM_MONEY) or me is None
     show_set = can(me, PERM_SETTINGS) or me is None
+    # пункт «Setări» — у кого в хабе есть хоть одна плитка; `can.settings` при этом
+    # остаётся правом настроек: по нему клиент решает о справке, копии и обновлении
+    show_hub = me is None or any(can(me, p) for p in HUB_PERMS)
+    show_tpl = can(me, PERM_TEMPLATES) or me is None
     show_docs = can(me, PERM_DOCTORS) or me is None
     # права врача (22.10): журнал всех врачей и SMS — по праву; врачу без
     # полного права клиент узнаёт СВОЕГО врача (`doctor`), чтобы не рисовать
@@ -255,7 +260,7 @@ def shell_model(active: str, sub: str, rail: bool = False,
     if show_money:
         items.append({"key": "stat", "href": "/admin/stats", "icon": "stat",
                       "label": SECTION_TITLE["stat"]})
-    if show_set:
+    if show_hub:
         items.append({"key": "set", "href": "/admin/settings", "icon": "set",
                       "label": SECTION_TITLE["set"]})
     # Секция «Sincronizări» (сегодня в ней только SMS-пакет; Telegram-бот и QR
@@ -289,7 +294,7 @@ def shell_model(active: str, sub: str, rail: bool = False,
                       "can": {"money": show_money, "settings": show_set,
                               "doctors": show_docs, "schedule_all": show_sched,
                               "recall": show_recall, "labs": show_labs,
-                              "stock": show_stock},
+                              "stock": show_stock, "templates": show_tpl},
                       # ключ СВОЕГО врача у журнала, суженного до него
                       # (`auth.schedule_scope`); пусто — журнал всех или ничей
                       "doctor": schedule_scope(me, eng.DOCTORS) or ""} if me else None),

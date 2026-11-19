@@ -1036,9 +1036,12 @@ def suite_switch(res: Result) -> None:
         res.check("смена PIN — API", r.msg, "ok_pin")
         ana = Client(s.url)
         ana.post("/admin/login", password="3333", next="/admin")
-        for path in ("/admin/settings", "/admin/settings/faq", "/admin/settings/hours",
-                     "/admin/settings/security"):
+        for path in ("/admin/settings/faq", "/admin/settings/hours", "/admin/settings/security"):
             r = ana.get(path)
             res.ok(f"регистратуре React-страница {path} закрыта",
                    r.status == 303 and r.msg == "no_access", f"{r!r}")
-        res.check("регистратуре закрыт и JSON хаба", ana.get("/api/settings/hub").status, 403)
+        # хаб открыт тому, у кого есть хоть одна плитка: регистратуре — шаблоны
+        res.check("регистратуре хаб открыт одной плиткой",
+                  (ana.get("/admin/settings").status,
+                   [t["href"] for t in _j(ana.get("/api/settings/hub"))["data"]["tiles"]]),
+                  (200, ["/admin/settings/templates"]))

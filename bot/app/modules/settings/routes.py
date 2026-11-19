@@ -27,8 +27,8 @@ from ... import db
 from ... import envfile
 from ... import engine as eng
 from ... import update as upd
-from ...core.auth import (PERM_SETTINGS, PERM_SMS, ROLE_DIRECTOR, ROLE_LABEL, _pin_rec,
-                          all_users, can, delete_user, find_user,
+from ...core.auth import (HUB_PERMS, PERM_SETTINGS, PERM_SMS, PERM_TEMPLATES, ROLE_DIRECTOR,
+                          ROLE_LABEL, _pin_rec, all_users, can, delete_user, find_user,
                           n_directors, pin_free, pin_len_ok, pin_readiness,
                           local_only, remember_auth_file, request_user, require,
                           save_user)
@@ -103,6 +103,12 @@ HUB_GROUP_OF = {"/admin/settings/system": "general", "/admin/license": "general"
                 "/admin/patients/import": "date",
                 "/admin/settings/backup": "date", "/admin/settings/security": "securitate",
                 "/admin/settings/faq": "ajutor"}
+# Плитки, открытые не правом настроек: остальным хватает `PERM_SETTINGS`.
+# Право отсюда обязано стоять в `auth.HUB_PERMS` — иначе владелец плитки не
+# войдёт в сам хаб.
+HUB_TILE_PERM = {"/admin/settings/templates": PERM_TEMPLATES}
+if not set(HUB_TILE_PERM.values()) <= set(HUB_PERMS):
+    raise RuntimeError("право плитки хаба не открывает сам хаб: добавьте его в auth.HUB_PERMS")
 
 
 def _lic_hint(s) -> list[dict]:
@@ -130,13 +136,13 @@ def _lic_mail_hint() -> list[dict]:
 
 
 def _tpl_hint(cfg: dict) -> str:
+    """Строка плитки «Șabloane»: сколько услуг с шаблоном консультации и
+    сколько шаблонов плана; числа после двоеточия — без склонений."""
     n = sum(1 for s in cfg["services"] if s.get("tpl"))
-    if not n:
+    m = len(eng.PLAN_TEMPLATES)
+    if not n and not m:
         return "niciun șablon încă"
-    # румынское число (правило клиента `utils/plural.roCount`): 1, 2–19, «de» с 20
-    word = ("serviciu" if n == 1 else "de servicii"
-            if n >= 20 and (n % 100 == 0 or n % 100 >= 20) else "servicii")
-    return f"{n} {word} cu șablon"
+    return f"consultație: {n} · plan de tratament: {m}"
 
 
 def _lan_available() -> bool:
@@ -191,8 +197,8 @@ def _hub_tiles() -> list[dict]:
                   [{"t": f"{len(cfg['services'])} servicii"}]),
              tile("/admin/medici", "med", "b", "Medici",
                   [{"t": f"{n_docs} activi · se editează în secțiunea Medici"}]),
-             # шаблоны дневника визита по услуге (10.11): число — услуг С шаблоном
-             tile("/admin/settings/templates", "note", "v", "Șabloane consultație",
+             # шаблоны клиники: дневника визита по услуге и плана лечения
+             tile("/admin/settings/templates", "note", "v", "Șabloane",
                   [{"t": _tpl_hint(cfg)}]),
              tile("/admin/settings/lab", "box", "b", "Laboratoare",
                   [{"t": "tehnică dentară · zile lucrătoare · fișa de comandă"}]),
@@ -256,13 +262,18 @@ def _hub_tiles() -> list[dict]:
     # Демо с сайта (core/demo.py): плитка раздела, который шлюз отклонит,
     # обещала бы экран, которого нет. Тот же список, что у отказа в main.py, —
     # не второй.
-    return [t for t in tiles if not demo.refuses(t["href"])]
+    # Плитка — по своему праву: регистратура видит в хабе только шаблоны. Отказ
+    # по адресу, набранному руками, выдаёт маршрут секции, не этот отбор.
+    me = request_user()
+    return [t for t in tiles if not demo.refuses(t["href"])
+            and (me is None or can(me, HUB_TILE_PERM.get(t["href"], PERM_SETTINGS)))]
 
 
 @router.get("/admin/settings", response_class=HTMLResponse)
 async def admin_settings(request: Request, msg: str = ""):
-    """Хаб настроек: по плитке на секцию, на каждой — живая строка состояния."""
-    if (deny := require(request, PERM_SETTINGS)) is not None:
+    """Хаб настроек: по плитке на секцию, на каждой — живая строка состояния.
+    Открыт тому, у кого есть право хотя бы на одну плитку."""
+    if (deny := require(request, *HUB_PERMS)) is not None:
         return deny
     # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
     return react_shell("settings_hub", request.url.path,
@@ -543,10 +554,10 @@ async def settings_services(request: Request, msg: str = ""):
 
 @router.get("/admin/settings/templates", response_class=HTMLResponse)
 async def settings_templates(request: Request, msg: str = ""):
-    if (deny := require(request, PERM_SETTINGS)) is not None:
+    if (deny := require(request, PERM_TEMPLATES)) is not None:
         return deny
     return _sec_react("settings_templates", request.url.path,
-                       "setări · șabloane consultație", msg)
+                       "setări · șabloane", msg)
 
 
 # Валидаторы по секциям: каждая страница присылает свой кусок, и проверяется
@@ -736,7 +747,9 @@ def _val_services(data: dict) -> tuple[list, dict]:
         services.append(entry)
     if not services:
         raise ValueError("services")
-    return services, {"doctor": seq_d, "service": seq_s}
+    # прочие счётчики (шаблоны плана) переезжают как есть: `_finish_cfg` кладёт
+    # `seq` целиком, и забытый счётчик начал бы выдавать id заново
+    return services, {**seq, "doctor": seq_d, "service": seq_s}
 
 
 def _finish_cfg(**updates) -> dict:

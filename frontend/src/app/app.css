@@ -384,6 +384,58 @@
 .dp-tpls .fform { display: flex; flex-direction: column; gap: 10px; }
 .dp-tpls .tplrow { align-items: center; margin-top: 10px; }
 .dp-tpl-hint { display: block; margin: 0 0 8px; }
+/* экран «Șabloane»: вкладки «Consultație» / «Plan de tratament», метка несохранённого */
+.dp-tpls .tpl-tabs { margin: 0 0 4px; }
+.dp-tpls .tpl-dirty { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
+/* вкладка «Plan de tratament»: слева список шаблонов, справа редактор выбранного */
+.dp-tpls .pt-wrap { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 14px; align-items: start;
+  max-width: 1180px; margin-top: 12px; }
+.dp-tpls .pt-list { display: flex; flex-direction: column; gap: 4px; padding: 10px; margin: 0; }
+.dp-tpls .pt-item { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 9px 12px; border: 1px solid transparent;
+  border-radius: var(--r-ctl); background: none; font: inherit; color: var(--text); text-align: left; cursor: pointer; }
+.dp-tpls .pt-item:hover { background: var(--fill); }
+.dp-tpls .pt-item.on { background: var(--teal-soft); border-color: var(--teal); }
+.dp-tpls .pt-item:focus-visible { outline: none; box-shadow: var(--ring); }
+.dp-tpls .pt-item b { font-weight: 600; overflow-wrap: anywhere; }
+.dp-tpls .pt-item small { color: var(--text3); font-size: var(--fs-s); }
+.dp-tpls .pt-item.on small { color: var(--teal-d); }
+.dp-tpls .pt-add { margin-top: 6px; }
+.dp-tpls .pt-edit { padding: 16px 18px 0; margin: 0; min-width: 0; }
+.dp-tpls .pt-edit > .hint { padding-bottom: 16px; }
+.dp-tpls .pt-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin: 0 0 14px; }
+.dp-tpls .pt-lab { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-s); color: var(--text2); }
+.dp-tpls .dp-fld[aria-invalid="true"] { border-color: var(--red); }
+.dp-tpls .pt-table { width: 100%; border-collapse: collapse; }
+.dp-tpls .pt-table th { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: left; font-size: var(--fs-s);
+  font-weight: 600; color: var(--text3); white-space: nowrap; }
+.dp-tpls .pt-table td { padding: 4px 6px; border-bottom: 1px solid var(--line2); vertical-align: top; }
+.dp-tpls .pt-table td:nth-child(2) { width: 100%; min-width: 180px; }
+.dp-tpls .pt-n { width: 24px; color: var(--text3); line-height: var(--h-ctl); }
+.dp-tpls .pt-seg { white-space: nowrap; }
+.dp-tpls .pt-seg > button { height: calc(var(--h-ctl) - 8px); min-width: 84px; padding: 0 10px; }
+.dp-tpls .pt-price { width: 104px; }
+.dp-tpls .pt-lp { display: block; margin-top: 2px; color: var(--text3); font-size: var(--fs-s); white-space: nowrap; }
+.dp-tpls .pt-ord { white-space: nowrap; }
+.dp-tpls .pt-ib { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: var(--h-ctl);
+  border: 1px solid transparent; border-radius: var(--r-ctl); background: none; color: var(--text2); cursor: pointer; }
+.dp-tpls .pt-ib:hover:not(:disabled) { background: var(--fill); border-color: var(--line); color: var(--text); }
+.dp-tpls .pt-ib:focus-visible { outline: none; box-shadow: var(--ring); }
+.dp-tpls .pt-ib:disabled { opacity: .35; cursor: default; }
+.dp-tpls .pt-ib svg { width: 18px; height: 18px; }
+.dp-tpls .pt-err { margin: 8px 0 0; color: var(--red-t); font-size: var(--fs-s); }
+.dp-tpls .pt-row-add { display: inline-flex; width: auto; margin-top: 10px; }
+/* низ редактора прилипает к низу окна: «Salvează» видна и у длинного шаблона на 1366×768 */
+.dp-tpls .pt-foot { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; gap: 8px; margin: 14px -18px 0;
+  padding: 12px 18px; border-top: 1px solid var(--line); background: var(--surface);
+  border-radius: 0 0 var(--r-card) var(--r-card); }
+.dp-tpls .pt-foot .dp-btn { width: auto; }
+.dp-tpls .pt-foot .pt-del { color: var(--red-t); }
+.dp-tpls .pt-foot .pt-save { margin-left: auto; }
+@media (max-width: 900px) {
+  .dp-tpls .pt-wrap { grid-template-columns: minmax(0, 1fr); }
+  .dp-tpls .pt-fields { grid-template-columns: minmax(0, 1fr); }
+  .dp-tpls .pt-edit { overflow-x: auto; }
+}
 /* чекбоксы живут внутри .fform, где input растянут на 100% и h-ctl —
    возвращаем им естественные размеры */
 .dp-react-root .vchk { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 6px; }

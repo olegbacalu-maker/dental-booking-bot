@@ -687,6 +687,16 @@ MUTATIONS = [
      ('tc.append(await stock_tc.on_plan_status(request_user(), iid, cur, "finalizat"))', 'tc.append("")')),
     ("статус позиции плана — вместе с крючком склада", "app/modules/patients/routes.py",
      ("tc = await stock_tc.on_plan_status(request_user(), item_id, cur, to)", 'tc = ""')),
+    # Профиль клиники: новый писатель мимо списка, писатель через модуль-объект
+    # в чужом разделе, имя из списка, переставшее писать, и переименованный якорь.
+    ("писатели clinic.json перечислены", "app/modules/settings/api.py",
+     "\ndef _mut(cfg):\n    return eng.save_config(cfg)\n"),
+    ("писатели clinic.json перечислены", "app/core/stock.py",
+     "\ndef _mut(engine, cfg):\n    return engine.save_config({**cfg, 'stock': 1})\n"),
+    ("писатели clinic.json перечислены", "app/modules/doctors/routes.py",
+     ("    return eng.save_config(cfg)", "    return eng.apply_config(cfg)")),
+    ("писатели clinic.json перечислены", "app/engine.py",
+     ("def save_config(cfg: dict)", "def write_config(cfg: dict)")),
 ]
 
 # Правки ЗАКОННЫЕ: нарушения в них нет, и правило обязано остаться

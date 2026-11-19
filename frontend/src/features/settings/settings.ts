@@ -118,6 +118,49 @@ export interface TemplatesData {
 /** Только ТРОНУТЫЕ услуги и графы: нет ключа — «не сообщали» (прайор 08-16). */
 export type TemplatesForm = Record<string, Partial<Record<TplFieldId, string>>>
 
+/** Строка шаблона плана: услуга прайса (`service_id`) или свободный текст (ключ пуст). */
+export interface PlanTplRow {
+  procedure: string
+  service_id: string
+  /** строке нужен зуб («cu dinte») — зуб выбирают при вставке в план */
+  tooth: boolean
+  /** цена в леях; null — из прайса на день вставки */
+  price: number | null
+}
+
+export interface PlanTemplate {
+  id: string
+  name: string
+  note: string
+  rows: PlanTplRow[]
+}
+
+/** Шаблоны плана лечения (`/api/settings/plan-templates`). */
+export interface PlanTemplatesData {
+  templates: PlanTemplate[]
+  /** прайс для выбора процедуры; `price` — строка прайса, как её написала клиника */
+  services: { id: string; label: string; price: string }[]
+  /** id только что созданных, в порядке `new` тела записи */
+  created: string[]
+  max: { name: number; note: number; rows: number; price: number; templates: number }
+}
+
+/** Строка в теле записи: услуга по ключу или текст; цена числом или null. */
+export type PlanTplRowForm = Pick<PlanTplRow, 'tooth' | 'price'> & Partial<Pick<PlanTplRow, 'procedure' | 'service_id'>>
+
+/** Только ТРОНУТОЕ: правка полей по id, новые шаблоны, удалённые. Строки — одно поле, целиком. */
+export interface PlanTemplatesForm {
+  templates?: Record<string, { name?: string; note?: string; rows?: PlanTplRowForm[] }>
+  new?: { name: string; note: string; rows: PlanTplRowForm[] }[]
+  deleted?: string[]
+}
+
+/** Экран «Șabloane»: обе вкладки одним ответом загрузчика. */
+export interface TemplatesAll {
+  consult: TemplatesData
+  plan: PlanTemplatesData
+}
+
 export interface ThemeStyle {
   key: string
   label: string
@@ -518,6 +561,10 @@ export const settings = {
     api.get<TemplatesData>('/settings/templates', signal ? { signal } : {}),
   templatesSave: (templates: TemplatesForm): Promise<ApiResult<TemplatesData>> =>
     api.post<TemplatesData>('/settings/templates', { templates }),
+  planTemplates: (signal?: AbortSignal): Promise<ApiResult<PlanTemplatesData>> =>
+    api.get<PlanTemplatesData>('/settings/plan-templates', signal ? { signal } : {}),
+  planTemplatesSave: (form: PlanTemplatesForm): Promise<ApiResult<PlanTemplatesData>> =>
+    api.post<PlanTemplatesData>('/settings/plan-templates', form),
   theme: (signal?: AbortSignal): Promise<ApiResult<ThemeData>> =>
     api.get<ThemeData>('/settings/theme', signal ? { signal } : {}),
   themePalette: (hex: string, style: string): Promise<ApiResult<Record<string, string>>> =>

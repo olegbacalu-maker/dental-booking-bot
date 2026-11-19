@@ -124,6 +124,11 @@ SERVICE_PRICE: dict[str, int] = {}          # подпись (ro/ru) → сре�
 SERVICE_PRICE_BY_ID: dict[str, int] = {}    # id услуги → средняя цена
 SERVICE_COLOR: dict[str, str] = {}          # id услуги → цвет из конфига
 URGENT_LABELS: set[str] = set()
+# Шаблоны плана лечения клиники (`clinic.json › plan_templates`) по порядку
+# файла: `{id, name, note, rows: [{procedure, service_id, tooth, price}]}`.
+# `service_id` пуст у строки свободным текстом, `price` None — цена из прайса
+# на день вставки. Данных пациента в шаблоне нет. Правила — `core/plan_tpl`.
+PLAN_TEMPLATES: list[dict] = []
 
 
 def doctor_state(d: dict) -> str:
@@ -249,6 +254,39 @@ def appt_room(r) -> str:
     return rid if rid in own else (own[0] if own else "")
 
 
+def _read_plan_templates(cfg: dict) -> None:
+    """Шаблоны плана из профиля в один вид. Файл правят и руками, поэтому
+    чтение терпеливое: кривая запись или строка пропускается с записью в лог,
+    а не роняет старт программы. Строгая проверка — у записи, `core/plan_tpl`."""
+    PLAN_TEMPLATES.clear()
+    raw = cfg.get("plan_templates")
+    if raw is None:
+        return
+    if not isinstance(raw, list):
+        log.warning("clinic config: plan_templates не список — шаблонов плана нет")
+        return
+    seen: set[str] = set()
+    for t in raw:
+        tid = str(t.get("id") or "") if isinstance(t, dict) else ""
+        name = str(t.get("name") or "").strip() if isinstance(t, dict) else ""
+        if not tid or not name or tid in seen or not isinstance(t.get("rows"), list):
+            log.warning("clinic config: запись plan_templates пропущена (%r)", t)
+            continue
+        rows = []
+        for r in t["rows"]:
+            proc = str(r.get("procedure") or "").strip() if isinstance(r, dict) else ""
+            if not proc:
+                log.warning("clinic config: строка шаблона %s пропущена (%r)", tid, r)
+                continue
+            price = r.get("price")
+            rows.append({"procedure": proc, "service_id": str(r.get("service_id") or ""),
+                         "tooth": bool(r.get("tooth", True)),
+                         "price": price if type(price) is int and price >= 0 else None})
+        seen.add(tid)
+        PLAN_TEMPLATES.append({"id": tid, "name": name,
+                               "note": str(t.get("note") or "").strip(), "rows": rows})
+
+
 def apply_config(cfg: dict) -> None:
     """Применяет конфиг клиники на лету: справочники и цены."""
     global CONFIG, CLINIC_NAME, CLINIC_PHONE, CLINIC_LEGAL, CLINIC_IDNO
@@ -305,6 +343,7 @@ def apply_config(cfg: dict) -> None:
         SERVICE_PRICE[svc["ro"]] = avg
         SERVICE_PRICE[svc["ru"]] = avg
         SERVICE_PRICE_BY_ID[svc["id"]] = avg
+    _read_plan_templates(cfg)
 
 
 def config_path() -> pathlib.Path:

@@ -215,6 +215,8 @@ MSG_BANNER = {
                        "detalii în data\\dentpilot.log"),
     "part_note": ("ok", "Pauza a fost salvată parțial — unele ore erau deja ocupate"),
     "bad_set": ("err", "Setări invalide — verificați câmpurile (nume/telefon, ore, minim un medic și un serviciu)"),
+    "bad_ptpl": ("err", "Șablonul nu a fost salvat — are nevoie de un nume și de cel puțin o procedură; prețul se scrie cu cifre"),
+    "dup_ptpl": ("err", "Există deja un șablon cu acest nume — alegeți alt nume"),
     "outside": ("err", "Vizita nu încape în programul clinicii (închidere sau pauză)"),
     # клиника открыта, но у ЭТОГО врача график уже кончился (work_from/work_to)
     "outside_doc": ("err", "Medicul nu lucrează la ora aleasă — verificați "

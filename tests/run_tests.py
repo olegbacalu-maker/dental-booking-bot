@@ -82,6 +82,7 @@ import test_perio  # noqa: E402
 import test_pimport  # noqa: E402
 import test_perio_api  # noqa: E402
 import test_pin  # noqa: E402
+import test_plan_tpl  # noqa: E402
 import test_plan_acord  # noqa: E402
 import test_privacy  # noqa: E402
 import test_privileged  # noqa: E402
@@ -459,7 +460,11 @@ SUITES = [
     ("Шаблоны дневника: правило склейки чистой функцией", test_visit_tpl.suite_rule),
     ("Шаблоны дневника: экран настроек — тронутое, тождественность, плитка", test_visit_tpl.suite_settings),
     ("Шаблоны дневника: «Din șablon» на визите — услуги, зубы, дата", test_visit_tpl.suite_visit),
-    ("Шаблоны дневника: права — экран у директора, кнопка у всех", test_visit_tpl.suite_rights),
+    ("Шаблоны дневника: права — экран у директора и регистратуры, кнопка у всех", test_visit_tpl.suite_rights),
+    ("Шаблоны плана: правило чистыми функциями, терпеливое чтение файла", test_plan_tpl.suite_rule),
+    ("Шаблоны плана: экран настроек — тронутое, отказы, id, прайс", test_plan_tpl.suite_settings),
+    ("Шаблоны плана: ни один писатель clinic.json их не стирает", test_plan_tpl.suite_writers),
+    ("Шаблоны плана: права — директор и регистратура, хаб одной плиткой", test_plan_tpl.suite_rights),
     ("Одонтограмма: JSON API", test_odontogram_api.suite_api),
     ("Одонтограмма: узел React экрана", test_odontogram_api.suite_switch),
     ("Одонтограмма: план зуба в модели (вкладка Tratament)", test_odontogram_api.suite_plan),

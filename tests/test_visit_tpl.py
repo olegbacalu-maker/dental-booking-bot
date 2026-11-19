@@ -1,7 +1,7 @@
 """Шаблоны дневника визита по услуге (10.11.2026, `core/visit_tpl.py`).
 
 Шаблон живёт у услуги прайса (`clinic.json › services[].tpl`), правит его
-клиника на экране «Setări › Șabloane consultație» (`/api/settings/templates`),
+клиника на экране «Setări › Șabloane», вкладка «Consultație» (`/api/settings/templates`),
 дневник визита подставляет его кнопкой «Din șablon»
 (`GET /api/visits/{aid}/template?done=…`). Здесь:
 - правило склейки чистой функцией (`compose`, `match_service`, `merge`);
@@ -10,7 +10,7 @@
 - визит: услуга визита + отмеченные позиции плана, `{dinte}` и `{data}`,
   повторы не склеиваются дважды, чужие и закрытые позиции не берутся,
   запрос ничего не пишет;
-- права: экран — только с правом настроек, «Din șablon» — любой вошедший.
+- права: экран — директор и регистратура (`PERM_TEMPLATES`), «Din șablon» — любой вошедший.
 """
 import json
 import sys
@@ -137,8 +137,9 @@ def suite_settings(res: Result) -> None:
                and 'data-screen="settings_templates"' in page.body, f"код {page.status}")
         hub = {t["href"]: t for t in _j(c.get("/api/settings/hub"))["data"]["tiles"]}
         tile = hub.get("/admin/settings/templates") or {}
-        res.check("плитка хаба: группа «Medici», пустой каталог словами",
-                  (tile.get("group"), tile.get("hint")), ("medici", [{"t": "niciun șablon încă"}]))
+        res.check("плитка хаба «Șabloane»: группа «Medici», пустой каталог словами",
+                  (tile.get("label"), tile.get("group"), tile.get("hint")),
+                  ("Șabloane", "medici", [{"t": "niciun șablon încă"}]))
 
         r = c.post_json(API, {"templates": {"hygiene": {"diagnostic": "Depozite {dinte}",
                                                         "tratament": "Igienizare {data}"},
@@ -149,8 +150,8 @@ def suite_settings(res: Result) -> None:
                   (t["hygiene"]["diagnostic"], t["hygiene"]["tratament"], t["consult"]["diagnostic"]),
                   ("Depozite {dinte}", "Igienizare {data}", ""))
         hub = {x["href"]: x for x in _j(c.get("/api/settings/hub"))["data"]["tiles"]}
-        res.check("плитка: одна услуга с шаблоном", hub["/admin/settings/templates"]["hint"],
-                  [{"t": "1 serviciu cu șablon"}])
+        res.check("плитка: одна услуга с шаблоном консультации", hub["/admin/settings/templates"]["hint"],
+                  [{"t": "consultație: 1 · plan de tratament: 0"}])
 
         c.post_json(API, {"templates": {"hygiene": {"recomandari": "Control"}}})
         res.check("правка одной графы: остальные целы (нет поля = не сообщали)",
@@ -235,7 +236,7 @@ def suite_visit(res: Result) -> None:
 
 
 def suite_rights(res: Result) -> None:
-    """Экран шаблонов — право настроек; «Din șablon» — любой вошедший."""
+    """Экран шаблонов — директор и регистратура; «Din șablon» — любой вошедший."""
     with Server(env=NO_KEY) as s:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
@@ -251,11 +252,15 @@ def suite_rights(res: Result) -> None:
             x.post("/admin/login", password=pin, next="/admin")
             return x
         med, rec = login("2222"), login("4444")
-        res.check("врач и стойка: экран шаблонов — 403",
-                  (med.get(API).status, rec.get(API).status,
-                   med.post_json(API, {"templates": {"hygiene": {"diagnostic": "x"}}}).status),
-                  (403, 403, 403))
+        res.check("врачу экран шаблонов закрыт — 403 no_access",
+                  [(r.status, r.msg) for r in (
+                      med.get(API), med.post_json(API, {"templates": {"hygiene": {"diagnostic": "x"}}}))],
+                  [(403, "no_access")] * 2)
         res.check("шаблон после отказа цел", _tpls(boss)["hygiene"]["diagnostic"], "Depozite.")
+        res.check("стойка читает и правит шаблоны консультации",
+                  (rec.get(API).status,
+                   rec.post_json(API, {"templates": {"hygiene": {"recomandari": "Control."}}}).msg,
+                   _tpls(boss)["hygiene"]["recomandari"]), (200, "ok_set", "Control."))
         res.check("врач своего визита: «Din șablon» отвечает",
                   _j(med.get(f"/api/visits/{aid}/template"))["data"]["values"]["diagnostic"],
                   "Depozite.")
