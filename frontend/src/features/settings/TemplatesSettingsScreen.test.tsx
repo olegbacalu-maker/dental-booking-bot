@@ -1,5 +1,8 @@
-import { cleanup, fireEvent, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { createMemoryRouter } from 'react-router'
+import { RouterProvider } from 'react-router/dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { screenRoute } from '../../hooks/useRouteLoad'
 import type { ApiResult } from '../../services/api'
 import { ApiError } from '../../types/api'
 import type { PlanTemplatesData, TemplatesData } from './settings'
@@ -12,6 +15,23 @@ vi.mock('../../services/api', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../services/api')>()
   return { ...real, api: { get, post }, loginUrl: () => '/admin/login?next=x' }
 })
+/* Мост к оболочке: что заявил экран (`useCommand`) и стоит ли окно оболочки;
+   перезагрузка — записью, jsdom документ не меняет. */
+const { claims, shell, reload } = vi.hoisted(() => ({
+  claims: new Map<string, () => void>(), shell: { on: false }, reload: vi.fn(),
+}))
+vi.mock('../../app/bridge', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../app/bridge')>(),
+  shellOn: () => shell.on,
+  useCommand: (id: string, run: (() => void) | null | false | undefined) => {
+    if (run) claims.set(id, run)
+    else claims.delete(id)
+  },
+}))
+vi.mock('../../hooks/useLive', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../hooks/useLive')>(),
+  defaultReload: reload,
+}))
 
 const E = { acuze: '', examen: '', diagnostic: '', tratament: '', recomandari: '' }
 const DATA: TemplatesData = {
@@ -58,6 +78,10 @@ afterEach(() => {
   cleanup()
   get.mockReset()
   post.mockReset()
+  claims.clear()
+  shell.on = false
+  reload.mockReset()
+  vi.restoreAllMocks()
 })
 
 describe('TemplatesSettingsScreen — вкладка «Consultație»', () => {
@@ -179,5 +203,104 @@ describe('TemplatesSettingsScreen — вкладка «Consultație»', () => {
     const navigate = vi.fn()
     open(navigate)
     await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith('/admin/login?next=x'))
+  })
+})
+
+/* Несохранённая правка шаблонов при уходе с экрана: до этого о ней говорили
+   только точка на вкладке и «modificat» в списке, и набранное пропадало молча.
+   Блокер — у экрана (владельца обеих вкладок), окно — `ask`; F5 и закрытие —
+   `useUnsavedPage`, как в фише. */
+describe('TemplatesSettingsScreen — вопрос при уходе с несохранённой правкой', () => {
+  const Q = 'Părăsiți ecranul fără să le salvați?'
+  const CONSULT_Q = 'Șabloanele de consultație au modificări nesalvate.'
+  const PLAN_Q = 'Șabloanele de plan au modificări nesalvate.'
+  /* экран и хаб настроек рядом — чтобы было куда уйти роутером */
+  const show = async () => {
+    serve()
+    const router = createMemoryRouter([
+      screenRoute('/admin/settings/templates', <TemplatesSettingsScreen />, loadTemplatesSettings),
+      { path: '/admin/settings', element: <p>Hub setări</p> },
+    ], { initialEntries: ['/admin/settings/templates'] })
+    render(<RouterProvider router={router} />)
+    await svc(/Igienizare/)
+    return router
+  }
+  const editConsult = () => {
+    fireEvent.click(head(/Igienizare/))
+    fireEvent.change(area('tpl_hygiene_tratament'), { target: { value: 'Igienizare {data}' } })
+  }
+  const unload = () => {
+    const e = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(e)
+    return e.defaultPrevented
+  }
+
+  it('без правки — уход без вопроса; смена вкладки с правкой вопроса не задаёт', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const router = await show()
+    editConsult()
+    fireEvent.click(screen.getAllByRole('tab')[1]!)
+    await screen.findByText(/Încă nu aveți șabloane de plan/)
+    expect(router.state.location.search).toBe('?tab=plan')
+    expect(confirm).not.toHaveBeenCalled()
+    cleanup()
+    const clean = await show()
+    await act(() => clean.navigate('/admin/settings'))
+    expect(await screen.findByText('Hub setări')).toBeTruthy()
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it('уход на другой экран с правкой: вопрос называет вкладку; отказ оставляет экран и ввод, согласие уводит', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const router = await show()
+    editConsult()
+    act(() => { void router.navigate('/admin/settings') })
+    await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(`${CONSULT_Q} ${Q}`))
+    expect(router.state.location.pathname).toBe('/admin/settings/templates')
+    expect(area('tpl_hygiene_tratament').value).toBe('Igienizare {data}')
+    /* правка и во второй вкладке — вопрос называет обе */
+    fireEvent.click(screen.getAllByRole('tab')[1]!)
+    fireEvent.click(await screen.findByRole('button', { name: /Șablon nou/ }))
+    act(() => { void router.navigate('/admin/settings') })
+    await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(`${CONSULT_Q} ${PLAN_Q} ${Q}`))
+    expect(router.state.location.pathname).toBe('/admin/settings/templates')
+    confirm.mockReturnValue(true)
+    act(() => { void router.navigate('/admin/settings') })
+    expect(await screen.findByText('Hub setări')).toBeTruthy()
+  })
+
+  it('после записи спрашивать не о чем', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const after: TemplatesData = { ...DATA, services: [DATA.services[0]!,
+      { ...DATA.services[1]!, tpl: { ...DATA.services[1]!.tpl, tratament: 'Igienizare {data}' } }] }
+    post.mockResolvedValueOnce(ok(after, 'ok_set', 'Setări salvate'))
+    const router = await show()
+    editConsult()
+    fireEvent.click(saveBtn())
+    expect(await screen.findByText('Setări salvate')).toBeTruthy()
+    await act(() => router.navigate('/admin/settings'))
+    expect(await screen.findByText('Hub setări')).toBeTruthy()
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it('без оболочки — beforeunload только с правкой; в окне оболочки «Reîncarcă» спрашивает своим окном', async () => {
+    await show()
+    expect(unload()).toBe(false)
+    expect(claims.has('act:reload')).toBe(false)
+    editConsult()
+    expect(unload()).toBe(true)
+    cleanup()
+    shell.on = true
+    await show()
+    editConsult()
+    expect(unload()).toBe(false)
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
+    act(() => claims.get('act:reload')!())
+    await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(
+      `${CONSULT_Q} Reîncărcați pagina fără să le salvați?`))
+    expect(reload).not.toHaveBeenCalled()
+    confirm.mockReturnValueOnce(true)
+    act(() => claims.get('act:reload')!())
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1))
   })
 })
