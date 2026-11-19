@@ -336,6 +336,25 @@ async def day_appointments(day_start: datetime, day_end: datetime) -> list:
     )
 
 
+async def past_by_status(start: datetime, end: datetime, statuses: tuple[str, ...]) -> list:
+    """Визиты окна с пациентом в перечисленных статусах — для списков стойки
+    «Nefinalizate» и «Anulate fără reprogramare». Своя узкая выборка: полная
+    `day_appointments` за месяц на каждом опросе живого канала тянула бы SMS,
+    приёмы и комментарии ради имени и статуса. Порядок — по времени, затем id:
+    тело канала обязано быть одинаковым при неизменных данных."""
+    marks = ",".join("?" * len(statuses))
+    return await _fetch(
+        f"""SELECT a.id, a.patient_id, a.doctor, a.doctor_id, a.starts_at, a.status,
+                   p.name, p.phone, ac.result AS call_result
+              FROM appointments a JOIN patients p ON p.id = a.patient_id
+                   LEFT JOIN appt_calls ac ON ac.appointment_id = a.id
+             WHERE a.starts_at >= ? AND a.starts_at < ? AND a.source <> 'note'
+               AND a.status IN ({marks})
+             ORDER BY a.starts_at, a.id""",
+        _iso(start), _iso(end), *statuses,
+    )
+
+
 async def appointment_days(start: datetime, end: datetime) -> list:
     """Записи окна ТРЕМЯ колонками — для точек мини-календаря (08.10): день,
     в который есть хоть одна живая запись. Полная выборка `day_appointments`

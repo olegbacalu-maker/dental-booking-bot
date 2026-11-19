@@ -96,7 +96,7 @@ from .plans import (
 from .schedule import (
     backfill_ids, relink_doctor, seed, create_appointment, admin_add,
     add_visit_for_patient, add_note, _insert_note, busy_lanes, doctor_future_count, control_future_count, set_control_lane, busy_with,
-    appt_patient_id, day_appointments, appointment_days, day_patient_facts, appt_calls,
+    appt_patient_id, day_appointments, past_by_status, appointment_days, day_patient_facts, appt_calls,
     set_appt_call, set_comment, move_appointment, set_appt_service, set_appt_duration,
     set_status, set_appt_room, change_doctor_rooms, _rooms_plan, _sql_text, _own_room,
 )

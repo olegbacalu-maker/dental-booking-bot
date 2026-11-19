@@ -53,6 +53,16 @@ const mins = (ms: number) => Math.floor(ms / 60_000)
 /* у врача с несколькими кабинетами очередь своя у каждого кабинета */
 const docOf = (it: DashAgendaItem) => `${it.doctor_id || it.doctor}|${it.room_id ?? ''}`
 
+/** Закрытые визиты повестки — перечислением, не «всё, кроме живых»: новый
+ *  статус не должен молча уехать в конец списка. */
+const CLOSED = new Set(['done', 'noshow', 'cancelled'])
+
+/** «Toate» повестки: сперва те, с кем ещё есть дело (по времени), закрытые —
+ *  в конце, тоже по времени. Порядок внутри групп — порядок сервера. */
+export function closedLast<T extends { status: string }>(items: readonly T[]): T[] {
+  return [...items.filter((it) => !CLOSED.has(it.status)), ...items.filter((it) => CLOSED.has(it.status))]
+}
+
 export function flowOf(items: DashAgendaItem[], now: number): Flow {
   const late: FlowRow[] = []
   const waiting: FlowRow[] = []

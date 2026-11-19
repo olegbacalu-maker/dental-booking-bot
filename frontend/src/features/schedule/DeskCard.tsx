@@ -2,7 +2,7 @@ import { type ReactNode } from 'react'
 import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import type { IconName } from '../../components/icons'
-import { CALL_WORDS, type CallResult, type Desk, type DeskConfirm, type DeskConfirmItem } from './desk'
+import { CALL_WORDS, type CallResult, type Desk, type DeskConfirm, type DeskConfirmItem, type DeskPastItem } from './desk'
 import { Fold } from './Fold'
 
 /* Списки стойки (01.10, «La recepție»): рабочие списки регистратуры — каждая
@@ -38,26 +38,43 @@ const T = {
   noanswer: 'nu răspunde',
   call: 'Sună',
   mail: 'E-mail',
+  unclosed: 'Nefinalizate',
+  unclosedHint: 'vizite din zilele trecute fără «Finalizat»',
+  done: 'Finalizat',
+  noshow: 'Nu a venit',
+  lost: 'Anulate fără reprogramare',
+  lostHint: 'anulate sau neprezentate în ultimele 14 zile, fără programare nouă',
+  open: 'Deschide ziua',
 } as const
 
 interface Props {
   desk: Desk
   busy: boolean
   onCall: (id: number, result: CallResult) => void
+  /** Исход визита прошлого дня («Finalizat» / «Nu a venit») — та же команда статуса. */
+  onStatus?: ((id: number, to: string) => void) | undefined
 }
 
-export function DeskCard({ desk, busy, onCall }: Props) {
+export function DeskCard({ desk, busy, onCall, onStatus }: Props) {
   const c = desk.confirm
 
   /* Пустые списки не рисуются — и пустая карточка тоже: в тихий день колонка
      кончается на «Primul loc liber», как в макете. */
   const ct = desk.confirm_today
   const rc = desk.recall
+  const uc = desk.unclosed
+  const lost = desk.lost
   const any = (desk.collect !== null && desk.collect.n > 0) || c.n > 0 || ct.n > 0 || desk.unscheduled.n > 0
-    || (rc !== null && rc.n > 0)
+    || (rc !== null && rc.n > 0) || uc.n > 0 || lost.n > 0
   if (!any) return null
   return (
     <div className="desk">
+      {uc.n > 0 && (
+        <Section id="unclosed" icon="hourglass" title={T.unclosed} count={`${uc.n}`} hint={T.unclosedHint} tone="amber">
+          {uc.items.map((it) => <PastRow key={it.id} it={it} busy={busy} onStatus={onStatus} />)}
+          {uc.n > uc.items.length && <span className="dk-more">{T.more} {uc.n - uc.items.length}</span>}
+        </Section>
+      )}
       {desk.collect && desk.collect.n > 0 && (
         <Section id="collect" icon="money" title={T.collect} count={`${desk.collect.sum_s} ${T.mdl}`} tone="red">
           {desk.collect.items.map((it) => (
@@ -95,6 +112,24 @@ export function DeskCard({ desk, busy, onCall }: Props) {
         </Section>
       )}
 
+      {lost.n > 0 && (
+        <Section id="lost" icon="ban" title={T.lost} count={`${lost.n}`} hint={T.lostHint} tone="red">
+          {lost.items.map((it) => (
+            <div key={it.id} className="dk-row">
+              <div className="dk-b">
+                <AppLink href={`/admin/patient/${it.pid}`}><b>{it.name}</b></AppLink>
+                <small>{it.status_label} {it.date} · {it.doctor}</small>
+              </div>
+              <span className="dk-act">
+                {it.phone && <AppLink className="dk-btn" href={`tel:${it.phone}`} title={`${T.call} ${it.phone}`}
+                  aria-label={`${T.call}: ${it.name}`}><Icon name="phone" /></AppLink>}
+              </span>
+            </div>
+          ))}
+          {lost.n > lost.items.length && <span className="dk-more">{T.more} {lost.n - lost.items.length}</span>}
+        </Section>
+      )}
+
       {rc && rc.n > 0 && (
         /* кадр К4-А: первые строки «De sunat», телефон и конверт, «toată lista» */
         <Section id="recall" icon="refresh" title={T.recall} count={`${rc.n}`} hint={T.recallHint} tone="teal">
@@ -118,6 +153,28 @@ export function DeskCard({ desk, busy, onCall }: Props) {
           </AppLink>
         </Section>
       )}
+    </div>
+  )
+}
+
+/** Визит прошлого дня без исхода: закрыть одной кнопкой. «Nu a venit» —
+ *  только у «programată» (матрица сервера не даёт его пришедшему). */
+function PastRow({ it, busy, onStatus }: { it: DeskPastItem; busy: boolean; onStatus: Props['onStatus'] }) {
+  return (
+    <div className="dk-row" data-appt={it.id}>
+      <span className="dk-t dk-d">{it.date}<small>{it.time}</small></span>
+      <div className="dk-b">
+        <AppLink href={`/admin/all?date=${it.iso}`} title={T.open}><b>{it.name}</b></AppLink>
+        <small>{it.status_label} · {it.doctor}</small>
+      </div>
+      <span className="dk-act">
+        <button type="button" className="dk-btn ok" title={T.done} aria-label={`${T.done}: ${it.name}`}
+          disabled={busy || !onStatus} onClick={() => onStatus?.(it.id, 'done')}><Icon name="check" /></button>
+        {it.status === 'confirmed' && (
+          <button type="button" className="dk-btn no" title={T.noshow} aria-label={`${T.noshow}: ${it.name}`}
+            disabled={busy || !onStatus} onClick={() => onStatus?.(it.id, 'noshow')}><Icon name="ban" /></button>
+        )}
+      </span>
     </div>
   )
 }
@@ -169,7 +226,7 @@ function Section({ id, icon, title, count, hint, tone, children }: {
   id: string; icon: IconName; title: string; count?: string; hint?: string; tone: string; children: ReactNode
 }) {
   return (
-    <Fold id={`desk:${id}`} className="dk-sec" head={
+    <Fold id={`desk:${id}`} className="dk-sec" defaultOpen={false} head={
       <>
         <span className={`dk-ico ${tone}`}><Icon name={icon} /></span>
         <span className="dk-st">{title}{hint && <small>{hint}</small>}</span>

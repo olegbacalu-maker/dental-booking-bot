@@ -60,6 +60,8 @@ function model(over: Partial<DashModel> = {}): DashModel {
         { id: 7, pid: 17, time: '09:00', name: 'Ion Popa', phone: '069000000', doctor: 'Dr. Ion', service: 'Consultație', call: '', call_at: '', call_by: '' },
       ] },
       unscheduled: { items: [], n: 0, sum_s: '0' },
+      unclosed: { items: [], n: 0 },
+      lost: { items: [], n: 0 },
       collect: null,
       free: [{ dk: 'd2', name: 'Dr. Ion', when: 'azi 11:00', today: true, href: `/admin?date=${TODAY}` }],
       recall: null,
@@ -1487,5 +1489,64 @@ describe('права врача: подсказка учётки без врач
     vi.stubGlobal('fetch', vi.fn(async () => reply(200, model())))
     await show()
     expect(document.querySelector('.banner.warn')).toBeNull()
+  })
+})
+
+describe('клавиши главной: T, ← / →, N, «/»', () => {
+  const at = async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, model())))
+    const m = mount()
+    await waitFor(() => expect(document.querySelector('.gridbody')).toBeTruthy())
+    return m.router
+  }
+
+  it('← / → листают день, T — сегодня', async () => {
+    const router = await at()
+    fireEvent.keyDown(document.body, { key: 'ArrowRight', code: 'ArrowRight' })
+    await waitFor(() => expect(router.state.location.search).toBe(`?date=${shift(TODAY, 1)}`))
+    fireEvent.keyDown(document.body, { key: 'ArrowLeft', code: 'ArrowLeft' })
+    await waitFor(() => expect(router.state.location.search).toBe(`?date=${TODAY}`))
+    fireEvent.keyDown(document.body, { key: 'ArrowLeft', code: 'ArrowLeft' })
+    await waitFor(() => expect(router.state.location.search).toBe(`?date=${shift(TODAY, -1)}`))
+    fireEvent.keyDown(document.body, { key: 't', code: 'KeyT' })
+    await waitFor(() => expect(router.state.location.search).toBe(''))
+  })
+
+  it('N жмёт «Programare nouă» шапки, «/» открывает поиск (как Ctrl K) — и на русской раскладке', async () => {
+    await at()
+    const add = vi.fn()
+    const btn = document.createElement('a')
+    btn.className = 'newbtn'
+    btn.addEventListener('click', (e) => { e.preventDefault(); add() })
+    document.body.appendChild(btn)
+    const finds: KeyboardEvent[] = []
+    const spy = (e: KeyboardEvent) => { if (e.ctrlKey && e.key === 'k') finds.push(e) }
+    document.addEventListener('keydown', spy)
+    fireEvent.keyDown(document.body, { key: 'т', code: 'KeyN' })
+    expect(add).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(document.body, { key: '/', code: 'Slash' })
+    fireEvent.keyDown(document.body, { key: '/', code: 'Backslash' })
+    expect(finds).toHaveLength(2)
+    document.removeEventListener('keydown', spy)
+    btn.remove()
+  })
+
+  it('не перехватывает: в поле ввода, с Ctrl или Alt и при открытом окне', async () => {
+    const router = await at()
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    input.focus()
+    fireEvent.keyDown(input, { key: 'ArrowRight', code: 'ArrowRight' })
+    fireEvent.keyDown(document.body, { key: 'ArrowRight', code: 'ArrowRight', ctrlKey: true })
+    fireEvent.keyDown(document.body, { key: 'ArrowRight', code: 'ArrowRight', altKey: true })
+    input.remove()
+    const dlg = document.createElement('dialog')
+    dlg.setAttribute('open', '')
+    document.body.appendChild(dlg)
+    fireEvent.keyDown(document.body, { key: 't', code: 'KeyT' })
+    fireEvent.keyDown(document.body, { key: 'ArrowRight', code: 'ArrowRight' })
+    dlg.remove()
+    await vi.advanceTimersByTimeAsync(50)
+    expect(router.state.location.search).toBe(`?date=${TODAY}`)
   })
 })

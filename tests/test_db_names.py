@@ -95,7 +95,7 @@ SNAPSHOT = frozenset((
     "_insert_note", "_iso", "last_events", "log", "_log_booking", "log_clinic_event",
     "log_event", "manual_key", "MKT_EVENT", "MKT_SOURCES", "manual_patient_sms_off", "_migrate", "MIGRATIONS",
     "move_appointment", "ocluzie", "OCLUZIE_DDL", "OCLUZIE_FIELDS", "_OLD_ACT_SQL",
-    "_parse_dt", "patient_activity", "patient_alerts", "patient_appointments",
+    "_parse_dt", "past_by_status", "patient_activity", "patient_alerts", "patient_appointments",
     "_patient_busy_at", "_PATIENT_CHILD_TABLES", "PATIENT_FIELDS", "patient_finance",
     "_PATIENT_GRAND_CHILDREN", "patient_id_by_key", "_patient_ids_by_digits",
     "patient_name_by_phone", "patient_visit_records", "patients_archived",

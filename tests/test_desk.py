@@ -9,7 +9,8 @@ import json
 import sqlite3
 from datetime import datetime, timedelta
 
-from harness import Client, Clock, FIXTURES, Result, Server, TZ, pid_by_phone
+from harness import (Client, Clock, FIXTURES, Result, Server, TZ, add_appt, appt_id, clinic_today,
+                     pid_by_phone)
 from test_api import NO_KEY
 
 _DOW = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
@@ -185,4 +186,85 @@ def suite_desk(res: Result) -> None:
         ana.post("/admin/login", password="3333", next="/admin")
         d = _desk(ana)
         res.check("регистратура: collect = null, остальные списки есть",
-                  (d["collect"], sorted(d)), (None, ["collect", "confirm", "confirm_today", "free", "recall", "unscheduled"]))
+                  (d["collect"], sorted(d)), (None, ["collect", "confirm", "confirm_today", "free", "lost", "recall", "unclosed",
+                         "unscheduled"]))
+
+
+def _status(c: Client, aid: int, to: str) -> None:
+    r = c.post_json(f"/api/schedule/appointments/{aid}/status?screen=panel", {"to": to})
+    if r.status != 200:
+        raise AssertionError(f"статус {to} визиту {aid}: {r.status} {r.body[:200]}")
+
+
+def _names(lst: dict) -> list[str]:
+    return [x["name"] for x in lst["items"]]
+
+
+def suite_past_lists(res: Result) -> None:
+    """«Nefinalizate» и «Anulate fără reprogramare»: окна дней, статусы,
+    «вернулся позже», одна строка на человека, порядок, исход из списка,
+    права врача — тем же конвертом живого канала."""
+    with Clock(datetime(2026, 10, 6, 10, 0, tzinfo=TZ)), Server(env=NO_KEY) as s:
+        boss = Client(s.url)
+        boss.post("/admin/setup", pin1="1111", pin2="1111")
+        res.check("учётка врача d2 заведена", boss.post_json("/api/settings/users", {
+            "uid": "d2", "name": "Medic D2", "role": "medic", "doctor_id": "d2", "pin": "2222"}).msg, "ok_user")
+        today = clinic_today()
+
+        def day(n: int) -> str:
+            return (today + timedelta(days=n)).isoformat()
+
+        def put(n: int, t: str, name: str, phone: str, to: str = "", doctor: str = "d2") -> int:
+            r = add_appt(boss, day(n), t, name, phone, doctor=doctor)
+            if r.msg not in ("ok", "ok_past"):
+                raise AssertionError(f"запись {name} {day(n)} {t}: {r.msg}")
+            aid = appt_id(boss, day(n), name)
+            if to:
+                _status(boss, aid, to)
+            return aid
+
+        a = put(-1, "09:00", "Uitat Programat", "069810001")
+        put(-1, "11:00", "Uitat Asteapta", "069810002", "waiting")
+        put(-2, "12:00", "Uitat Cabinet", "069810003", "arrived")
+        put(-1, "10:00", "Inchis Bine", "069810004", "done")
+        put(0, "09:00", "Azi Programat", "069810005")
+        put(-40, "09:00", "Vechi Uitat", "069810006")
+        put(-1, "13:00", "Uitat Alt Medic", "069810007", doctor="d3")
+
+        put(-1, "14:00", "Nu A Venit", "069820001", "noshow")
+        put(-1, "15:00", "Anulat Cu Viitor", "069820002", "cancelled")
+        put(7, "10:00", "Anulat Cu Viitor", "069820002")
+        put(-3, "09:00", "Anulat Revenit", "069820003", "cancelled")
+        put(-1, "16:00", "Anulat Revenit", "069820003", "done")
+        put(-20, "09:00", "Anulat Demult", "069820004", "cancelled")
+        put(-5, "09:00", "Anulat De Doua Ori", "069820005", "cancelled")
+        put(-1, "17:00", "Anulat De Doua Ori", "069820005", "cancelled")
+        put(-2, "09:00", "Anulat Alt Medic", "069820006", "cancelled", doctor="d3")
+
+        d = _desk(boss)
+        u = d["unclosed"]
+        res.check("Nefinalizate: прошлые дни без исхода, свежие сверху; сегодня, закрытые и старше 30 дней — нет",
+                  _names(u), ["Uitat Alt Medic", "Uitat Asteapta", "Uitat Programat", "Uitat Cabinet"])
+        res.check("Nefinalizate: число = строки", u["n"], 4)
+        row = next(x for x in u["items"] if x["name"] == "Uitat Programat")
+        res.check("строка: день, час, ISO-день, статус словом", (row["date"], row["time"], row["iso"], row["status"]),
+                  ((today - timedelta(days=1)).strftime("%d.%m"), "09:00", day(-1), "confirmed"))
+        lost = d["lost"]
+        res.check("Anulate: отмена и неявка без новой записи; с будущей, вернувшийся и старше 14 дней — нет",
+                  _names(lost), ["Anulat De Doua Ori", "Nu A Venit", "Anulat Alt Medic"])
+        dup = next(x for x in lost["items"] if x["name"] == "Anulat De Doua Ori")
+        res.check("Anulate: человек — одна строка, по последней отмене", dup["iso"], day(-1))
+
+        _status(boss, a, "done")
+        res.ok("«Finalizat» из списка — визит ушёл из Nefinalizate",
+               "Uitat Programat" not in _names(_desk(boss)["unclosed"]), f"{_names(_desk(boss)['unclosed'])}")
+        live = boss.get("/api/schedule/live?screen=panel")
+        again = boss.get("/api/schedule/live?screen=panel")
+        res.check("тело канала с новыми списками неподвижно: второй ответ тот же", again.body, live.body)
+
+        med = Client(s.url)
+        med.post("/admin/login", password="2222", next="/admin")
+        dm = _desk(med)
+        res.check("врач: Nefinalizate — только свои визиты", _names(dm["unclosed"]),
+                  ["Uitat Asteapta", "Uitat Cabinet"])
+        res.check("врач: Anulate — только свои визиты", _names(dm["lost"]), ["Anulat De Doua Ori", "Nu A Venit"])

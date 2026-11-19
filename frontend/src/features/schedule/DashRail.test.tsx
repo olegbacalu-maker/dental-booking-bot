@@ -92,6 +92,8 @@ const DESK: Desk = {
     ],
   },
   unscheduled: { items: [{ pid: 20, name: 'Plan Fara', phone: '069111444', n: 2, total: 9000, total_s: '9 000', days: 12 }], n: 9, sum_s: '41 300' },
+  unclosed: { items: [], n: 0 },
+  lost: { items: [], n: 0 },
   collect: {
     items: [{ pid: 21, name: 'Datornic', time: '08:30', status: 'done', status_label: 'finalizată', debt: 300, debt_s: '300' }],
     n: 1, sum_s: '300',
@@ -536,7 +538,7 @@ describe('01.10: «La recepție» — списки стойки', () => {
 })
 
 describe('12.10: блоки колонки сворачиваются и помнят это на компьютере (слово Олега)', () => {
-  it('Agenda zilei, Primul loc liber и разделы стойки — заголовком; свёрнутое запомнено, развернул — забыто', () => {
+  it('Agenda zilei, Primul loc liber и разделы стойки — заголовком; выбор помнит компьютер', () => {
     show()
     const folds = Array.from(document.querySelectorAll('details.dp-fold')).map((d) => d.getAttribute('data-fold'))
     expect(folds).toEqual(expect.arrayContaining(['agenda', 'free', 'desk:collect', 'desk:confirm', 'desk:unsched']))
@@ -550,11 +552,32 @@ describe('12.10: блоки колонки сворачиваются и пом�
     cleanup()
     show()
     expect((document.querySelector('details[data-fold="agenda"]') as HTMLDetailsElement).open).toBe(false)
-    expect((document.querySelector('details[data-fold="free"]') as HTMLDetailsElement).open).toBe(true)
     const again = document.querySelector('details[data-fold="agenda"]') as HTMLDetailsElement
     again.open = true
     fireEvent(again, new Event('toggle'))
-    expect(localStorage.getItem('dp_fold:agenda')).toBeNull()
+    expect(localStorage.getItem('dp_fold:agenda')).toBe('1')
+  })
+
+  it('«Primul loc liber» и списки стойки свёрнуты, пока их не открыли; открытое — запомнено', () => {
+    show()
+    const open = (id: string) => (document.querySelector(`details[data-fold="${id}"]`) as HTMLDetailsElement).open
+    for (const id of ['free', 'desk:collect', 'desk:confirm', 'desk:unsched']) expect(open(id)).toBe(false)
+    // число в шапке свёрнутого раздела видно: колонка читается оглавлением
+    expect(document.querySelector('details[data-fold="desk:unsched"] > summary')?.textContent).toContain('9')
+    const free = document.querySelector('details[data-fold="free"]') as HTMLDetailsElement
+    free.open = true
+    fireEvent(free, new Event('toggle'))
+    expect(localStorage.getItem('dp_fold:free')).toBe('1')
+    cleanup()
+    show()
+    expect(open('free')).toBe(true)
+    expect(open('desk:confirm')).toBe(false)
+  })
+
+  it('прежняя память «свёрнуто» читается как раньше', () => {
+    localStorage.setItem('dp_fold:agenda', '0')
+    show()
+    expect((document.querySelector('details[data-fold="agenda"]') as HTMLDetailsElement).open).toBe(false)
   })
 
   it('касса под «Primul loc liber» не сворачивается вместе с врачами', () => {
@@ -565,6 +588,7 @@ describe('12.10: блоки колонки сворачиваются и пом�
   })
 
   it('⛔ сворачивание держит высоту колонки (без прыжка у низа страницы), открытие — нет', () => {
+    localStorage.setItem('dp_fold:desk:confirm', '1')
     render(<div className="dash"><div className="dashmain" /><div className="rail">
       <DashRail minical={MINICAL} agenda={AGENDA} canvas={CANVAS} desk={DESK}
         date="2026-09-19" waitTick={NOW} busy={false} onCard={onCard} onCall={onCall} fresh={NO_FRESH}
@@ -607,5 +631,101 @@ describe('C26.5.2: спарклайн', () => {
     expect(svg.getAttribute('viewBox')).toBe('0 0 100 26')
     expect(svg.querySelector('.sp-a')?.getAttribute('points')).toMatch(/^0,26 .* 100,26$/)
     expect(svg.querySelector('.sp-l')?.getAttribute('vector-effect')).toBe('non-scaling-stroke')
+  })
+})
+
+describe('повестка: закрытые визиты в конце, вид «compactă / detaliată»', () => {
+  const MIXED: DashAgenda = {
+    count: 4, today: true,
+    items: [
+      item({ id: 11, time: '08:00', name: 'A Finalizat', status: 'done', badge: { cls: 'off', label: 'Finalizată' } }),
+      item({ id: 12, time: '09:00', name: 'B Programat' }),
+      item({ id: 13, time: '09:30', name: 'C Nu a venit', status: 'noshow', badge: { cls: 'bad', label: 'Nu a venit' } }),
+      item({ id: 14, time: '10:00', name: 'D Asteapta', status: 'waiting', badge: { cls: 'wai', label: 'Așteaptă' } }),
+    ],
+  }
+  const order = () => Array.from(document.querySelectorAll('.ag-l .ag-i')).map((e) => e.getAttribute('data-appt'))
+
+  it('«Toate»: сперва с кем ещё есть дело, закрытые — в конце, каждая группа по времени', () => {
+    show({ agenda: MIXED })
+    expect(order()).toEqual(['12', '14', '11', '13'])
+  })
+
+  it('чужой день целиком из закрытых — порядок времени не меняется', () => {
+    const done = { ...MIXED, today: false, items: MIXED.items.map((it) => ({ ...it, status: 'done' })) }
+    show({ agenda: done })
+    expect(order()).toEqual(['11', '12', '13', '14'])
+  })
+
+  it('по умолчанию компактная; «detaliată» запоминается на компьютере, «compactă» — возвращает', () => {
+    show()
+    const box = () => document.querySelector('details[data-fold="agenda"]')!
+    expect(box().classList.contains('cmp')).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'detaliată' }))
+    expect(box().classList.contains('cmp')).toBe(false)
+    expect(localStorage.getItem('dp_ag_view')).toBe('full')
+    cleanup()
+    show()
+    expect(box().classList.contains('cmp')).toBe(false)
+    expect(screen.getByRole('button', { name: 'detaliată' }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: 'compactă' }))
+    expect(box().classList.contains('cmp')).toBe(true)
+    expect(localStorage.getItem('dp_ag_view')).toBeNull()
+  })
+
+  it('компактная строка несёт услугу и комментарий подсказкой; «Consultație» в разметке есть (вид прячет CSS)', () => {
+    show({ agenda: { ...AGENDA, items: [item({ comment: 'alergic la penicilină' })] } })
+    const row = document.querySelector('.ag-i') as HTMLElement
+    expect(row.getAttribute('title')).toBe('Consultație · Comentariu: alergic la penicilină')
+    expect(within(row).getByRole('link', { name: 'Consultație' })).toBeTruthy()
+  })
+})
+
+describe('стойка: «Nefinalizate» и «Anulate fără reprogramare»', () => {
+  const past = (over: Partial<Desk['unclosed']['items'][0]>) => ({
+    id: 1, pid: 1, date: '18.09', time: '09:00', iso: '2026-09-18', name: 'X', phone: '',
+    doctor: 'Dr. Ion', status: 'confirmed', status_label: 'programată', ...over,
+  })
+  const onStatus = vi.fn()
+  afterEach(() => onStatus.mockClear())
+
+  it('пустые списки не рисуются', () => {
+    show()
+    expect(document.querySelector('details[data-fold="desk:unclosed"]')).toBeNull()
+    expect(document.querySelector('details[data-fold="desk:lost"]')).toBeNull()
+  })
+
+  it('Nefinalizate: число в шапке, имя ведёт в день визита; «Finalizat» — всем, «Nu a venit» — только programată', () => {
+    show({ onStatus, desk: { ...DESK, unclosed: { n: 11, items: [
+      past({ id: 51, name: 'Uitat Programat' }),
+      past({ id: 52, name: 'Uitat Asteapta', status: 'waiting', status_label: 'a venit', iso: '2026-09-17', date: '17.09' }),
+    ] } } })
+    const sec = document.querySelector('details[data-fold="desk:unclosed"]') as HTMLElement
+    expect(sec.querySelector('summary')?.textContent).toContain('Nefinalizate')
+    expect(sec.querySelector('.dk-cnt')?.textContent).toBe('11')
+    expect(within(sec).getByRole('link', { name: 'Uitat Asteapta' }).getAttribute('href')).toBe('/admin/all?date=2026-09-17')
+    fireEvent.click(within(sec).getByRole('button', { name: 'Finalizat: Uitat Asteapta' }))
+    expect(onStatus).toHaveBeenCalledWith(52, 'done')
+    fireEvent.click(within(sec).getByRole('button', { name: 'Nu a venit: Uitat Programat' }))
+    expect(onStatus).toHaveBeenCalledWith(51, 'noshow')
+    expect(within(sec).queryByRole('button', { name: 'Nu a venit: Uitat Asteapta' })).toBeNull()
+    expect(sec.querySelector('.dk-more')?.textContent).toBe('încă 9')
+  })
+
+  it('Nefinalizate: кнопки выключены, пока идёт команда', () => {
+    show({ onStatus, busy: true, desk: { ...DESK, unclosed: { n: 1, items: [past({ id: 51, name: 'U' })] } } })
+    expect((screen.getByRole('button', { name: 'Finalizat: U' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('Anulate: имя ведёт в фишу, слово исхода и день; звонок — только у кого есть телефон', () => {
+    show({ desk: { ...DESK, lost: { n: 2, items: [
+      past({ id: 61, pid: 31, name: 'Nu A Venit', status: 'noshow', status_label: 'nu a venit', phone: '069 111 222' }),
+      past({ id: 62, pid: 32, name: 'Anulat', status: 'cancelled', status_label: 'anulată' }),
+    ] } } })
+    const sec = document.querySelector('details[data-fold="desk:lost"]') as HTMLElement
+    expect(within(sec).getByRole('link', { name: 'Nu A Venit' }).getAttribute('href')).toBe('/admin/patient/31')
+    expect(sec.textContent).toContain('nu a venit 18.09 · Dr. Ion')
+    expect(within(sec).getByRole('link', { name: 'Sună: Nu A Venit' }).getAttribute('href')).toBe('tel:069 111 222')
+    expect(within(sec).queryByRole('link', { name: 'Sună: Anulat' })).toBeNull()
   })
 })
