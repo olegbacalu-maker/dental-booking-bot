@@ -1,161 +1,84 @@
-import { useCallback, useState, type FormEvent } from 'react'
+import { useCallback, useState } from 'react'
+import { useSearchParams } from 'react-router'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
-import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
-import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
-import { asApiError } from '../../services/api'
-import { roCount } from '../../utils/plural'
-import { settings, type TemplatesData, type TemplatesForm, type TplFieldId } from './settings'
+import { queryParam, searchChangeKeepsData, useRouteLoad, type ScreenData } from '../../hooks/useRouteLoad'
+import { ConsultTemplatesTab } from './ConsultTemplatesTab'
+import { PlanTemplatesTab } from './PlanTemplatesTab'
+import { settings, type PlanTemplatesData, type TemplatesAll, type TemplatesData } from './settings'
 
 const T = {
-  title: 'Șabloane consultație',
-  intro: 'Textele șabloanelor le scrie clinica, pentru fiecare serviciu din listă. În jurnalul '
-    + 'consultației, butonul «Din șablon» le pune în câmpurile goale — ce a scris medicul nu se '
-    + 'schimbă. Mai multe servicii la o vizită: textele se adună pe câmpuri.',
-  marks: 'În text se pot folosi:',
-  tooth: 'numărul dintelui din procedura bifată în plan',
-  date: 'data vizitei',
-  empty: 'gol',
-  filled: { one: '{n} câmp completat', few: '{n} câmpuri completate', many: '{n} de câmpuri completate' },
-  edited: 'modificat',
-  example: 'Exemplu',
-  exampleHint: 'pune un text-exemplu în câmpurile goale — de editat',
-  copy: 'Copiază din șablon general',
-  copyPick: 'Copiază din șablon general…',
-  copyHint: 'textul unui șablon general, ca punct de pornire — de editat',
-  none: 'Lista de servicii e goală — adăugați serviciile în Setări › Servicii.',
-  save: 'Salvează șabloanele',
-  offline: 'Programul nu răspunde. Reîncercați.',
+  title: 'Șabloane',
+  tabs: 'Tipul șabloanelor',
+  consult: 'Consultație',
+  plan: 'Plan de tratament',
+  dirty: 'modificări nesalvate',
 } as const
+
+type Tab = 'consult' | 'plan'
 
 interface Props {
   navigate?: (url: string) => void
 }
 
-/** Данные экрана грузит роутер (B2.2), App.tsx › LOADS. */
-export const loadTemplatesSettings: RouteLoad<TemplatesData> = (signal) => settings.templates(signal)
+/**
+ * Данные экрана грузит роутер (App.tsx › LOADS): обе вкладки одним ответом,
+ * чтобы переключение не ждало сети. Вкладка живёт в адресе (`?tab=plan`), и
+ * смену одного query загрузчик не перезапускает — данные те же.
+ */
+export const loadTemplatesSettings: ScreenData = {
+  load: async (signal) => {
+    const [consult, plan] = await Promise.all([settings.templates(signal), settings.planTemplates(signal)])
+    return { ...consult, data: { consult: consult.data, plan: plan.data } satisfies TemplatesAll }
+  },
+  shouldRevalidate: searchChangeKeepsData,
+}
 
 /**
- * Шаблоны дневника визита по услуге (10.11). Правка живёт в состоянии экрана
- * ПО ГРАФАМ: на запись уходит только тронутое (`TemplatesForm`), так что
- * пересохранение без правки ничего не меняет, а вкладка, открытая рядом,
- * не затирает чужую графу. Тексты, метки и заглушка — с сервера.
+ * «Setări › Șabloane»: шаблоны консультации и шаблоны плана лечения — вкладками
+ * одного экрана. Обе вкладки смонтированы сразу, неактивная спрятана: правка,
+ * начатая в одной, переживает взгляд в другую.
  */
 export function TemplatesSettingsScreen({ navigate = defaultNavigate }: Props) {
-  const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<TemplatesData>(navigate)
-  const [touched, setTouched] = useState<TemplatesForm>({})
-  const [open, setOpen] = useState<string[]>([])
-  const [saving, setSaving] = useState(false)
-  const [toast, setToast] = useState<ToastState | null>(null)
-  const closeToast = useCallback(() => setToast(null), [])
+  const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<TemplatesAll>(navigate)
+  const [query, setQuery] = useSearchParams()
+  const tab: Tab = queryParam(query, 'tab') === 'plan' ? 'plan' : 'consult'
+  const [dirty, setDirty] = useState<Record<Tab, boolean>>({ consult: false, plan: false })
+  const dirtyConsult = useCallback((d: boolean) => setDirty((x) => (x.consult === d ? x : { ...x, consult: d })), [])
+  const dirtyPlan = useCallback((d: boolean) => setDirty((x) => (x.plan === d ? x : { ...x, plan: d })), [])
 
-  const data: TemplatesData | null = state.status === 'ready' ? state.data : null
-  const value = (sid: string, k: TplFieldId): string =>
-    touched[sid]?.[k] ?? data?.services.find((s) => s.id === sid)?.tpl[k] ?? ''
-  const setField = (sid: string, k: TplFieldId, v: string) =>
-    setTouched((t) => ({ ...t, [sid]: { ...t[sid], [k]: v } }))
-  const toggle = (sid: string) =>
-    setOpen((o) => (o.includes(sid) ? o.filter((x) => x !== sid) : [...o, sid]))
-  /* «Exemplu» и «Copiază din șablon general» кладут текст только в ПУСТЫЕ графы */
-  const fillFrom = (sid: string, src: Record<TplFieldId, string>) => {
-    if (!data) return
-    for (const f of data.fields) {
-      const v = src[f.id]
-      if (v && !value(sid, f.id).trim()) setField(sid, f.id, v)
-    }
-  }
-
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault()
-    setSaving(true)
-    try {
-      const r = await settings.templatesSave(touched)
-      replace(r.data)
-      setTouched({})
-      setToast({ tone: r.tone, text: r.text })
-    } catch (err) {
-      const apiErr = asApiError(err)
-      if (leaveIfSignedOut(apiErr)) return
-      setToast({ tone: 'err', text: apiErr.text || T.offline })
-    } finally {
-      setSaving(false)
-    }
-  }
+  const all: TemplatesAll | null = state.status === 'ready' ? state.data : null
+  const savedConsult = useCallback((d: TemplatesData) => { if (all) replace({ ...all, consult: d }) }, [all, replace])
+  const savedPlan = useCallback((d: PlanTemplatesData) => { if (all) replace({ ...all, plan: d }) }, [all, replace])
 
   if (state.status === 'leaving') return null
   const head = <h2><Icon name="note" /> {T.title}</h2>
   if (state.status === 'failed') {
     return <section className="dp-react-root">{head}<LoadFailed error={state.error} onRetry={retry} /></section>
   }
-  const dirty = Object.keys(touched).length > 0
+  const pick = (t: Tab) => setQuery(t === 'plan' ? { tab: 'plan' } : {}, { replace: true })
 
   return (
-    <section className="dp-react-root dp-tpls" aria-busy={data === null}>
+    <section className="dp-react-root dp-tpls" aria-busy={all === null}>
       {head}
-      <p className="hint">{T.intro}</p>
-      {data && (
-        <p className="hint">
-          {T.marks} <b className="tpl-mark">{data.marks.tooth}</b> — {T.tooth}; <b className="tpl-mark">{data.marks.date}</b> — {T.date}.
-        </p>
-      )}
-      {data && data.services.length === 0 && <p className="hint">{T.none}</p>}
-      <form onSubmit={onSubmit}>
-        <div className="tpl-list">
-          {data?.services.map((s) => {
-            const isOpen = open.includes(s.id)
-            const n = data.fields.filter((f) => value(s.id, f.id).trim()).length
-            const allEmpty = n === 0
-            return (
-              <div key={s.id} className="fcard tpl-card">
-                <button type="button" className="tpl-head" aria-expanded={isOpen}
-                  aria-controls={`tpl_${s.id}`} onClick={() => toggle(s.id)}>
-                  <Icon name={isOpen ? 'caret-u' : 'caret-d'} />
-                  <b>{s.label}</b>
-                  <small className={n ? 'tpl-n on' : 'tpl-n'}>
-                    {n ? roCount(n, T.filled) : T.empty}{touched[s.id] ? ` · ${T.edited}` : ''}
-                  </small>
-                </button>
-                {isOpen && (
-                  <div id={`tpl_${s.id}`}>
-                    <div className="fform">
-                      {data.fields.map((f) => (
-                        <label key={f.id} className="dlab" htmlFor={`tpl_${s.id}_${f.id}`}>
-                          {f.label}
-                          <textarea id={`tpl_${s.id}_${f.id}`} rows={f.rows} maxLength={data.max}
-                            value={value(s.id, f.id)} disabled={saving}
-                            onChange={(e) => setField(s.id, f.id, e.target.value)} />
-                        </label>
-                      ))}
-                    </div>
-                    {allEmpty && (
-                      <div className="tplrow">
-                        <button type="button" disabled={saving} onClick={() => fillFrom(s.id, data.example)}>{T.example}</button>
-                        <small className="hint dp-m0">{T.exampleHint}</small>
-                      </div>
-                    )}
-                    {allEmpty && data.general.length > 0 && (
-                      <div className="tplrow">
-                        <select value="" aria-label={`${T.copy}: ${s.label}`} disabled={saving}
-                          onChange={(e) => {
-                            const g = data.general.find((x) => x.id === e.target.value)
-                            if (g) fillFrom(s.id, g.values)
-                          }}>
-                          <option value="">{T.copyPick}</option>
-                          {data.general.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
-                        </select>
-                        <small className="hint dp-m0">{T.copyHint}</small>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-        <button className="savebtn" disabled={data === null || saving || !dirty}><Icon name="save" /> {T.save}</button>
-      </form>
-      {toast && <Toast tone={toast.tone} text={toast.text} onClose={closeToast} />}
+      <div className="rc-tabs tpl-tabs" role="tablist" aria-label={T.tabs}>
+        {(['consult', 'plan'] as const).map((t) => (
+          <button key={t} type="button" role="tab" id={`tpl_tab_${t}`} aria-controls={`tpl_pane_${t}`}
+            aria-selected={tab === t} className={`rc-tab${tab === t ? ' on' : ''}`} onClick={() => pick(t)}>
+            {T[t]}
+            {dirty[t] && <span className="tpl-dirty" title={T.dirty} aria-label={T.dirty} />}
+          </button>
+        ))}
+      </div>
+      <div role="tabpanel" id="tpl_pane_consult" aria-labelledby="tpl_tab_consult" hidden={tab !== 'consult'}>
+        <ConsultTemplatesTab data={all?.consult ?? null} onSaved={savedConsult}
+          leaveIfSignedOut={leaveIfSignedOut} onDirty={dirtyConsult} />
+      </div>
+      <div role="tabpanel" id="tpl_pane_plan" aria-labelledby="tpl_tab_plan" hidden={tab !== 'plan'}>
+        <PlanTemplatesTab data={all?.plan ?? null} onSaved={savedPlan}
+          leaveIfSignedOut={leaveIfSignedOut} onDirty={dirtyPlan} />
+      </div>
     </section>
   )
 }

@@ -34,10 +34,11 @@ from ... import update as upd
 from ...core import backup_loop, dbkey, notices, restore, sms_loop, theme
 from ...core import recall as crecall
 from ...core import sms_plan as splan
+from ...core import plan_tpl as ptpl
 from ...core import visit_tpl as vtpl
 from ...core.api import api_body, api_guard, api_require
-from ...core.auth import (PERM_SETTINGS, PERM_SMS, PERM_USERS, PIN_MAX, PIN_MIN_LAN, ROLE_LABEL,
-                          _pin_rec, _set_auth_cookie, all_users, can, change_pin,
+from ...core.auth import (HUB_PERMS, PERM_SETTINGS, PERM_SMS, PERM_TEMPLATES, PERM_USERS, PIN_MAX,
+                          PIN_MIN_LAN, ROLE_LABEL, _pin_rec, _set_auth_cookie, all_users, can, change_pin,
                           client_peer, current_user, local_only, pin_min, remote_notice,
                           pin_readiness, request_user)
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, SETUP_HINT, SUPPORT_PHONE,
@@ -113,8 +114,8 @@ async def api_clinic_save(request: Request):
 @router.get("/api/settings/hub")
 async def api_hub(request: Request):
     """Плитки хаба со строкой состояния кусками (текст / иконка / тон /
-    точка цвета)."""
-    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+    точка цвета) — те, на которые у вошедшего есть право."""
+    if (deny := api_require(request, *HUB_PERMS)) is not None:
         return deny
     # группы — порядок и подписи одним списком (`HUB_GROUPS`)
     return msg_json(True, data={"tiles": _hub_tiles(),
@@ -485,7 +486,7 @@ def _templates_data() -> dict:
 
 @router.get("/api/settings/templates")
 async def api_templates_get(request: Request):
-    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+    if (deny := api_require(request, PERM_TEMPLATES)) is not None:
         return deny
     return msg_json(True, data=_templates_data())
 
@@ -497,7 +498,7 @@ async def api_templates_save(request: Request):
     касается, графа, присланная пустой, стирается. Услуга, удалённая из
     прайса в другой вкладке, молча пропускается — шаблон без услуги некуда
     положить. Прайс и прочие поля услуг переезжают как есть."""
-    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+    if (deny := api_require(request, PERM_TEMPLATES)) is not None:
         return deny
     body = await api_body(request)
     sent = body.get("templates") if body else None
@@ -519,6 +520,54 @@ async def api_templates_save(request: Request):
     if eng.save_config(cfg) is not None:
         return msg_json(False, "save_err", status=500)
     return msg_json(True, "ok_set", data=_templates_data())
+
+
+# ---------- шаблоны плана лечения ----------
+
+def _plan_templates_data(created: list[str] | None = None) -> dict:
+    """Шаблоны плана и прайс для выбора процедуры: цена услуги — строкой
+    прайса, как её написала клиника (бывает диапазоном). `created` — id только
+    что созданных, в порядке тела записи: экран находит по ним свои новые."""
+    services = []
+    for s in eng.CONFIG["services"]:
+        price = s.get("price", "")
+        if isinstance(price, dict):
+            price = price.get("ro", "")
+        services.append({"id": s["id"], "label": s["ro"], "price": str(price or "")})
+    return {"templates": ptpl.catalog(), "services": services, "created": created or [],
+            "max": {"name": ptpl.NAME_MAX, "note": ptpl.NOTE_MAX, "rows": ptpl.ROWS_MAX,
+                    "price": ptpl.PRICE_MAX, "templates": ptpl.TPL_MAX}}
+
+
+@router.get("/api/settings/plan-templates")
+async def api_plan_templates_get(request: Request):
+    if (deny := api_require(request, PERM_TEMPLATES)) is not None:
+        return deny
+    return msg_json(True, data=_plan_templates_data())
+
+
+@router.post("/api/settings/plan-templates")
+async def api_plan_templates_save(request: Request):
+    """Тело — только ТРОНУТОЕ: `templates: {id: {name?, note?, rows?}}` —
+    правка, `new: [{name, note, rows}]` — новые, `deleted: [id]` — удалить;
+    любой ключ можно не слать. Правило, отказы и запись — `core/plan_tpl`."""
+    if (deny := api_require(request, PERM_TEMPLATES)) is not None:
+        return deny
+    body = await api_body(request)
+    if body is None:
+        return msg_json(False, "bad_ptpl", status=422)
+    try:
+        err, created = ptpl.store(body)
+    except ValueError as e:
+        if str(e) == "dup":
+            return msg_json(False, "dup_ptpl", status=422, field="name")
+        field = str(e) if str(e) in ("name", "note", "rows", "price") else ""
+        return msg_json(False, "bad_ptpl", status=422, field=field)
+    except (KeyError, TypeError, AttributeError):
+        return msg_json(False, "bad_ptpl", status=422)
+    if err is not None:
+        return msg_json(False, "save_err", status=500)
+    return msg_json(True, "ok_set", data=_plan_templates_data(created))
 
 
 # ---------- вид клиники ----------

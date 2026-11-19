@@ -137,6 +137,20 @@ _LAY_BELOW = (_LAY_ICONS, _LAY_MSG, "app/core/labels.py", "app/core/pages.py",
 # это хуже настоящего — клиника перестанет верить баннеру.
 _AUTH_WRITERS = {"save_user", "delete_user", "_write_pin", "verify_pin"}
 
+# Кто зовёт `eng.save_config`, то есть переписывает `clinic.json` ЦЕЛИКОМ.
+# Раздел профиля, который писатель не трогает, обязан пережить его запись
+# (шаблоны плана, логотип в теме, счётчики id) — это проверяется поведением:
+# `test_plan_tpl.suite_writers` идёт по этому же списку и на каждого писателя
+# требует действие. Новый писатель сюда = новое действие там.
+_CFG_WRITERS = {
+    "app/modules/settings/api.py:api_clinic_save", "app/modules/settings/api.py:api_hours_save",
+    "app/modules/settings/api.py:api_services_save", "app/modules/settings/api.py:api_templates_save",
+    "app/core/plan_tpl.py:store", "app/modules/settings/api.py:api_theme_save",
+    "app/modules/settings/api.py:api_backup_auto", "app/modules/settings/api.py:api_sms_save",
+    "app/modules/settings/routes.py:_logo_action",
+    "app/modules/doctors/routes.py:_save_cfg", "app/modules/doctors/routes.py:_save_doctor",
+}
+
 # Оракул ВХОДА В ЖУРНАЛ. Все шестеро привязаны к папке, В КОТОРОЙ ИДЁТ
 # ПРОГРАММА, и все пишут в неё. Против чужого корня (экран раздвоения, P2) они
 # непригодны вовсе — там `verify_source_pin`, читающий по явному пути.
@@ -2562,3 +2576,19 @@ def suite(res: Result) -> None:
     if seen < 2:
         bad.append(f"нашлось {seen} мест, ставящих статус позиции плана (ждали ≥ 2) — правило ослепло")
     res.ok("статус позиции плана — вместе с крючком склада", not bad, "; ".join(bad))
+
+    # Профиль клиники пишется целиком, поэтому писатели перечислены: набор
+    # `test_plan_tpl.suite_writers` на каждого требует действие и проверяет, что
+    # чужой раздел (шаблоны плана, их счётчик) запись пережил. Писатель мимо
+    # списка — запись, которую этот набор не видел; имя из списка, которого в
+    # коде уже нет, — действие набора, которое больше ничего не проверяет.
+    found = {f"{rel}:{fn.name}" for rel, tree in src if rel != "app/engine.py"
+             for fn in _walk(tree) if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+             and "save_config" in _calls(fn)}
+    bad = [f"{w} пишет clinic.json, но его нет в _CFG_WRITERS" for w in sorted(found - _CFG_WRITERS)]
+    bad += [f"{w} из _CFG_WRITERS больше не зовёт save_config" for w in sorted(_CFG_WRITERS - found)]
+    eng_tree = by_path.get("app/engine.py")
+    if eng_tree is None or not any(isinstance(n, ast.FunctionDef) and n.name == "save_config"
+                                   for n in eng_tree.body):
+        bad.append("app/engine.py без save_config — якорь правила пропал")
+    res.ok("писатели clinic.json перечислены", not bad, "; ".join(bad))

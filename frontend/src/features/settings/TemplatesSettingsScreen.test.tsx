@@ -2,7 +2,7 @@ import { cleanup, fireEvent, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import { ApiError } from '../../types/api'
-import type { TemplatesData } from './settings'
+import type { PlanTemplatesData, TemplatesData } from './settings'
 import { openScreen } from '../../test/openScreen'
 import { loadTemplatesSettings, TemplatesSettingsScreen } from './TemplatesSettingsScreen'
 
@@ -36,7 +36,16 @@ const DATA: TemplatesData = {
   max: 2000,
 }
 
+const PLAN: PlanTemplatesData = {
+  templates: [], services: [], created: [],
+  max: { name: 60, note: 120, rows: 40, price: 1000000, templates: 100 },
+}
+
 const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, text, tone: 'ok' })
+/* экран грузит обе вкладки разом: ответ — по адресу запроса */
+const serve = (consult: TemplatesData = DATA) => get.mockImplementation((path: string) =>
+  Promise.resolve(ok(path === '/settings/templates' ? consult : PLAN)))
+const svc = (label: RegExp) => screen.findByRole('button', { name: label })
 const area = (id: string) => document.getElementById(id) as HTMLTextAreaElement
 const head = (label: RegExp) => screen.getByRole('button', { name: label })
 const saveBtn = () => screen.getByRole('button', { name: /Salvează șabloanele/ }) as HTMLButtonElement
@@ -51,11 +60,41 @@ afterEach(() => {
   post.mockReset()
 })
 
-describe('TemplatesSettingsScreen', () => {
-  it('услуги свёрнуты, состояние словом; метки — словами сервера; без правки сохранять нечего', async () => {
-    get.mockResolvedValueOnce(ok(DATA))
+describe('TemplatesSettingsScreen — вкладка «Consultație»', () => {
+  it('две вкладки одного экрана: «Consultație» открыта, «Plan de tratament» — по щелчку и в адресе', async () => {
+    serve()
+    const { router } = open()
+    await svc(/Consultație/)
+    const tabs = screen.getAllByRole('tab')
+    expect(tabs.map((t) => [t.textContent, t.getAttribute('aria-selected')]))
+      .toEqual([['Consultație', 'true'], ['Plan de tratament', 'false']])
+    expect(get.mock.calls.map((c) => c[0]).sort()).toEqual(['/settings/plan-templates', '/settings/templates'])
+    fireEvent.click(tabs[1]!)
+    expect(await screen.findByText(/Încă nu aveți șabloane de plan/)).toBeTruthy()
+    expect(router.state.location.search).toBe('?tab=plan')
+    expect(screen.queryByRole('button', { name: /Igienizare/ })).toBeNull()
+    /* смена вкладки данные не перечитывает */
+    expect(get).toHaveBeenCalledTimes(2)
+  })
+
+  it('правка в одной вкладке переживает взгляд в другую и метит вкладку', async () => {
+    serve()
     open()
-    expect(await screen.findByText('Consultație')).toBeTruthy()
+    fireEvent.click(await svc(/Igienizare/))
+    fireEvent.change(area('tpl_hygiene_tratament'), { target: { value: 'Igienizare {data}' } })
+    const [consult, plan] = screen.getAllByRole('tab')
+    expect(consult!.querySelector('.tpl-dirty')).not.toBeNull()
+    fireEvent.click(plan!)
+    await screen.findByText(/Încă nu aveți șabloane de plan/)
+    fireEvent.click(consult!)
+    expect(area('tpl_hygiene_tratament').value).toBe('Igienizare {data}')
+    expect(saveBtn().disabled).toBe(false)
+  })
+
+  it('услуги свёрнуты, состояние словом; метки — словами сервера; без правки сохранять нечего', async () => {
+    serve()
+    open()
+    expect(await svc(/Consultație/)).toBeTruthy()
     expect(head(/Consultație/).getAttribute('aria-expanded')).toBe('false')
     expect(head(/Consultație/).textContent).toMatch(/gol/)
     expect(head(/Igienizare/).textContent).toMatch(/2 câmpuri completate/)
@@ -67,12 +106,12 @@ describe('TemplatesSettingsScreen', () => {
   })
 
   it('⭐ на запись уходит только ТРОНУТОЕ: графа, а не вся услуга; соседняя услуга — никак', async () => {
-    get.mockResolvedValueOnce(ok(DATA))
+    serve()
     const after: TemplatesData = { ...DATA, services: [DATA.services[0]!,
       { ...DATA.services[1]!, tpl: { ...DATA.services[1]!.tpl, tratament: 'Igienizare {data}' } }] }
     post.mockResolvedValueOnce(ok(after, 'ok_set', 'Setări salvate'))
     open()
-    await screen.findByText('Igienizare')
+    await svc(/Igienizare/)
     fireEvent.click(head(/Igienizare/))
     expect(area('tpl_hygiene_diagnostic').value).toBe('Depozite {dinte}')
     fireEvent.change(area('tpl_hygiene_tratament'), { target: { value: 'Igienizare {data}' } })
@@ -86,9 +125,9 @@ describe('TemplatesSettingsScreen', () => {
   })
 
   it('пустой шаблон: «Exemplu» кладёт заглушку сервера в пустые графы; у заполненного кнопки нет', async () => {
-    get.mockResolvedValueOnce(ok(DATA))
+    serve()
     open()
-    await screen.findByText('Consultație')
+    await svc(/Consultație/)
     fireEvent.click(head(/Consultație/))
     fireEvent.click(head(/Igienizare/))
     expect(screen.getAllByRole('button', { name: 'Exemplu' }).length).toBe(1)
@@ -103,9 +142,9 @@ describe('TemplatesSettingsScreen', () => {
   })
 
   it('10.11: «Copiază din șablon general» — текст общей заготовки в пустые графы; у заполненной услуги выбора нет', async () => {
-    get.mockResolvedValueOnce(ok(DATA))
+    serve()
     open()
-    await screen.findByText('Consultație')
+    await svc(/Consultație/)
     fireEvent.click(head(/Consultație/))
     fireEvent.click(head(/Igienizare/))
     const pick = screen.getByLabelText('Copiază din șablon general: Consultație') as HTMLSelectElement
@@ -122,10 +161,10 @@ describe('TemplatesSettingsScreen', () => {
   })
 
   it('стёртая графа уходит пустой строкой (стереть), отказ — текстом, правка остаётся', async () => {
-    get.mockResolvedValueOnce(ok(DATA))
+    serve()
     post.mockRejectedValueOnce(new ApiError({ kind: 'validation', code: 'bad_set', text: 'Setări invalide' }, 'v'))
     open()
-    await screen.findByText('Igienizare')
+    await svc(/Igienizare/)
     fireEvent.click(head(/Igienizare/))
     fireEvent.change(area('tpl_hygiene_recomandari'), { target: { value: '' } })
     fireEvent.click(saveBtn())

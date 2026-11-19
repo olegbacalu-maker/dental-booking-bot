@@ -1,0 +1,154 @@
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { Icon } from '../../components/Icon'
+import { Toast, type ToastState } from '../../components/Toast'
+import { asApiError } from '../../services/api'
+import type { ApiError } from '../../types/api'
+import { roCount } from '../../utils/plural'
+import { settings, type TemplatesData, type TemplatesForm, type TplFieldId } from './settings'
+
+const T = {
+  intro: 'Textele șabloanelor le scrie clinica, pentru fiecare serviciu din listă. În jurnalul '
+    + 'consultației, butonul «Din șablon» le pune în câmpurile goale — ce a scris medicul nu se '
+    + 'schimbă. Mai multe servicii la o vizită: textele se adună pe câmpuri.',
+  marks: 'În text se pot folosi:',
+  tooth: 'numărul dintelui din procedura bifată în plan',
+  date: 'data vizitei',
+  empty: 'gol',
+  filled: { one: '{n} câmp completat', few: '{n} câmpuri completate', many: '{n} de câmpuri completate' },
+  edited: 'modificat',
+  example: 'Exemplu',
+  exampleHint: 'pune un text-exemplu în câmpurile goale — de editat',
+  copy: 'Copiază din șablon general',
+  copyPick: 'Copiază din șablon general…',
+  copyHint: 'textul unui șablon general, ca punct de pornire — de editat',
+  none: 'Lista de servicii e goală — adăugați serviciile în Setări › Servicii.',
+  save: 'Salvează șabloanele',
+  offline: 'Programul nu răspunde. Reîncercați.',
+} as const
+
+interface Props {
+  /** данные вкладки из загрузчика экрана; null — ещё грузятся */
+  data: TemplatesData | null
+  /** свежие данные после записи — экран подменяет ими ответ загрузчика */
+  onSaved: (data: TemplatesData) => void
+  leaveIfSignedOut: (err: ApiError) => boolean
+  /** есть несохранённая правка — экран метит вкладку */
+  onDirty: (dirty: boolean) => void
+}
+
+/**
+ * Вкладка «Consultație»: шаблоны дневника визита по услуге. Правка живёт в
+ * состоянии вкладки ПО ГРАФАМ: на запись уходит только тронутое
+ * (`TemplatesForm`), так что пересохранение без правки ничего не меняет, а
+ * вкладка браузера, открытая рядом, не затирает чужую графу. Тексты, метки и
+ * заглушка — с сервера.
+ */
+export function ConsultTemplatesTab({ data, onSaved, leaveIfSignedOut, onDirty }: Props) {
+  const [touched, setTouched] = useState<TemplatesForm>({})
+  const [open, setOpen] = useState<string[]>([])
+  const [saving, setSaving] = useState(false)
+  const [toast, setToast] = useState<ToastState | null>(null)
+  const closeToast = useCallback(() => setToast(null), [])
+  const dirty = Object.keys(touched).length > 0
+  useEffect(() => { onDirty(dirty) }, [dirty, onDirty])
+
+  const value = (sid: string, k: TplFieldId): string =>
+    touched[sid]?.[k] ?? data?.services.find((s) => s.id === sid)?.tpl[k] ?? ''
+  const setField = (sid: string, k: TplFieldId, v: string) =>
+    setTouched((t) => ({ ...t, [sid]: { ...t[sid], [k]: v } }))
+  const toggle = (sid: string) =>
+    setOpen((o) => (o.includes(sid) ? o.filter((x) => x !== sid) : [...o, sid]))
+  /* «Exemplu» и «Copiază din șablon general» кладут текст только в ПУСТЫЕ графы */
+  const fillFrom = (sid: string, src: Record<TplFieldId, string>) => {
+    if (!data) return
+    for (const f of data.fields) {
+      const v = src[f.id]
+      if (v && !value(sid, f.id).trim()) setField(sid, f.id, v)
+    }
+  }
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      const r = await settings.templatesSave(touched)
+      onSaved(r.data)
+      setTouched({})
+      setToast({ tone: r.tone, text: r.text })
+    } catch (err) {
+      const apiErr = asApiError(err)
+      if (leaveIfSignedOut(apiErr)) return
+      setToast({ tone: 'err', text: apiErr.text || T.offline })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <>
+      <p className="hint">{T.intro}</p>
+      {data && (
+        <p className="hint">
+          {T.marks} <b className="tpl-mark">{data.marks.tooth}</b> — {T.tooth}; <b className="tpl-mark">{data.marks.date}</b> — {T.date}.
+        </p>
+      )}
+      {data && data.services.length === 0 && <p className="hint">{T.none}</p>}
+      <form onSubmit={onSubmit}>
+        <div className="tpl-list">
+          {data?.services.map((s) => {
+            const isOpen = open.includes(s.id)
+            const n = data.fields.filter((f) => value(s.id, f.id).trim()).length
+            const allEmpty = n === 0
+            return (
+              <div key={s.id} className="fcard tpl-card">
+                <button type="button" className="tpl-head" aria-expanded={isOpen}
+                  aria-controls={`tpl_${s.id}`} onClick={() => toggle(s.id)}>
+                  <Icon name={isOpen ? 'caret-u' : 'caret-d'} />
+                  <b>{s.label}</b>
+                  <small className={n ? 'tpl-n on' : 'tpl-n'}>
+                    {n ? roCount(n, T.filled) : T.empty}{touched[s.id] ? ` · ${T.edited}` : ''}
+                  </small>
+                </button>
+                {isOpen && (
+                  <div id={`tpl_${s.id}`}>
+                    <div className="fform">
+                      {data.fields.map((f) => (
+                        <label key={f.id} className="dlab" htmlFor={`tpl_${s.id}_${f.id}`}>
+                          {f.label}
+                          <textarea id={`tpl_${s.id}_${f.id}`} rows={f.rows} maxLength={data.max}
+                            value={value(s.id, f.id)} disabled={saving}
+                            onChange={(e) => setField(s.id, f.id, e.target.value)} />
+                        </label>
+                      ))}
+                    </div>
+                    {allEmpty && (
+                      <div className="tplrow">
+                        <button type="button" disabled={saving} onClick={() => fillFrom(s.id, data.example)}>{T.example}</button>
+                        <small className="hint dp-m0">{T.exampleHint}</small>
+                      </div>
+                    )}
+                    {allEmpty && data.general.length > 0 && (
+                      <div className="tplrow">
+                        <select value="" aria-label={`${T.copy}: ${s.label}`} disabled={saving}
+                          onChange={(e) => {
+                            const g = data.general.find((x) => x.id === e.target.value)
+                            if (g) fillFrom(s.id, g.values)
+                          }}>
+                          <option value="">{T.copyPick}</option>
+                          {data.general.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
+                        </select>
+                        <small className="hint dp-m0">{T.copyHint}</small>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+        <button className="savebtn" disabled={data === null || saving || !dirty}><Icon name="save" /> {T.save}</button>
+      </form>
+      {toast && <Toast tone={toast.tone} text={toast.text} onClose={closeToast} />}
+    </>
+  )
+}

@@ -117,12 +117,14 @@ def api_guard(request: Request) -> JSONResponse | None:
     return None
 
 
-def api_require(request: Request, perm: str) -> JSONResponse | None:
+def api_require(request: Request, *perms: str) -> JSONResponse | None:
     """Сперва вход, потом право — как `require`, но JSON: 403 с кодом
-    no_access, тем же словом, что видит человек на странице."""
+    no_access, тем же словом, что видит человек на странице. Прав несколько —
+    хватает любого из них."""
     if (deny := api_guard(request)) is not None:
         return deny
-    if can(current_user(request), perm):
+    me = current_user(request)
+    if any(can(me, p) for p in perms):
         return None
     return msg_json(False, "no_access", status=403)
 
