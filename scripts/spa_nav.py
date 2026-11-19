@@ -417,6 +417,9 @@ def main() -> int:
             s9 = settle(page, lambda st: st["dash"] and st["busy"] != "true")
             if s9["who"] != "Director":
                 bad.append(f"смена человека: стенд начат не директором: «{s9['who']}»")
+            if section_title("stat") not in s9["menu"]:
+                bad.append("смена человека: у директора нет раздела-свидетеля — "
+                           f"проверка меню ниже ничего не увидит: {s9['menu']}")
             tok = page.js(MARK)
             click_el(page, "document.querySelector('.who-out')")
             s9 = settle(page, lambda st: st["lock"])
@@ -438,7 +441,9 @@ def main() -> int:
                            "оболочка не перечитана")
             if s10["tok"] != tok:
                 bad.append("смена человека: вход ПЕРЕЗАГРУЗИЛ документ")
-            if section_title("set") in s10["menu"]:
+            # свидетель — раздел, которого у регистратуры нет: «Setări» ей теперь
+            # открыт плиткой шаблонов, а статистика остаётся директору
+            if section_title("stat") in s10["menu"]:
                 bad.append("смена человека: меню директора осталось у регистратуры")
             if not any(d == "/admin" or d.startswith("/admin?") for d in s10["docs"]):
                 bad.append(f"смена человека: документ панели не запрашивался: {s10['docs']}")
