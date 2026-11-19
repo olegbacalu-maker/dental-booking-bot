@@ -6,6 +6,7 @@
 
   python scripts/check_slot_guard.py
   python scripts/check_slot_guard.py --db "D:\\другая\\копия\\data\\dental.db"
+  python scripts/check_slot_guard.py --src     движок из исходников этого дерева
 
 ⛔ Живая база только ЧИТАЕТСЯ. Всё происходит в песочнице (копия движка + копия
 базы во временной папке), боевая установка на 8088 не запускается и не
@@ -25,7 +26,16 @@
      ШИРОКИЕ, третьего нет. Обновление не имеет права их СУЗИТЬ (08-16);
   6. ШАГ 4 — у врача две живые записи на один час в РАЗНЫХ кабинетах (шаг 11
      схемы: кабинет в ключе индексов врача). Такая база обязана стартовать без
-     баннера, пара — остаться, а третья запись в занятый кабинет — отбиваться.
+     баннера, пара — остаться, а третья запись в занятый кабинет — отбиваться;
+  7. ШАГ 5 — то же для полосы «Control» врача (`room_id = '~control'`): запись
+     в полосе рядом с записью в кабинете законна, вторая в ту же полосу — нет.
+
+Живая база может УЖЕ держать такие пары (врач в двух кабинетах или в кабинете
+и в полосе Control на один час): они законны с шага 11, а индекс «до 1.20.0»
+(врач + час, без кабинета) по ним не строится. У клиники до обновления пары
+быть не могло, поэтому в КОПИИ лишние записи пары на шаги 1–3 откладываются
+(статус вне индекса), а перед шагом 4 возвращаются как были: шаги 4–5 и повтор
+шага 11 идут по базе с настоящими парами клиники.
 
 Внесённые записи берут кабинет у живой записи как есть: новые записи несут
 кабинет явно (`_book_locked`), и запись «без кабинета» рядом с ней в индексе врача не
@@ -66,6 +76,7 @@ WIDE = "('confirmed','waiting','arrived')"   # предикат, к которо
 UQ = ("uq_doc_room_slot", "uq_patient_slot", "uq_docid_room_slot")
 UQ_OLD = ("uq_doctor_slot", "uq_doctor_slot_id")   # сняты шагом 11
 ROOM = "r-canary-2"                 # второй кабинет врача в шаге 4
+PARKED = "cancelled"                # статус вне слотовых индексов: отложенная запись пары
 
 # Куда обязана доехать база после старта. Из константы ИСХОДНИКОВ, а не числом:
 # бинарник собран из этого же дерева, а записанное число отставало бы при каждом
@@ -74,7 +85,7 @@ ROOM = "r-canary-2"                 # второй кабинет врача в 
 sys.path.insert(0, str(ROOT / "bot"))
 sys.path.insert(0, str(ROOT / "tests"))
 sys.path.insert(0, str(ROOT / "scripts"))
-from app.db import SCHEMA_VERSION  # noqa: E402 — только константа, не соединение
+from app.db import CONTROL_LANE, SCHEMA_VERSION  # noqa: E402 — только константы, не соединение
 from engine_check import READY_LIMIT, STOP_LIMIT, Engine  # noqa: E402 — тот же разговор, что у оболочки
 from harness import RUN_TMP  # noqa: E402
 
@@ -101,15 +112,41 @@ def free_port(start: int = 8110) -> int:
     sys.exit("свободный порт не нашёлся")
 
 
-def prepare_lab(db_src: pathlib.Path, exe: pathlib.Path) -> pathlib.Path:
+def copy_db(src: pathlib.Path, dst: pathlib.Path) -> None:
+    """Копия базы средствами SQLite: живая открывается ТОЛЬКО на чтение, а
+    записанное в её `-wal` в копию попадает (копия одного файла под
+    работающей программой его теряет). Не открылась только на чтение (папка
+    без права записи, программа не запущена — SQLite негде держать `-shm`) —
+    остаётся копия файла."""
+    try:
+        con = sqlite3.connect(f"{src.resolve().as_uri()}?mode=ro", uri=True)
+        try:
+            out = sqlite3.connect(str(dst))
+            try:
+                con.backup(out)
+            finally:
+                out.close()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        dst.unlink(missing_ok=True)
+        shutil.copy2(src, dst)
+
+
+def prepare_lab(db_src: pathlib.Path, exe: pathlib.Path | None) -> pathlib.Path:
     """Песочница — она же папка программы и папка данных: движок папкой в
     `engine\\` (корень программы — над ним, там `demo.flag`), данные рядом.
+    Без `exe` движок идёт из исходников: программы в песочнице нет, а профиль
+    клиники кладётся тот же, какой собранный взял бы по `demo.flag`.
     ⚠️ В папке прогона харнесса: её сносит выход; красная песочница
     оставляется для разбора — поэтому она в обычном TEMP рядом."""
     lab = pathlib.Path(tempfile.mkdtemp(prefix="dp_slotguard_", dir=str(RUN_TMP.parent)))
     (lab / "data").mkdir()
-    shutil.copy2(db_src, lab / "data" / "dental.db")     # ⛔ только копия
-    shutil.copytree(exe.parent, lab / "engine")
+    copy_db(db_src, lab / "data" / "dental.db")          # ⛔ только копия
+    if exe is not None:
+        shutil.copytree(exe.parent, lab / "engine")
+    else:
+        shutil.copy2(ROOT / "bot" / "app" / "clinic.json", lab / "clinic.json")
     # ADMIN_KEY — чтобы песочница пускала без экрана установки PIN (auth.json
     # с канарейки НЕ копируем: чужие пароли в лаборатории не нужны)
     (lab / "dental.env").write_text(f"ADMIN_KEY={KEY}\n", encoding="utf-8")
@@ -140,6 +177,54 @@ def index_state(db: pathlib.Path) -> dict:
     return {name: (sql_text or "") for name, sql_text in rows(
         db, "SELECT name, sql FROM sqlite_master WHERE type='index' "
             "AND name LIKE 'uq_%slot%'")}
+
+
+def park_parallel(db: pathlib.Path) -> list[tuple]:
+    """Отложить в копии лишние записи законных пар врача на один час.
+
+    Пара «один врач, один час, разные кабинеты» (или кабинет и полоса Control)
+    законна с шага 11, а база «до обновления» знала один индекс на врача и
+    час — по такой паре он не строится. Первая запись часа остаётся, остальные
+    уходят в статус вне индексов; `unpark` возвращает их перед шагом 4.
+    Записи в ОДНОМ кабинете не трогаются: это настоящий конфликт, его обязана
+    назвать сама программа. Возвращает [(id, статус, врач, час, кабинет)]."""
+    live = rows(db, "SELECT id, doctor, doctor_id, starts_at, COALESCE(room_id, ''), status "
+                    f"FROM appointments WHERE status IN {WIDE} ORDER BY id")
+    held, parked = {}, []
+    for aid, doctor, did, starts_at, room, status in live:
+        # два ключа — как два прежних индекса: по имени врача и по doctor_id
+        keys = [k for k, v in ((("n", doctor, starts_at), doctor),
+                               (("i", did, starts_at), did)) if v is not None]
+        if any(held.get(k, room) != room for k in keys):
+            parked.append((aid, status, doctor, starts_at, room))
+            continue
+        for k in keys:
+            held.setdefault(k, room)
+    con = sqlite3.connect(str(db))
+    try:
+        con.executemany("UPDATE appointments SET status = ? WHERE id = ?",
+                        [(PARKED, p[0]) for p in parked])
+        con.commit()
+    finally:
+        con.close()
+    return parked
+
+
+def unpark(db: pathlib.Path, parked: list[tuple]) -> bool:
+    """Вернуть отложенным записям их статусы — разом или никак. Отказ базы
+    значит, что живая пара не проходит НОВЫЕ индексы: это находка, не шум."""
+    con = sqlite3.connect(str(db))
+    try:
+        con.executemany("UPDATE appointments SET status = ? WHERE id = ? AND status = ?",
+                        [(p[1], p[0], PARKED) for p in parked])
+        con.commit()
+        return True
+    except sqlite3.IntegrityError as e:
+        con.rollback()
+        print(f"      (отложенные записи не вернулись: {e})")
+        return False
+    finally:
+        con.close()
 
 
 def downgrade(db: pathlib.Path) -> None:
@@ -234,18 +319,32 @@ def inject_renamed(db: pathlib.Path):
     return renamed, starts_at, spare[0], spare[1], room
 
 
-def inject_parallel(db: pathlib.Path):
-    """Вторая живая запись тому же врачу на тот же час — в ДРУГОМ кабинете.
-    Пациент берётся свободный в этот час: иначе вставку отбил бы индекс
-    пациента, и шаг мерил бы не то."""
-    live = rows(db, "SELECT service, doctor, starts_at, doctor_id, room_id "
-                "FROM appointments WHERE status IN ('confirmed','arrived') "
-                "AND doctor_id IS NOT NULL AND patient_id IS NOT NULL "
-                "AND COALESCE(room_id, '') != ? "
-                "ORDER BY starts_at DESC LIMIT 1", (ROOM,))
+def live_at(db: pathlib.Path, did, starts_at) -> int:
+    """Сколько живых записей у врача в этот час."""
+    return rows(db, "SELECT count(*) FROM appointments WHERE starts_at = ? AND doctor_id = ? "
+                    "AND status IN ('confirmed','arrived')", (starts_at, did))[0][0]
+
+
+def inject_parallel(db: pathlib.Path, lane: str = ROOM):
+    """Ещё одна живая запись тому же врачу на тот же час — в ДРУГОМ кабинете
+    (`lane`; полоса Control — тот же ключ индекса под своим именем).
+    Образец — запись врача, у которого этот час в `lane` свободен: в живой
+    базе полоса бывает уже занята, и вставку отбил бы индекс. Пациент берётся
+    свободный в этот час: иначе вставку отбил бы индекс пациента, и шаг мерил
+    бы не то. Последним в ответе — сколько живых записей у врача в этот час
+    было ДО вставки (у живой пары их уже две)."""
+    live = rows(db, "SELECT a.service, a.doctor, a.starts_at, a.doctor_id, a.room_id "
+                "FROM appointments a WHERE a.status IN ('confirmed','arrived') "
+                "AND a.doctor_id IS NOT NULL AND a.patient_id IS NOT NULL "
+                "AND NOT EXISTS (SELECT 1 FROM appointments b "
+                "  WHERE b.starts_at = a.starts_at AND COALESCE(b.room_id, '') = ? "
+                f"  AND b.status IN {WIDE} "
+                "  AND (b.doctor_id = a.doctor_id OR b.doctor = a.doctor)) "
+                "ORDER BY a.starts_at DESC, a.id DESC LIMIT 1", (lane,))
     if not live:
         return None
     service, doctor, starts_at, did, room = live[0]
+    before = live_at(db, did, starts_at)
     spare = [r[0] for r in rows(
         db, "SELECT id FROM patients WHERE id NOT IN (SELECT patient_id FROM "
             f"appointments WHERE starts_at = '{starts_at}' AND patient_id IS "
@@ -259,11 +358,29 @@ def inject_parallel(db: pathlib.Path):
             " status, source, created_at, doctor_id, comment, room_id)"
             " VALUES(?,?,?,?,'confirmed','admin',?,?,?,?)",
             (spare[0], service, doctor, starts_at,
-             time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()), did, MARK, ROOM))
+             time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()), did, MARK, lane))
         con.commit()
     finally:
         con.close()
-    return doctor, starts_at, did, spare[1], room
+    return doctor, starts_at, did, spare[1], room, before, 1
+
+
+def live_in_lane(db: pathlib.Path, lane: str):
+    """Живая запись, которая УЖЕ стоит в полосе, и пациент, свободный в её
+    час. Когда полоса занята у каждого образца, вставлять нечего: запись
+    полосы в базе настоящая, меряется отказ второй записи в ту же полосу."""
+    live = rows(db, "SELECT doctor, starts_at, doctor_id FROM appointments "
+                "WHERE status IN ('confirmed','arrived') AND doctor_id IS NOT NULL "
+                "AND room_id = ? ORDER BY starts_at DESC, id DESC LIMIT 1", (lane,))
+    if not live:
+        return None
+    doctor, starts_at, did = live[0]
+    spare = rows(db, "SELECT id FROM patients WHERE id NOT IN (SELECT patient_id FROM "
+                     "appointments WHERE starts_at = ? AND patient_id IS NOT NULL) "
+                     "ORDER BY id LIMIT 1", (starts_at,))
+    if not spare:
+        return None
+    return doctor, starts_at, did, spare[0][0], lane, live_at(db, did, starts_at), 0
 
 
 def blocked_room(db: pathlib.Path, pid, doctor, starts_at, did, room) -> bool:
@@ -313,8 +430,9 @@ class Lab:
     """Что нужно `engine_check.Engine`: exe, папка для stderr, корень данных
     (для хвоста лога) и окружение запуска."""
 
-    def __init__(self, lab: pathlib.Path, exe_name: str) -> None:
-        self.dir, self.data, self.exe = lab, lab, lab / "engine" / exe_name
+    def __init__(self, lab: pathlib.Path, exe_name: str | None) -> None:
+        self.dir, self.data = lab, lab
+        self.exe = lab / "engine" / exe_name if exe_name else None
 
     def env(self, port: int) -> dict:
         lab = self.dir
@@ -333,9 +451,10 @@ class Lab:
         return env
 
 
-def run_lab(lab: pathlib.Path, exe_name: str, port: int):
+def run_lab(lab: pathlib.Path, exe_name: str | None, port: int):
     """Движок так, как его запускает оболочка: `DENTART_SHELL=tauri`, трубы
-    `DP1`, своё задание Windows (`engine_check.Engine`)."""
+    `DP1`, своё задание Windows (`engine_check.Engine`). Без имени exe — тот
+    же лаунчер из исходников."""
     e = Engine(Lab(lab, exe_name), port).start()
     ev = e.wait_event({"ready", "busy", "fatal"}, READY_LIMIT)
     alive = ev is not None and ev.get("event") == "ready"
@@ -417,12 +536,17 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=str(LIVE_DB), help="боевая база (только чтение)")
     ap.add_argument("--exe", default=str(ROOT / "dist" / "DentPilot-Engine" / "DentPilot-Engine.exe"))
+    ap.add_argument("--src", action="store_true",
+                    help="движок из исходников этого дерева — проверить сам скрипт или правку "
+                         "до сборки; шаг 3a выпуска гоняется БЕЗ этого ключа, на собранном")
     args = ap.parse_args()
 
-    db_src, exe = pathlib.Path(args.db), pathlib.Path(args.exe)
+    db_src = pathlib.Path(args.db)
+    exe = None if args.src else pathlib.Path(args.exe)
+    exe_name = exe.name if exe else None
     if not db_src.exists():
         sys.exit(f"базы нет: {db_src}")
-    if not exe.exists():
+    if exe is not None and not exe.exists():
         sys.exit(f"движка нет: {exe} — соберите Build-Engine.ps1 или укажите --exe")
     try:
         sqlite3.connect(str(db_src)).execute("SELECT 1 FROM schema_meta LIMIT 1")
@@ -434,14 +558,26 @@ def main() -> int:
     port = free_port()
     lab = prepare_lab(db_src, exe)
     db = lab / "data" / "dental.db"
-    print(f"песочница: {lab}\nпорт: {port}\nбоевая база НЕ тронута: {db_src}\n")
+    print(f"песочница: {lab}\nпорт: {port}\nбоевая база НЕ тронута: {db_src}")
+    print("движок: " + (str(exe) if exe else
+                        "из исходников (не шаг 3a выпуска: тот — на собранном)") + "\n")
 
+    parked = park_parallel(db)
+    if parked:
+        print(f"в копии отложено записей: {len(parked)} — законные пары врача на один час "
+              "(два кабинета или кабинет и полоса Control);\n"
+              "до обновления такой пары у клиники быть не могло, перед шагом 4 они вернутся:")
+        for _, _, doc, at, room in parked[:5]:
+            print(f"      {doc} · {at} · {room or 'без кабинета'}")
+        if len(parked) > 5:
+            print(f"      … и ещё {len(parked) - 5}")
+        print()
     downgrade(db)
     doctor, when = inject_conflict(db)
     print(f"конфликт заведён: {doctor} · {when} — две живые записи\n")
 
     print("ШАГ 1. Запуск на базе с конфликтом")
-    e, base, alive = run_lab(lab, exe.name, port)
+    e, base, alive = run_lab(lab, exe_name, port)
     say(alive, "программа запустилась", "не ответила на /health — это ТОТ САМЫЙ дефект")
     if alive:
         meta = dict(rows(db, "SELECT key, value FROM schema_meta"))
@@ -463,7 +599,7 @@ def main() -> int:
 
     print("\nШАГ 2. Конфликт разведён, запуск снова")
     sql(db, f"DELETE FROM appointments WHERE comment = '{MARK}'")
-    e, base, alive = run_lab(lab, exe.name, port)
+    e, base, alive = run_lab(lab, exe_name, port)
     say(alive, "программа запустилась")
     if alive:
         meta = dict(rows(db, "SELECT key, value FROM schema_meta"))
@@ -498,7 +634,7 @@ def main() -> int:
         say(blocked(db, *pat_dup),
             "до обновления: широкая защита пациента работает",
             "фикстура не воспроизводит состояние после 1.20.0")
-        e, base, alive = run_lab(lab, exe.name, port)
+        e, base, alive = run_lab(lab, exe_name, port)
         say(alive, "программа запустилась")
         if alive:
             say(blocked(db, *doc_dup), "обновление НЕ сузило защиту врача",
@@ -519,44 +655,69 @@ def main() -> int:
     # и проверяется вторым запуском: сторож сверяет индексы на каждом старте.
     print("\nШАГ 4. Врач в двух кабинетах: две записи на один час")
     sql(db, f"DELETE FROM appointments WHERE comment = '{MARK}'")
-    e, base, alive = run_lab(lab, exe.name, port)   # развести шаг 3, довести индексы
+    e, base, alive = run_lab(lab, exe_name, port)   # развести шаг 3, довести индексы
     stop(e, port)
-    made = inject_parallel(db) if alive else None
-    if not made:
-        print("      ПРОПУЩЕН: в базе нет активной записи с doctor_id и пациентом "
-              "или двух пациентов, свободных в тот час. Сценарий закрыт прогоном "
-              "(test_migrate.suite_v11_rooms); на бинарнике — только тут.")
-    else:
-        doctor, when, did, free_pid, room = made
-        e, base, alive = run_lab(lab, exe.name, port)
-        say(alive, "программа запустилась на базе с параллельной парой")
+    if alive and parked:
+        say(unpark(db, parked),
+            f"законные пары живой базы возвращены ({len(parked)}): новые индексы их принимают",
+            "живая пара не проходит индексы обновлённой базы")
+    pairs = 0
+    for title, lane, what in (
+            (None, ROOM, "параллельной парой"),
+            ("ШАГ 5. Полоса Control: запись в полосе рядом с записью в кабинете",
+             CONTROL_LANE, "парой «кабинет + полоса Control»")):
+        if title:
+            print("\n" + title)
+        made = inject_parallel(db, lane) if alive else None
+        if alive and not made and lane == CONTROL_LANE:
+            made = live_in_lane(db, lane)
+        if not made:
+            print("      ПРОПУЩЕН: в базе нет активной записи с doctor_id и пациентом, "
+                  "у врача которой этот час в полосе свободен, или двух пациентов, "
+                  "свободных в тот час. Сценарий закрыт прогоном "
+                  "(test_migrate.suite_v11_rooms, test_rooms); на бинарнике — только тут.")
+            continue
+        pairs += 1
+        doctor, when, did, free_pid, room, before, added = made
+        if not added:
+            print("      (полоса занята у каждого образца — меряется живая запись полосы)")
+        e, base, alive = run_lab(lab, exe_name, port)
+        say(alive, f"программа запустилась на базе с {what}")
         if alive:
             meta = dict(rows(db, "SELECT key, value FROM schema_meta"))
             say(not meta.get("uq_waiting_pending"), "метки незавершённости нет")
-            say(not banner_visible(base), "баннера нет: пара в двух кабинетах законна")
+            say(not banner_visible(base), "баннера нет: пара законна")
             idx = index_state(db)
             say(sorted(idx) == sorted(UQ) and all("waiting" in idx[n] for n in UQ),
                 "в базе три широких индекса под новыми именами", f"индексы: {idx}")
-            pair = rows(db, "SELECT count(*) FROM appointments WHERE starts_at = "
-                            f"'{when}' AND doctor_id = '{did}' "
-                            "AND status IN ('confirmed','arrived')")[0][0]
-            say(pair == 2, "обе записи пары на месте", f"записей: {pair}")
-            say(blocked_room(db, free_pid, doctor, when, did, ROOM),
-                "третья запись в занятый кабинет отбита базой")
-            say(blocked_room(db, free_pid, doctor, when, did, room),
-                "третья запись в кабинет первой записи пары отбита базой")
-            say(blocked_null_pair(db, doctor, did),
-                "две записи без кабинета на один час отбиты базой (COALESCE в ключе)")
+            now = live_at(db, did, when)
+            say(now == before + added, "записи этого часа на месте",
+                f"записей в этот час: {now}, ждали {before + added}")
+            if lane == ROOM:
+                say(blocked_room(db, free_pid, doctor, when, did, ROOM),
+                    "третья запись в занятый кабинет отбита базой")
+                say(blocked_room(db, free_pid, doctor, when, did, room),
+                    "третья запись в кабинет первой записи пары отбита базой")
+                say(blocked_null_pair(db, doctor, did),
+                    "две записи без кабинета на один час отбиты базой (COALESCE в ключе)")
+            else:
+                say(blocked_room(db, free_pid, doctor, when, did, CONTROL_LANE),
+                    "вторая запись в ту же полосу Control отбита базой")
         stop(e, port)
-        # повтор шага 11 по той же базе: версия назад — как после оборванного старта
+    if pairs or (alive and parked):
+        # версия назад — как после оборванного старта: шаг 11 идёт второй раз
+        print("\nПовтор шага 11 по базе с параллельными парами")
         sql(db, "UPDATE schema_meta SET value='10' WHERE key='version'")
-        e, base, alive = run_lab(lab, exe.name, port)
-        say(alive, "повтор шага 11 по базе с параллельной парой: программа запустилась")
+        e, base, alive = run_lab(lab, exe_name, port)
+        say(alive, "программа запустилась")
         if alive:
             meta = dict(rows(db, "SELECT key, value FROM schema_meta"))
             say(meta.get("version") == SCHEMA_TARGET and not meta.get("uq_waiting_pending"),
                 f"версия снова {SCHEMA_TARGET}, метки нет", f"{meta.get('version')!r}")
             say(not banner_visible(base), "баннера нет")
+            idx = index_state(db)
+            say(sorted(idx) == sorted(UQ) and all("waiting" in idx[n] for n in UQ),
+                "индексы те же три, широкие", f"индексы: {idx}")
         stop(e, port)
     sql(db, f"DELETE FROM appointments WHERE comment = '{MARK}'")
 
