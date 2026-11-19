@@ -177,6 +177,9 @@ describe('план: «Adaugă din șablon»', () => {
     expect(list.getAllByRole('button').map((b) => b.querySelector('b')?.textContent)).toEqual(['Igienizare completă'])
     expect([price('Igienizare').value, note('Igienizare')]).toEqual(['1000', 'din lista de prețuri'])
     expect(go().textContent).toContain('Adaugă 1 procedură în plan')
+    /* поиск не различает диакритику и регистр: «coroana» находит «Canal + coroană» */
+    fireEvent.change(inDlg().getByLabelText('Caută șablon…'), { target: { value: 'COROANA' } })
+    expect(list.getAllByRole('button').map((b) => b.querySelector('b')?.textContent)).toEqual(['Canal + coroană'])
     fireEvent.change(inDlg().getByLabelText('Caută șablon…'), { target: { value: 'zzz' } })
     expect(inDlg().getByText('Niciun șablon cu acest nume.')).toBeTruthy()
     expect(go().disabled).toBe(true)

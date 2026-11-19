@@ -86,7 +86,7 @@ interface Props {
 /** Что человек изменил у строки против того, что предлагает шаблон. */
 interface RowEdit { off?: boolean; tooth?: string; price?: string }
 
-const fold = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLocaleLowerCase('ro').trim()
+const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('ro').trim()
 
 /** Цена, с которой строка открывается: своя цена шаблона, иначе сумма прайса, если она одна. */
 function startPrice(services: ServiceOption[], r: PlanTplRow): string {
