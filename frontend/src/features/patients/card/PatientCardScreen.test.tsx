@@ -130,7 +130,7 @@ const CARD: PatientCard = {
       { id: 5, tooth: 36, procedure: 'Implant 36', doctor: '', status: 'refuzat', service_id: null, doctor_id: null, label: 'Refuzat', price: 9000, due: '', overdue: false, done: '18.09.2026', motiv: 'refuză implantul', next: 'planificat', refusable: false, deletable: false, editable: false, due_date: '' },
     ],
     counts: { planificat: 1, in_lucru: 1, finalizat: 1, refuzat: 1 },
-    n_act: 2, default_tab: 'act', total: 1900, total_done: 500, n_track: 3, pct_done: 33,
+    n_act: 2, default_tab: 'act', total: 1900, total_done: 500, n_track: 3, pct_done: 33, can_template: false,
   },
   finance: {
     charged: 500, paid: 200, debt: 300, sold: { kind: 'bad', amount: 300 },
@@ -2255,6 +2255,44 @@ describe('фиша: несохранённое при уходе, перезаг
         `Modificările procedurii din plan nu au fost salvate. ${QT}`))
       expect(router.state.location.search).toBe('?tab=plan')
       expect((within(dlg()).getByLabelText('Preț, MDL') as HTMLInputElement).value).toBe('800')
+    })
+
+    it('шаблон плана: окно с правкой строки — вопрос при смене вкладки; вставка подменяет фишу и закрывает окно', async () => {
+      const tpls = { doctor: 'Dr. Activ Doi', templates: [{ id: 'pt1', name: 'Igienizare completă', note: '', rows: [
+        { procedure: 'Igienizare', service_id: 'hygiene', tooth: false, price: 900 }] }] }
+      serve()
+      const base = get.getMockImplementation() as (path: string) => Promise<unknown>
+      get.mockImplementation((path: string) => (path === '/patients/5/plan/templates' ? Promise.resolve(ok(tpls)) : base(path)))
+      const { router } = open('/admin/patient/5?tab=plan')
+      await settled()
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      const dlg = () => document.querySelector('dialog.dp-plan-tpl') as HTMLElement
+      fireEvent.click(screen.getByRole('button', { name: 'Adaugă din șablon' }))
+      const price = await within(dlg()).findByLabelText('Prețul procedurii: Igienizare') as HTMLInputElement
+      expect(price.value).toBe('900')
+      /* открытое окно без правки строк — спрашивать не о чем */
+      await tabTo('Rezumat')
+      expect(confirm).not.toHaveBeenCalled()
+      await tabTo('Plan și plăți')
+      fireEvent.click(screen.getByRole('button', { name: 'Adaugă din șablon' }))
+      fireEvent.change(await within(dlg()).findByLabelText('Prețul procedurii: Igienizare'), { target: { value: '850' } })
+      fireEvent.click(strip().getByRole('tab', { name: 'Rezumat' }))
+      await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(
+        `Procedurile din șablon nu au fost adăugate în plan. ${QT}`))
+      expect(router.state.location.search).toBe('?tab=plan')
+      const added = { ...CARD, plan: { ...CARD.plan, items: [...CARD.plan.items,
+        { ...CARD.plan.items[1]!, id: 9, tooth: null, procedure: 'Igienizare', price: 850 }] } }
+      post.mockResolvedValue(ok(added, 'ok_ptpl_ins', 'Procedurile din șablon au fost adăugate în plan'))
+      fireEvent.click(within(dlg()).getByRole('button', { name: 'Adaugă 1 procedură în plan' }))
+      expect(await screen.findByText('Procedurile din șablon au fost adăugate în plan')).toBeTruthy()
+      expect(post).toHaveBeenLastCalledWith('/patients/5/plan/from-template',
+        { template_id: 'pt1', tooth: '', doctor: 'Dr. Activ Doi', rows: [{ i: 0, procedure: 'Igienizare', price: '850' }] })
+      await waitFor(() => expect(dlg()).toBeNull())
+      expect(rowOf('Igienizare')).toBeTruthy()
+      /* окно закрыто — формы больше нет, вкладка меняется без вопроса */
+      confirm.mockClear()
+      await tabTo('Rezumat')
+      expect(confirm).not.toHaveBeenCalled()
     })
 
     it('профиль: раскрытая форма с правкой — вопрос; раскрытая без правки — без вопроса', async () => {

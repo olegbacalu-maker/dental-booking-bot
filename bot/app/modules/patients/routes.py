@@ -47,7 +47,7 @@ from . import plan_acord as pplan
 from . import profile_rules as prules
 from . import sign as psign
 from . import visit as pvisit
-from ...core import prices, shellopen, stock_tc, xlsx
+from ...core import plan_tpl, prices, shellopen, stock_tc, xlsx
 from ...core.auth import _guard, local_only, request_user
 from ...core.visits import my_scope
 from ...core.layout import (ALERT_KINDS, LIVE_STATUSES, _ic, _initials, react_shell,
@@ -708,6 +708,116 @@ async def _edit_plan(pid: int, item_id: int, body: dict | None) -> tuple[str, st
         return "ok_pedit", ""
     # между чтением и записью позицию начали или сняли с другого места
     return ("plan_gone" if await db.plan_item_status(item_id, pid) is None else "bad_pedit"), ""
+
+
+def _ro_proceduri(n: int) -> str:
+    """«3 proceduri», «1 procedură», «20 de proceduri» — число строкой летописи."""
+    if n == 1:
+        return "1 procedură"
+    return f"{n} {'de ' if n >= 20 and not 1 <= n % 100 <= 19 else ''}proceduri"
+
+
+async def _plan_from_template(pid: int, body: dict | None) -> tuple[str, str]:
+    """Набор позиций из шаблона клиники в план пациента: (код, виновное поле).
+
+    Тело: `template_id`; `tooth` — зуб на весь шаблон; `doctor`; `rows` —
+    отмеченные строки `{i, procedure?, tooth?, price?}`, где `i` — номер строки
+    шаблона. Ключа `rows` нет — идут все строки. У строки нет `tooth` — зуб
+    шаблона, нет `price` — цена шаблона, а без неё цена прайса, когда она в
+    прайсе одним числом; пустая строка — без зуба и без цены. Строка шаблона
+    «без зуба» зуба не получает.
+
+    Набор только добавляется, все позиции — «planificat», ключи услуги и врача —
+    теми же правилами, что у `_add_plan`. Непонятное значение — отказ всего
+    набора с полем: половина шаблона в плане хуже, чем ничего. `procedure`
+    строки — что показывало окно: шаблон успели переписать — отказ, а не
+    вставка другой процедуры под той же галочкой.
+    """
+    body = body if isinstance(body, dict) else {}
+    tid = body.get("template_id")
+    tpl = next((t for t in plan_tpl.catalog() if t["id"] == tid), None)
+    if tpl is None:
+        return "tpl_gone", ""
+    picked = body.get("rows")
+    if picked is None:
+        picked = [{"i": i} for i in range(len(tpl["rows"]))]
+    if not isinstance(picked, list) or not picked or not all(isinstance(r, dict) for r in picked):
+        return "bad_card", "rows"
+    idx = [r.get("i") for r in picked]
+    if any(type(i) is not int or not 0 <= i < len(tpl["rows"]) for i in idx) or len(set(idx)) != len(idx):
+        return "tpl_changed", ""
+    common, ok = _plan_tooth(str(body.get("tooth") or ""))
+    if not ok:
+        return "bad_card", "tooth"
+    doc = str(body.get("doctor") or "").strip()[:80]
+    doc_id = _plan_doctor_id(doc)
+    rows = []
+    for r in sorted(picked, key=lambda r: r["i"]):
+        src = tpl["rows"][r["i"]]
+        if r.get("procedure") is not None and r["procedure"] != src["procedure"]:
+            return "tpl_changed", ""
+        tooth = common
+        if r.get("tooth") is not None:
+            tooth, ok = _plan_tooth(str(r["tooth"]))
+            if not ok:
+                return "bad_card", "tooth"
+        price = src["price"] if src["price"] is not None else prices.of_service(src["service_id"])[0]
+        if r.get("price") is not None:
+            price, ok = _plan_price(str(r["price"]))
+            if not ok:
+                return "bad_card", "price"
+        proc = src["procedure"][:120]
+        rows.append({"tooth": tooth if src["tooth"] else None, "procedure": proc, "doctor": doc,
+                     "price_mdl": price, "service_id": _plan_service_id(src["service_id"], proc),
+                     "doctor_id": doc_id})
+    teeth = {r["tooth"] for r in rows if r["tooth"]}
+    await db.add_plan_items(
+        pid, rows, f"Plan: adăugat din șablonul „{tpl['name']}”: {_ro_proceduri(len(rows))}",
+        tooth=teeth.pop() if len(teeth) == 1 else None)
+    return "ok_ptpl_ins", ""
+
+
+def _tpl_service(it: dict) -> str:
+    """Услуга прайса для строки шаблона из позиции плана: ключ позиции, пока
+    услуга в прайсе; у позиции без ключа — услуга, чьё имя равно тексту
+    процедуры, если такая одна. Иначе пусто — строка уйдёт текстом."""
+    sid = it.get("service_id") or ""
+    if sid in eng.SERVICES:
+        return sid
+    same = [k for k, svc in eng.SERVICES.items() if svc["ro"] == (it["procedure"] or "")]
+    return same[0] if len(same) == 1 else ""
+
+
+async def _plan_to_template(pid: int, body: dict | None) -> tuple[str, str]:
+    """Отмеченные позиции плана — новым шаблоном клиники: (код, виновное поле).
+
+    Тело: `name`, `item_ids`, `keep_prices`. В шаблон идут процедура, признак
+    «нужен зуб» и порядок плана; цена — только по `keep_prices`. Строка
+    собирается здесь поимённо из трёх полей позиции: номер зуба, врач, срок,
+    статус и причина отказа до `plan_tpl.store` не доходят, а он берёт из
+    строки только свои четыре ключа.
+    """
+    body = body if isinstance(body, dict) else {}
+    ids = body.get("item_ids")
+    if not isinstance(ids, list) or not ids or any(type(i) is not int for i in ids):
+        return "bad_ptpl", "rows"
+    items = [it for it in await db.plan_items(pid) if it["id"] in ids]
+    if len(items) != len(set(ids)):
+        return "plan_gone", ""
+    keep = body.get("keep_prices") is True
+    rows = []
+    for it in items:
+        sid = _tpl_service(it)
+        rows.append({**({"service_id": sid} if sid else {"procedure": it["procedure"] or ""}),
+                     "tooth": it["tooth"] is not None,
+                     "price": it["price_mdl"] if keep else None})
+    try:
+        err, _created = plan_tpl.store({"new": [{"name": body.get("name", ""), "note": "", "rows": rows}]})
+    except ValueError as e:
+        if str(e) == "dup":
+            return "dup_ptpl", "name"
+        return "bad_ptpl", str(e) if str(e) in ("name", "rows", "price") else ""
+    return ("save_err" if err is not None else "ok_ptpl_new"), ""
 
 
 async def _add_pay(pid: int, amount: str, method: str, note: str) -> str:

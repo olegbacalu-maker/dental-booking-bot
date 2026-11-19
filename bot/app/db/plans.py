@@ -88,6 +88,31 @@ async def add_plan_item(pid: int, tooth: int | None, procedure: str,
                     tooth=tooth)
 
 
+async def add_plan_items(pid: int, rows: list[dict], text: str,
+                         tooth: int | None = None) -> int:
+    """Набор позиций плана разом (шаблон): все строки или ни одной.
+
+    Один оператор INSERT, а не цикл: у соединения одна очередь, и запись
+    другого запроса, вставшая между двумя INSERT, закоммитила бы половину
+    набора — откат после неё вернул бы только хвост. Порядок строк — порядок
+    id, то есть порядок лечения в плане. Летопись — одной строкой на набор
+    и после записи; `tooth` — зуб, которому она принадлежит, если он у набора
+    один."""
+    if not rows:
+        return 0
+    now = _utcnow_iso()
+    args: list = []
+    for r in rows:
+        args += [pid, r["tooth"], r["procedure"], r["doctor"], r["price_mdl"],
+                 r.get("service_id") or None, r.get("doctor_id") or None, now]
+    n = await _execute(
+        "INSERT INTO plan_items(patient_id, tooth, procedure, doctor, price_mdl, "
+        "service_id, doctor_id, created_at) VALUES "
+        + ", ".join("(?, ?, ?, ?, ?, ?, ?, ?)" for _ in rows), *args)
+    await log_event(pid, "plan_add", text, tooth=tooth)
+    return n
+
+
 async def plan_item(item_id: int, pid: int) -> dict | None:
     """Позиция плана пациента как есть — правке нужно «что было»."""
     rows = await _fetch(

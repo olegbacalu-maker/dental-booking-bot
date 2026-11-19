@@ -330,6 +330,13 @@ MSG_BANNER = {
                          "«Începe» procedura rămâne în fișă așa cum este — "
                          "adăugați una nouă"),
     "ok_pedit": ("ok", "Procedura din plan a fost modificată"),
+    # набор из шаблона: сколько процедур и из какого шаблона — в летописи фиши
+    "ok_ptpl_ins": ("ok", "Procedurile din șablon au fost adăugate în plan"),
+    "ok_ptpl_new": ("ok", "Șablonul a fost salvat — îl găsiți în Setări › Șabloane"),
+    # окно вставки стояло открытым, а шаблон правили или удалили с другого места
+    "tpl_gone": ("err", "Șablonul nu mai există — a fost șters între timp. Alegeți alt șablon"),
+    "tpl_changed": ("err", "Șablonul a fost modificat între timp — nimic nu s-a adăugat. "
+                           "Deschideți din nou fereastra «Adaugă din șablon»"),
     # ⚠️ Удаляют то, чего в фише уже нет: чаще всего его сняли со второго
     # рабочего места, пока эта вкладка стояла открытой. Текст говорит, что
     # делать, как у mv_gone; фиша в ответ не едет (patients/api.py, `_GONE`).

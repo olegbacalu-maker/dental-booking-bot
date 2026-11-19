@@ -91,7 +91,7 @@ from .recall import (
 )
 from .plans import (
     plan_open_summary, PLAN_ACTIVE, PLAN_CLOSED, plan_items, last_events, plan_item_status,
-    add_plan_item, set_plan_status, delete_plan_item, plan_item, edit_plan_item,
+    add_plan_item, add_plan_items, set_plan_status, delete_plan_item, plan_item, edit_plan_item,
     PLAN_EDITABLE, _PLAN_EDIT_COLS,
 )
 from .schedule import (

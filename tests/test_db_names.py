@@ -79,7 +79,7 @@ SNAPSHOT = frozenset((
     "CONTROL_LANE", "CONTROL_NAME", "MAIN_NAME", "_plan_now", "control_future_count", "set_control_lane", "busy_with",
     "UQ_ROOM_STEP", "_uq_stale", "_UQ_WAS",
     "_ACT_SQL", "ACTIVE_STATUSES", "ACTOR_HOOK", "_actor_now", "add_alert",
-    "add_bridge", "add_document", "add_note", "add_payment", "add_plan_item",
+    "add_bridge", "add_document", "add_note", "add_payment", "add_plan_item", "add_plan_items",
     "add_recall_mark", "add_visit_for_patient", "admin_add", "all_patients",
     "anamneza", "ANAMNEZA_FIELDS", "anonymize_patient", "_apply_uq_indexes",
     "appointment_brief", "appointment_days", "appt_calls", "appt_patient_id",

@@ -10,7 +10,8 @@
 
 Фиша (`GET /api/patients/{pid}` и `POST …/{pid}/…`) — расчёты из `card.py`;
 правила действий — функции `routes._save_profile`, `_appoint`, `_add_alert`,
-`_save_anamneza`, `_save_ocluzie`, `_add_plan`, `_edit_plan`, `_plan_status`, `_plan_del`, `_add_pay`,
+`_save_anamneza`, `_save_ocluzie`, `_add_plan`, `_edit_plan`, `_plan_from_template`, `_plan_to_template`,
+`_plan_status`, `_plan_del`, `_add_pay`,
 `_store_doc`, `_drop_doc`, `_open_doc`, `_erase` (до 13.10 те же правила
 звали и формы старой фиши). Удача действия возвращает СВЕЖУЮ фишу целиком:
 почти каждое действие двигает сразу несколько секций (план → KPI, сальдо,
@@ -32,9 +33,10 @@ from ... import db
 from ... import engine as eng
 from ... import teeth_svg as tsvg
 from ...core.api import api_body, api_guard, api_own_doctor, api_require
-from ...core import demo, pdf, prices, recall
+from ...core import demo, pdf, plan_tpl, prices, recall
 from ...core import visit_tpl as vtpl
-from ...core.auth import PERM_IMPORT, PERM_MONEY, PERM_RECALL, can, remote_notice, request_user
+from ...core.auth import (PERM_IMPORT, PERM_MONEY, PERM_RECALL, PERM_TEMPLATES, can, remote_notice,
+                          request_user)
 from ...core.layout import ALERT_KINDS, STATUS_LABEL, _initials, msg_json, msg_text
 from ...core.visits import my_scope
 from . import anamneza as panam
@@ -52,7 +54,8 @@ from .routes import (_PL_BADGE, _PL_CANAL, _PL_PER, _PL_SORTS, _add_alert,
                      _doc_lang, _drop_doc, _edit_plan, _erase, _free_slots, _new_patient, _open_doc,
                      _p_age, _peek_html, _perio_absent, _perio_ctx, _perio_del,
                      _pl_canal, _pl_dmy, _pl_money, _pl_new_foot, _pl_select,
-                     _pl_status, _pl_trend, _plan_del, _plan_status,
+                     _pl_status, _pl_trend, _plan_del, _plan_from_template, _plan_status,
+                     _plan_to_template,
                      _save_anamneza, _save_ocluzie, _save_perio, _save_profile, _save_tooth,
                      _save_visit, _set_doctor, _sf_letters, _sf_map, _store_bytes,
                      _store_doc, _tooth_args, _visit_back, _visit_ctx)
@@ -229,11 +232,11 @@ async def api_patient_new(request: Request):
 # удаление строки не оставляет — POST с выдуманным id читал бы фишу целиком
 # мимо журнала доступа (закон 195).
 _CONFLICT = {"bad_pdel", "bad_pedit", "bad_off", "past", "dup", "conflict",
-             "bad_sign_plan", "bad_sign_anam"}
-_GONE = {"alert_gone", "plan_gone", "doc_gone", "pay_gone"}
+             "bad_sign_plan", "bad_sign_anam", "tpl_changed"}
+_GONE = {"alert_gone", "plan_gone", "doc_gone", "pay_gone", "tpl_gone"}
 _OK = {"", "ok", "ok_card", "ok_stock_tc_auto", "ok_stock_tc_back", "ok_stock_tc_pending", "ok_tel_dup", "ok_arh", "ok_unarh", "ok_anam", "ok_occl",
        "ok_pay", "pay_del", "ok_doc", "ok_anon", "ok_del", "ok_refuz", "ok_pedit", "ok_scan",
-       "ok_sign"}
+       "ok_sign", "ok_ptpl_ins", "ok_ptpl_new"}
 
 
 def _reply(code: str, data=None, field: str = "", *, conflict: bool = False):
@@ -422,6 +425,8 @@ async def _card(pid: int, p: dict, *, views: bool, log_view: bool) -> dict:
             "counts": pv["cnt"], "n_act": pv["n_act"], "default_tab": pv["default_tab"],
             "total": pv["total"], "total_done": pv["total_done"],
             "n_track": pv["n_track"], "pct_done": pv["pct_done"],
+            # «Salvează ca șablon» — право экрана шаблонов; вставить шаблон может любой
+            "can_template": can(request_user(), PERM_TEMPLATES),
         },
         "finance": {
             "charged": fin["charged"], "paid": fin["paid"], "debt": debt,
@@ -744,6 +749,55 @@ async def api_patient_plan_edit(request: Request, pid: int, item_id: int):
     if deny is not None:
         return deny
     code, field = await _edit_plan(pid, item_id, await api_body(request))
+    return await _card_reply(request, pid, code, field)
+
+
+@router.get("/api/patients/{pid}/plan/templates")
+async def api_patient_plan_templates(request: Request, pid: int):
+    """Шаблоны плана клиники для окна «Adaugă din șablon» — строками «на
+    сегодня» (`plan_tpl.catalog`). Читает любой, кто видит план: вставить
+    шаблон может и врач, править шаблоны — нет. `doctor` — врач окна по
+    умолчанию: медик курант пациента; у пациента без него — сам вошедший врач."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    deny, p = await _owned(pid)
+    if deny is not None:
+        return deny
+    names = set(eng.DOCTORS.values())
+    own = eng.DOCTORS.get(my_scope() or "", "")
+    prim = p.get("primary_doctor") or ""
+    return msg_json(True, data={"templates": plan_tpl.catalog(),
+                                "doctor": prim if prim in names else own})
+
+
+@router.post("/api/patients/{pid}/plan/from-template")
+async def api_patient_plan_from_template(request: Request, pid: int):
+    """{template_id, tooth, doctor, rows: [{i, procedure, tooth, price}]} —
+    отмеченные строки шаблона одним набором: все или ни одной, одна строка
+    летописи. Шаблона уже нет — 404 tpl_gone; его строки успели переписать —
+    409 tpl_changed; непонятный зуб или цена — 422 bad_card с полем."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    deny, p = await _owned(pid)
+    if deny is not None:
+        return deny
+    code, field = await _plan_from_template(pid, await api_body(request))
+    return await _card_reply(request, pid, code, field)
+
+
+@router.post("/api/patients/{pid}/plan/save-template")
+async def api_patient_plan_save_template(request: Request, pid: int):
+    """{name, item_ids, keep_prices} — отмеченные позиции плана новым шаблоном
+    клиники. Право — как у экрана шаблонов (директор и регистратура): врачу
+    403 no_access. Отказы — как у экрана: 422 bad_ptpl с полем, dup_ptpl."""
+    if (deny := api_require(request, PERM_TEMPLATES)) is not None:
+        return deny
+    deny, p = await _owned(pid)
+    if deny is not None:
+        return deny
+    code, field = await _plan_to_template(pid, await api_body(request))
+    if code == "save_err":
+        return msg_json(False, code, status=500)
     return await _card_reply(request, pid, code, field)
 
 

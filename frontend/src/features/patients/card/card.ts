@@ -118,6 +118,46 @@ export interface Plan {
   total_done: number
   n_track: number
   pct_done: number
+  /** Вошедший вправе сохранять план шаблоном клиники (право экрана «Șabloane»). */
+  can_template: boolean
+}
+
+/** Строка шаблона плана клиники: процедура (услуга прайса по ключу или текст),
+ *  «нужен зуб» и своя цена; `null` — цена из прайса на день вставки. */
+export interface PlanTplRow {
+  procedure: string
+  service_id: string
+  tooth: boolean
+  price: number | null
+}
+
+export interface PlanTpl {
+  id: string
+  name: string
+  note: string
+  rows: PlanTplRow[]
+}
+
+/** Окно «Adaugă din șablon»: шаблоны клиники и врач по умолчанию (медик курант). */
+export interface PlanTplCatalog {
+  templates: PlanTpl[]
+  doctor: string
+}
+
+/** Вставка шаблона: отмеченные строки по номеру в шаблоне. `procedure` — что
+ *  показывало окно: сервер откажет, если шаблон успели переписать. */
+export interface PlanFromTpl {
+  template_id: string
+  tooth: string
+  doctor: string
+  rows: { i: number; procedure: string; tooth?: string; price: string }[]
+}
+
+/** «Salvează ca șablon»: имя, отмеченные позиции плана и «с ценами». */
+export interface PlanToTpl {
+  name: string
+  item_ids: number[]
+  keep_prices: boolean
 }
 
 export interface Payment {
@@ -381,6 +421,12 @@ export const patientCard = {
     api.post<PatientCard>(`${P(pid)}/plan${V(views)}`, form),
   editPlan: (pid: number, views: boolean, iid: number, body: PlanEdit) =>
     api.post<PatientCard>(`${P(pid)}/plan/${iid}/edit${V(views)}`, body),
+  planTemplates: (pid: number, signal?: AbortSignal) =>
+    api.get<PlanTplCatalog>(`${P(pid)}/plan/templates`, signal ? { signal } : {}),
+  planFromTemplate: (pid: number, views: boolean, body: PlanFromTpl) =>
+    api.post<PatientCard>(`${P(pid)}/plan/from-template${V(views)}`, body),
+  planSaveTemplate: (pid: number, views: boolean, body: PlanToTpl) =>
+    api.post<PatientCard>(`${P(pid)}/plan/save-template${V(views)}`, body),
   planStatus: (pid: number, views: boolean, iid: number, to: string, motiv = '') =>
     api.post<PatientCard>(`${P(pid)}/plan/${iid}/status${V(views)}`, { to, motiv }),
   delPlan: (pid: number, views: boolean, iid: number) =>

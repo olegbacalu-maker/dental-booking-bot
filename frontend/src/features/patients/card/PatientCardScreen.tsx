@@ -88,6 +88,8 @@ const T = {
     profile: 'Profilul pacientului are modificări nesalvate.',
     plan: 'Procedura nouă din plan nu a fost adăugată.',
     planEdit: 'Modificările procedurii din plan nu au fost salvate.',
+    planTpl: 'Procedurile din șablon nu au fost adăugate în plan.',
+    planSave: 'Șablonul nu a fost salvat.',
     pay: 'Plata nu a fost înregistrată.',
     alert: 'Atenționarea nu a fost adăugată.',
     doc: 'Fișierul ales nu a fost încărcat.',

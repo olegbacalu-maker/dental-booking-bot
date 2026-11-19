@@ -7,6 +7,8 @@ import { useFormTouched, type CardActions } from './actions'
 import { hideDialog, showDialog } from './dialog'
 import { mdl, patientCard, type PatientCard, type PlanForm, type PlanItem } from './card'
 import { PlanEditDialog } from './PlanEditDialog'
+import { PlanSaveTemplateDialog } from './PlanSaveTemplateDialog'
+import { PlanTemplateDialog } from './PlanTemplateDialog'
 import { PriceNote, priceAfterProcedure, serviceIdFor, ServiceList } from './planService'
 import { printHref } from './print'
 import { SignDialog } from './sign/SignDialog'
@@ -21,7 +23,10 @@ import { useLingering } from '../../../utils/motion'
    над списком (tipărit → semnat ✓, «план изменён после подписи»);
    «Finalizează» с ценой спрашивает — прайс входит в сольд молча.
    «Editează» в том же меню — у позиции, которую ещё не начали (`PlanEditDialog`).
-   Цена новой строки — из прайса, когда процедуру взяли из него (`planService`). */
+   Цена новой строки — из прайса, когда процедуру взяли из него (`planService`).
+   Шаблоны клиники: «Adaugă din șablon» рядом с добавлением строки — у всех, кто
+   видит план (`PlanTemplateDialog`); «Salvează ca șablon» в меню карточки — у
+   того, кому сервер назвал право (`plan.can_template`, `PlanSaveTemplateDialog`). */
 const T = {
   title: 'Plan de tratament',
   active: 'plan activ:',
@@ -62,6 +67,11 @@ const T = {
   ph: { proc: 'Procedură (ex. Coroană zirconiu)', price: 'Preț MDL', due: 'Termen planificat', doctor: 'Medic —' },
   dueHint: 'termen (opțional)',
   add: '+ Adaugă în plan',
+  fromTpl: 'Adaugă din șablon',
+  fromTplTitle: 'Adaugă în plan un set de proceduri salvat ca șablon',
+  saveTpl: 'Salvează ca șablon',
+  saveTplTitle: 'Salvează procedurile acestui plan ca șablon al clinicii — fără datele pacientului',
+  planMenu: 'Acțiuni pentru tot planul',
   refuzDlg: 'Refuzul pacientului',
   refuzProc: 'Procedura:',
   refuzLabel: 'Motivul refuzului și consecințele explicate pacientului',
@@ -127,7 +137,13 @@ export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterStep
   const [menu, setMenu] = useState<MenuAt | null>(null)
   const [signing, setSigning] = useState(false)
   const [editing, setEditing] = useState<PlanItem | null>(null)
+  /* окна шаблонов: вставка в план и сохранение плана шаблоном */
+  const [tpl, setTpl] = useState<'insert' | 'save' | null>(null)
+  const [cardMenu, setCardMenu] = useState<{ x: number; y: number } | null>(null)
   const closeMenu = useCallback(() => setMenu(null), [])
+  const closeCardMenu = useCallback(() => setCardMenu(null), [])
+  /* сохранять шаблоном есть что, только когда в плане есть позиции */
+  const canSaveTpl = plan.can_template && plan.items.length > 0
 
   function onProcedure(value: string) {
     const p = priceAfterProcedure(services, form.procedure, value, { price: form.price, auto: priceAuto })
@@ -192,9 +208,20 @@ export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterStep
 
   return (
     <div className="fcard" id="plan">
-      <h3>
-        {T.title} <small>· {T.active} {mdl(plan.total)} {T.mdl}</small>
+      <h3 className="plan-h">
+        <span>{T.title} <small>· {T.active} {mdl(plan.total)} {T.mdl}</small></span>
+        {canSaveTpl && (
+          <button type="button" className="dp-more" title={T.planMenu} aria-label={T.planMenu} aria-haspopup="menu"
+            onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setCardMenu({ x: r.right - 220, y: r.bottom + 4 }) }}>
+            <i /><i /><i />
+          </button>
+        )}
       </h3>
+      {cardMenu && (
+        <CardMenu at={cardMenu} onClose={closeCardMenu}
+          onInsert={() => { closeCardMenu(); setTpl('insert') }}
+          onSave={() => { closeCardMenu(); setTpl('save') }} />
+      )}
       {/* полоса согласия — над списком: ст.13(2) требует подписи ДО
           вмешательства, то есть пока план на экране и обсуждается */}
       {consent && plan.n_act > 0 && (
@@ -331,9 +358,16 @@ export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterStep
           <input type="date" value={form.due_date} onChange={(e) => set({ due_date: e.target.value })} title={T.ph.due} aria-label={T.ph.due} />
           <span className="dp-due-hint">{T.dueHint}</span>
         </div>
-        <button disabled={a.busy}>{T.add}</button>
+        <div className="plan-add">
+          <button disabled={a.busy}>{T.add}</button>
+          <button type="button" className="ptpl-open" title={T.fromTplTitle} onClick={() => setTpl('insert')}>
+            <Icon name="clipboard" /> {T.fromTpl}
+          </button>
+        </div>
       </form>
       {editing && <PlanEditDialog key={editing.id} card={card} a={a} it={editing} onClose={() => setEditing(null)} />}
+      {tpl === 'insert' && <PlanTemplateDialog card={card} a={a} onClose={() => setTpl(null)} />}
+      {tpl === 'save' && <PlanSaveTemplateDialog card={card} a={a} onClose={() => setTpl(null)} />}
       <dialog ref={refuzDlg} onClose={() => setRefuz(null)}>
         <div className="dlg-head">
           <span><Icon name="ban" /> {T.refuzDlg}</span>
@@ -349,6 +383,26 @@ export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterStep
           <button disabled={a.busy}><Icon name="ban" /> {T.refuzGo}</button>
         </form>
       </dialog>
+    </div>
+  )
+}
+
+/** Меню «⋯» карточки плана: действия над планом целиком. Закрывается, как меню строки. */
+function CardMenu({ at, onClose, onInsert, onSave }: {
+  at: { x: number; y: number }; onClose: () => void; onInsert: () => void; onSave: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  useMenuDismiss(ref, onClose)
+  const { left, top } = placeMenu(at.x, at.y, 220, 40 + 32 * 2)
+  return (
+    <div ref={ref} className="dp-cmenu" role="menu" aria-label={T.planMenu} style={{ left, top, width: 220 }}>
+      <div className="dp-cmenu-h">{T.title}</div>
+      <button type="button" role="menuitem" className="dp-cmenu-i" title={T.fromTplTitle} onClick={onInsert}>
+        <Icon name="clipboard" /> {T.fromTpl}
+      </button>
+      <button type="button" role="menuitem" className="dp-cmenu-i" title={T.saveTplTitle} onClick={onSave}>
+        <Icon name="save" /> {T.saveTpl}
+      </button>
     </div>
   )
 }

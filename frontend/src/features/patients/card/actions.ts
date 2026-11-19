@@ -24,7 +24,7 @@ export interface CardActions {
 }
 
 /** Короткие формы фиши, о которых спрашивают при уходе, — в порядке вопроса. */
-export const FORM_KEYS = ['profile', 'plan', 'planEdit', 'pay', 'alert', 'doc'] as const
+export const FORM_KEYS = ['profile', 'plan', 'planEdit', 'planTpl', 'planSave', 'pay', 'alert', 'doc'] as const
 export type FormKey = (typeof FORM_KEYS)[number]
 
 /** Сообщить экрану, тронута ли форма; снятие карточки — «не тронута». */
