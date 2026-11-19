@@ -25,7 +25,8 @@ import { useLingering } from '../../../utils/motion'
    «Editează» в том же меню — у позиции, которую ещё не начали (`PlanEditDialog`).
    Цена новой строки — из прайса, когда процедуру взяли из него (`planService`).
    Шаблоны клиники: «Adaugă din șablon» рядом с добавлением строки — у всех, кто
-   видит план (`PlanTemplateDialog`); «Salvează ca șablon» в меню карточки — у
+   видит план (`PlanTemplateDialog`), и он же в меню «⋯» карточки: у длинного
+   плана форма добавления далеко внизу. «Salvează ca șablon» в том же меню — у
    того, кому сервер назвал право (`plan.can_template`, `PlanSaveTemplateDialog`). */
 const T = {
   title: 'Plan de tratament',
@@ -210,17 +211,15 @@ export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterStep
     <div className="fcard" id="plan">
       <h3 className="plan-h">
         <span>{T.title} <small>· {T.active} {mdl(plan.total)} {T.mdl}</small></span>
-        {canSaveTpl && (
-          <button type="button" className="dp-more" title={T.planMenu} aria-label={T.planMenu} aria-haspopup="menu"
-            onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setCardMenu({ x: r.right - 220, y: r.bottom + 4 }) }}>
-            <i /><i /><i />
-          </button>
-        )}
+        <button type="button" className="dp-more" title={T.planMenu} aria-label={T.planMenu} aria-haspopup="menu"
+          onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setCardMenu({ x: r.right - 220, y: r.bottom + 4 }) }}>
+          <i /><i /><i />
+        </button>
       </h3>
       {cardMenu && (
         <CardMenu at={cardMenu} onClose={closeCardMenu}
           onInsert={() => { closeCardMenu(); setTpl('insert') }}
-          onSave={() => { closeCardMenu(); setTpl('save') }} />
+          onSave={canSaveTpl ? () => { closeCardMenu(); setTpl('save') } : null} />
       )}
       {/* полоса согласия — над списком: ст.13(2) требует подписи ДО
           вмешательства, то есть пока план на экране и обсуждается */}
@@ -389,20 +388,24 @@ export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterStep
 
 /** Меню «⋯» карточки плана: действия над планом целиком. Закрывается, как меню строки. */
 function CardMenu({ at, onClose, onInsert, onSave }: {
-  at: { x: number; y: number }; onClose: () => void; onInsert: () => void; onSave: () => void
+  at: { x: number; y: number }; onClose: () => void; onInsert: () => void
+  /** null — сохранять шаблоном нельзя (нет права) или нечего (план пуст): пункта нет. */
+  onSave: (() => void) | null
 }) {
   const ref = useRef<HTMLDivElement>(null)
   useMenuDismiss(ref, onClose)
-  const { left, top } = placeMenu(at.x, at.y, 220, 40 + 32 * 2)
+  const { left, top } = placeMenu(at.x, at.y, 220, 40 + 32 * (onSave ? 2 : 1))
   return (
     <div ref={ref} className="dp-cmenu" role="menu" aria-label={T.planMenu} style={{ left, top, width: 220 }}>
       <div className="dp-cmenu-h">{T.title}</div>
       <button type="button" role="menuitem" className="dp-cmenu-i" title={T.fromTplTitle} onClick={onInsert}>
         <Icon name="clipboard" /> {T.fromTpl}
       </button>
-      <button type="button" role="menuitem" className="dp-cmenu-i" title={T.saveTplTitle} onClick={onSave}>
-        <Icon name="save" /> {T.saveTpl}
-      </button>
+      {onSave && (
+        <button type="button" role="menuitem" className="dp-cmenu-i" title={T.saveTplTitle} onClick={onSave}>
+          <Icon name="save" /> {T.saveTpl}
+        </button>
+      )}
     </div>
   )
 }

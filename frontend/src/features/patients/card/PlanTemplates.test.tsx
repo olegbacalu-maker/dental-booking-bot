@@ -120,18 +120,26 @@ afterEach(() => {
 })
 
 describe('план: кто видит шаблоны', () => {
-  it('«Adaugă din șablon» — у всех; меню плана с «Salvează ca șablon» — только с правом и непустым планом', () => {
+  it('«Adaugă din șablon» — у всех, под планом и в меню плана; «Salvează ca șablon» — только с правом и непустым планом', async () => {
+    const menu = () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Acțiuni pentru tot planul' }))
+      return screen.getAllByRole('menuitem').map((x) => x.textContent?.trim())
+    }
     mount(card({ can_template: false }))
     expect(screen.getByRole('button', { name: 'Adaugă din șablon' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Acțiuni pentru tot planul' })).toBeNull()
+    expect(menu()).toEqual(['Adaugă din șablon'])
     cleanup()
     mount(card({ items: [], n_act: 0 }))
     expect(screen.getByRole('button', { name: 'Adaugă din șablon' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Acțiuni pentru tot planul' })).toBeNull()
+    expect(menu()).toEqual(['Adaugă din șablon'])
     cleanup()
     mount()
-    fireEvent.click(screen.getByRole('button', { name: 'Acțiuni pentru tot planul' }))
-    expect(screen.getAllByRole('menuitem').map((x) => x.textContent?.trim())).toEqual(['Adaugă din șablon', 'Salvează ca șablon'])
+    expect(menu()).toEqual(['Adaugă din șablon', 'Salvează ca șablon'])
+    /* пункт меню открывает то же окно, что кнопка под планом */
+    get.mockResolvedValue(ok(CATALOG))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Adaugă din șablon' }))
+    await waitFor(() => expect(dlg()?.hasAttribute('open')).toBe(true))
+    expect(await inDlg().findByText('Bont protetic')).toBeTruthy()
   })
 })
 
