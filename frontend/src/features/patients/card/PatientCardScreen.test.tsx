@@ -176,6 +176,9 @@ const CARD: PatientCard = {
     names: { d2: 'Dr. Activ Doi', d3: 'Dr. Activ Trei' },
     primary: 'd2', today: '2026-09-18',
   },
+  /* прайс плана — свой список: строки «только plan» в окно записи не попадают */
+  plan_services: [{ id: 's22', label: 'Restaurare pe 1 suprafață', cat: 'c1', cat_name: 'Terapie' },
+    { id: 'consult', label: 'Consultație' }, { id: 'hygiene', label: 'Igienizare' }],
   options: {
     alert_kinds: [{ id: 'allergy', label: 'Alergie' }, { id: 'info', label: 'Info' }],
     anamneza_flags: [{ id: 'cardio', label: 'Boli cardiovasculare / hipertensiune' }, { id: 'diabet', label: 'Diabet zaharat' }],
@@ -408,8 +411,11 @@ describe('PatientCardScreen', () => {
     open('/admin/patient/5?tab=plan')
     await screen.findByText('Pin Test', { selector: 'h2' })
     const proc = screen.getByLabelText('Procedură (ex. Coroană zirconiu)') as HTMLInputElement
-    const list = document.getElementById(proc.getAttribute('list') ?? '') as HTMLDataListElement
-    expect([...list.options].map((o) => o.value)).toEqual(['Consultație', 'Igienizare'])
+    /* подсказки — прайс плана (`plan_services`), не типы записи агенды */
+    fireEvent.keyDown(proc, { key: 'ArrowDown' })
+    expect(within(screen.getByRole('listbox')).getAllByRole('option').map((o) => o.querySelector('.dp-svc-name')?.textContent))
+      .toEqual(['Restaurare pe 1 suprafață', 'Consultație', 'Igienizare'])
+    fireEvent.keyDown(proc, { key: 'Escape' })
     fireEvent.change(proc, { target: { value: 'Igienizare' } })
     fireEvent.change(screen.getByLabelText('Medic —'), { target: { value: 'Dr. Activ Doi' } })
     fireEvent.click(screen.getByRole('button', { name: '+ Adaugă în plan' }))
@@ -426,14 +432,11 @@ describe('PatientCardScreen', () => {
   const PRICED: PatientCard = {
     ...CARD,
     options: { ...CARD.options, teeth: [...CARD.options.teeth, 48] },
-    appoint: {
-      ...CARD.appoint,
-      services: [
-        { id: 'consult', label: 'Consultație', price: null, price_hint: '' },
-        { id: 'hygiene', label: 'Igienizare', price: 1000, price_hint: '' },
-        { id: 'canal', label: 'Tratament de canal', price: null, price_hint: '1200–1800 MDL' },
-      ],
-    },
+    plan_services: [
+      { id: 'consult', label: 'Consultație', price: null, price_hint: '' },
+      { id: 'hygiene', label: 'Igienizare', price: 1000, price_hint: '' },
+      { id: 'canal', label: 'Tratament de canal', price: null, price_hint: '1200–1800 MDL' },
+    ],
   }
 
   it('план: цена из прайса — одна сумма подставляется, диапазон оставляет поле пустым с подсказкой, вписанное рукой не переписывается', async () => {
@@ -2278,7 +2281,7 @@ describe('фиша: несохранённое при уходе, перезаг
     })
 
     it('позиция плана с ценой из прайса: стёртая процедура уносит подставленную цену — форма снова пуста, вопроса нет', async () => {
-      serve({ ...CARD, appoint: { ...CARD.appoint, services: [{ id: 'hygiene', label: 'Igienizare', price: 1000, price_hint: '' }] } })
+      serve({ ...CARD, plan_services: [{ id: 'hygiene', label: 'Igienizare', price: 1000, price_hint: '' }] })
       open('/admin/patient/5?tab=plan')
       await settled()
       const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)

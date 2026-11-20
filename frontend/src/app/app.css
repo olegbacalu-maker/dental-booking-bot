@@ -322,6 +322,26 @@
 .dp-price-note { font-size: var(--fs-s); color: var(--text3); }
 .dp-price-note.warn { color: var(--amber-t); font-weight: 600; }
 .dp-react-root .fform .dp-price-note { margin-top: -4px; text-align: right; }
+
+/* Поиск услуги в прайсе (ServicePicker): список fixed по полю — окно не режет его прокруткой.
+   Селекторы без `.dp-react-root`: поле стоит и в окнах, и в таблице шаблонов. */
+.dp-svc { position: relative; display: block; min-width: 0; }
+.dp-svc > input { width: 100%; box-sizing: border-box; }
+.fform .r2 > .dp-svc { flex: 1 1 auto; }
+.dp-svc-list {
+  position: fixed; z-index: 60; overflow-y: auto; overscroll-behavior: contain; padding: 4px 0;
+  background: var(--surface-live); border: 1px solid var(--line); border-radius: var(--r-ctl); box-shadow: var(--sh3);
+  font-size: var(--fs-body); color: var(--text); text-align: left;
+}
+.dp-svc-cat {
+  position: sticky; top: -4px; padding: 6px 12px 3px; background: var(--surface-live);
+  font-size: var(--fs-s); font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: .03em;
+}
+.dp-svc-opt { display: flex; align-items: baseline; gap: 12px; padding: 6px 12px; cursor: pointer; line-height: 1.3; }
+.dp-svc-opt.on { background: var(--teal-soft); }
+.dp-svc-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.dp-svc-price { flex: 0 0 auto; color: var(--text2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dp-svc-none { margin: 0; padding: 8px 12px; font-size: var(--fs-s); color: var(--text3); }
 /* окно правки позиции плана */
 .dp-react-root .dp-plan-edit { width: 480px; }
 .dp-react-root .dp-plan-edit .pe-row { display: flex; gap: 9px; }

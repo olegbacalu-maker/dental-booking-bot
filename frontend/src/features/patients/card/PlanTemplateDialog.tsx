@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { AppLink } from '../../../components/AppLink'
 import { ask } from '../../../components/confirm'
 import { Icon } from '../../../components/Icon'
+import { fold } from '../../../utils/fold'
 import { roCount } from '../../../utils/plural'
 import type { ApiError } from '../../../types/api'
 import { patientCard, type PlanFromTpl, type PlanTplCatalog, type PlanTplRow } from './card'
@@ -85,8 +86,6 @@ interface Props {
 
 /** Что человек изменил у строки против того, что предлагает шаблон. */
 interface RowEdit { off?: boolean; tooth?: string; price?: string }
-
-const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('ro').trim()
 
 /** Цена, с которой строка открывается: своя цена шаблона, иначе сумма прайса, если она одна. */
 function startPrice(services: ServiceOption[], r: PlanTplRow): string {

@@ -47,16 +47,21 @@ const open = () => openScreen('/admin/settings/templates', '/admin/settings/temp
 const list = () => within(screen.getByRole('navigation', { name: 'Șabloanele clinicii' }))
 const item = (name: RegExp) => list().getByRole('button', { name })
 const nameInput = () => screen.getByLabelText('Nume') as HTMLInputElement
-const proc = (n: number) => screen.getByLabelText(`Procedura rândului ${n}`) as HTMLSelectElement
+const proc = (n: number) => screen.getByRole('combobox', { name: `Procedura rândului ${n}` }) as HTMLInputElement
+/* услуга из прайса — как человек: начало имени и щелчок по строке списка */
+const choose = (n: number, label: string) => {
+  fireEvent.change(proc(n), { target: { value: label.slice(0, 4) } })
+  const opt = within(screen.getByRole('listbox')).getAllByRole('option')
+    .find((o) => o.querySelector('.dp-svc-name')?.textContent === label)
+  if (!opt) throw new Error(`нет строки «${label}» в списке`)
+  fireEvent.click(opt)
+}
 const price = (n: number) => screen.getByLabelText(`Prețul rândului ${n}`) as HTMLInputElement
 const tooth = (n: number, label: string) =>
   within(screen.getByRole('group', { name: `Dintele rândului ${n}` })).getByRole('button', { name: label })
 const btn = (name: RegExp | string) => screen.getByRole('button', { name }) as HTMLButtonElement
 const saveBtn = () => btn(/Salvează șabloanele/)
-const procs = () => screen.getAllByLabelText(/^Procedura rândului/).map((s) => {
-  const el = s as HTMLSelectElement
-  return el.selectedOptions[0]?.textContent ?? ''
-})
+const procs = () => screen.getAllByRole('combobox', { name: /^Procedura rândului/ }).map((s) => (s as HTMLInputElement).value)
 
 afterEach(() => {
   cleanup()
@@ -95,9 +100,10 @@ describe('PlanTemplatesTab — вкладка «Plan de tratament»', () => {
     open()
     await screen.findByLabelText('Nume')
     fireEvent.click(item(/Tratament de canal/))
-    expect(procs()).toEqual(['Tratament endodontic — nu este în lista de servicii'])
+    expect(procs()).toEqual(['Tratament endodontic'])
+    expect(screen.getByText('nu este în lista de prețuri')).toBeTruthy()
     expect(price(1).placeholder).toBe('fără preț')
-    fireEvent.change(proc(1), { target: { value: 'xray' } })
+    choose(1, 'Radiografie')
     expect(procs()).toEqual(['Radiografie'])
     fireEvent.click(saveBtn())
     await screen.findByText('Setări salvate')
@@ -141,8 +147,8 @@ describe('PlanTemplatesTab — вкладка «Plan de tratament»', () => {
     expect(price(1).value).toBe('9500')
     fireEvent.click(btn('Șterge rândul: 3'))
     fireEvent.click(btn(/Rând nou/))
-    expect(procs()).toEqual(['Implant dentar', 'Coroană zirconiu', 'Alegeți procedura…'])
-    fireEvent.change(proc(3), { target: { value: 'xray' } })
+    expect(procs()).toEqual(['Implant dentar', 'Coroană zirconiu', ''])
+    choose(3, 'Radiografie')
     fireEvent.click(saveBtn())
     await screen.findByText('Setări salvate')
     expect(post).toHaveBeenCalledWith('/settings/plan-templates', { templates: { pt1: { rows: [
@@ -191,7 +197,7 @@ describe('PlanTemplatesTab — вкладка «Plan de tratament»', () => {
     fireEvent.click(saveBtn())
     expect((await screen.findAllByText('Șablonul are nevoie de cel puțin o procedură.')).length).toBeGreaterThan(0)
     fireEvent.click(btn(/Rând nou/))
-    fireEvent.change(proc(1), { target: { value: 'consult' } })
+    choose(1, 'Consultație')
     fireEvent.change(nameInput(), { target: { value: ' implant + COROANĂ' } })
     fireEvent.click(saveBtn())
     expect(await screen.findByText(/Există deja un șablon cu acest nume/)).toBeTruthy()
@@ -241,7 +247,7 @@ describe('PlanTemplatesTab — вкладка «Plan de tratament»', () => {
     expect(screen.getByText(/Alegeți un șablon din listă sau faceți unul nou/)).toBeTruthy()
     fireEvent.click(btn(/Șablon nou/))
     fireEvent.change(nameInput(), { target: { value: 'Igienizare completă' } })
-    fireEvent.change(proc(1), { target: { value: 'consult' } })
+    choose(1, 'Consultație')
     fireEvent.click(saveBtn())
     expect(await screen.findByText('Există deja un șablon')).toBeTruthy()
     expect(nameInput().value).toBe('Igienizare completă')

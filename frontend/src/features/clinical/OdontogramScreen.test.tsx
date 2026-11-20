@@ -932,8 +932,13 @@ describe('зуб → план (01.10)', () => {
     await waitFor(() => expect(btn(16)).toBeTruthy())
     fireEvent.contextMenu(btn(16), { clientX: 300, clientY: 200 })
     fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Adaugă în plan' }))
-    const list = document.getElementById(proc().getAttribute('list') ?? '') as HTMLDataListElement
-    expect([...list.options].map((o) => o.value)).toEqual(['Consultație', 'Igienizare'])
+    fireEvent.keyDown(proc(), { key: 'ArrowDown' })
+    expect(within(within(dlg()).getByRole('listbox')).getAllByRole('option').map((o) => o.textContent))
+      .toEqual(['Consultație', 'Igienizare'])
+    /* ⛔ Esc закрывает список, а не окно с зубом */
+    fireEvent.keyDown(proc(), { key: 'Escape' })
+    expect(within(dlg()).queryByRole('listbox')).toBeNull()
+    expect(dlg().hasAttribute('open')).toBe(true)
     fireEvent.change(proc(), { target: { value: ' Igienizare ' } })
     fireEvent.click(within(dlg()).getByRole('button', { name: 'Adaugă în plan' }))
     await waitFor(() => expect(post).toHaveBeenCalledWith('/patients/5/plan?odo=1',

@@ -9,7 +9,8 @@ import { mdl, patientCard, type PatientCard, type PlanForm, type PlanItem } from
 import { PlanEditDialog } from './PlanEditDialog'
 import { PlanSaveTemplateDialog } from './PlanSaveTemplateDialog'
 import { PlanTemplateDialog } from './PlanTemplateDialog'
-import { PriceNote, priceAfterProcedure, serviceIdFor, ServiceList } from './planService'
+import { PriceNote, priceAfterProcedure, serviceIdFor } from './planService'
+import { ServicePicker } from './ServicePicker'
 import { printHref } from './print'
 import { SignDialog } from './sign/SignDialog'
 import { useLingering } from '../../../utils/motion'
@@ -131,7 +132,7 @@ export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterStep
   const [priceAuto, setPriceAuto] = useState(false)
   const [invalid, setInvalid] = useState(false)
   const set = (patch: Partial<PlanForm>) => setForm((f) => ({ ...f, ...patch }))
-  const services = card.appoint.services
+  const services = card.plan_services
   useFormTouched(a, 'plan', Object.values(form).some((v) => v !== ''))
   const refuzDlg = useRef<HTMLDialogElement>(null)
   const [refuz, setRefuz] = useState<PlanItem | null>(null)
@@ -351,10 +352,8 @@ export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterStep
               {card.options.milk.map((n) => <option key={n} value={n}>{n}</option>)}
             </optgroup>
           </select>
-          <input value={form.procedure} onChange={(e) => onProcedure(e.target.value)} placeholder={T.ph.proc}
-                 aria-label={T.ph.proc} maxLength={120} required aria-invalid={invalid || undefined}
-                 list="dp-plan-services" />
-          <ServiceList id="dp-plan-services" services={services} />
+          <ServicePicker value={form.procedure} services={services} onChange={onProcedure} placeholder={T.ph.proc}
+                 label={T.ph.proc} maxLength={120} required invalid={invalid} />
         </div>
         <div className="r2">
           <select value={form.doctor} onChange={(e) => set({ doctor: e.target.value })} aria-label={T.ph.doctor}>

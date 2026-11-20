@@ -102,10 +102,6 @@ export const tarifeApi = {
 
 export const EXPORT_HREF = '/admin/tarife.xlsx'
 
-/** Поиск без диакритики и регистра: «restaurare» найдёт «Restaurare», «coroana» — «Coroană». */
-export const fold = (s: string): string =>
-  s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLocaleLowerCase('ro').trim()
-
 export const inPlan = (w: Where): boolean => w !== 'agenda'
 export const inAgenda = (w: Where): boolean => w !== 'plan'
 

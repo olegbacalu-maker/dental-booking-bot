@@ -4,7 +4,8 @@ import { Icon } from '../../../components/Icon'
 import { useFormTouched, type CardActions } from './actions'
 import { patientCard, type PatientCard, type PlanEdit, type PlanItem } from './card'
 import { showDialog, useDialogLeave } from './dialog'
-import { PriceNote, priceAfterProcedure, priceIsListed, serviceIdFor, ServiceList } from './planService'
+import { PriceNote, priceAfterProcedure, priceIsListed, serviceIdFor } from './planService'
+import { ServicePicker } from './ServicePicker'
 
 /* «Editează» позиции плана: зуб, процедура, врач, цена, срок — пока позиция
    «Planificat» (после «Începe» она медзапись; порог держит сервер и отвечает
@@ -49,7 +50,7 @@ const draftOf = (it: PlanItem): Draft => ({
 
 export function PlanEditDialog({ card, a, it, onClose }: Props) {
   const dlg = useRef<HTMLDialogElement>(null)
-  const services = card.appoint.services
+  const services = card.plan_services
   const [base] = useState(() => draftOf(it))
   const [form, setForm] = useState(base)
   /* цена позиции равна прайсу — смена услуги ведёт её за собой, как в новой строке */
@@ -101,11 +102,12 @@ export function PlanEditDialog({ card, a, it, onClose }: Props) {
         <button type="button" onClick={() => { void leave() }} aria-label={T.close}><Icon name="close" /></button>
       </div>
       <form className="dlg-form" onSubmit={onSubmit}>
-        <label className="dlab">{T.proc}
-          <input value={form.procedure} onChange={(e) => onProcedure(e.target.value)} maxLength={120} required
-                 aria-invalid={bad === 'procedure' || undefined} list="dp-plan-edit-services" />
-        </label>
-        <ServiceList id="dp-plan-edit-services" services={services} />
+        {/* подпись — по id, не обёрткой <label>: список поиска стоит внутри поля и вошёл бы в его имя */}
+        <div className="dlab">
+          <span id="dp-plan-edit-proc">{T.proc}</span>
+          <ServicePicker value={form.procedure} services={services} onChange={onProcedure} maxLength={120} required
+                 invalid={bad === 'procedure'} labelledBy="dp-plan-edit-proc" />
+        </div>
         <div className="pe-row">
           <label className="dlab">{T.tooth}
             <select value={form.tooth} onChange={(e) => set({ tooth: e.target.value })}

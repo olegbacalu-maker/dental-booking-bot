@@ -10,11 +10,12 @@ import { defaultNavigate } from '../../hooks/useLoad'
 import { useRouteLoad, type RouteLoad, type ScreenData } from '../../hooks/useRouteLoad'
 import { useUnsavedPage } from '../../hooks/useUnsavedPage'
 import { asApiError } from '../../services/api'
+import { fold } from '../../utils/fold'
 import { roCount } from '../../utils/plural'
 import { CatDialog } from './CatDialog'
 import { ImportDialog } from './ImportDialog'
 import {
-  buildForm, EXPORT_HREF, fold, inAgenda, inPlan, shown, tarifeApi,
+  buildForm, EXPORT_HREF, inAgenda, inPlan, shown, tarifeApi,
   type NewRow, type RowEdit, type TarifeData, type TarifeForm, type TarifRow,
 } from './tarife'
 

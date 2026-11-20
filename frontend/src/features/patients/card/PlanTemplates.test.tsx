@@ -36,14 +36,12 @@ const card = (over: Partial<PatientCard['plan']> = {}): PatientCard => ({
     total: 5500, total_done: 0, n_track: 3, pct_done: 0, can_template: true, ...over,
   },
   forms: [],
-  appoint: {
-    services: [
-      { id: 'consult', label: 'Consultație', price: null, price_hint: 'gratuit' },
-      { id: 'hygiene', label: 'Igienizare', price: 1000, price_hint: '' },
-      { id: 'canal', label: 'Tratament de canal', price: null, price_hint: '1200–1800 MDL' },
-      { id: 'bont', label: 'Bont protetic', price: 3000, price_hint: '' },
-    ],
-  },
+  plan_services: [
+    { id: 'consult', label: 'Consultație', price: null, price_hint: 'gratuit' },
+    { id: 'hygiene', label: 'Igienizare', price: 1000, price_hint: '' },
+    { id: 'canal', label: 'Tratament de canal', price: null, price_hint: '1200–1800 MDL' },
+    { id: 'bont', label: 'Bont protetic', price: 3000, price_hint: '' },
+  ],
   options: {
     tab_states: { act: ['planificat', 'in_lucru'], finalizat: ['finalizat'], refuzat: ['refuzat'] },
     teeth: [36, 37, 46], milk: [55], doctors: ['Dr. Activ Doi', 'Dr. Activ Trei'],

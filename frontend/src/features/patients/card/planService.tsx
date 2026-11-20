@@ -1,5 +1,5 @@
 /* Позиция плана из прайса: процедура остаётся свободным текстом, а подсказки —
-   услуги клиники. Ключ услуги уходит, только пока текст равен её имени: по нему
+   услуги прайса клиники (`ServicePicker`). Ключ услуги уходит, только пока текст равен её имени: по нему
    потом считаются техкарта, лаборатория и % врача, и чужой ключ хуже пустого.
    Последнее слово — у сервера (`routes._plan_service_id`).
    Цена — тоже из прайса: сервер отдаёт у услуги сумму (`price`), когда в прайсе
@@ -14,6 +14,10 @@ export interface ServiceOption {
   price?: number | null
   /** Строка прайса, из которой сумму не взять («1200–1800 MDL»); иначе пусто. */
   price_hint?: string
+  /** Имя RU, категория и её имя — у услуг плана (`plan_services`): по ним ищет и группирует `ServicePicker`. */
+  ru?: string
+  cat?: string
+  cat_name?: string
 }
 
 export function serviceFor(services: ServiceOption[], procedure: string): ServiceOption | undefined {
@@ -81,12 +85,4 @@ export function PriceNote({ id, services, procedure, price }: {
   const note = priceNote(services, procedure, price)
   if (!note) return null
   return <span id={id} className={`dp-price-note${note.warn ? ' warn' : ''}`}>{note.text}</span>
-}
-
-export function ServiceList({ id, services }: { id: string; services: ServiceOption[] }) {
-  return (
-    <datalist id={id}>
-      {services.map((s) => <option key={s.id} value={s.label} />)}
-    </datalist>
-  )
 }
