@@ -150,8 +150,8 @@ def suite_list(res: Result) -> None:
         sm = _j(c.get("/api/patients/summary"))["data"]
         res.check("врачи в фильтре: каталог плюс те, кто есть в строках",
                   sm["doctors"], ["Dr. Activ Doi", "Dr. Activ Patru", "Dr. Activ Trei", "Dr. Arhivat Unu"])
-        res.check("каналы в фильтре: без Telegram, пока таких пациентов нет",
-                  [x["id"] for x in sm["channels"]], ["manual", "web"])
+        res.check("каналы в фильтре: только «Recepție», пока других пациентов нет",
+                  [(x["id"], x["label"]) for x in sm["channels"]], [("manual", "Recepție")])
         res.check("статусы — порядок словаря и слова",
                   [(x["id"], x["label"]) for x in sm["statuses"]],
                   [("arhivat", "Arhivat"), ("atentie", "Necesită atenție"),

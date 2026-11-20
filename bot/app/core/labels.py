@@ -138,6 +138,11 @@ ALERT_KINDS = {"allergy": "Alergie", "medication": "Medicație",
                "warning": "Atenție", "info": "Info"}
 # источник визита: рецепция завела руками или пациент записался сам
 SOURCE_LABEL = {"manual": "recepție", "bot": "online", "note": "notă"}
+# откуда пациент (фильтр «Canal» списка, строка под именем, шапка фиши, книга
+# Excel): ключи — ветки `db.ORIGIN_SQL`, порядок — порядок пунктов фильтра.
+# ⚠️ Не путать с SOURCE_LABEL: тот про запись журнала, этот про фишу.
+ORIGIN_LABEL = {"manual": "Recepție", "excel": "Import Excel",
+                "google": "Google Calendar", "tg": "Telegram", "web": "Online (site)"}
 
 
 def dmy(value) -> str:

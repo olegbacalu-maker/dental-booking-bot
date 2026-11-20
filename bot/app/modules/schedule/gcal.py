@@ -561,7 +561,7 @@ async def _journal_add(body: dict, pid: int | None) -> tuple:
         return await sroutes._book_appt(
             _s(body, "date"), _s(body, "time"), dk, _s(body, "service"), _s(body, "name"),
             _s(body, "phone"), "1" if body.get("nophone") else "", _s(body, "birth"),
-            sms, body.get("done") is True, adur, room)
+            sms, body.get("done") is True, adur, room, origin="gcal")
     dt = _when(body)
     doctor, svc = eng.DOCTORS.get(dk), eng.SERVICES.get(_s(body, "service"))
     if dt is None or not doctor or not svc:

@@ -252,6 +252,19 @@ MUTATIONS = [
     ("строит только core/messages", test_structure._LAY_BANNERS,
      [("from .messages import MSG_BANNER\n", ""),
       ('MSG_BANNER.get(code, ("err", code))[1]', "code")]),
+    # Откуда пациент: копия правила по префиксу ключа (как `card.channel` и
+    # `_pl_canal` до ORIGIN_SQL), второй SQL на ключ, ветка без подписи, словарь
+    # переименован (якорь) и второй словарь подписей.
+    ("ORIGIN_SQL и ORIGIN_LABEL", "app/modules/patients/card.py",
+     '\ndef _mut(p):\n    return "tg" if p["session_key"].startswith("tg:") else "manual"\n'),
+    ("ORIGIN_SQL и ORIGIN_LABEL", "app/modules/patients/routes.py",
+     '\n_MUT = "SELECT COUNT(*) FROM patients WHERE substr(session_key, 1, 3) = \'tg:\'"\n'),
+    ("ORIGIN_SQL и ORIGIN_LABEL", test_structure._DB_ORIGIN,
+     ("ELSE 'web' END", "WHEN p.id < 0 THEN 'mut' ELSE 'web' END")),
+    ("ORIGIN_SQL и ORIGIN_LABEL", test_structure._LAY_LABELS,
+     ("ORIGIN_LABEL = {", "ORIGIN_NAMES = {")),
+    ("ORIGIN_SQL и ORIGIN_LABEL", "app/modules/patients/api.py",
+     '\nORIGIN_LABEL = {"manual": "recepție"}\n'),
     # Экран, вернувшийся к серому окну браузера: `window.confirm` и голый
     # `confirm(` — оба ровно то, что жило в 17 местах до 01.10.
     ("подтверждение — своим окном", "_frontend/features/patients/card/AlertsCard.tsx",

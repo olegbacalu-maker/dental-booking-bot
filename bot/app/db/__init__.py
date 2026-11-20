@@ -74,8 +74,8 @@ from .pimport import (
 )
 from .plist import (
     _PLIST_COLS, all_patients, patients_visits, patients_debt, _PL_LAST_DOC_OF, _PL_DOCTOR,
-    _PL_DEBT, _PL_CANAL, _PL_FROM, _PL_COLS, _PL_ORDER, _PL_DIALECT, _PlQuery,
-    patients_count, patients_rows, patients_doctors, patients_archived, patients_have_tg,
+    _PL_DEBT, ORIGIN_SQL, _PL_FROM, _PL_COLS, _PL_ORDER, _PL_DIALECT, _PlQuery,
+    patients_count, patients_rows, patients_doctors, patients_archived, patients_origins, patient_origin,
     patients_counts,
 )
 from .sms import (

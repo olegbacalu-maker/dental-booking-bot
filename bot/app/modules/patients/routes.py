@@ -50,6 +50,7 @@ from . import sign as psign
 from . import visit as pvisit
 from ...core import plan_tpl, prices, shellopen, stock_tc, xlsx
 from ...core.auth import _guard, local_only, request_user
+from ...core.labels import ORIGIN_LABEL
 from ...core.visits import my_scope
 from ...core.layout import (ALERT_KINDS, LIVE_STATUSES, _ic, _initials, react_shell,
                             shell_model)
@@ -1365,15 +1366,6 @@ _PL_BADGE = {
 }
 
 
-_PL_CANAL = {"tg": "Telegram", "manual": "recepție", "web": "web"}
-
-
-def _pl_canal(p: dict) -> str:
-    key = p.get("session_key") or ""
-    return ("tg" if key.startswith("tg:")
-            else "manual" if key.startswith("manual:") else "web")
-
-
 def _pl_status(p: dict, now: datetime) -> str:
     if p.get("archived"):
         return "arhivat"
@@ -1431,7 +1423,7 @@ def _pl_select(now: datetime, q: str, med: str, st: str, ch: str, dat: str, imp:
     нельзя терять, её именно прячут."""
     q = q.strip()[:60]
     st = st if st in _PL_BADGE else ""
-    ch = ch if ch in _PL_CANAL else ""
+    ch = ch if ch in ORIGIN_LABEL else ""
     dat = dat if dat in ("da", "avans") else ""
     return {"q": q, "terms": _pl_terms(q), "med": med, "st": st, "ch": ch, "dat": dat,
             "imp": max(0, imp),
@@ -1647,7 +1639,7 @@ async def patients_xlsx(request: Request, q: str = "", med: str = "", st: str = 
         # врач строки — как у экрана: медик курант, иначе врач последнего визита
         (p["gender"] or "").upper(), p["primary_doctor"] or p["last_doctor"] or "",
         p["file_no"] or "",
-        _PL_CANAL[_pl_canal(p)].split()[-1], _PL_BADGE[_pl_status(p, now)][0],
+        ORIGIN_LABEL.get(p["origin"], ""), _PL_BADGE[_pl_status(p, now)][0],
         _d(p["last_at"]), _d(p["next_at"]), p["n_visits"], p["debt"],
         _d(p["created_at"]),
     ] for p in rows]
@@ -1657,7 +1649,7 @@ async def patients_xlsx(request: Request, q: str = "", med: str = "", st: str = 
          "Următoarea vizită", "Vizite", "Sold (MDL)", "Înregistrat"],
         data,
         # ширины в знаках — под самое длинное, что в колонке реально бывает
-        widths=[24, 14, 26, 13, 8, 6, 22, 10, 10, 16, 13, 13, 8, 11, 12],
+        widths=[24, 14, 26, 13, 8, 6, 22, 10, 16, 16, 13, 13, 8, 11, 12],
         sheet_name="Pacienti",
     )
     fname = f"pacienti_{now.date().isoformat()}.xlsx"

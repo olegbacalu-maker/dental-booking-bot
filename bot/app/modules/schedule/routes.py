@@ -520,7 +520,7 @@ async def _book_appt(adate: str, atime: str, adoctor: str, aservice: str,
                      aname: str, aphone: str = "", anophone: str = "",
                      abirth: str = "", asms: bool | None = None,
                      adone: bool = False, adur: str = "",
-                     aroom: str = "") -> tuple[str, int | None]:
+                     aroom: str = "", origin: str = "appt") -> tuple[str, int | None]:
     """Ручная запись (окно «Programare nouă»): код ответа — из `MSG_BANNER`.
 
     `adur` — длительность, выбранная в окне РУКАМИ (10.11): пусто — окно её не
@@ -604,7 +604,7 @@ async def _book_appt(adate: str, atime: str, adoctor: str, aservice: str,
                            birth_date=bdate,
                            doctor_id=adoctor, service_id=aservice,
                            duration_min=dur, duration_set=bool(adur),
-                           rooms=plan, room=aroom or None)
+                           rooms=plan, room=aroom or None, origin=origin)
     msg = "ok" if isinstance(r, int) else ("dup" if r == "dup" else "conflict")
     if isinstance(r, int) and not anophone:
         await _apply_sms(r, asms)

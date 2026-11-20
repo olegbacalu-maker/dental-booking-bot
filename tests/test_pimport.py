@@ -160,7 +160,7 @@ def suite_read(res: Result) -> None:
     ours = our_xlsx.book(["Nume", "Telefon", "E-mail", "Data nașterii", "Vârstă", "Gen", "Medic",
                           "Nr. dosar", "Canal", "Status", "Vizite", "Sold (MDL)"],
                          [["Popescu Ion", "069555101", "", D(1985, 3, 14), 41, "M",
-                           "Dr. Activ Doi", "17", "manual", "Activ", 3, 0]])
+                           "Dr. Activ Doi", "17", "Recepție", "Activ", 3, 0]])
     _t, r, recs = recs_of(ours, doctors=["Dr. Activ Doi"])
     res.check("книга самой программы: поля узнаны, счётные колонки пропущены", r["cols"],
               {0: "full", 1: "phone", 2: "email", 3: "birth", 5: "gender", 6: "doctor", 7: "file_no"})
@@ -525,6 +525,19 @@ def suite_import(res: Result) -> None:
                   ("069560001", "1951-02-02", "9990000000001", "Programare în fișier: 02.01.2027"))
         res.check("летопись фиши: одна строка — откуда человек",
                   _lines(c, p2), ["Fișă creată prin import din fișier „biblioteca.xlsx”"])
+        # канал — по метке импорта, хотя ключ у фиши `manual:` (ORIGIN_SQL)
+        sm = _j(c.get("/api/patients/summary"))["data"]
+        res.check("канал фиши импорта: строка списка, шапка фиши, пункт фильтра словами",
+                  (_find(c, "Testescu1 Ana")[0]["channel"], prof["channel"],
+                   [(x["id"], x["label"]) for x in sm["channels"]]),
+                  ("excel", "Import Excel", [("manual", "Recepție"), ("excel", "Import Excel")]))
+        res.check("фильтр «Import Excel» — 19 фиш файла, «Recepție» — заведённая руками",
+                  (_j(c.get("/api/patients?ch=excel&per=50"))["data"]["total"],
+                   [r["name"] for r in _j(c.get("/api/patients?ch=manual&per=50"))["data"]["rows"]]),
+                  (19, ["Testescu0 Ana"]))
+        sheet = _sheet_text(c.get("/admin/patients.xlsx").raw)
+        res.ok("книга Excel: колонка «Canal» — подпись словаря целиком",
+               "Import Excel</t>" in sheet and "Recepție</t>" in sheet, sheet[:300])
         imp = _j(c.get("/api/pimport"))["data"]["imports"]
         res.check("запись об импорте: файл, счётчики, можно отменить",
                   [(x["file"], x["rows"], x["created"], x["skipped"], x["undone"], x["can_undo"])

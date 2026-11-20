@@ -1574,6 +1574,15 @@ def suite_bot_ui(res: Result) -> None:
         rows = _plist(c, "ch=tg")["rows"]
         res.check("фильтр «Telegram» находит старую фишу",
                   [r["id"] for r in rows], [pid])
+        res.ok("без фиш веб-самозаписи пункта «Online (site)» нет", "web" not in channels,
+               f"каналы: {channels}")
+        web = bot_patient(s, when + timedelta(hours=1), "Din Site", "069900222", "web:abc123")
+        res.ok("старая фиша веб-самозаписи заведена", web.isdigit(), web)
+        sm = json.loads(c.get("/api/patients/summary").body)["data"]["channels"]
+        res.check("фиша веб-самозаписи: пункт «Online (site)» и строка списка",
+                  ([(x["id"], x["label"]) for x in sm if x["id"] == "web"],
+                   [r["name"] for r in _plist(c, "ch=web")["rows"]]),
+                  ([("web", "Online (site)")], ["Din Site"]))
         day = json.loads(c.get(f"/api/schedule/day?date={when.date().isoformat()}").body)["data"]
         res.ok("старый визит бота стоит в дне с источником «bot»",
                any(r["source"] == "bot" for r in day["list"]),

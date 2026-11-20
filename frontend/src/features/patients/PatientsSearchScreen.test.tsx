@@ -22,7 +22,7 @@ const SUMMARY: PatientsSummary = {
     { icon: 'cal', tone: 'v', value: '7', foot: '<span class=\'up\'>+7</span> față de luna trecută (0)', href: '/admin/stats' },
   ],
   doctors: ['Dr. Activ Doi', 'Dr. Activ Trei'],
-  channels: [{ id: 'manual', label: 'recepție' }, { id: 'web', label: 'web' }],
+  channels: [{ id: 'manual', label: 'Recepție' }, { id: 'excel', label: 'Import Excel' }],
   statuses: [
     { id: 'arhivat', label: 'Arhivat', cls: 'arh' },
     { id: 'atentie', label: 'Necesită atenție', cls: 'att' },
@@ -40,7 +40,7 @@ const ROW = {
   n_visits: 1, debt: -300, status: 'activ', archived: false,
 }
 const ROW2 = {
-  id: 2, name: 'Dumitru Ganea', initials: 'DG', phone: '', email: 'dg@example.com', channel: 'manual',
+  id: 2, name: 'Dumitru Ganea', initials: 'DG', phone: '', email: 'dg@example.com', channel: 'excel',
   birth: '01.01.2003', age: 23, doctor: 'Dr. Activ Trei', doctor_own: true, last: '12.09.2026',
   next: '20.09 10:00', n_visits: 2, debt: 1200, status: 'atentie', archived: false,
 }
@@ -157,9 +157,9 @@ describe('PatientsSearchScreen', () => {
     serve()
     open()
     expect(await screen.findByText('Avans Popescu')).toBeTruthy()
-    /* макет 08.10: под именем «23 ani · recepție»; e-mail остаётся в предпросмотре */
-    expect(screen.getByText('recepție', { selector: 'small' })).toBeTruthy()
-    expect(screen.getByText('23 ani · recepție', { selector: 'small' })).toBeTruthy()
+    /* макет 08.10: под именем «возраст · канал» словами сервера; e-mail остаётся в предпросмотре */
+    expect(screen.getByText('Recepție', { selector: 'small' })).toBeTruthy()
+    expect(screen.getByText('23 ani · Import Excel', { selector: 'small' })).toBeTruthy()
     expect(screen.queryByText('dg@example.com')).toBeNull()
     expect(screen.getByText('avans 300').className).toBe('chip ok')
     expect(screen.getByText('1 200 MDL').className).toBe('chip bad')
