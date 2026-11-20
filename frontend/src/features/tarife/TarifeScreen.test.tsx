@@ -92,6 +92,26 @@ describe('TarifeScreen', () => {
     expect(screen.getByText('Nimic găsit.')).toBeTruthy()
   })
 
+  it('поиск по словам, как в плане: куски слов в любом порядке и имя категории', async () => {
+    open()
+    await screen.findByDisplayValue('Coroană din zirconiu')
+    const find = (v: string) => fireEvent.change(screen.getByLabelText('Caută serviciul'), { target: { value: v } })
+    find('restaurare supraf')
+    expect(screen.getByDisplayValue('Restaurare pe 1 suprafață')).toBeTruthy()
+    expect(screen.getByText('1 serviciu')).toBeTruthy()
+    find('  supraf   restaur ')
+    expect(screen.getByDisplayValue('Restaurare pe 1 suprafață')).toBeTruthy()
+    find('protetica zirc')
+    expect(screen.getByDisplayValue('Coroană din zirconiu')).toBeTruthy()
+    expect(screen.getByText('1 serviciu')).toBeTruthy()
+    find('terapie')
+    expect(screen.getByDisplayValue('Restaurare pe 1 suprafață')).toBeTruthy()
+    expect(screen.getByDisplayValue('Detartraj')).toBeTruthy()
+    expect(screen.queryByDisplayValue('Coroană din zirconiu')).toBeNull()
+    find('restaurare zirc')
+    expect(screen.getByText('Nimic găsit.')).toBeTruthy()
+  })
+
   it('правка уходит «только тронутым»: цена, категория, новая строка; возврат к прежнему не уходит', async () => {
     const saved = model()
     post.mockResolvedValueOnce(ok(saved, 'ok_tarife', 'Lista de prețuri salvată.'))
