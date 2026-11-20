@@ -47,6 +47,15 @@
           корень экрана несёт `anim`, графики проявляются, цифры считают;
   print   печать посреди движения (строка уходит, окно гаснет): на листе ни
           идущей анимации, ни сдвига, ни призрака, ни гаснущего окна.
+  Окна, которые хозяин монтирует условно, — их `close` не видит:
+  plan    план лечения в фише: окно «Adaugă din șablon» стоит на одном месте и
+          одной высоты от первого кадра — пока грузятся шаблоны, при выборе зуба
+          и возврате к «fără dinte», при смене шаблона в списке (в том числе на
+          длинный); окна вставки, правки позиции, «Salvează ca șablon» и подписи
+          гаснут за ступень по «Renunță», по Esc и после удачной записи и только
+          потом уходят из дерева; окно правки не меняет высоту, когда под ценой
+          появляется и уходит подсказка прайса; печать посреди такого закрытия —
+          конечный вид.
 
 ⚠️ Покой меряется ВНЕ границы получаса: на ней сервер законно меняет конверт (час
 «сейчас», прошедшее начало записи). Перед сценарием стенд ждёт, если до границы
@@ -88,6 +97,15 @@
             на смене периода;
   print   · `@media print{.fl-row.leaving{display:flex !important;animation:fl-out 9s both !important}}`
             → призрак строки на листе.
+  plan    · клиенту сказано «движения нет» при живом CSS (`matchMedia` о reduced-motion
+            подменён в странице) → хозяин снимает окно в кадре закрытия: затухания
+            нет ни у одного из окон;
+          · высота окна шаблона снова по содержимому, строка предупреждения без
+            места → окно меняет высоту при загрузке, выборе зуба и смене шаблона;
+          · у подсказки прайса в окне правки нет своего места → окно меняет высоту
+            при наборе процедуры;
+          · `@media print{dialog:not([open]){display:block !important}}` → гаснущее
+            окно на листе.
 """
 from __future__ import annotations
 
@@ -108,7 +126,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from harness import BOT, TZ, Client, Server  # noqa: E402
+from harness import BOT, TZ, Client, Server, new_patient  # noqa: E402
 from odo_shots import CDP, Page, login_cookie, start_edge  # noqa: E402
 
 # ⛔ Свой порт отладки: 9337–9347, 9349, 9352/9353, 9355, 9360/9361 заняты
@@ -116,7 +134,7 @@ from odo_shots import CDP, Page, login_cookie, start_edge  # noqa: E402
 PORT = 9348
 SIZE = (1366, 768)
 LIVE_S = 12            # период опроса живого канала (services/live.ts › LIVE_MS)
-SCENARIOS = ("idle", "dialog", "status", "menu", "toast", "reduce", "leave", "close", "move", "stats", "print")
+SCENARIOS = ("idle", "dialog", "status", "menu", "toast", "reduce", "leave", "close", "move", "stats", "print", "plan")
 STYLE_SCENARIOS = ("dialog", "status", "menu", "toast", "close", "reduce")
 
 # Замеры в странице: кадры, изменения узлов, сеть, сдвиги раскладки, запуски
@@ -128,7 +146,7 @@ OPEN_AGENDA = "try { localStorage.setItem('dp_fold:agenda', '1') } catch (e) {}"
 
 INSTR = r"""(() => {
   if (window.__mc) return 1;
-  const M = window.__mc = { frames: [], samples: [], muts: [], res: [], shifts: [], runs: [], on: false, sample: null };
+  const M = window.__mc = { frames: [], samples: [], muts: [], res: [], shifts: [], runs: [], ends: [], on: false, sample: null };
   const sel = (n) => {
     if (!n) return 'null';
     if (n.nodeType === 3) return '#text<' + (n.parentElement ? sel(n.parentElement) : '') + '>';
@@ -139,7 +157,7 @@ INSTR = r"""(() => {
     if (c) s += '.' + c.split(/\s+/).join('.');
     return s.slice(0, 80);
   };
-  M.reset = () => { M.frames = []; M.samples = []; M.muts = []; M.res = []; M.shifts = []; M.runs = []; M.on = true; };
+  M.reset = () => { M.frames = []; M.samples = []; M.muts = []; M.res = []; M.shifts = []; M.runs = []; M.ends = []; M.on = true; };
   const dur = (e) => {
     try {
       const all = e.target.getAnimations({ subtree: false }).concat(
@@ -154,6 +172,9 @@ INSTR = r"""(() => {
   document.addEventListener('animationstart', run('animation'), true);
   document.addEventListener('animationiteration', run('iteration'), true);
   document.addEventListener('transitionrun', run('transition'), true);
+  // доигранный переход: у узла, снятого посреди перехода, события конца нет
+  document.addEventListener('transitionend', (e) => { if (M.on) M.ends.push({ name: e.propertyName,
+    target: sel(e.target), pseudo: e.pseudoElement || '' }); }, true);
   const watch = () => new MutationObserver((recs) => {
     if (!M.on) return;
     for (const r of recs) {
@@ -191,6 +212,24 @@ WAIT_BTN = ("Array.from(document.querySelectorAll('.ag-l .ag-i .ag-next'))"
 DLG = ("() => { const d = document.querySelector('dialog[open]'); if (!d) return null;"
        " return [Number(getComputedStyle(d).opacity), d.offsetHeight, !!d.querySelector('button.dp-card-pen')]; }")
 
+# Окна плана лечения в фише. Место и высота — раскладкой (`offset*`): прямоугольник
+# экрана видит и transform перехода появления, а он раскладку не двигает.
+TPL = "document.querySelector('dialog.dp-plan-tpl:not(.save)')"
+BOX = ("() => {{ const d = {dlg}; return d ? [d.offsetTop, d.offsetHeight, d.open,"
+       " Number(getComputedStyle(d).opacity)] : null; }}")
+BY_TEXT = "Array.from(document.querySelectorAll('{sel}')).find((b) => b.textContent.includes('{text}'))"
+# Шаблоны засева: с зубом и без, короткий и длиннее окна — высота окна от них не зависит.
+PLAN_TPLS = [
+    {"name": "Proba canal", "note": "pentru molari", "rows": [
+        {"procedure": "Consultație de probă", "tooth": False, "price": 200},
+        {"procedure": "Tratament de canal de probă", "tooth": True, "price": 1500},
+        {"procedure": "Bont de probă", "tooth": True, "price": 3000},
+        {"procedure": "Coroană de probă", "tooth": True, "price": 4500}]},
+    {"name": "Proba igienă", "rows": [{"procedure": "Igienizare de probă", "tooth": False, "price": 900}]},
+    {"name": "Proba lungă", "rows": [{"procedure": f"Procedură de probă {i}", "tooth": True, "price": 100 * i}
+                                      for i in range(1, 15)]},
+]
+
 # Что считается НОВЫМ движением первой волны (сценарий reduce): цель и свойство.
 # Наведение и фокус старых правил сюда не входят — их гасит прежний блок под `.anim`.
 NEW = (
@@ -227,6 +266,8 @@ class Run:
         self.page = Page(cdp, url)
         self.bad: list[str] = []
         self.n = 0
+        self.pid = 0            # фиша с планом лечения (сценарий plan)
+        self.listed = ""        # услуга прайса с ценой одним числом
 
     def ok(self, cond: bool, text: str) -> None:
         self.n += 1
@@ -259,7 +300,7 @@ class Run:
 
     def take(self) -> dict:
         return json.loads(self.js("(() => { __mc.on = false; return JSON.stringify({samples: __mc.samples,"
-                                  " muts: __mc.muts, res: __mc.res, shifts: __mc.shifts, runs: __mc.runs,"
+                                  " muts: __mc.muts, res: __mc.res, shifts: __mc.shifts, runs: __mc.runs, ends: __mc.ends,"
                                   " frames: __mc.frames.length}) })()"))
 
     def esc(self) -> None:
@@ -597,6 +638,136 @@ class Run:
         m("Emulation.setEmulatedMedia", media="")
         self.ok(not any(s.values()), f"печать посреди закрытия окна: на листе конечный вид ({s})")
 
+    def pick(self, finder: str, value: str, wait: float, sample: str = "") -> dict:
+        """Выбор в <select> так, как его видит React: значение и событие change."""
+        self.js(f"__mc.sample = {sample or 'null'}; __mc.reset(); 1")
+        self.js(f"(() => {{ const s = {finder}; Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')"
+                f".set.call(s, {json.dumps(value)}); s.dispatchEvent(new Event('change', {{ bubbles: true }})); return 1 }})()")
+        self.cdp.drain(wait)
+        return self.take()
+
+    def type_in(self, finder: str, text: str, wait: float, sample: str = "") -> dict:
+        """Текст в поле так, как его видит React: значение и событие input."""
+        self.js(f"__mc.sample = {sample or 'null'}; __mc.reset(); 1")
+        self.js(f"(() => {{ const el = {finder}; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')"
+                f".set.call(el, {json.dumps(text)}); el.dispatchEvent(new Event('input', {{ bubbles: true }})); return 1 }})()")
+        self.cdp.drain(wait)
+        return self.take()
+
+    def fades(self, what: str, dlg: str, d: dict) -> None:
+        """Окно `dlg` (условно смонтированное) после закрытия: `d` — замеры `BOX` с
+        момента закрытия. Гаснет переходом в ступень, доигрывает его и только потом
+        уходит из дерева. Доказательство — событие конца перехода на самом окне (у узла,
+        снятого посреди перехода, его нет); промежуточных кадров у headless-Edge на
+        ступень выходит от нуля до трёх, поэтому их число не утверждается."""
+        step = self.js("getComputedStyle(document.documentElement).getPropertyValue('--dur-fast').trim()")
+        want = float(step.rstrip("ms").rstrip("s")) * (1 if step.endswith("ms") else 1000) if step else -1
+        seen = d["samples"]
+        fading = [s[3] for s in seen if s and s[2] is False and 0 < s[3] < 1]
+        mine = [r for r in d["runs"] if r["target"].startswith("dialog") and r["name"] == "opacity" and not r["pseudo"]]
+        done = [e for e in d["ends"] if e["target"].startswith("dialog") and e["name"] == "opacity" and not e["pseudo"]]
+        self.ok(len(mine) == 1 and abs(mine[0]["dur"] - want) < 1 and len(done) == 1 and fading == sorted(fading, reverse=True),
+                f"{what}: окно гаснет переходом в ступень и доигрывает его ({[r['dur'] for r in mine]} мс,"
+                f" доиграно {len(done)}, промежуточных кадров {len(fading)})")
+        self.ok(bool(seen) and seen[-1] is None and self.js(f"{dlg} === null"), f"{what}: по концу окна в дереве нет")
+
+    def plan(self) -> None:
+        if not self.pid:
+            raise SystemExit("стенд: фиша с планом не засеяна — сценарий plan не прогнан")
+        m = self.cdp.cmd
+        self.page.go(f"/admin/patient/{self.pid}?tab=plan")
+        time.sleep(0.8)
+        box = BOX.format(dlg=TPL)
+        open_tpl = "document.querySelector('.plan-add .ptpl-open')"
+        cancel = f"Array.from({TPL}.querySelectorAll('.tp-foot .dp-btn')).find((b) => !b.classList.contains('pri'))"
+        tooth = f"{TPL}.querySelector('.tp-fields select')"
+
+        # 1. место и высота окна шаблона — от первого кадра (шаблоны ещё грузятся) и дальше
+        seen = self.tap(open_tpl, 1.2, box)["samples"]
+        self.ok(self.js(f"{TPL}.querySelectorAll('.tp-item').length") == len(PLAN_TPLS),
+                f"окно шаблона: открылось со списком из {len(PLAN_TPLS)} шаблонов")
+        warn = f"(() => {{ const w = {TPL}.querySelector('.tp-warn'); return w ? w.textContent.trim() : null; }})()"
+        said = [self.js(warn)]
+        for value in ("36", "", "36"):
+            seen += self.pick(tooth, value, 0.5, box)["samples"]
+            said.append(self.js(warn))
+        self.ok(bool(said[0]) and bool(said[2]) and not said[1] and not said[3],
+                f"окно шаблона: предупреждение о зубе есть без зуба и молчит с зубом ({[bool(x) for x in said]})")
+        for i in (1, 2, 0):
+            seen += self.tap(f"{TPL}.querySelectorAll('.tp-item')[{i}]", 0.5, box)["samples"]
+        self.ok(self.js(f"{TPL}.querySelector('.tp-main').scrollHeight <= {TPL}.querySelector('.tp-main').clientHeight"),
+                "окно шаблона: короткий шаблон виден целиком, без прокрутки")
+        frames = [s for s in seen if s and s[2]]
+        sizes = sorted({(s[0], s[1]) for s in frames})
+        self.ok(len(frames) > 20 and len(sizes) == 1,
+                f"окно шаблона: место и высота одни при загрузке, выборе зуба и смене шаблона"
+                f" (верх, высота: {sizes[:4]}, кадров {len(frames)})")
+
+        # 2. закрытие: «Renunță», Esc, удачная вставка
+        self.fades("вставка, «Renunță»", TPL, self.tap(cancel, 0.8, box))
+        self.tap(open_tpl, 1.0)
+        self.fades("вставка, Esc", TPL, self.key("Escape", 27, 0.8, box))
+        self.tap(open_tpl, 1.0)
+        self.pick(tooth, "36", 0.3)
+        d = self.tap(f"{TPL}.querySelector('.tp-foot .dp-btn.pri')", 1.4, box)
+        posts = [r["status"] for r in d["res"] if "/plan/from-template" in r["name"]]
+        self.ok(posts == [200], f"вставка: шаблон ушёл в план одной командой ({posts})")
+        self.fades("вставка, после записи", TPL, d)
+        self.ok(self.js("document.querySelectorAll('.plan-row').length") >= 4, "вставка: строки шаблона встали в план")
+        time.sleep(0.4)
+
+        # 3. правка позиции: меню строки → «Editează»
+        edit = "document.querySelector('dialog.dp-plan-edit')"
+        self.tap("document.querySelector('.plan-row .pact .dp-more')", 0.5)
+        self.tap(BY_TEXT.format(sel=".dp-cmenu [role=menuitem]", text="Editează"), 0.8)
+        self.ok(self.js(f"!!{edit} && {edit}.open"), "правка позиции: окно открылось")
+        # подсказка прайса приходит и уходит с набором процедуры — высота окна та же
+        ebox = BOX.format(dlg=edit)
+        seen, notes = [], []
+        for text in (self.listed, "Ceva în afara listei", self.listed):
+            seen += self.type_in(f"{edit}.querySelector('input[list]')", text, 0.4, ebox)["samples"]
+            notes.append(self.js(f"!!{edit}.querySelector('.dp-price-note')"))
+        sizes = sorted({(s[0], s[1]) for s in seen if s and s[2]})
+        self.ok(notes == [True, False, True] and len(sizes) == 1,
+                f"правка позиции: подсказка прайса есть и нет ({notes}), место и высота окна одни ({sizes})")
+        self.type_in(f"{edit}.querySelector('input[list]')", "Coroană de probă", 0.3)     # как было: закрытие без вопроса
+        self.fades("правка позиции, Esc", edit, self.key("Escape", 27, 0.8, ebox))
+
+        # 4. «Salvează ca șablon»: меню карточки плана
+        save = "document.querySelector('dialog.dp-plan-tpl.save')"
+        self.tap("document.querySelector('h3.plan-h .dp-more')", 0.5)
+        self.tap(BY_TEXT.format(sel=".dp-cmenu [role=menuitem]", text="Salvează ca șablon"), 0.8)
+        self.ok(self.js(f"!!{save} && {save}.open"), "«Salvează ca șablon»: окно открылось")
+        self.fades("«Salvează ca șablon», «Renunță»", save,
+                   self.tap(f"Array.from({save}.querySelectorAll('.tp-foot .dp-btn')).find((b) => !b.classList.contains('pri'))",
+                            0.8, BOX.format(dlg=save)))
+
+        # 5. подпись на экране — где сервер её даёт (нужен Edge для PDF: у стенда он есть)
+        sign = "document.querySelector('dialog.dp-sign')"
+        sign_btn = BY_TEXT.format(sel=".dp-consent button.lnk", text="Semnează")
+        self.ok(self.js(f"!!{sign_btn}"), "подпись: кнопка «Semnează pe ecran» в полосе согласия есть")
+        if self.js(f"!!{sign_btn}"):
+            self.tap(sign_btn, 1.2)
+            self.fades("подпись, «Renunță»", sign,
+                       self.tap(f"{sign}.querySelector('.sg-foot .pl-btn')", 0.8, BOX.format(dlg=sign)))
+
+        # 6. печать посреди закрытия окна вставки
+        self.tap(open_tpl, 1.0)
+        x, y = self.page.center(cancel)
+        for t in ("mousePressed", "mouseReleased"):
+            m("Input.dispatchMouseEvent", type=t, x=x, y=y, button="left", clickCount=1)
+        time.sleep(0.03)
+        m("Emulation.setEmulatedMedia", media="print")
+        s = json.loads(self.js(
+            "JSON.stringify({ css: document.getAnimations().filter((a) => a.playState === 'running'"
+            " && (a.animationName || a.transitionProperty)).length,"
+            " waapi: document.getAnimations().filter((a) => a.playState === 'running' && !(a.animationName || a.transitionProperty)).length,"
+            " closing: Array.from(document.querySelectorAll('dialog:not([open])')).filter((e) => getComputedStyle(e).display !== 'none').length })"))
+        m("Emulation.setEmulatedMedia", media="")
+        self.ok(not any(s.values()), f"печать посреди закрытия окна вставки: на листе конечный вид ({s})")
+        time.sleep(0.4)
+        self.ok(self.js(f"{TPL} === null"), "печать посреди закрытия: после неё окно из дерева ушло")
+
     def scenario(self, name: str, polls: int) -> None:
         print(f"[{self.label}] {name}")
         self.home()
@@ -641,6 +812,24 @@ def seed(c: Client, clinic: pathlib.Path, hours: int = 3) -> None:
                 "name": f"Proba Miscare {n}", "phone": f"06977{n:04d}"})
             if r.status != 200:
                 raise SystemExit(f"засев не удался ({h0 + dh:02d}:00 {dk}): {r.status} {r.body[:120]}")
+
+
+def seed_plan(c: Client) -> tuple[int, str]:
+    """Фиша с планом лечения и шаблоны плана клиники — путём клиники; id фиши и имя
+    услуги прайса с ценой одним числом (под ней окно правки показывает подсказку)."""
+    r = c.post_json("/api/settings/plan-templates", {"new": PLAN_TPLS})
+    if r.msg != "ok_set":
+        raise SystemExit(f"засев: шаблоны плана не сохранились: {r.status} {r.body[:160]}")
+    pid = new_patient(c, "Proba Plan Miscare", "069778800")
+    for body in ({"procedure": "Coroană de probă", "tooth": "26", "price": "3000"},
+                 {"procedure": "Detartraj de probă", "price": "700"}):
+        r = c.post_json(f"/api/patients/{pid}/plan", body)
+        if r.status != 200:
+            raise SystemExit(f"засев: позиция плана не записалась: {r.status} {r.body[:160]}")
+    priced = [s["label"] for s in json.loads(r.body)["data"]["appoint"]["services"] if s["price"] is not None]
+    if not priced:
+        raise SystemExit("засев: в прайсе клиники нет услуги с ценой одним числом — сценарий plan не прогнан")
+    return pid, priced[0]
 
 
 def broken_tree(css: str = "", patch: tuple[str, str, str] | None = None, swap: tuple[str, str] | None = None) -> pathlib.Path:
@@ -692,6 +881,14 @@ PAIRS = [
     ("stats", "столбцы Statistici не растут", {"css": ".anim .stx-bar{animation:none !important}"}),
     ("stats", "вход Statistici играет и на смене периода", {"css": ".stx-bar{animation:stx-grow-y .55s both !important}"}),
     ("print", "призрак строки на листе", {"css": "@media print{.fl-row.leaving{display:flex !important;animation:fl-out 9s both !important}}"}),
+    ("plan", "хозяин снимает окно в кадре закрытия", {"js": "(() => { const real = window.matchMedia.bind(window);"
+                                                         " window.matchMedia = (q) => (/prefers-reduced-motion/.test(q)"
+                                                         " ? { matches: false, media: q, onchange: null, addEventListener() {}, removeEventListener() {},"
+                                                         " addListener() {}, removeListener() {}, dispatchEvent: () => false } : real(q)); })();"}),
+    ("plan", "высота окна шаблона по содержимому", {"css": ".dp-react-root .dp-plan-tpl .tp-win{height:auto !important}"
+                                                        ".dp-react-root .dp-plan-tpl .tp-warn[aria-hidden]{display:none !important}"}),
+    ("plan", "подсказка прайса в окне правки без места", {"css": ".dp-react-root .dp-plan-edit .pe-note{min-height:0 !important}"}),
+    ("plan", "гаснущее окно на листе", {"css": "@media print{dialog:not([open]){display:block !important}}"}),
 ]
 
 
@@ -707,6 +904,8 @@ def run_tree(cdp: CDP, bot: pathlib.Path | None, label: str, names, polls: int, 
             c = Client(s1.url).login()
             seed(c, s1.clinic, 6 if styles else 3)
             run = Run(cdp, s1.url, label, c, datetime.now(TZ).date().isoformat())
+            if "plan" in names:
+                run.pid, run.listed = seed_plan(c)
             cdp.cmd("Page.addScriptToEvaluateOnNewDocument", source=OPEN_AGENDA)
             cdp.cmd("Page.addScriptToEvaluateOnNewDocument", source=INSTR)
             if styles:
