@@ -676,6 +676,45 @@ describe('повестка: закрытые визиты в конце, вид 
     expect(localStorage.getItem('dp_ag_view')).toBeNull()
   })
 
+  it('⛔ переключатель вида стоит в шапке блока, над списком: при переключении он тот же узел на том же месте', () => {
+    show()
+    const head = document.querySelector('details[data-fold="agenda"] > summary')!
+    const group = screen.getByRole('group', { name: 'Vedere' })
+    expect(group.parentElement).toBe(head)
+    /* под списком его больше нет: там он уезжал из-под курсора на высоту списка */
+    expect(document.querySelector('.ag-foot .ag-view')).toBeNull()
+    expect(document.querySelector('.ag-foot button')).toBeNull()
+    const list = document.querySelector('.ag-l')!
+    expect(group.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const full = screen.getByRole('button', { name: 'detaliată' })
+    const compact = screen.getByRole('button', { name: 'compactă' })
+    fireEvent.click(full)
+    expect(screen.getByRole('button', { name: 'detaliată' })).toBe(full)
+    expect(screen.getByRole('button', { name: 'compactă' })).toBe(compact)
+    expect(full.parentElement).toBe(group)
+    expect(group.parentElement).toBe(head)
+    /* место под жирную подпись нажатой кнопки занято заранее (panel.css берёт её из data-t) */
+    expect([compact.dataset.t, full.dataset.t]).toEqual(['compactă', 'detaliată'])
+  })
+
+  it('⛔ щелчок по переключателю блок не сворачивает и до заголовка не доходит', () => {
+    /* заголовок, сворачивая блок, держит высоту колонки (`Fold.holdColumn` пишет её в `.rail`) */
+    localStorage.setItem('dp_fold:agenda', '1')
+    const { container } = show()
+    container.classList.add('rail')
+    const box = document.querySelector<HTMLDetailsElement>('details[data-fold="agenda"]')!
+    expect(box.open).toBe(true)
+    /* `fireEvent` отвечает false, когда действие по умолчанию отменено: у summary это сворачивание */
+    expect(fireEvent.click(screen.getByRole('button', { name: 'detaliată' }))).toBe(false)
+    expect(fireEvent.click(screen.getByRole('group', { name: 'Vedere' }))).toBe(false)
+    expect(container.style.minHeight).toBe('')
+    expect(box.open).toBe(true)
+    expect(localStorage.getItem('dp_fold:agenda')).toBe('1')
+    /* а сам заголовок — держит: проверка выше не слепа */
+    fireEvent.click(box.querySelector('summary b')!)
+    expect(container.style.minHeight).not.toBe('')
+  })
+
   it('компактная строка несёт услугу и комментарий подсказкой; «Consultație» в разметке есть (вид прячет CSS)', () => {
     show({ agenda: { ...AGENDA, items: [item({ comment: 'alergic la penicilină' })] } })
     const row = document.querySelector('.ag-i') as HTMLElement

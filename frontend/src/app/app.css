@@ -2684,6 +2684,12 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .agenda.dp-fold > summary.ag-h { justify-content: flex-start; align-items: center; gap: 8px; }
 .dp-react-root .agenda.dp-fold > summary.ag-h b { margin-right: auto; }
 .dp-react-root .agenda.dp-fold:not([open]) > summary.ag-h { margin-bottom: 0; }
+/* вид повестки — в шапке, пока блок открыт: свёрнутому блоку переключать нечего.
+   Своей строкой под заголовком: в колонке 302 px заголовок, счётчик и переключатель
+   в одну строку не помещаются — слова заголовка и счётчика переносились бы. */
+.dp-react-root .agenda.dp-fold > summary.ag-h { flex-wrap: wrap; row-gap: 4px; }
+.dp-react-root .agenda.dp-fold > summary.ag-h .ag-view { order: 3; flex-basis: 100%; justify-content: flex-end; }
+.dp-react-root .agenda.dp-fold:not([open]) > summary .ag-view { display: none; }
 /* Primul loc liber: заголовок — summary с h2; касса под ним не сворачивается */
 .dp-free-f > summary { display: flex; align-items: center; gap: 8px; }
 .dp-free-f > summary h2 { flex: 1; }

@@ -151,6 +151,15 @@ function Agenda(
       <>
         <b>{T.agenda}</b>
         <span>{agenda.count} {agenda.count === 1 ? T.one : T.many}</span>
+        {/* Вид повестки — в шапке блока: под списком переключатель уезжал из-под
+            курсора на высоту списка при каждом переключении. Щелчок по нему блок
+            не сворачивает и высоту колонки не держит — это дело заголовка.
+            У свёрнутого блока его нет (app.css). */}
+        <span className="ag-view" role="group" aria-label={T.view}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation() }}>
+          <button type="button" aria-pressed={compact} data-t={T.compact} onClick={() => pick(true)}>{T.compact}</button>
+          <button type="button" aria-pressed={!compact} data-t={T.full} onClick={() => pick(false)}>{T.full}</button>
+        </span>
       </>
     }>
       {flow && <FlowBar tab={t} onTab={setTab} flow={flow} total={agenda.count} labels={labels} />}
@@ -247,10 +256,6 @@ function Agenda(
       </div>
       <div className="ag-foot">
         <AppLink className="ag-all" href={`/admin/all?date=${date}`}>{T.all}</AppLink>
-        <span className="ag-view" role="group" aria-label={T.view}>
-          <button type="button" aria-pressed={compact} onClick={() => pick(true)}>{T.compact}</button>
-          <button type="button" aria-pressed={!compact} onClick={() => pick(false)}>{T.full}</button>
-        </span>
       </div>
     </Fold>
   )

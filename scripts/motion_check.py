@@ -73,6 +73,10 @@
           — три удара полоски и тишина; «finalizat» — один переворот блока, по концу
           без остатка transform, раскладка та же; опрос живого канала после событий
           не играет ничего; печать посреди переворота — конечный вид.
+  agenda  вид повестки «compactă / detaliată»: переключатель стоит в шапке блока,
+          и при переключении кнопка остаётся под курсором на том же месте (список
+          под ней меняет высоту); щелчок блок не сворачивает; у свёрнутого блока
+          переключателя нет, у открытого снова — он на месте и вид тот же.
 
 ⚠️ Покой меряется ВНЕ границы получаса: на ней сервер законно меняет конверт (час
 «сейчас», прошедшее начало записи). Перед сценарием стенд ждёт, если до границы
@@ -141,6 +145,9 @@
           · у завершённого блока оставлено одно кольцо пометки → переворота нет;
           · `@media print{.gappt.moved[data-st="done"]{animation:g-flip 9s !important}}`
             → переворот на листе.
+  agenda  · у кнопок вида снято место под жирную подпись → нажатая кнопка шире, и
+            соседняя сдвигается из-под курсора;
+          · переключатель показан и у свёрнутого блока.
 """
 from __future__ import annotations
 
@@ -170,7 +177,7 @@ PORT = 9348
 SIZE = (1366, 768)
 LIVE_S = 12            # период опроса живого канала (services/live.ts › LIVE_MS)
 SCENARIOS = ("idle", "dialog", "status", "menu", "toast", "reduce", "leave", "close", "move", "stats", "print", "plan",
-             "tile", "event")
+             "tile", "event", "agenda")
 STYLE_SCENARIOS = ("dialog", "status", "menu", "toast", "close", "reduce")
 
 # Замеры в странице: кадры, изменения узлов, сеть, сдвиги раскладки, запуски
@@ -1111,6 +1118,39 @@ class Run:
         self.ok(going == 1 and not any(s.values()), f"печать посреди переворота: на листе конечный вид (шёл переворот: {going}, на листе {s})")
         time.sleep(1.6)
 
+    def agenda(self) -> None:
+        box = "document.querySelector('details[data-fold=\"agenda\"]')"
+        btn = "Array.from(document.querySelectorAll('.ag-view button')).find((b) => b.textContent.trim() === '{t}')"
+        place = "(() => {{ const r = {b}.getBoundingClientRect(); return JSON.stringify([Math.round(r.left * 10) / 10, Math.round(r.top * 10) / 10]) }})()"
+        self.ok(bool(self.js(f"{box}.open && !!{btn.format(t='compactă')} && !!{btn.format(t='detaliată')}"
+                             f" && {btn.format(t='detaliată')}.closest('summary') === {box}.querySelector('summary')")),
+                "вид повестки: переключатель стоит в шапке открытого блока")
+        for t, compact in (("detaliată", False), ("compactă", True)):
+            b = btn.format(t=t)
+            x, y, w, h = self.rect(b)
+            cx, cy = x + w / 2, y + h / 2
+            self.move_to(cx, cy)
+            time.sleep(0.2)
+            tall = self.js(f"{box}.querySelector('.ag-l').offsetHeight")
+            before = json.loads(self.js(place.format(b=b)))
+            self.press(cx, cy)
+            time.sleep(0.5)
+            after = json.loads(self.js(place.format(b=b)))
+            under = self.js(f"document.elementFromPoint({cx}, {cy}) === {b}")
+            now = self.js(f"{box}.querySelector('.ag-l').offsetHeight")
+            self.ok(before == after and bool(under) and self.js(f"{box}.open") and self.js(f"{box}.classList.contains('cmp')") == compact
+                    and now != tall,
+                    f"«{t}»: кнопка осталась под курсором на месте ({before} → {after}), список {tall} → {now} px, блок открыт")
+        head = f"{box}.querySelector('summary b')"
+        self.tap(head, 0.6)
+        shown = self.js(f"getComputedStyle({box}.querySelector('.ag-view')).display")
+        self.ok(not self.js(f"{box}.open") and shown == "none", f"вид повестки: у свёрнутого блока переключателя нет ({shown})")
+        self.tap(head, 0.6)
+        shown = self.js(f"getComputedStyle({box}.querySelector('.ag-view')).display")
+        self.ok(self.js(f"{box}.open") and shown != "none" and self.js(f"{box}.classList.contains('cmp')")
+                and self.js("localStorage.getItem('dp_fold:agenda')") == "1",
+                f"вид повестки: открыли снова — переключатель на месте, вид тот же, блок помнит, что открыт ({shown})")
+
     def scenario(self, name: str, polls: int) -> None:
         print(f"[{self.label}] {name}")
         self.home()
@@ -1248,6 +1288,9 @@ PAIRS = [
                                                     "animation:g-beat .44s ease-in-out infinite !important}"}),
     ("event", "завершённый блок не переворачивается", {"css": ".gappt.moved[data-st=\"done\"]{animation:dp-moved-g 1.2s ease !important}"}),
     ("event", "переворот на листе", {"css": "@media print{.gappt.moved[data-st=\"done\"]{animation:g-flip 9s !important}}"}),
+    ("agenda", "нажатая кнопка вида шире — соседняя сдвигается", {"css": ".ag-view button::after{content:none !important}"}),
+    ("agenda", "переключатель вида у свёрнутого блока", {"css": ".dp-react-root .agenda.dp-fold:not([open]) > summary .ag-view"
+                                                             "{display:inline-flex !important}"}),
 ]
 
 
