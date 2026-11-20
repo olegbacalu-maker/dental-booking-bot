@@ -4186,9 +4186,15 @@ dialog.lb-dlg .lb-steps-box { display: flex; flex-wrap: wrap; gap: 8px; padding:
 .tf .tf-tbl td.tf-none { padding: 22px 16px; color: var(--text3); text-align: center; }
 .tf .tf-wait { min-height: 240px; }
 .tf .tf-cat-tools { margin-left: auto; }
-.tf .tf-find { display: inline-flex; align-items: center; gap: 8px; flex: 1 1 220px; max-width: 440px; }
-.tf .tf-find .dp-fld { flex: 1 1 auto; min-width: 0; }
-.tf .tf-find > span { flex: none; width: 8.5em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Шапка двумя рядами: место поля поиска не зависит ни от названия вида, ни от кнопок категории.
+   Число найденного лежит в самом поле справа (место под него занято всегда): поле не сужается с первой буквой. */
+.tf .tf-head { flex-direction: column; flex-wrap: nowrap; align-items: stretch; }
+.tf .tf-hrow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.tf .tf-hrow > .st-ttl { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tf .tf-find { position: relative; display: block; flex: 0 1 340px; min-width: 0; }
+.tf .tf-find .dp-fld { width: 100%; padding-right: 8.5em; }
+.tf .tf-find > span { position: absolute; right: 12px; top: 50%; translate: 0 -50%; max-width: 8em; pointer-events: none;
+  font-size: var(--fs-s); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (pointer: coarse) { .tf .tf-tbl td .dp-fld, .tf .tf-tbl td .dp-sel { height: 44px; min-height: 44px; } }
 .tf .tf-save { position: sticky; bottom: 12px; z-index: 3; display: flex; align-items: center; gap: 10px;
   padding: 10px 16px; box-shadow: var(--sh-hover); }

@@ -122,6 +122,15 @@ describe('TarifeScreen', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
     open()
     await screen.findByDisplayValue('Coroană din zirconiu')
+    /* шапка двумя рядами: поиск — во втором, отдельно от названия вида; кнопки категории — там же справа */
+    const rows = document.querySelectorAll('.tf-head > .tf-hrow')
+    expect(rows).toHaveLength(2)
+    expect(rows[0]!.querySelector('.tf-find')).toBeNull()
+    expect(rows[1]!.firstElementChild!.className).toBe('tf-find')
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Servicii și tarife' })).getByRole('button', { name: /Protetică/ }))
+    expect(await within(rows[1] as HTMLElement).findByRole('button', { name: /Redenumește/ })).toBeTruthy()
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Servicii și tarife' })).getByRole('button', { name: /Toate/ }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Redenumește/ })).toBeNull())
     /* число найденного: узел стоит и до первой буквы — поле не сужается под курсором */
     const count = document.querySelector('.tf-find > span')!
     expect(count.getAttribute('aria-hidden')).toBe('true')

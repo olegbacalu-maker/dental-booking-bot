@@ -322,31 +322,37 @@ export function TarifeScreen({ navigate = defaultNavigate }: { navigate?: (url: 
   return (
     <section className="dp-react-root rg st tf" aria-busy={!data || undefined}>
       <SideMenu label={T.title} items={items} value={keyOf(view)} onPick={pick}>
-        <div className="fcard rg-head st-head">
-          <b className="st-ttl">{viewTitle}</b>
-          <span className="tf-find">
-            <input className="dp-fld" type="search" placeholder={T.find} aria-label={T.find} value={find} onChange={(e) => setFind(e.target.value)} />
-            {/* место под число найденного занято всегда: иначе поле сужалось бы под курсором с первой буквой */}
-            <span className="st-mute" aria-hidden={!needle || undefined}>{needle ? roCount(rows.length, SVCS) : ''}</span>
-          </span>
-          {can && curCat && (
-            <div className="rg-tools tf-cat-tools">
-              <button type="button" className="rg-btn sm" onClick={() => setCatDlg({ id: curCat.id, name: curCat.name })}><Icon name="pen" /> Redenumește</button>
-              <button type="button" className="rg-btn sm" aria-label="Mută mai sus" title="Mută mai sus" disabled={cats[0]?.id === curCat.id}
-                onClick={() => { void moveCat(curCat.id, -1) }}><Icon name="caret-u" /></button>
-              <button type="button" className="rg-btn sm" aria-label="Mută mai jos" title="Mută mai jos" disabled={cats.at(-1)?.id === curCat.id}
-                onClick={() => { void moveCat(curCat.id, 1) }}><Icon name="caret-d" /></button>
-              <button type="button" className="rg-btn sm" onClick={() => { void dropCat(curCat) }}><Icon name="trash" /> Șterge categoria</button>
+        {/* Шапка — двумя постоянными рядами: название и общие кнопки; поиск слева и кнопки категории справа.
+            В одном ряду с названием поле ездило вбок и меняло ширину от длины названия категории. */}
+        <div className="fcard rg-head st-head tf-head">
+          <div className="tf-hrow">
+            <b className="st-ttl">{viewTitle}</b>
+            <div className="rg-tools">
+              <AppLink className="rg-btn" href={EXPORT_HREF} download><Icon name="download" /> {T.exp}</AppLink>
+              {can && (data?.import.remote
+                ? null
+                : <button type="button" className="rg-btn" disabled={!data || dirty} title={dirty ? 'Salvați modificările întâi' : undefined}
+                    onClick={() => setImporting(true)}><Icon name="upload" /> {T.imp}</button>)}
+              {can && <button type="button" className="rg-btn" disabled={!data} onClick={() => setCatDlg({ id: '', name: null })}><Icon name="plus" /> {T.addCat}</button>}
+              {can && <button type="button" className="rg-btn pri" disabled={!data || view.k === 'agenda'} onClick={addRow}><Icon name="plus" /> {T.addSvc}</button>}
             </div>
-          )}
-          <div className="rg-tools">
-            <AppLink className="rg-btn" href={EXPORT_HREF} download><Icon name="download" /> {T.exp}</AppLink>
-            {can && (data?.import.remote
-              ? null
-              : <button type="button" className="rg-btn" disabled={!data || dirty} title={dirty ? 'Salvați modificările întâi' : undefined}
-                  onClick={() => setImporting(true)}><Icon name="upload" /> {T.imp}</button>)}
-            {can && <button type="button" className="rg-btn" disabled={!data} onClick={() => setCatDlg({ id: '', name: null })}><Icon name="plus" /> {T.addCat}</button>}
-            {can && <button type="button" className="rg-btn pri" disabled={!data || view.k === 'agenda'} onClick={addRow}><Icon name="plus" /> {T.addSvc}</button>}
+          </div>
+          <div className="tf-hrow">
+            <span className="tf-find">
+              <input className="dp-fld" type="search" placeholder={T.find} aria-label={T.find} value={find} onChange={(e) => setFind(e.target.value)} />
+              {/* место под число найденного занято всегда: иначе поле сужалось бы под курсором с первой буквой */}
+              <span className="st-mute" aria-hidden={!needle || undefined}>{needle ? roCount(rows.length, SVCS) : ''}</span>
+            </span>
+            {can && curCat && (
+              <div className="rg-tools tf-cat-tools">
+                <button type="button" className="rg-btn sm" onClick={() => setCatDlg({ id: curCat.id, name: curCat.name })}><Icon name="pen" /> Redenumește</button>
+                <button type="button" className="rg-btn sm" aria-label="Mută mai sus" title="Mută mai sus" disabled={cats[0]?.id === curCat.id}
+                  onClick={() => { void moveCat(curCat.id, -1) }}><Icon name="caret-u" /></button>
+                <button type="button" className="rg-btn sm" aria-label="Mută mai jos" title="Mută mai jos" disabled={cats.at(-1)?.id === curCat.id}
+                  onClick={() => { void moveCat(curCat.id, 1) }}><Icon name="caret-d" /></button>
+                <button type="button" className="rg-btn sm" onClick={() => { void dropCat(curCat) }}><Icon name="trash" /> Șterge categoria</button>
+              </div>
+            )}
           </div>
         </div>
         {!can && data && <p className="st-note"><Icon name="info" /> {T.readOnly}</p>}
