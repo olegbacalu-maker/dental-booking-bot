@@ -11,7 +11,10 @@ import { fold } from '../../../utils/fold'
    Enter в поле не отправляет форму никогда: поле стоит внутри форм окон, и Enter
    на подсвеченной строке без этого увёл бы позицию в план с полупустыми полями.
    Список стоит `position: fixed` по прямоугольнику поля: модальное окно режет
-   прокруткой всё, что выходит за его край, а растущее окно прыгало бы. */
+   прокруткой всё, что выходит за его край, а растущее окно прыгало бы.
+   И в верхнем слое (`popover`): у окна стиля Sticlă `backdrop-filter`, и `fixed`
+   внутри него отсчитывается от окна, а не от экрана — список уезжал на высоту окна
+   вниз и обрезался его краем. Верхний слой отсчитывается от экрана всегда. */
 
 export interface PickOption {
   id: string
@@ -29,6 +32,9 @@ const T = {
   none: 'Nimic în lista de prețuri — rămâne textul scris.',
   mdl: 'MDL',
 } as const
+
+/* верхний слой — где движок его умеет (Chromium 114+, WebView2); без него список стоит, как стоял */
+const TOP_LAYER = typeof HTMLElement !== 'undefined' && 'showPopover' in HTMLElement.prototype
 
 const thousands = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
 
@@ -127,6 +133,8 @@ export function ServicePicker({
       el.style.top = up ? '' : `${r.bottom + 4}px`
       el.style.bottom = up ? `${vh - r.top + 4}px` : ''
     }
+    const el = listRef.current
+    if (el && TOP_LAYER && !el.matches(':popover-open')) el.showPopover()
     place()
     window.addEventListener('resize', place)
     window.addEventListener('scroll', place, true)
@@ -136,11 +144,18 @@ export function ServicePicker({
     }
   }, [shown])
 
-  /* подсвеченная строка видна при ходе стрелками */
+  /* подсвеченная строка видна при ходе стрелками; прокручивается только сам список —
+     `scrollIntoView` двигал бы и окно с полем, если оно прокручивается */
   useLayoutEffect(() => {
-    if (!shown || cur < 0) return
-    const el = listRef.current?.querySelector<HTMLElement>(`[data-i="${cur}"]`)
-    el?.scrollIntoView?.({ block: 'nearest' })
+    const list = listRef.current
+    if (!shown || cur < 0 || !list) return
+    const el = list.querySelector<HTMLElement>(`[data-i="${cur}"]`)
+    if (!el) return
+    const head = el.parentElement?.querySelector<HTMLElement>('.dp-svc-cat')?.offsetHeight ?? 0
+    const top = el.offsetTop - head
+    const bottom = el.offsetTop + el.offsetHeight
+    if (top < list.scrollTop) list.scrollTop = top
+    else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight
   }, [shown, cur])
 
   function pick(s: PickOption) {
@@ -180,7 +195,7 @@ export function ServicePicker({
         onClick={() => { if (!open) { setOpen(true); setActive(0) } }}
         onBlur={() => setOpen(false)} />
       {shown && (
-        <div ref={listRef} id={listId} role="listbox" className="dp-svc-list"
+        <div ref={listRef} id={listId} role="listbox" className="dp-svc-list" popover={TOP_LAYER ? 'manual' : undefined}
           /* щелчок по списку не снимает фокус с поля: иначе blur закрыл бы список раньше выбора */
           onMouseDown={(e) => e.preventDefault()}>
           {flat.length === 0 && <p className="dp-svc-none">{T.none}</p>}

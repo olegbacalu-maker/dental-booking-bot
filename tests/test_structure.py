@@ -1894,7 +1894,7 @@ def suite(res: Result) -> None:
     # разрешено только тому, под чем содержимое едет (список здесь, он же в
     # блоке «Sticlă» panel.css); новый селектор с размытием — в список осознанно.
     live = {".top", "dialog", "dialog::backdrop", ".pp-veil", ".side", ".gridcard>.gridhead",
-            ".ppanel", ".toastbox .banner", ".dp-cmenu", ".dp-qf", ".dp-qf-back", ".dp-lock-card",
+            ".ppanel", ".toastbox .banner", ".dp-cmenu", ".dp-svc-list", ".dp-qf", ".dp-qf-back", ".dp-lock-card",
             ".dp-react-root .odop[data-sel] .odop-side"}
     blurred = {(name, s.strip()) for name, sel, body in rules
                if "backdrop-filter" in body for s in sel.split(",")}
