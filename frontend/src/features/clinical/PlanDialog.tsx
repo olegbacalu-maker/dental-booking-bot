@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Icon } from '../../components/Icon'
 import { hideDialog, showDialog } from '../../components/dialog'
 import type { Odontogram, PlanAdd } from './chart'
-import { PriceNote, priceAfterProcedure, serviceIdFor, ServiceList } from '../patients/card/planService'
+import { PriceNote, priceAfterProcedure, serviceIdFor } from '../patients/card/planService'
+import { ServicePicker } from '../patients/card/ServicePicker'
 import { useLingering } from '../../utils/motion'
 
 /* «Adaugă în plan» с зуба (01.10; Олег 27.09: «одонтограмма с планом не
@@ -92,10 +93,8 @@ export function PlanDialog({ model, n, busy, invalid, onClose, onSave, onTemplat
       </div>
       <form className="dlg-form" onSubmit={onSubmit}>
         {info && <p className="hint dp-m0">{info.title}</p>}
-        <input ref={first} value={form.procedure} onChange={(e) => onProcedure(e.target.value)} placeholder={T.ph.proc}
-               aria-label={T.ph.proc} maxLength={120} required aria-invalid={invalid || undefined}
-               list="dp-plan-dlg-services" />
-        <ServiceList id="dp-plan-dlg-services" services={services} />
+        <ServicePicker inputRef={first} value={form.procedure} services={services} onChange={onProcedure}
+               placeholder={T.ph.proc} label={T.ph.proc} maxLength={120} required invalid={invalid} />
         <select value={form.doctor} onChange={(e) => set({ doctor: e.target.value })} aria-label={T.ph.doctor}>
           <option value="">{T.ph.doctor}</option>
           {model.doctors.map((d) => <option key={d} value={d}>{d}</option>)}

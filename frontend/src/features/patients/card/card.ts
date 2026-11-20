@@ -335,6 +335,8 @@ export interface PatientCard {
   visits: { history: Visit[]; live: Visit[]; n_total: number }
   activity: Activity
   appoint: Appoint
+  /** Услуги прайса для плана (`in_plan`): по порядку категорий, «Fără categorie» последней. */
+  plan_services: ServiceOption[]
   options: Options
 }
 

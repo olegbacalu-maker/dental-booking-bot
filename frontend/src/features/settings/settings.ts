@@ -139,7 +139,7 @@ export interface PlanTemplate {
 export interface PlanTemplatesData {
   templates: PlanTemplate[]
   /** прайс для выбора процедуры; `price` — строка прайса, как её написала клиника */
-  services: { id: string; label: string; price: string }[]
+  services: { id: string; label: string; price: string; cat?: string; cat_name?: string }[]
   /** id только что созданных, в порядке `new` тела записи */
   created: string[]
   max: { name: number; note: number; rows: number; price: number; templates: number }

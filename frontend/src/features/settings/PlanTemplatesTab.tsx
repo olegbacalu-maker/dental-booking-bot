@@ -5,6 +5,7 @@ import { Toast, type ToastState } from '../../components/Toast'
 import { asApiError } from '../../services/api'
 import type { ApiError } from '../../types/api'
 import { roCount } from '../../utils/plural'
+import { ServicePicker } from '../patients/card/ServicePicker'
 import {
   settings, type PlanTemplate, type PlanTemplatesData, type PlanTemplatesForm, type PlanTplRowForm,
 } from './settings'
@@ -33,7 +34,7 @@ const T = {
   colOrder: 'Ordine',
   proc: 'Procedura rândului',
   pickProc: 'Alegeți procedura…',
-  offList: ' — nu este în lista de servicii',
+  offList: 'nu este în lista de prețuri',
   tooth: 'Dintele rândului',
   withTooth: 'cu dinte',
   noTooth: 'fără dinte',
@@ -59,9 +60,6 @@ const T = {
 
 const delAsk = (name: string) => `Ștergeți șablonul „${name}”? Planurile pacienților în care a fost deja `
   + 'adăugat nu se schimbă.'
-
-/** значение `<select>` у строки свободным текстом (услуги с таким текстом в прайсе нет) */
-const TEXT = '~text'
 
 interface RowDraft {
   key: number
@@ -105,7 +103,7 @@ function changes(base: Draft, d: Draft): NonNullable<PlanTemplatesForm['template
 function firstBad(d: Draft): BadField | null {
   if (!fold(d.name)) return 'name'
   if (d.rows.length === 0) return 'rows'
-  if (d.rows.some((r) => !r.service_id && !r.procedure)) return 'proc'
+  if (d.rows.some((r) => !r.service_id && !r.procedure.trim())) return 'proc'
   return null
 }
 
@@ -240,6 +238,8 @@ export function PlanTemplatesTab({ data, onSaved, leaveIfSignedOut, onDirty }: P
 
   const badHere = (field: BadField | 'dup') => bad !== null && bad.id === cur?.id && bad.field === field
   const listPrice = (sid: string) => data?.services.find((s) => s.id === sid)?.price ?? ''
+  /* текст поля: имя услуги прайса по ключу (прайс могли переименовать), иначе текст строки */
+  const rowText = (r: RowDraft) => (r.service_id && data?.services.find((s) => s.id === r.service_id)?.label) || r.procedure
 
   return (
     <>
@@ -301,17 +301,15 @@ export function PlanTemplatesTab({ data, onSaved, leaveIfSignedOut, onDirty }: P
                       <tr key={r.key}>
                         <td className="pt-n">{n}</td>
                         <td>
-                          <select className="dp-fld" aria-label={`${T.proc} ${n}`} disabled={saving}
-                            aria-invalid={(badHere('proc') && !r.service_id && !r.procedure) || undefined}
-                            value={r.service_id || (r.procedure ? TEXT : '')}
-                            onChange={(e) => {
-                              const sid = e.target.value
-                              if (sid && sid !== TEXT) patchRow(cur.id, r.key, (x) => ({ ...x, service_id: sid, procedure: '' }))
-                            }}>
-                            {!r.service_id && !r.procedure && <option value="">{T.pickProc}</option>}
-                            {!r.service_id && r.procedure && <option value={TEXT}>{r.procedure}{T.offList}</option>}
-                            {data.services.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-                          </select>
+                          {/* строка держится за услугу по ключу; набранный текст, которого нет в прайсе, —
+                              свободная процедура, как у позиции плана */}
+                          <ServicePicker value={rowText(r)} services={data.services} label={`${T.proc} ${n}`}
+                            placeholder={T.pickProc} disabled={saving} maxLength={120}
+                            invalid={badHere('proc') && !r.service_id && !r.procedure.trim()}
+                            onChange={(text) => patchRow(cur.id, r.key, (x) => ({ ...x, procedure: text,
+                              service_id: data.services.find((s) => s.label === text.trim())?.id ?? '' }))}
+                            onPick={(s) => patchRow(cur.id, r.key, (x) => ({ ...x, service_id: s.id, procedure: s.label }))} />
+                          {!r.service_id && r.procedure.trim() && <small className="pt-lp">{T.offList}</small>}
                         </td>
                         <td>
                           <span className="dp-seg pt-seg" role="group" aria-label={`${T.tooth} ${n}`}>
