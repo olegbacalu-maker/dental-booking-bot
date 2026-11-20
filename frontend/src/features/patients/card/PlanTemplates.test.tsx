@@ -129,14 +129,14 @@ describe('план: кто видит шаблоны', () => {
     }
     mount(card({ can_template: false }))
     expect(screen.getByRole('button', { name: 'Adaugă din șablon' })).toBeTruthy()
-    expect(menu()).toEqual(['Adaugă din șablon'])
+    expect(menu()).toEqual(['Adaugă din șablon', 'Tipărește devizul'])
     cleanup()
     mount(card({ items: [], n_act: 0 }))
     expect(screen.getByRole('button', { name: 'Adaugă din șablon' })).toBeTruthy()
     expect(menu()).toEqual(['Adaugă din șablon'])
     cleanup()
     mount()
-    expect(menu()).toEqual(['Adaugă din șablon', 'Salvează ca șablon'])
+    expect(menu()).toEqual(['Adaugă din șablon', 'Salvează ca șablon', 'Tipărește devizul'])
     /* пункт меню открывает то же окно, что кнопка под планом */
     get.mockResolvedValue(ok(CATALOG))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Adaugă din șablon' }))

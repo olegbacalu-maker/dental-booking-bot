@@ -11,7 +11,7 @@ import { SignPad, type SignPadHandle } from './SignPad'
    разбор в `design\semnare\`). Лист слева — предпросмотр сервера «как будет
    подписан», справа: кто подписывает (пациент или законный представитель с
    именем), у Informare 195 два необязательных согласия DA/NU, поле подписи
-   пациента, у согласия к плану — поле врача. Узкое окно (iPad в портрете) —
+   пациента, у согласия к плану и сметы — поле врача. Узкое окно (iPad в портрете) —
    колонка под листом.
    «Salvează» отправляет ТОЛЬКО картинки PNG и выборы; сервер делает PDF
    (~1 с) и кладёт документом в категорию бланка, ответ — свежая фиша, как у
@@ -67,7 +67,7 @@ export function SignDialog({ card, form, a, onClose }: Props) {
   const [opts, setOpts] = useState<{ mkt: Opt; photo: Opt }>({ mkt: null, photo: null })
   const [sending, setSending] = useState(false)
   const [err, setErr] = useState('')
-  const needDoctor = form.key === 'acord_plan'
+  const needDoctor = form.key === 'acord_plan' || form.key === 'deviz'
   const cat = card.options.doc_categories.find((c) => c.id === form.category)?.label ?? form.category
   const name = repName.trim()
   const ready = !pEmpty && (!needDoctor || !dEmpty) && (signer === 'pacient' || name.length >= 2)

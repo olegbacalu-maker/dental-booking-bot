@@ -93,9 +93,10 @@ def suite_sign(res: Result) -> None:
         c = Client(s.url).login()
         pid = _patient(c, "069555101")
         forms = _forms(_card(c, pid))
-        res.check("«Semnează» у трёх бланков, у 043/e нет",
+        res.check("«Semnează» у четырёх бланков, у 043/e нет",
                   {k: f["sign"] for k, f in forms.items()},
-                  {"acord195": True, "acord_plan": True, "chestionar": True, "fisa043": False})
+                  {"acord195": True, "acord_plan": True, "deviz": True, "chestionar": True,
+                   "fisa043": False})
 
         # предпросмотр окна подписи: лист как будет подписан, событий не пишет
         feed0 = [a["text"] for a in _card(c, pid)["activity"]["items"]]
@@ -152,7 +153,27 @@ def suite_sign(res: Result) -> None:
         res.check("позиция после подписанного PDF — согласие устарело (stale)",
                   _forms(_card(c, pid))["acord_plan"]["stale"], True)
 
-        # 3. анкета — подписывает представитель с именем
+        # 3. смета — пациент и врач, своя категория; stale от новой позиции
+        r = c.get(f"/admin/patient/{pid}/sign/deviz")
+        res.ok("предпросмотр сметы: A4, без кнопок, места подписей",
+               r.status == 200 and "size:A4" in r.body and "L.Ș." in r.body
+               and "noprint" not in r.body.split("</style>")[1], f"код {r.status}")
+        r = c.post_json(f"/api/patients/{pid}/forms/deviz/sign",
+                        {"signer": "pacient", "sig_patient": SIG, "sig_doctor": _png(300, 100)})
+        j = _j(r)
+        f = _forms(j["data"])["deviz"]
+        res.check("deviz: удача, «semnat» своим документом, не устарел",
+                  (r.status, j["code"], j["data"]["doc"]["category"],
+                   f["signed"]["doc_id"] == j["data"]["doc"]["id"], f["stale"],
+                   j["data"]["doc"]["filename"].startswith("Deviz — plan de tratament - Semn Test - ")),
+                  (200, "ok_sign", "deviz", True, False, True))
+        res.check("смета не трогает статус согласия к плану",
+                  _forms(j["data"])["acord_plan"]["signed"]["doc_id"] != j["data"]["doc"]["id"], True)
+        c.post_json(f"/api/patients/{pid}/plan", {"procedure": "Albire", "price": "900"})
+        res.check("позиция после подписанной сметы — смета устарела (stale)",
+                  _forms(_card(c, pid))["deviz"]["stale"], True)
+
+        # 4. анкета — подписывает представитель с именем
         r = c.post_json(f"/api/patients/{pid}/forms/chestionar/sign",
                         {"signer": "reprezentant", "signer_name": "  Ana   Mama ",
                          "sig_patient": SIG})
@@ -163,8 +184,8 @@ def suite_sign(res: Result) -> None:
         last = next(a for a in j["data"]["activity"]["items"] if a["kind"] == "sign")
         res.ok("летопись называет представителя", "· reprezentant Ana Mama · SHA-256 " in last["text"],
                last["text"])
-        res.check("три подписанных документа — три файла", len(j["data"]["documents"]), 3)
-        res.check("и после трёх подписей временного нет", _left(s), [])
+        res.check("четыре подписанных документа — четыре файла", len(j["data"]["documents"]), 4)
+        res.check("и после четырёх подписей временного нет", _left(s), [])
 
 
 def suite_sign_start_sweep(res: Result) -> None:
@@ -211,6 +232,8 @@ def suite_sign_refuse(res: Result) -> None:
              (422, "bad_sign_name", "signer_name")),
             ("согласие к плану без подписи врача", "acord_plan",
              {"signer": "pacient", "sig_patient": SIG}, (422, "bad_sign", "sig_doctor")),
+            ("смета без подписи врача", "deviz",
+             {"signer": "pacient", "sig_patient": SIG}, (422, "bad_sign", "sig_doctor")),
         ):
             j = _j(r := c.post_json(f"/api/patients/{pid}/forms/{key}/sign", body))
             res.check(f"отказ: {label}", (r.status, j["code"], j.get("field")), want)
@@ -225,8 +248,13 @@ def suite_sign_refuse(res: Result) -> None:
         bare = _patient(c, "069555103", plan=False, anam=False)
         f = _forms(_card(c, bare))
         res.check("кнопка скрыта: план без активных, анкета не введена",
-                  (f["acord195"]["sign"], f["acord_plan"]["sign"], f["chestionar"]["sign"]),
-                  (True, False, False))
+                  (f["acord195"]["sign"], f["acord_plan"]["sign"], f["deviz"]["sign"],
+                   f["chestionar"]["sign"]), (True, False, False, False))
+        j = _j(r := c.post_json(f"/api/patients/{bare}/forms/deviz/sign",
+                                {"signer": "pacient", "sig_patient": SIG, "sig_doctor": SIG}))
+        res.check("смета пустого плана — 409", (r.status, j["code"]), (409, "bad_sign_plan"))
+        res.check("предпросмотр сметы пустого плана — 404",
+                  c.get(f"/admin/patient/{bare}/sign/deviz").status, 404)
         j = _j(r := c.post_json(f"/api/patients/{bare}/forms/acord_plan/sign",
                                 {"signer": "pacient", "sig_patient": SIG, "sig_doctor": SIG}))
         res.check("согласие к пустому плану — 409", (r.status, j["code"]), (409, "bad_sign_plan"))

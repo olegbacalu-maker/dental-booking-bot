@@ -1610,6 +1610,12 @@
 .dp-react-root .dp-consent a, .dp-react-root .dp-consent .lnk {
   color: inherit; font: inherit; font-weight: 600; text-decoration: underline; background: none; border: 0; padding: 0; cursor: pointer; white-space: nowrap;
 }
+.dp-react-root .ptotal .pt-dev {
+  margin-right: auto; align-self: center; display: inline-flex; align-items: center; gap: 6px;
+  color: var(--teal-d); font-size: var(--fs-s); font-weight: 600; text-decoration: none; white-space: nowrap;
+}
+.dp-react-root .ptotal .pt-dev:hover { text-decoration: underline; }
+.dp-react-root .ptotal .pt-dev svg { width: 14px; height: 14px; }
 .dp-react-root .plan-row .pact .dp-more {
   width: 30px; padding: 0; display: inline-flex; align-items: center; justify-content: center; gap: 3px;
   background: none; border: 1px solid var(--line); color: var(--text3);

@@ -2,7 +2,7 @@
 `review\\semnare-pe-ecran-2026-11-09.md`, контракт —
 `side-session-notes\\2026-11-09\\sign-contract.md`).
 
-Три бланка «Documente» (`SIGNABLE`) можно подписать пальцем, стилусом или
+Бланки «Documente» из `SIGNABLE` можно подписать пальцем, стилусом или
 мышью вместо «Tipărește» + «Încarcă semnat» (бумажный путь остаётся рядом).
 Правовую силу подписи на экране решает клиника (Олег 09.11), мы её не
 описываем.
@@ -39,12 +39,14 @@ from ...core import pdf, theme
 from . import acord as pacord
 from . import anamneza as panam
 from . import card as pcard
+from . import deviz as pdeviz
 from . import plan_acord as pplan
 
 SIGNABLE = pcard.SIGNABLE
 # у согласия к плану расписываются ОБА: пациент «понял», врач «объяснил»
-# (ст. 13(2) Legea 263/2005, см. plan_acord.py)
-NEEDS_DOCTOR = frozenset({"acord_plan"})
+# (ст. 13(2) Legea 263/2005, см. plan_acord.py); у сметы — тоже оба: врач
+# под ценой, пациент «ознакомлен»
+NEEDS_DOCTOR = frozenset({"acord_plan", "deviz"})
 SIGNERS = ("pacient", "reprezentant")
 
 _PNG_SIG = b"\x89PNG\r\n\x1a\n"
@@ -131,7 +133,7 @@ def precheck(key: str, plan: list, anam: dict | None) -> str:
     """Код отказа «нечего подписывать» или пусто."""
     if pcard.can_sign(key, plan, anam):
         return ""
-    return "bad_sign_plan" if key == "acord_plan" else "bad_sign_anam"
+    return "bad_sign_plan" if key in pcard.PLAN_FORMS else "bad_sign_anam"
 
 
 async def sheet(p: dict, key: str, lang: str, sign: dict) -> str:
@@ -146,6 +148,8 @@ async def sheet(p: dict, key: str, lang: str, sign: dict) -> str:
         diag = next((r["diagnostic"].strip() for r in recs
                      if (r.get("diagnostic") or "").strip()), "")
         return pplan.render(p, plan, diag, lang, "", sign=sign)
+    if key == "deviz":
+        return pdeviz.render(p, await db.plan_items(pid), lang, "", sign=sign)
     return panam.render_form(p, lang, "", sign=sign, anam=await db.anamneza(pid))
 
 

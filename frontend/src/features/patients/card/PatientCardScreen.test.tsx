@@ -1529,6 +1529,24 @@ describe('PatientCardScreen', () => {
       .toBe('/admin/patient/5/plan-acord?back=%2Fadmin%2Fpatient%2F5%3Ftab%3Dplan')
   })
 
+  it('план: «Tipărește devizul» — лист сметы с «назад» на план, в итоге и в меню плана; без активных позиций — нет', async () => {
+    serve()
+    open('/admin/patient/5?tab=plan')
+    await screen.findByText('Pin Test', { selector: 'h2' })
+    const href = '/admin/patient/5/deviz?back=%2Fadmin%2Fpatient%2F5%3Ftab%3Dplan'
+    const total = document.querySelector('.ptotal') as HTMLElement
+    expect((within(total).getByRole('link', { name: /Tipărește devizul/ }) as HTMLAnchorElement).getAttribute('href')).toBe(href)
+    fireEvent.click(screen.getByRole('button', { name: 'Acțiuni pentru tot planul' }))
+    expect((screen.getByRole('menuitem', { name: /Tipărește devizul/ }) as HTMLAnchorElement).getAttribute('href')).toBe(href)
+    cleanup()
+    serve({ ...CARD, plan: { ...CARD.plan, default_tab: 'finalizat', n_act: 0 } })
+    open('/admin/patient/5?tab=plan')
+    await screen.findByText('Pin Test', { selector: 'h2' })
+    expect(screen.queryByRole('link', { name: /Tipărește devizul/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Acțiuni pentru tot planul' }))
+    expect(screen.queryByRole('menuitem', { name: /Tipărește devizul/ })).toBeNull()
+  })
+
   /* ---- 01.10: Documente — центр бумаг, план уровня 1 ---- */
 
   it('Documente: бланки со статусом над файлами; «Încarcă semnat» выбирает категорию', async () => {
@@ -1550,6 +1568,22 @@ describe('PatientCardScreen', () => {
     expect((screen.getByLabelText('Categorie') as HTMLSelectElement).value).toBe('acord_plan')
     /* подпись к файлу — категория */
     expect(screen.getByText('Radiografie', { selector: '.dcat' })).toBeTruthy()
+  })
+
+  it('Documente: смета (deviz) — бланк плана: покрывает активные, печать с «назад», «Semnează», устаревает от новой позиции', async () => {
+    const deviz = { key: 'deviz' as const, title: 'Deviz — plan de tratament', sheet: 'deviz' as const, category: 'deviz', printed: '', signed: { doc_id: 1, when: '19.09.2026' }, n_active: 2, total: 1900, stale: true, sign: true }
+    serve({ ...CARD, forms: [...CARD.forms, deviz] })
+    open()
+    await settled()
+    await tabTo('Documente')
+    const form = document.querySelector('.dp-form[data-form="deviz"]') as HTMLElement
+    expect(form.textContent).toContain('2 proceduri · 1 900 MDL')
+    expect(form.textContent).toContain('semnat 19.09.2026')
+    expect(form.textContent).toContain('plan modificat după semnare')
+    expect((within(form).getByRole('link', { name: /Tipărește/ }) as HTMLAnchorElement).getAttribute('href'))
+      .toBe('/admin/patient/5/deviz?back=%2Fadmin%2Fpatient%2F5%3Ftab%3Ddocs')
+    expect(within(form).getByRole('button', { name: /Semnează/ })).toBeTruthy()
+    expect(within(form).getByRole('button', { name: /Încarcă semnat/ })).toBeTruthy()
   })
 
   it('Documente: подписанный скан — зелёная отметка, открывается просмотрщиком; план изменён после подписи — предупреждение', async () => {

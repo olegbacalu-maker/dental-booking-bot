@@ -860,7 +860,7 @@ async def api_patient_doc_upload(request: Request, pid: int, file: UploadFile = 
 async def api_patient_form_sign(request: Request, pid: int, key: str):
     """Подпись бланка на экране (09.11, `sign.py`; контракт —
     side-session-notes/2026-11-09/sign-contract.md). JSON: signer, signer_name,
-    sig_patient, sig_doctor (у acord_plan), consents (у acord195), lang.
+    sig_patient, sig_doctor (у acord_plan и deviz), consents (у acord195), lang.
     Права — как у «Încarcă semnat» (любой вошедший; маршрут открыт из сети:
     планшет у кресла — не «опасное действие»). Ответ — свежая фиша + `doc`
     (новая строка «Documente»). PDF на этой машине не делается (нет Edge) или

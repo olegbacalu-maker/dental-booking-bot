@@ -276,7 +276,7 @@ def suite_api(res: Result) -> None:
                   (len(op["alert_kinds"]), len(op["anamneza_flags"]), len(op["anamneza_texts"]),
                    [x["id"] for x in op["doc_categories"]], [x["id"] for x in op["pay_methods"]],
                    op["teeth"][:3], op["milk"][:2], op["max_doc_mb"], op["doctors"]),
-                  (4, 12, 4, ["radiografie", "acord195", "acord_plan", "chestionar", "fisa043",
+                  (4, 12, 4, ["radiografie", "acord195", "acord_plan", "deviz", "chestionar", "fisa043",
                               "acord", "trimitere", "alt"],
                    ["numerar", "card", "transfer"], [18, 17, 16], [55, 54], 25,
                    ["Dr. Arhivat Unu", "Dr. Activ Doi", "Dr. Activ Trei", "Dr. Activ Patru"]))
@@ -581,10 +581,10 @@ def suite_actions(res: Result) -> None:
 
         # ---- бланки со статусом (01.10): tipărit — из летописи, semnat — скан своей категории ----
         forms = {f["key"]: f for f in j["data"]["forms"]}
-        res.check("четыре бланка, ни один не печатался и не подписан",
+        res.check("пять бланков, ни один не печатался и не подписан",
                   (sorted(forms), [f["printed"] for f in forms.values()],
                    [f["signed"] for f in forms.values()]),
-                  (["acord195", "acord_plan", "chestionar", "fisa043"], [""] * 4, [None] * 4))
+                  (["acord195", "acord_plan", "chestionar", "deviz", "fisa043"], [""] * 5, [None] * 5))
         c.get(f"/admin/patient/{pid}/plan-acord")
         forms = {f["key"]: f for f in _j(c.get(f"/api/patients/{pid}"))["data"]["forms"]}
         res.ok("после печати acord informat — дата печати, остальные пусты",

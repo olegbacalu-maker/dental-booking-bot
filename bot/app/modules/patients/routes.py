@@ -7,7 +7,7 @@ JSON API (`api.py`). Здесь остались:
 - правила действий — функции, которые зовёт `api.py` (`_save_profile`,
   `_appoint`, `_save_tooth`, `_save_perio`, `_erase`, …): каждая отвечает
   КОДОМ из MSG_BANNER, а конверт строит API;
-- печатные листы (acord, plan-acord, 043/e, анкета анамнеза, пародонтограмма)
+- печатные листы (acord, plan-acord, deviz, 043/e, анкета анамнеза, пародонтограмма)
   — серверные по замыслу: их печатает браузер, а не экран;
 - файлы: документ пациента `/admin/doc/{id}`, выгрузка по 195-му `/export`,
   список книгой `/admin/patients.xlsx`.
@@ -38,6 +38,7 @@ from ... import teeth_svg as tsvg
 from . import acord as pacord
 from . import anamneza as panam
 from . import card as pcard
+from . import deviz as pdeviz
 from . import export as pexport
 from . import fisa043 as pfisa
 from . import ocluzie as poccl
@@ -1149,6 +1150,21 @@ async def patient_plan_acord(request: Request, pid: int, lang: str = "",
                        "Acord informat la planul de tratament generat "
                        "pentru tipărire")
     return pplan.render(p, plan, diag, _doc_lang(p, lang), _back_to_card(pid, back))
+
+
+@router.get("/admin/patient/{pid}/deviz", response_class=HTMLResponse)
+async def patient_deviz(request: Request, pid: int, lang: str = "", back: str = ""):
+    """Смета плана лечения пациенту на руки (`deviz.py`): позиции, зуб, цена,
+    итог. Без юридического текста и подписей — это не согласие. Видят все
+    роли, как и сам план; печать — событие обработки, как у соседних листов."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    p = await db.get_patient(pid)
+    if not p:
+        return RedirectResponse("/admin/search", status_code=303)
+    plan = await db.plan_items(pid)
+    await db.log_event(pid, "deviz", "Deviz generat pentru tipărire")
+    return pdeviz.render(p, plan, _doc_lang(p, lang), _back_to_card(pid, back))
 
 
 @router.get("/admin/patient/{pid}/sign/{key}", response_class=HTMLResponse)

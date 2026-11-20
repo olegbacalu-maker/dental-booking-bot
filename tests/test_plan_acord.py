@@ -21,7 +21,7 @@ import sys
 import zipfile
 from datetime import timedelta
 
-from harness import BOT, Client, Result, Server, appt_id, clinic_today, pid_by_phone
+from harness import BOT, Client, Result, Server, appt_id, clinic_today, new_patient, pid_by_phone
 
 
 def _pid(c: Client, phone: str) -> str:
@@ -278,6 +278,121 @@ def suite_acord(res: Result) -> None:
         res.ok("выдача листа попала в летопись",
                any("Acord informat" in t for t in _feed(c, pid)),
                "нет записи в ленте фиши")
+
+
+def suite_deviz(res: Result) -> None:
+    """Смета плана пациенту на руки (`deviz.py`): активные позиции в порядке
+    фиши, зуб, цена и итог — тот же, что «Total plan activ» фиши и Total
+    acord. Две подписи и место печати, но не согласие: юридического текста
+    ст. 13 нет; о пациенте только имя и номер фиши — лист уносят домой."""
+    with Server() as s:
+        c = Client(s.url).login()
+        pid = _setup(c)
+        c.post_json(f"/api/patients/{pid}/profile", {"name": "Refuz Test",
+                                                    "phone": "022777888",
+                                                    "idnp": "2002002002002",
+                                                    "birth_date": "1990-05-06"})
+        # без цены и с разметкой в тексте: процедура — свободный ввод клиники
+        c.post_json(f"/api/patients/{pid}/plan", {"procedure": "Control <b>gingie</b>",
+                                                 "doctor": "Dr. Ana"})
+        c.post_json(f"/api/patients/{pid}/plan", {"procedure": "Igienizare finală",
+                                                 "price": "300", "doctor": "Dr. Ana"})
+        plan = _plan(c, pid)
+
+        def flip(name: str, to: str, **kw) -> str:
+            return c.post_json(f"/api/patients/{pid}/plan/{plan[name]['id']}/status",
+                               {"to": to, **kw}).msg
+
+        flip("Extracție 36", "refuzat", motiv="pacientul refuză")
+        flip("Detartraj", "in_lucru")
+        flip("Igienizare finală", "in_lucru")
+        flip("Igienizare finală", "finalizat")
+
+        r = c.get(f"/admin/patient/{pid}/deviz")
+        res.check("лист открывается", r.status, 200)
+        b = r.body
+        res.ok("заголовок сметы", "Plan de tratament — deviz" in b, "нет заголовка")
+        res.ok("колонки Dinte · Procedura · Preț",
+               all(f"{h}</th>" in b for h in ("Dinte", "Procedura", "Preț (MDL)")),
+               "нет шапки таблицы")
+        card = _card(c, pid)
+        active = [it["procedure"] for it in card["plan"]["items"]
+                  if it["status"] in ("planificat", "in_lucru")]
+        pos = [b.find(f"<td>{n}</td>") for n in ("Detartraj", "Obturație 26")]
+        res.ok("активные позиции — в порядке плана фиши (в работе сверху)",
+               -1 not in pos and pos == sorted(pos) and active[0] == "Detartraj",
+               f"порядок {pos}, фиша {active}")
+        res.ok("зуб позиции на листе", "<td class='t'>26</td>" in b, "нет зуба")
+        res.ok("отказ на смету не попадает", "Extracție 36" not in b, "отказ в смете")
+        res.ok("выполненное на смету не попадает", "Igienizare finală" not in b,
+               "финализированное в смете")
+        res.ok("текст процедуры экранирован", "Control &lt;b&gt;gingie&lt;/b&gt;" in b
+               and "<b>gingie</b>" not in b, "разметка из процедуры ушла в лист")
+        # ⭐ одно число в трёх местах: фиша, acord и смета
+        total = card["plan"]["total"]
+        res.check("итог фиши — сумма активных с ценой", total, 1100)
+        tot_row = f"<td class='n'>{total}</td></tr></table>"
+        res.ok("Total сметы совпадает с «Total plan activ» фиши", tot_row in b,
+               "итог сметы разошёлся с фишей")
+        res.ok("и с Total acord плана",
+               tot_row in c.get(f"/admin/patient/{pid}/plan-acord").body,
+               "acord и смета считают по-разному")
+        res.ok("позиция без цены — строка под итогом",
+               "1 poziție fără preț" in b, "итог читается как полная цена")
+        res.ok("срок цены — тот же, что у acord",
+               "valabil 30 de zile" in b, "нет срока оферты")
+        res.ok("лечащий врач из плана", "Medic curant: <b>Dr. Ana</b>" in b,
+               "врач плана не назван")
+        # подписи (Олег 20.11): пациент «ознакомлен», врач и место печати
+        for needle, what in (("Am luat cunoștință de planul de tratament", "отметки пациента"),
+                             ("Semnătura pacientului: ______", "линии подписи пациента"),
+                             ("Semnătura medicului: ______", "линии подписи врача"),
+                             ("L.Ș.", "места печати")):
+            res.ok(f"на смете есть {what}", needle in b, f"нет {needle!r}")
+        res.ok("дата выдачи — сегодня клиники",
+               clinic_today().strftime("%d.%m.%Y") in b, "нет даты выдачи")
+        # ⛔ не согласие: ни текста ст. 13, ни согласия, ни строки отказа
+        for needle, what in (("Legea nr. 263", "закона"), ("Acord informat", "имени согласия"),
+                             ("consimțământ", "согласия"), ("Refuzul pacientului", "отказа"),
+                             ("class='fill'", "жёлтых пропусков")):
+            res.ok(f"на смете нет {what}", needle not in b, f"нашлось {needle!r}")
+        # минимизация (закон 195): лист уносят домой
+        for needle, what in (("2002002002002", "IDNP"), ("06.05.1990", "даты рождения"),
+                             ("022777888", "телефона пациента")):
+            res.ok(f"на смете нет {what}", needle not in b, "лишние данные пациента")
+        res.ok("имя пациента и номер фиши на листе",
+               "Refuz Test" in b and "Fișa nr." in b, "не названо, чья смета")
+        res.ok("выдача сметы попала в летопись",
+               any("Deviz generat" in t for t in _feed(c, pid)), "печать без следа")
+
+        ru = c.get(f"/admin/patient/{pid}/deviz?lang=ru").body
+        res.ok("русская смета", "План лечения — смета" in ru and "Итого" in ru
+               and tot_row in ru, "нет русского листа")
+        res.ok("русская: строка без цены и срок",
+               "1 позиция без цены" in ru and "действительна 30 дней" in ru,
+               "русский лист без оговорок итога")
+        res.ok("русская: подписи и место печати",
+               "Подпись пациента" in ru and "Подпись врача" in ru and "ознакомлен(а)" in ru
+               and "L.Ș." in ru, "нет подписей на русском листе")
+        res.ok("ссылка на другой язык — та же смета",
+               f"/admin/patient/{pid}/deviz?lang=ro" in ru, "язык уводит на другой лист")
+
+        # пустой план и план, где не осталось активного
+        p2 = new_patient(c, "Fără Plan", "022111999")
+        e = c.get(f"/admin/patient/{p2}/deviz").body
+        res.ok("пустой план — пометка, без таблицы и подписей",
+               "Planul este gol" in e and "<table>" not in e and "Semnătura" not in e,
+               "пустая смета с таблицей или подписями")
+        res.ok("пустой план по-русски", "План пуст" in
+               c.get(f"/admin/patient/{p2}/deviz?lang=ru").body, "нет пометки")
+        for name in ("Detartraj", "Obturație 26", "Control <b>gingie</b>"):
+            flip(name, "refuzat", motiv="renunță")
+        e = c.get(f"/admin/patient/{pid}/deviz").body
+        res.ok("одни отказы и выполненное — тоже пустая смета",
+               "Planul este gol" in e and "<table>" not in e, "закрытое ушло в смету")
+
+        res.check("без входа смета не отдаётся",
+                  Client(s.url).get(f"/admin/patient/{pid}/deviz").status, 303)
 
 
 def suite_refuz_docs(res: Result) -> None:

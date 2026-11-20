@@ -165,7 +165,7 @@ export function DocumentsCard({ card, a, onFail, navigate, pick = null }: Props)
         ? { tone: 'green', text: `${T.signed} ${f.signed.when}`, doc: f.signed.doc_id }
         : { tone: 'orange', text: T.notSigned })
     }
-    if (f.key === 'acord_plan' && f.stale) chips.push({ tone: 'orange', text: T.stale })
+    if (f.stale) chips.push({ tone: 'orange', text: T.stale })
     return chips
   }
 
@@ -179,7 +179,7 @@ export function DocumentsCard({ card, a, onFail, navigate, pick = null }: Props)
             <div className="ttl">
               <b>{f.title}</b>
               <span className="st">
-                {f.key === 'acord_plan' && f.n_active !== undefined && (
+                {f.n_active !== undefined && (
                   <span className="pill sm grey">{f.n_active} {T.covers} · {mdl(f.total ?? 0)} {T.mdl}</span>
                 )}
                 {status(f).map((c, i) => c.doc !== undefined ? (

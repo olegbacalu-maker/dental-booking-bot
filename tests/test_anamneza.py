@@ -446,7 +446,7 @@ def suite_form(res: Result) -> None:
         # — открытый редирект, молча заменяется фишей.
         back = f"/admin/patient/{pid}?tab=date"
         q = urllib.parse.quote(back, safe="")
-        for path in ("anamneza/print", "acord", "plan-acord", "fisa043"):
+        for path in ("anamneza/print", "acord", "plan-acord", "deviz", "fisa043"):
             b = c.get(f"/admin/patient/{pid}/{path}?back={q}").body
             res.ok(f"{path}: «назад» ведёт на вкладку", f'href="{back}"' in b,
                    "лист возвращает на Rezumat, а не туда, откуда открыт")

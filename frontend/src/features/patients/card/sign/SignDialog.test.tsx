@@ -15,9 +15,10 @@ import { SignDialog } from './SignDialog'
    «в чернилах» по касанию), `toDataURL` подменён. */
 
 const PNG = 'data:image/png;base64,iVBORw0KGgo='
-const FORMS: Record<'acord195' | 'acord_plan' | 'chestionar', Form> = {
+const FORMS: Record<'acord195' | 'acord_plan' | 'deviz' | 'chestionar', Form> = {
   acord195: { key: 'acord195', title: 'Informare și acord (Legea 195)', sheet: 'acord', category: 'acord195', printed: '', signed: null, sign: true },
   acord_plan: { key: 'acord_plan', title: 'Acord informat la planul de tratament', sheet: 'plan-acord', category: 'acord_plan', printed: '', signed: null, n_active: 2, total: 1900, stale: false, sign: true },
+  deviz: { key: 'deviz', title: 'Deviz — plan de tratament', sheet: 'deviz', category: 'deviz', printed: '', signed: null, n_active: 2, total: 1900, stale: false, sign: true },
   chestionar: { key: 'chestionar', title: 'Chestionar anamneză', sheet: 'anamneza/print', category: 'chestionar', printed: '', signed: null, filled: '18.09.2026', sign: true },
 }
 const CARD = {
@@ -99,6 +100,20 @@ describe('SignDialog — подпись бланка на экране (09.11)',
     expect(saveBtn().disabled).toBe(false)
     fireEvent.click(saveBtn())
     await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(sent(sign)).toEqual({ signer: 'pacient', sig_patient: PNG, sig_doctor: PNG })
+  })
+
+  it('смета (deviz): тоже два поля — пациент «ознакомлен» и врач под ценой; лист — предпросмотр сметы', async () => {
+    const { onClose } = mount('deviz')
+    expect(dlg().getByTitle('Deviz — plan de tratament').getAttribute('src')).toBe('/admin/patient/5/sign/deviz')
+    expect(dlg().getAllByRole('img').map((c) => c.getAttribute('aria-label')))
+      .toEqual(['Semnătura pacientului', 'Semnătura medicului'])
+    ink('Semnătura pacientului')
+    expect(saveBtn().disabled).toBe(true)
+    ink('Semnătura medicului')
+    fireEvent.click(saveBtn())
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(sign.mock.calls[0]![2]).toBe('deviz')
     expect(sent(sign)).toEqual({ signer: 'pacient', sig_patient: PNG, sig_doctor: PNG })
   })
 

@@ -27,7 +27,9 @@ import { useLingering } from '../../../utils/motion'
    Шаблоны клиники: «Adaugă din șablon» рядом с добавлением строки — у всех, кто
    видит план (`PlanTemplateDialog`), и он же в меню «⋯» карточки: у длинного
    плана форма добавления далеко внизу. «Salvează ca șablon» в том же меню — у
-   того, кому сервер назвал право (`plan.can_template`, `PlanSaveTemplateDialog`). */
+   того, кому сервер назвал право (`plan.can_template`, `PlanSaveTemplateDialog`).
+   «Tipărește devizul» — смета пациенту на руки (лист `deviz`): в строке итога и в
+   том же меню, только когда есть активные позиции — пустую смету давать незачем. */
 const T = {
   title: 'Plan de tratament',
   active: 'plan activ:',
@@ -73,6 +75,8 @@ const T = {
   saveTpl: 'Salvează ca șablon',
   saveTplTitle: 'Salvează procedurile acestui plan ca șablon al clinicii — fără datele pacientului',
   planMenu: 'Acțiuni pentru tot planul',
+  deviz: 'Tipărește devizul',
+  devizTitle: 'Deviz pentru pacient: procedurile active, dintele și prețul, cu totalul — fără semnături',
   refuzDlg: 'Refuzul pacientului',
   refuzProc: 'Procedura:',
   refuzLabel: 'Motivul refuzului și consecințele explicate pacientului',
@@ -222,7 +226,8 @@ export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterStep
       {cardMenu && (
         <CardMenu at={cardMenu} onClose={closeCardMenu}
           onInsert={() => { closeCardMenu(); setTpl('insert') }}
-          onSave={canSaveTpl ? () => { closeCardMenu(); setTpl('save') } : null} />
+          onSave={canSaveTpl ? () => { closeCardMenu(); setTpl('save') } : null}
+          devizHref={plan.n_act > 0 ? printHref(card.id, 'deviz', a.back) : null} />
       )}
       {/* полоса согласия — над списком: ст.13(2) требует подписи ДО
           вмешательства, то есть пока план на экране и обсуждается */}
@@ -329,6 +334,11 @@ export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterStep
           onDel={(it) => { closeMenu(); void del(it) }} />
       )}
       <div className="ptotal">
+        {plan.n_act > 0 && (
+          <AppLink className="pt-dev" href={printHref(card.id, 'deviz', a.back)} title={T.devizTitle}>
+            <Icon name="print" /> {T.deviz}
+          </AppLink>
+        )}
         <span>{T.total}</span><b>{mdl(plan.total)} {T.mdl}</b>
         {plan.total_done > 0 && <span className="pt-done"> · {T.totalDone} {mdl(plan.total_done)} {T.mdl}</span>}
       </div>
@@ -395,14 +405,16 @@ export function PlanCard({ card, a, onTooth, onUploadSigned, rowExtra, afterStep
 }
 
 /** Меню «⋯» карточки плана: действия над планом целиком. Закрывается, как меню строки. */
-function CardMenu({ at, onClose, onInsert, onSave }: {
+function CardMenu({ at, onClose, onInsert, onSave, devizHref }: {
   at: { x: number; y: number }; onClose: () => void; onInsert: () => void
   /** null — сохранять шаблоном нельзя (нет права) или нечего (план пуст): пункта нет. */
   onSave: (() => void) | null
+  /** null — активных позиций нет, смету печатать не из чего: пункта нет. */
+  devizHref: string | null
 }) {
   const ref = useRef<HTMLDivElement>(null)
   useMenuDismiss(ref, onClose)
-  const { left, top } = placeMenu(at.x, at.y, 220, 40 + 32 * (onSave ? 2 : 1))
+  const { left, top } = placeMenu(at.x, at.y, 220, 40 + 32 * (1 + (onSave ? 1 : 0) + (devizHref ? 1 : 0)))
   return (
     <div ref={ref} className="dp-cmenu" role="menu" aria-label={T.planMenu} style={{ left, top, width: 220 }}>
       <div className="dp-cmenu-h">{T.title}</div>
@@ -413,6 +425,11 @@ function CardMenu({ at, onClose, onInsert, onSave }: {
         <button type="button" role="menuitem" className="dp-cmenu-i" title={T.saveTplTitle} onClick={onSave}>
           <Icon name="save" /> {T.saveTpl}
         </button>
+      )}
+      {devizHref && (
+        <AppLink role="menuitem" className="dp-cmenu-i" href={devizHref} title={T.devizTitle}>
+          <Icon name="print" /> {T.deviz}
+        </AppLink>
       )}
     </div>
   )

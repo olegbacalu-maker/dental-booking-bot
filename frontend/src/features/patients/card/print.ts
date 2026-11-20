@@ -1,6 +1,6 @@
 /** Печатные листы фиши. `back` — адрес фиши С ВКЛАДКОЙ, куда вернёт кнопка
  *  «назад» на листе (01.10): до того любой лист возвращал на Rezumat. */
-export const SHEETS = ['fisa043', 'acord', 'plan-acord', 'anamneza/print'] as const
+export const SHEETS = ['fisa043', 'acord', 'plan-acord', 'deviz', 'anamneza/print'] as const
 export type Sheet = (typeof SHEETS)[number]
 
 /** Листы фиши, которые открываются ДОКУМЕНТОМ: сюда же лист пародонтограммы.

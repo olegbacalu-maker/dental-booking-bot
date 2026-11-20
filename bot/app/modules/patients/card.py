@@ -112,6 +112,7 @@ TAB_STATES = {"act": db.PLAN_ACTIVE, "finalizat": ("finalizat",),
 DOC_CATEGORIES = {"radiografie": "Radiografie",
                   "acord195": "Informare și acord (195) — semnat",
                   "acord_plan": "Acord informat la plan — semnat",
+                  "deviz": "Deviz — semnat",
                   "chestionar": "Chestionar anamneză — semnat",
                   "fisa043": "Fișa 043/e — semnată",
                   "acord": "Acord / contract", "trimitere": "Trimitere",
@@ -126,13 +127,17 @@ MAX_DOC_MB = 25
 FORMS = (
     ("acord195", "Informare și acord (Legea 195)", "acord", "acord", "acord195"),
     ("acord_plan", "Acord informat la planul de tratament", "plan-acord", "plan_acord", "acord_plan"),
+    ("deviz", "Deviz — plan de tratament", "deviz", "deviz", "deviz"),
     ("chestionar", "Chestionar anamneză", "anamneza/print", "anamneza_print", "chestionar"),
     ("fisa043", "Fișa 043/e", "fisa043", "fisa043", "fisa043"),
 )
 FORM_KINDS = tuple(f[3] for f in FORMS)
-# бланки с подписью на экране (09.11, `sign.py`) — те же три, что с «Încarcă
-# semnat»; 043/e нет (лист живёт ручкой после печати)
-SIGNABLE = ("acord195", "acord_plan", "chestionar")
+# бланки с подписью на экране (09.11, `sign.py`) — все с «Încarcă semnat»;
+# 043/e нет (лист живёт ручкой после печати)
+SIGNABLE = ("acord195", "acord_plan", "deviz", "chestionar")
+# бланки, которые покрывают АКТИВНЫЕ позиции плана: подписывать их есть что
+# только при активных, и подпись устаревает от позиции, появившейся позже
+PLAN_FORMS = ("acord_plan", "deviz")
 
 
 def can_sign(key: str, plan: list, anam: dict | None) -> bool:
@@ -140,7 +145,7 @@ def can_sign(key: str, plan: list, anam: dict | None) -> bool:
     согласие к плану — только при активных позициях (согласие дают ДО, и
     пустое ни на что не соглашается), анкета — только введённая в фишу (лист
     несёт ответы ИЗ ФИШИ, пустой подписывать нечем)."""
-    if key == "acord_plan":
+    if key in PLAN_FORMS:
         return any(it["status"] in db.PLAN_ACTIVE for it in plan)
     if key == "chestionar":
         return bool(anam)
@@ -161,7 +166,8 @@ BAD_FIELD = {"bad_card": "name", "bad_bd": "birth_date", "bad_idnp": "idnp"}
 # Значки и тона atenționări — в core/risks (22.10): их берёт и журнал, у
 # карточки визита дня врача.
 DOC_ICON = {"radiografie": "xray", "acord": "note", "trimitere": "mail", "alt": "file",
-            "acord195": "clipboard", "acord_plan": "clipboard", "chestionar": "note",
+            "acord195": "clipboard", "acord_plan": "clipboard", "deviz": "clipboard",
+            "chestionar": "note",
             "fisa043": "print"}
 PAY_ICON = {"numerar": "cash", "card": "card", "transfer": "bank"}
 ACT_ICON = {"appt_new": "cal", "appt_status": "check", "appt_cancel": "ban",
@@ -172,6 +178,7 @@ ACT_ICON = {"appt_new": "cal", "appt_status": "check", "appt_cancel": "ban",
             # выдача копии данных — событие, о котором спросят на проверке;
             # в общей ленте оно обязано быть заметным, а не точкой по умолчанию
             "export": "download", "acord": "clipboard", "plan_acord": "clipboard",
+            "deviz": "print",
             "consult": "med", "fisa043": "print", "anamneza": "note",
             "anamneza_print": "print",
             # прикус (26.10) — запись объективного осмотра
@@ -385,7 +392,7 @@ def forms_view(last: dict, docs: list, plan: list, anam: dict | None,
              "printed": _dmy(last.get(kind)),
              "signed": {"doc_id": s["doc_id"], "when": s["when"]} if s else None,
              "sign": bool(pdf_ok and key in SIGNABLE and can_sign(key, plan, anam))}
-        if key == "acord_plan":
+        if key in PLAN_FORMS:
             f["n_active"] = len(active)
             f["total"] = sum(it["price_mdl"] or 0 for it in active)
             # `>=`, не `>`: даты в секундах, и позиция, заведённая в ту же

@@ -621,6 +621,15 @@ def suite_acord(res: Result) -> None:
             res.ok(f"{what}: юрлицо с вывесочным именем рядом",
                    "Dent Art SRL" in page and "(Clinica Test)" in page,
                    f"{what} не называет юрлицо")
+        # смета — не бланк: юрлицо и IDNO одной строкой под вывесочным именем,
+        # а данных пациента сверх имени и номера фиши на ней нет
+        page = c.get(f"/admin/patient/{pid}/deviz").body
+        res.ok("deviz: юрлицо и IDNO из настроек",
+               "Dent Art SRL · IDNO 1003600012345" in page and "Clinica Test" in page,
+               "смета не называет юрлицо")
+        res.ok("deviz: ни IDNP, ни адреса пациента",
+               "2011111111111" not in page and "str. Acord 5" not in page,
+               "смета, которую уносят домой, несёт лишние данные")
         r = c.post_json("/api/settings/clinic",
                         {"name": "Clinica Test", "phone": "+373 60 000 000",
                          "idno": "12345"})
