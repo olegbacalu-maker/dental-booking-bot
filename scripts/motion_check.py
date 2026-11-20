@@ -56,6 +56,21 @@
           потом уходят из дерева; окно правки не меняет высоту, когда под ценой
           появляется и уходит подсказка прайса; печать посреди такого закрытия —
           конечный вид.
+  Блок визита отвечает на курсор и на событие дня:
+  tile    наведение: блок поднимается на `--lift-block`, место, размер и
+          ступени сжатия всех блоков те же; у нижней кромки (курсор в полоске под
+          поднятым блоком, рука дрожит) блок не дёргается; оборот зубчика и блик —
+          один запуск за наведение, курсор внутри блока повтора не даёт, ушёл и
+          вернулся — играет снова. Щелчок посреди анимации у края блока открывает
+          карточку ЭТОГО визита; окно растёт из блока, по Esc сворачивается в него,
+          доигрывает переход и уходит из дерева. Перенос, начатый посреди анимации:
+          в миг хвата блок стоит ровно на своём месте, под курсор отдана наклонённая
+          копия, блок на старом месте бледнеет, место броска светится, бросок
+          открывает окно переноса, после него пометок не остаётся;
+  event   событие статуса: «a venit» — вспышка и блик по одному разу; «în cabinet»
+          — три удара полоски и тишина; «finalizat» — один переворот блока, по концу
+          без остатка transform, раскладка та же; опрос живого канала после событий
+          не играет ничего; печать посреди переворота — конечный вид.
 
 ⚠️ Покой меряется ВНЕ границы получаса: на ней сервер законно меняет конверт (час
 «сейчас», прошедшее начало записи). Перед сценарием стенд ждёт, если до границы
@@ -106,6 +121,22 @@
             при наборе процедуры;
           · `@media print{dialog:not([open]){display:block !important}}` → гаснущее
             окно на листе.
+  tile    · подъём на `:hover` вместо пометки `data-hov` → блок дёргается у нижней
+            кромки;
+          · `.gappt[data-hov]{translate:none !important}` → блок не поднимается;
+          · `.gridbody[data-dragging] .gappt{translate:0 -9px !important}` → в миг
+            хвата блок не на своём месте;
+          · `dialog[data-grow]:not([open]){transform:none !important}` → окно не
+            сворачивается в блок;
+          · клиенту сказано «движения нет» при живом CSS → ни зубчика, ни блика, ни
+            роста окна, ни копии под курсором;
+  event   · `.gappt.moved[data-st="waiting"] .gfx{animation:none !important}` →
+            вспышки нет;
+          · пульс у каждого «în cabinet» без конца → ударов не три, после событий
+            покоя нет;
+          · у завершённого блока оставлено одно кольцо пометки → переворота нет;
+          · `@media print{.gappt.moved[data-st="done"]{animation:g-flip 9s !important}}`
+            → переворот на листе.
 """
 from __future__ import annotations
 
@@ -134,7 +165,8 @@ from odo_shots import CDP, Page, login_cookie, start_edge  # noqa: E402
 PORT = 9348
 SIZE = (1366, 768)
 LIVE_S = 12            # период опроса живого канала (services/live.ts › LIVE_MS)
-SCENARIOS = ("idle", "dialog", "status", "menu", "toast", "reduce", "leave", "close", "move", "stats", "print", "plan")
+SCENARIOS = ("idle", "dialog", "status", "menu", "toast", "reduce", "leave", "close", "move", "stats", "print", "plan",
+             "tile", "event")
 STYLE_SCENARIOS = ("dialog", "status", "menu", "toast", "close", "reduce")
 
 # Замеры в странице: кадры, изменения узлов, сеть, сдвиги раскладки, запуски
@@ -146,7 +178,8 @@ OPEN_AGENDA = "try { localStorage.setItem('dp_fold:agenda', '1') } catch (e) {}"
 
 INSTR = r"""(() => {
   if (window.__mc) return 1;
-  const M = window.__mc = { frames: [], samples: [], muts: [], res: [], shifts: [], runs: [], ends: [], on: false, sample: null };
+  const M = window.__mc = { frames: [], samples: [], muts: [], res: [], shifts: [], runs: [], ends: [], waapi: [], img: null,
+    on: false, sample: null };
   const sel = (n) => {
     if (!n) return 'null';
     if (n.nodeType === 3) return '#text<' + (n.parentElement ? sel(n.parentElement) : '') + '>';
@@ -157,7 +190,22 @@ INSTR = r"""(() => {
     if (c) s += '.' + c.split(/\s+/).join('.');
     return s.slice(0, 80);
   };
-  M.reset = () => { M.frames = []; M.samples = []; M.muts = []; M.res = []; M.shifts = []; M.runs = []; M.ends = []; M.on = true; };
+  M.reset = () => { M.frames = []; M.samples = []; M.muts = []; M.res = []; M.shifts = []; M.runs = []; M.ends = [];
+    M.waapi = []; M.on = true; };
+  // Web Animations блоков визита (метка `tile`): у них нет событий запуска — считаем вызовы
+  const animate = Element.prototype.animate;
+  Element.prototype.animate = function (frames, opts) {
+    if (M.on && opts && opts.id === 'tile') { const t = this.closest('.gappt');
+      M.waapi.push({ appt: t ? t.dataset.appt || '' : '', props: Object.keys(frames[0] || {}).sort().join('+') }); }
+    return animate.call(this, frames, opts);
+  };
+  // картинка переноса: что блок отдал браузеру под курсор
+  const setImg = DataTransfer.prototype.setDragImage;
+  DataTransfer.prototype.setDragImage = function (el, x, y) {
+    const copy = el.querySelector('.gappt');
+    M.img = { cls: el.className, x, y, w: el.offsetWidth, h: el.offsetHeight, rot: copy ? getComputedStyle(copy).rotate : '' };
+    return setImg.call(this, el, x, y);
+  };
   const dur = (e) => {
     try {
       const all = e.target.getAnimations({ subtree: false }).concat(
@@ -230,6 +278,39 @@ PLAN_TPLS = [
                                       for i in range(1, 15)]},
 ]
 
+# Блок визита по номеру записи и раскладка всех блоков (место, размер, ступень сжатия) —
+# то, что движение блока менять не вправе: высоту читает перемер ступеней.
+TILE = "document.querySelector('.gappt[data-appt=\"{id}\"]')"
+LAYOUT = ("JSON.stringify(Object.fromEntries(Array.from(document.querySelectorAll('.gappt')).map((a) => [a.dataset.appt,"
+          " [a.className.replace(/ ?(fresh|moved|done)\\b/g, '').trim(), a.offsetTop, a.offsetLeft, a.offsetWidth,"
+          " a.offsetHeight, a.scrollHeight, a.clientHeight]])))")
+# Только место и размер: слово статуса на блоке законно меняет ступень сжатия.
+PLACE = ("JSON.stringify(Object.fromEntries(Array.from(document.querySelectorAll('.gappt')).map((a) => [a.dataset.appt,"
+         " [a.offsetTop, a.offsetLeft, a.offsetWidth, a.offsetHeight]])))")
+# Подъём блока и пометка наведения по кадрам.
+LIFT = ("() => {{ const t = {tile}; const v = getComputedStyle(t).translate;"
+        " return [v === 'none' ? 0 : parseFloat(v.split(' ')[1] || '0'), t.hasAttribute('data-hov') ? 1 : 0]; }}")
+# Окно на экране (открытое или гаснущее; окно подтверждения стоит в дереве всегда): масштаб
+# по экрану, прозрачность, открыто ли, и масштаб, к которому ведёт переход transform, — он
+# известен с первого кадра закрытия, а промежуточных кадров у headless-Edge на ступень один-три;
+# так же — масштаб, с которого окно растёт (первый кадр его Web-анимации).
+WIN = ("() => { const d = Array.from(document.querySelectorAll('dialog:not(.dp-ask)'))"
+       ".find((x) => x.open || getComputedStyle(x).display !== 'none'); if (!d) return null;"
+       " const cs = getComputedStyle(d); const a = (t) => (t === 'none' ? 1 : new DOMMatrix(t).a);"
+       " const tr = d.getAnimations().find((x) => x.transitionProperty === 'transform');"
+       " const to = tr ? tr.effect.getKeyframes().slice(-1)[0].transform : '';"
+       " const up = d.getAnimations().find((x) => !x.transitionProperty && !x.animationName);"
+       " const from = up ? up.effect.getKeyframes()[0].transform : '';"
+       " return [Math.round(a(cs.transform) * 1000) / 1000, Number(cs.opacity), d.open ? 1 : 0,"
+       " to ? Math.round(a(to) * 1000) / 1000 : null, from ? Math.round(a(from) * 1000) / 1000 : null]; }")
+# Что видит обработчик блока в миг хвата: сдвиг блока от места раскладки, пометки канвы и источника.
+GRAB = ("window.__ds = null; document.addEventListener('dragstart', (e) => { const t = e.target.closest('.gappt');"
+        " const r = t.getBoundingClientRect(); let top = 0, n = t;"
+        " while (n && !n.classList.contains('gridbody')) { top += n.offsetTop; n = n.offsetParent; }"
+        " const g = document.querySelector('.gridbody');"
+        " window.__ds = { dy: Math.round((r.top - (g.getBoundingClientRect().top + top)) * 100) / 100,"
+        " h: Math.round(r.height * 100) / 100, lh: t.offsetHeight, dragging: g.hasAttribute('data-dragging') }; }, { once: true }); 1")
+
 # Что считается НОВЫМ движением первой волны (сценарий reduce): цель и свойство.
 # Наведение и фокус старых правил сюда не входят — их гасит прежний блок под `.anim`.
 NEW = (
@@ -239,8 +320,10 @@ NEW = (
     (".banner", ("dp-toast",)),
     (".side", ("width", "flex-basis")),
     ("", ("dp-moved", "dp-moved-g")),
+    # блок визита отвечает на курсор и на событие: под «без движения» не играет ничего из этого
+    ("", ("g-flash", "g-sweep", "g-beat", "g-flip", "g-droppulse", "dp-draw", "dp-pop", "dp-shake")),
     (".stat", ("background-color", "color")), (".pl-badge", ("background-color", "color")),
-    (".gappt", ("background-color", "opacity")),
+    (".gappt", ("background-color", "opacity", "translate", "scale", "box-shadow")),
     (".ag-i", ("border-left-color", "border-top-color", "opacity")),
     ("b", ("color",)),
 )
@@ -301,6 +384,7 @@ class Run:
     def take(self) -> dict:
         return json.loads(self.js("(() => { __mc.on = false; return JSON.stringify({samples: __mc.samples,"
                                   " muts: __mc.muts, res: __mc.res, shifts: __mc.shifts, runs: __mc.runs, ends: __mc.ends,"
+                                  " waapi: __mc.waapi,"
                                   " frames: __mc.frames.length}) })()"))
 
     def esc(self) -> None:
@@ -768,6 +852,246 @@ class Run:
         time.sleep(0.4)
         self.ok(self.js(f"{TPL} === null"), "печать посреди закрытия: после неё окно из дерева ушло")
 
+    def move_to(self, x: float, y: float) -> None:
+        self.cdp.cmd("Input.dispatchMouseEvent", type="mouseMoved", x=x, y=y)
+
+    def rect(self, finder: str) -> list[float]:
+        """Прямоугольник элемента на экране; элемент — в видимую область."""
+        self.js(f"(() => {{ const el = {finder}; if (el) el.scrollIntoView({{block: 'center'}}); }})()")
+        time.sleep(0.3)
+        return json.loads(self.js(f"(() => {{ const r = ({finder}).getBoundingClientRect();"
+                                  " return JSON.stringify([r.left, r.top, r.width, r.height]) })()"))
+
+    def press(self, x: float, y: float, hold: float = 0.0) -> None:
+        m = self.cdp.cmd
+        m("Input.dispatchMouseEvent", type="mousePressed", x=x, y=y, button="left", clickCount=1)
+        if hold:
+            time.sleep(hold)
+        m("Input.dispatchMouseEvent", type="mouseReleased", x=x, y=y, button="left", clickCount=1)
+
+    def tile(self) -> None:
+        m = self.cdp.cmd
+        ids = json.loads(self.js("JSON.stringify(Array.from(document.querySelectorAll('.gcol')).map((c) =>"
+                                 " Array.from(c.querySelectorAll('.gappt:not(.gnote):not(.done)')).map((a) => a.dataset.appt))"
+                                 ".find((l) => l.length >= 3) || [])"))
+        if len(ids) < 3:
+            raise SystemExit("стенд: в колонке нет трёх блоков визита — сценарий tile не прогнан")
+        a, b, c = (TILE.format(id=i) for i in ids[:3])
+
+        def mine(d: dict, i: str) -> list[str]:
+            return sorted(r["props"] for r in d["waapi"] if r["appt"] == i)
+
+        base = self.js(LAYOUT)
+        lift = float((self.js("getComputedStyle(document.documentElement).getPropertyValue('--lift-block').trim()") or "0")
+                     .replace("px", "") or 0)
+        self.ok(lift < 0, f"стенд: подъём блока задан ({lift} px) — иначе наведение мерить нечем")
+
+        # 1. наведение: подъём на ступень, раскладка та же, зубчик и блик — раз
+        x, y, w, h = self.rect(a)
+        self.move_to(5, 5)
+        time.sleep(0.3)
+        self.js(f"__mc.sample = {LIFT.format(tile=a)}; __mc.reset(); 1")
+        self.move_to(x + w / 2, y + h / 2)
+        self.cdp.drain(0.6)
+        d = self.take()
+        ys = [s[0] for s in d["samples"]]
+        self.ok(bool(ys) and ys[-1] == lift and d["samples"][-1][1] == 1 and all(p >= q for p, q in zip(ys, ys[1:])),
+                f"наведение: блок поднимается на ступень и стоит ({ys[:1]} … {ys[-1:]} px, кадров {len(ys)})")
+        self.ok(self.js(LAYOUT) == base, "наведение: место, размер и ступени сжатия всех блоков те же")
+        tooth = bool(self.js(f"(() => {{ const l = {a}.querySelector('.apact'); return !!l && getComputedStyle(l).display !== 'none'; }})()"))
+        want = sorted(["opacity+translate"] + (["rotate"] if tooth else []))
+        self.ok(mine(d, ids[0]) == want, f"наведение: оборот зубчика и блик — по одному запуску ({mine(d, ids[0])}, зуб {'есть' if tooth else 'нет'})")
+        self.js("__mc.sample = null; __mc.reset(); 1")
+        for i in range(8):                      # курсор ходит внутри блока: с имени на зуб и обратно
+            self.move_to(x + w * (0.25 + 0.07 * i), y + h * (0.4 + 0.03 * (i % 3)))
+            time.sleep(0.12)
+        time.sleep(0.5)
+        self.ok(not mine(self.take(), ids[0]), "наведение: курсор ходит внутри блока — повтора нет")
+        self.js("__mc.sample = null; __mc.reset(); 1")
+        self.move_to(5, 5)
+        time.sleep(0.3)
+        self.move_to(x + w / 2, y + h / 2)
+        time.sleep(0.9)
+        self.ok(mine(self.take(), ids[0]) == want, "наведение: ушёл и вернулся — играет снова")
+
+        # 2. нижняя кромка: курсор в полоске под поднятым блоком, рука дрожит в пределах пикселя
+        self.move_to(5, 5)
+        time.sleep(0.4)
+        x, y, w, h = self.rect(b)
+        self.js(f"__mc.sample = {LIFT.format(tile=b)}; __mc.reset(); 1")
+        self.move_to(x + w / 2, y + h - 0.6)
+        self.cdp.drain(1.0)
+        for i in range(14):
+            self.move_to(x + w / 2 + (i % 2) * 0.6, y + h - 0.6 - (i % 3) * 0.3)
+            time.sleep(0.12)
+        ys = [s[0] for s in self.take()["samples"]]
+        turns, last = 0, 0
+        for p, q in zip(ys, ys[1:]):
+            way = (q > p) - (q < p)
+            if way and last and way != last:
+                turns += 1
+            last = way or last
+        self.ok(bool(ys) and min(ys) == lift and turns == 0,
+                f"кромка: блок поднят и не дёргается — разворотов движения {turns} (кадров {len(ys)}, от {min(ys or [0])} до {max(ys or [0])} px)")
+
+        # 3. щелчок посреди анимации у края блока: окно ЭТОГО визита, растёт из блока
+        self.move_to(5, 5)
+        time.sleep(0.5)
+        x, y, w, h = self.rect(c)
+        name = self.js(f"Array.from({c}.querySelector('b').childNodes).filter((n) => n.nodeType === 3)"
+                       ".map((n) => n.textContent).join('').trim()")
+        px, py = x + w * 0.12, y + h * 0.25
+        self.move_to(px, y - 12)
+        time.sleep(0.2)
+        self.js(f"__mc.sample = {WIN}; __mc.reset(); 1")
+        self.move_to(px, py)
+        time.sleep(0.14)
+        self.press(px, py, 0.06)
+        self.cdp.drain(0.9)
+        d = self.take()
+        seen = [s for s in d["samples"] if s]
+        got = self.js("(() => { const w = document.querySelector('dialog[open]'); return w ? w.textContent.slice(0, 300) : ''; })()")
+        self.ok(bool(name) and name in got, f"щелчок посреди анимации у края блока открыл карточку этого визита ({name})")
+        scales = [s[0] for s in seen]
+        starts = sorted({s[4] for s in seen if s[4] is not None})
+        self.ok(bool(starts) and starts[0] < 0.8 and bool(scales) and scales[-1] == 1 and all(p <= q for p, q in zip(scales, scales[1:])),
+                f"окно: растёт из блока до своего размера (с масштаба {starts[:1]}, по кадрам {scales[:1]} … {scales[-1:]}, кадров {len(scales)})")
+        ops = [s[1] for s in seen]
+        self.ok(bool(ops) and ops[-1] == 1 and all(p <= q for p, q in zip(ops, ops[1:])) and not d["shifts"],
+                f"окно: прозрачность только растёт, сдвигов раскладки нет ({ops[:1]} … {ops[-1:]}, сдвиги {d['shifts']})")
+        self.ok(self.js("(() => { const w = document.querySelector('dialog[open]'); const r = w.getBoundingClientRect();"
+                        " return w.contains(document.elementFromPoint(r.left + r.width / 2, r.top + 20)); })()"),
+                "окно: встало на место и кликабельно")
+        d = self.key("Escape", 27, 0.9, WIN)
+        closing = [s for s in d["samples"] if s and s[2] == 0]
+        aims = sorted({s[3] for s in closing if s[3] is not None})
+        done = [e for e in d["ends"] if e["target"].startswith("dialog") and e["name"] == "opacity" and not e["pseudo"]]
+        self.ok(bool(aims) and aims[0] < 0.8 and len(done) == 1,
+                f"окно: по Esc сворачивается в блок и доигрывает переход (масштаб цели {aims[:1]}, доиграно {len(done)})")
+        self.ok(bool(d["samples"]) and d["samples"][-1] is None, "окно: по концу сворачивания окна на экране нет")
+
+        # 4. перенос, начатый посреди анимации наведения
+        self.move_to(5, 5)
+        time.sleep(0.6)
+        x, y, w, h = self.rect(a)
+        name = self.js(f"Array.from({a}.querySelector('b').childNodes).filter((n) => n.nodeType === 3)"
+                       ".map((n) => n.textContent).join('').trim()")
+        self.js(GRAB)
+        self.js("__mc.img = null; 1")
+        m("Input.setInterceptDrags", enabled=True)
+        try:
+            px, py = x + w * 0.5, y + h * 0.3
+            self.move_to(px, y - 12)
+            time.sleep(0.2)
+            self.move_to(px, py)
+            time.sleep(0.12)
+            m("Input.dispatchMouseEvent", type="mousePressed", x=px, y=py, button="left", clickCount=1)
+            self.cdp.events = []
+            for i in range(1, 6):
+                m("Input.dispatchMouseEvent", type="mouseMoved", x=px + 2, y=py + i * 6, button="left", buttons=1)
+                time.sleep(0.03)
+            self.cdp.drain(0.5)
+            data = next((e["params"]["data"] for e in self.cdp.events if e["method"] == "Input.dragIntercepted"), None)
+            ds = json.loads(self.js("JSON.stringify(window.__ds)") or "null")
+            img = json.loads(self.js("JSON.stringify(__mc.img)") or "null")
+            self.ok(data is not None and ds is not None, "перенос посреди анимации начался")
+            self.ok(bool(ds) and abs(ds["dy"]) < 0.6 and abs(ds["h"] - ds["lh"]) < 0.6 and ds["dragging"],
+                    f"перенос: в миг хвата блок стоит ровно на своём месте ({ds})")
+            self.ok(bool(img) and img["cls"] == "gdragimg" and img["rot"] not in ("", "none")
+                    and 0 < img["x"] < img["w"] and 0 < img["y"] < img["h"],
+                    f"перенос: под курсор отдана наклонённая копия блока, курсор держит её внутри ({img})")
+            ty = py + 2 * h + 40
+            if data is not None:
+                for kind in ("dragEnter", "dragOver", "dragOver"):
+                    m("Input.dispatchDragEvent", type=kind, x=px, y=ty, data=data)
+                    time.sleep(0.08)
+            mid = json.loads(self.js(f"(() => {{ const t = {a}; const g = document.querySelector('.gdrop');"
+                                     " return JSON.stringify({ src: t.hasAttribute('data-src'), op: Number(getComputedStyle(t).opacity),"
+                                     " drop: g ? getComputedStyle(g).animationName : '', at: g ? g.dataset.at : '' }) })()"))
+            self.ok(mid["src"] and mid["op"] < 0.5, f"перенос: блок на старом месте бледнеет, пока его несут (opacity {mid['op']})")
+            self.ok(mid["drop"] == "g-droppulse" and bool(mid["at"]), f"перенос: место броска светится ({mid['drop']}, {mid['at']})")
+            if data is not None:
+                m("Input.dispatchDragEvent", type="drop", x=px, y=ty, data=data)
+            m("Input.dispatchMouseEvent", type="mouseReleased", x=px, y=ty, button="left", clickCount=1)
+            time.sleep(0.7)
+            got = self.js("(() => { const w = document.querySelector('dialog[open]'); return w ? w.textContent.slice(0, 200) : ''; })()")
+            self.ok(bool(name) and name in got, f"перенос: бросок открыл окно переноса этого визита ({got[:40]!r})")
+            self.esc()
+            self.move_to(px, ty + 3)
+            time.sleep(0.2)
+            left = self.js("document.querySelectorAll('[data-dragging], [data-src], .gdragimg').length")
+            self.ok(left == 0, f"перенос: после броска пометок и копии не осталось ({left})")
+        finally:
+            m("Input.setInterceptDrags", enabled=False)
+        self.move_to(5, 5)
+        time.sleep(0.4)
+
+    def event(self) -> None:
+        m = self.cdp.cmd
+        now = datetime.now(TZ)
+        left = (30 - now.minute % 30) * 60 - now.second
+        if left < 75:
+            print(f"  … до границы получаса {left} с — жду её: на ней сервер законно меняет конверт")
+            time.sleep(left + 3)
+            self.home()
+        ids = json.loads(self.js("JSON.stringify(Array.from(document.querySelectorAll('.gappt[data-st=\"confirmed\"]'))"
+                                 ".map((a) => a.dataset.appt))"))
+        if len(ids) < 2:
+            raise SystemExit("стенд: нет двух записей «programată» — сценарий event не прогнан")
+        first, second = ids[0], ids[1]
+        step = "document.querySelector('.ag-l .ag-i[data-appt=\"{id}\"] .ag-next')"
+        base = self.js(PLACE)
+
+        def names(d: dict, kind: str) -> list[str]:
+            return [r["name"] for r in d["runs"] if r["kind"] == kind and r["name"].startswith("g-")]
+
+
+        d = self.tap(step.format(id=first), 1.7)
+        self.ok(self.js(f"{TILE.format(id=first)}.dataset.st") == "waiting" and sorted(names(d, "animation")) == ["g-flash", "g-sweep"],
+                f"«a venit»: вспышка и блик — по одному разу ({names(d, 'animation')})")
+        d = self.tap(step.format(id=first), 1.9)
+        self.ok(self.js(f"{TILE.format(id=first)}.dataset.st") == "arrived"
+                and names(d, "animation") == ["g-beat"] and names(d, "iteration") == ["g-beat", "g-beat"],
+                f"«în cabinet»: полоска бьёт три раза и замолкает (запуск {names(d, 'animation')}, повторов {len(names(d, 'iteration'))})")
+        turn = (f"() => {{ const t = {TILE.format(id=first)}; return [getComputedStyle(t).transform === 'none' ? 0 : 1, t.dataset.st]; }}")
+        d = self.tap(step.format(id=first), 1.9, turn)
+        flips = [r for r in d["runs"] if r["kind"] == "animation" and r["name"] == "g-flip"]
+        seen = [s for s in d["samples"] if s]
+        self.ok(len(flips) == 1 and abs(flips[0]["dur"] - 600) < 1 and any(s[0] for s in seen) and bool(seen) and seen[-1] == [0, "done"],
+                f"«finalizat»: блок переворачивается один раз за 600 мс, по концу без остатка transform"
+                f" ({[r['dur'] for r in flips]} мс, кадров с поворотом {sum(s[0] for s in seen)})")
+        self.ok(self.js(PLACE) == base, "события: место и размер всех блоков те же")
+        # опрос живого канала после событий: всё отыграло, пометок нет — не играет ничего
+        self.js("__mc.sample = null; __mc.reset(); 1")
+        self.cdp.drain(LIVE_S + 3)
+        d = self.take()
+        live = [r["status"] for r in d["res"] if "/schedule/live" in r["name"]]
+        self.ok(bool(live) and all(s == 204 for s in live) and not d["runs"] and not d["waapi"],
+                f"события: опрос после них — {live}, запусков {len(d['runs'])}"
+                + (f" — {[r['name'] + ' ' + r['target'][:30] for r in d['runs'][:4]]}" if d["runs"] else ""))
+        # печать посреди переворота
+        self.tap(step.format(id=second), 1.7)
+        self.tap(step.format(id=second), 1.9)
+        x, y = self.page.center(step.format(id=second))
+        self.move_to(x, y)
+        time.sleep(0.3)
+        self.press(x, y)
+        for _ in range(150):
+            if self.js(f"!!document.querySelector('.gappt.moved[data-appt=\"{second}\"][data-st=\"done\"]')"):
+                break
+            time.sleep(0.01)
+        time.sleep(0.05)
+        going = self.js("document.getAnimations().filter((a) => a.animationName === 'g-flip' && a.playState === 'running').length")
+        m("Emulation.setEmulatedMedia", media="print")
+        s = json.loads(self.js(
+            "JSON.stringify({ css: document.getAnimations().filter((a) => a.playState === 'running'"
+            " && (a.animationName || a.transitionProperty)).length,"
+            " waapi: document.getAnimations().filter((a) => a.playState === 'running' && !(a.animationName || a.transitionProperty)).length,"
+            " turned: Array.from(document.querySelectorAll('.gappt')).filter((e) => getComputedStyle(e).transform !== 'none').length })"))
+        m("Emulation.setEmulatedMedia", media="")
+        self.ok(going == 1 and not any(s.values()), f"печать посреди переворота: на листе конечный вид (шёл переворот: {going}, на листе {s})")
+        time.sleep(1.6)
+
     def scenario(self, name: str, polls: int) -> None:
         print(f"[{self.label}] {name}")
         self.home()
@@ -889,6 +1213,21 @@ PAIRS = [
                                                         ".dp-react-root .dp-plan-tpl .tp-warn[aria-hidden]{display:none !important}"}),
     ("plan", "подсказка прайса в окне правки без места", {"css": ".dp-react-root .dp-plan-edit .pe-note{min-height:0 !important}"}),
     ("plan", "гаснущее окно на листе", {"css": "@media print{dialog:not([open]){display:block !important}}"}),
+    ("tile", "подъём на :hover вместо пометки", {"css": ".gappt:not(:hover){translate:none !important}"
+                                                      ".gappt:hover{translate:0 var(--lift-block) !important}"}),
+    ("tile", "блок не поднимается", {"css": ".gappt[data-hov]{translate:none !important}"}),
+    ("tile", "в миг хвата блок не на своём месте", {"css": ".gridbody[data-dragging] .gappt{translate:0 -9px !important}"}),
+    ("tile", "окно не сворачивается в блок", {"css": "dialog[data-grow]:not([open]){transform:none !important}"}),
+    ("tile", "клиенту сказано «движения нет»", {"js": "(() => { const real = window.matchMedia.bind(window);"
+                                                   " window.matchMedia = (q) => (/prefers-reduced-motion/.test(q)"
+                                                   " ? { matches: false, media: q, onchange: null, addEventListener() {}, removeEventListener() {},"
+                                                   " addListener() {}, removeListener() {}, dispatchEvent: () => false } : real(q)); })();"}),
+    ("event", "вспышки «a venit» нет", {"css": ".gappt.moved[data-st=\"waiting\"] .gfx{animation:none !important}"}),
+    ("event", "пульс «în cabinet» без конца", {"css": ".gappt[data-st=\"arrived\"] .gfx::before{content:'';position:absolute;left:0;"
+                                                    "top:0;bottom:0;width:6px;background:var(--bar);"
+                                                    "animation:g-beat .44s ease-in-out infinite !important}"}),
+    ("event", "завершённый блок не переворачивается", {"css": ".gappt.moved[data-st=\"done\"]{animation:dp-moved-g 1.2s ease !important}"}),
+    ("event", "переворот на листе", {"css": "@media print{.gappt.moved[data-st=\"done\"]{animation:g-flip 9s !important}}"}),
 ]
 
 
