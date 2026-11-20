@@ -30,6 +30,24 @@ export function noteOrigin(el: Element | null): void {
   origin = el ? { el, at: performance.now() } : null
 }
 
+/* Закрываясь, окно возвращает фокус тому, кто держал его до открытия, а после
+   нажатия клавиши (Enter в форме, Esc) браузер считает этот фокус клавиатурным:
+   час сетки, по которому щёлкнули мышью, остаётся с рамкой и подсказкой, будто
+   на него пришли с клавиатуры. Поэтому тот, кто открыл окно без рамки, фокус
+   отдаёт до открытия — возвращать нечего. Открывший с клавиатуры рамку уже
+   имел: к нему фокус возвращается, как положено. */
+function dropPointerFocus(d: HTMLDialogElement): void {
+  const a = document.activeElement
+  if (!(a instanceof HTMLElement) || a === document.body || d.contains(a)) return
+  let ringed = true
+  try {
+    ringed = a.matches(':focus-visible')
+  } catch {
+    /* движок без `:focus-visible` — оставить как есть */
+  }
+  if (!ringed) a.blur()
+}
+
 /** Сдвиг и масштаб, при которых окно ложится на источник. Место окна — раскладкой:
  *  прямоугольник экрана видел бы его посреди перехода появления. */
 function ontoOrigin(d: HTMLDialogElement, el: Element): string {
@@ -68,6 +86,7 @@ export function useDialogFromOrigin(ref: RefObject<HTMLDialogElement | null>, op
     }
     d.removeAttribute('data-grow')
     d.style.removeProperty('--grow-to')
+    if (!d.open) dropPointerFocus(d)
     showDialog(d)
     const o = origin
     origin = null

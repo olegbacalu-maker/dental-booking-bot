@@ -231,4 +231,43 @@ describe('useDialogFromOrigin', () => {
     rerender(<Card open={false} />)
     expect(d.style.getPropertyValue('--grow-to')).toBe(ONTO)
   })
+
+  /* Закрываясь, окно возвращает фокус открывшему, и после Enter или Esc браузер
+     рисует на нём рамку клавиатуры. Рамку вправе получить только тот, у кого она
+     была до открытия. В jsdom `:focus-visible` не считается — ответ подставлен. */
+  function opener(ringed: boolean) {
+    const b = document.createElement('button')
+    document.body.appendChild(b)
+    b.focus()
+    const real = b.matches.bind(b)
+    b.matches = (sel: string) => (sel === ':focus-visible' ? ringed : real(sel))
+    return b
+  }
+
+  it('⛔ открыли мышью (рамки на открывшем нет) — фокус с него снят до открытия: возвращать рамку некому', () => {
+    const b = opener(false)
+    expect(document.activeElement).toBe(b)
+    render(<Card open />)
+    expect(win()!.open).toBe(true)
+    expect(document.activeElement).not.toBe(b)
+  })
+
+  it('открыли с клавиатуры (рамка была) — фокус остаётся за открывшим, окно вернёт его туда же', () => {
+    const b = opener(true)
+    render(<Card open />)
+    expect(win()!.open).toBe(true)
+    expect(document.activeElement).toBe(b)
+  })
+
+  it('окно уже открыто (повторный показ) — фокус внутри окна не трогают', () => {
+    const { rerender } = render(<Card open />)
+    const d = win()!
+    const inner = document.createElement('input')
+    d.appendChild(inner)
+    inner.focus()
+    const real = inner.matches.bind(inner)
+    inner.matches = (sel: string) => (sel === ':focus-visible' ? false : real(sel))
+    rerender(<Card open />)
+    expect(document.activeElement).toBe(inner)
+  })
 })
