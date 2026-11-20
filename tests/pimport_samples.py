@@ -171,3 +171,59 @@ CSV_RO_1250 = ("Nume;Prenume;Telefon\r\n"
                "Ţurcanu;Ştefan;069555115\r\n"
                "Bălan;Ion;079555116\r\n"
                "Râşcanu;Călin;068555117\r\n")
+
+
+# Стили книги со временем: (номер формата, свой код формата или "").
+TIMED_STYLES = (("0", ""), ("14", ""), ("22", ""), ("20", ""), ("171", "hh:mm"), ("172", "[h]:mm"),
+                ("173", "dd.mm.yyyy hh:mm"), ("174", "dd/mm/yyyy;@"))
+
+
+def _serial(v) -> str:
+    if isinstance(v, dt.datetime):
+        span = v - dt.datetime(1899, 12, 30)
+        return repr(span.days + span.seconds / 86400)
+    if isinstance(v, dt.time):
+        return repr((v.hour * 60 + v.minute) / 1440)
+    if isinstance(v, dt.date):
+        return str((v - EPOCH).days)
+    return repr(v)
+
+
+def timed_book(rows: list) -> bytes:
+    """Книга с датой и временем так, как их пишет Excel. Ячейка: str (строкой в ячейке), число
+    без стиля, или (стиль, значение): стиль — индекс в `TIMED_STYLES`, значение — date / datetime
+    / time / число; ("d", "ISO-текст") — ячейка типа «дата» (t="d")."""
+    x = [f'<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="{M}"><sheetData>']
+    for rn, row in enumerate(rows, start=1):
+        x.append(f'<row r="{rn}">')
+        for ci, v in enumerate(row):
+            ref = f"{col(ci)}{rn}"
+            if v is None:
+                continue
+            if isinstance(v, tuple) and v[0] == "d":
+                x.append(f'<c r="{ref}" t="d"><v>{v[1]}</v></c>')
+            elif isinstance(v, tuple):
+                x.append(f'<c r="{ref}" s="{v[0]}"><v>{_serial(v[1])}</v></c>')
+            elif isinstance(v, (int, float)):
+                x.append(f'<c r="{ref}"><v>{v!r}</v></c>')
+            else:
+                x.append(f'<c r="{ref}" t="inlineStr"><is><t>{_esc(v)}</t></is></c>')
+        x.append("</row>")
+    x.append("</sheetData></worksheet>")
+    custom = [(f, c) for f, c in TIMED_STYLES if c]
+    files = {
+        "xl/worksheets/sheet1.xml": "".join(x),
+        "xl/styles.xml": (
+            f'<?xml version="1.0" encoding="UTF-8"?><styleSheet xmlns="{M}">'
+            f'<numFmts count="{len(custom)}">'
+            + "".join(f'<numFmt numFmtId="{f}" formatCode="{_esc(c)}"/>' for f, c in custom)
+            + f'</numFmts><cellXfs count="{len(TIMED_STYLES)}">'
+            + "".join(f'<xf numFmtId="{f}"/>' for f, _c in TIMED_STYLES) + "</cellXfs></styleSheet>"),
+        "xl/workbook.xml": (f'<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="{M}" xmlns:r="{R}">'
+                            '<sheets><sheet name="Programări" sheetId="1" r:id="rId1"/></sheets></workbook>'),
+        "xl/_rels/workbook.xml.rels": (
+            f'<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="{P}">'
+            '<Relationship Id="rId1" Type="x" Target="worksheets/sheet1.xml"/></Relationships>'),
+        "[Content_Types].xml": "<Types/>",
+    }
+    return _zip(files)
