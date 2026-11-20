@@ -114,6 +114,19 @@ app.include_router(assets.router)         # статика, значки, лог
 # ВЫШЕ шлюза.
 
 @app.middleware("http")
+async def _api_no_store(request: Request, call_next):
+    """Ответ JSON API браузер не хранит. Без запрета Chromium и WebView2 при
+    «назад» по истории отдают загрузчику экрана прежний ответ из кэша, не
+    спрашивая сервер: экран показывает данные до последней команды (позиция
+    плана пропадала после листа «Deviz» и возвращалась с перечитыванием).
+    Свой заголовок ответа (`live_reply`) не перекрывается."""
+    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        response.headers.setdefault("Cache-Control", "no-store")
+    return response
+
+
+@app.middleware("http")
 async def _limit_body_size(request: Request, call_next):
     """Отсекает гигантские POST-тела ДО того, как Starlette спулит multipart
     во временный файл (сам по себе роут-кап 25MB срабатывает уже после)."""

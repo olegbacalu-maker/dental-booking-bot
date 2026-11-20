@@ -13,6 +13,7 @@ PDF печатает настоящий headless Edge (на Windows он ест�
 import base64
 import hashlib
 import json
+import logging
 import math
 import os
 import pathlib
@@ -307,6 +308,15 @@ mode = os.environ["FAKE_EDGE"]
 out = next(a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--print-to-pdf="))
 if mode == "ready":
     open(out, "wb").write(PDF)
+elif mode == "linger":
+    # лист готов сразу, но фоновый процесс держит трубы пускача (stdout,
+    # stderr) ещё долго — как живущий после печати фоновый Edge
+    open(out, "wb").write(PDF)
+    subprocess.Popen([sys.executable, "-c", "import time; time.sleep(12)"],
+                     stdin=subprocess.DEVNULL, stdout=1, stderr=2,
+                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+elif mode == "hang":
+    time.sleep(8)                       # пускач завис и листа не пишет
 elif mode != "never":
     subprocess.Popen([sys.executable, __file__, "write", out, mode],
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -334,9 +344,19 @@ def suite_sign_late_pdf(res: Result) -> None:
     pdf._room = lambda: room
     os.environ["DENTART_EDGE"] = str(edge)
 
+    said: list[str] = []
+
+    class _Catch(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            said.append(record.getMessage())
+
+    catch = _Catch(logging.WARNING)
+    pdf.log.addHandler(catch)
+
     def run(mode: str, ceiling: float):
         os.environ["FAKE_EDGE"] = mode
         pdf.TIMEOUT_S = ceiling
+        said.clear()
         t0 = time.monotonic()
         try:
             got = pdf.html_to_pdf("<p>Semn Test</p>")
@@ -355,11 +375,32 @@ def suite_sign_late_pdf(res: Result) -> None:
         got, took = run("torn", 3)
         res.check("лист оборван (нет %%EOF) — отказ, половина не отдана", got, "pdf_err")
         res.ok("отказ пришёл к потолку, а не через минуту", 2.5 < took < 12, f"{took:.1f} с")
+        # окно подписи говорит человеку только «не вышло»: причина отказа
+        # обязана остаться в журнале движка, иначе у клиники её не восстановить
+        res.ok("оборванный лист — причина в журнале движка (размер, код пускача)",
+               len(said) == 1 and "целого листа нет" in said[0] and "файл 30000 б" in said[0]
+               and "код пускача 0" in said[0], repr(said))
         got, took = run("never", 2)
         res.check("листа нет до потолка — отказ", got, "pdf_err")
         res.ok("и здесь к потолку", 1.5 < took < 12, f"{took:.1f} с")
+        res.ok("листа нет — причина в журнале движка, имени пациента нет",
+               len(said) == 1 and "файл нет" in said[0] and "Semn" not in said[0], repr(said))
+        got, _ = run("ready", 15)
+        res.check("удача журнал не трогает", said, [])
+        # 20.11: фоновый Edge, живой после готового листа, держал трубы, и
+        # подпись ждала его до потолка — готовый PDF уходил отказом
+        got, took = run("linger", 6)
+        res.ok("фоновый процесс держит трубы — лист отдан сразу, не по потолку",
+               got == _FAKE_PDF and took < 4, f"{took:.1f} с, {repr(got)[:40]}")
+        got, took = run("hang", 2)
+        res.check("пускач завис без листа — отказ", got, "pdf_err")
+        res.ok("отказ к потолку, пускач снят, а не ждали его выхода", 1.5 < took < 5,
+               f"{took:.1f} с")
+        res.ok("зависший пускач — так и названо в журнале",
+               len(said) == 1 and "пускач Edge не вышел" in said[0], repr(said))
         res.check("временное печати убрано при любом исходе", pdf.leftovers(), [])
     finally:
+        pdf.log.removeHandler(catch)
         pdf._room, pdf.TIMEOUT_S = keep[0], keep[1]
         for key, old in (("DENTART_EDGE", keep[2]), ("FAKE_EDGE", keep[3])):
             if old is None:

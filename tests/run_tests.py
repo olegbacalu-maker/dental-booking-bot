@@ -444,6 +444,7 @@ SUITES = [
     ("Пациенты: узел React экрана", test_patients_api.suite_switch),
     ("Фиша: JSON API — цифры и слова фиши", test_patient_card.suite_api),
     ("Фиша: действия через JSON", test_patient_card.suite_actions),
+    ("Фиша: ответ JSON API не кэшируется браузером (no-store)", test_patient_card.suite_api_no_store),
     ("Фиша: ключ услуги и врач у позиции плана", test_patient_card.suite_plan_keys),
     ("Фиша: правка позиции плана и цена из прайса", test_patient_card.suite_plan_edit),
     ("Фиша: документ переживает закрытие оболочки (стенд задания)",

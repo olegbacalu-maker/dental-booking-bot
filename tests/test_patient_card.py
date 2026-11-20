@@ -364,6 +364,41 @@ def _gone(c: Client, pid: int, api: str) -> tuple:
     return r.status, j["code"], bool(j["text"]), "data" in j
 
 
+def suite_api_no_store(res: Result) -> None:
+    """Ответ JSON API браузер не хранит (`Cache-Control: no-store`).
+
+    Без запрета Chromium и WebView2 при «назад» по истории отдают загрузчику
+    экрана ПРЕЖНИЙ ответ из кэша, не спрашивая сервер: позиция, добавленная в
+    план до перехода на лист «Deviz», после возврата пропадала до следующего
+    перечитывания фиши. Проверяется каждый вид ответа: чтение, команда,
+    отказ поля, отказ входа и 404 — у всех один запрет."""
+    with Server() as s:
+        anon = Client(s.url).get("/api/patients/1")
+        c = Client(s.url).login()
+        sd = _seed(c)
+        pid = sd["pid"]
+        replies = {
+            "фиша": c.get(f"/api/patients/{pid}"),
+            "список пациентов": c.get("/api/patients"),
+            "команда плана": c.post_json(f"/api/patients/{pid}/plan",
+                                         {"procedure": "Detartraj", "price": "300"}),
+            "отказ поля": c.post_json(f"/api/patients/{pid}/plan", {"procedure": ""}),
+            "без входа (401)": anon,
+            "чужая фиша (404)": c.get("/api/patients/777"),
+        }
+        res.check("коды ответов, которые проверяются",
+                  {k: r.status for k, r in replies.items()},
+                  {"фиша": 200, "список пациентов": 200, "команда плана": 200,
+                   "отказ поля": 422, "без входа (401)": 401, "чужая фиша (404)": 404})
+        res.check("каждый ответ /api/ — no-store",
+                  {k: r.header("Cache-Control") for k, r in replies.items()},
+                  {k: "no-store" for k in replies})
+        css = c.get("/static/css/panel.css")
+        res.ok("статика под запрет не попала", css.status == 200
+               and "no-store" not in css.header("Cache-Control"),
+               f"код {css.status}, Cache-Control {css.header('Cache-Control')!r}")
+
+
 def suite_actions(res: Result) -> None:
     """Действия фиши через JSON: коды MSG_BANNER, отказ проверки 422 с полем,
     спор с состоянием 409, удача — свежая фиша."""

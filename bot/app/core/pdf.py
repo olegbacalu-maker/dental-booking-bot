@@ -36,9 +36,12 @@ import time
 
 from . import storage
 
-# сколько ждать Edge. Лист печатается за ~1 с; 20 с — запас на холодный диск
-# и антивирус, после — честный отказ, а не зависшее окно подписи
-TIMEOUT_S = 20
+log = logging.getLogger("pdf")
+
+# сколько ждать Edge. Лист печатается за 1–6 с, но время растёт с нагрузкой
+# машины: под полным прогоном тестов замерены удачи за 10, 17, 25 и 37 с.
+# После потолка — честный отказ, а не зависшее окно подписи
+TIMEOUT_S = 45
 # шаг ожидания листа после выхода Edge: лист — секунда, чаще смотреть незачем
 _POLL_S = 0.05
 # папка печати старше этого — хвост упавшего прошлого вызова
@@ -148,24 +151,59 @@ def html_to_pdf(page: str) -> bytes:
                 f"--user-data-dir={work / 'profile'}",
                 f"--print-to-pdf={out}", src.as_uri()]
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        deadline = time.monotonic() + TIMEOUT_S
+        t0 = time.monotonic()
+        deadline = t0 + TIMEOUT_S
+        # ⛔ Без труб: трубы stdout/stderr наследует фоновый Edge, и ожидание
+        # их закрытия (`run(capture_output=…)`) длилось, пока жив ОН, — а он
+        # бывает жив минутами после готового листа. Готовый PDF лежал, а
+        # подпись отвечала `pdf_err` по потолку.
         try:
-            subprocess.run(args, capture_output=True, timeout=TIMEOUT_S,
-                           creationflags=flags, check=False)
-        except (OSError, subprocess.TimeoutExpired):
+            p = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, creationflags=flags)
+        except OSError as e:
+            _say_failed(f"Edge не запустился: {e!r}", t0, out, None)
             raise PdfError("pdf_err") from None
-        # выход запущенного msedge.exe — не конец печати: он бывает лишь
-        # пускачом и выходит за доли секунды, а лист дописывает фоновый Edge.
-        # Поэтому готовность — целый файл, а не код возврата; потолок общий
-        while True:
-            data = _whole_pdf(out)
-            if data is not None:
-                return data
-            if time.monotonic() >= deadline:
-                raise PdfError("pdf_err")
-            time.sleep(_POLL_S)
+        try:
+            # выход запущенного msedge.exe — не конец печати: он бывает лишь
+            # пускачом и выходит за доли секунды, а лист дописывает фоновый
+            # Edge. Поэтому готовность — целый файл, а не код возврата
+            while True:
+                try:
+                    data = _whole_pdf(out)
+                except PdfError:
+                    _say_failed("лист больше потолка PDF", t0, out, p.poll())
+                    raise
+                if data is not None:
+                    return data
+                if time.monotonic() >= deadline:
+                    code = p.poll()
+                    _say_failed("целого листа нет к потолку" if code is not None
+                                else "пускач Edge не вышел к потолку", t0, out, code)
+                    raise PdfError("pdf_err")
+                time.sleep(_POLL_S)
+        finally:
+            if p.poll() is None:
+                p.kill()
+            try:
+                p.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
     finally:
         _drop(work)
+
+
+def _say_failed(why: str, t0: float, out: pathlib.Path, code: int | None) -> None:
+    """Отказ печати — строкой в журнал движка. Окно подписи говорит человеку
+    только «не вышло»; без этой строки причину у клиники не восстановить:
+    папка печати к этому мигу уже снимается, Edge следов не оставляет.
+    Медданных в строке нет: ни листа, ни имени, только размер файла."""
+    try:
+        size = out.stat().st_size if out.exists() else -1
+    except OSError:
+        size = -1
+    log.warning("pdf: %s (%.1f с из %d; код пускача %s; файл %s)",
+                why, time.monotonic() - t0, TIMEOUT_S,
+                "-" if code is None else code, "нет" if size < 0 else f"{size} б")
 
 
 def _whole_pdf(out: pathlib.Path) -> bytes | None:
