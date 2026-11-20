@@ -706,6 +706,14 @@ MUTATIONS = [
      ("    return eng.save_config(cfg)", "    return eng.apply_config(cfg)")),
     ("писатели clinic.json перечислены", "app/engine.py",
      ("def save_config(cfg: dict)", "def write_config(cfg: dict)")),
+    # Визит фише по номеру: свой писатель рядом с Google, правило, переставшее звать базу, и
+    # переименованный якорь.
+    ("визит фише по номеру — только через book_visit", "app/modules/schedule/gcal.py",
+     "\nasync def _mut(pid, dt):\n    return await db.add_visit_for_patient(pid, 'x', 'y', dt)\n"),
+    ("визит фише по номеру — только через book_visit", "app/core/book.py",
+     ("r = await db.add_visit_for_patient(", "r = await db._book(")),
+    ("визит фише по номеру — только через book_visit", "app/db/schedule.py",
+     ("async def add_visit_for_patient(", "async def add_visit_by_id(")),
 ]
 
 # Правки ЗАКОННЫЕ: нарушения в них нет, и правило обязано остаться
@@ -714,6 +722,9 @@ MUTATIONS = [
 # и отключают такое правило целиком, вместе с настоящей проверкой. Формат тот
 # же, что у MUTATIONS, только ожидание обратное.
 LEGAL = [
+    # внутри пакета db зовут друг друга свободно: правило про модули, не про базу
+    ("визит фише по номеру — только через book_visit", "app/db/schedule.py",
+     "\nasync def _mut(pid, dt):\n    return await add_visit_for_patient(pid, 'x', 'y', dt)\n"),
     # список чисел про другое (месяцы отзыва) длительностью не считается
     ("у dur_ok", "app/modules/settings/routes.py",
      "\ndef _mut_months(n):\n    return n in (3, 6, 12, 24)\n"),

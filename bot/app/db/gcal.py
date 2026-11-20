@@ -191,11 +191,6 @@ COMMIT;"""
     return n
 
 
-async def gcal_duration_by_hand(appt_id: int) -> None:
-    """Длительность пришла из события: смена процедуры её не перебьёт."""
-    await _execute("UPDATE appointments SET duration_set = 1 WHERE id = ?", appt_id)
-
-
 async def gcal_journal(start: str, end: str) -> list:
     """Живые записи журнала в окне: по ним вкладка узнаёт событие, уже внесённое руками."""
     return await _fetch(

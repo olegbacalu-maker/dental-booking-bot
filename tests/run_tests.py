@@ -50,6 +50,7 @@ import test_doctor_windows  # noqa: E402
 import test_day_actions  # noqa: E402
 import test_day_forms  # noqa: E402
 import test_gcal  # noqa: E402
+import test_book  # noqa: E402
 import test_gimport_core  # noqa: E402
 import test_guards  # noqa: E402
 import test_hardening  # noqa: E402
@@ -200,6 +201,7 @@ SUITES = [
     ("Google Calendar: срок текста под поддельными часами", test_gcal.suite_expiry),
     ("Google Calendar: стирание пациента и «Șterge tot»", test_gcal.suite_erase),
     ("Google Calendar: права и режим чтения", test_gcal.suite_rights),
+    ("Визит фише по номеру: отказы, прошлое, проба, время клиники", test_book.suite),
     ("SMS: тексты, подстановки, окно отправки, настройки", test_sms.suite_plan),
     ("SMS: провод к серверу", test_sms.suite_wire),
     ("SMS: живой цикл — накануне, в день визита, кому нет, без дубля", test_sms.suite_live),
