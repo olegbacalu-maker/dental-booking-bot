@@ -37,6 +37,7 @@ from ...core import demo, pdf, plan_tpl, prices, recall
 from ...core import visit_tpl as vtpl
 from ...core.auth import (PERM_IMPORT, PERM_MONEY, PERM_RECALL, PERM_TEMPLATES, can, remote_notice,
                           request_user)
+from ...core.labels import ORIGIN_LABEL
 from ...core.layout import ALERT_KINDS, STATUS_LABEL, _initials, msg_json, msg_text
 from ...core.visits import my_scope
 from . import anamneza as panam
@@ -49,11 +50,11 @@ from . import perio as pperio
 from . import scan as pscan
 from . import sign as psign
 from . import visit as pvisit
-from .routes import (_PL_BADGE, _PL_CANAL, _PL_PER, _PL_SORTS, _add_alert,
+from .routes import (_PL_BADGE, _PL_PER, _PL_SORTS, _add_alert,
                      _add_bridge, _add_pay, _add_plan, _appoint, _del_bridge,
                      _doc_lang, _drop_doc, _edit_plan, _erase, _free_slots, _new_patient, _open_doc,
                      _p_age, _peek_html, _perio_absent, _perio_ctx, _perio_del,
-                     _pl_canal, _pl_dmy, _pl_money, _pl_new_foot, _pl_select,
+                     _pl_dmy, _pl_money, _pl_new_foot, _pl_select,
                      _pl_status, _pl_trend, _plan_del, _plan_from_template, _plan_status,
                      _plan_to_template,
                      _save_anamneza, _save_ocluzie, _save_perio, _save_profile, _save_tooth,
@@ -88,7 +89,7 @@ def _row(p: dict, now: datetime) -> dict:
         "initials": _initials(p["name"] or "?"),
         "phone": p["phone"] or "",
         "email": p["email"] or "",
-        "channel": _pl_canal(p),
+        "channel": p["origin"],
         "birth": _pl_dmy(p["birth_date"]) if p["birth_date"] else "",
         "age": _p_age(p),
         "doctor": row["doctor"],
@@ -163,11 +164,10 @@ async def api_patients_summary(request: Request):
     n_appt = sum(1 for r in appts if r["starts_at"] >= month_start)
     n_appt_prev = len(appts) - n_appt
     doctors = sorted(set(eng.DOCTORS.values()) | set(await db.patients_doctors()))
-    # «Telegram» в фильтре — ПО ДАННЫМ: бот удалён 03.11.2026, но фиши,
-    # заведённые им раньше, остаются, и отобрать их можно. Без таких фиш
-    # опции нет: фильтр по пустому множеству продавал бы несуществующий канал
-    # (08-13, Олег). Происхождение — это данные, не обещание канала.
-    has_tg = await db.patients_have_tg()
+    # Каналы фильтра — ПО ДАННЫМ: путей бота и веб-самозаписи больше нет, но их
+    # фиши остаются, и отобрать их можно; пункт без единой фиши продавал бы
+    # несуществующий канал. «Recepție» — всегда: это канал по умолчанию.
+    origins = await db.patients_origins()
     return msg_json(True, data={
         "tiles": [
             {"icon": "users", "tone": "g", "value": _pl_money(c["n_total"]),
@@ -178,8 +178,8 @@ async def api_patients_summary(request: Request):
              "foot": _pl_trend(n_appt, n_appt_prev), "href": "/admin/stats"},
         ],
         "doctors": doctors,
-        "channels": [{"id": k, "label": v} for k, v in _PL_CANAL.items()
-                     if k != "tg" or has_tg],
+        "channels": [{"id": k, "label": v} for k, v in ORIGIN_LABEL.items()
+                     if k == "manual" or origins.get(k)],
         "statuses": [{"id": k, "label": v[0], "cls": v[1]} for k, v in _PL_BADGE.items()],
         "per": list(_PL_PER),
         "clinic_doctors": list(eng.DOCTORS.values()),
@@ -348,6 +348,7 @@ async def _card(pid: int, p: dict, *, views: bool, log_view: bool) -> dict:
     visits = await db.patient_appointments(pid, 1000)
     recs = await db.visit_records_map(pid)
     anam = await db.anamneza(pid)
+    origin = await db.patient_origin(pid)
     occl = await db.ocluzie(pid)
     acts = await db.patient_activity(pid, 60, include_views=views)
     erasure = await db.erasure_kind(pid)
@@ -382,7 +383,7 @@ async def _card(pid: int, p: dict, *, views: bool, log_view: bool) -> dict:
             "birth": (_pl_dmy(p["birth_date"]) if p.get("birth_date")
                       else str(p.get("birth_year") or "")),
             "gender_label": {"m": "M", "f": "F"}.get(p.get("gender") or "", p.get("gender") or ""),
-            "age": _p_age(p), "channel": pcard.channel(p),
+            "age": _p_age(p), "channel": ORIGIN_LABEL.get(origin, ""),
             "created": created.strftime("%d.%m.%Y"), "year": created.strftime("%Y"),
         },
         "hero": {

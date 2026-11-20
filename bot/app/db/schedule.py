@@ -80,13 +80,14 @@ async def create_appointment(
     source: str = "manual", birth_year: int | None = None,
     doctor_id: str | None = None, service_id: str | None = None,
     duration_min: int = 60,
-    rooms: dict | None = None, room: str | None = None,
+    rooms: dict | None = None, room: str | None = None, origin: str = "appt",
 ) -> int | str | None:
     """id записи; None — интервал занят у этого врача; 'dup' — у пациента
     уже есть своя запись на это время. doctor/service = снапшоты подписи,
     doctor_id/service_id = стабильные ключи; duration_min = снапшот
     длительности услуги на момент брони. `rooms` — кабинеты врача
-    (`eng.room_plan`), `room` — назначенный кабинет (нет — первый свободный)."""
+    (`eng.room_plan`), `room` — назначенный кабинет (нет — первый свободный).
+    `origin` — ключ `CREATED_EVENT`: какой строкой летопись назовёт новую фишу."""
     async with _slot_lock():
         if await patient_id_by_key(session_key) is None:
             # ⚠️ НОВОГО человека не заводим, пока слот не подтверждён: upsert
@@ -98,7 +99,8 @@ async def create_appointment(
             if await _conflicts(doctor_id, doctor, starts_at, duration_min,
                                 rooms=rooms, room=room):
                 return None
-        pid = await _upsert_patient(session_key, name, phone, lang, birth_year)
+        pid = await _upsert_patient(session_key, name, phone, lang, birth_year,
+                                    origin=origin)
         return await _book_locked(pid, service, doctor, starts_at, source,
                                   doctor_id, service_id, duration_min,
                                   rooms=rooms, room=room)
@@ -109,9 +111,10 @@ async def admin_add(
     birth_year: int | None = None, birth_date: str | None = None,
     doctor_id: str | None = None, service_id: str | None = None,
     duration_min: int = 60, duration_set: bool = False,
-    rooms: dict | None = None, room: str | None = None,
+    rooms: dict | None = None, room: str | None = None, origin: str = "appt",
 ) -> int | str | None:
     """Ручная запись из журнала клиники. Пациент дедуплицируется по телефону.
+    `origin` — как у `create_appointment`: строка летописи новой фиши.
 
     `duration_set` — длительность выбрали в окне записи руками (10.11): тогда
     у записи ставится признак, и смена процедуры её не перебьёт."""
@@ -142,7 +145,7 @@ async def admin_add(
             key, name, phone, "ro", service, doctor, starts_at,
             source="manual", birth_year=birth_year,
             doctor_id=doctor_id, service_id=service_id, duration_min=duration_min,
-            rooms=rooms, room=room,
+            rooms=rooms, room=room, origin=origin,
         )
         pid = await patient_id_by_key(key)
     # дата рождения — тем же правилом, что год в upsert: новое значение, если

@@ -259,6 +259,15 @@ def suite_move(res: Result) -> None:
         res.check("название ушло в комментарий записи, источник — manual",
                   [(x[1], x[2]) for x in appt], [("Google: Popescu Ion 069123456 consult", "manual")])
         res.check("ответ назвал номер записи", data["appt_id"], appt[0][0])
+        ion = sql(s, "SELECT id FROM patients WHERE name = 'Ion Popescu'")[0][0]
+        card = _j(c.get(f"/api/patients/{ion}"))["data"]
+        res.check("новая фиша из Google: строка летописи своя, канал «Google Calendar»",
+                  ([a["text"] for a in card["activity"]["items"] if a["text"].startswith("Fișă creată")],
+                   card["profile"]["channel"],
+                   [r["channel"] for r in _j(c.get("/api/patients?q=Popescu"))["data"]["rows"]],
+                   [x["id"] for x in _j(c.get("/api/patients/summary"))["data"]["channels"]]),
+                  (["Fișă creată la mutarea din Google Calendar"], "Google Calendar", ["google"],
+                   ["manual", "google"]))
         res.check("текст строки события стёрт, связь и отпечаток на месте",
                   sql(s, "SELECT title, body, state, appt_id, stamp_moved != '' FROM gcal_events "
                          "WHERE id = ?", a1["id"]), [("", "", "mutat", appt[0][0], 1)])

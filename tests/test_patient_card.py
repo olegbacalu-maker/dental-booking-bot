@@ -261,7 +261,7 @@ def suite_api(res: Result) -> None:
         res.check("профиль: пол сырым значением для формы", pr["gender"], "f")
         res.check("профиль: возраст, канал, дело, заметка, язык, год",
                   (pr["age"], pr["channel"], pr["file_no"], pr["notes"], pr["lang"], pr["year"]),
-                  (41, "recepție", "D-5", "nota internă", "ro", _dmy(0)[-4:]))
+                  (41, "Recepție", "D-5", "nota internă", "ro", _dmy(0)[-4:]))
         res.check("шапка: имя, инициалы, архив, ветка стирания",
                   (d["name"], d["initials"], d["archived"], d["erasure"]),
                   ("Pin Test", "PT", False, "anon"))

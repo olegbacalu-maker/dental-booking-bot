@@ -39,6 +39,7 @@ CREATED_EVENT = {
     "new": "Fișă creată",
     "appt": "Fișă creată la programarea din registru",
     "import": "Fișă creată prin import din fișier „{}”",
+    "gcal": "Fișă creată la mutarea din Google Calendar",
 }
 
 

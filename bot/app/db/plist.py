@@ -72,11 +72,29 @@ _PL_LAST_DOC_OF = ("(SELECT a.doctor FROM appointments a WHERE a.patient_id = p.
 _PL_DOCTOR = f"COALESCE(NULLIF(p.primary_doctor, ''), {_PL_LAST_DOC_OF}, '')"
 # долг = финализированный план − оплачено; минус — аванс (как `patients_debt`)
 _PL_DEBT = "(COALESCE(chg.n, 0) - COALESCE(pay.n, 0))"
-# канал по префиксу ключа — как `_pl_canal`; substr, а не LIKE: у LIKE в SQLite
-# регистр не в счёт, а ключи сравниваются буква в букву
-_PL_CANAL = ("CASE WHEN substr(p.session_key, 1, 3) = 'tg:' THEN 'tg' "
-             "WHEN substr(p.session_key, 1, 7) = 'manual:' THEN 'manual' "
-             "ELSE 'web' END")
+# Откуда пациент — ОДНО правило на фильтр, колонку списка, шапку фиши и пункты
+# фильтра; подписи — `core/labels.ORIGIN_LABEL` по тем же ключам. Своей колонки
+# нет: канал выводится из данных, поэтому верен задним числом у всех клиник.
+# ⚠️ Порядок веток — смысл: у фиш импорта и переноса из Google ключ тоже
+# `manual:`, префикс ключа проверяется после них.
+# - excel — метка импорта `import_id` (её же читает отмена; второго способа «чьи
+#   это фиши» нет);
+# - google — ПЕРВАЯ запись фиши связана с событием вкладки Google (строки
+#   `gcal_events` не удаляются, у перенесённого остаётся `appt_id`). ⚠️ Форма —
+#   от событий к пациентам одним некоррелированным IN: «MIN(a.id) по пациенту»
+#   SQLite берёт по rowid мимо индекса пациента, и на каждую строку списка
+#   выходил проход по всем записям; `+b.id` по той же причине;
+# - tg / web — префикс ключа фиш бота и веб-самозаписи: самих путей больше
+#   нет, фиши остались; substr, а не LIKE: у LIKE в SQLite регистр не в счёт;
+# - manual — всё остальное: стойка и запись из журнала.
+ORIGIN_SQL = ("(CASE WHEN p.import_id IS NOT NULL THEN 'excel' "
+              "WHEN p.id IN (SELECT a.patient_id FROM gcal_events g "
+              "JOIN appointments a ON a.id = g.appt_id WHERE NOT EXISTS "
+              "(SELECT 1 FROM appointments b WHERE b.patient_id = a.patient_id "
+              "AND +b.id < a.id)) THEN 'google' "
+              "WHEN substr(p.session_key, 1, 3) = 'tg:' THEN 'tg' "
+              "WHEN substr(p.session_key, 1, 7) = 'manual:' THEN 'manual' "
+              "ELSE 'web' END)")
 # pl — «в лечении»: активные статусы ПОИМЁННО (те же, что PLAN_ACTIVE), а не
 # «<> finalizat»: отказанная позиция закрыта, и пациент с одним отказом не
 # находится в лечении
@@ -104,6 +122,7 @@ _PL_COLS = ("p.id, p.name, p.phone, p.email, p.session_key, p.birth_year, p.birt
             "v.last_at, v.next_at, COALESCE(v.n_visits, 0) AS n_visits, "
             "COALESCE(al.n, 0) AS n_alerts, COALESCE(pl.n, 0) AS n_plan, "
             f"{_PL_LAST_DOC_OF} AS last_doctor, {_PL_DEBT} AS debt, "
+            f"{ORIGIN_SQL} AS origin, "
             # счёт всего отбора той же выборкой: второй проход по агрегатам
             # ради COUNT(*) стоил столько же, сколько сама страница
             "COUNT(*) OVER () AS total")
@@ -181,7 +200,7 @@ class _PlQuery:
             conds.append(f"(v.last_at IS NOT NULL AND v.last_at > "
                          f"{self.arg(f['stale_cut'], dt=True)})")
         if f.get("ch"):
-            conds.append(f"{_PL_CANAL} = {self.arg(f['ch'])}")
+            conds.append(f"{ORIGIN_SQL} = {self.arg(f['ch'])}")
         if f.get("imp"):
             conds.append(f"p.import_id = {self.arg(int(f['imp']))}")
         # ноль — ни в долг, ни в аванс: рассчитавшийся пациент не должен
@@ -212,7 +231,7 @@ async def patients_count(f: dict) -> int:
     Отбор: `q` с разобранными кусками `terms` (fold / birth / digits — что
     именно ищется, решает модуль, `_pl_terms`), `med` (имя врача или «-» =
     без врача), `st` (arhivat / atentie / tratament / inactiv / activ,
-    включающий), `ch` (tg / manual / web), `dat` (da / avans),
+    включающий), `ch` (ключ `ORIGIN_LABEL`), `dat` (da / avans),
     `show_archived`, `stale_cut` (последний визит не позже — неактивен),
     `now` (граница прошлого и будущего визита).
     """
@@ -223,7 +242,7 @@ async def patients_count(f: dict) -> int:
 
 async def patients_rows(f: dict, sort: str, limit: int | None, offset: int) -> list:
     """Страница списка: строки с агрегатами (`last_at`, `next_at`, `n_visits`,
-    `n_alerts`, `n_plan`, `last_doctor`, `debt`) в порядке `sort`
+    `n_alerts`, `n_plan`, `last_doctor`, `debt`, `origin`) в порядке `sort`
     (last / name / new / debt) и с `total` — счётом всего отбора в каждой
     строке (окно). Пустая страница счёта не несёт: тогда `patients_count`.
     `limit=None` — вся выборка (книга Excel). Статус строки выводит модуль
@@ -246,10 +265,18 @@ async def patients_archived() -> int:
         "SELECT COUNT(*) FROM patients WHERE COALESCE(archived, 0) <> 0") or 0)
 
 
-async def patients_have_tg() -> bool:
-    """Есть ли пациенты из бота — фильтр канала «Telegram» идёт ПО ДАННЫМ."""
-    sql = "SELECT COUNT(*) FROM patients WHERE substr(session_key, 1, 3) = 'tg:'"
-    return bool(await _fetchval(sql))
+async def patients_origins() -> dict[str, int]:
+    """Сколько фиш у каждого канала (`ORIGIN_SQL`), архив включая: пункт фильтра
+    есть, только когда таких фиш больше нуля. Одна выборка на все каналы."""
+    rows = await _fetch(f"SELECT {ORIGIN_SQL} AS origin, COUNT(*) AS n "
+                        f"FROM patients p GROUP BY 1")
+    return {r["origin"]: int(r["n"]) for r in rows}
+
+
+async def patient_origin(pid: int) -> str:
+    """Канал одной фиши — шапка фиши; тем же правилом, что список."""
+    return await _fetchval(f"SELECT {ORIGIN_SQL} FROM patients p WHERE p.id = ?",
+                           pid) or ""
 
 
 async def patients_counts(month_start: datetime, prev_start: datetime) -> dict:

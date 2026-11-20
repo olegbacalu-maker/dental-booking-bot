@@ -138,6 +138,8 @@ _DB_TEXTS = "app/db/plans.py"        # тексты летописи пацие�
 _DB_SAN = "app/db/registre.py"       # журналы san_*: единственное место UPDATE (замок IS NULL)
 _DB_LAB = "app/db/lab.py"            # заказы в лабораторию: история только дописывается
 _DB_STOCK = "app/db/stock.py"        # журнал склада: только INSERT, и только здесь
+_DB_ORIGIN = "app/db/plist.py"       # ORIGIN_SQL: откуда пациент — одно правило
+_LAY_LABELS = "app/core/labels.py"   # ORIGIN_LABEL: подписи каналов пациента
 # Разделы с меню слева, которые обязаны найтись правилу «раздел с меню слева берёт данные загрузчиком».
 _SIDE_MENU_KNOWN = {"patient_card", "lab", "stock", "tarife"}
 # Якоря бывшего layout.py (разнос 04.11): переезд имени = правка одной строки.
@@ -995,6 +997,51 @@ def suite(res: Result) -> None:
     res.ok("ответ на действие строит только core/messages", not bad,
            "MSG_BANNER вне core/messages — сообщение вернётся строкой в "
            "поток, и внизу страницы его опять не видно: " + ", ".join(bad))
+
+    # ---- откуда пациент — одно правило и один словарь ----
+    # Канал фиши выводился трижды (Python списка, SQL фильтра, своя функция шапки
+    # фиши), и все три копии называли «web» каждую фишу, которая не tg: и не
+    # manual:, — а фиши импорта и переноса из Google (ключ manual:) звались
+    # «recepție». Теперь вывод — `ORIGIN_SQL` (фильтр, колонка списка, шапка,
+    # пункты фильтра), подписи — `ORIGIN_LABEL`. Копия правила по префиксу ключа
+    # (`startswith("tg:")`, `substr(… session_key …)`) вне plist.py снова
+    # разошлась бы с ним молча; ключ ветки без подписи уехал бы на экран кодом.
+    # ⚠️ Полярность: правило ищет нарушителей — поэтому сперва якоря: выражение
+    # и словарь есть, их ключи совпадают.
+    def _const_of(tree, name):
+        for n in _walk(tree or ast.parse("")):
+            if (isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == name
+                                                  for t in n.targets)):
+                return n.value
+        return None
+    o_sql = _const_of(by_path.get(_DB_ORIGIN), "ORIGIN_SQL")
+    o_lab = _const_of(by_path.get(_LAY_LABELS), "ORIGIN_LABEL")
+    bad = []
+    if not (isinstance(o_sql, ast.Constant) and isinstance(o_sql.value, str)):
+        bad.append(f"{_DB_ORIGIN}: строки ORIGIN_SQL нет")
+    if not isinstance(o_lab, ast.Dict):
+        bad.append(f"{_LAY_LABELS}: словаря ORIGIN_LABEL нет")
+    if not bad:
+        branches = set(re.findall(r"(?:THEN|ELSE) '(\w+)'", o_sql.value))
+        labels = {k.value for k in o_lab.keys if isinstance(k, ast.Constant)}
+        if not branches or branches != labels:
+            bad.append(f"ветки ORIGIN_SQL {sorted(branches)} ≠ ключи ORIGIN_LABEL {sorted(labels)}")
+    _prefixes = ("tg:", "web:", "manual:")
+    bad += [f"{rel}:{n.lineno}" for rel, tree in src if rel != _DB_ORIGIN
+            for n in _walk(tree)
+            if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "startswith" and n.args
+                and isinstance(n.args[0], ast.Constant) and isinstance(n.args[0].value, str)
+                and n.args[0].value.startswith(_prefixes))
+            or (isinstance(n, ast.Constant) and isinstance(n.value, str)
+                and "substr(" in n.value and "session_key" in n.value)]
+    bad += [f"{rel}:{n.lineno}" for rel, tree in src if rel != _LAY_LABELS
+            for n in _walk(tree)
+            if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "ORIGIN_LABEL"
+                                                 for t in n.targets)]
+    res.ok("откуда пациент — ORIGIN_SQL и ORIGIN_LABEL", not bad,
+           "канал фиши выводится одним выражением db/plist.ORIGIN_SQL, подписи — "
+           "core/labels.ORIGIN_LABEL: " + ", ".join(bad))
 
     # ---- JSON рядом с <script> — только в экранированный атрибут (08-10, 04.11) ----
     # Аудит 08-10: на карточке пациента четыре площадки экранировали `</`, а две

@@ -224,13 +224,6 @@ def age_of(p: dict) -> int | None:
     return _age(p.get("birth_year"))
 
 
-def channel(p: dict) -> str:
-    """Откуда пациент: бот, стойка или веб — по префиксу ключа сессии."""
-    key = p.get("session_key") or ""
-    return ("Telegram" if key.startswith("tg:")
-            else "recepție" if key.startswith("manual:") else "web")
-
-
 def money(n: int) -> str:
     """1200 → «1 200»: тысячи пробелом, как всюду в фише."""
     return f"{n:,}".replace(",", " ")
