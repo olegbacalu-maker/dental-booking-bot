@@ -51,6 +51,16 @@ export function useOpening<T>(key: unknown, live: T): T {
   return held.value
 }
 
+/** Идущие переходы ухода: гаснущее окно и узел с признаком «уходит» (меню, плашка). */
+function leavingNow(): Animation[] {
+  if (typeof document.getAnimations !== 'function') return []
+  return document.getAnimations().filter((a) => {
+    const target = (a.effect as KeyframeEffect | null)?.target
+    return a.playState === 'running' && (a as CSSTransition).transitionProperty === 'opacity'
+      && target instanceof Element && target.matches('dialog:not([open]), .out')
+  })
+}
+
 /**
  * Держать ушедшее значение ещё одну ступень: `shown` — что рисовать (текущее
  * или уходящее), `leaving` — что оно уходит. Без движения `shown === value`.
@@ -67,8 +77,20 @@ export function useLingering<T>(value: T | null, step: '--dur-fast' | '--dur' = 
   }
   useEffect(() => {
     if (ghost === null) return
-    const t = window.setTimeout(() => setGhost(null), stepMs(step))
-    return () => window.clearTimeout(t)
+    let live = true
+    const drop = () => { if (live) setGhost(null) }
+    /* Срок вышел, а уход ещё идёт: после записи экран занят перерисовкой, переход
+       начинается позже щелчка, и срок срезал бы его на середине. Срок — запасной,
+       значение отпускается по концу идущего перехода. */
+    const t = window.setTimeout(() => {
+      const going = leavingNow()
+      if (going.length === 0) drop()
+      else void Promise.allSettled(going.map((a) => a.finished)).then(drop)
+    }, stepMs(step))
+    return () => {
+      live = false
+      window.clearTimeout(t)
+    }
   }, [ghost, step])
   const leaving = value === null && ghost !== null
   return { shown: value ?? (leaving ? ghost : null), leaving }

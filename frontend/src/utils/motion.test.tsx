@@ -43,6 +43,37 @@ describe('useLingering', () => {
     expect(result.current).toEqual({ shown: null, leaving: false })
   })
 
+  it('⛔ срок вышел, а окно ещё гаснет (экран занят перерисовкой) — значение держится до конца перехода', async () => {
+    allowMotion()
+    vi.useFakeTimers()
+    const win = document.createElement('dialog')
+    document.body.appendChild(win)
+    let end!: () => void
+    const finished = new Promise<void>((r) => { end = r })
+    const fade = { playState: 'running', transitionProperty: 'opacity', finished, effect: { target: win } }
+    /* чужое движение срок не продлевает: открытое окно, другое свойство, доигравший переход */
+    const open = document.createElement('dialog')
+    open.setAttribute('open', '')
+    const never = new Promise<void>(() => {})
+    ;(document as { getAnimations?: unknown }).getAnimations = () => [
+      fade,
+      { playState: 'running', transitionProperty: 'opacity', finished: never, effect: { target: open } },
+      { playState: 'running', transitionProperty: 'transform', finished: never, effect: { target: win } },
+      { playState: 'finished', transitionProperty: 'opacity', finished: never, effect: { target: win } },
+    ]
+    try {
+      const { result, rerender } = renderHook(({ v }: { v: string | null }) => useLingering(v), { initialProps: { v: 'a' as string | null } })
+      rerender({ v: null })
+      act(() => { vi.advanceTimersByTime(stepMs('--dur-fast') + 500) })
+      expect(result.current).toEqual({ shown: 'a', leaving: true })
+      await act(async () => { end(); await finished; await Promise.resolve() })
+      expect(result.current).toEqual({ shown: null, leaving: false })
+    } finally {
+      delete (document as { getAnimations?: unknown }).getAnimations
+      win.remove()
+    }
+  })
+
   it('новое значение во время ухода прерывает уход', () => {
     allowMotion()
     vi.useFakeTimers()
