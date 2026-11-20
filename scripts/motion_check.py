@@ -6,6 +6,8 @@
                                                    обязаны краснеть — каждая своим сценарием
     python scripts\\motion_check.py --styles clar,sticla,fluent,modern,elegant,calm
                                                    окно, статус, меню и ответ — в каждом стиле
+    python scripts\\motion_check.py --styles clar,sticla --only tile,event
+                                                   названные сценарии — в каждом стиле
     ключи: --polls N (сколько опросов ждать в покое, по умолчанию 3), --only idle,dialog
 
 ⛔ Не в CI и не в `.\\dev test`: нужны Edge и websocket-client в системном Python
@@ -128,6 +130,8 @@
             хвата блок не на своём месте;
           · `dialog[data-grow]:not([open]){transform:none !important}` → окно не
             сворачивается в блок;
+          · у сворачивающегося окна оставлен один переход transform → окно уходит
+            без своего перехода (ни конца прозрачности, ни конца display);
           · клиенту сказано «движения нет» при живом CSS → ни зубчика, ни блика, ни
             роста окна, ни копии под курсором;
   event   · `.gappt.moved[data-st="waiting"] .gfx{animation:none !important}` →
@@ -966,8 +970,23 @@ class Run:
         closing = [s for s in d["samples"] if s and s[2] == 0]
         aims = sorted({s[3] for s in closing if s[3] is not None})
         done = [e for e in d["ends"] if e["target"].startswith("dialog") and e["name"] == "opacity" and not e["pseudo"]]
-        self.ok(bool(aims) and aims[0] < 0.8 and len(done) == 1,
-                f"окно: по Esc сворачивается в блок и доигрывает переход (масштаб цели {aims[:1]}, доиграно {len(done)})")
+        # Окно ушло СВОИМ переходом, а не снятием узла: доказательство — событие конца перехода на
+        # самом окне. Обычно это прозрачность; примерно раз из сорока заходов окно уходит по концу
+        # своего перехода `display` на кадр раньше, и конец прозрачности (она к этому кадру у нуля)
+        # движок уже не шлёт. У узла, снятого посреди перехода, нет ни того, ни другого.
+        left = [e for e in d["ends"] if e["target"].startswith("dialog") and e["name"] == "display" and not e["pseudo"]]
+        faded = min([s[1] for s in closing] or [1])
+        self.ok(bool(aims) and aims[0] < 0.8 and (len(done) == 1 or len(left) == 1) and faded < 0.3,
+                f"окно: по Esc сворачивается в блок и доигрывает переход (масштаб цели {aims[:1]},"
+                f" конец прозрачности {len(done)}, конец display {len(left)}, погасло до {round(faded, 3)})")
+        if not (done or left) or os.environ.get("MC_VERBOSE"):      # что было с окном — глазами, при разборе
+            for r in d["runs"]:
+                if r["target"].startswith("dialog"):
+                    print("      · запуск", r["kind"], r["name"], r["pseudo"], r["dur"])
+            for e in d["ends"]:
+                if e["target"].startswith("dialog"):
+                    print("      · конец", e["name"], e["pseudo"])
+            print("      · кадры (масштаб, прозрачность, открыто, цель):", [s[:4] if s else None for s in d["samples"]][:40])
         self.ok(bool(d["samples"]) and d["samples"][-1] is None, "окно: по концу сворачивания окна на экране нет")
 
         # 4. перенос, начатый посреди анимации наведения
@@ -1218,6 +1237,7 @@ PAIRS = [
     ("tile", "блок не поднимается", {"css": ".gappt[data-hov]{translate:none !important}"}),
     ("tile", "в миг хвата блок не на своём месте", {"css": ".gridbody[data-dragging] .gappt{translate:0 -9px !important}"}),
     ("tile", "окно не сворачивается в блок", {"css": "dialog[data-grow]:not([open]){transform:none !important}"}),
+    ("tile", "окно уходит без своего перехода", {"css": "dialog[data-grow]:not([open]){transition:transform var(--dur-fast) ease !important}"}),
     ("tile", "клиенту сказано «движения нет»", {"js": "(() => { const real = window.matchMedia.bind(window);"
                                                    " window.matchMedia = (q) => (/prefers-reduced-motion/.test(q)"
                                                    " ? { matches: false, media: q, onchange: null, addEventListener() {}, removeEventListener() {},"
@@ -1253,7 +1273,8 @@ def run_tree(cdp: CDP, bot: pathlib.Path | None, label: str, names, polls: int, 
                     if r.msg != "ok_theme":
                         raise SystemExit(f"стиль {style} не сохранился: {r.msg}")
                     run.label = f"{label} · {style}"
-                    for name in STYLE_SCENARIOS:
+                    # названные ключом --only сценарии — в каждом стиле; без него — набор стилей
+                    for name in (names if len(names) < len(SCENARIOS) else STYLE_SCENARIOS):
                         run.scenario(name, polls)
             else:
                 for name in names:
