@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 
 from .. import engine as eng
 from . import sms_loop
+from . import tarife as _tarife
 from .auth import PIN_MIN_LAN
 from .icons import _ic
 
@@ -122,6 +123,10 @@ MSG_BANNER = {
                           "(redeschideți-o dacă chiar trebuie schimbată)"),
     "svc_doc": ("err", "Medicul acestei programări nu face procedura aleasă — "
                        "alegeți altă procedură sau mutați programarea la alt medic"),
+    # прайс «Servicii și tarife» (20.11): строка только прайса — не тип записи агенды
+    "svc_not_agenda": ("err", "Acest serviciu este doar în lista de prețuri pentru plan — "
+                              "alegeți un tip de programare din agendă"),
+    "svc_agenda_empty": ("err", "În agendă trebuie să rămână cel puțin un serviciu"),
     # длительность визита руками (10.11.2026, окно визита и окно записи)
     "ok_dur": ("ok", "Durata programării a fost schimbată"),
     "dur_closed": ("err", "Durata se schimbă doar la programările active — cea "
@@ -608,6 +613,19 @@ MSG_BANNER = {
     "stock_too_big": ("err", "Fișierul este prea mare"),
     "stock_rows": ("err", "Prea multe rânduri — maximum 2000 de materiale într-un import"),
     "stock_file_empty": ("err", "Fișierul este gol"),
+    # «Servicii și tarife» (20.11, core/tarife.py)
+    "ok_tarife": ("ok", "Lista de prețuri este salvată"),
+    "ok_tarife_import": ("ok", "Lista de prețuri este actualizată din fișier"),
+    "bad_tarif": ("err", "Verificați câmpul marcat — denumirea este obligatorie, "
+                         f"iar textele au cel mult {_tarife.NAME_MAX} de caractere"),
+    "dup_tarif": ("err", "Există deja un serviciu sau o categorie cu această denumire"),
+    "tarif_gone": ("err", "Lista de prețuri s-a schimbat între timp — reîncărcați pagina"),
+    "tarife_full": ("err", "Lista de prețuri are prea multe rânduri sau categorii"),
+    "tarife_import_cols": ("err", "În fișier nu se găsește coloana „Denumire”"),
+    "tarife_import_stale": ("err", "Lista de prețuri s-a schimbat după verificare — verificați din nou"),
+    "tarife_import_empty": ("err", "Fișierul nu aduce nimic nou în lista de prețuri"),
+    "tarife_rows": ("err", f"Prea multe rânduri — maximum {_tarife.SERVICES_MAX} de servicii "
+                           "într-un fișier"),
     # Склад, ступень 2: техкарта и списание по позиции плана (core/stock_tc.py)
     "ok_stock_tc": ("ok", "Fișa tehnologică a serviciului este salvată"),
     "ok_stock_tc_replace": ("ok", "Materialul este înlocuit în toate serviciile"),

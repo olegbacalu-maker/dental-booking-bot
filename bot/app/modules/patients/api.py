@@ -295,12 +295,17 @@ def _plan_item(it: dict, today) -> dict:
     }
 
 
-def _service_options() -> list[dict]:
-    """Прайс для форм фиши и одонтограммы: окно записи и выбор позиции плана.
-    С ценой услуги: одна сумма в прайсе — `price`, диапазон или слова —
-    `price_hint` (`core/prices`); форма плана подставляет первое и показывает
-    второе."""
-    return prices.options()
+def _agenda_options() -> list[dict]:
+    """Услуги окна записи из фиши — только места агенды (`eng.in_agenda`)."""
+    return prices.options(eng.WHERE_AGENDA)
+
+
+def _plan_options() -> list[dict]:
+    """Прайс для форм плана фиши и одонтограммы — только места плана
+    (`eng.in_plan`), по категориям. С ценой услуги: одна сумма в прайсе —
+    `price`, диапазон или слова — `price_hint` (`core/prices`); форма плана
+    подставляет первое и показывает второе."""
+    return prices.options(eng.WHERE_PLAN)
 
 
 def _options() -> dict:
@@ -459,8 +464,9 @@ async def _card(pid: int, p: dict, *, views: bool, log_view: bool) -> dict:
                        "who": pcard.who(a["actor"])} for a in acts],
             "shown": pcard.ACT_SHOWN, "views": views,
         },
+        "plan_services": _plan_options(),
         "appoint": {
-            "services": _service_options(),
+            "services": _agenda_options(),
             "doctors": ap["svc_docs"], "names": dict(eng.ACTIVE_DOCTORS),
             "primary": ap["prim"], "today": now.date().isoformat(),
         },
@@ -1017,7 +1023,8 @@ async def api_patient_appoint(request: Request, pid: int):
         return deny
     code = await _appoint(pid, _s(body, "date"), _s(body, "time"),
                           _s(body, "doctor"), _s(body, "service"))
-    return await _card_reply(request, pid, code, "time" if code in ("bad", "outside") else "")
+    return await _card_reply(request, pid, code, "time" if code in ("bad", "outside")
+                             else "service" if code == "svc_not_agenda" else "")
 
 
 # ======================= дневник визита (C19) =======================
@@ -1137,7 +1144,7 @@ async def _odontogram(pid: int, p: dict) -> dict:
     m["patient"] = {"id": pid, "name": p["name"] or "",
                     "primary_doctor": p.get("primary_doctor") or ""}
     m["doctors"] = list(eng.DOCTORS.values())
-    m["services"] = _service_options()
+    m["services"] = _plan_options()
     # ⭐ Последний пародонтальный замер по зубам — «зуб 16 один объект»
     # (контракт clinical-chart.md › «Один зуб на оба инструмента»). Осмотр тот
     # же, что печатается в 043/e: `perio_last` пропускает пустые листы.

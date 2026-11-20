@@ -242,6 +242,8 @@ def service_refusal(r, sid: str) -> str:
         return code
     if sid not in eng.SERVICES:
         return "bad"
+    if not eng.in_agenda(sid):
+        return "svc_not_agenda"
     if all(k != r["doctor_id"] for k, _n in eng.allowed_doc_items(sid)):
         return "svc_doc"
     return ""

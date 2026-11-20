@@ -146,7 +146,7 @@ def suite_api(res: Result) -> None:
                   sorted(["id", "name", "initials", "archived", "erasure", "profile", "hero",
                           "kpi", "alerts", "anamneza", "ocluzie", "recall", "plan", "finance",
                           "documents", "forms", "todo", "visits", "activity", "appoint",
-                          "options"]))
+                          "plan_services", "options"]))
         # «De făcut»: долг первым, потом согласие к плану (три активные, 1 900 MDL);
         # визит впереди есть — «записать» нет; анамнез — плашкой, не строкой
         res.check("De făcut: долг, неподписанное согласие к плану",
@@ -795,7 +795,7 @@ def suite_plan_keys(res: Result) -> None:
             m = _j(r)["data"]
             card = _card(c, pid)
             res.check("одонтограмма несёт прайс фиши (подсказки диалога зуба)",
-                      m.get("services"), card["appoint"]["services"])
+                      m.get("services"), card["plan_services"])
             row = max(card["plan"]["items"], key=lambda x: x["id"])
             res.check("план с зуба пишет те же ключи", (row["tooth"], row["service_id"], row["doctor_id"]),
                       (16, "hygiene", "d2"))
@@ -844,7 +844,7 @@ def suite_plan_edit(res: Result) -> None:
         pid = new_patient(c, "Plan Edit", "069555020")
         res.check("прайс форм плана: одна сумма — числом, диапазон и слова — подсказкой",
                   [(x["id"], x["label"], x["price"], x["price_hint"])
-                   for x in _card(c, pid)["appoint"]["services"]],
+                   for x in _card(c, pid)["plan_services"]],
                   [("consult", "Consultație", None, "gratuit"),
                    ("pain", "Durere acută", None, "în aceeași zi"),
                    ("hygiene", "Igienizare", 1000, ""),
@@ -852,7 +852,7 @@ def suite_plan_edit(res: Result) -> None:
                    ("long", "Tratament lung", None, "1200–1800 MDL")])
         m = _j(c.get(f"/api/patients/{pid}/odontogram"))["data"]
         res.check("окно плана с зуба получает тот же прайс с ценами",
-                  m["services"], _card(c, pid)["appoint"]["services"])
+                  m["services"], _card(c, pid)["plan_services"])
 
         def add(body: dict) -> int:
             st, j = _act(c, pid, "/plan", body)

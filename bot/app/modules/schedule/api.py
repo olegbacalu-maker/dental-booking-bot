@@ -58,7 +58,8 @@ _CONFLICT = {"conflict", "dup", "bad_off", "mv_gone", "mv_closed", "past", "bad_
 # какое поле формы подсветить при 422; отказ без поля оставляет его пустым
 _FIELD = {"bad": "time", "bad_time": "time", "outside": "time",
           "outside_doc": "time", "bad_name": "name", "bad_phone": "phone",
-          "bad_bd": "birth", "bad_dur": "duration", "bad_room": "room"}
+          "bad_bd": "birth", "bad_dur": "duration", "bad_room": "room",
+          "svc_not_agenda": "service"}
 
 
 # Поверхности, которым состояния НЕ отдаётся вовсе. ⛔ Это ПЕРЕЧИСЛЕНИЕ, а не

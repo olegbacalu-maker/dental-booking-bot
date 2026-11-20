@@ -129,6 +129,16 @@ URGENT_LABELS: set[str] = set()
 # `service_id` пуст у строки свободным текстом, `price` None — цена из прайса
 # на день вставки. Данных пациента в шаблоне нет. Правила — `core/plan_tpl`.
 PLAN_TEMPLATES: list[dict] = []
+# Где показывается услуга (`clinic.json › services[].where`): места
+# перечислением. Ключа нет — оба места, так читается любой профиль до прайса.
+# Незнакомое значение на диске тоже «оба»: файл правят руками, и опечатка не
+# должна прятать услугу ни из журнала, ни из плана.
+WHERE_AGENDA = "agenda"
+WHERE_PLAN = "plan"
+SERVICE_WHERE = (WHERE_AGENDA, WHERE_PLAN)
+# Категории прайса (`clinic.json › service_cats`) по порядку файла: `{id, name}`.
+# Один уровень; у услуги — ключ `cat`, нет ключа или незнакомый id — «Fără categorie».
+SERVICE_CATS: list[dict] = []
 
 
 def doctor_state(d: dict) -> str:
@@ -144,6 +154,48 @@ def doctor_state(d: dict) -> str:
 def allowed_doc_items(svc_key: str) -> list[tuple[str, str]]:
     keys = SERVICES.get(svc_key, {}).get("docs") or list(ACTIVE_DOCTORS)
     return [(k, ACTIVE_DOCTORS[k]) for k in keys if k in ACTIVE_DOCTORS]
+
+
+def service_where(sid: str) -> str:
+    """Место услуги: `WHERE_AGENDA`, `WHERE_PLAN` или "" — оба места."""
+    return (SERVICES.get(sid) or {}).get("where", "")
+
+
+def in_agenda(sid: str) -> bool:
+    """Показывается ли услуга в агенде: окно записи, смена процедуры визита,
+    Google, услуги врача, Rechemări. Незнакомая услуга — нет."""
+    return sid in SERVICES and service_where(sid) in ("", WHERE_AGENDA)
+
+
+def in_plan(sid: str) -> bool:
+    """Показывается ли услуга в прайсе плана лечения. Незнакомая — нет."""
+    return sid in SERVICES and service_where(sid) in ("", WHERE_PLAN)
+
+
+def service_cat(sid: str) -> str:
+    """Категория услуги — id из `SERVICE_CATS` или "" («Fără categorie»)."""
+    return (SERVICES.get(sid) or {}).get("cat", "")
+
+
+def _read_service_cats(cfg: dict) -> None:
+    """Категории прайса в один вид; чтение терпеливое, как у шаблонов плана:
+    кривая запись пропускается с записью в лог, старт не падает."""
+    SERVICE_CATS.clear()
+    raw = cfg.get("service_cats")
+    if raw is None:
+        return
+    if not isinstance(raw, list):
+        log.warning("clinic config: service_cats не список — категорий нет")
+        return
+    seen: set[str] = set()
+    for c in raw:
+        cid = str(c.get("id") or "") if isinstance(c, dict) else ""
+        name = str(c.get("name") or "").strip() if isinstance(c, dict) else ""
+        if not cid or not name or cid in seen:
+            log.warning("clinic config: запись service_cats пропущена (%r)", c)
+            continue
+        seen.add(cid)
+        SERVICE_CATS.append({"id": cid, "name": name})
 
 
 def _price_avg(price) -> int:
@@ -319,6 +371,8 @@ def apply_config(cfg: dict) -> None:
     SERVICE_PRICE_BY_ID.clear()
     SERVICE_COLOR.clear()
     URGENT_LABELS.clear()
+    _read_service_cats(cfg)
+    cats = {c["id"] for c in SERVICE_CATS}
     for svc in cfg["services"]:
         entry = {"ro": svc["ro"], "ru": svc["ru"]}
         if svc.get("urgent"):
@@ -338,6 +392,10 @@ def apply_config(cfg: dict) -> None:
         # шаблон дневника визита (10.11) — читает core/visit_tpl
         if isinstance(svc.get("tpl"), dict) and svc["tpl"]:
             entry["tpl"] = dict(svc["tpl"])
+        if svc.get("where") in SERVICE_WHERE:
+            entry["where"] = svc["where"]
+        if svc.get("cat") in cats:
+            entry["cat"] = svc["cat"]
         SERVICES[svc["id"]] = entry
         avg = _price_avg(svc.get("price", ""))
         SERVICE_PRICE[svc["ro"]] = avg

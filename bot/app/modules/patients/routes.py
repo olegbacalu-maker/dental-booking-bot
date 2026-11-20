@@ -195,7 +195,7 @@ async def _free_slots(date_q: str, doctor: str, service: str) -> list[str]:
     Тот же eng.free_starts, что у бота: одна правда о занятости на всех.
     Чужой врач, чужая услуга, кривая дата, врач не по услуге — пусто. Врач не
     из журнала вошедшего (22.10, права врача) — тоже пусто."""
-    if doctor not in eng.DOCTORS or service not in eng.SERVICES:
+    if doctor not in eng.DOCTORS or not eng.in_agenda(service):
         return []
     if (scope := my_scope()) is not None and doctor != scope:
         return []
@@ -223,6 +223,8 @@ async def _appoint(pid: int, adate: str, atime: str, adoctor: str, aservice: str
     svc = eng.SERVICES.get(aservice)
     if not doctor or not svc or not eng.start_ok(dt):
         return "bad"
+    if not eng.in_agenda(aservice):
+        return "svc_not_agenda"   # строка только прайса плана — не тип записи
     if not eng.DOCTOR_META.get(adoctor, {}).get("active", True):
         return "bad_off"   # выключенному врачу не пишем
     if adoctor not in [k for k, _n in eng.allowed_doc_items(aservice)]:

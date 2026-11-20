@@ -83,6 +83,7 @@ import test_pimport  # noqa: E402
 import test_perio_api  # noqa: E402
 import test_pin  # noqa: E402
 import test_plan_tpl  # noqa: E402
+import test_tarife  # noqa: E402
 import test_plan_insert  # noqa: E402
 import test_plan_acord  # noqa: E402
 import test_privacy  # noqa: E402
@@ -467,6 +468,10 @@ SUITES = [
     ("Шаблоны плана: экран настроек — тронутое, отказы, id, прайс", test_plan_tpl.suite_settings),
     ("Шаблоны плана: ни один писатель clinic.json их не стирает", test_plan_tpl.suite_writers),
     ("Шаблоны плана: права — директор и регистратура, хаб одной плиткой", test_plan_tpl.suite_rights),
+    ("Прайс: профиль 2.20.0 читается и пересохраняется тождественно", test_tarife.suite_identity),
+    ("Прайс: два экрана одного списка, агенда не берёт строк только прайса", test_tarife.suite_views),
+    ("Прайс: импорт таблицы с предпросмотром, выгрузка обратно", test_tarife.suite_import),
+    ("Прайс: права — директор и регистратура, врач только смотрит", test_tarife.suite_rights),
     ("Шаблон в плане пациента: вставка — набор, цены, зубы, отказы", test_plan_insert.suite_insert),
     ("Шаблон в плане пациента: набор в базе — всё или ничего", test_plan_insert.suite_tx),
     ("Шаблон в плане пациента: «сохранить как шаблон» — ничего о пациенте", test_plan_insert.suite_save),

@@ -62,6 +62,8 @@ def services() -> list[dict]:
     вписанной в файл руками без даты, — сегодня клиники)."""
     out = []
     for sid, s in eng.SERVICES.items():
+        if not eng.in_agenda(sid):
+            continue    # срок отзыва — поле типа записи; строка только прайса его не несёт
         r = s.get("recall") or {}
         months = int(r.get("months") or 0)
         if months in MONTHS:

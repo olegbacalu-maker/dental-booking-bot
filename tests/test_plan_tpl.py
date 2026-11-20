@@ -300,6 +300,11 @@ def _writer_acts(c: Client) -> dict:
         S + "api.py:api_templates_save": [
             lambda: (c.post_json(CONSULT, {"templates": {"hygiene": {"diagnostic": "Depozite."}}}), "ok_set")],
         "app/core/plan_tpl.py:store": [lambda: (c.post_json(API, {}), "ok_set")],
+        "app/core/tarife.py:store": [
+            lambda: (c.post_json("/api/tarife", {"cats_new": [{"key": "a", "name": "Terapie"}],
+                                                 "new": [{"ro": "Restaurare", "price": "900", "cat": "a"}]}),
+                     "ok_tarife"),
+            lambda: (c.post_json("/api/tarife", {"services": {"hygiene": {"plan": False}}}), "ok_tarife")],
         S + "api.py:api_theme_save": [lambda: (c.post_json("/api/settings/theme", theme()), "ok_theme")],
         S + "routes.py:_logo_action": [
             lambda: (c.post_file("/api/settings/theme/logo", "file", "logo.png", PNG), "ok_logo"),

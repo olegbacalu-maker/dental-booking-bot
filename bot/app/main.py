@@ -59,6 +59,8 @@ from .modules.lab import pages as lab_pages
 from .modules.stock import api as stock_api
 from .modules.stock import routes as stock
 from .modules.stock import pages as stock_pages
+from .modules.tarife import api as tarife_api
+from .modules.tarife import pages as tarife_pages
 
 # ⛔ Без /docs, /redoc и /openapi.json (17.10): это карта всех адресов
 # программы, и отдавалась она без входа — в том числе любому в сети клиники.
@@ -91,6 +93,8 @@ app.include_router(lab_pages.router)      # «Laborator»: страницы-об
 app.include_router(stock.router)           # «Stoc»: лист «De cumpărat», Excel движений
 app.include_router(stock_api.router)       # JSON API склада материалов
 app.include_router(stock_pages.router)    # «Stoc»: страницы-оболочки склада и его настроек
+app.include_router(tarife_api.router)      # JSON API прайса «Servicii și tarife»
+app.include_router(tarife_pages.router)    # «Servicii și tarife»: выгрузка Excel
 app.include_router(qr.router)
 app.include_router(entry.router)          # вход, установка PIN, выход
 app.include_router(entry_api.router)      # JSON-дверь: смена человека без перезагрузки

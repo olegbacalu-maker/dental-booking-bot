@@ -114,6 +114,26 @@ _UQ_NAMES = (*_UQ_DOCTOR, "uq_patient_slot", "uq_doctor_slot")
 _DB_DAY = "app/db/schedule.py"       # day_appointments: выборка дня
 # Кто принимает длительность снаружи и обязан спросить `eng.dur_ok`.
 _DUR_ASKERS = ("app/modules/schedule/routes.py", "app/modules/settings/routes.py")
+# Кто показывает или принимает услугу АГЕНДЫ (окно записи журнала и фиши, смена
+# процедуры визита, Google, услуги врача, Rechemări) и обязан спросить место у
+# `eng.in_agenda` (или собрать список через `prices.options(eng.WHERE_AGENDA)`):
+# иначе строка «только прайс» плана уехала бы в окно записи типом визита.
+# ⭐ Список ВКЛЮЧАЕТ требование — поэтому каждое имя обязано найтись.
+_AGENDA_READERS = (
+    ("app/modules/schedule/day.py", "services_list"),
+    ("app/core/visits.py", "service_refusal"),
+    ("app/modules/schedule/routes.py", "_book_appt"),
+    ("app/modules/patients/routes.py", "_free_slots"),
+    ("app/modules/patients/routes.py", "_appoint"),
+    ("app/modules/patients/card.py", "appoint_view"),
+    ("app/modules/patients/api.py", "_agenda_options"),
+    ("app/modules/schedule/gcal.py", "_form"),
+    ("app/modules/schedule/gcal.py", "set_service"),
+    ("app/modules/doctors/routes.py", "_service_rows"),
+    ("app/modules/doctors/routes.py", "_orphan_services"),
+    ("app/modules/doctors/routes.py", "_set_services"),
+    ("app/core/recall.py", "services"),
+)
 _DB_TEXTS = "app/db/plans.py"        # тексты летописи пациента («Plan: …»)
 _DB_SAN = "app/db/registre.py"       # журналы san_*: единственное место UPDATE (замок IS NULL)
 _DB_LAB = "app/db/lab.py"            # заказы в лабораторию: история только дописывается
@@ -149,6 +169,7 @@ _CFG_WRITERS = {
     "app/modules/settings/api.py:api_backup_auto", "app/modules/settings/api.py:api_sms_save",
     "app/modules/settings/routes.py:_logo_action",
     "app/modules/doctors/routes.py:_save_cfg", "app/modules/doctors/routes.py:_save_doctor",
+    "app/core/tarife.py:store",
 }
 
 # Оракул ВХОДА В ЖУРНАЛ. Все шестеро привязаны к папке, В КОТОРОЙ ИДЁТ
@@ -1166,6 +1187,24 @@ def suite(res: Result) -> None:
            "длительность сверяют со своим списком: " + ", ".join(bad)
            + " — два списка разойдутся молча, и одна дверь примет длительность, "
              "которую отвергает другая")
+
+    bad = []
+    if eng_tree is None or not any(isinstance(n, ast.FunctionDef) and n.name == "in_agenda"
+                                   for n in eng_tree.body):
+        bad.append("в app/engine.py нет in_agenda — якорь правила пропал")
+    for rel, fname in _AGENDA_READERS:
+        tree = by_path.get(rel)
+        fn = next((n for n in _walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                   and n.name == fname), None) if tree is not None else None
+        if fn is None:
+            bad.append(f"{rel}:{fname} не нашлась — список устарел")
+            continue
+        names = {n.attr for n in _walk(fn) if isinstance(n, ast.Attribute)}
+        if not names & {"in_agenda", "WHERE_AGENDA"}:
+            bad.append(f"{rel}:{fname}")
+    res.ok("читатели агенды спрашивают in_agenda", not bad,
+           "услугу агенды берут без места: " + ", ".join(bad)
+           + " — строка только прайса плана уедет в окно записи типом визита")
 
     def _int_const(tree: ast.Module | None, name: str) -> int | None:
         for n in (tree.body if tree is not None else []):
