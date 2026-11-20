@@ -71,10 +71,10 @@ _T = {
         "print": _ic("print") + " Printează",
         "back": _ic("chev-l") + " Fișa pacientului",
         "other": "Русская версия",
-        "h1": "Plan de tratament — deviz",
+        "h1": "Plan de tratament — deviz estimativ",
         "patient": "Pacient", "file": "Fișa nr.", "date": "Data eliberării",
         "p_tooth": "Dinte", "p_proc": "Procedura", "p_price": "Preț (MDL)",
-        "p_total": "Total",
+        "p_total": "Total estimat", "unpriced": "de stabilit",
         "no_price": ("{n} poziții fără preț — prețul se stabilește de medic.",
                      "1 poziție fără preț — prețul se stabilește de medic."),
         "empty": "Planul este gol: nu conține poziții active.",
@@ -88,10 +88,10 @@ _T = {
         "print": _ic("print") + " Печать",
         "back": _ic("chev-l") + " Карта пациента",
         "other": "Versiunea română",
-        "h1": "План лечения — смета",
+        "h1": "План лечения — предварительная смета",
         "patient": "Пациент", "file": "Карта №", "date": "Дата выдачи",
         "p_tooth": "Зуб", "p_proc": "Процедура", "p_price": "Цена (MDL)",
-        "p_total": "Итого",
+        "p_total": "Итого, ориентировочно", "unpriced": "уточняется",
         "no_price": ("Позиций без цены: {n} — цену определяет врач.",
                      "1 позиция без цены — цену определяет врач."),
         "empty": "План пуст: в нём нет активных позиций.",
@@ -170,7 +170,7 @@ def render(p: dict, plan: list, lang: str = "ro", back: str = "",
         rows = "".join(
             f"<tr><td class='t'>{e(str(it['tooth'] or '—'))}</td>"
             f"<td>{e(it['procedure'])}</td>"
-            f"<td class='n'>{it['price_mdl'] or '—'}</td></tr>" for it in items)
+            f"<td class='n'>{it['price_mdl'] or t['unpriced']}</td></tr>" for it in items)
         unpriced = sum(1 for it in items if not it["price_mdl"])
         # без этой строки итог читался бы как полная цена плана
         note = ""

@@ -311,7 +311,12 @@ def suite_deviz(res: Result) -> None:
         r = c.get(f"/admin/patient/{pid}/deviz")
         res.check("лист открывается", r.status, 200)
         b = r.body
-        res.ok("заголовок сметы", "Plan de tratament — deviz" in b, "нет заголовка")
+        res.ok("заголовок сметы", "Plan de tratament — deviz estimativ" in b, "нет заголовка")
+        res.ok("итог назван оценкой", "<td colspan='2'>Total estimat</td>" in b,
+               "итог читается как окончательная цена")
+        res.ok("цена позиции без цены — «de stabilit», не прочерк",
+               "<td class='n'>de stabilit</td>" in b and "<td class='n'>—</td>" not in b,
+               "неоценённая позиция без слова")
         res.ok("колонки Dinte · Procedura · Preț",
                all(f"{h}</th>" in b for h in ("Dinte", "Procedura", "Preț (MDL)")),
                "нет шапки таблицы")
@@ -366,8 +371,9 @@ def suite_deviz(res: Result) -> None:
                any("Deviz generat" in t for t in _feed(c, pid)), "печать без следа")
 
         ru = c.get(f"/admin/patient/{pid}/deviz?lang=ru").body
-        res.ok("русская смета", "План лечения — смета" in ru and "Итого" in ru
-               and tot_row in ru, "нет русского листа")
+        res.ok("русская смета", "План лечения — предварительная смета" in ru
+               and "<td colspan='2'>Итого, ориентировочно</td>" in ru
+               and "<td class='n'>уточняется</td>" in ru and tot_row in ru, "нет русского листа")
         res.ok("русская: строка без цены и срок",
                "1 позиция без цены" in ru and "действительна 30 дней" in ru,
                "русский лист без оговорок итога")
