@@ -45,6 +45,7 @@ try:
 except ImportError:  # pragma: no cover
     sys.exit("нужен пакет websocket-client в СИСТЕМНОМ Python: pip install websocket-client")
 
+import harness  # noqa: E402
 from harness import Client, Server  # noqa: E402
 from test_odontogram_api import _seed  # noqa: E402
 
@@ -272,10 +273,32 @@ def login_cookie(origin):
     return m.group(1)
 
 
+_EDGE_LEASES: list = []     # брони портов отладки: держит процесс стенда, пока жив
+
+
+def debug_port(preferred: int) -> int:
+    """Порт отладки Edge для этого запуска: названный стендом, если он свободен на
+    всей машине, иначе любой свободный.
+
+    На занятом порту второй Edge отладку не поднимает, и стенд подключался к странице
+    соседнего запуска: два стенда вели одну страницу, оба краснели без причины в коде.
+    Бронь — та же, что у портов серверов прогона (`harness.free_port`): именованный
+    мьютекс на машину плюс исключительная проба, поэтому расходятся и два запуска
+    одного стенда из разных сессий, и запуск рядом с Edge, пережившим свой стенд."""
+    lease = harness._lease(preferred)
+    if lease is not None and harness._bind_free(preferred):
+        _EDGE_LEASES.append(lease)
+        return preferred
+    port = harness.free_port()
+    print(f"  порт отладки Edge {preferred} занят другим запуском — этот идёт на {port}", flush=True)
+    return port
+
+
 def start_edge(profile, port=DEBUG_PORT):
     edge = next((p for p in EDGE_CANDIDATES if os.path.exists(p)), None)
     if not edge:
         raise SystemExit("msedge.exe не найден")
+    port = debug_port(port)
     proc = subprocess.Popen([
         edge, "--headless=new", f"--remote-debugging-port={port}", "--remote-allow-origins=*",
         f"--user-data-dir={profile}", "--no-first-run", "--disable-gpu", "--hide-scrollbars",
