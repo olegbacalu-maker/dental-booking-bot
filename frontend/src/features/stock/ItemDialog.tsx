@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ask } from '../../components/confirm'
-import { hideDialog, showDialog } from '../../components/dialog'
+import { hideDialog, showDialog, useDialogLeave } from '../../components/dialog'
 import { Icon } from '../../components/Icon'
 import { asApiError } from '../../services/api'
 import { dmy, lei, num, parseQty, qtyText, stockApi, UNITS, type ItemCard, type Supplier, type Unit } from './stock'
@@ -22,6 +22,7 @@ const plain = (milli: number) => num(milli, 3).split('.').join('')
 export function ItemDialog({ id, onClose, onSaved }: { id: number; onClose: () => void; onSaved?: (id: number) => void }) {
   const { say, refresh, list } = useStockCtx()
   const ref = useRef<HTMLDialogElement>(null)
+  const { leave } = useDialogLeave(ref, onClose)
   const [card, setCard] = useState<ItemCard | null>(null)
   const [d, setD] = useState<Draft>(EMPTY)
   const [bad, setBad] = useState<{ field: string; text: string } | null>(null)
@@ -56,7 +57,7 @@ export function ItemDialog({ id, onClose, onSaved }: { id: number; onClose: () =
       await stockApi.dropItem(it.id)
       refresh()
       say(`„${it.name}” șters din catalog.`)
-      onClose()
+      leave()
     } catch (e) {
       setBad({ field: '', text: asApiError(e).text || 'Nu s-a șters.' })
     }
@@ -81,7 +82,7 @@ export function ItemDialog({ id, onClose, onSaved }: { id: number; onClose: () =
       refresh()
       say(id ? `Fișa „${d.name.trim()}” salvată.` : `„${d.name.trim()}” adăugat în catalog.`)
       onSaved?.(r.data.id)
-      onClose()
+      leave()
     } catch (e) {
       const err = asApiError(e)
       setBad({ field: err.field ?? '', text: err.text || 'Nu s-a salvat.' })
@@ -92,10 +93,10 @@ export function ItemDialog({ id, onClose, onSaved }: { id: number; onClose: () =
   const b = (f: string) => (bad && bad.field === f ? bad.text : undefined)
 
   return (
-    <dialog ref={ref} className="rg-dlg wide st-dlg" onClose={onClose} aria-label="Fișa materialului">
+    <dialog ref={ref} className="rg-dlg wide st-dlg" onClose={leave} aria-label="Fișa materialului">
       <div className="dlg-head">
         <span><Icon name="box" /> {id ? it?.name ?? '…' : 'Material nou'}</span>
-        <button type="button" className="rg-x" onClick={onClose} aria-label="Închide"><Icon name="close" /></button>
+        <button type="button" className="rg-x" onClick={leave} aria-label="Închide"><Icon name="close" /></button>
       </div>
       <div className="rg-dlg-b">
         {it && (
@@ -186,7 +187,7 @@ export function ItemDialog({ id, onClose, onSaved }: { id: number; onClose: () =
       </div>
       <div className="rg-dlg-f">
         {it && it.moves === 0 && <button type="button" className="dp-btn ghost" onClick={() => { void drop() }}><Icon name="trash" /> Șterge</button>}
-        <button type="button" className="dp-btn" onClick={onClose}>Renunță</button>
+        <button type="button" className="dp-btn" onClick={leave}>Renunță</button>
         <button type="button" className="dp-btn pri" disabled={busy || (id > 0 && !card)} onClick={() => { void save() }}><Icon name="save" /> {id ? 'Salvează' : 'Adaugă în catalog'}</button>
       </div>
     </dialog>

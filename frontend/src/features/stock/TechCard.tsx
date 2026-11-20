@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ask } from '../../components/confirm'
-import { hideDialog, showDialog } from '../../components/dialog'
+import { hideDialog, showDialog, useDialogLeave } from '../../components/dialog'
 import { Icon } from '../../components/Icon'
 import { asApiError } from '../../services/api'
 import { num, parseQty, stockApi, type TechCards, type TechLine } from './stock'
@@ -14,6 +14,7 @@ export function TechCardDialog({ svc, name, tc, onClose, onSaved }: {
   svc: string; name: string; tc: TechCards; onClose: () => void; onSaved: (lines: TechLine[], text: string) => void
 }) {
   const ref = useRef<HTMLDialogElement>(null)
+  const { leave } = useDialogLeave(ref, onClose)
   const start = tc.services.find((x) => x.id === svc)?.lines ?? []
   const [rows, setRows] = useState<Row[]>(() => (start.length ? start : []).map((l) => ({ item_id: l.item_id, qty: plain(l.qty_milli), optional: l.optional })))
   const [err, setErr] = useState('')
@@ -42,16 +43,16 @@ export function TechCardDialog({ svc, name, tc, onClose, onSaved }: {
       const res = await stockApi.saveTechcard(svc, lines)
       onSaved(lines.map((l) => ({ ...l, item: nameOf(l.item_id), unit: itemOf(l.item_id)?.unit ?? '', active: itemOf(l.item_id)?.active ?? true })),
         res.text || `Materialele pentru „${name}” salvate.`)
-      onClose()
+      leave()
     } catch (e) { setErr(asApiError(e).text || 'Nu s-a salvat.') } finally { setBusy(false) }
   }
 
   return (
     <div className="rg st st-host">
-    <dialog ref={ref} className="rg-dlg wide st-dlg" onClose={onClose} aria-label={`Materiale: ${name}`}>
+    <dialog ref={ref} className="rg-dlg wide st-dlg" onClose={leave} aria-label={`Materiale: ${name}`}>
       <div className="dlg-head">
         <span><Icon name="box" /> Materiale pentru „{name}”</span>
-        <button type="button" className="rg-x" onClick={onClose} aria-label="Închide"><Icon name="close" /></button>
+        <button type="button" className="rg-x" onClick={leave} aria-label="Închide"><Icon name="close" /></button>
       </div>
       <div className="rg-dlg-b">
         <p className="hint">Ce se consumă de obicei la o singură „{name}”. La „Finalizată” în planul pacientului lista apare gata
@@ -96,7 +97,7 @@ export function TechCardDialog({ svc, name, tc, onClose, onSaved }: {
         {err && <p className="st-err" role="alert">{err}</p>}
       </div>
       <div className="rg-dlg-f">
-        <button type="button" className="dp-btn" onClick={onClose}>{canEdit ? 'Renunță' : 'Închide'}</button>
+        <button type="button" className="dp-btn" onClick={leave}>{canEdit ? 'Renunță' : 'Închide'}</button>
         {canEdit && <button type="button" className="dp-btn pri" disabled={busy} onClick={() => { void save() }}><Icon name="save" /> Salvează</button>}
       </div>
     </dialog>
@@ -107,6 +108,7 @@ export function TechCardDialog({ svc, name, tc, onClose, onSaved }: {
 /** «Înlocuiește materialul în toate serviciile»: другой бренд или размер — одной командой во всех техкартах. */
 export function ReplaceDialog({ tc, onClose, onDone }: { tc: TechCards; onClose: () => void; onDone: (text: string) => void }) {
   const ref = useRef<HTMLDialogElement>(null)
+  const { leave } = useDialogLeave(ref, onClose)
   const [from, setFrom] = useState(0)
   const [to, setTo] = useState(0)
   const [err, setErr] = useState('')
@@ -129,16 +131,16 @@ export function ReplaceDialog({ tc, onClose, onDone }: { tc: TechCards; onClose:
     try {
       const r = await stockApi.replaceInCards(from, to)
       onDone(r.text || `Înlocuit în ${r.data.services} servicii.`)
-      onClose()
+      leave()
     } catch (e) { setErr(asApiError(e).text || 'Nu s-a înlocuit.') } finally { setBusy(false) }
   }
 
   return (
     <div className="rg st st-host">
-    <dialog ref={ref} className="rg-dlg st-dlg" onClose={onClose} aria-label="Înlocuiește materialul în toate serviciile">
+    <dialog ref={ref} className="rg-dlg st-dlg" onClose={leave} aria-label="Înlocuiește materialul în toate serviciile">
       <div className="dlg-head">
         <span><Icon name="refresh" /> Înlocuiește materialul în toate serviciile</span>
-        <button type="button" className="rg-x" onClick={onClose} aria-label="Închide"><Icon name="close" /></button>
+        <button type="button" className="rg-x" onClick={leave} aria-label="Închide"><Icon name="close" /></button>
       </div>
       <div className="rg-dlg-b">
         <p className="hint">Când clinica trece la alt brand sau alt ambalaj — de ex. alt anestezic — se schimbă o dată în toate serviciile.</p>
@@ -158,7 +160,7 @@ export function ReplaceDialog({ tc, onClose, onDone }: { tc: TechCards; onClose:
         {err && <p className="st-err" role="alert">{err}</p>}
       </div>
       <div className="rg-dlg-f">
-        <button type="button" className="dp-btn" onClick={onClose}>Renunță</button>
+        <button type="button" className="dp-btn" onClick={leave}>Renunță</button>
         <button type="button" className="dp-btn pri" disabled={busy || !from || !to} onClick={() => { void run() }}><Icon name="refresh" /> Înlocuiește</button>
       </div>
     </dialog>

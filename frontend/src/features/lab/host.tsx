@@ -68,7 +68,7 @@ export function useLabHost(onChanged: () => void, say: Say, navigate: (url: stri
       {open && (
         <OrderDialog key={`${open.order?.order.id ?? 'new'}:${open.k}`} form={open.form} data={open.order} planItem={open.planItem}
           busy={busy} onClose={() => setOpen(null)}
-          onCreated={(id, text, andPrint) => { say(text, 'ok'); onChanged(); setOpen(null); if (andPrint) print(id) }}
+          onCreated={(id, text, andPrint) => { say(text, 'ok'); onChanged(); if (andPrint) print(id) }}
           onSaved={(text) => { say(text, 'ok'); onChanged() }}
           onPrint={print} onAct={act} />
       )}

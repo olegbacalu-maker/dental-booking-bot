@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AppLink } from '../../components/AppLink'
-import { hideDialog, showDialog } from '../../components/dialog'
+import { showDialog, useDialogLeave } from '../../components/dialog'
 import { Icon } from '../../components/Icon'
 import { asApiError } from '../../services/api'
 import {
@@ -62,6 +62,7 @@ export function OrderDialog({ form, data, planItem, busy, onClose, onCreated, on
   onAct: (o: OrderRow, a: Act) => void
 }) {
   const ref = useRef<HTMLDialogElement>(null)
+  const { leave } = useDialogLeave(ref, onClose)
   const can = data?.can ?? form.can
   const [d, setD] = useState<Draft>(() => (data ? of(data) : fresh(form, planItem)))
   const [field, setField] = useState('')
@@ -117,10 +118,10 @@ export function OrderDialog({ form, data, planItem, busy, onClose, onCreated, on
         const r = await labApi.save(order.id, body)
         onSaved(r.text)
         if (print) onPrint(order.id)
-        else hideDialog(ref.current)
+        else leave()
       } else {
         const r = await labApi.create({ pid: form.patient!.pid, ...body })
-        hideDialog(ref.current)
+        leave()
         onCreated(r.data.id, r.text, print)
       }
     } catch (e) {
@@ -138,10 +139,10 @@ export function OrderDialog({ form, data, planItem, busy, onClose, onCreated, on
   const who = order ? order.patient : form.patient?.name ?? ''
   const off = closed || saving || busy
   return (
-    <dialog ref={ref} className="rg-dlg wide lb-dlg" onClose={onClose} aria-label="Comandă la laborator">
+    <dialog ref={ref} className="rg-dlg wide lb-dlg" onClose={leave} aria-label="Comandă la laborator">
       <div className="dlg-head">
         <span><Icon name="box" /> {order ? `Comanda nr. ${order.nr}` : 'Comandă nouă la laborator'}</span>
-        <button type="button" className="rg-x" onClick={() => hideDialog(ref.current)} aria-label="Închide"><Icon name="close" /></button>
+        <button type="button" className="rg-x" onClick={leave} aria-label="Închide"><Icon name="close" /></button>
       </div>
       <div className="rg-dlg-b">
         <p className="lb-who">
@@ -305,7 +306,7 @@ export function OrderDialog({ form, data, planItem, busy, onClose, onCreated, on
               <Icon name="print" /> {order ? 'Salvează și tipărește' : 'Trimite și tipărește fișa'}</button>
           </>
         )}
-        {closed && <button type="button" className="dp-btn pri" onClick={() => hideDialog(ref.current)}>Închide</button>}
+        {closed && <button type="button" className="dp-btn pri" onClick={leave}>Închide</button>}
       </div>
     </dialog>
   )

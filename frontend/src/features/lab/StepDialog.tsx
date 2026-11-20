@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { hideDialog, showDialog } from '../../components/dialog'
+import { showDialog, useDialogLeave } from '../../components/dialog'
 import { Icon } from '../../components/Icon'
 import { labApi, type OrderRow, type Words } from './lab'
 
@@ -22,6 +22,7 @@ export function StepDialog({ o, kind, words, onClose, onDone }: {
   onDone: (b: { due_on: string; cause: string; payer: string; note: string }) => Promise<string | null>
 }) {
   const ref = useRef<HTMLDialogElement>(null)
+  const { leave } = useDialogLeave(ref, onClose)
   const [w, setW] = useState<Words | null>(words)
   const [due, setDue] = useState('')
   const [cause, setCause] = useState('')
@@ -48,7 +49,7 @@ export function StepDialog({ o, kind, words, onClose, onDone }: {
     const fail = await onDone({ due_on: due, cause, payer, note: note.trim() })
     setBusy(false)
     if (fail) setErr(fail)
-    else hideDialog(ref.current)
+    else leave()
   }
 
   const chips = (dict: Record<string, string> | undefined, value: string, set: (v: string) => void) => (
@@ -60,9 +61,9 @@ export function StepDialog({ o, kind, words, onClose, onDone }: {
   )
 
   return (
-    <dialog ref={ref} className="rg-dlg lb-dlg" onClose={onClose} aria-label={title}>
+    <dialog ref={ref} className="rg-dlg lb-dlg" onClose={leave} aria-label={title}>
       <div className="dlg-head"><span><Icon name={icon} /> {title}</span>
-        <button type="button" className="rg-x" onClick={() => hideDialog(ref.current)} aria-label="Închide"><Icon name="close" /></button></div>
+        <button type="button" className="rg-x" onClick={leave} aria-label="Închide"><Icon name="close" /></button></div>
       <div className="rg-dlg-b">
         <p className="lb-who"><b>{o.patient}</b><small> · nr. {o.nr} · {o.work}{kind === 'etapa' ? ` · etapa ${o.stage + 1}` : ''}</small></p>
         {kind === 'etapa' && <p className="hint dp-m0">Proba a trecut, lucrarea pleacă la următoarea etapă (de ex. după carcasă — ceramica).</p>}
@@ -88,7 +89,7 @@ export function StepDialog({ o, kind, words, onClose, onDone }: {
         {err && <p className="lb-err-box" role="alert">{err}</p>}
       </div>
       <div className="rg-dlg-f">
-        <button type="button" className="dp-btn" onClick={() => hideDialog(ref.current)}>Renunță</button>
+        <button type="button" className="dp-btn" onClick={leave}>Renunță</button>
         <button type="button" className={`dp-btn pri${kind === 'cancel' ? ' lb-danger' : ''}`} disabled={busy} onClick={() => { void send() }}>
           <Icon name={icon} /> {go}</button>
       </div>

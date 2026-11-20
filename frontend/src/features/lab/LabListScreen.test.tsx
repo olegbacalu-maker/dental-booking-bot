@@ -2,6 +2,7 @@ import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../../types/api'
 import { CAN_DOC, form, list, ok, order, row } from '../../test/lab'
+import { allowMotion, endTransition } from '../../test/motion'
 import { openScreen } from '../../test/openScreen'
 import { LabListScreen, loadLabList } from './LabListScreen'
 
@@ -20,7 +21,7 @@ function open(url = '/admin/lab') {
   return openScreen('/admin/lab', url, <LabListScreen navigate={nav} />, loadLabList, nav).router
 }
 
-afterEach(() => { cleanup(); get.mockReset(); post.mockReset(); nav.mockReset(); vi.restoreAllMocks() })
+afterEach(() => { cleanup(); get.mockReset(); post.mockReset(); nav.mockReset(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 describe('LabListScreen', () => {
   it('строки: опоздание красным, визит без работы, цена с правом на деньги, пустые фильтры спрятаны', async () => {
@@ -117,6 +118,19 @@ describe('LabListScreen', () => {
     fireEvent.click(within(dlg).getByRole('button', { name: /Trimite la refacere/ }))
     await waitFor(() => expect(post).toHaveBeenCalledWith('/lab/order/1/refacere',
       { cause: 'ocluzie', payer: 'laborator', due_on: '', note: 'contact înalt pe 26' }))
+  })
+
+  it('⛔ окно шага с движением гаснет: «Renunță» закрывает, узел стоит до конца перехода', async () => {
+    allowMotion()
+    const steps = [{ act: 'finalizat' as const, label: 'Finalizează', main: true }, { act: 'refacere' as const, label: 'Refacere', main: false }]
+    get.mockImplementation((url: string) => Promise.resolve(url.startsWith('/lab/form') ? ok(form()) : ok(list([row({ status: 'proba', status_label: 'La probă', late: false, steps })]))))
+    open()
+    fireEvent.click(within((await screen.findByText('Ion Popescu')).closest('tr')!).getByRole('button', { name: /Refacere/ }))
+    const dlg = await screen.findByRole('dialog', { name: /Refacere/ }) as HTMLDialogElement
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Renunță' }))
+    expect([dlg.open, dlg.isConnected]).toEqual([false, true])
+    endTransition(dlg)
+    expect(dlg.isConnected).toBe(false)
   })
 
   it('отмена заказа спрашивает причину', async () => {

@@ -3,7 +3,7 @@ import { ask } from '../../../../components/confirm'
 import { Icon } from '../../../../components/Icon'
 import type { CardActions } from '../actions'
 import { patientCard, type Form, type PatientCard, type SignBody } from '../card'
-import { hideDialog, showDialog } from '../dialog'
+import { showDialog, useDialogLeave } from '../dialog'
 import { signPreviewHref } from '../print'
 import { SignPad, type SignPadHandle } from './SignPad'
 
@@ -72,12 +72,9 @@ export function SignDialog({ card, form, a, onClose }: Props) {
   const name = repName.trim()
   const ready = !pEmpty && (!needDoctor || !dEmpty) && (signer === 'pacient' || name.length >= 2)
 
-  useEffect(() => { showDialog(dlg.current) }, [])
+  const { leave: close } = useDialogLeave(dlg, onClose)
 
-  function close() {
-    hideDialog(dlg.current)
-    onClose()
-  }
+  useEffect(() => { showDialog(dlg.current) }, [])
 
   /* нарисованное не теряется молча: крестик, «Renunță» и Esc спрашивают */
   async function leave() {

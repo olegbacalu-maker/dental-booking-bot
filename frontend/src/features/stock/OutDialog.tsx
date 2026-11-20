@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { hideDialog, showDialog } from '../../components/dialog'
+import { hideDialog, showDialog, useDialogLeave } from '../../components/dialog'
 import { Icon } from '../../components/Icon'
 import { api, asApiError } from '../../services/api'
 import { dmy, num, packWord, parseQty, qtyText, REASONS, stockApi, type Item, type Reason } from './stock'
@@ -12,6 +12,7 @@ interface Pat { id: number; name: string }
 export function OutDialog({ item, onClose }: { item: number; onClose: () => void }) {
   const { say, refresh, list } = useStockCtx()
   const ref = useRef<HTMLDialogElement>(null)
+  const { leave } = useDialogLeave(ref, onClose)
   const live = (list?.items ?? []).filter((x) => x.active)
   const [picked, setPicked] = useState<Item | null>(() => live.find((x) => x.id === item) ?? null)
   const it = picked
@@ -62,7 +63,7 @@ export function OutDialog({ item, onClose }: { item: number; onClose: () => void
       refresh()
       const neg = r.data.neg
       say(`${it.name}: -${qtyText(milli, it.unit)}${neg ? ' — stocul a intrat pe minus' : ''}.`, neg ? 'warn' : 'ok')
-      onClose()
+      leave()
     } catch (e) {
       const err = asApiError(e)
       setBad({ field: err.field ?? '', text: err.text || 'Nu s-a scăzut.' })
@@ -73,10 +74,10 @@ export function OutDialog({ item, onClose }: { item: number; onClose: () => void
   const b = (f: string) => (bad && bad.field === f ? bad.text : undefined)
 
   return (
-    <dialog ref={ref} className="rg-dlg st-dlg" onClose={onClose} aria-label="Scoate din stoc">
+    <dialog ref={ref} className="rg-dlg st-dlg" onClose={leave} aria-label="Scoate din stoc">
       <div className="dlg-head">
         <span><Icon name="minus" /> Scoate din stoc</span>
-        <button type="button" className="rg-x" onClick={onClose} aria-label="Închide"><Icon name="close" /></button>
+        <button type="button" className="rg-x" onClick={leave} aria-label="Închide"><Icon name="close" /></button>
       </div>
       <div className="rg-dlg-b">
         {bad && !['item_id', 'qty_milli', 'reason', 'pid', 'note'].includes(bad.field) && <p className="st-err" role="alert">{bad.text}</p>}
@@ -145,7 +146,7 @@ export function OutDialog({ item, onClose }: { item: number; onClose: () => void
         )}
       </div>
       <div className="rg-dlg-f">
-        <button type="button" className="dp-btn" onClick={onClose}>Renunță</button>
+        <button type="button" className="dp-btn" onClick={leave}>Renunță</button>
         <button type="button" className="dp-btn pri" disabled={busy} onClick={() => { void save() }}><Icon name="minus" /> Scoate din stoc</button>
       </div>
     </dialog>

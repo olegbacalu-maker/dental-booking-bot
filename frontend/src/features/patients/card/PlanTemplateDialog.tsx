@@ -5,7 +5,7 @@ import { Icon } from '../../../components/Icon'
 import { roCount } from '../../../utils/plural'
 import type { ApiError } from '../../../types/api'
 import { patientCard, type PlanFromTpl, type PlanTplCatalog, type PlanTplRow } from './card'
-import { hideDialog, showDialog } from './dialog'
+import { showDialog, useDialogLeave } from './dialog'
 import { PriceNote, type ServiceOption } from './planService'
 
 /* «Adaugă din șablon»: набор процедур клиники встаёт в план пациента одним
@@ -109,6 +109,7 @@ export function PlanTemplateDialog({
   const [doctorPick, setDoctorPick] = useState<string | null>(null)
   const [edit, setEdit] = useState<{ tid: string; rows: Record<number, RowEdit> }>({ tid: '', rows: {} })
   const [err, setErr] = useState('')
+  const { leave: close, leaving } = useDialogLeave(dlg, onClose)
 
   useEffect(() => { showDialog(dlg.current) }, [])
   useEffect(() => {
@@ -136,7 +137,8 @@ export function PlanTemplateDialog({
   })
   const picked = view.filter((v) => v.on)
   const missing = picked.filter((v) => v.r.tooth && !v.tooth).length
-  const touched = Object.keys(rows).length > 0
+  /* закрытое окно доигрывает переход: несохранённого в нём уже нет */
+  const touched = Object.keys(rows).length > 0 && !leaving
   useEffect(() => { onTouched?.(touched) }, [onTouched, touched])
   useEffect(() => () => onTouched?.(false), [onTouched])
 
@@ -148,8 +150,7 @@ export function PlanTemplateDialog({
 
   async function leave() {
     if (touched && !await ask({ text: T.askLeave, ok: T.askOk, cancel: T.askKeep })) return
-    hideDialog(dlg.current)
-    onClose()
+    close()
   }
 
   async function onSubmit(e: FormEvent) {
@@ -170,8 +171,7 @@ export function PlanTemplateDialog({
       }
       return
     }
-    hideDialog(dlg.current)
-    onClose()
+    close()
   }
 
   const teeth = (
@@ -187,6 +187,8 @@ export function PlanTemplateDialog({
   return (
     <dialog ref={dlg} className="dp-plan-tpl" aria-label={T.title}
       onCancel={(e) => { e.preventDefault(); void leave() }}>
+      {/* высоту держит обёртка: окно одного размера при загрузке, с любым шаблоном и с любой строкой подвала */}
+      <div className="tp-win">
       <div className="dlg-head">
         <span><Icon name="clipboard" /> {T.title}</span>
         <button type="button" onClick={() => { void leave() }} aria-label={T.close}><Icon name="close" /></button>
@@ -275,12 +277,16 @@ export function PlanTemplateDialog({
                   </tbody>
                 </table>
               )}
-              {missing > 0 && <p className="tp-warn">{roCount(missing, T.missing)}</p>}
-              {err && <p className="tp-err" role="alert"><Icon name="excl" /> {err}</p>}
             </div>
           </div>
           <div className="tp-foot">
-            <span className="tp-say">{T.say}</span>
+            <div className="tp-notes">
+              <p className="tp-say">{T.say}</p>
+              {/* вторая строка занята всегда: предупреждение о зубе и отказ встают на готовое место, окно от них не растёт */}
+              {err
+                ? <p className="tp-err" role="alert"><Icon name="excl" /> {err}</p>
+                : <p className="tp-warn" aria-hidden={missing === 0 || undefined}>{missing > 0 ? roCount(missing, T.missing) : ' '}</p>}
+            </div>
             <button type="button" className="dp-btn" onClick={() => { void leave() }}>{T.cancel}</button>
             <button className="dp-btn pri" disabled={busy || picked.length === 0}>
               <Icon name="plus" /> {picked.length ? roCount(picked.length, T.go) : T.goNone}
@@ -288,6 +294,7 @@ export function PlanTemplateDialog({
           </div>
         </form>
       )}
+      </div>
     </dialog>
   )
 }

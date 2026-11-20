@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../../services/api'
+import { allowMotion, endTransition } from '../../../test/motion'
 import { openScreen } from '../../../test/openScreen'
 import { ApiError } from '../../../types/api'
 import type { PerioModel } from '../../clinical/perio'
@@ -521,6 +522,29 @@ describe('PatientCardScreen', () => {
         { tooth: '', procedure: 'Igienizare', doctor: 'Dr. Activ Doi', due_date: '2026-12-01', service_id: 'hygiene' }))
     })
 
+    it('⛔ с движением окно правки гаснет: «Renunță» и удачная запись держат узел до конца перехода', async () => {
+      allowMotion()
+      try {
+        await planned()
+        await edit('Extracție 48')
+        fireEvent.click(within(dlg() as HTMLElement).getByRole('button', { name: 'Renunță', hidden: true }))
+        await waitFor(() => expect(dlg()?.hasAttribute('open')).toBe(false))
+        expect(dlg()).not.toBeNull()
+        endTransition(dlg() as HTMLElement)
+        expect(dlg()).toBeNull()
+        post.mockResolvedValue(ok(PRICED, 'ok_pedit', 'Procedura din plan a fost modificată'))
+        await edit('Extracție 48')
+        fireEvent.change(fld('Preț, MDL'), { target: { value: '800' } })
+        fireEvent.click(save())
+        await waitFor(() => expect(dlg()?.hasAttribute('open')).toBe(false))
+        expect(dlg()).not.toBeNull()
+        endTransition(dlg() as HTMLElement)
+        expect(dlg()).toBeNull()
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
     it('цена позиции равна прайсу — смена услуги ведёт её за собой; диапазон стирает и просит цену', async () => {
       const card: PatientCard = {
         ...PRICED,
@@ -537,6 +561,12 @@ describe('PatientCardScreen', () => {
       fireEvent.change(fld('Procedură'), { target: { value: 'Tratament de canal' } })
       expect(fld('Preț, MDL').value).toBe('')
       expect(note()).toBe('în listă: 1200–1800 MDL, scrieți prețul')
+      /* ⛔ место под подсказку прайса занято и без неё: окно по центру экрана высоту при наборе не меняет */
+      const slot = () => (dlg() as HTMLElement).querySelector('.pe-note')
+      expect(slot()?.contains((dlg() as HTMLElement).querySelector('.dp-price-note'))).toBe(true)
+      fireEvent.change(fld('Procedură'), { target: { value: 'Ceva în afara listei' } })
+      expect([note(), slot() !== null]).toEqual([undefined, true])
+      fireEvent.change(fld('Procedură'), { target: { value: 'Tratament de canal' } })
       fireEvent.click(save())
       await waitFor(() => expect(post).toHaveBeenLastCalledWith('/patients/5/plan/3/edit',
         { procedure: 'Tratament de canal', price: '', service_id: 'canal' }))

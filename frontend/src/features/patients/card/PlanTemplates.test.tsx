@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { asApiError, type ApiResult } from '../../../services/api'
+import { allowMotion, endTransition } from '../../../test/motion'
 import { ApiError } from '../../../types/api'
 import type { CardActions, FormKey } from './actions'
 import type { PatientCard, PlanItem, PlanTplCatalog } from './card'
@@ -117,6 +118,7 @@ afterEach(() => {
   get.mockReset()
   post.mockReset()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('план: кто видит шаблоны', () => {
@@ -341,5 +343,78 @@ describe('план: «Salvează ca șablon»', () => {
     await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
     expect(name().value).toBe('Ceva')
     expect(post).not.toHaveBeenCalled()
+  })
+})
+
+/* Окна стоят по центру экрана и смонтированы условно: строка, меняющая высоту,
+   двигает верх и низ окна, а снятие узла в кадре закрытия обрывает переход. */
+describe('окна шаблонов: без прыжка и без рывка', () => {
+  const line = () => dlg()?.querySelector('.tp-foot .tp-notes > p:last-child')
+
+  it('⛔ предупреждение о зубе и отказ встают в подвал на всегда занятую строку — в потоке окна их нет', async () => {
+    await openInsert()
+    expect([line()?.className, line()?.textContent]).toEqual(['tp-warn', 'Dinte neales: 3 proceduri intră în plan fără dinte.'])
+    fireEvent.change(inDlg().getByLabelText('Dinte (pentru tot șablonul)'), { target: { value: '36' } })
+    /* зуб выбран: слов нет, строка на месте и молчит для экранного диктора */
+    expect([line()?.className, line()?.textContent, line()?.getAttribute('aria-hidden')]).toEqual(['tp-warn', '\u00a0', 'true'])
+    fireEvent.change(inDlg().getByLabelText('Dinte (pentru tot șablonul)'), { target: { value: '' } })
+    expect([line()?.textContent, line()?.getAttribute('aria-hidden')]).toEqual(['Dinte neales: 3 proceduri intră în plan fără dinte.', null])
+    /* шаблон без строк «с зубом» — та же занятая строка */
+    fireEvent.click(inDlg().getByRole('button', { name: /Igienizare completă/ }))
+    expect([line()?.className, line()?.textContent]).toEqual(['tp-warn', '\u00a0'])
+    post.mockRejectedValueOnce(new ApiError({ kind: 'validation', code: 'bad_card', text: 'Date invalide', field: 'price' }, 'v'))
+    fireEvent.click(go())
+    expect((await inDlg().findByRole('alert')).textContent).toContain('Date invalide')
+    expect(line()?.className).toBe('tp-err')
+    expect(dlg()?.querySelectorAll('.tp-foot .tp-notes > p').length).toBe(2)
+    expect(dlg()?.querySelector('.tp-main .tp-warn, .tp-main .tp-err')).toBeNull()
+    /* пояснение о шаблоне остаётся при любой второй строке */
+    expect(inDlg().getByText('Șablonul nu se schimbă — modificările rămân doar în planul acestui pacient.')).toBeTruthy()
+  })
+
+  it('⛔ «Adaugă din șablon» с движением: «Renunță» закрывает окно, но узел стоит до конца перехода', async () => {
+    allowMotion()
+    const { form } = await openInsert()
+    fireEvent.change(await waitFor(() => price('Bont protetic')), { target: { value: '2800' } })
+    await waitFor(() => expect(form).toHaveBeenLastCalledWith('planTpl', true))
+    fireEvent.click(inDlg().getByRole('button', { name: 'Renunță' }))
+    await waitFor(() => expect(dlg()?.hasAttribute('open')).toBe(false))
+    expect(dlg()).not.toBeNull()
+    /* гаснущее окно несохранённым уже не считается: уход с фиши в эту ступень не спрашивает */
+    await waitFor(() => expect(form).toHaveBeenLastCalledWith('planTpl', false))
+    endTransition(dlg() as HTMLElement)
+    expect(dlg()).toBeNull()
+  })
+
+  it('⛔ «Adaugă din șablon» с движением: после удачной вставки окно гаснет, а не пропадает', async () => {
+    allowMotion()
+    await openInsert()
+    await inDlg().findByText('Bont protetic')
+    post.mockResolvedValue(ok(card(), 'ok_ptpl_ins', 'Procedurile din șablon au fost adăugate în plan'))
+    fireEvent.click(go())
+    await waitFor(() => expect(dlg()?.hasAttribute('open')).toBe(false))
+    expect(dlg()).not.toBeNull()
+    endTransition(dlg() as HTMLElement)
+    expect(dlg()).toBeNull()
+  })
+
+  it('⛔ «Salvează ca șablon» с движением: и «Renunță», и удачное сохранение доигрывают переход', async () => {
+    allowMotion()
+    await openSave()
+    fireEvent.click(inDlg().getByRole('button', { name: 'Renunță' }))
+    await waitFor(() => expect(dlg()?.hasAttribute('open')).toBe(false))
+    expect(dlg()).not.toBeNull()
+    endTransition(dlg() as HTMLElement)
+    expect(dlg()).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Acțiuni pentru tot planul' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Salvează ca șablon' }))
+    await waitFor(() => expect(dlg()?.hasAttribute('open')).toBe(true))
+    fireEvent.change(inDlg().getByLabelText('Numele șablonului'), { target: { value: 'Implant' } })
+    post.mockResolvedValue(ok(card(), 'ok_ptpl_new', 'Șablonul a fost salvat'))
+    fireEvent.click(inDlg().getByRole('button', { name: 'Salvează șablonul' }))
+    await waitFor(() => expect(dlg()?.hasAttribute('open')).toBe(false))
+    expect(dlg()).not.toBeNull()
+    endTransition(dlg() as HTMLElement)
+    expect(dlg()).toBeNull()
   })
 })

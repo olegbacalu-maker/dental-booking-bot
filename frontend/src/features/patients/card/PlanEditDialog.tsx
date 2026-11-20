@@ -3,7 +3,7 @@ import { ask } from '../../../components/confirm'
 import { Icon } from '../../../components/Icon'
 import { useFormTouched, type CardActions } from './actions'
 import { patientCard, type PatientCard, type PlanEdit, type PlanItem } from './card'
-import { hideDialog, showDialog } from './dialog'
+import { showDialog, useDialogLeave } from './dialog'
 import { PriceNote, priceAfterProcedure, priceIsListed, serviceIdFor, ServiceList } from './planService'
 
 /* «Editează» позиции плана: зуб, процедура, врач, цена, срок — пока позиция
@@ -59,7 +59,9 @@ export function PlanEditDialog({ card, a, it, onClose }: Props) {
   const set = (patch: Partial<Draft>) => setForm((f) => ({ ...f, ...patch }))
   const keys = (Object.keys(base) as (keyof Draft)[])
   const touched = keys.filter((k) => (k === 'procedure' ? form[k].trim() : form[k]) !== base[k])
-  useFormTouched(a, 'planEdit', touched.length > 0)
+  const { leave: close, leaving } = useDialogLeave(dlg, onClose)
+  /* закрытое окно доигрывает переход: несохранённого в нём уже нет */
+  useFormTouched(a, 'planEdit', touched.length > 0 && !leaving)
 
   useEffect(() => { showDialog(dlg.current) }, [])
 
@@ -71,8 +73,7 @@ export function PlanEditDialog({ card, a, it, onClose }: Props) {
 
   async function leave() {
     if (touched.length > 0 && !await ask({ text: T.askLeave, ok: T.askOk, cancel: T.askKeep })) return
-    hideDialog(dlg.current)
-    onClose()
+    close()
   }
 
   async function onSubmit(e: FormEvent) {
@@ -88,8 +89,7 @@ export function PlanEditDialog({ card, a, it, onClose }: Props) {
       setErr(failed.text)
       return
     }
-    hideDialog(dlg.current)
-    onClose()
+    close()
   }
 
   const doctors = card.options.doctors
@@ -138,7 +138,11 @@ export function PlanEditDialog({ card, a, it, onClose }: Props) {
                    aria-invalid={bad === 'due_date' || undefined} />
           </label>
         </div>
-        <PriceNote id="dp-plan-edit-price" services={services} procedure={form.procedure} price={form.price} />
+        {/* строка под подсказку прайса занята всегда: подсказка приходит и уходит с каждой буквой процедуры,
+            а окно стоит по центру — без места под неё оно меняло бы высоту при наборе */}
+        <div className="pe-note">
+          <PriceNote id="dp-plan-edit-price" services={services} procedure={form.procedure} price={form.price} />
+        </div>
         {err
           ? <p className="pe-err" role="alert"><Icon name="excl" /> {err}</p>
           : <p className="hint dp-m0">{T.hint}</p>}

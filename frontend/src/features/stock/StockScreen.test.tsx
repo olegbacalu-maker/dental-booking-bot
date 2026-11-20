@@ -3,6 +3,7 @@ import { createMemoryRouter } from 'react-router'
 import { RouterProvider } from 'react-router/dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buy, buyRow, CAN_DESK, dash, imCheck, imHome, imRow, item, list, move, ok } from '../../test/stock'
+import { allowMotion, endTransition } from '../../test/motion'
 import { openScreen } from '../../test/openScreen'
 import { DashStock } from './DashStock'
 import { loadStock, StockScreen } from './StockScreen'
@@ -25,7 +26,7 @@ function open(url = '/admin/stoc', routes: Record<string, unknown> = {}) {
   return openScreen('/admin/stoc', url, <StockScreen navigate={nav} />, loadStock).router
 }
 
-afterEach(() => { cleanup(); get.mockReset(); post.mockReset(); postRaw.mockReset(); nav.mockReset(); vi.restoreAllMocks(); localStorage.clear() })
+afterEach(() => { cleanup(); get.mockReset(); post.mockReset(); postRaw.mockReset(); nav.mockReset(); vi.restoreAllMocks(); vi.unstubAllGlobals(); localStorage.clear() })
 
 describe('StockScreen', () => {
   it('остатки: минус красным, «comandat» вместо «De comandat», категории в меню, стоимость у директора', async () => {
@@ -106,6 +107,18 @@ describe('StockScreen', () => {
     fireEvent.click(within(dlg).getByRole('button', { name: /Scoate din stoc/ }))
     await waitFor(() => expect(post).toHaveBeenCalledWith('/stock/out',
       { item_id: 9, qty_milli: 1000, reason: 'pacient', note: '', pid: 4, lot: 'TS-2405' }))
+  })
+
+  it('⛔ окно склада с движением гаснет: «Renunță» закрывает, узел стоит до конца перехода', async () => {
+    allowMotion()
+    open()
+    const tr = (await screen.findByText('Septanest 1:100 000')).closest('tr')!
+    fireEvent.click(within(tr).getByRole('button', { name: /Scade/ }))
+    const dlg = await screen.findByRole('dialog', { name: 'Scoate din stoc' }) as HTMLDialogElement
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Renunță' }))
+    expect([dlg.open, dlg.isConnected]).toEqual([false, true])
+    endTransition(dlg)
+    expect(dlg.isConnected).toBe(false)
   })
 
   it('«De cumpărat»: отметка серая, истёкшая — «n-a venit»; «Comandat» и «Anulează» — команды сервера', async () => {

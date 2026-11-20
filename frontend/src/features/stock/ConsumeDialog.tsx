@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ask as askBox } from '../../components/confirm'
-import { hideDialog, showDialog } from '../../components/dialog'
+import { hideDialog, showDialog, useDialogLeave } from '../../components/dialog'
 import { Icon } from '../../components/Icon'
 import { asApiError } from '../../services/api'
 import { dmy, num, parseQty, qtyText, stockApi, type PlanProposal } from './stock'
@@ -16,6 +16,7 @@ export function ConsumeDialog({ target, data, onClose, onDone }: {
   target: Target; data: PlanProposal; onClose: () => void; onDone: (text: string, tone?: 'ok' | 'warn') => void
 }) {
   const ref = useRef<HTMLDialogElement>(null)
+  const { leave } = useDialogLeave(ref, onClose)
   const [rows, setRows] = useState<Row[]>(() => data.lines.map((l) => ({ on: l.on, qty: plain(l.qty_milli), lot: l.lot ?? '' })))
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
@@ -30,7 +31,7 @@ export function ConsumeDialog({ target, data, onClose, onDone }: {
       const res = await stockApi.planConsume(target.id,
         picked.map(({ r, l }) => ({ item_id: l.item_id, qty_milli: parseQty(r.qty), ...(r.lot ? { lot: r.lot } : {}) })))
       onDone(res.text || `S-au scăzut ${picked.length === 1 ? '1 material' : `${picked.length} materiale`} din stoc.`, res.data.neg?.length ? 'warn' : 'ok')
-      onClose()
+      leave()
     } catch (e) { setErr(asApiError(e).text || 'Nu s-a scăzut.') } finally { setBusy(false) }
   }
   async function skip() {
@@ -38,16 +39,16 @@ export function ConsumeDialog({ target, data, onClose, onDone }: {
     try {
       const res = await stockApi.planSkip(target.id)
       onDone(res.text || 'Finalizată fără scădere din stoc.', 'warn')
-      onClose()
+      leave()
     } catch (e) { setErr(asApiError(e).text || 'Nu s-a salvat.') } finally { setBusy(false) }
   }
 
   return (
     <div className="rg st st-host">
-      <dialog ref={ref} className="rg-dlg wide st-dlg st-cons" onClose={onClose} aria-label="Materiale consumate">
+      <dialog ref={ref} className="rg-dlg wide st-dlg st-cons" onClose={leave} aria-label="Materiale consumate">
         <div className="dlg-head">
           <span><Icon name="box" /> Materiale consumate</span>
-          <button type="button" className="rg-x" onClick={onClose} aria-label="Închide"><Icon name="close" /></button>
+          <button type="button" className="rg-x" onClick={leave} aria-label="Închide"><Icon name="close" /></button>
         </div>
         <div className="rg-dlg-b">
           <p className="st-cons-who"><b>{target.what}</b><small>după fișa serviciului „{data.plan.service}”{data.plan.doctor ? ` · ${data.plan.doctor}` : ''} — corectați cât s-a folosit de fapt</small></p>

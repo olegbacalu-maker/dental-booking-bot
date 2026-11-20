@@ -326,7 +326,7 @@
 .dp-react-root .dp-plan-edit { width: 480px; }
 .dp-react-root .dp-plan-edit .pe-row { display: flex; gap: 9px; }
 .dp-react-root .dp-plan-edit .pe-row > .dlab { flex: 1 1 0; min-width: 0; }
-.dp-react-root .dp-plan-edit .dp-price-note { margin-top: -4px; }
+.dp-react-root .dp-plan-edit .pe-note { margin-top: -4px; min-height: 1lh; font-size: var(--fs-s); }
 .dp-react-root .dp-plan-edit .pe-err { margin: 0; font-size: var(--fs-s); font-weight: 600; color: var(--red-t); display: flex; align-items: flex-start; gap: 6px; }
 .dp-react-root .dp-plan-edit .pe-err svg { flex: 0 0 auto; margin-top: 2px; }
 .dp-react-root .dp-plan-edit .pe-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
@@ -349,10 +349,17 @@
 .dp-react-root .fform .plan-add .ptpl-open:hover { border-color: var(--text3); color: var(--text); }
 .dp-react-root .dp-plan-tpl { width: 940px; max-width: 96vw; }
 .dp-react-root .dp-plan-tpl.save { width: 520px; }
+/* Окно вставки — одной высоты: при загрузке, с любым шаблоном списка, с выбранным
+   зубом и без. Окно стоит по центру, и каждая строка, меняющая его высоту,
+   двигала бы и верх, и низ; лишнее прокручивается внутри колонок. Высоту
+   несёт обёртка, а не сам dialog: его display принадлежит переходу закрытия. */
+.dp-react-root .dp-plan-tpl .tp-win { display: flex; flex-direction: column; height: min(78vh, 590px); }
+.dp-react-root .dp-plan-tpl .tp-win > form { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
 .dp-react-root .dp-plan-tpl .tp-wait { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 16px 16px 18px; }
 .dp-react-root .dp-plan-tpl .tp-wait .dp-btn { width: auto; text-decoration: none; }
 .dp-react-root .dp-plan-tpl .tp-body {
-  display: grid; grid-template-columns: 250px minmax(0, 1fr); max-height: min(62vh, 600px); border-bottom: 1px solid var(--line2);
+  display: grid; grid-template-columns: 250px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
+  flex: 1 1 auto; min-height: 0; border-bottom: 1px solid var(--line2);
 }
 .dp-react-root .dp-plan-tpl .tp-list {
   display: flex; flex-direction: column; gap: 4px; padding: 12px; overflow-y: auto; border-right: 1px solid var(--line2);
@@ -390,17 +397,19 @@
 .dp-react-root .dp-plan-tpl .tp-dash { display: inline-block; width: 132px; color: var(--text3); }
 .dp-react-root .dp-plan-tpl .tp-price { width: 92px; }
 .dp-react-root .dp-plan-tpl .tp-table .dp-price-note { margin-left: 8px; }
-.dp-react-root .dp-plan-tpl .tp-warn { margin: 10px 0 0; font-size: var(--fs-s); font-weight: 600; color: var(--amber-t); }
-.dp-react-root .dp-plan-tpl .tp-err {
-  margin: 10px 0 0; font-size: var(--fs-s); font-weight: 600; color: var(--red-t); display: flex; align-items: flex-start; gap: 6px;
-}
-.dp-react-root .dp-plan-tpl .tp-err svg { flex: 0 0 auto; margin-top: 2px; }
 .dp-react-root .dp-plan-tpl .tp-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 12px 16px 14px; }
-.dp-react-root .dp-plan-tpl .tp-foot .dp-btn { width: auto; display: inline-flex; align-items: center; gap: 6px; }
-.dp-react-root .dp-plan-tpl .tp-say { margin-right: auto; font-size: var(--fs-s); color: var(--text3); }
+.dp-react-root .dp-plan-tpl .tp-foot .dp-btn { width: auto; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; }
+/* слева от кнопок две строки: пояснение и место под предупреждение о зубе или отказ */
+.dp-react-root .dp-plan-tpl .tp-notes { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dp-react-root .dp-plan-tpl .tp-say { margin: 0; font-size: var(--fs-s); color: var(--text3); }
+.dp-react-root .dp-plan-tpl .tp-warn { margin: 0; font-size: var(--fs-s); font-weight: 600; color: var(--amber-t); }
+.dp-react-root .dp-plan-tpl .tp-err {
+  margin: 0; font-size: var(--fs-s); font-weight: 600; color: var(--red-t); display: flex; align-items: flex-start; gap: 6px;
+}
+.dp-react-root .dp-plan-tpl .tp-wait .tp-err { margin-top: 10px; }
+.dp-react-root .dp-plan-tpl .tp-err svg { flex: 0 0 auto; margin-top: 2px; }
 .dp-react-root .dp-plan-tpl .tp-save { display: flex; flex-direction: column; gap: 10px; padding: 13px 16px 0; }
 .dp-react-root .dp-plan-tpl .tp-save .tp-foot { padding: 4px 0 14px; }
-.dp-react-root .dp-plan-tpl .tp-save .tp-err { margin: 0; }
 .dp-react-root .dp-plan-tpl .tp-pick {
   margin: 0; padding: 4px 10px; border: 1px solid var(--line); border-radius: var(--r-ctl); max-height: min(38vh, 320px); overflow-y: auto;
 }
@@ -408,12 +417,12 @@
 .dp-react-root .dp-plan-tpl .tp-pick legend { padding: 0 4px; font-size: var(--fs-s); color: var(--text2); }
 .dp-react-root .dp-plan-tpl .tp-keep { min-height: 0; font-weight: 600; }
 @media (max-width: 760px) {
-  .dp-react-root .dp-plan-tpl .tp-body { grid-template-columns: minmax(0, 1fr); max-height: 70vh; overflow-y: auto; }
+  .dp-react-root .dp-plan-tpl .tp-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; overflow-y: auto; }
   .dp-react-root .dp-plan-tpl .tp-list { border-right: 0; border-bottom: 1px solid var(--line2); overflow: visible; }
   .dp-react-root .dp-plan-tpl .tp-main { overflow: visible; }
   .dp-react-root .dp-plan-tpl .tp-fields { grid-template-columns: minmax(0, 1fr); }
   .dp-react-root .dp-plan-tpl .tp-foot { flex-wrap: wrap; }
-  .dp-react-root .dp-plan-tpl .tp-say { flex: 1 1 100%; }
+  .dp-react-root .dp-plan-tpl .tp-notes { flex: 1 1 100%; }
 }
 
 /* ближайший визит — карточка фирменного тона */

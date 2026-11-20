@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { allowMotion, endTransition } from '../../../../test/motion'
 import { ApiError } from '../../../../types/api'
 import type { CardActions } from '../actions'
 import { patientCard, type Form, type PatientCard, type SignBody } from '../card'
@@ -52,7 +53,7 @@ beforeEach(() => {
   sign = vi.spyOn(patientCard, 'signForm')
     .mockResolvedValue({ data: CARD as PatientCard & { doc: never }, code: 'ok_sign', text: 'Document semnat și salvat în fișă (PDF)', tone: 'ok' })
 })
-afterEach(() => { cleanup(); vi.restoreAllMocks() })
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 describe('SignDialog — подпись бланка на экране (09.11)', () => {
   it('лист — предпросмотр «как будет подписан», не печатный (печатный пишет «tipărit»)', () => {
@@ -139,6 +140,17 @@ describe('SignDialog — подпись бланка на экране (09.11)',
     expect((await dlg().findByRole('alert')).textContent).toContain('PDF-ul nu s-a putut crea')
     expect(onClose).not.toHaveBeenCalled()
     expect(saveBtn().disabled).toBe(false)
+  })
+
+  it('⛔ с движением окно подписи гаснет: хозяин узнаёт о закрытии после перехода, не в том же кадре', async () => {
+    allowMotion()
+    const { onClose } = mount('acord195')
+    const d = screen.getByRole('dialog') as HTMLDialogElement
+    fireEvent.click(dlg().getByRole('button', { name: 'Renunță' }))
+    await waitFor(() => expect(d.open).toBe(false))
+    expect(onClose).not.toHaveBeenCalled()
+    endTransition(d)
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 
   it('закрытие с нарисованным спрашивает; без подписи — закрывается сразу', async () => {

@@ -1,4 +1,4 @@
 /* Диалоги фиши открываются теми же двумя функциями, что и все остальные в
    бандле (01.10: общий `components/dialog.ts`, когда появилось окно
    подтверждения). Здесь — только прежний адрес импорта. */
-export { hideDialog, showDialog } from '../../../components/dialog'
+export { hideDialog, showDialog, useDialogLeave } from '../../../components/dialog'

@@ -3,7 +3,7 @@ import { ask } from '../../../components/confirm'
 import { Icon } from '../../../components/Icon'
 import { useFormTouched, type CardActions } from './actions'
 import { mdl, patientCard, type PatientCard } from './card'
-import { hideDialog, showDialog } from './dialog'
+import { showDialog, useDialogLeave } from './dialog'
 
 /* «Salvează ca șablon»: отмеченные позиции плана пациента становятся шаблоном
    клиники. В шаблон идут процедура, «нужен зуб» и порядок плана; цены — только
@@ -47,15 +47,16 @@ export function PlanSaveTemplateDialog({ card, a, onClose }: Props) {
   const [keep, setKeep] = useState(false)
   const [bad, setBad] = useState('')
   const [err, setErr] = useState('')
-  const touched = name.trim() !== ''
+  const { leave: close, leaving } = useDialogLeave(dlg, onClose)
+  /* закрытое окно доигрывает переход: несохранённого в нём уже нет */
+  const touched = name.trim() !== '' && !leaving
   useFormTouched(a, 'planSave', touched)
 
   useEffect(() => { showDialog(dlg.current) }, [])
 
   async function leave() {
     if (touched && !await ask({ text: T.askLeave, ok: T.askOk, cancel: T.askKeep })) return
-    hideDialog(dlg.current)
-    onClose()
+    close()
   }
 
   async function onSubmit(e: FormEvent) {
@@ -69,8 +70,7 @@ export function PlanSaveTemplateDialog({ card, a, onClose }: Props) {
       setErr(failed.text)
       return
     }
-    hideDialog(dlg.current)
-    onClose()
+    close()
   }
 
   return (
