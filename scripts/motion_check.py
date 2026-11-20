@@ -81,6 +81,21 @@
           клавиатуры: окно закрыли Esc; запись короче часа внесли клавишей Enter
           (час остаётся со свободным отрезком и включённым). Открывший окно с
           клавиатуры получает фокус и рамку назад.
+  Прайс и поиск услуги (20.11.2026; засев — прайс с категориями путём клиники, файл
+  импорта — .csv, свой у каждого прохода):
+  tarife  «Servicii și tarife»: переход из меню; в любом виде меню шапка, верх таблицы,
+          ширины колонок и место поля поиска одни, пункт меню под курсором; с числом
+          найденного поле не сужается; удалённая строка той же высоты, отмена — на месте
+          корзины и в строке целиком; полоса записи проявляется с первой правкой, а
+          запись у прокрученной до низа страницы ничего не сдвигает; окно категории
+          одной высоты с отказом и без; окно импорта одно место и высота до файла, со
+          сравнением и на каждой вкладке, нажатая вкладка соседей не толкает; оба окна
+          гаснут и уходят из дерева (Esc, крестик, после записи); вопрос при уходе с
+          правкой проявляется; без движения полоса и окно встают и уходят сразу.
+  picker  поле поиска услуги (ServicePicker) в форме плана фиши, в «Editează procedura»,
+          в «Adaugă în plan · dintele 36» с одонтограммы и в строке шаблона плана:
+          щелчок, ↓, набор (список меняет высоту), Esc, набор и Enter — поле и окно не
+          двигаются, список стоит под полем; Esc закрывает только список.
 
 ⚠️ Покой меряется ВНЕ границы получаса: на ней сервер законно меняет конверт (час
 «сейчас», прошедшее начало записи). Перед сценарием стенд ждёт, если до границы
@@ -154,6 +169,18 @@
           · переключатель показан и у свёрнутого блока.
   focus   · клиенту запрещено снимать фокус (`blur` ничего не делает) → час,
             открывший окно мышью, после Esc и после Enter стоит с рамкой клавиатуры.
+  tarife  · у тела окна импорта высота по содержимому → окно прыгает при выборе файла;
+          · у вкладок импорта снято место под жирную подпись → соседи сдвигаются;
+          · поле поиска забирает свободное место ряда → ездит от вида к виду;
+          · число найденного в потоке и без места → поле сужается с первой буквой;
+          · полоса записи снимается без правки → запись внизу страницы сдвигает всё;
+          · полоса записи без перехода → встаёт одним кадром;
+          · пометка удаления строкой под именем → строка растёт, ниже всё съезжает;
+          · отмена удаления шире корзины → под курсором другое место;
+          · строка отказа окна категории без места → окно меняет высоту;
+          · переход полосы без охраны reduced-motion → движение без движения.
+  picker  · у подсказки прайса в окне с зуба нет места → окно растёт при выборе;
+          · список услуг в потоке окна → окно растёт с открытием списка.
 """
 from __future__ import annotations
 
@@ -183,7 +210,7 @@ PORT = 9348
 SIZE = (1366, 768)
 LIVE_S = 12            # период опроса живого канала (services/live.ts › LIVE_MS)
 SCENARIOS = ("idle", "dialog", "status", "menu", "toast", "reduce", "leave", "close", "move", "stats", "print", "plan",
-             "tile", "event", "agenda", "focus")
+             "tile", "event", "agenda", "focus", "tarife", "picker")
 STYLE_SCENARIOS = ("dialog", "status", "menu", "toast", "close", "reduce")
 
 # Замеры в странице: кадры, изменения узлов, сеть, сдвиги раскладки, запуски
@@ -368,6 +395,8 @@ class Run:
         self.n = 0
         self.pid = 0            # фиша с планом лечения (сценарий plan)
         self.listed = ""        # услуга прайса с ценой одним числом
+        self.price_dir: pathlib.Path | None = None     # куда класть файл импорта (сценарий tarife)
+        self.round = 0          # проход сценария tarife: имена файла и категории свои у каждого стиля
 
     def ok(self, cond: bool, text: str) -> None:
         self.n += 1
@@ -1210,6 +1239,265 @@ class Run:
                 f"клавиатура: час с рамкой ({had}) открыл окно клавишей ({was}), после Esc фокус и рамка вернулись ({back})")
         self.js("document.activeElement && document.activeElement.blur(); 1")
 
+    # ---------- прайс и поиск услуги (20.11.2026) ----------
+
+    def at(self, finder: str):
+        """Прямоугольник без прокрутки к элементу: место там, где его видит человек."""
+        v = self.js(f"(() => {{ const e = {finder}; if (!e) return null; const r = e.getBoundingClientRect();"
+                    " return JSON.stringify([Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]) })()")
+        return json.loads(v) if v else None
+
+    def file_in(self, path: pathlib.Path, wait: float, sample: str = "") -> dict:
+        """Файл в поле выбора окна импорта — как его кладёт системное окно выбора."""
+        self.js(f"__mc.sample = {sample or 'null'}; __mc.reset(); 1")
+        doc = self.cdp.cmd("DOM.getDocument", depth=-1)
+        node = self.cdp.cmd("DOM.querySelector", nodeId=doc["root"]["nodeId"], selector="[data-testid=tf-file]")
+        self.cdp.cmd("DOM.setFileInputFiles", files=[str(path)], nodeId=node["nodeId"])
+        self.cdp.drain(wait)
+        return self.take()
+
+    def chars(self, text: str, wait: float, sample: str = "") -> dict:
+        """Набор с клавиатуры по букве — как печатает человек (список меняет высоту на каждой)."""
+        self.js(f"__mc.sample = {sample or 'null'}; __mc.reset(); 1")
+        for ch in text:
+            self.cdp.cmd("Input.insertText", text=ch)
+            time.sleep(0.04)
+        self.cdp.drain(wait)
+        return self.take()
+
+    def tarife(self) -> None:
+        if not self.price_dir:
+            raise SystemExit("стенд: прайс не засеян — сценарий tarife не прогнан")
+        m = self.cdp.cmd
+        csv_file = price_csv(self.price_dir, self.round)
+        rail = "document.querySelectorAll('.tf .dp-rail button.dp-ri')[{i}]"
+        head = ("() => { const h = document.querySelector('.tf .st-head'); const t = document.querySelector('.tf .tf-tbl thead');"
+                " const f = document.querySelector('.tf .tf-find input'); const r = f.getBoundingClientRect();"
+                " return [h.offsetHeight, Math.round(t.getBoundingClientRect().top),"
+                " Array.from(t.querySelectorAll('th')).map((x) => x.offsetWidth).join(','), Math.round(r.left), Math.round(r.width)]; }")
+        self.tap("document.querySelector('a[href=\"/admin/tarife\"]')", 1.6)
+        self.ok(self.js("location.pathname") == "/admin/tarife" and self.js("!!document.querySelector('.tf .tf-tbl')"),
+                "прайс: экран открылся из меню")
+
+        # 1. меню категорий: шапка, верх таблицы, ширины колонок и место поля поиска — одни
+        seen, moved = [], []
+        for i in (1, 2, 3, 0):
+            before = self.at(rail.format(i=i))
+            seen += self.tap(rail.format(i=i), 0.5, head)["samples"]
+            moved.append(before == self.at(rail.format(i=i)))
+        looks = sorted({tuple(s) for s in seen if s})
+        self.ok(len(looks) == 1 and all(moved),
+                f"прайс, меню: шапка, таблица и колонки одни во всех видах, пункт меню под курсором ({looks[:3]}, {moved})")
+        # 2. поиск: поле не сужается с первой буквой и не растёт с пустым
+        find = "document.querySelector('.tf .tf-find input')"
+        seen = []
+        for text in ("c", "coroana", "zzz", ""):
+            seen += self.type_in(find, text, 0.35, head)["samples"]
+        looks = sorted({tuple(s) for s in seen if s})
+        self.ok(len(looks) == 1, f"прайс, поиск: поле, шапка и таблица на месте с числом найденного и без ({looks[:3]})")
+
+        # 3. удаление строки: строка той же высоты, отмена — на месте корзины, ниже ничего не съезжает
+        trash = "document.querySelector('.tf tbody tr[data-row] .rowdel')"
+        row = f"{trash}.closest('tr')"
+        nxt = "document.querySelector('.tf tbody tr.tf-gone, .tf tbody tr[data-row]:has(.rowdel)').nextElementSibling"
+        self.js(f"{row}.scrollIntoView({{block: 'center'}}); 1")
+        time.sleep(0.3)
+        r0, n0, t0 = self.at(row), self.at(nxt), self.at(trash)
+        self.tap(trash, 0.8)
+        d = self.tap("Array.from(document.querySelectorAll('dialog.dp-ask button')).find((b) => b.textContent.includes('Șterge'))", 0.6)
+        row = "document.querySelector('.tf tbody tr.tf-gone')"
+        undo = f"{row}.querySelector('.tf-act button')"
+        u = self.at(undo)
+        near = bool(u) and abs((u[0] + u[2] / 2) - (t0[0] + t0[2] / 2)) <= 2 and abs((u[1] + u[3] / 2) - (t0[1] + t0[3] / 2)) <= 2
+        self.ok(self.at(row) == r0 and self.at(nxt) == n0 and not d["shifts"],
+                f"прайс, удаление: строка той же высоты, следующая на месте ({r0} → {self.at(row)}, {n0} → {self.at(nxt)},"
+                f" сдвиги {d['shifts']})")
+        self.ok(near and u[0] + u[2] <= self.at(row)[0] + self.at(row)[2],
+                f"прайс, удаление: отмена стоит на месте корзины и в строке целиком (корзина {t0}, отмена {u})")
+        self.tap(undo, 0.4)
+
+        # 4. полоса записи: проявляется, у прокрученной до низа страницы запись ничего не сдвигает
+        bar = "document.querySelector('.tf .tf-save')"
+        last = "Array.from(document.querySelectorAll('.tf tbody tr[data-row] .tf-price')).at(-1)"
+        look = ("() => { const b = " + bar + "; return b ? [Number(getComputedStyle(b).opacity), getComputedStyle(b).visibility,"
+                " Math.round(b.getBoundingClientRect().top)] : null; }")
+        self.js("window.scrollTo(0, document.documentElement.scrollHeight); 1")
+        time.sleep(0.3)
+        d = self.type_in(last, "4321", 0.5, look)
+        ops = [s[0] for s in d["samples"] if s and s[1] == "visible"]
+        fade = [r for r in d["runs"] if "tf-save" in r["target"] and r["name"] == "opacity"]
+        self.ok(bool(ops) and ops[0] < 0.5 and ops[-1] == 1 and bool(fade) and not d["shifts"],
+                f"прайс, полоса записи: проявляется переходом с первой правкой ({ops[:1]} … {ops[-1:]}, переходов {len(fade)})")
+        self.js("window.scrollTo(0, document.documentElement.scrollHeight); 1")
+        time.sleep(0.3)
+        y0, s0 = self.at(last), self.js("Math.round(scrollY)")
+        x, y = self.page.center(BY_TEXT.format(sel=".tf .tf-save button", text="Salvează"))
+        self.js("__mc.sample = null; __mc.reset(); 1")
+        for t in ("mousePressed", "mouseReleased"):
+            m("Input.dispatchMouseEvent", type=t, x=x, y=y, button="left", clickCount=1)
+        self.cdp.drain(1.0)
+        d = self.take()
+        posts = [r["status"] for r in d["res"] if r["name"].startswith("/api/tarife")]
+        self.ok(posts == [200] and self.at(last) == y0 and self.js("Math.round(scrollY)") == s0 and not d["shifts"],
+                f"прайс, запись внизу страницы: ничего не съехало (поле {y0} → {self.at(last)}, прокрутка {s0} →"
+                f" {self.js('Math.round(scrollY)')}, ответ {posts}, сдвиги {d['shifts']})")
+        self.ok(self.js(f"(() => {{ const b = {bar}; return !b || getComputedStyle(b).visibility === 'hidden' }})()"),
+                "прайс: после записи полосы не видно")
+        self.js("window.scrollTo(0, 0); 1")
+        time.sleep(0.3)
+
+        # 5. окно категории: одной высоты с отказом и без; три закрытия гаснут
+        cat = "document.querySelector('dialog.tf-dlg:not(.tf-imp)')"
+        cbox = BOX.format(dlg=cat)
+        ren = BY_TEXT.format(sel=".tf .rg-btn", text="Redenumește")
+        self.tap(rail.format(i=1), 0.4)
+        seen = self.tap(ren, 0.8, cbox)["samples"]
+        seen += self.type_in(f"{cat}.querySelector('input')", "", 0.2, cbox)["samples"]
+        seen += self.tap(BY_TEXT.format(sel="dialog.tf-dlg .rg-dlg-f button", text="Salvează"), 0.4, cbox)["samples"]
+        said = self.js(f"{cat}.querySelector('.st-err').textContent")
+        seen += self.type_in(f"{cat}.querySelector('input')", "Terapie", 0.2, cbox)["samples"]
+        sizes = sorted({(s[0], s[1]) for s in seen if s and s[2]})
+        self.ok(bool(said) and len(sizes) == 1, f"окно категории: место и высота одни с отказом «{said}» и без ({sizes})")
+        self.fades("окно категории, Esc", cat, self.key("Escape", 27, 0.8, cbox))
+        self.tap(ren, 0.8)
+        self.fades("окно категории, крестик", cat, self.tap(f"{cat}.querySelector('.rg-x')", 0.8, cbox))
+        self.tap(ren, 0.8)
+        self.type_in(f"{cat}.querySelector('input')", f"Terapie {self.round}", 0.2)
+        self.fades("окно категории, после записи", cat,
+                   self.tap(BY_TEXT.format(sel="dialog.tf-dlg .rg-dlg-f button", text="Salvează"), 1.2, cbox))
+
+        # 6. окно импорта: место и высота одни до файла, со сравнением и на каждой вкладке; вкладки не толкают соседей
+        imp = "document.querySelector('dialog.tf-imp')"
+        ibox = BOX.format(dlg=imp)
+        btn = BY_TEXT.format(sel=".tf .rg-btn", text="Importă")
+        self.tap(rail.format(i=0), 0.4)
+        seen = self.tap(btn, 0.8, ibox)["samples"]
+        seen += self.file_in(csv_file, 2.0, ibox)["samples"]
+        tabs = f"{imp}.querySelectorAll('.tf-imp-tabs button')"
+        n = self.js(f"{tabs}.length")
+        self.ok(n == 4, f"окно импорта: файл проверен, вкладок сравнения {n}")
+        # края вкладок — в долях пикселя: округление прямоугольника делает из 1/64 px целый пиксель
+        edges = f"JSON.stringify(Array.from({tabs}).map((b) => {{ const r = b.getBoundingClientRect(); return [r.left, r.right]; }}).flat())"
+        rows = []
+        for i in (1, 2, 3, 0):
+            seen += self.tap(f"{tabs}[{i}]", 0.35, ibox)["samples"]
+            rows.append(json.loads(self.js(edges)))
+        spread = max(max(col) - min(col) for col in zip(*rows))
+        sizes = sorted({(s[0], s[1]) for s in seen if s and s[2]})
+        self.ok(len(sizes) == 1, f"окно импорта: место и высота одни до файла, со сравнением и на вкладках ({sizes})")
+        self.ok(spread < 0.5, f"окно импорта: нажатая вкладка не толкает соседей (края вкладок гуляют на {spread:.2f} px)")
+        self.fades("окно импорта, Esc", imp, self.key("Escape", 27, 0.8, ibox))
+        self.tap(btn, 0.8)
+        self.fades("окно импорта, крестик", imp, self.tap(f"{imp}.querySelector('.rg-x')", 0.8, ibox))
+        self.tap(btn, 0.8)
+        self.file_in(csv_file, 2.0)
+        d = self.tap(BY_TEXT.format(sel="dialog.tf-imp .rg-dlg-f button", text="Importă:"), 2.5, ibox)
+        runs = [r["status"] for r in d["res"] if "/import/run" in r["name"]]
+        self.ok(runs == [200], f"окно импорта: импорт прошёл ({runs})")
+        self.fades("окно импорта, после импорта", imp, d)
+
+        # 7. уход с правкой — вопрос своим окном, проявляется
+        ask = ("() => { const d = document.querySelector('dialog.dp-ask'); return d && d.open ? Number(getComputedStyle(d).opacity) : null; }")
+        self.type_in("document.querySelectorAll('.tf tbody tr[data-row] .tf-price')[1]", "1111", 0.3)
+        d = self.tap(BY_TEXT.format(sel="nav a, .side a", text="Pacienți"), 0.6, ask)
+        ops = [s for s in d["samples"] if s is not None]
+        self.ok(bool(ops) and ops[0] < 0.5 and ops[-1] == 1 and self.js("location.pathname") == "/admin/tarife",
+                f"уход с правкой: вопрос проявляется, экран остался ({ops[:1]} … {ops[-1:]})")
+        self.esc()
+        time.sleep(0.5)
+
+        # 8. без движения: полоса встаёт и уходит без перехода
+        m("Emulation.setEmulatedMedia", features=[{"name": "prefers-reduced-motion", "value": "reduce"}])
+        try:
+            self.tap(BY_TEXT.format(sel=".tf .tf-save button", text="Renunță"), 0.4)
+            d = self.type_in("document.querySelectorAll('.tf tbody tr[data-row] .tf-price')[1]", "2222", 0.4, look)
+            first = next((s for s in d["samples"] if s and s[1] == "visible"), None)
+            slow = [r for r in d["runs"] if "tf-save" in r["target"] and r["dur"] > 0]
+            self.ok(first is not None and first[0] == 1 and not slow,
+                    f"без движения: полоса записи встаёт целиком с первого кадра ({first}, переходов {len(slow)})")
+            self.tap(BY_TEXT.format(sel=".tf .tf-save button", text="Renunță"), 0.3)
+            d = self.tap(btn, 0.4, ibox)
+            first = next((s for s in d["samples"] if s), None)
+            self.ok(first is not None and first[3] == 1, f"без движения: окно импорта стоит целиком с первого кадра ({first})")
+            d = self.key("Escape", 27, 0.3, ibox)
+            self.ok(self.js(f"{imp} === null") and not [r for r in d["runs"] if r["dur"] > 0 and r["target"].startswith("dialog")],
+                    "без движения: окно импорта ушло из дерева без перехода")
+        finally:
+            m("Emulation.setEmulatedMedia", features=[])
+        self.round += 1
+
+    def picker(self) -> None:
+        if not self.pid:
+            raise SystemExit("стенд: фиша с планом не засеяна — сценарий picker не прогнан")
+        lst = ("() => {{ const f = {field}; const l = document.querySelector('.dp-svc-list'); const d = f.closest('dialog');"
+               " const a = f.getBoundingClientRect(); const b = l ? l.getBoundingClientRect() : null;"
+               " return [Math.round(a.top), Math.round(a.left), b ? Math.round(b.top - a.bottom) : null, b ? Math.round(b.height) : 0,"
+               " d ? d.offsetTop : -1, d ? d.offsetHeight : -1]; }}")
+
+        def clear(field: str) -> None:
+            self.type_in(field, "", 0.2)
+            self.js("document.activeElement && document.activeElement.blur(); 1")
+            time.sleep(0.2)
+
+        def drive(where: str, field: str) -> None:
+            """Щелчок, ↓, набор (список меняет высоту), Esc, набор и Enter: поле, окно и список на местах."""
+            s = lst.format(field=field)
+            clear(field)
+            seen = self.tap(field, 0.4, s)["samples"]
+            seen += self.key("ArrowDown", 40, 0.25, s)["samples"]
+            seen += self.chars("coroana", 0.4, s)["samples"]
+            grew = sorted({x[3] for x in seen if x and x[2] is not None})
+            d = self.key("Escape", 27, 0.3, s)
+            seen += d["samples"]
+            esc_ok = self.js("!!document.querySelector('.dp-svc-list')") is False and (
+                where == "фиша" or where == "шаблон" or self.js(f"!!{field}.closest('dialog[open]')"))
+            clear(field)
+            self.tap(field, 0.3)
+            seen += self.chars("coroana zirc", 0.3, s)["samples"]
+            seen += self.key("Enter", 13, 0.5, s)["samples"]
+            picked = self.js(f"{field}.value")
+            frames = [x for x in seen if x]
+            places = sorted({(x[0], x[1], x[4], x[5]) for x in frames})
+            gaps = sorted({x[2] for x in frames if x[2] is not None})
+            self.ok(len(places) == 1, f"поиск услуги, {where}: поле и окно на месте весь сеанс (поле, окно: {places[:3]})")
+            self.ok(len(grew) > 1 and len(gaps) == 1 and gaps[0] >= 0,
+                    f"поиск услуги, {where}: список меняет высоту ({grew[:4]}) и стоит под полем ({gaps})")
+            self.ok(esc_ok and picked == "Coroană din zirconiu",
+                    f"поиск услуги, {where}: Esc закрыл только список, Enter выбрал строку («{picked}»)")
+
+        # уход со страницы с черновиком спрашивал бы Edge (beforeunload) — сценарий не о нём
+        hook = self.cdp.cmd("Page.addScriptToEvaluateOnNewDocument", source=NO_UNLOAD)["identifier"]
+        try:
+            self._picker(drive)
+        finally:
+            self.cdp.cmd("Page.removeScriptToEvaluateOnNewDocument", identifier=hook)
+
+    def _picker(self, drive) -> None:
+        # 1. форма плана фиши
+        self.page.go(f"/admin/patient/{self.pid}?tab=plan")
+        time.sleep(0.8)
+        self.tap("document.querySelector('.plan-add > button')", 0.6)
+        drive("фиша", "document.querySelector('.dp-svc input')")
+        # 2. «Editează procedura»
+        edit = "document.querySelector('dialog.dp-plan-edit')"
+        self.tap("document.querySelector('.plan-row .pact .dp-more')", 0.5)
+        self.tap(BY_TEXT.format(sel=".dp-cmenu [role=menuitem]", text="Editează"), 0.8)
+        drive("«Editează procedura»", f"{edit}.querySelector('.dp-svc input')")
+        self.esc()
+        time.sleep(0.6)
+        # 3. «Adaugă în plan · dintele 36» с одонтограммы
+        self.page.go(f"/admin/patient/{self.pid}/odontograma")
+        time.sleep(1.4)
+        self.tap("document.querySelector('.odop .arch .tooth-btn[data-n=\"36\"]')", 0.5, button="right")
+        self.tap(BY_TEXT.format(sel=".dp-cmenu [role=menuitem]", text="Adaugă în plan"), 0.8)
+        drive("окно с зуба", "document.querySelector('dialog.dp-plan-dlg .dp-svc input')")
+        self.esc()
+        time.sleep(0.6)
+        # 4. строка шаблона в «Setări › Șabloane › Plan de tratament»
+        self.page.go("/admin/settings/templates?tab=plan")
+        time.sleep(1.0)
+        drive("шаблон", "document.querySelectorAll('.pt-table .dp-svc input')[1]")
+
     def scenario(self, name: str, polls: int) -> None:
         print(f"[{self.label}] {name}")
         self.home()
@@ -1272,6 +1560,41 @@ def seed_plan(c: Client) -> tuple[int, str]:
     if not priced:
         raise SystemExit("засев: в прайсе клиники нет услуги с ценой одним числом — сценарий plan не прогнан")
     return pid, priced[0]
+
+
+# Прайс засева: категории и строки «только план» — путём клиники (POST /api/tarife).
+TARIFE_CATS = {
+    "Terapie": [f"Restaurare pe {n} suprafețe – {m}" for m in ("compozit", "fluid", "ionomer") for n in (1, 2, 3)],
+    "Endodonție": [f"Tratament endodontic – {n} canale" for n in (1, 2, 3, 4)] + ["Pansament calmant", "Ax radicular"],
+    "Protetică": [f"Coroană {m}" for m in ("din zirconiu", "metalo-ceramică", "E.max", "provizorie", "telescopică")],
+    "Chirurgie": [f"Extracție {m}" for m in ("monoradicular", "pluriradicular", "molar de minte", "rest radicular")],
+}
+# Окна, стоящие на странице с черновиком, спрашивали бы Edge при уходе: сценарию поиска услуги это не нужно.
+NO_UNLOAD = ("(() => { const add = window.addEventListener; window.addEventListener = function (t, ...r) {"
+             " if (t === 'beforeunload') return; return add.call(this, t, ...r); }; })()")
+
+
+def seed_tarife(c: Client) -> None:
+    cats = [{"key": f"k{i}", "name": n} for i, n in enumerate(TARIFE_CATS)]
+    new = [{"ro": ro, "ru": "", "price": str(300 + 50 * j), "cat": f"k{i}"}
+           for i, rows in enumerate(TARIFE_CATS.values()) for j, ro in enumerate(rows)]
+    new.append({"ro": "Consultație de probă fără categorie", "ru": "", "price": "150", "cat": ""})
+    r = c.post_json("/api/tarife", {"cats_new": cats, "new": new})
+    if r.status != 200:
+        raise SystemExit(f"засев: прайс не записался: {r.status} {r.body[:160]}")
+
+
+def price_csv(folder: pathlib.Path, n: int) -> pathlib.Path:
+    """Файл импорта: новые строки в новых категориях, две изменённые цены, две строки с ошибкой.
+    Имена — свои у каждого прохода: второй стиль импортирует снова, а не «нечего импортировать»."""
+    rows = ["Categoria;Denumire;Preț"]
+    for k, cat in enumerate(("Igienă", "Ortodonție", "Radiologie")):
+        rows += [f"{cat} {n};Procedură de import {n}.{k}.{i};{100 + 10 * i}" for i in range(14)]
+    rows += [f"Terapie;{TARIFE_CATS['Terapie'][0]};{555 + n}", f"Chirurgie;{TARIFE_CATS['Chirurgie'][0]};{666 + n}"]
+    rows += [";;100", f"Igienă {n};;200"]
+    path = folder / f"pret-{n}.csv"
+    path.write_text("".join(r + chr(10) for r in rows), encoding="utf-8")
+    return path
 
 
 def broken_tree(css: str = "", patch: tuple[str, str, str] | None = None, swap: tuple[str, str] | None = None) -> pathlib.Path:
@@ -1351,6 +1674,22 @@ PAIRS = [
     ("agenda", "переключатель вида у свёрнутого блока", {"css": ".dp-react-root .agenda.dp-fold:not([open]) > summary .ag-view"
                                                              "{display:inline-flex !important}"}),
     ("focus", "клиент не снимает фокус с открывшего окно", {"js": "HTMLElement.prototype.blur = function () {};"}),
+    ("tarife", "окно импорта по содержимому", {"css": "dialog.tf-imp .rg-dlg-b{height:auto !important}"}),
+    ("tarife", "нажатая вкладка импорта шире", {"css": "dialog.tf-imp .tf-imp-tabs>button::after{content:none !important}"}),
+    ("tarife", "поле поиска забирает свободное место ряда", {"css": ".tf .tf-find{flex:1 1 220px !important}"}),
+    ("tarife", "число найденного в потоке, без места", {"css": ".tf .tf-find{display:flex !important;gap:8px}"
+                                                      ".tf .tf-find>span{position:static !important;translate:none !important}"
+                                                      ".tf .tf-find>span:empty{display:none !important}"
+                                                      ".tf .tf-find .dp-fld{padding-right:12px !important}"}),
+    ("tarife", "полоса записи снимается без правки", {"css": ".tf .tf-save.off{display:none !important}"}),
+    ("tarife", "полоса записи без перехода", {"css": ".tf .tf-save{transition:none !important}"}),
+    ("tarife", "пометка удаления строкой под именем", {"css": ".tf .tf-tbl tr.tf-gone td:first-child::after"
+                                                       "{content:'se șterge la salvare';display:block;font-size:12px}"}),
+    ("tarife", "отмена удаления шире корзины", {"css": ".tf .tf-tbl .rowdel.tf-undo::after{content:' Anulează'}"}),
+    ("tarife", "строка отказа окна категории без места", {"css": "dialog.tf-dlg .st-err:empty{display:none !important}"}),
+    ("tarife", "полоса записи проявляется и без движения", {"css": ".tf .tf-save{transition:opacity .15s ease !important}"}),
+    ("picker", "подсказка прайса в окне с зуба без места", {"css": "dialog.dp-plan-dlg .pd-note{min-height:0 !important}"}),
+    ("picker", "список услуг в потоке окна", {"css": ".dp-svc-list{position:static !important}"}),
 ]
 
 
@@ -1366,8 +1705,11 @@ def run_tree(cdp: CDP, bot: pathlib.Path | None, label: str, names, polls: int, 
             c = Client(s1.url).login()
             seed(c, s1.clinic, 6 if styles else 3)
             run = Run(cdp, s1.url, label, c, datetime.now(TZ).date().isoformat())
-            if "plan" in names:
+            if "plan" in names or "picker" in names:
                 run.pid, run.listed = seed_plan(c)
+            if "tarife" in names or "picker" in names:
+                seed_tarife(c)
+                run.price_dir = pathlib.Path(tempfile.mkdtemp(prefix="dp_motion_csv_"))
             cdp.cmd("Page.addScriptToEvaluateOnNewDocument", source=OPEN_AGENDA)
             cdp.cmd("Page.addScriptToEvaluateOnNewDocument", source=INSTR)
             if styles:
