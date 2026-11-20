@@ -77,7 +77,7 @@ const T = {
   saveTplTitle: 'Salvează procedurile acestui plan ca șablon al clinicii — fără datele pacientului',
   planMenu: 'Acțiuni pentru tot planul',
   deviz: 'Tipărește devizul',
-  devizTitle: 'Deviz pentru pacient: procedurile active, dintele și prețul, cu totalul — fără semnături',
+  devizTitle: 'Deviz pentru pacient: procedurile active, dintele și prețul, cu totalul; se semnează de pacient și medic',
   refuzDlg: 'Refuzul pacientului',
   refuzProc: 'Procedura:',
   refuzLabel: 'Motivul refuzului și consecințele explicate pacientului',
