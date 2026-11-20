@@ -77,6 +77,10 @@
           и при переключении кнопка остаётся под курсором на том же месте (список
           под ней меняет высоту); щелчок блок не сворачивает; у свёрнутого блока
           переключателя нет, у открытого снова — он на месте и вид тот же.
+  focus   час сетки, открывший окно записи МЫШЬЮ, после окна остаётся без рамки
+          клавиатуры: окно закрыли Esc; запись короче часа внесли клавишей Enter
+          (час остаётся со свободным отрезком и включённым). Открывший окно с
+          клавиатуры получает фокус и рамку назад.
 
 ⚠️ Покой меряется ВНЕ границы получаса: на ней сервер законно меняет конверт (час
 «сейчас», прошедшее начало записи). Перед сценарием стенд ждёт, если до границы
@@ -148,6 +152,8 @@
   agenda  · у кнопок вида снято место под жирную подпись → нажатая кнопка шире, и
             соседняя сдвигается из-под курсора;
           · переключатель показан и у свёрнутого блока.
+  focus   · клиенту запрещено снимать фокус (`blur` ничего не делает) → час,
+            открывший окно мышью, после Esc и после Enter стоит с рамкой клавиатуры.
 """
 from __future__ import annotations
 
@@ -177,7 +183,7 @@ PORT = 9348
 SIZE = (1366, 768)
 LIVE_S = 12            # период опроса живого канала (services/live.ts › LIVE_MS)
 SCENARIOS = ("idle", "dialog", "status", "menu", "toast", "reduce", "leave", "close", "move", "stats", "print", "plan",
-             "tile", "event", "agenda")
+             "tile", "event", "agenda", "focus")
 STYLE_SCENARIOS = ("dialog", "status", "menu", "toast", "close", "reduce")
 
 # Замеры в странице: кадры, изменения узлов, сеть, сдвиги раскладки, запуски
@@ -1151,6 +1157,59 @@ class Run:
                 and self.js("localStorage.getItem('dp_fold:agenda')") == "1",
                 f"вид повестки: открыли снова — переключатель на месте, вид тот же, блок помнит, что открыт ({shown})")
 
+    def enter(self, wait: float) -> None:
+        """Enter с символом: нажатие без него не отправляет форму и не нажимает кнопку."""
+        for kind in ("keyDown", "keyUp"):
+            self.cdp.cmd("Input.dispatchKeyEvent", type=kind, key="Enter", code="Enter", windowsVirtualKeyCode=13,
+                         **({"text": chr(13)} if kind == "keyDown" else {}))
+        self.cdp.drain(wait)
+
+    def focus(self) -> None:
+        # Последний целиком свободный час дня: вечер, после засева, записи в прошлое нет.
+        where = json.loads(self.js(
+            "(() => { const all = Array.from(document.querySelectorAll('.gcell[data-free=\"all\"]:not([disabled])'));"
+            " const c = all.at(-1); if (!c) return 'null';"
+            " return JSON.stringify([Array.from(document.querySelectorAll('.gcol')).indexOf(c.closest('.gcol')),"
+            " c.getAttribute('data-hh')]) })()"))
+        self.ok(bool(where) and where[0] >= 0, f"фокус: свободный час для записи есть ({where})")
+        if not where or where[0] < 0:
+            return
+        cell = f"document.querySelectorAll('.gcol')[{where[0]}].querySelector('.gcell[data-hh=\"{where[1]}\"]')"
+        ringed = "document.querySelectorAll('.gcell:focus-visible').length"
+        opened = "!!document.querySelector('dialog[open] input[placeholder=\"Nume pacient\"]')"
+        field = "document.querySelector('dialog[open] input[placeholder=\"{p}\"]')"
+
+        self.tap(cell, 0.8)
+        was = self.js(opened)
+        self.esc()
+        time.sleep(0.6)
+        self.ok(bool(was) and not self.js(opened) and self.js(ringed) == 0,
+                f"мышь и Esc: окно открылось ({was}) и закрылось, рамки клавиатуры на часе нет ({self.js(ringed)})")
+
+        self.tap(cell, 0.8)
+        self.pick("Array.from(document.querySelectorAll('dialog[open] select'))"
+                  ".find((s) => Array.from(s.options).some((o) => o.value === '15'))", "15", 0.2)
+        self.type_in(field.format(p="Nume pacient"), "Proba Focus", 0.1)
+        self.type_in(field.format(p="Telefon"), "069770999", 0.1)
+        self.js(f"{field.format(p='Nume pacient')}.focus(); 1")
+        self.enter(1.6)
+        made = self.js("Array.from(document.querySelectorAll('.gappt')).filter((b) => (b.title || '').includes('Proba Focus')).length")
+        free = self.js(f"(() => {{ const c = {cell}; return c ? c.getAttribute('data-free') + (c.disabled ? ' off' : '') : 'null' }})()")
+        self.ok(made == 1 and not self.js(opened) and free == "part" and self.js(ringed) == 0,
+                f"мышь и Enter: запись внесена ({made}), час остался со свободным отрезком ({free}),"
+                f" рамки клавиатуры на нём нет ({self.js(ringed)})")
+
+        # с клавиатуры: последним было нажатие клавиши, фокус из скрипта браузер считает клавиатурным
+        had = self.js(f"(() => {{ const c = {cell}; c.focus(); return c.matches(':focus-visible') }})()")
+        self.enter(0.8)
+        was = self.js(opened)
+        self.esc()
+        time.sleep(0.6)
+        back = self.js(f"(() => {{ const c = {cell}; return document.activeElement === c && c.matches(':focus-visible') }})()")
+        self.ok(bool(had) and bool(was) and bool(back) and not self.js(opened),
+                f"клавиатура: час с рамкой ({had}) открыл окно клавишей ({was}), после Esc фокус и рамка вернулись ({back})")
+        self.js("document.activeElement && document.activeElement.blur(); 1")
+
     def scenario(self, name: str, polls: int) -> None:
         print(f"[{self.label}] {name}")
         self.home()
@@ -1291,6 +1350,7 @@ PAIRS = [
     ("agenda", "нажатая кнопка вида шире — соседняя сдвигается", {"css": ".ag-view button::after{content:none !important}"}),
     ("agenda", "переключатель вида у свёрнутого блока", {"css": ".dp-react-root .agenda.dp-fold:not([open]) > summary .ag-view"
                                                              "{display:inline-flex !important}"}),
+    ("focus", "клиент не снимает фокус с открывшего окно", {"js": "HTMLElement.prototype.blur = function () {};"}),
 ]
 
 
