@@ -157,10 +157,14 @@ export function TarifeScreen({ navigate = defaultNavigate }: { navigate?: (url: 
   }
 
   const needle = fold(find)
+  /* Правило поиска услуги в плане (`pickGroups`): каждое слово — в имени RO, RU или категории, в любом порядке.
+     Иначе «restaurare supraf», что находит строку в плане, здесь давало «Nimic găsit.». */
+  const words = needle.split(/\s+/).filter(Boolean)
   const hit = (r: TarifRow) => {
-    if (!needle) return true
+    if (!words.length) return true
     const s = shown(r, edits[r.id])
-    return fold(s.ro).includes(needle) || fold(s.ru).includes(needle) || fold(r.ro).includes(needle)
+    const hay = fold(`${s.ro} ${s.ru} ${r.ro} ${cats.find((c) => c.id === r.cat)?.name ?? ''}`)
+    return words.every((w) => hay.includes(w))
   }
   const rows = data ? data.services.filter((r) => inView(r, view) && hit(r)) : []
   /* «Toate»: группы по порядку категорий, «Fără categorie» последней */
