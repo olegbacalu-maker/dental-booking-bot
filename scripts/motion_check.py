@@ -858,12 +858,15 @@ class Run:
         ebox = BOX.format(dlg=edit)
         seen, notes = [], []
         for text in (self.listed, "Ceva în afara listei", self.listed):
-            seen += self.type_in(f"{edit}.querySelector('input[list]')", text, 0.4, ebox)["samples"]
+            seen += self.type_in(f"{edit}.querySelector('.dp-svc input')", text, 0.4, ebox)["samples"]
             notes.append(self.js(f"!!{edit}.querySelector('.dp-price-note')"))
         sizes = sorted({(s[0], s[1]) for s in seen if s and s[2]})
         self.ok(notes == [True, False, True] and len(sizes) == 1,
                 f"правка позиции: подсказка прайса есть и нет ({notes}), место и высота окна одни ({sizes})")
-        self.type_in(f"{edit}.querySelector('input[list]')", "Coroană de probă", 0.3)     # как было: закрытие без вопроса
+        self.type_in(f"{edit}.querySelector('.dp-svc input')", "Coroană de probă", 0.3)     # как было: закрытие без вопроса
+        # набор открыл список услуг (ServicePicker), и Esc закрыл бы только его: поле отпускается, список уходит
+        self.js("document.activeElement && document.activeElement.blur(); 1")
+        time.sleep(0.2)
         self.fades("правка позиции, Esc", edit, self.key("Escape", 27, 0.8, ebox))
 
         # 4. «Salvează ca șablon»: меню карточки плана
