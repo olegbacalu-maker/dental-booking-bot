@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
+import { hookPrint } from '../utils/flip'
 import { motionOk, stepMs } from '../utils/motion'
 
 /* jsdom не умеет showModal/close: тогда открываем атрибутом — форма та же.
@@ -14,6 +15,71 @@ export function hideDialog(d: HTMLDialogElement | null) {
   if (!d || !d.open) return
   if (typeof d.close === 'function') d.close()
   else d.removeAttribute('open')
+}
+
+/* Откуда открыли окно: блок сетки дня, строка повестки, пустой час. Тот, по чему
+   щёлкнули, называет себя (`noteOrigin`) перед тем, как попросить окно; окно,
+   открывшееся следом, вырастает из него и сворачивается обратно в него —
+   видно, чьё оно. Источник одноразовый и недолгий: окно, открытое позже или из
+   другого места (меню, шапка), ведёт себя как обычно. */
+const ORIGIN_MS = 600
+const GROW_MS = 280
+let origin: { el: Element; at: number } | null = null
+
+export function noteOrigin(el: Element | null): void {
+  origin = el ? { el, at: performance.now() } : null
+}
+
+/** Сдвиг и масштаб, при которых окно ложится на источник. Место окна — раскладкой:
+ *  прямоугольник экрана видел бы его посреди перехода появления. */
+function ontoOrigin(d: HTMLDialogElement, el: Element): string {
+  const f = el.getBoundingClientRect()
+  const r2 = (n: number) => Math.round(n * 100) / 100
+  return `translate(${r2(f.left - d.offsetLeft)}px, ${r2(f.top - d.offsetTop)}px) `
+    + `scale(${r2(f.width / (d.offsetWidth || 1))}, ${r2(f.height / (d.offsetHeight || 1))})`
+}
+
+/**
+ * Открыть и закрыть окно по `open` — и, если его открыли из названного
+ * источника, вырастить из него и свернуть в него.
+ *
+ * Раскрытие — Web Animations (место источника известно только здесь).
+ * Сворачивание — переход CSS: сюда пишется лишь, КУДА (`--grow-to`), а ведёт
+ * общий переход окна из panel.css. Так закрытие гаснет правилом печати в том
+ * же кадре, и хозяин, ждущий конца перехода окна, ждёт и сворачивание.
+ * Без движения — открыть и закрыть, как прежде.
+ */
+export function useDialogFromOrigin(ref: RefObject<HTMLDialogElement | null>, open: boolean): void {
+  const from = useRef<Element | null>(null)
+  useEffect(() => {
+    const d = ref.current
+    if (!d) return
+    if (!open) {
+      const el = from.current
+      from.current = null
+      /* по Esc окно закрыл сам браузер, раньше этого эффекта: оно ещё стоит на месте и гаснет */
+      const to = el && el.isConnected && d.offsetWidth > 0 && motionOk() ? ontoOrigin(d, el) : ''
+      hideDialog(d)
+      if (to) {
+        d.style.setProperty('--grow-to', to)
+        d.setAttribute('data-grow', '')
+      }
+      return
+    }
+    d.removeAttribute('data-grow')
+    d.style.removeProperty('--grow-to')
+    showDialog(d)
+    const o = origin
+    origin = null
+    from.current = null
+    if (!o || performance.now() - o.at > ORIGIN_MS || !o.el.isConnected) return
+    if (!motionOk() || typeof d.animate !== 'function') return
+    from.current = o.el
+    hookPrint()
+    d.animate(
+      [{ transformOrigin: '0 0', transform: ontoOrigin(d, o.el) }, { transformOrigin: '0 0', transform: 'none' }],
+      { duration: GROW_MS, easing: 'cubic-bezier(.2,.8,.2,1)' })
+  }, [ref, open])
 }
 
 /**

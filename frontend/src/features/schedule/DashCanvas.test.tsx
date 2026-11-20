@@ -842,3 +842,28 @@ describe('кнопка одонтограммы в блоке визита', () 
     }
   })
 })
+
+describe('блок визита: статус и слой эффектов для движения', () => {
+  it('блок несёт статус записи (по нему играет событие статуса) и слой эффектов; у заметки слоя нет', () => {
+    show()
+    const waiting = document.querySelector<HTMLElement>('.gappt[data-appt="2"]')!
+    expect(waiting.dataset.st).toBe('waiting')
+    expect(document.querySelector<HTMLElement>('.gappt[data-appt="1"]')!.dataset.st).toBe('confirmed')
+    const fx = waiting.querySelector(':scope > i.gfx')!
+    expect(fx.getAttribute('aria-hidden')).toBe('true')
+    /* блик — вложенный узел слоя; сам слой — последним, поверх текста */
+    expect(fx.children).toHaveLength(1)
+    expect(waiting.lastElementChild).toBe(fx)
+    expect(document.querySelector('.gappt.gnote .gfx')).toBeNull()
+  })
+
+  it('слой эффектов не мешает нажатию: щелчок по блоку открывает карточку, по зубу — нет', () => {
+    show()
+    const block = document.querySelector<HTMLElement>('.gappt[data-appt="1"]')!
+    fireEvent.click(block.querySelector('.gfx')!)
+    expect(onCard).toHaveBeenCalledWith(1)
+    onCard.mockClear()
+    fireEvent.click(block.querySelector('.apact')!)
+    expect(onCard).not.toHaveBeenCalled()
+  })
+})

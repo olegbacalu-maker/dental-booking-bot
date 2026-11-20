@@ -1,7 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 import { when } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
-import { hideDialog, showDialog } from '../patients/card/dialog'
+import { useDialogFromOrigin } from '../patients/card/dialog'
 import type { NoteView, StatusAction } from './day'
 
 /* Диалог заметки стойки (C26.5.3-d): прочитать её ЦЕЛИКОМ и убрать.
@@ -68,10 +68,7 @@ export function NoteDialog({ open, note, actions, gone = '', busy,
   onClose, onStatus }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
 
-  useEffect(() => {
-    if (open) showDialog(ref.current)
-    else hideDialog(ref.current)
-  }, [open])
+  useDialogFromOrigin(ref, open)
 
   return (
     <dialog ref={ref} onClose={onClose}>

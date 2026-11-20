@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { AppLink } from '../../components/AppLink'
+import { noteOrigin } from '../../components/dialog'
 import { Icon } from '../../components/Icon'
 import type { IconName } from '../../components/icons'
 import { useFlip } from '../../utils/flip'
@@ -206,7 +207,7 @@ function Row({ kind, r, labels, busy, onCard, onFlow, moved, tops, leaving }:
   return (
     <div ref={self} className={`fl-row${over ? ' over' : ''}${moved ? ' moved' : ''}${leaving ? ' leaving' : ''}`}
       data-appt={leaving ? undefined : it.id} data-gone={leaving ? it.id : undefined}
-      aria-hidden={leaving || undefined} onClick={() => onCard(it.id)}>
+      aria-hidden={leaving || undefined} onClick={(e) => { noteOrigin(e.currentTarget); onCard(it.id) }}>
       <span className="dk-t">{it.time}</span>
       <div className="fl-b">
         <div className="fl-l1">

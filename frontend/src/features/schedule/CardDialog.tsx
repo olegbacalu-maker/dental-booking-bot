@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { AppLink } from '../../components/AppLink'
 import { when } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
-import { hideDialog, showDialog } from '../patients/card/dialog'
+import { useDialogFromOrigin } from '../patients/card/dialog'
 import { day, svcLabel, type ServiceOption, type StatusAction, type VisitCardView } from './day'
 import { CALL_WORDS, type CallResult } from './desk'
 import type { Room } from './move'
@@ -166,10 +166,7 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
      грязным навсегда. По той же чистоте решается, показывать ли кнопку
      сохранения (23.10): нетронутому полю сохранять нечего. */
 
-  useEffect(() => {
-    if (open) showDialog(ref.current)
-    else hideDialog(ref.current)
-  }, [open])
+  useDialogFromOrigin(ref, open)
 
   /* Пересев — НА РЕНДЕРЕ по смене пришедшего значения (приём React «состояние
      от прошлого рендера»), а не эффектом: эффект сработал бы кадром позже, и

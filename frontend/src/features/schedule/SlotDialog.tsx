@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { Icon } from '../../components/Icon'
-import { hideDialog, showDialog } from '../patients/card/dialog'
+import { useDialogFromOrigin } from '../patients/card/dialog'
 import { svcLabel, type NewAppt, type NewNote } from './day'
 import { DurSelect, useDurPick } from './DurPick'
 import { MinPick } from './MinPick'
@@ -127,10 +127,7 @@ export function SlotDialog({ open, slot, date, form, noteEnds, taken, rooms = NO
   const room = roomPick || freeRoom(taken, mainLanes(rooms), start, span, -1) || rooms[0]?.id || ''
   const shared = !none && !tight && roomShared(others, room, start, span)
 
-  useEffect(() => {
-    if (open) showDialog(ref.current)
-    else hideDialog(ref.current)
-  }, [open])
+  useDialogFromOrigin(ref, open)
 
   const failWith: Fail = (text, code) => { setFail(text); setFailCode(code ?? '') }
 

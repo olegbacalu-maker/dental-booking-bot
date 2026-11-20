@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { allowMotion, endTransition as ended } from '../test/motion'
 import { stepMs } from '../utils/motion'
-import { showDialog, useDialogLeave } from './dialog'
+import { noteOrigin, showDialog, useDialogFromOrigin, useDialogLeave } from './dialog'
 
 /* Окно, смонтированное условно: хозяин узнаёт о закрытии после перехода окна,
    иначе узел уходит тем же кадром и окно пропадает рывком. В jsdom движения
@@ -116,5 +116,119 @@ describe('useDialogLeave', () => {
     unmount()
     act(() => { vi.advanceTimersByTime(1000) })
     expect(spy).not.toHaveBeenCalled()
+  })
+})
+
+/* Окно, открытое из блока сетки или строки повестки, растёт из него и
+   сворачивается в него. jsdom не знает ни раскладки, ни Web Animations: место
+   окна и источника подставляются, `animate` — подмена. */
+function Card({ open }: { open: boolean }) {
+  const ref = useRef<HTMLDialogElement>(null)
+  useDialogFromOrigin(ref, open)
+  return <dialog ref={ref} aria-label="vizita" />
+}
+
+describe('useDialogFromOrigin', () => {
+  const animate = vi.fn()
+  function place() {
+    for (const [k, v] of Object.entries({ offsetLeft: 400, offsetTop: 100, offsetWidth: 500, offsetHeight: 400 })) {
+      Object.defineProperty(HTMLDialogElement.prototype, k, { configurable: true, get: () => v })
+    }
+    ;(HTMLDialogElement.prototype as { animate?: unknown }).animate = animate
+  }
+  function tile() {
+    const el = document.createElement('div')
+    el.getBoundingClientRect = () => ({ left: 100, top: 200, width: 50, height: 20, right: 150, bottom: 220,
+      x: 100, y: 200, toJSON: () => ({}) }) as DOMRect
+    document.body.appendChild(el)
+    return el
+  }
+  const ONTO = 'translate(-300px, 100px) scale(0.1, 0.05)'
+
+  afterEach(() => {
+    animate.mockClear()
+    noteOrigin(null)
+    for (const k of ['offsetLeft', 'offsetTop', 'offsetWidth', 'offsetHeight', 'animate']) {
+      delete (HTMLDialogElement.prototype as unknown as Record<string, unknown>)[k]
+    }
+    document.body.innerHTML = ''
+  })
+
+  it('без движения окно просто открывается и закрывается — ни роста, ни пометки сворачивания', () => {
+    place()
+    noteOrigin(tile())
+    const { rerender } = render(<Card open />)
+    const d = win()!
+    expect(d.open).toBe(true)
+    expect(animate).not.toHaveBeenCalled()
+    rerender(<Card open={false} />)
+    expect(d.open).toBe(false)
+    expect(d.hasAttribute('data-grow')).toBe(false)
+  })
+
+  it('⛔ с движением: растёт из названного источника, закрываясь — получает «куда» для перехода CSS', () => {
+    allowMotion()
+    place()
+    noteOrigin(tile())
+    const { rerender } = render(<Card open />)
+    const d = win()!
+    expect(d.open).toBe(true)
+    expect(animate).toHaveBeenCalledTimes(1)
+    const [frames] = animate.mock.calls[0] as [Keyframe[]]
+    expect(frames[0]).toEqual({ transformOrigin: '0 0', transform: ONTO })
+    expect(frames[1]).toEqual({ transformOrigin: '0 0', transform: 'none' })
+    rerender(<Card open={false} />)
+    expect(d.open).toBe(false)
+    /* сворачивание ведёт переход окна из panel.css: скрипт пишет только цель */
+    expect(d.getAttribute('data-grow')).toBe('')
+    expect(d.style.getPropertyValue('--grow-to')).toBe(ONTO)
+    expect(animate).toHaveBeenCalledTimes(1)
+    /* то же окно открыли снова, уже не из источника: прежняя цель снята */
+    rerender(<Card open />)
+    expect(d.hasAttribute('data-grow')).toBe(false)
+    expect(d.style.getPropertyValue('--grow-to')).toBe('')
+    expect(animate).toHaveBeenCalledTimes(1)
+    rerender(<Card open={false} />)
+    expect(d.hasAttribute('data-grow')).toBe(false)
+  })
+
+  it('источник одноразовый и недолгий: окно, открытое позже или вторым, ведёт себя как обычно', () => {
+    allowMotion()
+    place()
+    const now = vi.spyOn(performance, 'now')
+    now.mockReturnValue(1000)
+    noteOrigin(tile())
+    now.mockReturnValue(1000 + 601)
+    const late = render(<Card open />)
+    expect(animate).not.toHaveBeenCalled()
+    late.unmount()
+    now.mockReturnValue(5000)
+    noteOrigin(tile())
+    render(<Card open />)
+    expect(animate).toHaveBeenCalledTimes(1)
+    render(<Card open />)
+    expect(animate).toHaveBeenCalledTimes(1)
+  })
+
+  it('источника к закрытию уже нет в дереве (запись отменили) — окно просто гаснет', () => {
+    allowMotion()
+    place()
+    const el = tile()
+    noteOrigin(el)
+    const { rerender } = render(<Card open />)
+    el.remove()
+    rerender(<Card open={false} />)
+    expect(win()!.hasAttribute('data-grow')).toBe(false)
+  })
+
+  it('Esc: окно закрыл сам браузер раньше хозяина — цель сворачивания пишется всё равно', () => {
+    allowMotion()
+    place()
+    noteOrigin(tile())
+    const { rerender } = render(<Card open />)
+    const d = win()!
+    d.removeAttribute('open')
+    rerender(<Card open={false} />)
+    expect(d.style.getPropertyValue('--grow-to')).toBe(ONTO)
   })
 })

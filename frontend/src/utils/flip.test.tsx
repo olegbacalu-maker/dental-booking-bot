@@ -10,9 +10,9 @@ import { useFlip } from './flip'
 
 const animate = vi.fn()
 
-function List({ items, dep }: { items: [string, number][]; dep: unknown }) {
+function List({ items, dep, after }: { items: [string, number][]; dep: unknown; after?: (el: HTMLElement) => void }) {
   const box = useRef<HTMLDivElement>(null)
-  useFlip(box, dep, '.it')
+  useFlip(box, dep, '.it', '--dur', after)
   return (
     <div ref={box}>
       {items.map(([id, y]) => <div key={id} className="it" data-appt={id} data-y={y} />)}
@@ -58,6 +58,16 @@ describe('useFlip', () => {
     expect(frames[0]!.transform).toBe('translate(0px, 40px)')
     expect(frames[1]!.transform).toBe('none')
     expect(opts.fill).toBeUndefined()
+  })
+
+  it('переехавший узел называют хозяину — только его: ни новый, ни оставшийся на месте', () => {
+    allowMotion()
+    const after = vi.fn()
+    const { rerender } = render(<List dep={1} after={after} items={[['a', 0], ['b', 40], ['c', 80]]} />)
+    expect(after).not.toHaveBeenCalled()
+    rerender(<List dep={2} after={after} items={[['b', 0], ['c', 80], ['n', 120]]} />)
+    expect(after).toHaveBeenCalledTimes(1)
+    expect((after.mock.calls[0] as [HTMLElement])[0].getAttribute('data-appt')).toBe('b')
   })
 
   it('новый узел между старыми проявляется', () => {

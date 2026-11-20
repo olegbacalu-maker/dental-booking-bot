@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { AppLink } from '../../components/AppLink'
+import { noteOrigin } from '../../components/dialog'
 import { clinicNow, clinicTz, waitLabel } from './dashFx'
 import { DeskCard } from './DeskCard'
 import { Fold } from './Fold'
@@ -186,7 +187,7 @@ function Agenda(
               title={compact ? [it.service, it.comment && `${T.comment}: ${it.comment}`].filter(Boolean).join(' · ') : undefined}
               /* завершённый — серая полоса, не цвет услуги (09.10, как у блока сетки) */
               style={{ borderLeftColor: it.status === 'done' ? 'var(--text3)' : it.bar }}
-              onClick={() => onCard(it.id)}
+              onClick={(e) => { noteOrigin(e.currentTarget); onCard(it.id) }}
               onContextMenu={(e) => { e.preventDefault(); onCardMenu?.(it.id, e.clientX, e.clientY) }}>
               <div className="ag-r">
                 <span className="ag-t">{it.time}</span>

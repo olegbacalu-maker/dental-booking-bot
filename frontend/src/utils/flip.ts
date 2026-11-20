@@ -21,7 +21,7 @@ interface Spot { x: number; y: number }
    Animations не касается, и лист снял бы строку на полпути. Перед печатью
    сдвиги завершаются — узел встаёт на своё место. Один слушатель на окно. */
 let printHooked = false
-function hookPrint(): void {
+export function hookPrint(): void {
   if (printHooked || typeof window.matchMedia !== 'function') return
   printHooked = true
   const finish = () => {
@@ -53,6 +53,8 @@ function layoutSpot(el: HTMLElement, root: HTMLElement): Spot {
 export function useFlip(
   box: RefObject<HTMLElement | null>, dep: unknown, selector = '[data-appt]',
   step: '--dur-fast' | '--dur' = '--dur',
+  /** Узел, который поехал на новое место: хозяин может доиграть своё после сдвига. */
+  after?: (el: HTMLElement) => void,
 ): void {
   const last = useRef<Map<string, Spot> | null>(null)
   useLayoutEffect(() => {
@@ -86,6 +88,7 @@ export function useFlip(
       if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue
       el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }],
         { duration: ms, easing: 'cubic-bezier(.22,.61,.36,1)' })
+      after?.(el)
     }
-  }, [box, dep, selector, step])
+  }, [box, dep, selector, step, after])
 }

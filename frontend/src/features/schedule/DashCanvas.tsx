@@ -1,5 +1,6 @@
 import { useRef } from 'react'
 import { AppLink } from '../../components/AppLink'
+import { noteOrigin } from '../../components/dialog'
 import { useFlip } from '../../utils/flip'
 import { Icon, iconName } from '../../components/Icon'
 import { CELL_MIN, GRID_ZOOMS, clinicNow, clinicTz, nowlineRows, useCardView, useFitAppts, useFitGrid, useOdoButton,
@@ -7,6 +8,7 @@ import { CELL_MIN, GRID_ZOOMS, clinicNow, clinicTz, nowlineRows, useCardView, us
 import type { DashAppt, DashBlock, DashCanvasModel, DashColumn } from './dash'
 import type { VisitFacts } from './day'
 import { FactCols } from './FactCols'
+import { settleTile, useTileFx } from './tileFx'
 import { freeSpans, hourLabel, spanAt, startIn, type FreeSpan } from './slot'
 import { cellAtY, CONTROL, dragOf, dropMinute, endOf, hasControl, hhmm, laneEdges, lanesOf, roomTag, type CellRect, type Drag, type Occupies,
   type Room, type Target } from './move'
@@ -129,7 +131,9 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
   /* Блок, сменивший место (перенос — свой или с другого места), доезжает до
      нового сдвигом (07.11, вторая волна): только transform, раскладку и
      ступень сжатия не трогает; на опросе без изменений — ни одного запуска. */
-  useFlip(body, model, '.gappt')
+  useFlip(body, model, '.gappt', '--dur', settleTile)
+  /* отклик блоков на курсор и перенос, очередь появления на открытии дня */
+  useTileFx(body, model.empty ? '' : model.date)
 
   if (model.empty) {
     return (
@@ -254,6 +258,7 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
                     const m = startIn(real[lane] ?? [], at, scale.snap)
                       ?? (busyMain ? Math.floor((at ?? 0) / scale.snap) * scale.snap : null)
                     if (m === null) return
+                    noteOrigin(e.currentTarget)
                     if (n > 1) onSlot(dk, col.name, hh, m, rooms[lane]?.id)
                     else onSlot(dk, col.name, hh, m)
                   }} />
@@ -589,7 +594,7 @@ function Block(
        поверх уже заблокированного часа — не то, что человек нажимал. */
     return (
       <div className={`gappt gnote${fx}`} data-appt={block.id} style={pos}
-        title={block.title} onClick={() => onNote(block.id)} {...grab}>
+        title={block.title} onClick={(e) => { noteOrigin(e.currentTarget); onNote(block.id) }} {...grab}>
         <b><Icon name="note" /> {block.label}</b>
       </div>
     )
@@ -649,11 +654,11 @@ function ApptBlock(
     ? Math.round((block.dur / (block.height * 60)) * 100) : 0
   return (
     <div className={`gappt${block.status === 'noshow' ? ' noshow' : ''}${done ? ' done' : ''}${urgent ? ' urg' : ''}${facts ? ' has-vf' : ''}${fx}`}
-      data-appt={block.id}
+      data-appt={block.id} data-st={block.status}
       style={{ ...pos, background: bg, borderLeft: `5px solid ${bar}`,
         '--bar': bar } as React.CSSProperties}
       title={block.comment ? `${block.title}\n${T.comment}: ${block.comment}` : block.title}
-      onClick={() => onCard(block.id)}
+      onClick={(e) => { noteOrigin(e.currentTarget); onCard(block.id) }}
       onContextMenu={(e) => { e.preventDefault(); onCardMenu?.(block.id, e.clientX, e.clientY) }}
       {...grab}>
       {real > 0 && <i className="gtail" style={{ top: `${real}%` }} />}
@@ -689,6 +694,8 @@ function ApptBlock(
           <Icon name="tooth" />
         </AppLink>
       )}
+      {/* слой эффектов блока: блик при наведении и события статуса; оформление — panel.css › .gfx */}
+      <i className="gfx" aria-hidden="true"><i /></i>
     </div>
   )
 }
