@@ -95,7 +95,8 @@
   picker  поле поиска услуги (ServicePicker) в форме плана фиши, в «Editează procedura»,
           в «Adaugă în plan · dintele 36» с одонтограммы и в строке шаблона плана:
           щелчок, ↓, набор (список меняет высоту), Esc, набор и Enter — поле и окно не
-          двигаются, список стоит под полем; Esc закрывает только список.
+          двигаются, список стоит под полем; Esc закрывает только список. Окно правки
+          проходится и в стиле Sticlă (у его окон backdrop-filter).
 
 ⚠️ Покой меряется ВНЕ границы получаса: на ней сервер законно меняет конверт (час
 «сейчас», прошедшее начало записи). Перед сценарием стенд ждёт, если до границы
@@ -180,7 +181,9 @@
           · строка отказа окна категории без места → окно меняет высоту;
           · переход полосы без охраны reduced-motion → движение без движения.
   picker  · у подсказки прайса в окне с зуба нет места → окно растёт при выборе;
-          · список услуг в потоке окна → окно растёт с открытием списка.
+          · список услуг в потоке окна → окно растёт с открытием списка;
+          · список не в верхнем слое (движок без `showPopover`) → в окне Sticlă он
+            отсчитывается от окна и уезжает вниз на его высоту.
 """
 from __future__ import annotations
 
@@ -1323,7 +1326,7 @@ class Run:
                 " Math.round(b.getBoundingClientRect().top)] : null; }")
         self.js("window.scrollTo(0, document.documentElement.scrollHeight); 1")
         time.sleep(0.3)
-        d = self.type_in(last, "4321", 0.5, look)
+        d = self.type_in(last, str(4321 + self.round), 0.5, look)   # своё число у каждого прохода: иначе правки нет
         ops = [s[0] for s in d["samples"] if s and s[1] == "visible"]
         fade = [r for r in d["runs"] if "tf-save" in r["target"] and r["name"] == "opacity"]
         self.ok(bool(ops) and ops[0] < 0.5 and ops[-1] == 1 and bool(fade) and not d["shifts"],
@@ -1460,7 +1463,7 @@ class Run:
             places = sorted({(x[0], x[1], x[4], x[5]) for x in frames})
             gaps = sorted({x[2] for x in frames if x[2] is not None})
             self.ok(len(places) == 1, f"поиск услуги, {where}: поле и окно на месте весь сеанс (поле, окно: {places[:3]})")
-            self.ok(len(grew) > 1 and len(gaps) == 1 and gaps[0] >= 0,
+            self.ok(len(grew) > 1 and len(gaps) == 1 and 0 <= gaps[0] <= 8,
                     f"поиск услуги, {where}: список меняет высоту ({grew[:4]}) и стоит под полем ({gaps})")
             self.ok(esc_ok and picked == "Coroană din zirconiu",
                     f"поиск услуги, {where}: Esc закрыл только список, Enter выбрал строку («{picked}»)")
@@ -1497,6 +1500,24 @@ class Run:
         self.page.go("/admin/settings/templates?tab=plan")
         time.sleep(1.0)
         drive("шаблон", "document.querySelectorAll('.pt-table .dp-svc input')[1]")
+        # 5. окно в стиле Sticlă: у окна backdrop-filter, и `fixed` внутри него считался бы от окна —
+        #    список уезжал на высоту окна вниз и резался краем. Прогон стилем Clar этого не видит, поэтому
+        #    окно правки здесь проходится и в Sticlă (стиль возвращается прежним).
+        was = self.js("document.documentElement.dataset.style")
+        if was != "sticla":
+            theme = {"primary": "#0E9F8A", "custom": "", "menu": "soft"}
+            r = self.client.post_json("/api/settings/theme", {"style": "sticla", **theme})
+            try:
+                self.ok(r.msg == "ok_theme", f"поиск услуги: стиль Sticlă включён ({r.msg})")
+                self.page.go(f"/admin/patient/{self.pid}?tab=plan")
+                time.sleep(0.8)
+                self.tap("document.querySelector('.plan-row .pact .dp-more')", 0.5)
+                self.tap(BY_TEXT.format(sel=".dp-cmenu [role=menuitem]", text="Editează"), 0.8)
+                drive("«Editează procedura» в Sticlă", f"{edit}.querySelector('.dp-svc input')")
+                self.esc()
+                time.sleep(0.6)
+            finally:
+                self.client.post_json("/api/settings/theme", {"style": was or "clar", **theme})
 
     def scenario(self, name: str, polls: int) -> None:
         print(f"[{self.label}] {name}")
@@ -1690,6 +1711,7 @@ PAIRS = [
     ("tarife", "полоса записи проявляется и без движения", {"css": ".tf .tf-save{transition:opacity .15s ease !important}"}),
     ("picker", "подсказка прайса в окне с зуба без места", {"css": "dialog.dp-plan-dlg .pd-note{min-height:0 !important}"}),
     ("picker", "список услуг в потоке окна", {"css": ".dp-svc-list{position:static !important}"}),
+    ("picker", "список услуг не в верхнем слое", {"js": "delete HTMLElement.prototype.showPopover;"}),
 ]
 
 
