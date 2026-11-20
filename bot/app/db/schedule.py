@@ -180,16 +180,22 @@ async def admin_add(
 async def add_visit_for_patient(
     pid: int, service: str, doctor: str, starts_at: datetime,
     doctor_id: str | None = None, service_id: str | None = None,
-    duration_min: int = 60,
+    duration_min: int = 60, duration_set: bool = False,
     rooms: dict | None = None, room: str | None = None,
 ) -> int | str | None:
     """Запись ИЗ ФИШИ: пациент уже известен по id, дедупликация по телефону
     здесь была бы вредна. Общий путь (`manual:{цифры}`) склеивает пациентов по
     номеру, а у телеграм-пациента session_key 'tg:…' — визит из его же фиши
-    уехал бы новому пациенту-двойнику или соседу с тем же семейным номером."""
-    return await _book(pid, service, doctor, starts_at, "manual",
-                       doctor_id, service_id, duration_min,
-                       rooms=rooms, room=room)
+    уехал бы новому пациенту-двойнику или соседу с тем же семейным номером.
+
+    `duration_set` — длительность задана не услугой: признак ставится, как у
+    `admin_add`, строкой после брони."""
+    r = await _book(pid, service, doctor, starts_at, "manual",
+                    doctor_id, service_id, duration_min,
+                    rooms=rooms, room=room)
+    if duration_set and isinstance(r, int):
+        await _execute("UPDATE appointments SET duration_set = 1 WHERE id = ?", r)
+    return r
 
 
 async def add_note(doctor: str, starts_at: datetime, text: str,

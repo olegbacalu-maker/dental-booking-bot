@@ -322,6 +322,8 @@ _MONTHS = {m: i for i, names in enumerate([
 
 def parse_date(raw) -> tuple[_dt.date | None, int | None, str]:
     """(дата, одиночный год, пометка). День первым: «1/2/03» — первое февраля."""
+    if isinstance(raw, _dt.datetime):
+        return raw.date(), None, ""         # `tabfile.read(times=True)`: час дню рождения не нужен
     if isinstance(raw, _dt.date):
         return raw, None, ""
     s = str(raw).strip().lower().rstrip(".г ").strip()

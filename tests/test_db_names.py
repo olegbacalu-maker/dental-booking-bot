@@ -51,7 +51,6 @@ SNAPSHOT = frozenset((
     "gcal_write", "gcal_rows", "gcal_event", "gcal_set_state", "gcal_mark_moved", "gcal_linked",
     "gcal_expire", "gcal_clear", "gcal_journal", "gcal_patients",
     "gcal_phone_keys", "gcal_ids_with_phone", "gcal_erase", "gcal_source_merge",
-    "gcal_duration_by_hand",
     # «Registre» (10.11.2026): санитарные регистры, db/registre.py + SAN_DDL шага 9
     "SAN_DDL", "SAN_PEOPLE_DDL", "SAN_TABLES", "SAN_KINDS", "san_items", "san_item", "san_item_save", "san_insert",
     "san_close", "san_delete", "san_row", "san_rows", "san_open", "san_fixed_ids", "san_lamp_minutes",

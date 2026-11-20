@@ -12,7 +12,7 @@ from urllib.parse import quote
 
 from ... import db
 from ... import engine as eng
-from ...core import gimport, ics
+from ...core import book, gimport, ics
 from ...core.auth import PERM_SETTINGS, can, request_user
 from ...core.labels import STATUS_LABEL
 from . import day as pday
@@ -552,8 +552,9 @@ def _when(body: dict) -> datetime | None:
 
 
 async def _journal_add(body: dict, pid: int | None) -> tuple:
-    """Шов с журналом: (код окна записи, номер созданной записи). Ветка «фиша
-    выбрана» своя: правило журнала принимает имя и телефон, не номер фиши."""
+    """Шов с журналом: (код окна записи, номер созданной записи). Выбрана фиша —
+    `book.book_visit`: правило окна журнала принимает имя и телефон, не номер фиши.
+    Галочку «Vizita a avut loc» ветка фиши не читает: события прошлого вкладка не хранит."""
     sms = body.get("sms")
     sms = sms if isinstance(sms, bool) else None
     dk, adur, room = _s(body, "doctor"), _s(body, "duration"), _s(body, "room")
@@ -562,33 +563,12 @@ async def _journal_add(body: dict, pid: int | None) -> tuple:
             _s(body, "date"), _s(body, "time"), dk, _s(body, "service"), _s(body, "name"),
             _s(body, "phone"), "1" if body.get("nophone") else "", _s(body, "birth"),
             sms, body.get("done") is True, adur, room, origin="gcal")
-    dt = _when(body)
-    doctor, svc = eng.DOCTORS.get(dk), eng.SERVICES.get(_s(body, "service"))
-    if dt is None or not doctor or not svc:
-        return "bad", None
-    if not eng.in_agenda(_s(body, "service")):
-        return "svc_not_agenda", None
-    dur = eng.svc_duration(_s(body, "service"))
-    if adur:
-        if not adur.isdigit() or not eng.dur_ok(int(adur)):
-            return "bad_dur", None
-        dur = int(adur)
-    if code := eng.place_refusal(dk, dt, dur):
-        return code, None
-    if room and not eng.room_allowed(dk, room):
-        return "bad_room", None
-    plan = eng.room_plan(dk)
-    r = await db.add_visit_for_patient(pid, svc["ro"], doctor, dt, doctor_id=dk,
-                                       service_id=_s(body, "service"), duration_min=dur,
-                                       rooms=plan, room=room or None)
-    if not isinstance(r, int):
-        return ("dup" if r == "dup" else "conflict"), None
-    if adur:
-        await db.gcal_duration_by_hand(r)
-    await sroutes._apply_sms(r, sms)
-    if eng.is_past_day(dt.date()):
-        return "ok_past", r
-    return ("room_busy" if await db.appt_room_busy(r, plan) else "ok"), r
+    # не число — заведомо недопустимая длина: `bad_dur` в своём месте порядка проверок
+    minutes = (int(adur) if adur.isdigit() else 0) if adur else None
+    b = await book.book_visit(pid, dk, _when(body), _s(body, "service"), minutes=minutes, room=room)
+    if b.ok:
+        await sroutes._apply_sms(b.appt_id, sms)
+    return b.code, b.appt_id
 
 
 def _comment(row: dict) -> str:

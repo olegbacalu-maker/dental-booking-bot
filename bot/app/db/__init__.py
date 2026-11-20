@@ -126,7 +126,7 @@ from .gcal import (
     _GCAL_MENU, gcal_menu, gcal_menu_refresh, gcal_sources, gcal_source_put,
     gcal_source_settings, gcal_sources_prune, gcal_source_merge, gcal_events_by_keys, gcal_source_future,
     gcal_write, gcal_rows, gcal_event, gcal_set_state, gcal_mark_moved, gcal_linked,
-    gcal_expire, gcal_clear, gcal_duration_by_hand, gcal_journal, gcal_patients, gcal_phone_keys,
+    gcal_expire, gcal_clear, gcal_journal, gcal_patients, gcal_phone_keys,
     _gcal_text_has, gcal_ids_with_phone, _gcal_erase_sql, gcal_erase,
 )
 from .erasure import (

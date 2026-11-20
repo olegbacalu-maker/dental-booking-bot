@@ -113,7 +113,8 @@ _UQ_DOCTOR = ("uq_doc_room_slot", "uq_docid_room_slot")
 _UQ_NAMES = (*_UQ_DOCTOR, "uq_patient_slot", "uq_doctor_slot")
 _DB_DAY = "app/db/schedule.py"       # day_appointments: выборка дня
 # Кто принимает длительность снаружи и обязан спросить `eng.dur_ok`.
-_DUR_ASKERS = ("app/modules/schedule/routes.py", "app/modules/settings/routes.py")
+_DUR_ASKERS = ("app/modules/schedule/routes.py", "app/modules/settings/routes.py",
+               "app/core/book.py")
 # Кто показывает или принимает услугу АГЕНДЫ (окно записи журнала и фиши, смена
 # процедуры визита, Google, услуги врача, Rechemări) и обязан спросить место у
 # `eng.in_agenda` (или собрать список через `prices.options(eng.WHERE_AGENDA)`):
@@ -127,6 +128,7 @@ _AGENDA_READERS = (
     ("app/modules/patients/routes.py", "_appoint"),
     ("app/modules/patients/card.py", "appoint_view"),
     ("app/modules/patients/api.py", "_agenda_options"),
+    ("app/core/book.py", "refusal"),
     ("app/modules/schedule/gcal.py", "_form"),
     ("app/modules/schedule/gcal.py", "set_service"),
     ("app/modules/doctors/routes.py", "_service_rows"),
@@ -173,6 +175,12 @@ _CFG_WRITERS = {
     "app/modules/doctors/routes.py:_save_cfg", "app/modules/doctors/routes.py:_save_doctor",
     "app/core/tarife.py:store",
 }
+
+# Кто ставит визит фише по номеру (`db.add_visit_for_patient`). Правило «можно ли поставить»
+# повторено ровно один раз — `core/book.book_visit` (перенос из Google, импорт с записями);
+# писатель мимо него — третья копия порядка проверок окна записи, которая разойдётся молча.
+# Запись из фиши (`_appoint`) старше и со своим набором кодов (`past`, `bad` на минуту не по сетке).
+_VISIT_BY_ID = {"app/core/book.py:book_visit", "app/modules/patients/routes.py:_appoint"}
 
 # Оракул ВХОДА В ЖУРНАЛ. Все шестеро привязаны к папке, В КОТОРОЙ ИДЁТ
 # ПРОГРАММА, и все пишут в неё. Против чужого корня (экран раздвоения, P2) они
@@ -2678,3 +2686,17 @@ def suite(res: Result) -> None:
                                    for n in eng_tree.body):
         bad.append("app/engine.py без save_config — якорь правила пропал")
     res.ok("писатели clinic.json перечислены", not bad, "; ".join(bad))
+
+    # Визит фише по номеру ставит одно правило: имя мимо списка — третья копия порядка проверок
+    # окна записи; имя из списка, переставшее звать, — список, который ничего не держит.
+    found = {f"{rel}:{fn.name}" for rel, tree in src if not rel.startswith("app/db/")
+             for fn in _walk(tree) if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+             and "add_visit_for_patient" in _calls(fn)}
+    bad = [f"{w} ставит визит фише мимо book.book_visit" for w in sorted(found - _VISIT_BY_ID)]
+    bad += [f"{w} из _VISIT_BY_ID больше не зовёт add_visit_for_patient"
+            for w in sorted(_VISIT_BY_ID - found)]
+    day_tree = by_path.get(_DB_DAY)
+    if day_tree is None or not any(isinstance(n, ast.AsyncFunctionDef) and n.name == "add_visit_for_patient"
+                                   for n in day_tree.body):
+        bad.append(f"{_DB_DAY} без add_visit_for_patient — якорь правила пропал")
+    res.ok("визит фише по номеру — только через book_visit", not bad, "; ".join(bad))
