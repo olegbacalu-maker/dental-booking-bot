@@ -190,7 +190,7 @@ def services_list() -> list[dict]:
     показывает минуты и подставляет их в «Durată», пока её не тронули).
     ⚠️ Одна сборка на форму дня и на `slotform` панели."""
     return [{"id": k, "label": v["ro"], "dur": eng.svc_duration(k)}
-            for k, v in eng.SERVICES.items()]
+            for k, v in eng.SERVICES.items() if eng.in_agenda(k)]
 
 # --------------------------------------------------------------- модель 2.0
 # ⚠️ Здесь НЕ появляется ни одного нового правила: всё, что ниже, собирает уже

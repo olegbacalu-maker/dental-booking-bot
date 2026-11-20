@@ -43,10 +43,25 @@ def of_service(service_id: str) -> tuple[int | None, str]:
     return None, ""
 
 
-def options() -> list[dict]:
-    """Услуги прайса для форм плана: ключ, имя, сумма (или None) и подсказка."""
+def options(place: str) -> list[dict]:
+    """Услуги одного места (`eng.WHERE_AGENDA` — окно записи, `eng.WHERE_PLAN` —
+    формы плана): ключ, имя RO и RU, сумма (или None), подсказка, категория.
+    Агенда — в порядке профиля; план — по порядку категорий, «Fără categorie»
+    последней, внутри категории — порядок профиля, с именем категории."""
+    if place not in eng.SERVICE_WHERE:
+        raise ValueError(place)
+    shown = eng.in_agenda if place == eng.WHERE_AGENDA else eng.in_plan
     out = []
     for svc in eng.CONFIG.get("services", []):
+        if not shown(svc["id"]):
+            continue
         price, hint = parse(svc.get("price", ""))
-        out.append({"id": svc["id"], "label": svc["ro"], "price": price, "price_hint": hint})
+        out.append({"id": svc["id"], "label": svc["ro"], "ru": svc.get("ru", "") or svc["ro"],
+                    "price": price, "price_hint": hint, "cat": eng.service_cat(svc["id"])})
+    if place == eng.WHERE_PLAN:
+        names = {c["id"]: c["name"] for c in eng.SERVICE_CATS}
+        pos = {c["id"]: i for i, c in enumerate(eng.SERVICE_CATS)}
+        for o in out:
+            o["cat_name"] = names.get(o["cat"], "")
+        out.sort(key=lambda o: pos.get(o["cat"], len(pos)))
     return out

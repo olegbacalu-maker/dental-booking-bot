@@ -137,16 +137,20 @@ PERM_STOCK = "stock"
 # шаблоны клиники — консультации и плана лечения: стойка и директор; врачу нет.
 # Вставить готовый шаблон может любой, кто видит план, — это не правка каталога.
 PERM_TEMPLATES = "templates"
+# прайс «Servicii și tarife» (20.11, Олег: «прайс может править и регистратура,
+# так как директора не может быть на месте»): стойка и директор; врачу нет.
+# Смотреть прайс может любой вошедший — цены плана и так видны всем.
+PERM_PRICES = "prices"
 
 PERMS = {
     ROLE_DIRECTOR: {PERM_MONEY, PERM_SETTINGS, PERM_USERS, PERM_DOCTORS, PERM_SMS,
                     PERM_SCHEDULE_ALL, PERM_RECALL, PERM_IMPORT, PERM_LABS, PERM_STOCK,
-                    PERM_TEMPLATES},
+                    PERM_TEMPLATES, PERM_PRICES},
     # Регистратуре каталог врачей НУЖЕН: отметить отпуск, сузить часы приёма,
     # поправить услуги — операционка стойки, иначе любой чих требует директора.
     # SMS — тоже стойка: согласие пациента спрашивает тот, кто его записывает.
     ROLE_RECEPTIE: {PERM_DOCTORS, PERM_SMS, PERM_SCHEDULE_ALL, PERM_RECALL, PERM_IMPORT,
-                    PERM_LABS, PERM_STOCK, PERM_TEMPLATES},
+                    PERM_LABS, PERM_STOCK, PERM_TEMPLATES, PERM_PRICES},
     # Врачу — нет (канарейка 1.15.0, Олег): с телефона в LAN врач открывал
     # ЧУЖИЕ карточки и мог менять фото. Врачу — пациенты и записи; просмотр
     # своего расписания живёт в журнале, не в каталоге. SMS врач не видит
@@ -884,6 +888,9 @@ LOCAL_ONLY = frozenset({
     "/api/stock/import/run",
     "/api/stock/import/{doc_id}/undo",
     "/admin/stoc/miscari.xlsx",
+    # прайс файлом в программу: одним действием меняются цены всей клиники
+    "/api/tarife/import/check",
+    "/api/tarife/import/run",
 })
 
 

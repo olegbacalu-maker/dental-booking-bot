@@ -21,7 +21,7 @@ from .. import engine as eng
 from . import sms_loop
 from . import theme
 from .auth import (HUB_PERMS, PERM_DOCTORS, PERM_LABS, PERM_MONEY, PERM_STOCK, PERM_RECALL, PERM_SCHEDULE_ALL,
-                   PERM_SETTINGS, PERM_SMS, PERM_TEMPLATES,
+                   PERM_PRICES, PERM_SETTINGS, PERM_SMS, PERM_TEMPLATES,
                    PIN_MAX, ROLE_LABEL, _pin_rec, can, request_user, schedule_scope)
 from .icons import _ic
 from .messages import msg_banner, msg_json, msg_state, msg_text, msg_view
@@ -192,6 +192,8 @@ SECTION_TITLE = {"dash": "Panoul principal", "prog": "Programări", "pat": "Paci
                  "reg": "Registre",
                  "lab": "Laborator",
                  "stoc": "Stoc",
+                 # прайс клиники для плана лечения (20.11) — у всех вошедших
+                 "tarife": "Servicii și tarife",
                  # SMS-пакет (S6): пункт секции «Sincronizări», когда сервер предлагает пакет
                  "gcal": "Google Calendar",
                  "sms": "SMS pacienți"}
@@ -239,6 +241,8 @@ def shell_model(active: str, sub: str, rail: bool = False,
     show_labs = can(me, PERM_LABS) or me is None
     # склад ведут стойка и директор; врач материалы своего визита увидит в фише, не здесь
     show_stock = can(me, PERM_STOCK) or me is None
+    # прайс смотрят все вошедшие; править — стойка и директор
+    show_prices = can(me, PERM_PRICES) or me is None
     th = theme.current()
 
     items = [{"key": "dash", "href": "/admin", "icon": "home", "label": SECTION_TITLE["dash"]},
@@ -294,7 +298,8 @@ def shell_model(active: str, sub: str, rail: bool = False,
                       "can": {"money": show_money, "settings": show_set,
                               "doctors": show_docs, "schedule_all": show_sched,
                               "recall": show_recall, "labs": show_labs,
-                              "stock": show_stock, "templates": show_tpl},
+                              "stock": show_stock, "templates": show_tpl,
+                              "prices": show_prices},
                       # ключ СВОЕГО врача у журнала, суженного до него
                       # (`auth.schedule_scope`); пусто — журнал всех или ничей
                       "doctor": schedule_scope(me, eng.DOCTORS) or ""} if me else None),

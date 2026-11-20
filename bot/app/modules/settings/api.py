@@ -35,6 +35,8 @@ from ...core import backup_loop, dbkey, notices, restore, sms_loop, theme
 from ...core import recall as crecall
 from ...core import sms_plan as splan
 from ...core import plan_tpl as ptpl
+from ...core import prices
+from ...core import tarife as ctarife
 from ...core import visit_tpl as vtpl
 from ...core.api import api_body, api_guard, api_require
 from ...core.auth import (HUB_PERMS, PERM_SETTINGS, PERM_SMS, PERM_TEMPLATES, PERM_USERS, PIN_MAX,
@@ -411,6 +413,8 @@ def _services_data() -> dict:
             "docs": list(s.get("docs") or []),
             # «Rechemări» (29.10): срок отзыва в месяцах, 0 — не участвует
             "recall": int((s.get("recall") or {}).get("months") or 0),
+            # прайс (20.11): где показывается — both / agenda / plan, категория
+            "where": ctarife.where_out(s["id"]), "cat": eng.service_cat(s["id"]),
         })
     return {
         "services": rows,
@@ -420,6 +424,7 @@ def _services_data() -> dict:
         "dur_max": eng.DUR_MAX,
         "recalls": [0, *crecall.MONTHS],
         "doctors": [{"id": d["id"], "name": d["name"]} for d in cfg["doctors"]],
+        "cats": [dict(c) for c in eng.SERVICE_CATS],
     }
 
 
@@ -434,7 +439,9 @@ async def api_services_get(request: Request):
 async def api_services_save(request: Request):
     """Та же `_val_services`, что у формы: она ждёт врачей строкой через
     пробел и длительность строкой — как слал скрипт старой таблицы, так что
-    список id и число приводятся к тому же виду до проверки."""
+    список id и число приводятся к тому же виду до проверки. Поле, которого
+    нет в строке, так и не присылается: нет ключа — «не сообщали».
+    `scope: "agenda"` — тело есть вид агенды (контракт прайса § 6)."""
     if (deny := api_require(request, PERM_SETTINGS)) is not None:
         return deny
     body = await api_body(request)
@@ -443,18 +450,23 @@ async def api_services_save(request: Request):
         return msg_json(False, "bad_set", status=422)
     prepared = []
     for r in rows:
-        docs = r.get("docs", "")
-        if isinstance(docs, list):
-            docs = " ".join(str(x) for x in docs)
-        dur = r.get("duration")
-        prepared.append({**r, "docs": docs,
-                         "duration": "" if dur in (None, "") else str(dur)})
+        row = dict(r)
+        if isinstance(row.get("docs"), list):
+            row["docs"] = " ".join(str(x) for x in row["docs"])
+        if "duration" in row:
+            dur = row["duration"]
+            row["duration"] = "" if dur in (None, "") else str(dur)
+        prepared.append(row)
     try:
-        services, seq = _val_services({"services": prepared})
+        services, seq = _val_services({"services": prepared, "scope": body.get("scope")})
         cfg = _finish_cfg(services=services, seq=seq)
     except (ValueError, KeyError, TypeError, AttributeError) as e:
         if isinstance(e, ValueError) and str(e) == "duration":
             return msg_json(False, "bad_dur", status=422, field="duration")
+        if isinstance(e, ValueError) and str(e) == "agenda":
+            return msg_json(False, "svc_agenda_empty", status=422, field="where")
+        if isinstance(e, ValueError) and str(e) in ("where", "cat"):
+            return msg_json(False, "bad_set", status=422, field=str(e))
         return msg_json(False, "bad_set", status=422)
     if eng.save_config(cfg) is not None:
         return msg_json(False, "save_err", status=500)
@@ -529,11 +541,13 @@ def _plan_templates_data(created: list[str] | None = None) -> dict:
     прайса, как её написала клиника (бывает диапазоном). `created` — id только
     что созданных, в порядке тела записи: экран находит по ним свои новые."""
     services = []
-    for s in eng.CONFIG["services"]:
+    for o in prices.options(eng.WHERE_PLAN):    # строки прайса плана, по категориям
+        s = next(x for x in eng.CONFIG["services"] if x["id"] == o["id"])
         price = s.get("price", "")
         if isinstance(price, dict):
             price = price.get("ro", "")
-        services.append({"id": s["id"], "label": s["ro"], "price": str(price or "")})
+        services.append({"id": s["id"], "label": s["ro"], "price": str(price or ""),
+                         "cat": o["cat"], "cat_name": o["cat_name"]})
     return {"templates": ptpl.catalog(), "services": services, "created": created or [],
             "max": {"name": ptpl.NAME_MAX, "note": ptpl.NOTE_MAX, "rows": ptpl.ROWS_MAX,
                     "price": ptpl.PRICE_MAX, "templates": ptpl.TPL_MAX}}

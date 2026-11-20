@@ -568,6 +568,8 @@ async def _book_appt(adate: str, atime: str, adoctor: str, aservice: str,
     # читается как «программа не работает». Каждая причина называет себя.
     if not doctor or not svc:
         return "bad", None
+    if not eng.in_agenda(aservice):
+        return "svc_not_agenda", None   # строка только прайса плана — не тип записи
     dur = eng.svc_duration(aservice)
     if adur:
         if not adur.isdigit() or not eng.dur_ok(int(adur)):

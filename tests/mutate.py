@@ -311,6 +311,15 @@ MUTATIONS = [
     # вход не спрашивает правило
     ("у dur_ok", "app/modules/settings/routes.py",
      ("not eng.dur_ok(int(dur_raw))", "int(dur_raw) > 999")),
+    # окно записи журнала перестало спрашивать место
+    ("спрашивают in_agenda", "app/modules/schedule/day.py",
+     ("for k, v in eng.SERVICES.items() if eng.in_agenda(k)]", "for k, v in eng.SERVICES.items()]")),
+    # запись на услугу только прайса больше не отказывает
+    ("спрашивают in_agenda", "app/modules/schedule/routes.py",
+     ("    if not eng.in_agenda(aservice):\n        return \"svc_not_agenda\", None", "")),
+    # читатель переименован — список устарел
+    ("спрашивают in_agenda", "app/core/recall.py", ("def services() -> list[dict]:",
+                                                    "def services_all() -> list[dict]:")),
     # потолок выше окна
     ("окно поиска соседей", "app/engine.py",
      ("DUR_MAX = 240", "DUR_MAX = 480")),

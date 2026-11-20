@@ -375,7 +375,7 @@ def _preset(row: dict, start: datetime | None, minutes: int, hint: dict, service
     return {"date": loc.date().isoformat() if loc else "",
             "time": f"{loc:%H:%M}" if loc and row["why"] != W_ALL_DAY else "",
             "duration": str(minutes) if minutes else "",
-            "doctor": dk, "service": service if service in eng.SERVICES else "",
+            "doctor": dk, "service": service if eng.in_agenda(service) else "",
             "name": hint["name"], "phone": phone, "nophone": not phone}
 
 
@@ -441,7 +441,8 @@ def _source_view(src: dict) -> dict:
     return {"id": src["id"], "kind": src["kind"], "name": src["name"],
             "loaded_at": at.strftime("%d.%m.%Y %H:%M") if at else "",
             "loaded_by": src["loaded_by"],
-            "service": settings.get("service", "") if settings.get("service") in eng.SERVICES else ""}
+            "service": (settings.get("service", "") if eng.in_agenda(settings.get("service") or "")
+                        else "")}
 
 
 def _form() -> dict:
@@ -449,7 +450,8 @@ def _form() -> dict:
     return {"doctors": [{"key": k, "name": n} for k, n in eng.DOCTORS.items()
                         if eng.DOCTOR_META.get(k, {}).get("active", True)],
             "services": [{"key": k, "label": v["ro"], "minutes": eng.svc_duration(k),
-                          "docs": list(v.get("docs") or [])} for k, v in eng.SERVICES.items()],
+                          "docs": list(v.get("docs") or [])} for k, v in eng.SERVICES.items()
+                         if eng.in_agenda(k)],
             "sms": pday.sms_box()}
 
 
@@ -564,6 +566,8 @@ async def _journal_add(body: dict, pid: int | None) -> tuple:
     doctor, svc = eng.DOCTORS.get(dk), eng.SERVICES.get(_s(body, "service"))
     if dt is None or not doctor or not svc:
         return "bad", None
+    if not eng.in_agenda(_s(body, "service")):
+        return "svc_not_agenda", None
     dur = eng.svc_duration(_s(body, "service"))
     if adur:
         if not adur.isdigit() or not eng.dur_ok(int(adur)):
@@ -663,7 +667,7 @@ async def clear() -> str:
 
 
 async def set_service(service: str) -> str:
-    if service and service not in eng.SERVICES:
+    if service and not eng.in_agenda(service):
         return "gc_bad"
     sources = await db.gcal_sources()
     if not sources:

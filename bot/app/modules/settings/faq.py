@@ -82,6 +82,7 @@ LOCAL_WORDS = (
      "exporturile în Excel (lista pacienților, registrul)"),
     (("/api/pimport/",), "importul pacienților din fișier"),
     (("/api/stock/import/", "/admin/stoc/miscari.xlsx"), "importul stocului și mișcările stocului în Excel"),
+    (("/api/tarife/import/",), "importul listei de prețuri din fișier"),
 )
 
 

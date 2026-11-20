@@ -124,9 +124,9 @@ _ORPHAN_NOW = ("Cât timp acest medic nu e activ, serviciile {svc} nu au niciun 
 
 def _orphan_services(dk: str, *, without: bool) -> list[str]:
     out = []
-    for sv in eng.SERVICES.values():
+    for sid, sv in eng.SERVICES.items():
         docs = sv.get("docs") or []
-        if not docs or (without and dk not in docs):
+        if not eng.in_agenda(sid) or not docs or (without and dk not in docs):
             continue
         others = [k for k in docs
                   if (k != dk if without else True)
@@ -166,6 +166,8 @@ def _service_rows(dk: str) -> list[dict]:
     """Услуги для галочек фиши: отмечена ли у этого врача и у скольких она."""
     out = []
     for sid, sv in eng.SERVICES.items():
+        if not eng.in_agenda(sid):
+            continue
         docs = sv.get("docs") or []
         out.append({"id": sid, "name": sv["ro"], "checked": (not docs) or dk in docs,
                     "note": ("toți medicii" if not docs
@@ -365,6 +367,11 @@ def _set_services(dk: str, picked: set) -> str:
         sid = s["id"]
         docs = list(s.get("docs") or [])
         entry = dict(s)
+        if not eng.in_agenda(sid):
+            # строку только прайса экран врача не показывает и не шлёт: её
+            # врачи переезжают как есть, иначе снятая «галочка» убрала бы врача
+            services.append(entry)
+            continue
         if sid in picked:
             if docs and dk not in docs:
                 docs.append(dk)

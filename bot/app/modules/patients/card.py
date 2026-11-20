@@ -547,6 +547,6 @@ def appoint_view(p: dict, scope: str | None = None) -> dict:
                  if n == (p.get("primary_doctor") or "")), "")
     return {
         "svc_docs": {k: [dk for dk, _n in eng.allowed_doc_items(k) if ok(dk)]
-                     for k in eng.SERVICES},
+                     for k in eng.SERVICES if eng.in_agenda(k)},
         "prim": prim if ok(prim) else "",
     }

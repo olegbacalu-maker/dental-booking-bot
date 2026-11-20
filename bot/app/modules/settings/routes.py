@@ -39,6 +39,7 @@ from ...core import visit_tpl as vtpl
 from ...core import license as lic
 from ...core import backup_loop, sms_loop
 from ...core.storage import _data_dir
+from ...core.tarife import WHERE_BOTH
 from ...core.visits import SVC_PALETTE
 from ...core import backup as bkp
 from . import crypt
@@ -659,6 +660,10 @@ def _val_hours(data: dict) -> dict:
     return hours
 
 
+# вид экрана «Setări › Servicii» в теле записи: только типы записи агенды
+SCOPE_AGENDA = eng.WHERE_AGENDA
+
+
 def _val_services(data: dict) -> tuple[list, dict]:
     # ⭐ Счётчики id ПЕРСИСТЕНТНЫ (cfg["seq"]) и только растут. Раньше id искался
     # как первый свободный d{n} среди текущего списка: удалили d2, добавили врача —
@@ -675,9 +680,24 @@ def _val_services(data: dict) -> tuple[list, dict]:
         if mnum:
             seq_s = max(seq_s, int(mnum.group(1)))
 
+    # Вид, который прислал экран (20.11, прайс «Servicii și tarife»): нет ключа —
+    # тело есть ВЕСЬ список, как до прайса (вкладка 2.20.0 и старые наборы);
+    # `"agenda"` — только вид агенды, строки прайса вне тела переезжают как есть.
+    scope = data.get("scope")
+    if scope not in (None, SCOPE_AGENDA):
+        raise ValueError("scope")
     doc_ids = {d["id"] for d in eng.CONFIG.get("doctors", [])}
+    cat_ids = {c["id"] for c in eng.SERVICE_CATS}
+    prev_by_id = {x.get("id"): x for x in eng.CONFIG.get("services", [])}
     # одинаковые подписи услуг ломали бы бэкфилл service_id и отчёты
     labels_seen: set[str] = set()
+
+    def _label_free(ro: str, ru: str) -> None:
+        if ro.casefold() in labels_seen or (ru.casefold() != ro.casefold()
+                                            and ru.casefold() in labels_seen):
+            raise ValueError("duplicate service label")
+        labels_seen.add(ro.casefold())
+        labels_seen.add(ru.casefold())
 
     services = []
     sused: set[str] = set()
@@ -686,33 +706,40 @@ def _val_services(data: dict) -> tuple[list, dict]:
         ru = str(s.get("ru", "")).strip()[:60] or ro
         if not ro:
             continue
-        if ro.casefold() in labels_seen or (ru.casefold() != ro.casefold()
-                                            and ru.casefold() in labels_seen):
-            raise ValueError("duplicate service label")
-        labels_seen.add(ro.casefold())
-        labels_seen.add(ru.casefold())
+        _label_free(ro, ru)
         sid = str(s.get("id", "")).strip()
         if not re.fullmatch(r"[a-z0-9_]{1,20}", sid) or sid in sused:
             seq_s += 1
             sid = f"s{seq_s}"
         sused.add(sid)
+        # ⛔ Поле, которого нет в строке, — «не сообщали» (прайор 08-16): экран
+        # агенды не шлёт цену и категорию прайса, экран прайса — длительность и
+        # врачей; берётся из текущего конфига по id. У новой строки прежнего нет.
+        prev = prev_by_id.get(sid, {})
         entry: dict = {"id": sid, "ro": ro, "ru": ru}
-        price = str(s.get("price", "")).strip()[:60]
+        # цена без ключа — как лежит (у старых профилей бывает двуязычной)
+        price = str(s.get("price", "")).strip()[:60] if "price" in s else prev.get("price")
         if price:
             entry["price"] = price
-        dur_raw = str(s.get("duration", "") or "").strip()
-        if dur_raw:
-            if not dur_raw.isdecimal() or not eng.dur_ok(int(dur_raw)):
-                raise ValueError("duration")
-            if int(dur_raw) != 60:
-                entry["duration"] = int(dur_raw)  # 60 = дефолт, не пишем
-        color_s = str(s.get("color", "")).strip()
+        if "duration" in s:
+            dur_raw = str(s.get("duration", "") or "").strip()
+            if dur_raw:
+                if not dur_raw.isdecimal() or not eng.dur_ok(int(dur_raw)):
+                    raise ValueError("duration")
+                if int(dur_raw) != 60:
+                    entry["duration"] = int(dur_raw)  # 60 = дефолт, не пишем
+        elif prev.get("duration"):
+            entry["duration"] = prev["duration"]
+        color_s = str(s.get("color", "")).strip() if "color" in s else str(prev.get("color", ""))
         if color_s in SVC_PALETTE:
             entry["color"] = color_s
-        if s.get("urgent"):
+        if s.get("urgent") if "urgent" in s else prev.get("urgent"):
             entry["urgent"] = True
-        docs = [tok for tok in re.split(r"[,\s]+", str(s.get("docs", "")))
-                if tok in doc_ids]
+        if "docs" in s:
+            docs = [tok for tok in re.split(r"[,\s]+", str(s.get("docs", "")))
+                    if tok in doc_ids]
+        else:
+            docs = [tok for tok in prev.get("docs") or [] if tok in doc_ids]
         if docs:
             entry["docs"] = docs
         # «Rechemări» (29.10): срок отзыва {months, since}. ⛔ Нет ключа в
@@ -722,33 +749,62 @@ def _val_services(data: dict) -> tuple[list, dict]:
         # включения — горизонт списка) ставит сервер, когда срок появляется;
         # смена месяцев её не трогает, 0 снимает обе. Число вне белого списка
         # — отказ, не молчаливое «нет срока».
-        prev = next((x.get("recall") or {} for x in eng.CONFIG.get("services", [])
-                     if x.get("id") == sid), {})
+        prev_rc = prev.get("recall") or {}
         if "recall" in s:
             raw = s.get("recall")
             months = int(raw) if str(raw).strip().isdecimal() else -1
             if months and months not in crecall.MONTHS:
                 raise ValueError("recall")
         else:
-            months = int(prev.get("months") or 0)
+            months = int(prev_rc.get("months") or 0)
         if months:
             entry["recall"] = {"months": months,
-                               "since": str(prev.get("since")
+                               "since": str(prev_rc.get("since")
                                             or datetime.now(eng.TZ).date().isoformat())}
         # Шаблон дневника визита (10.11) правит СВОЙ экран (`/api/settings/
         # templates`), таблица услуг его не шлёт: нет ключа — переезжает из
         # текущего конфига по id, иначе каждое сохранение прайса стирало бы
         # тексты клиники. Ключ есть — та же проверка, что у своего экрана.
-        prev_tpl = next((x.get("tpl") for x in eng.CONFIG.get("services", [])
-                         if x.get("id") == sid), None)
-        tpl = vtpl.clean(s["tpl"]) if "tpl" in s else vtpl.clean(prev_tpl or {})
+        tpl = vtpl.clean(s["tpl"]) if "tpl" in s else vtpl.clean(prev.get("tpl") or {})
         if tpl:
             entry["tpl"] = tpl
+        # Место (агенда / план) и категория прайса — перечислением; нет ключа —
+        # прежнее значение, у новой строки — оба места и «Fără categorie».
+        where = s.get("where") if "where" in s else (prev.get("where") or "")
+        if where in ("", WHERE_BOTH):
+            pass
+        elif where in eng.SERVICE_WHERE:
+            entry["where"] = where
+        elif "where" in s:
+            raise ValueError("where")
+        cat = s.get("cat") if "cat" in s else prev.get("cat", "")
+        if cat:
+            if cat in cat_ids:
+                entry["cat"] = cat
+            elif "cat" in s:
+                raise ValueError("cat")
         services.append(entry)
     if not services:
         raise ValueError("services")
-    # прочие счётчики (шаблоны плана) переезжают как есть: `_finish_cfg` кладёт
-    # `seq` целиком, и забытый счётчик начал бы выдавать id заново
+    if scope == SCOPE_AGENDA:
+        # Строка, которой нет в теле вида агенды: только прайса — переезжает
+        # как есть; «оба» — уходит из агенды и остаётся в прайсе; «doar agendă»
+        # — удаляется (снято последнее место).
+        for x in eng.CONFIG.get("services", []):
+            if x.get("id") in sused:
+                continue
+            w = x.get("where")
+            if w == eng.WHERE_AGENDA:
+                continue
+            kept = dict(x)
+            if w != eng.WHERE_PLAN:
+                kept["where"] = eng.WHERE_PLAN
+            _label_free(kept["ro"], kept.get("ru") or kept["ro"])
+            services.append(kept)
+    if not any(e.get("where") != eng.WHERE_PLAN for e in services):
+        raise ValueError("agenda")
+    # прочие счётчики (шаблоны плана, категории) переезжают как есть: `_finish_cfg`
+    # кладёт `seq` целиком, и забытый счётчик начал бы выдавать id заново
     return services, {**seq, "doctor": seq_d, "service": seq_s}
 
 
