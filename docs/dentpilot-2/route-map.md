@@ -14,7 +14,7 @@
 ради роутера.
 
 
-Поверхностей **35**.
+Поверхностей **36**.
 
 
 | адрес FastAPI | маршрут React | экран | параметры узла | загрузчик |
@@ -31,6 +31,7 @@
 | `/admin/settings` | `/admin/settings` | `settings_hub` | — | GET /api/settings/hub |
 | `/admin/stats` | `/admin/stats` | `stats` | from, to | GET /api/stats |
 | `/admin/stoc` | `/admin/stoc` | `stock` | v?, f?, cat?, q?, doc? | GET /api/stock |
+| `/admin/tarife` | `/admin/tarife` | `tarife` | c? | GET /api/tarife |
 | `/admin/week` | `/admin/week` | `schedule_week` | date | GET /api/schedule/week |
 | `/admin/doctor-card/{dk}` | `/admin/doctor-card/:dk` | `doctor_card` | dk | GET /api/doctors/{dk} |
 | `/admin/doctor/{dk}` | `/admin/doctor/:dk` | `schedule_doctor` | date, dk | GET /api/schedule/day |
@@ -64,6 +65,7 @@
 - `/admin/registre` — «Azi» и «Istoric» (v=istoric) — один экран; месяц истории — из адреса
 - `/admin/search` — ДВА запроса разом (Promise.all) — loader обязан ждать оба
 - `/admin/stoc` — раздел, фильтр, категория, поиск и документ — из адреса
+- `/admin/tarife` — вид меню (категория) — из адреса, поиск — на экране
 - `/admin/doctor-card/{dk}` — ⛔ НЕ путать с /admin/doctor/{dk} — это день врача в журнале
 - `/admin/doctor/{dk}` — тот же DayScreen, отличается dk
 - `/admin/settings/clinic` — ⚠️ единственный экран НЕ на useLoad: свой useEffect

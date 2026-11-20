@@ -1,18 +1,17 @@
-"""«Servicii și tarife» — выгрузка прайса в Excel.
+"""«Servicii și tarife» — страница экрана и выгрузка прайса в Excel.
 
 Данные и команды — `api.py`; правила — `core/tarife.py`. Смотрит прайс любой
 вошедший; править на экране — по `can_edit` модели (`PERM_PRICES`).
-Страница-оболочка экрана (`/admin/tarife`) живёт рядом с самим экраном: имя
-поверхности в `layout.REACT_SCREENS` — это список РЕАЛИЗОВАННЫХ экранов.
 """
 from __future__ import annotations
 
 from fastapi import APIRouter, Request
-from fastapi.responses import Response
+from fastapi.responses import HTMLResponse, Response
 
 from ...core import tarife as ct
 from ...core import xlsx
 from ...core.auth import _guard
+from ...core.layout import react_shell, shell_model
 
 router = APIRouter()
 
@@ -28,3 +27,11 @@ async def admin_tarife_xlsx(request: Request):
     blob = xlsx.book(ct.HEAD_OUT, ct.export_rows(), widths=[24, 48, 40, 16], sheet_name="Tarife")
     return Response(blob, media_type=_XLSX, headers={
         "Content-Disposition": 'attachment; filename="servicii-si-tarife.xlsx"'})
+
+
+@router.get("/admin/tarife", response_class=HTMLResponse)
+async def admin_tarife(request: Request):
+    """Экран прайса (React): смотрит любой вошедший, правит — по `can_edit` модели."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    return react_shell("tarife", request.url.path, shell_model("tarife", ""))

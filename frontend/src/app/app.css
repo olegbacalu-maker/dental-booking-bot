@@ -4128,6 +4128,62 @@ dialog.lb-dlg .lb-steps-box { display: flex; flex-wrap: wrap; gap: 8px; padding:
 .st .rg-head { gap: 10px; }
 .st-head .st-ttl { font-size: var(--fs-l); }
 
+/* «Servicii și tarife»: прайс по категориям, строки правятся на месте, запись одной полосой внизу */
+.tf .tf-tbl td { padding: 4px 6px; }
+/* 300 строк прайса: поля строки ниже обычного контрола, на 1366×768 видно вдвое больше строк */
+.tf .tf-tbl td .dp-fld, .tf .tf-tbl td .dp-sel { width: 100%; min-width: 0; height: 34px; min-height: 34px; padding-inline: 10px; font-size: var(--fs-m); }
+.tf .tf-tbl.ed { table-layout: fixed; min-width: 780px; }
+.tf .tf-tbl.ed th:nth-child(3) { width: 104px; }
+.tf .tf-tbl.ed th:nth-child(4) { width: 150px; }
+.tf .tf-tbl.ed th:nth-child(5) { width: 142px; }
+.tf .tf-tbl.ed th:nth-child(6) { width: 52px; }
+.tf .tf-tbl td.num { text-align: right; }
+.tf .tf-tbl td small { margin-top: 2px; }
+.tf .tf-tbl .dp-fld.tf-price { text-align: right; font-variant-numeric: tabular-nums; }
+.tf .tf-where { white-space: nowrap; }
+.tf-chip { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 9px; margin-right: 4px; border: 1px solid var(--line);
+  border-radius: 999px; background: var(--panel); color: var(--text2); font: inherit; font-size: var(--fs-s); font-weight: 600; }
+.tf-chip svg { width: 13px; height: 13px; }
+.tf-chip.mute { background: var(--fill); color: var(--text3); border-color: transparent; }
+.tf-chip.on { background: var(--teal-soft); border-color: var(--teal); color: var(--teal-d); }
+.tf-chip.tog { cursor: pointer; }
+.tf-chip.tog:not(.on) { border-style: dashed; color: var(--text3); }
+.tf-chip.tog:hover { border-color: var(--teal); }
+.tf-chip.tog:focus-visible { outline: none; box-shadow: var(--ring); }
+.tf .tf-tbl td.tf-act { width: 1%; white-space: nowrap; text-align: right; }
+.tf .tf-tbl tr.tf-ed td:first-child { box-shadow: inset 3px 0 0 var(--teal); }
+.tf .tf-tbl tr.tf-new td { background: color-mix(in srgb, var(--teal-soft) 45%, transparent); }
+.tf .tf-tbl tr.tf-off td { color: var(--text3); }
+.tf .tf-tbl tr.tf-gone td { background: color-mix(in srgb, var(--red-soft) 45%, transparent); }
+.tf .tf-tbl tr.tf-gone .dp-fld { text-decoration: line-through; }
+.tf .tf-tbl tr.tf-bad td:first-child { box-shadow: inset 3px 0 0 var(--red); }
+.tf .tf-tbl tr.tf-bad .dp-fld { border-color: var(--red); }
+.tf .tf-tbl td.tf-none { padding: 22px 16px; color: var(--text3); text-align: center; }
+.tf .tf-wait { min-height: 240px; }
+.tf .tf-cat-tools { margin-left: auto; }
+.tf .tf-find { display: inline-flex; align-items: center; gap: 8px; flex: 1 1 220px; max-width: 320px; }
+.tf .tf-find .dp-fld { flex: 1 1 auto; min-width: 0; }
+.tf .tf-find > span { white-space: nowrap; }
+@media (pointer: coarse) { .tf .tf-tbl td .dp-fld, .tf .tf-tbl td .dp-sel { height: 44px; min-height: 44px; } }
+.tf .tf-save { position: sticky; bottom: 12px; z-index: 3; display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px; box-shadow: var(--sh-hover); }
+.tf .tf-save > span { color: var(--text2); }
+dialog.tf-dlg .tf-fld { display: flex; flex-direction: column; gap: 6px; font-weight: 600; }
+dialog.tf-dlg .tf-fld .dp-fld.bad { border-color: var(--red); }
+dialog.tf-dlg .st-err:empty { visibility: hidden; }
+dialog.tf-dlg .st-err { min-height: 1.4em; }
+dialog.tf-imp { width: 860px; }
+dialog.tf-imp .tf-imp-pick { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+dialog.tf-imp .tf-imp-file { display: flex; align-items: center; gap: 8px; }
+dialog.tf-imp .tf-imp-file svg { width: 16px; height: 16px; flex: none; }
+dialog.tf-imp .tf-imp-file .rg-btn { margin-left: auto; }
+dialog.tf-imp .tf-imp-tabs { flex-wrap: wrap; align-self: flex-start; }
+dialog.tf-imp .tf-imp-tabs b { margin-left: 4px; font-variant-numeric: tabular-nums; }
+dialog.tf-imp .tf-imp-scroll { height: min(46dvh, 420px); overflow: auto; border: 1px solid var(--line); border-radius: var(--r-s); }
+dialog.tf-imp .tf-imp-none { padding: 16px; }
+dialog.tf-imp .tf-imp-tbl th { position: sticky; top: 0; z-index: 1; }
+dialog.tf-imp .tf-imp-tbl td.num, dialog.tf-imp .tf-imp-tbl th.num { text-align: right; white-space: nowrap; }
+
 /* сигналы над остатками */
 .st-alerts { display: flex; flex-wrap: wrap; gap: 10px; }
 .st-alert { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 12px; border: 1px solid var(--amber); border-radius: var(--r-s);

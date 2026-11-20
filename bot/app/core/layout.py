@@ -110,7 +110,9 @@ REACT_SCREENS = frozenset({"recall", "settings_clinic", "doctors_list", "doctor_
                            # заказы в лабораторию и каталог лабораторий
                            "lab", "settings_lab",
                            # склад материалов и его настройки
-                           "stock", "settings_stock"})
+                           "stock", "settings_stock",
+                           # прайс клиники для плана лечения
+                           "tarife"})
 
 
 # Метка узла React в готовой странице (её печатает `react_shell`).
@@ -258,6 +260,8 @@ def shell_model(active: str, sub: str, rail: bool = False,
                   "label": SECTION_TITLE["reg"]})
     if show_stock:
         items.append({"key": "stoc", "href": "/admin/stoc", "icon": "box", "label": SECTION_TITLE["stoc"]})
+    # прайс смотрят все вошедшие; без `PERM_PRICES` экран только для чтения
+    items.append({"key": "tarife", "href": "/admin/tarife", "icon": "cash", "label": SECTION_TITLE["tarife"]})
     if show_docs:
         items.append({"key": "med", "href": "/admin/medici", "icon": "med",
                       "label": SECTION_TITLE["med"]})

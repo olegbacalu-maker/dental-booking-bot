@@ -86,10 +86,16 @@ export interface ServiceEntry {
   /** «Rechemări» (29.10): срок отзыва, месяцев; 0 — не участвует. Нет ключа в
    *  строке — «не сообщали», сервер берёт из конфига (прайор 08-16). */
   recall?: number
+  /** Где показывается (`both` — агенда и план). Нет ключа в строке — «не сообщали»: сервер берёт из профиля. */
+  where?: 'both' | 'agenda' | 'plan'
+  /** Категория прайса; «Setări › Servicii» её не правит и не шлёт. */
+  cat?: string
 }
 
 export interface ServicesData {
+  /** ВСЕ услуги профиля, и строки «только plan» тоже: экран показывает вид агенды */
   services: ServiceEntry[]
+  cats?: { id: string; name: string }[]
   palette: Record<string, string>
   durations: number[]
   dur_step?: number
@@ -555,8 +561,9 @@ export const settings = {
     api.post<BackupData>('/settings/backup/restore/cancel', {}),
   services: (signal?: AbortSignal): Promise<ApiResult<ServicesData>> =>
     api.get<ServicesData>('/settings/services', signal ? { signal } : {}),
+  /** Вид агенды (`scope: "agenda"`): строки «только plan», которых нет в теле, сервер переносит как есть. */
   servicesSave: (services: ServiceEntry[]): Promise<ApiResult<ServicesData>> =>
-    api.post<ServicesData>('/settings/services', { services }),
+    api.post<ServicesData>('/settings/services', { services, scope: 'agenda' }),
   templates: (signal?: AbortSignal): Promise<ApiResult<TemplatesData>> =>
     api.get<TemplatesData>('/settings/templates', signal ? { signal } : {}),
   templatesSave: (templates: TemplatesForm): Promise<ApiResult<TemplatesData>> =>

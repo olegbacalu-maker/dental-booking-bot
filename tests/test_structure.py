@@ -139,7 +139,7 @@ _DB_SAN = "app/db/registre.py"       # журналы san_*: единствен�
 _DB_LAB = "app/db/lab.py"            # заказы в лабораторию: история только дописывается
 _DB_STOCK = "app/db/stock.py"        # журнал склада: только INSERT, и только здесь
 # Разделы с меню слева, которые обязаны найтись правилу «раздел с меню слева берёт данные загрузчиком».
-_SIDE_MENU_KNOWN = {"patient_card", "lab", "stock"}
+_SIDE_MENU_KNOWN = {"patient_card", "lab", "stock", "tarife"}
 # Якоря бывшего layout.py (разнос 04.11): переезд имени = правка одной строки.
 _LAY_SHELL = "app/core/layout.py"     # shell_model, REACT_SCREENS, SECTION_TITLE
 _LAY_ICONS = "app/core/icons.py"      # _I, _ic

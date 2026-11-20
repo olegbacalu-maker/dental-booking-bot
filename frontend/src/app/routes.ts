@@ -15,6 +15,7 @@ export const ROUTES = [
   { path: "/admin/settings", screen: "settings_hub" },
   { path: "/admin/stats", screen: "stats" },
   { path: "/admin/stoc", screen: "stock" },
+  { path: "/admin/tarife", screen: "tarife" },
   { path: "/admin/week", screen: "schedule_week" },
   { path: "/admin/doctor-card/:dk", screen: "doctor_card" },
   { path: "/admin/doctor/:dk", screen: "schedule_doctor" },

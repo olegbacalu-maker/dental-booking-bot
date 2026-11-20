@@ -63,7 +63,8 @@ SOURCES = ["/admin", "/admin/search", "/admin/patient/{pid}", "/admin/all", "/ad
 # Разделы с меню слева (`SideMenu`) и их соседи; новый такой раздел — сюда. Вид: ссылка меню оболочки или адрес
 # «Назад» (у настроек раздела ссылки в меню нет). Раздел, которого в меню нет, — RED.
 TARGETS = [("/admin/lab", "menu"), ("/admin/settings/lab", "pop"), ("/admin/stoc", "menu"),
-           ("/admin/settings/stoc", "pop"), ("/admin/registre", "menu"), ("/admin/settings/registre", "pop")]
+           ("/admin/settings/stoc", "pop"), ("/admin/registre", "menu"), ("/admin/settings/registre", "pop"),
+           ("/admin/tarife", "menu")]
 # Откуда в раздел приходят чаще всего: поверх общих — соседние разделы.
 TARGET_SOURCES = {"/admin/registre": ["/admin", "/admin/all", "/admin/patient/{pid}", "/admin/lab", "/admin/stoc"],
                   "/admin/settings/registre": ["/admin", "/admin/settings", "/admin/registre"]}

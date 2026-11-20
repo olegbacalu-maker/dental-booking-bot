@@ -1,4 +1,5 @@
 import { useCallback, useState, type FormEvent } from 'react'
+import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
@@ -13,7 +14,11 @@ import { settings, type ServiceEntry, type ServicesData } from './settings'
 const T = {
   title: 'Servicii',
   cols: { ro: 'Denumire (RO)', ru: 'Denumire (RU)', price: 'Preț', dur: 'Durată',
-    color: 'Culoare', docs: 'Medici', recall: 'Rechemare' },
+    color: 'Culoare', docs: 'Medici', recall: 'Rechemare', plan: 'În plan' },
+  planTip: 'Serviciul se alege și în planul de tratament',
+  hintW: 'Coloana «În plan»: bifat — tipul de programare se alege și în planul de tratament; nebifat — doar la programare. '
+    + 'Prețurile pentru plan, pe categorii, sunt în ',
+  tarife: 'Servicii și tarife',
   noRecall: '—',
   months: 'luni',
   hintR: 'Coloana «Rechemare»: după cât timp pacientul cu serviciul finalizat apare în '
@@ -31,7 +36,11 @@ const T = {
   offline: 'Programul nu răspunde. Reîncercați.',
 } as const
 
-const EMPTY: ServiceEntry = { id: '', ro: '', ru: '', price: '', duration: 60, color: '', urgent: false, docs: [], recall: 0 }
+/* Новый тип записи — только агенда: прайс плана правится на своём экране («Servicii și tarife») */
+const EMPTY: ServiceEntry = { id: '', ro: '', ru: '', price: '', duration: 60, color: '', urgent: false, docs: [], recall: 0, where: 'agenda' }
+
+/** Вид агенды: строки «только plan» живут на экране прайса, сюда не попадают. */
+const agendaOf = (all: ServiceEntry[]) => all.filter((s) => s.where !== 'plan')
 
 interface Props {
   navigate?: (url: string) => void
@@ -69,7 +78,7 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
   const closeToast = useCallback(() => setToast(null), [])
 
   const data: ServicesModel | null = state.status === 'ready' ? state.data : null
-  const list = rows ?? data?.services ?? []
+  const list = rows ?? agendaOf(data?.services ?? [])
   const patch = (i: number, p: Partial<ServiceEntry>) =>
     setRows(list.map((r, k) => (k === i ? { ...r, ...p } : r)))
   const remove = (i: number) => setRows(list.filter((_, k) => k !== i))
@@ -85,7 +94,7 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
     try {
       const r = await settings.servicesSave(list)
       replace(r.data)
-      setRows(r.data.services)
+      setRows(null)
       setToast({ tone: r.tone, text: r.text })
     } catch (err) {
       const apiErr = asApiError(err)
@@ -117,6 +126,7 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
               <th style={{ width: 120 }}>{T.cols.dur}</th><th style={{ width: 100 }}>{T.cols.recall}</th>
               <th style={{ width: 100 }}>{T.cols.color}</th>
               <th style={{ width: 40 }}><Icon name="sos" /></th><th style={{ width: 140 }}>{T.cols.docs}</th>
+              <th style={{ width: 60 }} title={T.planTip}>{T.cols.plan}</th>
               {tc && <th style={{ width: 70 }} title="Materiale care se scad la finalizare">Materiale</th>}<th />
             </tr>
           </thead>
@@ -164,6 +174,10 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
                     {s.docs.length === 0 && <small>{T.allDocs}</small>}
                   </div>
                 </td>
+                <td style={{ textAlign: 'center' }}>
+                  <input type="checkbox" checked={s.where !== 'agenda'} aria-label={`${T.cols.plan} ${i + 1}`} title={T.planTip} disabled={saving}
+                    onChange={(e) => patch(i, { where: e.target.checked ? 'both' : 'agenda' })} />
+                </td>
                 {tc && (
                   <td>
                     <button type="button" className="dp-svc-mat" disabled={!s.id || saving}
@@ -186,6 +200,7 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
         <button type="button" className="addrow" onClick={add} disabled={data === null || saving}>{T.add}</button>
         <p className="hint">{T.hintA}<Icon name="sos" />{T.hintB}</p>
         <p className="hint">{T.hintR}</p>
+        <p className="hint">{T.hintW}<AppLink className="dp-link" href="/admin/tarife">{T.tarife}</AppLink>.</p>
         {tc && (
           <p className="hint dp-svc-tc">Coloana «Materiale»: ce se scade din stoc la «Finalizată» în planul pacientului.
             {tc.services.some((x) => x.lines.length) && (

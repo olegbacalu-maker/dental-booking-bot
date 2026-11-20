@@ -219,6 +219,7 @@ FLAG = {"/admin/settings/clinic": "settings_clinic",
         "/admin/settings/lab": "settings_lab",
         "/admin/stoc": "stock",
         "/admin/settings/stoc": "settings_stock",
+        "/admin/tarife": "tarife",
         "/admin/search": "patients_search",
         "/admin/patient/{pid}": "patient_card",
         "/admin/visit/{appt_id}": "visit",
@@ -285,6 +286,7 @@ B2 = {
     "/admin/settings/lab": ("—", "GET /api/settings/lab", ""),
     "/admin/stoc": ("v?, f?, cat?, q?, doc?", "GET /api/stock", "раздел, фильтр, категория, поиск и документ — из адреса"),
     "/admin/settings/stoc": ("—", "GET /api/settings/stock", ""),
+    "/admin/tarife": ("c?", "GET /api/tarife", "вид меню (категория) — из адреса, поиск — на экране"),
 }
 
 

@@ -74,10 +74,38 @@ describe('ServicesSettingsScreen', () => {
     expect(await screen.findByText('Setări salvate')).toBeTruthy()
     expect(post).toHaveBeenCalledWith('/settings/services', { services: [
       DATA.services[1],
-      { id: '', ro: 'Albire', ru: '', price: '1500 MDL', duration: 90, color: 'green', urgent: false, docs: ['d3'], recall: 0 },
-    ] })
+      { id: '', ro: 'Albire', ru: '', price: '1500 MDL', duration: 90, color: 'green', urgent: false, docs: ['d3'], recall: 0, where: 'agenda' },
+    ], scope: 'agenda' })
     expect(input('Denumire (RO) 2').value).toBe('Albire')
     expect(screen.queryByDisplayValue('Consultație')).toBeNull()
+  })
+
+  it('20.11: только вид агенды — строки «только plan» не видны и не уходят, тело со scope, «În plan» у строки', async () => {
+    const plan = { id: 's9', ro: 'Coroană zirconiu', ru: 'Коронка', price: '5000', duration: 60, color: '', urgent: false, docs: [], where: 'plan' as const, cat: 'c1' }
+    get.mockResolvedValueOnce(ok({ ...DATA, services: [{ ...DATA.services[0]!, where: 'both' as const }, plan, { ...DATA.services[1]!, where: 'agenda' as const }],
+      cats: [{ id: 'c1', name: 'Protetică' }] }))
+    post.mockResolvedValueOnce(ok({ ...DATA, services: [{ ...DATA.services[0]!, where: 'agenda' as const }, plan, { ...DATA.services[1]!, where: 'agenda' as const }] },
+      'ok_set', 'Setări salvate'))
+    open()
+    await screen.findByDisplayValue('Consultație')
+    expect(screen.queryByDisplayValue('Coroană zirconiu')).toBeNull()
+    expect(document.querySelectorAll('tbody tr').length).toBe(2)
+    const w1 = input('În plan 1')
+    expect(w1.checked).toBe(true)
+    expect(input('În plan 2').checked).toBe(false)
+    fireEvent.click(w1)
+    fireEvent.click(screen.getByRole('button', { name: '+ Adaugă serviciu' }))
+    expect(input('În plan 3').checked).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Șterge rândul 3' }))
+    expect(screen.getByRole('link', { name: 'Servicii și tarife' }).getAttribute('href')).toBe('/admin/tarife')
+    fireEvent.click(screen.getByRole('button', { name: /Salvează serviciile/ }))
+    expect(await screen.findByText('Setări salvate')).toBeTruthy()
+    expect(post).toHaveBeenCalledWith('/settings/services', { services: [
+      { ...DATA.services[0], where: 'agenda' }, { ...DATA.services[1], where: 'agenda' },
+    ], scope: 'agenda' })
+    /* ответ несёт и прайс — экран снова показывает только агенду */
+    expect(screen.queryByDisplayValue('Coroană zirconiu')).toBeNull()
+    expect(input('În plan 1').checked).toBe(false)
   })
 
   it('29.10: колонка «Rechemare» — белый список сервера, заданный срок бирюзой, значение переживает соседнюю правку', async () => {
@@ -101,7 +129,7 @@ describe('ServicesSettingsScreen', () => {
     expect(post).toHaveBeenCalledWith('/settings/services', { services: [
       { ...DATA.services[0], price: '1200 MDL', recall: 6 },
       { ...DATA.services[1], recall: 12 },
-    ] })
+    ], scope: 'agenda' })
   })
 
   it('длительность: быстрые значения и «Altă durată…»; 25 уходит числом, 7 запирает сохранение', async () => {

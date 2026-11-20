@@ -33,6 +33,7 @@ import { LabListScreen, loadLabList } from '../features/lab/LabListScreen'
 import { LabSettingsScreen, loadLabSettings } from '../features/lab/LabSettingsScreen'
 import { loadStock, StockScreen } from '../features/stock/StockScreen'
 import { loadStockSettings, StockSettingsScreen } from '../features/stock/StockSettingsScreen'
+import { loadTarife, TarifeScreen } from '../features/tarife/TarifeScreen'
 import { loadRegistre, RegistreScreen } from '../features/registre/RegistreScreen'
 import { loadRegistreSettings, RegistreSettingsScreen } from '../features/registre/RegistreSettingsScreen'
 import { loadVisit, VisitScreen } from '../features/visits/VisitScreen'
@@ -98,6 +99,7 @@ export const SCREENS: Record<ScreenName, Draw> = {
   settings_lab: () => <LabSettingsScreen />,
   stock: () => <StockScreen />,
   settings_stock: () => <StockSettingsScreen />,
+  tarife: () => <TarifeScreen />,
   patients_search: () => <PatientsSearchScreen />,
   patients_import: () => <ImportScreen />,
   patient_card: (p) => <PatientCardScreen pid={Number(p.pid)} />,
@@ -163,6 +165,7 @@ const LOADS: Record<ScreenName, ScreenData> = {
   settings_lab: loadLabSettings,
   stock: loadStock,
   settings_stock: loadStockSettings,
+  tarife: loadTarife,
   registre: loadRegistre,
   settings_registre: loadRegistreSettings,
 }

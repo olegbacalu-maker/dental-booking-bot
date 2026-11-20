@@ -389,5 +389,14 @@ def suite_rights(res: Result) -> None:
         res.check("право клиенту can.prices",
                   [shell_model(x.get("/admin").body)["identity"]["can"]["prices"] for x in (boss, ana, med)],
                   [True, True, False])
+        # экран прайса: страница React у всех вошедших, пункт меню — тоже у всех (врачу — только чтение)
+        pages = [x.get("/admin/tarife") for x in (boss, ana, med)]
+        res.check("/admin/tarife — экран React «tarife» у директора, регистратуры и врача",
+                  [(p.status, 'data-screen="tarife"' in p.body) for p in pages], [(200, True)] * 3)
+        res.check("пункт меню «Servicii și tarife» у всех трёх ролей, адрес /admin/tarife",
+                  [[i["href"] for i in shell_model(p.body)["nav"]["items"] if i["key"] == "tarife"] for p in pages],
+                  [["/admin/tarife"]] * 3)
+        res.check("…и на странице прайса он выбран", shell_model(pages[2].body)["nav"]["active"], "tarife")
         anon = Client(s.url)
         res.check("без входа — 401", anon.get(API).status, 401)
+        res.check("без входа страница уводит на вход", anon.get("/admin/tarife").status, 303)
