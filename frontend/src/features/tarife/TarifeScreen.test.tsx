@@ -118,6 +118,39 @@ describe('TarifeScreen', () => {
     expect(screen.queryByRole('region', { name: 'Modificări nesalvate' })).toBeNull()
   })
 
+  it('ничто не прыгает: место под число поиска, полосу записи и пометку удаления занято всегда', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    open()
+    await screen.findByDisplayValue('Coroană din zirconiu')
+    /* число найденного: узел стоит и до первой буквы — поле не сужается под курсором */
+    const count = document.querySelector('.tf-find > span')!
+    expect(count.getAttribute('aria-hidden')).toBe('true')
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Caută serviciul' }), { target: { value: 'coroana' } })
+    expect(document.querySelector('.tf-find > span')).toBe(count)
+    expect(count.textContent).toBe('1 serviciu')
+    expect(count.hasAttribute('aria-hidden')).toBe(false)
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Caută serviciul' }), { target: { value: '' } })
+    /* полоса записи: без правки стоит невидимой и не трогается; правка её проявляет — тот же узел */
+    const bar = document.querySelector('.tf-save')!
+    expect(bar.classList.contains('off')).toBe(true)
+    expect(bar.hasAttribute('inert')).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Șterge din listă: Detartraj' }))
+    await waitFor(() => expect(screen.getByText('se șterge la salvare')).toBeTruthy())
+    expect(confirm).toHaveBeenCalled()
+    expect(document.querySelector('.tf-save')).toBe(bar)
+    expect(bar.classList.contains('off')).toBe(false)
+    expect(bar.hasAttribute('inert')).toBe(false)
+    /* удалённая строка не растёт: пометка — на месте «Plan», отмена — значком на месте корзины */
+    const tr = screen.getByLabelText('Denumire (RO): Detartraj').closest('tr')!
+    expect(tr.querySelector('td:first-child small')).toBeNull()
+    expect(within(tr.querySelector('td.tf-where') as HTMLElement).getByText('se șterge la salvare')).toBeTruthy()
+    const undo = within(tr.querySelector('td.tf-act') as HTMLElement).getByRole('button', { name: 'Anulează' })
+    expect(undo.className).toContain('rowdel')
+    fireEvent.click(undo)
+    expect(screen.queryByText('se șterge la salvare')).toBeNull()
+    expect(bar.classList.contains('off')).toBe(true)
+  })
+
   it('новая строка без имени не уходит: подсветка и слово, без запроса', async () => {
     open()
     await screen.findByDisplayValue('Coroană din zirconiu')
@@ -201,6 +234,8 @@ describe('TarifeScreen', () => {
     expect(postRaw.mock.calls[0]?.[0]).toBe('/tarife/import/check?name=pret.xlsx')
     const tabs = within(dlg).getByRole('group', { name: 'Ce se întâmplă' })
     expect(within(tabs).getAllByRole('button').map((b) => b.textContent)).toEqual(['Noi 1', 'Schimbate 1', 'Neschimbate 1', 'Cu greșeli 1'])
+    /* место под жирную подпись нажатой вкладки — та же строка в `data-t` (app.css › ::after) */
+    expect(within(tabs).getAllByRole('button').map((b) => b.dataset.t)).toEqual(['Noi 1', 'Schimbate 1', 'Neschimbate 1', 'Cu greșeli 1'])
     fireEvent.click(within(tabs).getByRole('button', { name: /Schimbate/ }))
     const tr = within(dlg).getByText('Restaurare pe 1 suprafață').closest('tr')!
     expect(tr.textContent).toContain('900')

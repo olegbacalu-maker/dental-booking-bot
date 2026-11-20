@@ -103,8 +103,10 @@ export function ImportDialog({ onClose, onDone, onSignedOut }: {
             </div>
             <div className="dp-seg tf-imp-tabs" role="group" aria-label="Ce se întâmplă">
               {GROUPS.map(([k, label]) => (
-                <button key={k} type="button" className={tab === k ? 'on' : ''} aria-pressed={tab === k} onClick={() => setTab(k)}>
-                  {label} <b>{check.counts[k]}</b>
+                /* `data-t` — место под жирную подпись нажатой вкладки: без него соседние сдвигаются при выборе */
+                <button key={k} type="button" className={tab === k ? 'on' : ''} aria-pressed={tab === k} onClick={() => setTab(k)}
+                  data-t={`${label} ${check.counts[k]}`}>
+                  <span>{label} <b>{check.counts[k]}</b></span>
                 </button>
               ))}
             </div>

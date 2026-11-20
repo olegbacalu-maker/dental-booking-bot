@@ -54,6 +54,7 @@ const T = {
   drop: 'Șterge din listă',
   dropped: 'se șterge la salvare',
   undo: 'Anulează',
+  undoTip: 'Anulează ștergerea',
   noName: 'Scrieți denumirea serviciului.',
   offline: 'Programul nu răspunde. Reîncercați.',
 } as const
@@ -104,6 +105,9 @@ export function TarifeScreen({ navigate = defaultNavigate }: { navigate?: (url: 
   const form: TarifeForm = data ? buildForm(data, edits, added) : {}
   const changes = (Object.keys(form.services ?? {}).length) + (form.new?.length ?? 0)
   const dirty = changes > 0
+  /* гаснущая после записи полоса держит последнее число, а не «0» */
+  const [lastChanges, setLastChanges] = useState(1)
+  if (changes > 0 && changes !== lastChanges) setLastChanges(changes)
 
   /* уход с экрана с правкой — своим окном; смена вида меню (тот же адрес) правку не теряет */
   const blocker = useBlocker(({ currentLocation, nextLocation }) => dirty && currentLocation.pathname !== nextLocation.pathname)
@@ -277,23 +281,26 @@ export function TarifeScreen({ navigate = defaultNavigate }: { navigate?: (url: 
     return (
       <tr key={r.id} className={cls} data-row={r.id}>
         <td><input className="dp-fld" value={s.ro} maxLength={data!.max.name} disabled={busy || gone} aria-label={`${T.cols.ro}: ${r.ro}`}
-          onChange={(e) => edit(r.id, { ro: e.target.value })} />
-          {gone && <small className="st-errt">{T.dropped}</small>}</td>
+          onChange={(e) => edit(r.id, { ro: e.target.value })} /></td>
         <td><input className="dp-fld" value={s.ru} placeholder={s.ro} maxLength={data!.max.name} disabled={busy || gone} aria-label={`${T.cols.ru}: ${r.ro}`}
           onChange={(e) => edit(r.id, { ru: e.target.value })} /></td>
         <td><input className="dp-fld tf-price" value={s.price} maxLength={data!.max.price} disabled={busy || gone} placeholder="—" aria-label={`${T.cols.price}: ${r.ro}`}
           onChange={(e) => edit(r.id, { price: e.target.value })} /></td>
         <td>{catSelect(s.cat, `${T.cols.cat}: ${r.ro}`, (v) => edit(r.id, { cat: v }))}</td>
         <td className="tf-where">
+          {/* пометка удаления встаёт на место «Plan», а не строкой под именем: строка не меняет высоту */}
+          {gone && <span className="tf-drop st-errt">{T.dropped}</span>}
           {inAgenda(r.where) && <span className="tf-chip mute" title={T.agendaTip}>{T.agendaChip}</span>}
           {inAgenda(r.where) ? (
             <button type="button" className={`tf-chip tog${s.plan ? ' on' : ''}`} aria-pressed={s.plan} disabled={busy}
               title={s.plan ? T.planOn : T.planOff} aria-label={`${T.planChip}: ${r.ro}`} onClick={() => edit(r.id, { plan: !s.plan })}>
               {s.plan && <Icon name="check" />}{T.planChip}</button>
-          ) : <span className="tf-chip on">{T.planChip}</span>}
+          ) : !gone && <span className="tf-chip on">{T.planChip}</span>}
         </td>
         <td className="tf-act">
-          {gone ? <button type="button" className="rg-btn sm" onClick={() => edit(r.id, { plan: true })}><Icon name="undo" /> {T.undo}</button>
+          {/* отмена — значком на месте корзины: под курсором та же кнопка того же размера */}
+          {gone ? <button type="button" className="rowdel tf-undo" aria-label={T.undo} title={T.undoTip} onClick={() => edit(r.id, { plan: true })}>
+            <Icon name="undo" /></button>
             : r.where === 'plan' && (
               <button type="button" className="rowdel" aria-label={`${T.drop}: ${r.ro}`} title={T.drop} disabled={busy} onClick={() => { void dropRow(r) }}>
                 <Icon name="trash" /></button>
@@ -319,7 +326,8 @@ export function TarifeScreen({ navigate = defaultNavigate }: { navigate?: (url: 
           <b className="st-ttl">{viewTitle}</b>
           <span className="tf-find">
             <input className="dp-fld" type="search" placeholder={T.find} aria-label={T.find} value={find} onChange={(e) => setFind(e.target.value)} />
-            {needle && <span className="st-mute">{roCount(rows.length, SVCS)}</span>}
+            {/* место под число найденного занято всегда: иначе поле сужалось бы под курсором с первой буквой */}
+            <span className="st-mute" aria-hidden={!needle || undefined}>{needle ? roCount(rows.length, SVCS) : ''}</span>
           </span>
           {can && curCat && (
             <div className="rg-tools tf-cat-tools">
@@ -377,12 +385,15 @@ export function TarifeScreen({ navigate = defaultNavigate }: { navigate?: (url: 
             </div>
           )}
         </div>
-        {can && dirty && (
-          <div className="fcard tf-save" role="region" aria-label="Modificări nesalvate">
+        {/* Полоса записи стоит всегда и проявляется с первой правкой: снятая после «Salvează» укорачивала бы
+            страницу, и у прокрученной до низа всё содержимое съезжало бы вниз на её высоту. */}
+        {can && data && (
+          <div className={`fcard tf-save${dirty ? '' : ' off'}`} role="region" aria-label="Modificări nesalvate"
+            aria-hidden={!dirty || undefined} inert={!dirty}>
             {/* кнопки слева: справа внизу встаёт плашка ответа и закрыла бы их */}
             <button type="button" className="rg-btn pri" disabled={busy} onClick={() => { void save() }}><Icon name="save" /> {T.save}</button>
             <button type="button" className="rg-btn" disabled={busy} onClick={discard}>{T.discard}</button>
-            <span><b>{roCount(changes, MODS)}</b> nesalvate</span>
+            <span><b>{roCount(dirty ? changes : lastChanges, MODS)}</b> nesalvate</span>
           </div>
         )}
       </SideMenu>

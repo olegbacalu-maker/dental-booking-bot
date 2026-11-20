@@ -347,6 +347,8 @@
 .dp-react-root .dp-plan-edit .pe-row { display: flex; gap: 9px; }
 .dp-react-root .dp-plan-edit .pe-row > .dlab { flex: 1 1 0; min-width: 0; }
 .dp-react-root .dp-plan-edit .pe-note { margin-top: -4px; min-height: 1lh; font-size: var(--fs-s); }
+/* окно «Adaugă în plan» с зуба: то же место под подсказку прайса */
+dialog.dp-plan-dlg .pd-note { margin-top: -4px; min-height: 1lh; font-size: var(--fs-s); }
 .dp-react-root .dp-plan-edit .pe-err { margin: 0; font-size: var(--fs-s); font-weight: 600; color: var(--red-t); display: flex; align-items: flex-start; gap: 6px; }
 .dp-react-root .dp-plan-edit .pe-err svg { flex: 0 0 auto; margin-top: 2px; }
 .dp-react-root .dp-plan-edit .pe-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
@@ -4171,6 +4173,9 @@ dialog.lb-dlg .lb-steps-box { display: flex; flex-wrap: wrap; gap: 8px; padding:
 .tf-chip.tog:hover { border-color: var(--teal); }
 .tf-chip.tog:focus-visible { outline: none; box-shadow: var(--ring); }
 .tf .tf-tbl td.tf-act { width: 1%; white-space: nowrap; text-align: right; }
+.tf .tf-tbl .rowdel.tf-undo { background: var(--fill); color: var(--text2); }
+.tf .tf-tbl .rowdel svg { width: 15px; height: 15px; vertical-align: middle; }
+.tf .tf-drop { display: inline-block; max-width: 100%; font-size: var(--fs-s); line-height: 1.2; white-space: normal; vertical-align: middle; }
 .tf .tf-tbl tr.tf-ed td:first-child { box-shadow: inset 3px 0 0 var(--teal); }
 .tf .tf-tbl tr.tf-new td { background: color-mix(in srgb, var(--teal-soft) 45%, transparent); }
 .tf .tf-tbl tr.tf-off td { color: var(--text3); }
@@ -4181,25 +4186,37 @@ dialog.lb-dlg .lb-steps-box { display: flex; flex-wrap: wrap; gap: 8px; padding:
 .tf .tf-tbl td.tf-none { padding: 22px 16px; color: var(--text3); text-align: center; }
 .tf .tf-wait { min-height: 240px; }
 .tf .tf-cat-tools { margin-left: auto; }
-.tf .tf-find { display: inline-flex; align-items: center; gap: 8px; flex: 1 1 220px; max-width: 320px; }
+.tf .tf-find { display: inline-flex; align-items: center; gap: 8px; flex: 1 1 220px; max-width: 440px; }
 .tf .tf-find .dp-fld { flex: 1 1 auto; min-width: 0; }
-.tf .tf-find > span { white-space: nowrap; }
+.tf .tf-find > span { flex: none; width: 8.5em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (pointer: coarse) { .tf .tf-tbl td .dp-fld, .tf .tf-tbl td .dp-sel { height: 44px; min-height: 44px; } }
 .tf .tf-save { position: sticky; bottom: 12px; z-index: 3; display: flex; align-items: center; gap: 10px;
   padding: 10px 16px; box-shadow: var(--sh-hover); }
 .tf .tf-save > span { color: var(--text2); }
+/* без правки полоса стоит невидимой (место занято): проявляется с первой правкой и гаснет после записи */
+.tf .tf-save.off { visibility: hidden; opacity: 0; }
+@media (prefers-reduced-motion: no-preference) {
+  .tf .tf-save { transition: opacity var(--dur-fast) ease, translate var(--dur-fast) ease, visibility var(--dur-fast); }
+  .tf .tf-save.off { translate: 0 8px; }
+}
 dialog.tf-dlg .tf-fld { display: flex; flex-direction: column; gap: 6px; font-weight: 600; }
 dialog.tf-dlg .tf-fld .dp-fld.bad { border-color: var(--red); }
 dialog.tf-dlg .st-err:empty { visibility: hidden; }
-dialog.tf-dlg .st-err { min-height: 1.4em; }
+dialog.tf-dlg .st-err { min-height: 1lh; }
 dialog.tf-imp { width: 860px; }
-dialog.tf-imp .tf-imp-pick { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+/* Окно импорта одной высоты: до файла, со сравнением, на любой вкладке и с отказом. Окно стоит по центру,
+   и выросшее при выборе файла прыгало бы вверх на полэкрана. Высоту несёт тело, таблица сравнения забирает остаток. */
+dialog.tf-imp .rg-dlg-b { height: min(calc(100dvh - 220px), 560px); }
+dialog.tf-imp .tf-imp-pick { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-block: auto; }
 dialog.tf-imp .tf-imp-file { display: flex; align-items: center; gap: 8px; }
 dialog.tf-imp .tf-imp-file svg { width: 16px; height: 16px; flex: none; }
 dialog.tf-imp .tf-imp-file .rg-btn { margin-left: auto; }
 dialog.tf-imp .tf-imp-tabs { flex-wrap: wrap; align-self: flex-start; }
-dialog.tf-imp .tf-imp-tabs b { margin-left: 4px; font-variant-numeric: tabular-nums; }
-dialog.tf-imp .tf-imp-scroll { height: min(46dvh, 420px); overflow: auto; border: 1px solid var(--line); border-radius: var(--r-s); }
+dialog.tf-imp .tf-imp-tabs b { font-variant-numeric: tabular-nums; }
+dialog.tf-imp .tf-imp-tabs > button { display: inline-grid; align-content: center; justify-items: center; word-spacing: 3px; font-variant-numeric: tabular-nums; }
+dialog.tf-imp .tf-imp-tabs b { font-weight: 600; }
+dialog.tf-imp .tf-imp-tabs > button::after { content: attr(data-t); font-weight: 600; height: 0; visibility: hidden; overflow: hidden; }
+dialog.tf-imp .tf-imp-scroll { flex: 1 1 0; min-height: 140px; overflow: auto; border: 1px solid var(--line); border-radius: var(--r-s); }
 dialog.tf-imp .tf-imp-none { padding: 16px; }
 dialog.tf-imp .tf-imp-tbl th { position: sticky; top: 0; z-index: 1; }
 dialog.tf-imp .tf-imp-tbl td.num, dialog.tf-imp .tf-imp-tbl th.num { text-align: right; white-space: nowrap; }

@@ -102,7 +102,10 @@ export function PlanDialog({ model, n, busy, invalid, onClose, onSave, onTemplat
         <input type="number" min={0} max={1000000} value={form.price}
                onChange={(e) => { setAuto(false); set({ price: e.target.value }) }}
                placeholder={T.ph.price} aria-label={T.ph.price} aria-describedby="dp-plan-dlg-price" />
-        <PriceNote id="dp-plan-dlg-price" services={services} procedure={form.procedure} price={form.price} />
+        {/* строка под подсказку прайса занята всегда: окно стоит по центру и без неё росло бы при выборе услуги */}
+        <div className="pd-note">
+          <PriceNote id="dp-plan-dlg-price" services={services} procedure={form.procedure} price={form.price} />
+        </div>
         <label className="dlab">{T.dueHint}
           <input type="date" value={form.due_date} onChange={(e) => set({ due_date: e.target.value })} aria-label={T.ph.due} />
         </label>

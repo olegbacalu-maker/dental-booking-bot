@@ -965,7 +965,13 @@ describe('зуб → план (01.10)', () => {
     fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Adaugă în plan' }))
     const price = () => within(dlg()).getByLabelText('Preț MDL') as HTMLInputElement
     const note = () => dlg().querySelector('.dp-price-note')?.textContent ?? null
+    /* место подсказки занято и без неё: окно стоит по центру и росло бы при выборе услуги */
+    const slot = dlg().querySelector('.pd-note')
+    expect(slot).toBeTruthy()
+    expect(note()).toBeNull()
     fireEvent.change(proc(), { target: { value: 'Tratament de canal' } })
+    expect(dlg().querySelector('.pd-note')).toBe(slot)
+    expect(slot!.querySelector('.dp-price-note')).toBeTruthy()
     expect(price().value).toBe('')
     expect(note()).toBe('în listă: 1200–1800 MDL, scrieți prețul')
     fireEvent.change(proc(), { target: { value: 'Igienizare' } })
