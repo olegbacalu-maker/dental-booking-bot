@@ -12,6 +12,8 @@ __pycache__/
 *.pyc
 
 # desktop build & runtime
+# клиент Google: пишет scripts/embed_gclient.py при сборке, репозиторий публичный
+bot/app/core/gclient_build.py
 .venv-desktop/
 dist/
 build/

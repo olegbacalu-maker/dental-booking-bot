@@ -49,6 +49,7 @@ import test_doctors  # noqa: E402
 import test_doctor_windows  # noqa: E402
 import test_day_actions  # noqa: E402
 import test_day_forms  # noqa: E402
+import test_gapi  # noqa: E402
 import test_gcal  # noqa: E402
 import test_book  # noqa: E402
 import test_gimport_core  # noqa: E402
@@ -193,6 +194,12 @@ SUITES = [
     ("Импорт gimport: округление, пропуски, отпечаток", test_gimport_core.suite_rules),
     ("Импорт gimport: телефон, врач, имя, пересечения", test_gimport_core.suite_hints),
     ("Импорт gimport: конвертер чистый", test_gimport_core.suite_pure),
+    ("Google: провод чистый — вход без проекта, чтение знает только ics", test_gapi.suite_pure),
+    ("Google: вход — PKCE, возврат из браузера, обмен, обновление, отзыв", test_gapi.suite_auth),
+    ("Google: календари и события — все страницы или отказ, коды ответов", test_gapi.suite_api),
+    ("Google: событие → Occurrence — ключ серии, весь день, отменённое, пояса", test_gapi.suite_convert),
+    ("Google: один календарь файлом и через API — те же ключи и отпечатки", test_gapi.suite_parity),
+    ("Google: клиент программы — константа сборки в exe, файл по переменной вне exe", test_gapi.suite_client),
     ("Google Calendar: загрузка файла, список, подсказки, меню", test_gcal.suite_load),
     ("Google Calendar: перенос в журнал, «Leagă», «Nu muta», изменившееся", test_gcal.suite_move),
     ("Google Calendar: начало и длина окна — из конвертера", test_gcal.suite_round),

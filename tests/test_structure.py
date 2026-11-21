@@ -94,6 +94,13 @@ _LAUNCHER_COPY = ("app/core/autobackup.py", "app/core/restore.py", "app/core/dbk
                   "app/core/orders.py")
 _LAUNCHER_COPY_OK = _PRELOAD_MOD | {p.rsplit("/", 1)[-1][:-3] for p in _LAUNCHER_COPY}
 
+# Провод Google — чистые модули: вход не знает проекта вовсе, чтение знает только ics, чтобы
+# событие API шло путём файла. Импорт базы или соседа утянул бы в провод состояние программы.
+_GWIRE = {"app/core/gauth.py": set(), "app/core/gapi.py": {"ics"}}
+# Константу клиента Google PyInstaller кладёт в exe только по статическому импорту: импорт по строке
+# он не видит, и exe молча остался бы «не настроено» — дымовой тест exe этого не заметит.
+_GCLIENT = "app/core/gclient.py"
+
 # `__file__` законен ровно там, где кто-то обязан знать, где лежит он сам:
 # paths.py — единственный, кто знает раскладку; desktop.py — лаунчер, который
 # зовут раньше paths. Везде ещё «путь рядом с собой» переживёт переезд файла
@@ -718,6 +725,41 @@ def suite(res: Result) -> None:
                 bad.append(f"{rel}:{n.lineno} → {', '.join(outside)}")
     res.ok("модули копий импортируемы лаунчером", not bad,
            "в шапке — то, что тянет приложение: " + "; ".join(bad))
+
+    bad = []
+    for rel, ok in _GWIRE.items():
+        tree = by_path.get(rel)
+        if tree is None:
+            bad.append(f"{rel} — нет по этому пути")
+            continue
+        for n in _walk(tree):
+            if not isinstance(n, (ast.Import, ast.ImportFrom)):
+                continue
+            targets = [m for m in _imported(n) if m]
+            if not (getattr(n, "level", 0) or any(m.split(".")[0] == "app" for m in targets)):
+                continue                    # стандартная библиотека — можно
+            if isinstance(n, ast.ImportFrom) and n.level == 1 and (
+                    n.module in ok or (n.module is None and {a.name for a in n.names} <= ok)):
+                continue
+            bad.append(f"{rel}:{n.lineno} → {', '.join(targets)}")
+    res.ok("провод Google знает из проекта только ics", not bad, "; ".join(bad))
+
+    bad = []
+    tree = by_path.get(_GCLIENT)
+    if tree is None:
+        bad.append(f"{_GCLIENT} — нет по этому пути")
+    else:
+        if not any(isinstance(n, ast.ImportFrom) and n.level == 1 and (
+                n.module == "gclient_build"
+                or (n.module is None and any(a.name == "gclient_build" for a in n.names)))
+                for n in _walk(tree)):
+            bad.append(f"{_GCLIENT}: нет `from . import gclient_build`")
+        for n in _walk(tree):
+            if ((isinstance(n, ast.Name) and n.id == "__import__")
+                    or (isinstance(n, ast.Import) and any(a.name.split(".")[0] == "importlib" for a in n.names))
+                    or (isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[0] == "importlib")):
+                bad.append(f"{_GCLIENT}:{n.lineno} импорт по строке")
+    res.ok("клиент Google в exe — статический импорт gclient_build", not bad, "; ".join(bad))
 
     # ---- заказы лаунчеру подписаны (02.11, разбор коллеги Б2) ----
     # Папку данных пишет любая учётка Windows ПК, а заказ исполняет лаунчер

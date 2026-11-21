@@ -46,6 +46,10 @@ foreach ($f in "bundle.js", "three.js", "three-core.js", "teeth.js") {
 & "$venv\Scripts\python.exe" "scripts\sync_version.py"
 if ($LASTEXITCODE -ne 0) { Write-Host "sync_version exit $LASTEXITCODE"; exit 1 }
 
+# Klient Google - iz faila vne repozitoriya (repozitorii publichnyi); bez faila stroka "NOT configured".
+& "$venv\Scripts\python.exe" "scripts\embed_gclient.py"
+if ($LASTEXITCODE -ne 0) { Write-Host "embed_gclient exit $LASTEXITCODE"; exit 1 }
+
 # Staruyu papku - DO sborki: upavshii PyInstaller ne dolzhen ostavit proshluyu na meste.
 $out = "dist\DentPilot-Engine"
 if (Test-Path $out) { Remove-Item $out -Recurse -Force }

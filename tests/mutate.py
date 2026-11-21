@@ -107,6 +107,24 @@ MUTATIONS = [
      "\nfrom . import db  # noqa\n"),
     ("модули копий импортируемы лаунчером", "app/core/restore.py",
      "\nfrom .. import db  # noqa\n"),
+    # Провод Google: вход не знает даже ics; чтение не знает базы, соседа-провода и движка —
+    # и в теле функции тоже.
+    ("провод Google знает из проекта только ics", "app/core/gauth.py",
+     "\nfrom . import ics  # noqa\n"),
+    ("провод Google знает из проекта только ics", "app/core/gapi.py",
+     "\nfrom .. import db  # noqa\n"),
+    ("провод Google знает из проекта только ics", "app/core/gapi.py",
+     "\ndef _mut():\n    from . import gauth  # noqa\n    return gauth\n"),
+    ("провод Google знает из проекта только ics", "app/core/gapi.py",
+     "\nimport app.engine  # noqa\n"),
+    # Константа клиента по строке: PyInstaller её не увидит. Обе формы, и importlib рядом со статическим.
+    ("статический импорт gclient_build", "app/core/gclient.py",
+     ("    from . import gclient_build\n",
+      "    import importlib\n    gclient_build = importlib.import_module('app.core.gclient_build')\n")),
+    ("статический импорт gclient_build", "app/core/gclient.py",
+     ("    from . import gclient_build\n", "    gclient_build = __import__('app.core.gclient_build')\n")),
+    ("статический импорт gclient_build", "app/core/gclient.py",
+     "\nfrom importlib import import_module  # noqa\n"),
     # ---- заказы лаунчеру подписаны (02.11) ----
     # Исполнитель без подписи: тот же вызов, но уже не проверка.
     ("исполняется только по подписи", "app/core/restore.py",
@@ -747,6 +765,12 @@ MUTATIONS = [
 # и отключают такое правило целиком, вместе с настоящей проверкой. Формат тот
 # же, что у MUTATIONS, только ожидание обратное.
 LEGAL = [
+    # имя из ics — тот же разрешённый модуль
+    ("провод Google знает из проекта только ics", "app/core/gapi.py",
+     "\nfrom .ics import Occurrence  # noqa\n"),
+    # имя из сгенерированного модуля — тот же статический импорт
+    ("статический импорт gclient_build", "app/core/gclient.py",
+     "\nfrom .gclient_build import CLIENT as _c  # noqa\n"),
     # чтение журнала импортом — не запись: отчёт и отмена спрашивают визиты своим SELECT в db
     ("импорт ставит визиты только через book", "app/modules/patients/pimport.py",
      "\nasync def _mut(db, i):\n    return await db._fetch('SELECT id FROM appointments WHERE id = ?', i)\n"),
