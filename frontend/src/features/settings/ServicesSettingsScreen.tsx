@@ -30,6 +30,11 @@ const T = {
   hintB: ' = flux urgent (fără alegerea medicului, sloturi din ziua curentă).',
   save: 'Salvează serviciile',
   remove: 'Șterge rândul',
+  editRow: 'Editează',
+  doneRow: 'Gata',
+  doneTip: 'Închide rândul; modificarea rămâne până la «Salvează serviciile»',
+  planChip: 'Plan',
+  min: 'min',
   phRo: 'Serviciu',
   phRu: 'Услуга',
   phPrice: '500 MDL',
@@ -58,10 +63,15 @@ export const loadServicesSettings: RouteLoad<ServicesModel> = async (signal) => 
   return { ...r, data: { ...r.data, techcards } }
 }
 
+/** Ключ строки экрана: id услуги; у новой (ещё без id) — место в списке. */
+const keyOf = (s: ServiceEntry, i: number) => s.id || `new-${i}`
+
 /**
  * Таблица услуг — те же колонки и то же тело запроса, что у старой страницы;
  * дубли подписей и всё прочее проверяет сервер (_val_services), а правки при
  * отказе не пропадают: они живут в состоянии экрана, не в перерисованной форме.
+ * Строка в покое — плитка только для чтения (случайно не поменять); карандаш в конце открывает её на правку,
+ * новая строка открыта сразу. Галочки врачей в плитке те же, только выключены: высота строки не меняется.
  */
 export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
   const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<ServicesModel>(navigate)
@@ -73,6 +83,9 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
   const [replacing, setReplacing] = useState(false)
   const cardOf = (svc: string) => tc?.services.find((x) => x.id === svc)?.lines ?? []
   const [rows, setRows] = useState<ServiceEntry[] | null>(null)
+  /* строки, открытые карандашом (ключ — `keyOf`); новая строка открыта всегда */
+  const [open, setOpen] = useState<Set<string>>(new Set())
+  const openRow = (k: string, on: boolean) => setOpen((o) => { const n = new Set(o); if (on) n.add(k); else n.delete(k); return n })
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<ToastState | null>(null)
   const closeToast = useCallback(() => setToast(null), [])
@@ -95,6 +108,7 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
       const r = await settings.servicesSave(list)
       replace(r.data)
       setRows(null)
+      setOpen(new Set())
       setToast({ tone: r.tone, text: r.text })
     } catch (err) {
       const apiErr = asApiError(err)
@@ -119,20 +133,22 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
     <section className="dp-react-root" aria-busy={data === null}>
       {head}
       <form onSubmit={onSubmit}>
-        <table className="set set-wide">
+        {/* Колонки — фиксированной ширины (`sv-tbl`): иначе открытая карандашом строка со своими полями
+            перераспределяла бы ширины, и вся таблица ехала бы вбок. Числа — ширина колонки с отступами ячейки. */}
+        <table className="set set-wide sv-tbl">
           <thead>
             <tr>
               <th>{T.cols.ro}</th><th>{T.cols.ru}</th><th style={{ width: 150 }}>{T.cols.price}</th>
-              <th style={{ width: 120 }}>{T.cols.dur}</th><th style={{ width: 100 }}>{T.cols.recall}</th>
-              <th style={{ width: 100 }}>{T.cols.color}</th>
-              <th style={{ width: 40 }}><Icon name="sos" /></th><th style={{ width: 140 }}>{T.cols.docs}</th>
-              <th style={{ width: 60 }} title={T.planTip}>{T.cols.plan}</th>
-              {tc && <th style={{ width: 70 }} title="Materiale care se scad la finalizare">Materiale</th>}<th />
+              <th style={{ width: 132 }}>{T.cols.dur}</th><th style={{ width: 96 }}>{T.cols.recall}</th>
+              <th style={{ width: 104 }}>{T.cols.color}</th>
+              <th style={{ width: 44 }}><Icon name="sos" /></th><th style={{ width: 154 }}>{T.cols.docs}</th>
+              <th style={{ width: 70 }} title={T.planTip}>{T.cols.plan}</th>
+              {tc && <th style={{ width: 80 }} title="Materiale care se scad la finalizare">Materiale</th>}<th style={{ width: 100 }} />
             </tr>
           </thead>
           <tbody>
-            {data && list.map((s, i) => (
-              <tr key={s.id || `new-${i}`}>
+            {data && list.map((s, i) => !s.id || open.has(keyOf(s, i)) ? (
+              <tr key={keyOf(s, i)} className="sv-open">
                 <td><input type="text" value={s.ro} placeholder={T.phRo} aria-label={`${T.cols.ro} ${i + 1}`}
                   maxLength={60} disabled={saving} onChange={(e) => patch(i, { ro: e.target.value })} /></td>
                 <td><input type="text" value={s.ru} placeholder={T.phRu} aria-label={`${T.cols.ru} ${i + 1}`}
@@ -189,9 +205,48 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
                     </button>
                   </td>
                 )}
+                <td className="sv-act">
+                  {s.id ? <button type="button" className="sv-ib on" aria-label={`${T.doneRow}: ${s.ro}`} title={T.doneTip} disabled={saving}
+                    onClick={() => openRow(keyOf(s, i), false)}><Icon name="check" /></button> : <span className="sv-slot" />}
+                  {/* удаление — только в правке, как «Șterge» в окне лаборатории: в плитке его не задеть */}
+                  <button type="button" className="sv-ib bad" aria-label={`${T.remove} ${i + 1}`} title={T.remove} disabled={saving}
+                    onClick={() => { openRow(keyOf(s, i), false); remove(i) }}><Icon name="close" /></button>
+                </td>
+              </tr>
+            ) : (
+              <tr key={keyOf(s, i)}>
+                <td><Val text={s.ro} /></td>
+                <td><Val text={s.ru} /></td>
+                <td><Val text={s.price} /></td>
+                <td><Val text={`${s.duration} ${T.min}`} /></td>
+                <td><Val text={s.recall ? `${s.recall} ${T.months}` : ''} empty={T.noRecall} cls={s.recall ? 'dp-rc-set' : ''} /></td>
+                <td><Val text={s.color ? data.palette[s.color] ?? s.color : ''} empty={T.auto} /></td>
+                <td style={{ textAlign: 'center' }}>{s.urgent && <span className="sv-sos" role="img" aria-label="urgent"><Icon name="sos" /></span>}</td>
                 <td>
-                  <button type="button" className="rowdel" aria-label={`${T.remove} ${i + 1}`} disabled={saving}
-                    onClick={() => remove(i)}><Icon name="close" /></button>
+                  <div className="dp-svc-docs">
+                    {data.doctors.map((d) => (
+                      <label key={d.id}><input type="checkbox" checked={s.docs.includes(d.id)} disabled tabIndex={-1} />{d.name}</label>
+                    ))}
+                    {s.docs.length === 0 && <small>{T.allDocs}</small>}
+                  </div>
+                </td>
+                <td style={{ textAlign: 'center' }}>{s.where !== 'agenda' ? <span className="tf-chip on">{T.planChip}</span> : <Val text="" />}</td>
+                {tc && (
+                  <td>
+                    <button type="button" className="dp-svc-mat" disabled={saving}
+                      aria-label={cardOf(s.id).length ? `${cardOf(s.id).length} materiale: ${s.ro}` : `Adaugă materiale: ${s.ro}`}
+                      title="Materialele care se scad la finalizarea serviciului"
+                      onClick={() => setTcOpen({ svc: s.id, name: s.ro || s.id })}>
+                      <Icon name="box" /> {cardOf(s.id).length || <Icon name="plus" />}
+                      {cardOf(s.id).some((l) => !l.active) && <i className="st-dot" title="un material e în arhivă" />}
+                    </button>
+                  </td>
+                )}
+                <td className="sv-act">
+                  {/* два постоянных места, как в правке: карандаш стоит там же, где «Gata» */}
+                  <button type="button" className="sv-ib" aria-label={`${T.editRow}: ${s.ro}`} title={T.editRow} disabled={saving}
+                    onClick={() => openRow(keyOf(s, i), true)}><Icon name="pen" /></button>
+                  <span className="sv-slot" />
                 </td>
               </tr>
             ))}
@@ -222,4 +277,9 @@ export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
       {toast && <Toast tone={toast.tone} text={toast.text} onClose={closeToast} />}
     </section>
   )
+}
+
+/** Значение плитки — в коробке поля правки (отступы, шрифт, прозрачная рамка): строка не прыгает. */
+function Val({ text, empty = '—', cls = '' }: { text: string; empty?: string; cls?: string }) {
+  return <span className={`sv-val${text ? '' : ' none'}${cls ? ` ${cls}` : ''}`} title={text || undefined}>{text || empty}</span>
 }

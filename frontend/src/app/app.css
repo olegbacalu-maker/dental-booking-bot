@@ -220,6 +220,33 @@
   width: auto;
 }
 
+/* «Setări › Servicii»: строка в покое — плитка. Значение — в коробке поля таблицы (`table.set input`: отступ
+   7×9, рамка 1 px — здесь прозрачная), галочки врачей — те же, выключенные: плитка ↔ правка не меняет высоту. */
+/* width 0 + min-width 100%: колонку меряет поле правки, а не длина текста плитки (иначе таблица шире окна) */
+.dp-react-root table.set .sv-val { display: block; box-sizing: border-box; width: 0; min-width: 100%; padding: 7px 9px; border: 1px solid transparent;
+  font-size: var(--fs-m); line-height: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dp-react-root table.set .sv-val.none { color: var(--text3); }
+.dp-react-root table.set.sv-tbl { table-layout: fixed; }
+.dp-react-root table.set.sv-tbl select { width: 100%; }
+.dp-react-root table.set.sv-tbl .dp-durf { display: flex; }
+.dp-react-root table.set.sv-tbl .dp-durf .dp-dur, .dp-react-root table.set.sv-tbl .dp-durf.open .dp-dur { flex: 1 1 100%; width: 100%; }
+.dp-react-root table.set.sv-tbl .dp-svc-docs label { overflow: hidden; text-overflow: ellipsis; }
+.dp-react-root table.set .sv-val.dp-rc-set { color: var(--teal-d); font-weight: 600; }
+.dp-react-root table.set .sv-sos { display: inline-flex; color: var(--red-t); }
+.dp-react-root table.set .sv-sos svg { width: 16px; height: 16px; }
+.dp-react-root table.set .dp-svc-docs input:disabled { opacity: 1; cursor: default; }
+.dp-react-root table.set td.sv-act { white-space: nowrap; text-align: right; font-size: 0; }
+.dp-react-root table.set td.sv-act > * { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle;
+  width: 36px; height: 34px; font-size: var(--fs-m); }
+.dp-react-root table.set td.sv-act > * + * { margin-left: 4px; }
+.dp-react-root table.set .sv-ib { padding: 0; border: 0; border-radius: var(--r-s); background: none; color: var(--text2); cursor: pointer; }
+.dp-react-root table.set .sv-ib:hover:not(:disabled) { background: var(--fill); color: var(--text); }
+.dp-react-root table.set .sv-ib:focus-visible { outline: none; box-shadow: var(--ring); }
+.dp-react-root table.set .sv-ib.on { background: var(--teal-soft); color: var(--teal-d); }
+.dp-react-root table.set .sv-ib.bad { background: var(--red-soft); color: var(--red-t); }
+.dp-react-root table.set .sv-ib svg { width: 16px; height: 16px; }
+@media (pointer: coarse) { .dp-react-root table.set td.sv-act > * { width: 44px; height: 44px; } }
+
 /* Логотип клиники: кнопки рядом с выбором файла. */
 .dp-logo-actions {
   display: flex;
@@ -4161,7 +4188,21 @@ dialog.lb-dlg .lb-steps-box { display: flex; flex-wrap: wrap; gap: 8px; padding:
 .tf .tf-tbl.ed th:nth-child(3) { width: 104px; }
 .tf .tf-tbl.ed th:nth-child(4) { width: 150px; }
 .tf .tf-tbl.ed th:nth-child(5) { width: 142px; }
-.tf .tf-tbl.ed th:nth-child(6) { width: 52px; }
+.tf .tf-tbl.ed th:nth-child(6) { width: 90px; }
+/* Плитка: значение в той же коробке, что поле правки (34 px, отступ 10 px, рамка прозрачная), — переход
+   плитка ↔ правка не меняет ни высоту строки, ни место текста. */
+.tf .tf-val { display: block; box-sizing: border-box; height: 34px; padding-inline: 10px; border: 1px solid transparent;
+  line-height: 32px; font-size: var(--fs-m); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tf .tf-val.none { color: var(--text3); }
+.tf .tf-val.num { text-align: right; font-variant-numeric: tabular-nums; }
+.tf .tf-tbl tr.tf-gone .tf-val { text-decoration: line-through; color: var(--text3); }
+/* два постоянных места в конце строки: карандаш/«Gata» и корзина/отмена — одной ширины в обоих видах */
+.tf .tf-tbl td.tf-act { white-space: nowrap; text-align: right; font-size: 0; }
+.tf .tf-tbl td.tf-act > .rg-ib, .tf .tf-tbl td.tf-act > .tf-slot { display: inline-flex; vertical-align: middle; width: 36px; min-width: 36px;
+  height: 34px; font-size: var(--fs-m); }
+.tf .tf-tbl td.tf-act > * + * { margin-left: 4px; }
+.tf .tf-tbl .rg-ib.tf-pen.on { color: var(--teal-d); background: var(--teal-soft); }
+.tf .tf-tbl .rg-ib.tf-undo { background: var(--fill); color: var(--text2); }
 .tf .tf-tbl td.num { text-align: right; }
 .tf .tf-tbl td small { margin-top: 2px; }
 .tf .tf-tbl .dp-fld.tf-price { text-align: right; font-variant-numeric: tabular-nums; }
@@ -4175,9 +4216,6 @@ dialog.lb-dlg .lb-steps-box { display: flex; flex-wrap: wrap; gap: 8px; padding:
 .tf-chip.tog:not(.on) { border-style: dashed; color: var(--text3); }
 .tf-chip.tog:hover { border-color: var(--teal); }
 .tf-chip.tog:focus-visible { outline: none; box-shadow: var(--ring); }
-.tf .tf-tbl td.tf-act { width: 1%; white-space: nowrap; text-align: right; }
-.tf .tf-tbl .rowdel.tf-undo { background: var(--fill); color: var(--text2); }
-.tf .tf-tbl .rowdel svg { width: 15px; height: 15px; vertical-align: middle; }
 .tf .tf-drop { display: inline-block; max-width: 100%; font-size: var(--fs-s); line-height: 1.2; white-space: normal; vertical-align: middle; }
 .tf .tf-tbl tr.tf-ed td:first-child { box-shadow: inset 3px 0 0 var(--teal); }
 .tf .tf-tbl tr.tf-new td { background: color-mix(in srgb, var(--teal-soft) 45%, transparent); }
@@ -4198,7 +4236,11 @@ dialog.lb-dlg .lb-steps-box { display: flex; flex-wrap: wrap; gap: 8px; padding:
 .tf .tf-find .dp-fld { width: 100%; padding-right: 8.5em; }
 .tf .tf-find > span { position: absolute; right: 12px; top: 50%; translate: 0 -50%; max-width: 8em; pointer-events: none;
   font-size: var(--fs-s); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-@media (pointer: coarse) { .tf .tf-tbl td .dp-fld, .tf .tf-tbl td .dp-sel { height: 44px; min-height: 44px; } }
+@media (pointer: coarse) {
+  .tf .tf-tbl td .dp-fld, .tf .tf-tbl td .dp-sel { height: 44px; min-height: 44px; }
+  .tf .tf-val { height: 44px; line-height: 42px; }
+  .tf .tf-tbl td.tf-act > .rg-ib, .tf .tf-tbl td.tf-act > .tf-slot { width: 44px; min-width: 44px; height: 44px; }
+}
 .tf .tf-save { position: sticky; bottom: 12px; z-index: 3; display: flex; align-items: center; gap: 10px;
   padding: 10px 16px; box-shadow: var(--sh-hover); }
 .tf .tf-save > span { color: var(--text2); }

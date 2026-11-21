@@ -20,8 +20,9 @@ import {
 } from './tarife'
 
 /* «Servicii și tarife» — прайс клиники для плана лечения. Слева категории, справа строки; данные — одним
-   загрузчиком маршрута (`loadTarife` в LOADS). Строки правятся на месте и уходят одной кнопкой «Salvează» —
-   только тронутое (контракт § 5); категории (новая, имя, порядок, удаление) пишутся сразу своей командой.
+   загрузчиком маршрута (`loadTarife` в LOADS). Строка в покое — плитка только для чтения, случайно её не поменять;
+   карандаш в конце открывает её на правку, правки всех строк уходят одной кнопкой «Salvează» — только тронутое
+   (контракт § 5). Категории (новая, имя, порядок, удаление) пишутся сразу своей командой.
    Вид в меню и поиск — на клиенте, без загрузки. */
 
 const T = {
@@ -55,6 +56,11 @@ const T = {
   dropped: 'se șterge la salvare',
   undo: 'Anulează',
   undoTip: 'Anulează ștergerea',
+  editRow: 'Editează',
+  doneRow: 'Gata',
+  doneTip: 'Închide rândul; modificarea rămâne până la «Salvează»',
+  sameRo: 'ca RO',
+  fresh1: 'Scoate rândul nou',
   noName: 'Scrieți denumirea serviciului.',
   offline: 'Programul nu răspunde. Reîncercați.',
 } as const
@@ -93,6 +99,8 @@ export function TarifeScreen({ navigate = defaultNavigate }: { navigate?: (url: 
   const [find, setFind] = useState('')
   const [edits, setEdits] = useState<Record<string, RowEdit>>({})
   const [added, setAdded] = useState<NewRow[]>([])
+  /* строки, открытые карандашом; новые строки открыты всегда */
+  const [open, setOpen] = useState<Set<string>>(new Set())
   const [bad, setBad] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<ToastState | null>(null)
@@ -128,7 +136,7 @@ export function TarifeScreen({ navigate = defaultNavigate }: { navigate?: (url: 
     const el = document.querySelector<HTMLInputElement>(`[data-row="${k}"] input`)
     el?.focus()
     el?.scrollIntoView?.({ block: 'nearest' })
-  }, [added])
+  }, [added, open])
 
   if (state.status === 'leaving') return null
   if (state.status === 'failed') {
@@ -186,12 +194,16 @@ export function TarifeScreen({ navigate = defaultNavigate }: { navigate?: (url: 
     focusKey.current = key
     setAdded((x) => [...x, { key, ro: '', ru: '', price: '', cat: view.k === 'cat' ? view.id : '' }])
   }
+  const openRow = (id: string, on: boolean) => {
+    if (on) focusKey.current = id
+    setOpen((o) => { const n = new Set(o); if (on) n.add(id); else n.delete(id); return n })
+  }
   async function dropRow(r: TarifRow) {
     if (!(await ask({ text: `Ștergeți „${r.ro}” din lista de prețuri? Serviciul nu apare în agendă, deci dispare de tot la salvare. `
       + 'Planurile pacienților îl păstrează așa cum a fost scris.', ok: 'Șterge', danger: true }))) return
     edit(r.id, { plan: false })
   }
-  const discard = () => { setEdits({}); setAdded([]); setBad(new Set()) }
+  const discard = () => { setEdits({}); setAdded([]); setBad(new Set()); setOpen(new Set()) }
 
   async function save() {
     if (!data || !dirty) return
@@ -199,7 +211,7 @@ export function TarifeScreen({ navigate = defaultNavigate }: { navigate?: (url: 
       ...Object.entries(form.services ?? {}).filter(([, e]) => e.ro !== undefined && !e.ro).map(([id]) => id),
       ...added.filter((n) => !n.ro.trim() && (n.ru.trim() || n.price.trim())).map((n) => n.key),
     ]
-    if (empty.length) { setBad(new Set(empty)); say(T.noName, 'err'); return }
+    if (empty.length) { setBad(new Set(empty)); setOpen((o) => new Set([...o, ...empty])); say(T.noName, 'err'); return }
     setBusy(true)
     try {
       const r = await tarifeApi.save(form)
@@ -213,10 +225,13 @@ export function TarifeScreen({ navigate = defaultNavigate }: { navigate?: (url: 
       const label = (er.failure.kind === 'validation' ? (er.failure.data as { label?: string } | undefined)?.label : undefined) ?? ''
       if (label) {
         const l = fold(label)
-        setBad(new Set([
+        const taken = [
           ...data.services.filter((x) => fold(shown(x, edits[x.id]).ro) === l || fold(shown(x, edits[x.id]).ru) === l).map((x) => x.id),
           ...added.filter((n) => fold(n.ro) === l || fold(n.ru) === l).map((n) => n.key),
-        ]))
+        ]
+        setBad(new Set(taken))
+        /* строку с занятым именем — открыть: в плитке поправить нечего */
+        setOpen((o) => new Set([...o, ...taken]))
       }
       say(er.text || T.offline, 'err')
     } finally {
@@ -267,18 +282,50 @@ export function TarifeScreen({ navigate = defaultNavigate }: { navigate?: (url: 
     </select>
   )
 
+  /** Значение плитки — та же коробка, что у поля правки (высота, отступы, прозрачная рамка): строка не прыгает. */
+  const val = (text: string, cls = '', empty = '—') =>
+    <span className={`tf-val${cls ? ` ${cls}` : ''}${text ? '' : ' none'}`} title={text || undefined}>{text || empty}</span>
+  const undoBtn = (r: TarifRow) => (
+    <button type="button" className="rg-ib tf-undo" aria-label={T.undo} title={T.undoTip} onClick={() => edit(r.id, { plan: true })}>
+      <Icon name="undo" /></button>
+  )
+
   function row(r: TarifRow) {
     const s = shown(r, edits[r.id])
     const gone = r.where === 'plan' && !s.plan
     const off = r.where !== 'plan' && !s.plan
-    const cls = [bad.has(r.id) && 'tf-bad', gone && 'tf-gone', off && 'tf-off', form.services?.[r.id] && 'tf-ed']
+    const isOpen = can && open.has(r.id)
+    const cls = [bad.has(r.id) && 'tf-bad', gone && 'tf-gone', off && 'tf-off', form.services?.[r.id] && 'tf-ed', isOpen && 'tf-open']
       .filter(Boolean).join(' ')
-    if (!can) {
+    /* «Apare în»: в плитке — чипы словами; переключатель «Plan» — только в правке */
+    const where = (
+      <td className="tf-where">
+        {/* пометка удаления встаёт на место «Plan», а не строкой под именем: строка не меняет высоту */}
+        {gone && <span className="tf-drop st-errt">{T.dropped}</span>}
+        {inAgenda(r.where) && <span className="tf-chip mute" title={T.agendaTip}>{T.agendaChip}</span>}
+        {isOpen && inAgenda(r.where) ? (
+          <button type="button" className={`tf-chip tog${s.plan ? ' on' : ''}`} aria-pressed={s.plan} disabled={busy}
+            title={s.plan ? T.planOn : T.planOff} aria-label={`${T.planChip}: ${r.ro}`} onClick={() => edit(r.id, { plan: !s.plan })}>
+            {s.plan && <Icon name="check" />}{T.planChip}</button>
+        ) : s.plan && <span className="tf-chip on">{T.planChip}</span>}
+      </td>
+    )
+    if (!isOpen) {
       return (
-        <tr key={r.id} className={cls}>
-          <td>{r.ro}</td><td>{r.ru !== r.ro ? r.ru : <span className="st-mute">—</span>}</td>
-          <td className="num">{r.price || <span className="st-mute">—</span>}</td>
-          <td><Where r={r} /></td>
+        <tr key={r.id} className={cls} data-row={r.id}>
+          <td>{val(s.ro)}</td>
+          <td>{s.ru ? val(s.ru) : val('', 'same', T.sameRo)}</td>
+          <td className="num">{val(s.price, 'num')}</td>
+          <td>{s.cat ? val(catName(s.cat)) : val('', '', T.uncat)}</td>
+          {where}
+          {can && (
+            <td className="tf-act">
+              {/* два постоянных места — карандаш и отмена удаления: кнопки не ездят между плиткой и правкой */}
+              <button type="button" className="rg-ib tf-pen" aria-label={`${T.editRow}: ${r.ro}`} title={T.editRow} disabled={busy}
+                onClick={() => openRow(r.id, true)}><Icon name="pen" /></button>
+              {gone ? undoBtn(r) : <span className="tf-slot" />}
+            </td>
+          )}
         </tr>
       )
     }
@@ -286,40 +333,32 @@ export function TarifeScreen({ navigate = defaultNavigate }: { navigate?: (url: 
       <tr key={r.id} className={cls} data-row={r.id}>
         <td><input className="dp-fld" value={s.ro} maxLength={data!.max.name} disabled={busy || gone} aria-label={`${T.cols.ro}: ${r.ro}`}
           onChange={(e) => edit(r.id, { ro: e.target.value })} /></td>
-        <td><input className="dp-fld" value={s.ru} placeholder={s.ro} maxLength={data!.max.name} disabled={busy || gone} aria-label={`${T.cols.ru}: ${r.ro}`}
+        <td><input className="dp-fld" value={s.ru} placeholder={T.sameRo} maxLength={data!.max.name} disabled={busy || gone} aria-label={`${T.cols.ru}: ${r.ro}`}
           onChange={(e) => edit(r.id, { ru: e.target.value })} /></td>
         <td><input className="dp-fld tf-price" value={s.price} maxLength={data!.max.price} disabled={busy || gone} placeholder="—" aria-label={`${T.cols.price}: ${r.ro}`}
           onChange={(e) => edit(r.id, { price: e.target.value })} /></td>
         <td>{catSelect(s.cat, `${T.cols.cat}: ${r.ro}`, (v) => edit(r.id, { cat: v }))}</td>
-        <td className="tf-where">
-          {/* пометка удаления встаёт на место «Plan», а не строкой под именем: строка не меняет высоту */}
-          {gone && <span className="tf-drop st-errt">{T.dropped}</span>}
-          {inAgenda(r.where) && <span className="tf-chip mute" title={T.agendaTip}>{T.agendaChip}</span>}
-          {inAgenda(r.where) ? (
-            <button type="button" className={`tf-chip tog${s.plan ? ' on' : ''}`} aria-pressed={s.plan} disabled={busy}
-              title={s.plan ? T.planOn : T.planOff} aria-label={`${T.planChip}: ${r.ro}`} onClick={() => edit(r.id, { plan: !s.plan })}>
-              {s.plan && <Icon name="check" />}{T.planChip}</button>
-          ) : !gone && <span className="tf-chip on">{T.planChip}</span>}
-        </td>
+        {where}
         <td className="tf-act">
-          {/* отмена — значком на месте корзины: под курсором та же кнопка того же размера */}
-          {gone ? <button type="button" className="rowdel tf-undo" aria-label={T.undo} title={T.undoTip} onClick={() => edit(r.id, { plan: true })}>
-            <Icon name="undo" /></button>
-            : r.where === 'plan' && (
-              <button type="button" className="rowdel" aria-label={`${T.drop}: ${r.ro}`} title={T.drop} disabled={busy} onClick={() => { void dropRow(r) }}>
-                <Icon name="trash" /></button>
-            )}
+          <button type="button" className="rg-ib tf-pen on" aria-label={`${T.doneRow}: ${r.ro}`} title={T.doneTip} disabled={busy}
+            onClick={() => openRow(r.id, false)}><Icon name="check" /></button>
+          {/* корзина — только в правке, как «Șterge» в окне лаборатории: в плитке её не задеть случайно;
+              отмена удаления — значком на её месте */}
+          {gone ? undoBtn(r)
+            : r.where === 'plan' ? (
+              <button type="button" className="rg-ib bad tf-del" aria-label={`${T.drop}: ${r.ro}`} title={T.drop} disabled={busy}
+                onClick={() => { void dropRow(r) }}><Icon name="trash" /></button>
+            ) : <span className="tf-slot" />}
         </td>
       </tr>
     )
   }
 
-  const colCount = can ? 6 : 4
+  const colCount = can ? 6 : 5
   const headRow = (
     <tr>
       <th>{T.cols.ro}</th><th>{T.cols.ru}</th><th className="num">{T.cols.price}</th>
-      {can && <th>{T.cols.cat}</th>}
-      <th>{T.cols.where}</th>{can && <th />}
+      <th>{T.cols.cat}</th><th>{T.cols.where}</th>{can && <th />}
     </tr>
   )
 
@@ -365,7 +404,7 @@ export function TarifeScreen({ navigate = defaultNavigate }: { navigate?: (url: 
         <div className="fcard rg-body">
           {!data ? <div aria-busy="true" className="tf-wait" /> : (
             <div className="rg-scroll">
-              <table className={`rg-tbl st-tbl tf-tbl${can ? ' ed' : ''}`}>
+              <table className="rg-tbl st-tbl tf-tbl ed">
                 <thead>{headRow}</thead>
                 <tbody>
                   {added.length > 0 && <tr className="st-cat-r"><td colSpan={colCount}>{T.fresh}</td></tr>}
@@ -373,14 +412,14 @@ export function TarifeScreen({ navigate = defaultNavigate }: { navigate?: (url: 
                     <tr key={n.key} data-row={n.key} className={`tf-new${bad.has(n.key) ? ' tf-bad' : ''}`}>
                       <td><input className="dp-fld" value={n.ro} maxLength={data.max.name} disabled={busy} placeholder="Serviciu" aria-label={`${T.cols.ro}: nou`}
                         onChange={(e) => editNew(n.key, { ro: e.target.value })} /></td>
-                      <td><input className="dp-fld" value={n.ru} maxLength={data.max.name} disabled={busy} placeholder={n.ro || 'Услуга'} aria-label={`${T.cols.ru}: nou`}
+                      <td><input className="dp-fld" value={n.ru} maxLength={data.max.name} disabled={busy} placeholder={T.sameRo} aria-label={`${T.cols.ru}: nou`}
                         onChange={(e) => editNew(n.key, { ru: e.target.value })} /></td>
                       <td><input className="dp-fld tf-price" value={n.price} maxLength={data.max.price} disabled={busy} placeholder="preț" aria-label={`${T.cols.price}: nou`}
                         onChange={(e) => editNew(n.key, { price: e.target.value })} /></td>
                       <td>{catSelect(n.cat, `${T.cols.cat}: nou`, (v) => editNew(n.key, { cat: v }))}</td>
                       <td className="tf-where"><span className="tf-chip on">{T.planChip}</span></td>
-                      <td className="tf-act"><button type="button" className="rowdel" aria-label="Scoate rândul nou" disabled={busy}
-                        onClick={() => setAdded((x) => x.filter((y) => y.key !== n.key))}><Icon name="close" /></button></td>
+                      <td className="tf-act"><span className="tf-slot" /><button type="button" className="rg-ib bad" aria-label={T.fresh1}
+                        title={T.fresh1} disabled={busy} onClick={() => setAdded((x) => x.filter((y) => y.key !== n.key))}><Icon name="close" /></button></td>
                     </tr>
                   ))}
                   {groups.map(([name, list]) => [
@@ -422,12 +461,3 @@ export function TarifeScreen({ navigate = defaultNavigate }: { navigate?: (url: 
   )
 }
 
-/** «Apare în» без права: где показывается строка, словами. */
-function Where({ r }: { r: TarifRow }) {
-  return (
-    <span className="tf-where">
-      {inAgenda(r.where) && <span className="tf-chip mute">{T.agendaChip}</span>}
-      {inPlan(r.where) && <span className="tf-chip on">{T.planChip}</span>}
-    </span>
-  )
-}

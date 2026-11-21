@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import { ApiError } from '../../types/api'
@@ -28,6 +28,11 @@ const DATA: ServicesData = {
 
 const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, text, tone: 'ok' })
 const input = (label: string) => screen.getByLabelText(label) as HTMLInputElement
+/** Дождаться таблицы и открыть все строки карандашом: в покое строка — плитка без полей. */
+async function openAll() {
+  await screen.findByText('Consultație')
+  for (const b of screen.queryAllByRole('button', { name: /^Editează: / })) fireEvent.click(b)
+}
 
 const open = (navigate?: (url: string) => void) => openScreen(
   '/admin/settings/services', '/admin/settings/services',
@@ -43,7 +48,8 @@ describe('ServicesSettingsScreen', () => {
   it('строки: цена, длительность, цвет, срочность, врачи галочками', async () => {
     get.mockResolvedValueOnce(ok(DATA))
     open()
-    expect(await screen.findByDisplayValue('Consultație')).toBeTruthy()
+    await openAll()
+    expect(screen.getByDisplayValue('Consultație')).toBeTruthy()
     expect(input('Preț 1').value).toBe('gratuit')
     expect((screen.getByLabelText('Durată 2') as HTMLSelectElement).value).toBe('60')
     expect((screen.getByLabelText('Culoare 2') as HTMLSelectElement).value).toBe('red')
@@ -61,7 +67,7 @@ describe('ServicesSettingsScreen', () => {
     get.mockResolvedValueOnce(ok(DATA))
     post.mockResolvedValueOnce(ok({ ...DATA, services: [DATA.services[1]!, { id: 's1', ro: 'Albire', ru: 'Albire', price: '1500 MDL', duration: 90, color: 'green', urgent: false, docs: ['d3'] }] }, 'ok_set', 'Setări salvate'))
     open()
-    await screen.findByDisplayValue('Consultație')
+    await openAll()
     fireEvent.click(screen.getByRole('button', { name: '+ Adaugă serviciu' }))
     fireEvent.change(input('Denumire (RO) 3'), { target: { value: 'Albire' } })
     fireEvent.change(input('Preț 3'), { target: { value: '1500 MDL' } })
@@ -76,8 +82,9 @@ describe('ServicesSettingsScreen', () => {
       DATA.services[1],
       { id: '', ro: 'Albire', ru: '', price: '1500 MDL', duration: 90, color: 'green', urgent: false, docs: ['d3'], recall: 0, where: 'agenda' },
     ], scope: 'agenda' })
-    expect(input('Denumire (RO) 2').value).toBe('Albire')
-    expect(screen.queryByDisplayValue('Consultație')).toBeNull()
+    expect(screen.getAllByText('Albire').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Consultație')).toBeNull()
+    expect(document.querySelectorAll('tbody input[type=text]')).toHaveLength(0)
   })
 
   it('20.11: только вид агенды — строки «только plan» не видны и не уходят, тело со scope, «În plan» у строки', async () => {
@@ -87,8 +94,8 @@ describe('ServicesSettingsScreen', () => {
     post.mockResolvedValueOnce(ok({ ...DATA, services: [{ ...DATA.services[0]!, where: 'agenda' as const }, plan, { ...DATA.services[1]!, where: 'agenda' as const }] },
       'ok_set', 'Setări salvate'))
     open()
-    await screen.findByDisplayValue('Consultație')
-    expect(screen.queryByDisplayValue('Coroană zirconiu')).toBeNull()
+    await openAll()
+    expect(screen.queryByText('Coroană zirconiu')).toBeNull()
     expect(document.querySelectorAll('tbody tr').length).toBe(2)
     const w1 = input('În plan 1')
     expect(w1.checked).toBe(true)
@@ -104,15 +111,15 @@ describe('ServicesSettingsScreen', () => {
       { ...DATA.services[0], where: 'agenda' }, { ...DATA.services[1], where: 'agenda' },
     ], scope: 'agenda' })
     /* ответ несёт и прайс — экран снова показывает только агенду */
-    expect(screen.queryByDisplayValue('Coroană zirconiu')).toBeNull()
-    expect(input('În plan 1').checked).toBe(false)
+    expect(screen.queryByText('Coroană zirconiu')).toBeNull()
+    expect(document.querySelectorAll('tbody tr')[0]!.textContent).not.toContain('Plan')
   })
 
   it('29.10: колонка «Rechemare» — белый список сервера, заданный срок бирюзой, значение переживает соседнюю правку', async () => {
     get.mockResolvedValueOnce(ok({ ...DATA, services: [{ ...DATA.services[0]!, recall: 6 }, DATA.services[1]!] }))
     post.mockResolvedValueOnce(ok(DATA, 'ok_set', 'Setări salvate'))
     open()
-    await screen.findByDisplayValue('Consultație')
+    await openAll()
     const rc1 = screen.getByLabelText('Rechemare 1') as HTMLSelectElement
     expect(rc1.value).toBe('6')
     expect(rc1.className).toContain('dp-rc-set')
@@ -136,7 +143,7 @@ describe('ServicesSettingsScreen', () => {
     get.mockResolvedValueOnce(ok(DATA))
     post.mockResolvedValueOnce(ok(DATA, 'ok_set', 'Setări salvate'))
     open()
-    await screen.findByDisplayValue('Consultație')
+    await openAll()
     const dur = screen.getByLabelText('Durată 1') as HTMLSelectElement
     expect(Array.from(dur.options).map((o) => o.textContent)).toEqual(
       ['5 min', '10 min', '15 min', '20 min', '30 min', '45 min', '60 min', '90 min', '120 min', 'Altă durată…'])
@@ -154,11 +161,41 @@ describe('ServicesSettingsScreen', () => {
     expect(sent.services[0]?.duration).toBe(25)
   })
 
+  it('21.11: плитки — в покое ни полей, ни удаления; карандаш открывает строку, «Gata» закрывает с правкой', async () => {
+    get.mockResolvedValueOnce(ok({ ...DATA, services: [{ ...DATA.services[0]!, recall: 6 }, DATA.services[1]!] }))
+    post.mockResolvedValueOnce(ok(DATA, 'ok_set', 'Setări salvate'))
+    open()
+    await screen.findByText('Consultație')
+    expect(document.querySelectorAll('tbody input[type=text], tbody select')).toHaveLength(0)
+    expect(screen.queryByRole('button', { name: /^Șterge rândul/ })).toBeNull()
+    const tile = screen.getByText('Durere acută').closest('tr')!
+    expect(tile.textContent).toContain('60 min')
+    expect(tile.textContent).toContain('roșu')
+    expect(within(tile).getByRole('img', { name: 'urgent' })).toBeTruthy()
+    expect(within(screen.getByText('Consultație').closest('tr')!).getByText('6 luni')).toBeTruthy()
+    /* врачи — те же галочки, выключенные: высота строки та же, что в правке */
+    const docs = tile.querySelectorAll('.dp-svc-docs input') as NodeListOf<HTMLInputElement>
+    expect([...docs].map((d) => [d.checked, d.disabled])).toEqual([[true, true], [false, true]])
+    /* у каждой строки два места в конце — и в плитке, и в правке */
+    expect(tile.querySelector('td.sv-act')!.children).toHaveLength(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Editează: Durere acută' }))
+    const row = input('Denumire (RO) 2').closest('tr')!
+    expect(row.querySelector('td.sv-act')!.children).toHaveLength(2)
+    expect(row.children.length).toBe(tile.children.length)
+    fireEvent.change(input('Preț 2'), { target: { value: '700' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Gata: Durere acută' }))
+    expect(document.querySelectorAll('tbody input[type=text]')).toHaveLength(0)
+    expect(screen.getByText('700')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Salvează serviciile/ }))
+    expect(await screen.findByText('Setări salvate')).toBeTruthy()
+    expect((post.mock.calls[0]?.[1] as { services: { price: string }[] }).services[1]?.price).toBe('700')
+  })
+
   it('отказ сервера — текст в плашке, правки остаются', async () => {
     get.mockResolvedValueOnce(ok(DATA))
     post.mockRejectedValueOnce(new ApiError({ kind: 'validation', code: 'bad_set', text: 'Setări invalide' }, 'v'))
     open()
-    await screen.findByDisplayValue('Consultație')
+    await openAll()
     fireEvent.change(input('Denumire (RO) 1'), { target: { value: 'Durere acută' } })
     fireEvent.click(screen.getByRole('button', { name: /Salvează serviciile/ }))
     expect(await screen.findByText('Setări invalide')).toBeTruthy()
