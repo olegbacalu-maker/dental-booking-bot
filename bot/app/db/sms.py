@@ -27,13 +27,15 @@ _SMS_REMINDED_SQL = "('sent','delivered')"
 async def sms_candidates(now: datetime, horizon: datetime) -> list:
     """Визиты, которым может понадобиться SMS: programată (`confirmed` — до
     звонка и после, вид решает `status_view`), с пациентом, у которого есть
-    телефон, не архивным и без «Fără remindere SMS», начало в окне. Годность
+    телефон, не архивным и без «Fără remindere SMS», начало в окне; визит из файла,
+    импортированный без SMS (`sms_skip`), — нет. Годность
     номера (мобильный Молдовы) решает правило sms_rule у вызывающего."""
     return await _fetch(
         """SELECT a.id, a.starts_at, a.created_at, a.patient_id,
                   p.phone, p.lang, p.session_key
            FROM appointments a JOIN patients p ON p.id = a.patient_id
            WHERE a.status = 'confirmed' AND a.source <> 'note'
+             AND COALESCE(a.sms_skip, 0) = 0
              AND a.starts_at > ? AND a.starts_at < ?
              AND p.phone IS NOT NULL AND p.phone <> ''
              AND COALESCE(p.archived, 0) = 0 AND COALESCE(p.sms_off, 0) = 0

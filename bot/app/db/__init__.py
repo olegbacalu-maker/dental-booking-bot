@@ -71,6 +71,8 @@ from .patients import (
 from .pimport import (
     IMPORT_DDL, IMPORT_FILL, import_index, import_open, import_get, import_list, import_count,
     import_mark, import_drop, import_pids, import_untouched, import_undone, fill_patient_blanks,
+    _APPT_SIG, _APPT_CHILDREN, import_appt_mark, import_appts, import_appt_ids, import_appt_drop,
+    import_set_notes, import_visit_exists,
 )
 from .plist import (
     _PLIST_COLS, all_patients, patients_visits, patients_debt, _PL_LAST_DOC_OF, _PL_DOCTOR,

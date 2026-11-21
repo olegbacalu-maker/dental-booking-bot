@@ -182,6 +182,14 @@ _CFG_WRITERS = {
 # Запись из фиши (`_appoint`) старше и со своим набором кодов (`past`, `bad` на минуту не по сетке).
 _VISIT_BY_ID = {"app/core/book.py:book_visit", "app/modules/patients/routes.py:_appoint"}
 
+# Импорт пациентов с записями ставит визиты ТОЛЬКО через `core/book`: проба на шаге проверки —
+# `book.probe`, запись — `book.book_visit`. Любой другой путь записи в журнал из импорта — своя
+# копия порядка проверок окна записи (сетка, часы, занятость, кабинет), которая разойдётся молча.
+_PIMPORT = ("app/modules/patients/pimport.py", "app/modules/patients/pimport_api.py")
+_APPT_WRITERS = {"admin_add", "create_appointment", "_book", "_book_locked", "add_visit_for_patient",
+                 "add_note", "_insert_note", "set_status", "move_appointment", "_add_appt", "_book_appt",
+                 "_journal_add", "set_appt_room"}
+
 # Оракул ВХОДА В ЖУРНАЛ. Все шестеро привязаны к папке, В КОТОРОЙ ИДЁТ
 # ПРОГРАММА, и все пишут в неё. Против чужого корня (экран раздвоения, P2) они
 # непригодны вовсе — там `verify_source_pin`, читающий по явному пути.
@@ -2700,3 +2708,27 @@ def suite(res: Result) -> None:
                                    for n in day_tree.body):
         bad.append(f"{_DB_DAY} без add_visit_for_patient — якорь правила пропал")
     res.ok("визит фише по номеру — только через book_visit", not bad, "; ".join(bad))
+
+    # Импорт с записями: в журнал — только через book; якоря — проба и запись в импорте, обе
+    # функции в core/book.py (список включающий: пропавшее имя иначе выключило бы правило молча).
+    bad = []
+    imp = {rel: by_path.get(rel) for rel in _PIMPORT}
+    for rel, tree in imp.items():
+        if tree is None:
+            bad.append(f"{rel} не найден — якорь правила пропал")
+            continue
+        for fn in _walk(tree):
+            if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for name in sorted(_calls(fn) & _APPT_WRITERS):
+                    bad.append(f"{rel}:{fn.name} пишет в журнал мимо book ({name})")
+        for n in _walk(tree):
+            if (isinstance(n, ast.Constant) and isinstance(n.value, str)
+                    and re.search(r"(?i)\b(insert\s+(or\s+\w+\s+)?into|update)\s+appointments\b", n.value)):
+                bad.append(f"{rel}:{n.lineno} пишет в appointments своим SQL")
+    called = set().union(*(_calls(t) for t in imp.values() if t is not None))
+    bad += [f"импорт больше не зовёт book.{name}" for name in ("book_visit", "probe") if name not in called]
+    book_tree = by_path.get("app/core/book.py")
+    defs = {n.name for n in (book_tree.body if book_tree else []) if isinstance(n, ast.AsyncFunctionDef)}
+    bad += [f"app/core/book.py без {name} — якорь правила пропал" for name in ("book_visit", "probe")
+            if name not in defs]
+    res.ok("импорт ставит визиты только через book", not bad, "; ".join(bad))

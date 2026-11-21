@@ -5,7 +5,8 @@ import { ApiError } from '../../types/api'
 import { openScreen } from '../../test/openScreen'
 import { ImportScreen, loadPimport } from './ImportScreen'
 import {
-  assign, chooseDoctor, hasName, num, type PiCheck, type PiDoctor, type PiGroup, type PiHome, type PiImport, type PiRow,
+  assign, chooseDoctor, hasName, hasVisits, num, type PiCheck, type PiDoctor, type PiGroup, type PiHome, type PiImport,
+  type PiRow, type PiRun, type PiUndo, type PiVisits,
 } from './pimport'
 
 /* Импорт пациентов: файл телом запроса, шаг колонок с угаданным выбором,
@@ -24,7 +25,8 @@ vi.mock('./pimport', async (importOriginal) => ({ ...await importOriginal<typeof
 const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, text, tone: 'ok' })
 
 const RUN: PiImport = { id: 3, at: '12.11.2026 14:44', actor: 'Ana R', file: 'pacienti.xlsx', rows: 200,
-  created: 180, filled: 0, skipped: 20, removed: 0, undone: false, can_undo: true }
+  created: 180, filled: 0, skipped: 20, removed: 0, visits: 0, visits_past: 0, visits_skipped: 0, visits_removed: 0,
+  undone: false, can_undo: true }
 
 function home(over: Partial<PiHome> = {}): PiHome {
   return {
@@ -60,7 +62,8 @@ const GROUPS: PiGroup[] = [
 function checked(over: Partial<PiCheck> = {}): PiCheck {
   return {
     file: { name: 'pacienti.xlsx', kind: 'xlsx', size: 16212, sheets: [{ name: 'Pacienți', rows: 404 }], enc: '', delim: '' },
-    opts: { sheet: 0, header: 1, cols: { 1: 'full', 2: 'birth', 3: 'phone' }, enc: '', delim: '', fill: false, force: [], docs: {} },
+    opts: { sheet: 0, header: 1, cols: { 1: 'full', 2: 'birth', 3: 'phone' }, enc: '', delim: '', fill: false, force: [], docs: {},
+      past: true, sms: false, svc: 'consult' },
     columns: [{ index: 0, letter: 'A', title: 'ID', field: '' }, { index: 1, letter: 'B', title: 'Nume și prenume', field: 'full' },
       { index: 2, letter: 'C', title: 'Data nașterii', field: 'birth' }, { index: 3, letter: 'D', title: 'Telefon', field: 'phone' }],
     preview: [{ line: 2, cells: ['1', 'Ana Test', '01.01.1950', '069111222'] },
@@ -69,6 +72,7 @@ function checked(over: Partial<PiCheck> = {}): PiCheck {
     ready: true,
     counts: { rows: 403, create: 400, new: 398, noted: 2, exists: 2, dup: 0, bad: 1, fill: 1, family: 3 },
     groups: GROUPS, token: 'tok32', parts: 3,
+    visits: null, services: [], sms_on: false,
     ...over,
   }
 }
@@ -103,8 +107,37 @@ async function toCheck(c: PiCheck = checked()) {
 
 const colSelect = (letter: string) => screen.getByLabelText(`Ce conține coloana ${letter}`) as HTMLSelectElement
 const stepNow = () => document.querySelector('.pi-steps [aria-current="step"]')?.textContent?.replace(/^\d+\s*/, '')
-const runReply = (part: number, done: boolean, total: PiImport = RUN) => ok(
-  { import: 3, part, parts: 3, done, created: 200, filled: 0, skipped: 0, total }, done ? 'pi_done' : '', done ? 'Import finalizat' : '')
+const runReply = (part: number, done: boolean, total: PiImport = RUN, more: Partial<PiRun> = {}) => ok(
+  { import: 3, part, parts: 3, done, created: 200, filled: 0, skipped: 0, visits: 0, visits_past: 0, visits_skipped: 0,
+    recall: 0, total, ...more }, done ? 'pi_done' : '', done ? 'Import finalizat' : '')
+
+const undoReply = (over: Partial<PiUndo>, code = '', text = '') => ok<PiUndo>(
+  { done: false, phase: 'p', after: 0, removed: 0, visits_removed: 0, kept: 0, visits_kept: 0, total: RUN, ...over }, code, text)
+
+const VISITS: PiVisits = {
+  counts: { v_new: 5, v_past: 1, v_no: 2, rows: 8 },
+  groups: [
+    { id: 'v_new', label: 'Programări noi', count: 5, more: 0, rows: [
+      { line: 2, name: 'Ana Test', when: '24.11.2026 09:00', doctor: 'Dr. Activ Doi', service: 'Consultație', reason: '',
+        notes: [], patient: null }] },
+    { id: 'v_past', label: 'Vizite trecute (istoric)', count: 1, more: 0, rows: [
+      { line: 5, name: 'Ion Vechi', when: '05.05.2026 10:00', doctor: 'Dr. Activ Trei', service: 'Igienizare', reason: '',
+        notes: ['programarea se adaugă la fișa existentă: Ion Vechi'], patient: 41 }] },
+    { id: 'v_no', label: 'Nu se programează', count: 2, more: 0, rows: [
+      { line: 3, name: 'Fara Ora', when: '24.11.2026', doctor: 'Activ Trei', service: '', reason:
+        'programare fără oră — data trecută în notițe', notes: [], patient: null },
+      { line: 4, name: 'Ocupat Om', when: '24.11.2026 09:30', doctor: 'Dr. Activ Doi', service: 'Consultație',
+        reason: 'ocupat — rândul 2 are programare la același medic în acest timp', notes: [], patient: null }] },
+  ],
+}
+
+const SERVICES = [{ id: 'consult', name: 'Consultație' }, { id: 'hygiene', name: 'Igienizare' }]
+
+function withVisits(over: Partial<PiCheck> = {}): PiCheck {
+  const base = checked()
+  return checked({ visits: VISITS, services: SERVICES,
+    opts: { ...base.opts, cols: { ...base.opts.cols, 4: 'appt', 5: 'appt_time', 6: 'doctor' } }, ...over })
+}
 
 afterEach(() => {
   cleanup()
@@ -486,13 +519,15 @@ describe('ImportScreen: прошлые импорты и отмена', () => {
   it('отмена порциями после вопроса; итог честный: сколько осталось и почему', async () => {
     await open(home({ imports: [RUN] }))
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
-    post.mockResolvedValueOnce(ok({ done: false, after: 200, removed: 120, kept: 0, total: RUN }))
-      .mockResolvedValueOnce(ok({ done: true, after: 260, removed: 23, kept: 37, total: RUN }, 'pi_undone', 'Import anulat'))
+    post.mockResolvedValueOnce(undoReply({ phase: 'p', after: 0 }))
+      .mockResolvedValueOnce(undoReply({ phase: 'p', after: 200, removed: 120 }))
+      .mockResolvedValueOnce(undoReply({ done: true, after: 260, removed: 23, kept: 37 }, 'pi_undone', 'Import anulat'))
     get.mockResolvedValue(ok(home({ imports: [{ ...RUN, removed: 143, undone: true }] })))
     fireEvent.click(screen.getByRole('button', { name: /Anulează importul/ }))
     expect(await screen.findByText('S-au șters 143 de fișe. 37 de fișe au rămas — au deja programări sau date medicale.')).toBeTruthy()
     expect(confirm.mock.calls[0]?.[0]).toContain('Anulați importul din „pacienti.xlsx”?')
-    expect(post.mock.calls.map(([path]) => path)).toEqual(['/pimport/undo?id=3&after=0', '/pimport/undo?id=3&after=200'])
+    expect(post.mock.calls.map(([path]) => path)).toEqual(['/pimport/undo?id=3&phase=v&after=0',
+      '/pimport/undo?id=3&phase=p&after=0', '/pimport/undo?id=3&phase=p&after=200'])
     await waitFor(() => expect(document.querySelector('.pi-past')?.textContent).toContain('anulat'))
   })
 
@@ -503,9 +538,110 @@ describe('ImportScreen: прошлые импорты и отмена', () => {
     await waitFor(() => expect(confirm).toHaveBeenCalled())
     expect(post).not.toHaveBeenCalled()
     confirm.mockReturnValue(true)
-    post.mockResolvedValueOnce(ok({ done: true, after: 180, removed: 180, kept: 0, total: RUN }, 'pi_undone', 'Import anulat'))
+    post.mockResolvedValueOnce(undoReply({ done: true, after: 180, removed: 180 }, 'pi_undone', 'Import anulat'))
     fireEvent.click(screen.getByRole('button', { name: /Anulează importul/ }))
     expect(await screen.findByText('Import anulat')).toBeTruthy()
+  })
+})
+
+describe('ImportScreen: записи из файла', () => {
+  it('без колонки даты записи блока записей нет', async () => {
+    await open()
+    await toCheck()
+    expect(document.querySelector('.pi-visits')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Importă 400 de pacienți' })).toBeTruthy()
+  })
+
+  it('блок записей: умолчания сервера, счётчики, группа «Nu se programează» открыта со словами причины', async () => {
+    await open()
+    await toCheck(withVisits())
+    const box = document.querySelector('.pi-visits') as HTMLElement
+    expect(box.querySelector('h3')?.textContent).toBe('Programări din fișier')
+    const past = screen.getByRole('checkbox', { name: /Importă și vizitele trecute/ }) as HTMLInputElement
+    expect(past.checked).toBe(true)
+    expect(screen.queryByRole('checkbox', { name: /Trimite SMS/ })).toBeNull()
+    expect((screen.getByLabelText(/Procedura, când în fișier/) as HTMLSelectElement).value).toBe('consult')
+    expect(Array.from(box.querySelectorAll('.pi-count')).map((x) => x.textContent))
+      .toEqual(['5 Programări noi', '1 Vizite trecute (istoric)', '2 Nu se programează'])
+    const groups = Array.from(document.querySelectorAll<HTMLDetailsElement>('details.pi-group.v_new, details.pi-group.v_past, details.pi-group.v_no'))
+    expect(groups.map((g) => [g.classList[2], g.open])).toEqual([['v_new', false], ['v_past', false], ['v_no', true]])
+    expect(groups[2]?.textContent).toContain('ocupat — rândul 2 are programare la același medic în acest timp')
+    expect(groups[1]?.querySelector('a')?.getAttribute('href')).toBe('/admin/patient/41')
+    expect(screen.getByRole('button', { name: 'Importă 400 de pacienți și 6 programări' })).toBeTruthy()
+  })
+
+  it('галочки и процедура перепроверяют файл с выбором; SMS — только когда пакет работает, выключена', async () => {
+    await open()
+    await toCheck(withVisits({ sms_on: true }))
+    const sms = screen.getByRole('checkbox', { name: /Trimite SMS de reamintire/ }) as HTMLInputElement
+    expect(sms.checked).toBe(false)
+    expect(document.body.textContent).toContain('pacienții nu primesc SMS pentru programările din fișier')
+    fireEvent.click(screen.getByRole('checkbox', { name: /Importă și vizitele trecute/ }))
+    await waitFor(() => expect(optsOf(lastRaw()[0]).past).toBe(false))
+    fireEvent.click(sms)
+    await waitFor(() => expect(optsOf(lastRaw()[0]).sms).toBe(true))
+    fireEvent.change(screen.getByLabelText(/Procedura, când în fișier/), { target: { value: 'hygiene' } })
+    await waitFor(() => expect(optsOf(lastRaw()[0]).svc).toBe('hygiene'))
+  })
+
+  it('только записи (все пациенты уже есть): кнопка про записи, «nimic» нет', async () => {
+    await open()
+    await toCheck(withVisits({ counts: { rows: 6, create: 0, new: 0, noted: 0, exists: 6, dup: 0, bad: 0, fill: 0, family: 0 } }))
+    expect(screen.getByRole('button', { name: 'Importă 6 programări' }).hasAttribute('disabled')).toBe(false)
+    expect(document.querySelector('.banner.warn')).toBeNull()
+  })
+
+  it('ни пациентов, ни записей — кнопка выключена, сказано про обе', async () => {
+    await open()
+    await toCheck(withVisits({ counts: { rows: 2, create: 0, new: 0, noted: 0, exists: 2, dup: 0, bad: 0, fill: 0, family: 0 },
+      visits: { ...VISITS, counts: { v_new: 0, v_past: 0, v_no: 2, rows: 2 } } }))
+    expect(document.body.textContent).toContain('programările din fișier nu se pot pune')
+    expect((screen.getByRole('button', { name: /^Importă/ }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('вопрос называет записи и что SMS не уйдут; итог — записи, история и «Rechemări» ссылкой', async () => {
+    await open()
+    await toCheck(withVisits({ sms_on: true }))
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    postRaw.mockReset()
+    const total = { ...RUN, created: 400, skipped: 3, visits: 6, visits_past: 1, visits_skipped: 2 }
+    postRaw.mockResolvedValueOnce(runReply(0, false)).mockResolvedValueOnce(runReply(1, false))
+      .mockResolvedValueOnce(runReply(2, true, total, { recall: 1 }))
+    get.mockResolvedValue(ok(home({ imports: [total] })))
+    fireEvent.click(screen.getByRole('button', { name: 'Importă 400 de pacienți și 6 programări' }))
+    expect(await screen.findByText('Import finalizat')).toBeTruthy()
+    expect(confirm.mock.calls[0]?.[0]).toBe('Importați 400 de pacienți și 6 programări (1 în istoric) din „pacienti.xlsx”? '
+      + 'Fișele noi apar imediat în lista de pacienți. Pentru programările din fișier nu se trimit SMS.')
+    expect(Array.from(document.querySelectorAll('.pi-done-n')).map((x) => x.textContent)).toEqual([
+      '400 de fișe noi · 3 rânduri omise', '6 programări puse (1 în istoric) · 2 nepuse',
+      '1 pacient a intrat în „Rechemări” · Deschide Rechemări'])
+    expect(screen.getByRole('link', { name: 'Deschide Rechemări' }).getAttribute('href')).toBe('/admin/rechemari')
+    expect(document.body.textContent).toContain('coloana „Programare”')
+    await waitFor(() => expect(document.querySelector('.pi-past')?.textContent).toContain('6 programări puse'))
+  })
+
+  it('шаг «Medici» с датой записи: «Fără medic» значит и без записи', async () => {
+    await open()
+    const docs = [{ key: 'pop', value: 'Popescu', rows: 2, auto: '', cands: [], choice: '' }]
+    await toCols(withVisits({ doctors: docs, clinic_doctors: [{ id: 'd2', name: 'Dr. Activ Doi', active: true }] }))
+    fireEvent.click(screen.getByRole('button', { name: /Verifică/ }))
+    await waitFor(() => expect(document.querySelector('.pi-docs')).not.toBeNull())
+    expect(screen.getByRole('option', { name: 'Fără medic — nu programa' })).toBeTruthy()
+    expect(document.querySelector('.pi-docs')?.textContent).toContain('fără programare; numele și data rămân în notițe')
+  })
+
+  it('отмена импорта с записями: сперва записи, потом фиши; итог называет и то, и другое', async () => {
+    const run = { ...RUN, visits: 6, visits_past: 1 }
+    await open(home({ imports: [run] }))
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    post.mockResolvedValueOnce(undoReply({ phase: 'p', after: 0, visits_removed: 5 }))
+      .mockResolvedValueOnce(undoReply({ done: true, after: 190, removed: 179, kept: 1, visits_kept: 1 }, 'pi_undone', 'Import anulat'))
+    get.mockResolvedValue(ok(home({ imports: [{ ...run, removed: 179, visits_removed: 5, undone: true }] })))
+    fireEvent.click(screen.getByRole('button', { name: /Anulează importul/ }))
+    expect(await screen.findByText('S-au șters 179 de fișe. S-au șters 5 programări. 1 fișă a rămas — are deja programări '
+      + 'sau date medicale. 1 programare a rămas — s-a lucrat cu ea.')).toBeTruthy()
+    expect(confirm.mock.calls[0]?.[0]).toContain('Se șterg programările puse de acest import')
+    expect(post.mock.calls.map(([path]) => path)).toEqual(['/pimport/undo?id=3&phase=v&after=0', '/pimport/undo?id=3&phase=p&after=0'])
   })
 })
 
@@ -529,5 +665,13 @@ describe('pimport: выбор колонок и числа', () => {
 
   it('разряды — пробелом', () => {
     expect([num(999), num(1200), num(3400000)]).toEqual(['999', '1 200', '3 400 000'])
+  })
+})
+
+describe('pimport: колонка даты записи', () => {
+  it('визиты — по дате или часу записи, не по другим полям', () => {
+    expect(hasVisits({ 1: 'full', 2: 'appt' })).toBe(true)
+    expect(hasVisits({ 1: 'full', 3: 'appt_time' })).toBe(true)
+    expect(hasVisits({ 1: 'full', 2: 'birth', 4: 'appt_note' })).toBe(false)
   })
 })

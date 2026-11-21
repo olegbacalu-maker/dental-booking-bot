@@ -8,7 +8,8 @@ import json
 import re
 
 from ... import db
-from ...core import tabfile
+from ... import engine as eng
+from ...core import book, tabfile
 from . import profile_rules as prules
 
 BATCH = 200
@@ -31,10 +32,14 @@ FIELDS = [
     ("email", "E-mail"),
     ("address", "Adresă"),
     ("insurance", "Asigurare"),
-    ("doctor", "Medic curant"),
+    ("doctor", "Medic (curant și al programării)"),
     ("file_no", "Nr. dosar"),
     ("notes", "Notițe"),
-    ("appt", "Data programării (în notițe)"),
+    ("appt", "Data programării"),
+    ("appt_time", "Ora programării"),
+    ("appt_dur", "Durata programării (min)"),
+    ("appt_svc", "Procedură / Serviciu"),
+    ("appt_note", "Comentariu la programare"),
 ]
 FIELD_IDS = {f for f, _l in FIELDS}
 _MULTI = {"notes", "phone", "phone2"}
@@ -48,7 +53,16 @@ _WORDS = {
     "first": ["prenume", "prenumele", "имя", "first name", "given name"],
     "patr": ["patronimic", "отчество", "middle name"],
     "appt": ["data programarii", "programare", "programarea", "programarii", "data vizitei",
-             "дата записи", "запись", "appointment"],
+             "ziua", "data si ora", "data ora", "data programare", "дата записи", "запись",
+             "дата визита", "дата приема", "appointment", "appointment date"],
+    "appt_time": ["ora", "ora programarii", "orele", "ora vizitei", "время", "время записи",
+                  "время приема", "час", "time", "hour"],
+    "appt_dur": ["durata", "durata programarii", "durata vizitei", "min", "minute", "длительность",
+                 "продолжительность", "мин", "минут", "duration"],
+    "appt_svc": ["procedura", "procedura programarii", "serviciu", "serviciul", "manopera", "услуга",
+                 "процедура", "service", "procedure"],
+    "appt_note": ["comentariu programare", "comentariu la programare", "nota programare",
+                  "примечание к записи", "комментарий к записи"],
     "birth": ["data nasterii", "data nast", "data nas", "data nasc", "data n", "d n", "nasterii",
               "nascut", "data de nastere", "anul nasterii", "anul nast", "дата рожд", "д рожд",
               "год рожд", "г р", "дата рождения", "рождения", "д р", "др", "родился",
@@ -92,6 +106,8 @@ REASONS = {
     "idnp_check": "cifra de control a IDNP nu corespunde, verificați",
     "gender_bad": "genul necitit („{}”)",
     "doc_unknown": "medicul „{}” nu este în lista clinicii, trecut în notițe",
+    "dur_bad": "durata necitită („{}”), se pune durata procedurii",
+    "svc_other": "procedura „{}” nu este în lista clinicii — programare cu procedura aleasă",
     "notes_cut": "notițe scurtate la 500 de caractere",
     "family": "același telefon ca la: {}",
     "archived": "pacientul este în arhivă",
@@ -103,7 +119,38 @@ REASONS = {
     "dup_phone": "dublu al rândului {} (același telefon și nume)",
     "dup_birth": "posibil dublu al rândului {} (același nume și dată a nașterii)",
     "dup_bare": "dublu al rândului {} (același nume, fără alte date)",
+    # programarea din rând: de ce nu se pune în agendă
+    "v_no_date": "ora fără dată",
+    "v_bad_date": "data programării necitită („{}”)",
+    "v_no_time": "programare fără oră — data trecută în notițe",
+    "v_bad_time": "ora necitită („{}”) — data trecută în notițe",
+    "v_bad_range": "intervalul orei nu se citește („{}”) — data trecută în notițe",
+    "v_no_doc": "fără medic — data trecută în notițe",
+    "v_doc_unknown": "medic necunoscut („{}”) — data și medicul trecute în notițe",
+    "v_doc_skip": "medicul ales: „Nu programa” — data trecută în notițe",
+    "v_past_off": "vizită trecută — neimportată (bifa „Importă și vizitele trecute”)",
+    "v_row_bad": "rândul nu intră",
+    "v_busy_file": "ocupat — rândul {} are programare la același medic în acest timp",
+    "v_dup_file": "pacientul are deja o programare în acest timp (rândul {})",
+    "v_conflict": "ocupat — medicul are altă programare în acest timp",
+    "v_dup": "pacientul are deja o programare în acest timp",
+    "v_exists": "există deja (aceeași programare la pacient)",
+    "v_outside": "în afara programului clinicii",
+    "v_outside_doc": "în afara programului medicului",
+    "v_bad_off": "medic inactiv în clinică",
+    "v_bad_dur": "durata nu se potrivește (5–240 de minute, din 5 în 5)",
+    "v_bad": "programarea nu se poate pune",
+    "v_room": "cabinetul medicului este ocupat de alt medic — programarea se pune",
+    "v_to_row": "programarea se adaugă la fișa din rândul {}",
+    "v_to_card": "programarea se adaugă la fișa existentă: {}",
+    "v_rounded": "ora din fișier rotunjită la grila de 5 minute: {}",
 }
+# Код ответа `book.book_visit` / `book.probe` → слово строки предпросмотра и отчёта.
+_BOOK_WHY = {"conflict": "v_conflict", "dup": "v_dup", "exists": "v_exists", "outside": "v_outside",
+             "outside_doc": "v_outside_doc", "bad_off": "v_bad_off", "bad_dur": "v_bad_dur"}
+VISIT_GROUPS = [("v_new", "Programări noi"), ("v_past", "Vizite trecute (istoric)"),
+                ("v_no", "Nu se programează")]
+VISIT_RESULT = {"v_new": "programată", "v_past": "în istoric (finalizată)", "v_no": "nu s-a programat"}
 GROUPS = [("new", "Fișe noi"), ("noted", "Cu observații"), ("exists", "Există deja"),
           ("dup", "Dubluri în fișier"), ("bad", "Nu intră")]
 RESULT = {"new": "fișă nouă", "noted": "fișă nouă, cu observații", "exists": "există deja",
@@ -187,7 +234,7 @@ def parse_opts(raw: str) -> dict | None:
     if not isinstance(o, dict):
         return None
     out = {"sheet": 0, "header": None, "cols": None, "enc": "", "delim": "",
-           "fill": False, "force": [], "docs": {}}
+           "fill": False, "force": [], "docs": {}, "past": True, "sms": False, "svc": ""}
     try:
         out["sheet"] = int(o.get("sheet") or 0)
         if o.get("header") is not None:
@@ -208,6 +255,11 @@ def parse_opts(raw: str) -> dict | None:
     out["enc"] = o.get("enc") if o.get("enc") in tabfile.ENCODINGS else ""
     out["delim"] = o.get("delim") if o.get("delim") in tabfile.DELIMITERS else ""
     out["fill"] = o.get("fill") is True
+    # Визиты из файла: прошлые — в историю (вкл. по умолчанию), SMS по будущим — выключены, пока
+    # человек не включит сам; процедура для строк без своей — ключ услуги агенды.
+    out["past"] = o.get("past") is not False
+    out["sms"] = o.get("sms") is True
+    out["svc"] = str(o.get("svc") or "")[:40]
     return out
 
 
@@ -226,7 +278,31 @@ def resolve(table: tabfile.Table, opts: dict) -> dict | None:
         cols = guessed
     return {"sheet": opts["sheet"], "header": header, "cols": dict(sorted(cols.items())),
             "enc": table.enc, "delim": table.delim, "fill": opts["fill"],
-            "force": opts["force"], "docs": dict(sorted((opts.get("docs") or {}).items()))}
+            "force": opts["force"], "docs": dict(sorted((opts.get("docs") or {}).items())),
+            "past": opts.get("past", True), "sms": opts.get("sms", False),
+            "svc": default_service(opts.get("svc", ""))}
+
+
+def agenda_services() -> list[tuple[str, str]]:
+    """Услуги, которые можно поставить визитом (окно записи журнала), в порядке профиля."""
+    return [(sid, s["ro"]) for sid, s in eng.SERVICES.items() if eng.in_agenda(sid)]
+
+
+def default_service(sid: str) -> str:
+    """Процедура визита для строк без своей: выбор человека, иначе консультация, иначе первая не
+    срочная услуга агенды. Срочная («Durere acută») умолчанием не годится: у клиники она часто
+    первая в списке, а визит из старой программы — не острая боль."""
+    if sid and eng.in_agenda(sid):
+        return sid
+    first = agenda_services()
+    consult = [x for x, name in first if fold(name).startswith("consult") or x == "consult"]
+    calm = [x for x, _n in first if not eng.SERVICES[x].get("urgent")]
+    return (consult or calm or [x for x, _n in first] or [""])[0]
+
+
+def has_visits(res: dict) -> bool:
+    """Колонка даты записи назначена: строки файла становятся визитами."""
+    return bool({"appt", "appt_time"} & set(res["cols"].values()))
 
 
 def token(blob: bytes, res: dict) -> str:
@@ -243,8 +319,12 @@ def ready(res: dict) -> bool:
 
 
 def _text(v) -> str:
+    if isinstance(v, _dt.datetime):
+        return v.strftime("%d.%m.%Y %H:%M") if v.time() != _dt.time(0, 0) else v.strftime("%d.%m.%Y")
     if isinstance(v, _dt.date):
         return v.strftime("%d.%m.%Y")
+    if isinstance(v, _dt.time):
+        return v.strftime("%H:%M")
     return re.sub(r"\s+", " ", str(v)).strip() if v is not None else ""
 
 
@@ -436,8 +516,9 @@ _GENDER = {"m": "m", "f": "f", "м": "m", "ж": "f", "b": "m", "masculin": "m", 
            "женский": "f", "male": "m", "female": "f"}
 
 
-def _record(line: int, raw: dict, doctors: Doctors) -> dict | None:
-    """Строка файла как будущая фиша. None — в назначенных колонках пусто."""
+def _record(line: int, raw: dict, doctors: Doctors, ctx: dict | None = None) -> dict | None:
+    """Строка файла как будущая фиша. None — в назначенных колонках пусто. `ctx` — визит строки:
+    `today` (день клиники), `past` (ставить прошлые), `svc` (процедура по умолчанию)."""
     if not raw:
         return None
     rec = {"line": line, "notes_w": [], "err": "", "birth_year": None}
@@ -511,6 +592,7 @@ def _record(line: int, raw: dict, doctors: Doctors) -> dict | None:
 
     rec["primary_doctor"] = rec["doc_key"] = rec["doc_src"] = ""
     src = one("doctor")
+    hit = ""
     if src:
         key = rec["doc_key"] = doc_key(src)
         rec["doc_src"] = src
@@ -521,18 +603,139 @@ def _record(line: int, raw: dict, doctors: Doctors) -> dict | None:
             w.append(("doc_unknown", src[:60]))
             extra.append(f"Medic: {src}")
 
-    for _t, v in raw.get("appt", []):
-        d, _y, _n = parse_date(v)
-        extra.append(f"Programare în fișier: {d.strftime('%d.%m.%Y') if d else _text(v)}")
+    rec["visit"] = _visit(raw, hit, src, doctors, ctx or {})
     many = len(raw.get("notes", [])) > 1
-    for title, v in raw.get("notes", []):
-        extra.append(f"{title}: {_text(v)}" if many and title else _text(v))
-    notes_s = "; ".join(x for x in extra if x)
-    if len(notes_s) > 500:
-        notes_s = notes_s[:500]
+    tail = [f"{title}: {_text(v)}" if many and title else _text(v) for title, v in raw.get("notes", [])]
+    rec["notes_parts"] = (extra, tail)
+    v = rec["visit"]
+    rec["notes"], cut = compose_notes(rec, bool(v and v["problem"]))
+    if cut:
         w.append(("notes_cut", ""))
-    rec["notes"] = notes_s
     return rec
+
+
+def compose_notes(rec: dict, with_visit: bool) -> tuple[str, bool]:
+    """Заметки фиши: телефоны и врач, которых не прочитали, запись из файла (только если визит не
+    встал), колонки заметок. (текст, обрезан ли до 500)."""
+    extra, tail = rec["notes_parts"]
+    v = rec.get("visit")
+    parts = list(extra) + ([v["note"]] if with_visit and v else []) + list(tail)
+    s = "; ".join(x for x in parts if x)
+    return (s[:500], True) if len(s) > 500 else (s, False)
+
+
+def _minutes(v) -> int | None:
+    """Длительность из колонки: минуты числом или текстом («30», «30 min», «1h30», «1:30»), время
+    Excel (`[h]:mm` 1:30 — 90 минут), доля суток числа без формата. К 5 минутам вверх; None — не
+    прочитано или вне 5–240."""
+    if isinstance(v, _dt.time):
+        m = v.hour * 60 + v.minute
+    else:
+        raw = str(v).strip()
+        k = fold(raw).replace(" ", "")
+        if re.fullmatch(r"0?\.\d{3,}", raw):
+            m = round(float(raw) * 1440)
+        elif mt := re.fullmatch(r"(\d{1,2})[:.](\d{2})", raw):
+            m = int(mt.group(1)) * 60 + int(mt.group(2))
+        elif mt := re.fullmatch(r"(\d+)(?:min|m|minute|minut|мин|минут|минуты)?", k):
+            m = int(mt.group(1))
+        elif mt := re.fullmatch(r"(\d+)(?:h|ore|ora|ч|час|часа)(\d+)?(?:min|m|мин)?", k):
+            m = int(mt.group(1)) * 60 + int(mt.group(2) or 0)
+        elif re.fullmatch(r"0?\.\d+", raw):
+            m = round(float(raw) * 1440)
+        else:
+            return None
+    m = -(-m // 5) * 5
+    return m if eng.dur_ok(m) else None
+
+
+def svc_match(text: str) -> str:
+    """Услуга агенды по названию из файла: то же написание без регистра и диакритики (ro, ru или
+    ключ), иначе единственная, чьё название содержит написанное (от 4 знаков). "" — не узнана."""
+    k = fold(text)
+    if not k:
+        return ""
+    names = {sid: {fold(s.get("ro")), fold(s.get("ru")), fold(sid)}
+             for sid, s in eng.SERVICES.items() if eng.in_agenda(sid)}
+    exact = [sid for sid, ns in names.items() if k in ns]
+    if exact:
+        return exact[0]
+    if len(k) < 4:
+        return ""
+    near = [sid for sid, ns in names.items() if any(k in n for n in ns if n)]
+    return near[0] if len(near) == 1 else ""
+
+
+_WHEN_WHY = {tabfile.NO_DATE: "v_no_date", tabfile.BAD_DATE: "v_bad_date",
+             tabfile.NO_TIME: "v_no_time", tabfile.BAD_TIME: "v_bad_time",
+             tabfile.BAD_RANGE: "v_bad_range"}
+
+
+def _visit(raw: dict, hit: str, src: str, doctors: Doctors, ctx: dict) -> dict | None:
+    """Визит из строки: когда, к кому, какая процедура, сколько. `problem` — почему не ставится
+    (код `REASONS`); тогда дата уходит в заметки фиши. Час не выдумывается, врач не подставляется."""
+    if not (raw.get("appt") or raw.get("appt_time")):
+        return None
+
+    def cell(f: str):
+        return raw[f][0][1] if raw.get(f) else None
+
+    day, hour = cell("appt"), cell("appt_time")
+    w = tabfile.when(day, hour)
+    svc_txt = _text(cell("appt_svc"))[:80]
+    shown = w.day.strftime("%d.%m.%Y") if w.day else _text(day)
+    if w.source or hour is not None:
+        shown += " " + (w.source or _text(hour))
+    shown = shown.strip()
+    v = {"problem": "", "arg": "", "start": None, "minutes": None, "doctor": "",
+         "svc": ctx.get("svc", ""), "comment": "", "when": shown, "doc_src": src[:60],
+         "svc_src": svc_txt, "past": False, "notes_w": [],
+         "note": "Programare în fișier: " + shown + (f", {svc_txt}" if svc_txt else "")}
+    if w.problem:
+        v["problem"] = _WHEN_WHY[w.problem]
+        if w.problem == tabfile.BAD_DATE:
+            v["arg"] = _text(day)[:30]
+        elif w.problem in (tabfile.BAD_TIME, tabfile.BAD_RANGE):
+            v["arg"] = _text(hour if hour is not None else day)[:30]
+        return v
+    if not src:
+        v["problem"] = "v_no_doc"
+    elif hit == NO_DOCTOR:
+        v["problem"] = "v_doc_skip"
+    elif hit not in doctors.names:
+        v["problem"], v["arg"] = "v_doc_unknown", src[:40]
+    if v["problem"]:
+        return v
+    v["doctor"] = hit
+    start, span = w.slot(eng.TZ)
+    v["start"] = start
+    v["when"] = start.strftime("%d.%m.%Y %H:%M")
+    moved = w.rounded(eng.TZ)
+    if moved and start.time() != w.start:
+        v["notes_w"].append(("v_rounded", f"{w.source} › {start.strftime('%H:%M')}"))
+    minutes = span
+    if raw.get("appt_dur"):
+        got = _minutes(cell("appt_dur"))
+        if got is None:
+            v["notes_w"].append(("dur_bad", _text(cell("appt_dur"))[:20]))
+        else:
+            minutes = got
+    v["minutes"] = minutes
+    comment = [_text(cell("appt_note"))[:200]]
+    if moved:
+        comment.append(f"Fișier: {w.source}")
+    if svc_txt:
+        sid = svc_match(svc_txt)
+        if sid:
+            v["svc"] = sid
+        else:
+            v["notes_w"].append(("svc_other", svc_txt[:40]))
+            comment.append(f"Procedură în fișier: {svc_txt}")
+    v["comment"] = "; ".join(x for x in comment if x)[:300]
+    v["past"] = start.date() < ctx.get("today", _dt.date.today())
+    if v["past"] and not ctx.get("past", True):
+        v["problem"] = "v_past_off"
+    return v
 
 
 def build(table: tabfile.Table, res: dict, doctors: dict) -> tuple[list, list]:
@@ -543,6 +746,8 @@ def build(table: tabfile.Table, res: dict, doctors: dict) -> tuple[list, list]:
     head = next((ln for rno, ln in rows if rno == res["header"]), [])
     cols = res["cols"]
     docs = Doctors(doctors, res.get("docs"))
+    ctx = {"today": _dt.datetime.now(eng.TZ).date(), "past": res.get("past", True),
+           "svc": res.get("svc", "")}
     recs, preview = [], []
     for rno, line in rows:
         if rno <= res["header"]:
@@ -556,7 +761,7 @@ def build(table: tabfile.Table, res: dict, doctors: dict) -> tuple[list, list]:
             if i < len(line) and line[i] is not None:
                 title = _text(head[i]) if i < len(head) else ""
                 raw.setdefault(f, []).append((title, line[i]))
-        rec = _record(rno, raw, docs)
+        rec = _record(rno, raw, docs, ctx)
         if rec is not None:
             recs.append(rec)
     return recs, preview
@@ -655,7 +860,7 @@ def analyse(recs: list, patients: list, force: list, iid: int = 0) -> None:
         hit = seen.match(rec)
         if hit and not (hit[0] == "birth" and rec["line"] in forced):
             rec.update(act="dup", reason=why("dup_" + hit[0], hit[1]),
-                       forceable=hit[0] == "birth")
+                       forceable=hit[0] == "birth", root=hit[1])
             continue
         kin = base.family(rec)
         if kin is not None or (kin_line := seen.family(rec)) is not None:
@@ -697,20 +902,153 @@ def summary(recs: list) -> tuple[dict, list]:
     return counts, groups
 
 
-def report_rows(recs: list) -> list:
-    """Строки книги «что не вошло»: всё, кроме вошедшего без единой пометки."""
+def report_rows(recs: list, visits: bool = False) -> list:
+    """Строки книги «что не вошло»: всё, кроме вошедшего без единой пометки; с визитами — и строка,
+    чей визит не встал или встал с пометкой. `visits` — колонка «Programare» в конце."""
     out = []
     for rec in recs:
         g = group_of(rec)
         if rec["act"] == "exists" and rec["mine"]:
             g = "noted" if rec["notes_w"] else "new"
-        if g == "new":
+        vs = rec.get("vstate", "")
+        v_noted = vs == "v_no" or bool(rec.get("vwhy")) or bool(rec.get("visit") and rec["visit"]["notes_w"])
+        if g == "new" and not (visits and v_noted):
             continue
         v = row_view(rec)
-        out.append([v["line"], v["name"], v["phone"], v["birth"], v["idnp"], RESULT[g],
-                    "; ".join(([v["reason"]] if v["reason"] and g != "noted" else [])
-                              + v["notes"])])
+        row = [v["line"], v["name"], v["phone"], v["birth"], v["idnp"], RESULT[g],
+               "; ".join(([v["reason"]] if v["reason"] and g != "noted" else []) + v["notes"])]
+        if visits:
+            vv = visit_view(rec) if vs else None
+            row.append("; ".join([visit_result(rec)] + (vv["notes"] if vv else [])) if vs else "")
+        out.append(row)
     return out
+
+
+def _who(rec: dict):
+    """Чья фиша получит визит строки: заведённая строкой (`("l", строка)`) или найденная (`("p", id)`).
+    Дубль строки файла — фиша той строки, которую он повторяет."""
+    if rec["act"] == "exists":
+        return ("p", rec["match"]["id"])
+    if rec["act"] == "dup":
+        return ("l", rec.get("root"))
+    return ("l", rec["line"])
+
+
+def _end(v: dict):
+    return v["start"] + _dt.timedelta(minutes=v["minutes"] or eng.svc_duration(v["svc"]))
+
+
+def _set_visit(rec: dict, state: str, code: str = "", arg="") -> None:
+    rec["vstate"], rec["vwhy"] = state, (why(code, arg) if code else "")
+
+
+def visit_outcome(rec: dict, code: str) -> None:
+    """Ответ `book.probe` / `book.book_visit` → группа и слово строки."""
+    v = rec["visit"]
+    if code in book.OK_CODES:
+        _set_visit(rec, "v_past" if v["past"] else "v_new", "v_room" if code == "room_busy" else "")
+    else:
+        _set_visit(rec, "v_no", _BOOK_WHY.get(code, "v_bad"))
+
+
+def visit_ready(rec: dict) -> bool:
+    """Строку можно ставить визитом: фиша войдёт или найдена, дата, час, врач и процедура есть."""
+    v = rec.get("visit")
+    return bool(v) and not v["problem"] and rec["act"] != "bad" and bool(v["svc"])
+
+
+async def plan_visits(recs: list, booked: list | None = None) -> None:
+    """Предпросмотр визитов: что встанет, что нет и почему. Занятость в базе — `book.probe` (на
+    сухую, правду говорит запись); пересечения строк файла между собой — здесь, в памяти: раньше в
+    файле — первым, как и при записи. `booked` — визиты этого импорта (отчёт после записи):
+    такой визит — «поставлен», а не «у пациента уже есть запись»."""
+    mine = {(r["patient_id"], r["starts_at"].timestamp()) for r in booked or []}
+    by_doc: dict = {}
+    by_who: dict = {}
+    for rec in recs:
+        v = rec.get("visit")
+        rec["vstate"], rec["vwhy"] = ("", "")
+        if not v:
+            continue
+        if rec["act"] == "bad":
+            _set_visit(rec, "v_no", "v_row_bad")
+            continue
+        if v["problem"]:
+            _set_visit(rec, "v_no", v["problem"], v["arg"])
+            continue
+        if not v["svc"]:
+            _set_visit(rec, "v_no", "v_bad")
+            continue
+        start, end = v["start"], _end(v)
+        who = _who(rec)
+        pid = who[1] if who[0] == "p" else None
+        if pid is not None and (pid, start.timestamp()) in mine:
+            _set_visit(rec, "v_past" if v["past"] else "v_new")
+        else:
+            await _plan_one(rec, v, who, pid, start, end, by_doc, by_who)
+            if rec["vstate"] == "v_no":
+                continue
+        by_doc.setdefault(v["doctor"], []).append((start, end, rec["line"]))
+        by_who.setdefault(who, []).append((start, end, v["doctor"], rec["line"]))
+
+
+async def _plan_one(rec: dict, v: dict, who, pid, start, end, by_doc: dict, by_who: dict) -> None:
+    """Одна строка предпросмотра: сперва пересечения строк файла, потом база (`book.probe`)."""
+    clash = next((ln for s0, e0, doc, ln in by_who.get(who, [])
+                  if s0 == start or (doc == v["doctor"] and s0 < end and start < e0)), None)
+    if clash is not None:
+        _set_visit(rec, "v_no", "v_dup_file", clash)
+        return
+    busy = [ln for s0, e0, ln in by_doc.get(v["doctor"], []) if s0 < end and start < e0]
+    if len(busy) >= max(1, len(eng.doctor_rooms(v["doctor"]))):
+        _set_visit(rec, "v_no", "v_busy_file", busy[0])
+        return
+    if pid is not None and await db.import_visit_exists(pid, start):
+        _set_visit(rec, "v_no", "v_exists")
+        return
+    visit_outcome(rec, await book.probe(pid, v["doctor"], start, v["svc"], minutes=v["minutes"]))
+
+
+def visit_view(rec: dict) -> dict:
+    v = rec["visit"]
+    notes = [why(c, a) for c, a in v["notes_w"]]
+    if rec["act"] == "dup" and rec["vstate"] != "v_no":
+        notes.insert(0, why("v_to_row", rec.get("root")))
+    elif rec["act"] == "exists" and rec["vstate"] != "v_no" and not rec.get("mine"):
+        notes.insert(0, why("v_to_card", rec["match"]["name"]))
+    doctor = eng.DOCTORS.get(v["doctor"], "") if v["doctor"] else v["doc_src"]
+    service = eng.SERVICES.get(v["svc"], {}).get("ro", "") if v["doctor"] else v["svc_src"]
+    return {"line": rec["line"], "name": rec["name"], "when": v["when"], "doctor": doctor,
+            "service": service, "reason": rec["vwhy"], "notes": notes,
+            "patient": rec["match"]["id"] if rec["act"] == "exists" else None}
+
+
+def visit_summary(recs: list) -> tuple[dict, list]:
+    counts = {g: 0 for g, _l in VISIT_GROUPS}
+    rows = {g: [] for g, _l in VISIT_GROUPS}
+    for rec in recs:
+        g = rec.get("vstate")
+        if not g:
+            continue
+        counts[g] += 1
+        if len(rows[g]) < GROUP_CAP:
+            rows[g].append(visit_view(rec))
+    counts["rows"] = sum(counts[g] for g, _l in VISIT_GROUPS)
+    groups = [{"id": g, "label": label, "count": counts[g], "rows": rows[g],
+               "more": counts[g] - len(rows[g])} for g, label in VISIT_GROUPS]
+    return counts, groups
+
+
+def visit_result(rec: dict) -> str:
+    """Колонка «Programare» книги-отчёта: что стало с визитом строки."""
+    g = rec.get("vstate")
+    if not g:
+        return ""
+    v = rec["visit"]
+    head = f"{VISIT_RESULT[g]}: {v['when']}"
+    if g != "v_no" and v["doctor"]:
+        head += f", {eng.DOCTORS.get(v['doctor'], '')}"
+    return head + (f" — {rec['vwhy']}" if rec["vwhy"] else "")
 
 
 async def create(rec: dict, iid: int, file_name: str) -> int:

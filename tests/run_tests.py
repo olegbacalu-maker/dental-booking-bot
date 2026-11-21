@@ -694,6 +694,8 @@ SUITES = [
     ("Импорт пациентов: врачи клиники из колонки файла", test_pimport.suite_doctors),
     ("Импорт пациентов: право, демо, списки сторожей", test_pimport.suite_rights),
     ("Импорт пациентов: зашифрованная картотека", test_pimport.suite_encrypted),
+    ("Импорт пациентов с записями: визиты журнала, предпросмотр, отмена", test_pimport.suite_visits),
+    ("Импорт пациентов с записями: визиты из файла без SMS-напоминания", test_pimport.suite_visit_sms),
 ]
 
 def part(suites: list, k: int, n: int) -> list:

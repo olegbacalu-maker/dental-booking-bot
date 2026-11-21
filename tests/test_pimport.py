@@ -10,6 +10,7 @@ import pathlib
 import shutil
 import sys
 import tempfile
+import time
 import urllib.parse
 import zipfile
 
@@ -57,6 +58,24 @@ def _run_all(c: Client, blob: bytes, name: str = "pacienti.xlsx", opts: dict | N
         last = _j(r)
         iid = last["data"]["import"]
     return {"check": chk, "last": last, "id": iid, "total": last["data"]["total"]}
+
+
+def _undo(c: Client, iid: int) -> dict:
+    """Отмена так, как её ведёт экран: визиты, потом фиши, порциями; ответ последней порции и сумма
+    снятого (`removed`, `visits_removed`)."""
+    phase, after, removed, vrem, last = "v", 0, 0, 0, {}
+    for _ in range(1000):
+        r = c._do(f"/api/pimport/undo?id={iid}&phase={phase}&after={after}", b"", {})
+        last = _j(r)
+        if r.status != 200:
+            return last
+        removed += last["data"]["removed"]
+        vrem += last["data"]["visits_removed"]
+        if last["data"]["done"]:
+            break
+        phase, after = last["data"]["phase"], last["data"]["after"]
+    last["sum"] = {"removed": removed, "visits_removed": vrem}
+    return last
 
 
 def _total(c: Client) -> int:
@@ -471,6 +490,32 @@ def suite_read(res: Result) -> None:
     res.check("летнее время: тот же час по часам клиники",
               slot(D(2027, 7, 1), "09:30"), ("2027-07-01T09:30:00+03:00", None))
 
+    # колонка «Durata» визита: минуты числом и текстом, время Excel, доля суток; к 5 минутам вверх
+    from app import engine as eng
+    res.check("длительность визита из колонки «Durata»",
+              [pi._minutes(x) for x in ("30", "45 min", "1:30", "1h30", "2 ore", dt.time(1, 30), "0.0625", "7",
+                                        "300", "abc", "0")],
+              [30, 45, 90, 90, 120, 90, 90, 10, None, None, None])
+    saved = dict(eng.SERVICES)
+    try:
+        eng.SERVICES.clear()
+        eng.SERVICES.update({"pain": {"ro": "Durere acută", "ru": "", "urgent": True},
+                             "plan": {"ro": "Coroană", "ru": "", "where": "plan"},
+                             "fill": {"ro": "Obturație", "ru": "Пломба"},
+                             "cons": {"ro": "Consultație inițială", "ru": ""}})
+        first = pi.default_service("")
+        eng.SERVICES.pop("cons")
+        calm = pi.default_service("")
+        res.check("процедура по умолчанию: консультация, иначе первая не срочная услуга агенды; выбор — сильнее",
+                  (first, calm, pi.default_service("pain"), pi.default_service("plan")),
+                  ("cons", "fill", "pain", "fill"))
+        res.check("процедура из файла: то же название без диакритики, ru, единственная по части; прайс плана — нет",
+                  [pi.svc_match(x) for x in ("obturatie", "Пломба", "Obtura", "Coroană", "", "zzz")],
+                  ["fill", "fill", "fill", "", "", ""])
+    finally:
+        eng.SERVICES.clear()
+        eng.SERVICES.update(saved)
+
 
 def suite_fixes(res: Result) -> None:
     """Четыре починки: номер в одном виде, дата рождения «Pacient nou»,
@@ -541,7 +586,7 @@ def suite_import(res: Result) -> None:
                   (home["imports"], home["limits"], home["remote"]),
                   ([], {"bytes": 10 * 1024 * 1024, "rows": 20000, "batch": 200}, None))
         res.ok("список полей для выбора колонки начинается с «Nu importa»",
-               home["fields"][0] == {"id": "", "label": "Nu importa"} and len(home["fields"]) == 17)
+               home["fields"][0] == {"id": "", "label": "Nu importa"} and len(home["fields"]) == 21)
         res.check("вход по ключу сервера: кнопка «Importă» в списке пациентов есть",
                   _j(c.get("/api/patients"))["data"]["can_import"], True)
         m = c.get("/api/pimport/model.xlsx")
@@ -670,16 +715,17 @@ def suite_import(res: Result) -> None:
 
         rep = _send(c, "report", lib, "biblioteca.xlsx", **{"import": run["id"]})
         text = _sheet_text(rep.raw) if rep.raw[:2] == b"PK" else rep.body
+        # у каждой строки файла дата записи без часа: визит не встал — строка в отчёте с колонкой «Programare»
         res.check("отчёт после импорта: «există deja» только у заведённого руками, свои с пометкой — "
-                  "«fișă nouă, cu observații», вошедших без пометки в отчёте нет",
+                  "«fișă nouă, cu observații»; строки, чей визит не встал (без часа), — тоже в отчёте",
                   (rep.status, text.count(">există deja<"), text.count(">fișă nouă, cu observații<"),
-                   text.count("<row ")), (200, 1, cnt["noted"], cnt["noted"] + 2))
+                   text.count("<row "), text.count("programare fără oră")),
+                  (200, 1, cnt["noted"], cnt["rows"] + 1, cnt["rows"]))
 
         add_appt(c, (clinic_today() + dt.timedelta(days=5)).isoformat(), "10:00", "Testescu5 Ana",
                  "069560005")
         c.post_json(f"/api/patients/{p4}/alerts", {"kind": "allergy", "text": "latex"})
-        r = c._do(f"/api/pimport/undo?id={run['id']}", b"", {})
-        und = _j(r)
+        und = _undo(c, run["id"])
         res.check("отмена: убраны пустые фиши импорта; с записью, с правкой руками и дописанные — остались",
                   (und["code"], und["data"]["done"], und["data"]["total"]["removed"], und["data"]["kept"],
                    und["data"]["total"]["undone"]), ("pi_undone", True, 16, 3, True))
@@ -762,7 +808,7 @@ def suite_doctors(res: Result) -> None:
                         "Medicescu Trei": "Dr. Activ Trei", "Medicescu Patru": "Dr. Activ Patru",
                         "Medicescu Cinci": "Dr. Arhivat Unu", "Medicescu Sase": "Dr. Activ Trei",
                         "Medicescu Sapte": "", "Medicescu Opt": "", "Medicescu Noua": ""})
-        und = _j(c._do(f"/api/pimport/undo?id={run['id']}", b"", {}))
+        und = _undo(c, run["id"])
         res.check("отмена убирает фиши вместе с врачом", (und["data"]["total"]["removed"], _total(c)), (9, 0))
 
 
@@ -844,7 +890,7 @@ def suite_rights(res: Result) -> None:
                           _find(boss, "Testescu2 Ana")[0]["phone"])
         res.ok("у импортированного пациента появилась запись", booked.msg.startswith("ok"), booked.msg)
         res.check("директор отменяет импорт: фиша с записью остаётся",
-                  _j(boss._do(f"/api/pimport/undo?id={iid}", b"", {}))["data"]["total"]["removed"], 19)
+                  _undo(boss, iid)["data"]["total"]["removed"], 19)
         left = lst(boss)
         res.check("после отмены отбор ведёт к оставшимся фишам",
                   ([r["name"] for r in left["rows"]], left["import"]["left"], left["import"]["undone"]),
@@ -860,6 +906,258 @@ def suite_rights(res: Result) -> None:
                and PAGE not in c.get("/api/settings/hub").body, "")
         res.check("демо: кнопки «Importă» в списке пациентов нет",
                   _j(c.get("/api/patients"))["data"]["can_import"], False)
+
+
+VIS_HEAD = ["Nume", "Telefon", "Data programării", "Ora", "Medic", "Procedură", "Durata", "Comentariu programare"]
+
+
+def _dmy(d: dt.date) -> str:
+    return d.strftime("%d.%m.%Y")
+
+
+def _visit_rows(f: dt.date, p: dt.date) -> list:
+    """Строки файла с визитами: каждая проверяет одно правило (порядок важен — раньше в файле первым)."""
+    F, F1, P = _dmy(f), _dmy(f + dt.timedelta(days=1)), _dmy(p)
+    return [
+        ["Vizita Unu", "069570001", F, "09:00", "Activ Doi", "Consultație", None, "adus de fiică"],   # 2 новый
+        ["Vizita Doi", "069570002", F, "09:30", "Activ Doi", None, None, None],          # 3 врач занят строкой 2
+        ["Vizita Trei", "069570003", F, None, "Activ Trei", None, None, None],           # 4 без часа
+        ["Vizita Patru", "069570004", P, "10:00", "Activ Trei", "Igienizare", None, None],  # 5 прошлое
+        ["Vizita Cinci", "069570005", F, "11:00", "Popescu", None, None, None],          # 6 врача нет в клинике
+        ["Vizita Unu", "069570001", F1, "10:00", "Activ Doi", "Tratament lung", None, None],  # 7 тот же пациент
+        ["Vizita Sase", "069570006", F, "9:07–9:50", "Activ Patru", "Detartraj", None, None],  # 8 округление
+        ["Vizita Sapte", "069570007", F, "10:00", "Arhivat Unu", None, None, None],      # 9 врач в архиве
+        ["Vizita Opt", "069570008", F, "06:00", "Activ Doi", None, None, None],          # 10 до часов клиники
+        ["Exist Ana", "069570010", F, "12:00", "Activ Doi", None, None, None],           # 11 фиша уже есть
+        ["Vizita Noua", "069570009", F, "13:00", "Activ Doi", None, "1:30", None],       # 12 своя длительность
+        ["Vizita Zece", "069570011", F, "15:00", "Activ Trei", None, None, None],        # 13 занято в журнале
+        ["Vizita Unsprezece", "069570012", F, "25:00", "Activ Doi", None, None, None],   # 14 час не читается
+    ]
+
+
+def _db_rows(s: Server, sql: str, *args) -> list[dict]:
+    import sqlite3
+    con = sqlite3.connect(str(s.dir / "dental.db"), timeout=5)
+    con.row_factory = sqlite3.Row
+    try:
+        return [dict(r) for r in con.execute(sql, args)]
+    finally:
+        con.close()
+
+
+def _appts(s: Server) -> dict:
+    """Визиты по имени пациента: [(день, час по клинике, статус, врач, услуга, минуты, комментарий,
+    импорт, без SMS)], по времени."""
+    from harness import TZ
+    out: dict = {}
+    for r in _db_rows(s, "SELECT p.name, a.* FROM appointments a JOIN patients p ON p.id = a.patient_id "
+                         "ORDER BY a.starts_at"):
+        at = dt.datetime.fromisoformat(r["starts_at"].replace("Z", "+00:00")).astimezone(TZ)
+        out.setdefault(r["name"], []).append(
+            (at.date(), at.strftime("%H:%M"), r["status"], r["doctor_id"], r["service_id"], r["duration_min"],
+             r["comment"], bool(r["import_id"]), r["sms_skip"]))
+    return out
+
+
+def suite_visits(res: Result) -> None:
+    """Импорт с записями: строка «пациент + дата/час + врач» становится визитом журнала — через
+    `book.book_visit`, будущее «programată», прошлое «finalizată»; без часа, без врача, занято —
+    визита нет, дата в заметках; предпросмотр ничего не пишет; отмена снимает и визиты."""
+    from harness import set_rooms  # noqa: F401 — кабинеты врача не трогаются: один кабинет
+    import test_recall as tr
+
+    res.ok("исходники нашлись", (BOT / "app" / "core" / "book.py").exists()
+           and (BOT / "app" / "modules" / "patients" / "pimport.py").exists())
+    today = clinic_today()
+    f, p = today + dt.timedelta(days=3), today - dt.timedelta(days=200)
+    blob = S.library_book(VIS_HEAD, _visit_rows(f, p))
+    with Server() as s:
+        c = Client(s.url).login()
+        tr._set_recall(c, {"hygiene": 6})
+        new_patient(c, "Exist Ana", "069570010")
+        res.check("в журнале занят d3 на 15:00", add_appt(c, f.isoformat(), "15:00", "Ocupat Deja",
+                                                          "069570099", doctor="d3").msg, "ok")
+        before = _appts(s)
+        chk = _check(c, blob, "programari.xlsx")
+        res.check("колонки узнаны сами: дата, час, врач, процедура, длительность, комментарий записи",
+                  chk["opts"]["cols"], {"0": "full", "1": "phone", "2": "appt", "3": "appt_time", "4": "doctor",
+                                        "5": "appt_svc", "6": "appt_dur", "7": "appt_note"})
+        res.check("умолчания: прошлые — в историю, SMS выключены, процедура — первая услуга агенды",
+                  (chk["opts"]["past"], chk["opts"]["sms"], chk["opts"]["svc"],
+                   [x["id"] for x in chk["services"]][:2]), (True, False, "consult", ["consult", "pain"]))
+        vis = chk["visits"]
+        res.check("предпросмотр визитов: новые, история, не ставятся",
+                  {g["id"]: g["count"] for g in vis["groups"]}, {"v_new": 5, "v_past": 1, "v_no": 7})
+        why_ = {r["line"]: r["reason"] for g in vis["groups"] for r in g["rows"]}
+        res.check("почему не ставится — словами, у каждой строки своя причина",
+                  {ln: why_[ln] for ln in (3, 4, 6, 9, 10, 13, 14)},
+                  {3: "ocupat — rândul 2 are programare la același medic în acest timp",
+                   4: "programare fără oră — data trecută în notițe",
+                   6: "medic necunoscut („Popescu”) — data și medicul trecute în notițe",
+                   9: "medic inactiv în clinică",
+                   10: "în afara programului clinicii",
+                   13: "ocupat — medicul are altă programare în acest timp",
+                   14: "ora necitită („25:00”) — data trecută în notițe"})
+        rows = {r["line"]: r for g in vis["groups"] for r in g["rows"]}
+        res.check("строка-дубль несёт визит в фишу первой строки; существующая фиша — названа",
+                  (rows[7]["notes"][:1], rows[11]["notes"][:1]),
+                  (["programarea se adaugă la fișa din rândul 2"],
+                   ["programarea se adaugă la fișa existentă: Exist Ana"]))
+        res.check("округление к сетке и чужая процедура — пометками строки",
+                  (rows[8]["when"], rows[8]["service"], rows[8]["notes"]),
+                  (f"{_dmy(f)} 09:05", "Consultație",
+                   ["ora din fișier rotunjită la grila de 5 minute: 09:07–09:50 › 09:05",
+                    "procedura „Detartraj” nu este în lista clinicii — programare cu procedura aleasă"]))
+        res.check("проверка ничего не записала", (_appts(s), _total(c)), (before, 2))
+
+        run = _run_all(c, blob, "programari.xlsx")
+        last = run["last"]["data"]
+        res.check("импорт: визиты поставлены, прошлые в истории, остальные названы; «Rechemări» посчитаны",
+                  (run["total"]["created"], last["visits"], last["visits_past"], last["visits_skipped"],
+                   run["total"]["visits"], run["total"]["visits_skipped"], last["recall"]),
+                  (11, 6, 1, 7, 6, 7, 1))
+        got = _appts(s)
+        res.check("будущий визит — programată у врача из файла, услуга по названию, комментарий записи, "
+                  "без SMS",
+                  got["Vizita Unu"], [(f, "09:00", "confirmed", "d2", "consult", 60, "adus de fiică", True, 1),
+                                      (f + dt.timedelta(days=1), "10:00", "confirmed", "d2", "long", 120, "",
+                                       True, 1)])
+        res.check("прошлый — finalizată (история), услуга со сроком",
+                  [x[:5] for x in got["Vizita Patru"]], [(p, "10:00", "done", "d3", "hygiene")])
+        res.check("округлённый час: начало к сетке, длина из диапазона вверх, исходный час — в комментарии",
+                  [x[1:7] for x in got["Vizita Sase"]],
+                  [("09:05", "confirmed", "d4", "consult", 45,
+                    "Fișier: 09:07–09:50; Procedură în fișier: Detartraj")])
+        res.check("длительность из колонки «Durata» (1:30 = 90 минут)",
+                  [x[5] for x in got["Vizita Noua"]], [90])
+        res.check("существующей фише — визит, ничего больше",
+                  ([x[:3] for x in got["Exist Ana"]], _card(c, _find(c, "Exist Ana")[0]["id"])["profile"]["notes"]),
+                  ([(f, "12:00", "confirmed")], ""))
+        res.ok("не поставлено ничего лишнего: ни у врача в архиве, ни до часов клиники, ни поверх занятого",
+               not ({"Vizita Doi", "Vizita Trei", "Vizita Cinci", "Vizita Sapte", "Vizita Opt", "Vizita Zece",
+                     "Vizita Unsprezece"} & set(got)) and got["Ocupat Deja"] == before["Ocupat Deja"],
+               repr(sorted(got)))
+        notes = {n: _card(c, _find(c, n)[0]["id"])["profile"]["notes"]
+                 for n in ("Vizita Doi", "Vizita Trei", "Vizita Cinci", "Vizita Opt")}
+        res.check("визит не встал — дата в заметках фиши (и при отказе в момент записи)", notes,
+                  {"Vizita Doi": f"Programare în fișier: {_dmy(f)} 09:30",
+                   "Vizita Trei": f"Programare în fișier: {_dmy(f)}",
+                   "Vizita Cinci": f"Medic: Popescu; Programare în fișier: {_dmy(f)} 11:00",
+                   "Vizita Opt": f"Programare în fișier: {_dmy(f)} 06:00"})
+        pid4 = _find(c, "Vizita Patru")[0]["id"]
+        res.check("летопись фиши с историей: заведена, визит, finalizată", _lines(c, pid4)[::-1],
+                  ["Fișă creată prin import din fișier „programari.xlsx”",
+                   f"Programare: Igienizare · Dr. Activ Trei · {_dmy(p)} 10:00", "Vizită finalizată: Igienizare"])
+        rec = _j(c.get("/api/recall"))["data"]
+        res.ok("«Rechemări»: пациент с прошлой гигиеной — в списке",
+               any(r["name"] == "Vizita Patru" and r["tab"] == "due" for r in rec["rows"]), repr(rec["rows"][:3]))
+
+        rep = _send(c, "report", blob, "programari.xlsx", **{"import": run["id"]})
+        text = _sheet_text(rep.raw)
+        res.check("отчёт после импорта: колонка «Programare»; поставленные (строки с пометкой) — этим импортом, "
+                  "не «у пациента уже есть запись»",
+                  (text.count(">Programare<"), text.count("programată: "), text.count("pacientul are deja")),
+                  (1, 2, 0))
+        res.check("отчёт: в книге только строки с пометкой, и визит каждой назван",
+                  text.count("nu s-a programat: "), 7)
+
+        again = _check(c, blob, "programari.xlsx")
+        res.check("тот же файл ещё раз — визитов не прибавится: у пациента уже есть запись",
+                  {g["id"]: g["count"] for g in again["visits"]["groups"]}, {"v_new": 0, "v_past": 0, "v_no": 13})
+        rerun = _run_all(c, blob, "programari.xlsx")
+        res.check("повтор: ни фиш, ни визитов; в списке импортов не остаётся",
+                  (rerun["total"]["created"], rerun["last"]["data"]["visits"], len(_appts(s)["Vizita Unu"]),
+                   len(_j(c.get("/api/pimport"))["data"]["imports"])), (0, 0, 2, 1))
+
+        # трогаем визит «Vizita Noua» — отмена его не снимет, и фиша останется
+        aid = _db_rows(s, "SELECT a.id FROM appointments a JOIN patients p ON p.id = a.patient_id "
+                          "WHERE p.name = 'Vizita Noua'")[0]["id"]
+        r = c.post_json(f"/api/schedule/appointments/{aid}/comment?date={f.isoformat()}", {"comment": "sunat"})
+        res.check("регистратура поменяла комментарий визита из файла", r.msg, "ok_comment")
+        und = _undo(c, run["id"])
+        res.check("отмена: визиты сняты, кроме тронутого; фиши — кроме той, где визит остался",
+                  (und["code"], und["sum"]["visits_removed"], und["sum"]["removed"], und["data"]["kept"],
+                   und["data"]["visits_kept"]), ("pi_undone", 5, 10, 1, 1))
+        left = _appts(s)
+        res.check("после отмены: руками заведённое и тронутое — на месте",
+                  sorted(left), ["Ocupat Deja", "Vizita Noua"])
+        res.check("существующая фиша осталась, её визит из файла снят",
+                  (len(_find(c, "Exist Ana")), "Exist Ana" in left), (1, False))
+        imp = _j(c.get("/api/pimport"))["data"]["imports"][0]
+        res.check("запись об импорте: счётчики визитов",
+                  (imp["visits"], imp["visits_past"], imp["visits_skipped"], imp["visits_removed"], imp["undone"]),
+                  (6, 1, 7, 5, True))
+
+    # без галочки «Importă și vizitele trecute» прошлое — в заметки, будущее ставится
+    with Server() as s:
+        c = Client(s.url).login()
+        chk = _check(c, blob, "programari.xlsx", {"past": False})
+        res.check("прошлые выключены: строка с прошлым визитом не ставится и сказано почему",
+                  next(r["reason"] for g in chk["visits"]["groups"] for r in g["rows"] if r["line"] == 5),
+                  "vizită trecută — neimportată (bifa „Importă și vizitele trecute”)")
+        run = _run_all(c, blob, "programari.xlsx", {"past": False, "sms": True, "svc": "pain"})
+        got = _appts(s)
+        res.check("прошлого визита нет, дата в заметках",
+                  ("Vizita Patru" in got, _card(c, _find(c, "Vizita Patru")[0]["id"])["profile"]["notes"]),
+                  (False, f"Programare în fișier: {_dmy(p)} 10:00, Igienizare"))
+        res.check("SMS включены галочкой — визиты без пометки «без SMS»; процедура по умолчанию — выбранная",
+                  ([x[8] for x in got["Vizita Unu"]], [x[4] for x in got["Vizita Sase"]]), ([0, 0], ["pain"]))
+        res.ok("отпечаток выбора: смена галочки SMS — другой отпечаток",
+               _check(c, blob, "programari.xlsx", {"past": False, "sms": True})["token"] != chk["token"])
+
+    # будущий визит в Excel числом: дата-время одной ячейкой и час отдельной ячейкой формата времени
+    when1 = dt.datetime.combine(f, dt.time(14, 0))
+    timed = S.timed_book([["Nume", "Telefon", "Data programării", "Ora", "Medic"],
+                          ["Excel Unu", "069570021", (6, when1), None, "Activ Doi"],
+                          ["Excel Doi", "069570022", (1, f), (4, dt.time(16, 30)), "Activ Doi"],
+                          ["Excel Trei", "069570023", (1, f), None, "Activ Doi"]])
+    with Server() as s:
+        c = Client(s.url).login()
+        chk = _check(c, timed, "excel.xlsx")
+        res.check("ячейки Excel: дата-время, дата + время, дата без часа",
+                  [(r["line"], r["when"], r["reason"]) for g in chk["visits"]["groups"] for r in g["rows"]],
+                  [(2, f"{_dmy(f)} 14:00", ""), (3, f"{_dmy(f)} 16:30", ""),
+                   (4, _dmy(f), "programare fără oră — data trecută în notițe")])
+        _run_all(c, timed, "excel.xlsx")
+        res.check("поставлены по стенным часам клиники",
+                  {n: [x[1] for x in v] for n, v in _appts(s).items()},
+                  {"Excel Unu": ["14:00"], "Excel Doi": ["16:30"]})
+
+
+def suite_visit_sms(res: Result) -> None:
+    """SMS-напоминание: визит из файла без галочки SMS цикл обходит, визит с галочкой и записанный руками —
+    получают. Живой цикл SMS под поддельными часами, сервер лицензий — стенд `test_sms`."""
+    import test_sms as ts
+    from harness import Clock
+    stand = ts.Stand()
+    d = pathlib.Path(tempfile.mkdtemp(prefix="dp_pisms_"))
+    fri, mon = (2026, 11, 6), dt.date(2026, 11, 9)
+    try:
+        ts._clinic_weekdays(d)
+        (d / "license.json").write_text(ts.lr._file(5, {"url": stand.url, "token": ts.TOKEN}), encoding="utf-8")
+        with Clock(ts._at(*fri, 9, 0)) as clock:
+            with Server(dir_=d, env={**ts.KEY_ENV, **ts.TICK}) as s:
+                c = Client(s.url).login()
+                M = _dmy(mon)
+                off = S.library_book(VIS_HEAD[:5], [["Sms Fisier Unu", "069580001", M, "12:00", "Activ Doi"]])
+                on = S.library_book(VIS_HEAD[:5], [["Sms Fisier Doi", "069580002", M, "13:00", "Activ Doi"]])
+                chk = _check(c, off, "fara-sms.xlsx")
+                res.check("пакет SMS работает: галочка видна, по умолчанию выключена",
+                          (chk["sms_on"], chk["opts"]["sms"]), (True, False))
+                _run_all(c, off, "fara-sms.xlsx")
+                _run_all(c, on, "cu-sms.xlsx", {"sms": True})
+                res.check("визит руками", add_appt(c, mon.isoformat(), "14:00", "Sms Manual", "069580003").msg, "ok")
+                clock.set(ts._at(*fri, 10, 0, 30))
+                ts._wait(lambda: len(stand.sends) >= 2)
+                time.sleep(1.5)
+                to = sorted(x["json"].get("to") for x in stand.sends)
+                res.check("напоминание ушло визиту с галочкой и визиту руками; визиту из файла без галочки — нет",
+                          to, ["69580002", "69580003"])
+                res.check("и строки очереди у него нет",
+                          [r["phone"] for r in ts._sms_log(d) if r["phone"].endswith("580001")], [])
+    finally:
+        stand.close()
+        _rmtree_settled(d)
 
 
 def suite_encrypted(res: Result) -> None:

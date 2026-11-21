@@ -83,6 +83,10 @@
           клавиатуры получает фокус и рамку назад.
   Прайс и поиск услуги (20.11.2026; засев — прайс с категориями путём клиники, файл
   импорта — .csv, свой у каждого прохода):
+  pimport мастер «Import pacienți» с записями: полоса шагов и карточка файла на месте на
+          каждом шаге; на «Verificare» галочки визитов и выбор процедуры перепроверяют файл, а сами
+          галочка, блок «Programări din fișier» и всё выше него не сдвигаются ни на одном кадре;
+          импорт идёт до итога со строкой визитов; кадры шагов — в $MC_SHOTS, если он задан;
   tarife  «Servicii și tarife»: переход из меню; в любом виде меню шапка, верх таблицы,
           ширины колонок и место поля поиска одни, пункт меню под курсором; с числом
           найденного поле не сужается; удалённая строка той же высоты, отмена — на месте
@@ -213,7 +217,7 @@ PORT = 9348
 SIZE = (1366, 768)
 LIVE_S = 12            # период опроса живого канала (services/live.ts › LIVE_MS)
 SCENARIOS = ("idle", "dialog", "status", "menu", "toast", "reduce", "leave", "close", "move", "stats", "print", "plan",
-             "tile", "event", "agenda", "focus", "tarife", "picker")
+             "tile", "event", "agenda", "focus", "tarife", "picker", "pimport")
 STYLE_SCENARIOS = ("dialog", "status", "menu", "toast", "close", "reduce")
 
 # Замеры в странице: кадры, изменения узлов, сеть, сдвиги раскладки, запуски
@@ -1245,6 +1249,99 @@ class Run:
                 f"клавиатура: час с рамкой ({had}) открыл окно клавишей ({was}), после Esc фокус и рамка вернулись ({back})")
         self.js("document.activeElement && document.activeElement.blur(); 1")
 
+    # ---------- импорт пациентов с записями ----------
+
+    def shot(self, name: str) -> None:
+        """Кадр страницы целиком в папку $MC_SHOTS (не задана — кадров нет)."""
+        folder = os.environ.get("MC_SHOTS")
+        if not folder:
+            return
+        import base64
+        # окно во всю высоту страницы: кадр «за окном» рисует шапку и меню там, где стоит прокрутка
+        y = self.js("Math.round(scrollY)")
+        h = self.js("Math.ceil(document.documentElement.scrollHeight)")
+        self.page.size(SIZE[0], max(SIZE[1], h))
+        time.sleep(0.4)
+        shot = self.cdp.cmd("Page.captureScreenshot", format="png")
+        self.page.size(*SIZE)
+        self.js(f"window.scrollTo(0, {y}); 1")
+        time.sleep(0.3)
+        out = pathlib.Path(folder) / f"{self.label.split(' · ')[-1]}-{name}.png"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(base64.b64decode(shot["data"]))
+
+    def pimport(self) -> None:
+        if not self.price_dir:
+            raise SystemExit("стенд: файл импорта не приготовлен — сценарий pimport не прогнан")
+        book = visits_book(self.price_dir, self.round)
+        self.round += 1
+        # место — от верха документа: щелчок прокручивает страницу к кнопке, а полоса шагов от этого не едет
+        frame = ("() => { const st = document.querySelector('.pi .pi-steps'); const f = document.querySelector('.pi .pi-file');"
+                 " if (!st) return null; const y = scrollY, r = st.getBoundingClientRect();"
+                 " return [Math.round(r.top + y), Math.round(r.height), f ? Math.round(f.getBoundingClientRect().top + y) : null,"
+                 " f ? f.offsetHeight : null]; }")
+        self.page.go("/admin/patients/import")
+        time.sleep(1.2)
+        self.ok(self.js("!!document.querySelector('.pi .pi-pick')"), "импорт: экран открылся на шаге «Fișier»")
+        self.shot("1-fisier")
+        d = self.file_in(book, 2.5, frame, selector=".pi input[type=file]")
+        steps = [s for s in d["samples"] if s]
+        self.ok(self.js("!!document.querySelector('.pi .pi-preview')"), "импорт: файл прочитан — шаг «Coloane»")
+        self.shot("2-coloane")
+        seen = steps[-1:]
+        d = self.tap(BY_TEXT.format(sel=".pi .pi-cols .dp-btn", text="Verifică"), 1.6, frame)
+        seen += [s for s in d["samples"] if s and s[2] is not None]
+        self.ok(self.js("!!document.querySelector('.pi .pi-docs')"), "импорт: незнакомый врач — шаг «Medici»")
+        self.ok(self.js("Array.from(document.querySelectorAll('.pi-docs option')).some((o) => o.textContent === 'Fără medic — nu programa')"),
+                "импорт, «Medici»: «Fără medic» с датой записи значит «не programa»")
+        self.shot("3-medici")
+        d = self.tap(BY_TEXT.format(sel=".pi .pi-docs .dp-btn", text="Continuă"), 1.0, frame)
+        seen += [s for s in d["samples"] if s and s[2] is not None]
+        self.ok(self.js("!!document.querySelector('.pi .pi-visits')"), "импорт: «Verificare» с блоком «Programări din fișier»")
+        looks = sorted({tuple(x) for x in seen})
+        self.ok(len(looks) == 1, f"импорт: полоса шагов и карточка файла на одном месте на каждом шаге ({looks[:3]})")
+
+        # галочки и процедура: перепроверка файла, а галочка и всё выше блока на месте
+        past = "document.querySelector('.pi .pi-visits input[type=checkbox]')"
+        place = ("() => { const b = " + past + "; const v = document.querySelector('.pi .pi-visits');"
+                 " const c = document.querySelector('.pi .pi-check > .pi-counts'); if (!b || !v) return null;"
+                 " const r = b.getBoundingClientRect(); return [Math.round(r.top), Math.round(r.left),"
+                 " Math.round(v.getBoundingClientRect().top), c ? Math.round(c.getBoundingClientRect().top) : null]; }")
+        self.js(f"{past}.scrollIntoView({{block: 'center'}}); 1")
+        time.sleep(0.4)
+        before = self.at(BY_TEXT.format(sel=".pi .pi-visits .pi-count", text="Programări noi"))
+        seen = []
+        reqs = []
+        for _ in range(2):
+            d = self.tap(past, 1.2, place)
+            seen += d["samples"]
+            reqs += [r["status"] for r in d["res"] if "/pimport/check" in r["name"]]
+        sel = "document.querySelector('.pi .pi-visits .pi-svc select')"
+        d = self.pick(sel, self.js(f"{sel}.options[1].value"), 1.2, place)
+        seen += d["samples"]
+        reqs += [r["status"] for r in d["res"] if "/pimport/check" in r["name"]]
+        looks = sorted({tuple(x) for x in seen if x})
+        self.ok(reqs == [200, 200, 200], f"импорт: галочки и процедура перепроверяют файл ({reqs})")
+        # сдвиги раскладки НИЖЕ блока законны: ответ меняет группы визитов под галочками
+        self.ok(len(looks) == 1,
+                f"импорт: галочка, блок и счётчики выше на месте на каждом кадре перепроверки ({looks[:3]})")
+        self.ok(before == self.at(BY_TEXT.format(sel=".pi .pi-visits .pi-count", text="Programări noi")),
+                "импорт: счётчики визитов на месте после перепроверки")
+        self.js("window.scrollTo(0, 0); 1")
+        self.shot("4-verificare")
+
+        # импорт: вопрос своим окном, итог со строкой визитов
+        go = BY_TEXT.format(sel=".pi .pi-acts .dp-btn.pri", text="Importă")
+        said = self.js(f"{go}.textContent")
+        self.tap(go, 0.8)
+        d = self.tap("Array.from(document.querySelectorAll('dialog.dp-ask button')).find((b) => b.textContent.trim() === 'Importă')", 3.0)
+        runs = [r["status"] for r in d["res"] if "/pimport/run" in r["name"]]
+        done = self.js("Array.from(document.querySelectorAll('.pi .pi-done .pi-done-n')).map((x) => x.textContent).join(' | ')")
+        self.ok(bool(runs) and set(runs) == {200} and "programări puse" in (done or ""),
+                f"импорт: «{said.strip()}» — порции {runs}, итог «{done}»")
+        self.shot("5-final")
+
+
     # ---------- прайс и поиск услуги (20.11.2026) ----------
 
     def at(self, finder: str):
@@ -1253,11 +1350,11 @@ class Run:
                     " return JSON.stringify([Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]) })()")
         return json.loads(v) if v else None
 
-    def file_in(self, path: pathlib.Path, wait: float, sample: str = "") -> dict:
+    def file_in(self, path: pathlib.Path, wait: float, sample: str = "", selector: str = "[data-testid=tf-file]") -> dict:
         """Файл в поле выбора окна импорта — как его кладёт системное окно выбора."""
         self.js(f"__mc.sample = {sample or 'null'}; __mc.reset(); 1")
         doc = self.cdp.cmd("DOM.getDocument", depth=-1)
-        node = self.cdp.cmd("DOM.querySelector", nodeId=doc["root"]["nodeId"], selector="[data-testid=tf-file]")
+        node = self.cdp.cmd("DOM.querySelector", nodeId=doc["root"]["nodeId"], selector=selector)
         self.cdp.cmd("DOM.setFileInputFiles", files=[str(path)], nodeId=node["nodeId"])
         self.cdp.drain(wait)
         return self.take()
@@ -1621,6 +1718,25 @@ def price_csv(folder: pathlib.Path, n: int) -> pathlib.Path:
     return path
 
 
+def visits_book(folder: pathlib.Path, n: int) -> pathlib.Path:
+    """Файл импорта с записями: 48 пациентов на неделю вперёд и в прошлом, три врача клиники и
+    незнакомый (шаг «Medici»), строки без часа, пересечение у одного врача. Имена и телефоны — свои у
+    каждого прохода: второй стиль импортирует снова, а не «există deja»."""
+    import pimport_samples as S
+    from datetime import date as _date, time as _time, timedelta as _td
+    today = datetime.now(TZ).date()
+    docs = ["Activ Doi", "Activ Trei", "Activ Patru", "Popescu"]
+    rows = [["Nume", "Telefon", "Data programării", "Ora", "Medic", "Procedură"]]
+    for i in range(48):
+        day = today + _td(days=7 + i % 5) if i % 6 else today - _td(days=40 + i)
+        hour = None if i % 9 == 4 else (4, _time(8 + (i // 4) % 10, 30 * (i % 2)))
+        rows.append([f"Importescu{n} Pacient{i}", f"0697{n % 10}{i:04d}", (1, _date(day.year, day.month, day.day)),
+                     hour, docs[i % 4], "Consultație" if i % 3 else None])
+    path = folder / f"programari-{n}.xlsx"
+    path.write_bytes(S.timed_book(rows))
+    return path
+
+
 def broken_tree(css: str = "", patch: tuple[str, str, str] | None = None, swap: tuple[str, str] | None = None) -> pathlib.Path:
     """Копия `bot/` со сломанным правилом: дописка в конец panel.css, замена в
     panel.css (`swap`) или замена в файле движка (`patch`: путь, было, стало).
@@ -1698,6 +1814,9 @@ PAIRS = [
     ("agenda", "переключатель вида у свёрнутого блока", {"css": ".dp-react-root .agenda.dp-fold:not([open]) > summary .ag-view"
                                                              "{display:inline-flex !important}"}),
     ("focus", "клиент не снимает фокус с открывшего окно", {"js": "HTMLElement.prototype.blur = function () {};"}),
+    ("pimport", "подсказки блока визитов прячутся на время проверки", {"css": ".pi[aria-busy=true] .pi-visits > .hint"
+                                                                         "{display:none !important}"}),
+    ("pimport", "полоса шагов выше на шаге «Medici»", {"css": ".pi:has(.pi-docs) .pi-steps{margin-top:12px !important}"}),
     ("tarife", "окно импорта по содержимому", {"css": "dialog.tf-imp .rg-dlg-b{height:auto !important}"}),
     ("tarife", "нажатая вкладка импорта шире", {"css": "dialog.tf-imp .tf-imp-tabs>button::after{content:none !important}"}),
     ("tarife", "поле поиска забирает свободное место ряда", {"css": ".tf .tf-find{flex:1 1 220px !important}"}),
@@ -1734,6 +1853,7 @@ def run_tree(cdp: CDP, bot: pathlib.Path | None, label: str, names, polls: int, 
                 run.pid, run.listed = seed_plan(c)
             if "tarife" in names or "picker" in names:
                 seed_tarife(c)
+            if "tarife" in names or "picker" in names or "pimport" in names:
                 run.price_dir = pathlib.Path(tempfile.mkdtemp(prefix="dp_motion_csv_"))
             cdp.cmd("Page.addScriptToEvaluateOnNewDocument", source=OPEN_AGENDA)
             cdp.cmd("Page.addScriptToEvaluateOnNewDocument", source=INSTR)

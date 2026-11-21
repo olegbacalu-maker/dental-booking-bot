@@ -727,6 +727,18 @@ MUTATIONS = [
      ("r = await db.add_visit_for_patient(", "r = await db._book(")),
     ("визит фише по номеру — только через book_visit", "app/db/schedule.py",
      ("async def add_visit_for_patient(", "async def add_visit_by_id(")),
+    # Импорт с записями: запись в журнал мимо book (своей функцией базы, своим SQL), импорт,
+    # переставший звать запись или пробу, и переименованный якорь в book.
+    ("импорт ставит визиты только через book", "app/modules/patients/pimport_api.py",
+     "\nasync def _mut(pid, dt):\n    return await db.admin_add('x', '069000000', 'c', 'd', dt)\n"),
+    ("импорт ставит визиты только через book", "app/modules/patients/pimport.py",
+     "\nasync def _mut(db, i):\n    await db._execute('INSERT INTO appointments(patient_id) VALUES(?)', i)\n"),
+    ("импорт ставит визиты только через book", "app/modules/patients/pimport_api.py",
+     ("b = await book.book_visit(", "b = await book.probe(")),
+    ("импорт ставит визиты только через book", "app/modules/patients/pimport.py",
+     ("await book.probe(pid", "await book.refusal(pid")),
+    ("импорт ставит визиты только через book", "app/core/book.py",
+     ("async def book_visit(", "async def place_visit(")),
 ]
 
 # Правки ЗАКОННЫЕ: нарушения в них нет, и правило обязано остаться
@@ -735,6 +747,9 @@ MUTATIONS = [
 # и отключают такое правило целиком, вместе с настоящей проверкой. Формат тот
 # же, что у MUTATIONS, только ожидание обратное.
 LEGAL = [
+    # чтение журнала импортом — не запись: отчёт и отмена спрашивают визиты своим SELECT в db
+    ("импорт ставит визиты только через book", "app/modules/patients/pimport.py",
+     "\nasync def _mut(db, i):\n    return await db._fetch('SELECT id FROM appointments WHERE id = ?', i)\n"),
     # внутри пакета db зовут друг друга свободно: правило про модули, не про базу
     ("визит фише по номеру — только через book_visit", "app/db/schedule.py",
      "\nasync def _mut(pid, dt):\n    return await add_visit_for_patient(pid, 'x', 'y', dt)\n"),

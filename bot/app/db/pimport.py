@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .. import db
-from .conn import _execute, _fetch, _utcnow_iso
+from .conn import _execute, _fetch, _iso, _utcnow_iso
 from .events import _actor_now
 from .patients import PATIENT_FIELDS
 
@@ -54,16 +54,82 @@ async def import_list(limit: int = 50) -> list[dict]:
         "SELECT * FROM patient_imports ORDER BY id DESC LIMIT ?", limit)
 
 
-async def import_count(iid: int, created: int = 0, filled: int = 0, skipped: int = 0) -> None:
+async def import_count(iid: int, created: int = 0, filled: int = 0, skipped: int = 0,
+                       visits: int = 0, visits_past: int = 0, visits_skipped: int = 0) -> None:
     await _execute(
         "UPDATE patient_imports SET created = created + ?, filled = filled + ?, "
-        "skipped = skipped + ? WHERE id = ?", created, filled, skipped, iid)
+        "skipped = skipped + ?, visits = visits + ?, visits_past = visits_past + ?, "
+        "visits_skipped = visits_skipped + ? WHERE id = ?",
+        created, filled, skipped, visits, visits_past, visits_skipped, iid)
 
 
 async def import_drop(iid: int) -> None:
-    """Убрать запись об импорте, который ничего не завёл и не дописал."""
+    """Убрать запись об импорте, который ничего не завёл, не дописал и не поставил."""
     await _execute(
-        "DELETE FROM patient_imports WHERE id = ? AND created = 0 AND filled = 0", iid)
+        "DELETE FROM patient_imports WHERE id = ? AND created = 0 AND filled = 0 AND visits = 0",
+        iid)
+
+
+# Отпечаток визита импорта: всё, что меняют руками из журнала и карточки визита. Одно выражение на
+# запись и на сверку — разойдись они, отмена сочла бы тронутым каждый визит (или ни одного).
+_APPT_SIG = ("(status || '|' || starts_at || '|' || COALESCE(duration_min, '') || '|' "
+             "|| COALESCE(doctor_id, '') || '|' || COALESCE(service_id, '') || '|' "
+             "|| COALESCE(room_id, '') || '|' || COALESCE(comment, '') || '|' "
+             "|| COALESCE(waiting_at, '') || '|' || COALESCE(arrived_at, '') || '|' "
+             "|| COALESCE(patient_id, ''))")
+
+# Что висит на визите и делает его частью работы клиники: звонок-подтверждение, запись приёма,
+# позиция плана, заказ в лабораторию, расход склада, SMS, событие Google, отметка «Rechemări».
+_APPT_CHILDREN = (("appt_calls", "appointment_id"), ("visit_records", "appointment_id"),
+                  ("plan_items", "appointment_id"), ("lab_orders", "appointment_id"),
+                  ("stock_moves", "appointment_id"), ("sms_log", "appt_id"),
+                  ("gcal_events", "appt_id"), ("recall_marks", "cycle_appt_id"))
+
+
+async def import_appt_mark(aid: int, iid: int, sms_skip: bool) -> None:
+    """Метка импорта и отпечаток — сразу после постановки, тем же выражением, что сверяет отмена."""
+    await _execute(
+        f"UPDATE appointments SET import_id = ?, sms_skip = ?, import_sig = {_APPT_SIG} "
+        "WHERE id = ?", iid, int(bool(sms_skip)), aid)
+
+
+async def import_appts(iid: int) -> list[dict]:
+    """Визиты импорта, которые ещё стоят: отчёт после импорта отличает «поставлен этим импортом»
+    от «уже был»."""
+    return await _fetch(
+        "SELECT id, patient_id, starts_at FROM appointments WHERE import_id = ?", iid)
+
+
+async def import_appt_ids(iid: int, after: int = 0, limit: int = 200) -> list[int]:
+    rows = await _fetch(
+        "SELECT id FROM appointments WHERE import_id = ? AND id > ? ORDER BY id LIMIT ?",
+        iid, after, limit)
+    return [r["id"] for r in rows]
+
+
+async def import_appt_drop(aid: int) -> bool:
+    """Снять визит импорта, если с ним ничего не делали: отпечаток тот же и на нём ничего не
+    висит. Проверка и удаление — одним оператором, между ними чужая правка не вклинится."""
+    free = " AND ".join(f"NOT EXISTS (SELECT 1 FROM {t} WHERE {c} = appointments.id)"
+                        for t, c in _APPT_CHILDREN)
+    n = await _execute(
+        f"DELETE FROM appointments WHERE id = ? AND import_id IS NOT NULL "
+        f"AND import_sig = {_APPT_SIG} AND {free}", aid)
+    return bool(n)
+
+
+async def import_visit_exists(pid: int, start) -> bool:
+    """У фиши уже стоит визит на этот момент, в любом статусе: повтор того же файла. Прошлый визит
+    «finalizată» занятость не держит (`_patient_busy` — только активные), и без этой сверки
+    история из файла задваивалась бы при каждом повторе."""
+    return bool(await _fetch(
+        "SELECT 1 FROM appointments WHERE patient_id = ? AND starts_at = ? AND source <> 'note' LIMIT 1",
+        pid, _iso(start)))
+
+
+async def import_set_notes(pid: int, notes: str) -> None:
+    """Заметки только что заведённой фиши: визит из её строки не встал — дата и врач в заметки."""
+    await _execute("UPDATE patients SET notes = ? WHERE id = ?", notes or None, pid)
 
 
 async def import_mark(pid: int, iid: int) -> None:
@@ -78,17 +144,21 @@ async def import_pids(iid: int, after: int = 0, limit: int = 200) -> list[int]:
 
 
 async def import_untouched(pid: int) -> bool:
-    """Просмотр фиши не считается правкой: иначе отмена оставляла бы всё открытое."""
+    """Просмотр фиши не считается правкой: иначе отмена оставляла бы всё открытое. Строки
+    летописи о визитах (`appt_new`, `appt_status`) — визиты самого импорта: к этому шагу отмена
+    сняла нетронутые, а визит, который трогали, остаётся и держит фишу (визиты не удаляются
+    ничем, кроме стирания пациента)."""
     rows = await _fetch(
         "SELECT (SELECT COUNT(*) FROM appointments WHERE patient_id = ?) AS appts, "
         "(SELECT COUNT(*) FROM activity WHERE patient_id = ? "
-        " AND kind NOT IN ('created', 'view')) AS acts", pid, pid)
+        " AND kind NOT IN ('created', 'view', 'appt_new', 'appt_status')) AS acts", pid, pid)
     return not rows[0]["appts"] and not rows[0]["acts"]
 
 
-async def import_undone(iid: int, removed: int, final: bool) -> None:
+async def import_undone(iid: int, removed: int, final: bool, visits_removed: int = 0) -> None:
     await _execute(
-        "UPDATE patient_imports SET removed = removed + ? WHERE id = ?", removed, iid)
+        "UPDATE patient_imports SET removed = removed + ?, visits_removed = visits_removed + ? "
+        "WHERE id = ?", removed, visits_removed, iid)
     if final:
         await _execute(
             "UPDATE patient_imports SET undone_at = ? WHERE id = ? AND undone_at IS NULL",

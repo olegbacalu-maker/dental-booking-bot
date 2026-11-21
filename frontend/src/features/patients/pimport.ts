@@ -15,6 +15,11 @@ export interface PiImport {
   filled: number
   skipped: number
   removed: number
+  /** Визиты из файла: поставлено (из них прошлых — в истории), не поставлено, снято отменой. */
+  visits: number
+  visits_past: number
+  visits_skipped: number
+  visits_removed: number
   undone: boolean
   can_undo: boolean
 }
@@ -39,6 +44,12 @@ export interface PiOpts {
   force: number[]
   /** Решение по написанию врача в файле: id врача или NO_DOCTOR; нет ключа — как узнала программа. */
   docs: Record<string, string>
+  /** Прошлые визиты файла — в историю «finalizată». */
+  past: boolean
+  /** SMS-напоминания по будущим визитам файла. */
+  sms: boolean
+  /** Процедура визита для строк без своей (ключ услуги агенды). */
+  svc: string
 }
 
 export interface PiRow {
@@ -89,6 +100,35 @@ export interface PiDoctor {
 
 export interface PiClinicDoctor { id: string; name: string; active: boolean }
 
+/** Визит строки файла на шаге проверки. */
+export interface PiVisitRow {
+  line: number
+  name: string
+  when: string
+  doctor: string
+  service: string
+  reason: string
+  notes: string[]
+  patient: number | null
+}
+
+export interface PiVisitGroup {
+  id: 'v_new' | 'v_past' | 'v_no'
+  label: string
+  count: number
+  more: number
+  rows: PiVisitRow[]
+}
+
+export interface PiVisits {
+  counts: { v_new: number; v_past: number; v_no: number; rows: number }
+  groups: PiVisitGroup[]
+}
+
+/** Колонка даты записи назначена: строки становятся визитами. */
+export const hasVisits = (cols: Record<string, string>): boolean =>
+  Object.values(cols).some((f) => f === 'appt' || f === 'appt_time')
+
 export const NO_DOCTOR = '-'
 
 /** Решение по написанию: выбор человека сильнее узнанного; "" — пустое значение снимает выбор. */
@@ -109,6 +149,11 @@ export interface PiCheck {
   ready: boolean
   counts: PiCounts | null
   groups: PiGroup[]
+  /** Визиты файла; null — колонки даты записи нет. */
+  visits: PiVisits | null
+  services: { id: string; name: string }[]
+  /** Пакет SMS работает: галочке напоминаний есть что включать. */
+  sms_on: boolean
   token: string
   parts?: number
 }
@@ -121,14 +166,25 @@ export interface PiRun {
   created: number
   filled: number
   skipped: number
+  visits: number
+  visits_past: number
+  visits_skipped: number
+  /** Последняя порция: сколько пациентов импорта стоят теперь в «Rechemări». */
+  recall: number
   total: PiImport
 }
 
+export type PiUndoPhase = 'v' | 'p'
+
 export interface PiUndo {
   done: boolean
+  /** Следующий этап: визиты (`v`), потом фиши (`p`). */
+  phase: PiUndoPhase
   after: number
   removed: number
+  visits_removed: number
   kept: number
+  visits_kept: number
   total: PiImport
 }
 
@@ -163,7 +219,8 @@ export const pimportApi = {
     api.postRaw<PiRun>(`/pimport/run?${query(file, opts, { token, part, import: importId })}`, file),
   report: (file: File, opts: PiOpts, importId = 0) =>
     api.download(`/pimport/report?${query(file, opts, importId ? { import: importId } : {})}`, file),
-  undo: (id: number, after: number) => api.post<PiUndo>(`/pimport/undo?id=${id}&after=${after}`),
+  undo: (id: number, phase: PiUndoPhase, after: number) =>
+    api.post<PiUndo>(`/pimport/undo?id=${id}&phase=${phase}&after=${after}`),
 }
 
 /** «1 200»: разряды неразрывным пробелом — в румынской локали браузер ставит точку. */

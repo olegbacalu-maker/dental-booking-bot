@@ -833,6 +833,19 @@ SQLITE_EXTRA_COLS = [
     # Когда позицию плана правили. NULL — не правили; по нему согласие к плану,
     # подписанное раньше правки, перестаёт покрывать план.
     ("plan_items", "edited_at TEXT"),
+    # Визит, поставленный импортом пациентов из файла: `patient_imports.id` и отпечаток записи в
+    # момент постановки. Отмена импорта убирает только визит, чей отпечаток не изменился (никто
+    # не переносил, не менял статус, процедуру, кабинет, комментарий). NULL — поставлен не импортом.
+    ("appointments", "import_id INTEGER"),
+    ("appointments", "import_sig TEXT"),
+    # 1 — без SMS-напоминания: визит из файла, импорт с выключенной галочкой SMS. Согласие самого
+    # пациента (`patients.sms_off`) не трогается, его визиты, поставленные руками, напоминание получают.
+    ("appointments", "sms_skip INTEGER NOT NULL DEFAULT 0"),
+    # Счётчики визитов импорта: поставлено (из них прошлых — в истории), не поставлено, снято отменой.
+    ("patient_imports", "visits INTEGER NOT NULL DEFAULT 0"),
+    ("patient_imports", "visits_past INTEGER NOT NULL DEFAULT 0"),
+    ("patient_imports", "visits_skipped INTEGER NOT NULL DEFAULT 0"),
+    ("patient_imports", "visits_removed INTEGER NOT NULL DEFAULT 0"),
 ]
 
 # Этап A1 (v1.5.0): полный профиль пациента. Все поля опциональны — клиника может

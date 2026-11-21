@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, Response
 
 from ... import db
 from ... import engine as eng
-from ...core import tabfile, xlsx
+from ...core import book, sms_loop, tabfile, xlsx
+from ...core import recall as rcl
 from ...core.api import api_require
 from ...core.auth import PERM_IMPORT, local_only, remote_notice, require
 from ...core.layout import msg_json, react_shell, shell_model
@@ -38,7 +40,7 @@ async def _blob(request: Request) -> bytes | None:
 def _parse(blob: bytes, name: str, opts: dict):
     """Разбор или код отказа. Тяжёлая — зовётся в потоке, не в цикле событий."""
     try:
-        table = tabfile.read(blob, name, enc=opts["enc"], delim=opts["delim"])
+        table = tabfile.read(blob, name, enc=opts["enc"], delim=opts["delim"], times=True)
     except tabfile.Refuse as e:
         return _REFUSE[e.code]
     res = pi.resolve(table, opts)
@@ -72,10 +74,13 @@ def _when(v) -> str:
 
 def _import_view(r: dict) -> dict:
     left = r["created"] - r["removed"]
+    visits_left = r["visits"] - r["visits_removed"]
     return {"id": r["id"], "at": _when(r["at"]), "actor": r["actor"], "file": r["file_name"],
             "rows": r["rows"], "created": r["created"], "filled": r["filled"],
             "skipped": r["skipped"], "removed": r["removed"],
-            "undone": r["undone_at"] is not None, "can_undo": left > 0}
+            "visits": r["visits"], "visits_past": r["visits_past"],
+            "visits_skipped": r["visits_skipped"], "visits_removed": r["visits_removed"],
+            "undone": r["undone_at"] is not None, "can_undo": left > 0 or visits_left > 0}
 
 
 PAGE = "/admin/patients/import"
@@ -148,12 +153,50 @@ async def api_pimport_check(request: Request):
         "ready": pi.ready(res),
         "counts": None, "groups": [], "token": "",
     }
+    data["visits"] = None
+    data["services"] = [{"id": sid, "name": n} for sid, n in pi.agenda_services()]
+    data["sms_on"] = sms_loop.active()
     if data["ready"]:
         pi.analyse(recs, await db.import_index(), res["force"])
         data["counts"], data["groups"] = pi.summary(recs)
+        if pi.has_visits(res):
+            await pi.plan_visits(recs)
+            counts, groups = pi.visit_summary(recs)
+            data["visits"] = {"counts": counts, "groups": groups}
         data["token"] = pi.token(blob, res)
         data["parts"] = -(-len(recs) // pi.BATCH)
     return msg_json(True, data=data)
+
+
+async def _place(rec: dict, pid: int | None, iid: int, res: dict, fresh: dict) -> str:
+    """Визит строки фише `pid` — только через `book.book_visit`, занятость решает запись. Не встал
+    у фиши, заведённой этим запуском, — дата и врач уходят в её заметки (`fresh`: id → заметки)."""
+    v = rec["visit"]
+    if not pi.visit_ready(rec) or pid is None:
+        return "v_no"
+    if await db.import_visit_exists(pid, v["start"]):
+        # повтор файла: прошлый визит «finalizată» занятость не держит, и без этой сверки
+        # история задвоилась бы
+        pi.visit_outcome(rec, "exists")
+        return "v_no"
+    b = await book.book_visit(pid, v["doctor"], v["start"], v["svc"], minutes=v["minutes"],
+                              done=v["past"], comment=v["comment"])
+    pi.visit_outcome(rec, b.code)
+    if b.ok:
+        await db.import_appt_mark(b.appt_id, iid, sms_skip=not res["sms"])
+    elif pid in fresh:
+        fresh[pid] = "; ".join(x for x in (fresh[pid], v["note"]) if x)[:500]
+        await db.import_set_notes(pid, fresh[pid])
+    return rec["vstate"]
+
+
+async def _recall_new(iid: int) -> int:
+    """Сколько пациентов с визитами импорта стоят теперь в «Rechemări» (вкладка «De sunat»)."""
+    pids = {r["patient_id"] for r in await db.import_appts(iid)}
+    if not pids:
+        return 0
+    rows = (await rcl.model(datetime.now(eng.TZ).date()))["rows"]
+    return len({r["pid"] for r in rows if r["pid"] in pids and r["tab"] == "due"})
 
 
 @router.post("/api/pimport/run")
@@ -189,29 +232,50 @@ async def api_pimport_run(request: Request):
     else:
         iid = await db.import_open(name, len(recs))
     pi.analyse(recs, await db.import_index(), res["force"])
+    visits = pi.has_visits(res)
     created = filled = skipped = 0
+    placed = {"v_new": 0, "v_past": 0, "v_no": 0}
+    made: dict = {}     # строка файла → фиша, заведённая этой порцией: её дубли ниже несут визит туда же
+    fresh: dict = {}    # фиша этой порции → её заметки
     for rec in recs[part * pi.BATCH:(part + 1) * pi.BATCH]:
+        pid = None
         if rec["act"] == "new":
-            await pi.create(rec, iid, name)
+            pid = made[rec["line"]] = await pi.create(rec, iid, name)
+            fresh[pid] = rec["notes"]
             created += 1
-        elif rec["act"] == "exists" and res["fill"] and rec["fill"] and await pi.fill(rec):
-            filled += 1
         else:
-            skipped += 1
-    await db.import_count(iid, created, filled, skipped)
+            if rec["act"] == "exists":
+                pid = rec["match"]["id"]
+            elif rec["act"] == "dup":
+                pid = made.get(rec.get("root"))
+            if rec["act"] == "exists" and res["fill"] and rec["fill"] and await pi.fill(rec):
+                filled += 1
+            else:
+                skipped += 1
+        if visits and rec.get("visit"):
+            placed[await _place(rec, pid, iid, res, fresh)] += 1
+    await db.import_count(iid, created, filled, skipped,
+                          placed["v_new"] + placed["v_past"], placed["v_past"], placed["v_no"])
     run = await db.import_get(iid)
     done = part + 1 >= parts
-    if done and not (run["created"] or run["filled"]):
+    recall = 0
+    if done and not (run["created"] or run["filled"] or run["visits"]):
         # повторный запуск того же файла: в списке импортов ему делать нечего
         await db.import_drop(iid)
     elif done:
         text = (f"Import pacienți: {run['created']} fișe noi, {run['skipped']} omise"
                 + (f", {run['filled']} completate" if run["filled"] else "")
+                + (f", {run['visits']} programări puse ({run['visits_past']} în istoric)"
+                   if run["visits"] else "")
                 + f" („{name[:60]}”)")
         await db.log_clinic_event("import", text, actor=run["actor"] or "sistem")
+        if run["visits_past"]:
+            recall = await _recall_new(iid)
     return msg_json(True, "pi_done" if done else "", data={
         "import": iid, "part": part, "parts": parts, "done": done,
         "created": created, "filled": filled, "skipped": skipped,
+        "visits": placed["v_new"] + placed["v_past"], "visits_past": placed["v_past"],
+        "visits_skipped": placed["v_no"], "recall": recall,
         "total": _import_view(run)})
 
 
@@ -227,17 +291,25 @@ async def api_pimport_report(request: Request):
         return got
     _blob_, _name, _table, res, recs, _preview = got
     iid = request.query_params.get("import", "0")
-    pi.analyse(recs, await db.import_index(), res["force"], int(iid) if iid.isdigit() else 0)
-    blob = xlsx.book(
-        ["Rând", "Nume", "Telefon", "Data nașterii", "IDNP", "Rezultat", "Observații"],
-        pi.report_rows(recs), widths=[7, 28, 14, 13, 16, 24, 70], sheet_name="Import")
+    iid = int(iid) if iid.isdigit() else 0
+    pi.analyse(recs, await db.import_index(), res["force"], iid)
+    visits = pi.has_visits(res)
+    if visits:
+        await pi.plan_visits(recs, await db.import_appts(iid) if iid else None)
+    head = ["Rând", "Nume", "Telefon", "Data nașterii", "IDNP", "Rezultat", "Observații"]
+    widths = [7, 28, 14, 13, 16, 24, 70]
+    blob = xlsx.book(head + (["Programare"] if visits else []),
+                     pi.report_rows(recs, visits), widths=widths + ([70] if visits else []),
+                     sheet_name="Import")
     return Response(blob, media_type=_XLSX, headers={
         "Content-Disposition": 'attachment; filename="raport-import-pacienti.xlsx"'})
 
 
 @router.post("/api/pimport/undo")
 async def api_pimport_undo(request: Request):
-    """Убирает только фиши импорта, в которых с тех пор ничего не делали."""
+    """Убирает только визиты и фиши импорта, с которыми с тех пор ничего не делали. Два этапа
+    порциями: сперва визиты (`phase=v`, у любой фиши), потом фиши (`phase=p`) — фишу держит
+    визит, который остался."""
     if (deny := api_require(request, PERM_IMPORT)) is not None:
         return deny
     if (deny := local_only(request)) is not None:
@@ -247,9 +319,24 @@ async def api_pimport_undo(request: Request):
         iid, after = int(q.get("id", "0")), int(q.get("after", "0"))
     except ValueError:
         return msg_json(False, "pi_opts", status=422)
+    phase = q.get("phase", "v")
+    if phase not in ("v", "p"):
+        return msg_json(False, "pi_opts", status=422)
     run = await db.import_get(iid)
     if run is None:
         return msg_json(False, "pi_gone", status=404)
+    if phase == "v":
+        aids = await db.import_appt_ids(iid, after, pi.BATCH)
+        dropped = 0
+        for aid in aids:
+            dropped += await db.import_appt_drop(aid)
+        await db.import_undone(iid, 0, False, dropped)
+        run = await db.import_get(iid)
+        more = len(aids) == pi.BATCH
+        return msg_json(True, data={
+            "done": False, "phase": "v" if more else "p", "after": aids[-1] if more else 0,
+            "removed": 0, "visits_removed": dropped, "kept": run["created"] - run["removed"],
+            "visits_kept": run["visits"] - run["visits_removed"], "total": _import_view(run)})
     pids = await db.import_pids(iid, after, pi.BATCH)
     removed = 0
     for pid in pids:
@@ -260,10 +347,12 @@ async def api_pimport_undo(request: Request):
     await db.import_undone(iid, removed, done)
     run = await db.import_get(iid)
     kept = run["created"] - run["removed"]
+    visits_kept = run["visits"] - run["visits_removed"]
     if done:
-        await db.log_clinic_event(
-            "import", actor=db._actor_now(), text=f"Import anulat („{run['file_name'][:60]}”): {run['removed']} fișe "
-                      f"șterse, {kept} păstrate")
+        text = f"Import anulat („{run['file_name'][:60]}”): {run['removed']} fișe șterse, {kept} păstrate"
+        if run["visits"]:
+            text += f"; {run['visits_removed']} programări șterse, {visits_kept} păstrate"
+        await db.log_clinic_event("import", actor=db._actor_now(), text=text)
     return msg_json(True, "pi_undone" if done else "", data={
-        "done": done, "after": pids[-1] if pids else after, "removed": removed,
-        "kept": kept, "total": _import_view(run)})
+        "done": done, "phase": "p", "after": pids[-1] if pids else after, "removed": removed,
+        "visits_removed": 0, "kept": kept, "visits_kept": visits_kept, "total": _import_view(run)})
