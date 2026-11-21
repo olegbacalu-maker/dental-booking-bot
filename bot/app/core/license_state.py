@@ -250,6 +250,8 @@ READONLY_ALLOW = (
     "/api/settings/lan", "/api/settings/lan/firewall", "/api/settings/autostart",
     "/api/patients/{pid}/archive", "/api/patients/{pid}/erase",
     "/api/documents/{doc_id}/open",
+    # отключить аккаунт Google клиника вправе всегда: это её доступ к её календарю
+    "/api/gcal/google/disconnect",
 )
 GATED_PREFIXES = ("/admin", "/api/")           # где ворота вообще стоят
 READ_METHODS = ("GET", "HEAD", "OPTIONS")

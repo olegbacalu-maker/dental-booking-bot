@@ -43,6 +43,7 @@ from .modules.qr import routes as qr
 from .modules.schedule import api as schedule_api
 from .modules.schedule import gcal as schedule_gcal
 from .modules.schedule import gcal_api as schedule_gcal_api
+from .modules.schedule import gcal_link as schedule_gcal_link
 from .modules.schedule import routes as schedule
 from .modules.settings import api as settings_api
 from .modules.settings import lan as settings_lan
@@ -284,6 +285,8 @@ async def startup() -> None:
     # Текст непереносённых событий календаря живёт до срока.
     await schedule_gcal.startup()
     schedule_gcal.sweep_async()
+    # Опрос календаря аккаунта Google — тот же приём: старт не ждёт, без связи и без права проход пуст.
+    schedule_gcal_link.poll_async()
     await _backfill_ids()
     if paths.is_frozen():
         _sweep_watch_copy()

@@ -538,6 +538,51 @@ MSG_BANNER = {
     "gc_set": ("ok", "Salvat"),
     "gc_cleared": ("ok", "Evenimentele din Google Calendar au fost șterse din program"),
     "gc_bad": ("err", "Date invalide"),
+    # Связь вкладки с аккаунтом Google (modules/schedule/gcal_link.py): состояние блока
+    "gc_g_plus": ("warn", "Conectarea la contul Google face parte din DentPilot Plus"),
+    "gc_g_plus_off": ("warn", "Legătura cu contul Google este oprită: face parte din DentPilot Plus. "
+                              "Evenimentele aduse rămân în listă; după trecerea la Plus verificarea "
+                              "pornește singură, fără o nouă conectare"),
+    "gc_g_readonly": ("warn", "Legătura cu contul Google este oprită cât programul este în regim de citire"),
+    "gc_g_paused": ("warn", "Verificarea calendarului Google este oprită după „Șterge tot din Google” — "
+                            "apăsați „Verifică acum” ca să o reluați"),
+    "gc_g_dead": ("err", "Google nu mai acceptă conectarea (accesul a fost retras sau a expirat) — "
+                         "conectați din nou contul Google"),
+    "gc_g_elsewhere": ("err", "Conectarea a fost făcută pe alt calculator sau în alt cont Windows — "
+                              "conectați din nou contul Google aici"),
+    "gc_g_no_scope": ("err", "Google nu a dat dreptul de a citi evenimentele — conectați din nou contul "
+                             "și lăsați bifate ambele permisiuni"),
+    "gc_g_not_found": ("err", "Calendarul ales nu mai este în contul Google — alegeți alt calendar"),
+    # исход проверки календаря
+    "gc_g_checked": ("ok", "Calendarul Google a fost verificat"),
+    "gc_g_offline": ("warn", "Google nu a răspuns — programul încearcă din nou la următoarea verificare"),
+    "gc_g_rate": ("warn", "Google a cerut o pauză — programul încearcă din nou mai târziu"),
+    "gc_g_too_many": ("err", "Calendarul are prea multe evenimente pentru a fi citit"),
+    "gc_g_admin": ("err", "Administratorul Google Workspace al clinicii a închis accesul aplicațiilor "
+                          "la Google Calendar — cereți-i să permită DentPilot"),
+    "gc_g_client": ("err", "Google nu recunoaște această versiune a programului — scrieți-ne"),
+    "gc_g_failed": ("err", "Google a refuzat cererea — încercați din nou; dacă se repetă, scrieți-ne"),
+    # команды блока
+    "gc_g_url": ("ok", "Pagina Google se deschide în browser — după conectare întoarceți-vă aici"),
+    "gc_g_calendar": ("ok", "Calendarul este ales — evenimentele lui sunt în listă"),
+    "gc_g_off": ("ok", "Contul Google este deconectat — accesul programului este retras"),
+    "gc_g_off_local": ("warn", "Contul Google este deconectat în program; Google nu a confirmat "
+                               "retragerea accesului — o puteți face și din setările contului Google"),
+    "gc_g_none": ("err", "Conectarea la contul Google nu este disponibilă în acest program"),
+    "gc_g_gone": ("err", "Contul Google nu este conectat"),
+    "gc_g_choose": ("err", "Alegeți mai întâi calendarul"),
+    "gc_g_bad": ("err", "Alegeți un calendar din listă"),
+    "gc_cleared_paused": ("ok", "Evenimentele din Google Calendar au fost șterse din program; verificarea "
+                                "calendarului Google este oprită — „Verifică acum” o reia"),
+    # страница возврата из Google (браузер Windows, не окно программы)
+    "gc_g_back_ok": ("ok", "Contul Google este conectat. Întoarceți-vă în fereastra DentPilot."),
+    "gc_g_back_again": ("ok", "Contul Google este deja conectat. Puteți închide această pagină."),
+    "gc_g_back_state": ("err", "Linkul de conectare nu mai este valabil — apăsați din nou „Conectează "
+                               "contul Google” în DentPilot"),
+    "gc_g_back_denied": ("warn", "Conectarea a fost anulată în Google — contul nu este conectat"),
+    "gc_g_back_failed": ("err", "Google nu a finalizat conectarea — încercați din nou din DentPilot"),
+    "gc_g_back_right": ("err", "Contul de utilizator DentPilot nu are dreptul de a conecta calendarul"),
+    "gc_g_back_local": ("err", "Conectarea se termină doar pe calculatorul pe care rulează DentPilot"),
     "san_busy": ("err", "Sterilizatorul are deja un ciclu în curs — încheiați-l mai întâi"),
     "san_uv_on": ("err", "Lampa este deja pornită"),
     "san_uv_people": ("err", "Lampa nu este ecranată — nu se pornește în prezența persoanelor"),

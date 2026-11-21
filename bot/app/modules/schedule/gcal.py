@@ -31,6 +31,7 @@ COMMENT_MAX = 300
 SWEEP_EVERY_S = 24 * 3600
 
 KIND_ICS = "ics"
+KIND_GOOGLE = "google"
 
 F_NEW, F_MOVED, F_SKIPPED, F_UNPARSED, F_CHANGED = "nou", "mutat", "omis", "nerecunoscut", "schimbat"
 FILTERS = (F_NEW, F_MOVED, F_SKIPPED, F_UNPARSED, F_CHANGED)
@@ -141,6 +142,26 @@ def _item(occ: ics.Occurrence, now: datetime, until: datetime) -> Item | str:
                 stamp=gimport.stamp(start, 0, d.title) if start else "", **base)
 
 
+def collect(occs, now: datetime, until: datetime) -> dict:
+    """События одного календаря → строки для слияния и ключи. Один путь у файла и у аккаунта
+    Google: иначе одно событие из двух источников разошлось бы отпечатком. Без базы."""
+    items: dict = {}
+    present: set = set()
+    dropped = {gimport.PAST: 0, gimport.BEYOND: 0}
+    for occ in occs:
+        present.add(occ.key)
+        it = _item(occ, now, until)
+        if isinstance(it, str):
+            dropped[it] += 1
+            continue
+        # Один ключ дважды в наборе: годное событие сильнее своей тени.
+        had = items.get(it.key)
+        if had is None or (had.state == db.GCAL_UNPARSED and it.state != db.GCAL_UNPARSED):
+            items[it.key] = it
+    return {"items": list(items.values()), "present": present,
+            "past": dropped[gimport.PAST], "beyond": dropped[gimport.BEYOND]}
+
+
 def read_file(raw: bytes, now: datetime) -> list:
     """Файл → календари с событиями. Без базы: зовётся в потоке."""
     until = now + timedelta(days=HORIZON_DAYS)
@@ -150,22 +171,7 @@ def read_file(raw: bytes, now: datetime) -> list:
         if cal.refused:
             out.append({"name": name, "refused": cal.refused})
             continue
-        items: dict = {}
-        present: set = set()
-        dropped = {gimport.PAST: 0, gimport.BEYOND: 0}
-        for occ in ics.occurrences(cal, now, until):
-            present.add(occ.key)
-            it = _item(occ, now, until)
-            if isinstance(it, str):
-                dropped[it] += 1
-                continue
-            # Один ключ дважды в файле: годное событие сильнее своей тени.
-            had = items.get(it.key)
-            if had is None or (had.state == db.GCAL_UNPARSED and it.state != db.GCAL_UNPARSED):
-                items[it.key] = it
-        out.append({"name": name, "refused": "", "items": list(items.values()),
-                    "present": present, "past": dropped[gimport.PAST],
-                    "beyond": dropped[gimport.BEYOND]})
+        out.append({"name": name, "refused": "", **collect(ics.occurrences(cal, now, until), now, until)})
     return out
 
 
@@ -185,10 +191,11 @@ def changed(row: dict) -> bool:
 
 
 async def absorb(kind: str, name: str, items: list, present: set, *,
-                 actor: str, names: tuple = ()) -> dict:
+                 actor: str, names: tuple = (), ext_id: str = "") -> dict:
     """Слить пришедший набор событий источника с лежащим. `present` — ключи всех событий,
-    включая прошедшие: по ним «пропало» отличается от «прошло»."""
-    sid = await db.gcal_source_put(kind, name, actor)
+    включая прошедшие: по ним «пропало» отличается от «прошло». `ext_id` — id календаря Google:
+    источник аккаунта узнаётся по нему, а не по имени."""
+    sid = await db.gcal_source_put(kind, name, actor, ext_id=ext_id)
     have = await db.gcal_events_by_keys([it.key for it in items])
     now = db._utcnow_iso()
     count = dict.fromkeys(COUNTED, 0)
@@ -229,8 +236,12 @@ async def absorb(kind: str, name: str, items: list, present: set, *,
         same = row["stamp"] == it.stamp and upd.get("state", row["state"]) == row["state"]
         count["same" if same else "updated"] += 1
         updates.append((row["id"], upd))
-    # События пришли под новым именем, старого в загрузке нет: календарь переименован.
-    olds = [r for r in await db.gcal_sources() if r["id"] in renamed and r["name"] not in names]
+    # События пришли под новым именем, старого в загрузке нет: календарь файла переименован.
+    # Только внутри одного вида: файл и аккаунт могут нести разные календари с общими событиями
+    # (приглашение лежит в обоих), и слитый целиком источник пометил бы чужие события пропавшими.
+    # У источника аккаунта имени-ключа нет вовсе — его держит id календаря.
+    olds = [r for r in await db.gcal_sources()
+            if r["id"] in renamed and r["kind"] == kind and not ext_id and r["name"] not in names]
     for old in olds:
         await db.gcal_source_merge(old["id"], sid)
     for row in await db.gcal_source_future(sid):
@@ -248,7 +259,7 @@ async def absorb(kind: str, name: str, items: list, present: set, *,
             updates.append((row["id"], upd))
         count["gone"] += 1
     await db.gcal_write(inserts, updates, deletes)
-    await db.gcal_sources_prune()
+    await db.gcal_sources_prune(keep=sid if ext_id else 0)
     await db.gcal_menu_refresh()
     return count
 

@@ -1,4 +1,5 @@
-"""Вкладка «Google Calendar»: JSON API; правила — в `gcal.py`. Врачу вкладка закрыта."""
+"""Вкладка «Google Calendar»: JSON API; правила — в `gcal.py`, связь с аккаунтом — в `gcal_link.py`.
+Врачу вкладка закрыта."""
 from __future__ import annotations
 
 from fastapi import APIRouter, File, Request, UploadFile
@@ -6,19 +7,23 @@ from fastapi.responses import HTMLResponse
 
 from ...core import ics
 from ...core.api import api_body, api_require
-from ...core.auth import PERM_SCHEDULE_ALL, PERM_SETTINGS, require
+from ...core.auth import PERM_SCHEDULE_ALL, PERM_SETTINGS, local_only, require
 from ...core.layout import msg_json, react_shell, shell_model
-from . import gcal
+from . import gcal, gcal_link
 from .api import _CONFLICT, _FIELD
 
 router = APIRouter()
 
 _GONE = {"gc_gone", "gc_moved", "gc_appt", "gc_patient", "gc_no_text"}
+# отказ команды связи до её работы: состояние, а не ошибка ввода
+_LINK_REFUSED = {"gc_g_none", "gc_g_plus", "gc_g_readonly", "gc_g_gone"}
 
 
 async def _list(request: Request) -> dict:
     at = request.query_params
-    return await gcal.listing(at.get("f", ""), at.get("q", ""), at.get("date", ""), at.get("month", ""))
+    data = await gcal.listing(at.get("f", ""), at.get("q", ""), at.get("date", ""), at.get("month", ""))
+    data["google"] = gcal_link.view(request)
+    return data
 
 
 async def _reply(code: str, request: Request, **extra):
@@ -129,5 +134,71 @@ async def api_gcal_source(request: Request):
 async def api_gcal_clear(request: Request):
     if (deny := api_require(request, PERM_SETTINGS)) is not None:
         return deny
-    code = await gcal.clear()
-    return msg_json(True, code, data=await gcal.listing())
+    code, held = await gcal_link.clear_paused(gcal.clear)
+    return await _reply("gc_cleared_paused" if held else code, request)
+
+
+# ---------- связь с аккаунтом Google (gcal_link.py) ----------
+
+@router.post("/api/gcal/google/connect")
+async def api_gcal_google_connect(request: Request):
+    """Адрес экрана Google в `data.url`; открывает его браузер Windows (оболочка), не окно программы."""
+    if (deny := api_require(request, PERM_SCHEDULE_ALL)) is not None:
+        return deny
+    if (deny := local_only(request)) is not None:
+        return deny
+    code, url = await gcal_link.start(request)
+    if code != "gc_g_url":
+        return msg_json(False, code, status=409)
+    return await _reply(code, request, url=url)
+
+
+@router.get("/google/back", response_class=HTMLResponse)
+async def google_back(request: Request):
+    """Возврат из браузера Windows: вне /admin и /api, куки программы там нет — все проверки
+    в `gcal_link.finish`. Адрес совпадает с `gcal_link.BACK_PATH`."""
+    code, status = await gcal_link.finish(request)
+    return HTMLResponse(gcal_link.back_page(code), status_code=status,
+                        headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
+
+
+@router.post("/api/gcal/google/calendar")
+async def api_gcal_google_calendar(request: Request):
+    """{id} — календарь из `google.calendars`; сразу первая проверка."""
+    if (deny := api_require(request, PERM_SCHEDULE_ALL)) is not None:
+        return deny
+    if (deny := local_only(request)) is not None:
+        return deny
+    body = await api_body(request)
+    if body is None or not isinstance(body.get("id"), str):
+        return msg_json(False, "gc_g_bad", status=422)
+    code, count = await gcal_link.choose(body["id"])
+    if code == "gc_g_bad":
+        return msg_json(False, code, status=422)
+    if code in _LINK_REFUSED:
+        return msg_json(False, code, status=409)
+    return await _reply(code, request, load=count)
+
+
+@router.post("/api/gcal/google/check")
+async def api_gcal_google_check(request: Request):
+    """«Verifică acum»: код ответа — исход проверки, тон — из словаря."""
+    if (deny := api_require(request, PERM_SCHEDULE_ALL)) is not None:
+        return deny
+    code, count = await gcal_link.check()
+    if code in _LINK_REFUSED:
+        return msg_json(False, code, status=409)
+    return await _reply(code, request, load=count)
+
+
+@router.post("/api/gcal/google/disconnect")
+async def api_gcal_google_disconnect(request: Request):
+    """«Deconectează»: открыта и в режиме чтения (`READONLY_ALLOW`), гейт её не касается."""
+    if (deny := api_require(request, PERM_SCHEDULE_ALL)) is not None:
+        return deny
+    if (deny := local_only(request)) is not None:
+        return deny
+    code = await gcal_link.disconnect()
+    if code == "gc_g_gone":
+        return msg_json(False, code, status=409)
+    return await _reply(code, request)

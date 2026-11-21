@@ -891,6 +891,11 @@ LOCAL_ONLY = frozenset({
     # прайс файлом в программу: одним действием меняются цены всей клиники
     "/api/tarife/import/check",
     "/api/tarife/import/run",
+    # связь с аккаунтом Google клиники: откуда события приходят во вкладку и где лежит ключ к ним;
+    # возврат из Google (`/google/back`) проверяет пира сам — куки там нет
+    "/api/gcal/google/connect",
+    "/api/gcal/google/calendar",
+    "/api/gcal/google/disconnect",
 })
 
 

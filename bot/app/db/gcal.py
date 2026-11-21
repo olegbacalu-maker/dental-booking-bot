@@ -40,20 +40,27 @@ async def gcal_sources() -> list:
         "SELECT * FROM gcal_sources WHERE loaded_at IS NOT NULL ORDER BY loaded_at DESC, id DESC")
 
 
-async def gcal_source_put(kind: str, name: str, actor: str) -> int:
+async def gcal_source_put(kind: str, name: str, actor: str, ext_id: str = "") -> int:
+    """Источник файла узнаётся по имени календаря, источник аккаунта — по id календаря Google:
+    календарь в Google переименовывают, а id у него один."""
     now = _utcnow_iso()
-    sid = await _fetchval(
-        "SELECT id FROM gcal_sources WHERE kind = ? AND name = ? ORDER BY id LIMIT 1", kind, name)
+    if ext_id:
+        sid = await _fetchval(
+            "SELECT id FROM gcal_sources WHERE kind = ? AND ext_id = ? ORDER BY id LIMIT 1", kind, ext_id)
+    else:
+        sid = await _fetchval(
+            "SELECT id FROM gcal_sources WHERE kind = ? AND name = ? ORDER BY id LIMIT 1", kind, name)
     if sid is None:
         cur = await db._CONN.execute(
-            """INSERT INTO gcal_sources(kind, name, loaded_at, loaded_by, created_at)
-               VALUES(?, ?, ?, ?, ?)""", (kind, name, now, actor, now))
+            """INSERT INTO gcal_sources(kind, name, ext_id, loaded_at, loaded_by, created_at)
+               VALUES(?, ?, ?, ?, ?, ?)""", (kind, name, ext_id, now, actor, now))
         await db._CONN.commit()
         sid = cur.lastrowid
         await cur.close()
     else:
-        await _execute("UPDATE gcal_sources SET loaded_at = ?, loaded_by = ? WHERE id = ?",
-                       now, actor, sid)
+        await _execute("UPDATE gcal_sources SET name = ?, loaded_at = ?, loaded_by = ? WHERE id = ?",
+                       name, now, actor, sid)
+    await gcal_menu_refresh()
     return int(sid)
 
 
@@ -61,10 +68,13 @@ async def gcal_source_settings(sid: int, settings: str) -> None:
     await _execute("UPDATE gcal_sources SET settings = ? WHERE id = ?", settings, sid)
 
 
-async def gcal_sources_prune() -> None:
-    """Источник без событий остаётся после переименования календаря."""
+async def gcal_sources_prune(keep: int = 0) -> None:
+    """Источник без событий остаётся после переименования календаря. `keep` — источник, который
+    только что загружен: пустой календарь Google тоже источник, иначе вкладка теряла бы его настройки."""
     await _execute(
-        "DELETE FROM gcal_sources WHERE id NOT IN (SELECT DISTINCT source_id FROM gcal_events)")
+        "DELETE FROM gcal_sources WHERE id != ? AND id NOT IN (SELECT DISTINCT source_id FROM gcal_events)",
+        keep)
+    await gcal_menu_refresh()
 
 
 async def gcal_source_merge(old: int, new: int) -> None:

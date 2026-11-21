@@ -125,6 +125,50 @@ MUTATIONS = [
      ("    from . import gclient_build\n", "    gclient_build = __import__('app.core.gclient_build')\n")),
     ("статический импорт gclient_build", "app/core/gclient.py",
      "\nfrom importlib import import_module  # noqa\n"),
+    # Связь с Google: подключение, возврат, выбор, проход и тик без вопроса о праве; вопрос после
+    # сети; право, запомненное в имени модуля.
+    ("спрашивают гейт", "app/modules/schedule/gcal_link.py",
+     ('    if lic.feature_until("gcal") is None:\n        return _gate_code(), ""\n', "")),
+    ("спрашивают гейт", "app/modules/schedule/gcal_link.py",
+     ('if lic.feature_until("gcal") is None:\n        return _gate_code(), 409',
+      'if False:\n        return _gate_code(), 409')),
+    ("спрашивают гейт", "app/modules/schedule/gcal_link.py",
+     ('    if lic.feature_until("gcal") is None:\n        return _gate_code(), None\n'
+      '    async with _lockd():\n        link = _read()\n        if link is None:\n'
+      '            return "gc_g_gone", None\n        cal = next(',
+      '    async with _lockd():\n        link = _read()\n        if link is None:\n'
+      '            return "gc_g_gone", None\n        cal = next(')),
+    ("спрашивают гейт", "app/modules/schedule/gcal_link.py",
+     ('    if lic.feature_until("gcal") is None:\n        return _gate_code(), None\n'
+      '    async with _lockd():\n        link = _read()\n        if link is None:\n'
+      '            return "gc_g_gone", None\n        refresh_token',
+      '    async with _lockd():\n        link = _read()\n        if link is None:\n'
+      '            return "gc_g_gone", None\n        refresh_token')),
+    ("спрашивают гейт", "app/modules/schedule/gcal_link.py",
+     ('    if lic.feature_until("gcal") is None:\n        return "off"\n', "")),
+    ("спрашивают гейт", "app/modules/schedule/gcal_link.py",
+     ('    if lic.feature_until("gcal") is None:\n        return _gate_code(), ""\n'
+      '    me = request_user() or {}\n',
+      '    me = request_user() or {}\n    _probe = gauth.consent_url(client, "", "", "")\n'
+      '    if lic.feature_until("gcal") is None:\n        return _gate_code(), ""\n')),
+    ("спрашивают гейт", "app/modules/schedule/gcal_link.py",
+     '\n_GATE = lic.feature_until("gcal")\n'),
+    # Возврат: без проверки пира, без сверки state, адрес возврата ≠ маршрут, маршрут мимо проверки.
+    ("проверяет state и локальность", "app/modules/schedule/gcal_link.py",
+     ('    if not client_is_local(request):\n        return "gc_g_back_local", 403\n', "")),
+    ("проверяет state и локальность", "app/modules/schedule/gcal_link.py",
+     ("    back = gauth.back(query, state)\n", "    back = gauth.Back(gauth.OK, auth_code=state)\n")),
+    ("проверяет state и локальность", "app/modules/schedule/gcal_link.py",
+     ('BACK_PATH = "/google/back"', 'BACK_PATH = "/google/return"')),
+    ("проверяет state и локальность", "app/modules/schedule/gcal_api.py",
+     ("    code, status = await gcal_link.finish(request)\n", '    code, status = "gc_g_back_ok", 200\n')),
+    # Токен в лог, токен в базу, файл связи в составе копии.
+    ("не в базе, не в логе и не в копиях", "app/modules/schedule/gcal_link.py",
+     '\ndef _mut(refresh_token):\n    log.info("gcal: %s", refresh_token)\n'),
+    ("не в базе, не в логе и не в копиях", "app/modules/schedule/gcal_link.py",
+     '\nasync def _mut(r):\n    await db.set_meta("gcal_access", r.grant.access)\n'),
+    ("не в базе, не в логе и не в копиях", "app/core/backup.py",
+     '\n_mut = "google.json"\n'),
     # ---- заказы лаунчеру подписаны (02.11) ----
     # Исполнитель без подписи: тот же вызов, но уже не проверка.
     ("исполняется только по подписи", "app/core/restore.py",
@@ -565,6 +609,9 @@ MUTATIONS = [
     # Счёт SMS читается реже, чем сказано клинике.
     ("договор согласован с программой", "app/core/sms_loop.py",
      "\nACCOUNT_EVERY = timedelta(minutes=15)\n"),
+    # Уведомление связи с Google называет частоту опроса числом, а не константой опроса.
+    ("договор согласован с программой", "app/modules/schedule/gcal_link.py",
+     ('f"înainte, din {POLL_MINUTES} în {POLL_MINUTES} minute', '"înainte, din 10 în 10 minute')),
     # ---- текст перед скачиванием (закон 195, L15) ----
     # Кнопку фиши переименовали в клиенте — сайт отправляет искать старую.
     ("текст перед скачиванием", "_frontend/features/patients/card/ProfileCard.tsx",
@@ -771,6 +818,13 @@ LEGAL = [
     # имя из сгенерированного модуля — тот же статический импорт
     ("статический импорт gclient_build", "app/core/gclient.py",
      "\nfrom .gclient_build import CLIENT as _c  # noqa\n"),
+    # право через имя внутри функции — тот же вопрос, не кэш
+    ("спрашивают гейт", "app/modules/schedule/gcal_link.py",
+     ('    if lic.feature_until("gcal") is None:\n        return _gate_code(), ""\n',
+      '    until = lic.feature_until("gcal")\n    if until is None:\n        return _gate_code(), ""\n')),
+    # слово «token» в тексте строки лога и код ответа Google — не сам токен
+    ("не в базе, не в логе и не в копиях", "app/modules/schedule/gcal_link.py",
+     '\ndef _mut(r):\n    log.warning("gcal: token refresh refused: %s %s", r.code, r.reason)\n'),
     # чтение журнала импортом — не запись: отчёт и отмена спрашивают визиты своим SELECT в db
     ("импорт ставит визиты только через book", "app/modules/patients/pimport.py",
      "\nasync def _mut(db, i):\n    return await db._fetch('SELECT id FROM appointments WHERE id = ?', i)\n"),

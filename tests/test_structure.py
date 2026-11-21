@@ -100,6 +100,18 @@ _GWIRE = {"app/core/gauth.py": set(), "app/core/gapi.py": {"ics"}}
 # Константу клиента Google PyInstaller кладёт в exe только по статическому импорту: импорт по строке
 # он не видит, и exe молча остался бы «не настроено» — дымовой тест exe этого не заметит.
 _GCLIENT = "app/core/gclient.py"
+# Связь вкладки с аккаунтом Google: вход, возврат из браузера, опрос, файл токена.
+_GLINK = "app/modules/schedule/gcal_link.py"
+_GLINK_API = "app/modules/schedule/gcal_api.py"
+# Кто начинает связь или ходит к Google по ней — и обязан спросить право в файле лицензии сам,
+# до сети: право гаснет в полночь конца срока, а новый файл приходит суточным запросом.
+_GLINK_GATED = ("start", "finish", "choose", "_pass", "tick")
+_GLINK_NET = {"consent_url", "exchange", "events", "calendars", "_access_token", "_pass"}
+# Имена, под которыми в связке ходят токен, код входа и секрет клиента.
+_GLINK_SECRETS = {"token", "refresh_token", "access", "grant", "verifier", "auth_code", "secret",
+                  "protected", "refresh"}
+# Модули копий картотеки: файл связи — ключ к календарю под DPAPI этой машины, в копию не едет.
+_GLINK_NO_COPY = ("app/core/backup.py", "app/core/restore.py", "app/core/autobackup.py")
 
 # `__file__` законен ровно там, где кто-то обязан знать, где лежит он сам:
 # paths.py — единственный, кто знает раскладку; desktop.py — лаунчер, который
@@ -760,6 +772,126 @@ def suite(res: Result) -> None:
                     or (isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[0] == "importlib")):
                 bad.append(f"{_GCLIENT}:{n.lineno} импорт по строке")
     res.ok("клиент Google в exe — статический импорт gclient_build", not bad, "; ".join(bad))
+
+    # ---- связь с аккаунтом Google: гейт, возврат из браузера, токен ----
+    glink = by_path.get(_GLINK)
+    gfuncs = {n.name: n for n in (glink.body if glink else ())
+              if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+
+    def _gl_calls(fn, names) -> list:
+        # не только вызов: сеть уходит в поток ссылкой (`asyncio.to_thread(gauth.exchange, …)`)
+        return sorted(c.lineno for c in _walk(fn)
+                      if (isinstance(c, ast.Attribute) and c.attr in names)
+                      or (isinstance(c, ast.Name) and c.id in names))
+
+    def _gl_gate(fn) -> list:
+        return sorted(c.lineno for c in _walk(fn) if isinstance(c, ast.Call)
+                      and ((isinstance(c.func, ast.Attribute) and c.func.attr == "feature_until")
+                           or (isinstance(c.func, ast.Name) and c.func.id == "feature_until"))
+                      and c.args and isinstance(c.args[0], ast.Constant) and c.args[0].value == "gcal")
+
+    bad = []
+    if glink is None:
+        bad.append(f"{_GLINK} — нет по этому пути")
+    for name in _GLINK_GATED if glink else ():
+        fn = gfuncs.get(name)
+        if fn is None:
+            bad.append(f"{_GLINK}: нет функции {name} — список правила устарел")
+            continue
+        gates, net = _gl_gate(fn), _gl_calls(fn, _GLINK_NET)
+        if not gates:
+            bad.append(f"{_GLINK}:{fn.lineno} {name} не спрашивает feature_until(\"gcal\")")
+        elif net and net[0] < gates[0]:
+            bad.append(f"{_GLINK}:{net[0]} {name} идёт к Google раньше, чем спросил право")
+        if any(isinstance(n, ast.Global) for n in _walk(fn)):
+            bad.append(f"{_GLINK}:{fn.lineno} {name} пишет глобальное — право не кэшируется")
+    for n in glink.body if glink else ():
+        if isinstance(n, (ast.Assign, ast.AnnAssign)) and n.value is not None and _gl_gate(n):
+            bad.append(f"{_GLINK}:{n.lineno} право в имени модуля — кэш вместо вопроса")
+    res.ok("подключение и опрос Google спрашивают гейт", not bad, "; ".join(bad))
+
+    # Возврат из браузера Windows приходит мимо /admin и /api: ни куки, ни посредников. Пир
+    # соединения — первым делом, state своего входа (gauth.back) — до обмена кода; маршрут ведёт в
+    # проверку, и его адрес — тот, что уходит в Google (BACK_PATH).
+    bad = []
+    fin = gfuncs.get("finish")
+    if fin is None:
+        bad.append(f"{_GLINK}: нет finish — якорь правила пропал")
+    else:
+        body = fin.body[1:] if (fin.body and isinstance(fin.body[0], ast.Expr)
+                                and isinstance(fin.body[0].value, ast.Constant)) else fin.body
+        first = body[0] if body else None
+        if not (isinstance(first, ast.If) and _gl_calls(first.test, {"client_is_local"})
+                and first.body and isinstance(first.body[-1], ast.Return)):
+            bad.append(f"{_GLINK}:{fin.lineno} finish не начинается с отказа не-локальному пиру")
+        backs = [c for c in _walk(fin) if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
+                 and c.func.attr == "back" and len(c.args) == 2]
+        swaps = _gl_calls(fin, {"exchange"})
+        if not backs:
+            bad.append(f"{_GLINK}:{fin.lineno} finish не сверяет state (gauth.back)")
+        elif not swaps or swaps[0] < min(c.lineno for c in backs):
+            bad.append(f"{_GLINK}:{fin.lineno} обмен кода раньше сверки state")
+    back_path = next((n.value.value for n in (glink.body if glink else ())
+                      if isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant)
+                      and any(isinstance(t, ast.Name) and t.id == "BACK_PATH" for t in n.targets)), "")
+    if not back_path:
+        bad.append(f"{_GLINK}: нет BACK_PATH — якорь правила пропал")
+    route = None
+    for fn in _walk(by_path.get(_GLINK_API) or ast.Module(body=[], type_ignores=[])):
+        if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(
+                isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute) and d.func.attr == "get"
+                and d.args and isinstance(d.args[0], ast.Constant) and d.args[0].value == back_path
+                for d in fn.decorator_list):
+            route = fn
+    if back_path and route is None:
+        bad.append(f"{_GLINK_API}: нет GET {back_path} — адрес возврата ведёт в никуда")
+    elif route is not None and not _gl_calls(route, {"finish"}):
+        bad.append(f"{_GLINK_API}:{route.lineno} возврат не зовёт gcal_link.finish")
+    res.ok("возврат из Google проверяет state и локальность", not bad, "; ".join(bad))
+
+    # Токен, код входа и секрет: ни в строке лога, ни в аргументе базы. Файл связи — не в копиях.
+    bad = []
+
+    def _gl_secret(node) -> bool:
+        for x in _walk(node):
+            if isinstance(x, ast.Name) and x.id in _GLINK_SECRETS:
+                return True
+            if isinstance(x, ast.Attribute) and x.attr in _GLINK_SECRETS:
+                return True
+            if (isinstance(x, ast.Subscript) and isinstance(x.slice, ast.Constant)
+                    and x.slice.value in _GLINK_SECRETS):
+                return True
+        return False
+
+    for rel in (_GLINK, _GLINK_API):
+        tree = by_path.get(rel)
+        if tree is None:
+            bad.append(f"{rel} — нет по этому пути")
+            continue
+        for c in _walk(tree):
+            if not isinstance(c, ast.Call):
+                continue
+            f = c.func
+            to_log = ((isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name)
+                       and f.value.id in ("log", "logging", "logger"))
+                      or (isinstance(f, ast.Name) and f.id == "print"))
+            to_db = isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id == "db"
+            if (to_log or to_db) and any(_gl_secret(a) for a in [*c.args, *(k.value for k in c.keywords)]):
+                bad.append(f"{rel}:{c.lineno} {'лог' if to_log else 'база'} получает токен или код")
+    link_file = next((n.value.value for n in (glink.body if glink else ())
+                      if isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant)
+                      and any(isinstance(t, ast.Name) and t.id == "FILE_NAME" for t in n.targets)), "")
+    if not link_file:
+        bad.append(f"{_GLINK}: нет FILE_NAME — якорь правила пропал")
+    for rel in _GLINK_NO_COPY if link_file else ():
+        tree = by_path.get(rel)
+        if tree is None:
+            bad.append(f"{rel} — нет по этому пути")
+            continue
+        if any(isinstance(x, ast.Constant) and isinstance(x.value, str) and link_file in x.value
+               for x in _walk(tree)):
+            bad.append(f"{rel} знает {link_file} — файл связи уехал бы в копию")
+    res.ok("токен Google не в базе, не в логе и не в копиях", not bad, "; ".join(bad))
 
     # ---- заказы лаунчеру подписаны (02.11, разбор коллеги Б2) ----
     # Папку данных пишет любая учётка Windows ПК, а заказ исполняет лаунчер
@@ -2197,6 +2329,31 @@ def suite(res: Result) -> None:
         want = "în fiecare minut" if every[-1] == 1 else f"la fiecare {every[-1]} minute"
         bad += [f"{name} не говорит «{want}»: счёт SMS читается раз в {every[-1]} мин."
                 for name, text in texts.items() if want not in text]
+    # Связь с аккаунтом Google: уведомление в программе называет частоту опроса константой
+    # POLL_MINUTES, а документ, который описывает связь («contul Google»), — тем же числом; Anexa 2 —
+    # и теми же словами кнопок. Документ, ещё не знающий связи, правилом не задет.
+    gl = by_path.get(_GLINK)
+    gl_consts = {t.id: n.value for n in (gl.body if gl else ()) if isinstance(n, ast.Assign)
+                 for t in n.targets if isinstance(t, ast.Name)}
+    poll = gl_consts.get("POLL_MINUTES")
+    if not (isinstance(poll, ast.Constant) and isinstance(poll.value, int)):
+        bad.append(f"{_GLINK}: нет POLL_MINUTES = N — якорь пропал")
+    else:
+        uses = [x for x in _walk(gl_consts["NOTICE"]) if isinstance(x, ast.FormattedValue)
+                and isinstance(x.value, ast.Name) and x.value.id == "POLL_MINUTES"] \
+            if "NOTICE" in gl_consts else []
+        if len(uses) < 2:
+            bad.append(f"{_GLINK}: NOTICE называет частоту опроса не из POLL_MINUTES")
+        want = f"din {poll.value} în {poll.value} minute"
+        bad += [f"{name} описывает связь с Google, но не говорит «{want}»"
+                for name, text in texts.items() if "contul Google" in text and want not in text]
+        words = gl_consts.get("WORDS")
+        anexa = texts.get("docs/dentpilot-2/contract/anexa-2.html", "")
+        if isinstance(words, ast.Dict) and "contul Google" in anexa:
+            bad += [f"anexa-2.html не называет кнопку «{w.value}» словами программы"
+                    for k, w in zip(words.keys, words.values)
+                    if isinstance(k, ast.Constant) and k.value in ("connect", "disconnect", "check")
+                    and isinstance(w, ast.Constant) and w.value not in anexa]
     res.ok("договор согласован с программой дословно", not bad,
            "сайт обещает не то, что делает программа: " + "; ".join(bad))
 
