@@ -932,6 +932,8 @@ def _visit_rows(f: dt.date, p: dt.date) -> list:
         ["Vizita Noua", "069570009", F, "13:00", "Activ Doi", None, "1:30", None],       # 12 своя длительность
         ["Vizita Zece", "069570011", F, "15:00", "Activ Trei", None, None, None],        # 13 занято в журнале
         ["Vizita Unsprezece", "069570012", F, "25:00", "Activ Doi", None, None, None],   # 14 час не читается
+        ["Istoric Devreme", "069570013", P, "06:00", "Activ Doi", None, None, None],     # 15 история до часов клиники
+        ["Istoric Arhivat", "069570014", P, "11:00", "Arhivat Unu", None, None, None],   # 16 история у врача в архиве
     ]
 
 
@@ -987,7 +989,7 @@ def suite_visits(res: Result) -> None:
                    [x["id"] for x in chk["services"]][:2]), (True, False, "consult", ["consult", "pain"]))
         vis = chk["visits"]
         res.check("предпросмотр визитов: новые, история, не ставятся",
-                  {g["id"]: g["count"] for g in vis["groups"]}, {"v_new": 5, "v_past": 1, "v_no": 7})
+                  {g["id"]: g["count"] for g in vis["groups"]}, {"v_new": 5, "v_past": 3, "v_no": 7})
         why_ = {r["line"]: r["reason"] for g in vis["groups"] for r in g["rows"]}
         res.check("почему не ставится — словами, у каждой строки своя причина",
                   {ln: why_[ln] for ln in (3, 4, 6, 9, 10, 13, 14)},
@@ -1015,7 +1017,7 @@ def suite_visits(res: Result) -> None:
         res.check("импорт: визиты поставлены, прошлые в истории, остальные названы; «Rechemări» посчитаны",
                   (run["total"]["created"], last["visits"], last["visits_past"], last["visits_skipped"],
                    run["total"]["visits"], run["total"]["visits_skipped"], last["recall"]),
-                  (11, 6, 1, 7, 6, 7, 1))
+                  (13, 8, 3, 7, 8, 7, 1))
         got = _appts(s)
         res.check("будущий визит — programată у врача из файла, услуга по названию, комментарий записи, "
                   "без SMS",
@@ -1024,6 +1026,11 @@ def suite_visits(res: Result) -> None:
                                        True, 1)])
         res.check("прошлый — finalizată (история), услуга со сроком",
                   [x[:5] for x in got["Vizita Patru"]], [(p, "10:00", "done", "d3", "hygiene")])
+        res.check("история не проверяет часы клиники и «врач выключен»: визит уже был, график и врачи сменились; "
+                  "будущее до часов клиники и у врача в архиве — по-прежнему нет",
+                  ([x[:4] for x in got.get("Istoric Devreme", [])], [x[:4] for x in got.get("Istoric Arhivat", [])],
+                   "Vizita Opt" in got, "Vizita Sapte" in got),
+                  ([(p, "06:00", "done", "d2")], [(p, "11:00", "done", "d1")], False, False))
         res.check("округлённый час: начало к сетке, длина из диапазона вверх, исходный час — в комментарии",
                   [x[1:7] for x in got["Vizita Sase"]],
                   [("09:05", "confirmed", "d4", "consult", 45,
@@ -1063,7 +1070,7 @@ def suite_visits(res: Result) -> None:
 
         again = _check(c, blob, "programari.xlsx")
         res.check("тот же файл ещё раз — визитов не прибавится: у пациента уже есть запись",
-                  {g["id"]: g["count"] for g in again["visits"]["groups"]}, {"v_new": 0, "v_past": 0, "v_no": 13})
+                  {g["id"]: g["count"] for g in again["visits"]["groups"]}, {"v_new": 0, "v_past": 0, "v_no": 15})
         rerun = _run_all(c, blob, "programari.xlsx")
         res.check("повтор: ни фиш, ни визитов; в списке импортов не остаётся",
                   (rerun["total"]["created"], rerun["last"]["data"]["visits"], len(_appts(s)["Vizita Unu"]),
@@ -1077,7 +1084,7 @@ def suite_visits(res: Result) -> None:
         und = _undo(c, run["id"])
         res.check("отмена: визиты сняты, кроме тронутого; фиши — кроме той, где визит остался",
                   (und["code"], und["sum"]["visits_removed"], und["sum"]["removed"], und["data"]["kept"],
-                   und["data"]["visits_kept"]), ("pi_undone", 5, 10, 1, 1))
+                   und["data"]["visits_kept"]), ("pi_undone", 7, 12, 1, 1))
         left = _appts(s)
         res.check("после отмены: руками заведённое и тронутое — на месте",
                   sorted(left), ["Ocupat Deja", "Vizita Noua"])
@@ -1086,7 +1093,7 @@ def suite_visits(res: Result) -> None:
         imp = _j(c.get("/api/pimport"))["data"]["imports"][0]
         res.check("запись об импорте: счётчики визитов",
                   (imp["visits"], imp["visits_past"], imp["visits_skipped"], imp["visits_removed"], imp["undone"]),
-                  (6, 1, 7, 5, True))
+                  (8, 3, 7, 7, True))
 
     # без галочки «Importă și vizitele trecute» прошлое — в заметки, будущее ставится
     with Server() as s:
@@ -1125,8 +1132,8 @@ def suite_visits(res: Result) -> None:
 
 
 def suite_visit_sms(res: Result) -> None:
-    """SMS-напоминание: визит из файла без галочки SMS цикл обходит, визит с галочкой и записанный руками —
-    получают. Живой цикл SMS под поддельными часами, сервер лицензий — стенд `test_sms`."""
+    """SMS-напоминание: визит из файла без галочки SMS цикл обходит, визит с галочкой, записанный руками и
+    перенесённый регистратурой руками — получают. Живой цикл SMS под поддельными часами, сервер лицензий — стенд `test_sms`."""
     import test_sms as ts
     from harness import Clock
     stand = ts.Stand()
@@ -1139,7 +1146,8 @@ def suite_visit_sms(res: Result) -> None:
             with Server(dir_=d, env={**ts.KEY_ENV, **ts.TICK}) as s:
                 c = Client(s.url).login()
                 M = _dmy(mon)
-                off = S.library_book(VIS_HEAD[:5], [["Sms Fisier Unu", "069580001", M, "12:00", "Activ Doi"]])
+                off = S.library_book(VIS_HEAD[:5], [["Sms Fisier Unu", "069580001", M, "12:00", "Activ Doi"],
+                                                    ["Sms Fisier Trei", "069580004", M, "15:00", "Activ Doi"]])
                 on = S.library_book(VIS_HEAD[:5], [["Sms Fisier Doi", "069580002", M, "13:00", "Activ Doi"]])
                 chk = _check(c, off, "fara-sms.xlsx")
                 res.check("пакет SMS работает: галочка видна, по умолчанию выключена",
@@ -1147,12 +1155,23 @@ def suite_visit_sms(res: Result) -> None:
                 _run_all(c, off, "fara-sms.xlsx")
                 _run_all(c, on, "cu-sms.xlsx", {"sms": True})
                 res.check("визит руками", add_appt(c, mon.isoformat(), "14:00", "Sms Manual", "069580003").msg, "ok")
+                aid = ts._rows(d, "SELECT a.id FROM appointments a JOIN patients p ON p.id = a.patient_id "
+                                  "WHERE p.name = 'Sms Fisier Trei'")[0]["id"]
+                r = c.post_json(f"/api/schedule/appointments/{aid}/move?date={mon.isoformat()}",
+                                {"date": mon.isoformat(), "time": "16:00", "doctor": "d2"})
+                res.check("регистратура перенесла визит из файла руками", r.msg, "ok_move")
+                res.check("перенос снял пометку «без SMS» только у перенесённого",
+                          [(x["name"], x["sms_skip"]) for x in ts._rows(
+                              d, "SELECT p.name, a.sms_skip FROM appointments a JOIN patients p ON p.id = a.patient_id "
+                                 "WHERE p.name LIKE 'Sms Fisier%' ORDER BY p.name")],
+                          [("Sms Fisier Doi", 0), ("Sms Fisier Trei", 0), ("Sms Fisier Unu", 1)])
                 clock.set(ts._at(*fri, 10, 0, 30))
-                ts._wait(lambda: len(stand.sends) >= 2)
+                ts._wait(lambda: len(stand.sends) >= 3)
                 time.sleep(1.5)
                 to = sorted(x["json"].get("to") for x in stand.sends)
-                res.check("напоминание ушло визиту с галочкой и визиту руками; визиту из файла без галочки — нет",
-                          to, ["69580002", "69580003"])
+                res.check("напоминание ушло визиту с галочкой, визиту руками и перенесённому руками визиту из файла; "
+                          "визиту из файла без галочки — нет",
+                          to, ["69580002", "69580003", "69580004"])
                 res.check("и строки очереди у него нет",
                           [r["phone"] for r in ts._sms_log(d) if r["phone"].endswith("580001")], [])
     finally:

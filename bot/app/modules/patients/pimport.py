@@ -1006,7 +1006,8 @@ async def _plan_one(rec: dict, v: dict, who, pid, start, end, by_doc: dict, by_w
     if pid is not None and await db.import_visit_exists(pid, start):
         _set_visit(rec, "v_no", "v_exists")
         return
-    visit_outcome(rec, await book.probe(pid, v["doctor"], start, v["svc"], minutes=v["minutes"]))
+    visit_outcome(rec, await book.probe(pid, v["doctor"], start, v["svc"], minutes=v["minutes"],
+                                        done=v["past"]))
 
 
 def visit_view(rec: dict) -> dict:

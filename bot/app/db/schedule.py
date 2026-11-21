@@ -512,6 +512,10 @@ async def move_appointment(appt_id: int, doctor_id: str, doctor: str,
         # сказано верно, а имя врача напоминание берёт актуальное.
         moved = rows[0]["starts_at"] != starts_at
         rem_lite =", reminded_day = 0, reminded_2h = 0" if moved else ""
+        # Визит из файла, импортированный без SMS, регистратура перенесла руками — дальше он
+        # обычный: напоминание по общим правилам от нового часа (метка `sms_skip` снимается).
+        if moved or r["doctor_id"] != doctor_id:
+            rem_lite += ", sms_skip = 0"
         room_lite, room_args = "", ()
         if rooms is not None:
             room_lite = ", room_id = ?, room = ?"

@@ -35,13 +35,20 @@ def wall(d: date, t: time) -> datetime:
     return datetime(d.year, d.month, d.day, t.hour, t.minute, tzinfo=eng.TZ)
 
 
+def history(start: datetime | None, done: bool) -> bool:
+    """Визит прошедшего ДНЯ, который ложится сразу «finalizată»: перенос истории из файла."""
+    return done and start is not None and eng.is_past_day(start.date())
+
+
 def refusal(doctor_id: str, start: datetime | None, service_id: str,
-            minutes: int | None = None, room: str = "") -> tuple[str, int]:
+            minutes: int | None = None, room: str = "", done: bool = False) -> tuple[str, int]:
     """Проверки без базы, в порядке окна записи: (код отказа или "", длительность визита).
 
     `minutes` None — длительность услуги; число — выбранная длительность, правило `eng.dur_ok`.
     Часы врача проверяются только для будущего, часы клиники и сетка 5 минут — всегда
-    (`eng.place_refusal`)."""
+    (`eng.place_refusal`). Кроме истории (`history`: прошедший день и `done`): визит уже был,
+    график клиники и состав врачей с тех пор могли смениться — часы клиники и «врач выключен» не
+    проверяются; сетка, услуга, длительность, кабинет и занятость — как у всех."""
     doctor, svc = eng.DOCTORS.get(doctor_id), eng.SERVICES.get(service_id)
     if start is None or not doctor or not svc:
         return "bad", 0
@@ -52,7 +59,10 @@ def refusal(doctor_id: str, start: datetime | None, service_id: str,
         if not eng.dur_ok(minutes):
             return "bad_dur", 0
         dur = minutes
-    if code := eng.place_refusal(doctor_id, start, dur):
+    if history(start, done):
+        if not eng.start_ok(start):
+            return "bad_time", 0
+    elif code := eng.place_refusal(doctor_id, start, dur):
         return code, 0
     if room and not eng.room_allowed(doctor_id, room):
         return "bad_room", 0
@@ -60,12 +70,12 @@ def refusal(doctor_id: str, start: datetime | None, service_id: str,
 
 
 async def probe(pid: int | None, doctor_id: str, start: datetime | None, service_id: str, *,
-                minutes: int | None = None, room: str = "") -> str:
+                minutes: int | None = None, room: str = "", done: bool = False) -> str:
     """Тот же ответ, что дал бы `book_visit`, но на сухую: без замка и без записи (предпросмотр).
 
     Правду говорит `book_visit` в момент записи — между пробой и записью час могут занять.
     `ok_past_done` проба не различает: это `ok_past` с отметкой статуса."""
-    code, dur = refusal(doctor_id, start, service_id, minutes, room)
+    code, dur = refusal(doctor_id, start, service_id, minutes, room, done)
     if code:
         return code
     plan = eng.room_plan(doctor_id)
@@ -92,7 +102,7 @@ async def book_visit(pid: int, doctor_id: str, start: datetime | None, service_i
     комментарий записи. Занятость врача, кабинета и пациента решается под `_slot_lock`
     (`db._book`). Согласие пациента на SMS не трогается: галочку окна записи пишет зовущий после
     удачи (`schedule/routes._apply_sms`), импорт её не шлёт."""
-    code, dur = refusal(doctor_id, start, service_id, minutes, room)
+    code, dur = refusal(doctor_id, start, service_id, minutes, room, done)
     if code:
         return Booked(code)
     plan = eng.room_plan(doctor_id)
