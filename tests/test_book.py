@@ -127,7 +127,7 @@ def suite(res: Result) -> None:
         (base / "clinic.json").write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
         r = subprocess.run([str(PYTHON), str(pathlib.Path(__file__).resolve()), "worker", str(base)],
                            capture_output=True, text=True, encoding="utf-8", errors="replace",
-                           timeout=120, env=dict(os.environ))
+                           timeout=120, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
         lines = [ln for ln in (r.stdout or "").splitlines() if ln.startswith("{")]
         if not res.ok("проба поднялась", r.returncode == 0 and len(lines) == 1,
                       f"rc={r.returncode}: {(r.stdout or '')[-600:]} {(r.stderr or '')[-1500:]}"):
