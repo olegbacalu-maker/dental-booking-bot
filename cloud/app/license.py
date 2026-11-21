@@ -12,6 +12,11 @@
 Автообновление (L13): в claim едет `renew` — адрес `/v1/license` этого сервера
 и токен клиники. Токен рождается с первой выдачей и дальше один и тот же:
 сменить его значит оставить без обновления все файлы, что уже у клиники.
+
+Права сверх срока — `features`: имя права → дата, до которой оно действует (сейчас одно,
+`gcal`, по правилу модуля SMS — tiers.gcal_until). Нет права — нет поля: старые программы
+неизвестное поле пропускают, новые читают отсутствие как «нет». Поэтому смена варианта без
+оплаты — новый файл с тем же сроком (payments.reissue), иначе программа жила бы по старому.
 """
 from __future__ import annotations
 
@@ -100,13 +105,18 @@ def renew_token(con: sqlite3.Connection, clinic: sqlite3.Row) -> str:
 
 
 def issue(con: sqlite3.Connection, clinic: sqlite3.Row, plan: str, valid_until: datetime,
-          grace_until: datetime, reason: str, who: str) -> tuple[int, str]:
+          grace_until: datetime, reason: str, who: str,
+          tier: str | None = None, sms_until: str | None = None) -> tuple[int, str]:
     """Выпустить файл клинике. Возвращает (seq, текст файла). Подписка
-    приводится к выданным датам: файл и есть истина о сроке."""
+    приводится к выданным датам: файл и есть истина о сроке. `tier`/`sms_until` — вариант,
+    с которым выдаётся файл (оплата): он пишется в подписку до подписи, потому что по нему
+    считается дата права gcal в claim; None — вариант подписки как есть."""
     if plan not in PLANS:
         raise ValueError("plan")
     if plan != "trial" and len(clinic["idno"]) != 13:
         raise ValueError("idno")
+    if tier is not None and tier not in tiers.TIERS:
+        raise ValueError("tier")
     k = key()
     if k is None:
         raise RuntimeError("DP_LICENSE_KEY не задан: выдавать нечем")
@@ -114,32 +124,47 @@ def issue(con: sqlite3.Connection, clinic: sqlite3.Row, plan: str, valid_until: 
     last = con.execute("SELECT COALESCE(MAX(seq), 0) FROM issues WHERE clinic_id=?",
                        (clinic["id"],)).fetchone()[0]
     seq = int(last) + 1
+    grace_days = max(0, (grace_until - valid_until).days)
+    # Цена ставится при заведении подписки — прайсом дня варианта Plus (tiers: пробный
+    # и подписка без выбора — Plus): умолчание колонки в шаге 1 миграций (399) — прежний
+    # прайс, шаги не правят. Цену выдача не трогает (её ставит оплата или ручная смена
+    # варианта в карточке), вариант — только когда его назвал вызывающий.
+    variant = ", tier=excluded.tier, sms_until=excluded.sms_until" if tier is not None else ""
+    con.execute(f"""INSERT INTO subscriptions(clinic_id, plan, price, valid_until, grace_days, updated_at,
+                                              tier, sms_until)
+                    VALUES(?,?,?,?,?,?,?,?)
+                    ON CONFLICT(clinic_id) DO UPDATE SET plan=excluded.plan,
+                        valid_until=excluded.valid_until, grace_days=excluded.grace_days,
+                        updated_at=excluded.updated_at{variant}""",
+                (clinic["id"], plan, tiers.list_price(tiers.PLUS), valid_until.strftime(db.TS), grace_days,
+                 db.now_iso(), tier or tiers.PLUS, sms_until))
+    sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (clinic["id"],)).fetchone()
     claim = {"clinic_id": clinic["id"], "clinic": clinic["name"], "idno": clinic["idno"],
              "plan": plan, "country": clinic["country"] or "MD", "seq": seq,
              "issued_at": now.strftime(db.TS), "valid_until": valid_until.strftime(db.TS),
              "grace_until": grace_until.strftime(db.TS)}
     if renew_offered():
         claim["renew"] = {"url": renew_url(), "token": renew_token(con, clinic)}
+    # нет права — нет и поля: программа читает его отсутствие как «нет», старые программы поле пропускают
+    gcal = tiers.gcal_until(sub, grace_until, now)
+    if gcal is not None:
+        claim["features"] = {"gcal": gcal.strftime(db.TS)}
     payload = claim_bytes(claim)
     sig = sign(payload)
     con.execute("""INSERT INTO issues(clinic_id, seq, kid, payload, sig, issued_at, valid_until,
                                       grace_until, reason) VALUES(?,?,?,?,?,?,?,?,?)""",
                 (clinic["id"], seq, k.kid, b64u(payload), b64u(sig), claim["issued_at"],
                  claim["valid_until"], claim["grace_until"], reason))
-    grace_days = max(0, (grace_until - valid_until).days)
-    # Цена ставится при заведении подписки — прайсом дня варианта Plus (tiers: пробный
-    # и подписка без выбора — Plus): умолчание колонки в шаге 1 миграций (399) — прежний
-    # прайс, шаги не правят. Выдача цену и вариант не трогает: их ставит оплата
-    # (payments.confirm) или ручная смена варианта в карточке.
-    con.execute("""INSERT INTO subscriptions(clinic_id, plan, price, valid_until, grace_days, updated_at)
-                   VALUES(?,?,?,?,?,?)
-                   ON CONFLICT(clinic_id) DO UPDATE SET plan=excluded.plan,
-                       valid_until=excluded.valid_until, grace_days=excluded.grace_days,
-                       updated_at=excluded.updated_at""",
-                (clinic["id"], plan, tiers.list_price(tiers.PLUS), claim["valid_until"], grace_days, db.now_iso()))
     db.audit(con, who, "issue", clinic["id"],
-             f"seq {seq}, {plan}, до {claim['valid_until']}, льгота до {claim['grace_until']}: {reason}")
+             f"seq {seq}, {plan}, до {claim['valid_until']}, льгота до {claim['grace_until']}"
+             f"{', gcal до ' + claim['features']['gcal'] if gcal else ', без gcal'}: {reason}")
     return seq, envelope(payload, sig, k.kid)
+
+
+def claim_of(row: sqlite3.Row) -> dict:
+    """Claim выданного файла (строка issues) — как его подписали."""
+    p = row["payload"]
+    return json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4)))
 
 
 def issue_text(row: sqlite3.Row) -> str:

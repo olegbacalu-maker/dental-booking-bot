@@ -16,7 +16,10 @@ DentPilot Basic — без модуля SMS, DentPilot Plus — с модуле�
   и оплачено, не источник цены. 0 = вариант не продаётся;
 - `module_on(sub, now)` — работает ли модуль SMS: пробный и Plus — да; Basic — пока
   не прошёл `sms_until`, конец периода, который шёл, когда клиника перешла на Basic
-  (§ 4.2: «rămâne pornit până la sfârșitul perioadei în curs»), потом нет.
+  (§ 4.2: «rămâne pornit până la sfârșitul perioadei în curs»), потом нет;
+- `gcal_until(sub, end, now)` — связь с аккаунтом Google (только Plus и пробный) тем же
+  правилом, что модуль SMS, но датой в файле лицензии (`features.gcal`): программа тарифа
+  не знает и держит связь, пока дата не прошла.
 ⛔ Цен в репозитории нет (Олег 16.10): DP_PRICE_BASIC / DP_PRICE_PLUS в cloud.env.
 """
 from __future__ import annotations
@@ -79,6 +82,17 @@ def module_on(sub: sqlite3.Row | None, now: datetime) -> bool:
         return True
     until = sms_until(sub)
     return until is not None and now < until
+
+
+def gcal_until(sub: sqlite3.Row | None, end: datetime, now: datetime) -> datetime | None:
+    """Дата права gcal для файла, действующего до `end` (льгота включительно): пробный и Plus —
+    `end`; Basic — `sms_until`, но не дальше `end`; права нет — None. `sub` — подписка с планом
+    выдаваемого файла: пробный всегда Plus (`current`)."""
+    until = end if current(sub) == PLUS else sms_until(sub)
+    if until is None:
+        return None
+    until = min(until, end)
+    return until if until > now else None
 
 
 def label(tier: str | None) -> str:

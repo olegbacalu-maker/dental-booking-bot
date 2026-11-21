@@ -1048,6 +1048,18 @@ def renew_async() -> None:
     _renew_task = asyncio.get_running_loop().create_task(_renew_loop())
 
 
+def feature_until(name: str) -> datetime | None:
+    """До какого момента действует право `name` из принятого файла (`features` claim, сейчас
+    `gcal`); None — права нет. Нет его и тогда, когда лицензия не применяется (демо, сервер),
+    файл не принят, режим чтения, стена: вариант абонемента программа не знает, право несёт
+    только подписанная дата. Часы — те же, что у состояния лицензии (с полом)."""
+    s = current()
+    if s is None or not applies() or s.wall or s.state not in (st.ACTIVE, st.GRACE) or s.claim is None:
+        return None
+    until = s.claim.features.get(name)
+    return until if until is not None and until > s.now else None
+
+
 def as_json() -> dict:
     """Состояние для /api/license: клиенту и тестам."""
     s = current()
@@ -1059,13 +1071,15 @@ def as_json() -> dict:
         renew = {"at": st.fmt(_renew["at"]) if _renew["at"] else None,
                  "outcome": _renew["outcome"], "seq": _renew["seq"]}
     watch = paying()
+    rights = {n: feature_until(n) for n in (c.features if c else {})}
     return {"applies": True, "state": s.state, "code": s.code, "wall": s.wall,
             "valid_until": st.fmt(s.valid_until) if s.valid_until else None,
             "grace_until": st.fmt(s.grace_until) if s.grace_until else None,
             "clinic": c.clinic if c else "", "plan": c.plan if c else "",
             "seq": _mem.accepted_seq, "renew": renew,
             "pay": pay_available(), "paying_until": st.fmt(watch) if watch else None,
-            "mailbox": mailbox(), "terms": terms_state()}
+            "mailbox": mailbox(), "terms": terms_state(),
+            "features": {n: st.fmt(t) for n, t in rights.items() if t is not None}}
 
 
 def current() -> st.Status | None:

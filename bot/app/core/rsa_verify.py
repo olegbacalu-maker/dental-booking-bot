@@ -27,7 +27,7 @@ import hmac
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 SIG_LEN = 384                       # RSA-3072; длина ключа в байтах = длина подписи
@@ -85,6 +85,8 @@ class Claim:
     valid_until: datetime
     grace_until: datetime
     renew: dict | None          # {"url", "token"} — автообновление (L13); None, если поля нет
+    # права сверх срока: имя → до какого момента (`features`); нет поля или кривое — пусто
+    features: Mapping[str, datetime] = field(default_factory=dict)
 
 
 # ---------- математика ----------
@@ -133,6 +135,19 @@ def _ts(s: str) -> datetime | None:
         return None
 
 
+def _features(v: object) -> dict[str, datetime]:
+    """`features` claim: только пары «имя → дата по формату», прочее мимо. Кривое поле — «прав
+    нет», а не негодный файл: ошибка сервера в необязательном праве не должна запирать клинику."""
+    if not isinstance(v, dict):
+        return {}
+    out = {}
+    for name, until in v.items():
+        t = _ts(until) if type(until) is str else None
+        if t is not None:
+            out[name] = t
+    return out
+
+
 def parse_claim(payload: bytes) -> Claim | None:
     """Шаг 6: байты claim -> Claim по таблице схемы; None = не по схеме.
 
@@ -168,7 +183,7 @@ def parse_claim(payload: bytes) -> Claim | None:
             return None
         renew = {"url": renew["url"], "token": renew["token"]}
     return Claim(c["clinic_id"], c["clinic"], c["idno"], c["plan"], c["country"],
-                 c["seq"], dates[0], dates[1], dates[2], renew)
+                 c["seq"], dates[0], dates[1], dates[2], renew, _features(c.get("features")))
 
 
 def open_envelope(text: str, keys: Mapping[str, tuple[int, int]]

@@ -20,7 +20,7 @@ import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
 
-from harness import BOT, ROOT, Result, Server, _rmtree_settled
+from harness import BOT, ROOT, Client, Result, Server, _rmtree_settled
 
 FIX = ROOT / "tests" / "fixtures" / "license"
 SEC = timedelta(seconds=1)
@@ -284,6 +284,7 @@ def suite_server(res: Result) -> None:
     d1 = pathlib.Path(tempfile.mkdtemp(prefix="dp_lic1_"))
     d2 = pathlib.Path(tempfile.mkdtemp(prefix="dp_lic2_"))
     d3 = pathlib.Path(tempfile.mkdtemp(prefix="dp_lic3_"))
+    d4 = pathlib.Path(tempfile.mkdtemp(prefix="dp_lic4_"))
     try:
         # 1. пустая картотека, файла нет: стена, память появилась
         with Server(dir_=d1) as s:
@@ -343,6 +344,47 @@ def suite_server(res: Result) -> None:
         with Server(dir_=d3, env=key_env) as s:
             res.ok("expired: readonly в логе", "license: state=readonly code=- seq=2" in _log(s),
                    _log(s)[-300:])
+
+        # 8. права в файле (features): license.feature_until — дата позже часов программы, не readonly
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        k = gen.load_key()
+
+        def put(seq: int, issued: timedelta, valid: timedelta, grace: timedelta, features) -> None:
+            claim = dict(gen.CLAIMS["valid"], seq=seq, issued_at=lst.fmt(now + issued),
+                         valid_until=lst.fmt(now + valid), grace_until=lst.fmt(now + grace), features=features)
+            payload = gen.claim_bytes(claim)
+            (d4 / "license.json").write_text(gen.envelope(payload, gen.sign(payload, k), kid="test"), encoding="utf-8")
+
+        def api(s: Server) -> dict:
+            r = Client(s.url).login().get("/api/license")
+            return json.loads(r.body).get("data", {}) if r.status == 200 else {"status": r.status}
+
+        put(1, -DAY, 30 * DAY, 44 * DAY, {"gcal": lst.fmt(now + 10 * DAY), "past": lst.fmt(now - DAY)})
+        with Server(dir_=d4, env=key_env) as s:
+            a = api(s)
+            res.ok("право в действующем файле: gcal до его даты, прошедшее право не отдаётся",
+                   a.get("state") == lst.ACTIVE and a.get("features") == {"gcal": lst.fmt(now + 10 * DAY)}, repr(a))
+        put(2, -DAY, 30 * DAY, 44 * DAY, "gcal")
+        with Server(dir_=d4, env=key_env) as s:
+            a = api(s)
+            res.ok("кривое поле: файл принят и действует, прав нет",
+                   a.get("seq") == 2 and a.get("state") == lst.ACTIVE and a.get("code") == ""
+                   and a.get("features") == {}, repr(a))
+        put(3, -20 * DAY, -DAY, 13 * DAY, {"gcal": lst.fmt(now + 5 * DAY)})
+        with Server(dir_=d4, env=key_env) as s:
+            a = api(s)
+            res.ok("льгота: право держится до своей даты (как SMS в льготе)",
+                   a.get("state") == lst.GRACE and a.get("features") == {"gcal": lst.fmt(now + 5 * DAY)}, repr(a))
+        put(4, -40 * DAY, -20 * DAY, -6 * DAY, {"gcal": lst.fmt(now + 30 * DAY)})
+        with Server(dir_=d4, env=key_env) as s:
+            a = api(s)
+            res.ok("режим чтения: права нет, хоть дата и впереди",
+                   a.get("state") == lst.READONLY and a.get("features") == {}, repr(a))
+        put(5, -DAY, 30 * DAY, 44 * DAY, {"gcal": lst.fmt(now + 10 * DAY)})
+        with Server(dir_=d4) as s:
+            a = api(s)
+            res.ok("лицензия не применяется (нет ключа — демо, сервер): прав нет",
+                   a.get("applies") is False and "features" not in a, repr(a))
     finally:
-        for d in (d1, d2, d3):
+        for d in (d1, d2, d3, d4):
             _rmtree_settled(d)

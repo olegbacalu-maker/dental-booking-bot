@@ -12,7 +12,7 @@ import sys
 import urllib.parse
 from datetime import datetime, timedelta, timezone
 
-from harness import CLOUD, FIX, ROOT, Client, Result, Server, load_by_path
+from harness import CLOUD, FIX, ROOT, Client, Result, Server, cid_from, load_by_path
 
 sys.path.insert(0, str(CLOUD))
 from app import db as cdb, revoke, trial, views  # noqa: E402
@@ -262,6 +262,44 @@ def suite_restore(res: Result) -> None:
         res.check("срок прошёл — restored_expired, файла нет, отметка снята",
                   (_msg(r), _seq(s, cid), _sql(s, "SELECT revoked_at FROM clinics WHERE id=?", cid)[0][0]),
                   (revoke.RESTORED_EXPIRED, seq, None))
+
+
+def suite_tier(res: Result) -> None:
+    """Право gcal при отзыве: в файле отзыва не дольше его срока; «Вариант вручную» меняет вариант, но
+    файла не выдаёт; «Вернуть» — прежний срок с правом уже нового варианта."""
+    with Server(env=ENV) as s:
+        admin = Client(s.url).login()
+        cid = cid_from(admin.post("/admin/clinics", name="Clinica Varianta", idno=REAL[4],
+                                  email="varianta@example.md").location)
+        day = datetime.now(timezone.utc).date() + timedelta(days=20)
+        admin.post(f"/admin/clinics/{cid}/issue", kind="dates", valid_until=f"{day:%Y-%m-%d}", grace_days="14")
+        was = _sql(s, "SELECT valid_until, grace_until FROM issues WHERE clinic_id=? AND seq=1", cid)[0]
+        tok = _sql(s, "SELECT renew_token FROM clinics WHERE id=?", cid)[0][0]
+        res.check("отозвана", _msg(_revoke(admin, cid)), revoke.REVOKED)
+        got = _poll(s, tok, 1)
+        code, claim = _claim(got.body) if got.status == 200 else ("no", None)
+        res.ok("файл отзыва: право gcal не дольше его срока", code == "" and claim is not None and claim.seq == 2
+               and all(t <= claim.valid_until for t in claim.features.values()), (code, claim))
+        # файл отзыва гаснет через 2 с; его срок отодвинут, чтобы отказ держала проверка отзыва, а не срок
+        _sql(s, "UPDATE issues SET valid_until=?, grace_until=? WHERE clinic_id=? AND seq=2", *was, cid)
+        r = admin.post(f"/admin/clinics/{cid}/tier", tier="basic")
+        res.check("«Вариант вручную» при отзыве: вариант сменён, файла нет",
+                  (_msg(r), _seq(s, cid), _sql(s, "SELECT tier FROM subscriptions WHERE clinic_id=?", cid)[0][0]),
+                  ("tier_set", 2, "basic"))
+        res.ok("журнал «Вариант вручную»: файл не выдан", any("файл не выдан" in d for (d,) in
+                                                            _sql(s, "SELECT detail FROM audit WHERE what='tier_set'")))
+        res.check("вернуть — restored", _msg(admin.post(f"/admin/clinics/{cid}/restore", reason="ok")), revoke.RESTORED)
+        got = _poll(s, tok, 2)
+        code, claim = _claim(got.body) if got.status == 200 else ("no", None)
+        res.ok("«Вернуть»: прежний срок, права gcal нет — вариант уже Basic",
+               code == "" and claim is not None and claim.seq == 3 and claim.features == {}
+               and (ls.fmt(claim.valid_until), ls.fmt(claim.grace_until)) == tuple(was), (code, claim, was))
+        admin.post(f"/admin/clinics/{cid}/tier", tier="plus")
+        got = _poll(s, tok, 3)
+        code, claim = _claim(got.body) if got.status == 200 else ("no", None)
+        res.ok("после «Вернуть» «Вариант вручную» Plus снова выдаёт файл: тот же срок, право до его конца",
+               code == "" and claim is not None and claim.seq == 4
+               and ls.fmt(claim.features.get("gcal", claim.issued_at)) == was[1], (code, claim))
 
 
 def suite_schema(res: Result) -> None:

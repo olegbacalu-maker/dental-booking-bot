@@ -107,6 +107,7 @@ def suite_envelope(res: Result) -> None:
            claim is not None and claim.valid_until.tzinfo is not None
            and claim.valid_until.isoformat() == "2099-01-01T00:00:00+00:00")
     res.check("valid: renew нет — None", getattr(claim, "renew", "?"), None)
+    res.check("valid: features нет — прав нет (пусто)", dict(getattr(claim, "features", {"?": None})), {})
     for name in ("expired", "trial"):
         res.check(f"{name}: принят (время — не дело проверки)",
                   rv.open_envelope(_fixture(name)[0], keys)[0], "")
@@ -187,6 +188,26 @@ def suite_claim(res: Result) -> None:
     for url in ("http://127.0.0.1:8090/v1/license", "http://localhost/v1/license", "http://[::1]:1/x"):
         res.check(f"renew по http на loopback — принят (стенд, сервер на том же ПК): {url}",
                   rv.open_envelope(_signed(dict(base, renew={"url": url, "token": "t" * 32}), k), keys)[0], "")
+
+    # features — права сверх срока: кривое поле = «права нет», файл годен (ошибка сервера не запирает клинику)
+    until = "2026-12-21T10:00:00Z"
+    code, claim = rv.open_envelope(_signed(dict(base, features={"gcal": until}), k), keys)
+    res.ok("features: право с датой — принят, дата в Claim aware UTC",
+           code == "" and claim is not None and claim.features.get("gcal") is not None
+           and claim.features["gcal"].isoformat() == "2026-12-21T10:00:00+00:00", repr(claim))
+    crooked = {
+        "features: null": None, "features строкой": "gcal", "features списком": ["gcal"], "features числом": 1,
+        "gcal числом": {"gcal": 1798000000}, "gcal true": {"gcal": True}, "gcal без Z": {"gcal": until[:-1]},
+        "gcal с зоной": {"gcal": until[:-1] + "+00:00"}, "gcal не дата": {"gcal": "2026-13-41T10:00:00Z"},
+        "gcal пустой": {"gcal": ""}, "gcal объектом": {"gcal": {"until": until}}, "gcal списком": {"gcal": [until]},
+    }
+    for label, v in crooked.items():
+        code, claim = rv.open_envelope(_signed(dict(base, features=v), k), keys)
+        res.ok(f"кривое {label}: файл принят, права нет — не malformed",
+               code == "" and claim is not None and dict(claim.features) == {}, (code, claim))
+    code, claim = rv.open_envelope(_signed(dict(base, features={"gcal": "x", "next": until}), k), keys)
+    res.ok("кривое право не гасит годного соседа", code == "" and claim is not None
+           and sorted(claim.features) == ["next"], (code, claim))
 
     bad = {
         "seq = 0": dict(base, seq=0),

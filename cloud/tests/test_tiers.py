@@ -8,6 +8,7 @@
 варианте, страница возврата maib с № заказа, вариант без цены, миграция данных до
 шага 15. Цены прогона — заметно не настоящие (harness: DP_PRICE_*).
 """
+import base64
 import json
 import pathlib
 import shutil
@@ -17,7 +18,7 @@ import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
 
-from harness import CLOUD, ROOT, Client, Result, Server, cid_from
+from harness import CLOUD, FIX, ROOT, Client, Result, Server, cid_from, load_by_path, unb64u
 
 sys.path.insert(0, str(CLOUD))
 from app import config, db, mail, receipts, sms, tiers, views  # noqa: E402
@@ -28,6 +29,9 @@ from test_paylink import HDR, _link, _token  # noqa: E402
 
 UTC = timezone.utc
 B, P = tiers.BASIC, tiers.PLUS
+rv = load_by_path("rsa_verify_tiers", ROOT / "bot" / "app" / "core" / "rsa_verify.py")
+KEY = json.loads((FIX / "test-key.json").read_text(encoding="utf-8"))
+KEYS = {"test": (int(KEY["n"], 16), int(KEY["e"]))}
 SMS_ENV = {"DP_SMSMD_TOKEN": "test-token", "DP_SMSMD_BASE_URL": "http://127.0.0.1:9", "DP_SMS_OFFERED": "1",
            "DP_SMS_PACKS": "100:50"}
 
@@ -68,6 +72,19 @@ def suite_rules(res: Result) -> None:
                tiers.module_on(_sub(tier=B), now), tiers.module_on(_sub(tier=B, sms_until=now + timedelta(days=3)), now),
                tiers.module_on(_sub(tier=B, sms_until=now - timedelta(seconds=1)), now)],
               [True, True, False, True, False])
+    g_end = now + timedelta(days=40)
+    res.check("право gcal: пробный и Plus — до конца файла; Basic — до sms_until, но не дальше; прошло — нет",
+              [tiers.gcal_until(_sub("trial", B), g_end, now), tiers.gcal_until(_sub(tier=P), g_end, now),
+               tiers.gcal_until(None, g_end, now), tiers.gcal_until(_sub(tier=B), g_end, now),
+               tiers.gcal_until(_sub(tier=B, sms_until=now + timedelta(days=3)), g_end, now),
+               tiers.gcal_until(_sub(tier=B, sms_until=g_end + timedelta(days=9)), g_end, now),
+               tiers.gcal_until(_sub(tier=B, sms_until=now - timedelta(seconds=1)), g_end, now),
+               tiers.gcal_until(_sub(tier=P), now, now)],
+              [g_end, g_end, g_end, None, now + timedelta(days=3), g_end, None, None])
+    samples = [_sub(tier=P), _sub("trial", B), _sub(tier=B), _sub(tier=B, sms_until=now + timedelta(days=3)),
+               _sub(tier=B, sms_until=now - timedelta(seconds=1)), _sub(tier="gold")]
+    res.check("право gcal есть ровно там, где работает модуль SMS (срок файла впереди)",
+              [tiers.gcal_until(x, g_end, now) is not None for x in samples], [tiers.module_on(x, now) for x in samples])
     # tier_after — что confirm делает с подпиской (§ 4.2)
     trial_end = now + timedelta(days=20)
     t, price, until, why = pay.tier_after(_sub("trial", P, pp, trial_end), _note(B), now)
@@ -311,6 +328,137 @@ def suite_jobs(res: Result) -> None:
         res.ok("письмо: «în varianta în curs» и как сменить вариант до оплаты",
                "în varianta în curs, DentPilot Basic (fără modulul SMS)" in body and "Plătește acum" in body
                and mail.CONT_URL in body, body[:1200])
+
+
+def _files(s: Server, cid: str) -> list[tuple]:
+    """Выдачи клиники по порядку: (seq, claim как подписан, valid_until, grace_until, основание)."""
+    return [(seq, json.loads(unb64u(p)), v, g, why) for seq, p, v, g, why in
+            _sql(s, "SELECT seq, payload, valid_until, grace_until, reason FROM issues WHERE clinic_id=? ORDER BY seq", cid)]
+
+
+def _b64u(b: bytes) -> str:
+    return base64.urlsafe_b64encode(b).decode("ascii").rstrip("=")
+
+
+def _gcal(claim: dict) -> str | None:
+    return (claim.get("features") or {}).get("gcal")
+
+
+def _tools(s: Server, *args: str) -> str:
+    p = subprocess.run([sys.executable, "-m", "app.tools", "reissue", *args], cwd=str(CLOUD), env=s.env,
+                       capture_output=True, text=True, encoding="utf-8")
+    return p.stdout + p.stderr
+
+
+def suite_gcal(res: Result) -> None:
+    """Право gcal в файле (`features`) — правилом модуля SMS: пробный, оплата Basic и Plus, «Вариант
+    вручную» новым файлом, нота без подписки, срок на оплату первой ноты, перевыдача командой."""
+    pb = tiers.list_price(B)
+    with Server(env={**BANK_ENV, **SMS_ENV}) as s:
+        admin = Client(s.url).login()
+        cid = cid_from(admin.post("/admin/clinics", name="Clinica Google", idno="7777777777771",
+                                  email="google@example.md").location)
+        admin.post(f"/admin/clinics/{cid}/issue", kind="trial")
+        seq, claim, trial_end, grace, _ = _files(s, cid)[-1]
+        res.check("пробный: право gcal до конца файла с льготой", _gcal(claim), grace)
+        code, pc = rv.open_envelope(admin.get(f"/admin/clinics/{cid}/issues/{seq}/license.json").body, KEYS)
+        res.ok("проверка программы принимает файл с правом и видит ту же дату",
+               code == "" and pc is not None and pc.features.get("gcal") is not None
+               and pc.features["gcal"].strftime(db.TS) == grace, (code, pc))
+        res.ok("журнал выдачи называет право", any(f"gcal до {grace}" in d for (d,) in
+                                                 _sql(s, "SELECT detail FROM audit WHERE what='issue' AND clinic_id=?", cid)))
+
+        tok = _token(s, cid)
+        anon = Client(s.url)
+        path = "/plata/" + _link(anon, tok)[1].rsplit("/", 1)[1]
+
+        def paid(tier: str) -> None:
+            anon.post(path, tier=tier, months="1", method="transfer", terms="1")
+            pid = _sql(s, "SELECT id FROM payments WHERE clinic_id=? AND status='pending'", cid)[0][0]
+            admin.post(f"/admin/payments/{pid}/confirm")
+
+        paid("basic")
+        seq2, claim, _, grace2, _ = _files(s, cid)[-1]
+        res.ok("пробный → Basic: право до конца пробного (как модуль SMS), не до нового срока",
+               seq2 == seq + 1 and _gcal(claim) == trial_end and grace2 > trial_end, (seq2, _gcal(claim), trial_end))
+        paid("plus")
+        seq3, claim, valid3, grace3, _ = _files(s, cid)[-1]
+        res.check("Basic → Plus: право до конца нового файла", (seq3, _gcal(claim)), (seq2 + 1, grace3))
+        r = admin.post(f"/admin/clinics/{cid}/tier", tier="basic")
+        seq4, claim, valid4, grace4, why = _files(s, cid)[-1]
+        res.ok("«Вариант вручную» Basic: новый файл с тем же сроком и без права",
+               r.location.endswith("msg=tier_set") and seq4 == seq3 + 1 and (valid4, grace4) == (valid3, grace3)
+               and "features" not in claim and why == "вариант вручную", (r.location, seq4, claim))
+        res.ok("журнал «Вариант вручную» называет файл", any(f"файл {seq4} с тем же сроком" in d for (d,) in
+                                                           _sql(s, "SELECT detail FROM audit WHERE what='tier_set'")))
+        admin.post(f"/admin/clinics/{cid}/tier", tier="plus")
+        seq5, claim, valid5, grace5, _ = _files(s, cid)[-1]
+        res.ok("«Вариант вручную» Plus: новый файл с тем же сроком и правом до его конца",
+               seq5 == seq4 + 1 and (valid5, grace5) == (valid3, grace3) and _gcal(claim) == grace3, (seq5, claim))
+
+        # нота без подписки: строку подписки заводит выдача — уже с оплаченным вариантом
+        cid_b = cid_from(admin.post("/admin/clinics", name="Clinica Fara Fisier", idno="7777777777772",
+                                    email="fara@example.md").location)
+        admin.post(f"/admin/clinics/{cid_b}/payments", months="1", amount="", send="", method="transfer", tier="basic")
+        pid = _sql(s, "SELECT id FROM payments WHERE clinic_id=? AND status='pending'", cid_b)[0][0]
+        admin.post(f"/admin/payments/{pid}/confirm")
+        files = _files(s, cid_b)
+        res.ok("нота Basic без подписки: подписка заведена с Basic и его ценой, файл без права",
+               _subrow(s, cid_b)[:4] == ("standard", "basic", pb, None) and len(files) == 1
+               and "features" not in files[0][1], (_subrow(s, cid_b), files[-1][1] if files else None))
+
+        # срок на оплату первой ноты («Adaugă clinică») узнаётся по основанию последней выдачи
+        cid_a = cid_from(admin.post("/admin/clinics", name="Clinica Filiala", idno="7777777777773",
+                                    email="filiala@example.md").location)
+        today = datetime.now(UTC).date()
+        admin.post(f"/admin/clinics/{cid_a}/issue", kind="dates", valid_until=f"{today + timedelta(days=14):%Y-%m-%d}",
+                   grace_days="14")
+        _sql(s, "UPDATE issues SET reason=? WHERE clinic_id=?", pay.ADVANCE, cid_a)
+        admin.post(f"/admin/clinics/{cid_a}/tier", tier="basic")
+        res.check("перевыдача у клиники со сроком на оплату первой ноты оставляет его основание",
+                  [why for *_, why in _files(s, cid_a)], [pay.ADVANCE, pay.ADVANCE])
+
+        # команда перевыдачи: файл «до выкатки» без права у Plus, вариант сменён мимо выдачи, отзыв, прошедший срок
+        old = dict(_files(s, cid)[-1][1])
+        old.pop("features", None)
+        _sql(s, "UPDATE issues SET payload=? WHERE clinic_id=? AND seq=?",
+             _b64u(json.dumps(old, sort_keys=True, separators=(",", ":")).encode()), cid, seq5)
+        cid_d = cid_from(admin.post("/admin/clinics", name="Clinica Dates", idno="7777777777774",
+                                    email="dates@example.md").location)
+        admin.post(f"/admin/clinics/{cid_d}/issue", kind="dates", valid_until=f"{today + timedelta(days=20):%Y-%m-%d}",
+                   grace_days="14")
+        _sql(s, "UPDATE subscriptions SET tier='basic' WHERE clinic_id=?", cid_d)
+        cid_r = cid_from(admin.post("/admin/clinics", name="Clinica Retrasa", idno="7777777777775",
+                                    email="retrasa@example.md").location)
+        admin.post(f"/admin/clinics/{cid_r}/issue", kind="dates", valid_until=f"{today + timedelta(days=20):%Y-%m-%d}",
+                   grace_days="14")
+        _sql(s, "UPDATE subscriptions SET tier='basic' WHERE clinic_id=?", cid_r)
+        admin.post(f"/admin/clinics/{cid_r}/revoke", reason="test", confirm="ОТОЗВАТЬ")
+        # у файла с прошедшей льготой право в claim ещё записано, а выдача сейчас его бы не дала
+        cid_x = cid_from(admin.post("/admin/clinics", name="Clinica Expirata", idno="7777777777776",
+                                    email="expirata@example.md").location)
+        admin.post(f"/admin/clinics/{cid_x}/issue", kind="dates", valid_until=f"{today + timedelta(days=20):%Y-%m-%d}",
+                   grace_days="14")
+        past = (datetime.now(UTC) - timedelta(days=1)).strftime(db.TS)
+        _sql(s, "UPDATE issues SET valid_until=?, grace_until=? WHERE clinic_id=?", past, past, cid_x)
+        seqs = {c: _files(s, c)[-1][0] for c in (cid, cid_d, cid_r, cid_x, cid_b, cid_a)}
+        out = _tools(s)
+        res.ok("reissue без --apply: две клиники с иными правами, файлов нет; отзыв и прошедший срок мимо",
+               f"{cid} Clinica Google: без gcal → gcal до {grace3}" in out
+               and f"{cid_d} Clinica Dates: gcal до" in out and "→ без gcal" in out
+               and cid_r not in out and cid_x not in out and cid_b not in out and cid_a not in out
+               and "к перевыдаче: 2" in out and {c: _files(s, c)[-1][0] for c in seqs} == seqs, out)
+        out = _tools(s, "--apply")
+        got = {c: _files(s, c)[-1] for c in seqs}
+        res.ok("reissue --apply: seq+1 с тем же сроком и правом по варианту, у остальных ничего",
+               got[cid][0] == seqs[cid] + 1 and _gcal(got[cid][1]) == grace3 and (got[cid][2], got[cid][3]) == (valid3, grace3)
+               and got[cid_d][0] == seqs[cid_d] + 1 and "features" not in got[cid_d][1]
+               and got[cid][4] == "перевыдача: права в файле"
+               and all(got[c][0] == seqs[c] for c in (cid_r, cid_x, cid_b, cid_a)) and "выдано: 2" in out, out)
+        code, pc = rv.open_envelope(admin.get(f"/admin/clinics/{cid}/issues/{got[cid][0]}/license.json").body, KEYS)
+        res.ok("перевыданный файл принимает проверка программы", code == "" and pc is not None
+               and pc.seq == seqs[cid] + 1 and pc.features["gcal"].strftime(db.TS) == grace3, (code, pc))
+        res.ok("повтор команды ничего не находит", "к перевыдаче: 0" in _tools(s), _tools(s))
 
 
 def suite_migration(res: Result) -> None:

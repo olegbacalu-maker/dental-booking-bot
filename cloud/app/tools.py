@@ -7,6 +7,12 @@
     python -m app.tools backup --dir /srv/data/backups --keep 30
     python -m app.tools verify-backup /srv/data/backups/cloud-20260924-060500.db
     python -m app.tools drill /srv/data/backups/cloud-20260924-060500.db   # учение по восстановлению
+    python -m app.tools reissue [--apply]             # файлы, чьи права (features) устарели: список / выдать
+
+`reissue` — после выкатки, меняющей правило прав в файле (`features`, tiers.gcal_until):
+клиникам с живым файлом, чей последний файл несёт иные права, чем дала бы выдача сейчас, —
+новый файл seq+1 с тем же сроком (payments.reissue); программа берёт его суточным запросом.
+Без `--apply` только список; повтор после выдачи ничего не находит.
 
 `keygen` пишет приватный ключ с правами 0600 и печатает строку для таблицы
 KEYS в bot/app/core/rsa_verify.py — единственное, что уезжает в программу.
@@ -39,13 +45,13 @@ import tempfile
 import time
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-from . import account, auth, config, contracts, db, keys, license, mail, maib, payments, pdf, smsmd, tiers, trial
+from . import account, auth, config, contracts, db, keys, license, mail, maib, payments, pdf, revoke, smsmd, tiers, trial
 
 OK, WARN, BAD = "ok", "⚠", "✗"
 PULL_MAX_DAYS = 3        # отметка вывоза копий старше — предупреждение (ПК выключен)
@@ -390,6 +396,54 @@ def _integrity(dbp: pathlib.Path) -> str:
         return f"не база: {e}"
 
 
+# ---------- перевыдача файлов ----------
+
+
+REISSUE_WHY = "перевыдача: права в файле"
+REISSUE_WHO = "tools"
+
+
+def reissue_due(con: sqlite3.Connection, now: datetime) -> list[tuple[sqlite3.Row, dict, dict]]:
+    """(клиника, права последнего файла, права выдачи сейчас) — где они разошлись. Отозванные,
+    архивные и скрытые заявки — мимо; файл с прошедшей льготой — мимо: перевыдачи ему нет."""
+    soon = now + timedelta(seconds=revoke.REVOKE_SECONDS)
+    out = []
+    for c in con.execute("SELECT * FROM clinics WHERE revoked_at IS NULL AND archived_at IS NULL "
+                         "AND declined_at IS NULL ORDER BY created_at, rowid").fetchall():
+        last = con.execute("SELECT * FROM issues WHERE clinic_id=? ORDER BY seq DESC LIMIT 1", (c["id"],)).fetchone()
+        if last is None or db.parse_ts(last["grace_until"]) <= soon:
+            continue
+        claim = license.claim_of(last)
+        sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (c["id"],)).fetchone()
+        # выдача считает по подписке с планом выдаваемого файла — здесь им станет план последнего
+        gcal = tiers.gcal_until({**(dict(sub) if sub else {}), "plan": claim["plan"]},
+                                db.parse_ts(last["grace_until"]), now)
+        will = {"gcal": gcal.strftime(db.TS)} if gcal else {}
+        was = claim.get("features") or {}
+        if was != will:
+            out.append((c, was, will))
+    return out
+
+
+def _rights(f: dict) -> str:
+    return f"gcal до {f['gcal']}" if f.get("gcal") else "без gcal"
+
+
+def reissue(apply: bool, now: datetime | None = None) -> list[str]:
+    """Строки отчёта команды `reissue`; с `apply` — и выдача, одной транзакцией."""
+    now = (now or datetime.now(timezone.utc)).replace(microsecond=0)
+    lines = []
+    with db.connect(immediate=True) as con:
+        due = reissue_due(con, now)
+        for c, was, will in due:
+            seq = payments.reissue(con, c, REISSUE_WHY, REISSUE_WHO) if apply else 0
+            lines.append(f"{c['id']} {c['name']}: {_rights(was)} → {_rights(will)}"
+                         + (f" — файл {seq}" if seq else (" — файл не выдан" if apply else "")))
+    lines.append(f"{'выдано' if apply else 'к перевыдаче'}: {len(due)}"
+                 + ("" if apply or not due else " (выдать — с --apply)"))
+    return lines
+
+
 # ---------- командная строка ----------
 
 
@@ -411,6 +465,8 @@ def main(argv=None) -> int:
     v.add_argument("file")
     d = sub.add_parser("drill", help="учение: поднять сервер на копии в чистой папке")
     d.add_argument("file")
+    r = sub.add_parser("reissue", help="файлы с устаревшими правами (features): список, с --apply — выдать")
+    r.add_argument("--apply", action="store_true", help="выдать новые файлы (без него — только список)")
     a = ap.parse_args(argv)
 
     if a.cmd == "hash-password":
@@ -468,6 +524,14 @@ def main(argv=None) -> int:
             print(line)
         print("учение: OK" if ok else "учение: ПРОВАЛ")
         return 0 if ok else 1
+    if a.cmd == "reissue":
+        if a.apply and license.key() is None:
+            print("DP_LICENSE_KEY пуст: подписать нечем")
+            return 1
+        db.init()
+        for line in reissue(a.apply):
+            print(line)
+        return 0
     return 2
 
 

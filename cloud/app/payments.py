@@ -651,11 +651,12 @@ def _prolong(con: sqlite3.Connection, clinic: sqlite3.Row, line: sqlite3.Row, pa
     db.audit(con, who, "payment_paid", clinic["id"],
              f"{payment['reference']}{note}: {line['amount']} MDL, {tiers.NAME[tier]}, срок до {valid.strftime(db.TS)}"
              + (f"; {switch}" if switch else ""))
+    # вариант едет в саму выдачу: по нему в файл ложится дата права gcal, и строку подписки, если её
+    # ещё не было, выдача заводит уже с ним; якорь и цена — после, строка к этому времени есть
     issued = license.issue(con, clinic, "standard", valid, grace,
-                           f"платёж {payment['reference']}", who)
-    # якорь и вариант — после выдачи: она заводит строку подписки, если её ещё не было
-    con.execute("UPDATE subscriptions SET anchor_day=?, tier=?, price=?, sms_until=? WHERE clinic_id=?",
-                (day, tier, price, sms_until, clinic["id"]))
+                           f"платёж {payment['reference']}", who, tier=tier, sms_until=sms_until)
+    con.execute("UPDATE subscriptions SET anchor_day=?, price=? WHERE clinic_id=?",
+                (day, price, clinic["id"]))
     start = first if first is not None and current is not None and current >= now else (
         now if current is None or current < now else current)
     return issued, (start, valid)
@@ -697,7 +698,9 @@ def set_tier(con: sqlite3.Connection, clinic_id: str, tier: str, who: str) -> st
     только оплата). Цена — прайс варианта: своей цены у подписки нет (Олег 26.10: «600
     везде»), разовая скидка — суммой ноты в «Выставить ноту». '' или код отказа: tier_bad,
     tier_trial (пробный — всегда Plus, вариант выбирают при оплате), tier_no_sub (подписки
-    нет), tier_price (у варианта нет прайса в cloud.env — не продаётся)."""
+    нет), tier_price (у варианта нет прайса в cloud.env — не продаётся), no_key (нечем
+    подписать файл). Право gcal живёт в файле, поэтому смена варианта — новый файл с тем же
+    сроком (`reissue`)."""
     if tier not in tiers.TIERS:
         return "tier_bad"
     sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (clinic_id,)).fetchone()
@@ -708,13 +711,39 @@ def set_tier(con: sqlite3.Connection, clinic_id: str, tier: str, who: str) -> st
     p = tiers.price(sub, tier)
     if p <= 0:
         return "tier_price"
+    if license.key() is None:
+        return "no_key"
     before = tiers.current(sub)
     con.execute("UPDATE subscriptions SET tier=?, price=?, sms_until=NULL, updated_at=? WHERE clinic_id=?",
                 (tier, p, db.now_iso(), clinic_id))
+    clinic = con.execute("SELECT * FROM clinics WHERE id=?", (clinic_id,)).fetchone()
+    seq = reissue(con, clinic, "вариант вручную", who)
     db.audit(con, who, "tier_set", clinic_id,
              f"вручную: {tiers.NAME[before]} → {tiers.NAME[tier]}, {p} MDL / мес.; модуль SMS "
-             + ("работает" if tier == tiers.PLUS else "выключен сразу"))
+             + ("работает" if tier == tiers.PLUS else "выключен сразу")
+             + (f"; файл {seq} с тем же сроком" if seq else "; файл не выдан (срок прошёл или отзыв)"))
     return ""
+
+
+def reissue(con: sqlite3.Connection, clinic: sqlite3.Row, why: str, who: str) -> int:
+    """Тот же срок новым файлом (seq+1): права в claim — по нынешнему варианту, программа берёт файл
+    суточным запросом. → seq или 0, когда файла нет: отзыв (файл выдаёт только «Вернуть»), ни одной
+    выдачи, льгота прошла. Срок прошёл, а льгота идёт — срок «сейчас + 2 с»: программа отвергает
+    файл, выданный не раньше своего срока."""
+    if revoke.is_revoked(clinic):
+        return 0
+    last = con.execute("SELECT * FROM issues WHERE clinic_id=? ORDER BY seq DESC LIMIT 1",
+                       (clinic["id"],)).fetchone()
+    if last is None:
+        return 0
+    soon = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(seconds=revoke.REVOKE_SECONDS)
+    valid, grace = db.parse_ts(last["valid_until"]), db.parse_ts(last["grace_until"])
+    if grace <= soon:
+        return 0
+    # срок на оплату первой ноты узнаётся по основанию последней выдачи (advance_start) — его не терять
+    reason = ADVANCE if last["reason"] == ADVANCE else why
+    seq, _ = license.issue(con, clinic, license.claim_of(last)["plan"], max(valid, soon), grace, reason, who)
+    return seq
 
 
 def credit_again(con: sqlite3.Connection, payment: sqlite3.Row, via: str, who: str,
