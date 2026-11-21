@@ -339,7 +339,7 @@ def suite(res: Result) -> None:
            and "rămâne disponibilă în ambele variante" in s17, s17[:60])
     res.ok("условия § 4: связь с Google — только в Plus и пробном, переход на Basic — как у модуля SMS",
            "există numai în DentPilot™ Plus și în perioada de probă" in s4
-           and "modulul SMS și citirea Google Calendar rămân pornite până la sfârșitul perioadei" in s4)
+           and "se oprește apoi; la fel și citirea Google Calendar" in s4)
     res.ok("Anexa 2: две строки канала Google; запрос без данных пациентов и без технической личности",
            "Google Calendar: conectarea contului Google al clinicii" in flows
            and "Google Calendar: citirea evenimentelor" in flows
