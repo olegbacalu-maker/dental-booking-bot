@@ -12,6 +12,9 @@
   10 мин счёт SMS, 5 мин статус до 30 ч, сутки лицензия, минута заявка/2 ч
   после «Plătește acum»); их держит tests/test_structure.py. Меняется канал
   в коде — меняется строка здесь, политика § 5 и декларация п. 3.
+  Google Calendar (две строки канала) идёт с ПК клиники прямо в Google, мимо
+  сервера поставщика, поэтому декларации (связи с поставщиком) не касается;
+  его описывают политика § 6 и условия § 17.
 -->
 <style>
 body{margin:0;background:#fff;color:#111;font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;font-size:14px;line-height:1.5}
@@ -48,7 +51,7 @@ td.c{white-space:nowrap}
 
 <h1>ANEXA 2 — FLUXURILE DE DATE ALE PROGRAMULUI DENTPILOT</h1>
 <p class="sub">la Contractul de licență și utilizare a programului DentPilot ·
-versiunea din 05.11.2026 · document comun pentru toate clinicile, semnat de
+versiunea din 21.11.2026 · document comun pentru toate clinicile, semnat de
 furnizor</p>
 
 <p>Această anexă descrie, pentru versiunea curentă a programului (2.9 și
@@ -64,14 +67,20 @@ flux se schimbă.</p>
   <li><b>Baza de date a clinicii</b>, integral: fișele pacienților,
   programările, documentele încărcate, odontogramele, parodontogramele,
   anamnezele și fișele 043/e, planurile de tratament, plățile pacienților,
-  jurnalul (cine ce a făcut) și jurnalul local al memento-urilor SMS trimise
-  (cu numărul și textul — doar pe calculatorul clinicii).</li>
+  jurnalul (cine ce a făcut), jurnalul local al memento-urilor SMS trimise
+  (cu numărul și textul — doar pe calculatorul clinicii) și evenimentele
+  preluate din Google Calendar al clinicii, din fișierul exportat de clinică
+  sau, dacă clinica și-a conectat contul Google, citite direct de la Google
+  (punctul 3).</li>
   <li><b>Copiile de rezervă</b>: copia automată locală la pornire, copia
   manuală și exportul criptat — doar în dosare locale și pe suportul ales de
   clinică; programul nu încarcă nicio copie nicăieri.</li>
   <li><b>Utilizatorii și codurile PIN</b>, setările clinicii (denumire,
   logo, culori, program de lucru, medici, servicii), fișierul de licență,
-  identificatorul tehnic al calculatorului, jurnalul tehnic al programului.</li>
+  identificatorul tehnic al calculatorului, jurnalul tehnic al programului;
+  dacă clinica și-a conectat contul Google — cheia de acces la Google
+  Calendar, criptată cu mijloacele Windows, într-un fișier separat de baza de
+  date, care nu intră în copiile de rezervă.</li>
   <li>Programul nu conține niciun mijloc de acces de la distanță și nu
   trimite furnizorului statistici de utilizare, conținutul ecranelor,
   nume de pacienți, medici sau servicii.</li>
@@ -217,6 +226,48 @@ cea a serverului furnizorului.</p>
   clinicii</td>
 </tr>
 <tr>
+  <td><b>Google Calendar: conectarea contului Google al clinicii</b>
+  (numai în DentPilot Plus și în perioada de probă, numai dacă clinica o
+  pornește)</td>
+  <td>la apăsarea butonului „Conectează contul Google” de către un
+  utilizator cu rolul Director sau Recepție, pe calculatorul pe care este
+  instalat programul; la apăsarea butonului „Deconectează”</td>
+  <td>programul deschide în browserul calculatorului pagina de autentificare
+  Google; acolo clinica alege contul și aprobă accesul de citire, iar
+  programul primește direct de la Google o cheie de acces, pe care o
+  păstrează criptată pe calculator, și citește lista calendarelor contului
+  (numele lor), ca clinica să aleagă calendarul citit. Spre Google pleacă
+  doar identificatorul aplicației DentPilot și datele tehnice ale
+  autentificării. La deconectare programul cere Google să anuleze cheia și o
+  șterge de pe calculator</td>
+  <td>nimic: serverul furnizorului nu participă, nu primește cheia de acces
+  și nu află ce cont Google a fost conectat</td>
+  <td><b>Google</b>, furnizorul contului Google al clinicii: vede contul,
+  adresa IP a calculatorului și acordarea sau retragerea accesului pentru
+  aplicația DentPilot, conform condițiilor și politicii de confidențialitate
+  Google acceptate de clinică</td>
+</tr>
+<tr>
+  <td><b>Google Calendar: citirea evenimentelor</b></td>
+  <td>din 10 în 10 minute, cât programul rulează și contul Google este
+  conectat, și imediat, la „Verifică acum” în fila Google Calendar; nu în
+  regim de citire și nu în DentPilot Basic (la trecerea la Basic citirea se
+  oprește la sfârșitul perioadei în curs, ca modulul SMS — Anexa 1,
+  secțiunile 4 și 17)</td>
+  <td>cheia de acces, identificatorul calendarului ales și intervalul de
+  date cerut (de acum până la un an înainte). Cererea nu conține date ale
+  pacienților, programări sau tratamente din program și nici identitatea
+  tehnică de la punctul 2. Răspunsul Google — evenimentele calendarului:
+  titlul, data, ora și durata, descrierea, locul, invitații și starea lor —
+  rămâne numai pe calculatorul clinicii, în fila Google Calendar a
+  programului. Programul nu scrie, nu modifică și nu șterge nimic în
+  calendarul Google</td>
+  <td>nimic: cererile și răspunsurile nu trec prin serverul furnizorului</td>
+  <td>Google: cererea (cheia de acces, calendarul, intervalul de date) și
+  adresa IP a calculatorului; evenimentele sunt ale clinicii și se află deja
+  la Google</td>
+</tr>
+<tr>
   <td><b>Actualizările: serverul furnizorului</b></td>
   <td>la pornire și apoi la fiecare 6 ore; imediat, la „Verifică acum” în
   Setări › Stare sistem</td>
@@ -250,6 +301,11 @@ cea a serverului furnizorului.</p>
   <li>În afara memento-urilor SMS, nicio cerere nu conține date ale
   pacienților, programări sau tratamente; fișierul de licență conține doar
   denumirea clinicii, IDNO, tipul și termenul abonamentului.</li>
+  <li>Cu Google Calendar datele circulă într-un singur sens — de la Google
+  spre calculatorul clinicii: programul nu trimite în Google date din fișe
+  sau din jurnal și nu scrie, nu modifică și nu șterge nimic în calendarul
+  clinicii. Evenimentele citite, care pot conține nume și telefoane ale
+  pacienților, nu ajung la furnizor.</li>
   <li>Furnizorul nu poate deschide o sesiune de acces la calculatorul
   clinicii; asistența la distanță se face numai prin „Asistență rapidă”
   Windows, la cererea și în prezența clinicii (contractul, clauza 7).</li>
@@ -285,6 +341,12 @@ clinicii, e-mailul, adresa IP a browserului — numai la plata online, pe
 pagina băncii) ·
 GitHub, Inc. (adresa IP a clinicii la descărcarea actualizărilor și, când
 serverul furnizorului nu răspunde, la verificarea lor).</p>
+<p>Conectarea la Google Calendar nu trece prin serverul furnizorului:
+programul comunică direct cu Google, iar cheia de acces și evenimentele nu
+ajung la furnizor. Furnizorul a înregistrat la Google aplicația DentPilot,
+al cărei identificator este inclus în program; în consola Google a
+aplicației furnizorul vede numai statistici agregate ale folosirii ei (de
+exemplu numărul cererilor și al erorilor), fără conținutul calendarelor.</p>
 
 <div class="sign">
   <div>
@@ -294,7 +356,7 @@ serverul furnizorului nu răspunde, la verificarea lor).</p>
     <p>Semnătura (electronică calificată)</p>
   </div>
   <div>
-    <p>Versiunea documentului: 05.11.2026</p>
+    <p>Versiunea documentului: 21.11.2026</p>
     <p>Clinica: identificată în actul de acceptare din contul clinicii;
     semnătura ei este opțională (contractul, clauza 11.2).</p>
   </div>

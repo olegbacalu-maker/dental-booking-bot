@@ -25,6 +25,7 @@ p,li{font-size:15.5px;line-height:1.68;color:#384850;margin:0 0 12px}
 ul{padding-left:22px;margin:0 0 12px}
 .back{font-size:14px;font-weight:500;text-decoration:none}
 footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-size:13.5px;color:#7C8B91}
+.en{border-left:3px solid #E6EDEB;padding-left:16px;margin:4px 0 12px}
 </style>
 <script src="analytics.js" defer></script>
 </head>
@@ -35,14 +36,16 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
 </div></div>
 <div class="wrap">
   <h1>Politica de confidențialitate</h1>
-  <p class="upd">Ultima actualizare: 05.11.2026</p>
+  <p class="upd">Ultima actualizare: 21.11.2026</p>
 
   <h2>1. Cine suntem</h2>
   <p>Site-ul dentpilot.md este gestionat de Oleg Bacalu, antreprenor
   independent (Legea nr. 228/2025), IDNO 1026023148339, e-mail:
   <a href="mailto:contact@dentpilot.md">contact@dentpilot.md</a>.
   Această politică descrie ce date sunt prelucrate prin acest site și prin
-  serverul de licențe cloud.dentpilot.md.</p>
+  serverul de licențe cloud.dentpilot.md, precum și ce date Google citește
+  programul DentPilot™ când clinica își conectează contul Google
+  (<a href="#google">punctul 6</a>).</p>
 
   <h2 id="cookie">2. Ce date colectează site-ul</h2>
   <ul>
@@ -94,8 +97,11 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
   le transmite operatorului SMS Rock Soft S.R.L. (SMS.MD, servere în
   Republica Moldova) și nu le păstrează. Pentru aceste date furnizorul este
   persoană împuternicită a clinicii (<a href="termeni.html">Termeni și
-  condiții</a>, secțiunea 16). Prin acest site nu se prelucrează date ale
-  pacienților.</p>
+  condiții</a>, secțiunea 16). Dacă clinica își conectează contul Google,
+  programul citește calendarul ei Google direct de la Google, pe
+  calculatorul clinicii (punctul 6): evenimentele, care pot conține nume și
+  telefoane ale pacienților, nu ajung la furnizor. Prin acest site nu se
+  prelucrează date ale pacienților.</p>
 
   <h2>5. Datele contului clinicii</h2>
   <p>Dacă o clinică solicită perioada de probă din program (pagina de
@@ -226,7 +232,151 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     datele reprezentantului).</li>
   </ul>
 
-  <h2 id="demo">6. Versiunea demonstrativă online (demo.dentpilot.md)</h2>
+  <h2 id="google">6. Programul DentPilot™ și datele Google (Google Calendar)</h2>
+  <p>Acest punct descrie cum programul DentPilot™, instalat pe calculatorul
+  clinicii, accesează, folosește, păstrează și transmite datele din contul
+  Google al clinicii. Conectarea există numai în DentPilot™ Plus și în
+  perioada de probă (<a href="termeni.html">Termeni și condiții</a>,
+  secțiunea 17) și o pornește doar clinica: un utilizator cu rolul Director
+  sau Recepție apasă în program „Conectează contul Google” și aprobă accesul
+  pe pagina Google, în browserul calculatorului.</p>
+  <ul>
+    <li><b>Ce date Google accesează programul.</b> Numai pentru citire, cu
+    permisiunile Google <code>calendar.calendarlist.readonly</code> (lista
+    calendarelor) și <code>calendar.events.readonly</code> (evenimentele):
+    lista calendarelor contului conectat — numele și identificatorul
+    fiecăruia (la calendarul principal identificatorul este adresa de e-mail
+    a contului) —, ca clinica să aleagă calendarul citit; evenimentele
+    calendarului ales, de acum până la un an înainte: titlul, data, ora și
+    durata, descrierea, locul, invitații (numele și adresele lor de e-mail),
+    starea evenimentului (confirmat sau anulat) și identificatorii lui
+    tehnici. Programul nu accesează alte date ale contului Google — nici
+    e-mailurile, nici contactele, nici fișierele, nici parola — și nu scrie,
+    nu modifică și nu șterge nimic în calendar.</li>
+    <li><b>Cum le folosește.</b> Numai pentru funcția vizibilă în program:
+    evenimentele apar în fila „Google Calendar”, unde personalul clinicii le
+    vede și le mută manual în jurnalul programărilor, cu fereastra obișnuită
+    de programare; programul marchează evenimentele schimbate sau anulate în
+    Google. Programul citește calendarul din 10 în 10 minute, cât rulează și
+    contul este conectat, și la apăsarea butonului „Verifică acum”. Datele
+    Google nu se folosesc pentru publicitate, profilare, statistici ale
+    furnizorului sau orice alt scop și nu se folosesc pentru a dezvolta,
+    îmbunătăți sau antrena modele de inteligență artificială sau de învățare
+    automată.</li>
+    <li><b>Unde și cum se păstrează.</b> Numai pe calculatorul clinicii.
+    Evenimentele — în baza de date a programului; ca restul evidenței
+    clinicii, ele intră în copiile de rezervă pe care le face clinica. Cheia
+    de acces primită de la Google — într-un fișier separat, criptată cu
+    mijloacele Windows (DPAPI) și legată de contul Windows pe care rulează
+    programul; ea nu intră în baza de date și nici în copiile de rezervă.
+    Programul comunică direct cu Google, prin conexiune criptată (HTTPS);
+    autentificarea se face în browserul calculatorului, pe pagina Google,
+    iar parola contului Google nu ajunge în program. Nimic din acestea nu
+    ajunge pe serverele furnizorului. Fila „Google Calendar” o văd numai
+    utilizatorii programului cu acces la întregul jurnal (rolurile Director
+    și Recepție); medicii nu o văd.</li>
+    <li><b>Cât timp și cum se șterg.</b> Programul nu preia evenimente
+    trecute și nici pe cele mai îndepărtate de un an. Textul unui eveniment
+    care nu a fost mutat în jurnal (titlul, descrierea, locul, invitații) se
+    șterge automat la 7 zile după data lui. La mutarea în jurnal textul se
+    șterge din filă, iar titlul și începutul descrierii trec în comentariul
+    programării create. Butonul „Șterge tot din Google” șterge imediat
+    evenimentele nemutate; ștergerea sau anonimizarea datelor unui pacient la
+    cererea lui (Legea nr. 195/2024) șterge și evenimentele lui. Programările
+    create de personal din evenimente fac parte din evidența clinicii și se
+    păstrează după regulile ei.</li>
+    <li><b>Cui se transmit.</b> Nimănui. Furnizorul nu primește evenimentele,
+    lista calendarelor sau cheia de acces, nu le transmite, nu le vinde și
+    nu le pune la dispoziția terților. Furnizorul poate vedea fila numai pe
+    ecranul clinicii, într-o sesiune „Asistență rapidă” cerută de clinică,
+    cu acordul și în prezența ei, fără să copieze sau să păstreze ceva
+    (<a href="termeni.html">Termeni și condiții</a>, secțiunea 10). O
+    programare creată de personal dintr-un eveniment este o programare
+    obișnuită a clinicii: pentru ea pleacă memento-ul SMS numai dacă clinica
+    folosește modulul SMS și îl lasă bifat în fereastra de programare
+    (punctul 4).</li>
+    <li><b>Cum se retrage accesul.</b> Oricând: în program, cu butonul
+    „Deconectează” (programul cere Google să anuleze cheia și o șterge de pe
+    calculator), sau din contul Google, pe pagina
+    <a href="https://myaccount.google.com/connections" target="_blank" rel="noopener">myaccount.google.com/connections</a>
+    (aplicația DentPilot). După retragere programul nu mai citește
+    calendarul; evenimentele deja preluate rămân pe calculatorul clinicii și
+    se șterg după regulile de mai sus sau cu „Șterge tot din Google”.</li>
+    <li><b>Furnizorul și Google.</b> Furnizorul a înregistrat la Google
+    aplicația DentPilot; în consola Google a aplicației el vede numai
+    statistici agregate ale folosirii ei (de exemplu numărul cererilor și al
+    erorilor), fără conținutul calendarelor. Contul Google și datele din el
+    rămân la Google, conform
+    <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">politicii de confidențialitate Google</a>;
+    pentru datele pe care le ține în calendar operator este clinica.</li>
+    <li><b>Limited Use.</b> Folosirea și transmiterea informațiilor primite
+    de la Google API respectă
+    <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>,
+    inclusiv cerințele „Limited Use”, și
+    <a href="https://developers.google.com/workspace/workspace-api-user-data-developer-policy" target="_blank" rel="noopener">Google Workspace API User Data and Developer Policy</a>.</li>
+    <li><b>Modificări.</b> Dacă se schimbă modul în care programul folosește
+    datele Google, actualizăm acest punct înainte de schimbare; dacă
+    programul are nevoie de alte permisiuni, Google cere din nou acordul
+    clinicii.</li>
+  </ul>
+  <div class="en" lang="en">
+    <p><b>In English — Google user data in the DentPilot app.</b> DentPilot
+    is a desktop program installed on the clinic's Windows computer. In
+    DentPilot Plus and during the trial, a user with the Director or
+    Recepție role may connect the clinic's Google account (button
+    “Conectează contul Google”) to show the events of one Google Calendar
+    in the program's “Google Calendar” tab, where clinic staff move them
+    into the appointment journal by hand.</p>
+    <ul>
+      <li><b>Data accessed:</b> read-only, with the scopes
+      <code>calendar.calendarlist.readonly</code> and
+      <code>calendar.events.readonly</code>: the list of the account's
+      calendars (name and ID; the primary calendar's ID is the account's
+      e-mail address), so the clinic can choose one, and the events of the
+      chosen calendar from now to one year ahead (title, date, time and
+      duration, description, location, attendees' names and e-mail
+      addresses, status, technical identifiers). No other Google data — no
+      mail, contacts, files or password. The program never writes, changes
+      or deletes anything in Google Calendar.</li>
+      <li><b>Use:</b> only to display the events in the program's Google
+      Calendar tab and to flag events changed or cancelled in Google. The
+      calendar is read every 10 minutes while the program runs and on
+      “Verifică acum”. Google user data is not used for advertising,
+      profiling, the developer's analytics or any other purpose, and is not
+      used to develop, improve or train AI or machine learning models.</li>
+      <li><b>Storage and protection:</b> only on the clinic's computer —
+      events in the program's local database (included in the backups the
+      clinic makes); the OAuth token in a separate file, encrypted with
+      Windows DPAPI and bound to the Windows account, never in the database
+      or the backups. The program talks to Google directly over HTTPS; the
+      sign-in runs in the system browser on Google's page. The developer's
+      servers never receive tokens or calendar data. Only users with
+      full-journal access (Director and Recepție roles) see the tab.</li>
+      <li><b>Retention and deletion:</b> past events and events more than
+      one year ahead are not fetched; the text of events not moved into the
+      journal is erased automatically 7 days after their date; moving an
+      event erases its text from the tab (its title and the beginning of its
+      description go into the comment of the new appointment); “Șterge tot
+      din Google” deletes the events not moved at once; erasing a patient's
+      data under Moldovan Law 195/2024 also erases their events.</li>
+      <li><b>Sharing:</b> Google user data is not shared with, sold or
+      transferred to anyone, including the developer. The developer may see
+      the clinic's screen only during a Windows Quick Assist session the
+      clinic requests, in its presence, without copying or keeping
+      anything.</li>
+      <li><b>Revoking access:</b> “Deconectează” in the program (revokes
+      the token at Google and deletes it from the computer) or
+      <a href="https://myaccount.google.com/connections" target="_blank" rel="noopener">myaccount.google.com/connections</a>.</li>
+      <li><b>Limited Use:</b> DentPilot's use of information received from
+      Google APIs will adhere to
+      <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>,
+      including the Limited Use requirements. The use of information
+      received from Google Workspace scopes will adhere to the Google User
+      Data Policy, including the Limited Use requirements.</li>
+    </ul>
+  </div>
+
+  <h2 id="demo">7. Versiunea demonstrativă online (demo.dentpilot.md)</h2>
   <p>Butonul „Încearcă demo online” deschide o copie a programului cu o
   clinică fictivă, pe un server închiriat de noi (Contabo GmbH), accesibil
   prin rețeaua Cloudflare, Inc. Copia este individuală și se identifică
@@ -239,14 +389,14 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
   demo; Cloudflare poate înregistra jurnale tehnice conform
   <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener">politicii sale de confidențialitate</a>.</p>
 
-  <h2>7. Drepturile dvs.</h2>
+  <h2>8. Drepturile dvs.</h2>
   <p>Conform Legii nr. 195/2024 privind protecția datelor cu caracter
   personal, aveți dreptul de acces, rectificare, ștergere și opoziție.
   Scrieți-ne la adresa de e-mail
   de mai sus. Aveți, de asemenea, dreptul să depuneți o plângere la
   CNPDCP (<a href="https://datepersonale.md" target="_blank" rel="noopener">datepersonale.md</a>).</p>
 
-  <h2>8. Modificări</h2>
+  <h2>9. Modificări</h2>
   <p>Versiunea actualizată a politicii se publică pe această pagină.</p>
 </div>
 <footer>© 2026 DentPilot™ · <a href="termeni.html">Termeni și condiții</a></footer>
