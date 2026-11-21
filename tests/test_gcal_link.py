@@ -181,7 +181,9 @@ def suite_basic(res: Result) -> None:
             res.check("Basic: состояние и строка — «face parte din DentPilot Plus»",
                       (b.get("state"), (b.get("why") or {}).get("text"), b.get("connected")),
                       ("plus", "Conectarea la contul Google face parte din DentPilot Plus", False))
-            res.check("Basic: путь назад — страница лицензии", (b.get("plus") or {}).get("href"), "/admin/license")
+            res.check("Basic: путь назад — фраза и ссылка на страницу лицензии",
+                      ((b.get("words") or {}).get("plus_lead"), b.get("plus")),
+                      ("O porniți plătind varianta Plus în", {"href": "/admin/license", "label": "Setări › Licența"}))
             res.check("Basic: кнопок нет", b.get("can"),
                       {"connect": False, "calendar": False, "check": False, "disconnect": False})
             r = c.post_json("/api/gcal/google/connect", {})
@@ -227,9 +229,11 @@ def _plus_first(res: Result, g: tg.Google, client: pathlib.Path, d: pathlib.Path
         n = poll_minutes()
         res.check("Plus без связи: «off», кнопка подключения", (b.get("state"), b.get("can", {}).get("connect")),
                   ("off", True))
-        res.ok(f"уведомление называет опрос «din {n} în {n} minute» и политику",
+        res.ok(f"уведомление называет опрос «din {n} în {n} minute»; адрес политики — ссылкой, не в тексте",
                f"din {n} în {n} minute" in b.get("notice", "") and n > 0
-               and b.get("privacy", {}).get("href", "").endswith("privacy.html#google"), b.get("notice", ""))
+               and "privacy.html" not in b.get("notice", "")
+               and b.get("privacy") == {"href": "https://dentpilot.md/privacy.html#google",
+                                        "label": "dentpilot.md/privacy.html#google"}, b.get("notice", ""))
         w = b.get("words") or {}
         res.check("слова кнопок — как в документах",
                   (w.get("connect"), w.get("disconnect"), w.get("check")),
@@ -237,7 +241,7 @@ def _plus_first(res: Result, g: tg.Google, client: pathlib.Path, d: pathlib.Path
         res.ok("слова блока — все от сервера, строка опроса из константы",
                {"title", "lead", "hint", "connected", "calendar_label", "last_check", "last_ok", "change",
                 "primary", "waiting_title", "waiting_detail", "reopen", "cancel", "calendar",
-                "disconnect_ask", "disconnect_ok"} <= set(w) and all(w.values())
+                "disconnect_ask", "disconnect_ok", "plus_lead", "details"} <= set(w) and all(w.values())
                and f"din {n} în {n} minute" in w.get("lead", ""), repr(w))
 
         # Два нажатия подряд: живёт только последний вход; «Renunță» гасит и его.

@@ -51,7 +51,7 @@ ACCESS_MARGIN = 60                        # access-токен считается
 CALENDARS_MAX = 100
 ACTOR = "sistem"
 PRIVACY = {"href": "https://dentpilot.md/privacy.html#google", "label": "dentpilot.md/privacy.html#google"}
-PLUS = {"href": "/admin/license", "label": "Licența"}
+PLUS = {"href": "/admin/license", "label": "Setări › Licența"}
 
 # Все слова блока связи: экран своих не пишет. Кнопки — те же, что в документах.
 WORDS = {
@@ -69,13 +69,17 @@ WORDS = {
     "disconnect_ask": "Deconectați contul Google? Programul cere Google să retragă accesul și șterge "
                       "legătura de pe acest calculator. Evenimentele aduse rămân în listă.",
     "disconnect_ok": "Deconectează",
+    # путь Basic к Plus: фраза, а ссылкой — только сам путь (`PLUS`)
+    "plus_lead": "O porniți plătind varianta Plus în",
+    # перед ссылкой `PRIVACY`: адрес на экране — ссылка, в тексте `notice` он не повторяется
+    "details": "Detalii:",
 }
 NOTICE = (
     "Programul citește evenimentele unui calendar Google ales de dvs. — de acum până la un an "
     f"înainte, din {POLL_MINUTES} în {POLL_MINUTES} minute — și le arată în această filă. Acces numai "
     "pentru citire: programul nu scrie nimic în Google și nu trimite acolo date ale pacienților. "
     "Evenimentele rămân doar pe calculatorul pe care rulează programul; furnizorul DentPilot nu le "
-    "primește. Contul Google se poate deconecta oricând. Detalii: dentpilot.md/privacy.html#google")
+    "primește. Contul Google se poate deconecta oricând.")
 # Вторая строка состояния (`why.detail`) — что делать; первая — слово словаря (`why.text`).
 DETAIL = {
     "gc_g_plus": "În DentPilot Basic calendarul se încarcă din fișierul exportat din Google.",
