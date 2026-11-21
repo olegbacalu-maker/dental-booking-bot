@@ -5,7 +5,7 @@
 Пересобрать — `python scripts/screen_map.py`.
 
 
-Маршрутов **303** · наборов **95** · мест вызова `res.ok`/`res.check` в исходниках — **7490**.
+Маршрутов **304** · наборов **95** · мест вызова `res.ok`/`res.check` в исходниках — **7505**.
 
 
 ⚠️ Это статические МЕСТА ВЫЗОВА, а живой прогон даёт больше: часть
@@ -219,15 +219,16 @@
 | `GET /admin/week` | HTML | 13 | admin, demo, schedule_api | 580 | schedule_week |
 | `GET /api/chair` | JSON | 36 | admin, chair, doctor_rights, rooms | 614 | — |
 | `GET /api/gcal` | JSON | 6 | gcal, migrate | 382 | — |
-| `POST /api/gcal/clear` | JSON | 5 | gcal, gcal_link | 217 | — |
+| `POST /api/gcal/clear` | JSON | 5 | gcal, gcal_link | 232 | — |
 | `POST /api/gcal/events/{eid}/link` | JSON | 9 | gcal, rooms | 311 | — |
 | `POST /api/gcal/events/{eid}/move` | JSON | 14 | booking, day_actions, day_forms, doctor_rights, doctor_windows, gcal, pimport, rooms, sms | 1038 | — |
 | `POST /api/gcal/events/{eid}/skip` | JSON | 9 | gcal, rooms, stock_tc | 356 | — |
 | `POST /api/gcal/file` | JSON | 20 | gcal | 152 | — |
-| `POST /api/gcal/google/calendar` | JSON | 15 | gcal_link | 65 | — |
-| `POST /api/gcal/google/check` | JSON | 8 | gcal_link | 65 | — |
-| `POST /api/gcal/google/connect` | JSON | 10 | gcal_link | 65 | — |
-| `POST /api/gcal/google/disconnect` | JSON | 10 | gcal_link | 65 | — |
+| `POST /api/gcal/google/calendar` | JSON | 15 | gcal_link | 80 | — |
+| `POST /api/gcal/google/cancel` | JSON | 5 | gcal_link | 80 | — |
+| `POST /api/gcal/google/check` | JSON | 8 | gcal_link | 80 | — |
+| `POST /api/gcal/google/connect` | JSON | 10 | gcal_link | 80 | — |
+| `POST /api/gcal/google/disconnect` | JSON | 10 | gcal_link | 80 | — |
 | `POST /api/gcal/source` | JSON | 11 | gcal | 152 | — |
 | `POST /api/schedule/appointments` | JSON | 42 | activity, admin, admin_canvas, chair, day_actions, day_forms, desk, doctor_windows, doctors, hardening, patient_card, patients_api, plan_acord, privacy, react_default, schedule_api, stats_api, visit, visit_api, visit_tpl | 1714 | — |
 | `POST /api/schedule/appointments/{appt_id}/comment` | JSON | 18 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 2770 | — |
@@ -244,7 +245,7 @@
 | `POST /api/schedule/notes` | JSON | 21 | admin, admin_canvas, booking, chair, day_actions, day_forms, doctor_rights, rooms, schedule_api | 1087 | — |
 | `POST /api/schedule/sms-of` | JSON | 16 | pimport, sms | 437 | — |
 | `GET /api/schedule/week` | JSON | 14 | admin, doctor_rights, schedule_api | 595 | — |
-| `GET /google/back` | HTML | 6 | gapi, gcal_link | 153 | — |
+| `GET /google/back` | HTML | 6 | gapi, gcal_link | 168 | — |
 
 ## Точка входа — не мигрирует
 
@@ -254,8 +255,8 @@
 
 | Маршрут | Тип | стр | Наборы | Проверок | Экран React |
 |---|---|---|---|---|---|
-| `GET /admin/license` | HTML | 9 | cont_link, demo, gcal_link, license_email, license_existing, license_page, license_renew, license_terms, notices, paylink | 533 | — |
-| `POST /admin/license` | 303 | 22 | cont_link, demo, gcal_link, license_email, license_existing, license_page, license_renew, license_terms, notices, paylink | 533 | — |
+| `GET /admin/license` | HTML | 9 | cont_link, demo, gcal_link, license_email, license_existing, license_page, license_renew, license_terms, notices, paylink | 548 | — |
+| `POST /admin/license` | 303 | 22 | cont_link, demo, gcal_link, license_email, license_existing, license_page, license_renew, license_terms, notices, paylink | 548 | — |
 | `POST /admin/license/email/change` | other | 4 | license_email | 39 | — |
 | `POST /admin/license/email/code` | other | 4 | license_email | 39 | — |
 | `POST /admin/license/email/confirm` | other | 3 | license_email | 39 | — |
@@ -316,7 +317,7 @@
 | `POST /api/lab/order` | JSON | 8 | lab | 152 | — |
 | `GET /api/lab/order/{oid}` | other | 4 | lab | 152 | — |
 | `POST /api/lab/order/{oid}` | other | 4 | lab | 152 | — |
-| `POST /api/lab/order/{oid}/cancel` | other | 4 | backup, lab, scan, stock | 426 | — |
+| `POST /api/lab/order/{oid}/cancel` | other | 4 | backup, gcal_link, lab, scan, stock | 506 | — |
 | `POST /api/lab/order/{oid}/etapa` | other | 4 | lab | 152 | — |
 | `POST /api/lab/order/{oid}/refacere` | other | 4 | lab | 152 | — |
 | `POST /api/lab/order/{oid}/step` | other | 4 | lab | 152 | — |
@@ -363,7 +364,7 @@
 | `GET /api/stock/moves` | other | 4 | stock | 122 | — |
 | `POST /api/stock/open` | other | 4 | stock | 122 | — |
 | `POST /api/stock/order` | other | 4 | stock | 122 | — |
-| `POST /api/stock/order/{item_id}/cancel` | other | 4 | backup, lab, scan, stock | 426 | — |
+| `POST /api/stock/order/{item_id}/cancel` | other | 4 | backup, gcal_link, lab, scan, stock | 506 | — |
 | `POST /api/stock/out` | other | 4 | stock, stock_tc | 167 | — |
 | `GET /api/stock/patient/{pid}` | other | 5 | stock | 122 | — |
 | `GET /api/stock/plan-pending` | other | 4 | stock_tc | 45 | — |

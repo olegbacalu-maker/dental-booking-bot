@@ -540,19 +540,13 @@ MSG_BANNER = {
     "gc_bad": ("err", "Date invalide"),
     # Связь вкладки с аккаунтом Google (modules/schedule/gcal_link.py): состояние блока
     "gc_g_plus": ("warn", "Conectarea la contul Google face parte din DentPilot Plus"),
-    "gc_g_plus_off": ("warn", "Legătura cu contul Google este oprită: face parte din DentPilot Plus. "
-                              "Evenimentele aduse rămân în listă; după trecerea la Plus verificarea "
-                              "pornește singură, fără o nouă conectare"),
+    "gc_g_plus_off": ("warn", "Legătura cu contul Google este oprită: face parte din DentPilot Plus"),
     "gc_g_readonly": ("warn", "Legătura cu contul Google este oprită cât programul este în regim de citire"),
-    "gc_g_paused": ("warn", "Verificarea calendarului Google este oprită după „Șterge tot din Google” — "
-                            "apăsați „Verifică acum” ca să o reluați"),
-    "gc_g_dead": ("err", "Google nu mai acceptă conectarea (accesul a fost retras sau a expirat) — "
-                         "conectați din nou contul Google"),
-    "gc_g_elsewhere": ("err", "Conectarea a fost făcută pe alt calculator sau în alt cont Windows — "
-                              "conectați din nou contul Google aici"),
-    "gc_g_no_scope": ("err", "Google nu a dat dreptul de a citi evenimentele — conectați din nou contul "
-                             "și lăsați bifate ambele permisiuni"),
-    "gc_g_not_found": ("err", "Calendarul ales nu mai este în contul Google — alegeți alt calendar"),
+    "gc_g_paused": ("warn", "Verificarea calendarului Google este oprită după „Șterge tot din Google”"),
+    "gc_g_dead": ("err", "Google nu mai acceptă conectarea: accesul a fost retras sau a expirat"),
+    "gc_g_elsewhere": ("err", "Conectarea a fost făcută pe alt calculator sau în alt cont Windows"),
+    "gc_g_no_scope": ("err", "Google nu a dat dreptul de a citi evenimentele"),
+    "gc_g_not_found": ("err", "Calendarul ales nu mai este în contul Google"),
     # исход проверки календаря
     "gc_g_checked": ("ok", "Calendarul Google a fost verificat"),
     "gc_g_offline": ("warn", "Google nu a răspuns — programul încearcă din nou la următoarea verificare"),
@@ -564,6 +558,7 @@ MSG_BANNER = {
     "gc_g_failed": ("err", "Google a refuzat cererea — încercați din nou; dacă se repetă, scrieți-ne"),
     # команды блока
     "gc_g_url": ("ok", "Pagina Google se deschide în browser — după conectare întoarceți-vă aici"),
+    "gc_g_cancel": ("ok", "Conectarea a fost oprită — contul Google nu este conectat"),
     "gc_g_calendar": ("ok", "Calendarul este ales — evenimentele lui sunt în listă"),
     "gc_g_off": ("ok", "Contul Google este deconectat — accesul programului este retras"),
     "gc_g_off_local": ("warn", "Contul Google este deconectat în program; Google nu a confirmat "

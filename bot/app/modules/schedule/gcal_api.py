@@ -153,6 +153,14 @@ async def api_gcal_google_connect(request: Request):
     return await _reply(code, request, url=url)
 
 
+@router.post("/api/gcal/google/cancel")
+async def api_gcal_google_cancel(request: Request):
+    """«Renunță» у ожидания браузера: начатый вход умирает, `waiting` гаснет."""
+    if (deny := api_require(request, PERM_SCHEDULE_ALL)) is not None:
+        return deny
+    return await _reply(gcal_link.cancel(), request)
+
+
 @router.get("/google/back", response_class=HTMLResponse)
 async def google_back(request: Request):
     """Возврат из браузера Windows: вне /admin и /api, куки программы там нет — все проверки

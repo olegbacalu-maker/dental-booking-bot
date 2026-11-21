@@ -230,9 +230,27 @@ def _plus_first(res: Result, g: tg.Google, client: pathlib.Path, d: pathlib.Path
         res.ok(f"уведомление называет опрос «din {n} în {n} minute» и политику",
                f"din {n} în {n} minute" in b.get("notice", "") and n > 0
                and b.get("privacy", {}).get("href", "").endswith("privacy.html#google"), b.get("notice", ""))
-        res.check("слова кнопок — как в документах", b.get("words"),
-                  {"connect": "Conectează contul Google", "disconnect": "Deconectează",
-                   "check": "Verifică acum", "calendar": "Alege calendarul"})
+        w = b.get("words") or {}
+        res.check("слова кнопок — как в документах",
+                  (w.get("connect"), w.get("disconnect"), w.get("check")),
+                  ("Conectează contul Google", "Deconectează", "Verifică acum"))
+        res.ok("слова блока — все от сервера, строка опроса из константы",
+               {"title", "lead", "hint", "connected", "calendar_label", "last_check", "last_ok", "change",
+                "primary", "waiting_title", "waiting_detail", "reopen", "cancel", "calendar",
+                "disconnect_ask", "disconnect_ok"} <= set(w) and all(w.values())
+               and f"din {n} în {n} minute" in w.get("lead", ""), repr(w))
+
+        # Два нажатия подряд: живёт только последний вход; «Renunță» гасит и его.
+        urls = [_j(c.post_json("/api/gcal/google/connect", {}))["data"]["url"] for _ in range(2)]
+        res.check("первый вход после второго нажатия не принимается",
+                  Client(s.url).get("/google/back?" + g.consent(urls[0])).status, 400)
+        res.check("второй вход ждёт браузер", google(c)["waiting"], True)
+        r = c.post_json("/api/gcal/google/cancel", {})
+        res.check("«Renunță» — ожидание снято", (r.status, r.msg, google(c)["waiting"]),
+                  (200, "gc_g_cancel", False))
+        res.check("после «Renunță» вход не завершается и связи нет",
+                  (Client(s.url).get("/google/back?" + g.consent(urls[1])).status, google(c)["connected"]),
+                  (400, False))
 
         # Отказ на экране Google: вход погашен, связи нет.
         r = c.post_json("/api/gcal/google/connect", {})
@@ -303,6 +321,20 @@ def _plus_first(res: Result, g: tg.Google, client: pathlib.Path, d: pathlib.Path
                   (r.msg, load.get("new"), load.get("updated"), load.get("same"), load.get("gone")),
                   ("gc_g_checked", 1, 1, 1, 1))
         res.check("пропавшее ушло из «De mutat»", titles(c), ["Nou Pacient", "Popescu Ion 069123456", "Rusu Ana"])
+        res.check("при живой связи календарь меняется без нового входа", google(c)["can"]["calendar"], True)
+
+        # Google не ответил: связь идёт, строка причины со временем неудачи, штамп удачной — прежний.
+        last = google(c)["last"]
+        g.fail_page = 0
+        r = c.post_json("/api/gcal/google/check", {})
+        b = google(c)
+        why = b["why"] or {}
+        res.ok("Google молчит — «on» с причиной и временем неудачной проверки",
+               r.msg == "gc_g_offline" and b["state"] == "on" and why.get("code") == "gc_g_offline"
+               and why.get("when") and why.get("at") and why.get("detail") == "" and b["last"] == last, repr(b))
+        g.fail_page = None
+        r = c.post_json("/api/gcal/google/check", {})
+        res.check("Google ответил — причина ушла", (r.msg, google(c)["why"]), ("gc_g_checked", None))
 
         # «Șterge tot» при связи: пауза, стирание, проверка снимает паузу.
         r = c.post_json("/api/gcal/clear", {})
@@ -320,6 +352,8 @@ def _plus_first(res: Result, g: tg.Google, client: pathlib.Path, d: pathlib.Path
         res.check("отзыв в Google — «conectați din nou», вход снова предложен",
                   (r.msg, b["state"], (b["why"] or {}).get("code"), b["can"]["connect"], b["connected"]),
                   ("gc_g_dead", "reconnect", "gc_g_dead", True, True))
+        res.ok("у «reconnect» вторая строка — что делать", "Conectați din nou" in (b["why"] or {}).get("detail", ""),
+               repr(b["why"]))
         res.check("при мёртвой связи загрузка файла работает",
                   upload(c, cal([ev("f1", 7, "09:00", 30, "Din Fisier")])).msg, "gc_loaded")
         url, back = login(res, s, c, g, "вход заново")
@@ -355,6 +389,9 @@ def _basic_pause(res: Result, g: tg.Google, client: pathlib.Path, d: pathlib.Pat
                   (b.get("state"), (b.get("why") or {}).get("code"), b.get("connected"), b.get("can")),
                   ("plus", "gc_g_plus_off", True,
                    {"connect": False, "calendar": False, "check": False, "disconnect": True}))
+        res.check("Plus → Basic: вторая строка — связь вернётся после оплаты без входа",
+                  (b.get("why") or {}).get("detail"),
+                  "Contul rămâne conectat — după plata Plus programările vin din nou, fără o nouă conectare")
         before = event_reads(g)
         time.sleep(3.5)
         res.check("Basic: опрос не ходит в Google, хотя тик — секунда", event_reads(g), before)
@@ -362,12 +399,31 @@ def _basic_pause(res: Result, g: tg.Google, client: pathlib.Path, d: pathlib.Pat
         res.ok("Basic: файл связи цел, не мёртв", link.get("token", "").startswith("dpapi:")
                and not link.get("dead"), repr({k: v for k, v in link.items() if k != "token"}))
         res.check("Basic: события остались в списке", len(titles(c)), 4)
+        r = c.post_json("/api/gcal/google/check", {})
+        res.check("Basic: «Verifică acum» паузу гейта не снимает — отказ Plus, в Google не ходит",
+                  (r.status, r.msg, google(c)["state"], event_reads(g)), (409, "gc_g_plus", "plus", before))
+
+        # «Șterge tot» под Basic: своя пауза ложится поверх паузы гейта, «Verifică acum» не снимает ни одну.
+        r = c.post_json("/api/gcal/clear", {})
+        res.check("Basic: «Șterge tot» при связи — стёрто и пауза", (r.msg, titles(c)), ("gc_cleared_paused", []))
+        r = c.post_json("/api/gcal/google/check", {})
+        paused = json.loads((d / "google.json").read_text(encoding="utf-8")).get("paused")
+        res.check("Basic: «Verifică acum» не снимает и паузу «Șterge tot» — гейт спрошен раньше",
+                  (r.msg, paused, event_reads(g)), ("gc_g_plus", True, before))
 
 
 def _plus_again(res: Result, g: tg.Google, client: pathlib.Path, d: pathlib.Path) -> None:
     with Server(dir_=d, env=env(g, client, tick="1")) as s:
         c = Client(s.url).login()
-        res.check("Basic → Plus: связь работает без нового входа", google(c)["state"], "on")
+        res.check("Basic → Plus: пауза «Șterge tot» пережила смену тарифа и перезапуск", google(c)["state"],
+                  "paused")
+        before = event_reads(g)
+        time.sleep(3.5)
+        res.check("Plus на паузе: тик в Google не ходит, стёртое не вернулось", (event_reads(g), titles(c)),
+                  (before, []))
+        r = c.post_json("/api/gcal/google/check", {})
+        res.check("Basic → Plus: «Verifică acum» снимает паузу — связь без нового входа",
+                  (r.msg, google(c)["state"], len(titles(c))), ("gc_g_checked", "on", 3))
         g.events[CAL].append(gev("g5", 8, "13:00", 30, "Adus De Opros"))
         res.ok("опрос сам приносит новое событие", wait_until(lambda: "Adus De Opros" in titles(c)),
                repr(titles(c)))

@@ -53,14 +53,43 @@ ACTOR = "sistem"
 PRIVACY = {"href": "https://dentpilot.md/privacy.html#google", "label": "dentpilot.md/privacy.html#google"}
 PLUS = {"href": "/admin/license", "label": "Licența"}
 
-WORDS = {"connect": "Conectează contul Google", "disconnect": "Deconectează",
-         "check": "Verifică acum", "calendar": "Alege calendarul"}
+# Все слова блока связи: экран своих не пишет. Кнопки — те же, что в документах.
+WORDS = {
+    "connect": "Conectează contul Google", "disconnect": "Deconectează",
+    "check": "Verifică acum", "calendar": "Alege calendarul", "change": "Schimbă",
+    "title": "Contul Google al clinicii",
+    "lead": f"Programările din calendarul Google vin singure, din {POLL_MINUTES} în {POLL_MINUTES} "
+            "minute — fără fișier",
+    "hint": "Se deschide browserul: alegeți contul Google al clinicii și permiteți accesul.",
+    "connected": "Conectat:", "calendar_label": "calendarul", "last_check": "Ultima verificare:",
+    "last_ok": "Ultima reușită:", "primary": "calendarul principal al contului",
+    "waiting_title": "Așteptăm răspunsul Google…",
+    "waiting_detail": "Terminați conectarea în browser. Dacă pagina s-a închis, deschideți-o din nou.",
+    "reopen": "Deschide din nou pagina", "cancel": "Renunță",
+    "disconnect_ask": "Deconectați contul Google? Programul cere Google să retragă accesul și șterge "
+                      "legătura de pe acest calculator. Evenimentele aduse rămân în listă.",
+    "disconnect_ok": "Deconectează",
+}
 NOTICE = (
     "Programul citește evenimentele unui calendar Google ales de dvs. — de acum până la un an "
     f"înainte, din {POLL_MINUTES} în {POLL_MINUTES} minute — și le arată în această filă. Acces numai "
     "pentru citire: programul nu scrie nimic în Google și nu trimite acolo date ale pacienților. "
-    "Evenimentele rămân doar pe acest calculator; furnizorul DentPilot nu le primește. Puteți "
-    "deconecta oricând. Detalii: dentpilot.md/privacy.html#google")
+    "Evenimentele rămân doar pe calculatorul pe care rulează programul; furnizorul DentPilot nu le "
+    "primește. Contul Google se poate deconecta oricând. Detalii: dentpilot.md/privacy.html#google")
+# Вторая строка состояния (`why.detail`) — что делать; первая — слово словаря (`why.text`).
+DETAIL = {
+    "gc_g_plus": "În DentPilot Basic calendarul se încarcă din fișierul exportat din Google.",
+    "gc_g_plus_off": "Contul rămâne conectat — după plata Plus programările vin din nou, fără o nouă "
+                     "conectare",
+    "gc_g_readonly": "Evenimentele aduse rămân în listă; după reînnoirea licenței verificarea pornește "
+                     "singură.",
+    "gc_g_paused": "Evenimentele șterse nu revin; „Verifică acum” reia verificarea.",
+    "gc_g_dead": "Conectați din nou contul Google — calendarul ales rămâne.",
+    "gc_g_elsewhere": "Cheia de acces se citește doar pe calculatorul și în contul Windows unde a fost "
+                      "făcută conectarea. Conectați din nou contul Google aici.",
+    "gc_g_no_scope": "Conectați din nou contul și lăsați bifate ambele permisiuni.",
+    "gc_g_not_found": "Alegeți alt calendar din listă.",
+}
 
 S_OFF, S_CHOOSE, S_ON, S_PAUSED = "off", "choose", "on", "paused"
 S_RECONNECT, S_PLUS, S_READONLY = "reconnect", "plus", "readonly"
@@ -82,7 +111,7 @@ _wake: asyncio.Event | None = None
 _task: asyncio.Task | None = None
 _logins: dict = {}                        # state входа → verifier, адрес возврата, кто начал
 _access: dict = {"token": "", "until": 0.0}
-_last: dict = {"error": "", "quiet_until": 0.0}
+_last: dict = {"error": "", "error_at": "", "quiet_until": 0.0}
 
 
 @dataclass(frozen=True)
@@ -212,6 +241,11 @@ def _waiting() -> bool:
     return any(not e["done"] and now - e["at"] < LOGIN_TTL for e in _logins.values())
 
 
+def _fail(code: str) -> str:
+    _last.update(error=code, error_at=_iso(datetime.now(timezone.utc)))
+    return code
+
+
 def view(request) -> dict | None:
     """Блок связи в модели вкладки (`data.google`); None — блока нет. Экран рисует кнопки по `can`,
     слова — по `why`, `words` и `notice`: своих слов о связи у него нет."""
@@ -241,6 +275,12 @@ def view(request) -> dict | None:
         state, why = S_PAUSED, "gc_g_paused"
     else:
         state, why = S_ON, _last["error"]
+    reason = None
+    if why:
+        reason = {**msg_view(why), "detail": DETAIL.get(why, "")}
+        # неудачная проверка при живой связи: когда — рядом со штампом последней удачной
+        if state == S_ON and (at := _when(_last["error_at"])):
+            reason.update(at)
     here = remote_notice(request)
     local = here is None
     cals = [{"id": c["id"], "name": str(c.get("name") or c["id"]), "primary": c.get("primary") is True}
@@ -251,7 +291,7 @@ def view(request) -> dict | None:
         "calendar": {"id": cal["id"], "name": str(cal.get("name") or cal["id"])} if cal else None,
         "calendars": cals,
         "last": _when(str((link or {}).get("last_ok") or "")),
-        "why": msg_view(why) if why else None,
+        "why": reason,
         "notice": NOTICE, "privacy": dict(PRIVACY),
         "plus": dict(PLUS) if state == S_PLUS else None,
         "waiting": _waiting(), "remote": here, "every_min": POLL_MINUTES,
@@ -285,6 +325,21 @@ def _prune_logins() -> None:
         del _logins[min(_logins, key=lambda k: _logins[k]["at"])]
 
 
+def _drop_pending() -> int:
+    """Незавершённые входы умирают: их state больше не принимается. Завершённые остаются до срока —
+    повтор их адреса отвечает «deja conectat»."""
+    dead = [k for k, e in _logins.items() if not e["done"]]
+    for k in dead:
+        del _logins[k]
+    return len(dead)
+
+
+def cancel() -> str:
+    """«Renunță» у ожидания: начатый вход больше не завершится, даже если браузер вернётся."""
+    _drop_pending()
+    return "gc_g_cancel"
+
+
 async def start(request) -> tuple[str, str]:
     """«Conectează contul Google»: (код, адрес экрана Google). Адрес открывает браузер Windows —
     встроенное окно для входа Google запрещает правилами."""
@@ -298,6 +353,8 @@ async def start(request) -> tuple[str, str]:
     state = gauth.new_state()
     redirect = gauth.loopback(_port(request), BACK_PATH)
     _prune_logins()
+    # «Deschide din nou pagina» — новый вход; живым остаётся только последний state
+    _drop_pending()
     _logins[state] = {"verifier": verifier, "redirect": redirect, "at": time.monotonic(), "done": False,
                       "user": {"id": str(me.get("id") or ""), "role": str(me.get("role") or ""),
                                "name": str(me.get("name") or "")}}
@@ -384,7 +441,7 @@ async def finish(request) -> tuple[str, int]:
         if not _write(link):
             return "gc_g_none", 409
         _access.update(token=grant.access, until=time.monotonic() + grant.expires_in - ACCESS_MARGIN)
-        _last["error"] = ""
+        _last.update(error="", error_at="")
     await db.log_clinic_event("gcal", "Google Calendar: contul Google al clinicii a fost conectat",
                               entry["user"]["name"] or ACTOR)
     wake()
@@ -399,7 +456,8 @@ def back_page(code: str) -> str:
             "sans-serif;max-width:560px;margin:12vh auto;padding:0 16px;"
             "line-height:1.6;color:#162033'>"
             f"<p>{html.escape(msg_text(code) or msg_text('gc_g_back_failed'))}</p>"
-            "</body></html>")
+            + (f"<p>{html.escape(DETAIL[code])}</p>" if code in DETAIL else "")
+            + "</body></html>")
 
 
 def _cal_list(reply: gapi.Reply) -> list:
@@ -430,7 +488,7 @@ async def _access_token(client: gauth.Client, link: dict, refresh_token: str, *,
         if r.code == gauth.INVALID_GRANT:
             link["dead"] = DEAD_GRANT
             _write(link)
-        _last["error"] = _WIRE.get(r.code, "gc_g_failed")
+        _fail(_WIRE.get(r.code, "gc_g_failed"))
         log.warning("gcal: refresh refused: %s %s", r.code, r.reason)
         return ""
     if r.grant.refresh and r.grant.refresh != refresh_token:
@@ -501,7 +559,7 @@ async def _pass(*, manual: bool) -> tuple[str, dict | None]:
                                   actor=ACTOR, ext_id=cal["id"])
         link["last_ok"] = _iso(now)
         _write(link)
-        _last["error"] = ""
+        _last.update(error="", error_at="")
         return "gc_g_checked", {**count, "past": got["past"], "beyond": got["beyond"]}
 
 
@@ -515,7 +573,7 @@ def _refused(link: dict, r: gapi.Reply) -> str:
         _write(link)
     elif r.code == gapi.RATE_LIMITED and r.retry_after:
         _last["quiet_until"] = time.monotonic() + r.retry_after
-    _last["error"] = code
+    _fail(code)
     log.warning("gcal: events refused: %s %s", r.code, r.reason)
     return code
 
@@ -589,7 +647,7 @@ async def choose(cal_id: str) -> tuple[str, dict | None]:
             return "gc_g_bad", None
         link["calendar"] = _cal_ref(cal)
         _write(link)
-        _last["error"] = ""
+        _last.update(error="", error_at="")
     await db.log_clinic_event("gcal", f"Google Calendar: ales calendarul „{cal['name'][:120]}”",
                               _actor())
     code, count = await _pass(manual=True)
@@ -611,7 +669,7 @@ async def disconnect() -> str:
             revoked = r.code in (gauth.OK, gauth.INVALID_GRANT)
         _remove()
         _forget_access()
-        _last.update(error="", quiet_until=0.0)
+        _last.update(error="", error_at="", quiet_until=0.0)
     await db.log_clinic_event("gcal", "Google Calendar: contul Google al clinicii a fost deconectat",
                               _actor())
     return "gc_g_off" if revoked else "gc_g_off_local"
