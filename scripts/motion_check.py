@@ -89,13 +89,15 @@
           импорт идёт до итога со строкой визитов; кадры шагов — в $MC_SHOTS, если он задан;
   tarife  «Servicii și tarife»: переход из меню; в любом виде меню шапка, верх таблицы,
           ширины колонок и место поля поиска одни, пункт меню под курсором; с числом
-          найденного поле не сужается; удалённая строка той же высоты, отмена — на месте
-          корзины и в строке целиком; полоса записи проявляется с первой правкой, а
+          найденного поле не сужается; плитка ↔ правка карандашом («Gata», «Renunță»): строка
+          той же высоты, соседи и колонки на месте, «Gata» на месте карандаша; удалённая
+          строка той же высоты, отмена — на месте корзины и в строке целиком; полоса записи проявляется с первой правкой, а
           запись у прокрученной до низа страницы ничего не сдвигает; окно категории
           одной высоты с отказом и без; окно импорта одно место и высота до файла, со
           сравнением и на каждой вкладке, нажатая вкладка соседей не толкает; оба окна
           гаснут и уходят из дерева (Esc, крестик, после записи); вопрос при уходе с
-          правкой проявляется; без движения полоса и окно встают и уходят сразу.
+          правкой проявляется; без движения полоса и окно встают и уходят сразу; в
+          «Setări › Servicii» плитка ↔ правка карандашом не меняет высоту строки.
   picker  поле поиска услуги (ServicePicker) в форме плана фиши, в «Editează procedura»,
           в «Adaugă în plan · dintele 36» с одонтограммы и в строке шаблона плана:
           щелчок, ↓, набор (список меняет высоту), Esc, набор и Enter — поле и окно не
@@ -1399,17 +1401,53 @@ class Run:
         looks = sorted({tuple(s) for s in seen if s})
         self.ok(len(looks) == 1, f"прайс, поиск: поле, шапка и таблица на месте с числом найденного и без ({looks[:3]})")
 
-        # 3. удаление строки: строка той же высоты, отмена — на месте корзины, ниже ничего не съезжает
-        trash = "document.querySelector('.tf tbody tr[data-row] .rowdel')"
-        row = f"{trash}.closest('tr')"
-        nxt = "document.querySelector('.tf tbody tr.tf-gone, .tf tbody tr[data-row]:has(.rowdel)').nextElementSibling"
-        self.js(f"{row}.scrollIntoView({{block: 'center'}}); 1")
+        # 3. плитка ↔ правка: строка той же высоты, соседи и колонки на месте, «Gata» — на месте карандаша
+        pen = "document.querySelectorAll('.tf tbody tr[data-row]:not(.tf-new) .tf-act .tf-pen')[2]"
+        prow = "document.querySelectorAll('.tf tbody tr[data-row]:not(.tf-new)')[2]"
+        pnext = f"{prow}.nextElementSibling"
+        cols = "Array.from(document.querySelectorAll('.tf .tf-tbl thead th')).map((x) => x.offsetWidth).join(',')"
+        self.js(f"{prow}.scrollIntoView({{block: 'center'}}); 1")
         time.sleep(0.3)
+        p0, q0, c0, b0 = self.at(prow), self.at(pnext), self.js(cols), self.at(pen)
+        d = self.tap(pen, 0.6)
+        g0 = self.at(f"{prow}.querySelector('.tf-act .tf-pen')")
+        opened = self.js(f"{prow}.classList.contains('tf-open') && !!{prow}.querySelector('input')")
+        self.ok(opened and self.at(prow) == p0 and self.at(pnext) == q0 and self.js(cols) == c0 and not d["shifts"],
+                f"прайс, карандаш: строка открыта той же высоты, соседняя и колонки на месте ({p0} → {self.at(prow)},"
+                f" {q0} → {self.at(pnext)}, колонки {c0} → {self.js(cols)}, сдвиги {d['shifts']})")
+        self.ok(g0 == b0, f"прайс, карандаш: «Gata» стоит на месте карандаша ({b0} → {g0})")
+        d = self.tap(f"{prow}.querySelector('.tf-act .tf-pen')", 0.6)
+        closed = self.js(f"!{prow}.classList.contains('tf-open') && !{prow}.querySelector('input')")
+        self.ok(closed and self.at(prow) == p0 and self.at(pnext) == q0 and not d["shifts"],
+                f"прайс, «Gata»: строка снова плитка той же высоты ({self.at(prow)}, сдвиги {d['shifts']})")
+        # «Renunță» стоит в липкой полосе: `tap` прокручивает к ней страницу, поэтому место строк — от верха таблицы
+        rel = ("(() => {{ const t = document.querySelector('.tf .tf-tbl').getBoundingClientRect();"
+               " return [{r}, {n}].map((e) => {{ const b = e.getBoundingClientRect(); return [Math.round(b.top - t.top), Math.round(b.height)]; }}); }})()")
+        self.tap(pen, 0.4)
+        self.type_in(f"{prow}.querySelector('.tf-price')", str(777 + self.round), 0.3)
+        r0 = self.js(rel.format(r=prow, n=pnext))
+        d = self.tap(BY_TEXT.format(sel=".tf .tf-save button", text="Renunță"), 0.6)
+        n_open = self.js("document.querySelectorAll('.tf tbody tr.tf-open').length")
+        r1 = self.js(rel.format(r=prow, n=pnext))
+        self.ok(n_open == 0 and r1 == r0 and not d["shifts"],
+                f"прайс, «Renunță»: строки снова плитки, ничего не съехало (открытых {n_open}, от верха таблицы {r0} → {r1},"
+                f" сдвиги {d['shifts']})")
+
+        # 4. удаление строки: строка той же высоты, отмена — на месте корзины, ниже ничего не съезжает
+        first = "document.querySelector('.tf tbody tr[data-row]:not(.tf-new):has(.tf-pen)')"
+        self.js(f"{first}.scrollIntoView({{block: 'center'}}); 1")
+        time.sleep(0.3)
+        self.js("(() => { const r = Array.from(document.querySelectorAll('.tf tbody tr[data-row]:not(.tf-new)'))"
+                ".find((x) => !x.querySelector('.tf-chip.mute')); r.querySelector('.tf-pen').click(); return 1; })()")
+        time.sleep(0.4)
+        trash = "document.querySelector('.tf tbody tr.tf-open .tf-del')"
+        row = f"{trash}.closest('tr')"
+        nxt = "document.querySelector('.tf tbody tr.tf-gone, .tf tbody tr.tf-open:has(.tf-del)').nextElementSibling"
         r0, n0, t0 = self.at(row), self.at(nxt), self.at(trash)
         self.tap(trash, 0.8)
         d = self.tap("Array.from(document.querySelectorAll('dialog.dp-ask button')).find((b) => b.textContent.includes('Șterge'))", 0.6)
         row = "document.querySelector('.tf tbody tr.tf-gone')"
-        undo = f"{row}.querySelector('.tf-act button')"
+        undo = f"{row}.querySelector('.tf-act .tf-undo')"
         u = self.at(undo)
         near = bool(u) and abs((u[0] + u[2] / 2) - (t0[0] + t0[2] / 2)) <= 2 and abs((u[1] + u[3] / 2) - (t0[1] + t0[3] / 2)) <= 2
         self.ok(self.at(row) == r0 and self.at(nxt) == n0 and not d["shifts"],
@@ -1418,22 +1456,34 @@ class Run:
         self.ok(near and u[0] + u[2] <= self.at(row)[0] + self.at(row)[2],
                 f"прайс, удаление: отмена стоит на месте корзины и в строке целиком (корзина {t0}, отмена {u})")
         self.tap(undo, 0.4)
+        # после отмены правки нет и полоса погашена (`inert`): строку закрывает её «Gata»
+        self.js("document.querySelectorAll('.tf tbody tr.tf-open .tf-pen').forEach((b) => b.click()); 1")
+        time.sleep(0.3)
 
-        # 4. полоса записи: проявляется, у прокрученной до низа страницы запись ничего не сдвигает
+        # 5. полоса записи: проявляется, у прокрученной до низа страницы запись ничего не сдвигает
         bar = "document.querySelector('.tf .tf-save')"
         last = "Array.from(document.querySelectorAll('.tf tbody tr[data-row] .tf-price')).at(-1)"
+        lastpen = "Array.from(document.querySelectorAll('.tf tbody tr[data-row] .tf-pen')).at(-1)"
         look = ("() => { const b = " + bar + "; return b ? [Number(getComputedStyle(b).opacity), getComputedStyle(b).visibility,"
                 " Math.round(b.getBoundingClientRect().top)] : null; }")
         self.js("window.scrollTo(0, document.documentElement.scrollHeight); 1")
         time.sleep(0.3)
+        self.js(f"{lastpen}.click(); 1")
+        time.sleep(0.4)
+        n_open = self.js("document.querySelectorAll('.tf tbody tr.tf-open').length")
         d = self.type_in(last, str(4321 + self.round), 0.5, look)   # своё число у каждого прохода: иначе правки нет
         ops = [s[0] for s in d["samples"] if s and s[1] == "visible"]
         fade = [r for r in d["runs"] if "tf-save" in r["target"] and r["name"] == "opacity"]
         self.ok(bool(ops) and ops[0] < 0.5 and ops[-1] == 1 and bool(fade) and not d["shifts"],
-                f"прайс, полоса записи: проявляется переходом с первой правкой ({ops[:1]} … {ops[-1:]}, переходов {len(fade)})")
+                f"прайс, полоса записи: проявляется переходом с первой правкой ({ops[:1]} … {ops[-1:]}, переходов {len(fade)},"
+                f" открытых строк {n_open})")
         self.js("window.scrollTo(0, document.documentElement.scrollHeight); 1")
         time.sleep(0.3)
-        y0, s0 = self.at(last), self.js("Math.round(scrollY)")
+        # строка, а не поле: после записи строка снова плитка, поля в ней нет — место то же
+        lastrow = f"{last}.closest('tr')"
+        self.js(f"window.__mcRow = {lastrow}; 1")
+        lastrow = "window.__mcRow"
+        y0, s0 = self.at(lastrow), self.js("Math.round(scrollY)")
         x, y = self.page.center(BY_TEXT.format(sel=".tf .tf-save button", text="Salvează"))
         self.js("__mc.sample = null; __mc.reset(); 1")
         for t in ("mousePressed", "mouseReleased"):
@@ -1441,15 +1491,15 @@ class Run:
         self.cdp.drain(1.0)
         d = self.take()
         posts = [r["status"] for r in d["res"] if r["name"].startswith("/api/tarife")]
-        self.ok(posts == [200] and self.at(last) == y0 and self.js("Math.round(scrollY)") == s0 and not d["shifts"],
-                f"прайс, запись внизу страницы: ничего не съехало (поле {y0} → {self.at(last)}, прокрутка {s0} →"
+        self.ok(posts == [200] and self.at(lastrow) == y0 and self.js("Math.round(scrollY)") == s0 and not d["shifts"],
+                f"прайс, запись внизу страницы: ничего не съехало (строка {y0} → {self.at(lastrow)}, прокрутка {s0} →"
                 f" {self.js('Math.round(scrollY)')}, ответ {posts}, сдвиги {d['shifts']})")
         self.ok(self.js(f"(() => {{ const b = {bar}; return !b || getComputedStyle(b).visibility === 'hidden' }})()"),
                 "прайс: после записи полосы не видно")
         self.js("window.scrollTo(0, 0); 1")
         time.sleep(0.3)
 
-        # 5. окно категории: одной высоты с отказом и без; три закрытия гаснут
+        # 6. окно категории: одной высоты с отказом и без; три закрытия гаснут
         cat = "document.querySelector('dialog.tf-dlg:not(.tf-imp)')"
         cbox = BOX.format(dlg=cat)
         ren = BY_TEXT.format(sel=".tf .rg-btn", text="Redenumește")
@@ -1469,7 +1519,7 @@ class Run:
         self.fades("окно категории, после записи", cat,
                    self.tap(BY_TEXT.format(sel="dialog.tf-dlg .rg-dlg-f button", text="Salvează"), 1.2, cbox))
 
-        # 6. окно импорта: место и высота одни до файла, со сравнением и на каждой вкладке; вкладки не толкают соседей
+        # 7. окно импорта: место и высота одни до файла, со сравнением и на каждой вкладке; вкладки не толкают соседей
         imp = "document.querySelector('dialog.tf-imp')"
         ibox = BOX.format(dlg=imp)
         btn = BY_TEXT.format(sel=".tf .rg-btn", text="Importă")
@@ -1499,9 +1549,11 @@ class Run:
         self.ok(runs == [200], f"окно импорта: импорт прошёл ({runs})")
         self.fades("окно импорта, после импорта", imp, d)
 
-        # 7. уход с правкой — вопрос своим окном, проявляется
+        # 8. уход с правкой — вопрос своим окном, проявляется
         ask = ("() => { const d = document.querySelector('dialog.dp-ask'); return d && d.open ? Number(getComputedStyle(d).opacity) : null; }")
-        self.type_in("document.querySelectorAll('.tf tbody tr[data-row] .tf-price')[1]", "1111", 0.3)
+        self.js("document.querySelectorAll('.tf tbody tr[data-row] .tf-pen')[1].click(); 1")
+        time.sleep(0.3)
+        self.type_in("document.querySelectorAll('.tf tbody tr[data-row] .tf-price')[0]", "1111", 0.3)
         d = self.tap(BY_TEXT.format(sel="nav a, .side a", text="Pacienți"), 0.6, ask)
         ops = [s for s in d["samples"] if s is not None]
         self.ok(bool(ops) and ops[0] < 0.5 and ops[-1] == 1 and self.js("location.pathname") == "/admin/tarife",
@@ -1509,11 +1561,13 @@ class Run:
         self.esc()
         time.sleep(0.5)
 
-        # 8. без движения: полоса встаёт и уходит без перехода
+        # 9. без движения: полоса встаёт и уходит без перехода
         m("Emulation.setEmulatedMedia", features=[{"name": "prefers-reduced-motion", "value": "reduce"}])
         try:
             self.tap(BY_TEXT.format(sel=".tf .tf-save button", text="Renunță"), 0.4)
-            d = self.type_in("document.querySelectorAll('.tf tbody tr[data-row] .tf-price')[1]", "2222", 0.4, look)
+            self.js("document.querySelectorAll('.tf tbody tr[data-row] .tf-pen')[1].click(); 1")
+            time.sleep(0.3)
+            d = self.type_in("document.querySelectorAll('.tf tbody tr[data-row] .tf-price')[0]", "2222", 0.4, look)
             first = next((s for s in d["samples"] if s and s[1] == "visible"), None)
             slow = [r for r in d["runs"] if "tf-save" in r["target"] and r["dur"] > 0]
             self.ok(first is not None and first[0] == 1 and not slow,
@@ -1527,6 +1581,24 @@ class Run:
                     "без движения: окно импорта ушло из дерева без перехода")
         finally:
             m("Emulation.setEmulatedMedia", features=[])
+
+        # 10. «Setări › Servicii»: плитка ↔ правка карандашом — строка той же высоты, соседняя на месте, «Gata» там же
+        self.page.go("/admin/settings/services")
+        time.sleep(1.2)
+        srow = "document.querySelectorAll('.dp-react-root table.set tbody tr')[1]"
+        snext = f"{srow}.nextElementSibling"
+        spen = f"{srow}.querySelector('td.sv-act .sv-ib')"
+        self.js(f"{spen}.scrollIntoView({{block: 'center'}}); 1")   # `tap` ставит кнопку в центр сам — до замера
+        time.sleep(0.3)
+        s0, t0, b0 = self.at(srow), self.at(snext), self.at(spen)
+        d = self.tap(spen, 0.6)
+        opened = self.js(f"!!{srow}.querySelector('input[type=text]')")
+        self.ok(opened and self.at(srow) == s0 and self.at(snext) == t0 and self.at(spen) == b0 and not d["shifts"],
+                f"Setări › Servicii, карандаш: строка открыта той же высоты, соседняя и кнопка на месте ({s0} → {self.at(srow)},"
+                f" {t0} → {self.at(snext)}, {b0} → {self.at(spen)}, сдвиги {d['shifts']})")
+        d = self.tap(spen, 0.6)
+        self.ok(self.js(f"!{srow}.querySelector('input[type=text]')") and self.at(srow) == s0 and not d["shifts"],
+                f"Setări › Servicii, «Gata»: строка снова плитка той же высоты ({self.at(srow)}, сдвиги {d['shifts']})")
         self.round += 1
 
     def picker(self) -> None:
@@ -1828,7 +1900,12 @@ PAIRS = [
     ("tarife", "полоса записи без перехода", {"css": ".tf .tf-save{transition:none !important}"}),
     ("tarife", "пометка удаления строкой под именем", {"css": ".tf .tf-tbl tr.tf-gone td:first-child::after"
                                                        "{content:'se șterge la salvare';display:block;font-size:12px}"}),
-    ("tarife", "отмена удаления шире корзины", {"css": ".tf .tf-tbl .rowdel.tf-undo::after{content:' Anulează'}"}),
+    ("tarife", "отмена удаления шире корзины", {"css": ".tf .tf-tbl .rg-ib.tf-undo{width:auto !important}"
+                                                  ".tf .tf-tbl .rg-ib.tf-undo::after{content:' Anulează';font-size:13px}"}),
+    ("tarife", "плитка ниже строки правки", {"css": ".tf .tf-val{height:auto !important;line-height:1.2 !important}"
+                                              ".tf .tf-tbl tr:not(.tf-open) td.tf-act>*{height:22px !important}"}),
+    ("tarife", "в правке у строки одна кнопка вместо двух мест", {"css": ".tf .tf-tbl tr.tf-open td.tf-act>.tf-pen{display:none !important}"}),
+    ("tarife", "плитка Setări без галочек врачей", {"css": "table.set .dp-svc-docs input:disabled{display:none !important}"}),
     ("tarife", "строка отказа окна категории без места", {"css": "dialog.tf-dlg .st-err:empty{display:none !important}"}),
     ("tarife", "полоса записи проявляется и без движения", {"css": ".tf .tf-save{transition:opacity .15s ease !important}"}),
     ("picker", "подсказка прайса в окне с зуба без места", {"css": "dialog.dp-plan-dlg .pd-note{min-height:0 !important}"}),

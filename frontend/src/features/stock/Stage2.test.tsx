@@ -68,7 +68,7 @@ describe('техкарта в «Setări › Servicii»', () => {
   it('склад отказал — экран услуг жив, колонки «Materiale» нет', async () => {
     route({ '/settings/services': SVC })
     openScreen('/admin/settings/services', '/admin/settings/services', <ServicesSettingsScreen />, loadServicesSettings)
-    await screen.findByDisplayValue('Obturație compozit')
+    await screen.findByText('Obturație compozit')
     expect(screen.queryByRole('columnheader', { name: 'Materiale' })).toBeNull()
   })
 })
