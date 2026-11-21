@@ -433,14 +433,14 @@ def start_paid(con: sqlite3.Connection, clinic: sqlite3.Row, tier: str, months: 
     now = datetime.now(timezone.utc).replace(microsecond=0)
     valid = now + timedelta(days=jobs.INVOICE_DAYS)
     try:
+        # вариант — выбранный и едет в саму выдачу: у Basic с первого дня нет ни модуля SMS
+        # (tiers.module_on), ни права gcal в файле
         license.issue(con, clinic, "standard", valid, valid + timedelta(days=license.GRACE_DAYS),
-                      payments.ADVANCE, who)
+                      payments.ADVANCE, who, tier=tier)
     except RuntimeError as e:
         db.audit(con, who, "add_no_key", clinic["id"], str(e)[:200])
         return False
-    # вариант — выбранный: модуль SMS у Basic выключен с первого дня (tiers.module_on)
-    con.execute("UPDATE subscriptions SET tier=?, price=? WHERE clinic_id=?",
-                (tier, tiers.list_price(tier), clinic["id"]))
+    con.execute("UPDATE subscriptions SET price=? WHERE clinic_id=?", (tiers.list_price(tier), clinic["id"]))
     return True
 
 

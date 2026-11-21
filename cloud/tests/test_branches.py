@@ -23,7 +23,7 @@ import re
 import sqlite3
 import sys
 
-from harness import CLOUD, FIX, ROOT, Client, Result, Server, load_by_path
+from harness import CLOUD, FIX, ROOT, Client, Result, Server, load_by_path, unb64u
 
 sys.path.insert(0, str(CLOUD))
 from app import account, db, tiers  # noqa: E402
@@ -619,6 +619,12 @@ def _run_daily(s: Server) -> str:
     return p.stdout + p.stderr
 
 
+def _features(s: Server, cid: str) -> dict:
+    """Права (`features`) последнего выданного файла клиники — как подписаны."""
+    p = _sql(s, "SELECT payload FROM issues WHERE clinic_id=? ORDER BY seq DESC LIMIT 1", cid)[0][0]
+    return json.loads(unb64u(p)).get("features") or {}
+
+
 def suite_paid(res: Result) -> None:
     """Клиника из «Adaugă clinică» — сразу платная и включается сама (Олег 27.10: «оставим бесплатный
     месяц только главной клинике, а добавление я бы сделал сразу платным»; «меня может не быть на
@@ -659,6 +665,8 @@ def suite_paid(res: Result) -> None:
         res.check("подписка: «standard» в выбранном варианте",
                   _sql(s, "SELECT plan, tier, price FROM subscriptions WHERE clinic_id=?", bid),
                   [("standard", "basic", tiers.list_price("basic"))])
+        res.check("Basic с первого дня: в файле на срок оплаты права gcal нет (как и модуля SMS)",
+                  _features(s, bid), {})
         nota = _sql(s, "SELECT id, reference, tier, months, amount, kind FROM payments WHERE clinic_id=? "
                        "AND status='pending'", bid)
         res.ok("нота первого периода: выбранный вариант и срок, сумма по прайсу",
@@ -690,6 +698,7 @@ def suite_paid(res: Result) -> None:
                and got[0][1] != pay.ADVANCE, f"{r.location} {got} от {iss[0][1]}")
         res.check("якорь подписки — число дня заведения",
                   _sql(s, "SELECT anchor_day FROM subscriptions WHERE clinic_id=?", bid), [(start.day,)])
+        res.check("оплачен Basic: в новом файле права gcal нет", _features(s, bid), {})
         home = c.get(f"/cont?c={bid}").body
         res.ok("после оплаты — обычное «valabil până la», зелёная «activă»",
                "Abonamentul DentPilot Basic este valabil până la" in home and "achitați nota de plată până la" not in home,
@@ -697,6 +706,9 @@ def suite_paid(res: Result) -> None:
         # поздняя оплата: срок на оплату прошёл — как любая поздняя, от сегодня
         _add(c, main, name="Zambet Balti", address="str. Independentei 5, Balti", email="balti@zambet.md")
         bal = _sql(s, "SELECT id FROM clinics WHERE name='Zambet Balti'")[0][0]
+        res.check("Plus из «Adaugă clinică»: право gcal до конца льготы файла на срок оплаты",
+                  _features(s, bal),
+                  {"gcal": _sql(s, "SELECT grace_until FROM issues WHERE clinic_id=? ORDER BY seq DESC LIMIT 1", bal)[0][0]})
         # заведена 20 дней назад, срок на оплату кончился 6 дней назад (идёт льгота)
         _sql(s, "UPDATE issues SET issued_at=? WHERE clinic_id=?",
              (datetime.now(timezone.utc) - timedelta(days=20)).strftime(db.TS), bal)
