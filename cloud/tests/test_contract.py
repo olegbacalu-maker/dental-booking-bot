@@ -104,8 +104,8 @@ def suite(res: Result) -> None:
            all(h in contract for h in ("## Суть по пунктам", "## Обещание ↔ программа", "## Вопросы юристу"))
            and "docs/site/termeni.html" in contract)
     heads = re.findall(r"<h2>(\d+)\. ", terms)
-    res.check("16 пунктов по порядку", heads, [str(i) for i in range(1, 17)])
-    res.ok("contract.md описывает каждый пункт", all(f"| {i} |" in contract for i in range(1, 17)))
+    res.check("17 пунктов по порядку", heads, [str(i) for i in range(1, 18)])
+    res.ok("contract.md описывает каждый пункт", all(f"| {i} |" in contract for i in range(1, 18)))
     # Модуль SMS и пакеты SMS — § 16 (16.10, слово Олега «без юриста»; с 23.10 —
     # модуль входит в тариф с SMS, пакеты отдельно). Числа раздела — из
     # config и правила сегментов сервера, не из теста; поменяли константу —
@@ -326,3 +326,36 @@ def suite(res: Result) -> None:
            and "dacă pagina oferă" not in c and "dacă pagina o oferă" not in flows)
     res.ok("Anexa 2: бота Telegram и записи пациентами в программе нет — «oprite» не обещает обратного",
            "nu are bot Telegram" in flows and "sunt oprite" not in flows)
+    # Связь с Google Calendar — только чтение, с ПК клиники прямо в Google: условия § 17, две строки
+    # Anexa 2, договор кл. 5.3 и 5.7, политика § 6 говорят одно и то же. Фраза Anexa 2 «кроме SMS ни один
+    # запрос не несёт данных пациентов» остаётся верной — запрос к Google их не несёт. Интервал опроса —
+    # «din N în N minute», а не «la fiecare N minute»: ту фразу сторож движка ищет у счёта SMS, и вторая
+    # копия спрятала бы уход его строки.
+    s17 = flat_terms.split("<h2>17. ", 1)[1] if "<h2>17. " in flat_terms else ""
+    readonly = "nu scrie, nu modifică și nu șterge nimic"
+    res.ok("§ 17 — Conectarea la Google Calendar: только чтение, мимо сервера, поставщик не уполномоченное лицо",
+           s17.startswith("Conectarea la Google Calendar") and readonly in s17
+           and "fără serverul furnizorului" in s17 and "nu este persoană împuternicită pentru" in s17
+           and "rămâne disponibilă în ambele variante" in s17, s17[:60])
+    res.ok("условия § 4: связь с Google — только в Plus и пробном, переход на Basic — как у модуля SMS",
+           "există numai în DentPilot™ Plus și în perioada de probă" in s4
+           and "modulul SMS și citirea Google Calendar rămân pornite până la sfârșitul perioadei" in s4)
+    res.ok("Anexa 2: две строки канала Google; запрос без данных пациентов и без технической личности",
+           "Google Calendar: conectarea contului Google al clinicii" in flows
+           and "Google Calendar: citirea evenimentelor" in flows
+           and "nicio cerere nu conține date ale pacienților" in flows
+           and "nici identitatea tehnică de la punctul 2" in flows
+           and "într-un singur sens" in flows and readonly in flows)
+    res.ok("договор: Google — в исчерпывающем перечне кл. 5.3 и кл. 5.7 (аккаунт клиники, поставщик не уполномоченное лицо)",
+           "citirea calendarului ei Google (clauza 5.7)" in c and "<b>Google Calendar.</b>" in c
+           and "nu este persoană împuternicită pentru aceste date" in c)
+    limited = ("DentPilot's use of information received from Google APIs will adhere to",
+               "Google API Services User Data Policy</a>, including the Limited Use requirements",
+               "The use of information received from Google Workspace scopes will adhere to the Google User "
+               "Data Policy, including the Limited Use requirements")
+    res.ok("политика § 6: данные Google — права, хранение, отзыв, ИИ, Limited Use дословно",
+           'id="google"' in privacy and "calendar.events.readonly" in flat_privacy and readonly in flat_privacy
+           and "myaccount.google.com/connections" in flat_privacy and "inteligență artificială" in flat_privacy
+           and all(x in flat_privacy for x in limited))
+    res.ok("условия § 17, Anexa 2, политика: опрос Google одной фразой «din N în N minute»",
+           all("din 10 în 10 minute" in t for t in (s17, flows, flat_privacy)))
