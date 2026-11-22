@@ -32,7 +32,7 @@ from ...core import license as lic
 from ...core import license_state as lst
 from ...core.auth import PERM_SCHEDULE_ALL, all_users, can, client_is_local, remote_notice, request_user
 from ...core.layout import msg_text, msg_view
-from . import gcal
+from . import gcal, gcal_auto
 
 log = logging.getLogger("gcal")
 
@@ -300,6 +300,7 @@ def view(request) -> dict | None:
         "notice": NOTICE, "privacy": dict(PRIVACY),
         "plus": dict(PLUS) if state == S_PLUS else None,
         "waiting": _waiting(), "remote": here, "every_min": POLL_MINUTES,
+        "auto": _auto_view(link, state, local),
         "can": {"connect": local and state in (S_OFF, S_RECONNECT),
                 "calendar": local and state in (S_CHOOSE, S_ON, S_PAUSED) and bool(cals),
                 "check": state in (S_CHOOSE, S_ON, S_PAUSED),
@@ -590,7 +591,54 @@ async def tick() -> str:
     if time.monotonic() < _last["quiet_until"]:
         return "gc_g_rate"
     code, _count = await _pass(manual=False)
+    await _automove(code)
     return code
+
+
+def _auto_on(link: dict | None) -> bool:
+    return bool(((link or {}).get("auto") or {}).get("on"))
+
+
+def _auto_view(link: dict | None, state: str, local: bool) -> dict | None:
+    """Галочка «Mută automat»: есть, пока есть связь; включают через предпросмотр пачки и только при
+    работающей проверке, выключить можно всегда, и в режиме чтения тоже."""
+    if link is None:
+        return None
+    on = _auto_on(link)
+    return {"on": on, "can_on": local and state == S_ON, "can_off": local and on,
+            "stopped": state != S_ON}
+
+
+async def _automove(code: str) -> None:
+    """После удачного прохода — автоперенос событий этого календаря, если клиника его включила."""
+    if code != "gc_g_checked":
+        return
+    link = _read()
+    cal = _calendar(link) if link else None
+    if not _auto_on(link) or cal is None:
+        return
+    src = next((s["id"] for s in await db.gcal_sources()
+                if s["kind"] == gcal.KIND_GOOGLE and s["ext_id"] == cal["id"]), None)
+    if src is not None:
+        await gcal_auto.auto_pass(src)
+
+
+async def set_auto(on: bool) -> str:
+    """Включить — после предпросмотра (`gcal_auto.run`), при живой проверке; выключить — всегда."""
+    async with _lockd():
+        link = _read()
+        if link is None:
+            return "gc_g_gone"
+        if on and (_client() is None or not gcal_auto.allowed() or _token(link) is None
+                   or link.get("dead") or _calendar(link) is None or link.get("paused")):
+            return "gc_a_auto_no"
+        if _auto_on(link) == on:
+            return "gc_a_auto_on" if on else "gc_a_auto_off"
+        link["auto"] = {"on": on, "by": _actor(), "at": _iso(datetime.now(timezone.utc))}
+        _write(link)
+    await db.log_clinic_event(
+        "gcal", "Google Calendar: mutarea automată " + ("pornită" if on else "oprită"), _actor())
+    return "gc_a_auto_on" if on else "gc_a_auto_off"
 
 
 def _tick_seconds() -> float:
@@ -634,7 +682,9 @@ def poll_async() -> None:
 async def check() -> tuple[str, dict | None]:
     """«Verifică acum»: снимает паузу, перечитывает список календарей и события."""
     _last["quiet_until"] = 0.0
-    return await _pass(manual=True)
+    code, count = await _pass(manual=True)
+    await _automove(code)
+    return code, count
 
 
 async def choose(cal_id: str) -> tuple[str, dict | None]:
@@ -650,6 +700,9 @@ async def choose(cal_id: str) -> tuple[str, dict | None]:
         cal = next((c for c in _calendars(link) if c["id"] == cal_id), None)
         if cal is None:
             return "gc_g_bad", None
+        # другой календарь — другие события: автоперенос снова только через предпросмотр
+        if (_calendar(link) or {}).get("id") != cal_id and _auto_on(link):
+            link["auto"] = {"on": False, "by": _actor(), "at": _iso(datetime.now(timezone.utc))}
         link["calendar"] = _cal_ref(cal)
         _write(link)
         _last.update(error="", error_at="")

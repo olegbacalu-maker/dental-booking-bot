@@ -570,6 +570,22 @@ MSG_BANNER = {
     "gc_cleared_paused": ("ok", "Evenimentele din Google Calendar au fost șterse din program; verificarea "
                                 "calendarului Google este oprită. „Verifică acum” o reia, iar evenimentele "
                                 "care sunt încă în Google revin în listă"),
+    # перенос в журнал пачкой и автоматом (modules/schedule/gcal_auto.py)
+    "gc_a_moved": ("ok", "Evenimentele au fost mutate în jurnal"),
+    "gc_a_none": ("warn", "Niciun eveniment nu s-a mutat — ora sau fișa nu se mai potrivesc"),
+    "gc_a_stale": ("err", "Lista s-a schimbat între timp — verificați din nou ce se mută"),
+    "gc_a_auto_on": ("ok", "Mutarea automată este pornită — evenimentele noi cu medic ajung singure în jurnal"),
+    "gc_a_auto_off": ("ok", "Mutarea automată este oprită"),
+    "gc_a_auto_no": ("err", "Mutarea automată pornește doar cu contul Google conectat și verificarea în lucru"),
+    "gc_a_undone": ("ok", "Mutarea a fost anulată"),
+    "gc_a_undo_gone": ("err", "Această mutare nu mai poate fi anulată"),
+    "gc_a_sms_on": ("ok", "Programările mutate din Google vor primi SMS de reamintire"),
+    "gc_a_sms_off": ("ok", "Pentru programările mutate din Google nu se trimit SMS"),
+    "gc_a_kept": ("ok", "Programarea rămâne cum este în jurnal"),
+    "gc_a_followed": ("ok", "Programarea a fost mutată ca în Google"),
+    "gc_a_cancelled": ("ok", "Programarea a fost anulată"),
+    "gc_a_touched": ("err", "Programarea a fost schimbată în DentPilot — o puteți doar lăsa cum este"),
+    "gc_a_nochange": ("err", "Evenimentul nu s-a schimbat în Google — reîncărcați pagina"),
     # страница возврата из Google (браузер Windows, не окно программы)
     "gc_g_back_ok": ("ok", "Contul Google este conectat. Întoarceți-vă în fereastra DentPilot."),
     "gc_g_back_again": ("ok", "Contul Google este deja conectat. Puteți închide această pagină."),

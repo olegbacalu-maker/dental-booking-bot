@@ -52,7 +52,56 @@ export interface GcalRow {
     id: number; pid: number; patient: string; doctor: string; when: string
     status: { code: string; text: string }; day_href: string
   } | null
-  can: { move: boolean; link: boolean; skip: boolean; back: boolean }
+  /** Перенос без человека: почему строка «De mutat» сама не переносится; как перенесена; запись меняли в
+      DentPilot (у «schimbat» — только «Lasă cum e»). Нет у старого сервера. */
+  auto?: { why: { code: string; text: string } | null; how: '' | 'batch' | 'auto'; dp: boolean }
+  can: {
+    move: boolean; link: boolean; skip: boolean; back: boolean
+    follow?: boolean; cancel_appt?: boolean; keep?: boolean
+  }
+}
+
+/** Перенос пачкой и автоматом: полоса над «De mutat», галочка SMS, история мутаций
+    (bot/app/modules/schedule/gcal_auto.py › annotate). */
+export interface GcalMove {
+  key: string
+  when: string
+  how: 'batch' | 'auto'
+  by: string
+  n: number
+  fresh: number
+  undone: { when: string; removed: number; kept: number; cards: number } | null
+}
+
+export interface GcalAutomove {
+  batch: { go: number; all: number; can: boolean }
+  sms: { show: boolean; on: boolean }
+  last: { when: string; n: number } | null
+  moves: GcalMove[]
+}
+
+export interface GcalPreviewRow {
+  id: number
+  date: string
+  time: string
+  title: string
+  doctor?: string
+  patient?: string
+  fresh?: boolean
+  phone?: string
+  link?: boolean
+  why?: { code: string; text: string }
+}
+
+/** Предпросмотр пачки и включения автопереноса: что перенесётся и что останется. */
+export interface GcalPreview {
+  go: GcalPreviewRow[]
+  stay: GcalPreviewRow[]
+  counts: { go: number; fresh: number; stay: number; all: number }
+  service: string
+  sms: { show: boolean; on: boolean }
+  auto: boolean
+  token: string
 }
 
 export interface GcalLoad {
@@ -110,6 +159,8 @@ export interface GcalGoogle {
   every_min: number
   can: { connect: boolean; calendar: boolean; check: boolean; disconnect: boolean }
   words: GoogleWords
+  /** Галочка «Mută automat»: живёт в файле связи; null — связи нет. */
+  auto?: { on: boolean; can_on: boolean; can_off: boolean; stopped: boolean } | null
 }
 
 export interface GcalList {
@@ -135,6 +186,11 @@ export interface GcalList {
   google?: GcalGoogle | null
   /** Ответ «Conectează»: адрес страницы Google для браузера Windows. */
   url?: string
+  form?: { services: { key: string; label: string }[] }
+  automove?: GcalAutomove
+  /** Ответ пачки и отмены мутации. */
+  batch?: { key: string; n: number; fresh: number; refused: number }
+  undo?: { removed: number; kept: number; cards: number }
 }
 
 /** В каком отборе стоит экран; это же — параметры его адреса. */
@@ -167,6 +223,19 @@ export const gcalApi = {
   link: (id: number, apptId: number, w: GcalWhere) =>
     api.post<GcalList>(`/gcal/events/${id}/link${queryOf(w)}`, { appt_id: apptId }),
   clear: () => api.post<GcalList>('/gcal/clear', {}),
+  batch: {
+    check: (auto: boolean, w: GcalWhere) =>
+      api.post<{ preview: GcalPreview }>(`/gcal/batch/check${queryOf(w)}`, { auto }),
+    run: (token: string, auto: boolean, w: GcalWhere) =>
+      api.post<GcalList>(`/gcal/batch/run${queryOf(w)}`, { token, auto }),
+  },
+  undo: (key: string, w: GcalWhere) => api.post<GcalList>(`/gcal/moves/undo${queryOf(w)}`, { key }),
+  autoOff: (w: GcalWhere) => api.post<GcalList>(`/gcal/auto${queryOf(w)}`, { on: false }),
+  sms: (on: boolean, w: GcalWhere) => api.post<GcalList>(`/gcal/sms${queryOf(w)}`, { on }),
+  service: (service: string, w: GcalWhere) => api.post<GcalList>(`/gcal/source${queryOf(w)}`, { service }),
+  follow: (id: number, w: GcalWhere) => api.post<GcalList>(`/gcal/events/${id}/follow${queryOf(w)}`, {}),
+  cancelAppt: (id: number, w: GcalWhere) => api.post<GcalList>(`/gcal/events/${id}/cancel-appt${queryOf(w)}`, {}),
+  keep: (id: number, w: GcalWhere) => api.post<GcalList>(`/gcal/events/${id}/keep${queryOf(w)}`, {}),
   google: {
     connect: (w: GcalWhere) => api.post<GcalList>(`/gcal/google/connect${queryOf(w)}`, {}),
     cancel: (w: GcalWhere) => api.post<GcalList>(`/gcal/google/cancel${queryOf(w)}`, {}),

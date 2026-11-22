@@ -725,7 +725,7 @@ async def _set_comment(appt_id: int, comment: str) -> str:
 
 
 async def _move_appt(appt_id: int, mdate: str, mtime: str, mdoctor: str,
-                     mroom: str = "") -> str:
+                     mroom: str = "", keep_sms_skip: bool = False) -> str:
     """Перенос визита перетаскиванием: другой час и/или другой врач.
 
     ⚠️ Проверки те же, что у ручной записи, и по той же причине: перетащить —
@@ -755,7 +755,8 @@ async def _move_appt(appt_id: int, mdate: str, mtime: str, mdoctor: str,
     plan = eng.room_plan(mdoctor)
     code = await db.move_appointment(appt_id, mdoctor, doctor, dt,
                                      when=dt.strftime("%H:%M"),
-                                     rooms=plan, room=mroom or None)
+                                     rooms=plan, room=mroom or None,
+                                     keep_sms_skip=keep_sms_skip)
     if not code and await db.appt_room_busy(appt_id, plan):
         return "room_busy"
     return {"": "ok_move", "gone": "mv_gone",

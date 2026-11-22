@@ -185,9 +185,32 @@ def _core(stamp: str) -> str:
 
 
 def changed(row: dict) -> bool:
+    """Перенесённое событие изменилось в Google. «Lasă cum e» принимает изменение: час — отпечатком
+    переноса, отмену — `ack` (статус отмены опрос приносит каждый раз заново)."""
     return row["state"] == db.GCAL_MOVED and (
-        row["gstatus"] in (G_CANCELLED, G_GONE)
+        (row["gstatus"] in (G_CANCELLED, G_GONE) and row["gstatus"] != row.get("ack", ""))
         or _core(row["stamp"]) != _core(row["stamp_moved"]))
+
+
+def stamp_slot(stamp: str) -> tuple[datetime, int] | None:
+    """Начало (UTC) и длина из отпечатка события — значения Google, не округлённые."""
+    try:
+        head, minutes, _digest = stamp.split("|", 2)
+        return datetime.strptime(head, "%Y%m%dT%H%MZ").replace(tzinfo=timezone.utc), int(minutes)
+    except (ValueError, AttributeError):
+        return None
+
+
+_move: asyncio.Lock | None = None
+
+
+def move_lock() -> asyncio.Lock:
+    """Один замок на перенос по одному, «Leagă», пачку и автоперенос: окно, открытое регистратором, и
+    проход опроса иначе поставили бы одно событие дважды."""
+    global _move
+    if _move is None:
+        _move = asyncio.Lock()
+    return _move
 
 
 async def absorb(kind: str, name: str, items: list, present: set, *,
@@ -408,8 +431,14 @@ def _view(row: dict, people: _People, journal: dict, service: str) -> dict:
            "title": row["title"], "body": row["body"], "series": bool(row["series"]),
            "state": row["state"], "changed": changed(row), "gstatus": row["gstatus"],
            "why": why_view(row["why"]), "round": rounded,
-           "hint": None, "preset": None, "appt": None}
+           "hint": None, "preset": None, "appt": None,
+           "src": row["source_id"], "by_hand": bool(row["by_hand"]), "stamp": row["stamp"],
+           "moved_how": row.get("moved_how") or "", "auto_why": row.get("auto_why") or "",
+           "placed": None}
     if moved:
+        if (slot := stamp_slot(row["stamp_moved"])) is not None:
+            begin, mins = gimport.round_slot(*slot)
+            out["placed"] = {"when": _local(begin).strftime("%Y-%m-%dT%H:%M"), "minutes": mins}
         if row["appt_when"]:
             at = _local(db._parse_dt(row["appt_when"]))
             out["appt"] = {"id": row["appt_id"], "pid": row["appt_pid"],
@@ -615,6 +644,11 @@ def _comment(row: dict) -> str:
 
 async def move(eid: int, body: dict) -> tuple:
     """Событие → запись журнала: (код окна записи, номер записи или None)."""
+    async with move_lock():
+        return await _move_one(eid, body)
+
+
+async def _move_one(eid: int, body: dict) -> tuple:
     row = await db.gcal_event(eid)
     if row is None or row["state"] == db.GCAL_ERASED:
         return "gc_gone", None
@@ -634,6 +668,11 @@ async def move(eid: int, body: dict) -> tuple:
 
 async def link(eid: int, appt_id) -> str:
     """Связать со стоящей записью, второй не создавая; её комментарий не трогается."""
+    async with move_lock():
+        return await _link_one(eid, appt_id)
+
+
+async def _link_one(eid: int, appt_id) -> str:
     row = await db.gcal_event(eid)
     if row is None or row["state"] == db.GCAL_ERASED:
         return "gc_gone"

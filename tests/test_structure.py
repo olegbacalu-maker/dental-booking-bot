@@ -209,6 +209,17 @@ _APPT_WRITERS = {"admin_add", "create_appointment", "_book", "_book_locked", "ad
                  "add_note", "_insert_note", "set_status", "move_appointment", "_add_appt", "_book_appt",
                  "_journal_add", "set_appt_room"}
 
+# Перенос из Google Calendar пачкой и автоматом (`modules/schedule/gcal_auto.py`).
+_GAUTO = "app/modules/schedule/gcal_auto.py"
+_GCAL = "app/modules/schedule/gcal.py"
+_DB_GCAL = "app/db/gcal.py"
+# Что пишет журнал или связь события с записью из вкладки: зовущий обязан быть под замком переноса
+# сам или зваться только из-под него. Окно регистратора и проход опроса иначе поставили бы событие дважды.
+_GCAL_WRITES = {"_journal_add", "gcal_mark_moved", "gcal_unmove", "_move_appt", "_set_status"}
+# Двери, которые берут замок сами (включающий список: пропавшее имя выключило бы правило молча).
+_GCAL_LOCKED = {f"{_GCAL}:move", f"{_GCAL}:link", f"{_GAUTO}:run", f"{_GAUTO}:auto_pass", f"{_GAUTO}:undo",
+                f"{_GAUTO}:keep", f"{_GAUTO}:follow", f"{_GAUTO}:cancel_appt"}
+
 # Оракул ВХОДА В ЖУРНАЛ. Все шестеро привязаны к папке, В КОТОРОЙ ИДЁТ
 # ПРОГРАММА, и все пишут в неё. Против чужого корня (экран раздвоения, P2) они
 # непригодны вовсе — там `verify_source_pin`, читающий по явному пути.
@@ -2931,3 +2942,106 @@ def suite(res: Result) -> None:
     bad += [f"app/core/book.py без {name} — якорь правила пропал" for name in ("book_visit", "probe")
             if name not in defs]
     res.ok("импорт ставит визиты только через book", not bad, "; ".join(bad))
+
+    # ---- перенос из Google Calendar пачкой и автоматом ----
+    gauto, gcal_t, dbg = by_path.get(_GAUTO), by_path.get(_GCAL), by_path.get(_DB_GCAL)
+    funcs = {}
+    for rel, tree in ((_GCAL, gcal_t), (_GAUTO, gauto)):
+        for fn in _walk(tree) if tree is not None else ():
+            if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                funcs[f"{rel}:{fn.name}"] = fn
+
+    def _locks(fn) -> bool:
+        return any(isinstance(n, ast.AsyncWith) and any(
+            isinstance(it.context_expr, ast.Call) and _calls(it.context_expr) == {"move_lock"}
+            for it in n.items) for n in _walk(fn))
+
+    # Фоновый перенос подписан «sistem»: проход ставит подпись до работы и возвращает прежнюю в finally.
+    bad = []
+    if gauto is None:
+        bad.append(f"{_GAUTO} не найден — якорь правила пропал")
+    else:
+        system = [n.value for n in gauto.body if isinstance(n, ast.Assign)
+                  and any(isinstance(t, ast.Name) and t.id == "SYSTEM" for t in n.targets)]
+        name = next((v.value for d in system if isinstance(d, ast.Dict)
+                     for k, v in zip(d.keys, d.values) if isinstance(k, ast.Constant) and k.value == "name"
+                     and isinstance(v, ast.Constant)), None)
+        if name != "sistem":
+            bad.append(f"{_GAUTO}: SYSTEM подписан {name!r}, а не «sistem»")
+        fn = funcs.get(f"{_GAUTO}:auto_pass")
+        if fn is None:
+            bad.append(f"{_GAUTO}: нет auto_pass — якорь правила пропал")
+        else:
+            sets = [n for n in _walk(fn) if isinstance(n, ast.Call) and _calls(n) == {"set_request_user"}]
+            if not any(isinstance(x, ast.Name) and x.id == "SYSTEM" for c in sets for x in c.args):
+                bad.append("auto_pass не ставит подпись SYSTEM")
+            if not any(isinstance(t, ast.Try) and any("set_request_user" in _calls(x) for x in t.finalbody)
+                       for t in _walk(fn)):
+                bad.append("auto_pass не возвращает прежнюю подпись в finally")
+    res.ok("автоперенос подписан «sistem»", not bad, "; ".join(bad))
+
+    # Один замок на перенос по одному, «Leagă», пачку, автоперенос, отмену и кнопки «schimbat».
+    bad = [f"{w} — нет такой функции (переименована?)" for w in sorted(_GCAL_LOCKED - set(funcs))]
+    bad += [f"{w} не берёт move_lock" for w in sorted(_GCAL_LOCKED & set(funcs)) if not _locks(funcs[w])]
+    locked = {k for k, fn in funcs.items() if _locks(fn)}
+    for key, fn in sorted(funcs.items()):
+        if key in locked or not (_calls(fn) & _GCAL_WRITES):
+            continue
+        name = key.rsplit(":", 1)[1]
+        callers = [k for k, f in funcs.items() if k != key and name in _calls(f)]
+        if not callers:
+            bad.append(f"{key} пишет журнал из вкладки без замка переноса")
+        bad += [f"{key} пишет журнал, а зовёт его {c} без замка переноса" for c in callers if c not in locked]
+    if gcal_t is not None and not any(isinstance(n, ast.FunctionDef) and n.name == "move_lock"
+                                      for n in gcal_t.body):
+        bad.append(f"{_GCAL} без move_lock — якорь правила пропал")
+    res.ok("один замок на перенос по одному, «Leagă», пачку и автоперенос", not bad, "; ".join(bad))
+
+    # Автоперенос спрашивает право `gcal` и рабочую лицензию сам: ворота 423 стоят только на запросах.
+    bad = []
+    allowed = funcs.get(f"{_GAUTO}:allowed")
+    if allowed is None:
+        bad.append(f"{_GAUTO}: нет allowed — якорь правила пропал")
+    else:
+        if "feature_until" not in _calls(allowed):
+            bad.append("allowed не спрашивает право gcal (feature_until)")
+        if not {"ACTIVE", "GRACE"} <= {n.attr for n in _walk(allowed) if isinstance(n, ast.Attribute)}:
+            bad.append("allowed не спрашивает режим лицензии (ACTIVE/GRACE)")
+    fn = funcs.get(f"{_GAUTO}:auto_pass")
+    body = (fn.body[1:] if isinstance(fn.body[0], ast.Expr) else fn.body) if fn is not None else []
+    if not body or not (isinstance(body[0], ast.If) and "allowed" in _calls(body[0].test)):
+        bad.append("auto_pass не начинает с allowed()")
+    res.ok("автоперенос спрашивает гейт и режим чтения", not bad, "; ".join(bad))
+
+    # Отмена снимает только нетронутые: отпечаток записи и дети — в одном скрипте с удалением;
+    # пустая новая фиша — только после erasure_kind и import_untouched; другого удаления записи нет.
+    bad = []
+    un = next((n for n in (dbg.body if dbg else [])
+               if isinstance(n, ast.AsyncFunctionDef) and n.name == "gcal_unmove"), None)
+    if un is None:
+        bad.append(f"{_DB_GCAL}: нет gcal_unmove — якорь правила пропал")
+    else:
+        script = [n for n in _walk(un) if isinstance(n, ast.JoinedStr) and any(
+            isinstance(v, ast.Constant) and "DELETE FROM appointments" in str(v.value) for v in n.values)]
+        names = {v.value.id for n in script for v in n.values
+                 if isinstance(v, ast.FormattedValue) and isinstance(v.value, ast.Name)}
+        if not script:
+            bad.append("gcal_unmove не удаляет запись своим скриптом")
+        if "_APPT_SIG" not in names:
+            bad.append("gcal_unmove не сверяет отпечаток записи (_APPT_SIG)")
+        free = [n for n in _walk(un) if isinstance(n, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id in names for t in n.targets)
+                and any(isinstance(x, ast.Name) and x.id == "_APPT_CHILDREN" for x in _walk(n.value))]
+        if not free:
+            bad.append("gcal_unmove не проверяет детей записи (_APPT_CHILDREN)")
+    undo = funcs.get(f"{_GAUTO}:undo")
+    if undo is None:
+        bad.append(f"{_GAUTO}: нет undo — якорь правила пропал")
+    elif "delete_patient_fully" in _calls(undo) and not {"erasure_kind", "import_untouched"} <= _calls(undo):
+        bad.append("undo удаляет фишу, не спросив erasure_kind и import_untouched")
+    for rel, tree in ((_GCAL, gcal_t), (_GAUTO, gauto)):
+        for n in _walk(tree) if tree is not None else ():
+            if (isinstance(n, ast.Constant) and isinstance(n.value, str)
+                    and re.search(r"(?i)\bdelete\s+from\s+appointments\b", n.value)):
+                bad.append(f"{rel}:{n.lineno} удаляет запись своим SQL")
+    res.ok("отмена снимает только нетронутые", not bad, "; ".join(bad))

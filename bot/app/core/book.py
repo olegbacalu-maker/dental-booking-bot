@@ -16,6 +16,7 @@ from datetime import date, datetime, time
 
 from .. import db
 from .. import engine as eng
+from . import gimport
 
 OK_CODES = frozenset({"ok", "ok_past", "ok_past_done", "room_busy"})
 
@@ -28,6 +29,18 @@ class Booked:
     @property
     def ok(self) -> bool:
         return self.appt_id is not None
+
+
+def default_service(sid: str = "") -> str:
+    """Процедура визита без своей: выбор человека, иначе консультация, иначе первая не срочная услуга
+    агенды. Срочная («Durere acută») умолчанием не годится: у клиники она часто первая в списке, а визит
+    из старой программы или из календаря — не острая боль."""
+    if sid and eng.in_agenda(sid):
+        return sid
+    first = [(x, s["ro"]) for x, s in eng.SERVICES.items() if eng.in_agenda(x)]
+    consult = [x for x, name in first if gimport.fold(name).startswith("consult") or x == "consult"]
+    calm = [x for x, _n in first if not eng.SERVICES[x].get("urgent")]
+    return (consult or calm or [x for x, _n in first] or [""])[0]
 
 
 def wall(d: date, t: time) -> datetime:

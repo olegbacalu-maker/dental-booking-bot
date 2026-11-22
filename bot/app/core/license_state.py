@@ -252,6 +252,8 @@ READONLY_ALLOW = (
     "/api/documents/{doc_id}/open",
     # отключить аккаунт Google клиника вправе всегда: это её доступ к её календарю
     "/api/gcal/google/disconnect",
+    # и выключить автоперенос из него (включить маршрут не даёт: только предпросмотром)
+    "/api/gcal/auto",
 )
 GATED_PREFIXES = ("/admin", "/api/")           # где ворота вообще стоят
 READ_METHODS = ("GET", "HEAD", "OPTIONS")

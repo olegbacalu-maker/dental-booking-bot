@@ -288,16 +288,8 @@ def agenda_services() -> list[tuple[str, str]]:
     return [(sid, s["ro"]) for sid, s in eng.SERVICES.items() if eng.in_agenda(sid)]
 
 
-def default_service(sid: str) -> str:
-    """Процедура визита для строк без своей: выбор человека, иначе консультация, иначе первая не
-    срочная услуга агенды. Срочная («Durere acută») умолчанием не годится: у клиники она часто
-    первая в списке, а визит из старой программы — не острая боль."""
-    if sid and eng.in_agenda(sid):
-        return sid
-    first = agenda_services()
-    consult = [x for x, name in first if fold(name).startswith("consult") or x == "consult"]
-    calm = [x for x, _n in first if not eng.SERVICES[x].get("urgent")]
-    return (consult or calm or [x for x, _n in first] or [""])[0]
+# Процедура строки без своей — одно правило с переносом из Google Calendar.
+default_service = book.default_service
 
 
 def has_visits(res: dict) -> bool:

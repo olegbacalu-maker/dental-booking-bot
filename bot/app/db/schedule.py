@@ -461,7 +461,7 @@ async def set_comment(appt_id: int, text: str) -> None:
 async def move_appointment(appt_id: int, doctor_id: str, doctor: str,
                            starts_at: datetime, when: str = "",
                            rooms: dict | None = None,
-                           room: str | None = None) -> str:
+                           room: str | None = None, keep_sms_skip: bool = False) -> str:
     """Перенос визита на другое время и/или к другому врачу (перетаскивание).
 
     Ответ — КОД, а не bool: у переноса четыре разных отказа, и один «False» на
@@ -514,7 +514,8 @@ async def move_appointment(appt_id: int, doctor_id: str, doctor: str,
         rem_lite =", reminded_day = 0, reminded_2h = 0" if moved else ""
         # Визит из файла, импортированный без SMS, регистратура перенесла руками — дальше он
         # обычный: напоминание по общим правилам от нового часа (метка `sms_skip` снимается).
-        if moved or r["doctor_id"] != doctor_id:
+        # `keep_sms_skip` — перенос вслед за Google Calendar: это не решение регистратора о часе.
+        if (moved or r["doctor_id"] != doctor_id) and not keep_sms_skip:
             rem_lite += ", sms_skip = 0"
         room_lite, room_args = "", ()
         if rooms is not None:

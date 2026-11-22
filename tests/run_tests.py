@@ -52,6 +52,7 @@ import test_day_forms  # noqa: E402
 import test_gapi  # noqa: E402
 import test_gcal  # noqa: E402
 import test_gcal_link  # noqa: E402
+import test_gcal_auto  # noqa: E402
 import test_book  # noqa: E402
 import test_gimport_core  # noqa: E402
 import test_guards  # noqa: E402
@@ -213,6 +214,14 @@ SUITES = [
     ("Google Calendar: Basic — строка Plus, загрузка файла живёт", test_gcal_link.suite_basic),
     ("Google Calendar: аккаунт — вход, выбор, опрос, пауза, отзыв, Plus → Basic → Plus, режим чтения",
      test_gcal_link.suite_link),
+    ("Google Calendar: перенос сам — какое событие и почему нет", test_gcal_auto.suite_rule),
+    ("Google Calendar: перенос пачкой — то, что видели, SMS, летопись, история", test_gcal_auto.suite_batch),
+    ("Google Calendar: автоперенос — опрос, «sistem», Basic, режим чтения, смена календаря",
+     test_gcal_auto.suite_auto),
+    ("Google Calendar: отмена мутации — только нетронутое", test_gcal_auto.suite_undo),
+    ("Google Calendar: изменилось в Google — «Mută și programarea», «Anulează», «Lasă cum e»",
+     test_gcal_auto.suite_changed),
+    ("Google Calendar: пачка — демо, Basic с файлом", test_gcal_auto.suite_rights),
     ("Визит фише по номеру: отказы, прошлое, проба, время клиники", test_book.suite),
     ("SMS: тексты, подстановки, окно отправки, настройки", test_sms.suite_plan),
     ("SMS: провод к серверу", test_sms.suite_wire),

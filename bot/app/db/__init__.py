@@ -127,7 +127,7 @@ from .gcal import (
     GCAL_NEW, GCAL_MOVED, GCAL_SKIPPED, GCAL_UNPARSED, GCAL_ERASED, GCAL_STATES, _GCAL_COLS,
     _GCAL_MENU, gcal_menu, gcal_menu_refresh, gcal_sources, gcal_source_put,
     gcal_source_settings, gcal_sources_prune, gcal_source_merge, gcal_events_by_keys, gcal_source_future,
-    gcal_write, gcal_rows, gcal_event, gcal_set_state, gcal_mark_moved, gcal_linked,
+    gcal_write, gcal_rows, gcal_event, gcal_set_state, gcal_mark_moved, gcal_unmove, gcal_linked,
     gcal_expire, gcal_clear, gcal_journal, gcal_patients, gcal_phone_keys,
     _gcal_text_has, gcal_ids_with_phone, _gcal_erase_sql, gcal_erase,
 )
@@ -164,7 +164,7 @@ from .schema import (
     SCHEMA_VERSION, OCLUZIE_DDL, RECALL_DDL, RECALL_IDX_DDL, SAN_DDL, SAN_PEOPLE_DDL, GCAL_DDL, LAB_DDL,
     STOCK_DDL,
     MIGRATIONS, TEETH_HIST_STEP,
-    SQLITE_CARD_SCHEMA, SQLITE_EXTRA_COLS, SQLITE_PATIENT_COLS, SQLITE_SCHEMA,
+    SQLITE_CARD_SCHEMA, SQLITE_EXTRA_COLS, SQLITE_GCAL_COLS, SQLITE_PATIENT_COLS, SQLITE_SCHEMA,
     _schema_version, _set_schema_version, _teeth_hist_base, _migrate, _ADD_COLUMN, _already_added, _sqlite_driver, init,
     close,
 )

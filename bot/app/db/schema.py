@@ -848,6 +848,19 @@ SQLITE_EXTRA_COLS = [
     ("patient_imports", "visits_removed INTEGER NOT NULL DEFAULT 0"),
 ]
 
+# Перенос из Google Calendar пачкой и автоматом: как перенесено, ключ мутации, фиша, заведённая
+# переносом, отпечаток записи (отмена снимает только нетронутую), причина «не перенеслось само» и
+# принятая человеком отмена события в Google. Таблицу создаёт шаг 12, а SQLITE_EXTRA_COLS исполняется
+# до шагов — поэтому отдельно и после `_migrate`: на новой базе ALTER раньше шага не нашёл бы таблицы.
+SQLITE_GCAL_COLS = [
+    "moved_how TEXT NOT NULL DEFAULT ''",
+    "move_key TEXT NOT NULL DEFAULT ''",
+    "move_pid INTEGER",
+    "appt_sig TEXT NOT NULL DEFAULT ''",
+    "auto_why TEXT NOT NULL DEFAULT ''",
+    "ack TEXT NOT NULL DEFAULT ''",
+]
+
 # Этап A1 (v1.5.0): полный профиль пациента. Все поля опциональны — клиника может
 # по-прежнему вести только имя+телефон. SQLite не умеет ADD COLUMN IF NOT EXISTS,
 # поэтому колонки добавляются по одной с игнором «duplicate column».
@@ -1093,6 +1106,13 @@ async def init(seed_rows: list | None = None) -> None:
                 raise
     await db._CONN.commit()
     await _migrate()
+    for coldef in SQLITE_GCAL_COLS:
+        try:
+            await db._CONN.execute(f"ALTER TABLE gcal_events ADD COLUMN {coldef}")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
+    await db._CONN.commit()
     await _slot_guard_startup()
     await _backfill_activity()
     await seed(seed_rows)

@@ -804,6 +804,37 @@ MUTATIONS = [
      ("await book.probe(pid", "await book.refusal(pid")),
     ("импорт ставит визиты только через book", "app/core/book.py",
      ("async def book_visit(", "async def place_visit(")),
+    # Перенос из Google пачкой и автоматом: подпись фонового прохода (не та, другое слово, не
+    # возвращена), замок (снят у двери, обход через внутреннюю функцию, свой писатель связи), право и
+    # режим лицензии, отмена (без отпечатка, без детей, фиша без проверки, своё удаление записи).
+    ("автоперенос подписан «sistem»", "app/modules/schedule/gcal_auto.py",
+     ("    set_request_user(SYSTEM)\n", "    set_request_user(prev)\n")),
+    ("автоперенос подписан «sistem»", "app/modules/schedule/gcal_auto.py",
+     ('"name": "sistem", "doctor_id"', '"name": "recepție", "doctor_id"')),
+    ("автоперенос подписан «sistem»", "app/modules/schedule/gcal_auto.py",
+     ("    finally:\n        set_request_user(prev)\n", "    finally:\n        prev = None\n")),
+    ("один замок на перенос по одному", "app/modules/schedule/gcal.py",
+     ("    async with move_lock():\n        return await _move_one(eid, body)\n",
+      "    return await _move_one(eid, body)\n")),
+    ("один замок на перенос по одному", "app/modules/schedule/gcal_auto.py",
+     "\nasync def _mut(p):\n    return await _apply(p, 'auto', 'consult', False)\n"),
+    ("один замок на перенос по одному", "app/modules/schedule/gcal.py",
+     "\nasync def _mut(eid, aid):\n    await db.gcal_mark_moved(eid, aid, 'x')\n"),
+    ("автоперенос спрашивает гейт и режим чтения", "app/modules/schedule/gcal_auto.py",
+     ('    return lic.feature_until("gcal") is not None and s is not None',
+      "    return s is not None")),
+    ("автоперенос спрашивает гейт и режим чтения", "app/modules/schedule/gcal_auto.py",
+     (" and s is not None and s.state in (lst.ACTIVE, lst.GRACE)", "")),
+    ("автоперенос спрашивает гейт и режим чтения", "app/modules/schedule/gcal_auto.py",
+     ("    if not allowed():\n        return None\n    prev = request_user()", "    prev = request_user()")),
+    ("отмена снимает только нетронутые", "app/db/gcal.py",
+     ("   AND appt_sig = (SELECT {_APPT_SIG} FROM appointments WHERE id = {aid})\n", "")),
+    ("отмена снимает только нетронутые", "app/db/gcal.py",
+     ("   AND {free};", "   ;")),
+    ("отмена снимает только нетронутые", "app/modules/schedule/gcal_auto.py",
+     (" and await db.import_untouched(pid)", "")),
+    ("отмена снимает только нетронутые", "app/modules/schedule/gcal_auto.py",
+     "\nasync def _mut(db, i):\n    await db._execute('DELETE FROM appointments WHERE id = ?', i)\n"),
 ]
 
 # Правки ЗАКОННЫЕ: нарушения в них нет, и правило обязано остаться
@@ -812,6 +843,9 @@ MUTATIONS = [
 # и отключают такое правило целиком, вместе с настоящей проверкой. Формат тот
 # же, что у MUTATIONS, только ожидание обратное.
 LEGAL = [
+    # внутренняя функция, которую зовёт только дверь под замком, — тот же замок
+    ("один замок на перенос по одному", "app/modules/schedule/gcal_auto.py",
+     "\nasync def _mut2(p):\n    async with gcal.move_lock():\n        return await _apply(p, 'batch', 'consult', False)\n"),
     # имя из ics — тот же разрешённый модуль
     ("провод Google знает из проекта только ics", "app/core/gapi.py",
      "\nfrom .ics import Occurrence  # noqa\n"),

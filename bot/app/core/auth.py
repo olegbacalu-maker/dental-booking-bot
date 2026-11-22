@@ -896,6 +896,12 @@ LOCAL_ONLY = frozenset({
     "/api/gcal/google/connect",
     "/api/gcal/google/calendar",
     "/api/gcal/google/disconnect",
+    # перенос из Google в журнал пачкой, его отмена и настройки автопереноса — зеркало импорта Excel
+    "/api/gcal/batch/check",
+    "/api/gcal/batch/run",
+    "/api/gcal/moves/undo",
+    "/api/gcal/auto",
+    "/api/gcal/sms",
 })
 
 

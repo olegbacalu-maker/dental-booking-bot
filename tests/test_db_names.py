@@ -50,7 +50,8 @@ SNAPSHOT = frozenset((
     "GCAL_DDL", "GCAL_NEW", "GCAL_MOVED", "GCAL_SKIPPED", "GCAL_UNPARSED", "GCAL_ERASED",
     "GCAL_STATES", "gcal_menu", "gcal_menu_refresh", "gcal_sources", "gcal_source_put",
     "gcal_source_settings", "gcal_sources_prune", "gcal_events_by_keys", "gcal_source_future",
-    "gcal_write", "gcal_rows", "gcal_event", "gcal_set_state", "gcal_mark_moved", "gcal_linked",
+    "gcal_write", "gcal_rows", "gcal_event", "gcal_set_state", "gcal_mark_moved", "gcal_unmove",
+    "gcal_linked",
     "gcal_expire", "gcal_clear", "gcal_journal", "gcal_patients",
     "gcal_phone_keys", "gcal_ids_with_phone", "gcal_erase", "gcal_source_merge",
     # «Registre» (10.11.2026): санитарные регистры, db/registre.py + SAN_DDL шага 9
@@ -123,7 +124,7 @@ SNAPSHOT = frozenset((
     "sms_overdue", "sms_pending", "sms_queue", "SMS_QUEUED", "_SMS_REMINDED_SQL",
     "sms_rows", "SMS_SENT", "sms_set", "SMS_STATES", "sms_states_by_kind",
     "SMS_UNDELIVERED", "sms_visits_month", "_SQ", "SQLITE_CARD_SCHEMA",
-    "_sqlite_driver", "SQLITE_EXTRA_COLS", "SQLITE_PATIENT_COLS", "SQLITE_SCHEMA",
+    "_sqlite_driver", "SQLITE_EXTRA_COLS", "SQLITE_GCAL_COLS", "SQLITE_PATIENT_COLS", "SQLITE_SCHEMA",
     "_teeth_hist_base", "TEETH_HIST_SINCE", "teeth_hist_since", "TEETH_HIST_STEP",
     "teeth_history_rows", "teeth_map", "teeth_map_at", "tooth_activity", "_tooth_next",
     "tooth_records_since", "update_patient", "_upsert_patient", "_uq_at_least",

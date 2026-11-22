@@ -7,6 +7,7 @@ import re
 
 from .. import db
 from .conn import _execute, _fetch, _fetchval, _utcnow_iso
+from .pimport import _APPT_CHILDREN, _APPT_SIG
 from .slots import _ACT_SQL
 
 GCAL_NEW, GCAL_MOVED, GCAL_SKIPPED, GCAL_UNPARSED = "nou", "mutat", "omis", "nerecunoscut"
@@ -16,7 +17,7 @@ GCAL_STATES = (GCAL_NEW, GCAL_MOVED, GCAL_SKIPPED, GCAL_UNPARSED, GCAL_ERASED)
 
 _GCAL_COLS = ("source_id", "ext_key", "starts_at", "minutes", "title", "body", "series",
               "gstatus", "state", "why", "by_hand", "stamp", "stamp_moved", "seen_at",
-              "created_at")
+              "created_at", "auto_why", "ack")
 
 # `shell_model` не корутина: ответ для меню лежит здесь, обновляет его каждая запись модуля.
 _GCAL_MENU = {"on": False, "todo": 0}
@@ -154,15 +155,50 @@ async def gcal_set_state(eid: int, state: str, was: tuple) -> bool:
     return n > 0
 
 
-async def gcal_mark_moved(eid: int, appt_id: int, actor: str) -> bool:
-    """Событие связано с записью, его текст стёрт; уже перенесённое не перевязывается."""
+async def gcal_mark_moved(eid: int, appt_id: int, actor: str, *, how: str = "", key: str = "",
+                          new_pid: int | None = None, sms_skip: bool | None = None) -> bool:
+    """Событие связано с записью, его текст стёрт; уже перенесённое не перевязывается.
+    `sms_skip` — метка «без SMS» у записи пачки и автопереноса; отпечаток записи для отмены
+    снимается здесь же, после комментария, который ей поставил перенос."""
+    if sms_skip is not None:
+        await _execute("UPDATE appointments SET sms_skip = ? WHERE id = ?", int(sms_skip), appt_id)
     n = await _execute(
-        """UPDATE gcal_events SET state = ?, appt_id = ?, title = '', body = '',
-                  stamp_moved = stamp, gstatus = '', moved_at = ?, moved_by = ?
+        f"""UPDATE gcal_events SET state = ?, appt_id = ?, title = '', body = '',
+                  stamp_moved = stamp, gstatus = '', ack = '', auto_why = '', moved_at = ?,
+                  moved_by = ?, moved_how = ?, move_key = ?, move_pid = ?,
+                  appt_sig = COALESCE((SELECT {_APPT_SIG} FROM appointments WHERE id = ?), '')
            WHERE id = ? AND state NOT IN (?, ?)""",
-        GCAL_MOVED, appt_id, _utcnow_iso(), actor, eid, GCAL_MOVED, GCAL_ERASED)
+        GCAL_MOVED, appt_id, _utcnow_iso(), actor, how, key, new_pid, appt_id, eid,
+        GCAL_MOVED, GCAL_ERASED)
     await gcal_menu_refresh()
     return n > 0
+
+
+async def gcal_unmove(eid: int, appt_id: int) -> bool:
+    """Отмена переноса пачкой или автоматом: запись снимается, только если её никто не трогал
+    (отпечаток тот же) и на ней ничего не висит, — тогда событие возвращается в «De mutat» решением
+    человека, и автоперенос его больше не берёт. Своё событие ребёнком записи не считается.
+    Одним скриптом: общее соединение не даст чужому запросу вклиниться между сверкой и удалением.
+    Ответ — снята ли запись."""
+    eid, aid = int(eid), int(appt_id)
+    free = " AND ".join(f"NOT EXISTS (SELECT 1 FROM {t} WHERE {c} = {aid})"
+                        for t, c in _APPT_CHILDREN if t != "gcal_events")
+    script = f"""BEGIN IMMEDIATE;
+UPDATE gcal_events SET state = '{GCAL_NEW}', by_hand = 1, appt_id = NULL, stamp_moved = '', moved_at = NULL,
+       moved_by = '', moved_how = '', move_key = '', move_pid = NULL, appt_sig = '', ack = '', auto_why = ''
+ WHERE id = {eid} AND appt_id = {aid} AND state = '{GCAL_MOVED}' AND move_key != ''
+   AND appt_sig = (SELECT {_APPT_SIG} FROM appointments WHERE id = {aid})
+   AND NOT EXISTS (SELECT 1 FROM gcal_events WHERE appt_id = {aid} AND id != {eid})
+   AND {free};
+DELETE FROM appointments WHERE id = {aid} AND NOT EXISTS (SELECT 1 FROM gcal_events WHERE appt_id = {aid});
+COMMIT;"""
+    try:
+        await db._CONN.executescript(script)
+    except Exception:
+        await db._CONN.rollback()
+        raise
+    await gcal_menu_refresh()
+    return not await _fetchval("SELECT COUNT(*) FROM appointments WHERE id = ?", aid)
 
 
 async def gcal_linked(appt_id: int) -> bool:
@@ -173,8 +209,8 @@ async def gcal_linked(appt_id: int) -> bool:
 async def gcal_expire(before: str) -> int:
     """Стирает текст событий раньше `before`; у события без даты счёт — от последней загрузки."""
     n = await _execute(
-        """UPDATE gcal_events SET title = '', body = ''
-           WHERE (title != '' OR body != '')
+        """UPDATE gcal_events SET title = '', body = '', appt_sig = ''
+           WHERE (title != '' OR body != '' OR appt_sig != '')
              AND ((starts_at IS NOT NULL AND starts_at < ?)
                   OR (starts_at IS NULL AND seen_at < ?))""", before, before)
     await gcal_menu_refresh()
@@ -188,7 +224,7 @@ async def gcal_clear() -> int:
         GCAL_MOVED, GCAL_ERASED) or 0)
     script = f"""BEGIN IMMEDIATE;
 DELETE FROM gcal_events WHERE state NOT IN ('{GCAL_MOVED}', '{GCAL_ERASED}');
-UPDATE gcal_events SET title = '', body = '';
+UPDATE gcal_events SET title = '', body = '', appt_sig = '';
 UPDATE gcal_sources SET loaded_at = NULL, loaded_by = '', name = '', settings = '';
 DELETE FROM gcal_sources WHERE id NOT IN (SELECT DISTINCT source_id FROM gcal_events);
 COMMIT;"""
@@ -249,7 +285,7 @@ def _gcal_erase_sql(where: str) -> str:
     стирания, которому параметры недоступны; `where` — только из чисел."""
     return (f"UPDATE gcal_events SET state = '{GCAL_ERASED}', title = '', body = '', "
             f"stamp = '', stamp_moved = '', gstatus = '', why = '', appt_id = NULL, "
-            f"moved_by = '' WHERE {where}")
+            f"moved_by = '', move_pid = NULL, appt_sig = '' WHERE {where}")
 
 
 async def gcal_erase(ids: list) -> None:

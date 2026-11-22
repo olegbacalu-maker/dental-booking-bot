@@ -84,6 +84,8 @@ LOCAL_WORDS = (
     (("/api/stock/import/", "/admin/stoc/miscari.xlsx"), "importul stocului și mișcările stocului în Excel"),
     (("/api/tarife/import/",), "importul listei de prețuri din fișier"),
     (("/api/gcal/google/",), "conectarea contului Google"),
+    (("/api/gcal/batch/", "/api/gcal/moves/", "/api/gcal/auto", "/api/gcal/sms"),
+     "mutarea evenimentelor din Google în jurnal deodată și automat"),
 )
 
 
