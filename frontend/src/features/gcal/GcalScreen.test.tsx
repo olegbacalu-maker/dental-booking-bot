@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import { ApiError } from '../../types/api'
@@ -6,7 +6,9 @@ import { openScreen } from '../../test/openScreen'
 import type { DashMiniCal } from '../schedule/dash'
 import type { DayForm } from '../schedule/day'
 import { GcalScreen, loadGcal } from './GcalScreen'
-import { firstLine, presetOf, queryOf, spanOf, whereOf, type GcalList, type GcalRow } from './gcal'
+import {
+  fileSource, firstLine, presetOf, queryOf, spanOf, whereOf, type GcalGoogle, type GcalList, type GcalRow,
+} from './gcal'
 
 const { get, post, postForm } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), postForm: vi.fn() }))
 vi.mock('../../services/api', async (importOriginal) => {
@@ -432,5 +434,289 @@ describe('gcal: заполнение окна и часы строки', () => {
   it('часы без округления считаются из начала и длины', () => {
     expect(spanOf(row({ round: null, time: '09:10', minutes: 20 }))).toBe('09:10–09:30')
     expect(spanOf(row({ round: null, time: '', minutes: 0 }))).toBe('')
+  })
+})
+
+/* Блок связи с аккаунтом Google: состояние, кнопки и слова — сервера (gcal_link.view). */
+const WORDS: GcalGoogle['words'] = {
+  connect: 'Conectează contul Google', disconnect: 'Deconectează', check: 'Verifică acum',
+  calendar: 'Alege calendarul', change: 'Schimbă', title: 'Contul Google al clinicii',
+  lead: 'Programările vin singure', hint: 'Se deschide browserul.',
+  connected: 'Conectat:', calendar_label: 'calendarul', last_check: 'Ultima verificare:',
+  last_ok: 'Ultima reușită:', primary: 'calendarul principal al contului',
+  waiting_title: 'Așteptăm răspunsul Google…', waiting_detail: 'Terminați conectarea în browser.',
+  reopen: 'Deschide din nou pagina', cancel: 'Renunță',
+  disconnect_ask: 'Deconectați contul Google?', disconnect_ok: 'Deconectează',
+  plus_lead: 'O porniți plătind varianta Plus în', details: 'Detalii:',
+}
+
+function google(over: Partial<GcalGoogle> = {}): GcalGoogle {
+  return {
+    state: 'off', connected: false, account: '', calendar: null, calendars: [], last: null, why: null,
+    notice: 'Programul citește evenimentele unui calendar Google ales de dvs.',
+    privacy: { href: 'https://dentpilot.md/privacy.html#google', label: 'dentpilot.md/privacy.html#google' },
+    plus: null, waiting: false, remote: null, every_min: 10,
+    can: { connect: true, calendar: false, check: false, disconnect: false }, words: WORDS,
+    ...over,
+  }
+}
+
+const CALS = [{ id: 'main', name: 'Clinica', primary: true }, { id: 'prog', name: 'Programări', primary: false }]
+const ON = google({
+  state: 'on', connected: true, account: 'clinica@gmail.com', calendar: { id: 'prog', name: 'Programări' },
+  calendars: CALS, last: { at: '2026-11-22T12:20:00Z', when: '22.11.2026 14:20' },
+  can: { connect: false, calendar: true, check: true, disconnect: true },
+})
+const OFFLINE: GcalGoogle = { ...ON, why: { code: 'gc_g_offline', tone: 'warn', text: 'Google nu a răspuns', detail: '',
+  at: '2026-11-22T12:30:00Z', when: '22.11.2026 14:30' } }
+const PLUS = google({
+  state: 'plus', plus: { href: '/admin/license', label: 'Setări › Licența' },
+  why: { code: 'gc_g_plus', tone: 'warn', text: 'Conectarea la contul Google face parte din DentPilot Plus',
+    detail: 'În DentPilot Basic calendarul se încarcă din fișierul exportat din Google.' },
+  can: { connect: false, calendar: false, check: false, disconnect: false },
+})
+const NO_CAN = { connect: false, calendar: false, check: false, disconnect: false }
+
+const strip = () => document.querySelector('.gl-strip') as HTMLElement | null
+const gl = () => strip()?.querySelector('.gl') as HTMLElement
+const inStrip = (name: string | RegExp) => within(strip() as HTMLElement).getByRole('button', { name })
+const stripButtons = () => within(strip() as HTMLElement).queryAllByRole('button').map((x) => x.textContent?.trim())
+const lines = () => Array.from(gl().querySelectorAll('.gl-line > .gl-h, .gl-line > .gl-d')).map((x) => x.textContent)
+
+describe('GcalScreen: связь с аккаунтом Google', () => {
+  it('блока нет, когда сервер его не даёт (демо, сервер, сборка без клиента): полоса файла как была', async () => {
+    await open(list({ google: null }))
+    expect(strip()).toBeNull()
+    expect(screen.getByRole('button', { name: /Încarcă din nou/ })).toBeTruthy()
+  })
+
+  it('Basic: строка Plus и путь на «Setări › Licența», кнопок нет; загрузка файла на месте', async () => {
+    await open(list({ google: PLUS }))
+    expect(gl().dataset.gl).toBe('plus')
+    expect(lines()).toEqual([
+      'Conectarea la contul Google face parte din DentPilot Plus. O porniți plătind varianta Plus în Setări › Licența ›',
+      'În DentPilot Basic calendarul se încarcă din fișierul exportat din Google.',
+    ])
+    expect(within(strip() as HTMLElement).getByRole('link', { name: /Setări › Licența/ }).getAttribute('href'))
+      .toBe('/admin/license')
+    expect(stripButtons()).toEqual([])
+    expect(screen.getByRole('button', { name: /Încarcă din nou/ })).toBeTruthy()
+  })
+
+  it('пустая вкладка: блок над карточкой файла, выбор файла остаётся', async () => {
+    await open({ ...EMPTY, google: PLUS })
+    const blocks = Array.from(document.querySelectorAll('.gc > .fcard'))
+    expect(blocks.map((x) => x.className)).toEqual(['fcard gl-strip', 'fcard gc-empty'])
+    expect(screen.getByRole('button', { name: /Alege fișierul/ })).toBeTruthy()
+  })
+
+  it('не подключено: уведомление, ссылка на политику новым окном, «Conectează» открывает Google в браузере', async () => {
+    await open(list({ google: google() }))
+    expect(gl().querySelector('.gl-notice')?.textContent)
+      .toBe('Programul citește evenimentele unui calendar Google ales de dvs. Detalii: dentpilot.md/privacy.html#google')
+    const privacy = within(strip() as HTMLElement).getByRole('link', { name: 'dentpilot.md/privacy.html#google' })
+    expect(privacy.getAttribute('href')).toBe('https://dentpilot.md/privacy.html#google')
+    expect(privacy.getAttribute('target')).toBe('_blank')
+    const opened = vi.spyOn(window, 'open').mockReturnValue(null)
+    post.mockResolvedValue(ok({ ...list({ google: google({ waiting: true }) }), url: 'https://accounts.example/o' },
+      'gc_g_url', 'Pagina Google se deschide în browser'))
+    fireEvent.click(inStrip(/Conectează contul Google/))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/gcal/google/connect', {}))
+    await waitFor(() => expect(opened).toHaveBeenCalledWith('https://accounts.example/o', '_blank', 'noopener'))
+    await waitFor(() => expect(gl().dataset.gl).toBe('waiting'))
+    expect(lines()).toEqual(['Așteptăm răspunsul Google…', 'Terminați conectarea în browser.'])
+  })
+
+  it('со второго ПК: «Conectează» видна выключенной, рядом слово сервера', async () => {
+    await open(list({ google: google({
+      remote: { code: 'only_local', tone: 'warn', text: 'Doar de pe calculatorul programului' }, can: NO_CAN,
+    }) }))
+    expect((inStrip(/Conectează contul Google/) as HTMLButtonElement).disabled).toBe(true)
+    expect(strip()?.textContent).toContain('Doar de pe calculatorul programului')
+  })
+
+  it('ждём браузер: опрос раз в 3 с тем же отбором, при возврате в окно — сразу; «Renunță» снимает ожидание', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    serve(list({ f: 'omis', google: google({ waiting: true }) }))
+    openScreen('/admin/google', '/admin/google?f=omis', <GcalScreen />, loadGcal)
+    await waitFor(() => expect(gl()?.dataset.gl).toBe('waiting'))
+    get.mockClear()
+    await act(async () => { await vi.advanceTimersByTimeAsync(3010) })
+    expect(get).toHaveBeenCalledWith('/gcal?f=omis', {})
+    get.mockClear()
+    act(() => { window.dispatchEvent(new Event('focus')) })
+    await waitFor(() => expect(get).toHaveBeenCalledWith('/gcal?f=omis', {}))
+    post.mockResolvedValue(ok(list({ f: 'omis', google: google() }), 'gc_g_cancel', 'Conectarea a fost oprită'))
+    fireEvent.click(inStrip('Renunță'))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/gcal/google/cancel?f=omis', {}))
+    await waitFor(() => expect(gl().dataset.gl).toBe('off'))
+    get.mockClear()
+    await act(async () => { await vi.advanceTimersByTimeAsync(6100) })
+    expect(get).not.toHaveBeenCalled()
+  })
+
+  it('ждём браузер: вход закончился — опрос приносит выбор календаря и останавливается', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    await open(list({ google: google({ waiting: true }) }))
+    serve(list({ google: { ...ON, state: 'choose', calendar: null, last: null } }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(3010) })
+    await waitFor(() => expect(gl().dataset.gl).toBe('choose'))
+    get.mockClear()
+    await act(async () => { await vi.advanceTimersByTimeAsync(6100) })
+    expect(get).not.toHaveBeenCalled()
+  })
+
+  it('ответ опроса другого отбора отбрасывается: вкладку сменили, пока он шёл', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    await open(list({ google: google({ waiting: true }) }))
+    let late: (v: ApiResult<GcalList>) => void = () => {}
+    get.mockImplementation((path: string) => (path === '/gcal'
+      ? new Promise((res) => { late = res })
+      : Promise.resolve(ok(list({ f: 'mutat', days: [{ date: '2026-11-16', rows: [MOVED] }], total: 1,
+        google: google({ waiting: true }) })))))
+    await act(async () => { await vi.advanceTimersByTimeAsync(3010) })
+    fireEvent.click(screen.getByRole('tab', { name: /Mutate/ }))
+    await waitFor(() => expect(rowEl(8)).not.toBeNull())
+    await act(async () => { late(ok(list({ google: google({ waiting: true }) }))) })
+    expect(rowEl(8)).not.toBeNull()
+    expect(rowEl(5)).toBeNull()
+  })
+
+  it('ответ опроса, обогнанный командой, отбрасывается: список после команды не откатывается', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    await open(list({ google: google({ waiting: true }) }))
+    let late: (v: ApiResult<GcalList>) => void = () => {}
+    get.mockImplementation(() => new Promise((res) => { late = res }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(3010) })
+    post.mockResolvedValue(ok(list({ days: [{ date: '2026-11-17', rows: [EVIL] }], total: 1, google: google() }),
+      'gc_g_cancel', 'Conectarea a fost oprită'))
+    fireEvent.click(inStrip('Renunță'))
+    await waitFor(() => expect(gl().dataset.gl).toBe('off'))
+    await act(async () => { late(ok(list({ google: google({ waiting: true }) }))) })
+    expect(gl().dataset.gl).toBe('off')
+    expect(rowEl(5)).toBeNull()
+  })
+
+  it('выбор календаря: основной подписан, выбранный уходит id, ответ — подключено', async () => {
+    await open(list({ google: { ...ON, state: 'choose', calendar: null, last: null } }))
+    const radios = Array.from(gl().querySelectorAll('input[type="radio"]')) as HTMLInputElement[]
+    expect(radios.map((x) => [x.value, x.checked])).toEqual([['main', true], ['prog', false]])
+    expect(gl().querySelector('.gl-cal small')?.textContent).toBe('calendarul principal al contului')
+    fireEvent.click(radios[1] as HTMLInputElement)
+    post.mockResolvedValue(ok(list({ google: ON }), 'gc_g_calendar', 'Calendarul este ales'))
+    fireEvent.click(inStrip(/Alege calendarul/))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/gcal/google/calendar', { id: 'prog' }))
+    await waitFor(() => expect(gl().dataset.gl).toBe('on'))
+  })
+
+  it('выбранного календаря больше нет: причина и что делать — словами сервера над списком', async () => {
+    await open(list({ google: { ...ON, state: 'choose', calendar: null,
+      why: { code: 'gc_g_not_found', tone: 'err', text: 'Calendarul ales nu mai este', detail: 'Alegeți alt calendar.' } } }))
+    expect(gl().querySelector('.gl-who')?.textContent).toContain('Calendarul ales nu mai este Alegeți alt calendar.')
+    expect(gl().querySelector('.gl-mark')?.className).toBe('gl-mark err')
+  })
+
+  it('подключено: две строки — кто и когда; «Verifică acum» в отборе адреса, значок вращается, подпись та же', async () => {
+    serve(list({ f: 'mutat', google: ON }))
+    openScreen('/admin/google', '/admin/google?f=mutat', <GcalScreen />, loadGcal)
+    await waitFor(() => expect(gl()?.dataset.gl).toBe('on'))
+    expect(lines()).toEqual(['Conectat: clinica@gmail.com · calendarul „Programări” Schimbă',
+      'Ultima verificare: 22.11.2026 14:20'])
+    let done: (v: ApiResult<GcalList>) => void = () => {}
+    post.mockReturnValue(new Promise((res) => { done = res }))
+    fireEvent.click(inStrip(/Verifică acum/))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/gcal/google/check?f=mutat', {}))
+    expect(gl().querySelector('.gl-ico')?.className).toBe('gl-ico spin')
+    expect(inStrip(/Verifică acum/).textContent).toBe(' Verifică acum')
+    await act(async () => { done(ok(list({ f: 'mutat', google: ON }), 'gc_g_checked', 'Calendarul Google a fost verificat')) })
+    expect(gl().querySelector('.gl-ico')?.className).toBe('gl-ico')
+    expect(document.querySelector('.toastbox')?.textContent).toContain('Calendarul Google a fost verificat')
+  })
+
+  it('неудачная проверка: те же две строки — причина с часом и последняя удачная; кнопки на месте', async () => {
+    await open(list({ google: OFFLINE }))
+    expect(gl().dataset.gl).toBe('on')
+    expect(lines()).toEqual(['Google nu a răspuns (22.11.2026 14:30)', 'Ultima reușită: 22.11.2026 14:20'])
+    expect(gl().querySelector('.gl-mark')?.className).toBe('gl-mark warn')
+    expect(stripButtons()).toEqual(['Verifică acum', 'Deconectează'])
+  })
+
+  it('«Schimbă» раскрывает выбор на месте с нынешним календарём; «Renunță» закрывает без команды', async () => {
+    await open(list({ google: ON }))
+    fireEvent.click(inStrip('Schimbă'))
+    const checked = gl().querySelector('input[type="radio"]:checked') as HTMLInputElement
+    expect(checked.value).toBe('prog')
+    expect(within(strip() as HTMLElement).queryByRole('button', { name: /Verifică acum/ })).toBeNull()
+    fireEvent.click(inStrip('Renunță'))
+    expect(gl().dataset.gl).toBe('on')
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('пауза после «Șterge tot»: причина, что делать, «Verifică acum» и «Deconectează»', async () => {
+    await open(list({ google: { ...ON, state: 'paused', why: { code: 'gc_g_paused', tone: 'warn',
+      text: 'Verificarea este oprită', detail: '„Verifică acum” reia verificarea.' } } }))
+    expect(lines()).toEqual(['Verificarea este oprită', '„Verifică acum” reia verificarea.'])
+    expect(stripButtons()).toEqual(['Verifică acum', 'Deconectează'])
+  })
+
+  it('переподключить: причина, вход заново и «Deconectează»', async () => {
+    await open(list({ google: { ...ON, state: 'reconnect', why: { code: 'gc_g_dead', tone: 'err',
+      text: 'Google nu mai acceptă conectarea', detail: 'Conectați din nou contul Google.' },
+      can: { connect: true, calendar: false, check: false, disconnect: true } } }))
+    expect(lines()).toEqual(['Google nu mai acceptă conectarea', 'Conectați din nou contul Google.'])
+    expect(stripButtons()).toEqual(['Conectează contul Google', 'Deconectează'])
+  })
+
+  it('Plus › Basic при живой связи: связь видна приглушённо, отключить можно, проверить — нет', async () => {
+    await open(list({ google: { ...ON, state: 'plus', plus: PLUS.plus,
+      why: { code: 'gc_g_plus_off', tone: 'warn', text: 'Legătura este oprită: face parte din DentPilot Plus',
+        detail: 'Contul rămâne conectat' }, can: { ...NO_CAN, disconnect: true } } }))
+    expect(gl().querySelector('.gl-dim')?.textContent).toBe('Conectat: clinica@gmail.com · calendarul „Programări”')
+    expect(stripButtons()).toEqual(['Deconectează'])
+  })
+
+  it('режим чтения: причина и только «Deconectează»', async () => {
+    await open(list({ google: { ...ON, state: 'readonly', why: { code: 'gc_g_readonly', tone: 'warn',
+      text: 'Oprită în regim de citire', detail: 'Pornește singură după reînnoire.' }, can: { ...NO_CAN, disconnect: true } } }))
+    expect(gl().dataset.gl).toBe('readonly')
+    expect(stripButtons()).toEqual(['Deconectează'])
+  })
+
+  it('«Deconectează» спрашивает словами сервера; отказ ничего не шлёт', async () => {
+    await open(list({ google: ON }))
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    fireEvent.click(inStrip(/Deconectează/))
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith('Deconectați contul Google?'))
+    expect(post).not.toHaveBeenCalled()
+    confirm.mockReturnValue(true)
+    post.mockResolvedValue(ok(list({ google: google() }), 'gc_g_off', 'Contul Google este deconectat'))
+    fireEvent.click(inStrip(/Deconectează/))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/gcal/google/disconnect', {}))
+    await waitFor(() => expect(gl().dataset.gl).toBe('off'))
+  })
+
+  it('связь работает: возврат в окно перечитывает список — события пришли сами', async () => {
+    await open(list({ google: ON }))
+    get.mockClear()
+    act(() => { window.dispatchEvent(new Event('focus')) })
+    await waitFor(() => expect(get).toHaveBeenCalledWith('/gcal', {}))
+  })
+
+  it('полоса файла — про файл: события только из Google — «Fișier .ics» и выбор файла, а не «din nou»', async () => {
+    const g = { id: 2, kind: 'google', name: 'Programări', loaded_at: '22.11.2026 14:20', loaded_by: 'sistem', service: '' }
+    await open(list({ google: ON, source: g, sources: [g] }))
+    expect(document.querySelector('.gc-src-l')?.textContent).toBe('Fișier .ics')
+    expect(within(document.querySelector('.gc-src') as HTMLElement).getByRole('button', { name: /Alege fișierul/ }))
+      .toBeTruthy()
+  })
+})
+
+describe('gcal: источник полосы файла', () => {
+  it('последний файл, а не последний источник вообще', () => {
+    const f = { id: 1, kind: 'ics', name: 'Clinica', loaded_at: '', loaded_by: '', service: '' }
+    const g = { ...f, id: 2, kind: 'google' }
+    expect(fileSource({ source: g, sources: [g, f] })).toBe(f)
+    expect(fileSource({ source: g, sources: [g] })).toBeNull()
+    expect(fileSource({ source: f })).toBe(f)
   })
 })

@@ -3426,6 +3426,60 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .gc-foot .hint { display: flex; align-items: flex-start; gap: 6px; margin: 0; max-width: 760px; }
 .dp-react-root .gc-foot .hint svg { flex: 0 0 15px; width: 15px; height: 15px; margin-top: 2px; }
 .dp-react-root .gc-clear { border-color: var(--red-t); color: var(--red-t); }
+/* Связь с аккаунтом Google: своя полоса над полосой файла; у спокойных состояний — две строки текста,
+   чтобы опрос («conectat» ↔ «nu a reușit») не менял высоту полосы и не двигал список */
+.dp-react-root .gl-strip { padding: 12px 16px; }
+.dp-react-root.gc:not(.rc) > .gl-strip { margin-bottom: 14px; }
+.dp-react-root .gl { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; font-size: var(--fs-body); color: var(--text2); }
+.dp-react-root .gl b { color: var(--text); font-weight: 600; }
+.dp-react-root .gl-mark { display: grid; place-items: center; flex: 0 0 32px; width: 32px; height: 32px; border-radius: 999px;
+  background: var(--teal-soft); color: var(--teal-d); }
+.dp-react-root .gl-mark svg { width: 17px; height: 17px; }
+.dp-react-root .gl-mark.ok { background: var(--green-soft); color: var(--green-t); }
+.dp-react-root .gl-mark.warn { background: var(--amber-soft); color: var(--amber-t); }
+.dp-react-root .gl-mark.err { background: var(--red-soft); color: var(--red-t); }
+.dp-react-root .gl-mark.plus { background: var(--line2); color: var(--text2); }
+.dp-react-root .gl-line { flex: 1 1 360px; min-width: 0; margin: 0; line-height: 1.45; }
+.dp-react-root .gl-h, .dp-react-root .gl-d { display: block; }
+.dp-react-root .gl-d { font-size: var(--fs-s); }
+.dp-react-root .gl-row .gl-line { min-height: calc(1.45 * (var(--fs-body) + var(--fs-s))); }
+.dp-react-root .gl-dim, .dp-react-root .gl-dim b { color: var(--text3); font-weight: 400; }
+.dp-react-root .gl-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.dp-react-root .gl-acts .hint { margin: 0; }
+.dp-react-root .gl-off { color: var(--text2); }
+.dp-react-root .gl-lic { color: var(--teal-d); font-weight: 600; text-decoration: none; white-space: nowrap; }
+.dp-react-root .gl-chg { margin-left: 4px; }
+.dp-react-root .gl-ico { display: inline-flex; }
+.dp-react-root .gl-invite { flex-direction: column; align-items: stretch; gap: 10px; }
+.dp-react-root .gl-top { display: flex; align-items: center; gap: 12px; }
+.dp-react-root .gl-ttl { display: flex; flex-direction: column; gap: 1px; }
+.dp-react-root .gl-ttl span { font-size: var(--fs-s); }
+.dp-react-root .gl-notice { display: flex; gap: 8px; margin: 0; padding: 10px 12px; border: 1px solid var(--line2); border-radius: var(--r-ctl);
+  background: var(--fill); font-size: var(--fs-s); line-height: 1.5; color: var(--text2); }
+.dp-react-root .gl-notice > svg { flex: 0 0 15px; width: 15px; height: 15px; margin-top: 2px; color: var(--teal-d); }
+.dp-react-root .gl-det { color: var(--teal-d); font-weight: 500; white-space: nowrap; text-decoration: none; }
+.dp-react-root .gl-why { display: inline-flex; align-items: center; gap: 6px; color: var(--amber-t); }
+.dp-react-root .gl-why svg { flex: 0 0 15px; width: 15px; height: 15px; }
+.dp-react-root .gl-pick { align-items: flex-start; }
+.dp-react-root .gl-pickb { flex: 1 1 0; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.dp-react-root .gl-pickb .gl-line { flex: none; padding-top: 5px; }
+.dp-react-root .gl-cals { display: flex; flex-wrap: wrap; gap: 8px; }
+.dp-react-root .gl-cal { display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; border: 1px solid var(--line);
+  border-radius: var(--r-ctl); background: var(--surface); cursor: pointer; }
+.dp-react-root .gl-cal.on { border-color: var(--teal); background: var(--teal-soft); }
+.dp-react-root .gl-cal small { color: var(--text3); font-size: var(--fs-xs); }
+.dp-react-root .gl-cal input { accent-color: var(--teal); margin: 0; }
+/* кнопки блока выключает общий busy вкладки: вид приходит с задержкой, короткая команда не мигает */
+.dp-react-root .gl .rc-btn:disabled { transition: opacity var(--dur-fast) ease var(--dur); }
+@keyframes gl-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: no-preference) {
+  .dp-react-root .gl { transition: opacity var(--dur-fast) ease; }
+  @starting-style { .dp-react-root .gl { opacity: 0; } }
+  .dp-react-root .gl-ico.spin svg { animation: gl-spin calc(var(--dur-slow) * 3) linear infinite; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dp-react-root .gl .rc-btn:disabled { transition-duration: 0s; }
+}
 @media (max-width: 1500px) {
   .dp-react-root .gc-cols { grid-template-columns: minmax(0, 1fr); }
   .dp-react-root .gc-side { display: none; }

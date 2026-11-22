@@ -1,3 +1,4 @@
+import type { ServerNotice } from '../../components/Notice'
 import { api, type ApiResult } from '../../services/api'
 import type { AddPreset } from '../schedule/AddDialog'
 import type { DashMiniCal } from '../schedule/dash'
@@ -69,8 +70,52 @@ export interface GcalLoad {
   refused: { name: string; code: string }[]
 }
 
+/** Блок связи с аккаунтом Google: формы — bot/app/modules/schedule/gcal_link.py › view.
+    Состояние, кнопки (`can`) и все слова — сервера. */
+export type GoogleState = 'off' | 'choose' | 'on' | 'paused' | 'reconnect' | 'plus' | 'readonly'
+
+export interface GoogleWhy extends ServerNotice {
+  /** Вторая строка: что делать; пусто — экран берёт её из `last`. */
+  detail: string
+  /** Только у `on`: когда не удалась проверка. */
+  at?: string
+  when?: string
+}
+
+export interface GoogleWords {
+  connect: string; disconnect: string; check: string; calendar: string; change: string
+  title: string; lead: string; hint: string
+  connected: string; calendar_label: string; last_check: string; last_ok: string; primary: string
+  waiting_title: string; waiting_detail: string; reopen: string; cancel: string
+  disconnect_ask: string; disconnect_ok: string; plus_lead: string; details: string
+}
+
+export interface GcalGoogle {
+  state: GoogleState
+  /** Файл связи есть: «Deconectează» имеет смысл. */
+  connected: boolean
+  account: string
+  calendar: { id: string; name: string } | null
+  calendars: { id: string; name: string; primary: boolean }[]
+  /** Последняя УДАЧНАЯ проверка; `when` — часы клиники словами. */
+  last: { at: string; when: string } | null
+  why: GoogleWhy | null
+  notice: string
+  privacy: { href: string; label: string }
+  plus: { href: string; label: string } | null
+  /** Вход начат, браузер Windows ещё не вернулся. */
+  waiting: boolean
+  /** Открыто не с ПК программы. */
+  remote: ServerNotice | null
+  every_min: number
+  can: { connect: boolean; calendar: boolean; check: boolean; disconnect: boolean }
+  words: GoogleWords
+}
+
 export interface GcalList {
+  /** Последний загруженный источник любого вида; полоса файла берёт свой из `sources`. */
   source: GcalSource | null
+  sources?: GcalSource[]
   f: GcalFilter
   q: string
   filters: { key: GcalFilter; label: string; n: number }[]
@@ -84,8 +129,12 @@ export interface GcalList {
   horizon_days: number
   max_mb: number
   can: { clear: boolean }
-  load?: GcalLoad
+  load?: GcalLoad | null
   appt_id?: number
+  /** null — блока связи нет вовсе (демо, сервер, сборка без клиента Google). */
+  google?: GcalGoogle | null
+  /** Ответ «Conectează»: адрес страницы Google для браузера Windows. */
+  url?: string
 }
 
 /** В каком отборе стоит экран; это же — параметры его адреса. */
@@ -118,6 +167,19 @@ export const gcalApi = {
   link: (id: number, apptId: number, w: GcalWhere) =>
     api.post<GcalList>(`/gcal/events/${id}/link${queryOf(w)}`, { appt_id: apptId }),
   clear: () => api.post<GcalList>('/gcal/clear', {}),
+  google: {
+    connect: (w: GcalWhere) => api.post<GcalList>(`/gcal/google/connect${queryOf(w)}`, {}),
+    cancel: (w: GcalWhere) => api.post<GcalList>(`/gcal/google/cancel${queryOf(w)}`, {}),
+    calendar: (id: string, w: GcalWhere) => api.post<GcalList>(`/gcal/google/calendar${queryOf(w)}`, { id }),
+    check: (w: GcalWhere) => api.post<GcalList>(`/gcal/google/check${queryOf(w)}`, {}),
+    disconnect: (w: GcalWhere) => api.post<GcalList>(`/gcal/google/disconnect${queryOf(w)}`, {}),
+  },
+}
+
+/** Полоса файла: последний источник-файл, а не последний вообще — опрос Google обновляет свой каждые 10 минут. */
+export function fileSource(d: Pick<GcalList, 'source' | 'sources'>): GcalSource | null {
+  const all = d.sources ?? (d.source ? [d.source] : [])
+  return all.find((x) => x.kind === 'ics') ?? null
 }
 
 /** Заполнение окна записи из строки; пустой врач остаётся пустым — его выбирает человек. */

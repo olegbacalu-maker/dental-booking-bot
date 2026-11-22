@@ -13,9 +13,10 @@ import { AddDialog } from '../schedule/AddDialog'
 import { day, type DayForm, type NewAppt } from '../schedule/day'
 import { CalButton, MiniCal } from '../schedule/MiniCal'
 import {
-  dayTitle, firstLine, gcalApi, minutesOf, presetOf, queryOf, shortWhen, spanOf, whereOf,
+  dayTitle, fileSource, firstLine, gcalApi, minutesOf, presetOf, queryOf, shortWhen, spanOf, whereOf,
   type GcalList, type GcalLoad, type GcalRow, type GcalWhere,
 } from './gcal'
+import { GcalLink } from './GcalLink'
 
 /* Вкладка «Google Calendar»: правила, слова фильтров, причин и отказов — сервера;
    экран держит только отбор, поиск и окна. Список после команды приходит в её ответе. */
@@ -92,6 +93,8 @@ const T = {
 } as const
 
 const SEARCH_MS = 300
+/** Пока браузер Windows не вернулся со входа Google: окно программы о нём само не узнаёт. */
+const WAIT_MS = 3000
 
 export const loadGcal: RouteLoad<GcalList> = (signal, _params, search) => gcalApi.list(whereOf(search), signal)
 
@@ -113,8 +116,12 @@ export function GcalScreen({ navigate = defaultNavigate }: Props) {
   const [report, setReport] = useState<GcalLoad | null>(null)
   const [moving, setMoving] = useState<GcalRow | null>(null)
   const [toast, setToast] = useState<ToastState | null>(null)
+  const [checking, setChecking] = useState(false)
   const closeToast = useCallback(() => setToast(null), [])
   const fileRef = useRef<HTMLInputElement>(null)
+  const google = state.status === 'ready' ? state.data.google ?? null : null
+  const waiting = !!google?.waiting
+  const live = google?.state === 'on'
 
   /* Отбор — в адресе: день календаря — ссылка, вкладка и поиск пишут адрес
      сами, список приносит загрузчик маршрута. */
@@ -122,7 +129,10 @@ export function GcalScreen({ navigate = defaultNavigate }: Props) {
     void go(`/admin/google${queryOf({ ...at.current, ...next })}`, { replace: true })
   }, [go])
 
+  /* номер команды: тихое перечитывание, начатое до неё, не перепишет её ответ прежним списком */
+  const turn = useRef(0)
   const run = useCallback(async (call: (w: GcalWhere) => ReturnType<typeof gcalApi.list>, quiet = false) => {
+    turn.current += 1
     setBusy(true)
     try {
       const r = await call(at.current)
@@ -143,6 +153,39 @@ export function GcalScreen({ navigate = defaultNavigate }: Props) {
     const timer = window.setTimeout(() => show({ q: query }), SEARCH_MS)
     return () => window.clearTimeout(timer)
   }, [query, show])
+
+  /* Тихое перечитывание без busy: кнопки не бледнеют на каждом опросе. Ответ другого отбора
+     (вкладку сменили, пока шёл запрос) или ответ, обогнанный командой, отбрасывается — иначе он
+     вернул бы прежнюю вкладку или список до команды. */
+  const reread = useCallback(async () => {
+    const w = at.current
+    const mine = turn.current
+    try {
+      const r = await gcalApi.list(w)
+      if (queryOf(at.current) === queryOf(w) && turn.current === mine) replace(r.data)
+    } catch (e) {
+      leaveIfSignedOut(asApiError(e))
+    }
+  }, [leaveIfSignedOut, replace])
+
+  useEffect(() => {
+    if (!waiting) return
+    const timer = window.setInterval(() => { void reread() }, WAIT_MS)
+    return () => window.clearInterval(timer)
+  }, [waiting, reread])
+
+  /* Вернулись в окно — вход в браузере мог закончиться, а опрос мог принести события:
+     перечитываем, пока ждём браузер или связь работает. */
+  useEffect(() => {
+    if (!waiting && !live) return
+    const back = () => { if (!document.hidden) void reread() }
+    window.addEventListener('focus', back)
+    document.addEventListener('visibilitychange', back)
+    return () => {
+      window.removeEventListener('focus', back)
+      document.removeEventListener('visibilitychange', back)
+    }
+  }, [waiting, live, reread])
 
   if (state.status === 'leaving') return null
   if (state.status === 'failed') {
@@ -173,9 +216,37 @@ export function GcalScreen({ navigate = defaultNavigate }: Props) {
     await run(() => gcalApi.clear())
   }
 
+  const g = d.google ?? null
+  async function connect() {
+    const r = await run((w) => gcalApi.google.connect(w))
+    // новым окном: оболочка отдаёт чужой адрес браузеру Windows, окно программы остаётся
+    if (r?.data.url) window.open(r.data.url, '_blank', 'noopener')
+  }
+  async function checkNow() {
+    setChecking(true)
+    await run((w) => gcalApi.google.check(w))
+    setChecking(false)
+  }
+  async function disconnect() {
+    if (!g || !await ask({ text: g.words.disconnect_ask, ok: g.words.disconnect_ok, danger: true })) return
+    await run((w) => gcalApi.google.disconnect(w))
+  }
+  const link = g ? (
+    <div className="fcard gl-strip">
+      {/* ключ — состояние: новое проявляется заново, а «conectat» ↔ «nu a reușit» опроса — на месте */}
+      <GcalLink key={`${g.state}${g.waiting ? '.w' : ''}`} g={g} busy={busy} checking={checking}
+                onConnect={() => { void connect() }}
+                onCancel={() => { void run((w) => gcalApi.google.cancel(w)) }}
+                onCalendar={async (id) => !!await run((w) => gcalApi.google.calendar(id, w))}
+                onCheck={() => { void checkNow() }}
+                onDisconnect={() => { void disconnect() }} />
+    </div>
+  ) : null
+
   if (!d.source) {
     return (
       <section className="dp-react-root gc">
+        {link}
         <div className="fcard gc-empty">
           <span className="rc-empty-ico"><Icon name="cal" /></span>
           <b>{T.title}</b>
@@ -192,7 +263,7 @@ export function GcalScreen({ navigate = defaultNavigate }: Props) {
     )
   }
 
-  const src = d.source
+  const src = fileSource(d)
   const rows = d.days.reduce((n, x) => n + x.rows.length, 0) + d.undated.length
   const act = (r: GcalRow) => ({
     onMove: () => setMoving(r),
@@ -206,18 +277,22 @@ export function GcalScreen({ navigate = defaultNavigate }: Props) {
   ) : null
   return (
     <section className="dp-react-root rc gc">
+      {link}
       <div className="fcard gc-src">
         <div className="gc-src-l">
           <Icon name="cal" />
-          <span>
-            {T.src}{src.name ? <> · {T.cal} <b>„{src.name}”</b></> : null}
-            {src.loaded_at ? ` · ${T.loadedAt} ${src.loaded_at}` : ''}
-            {src.loaded_by ? ` ${T.by} ${src.loaded_by}` : ''}
-          </span>
+          {/* события могли прийти только из Google: тогда файла не было, и «din nou» неверно */}
+          {src ? (
+            <span>
+              {T.src}{src.name ? <> · {T.cal} <b>„{src.name}”</b></> : null}
+              {src.loaded_at ? ` · ${T.loadedAt} ${src.loaded_at}` : ''}
+              {src.loaded_by ? ` ${T.by} ${src.loaded_by}` : ''}
+            </span>
+          ) : <span>{T.src}</span>}
         </div>
         {fileInput}
         <button type="button" className="rc-btn" disabled={busy} onClick={pickFile}>
-          <Icon name="upload" /> {busy ? T.reading : T.again}
+          <Icon name="upload" /> {busy ? T.reading : src ? T.again : T.pick}
         </button>
         <details className="gc-how">
           <summary>{T.how}</summary>
