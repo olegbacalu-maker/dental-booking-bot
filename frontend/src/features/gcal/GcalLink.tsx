@@ -162,8 +162,10 @@ interface ChooseProps {
 
 function Choose({ g, busy, remote, check, disconnect, onCancel, onPick }: ChooseProps) {
   const w = g.words
-  const first = g.calendar?.id ?? g.calendars.find((c) => c.primary)?.id ?? g.calendars[0]?.id ?? ''
-  const [pick, setPick] = useState(first)
+  /* Первый выбор ничего не отмечает: отмеченный основной календарь принимали не глядя, а записи клиники
+     лежат в другом. У «Schimbă» отмечен текущий — человек меняет уже выбранное. */
+  const cur = g.state === 'choose' ? '' : g.calendar?.id ?? ''
+  const [pick, setPick] = useState(g.calendars.some((c) => c.id === cur) ? cur : '')
   const why = g.state === 'choose' ? g.why : null
   return (
     <div className="gl gl-pick" data-gl="choose">

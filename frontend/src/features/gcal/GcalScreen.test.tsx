@@ -597,10 +597,23 @@ describe('GcalScreen: связь с аккаунтом Google', () => {
     expect(rowEl(5)).toBeNull()
   })
 
+  it('выбор календаря: без предвыбора, кнопка ждёт выбора', async () => {
+    await open(list({ google: { ...ON, state: 'choose', calendar: null, last: null } }))
+    const radios = Array.from(gl().querySelectorAll('input[type="radio"]')) as HTMLInputElement[]
+    expect(radios.map((x) => [x.value, x.checked])).toEqual([['main', false], ['prog', false]])
+    expect(gl().querySelector('.gl-cal.on')).toBeNull()
+    const go = inStrip(/Alege calendarul/) as HTMLButtonElement
+    expect(go.disabled).toBe(true)
+    fireEvent.click(go)
+    expect(post).not.toHaveBeenCalled()
+    fireEvent.click(radios[0] as HTMLInputElement)
+    expect(go.disabled).toBe(false)
+    expect((gl().querySelector('.gl-cal.on input') as HTMLInputElement).value).toBe('main')
+  })
+
   it('выбор календаря: основной подписан, выбранный уходит id, ответ — подключено', async () => {
     await open(list({ google: { ...ON, state: 'choose', calendar: null, last: null } }))
     const radios = Array.from(gl().querySelectorAll('input[type="radio"]')) as HTMLInputElement[]
-    expect(radios.map((x) => [x.value, x.checked])).toEqual([['main', true], ['prog', false]])
     expect(gl().querySelector('.gl-cal small')?.textContent).toBe('calendarul principal al contului')
     fireEvent.click(radios[1] as HTMLInputElement)
     post.mockResolvedValue(ok(list({ google: ON }), 'gc_g_calendar', 'Calendarul este ales'))

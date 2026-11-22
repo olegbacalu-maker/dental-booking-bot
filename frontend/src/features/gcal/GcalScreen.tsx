@@ -26,7 +26,8 @@ import { GcalLink } from './GcalLink'
    экран держит только отбор, поиск и окна. Список после команды приходит в её ответе. */
 const T = {
   title: 'Evenimentele din Google Calendar',
-  lead: 'Încărcați calendarul clinicii și mutați programările în jurnal, una câte una, cu fereastra obișnuită de programare.',
+  lead: 'Încărcați calendarul clinicii dintr-un fișier sau, în varianta Plus, conectați contul Google. '
+    + 'Programările se mută în jurnal una câte una sau toate odată, iar cu contul conectat — și automat.',
   how: 'Cum obțin fișierul',
   pick: 'Alege fișierul (.ics sau .zip)',
   again: 'Încarcă din nou',
