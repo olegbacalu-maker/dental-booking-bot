@@ -254,9 +254,11 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     nu modifică și nu șterge nimic în calendar.</li>
     <li><b>Cum le folosește.</b> Numai pentru funcția vizibilă în program:
     evenimentele apar în fila „Google Calendar”, unde personalul clinicii le
-    vede și le mută manual în jurnalul programărilor, cu fereastra obișnuită
-    de programare; programul marchează evenimentele schimbate sau anulate în
-    Google. Programul citește calendarul din 10 în 10 minute, cât rulează și
+    vede și le mută în jurnalul programărilor; dacă clinica a pornit mutarea
+    automată, programul mută singur evenimentele în care recunoaște medicul
+    și pacientul (la nevoie creează fișa pacientului, cu numele și telefonul
+    din eveniment), iar celelalte rămân pentru personal. Programul marchează
+    evenimentele schimbate sau anulate în Google. Programul citește calendarul din 10 în 10 minute, cât rulează și
     contul este conectat, și la apăsarea butonului „Verifică acum”. Datele
     Google nu se folosesc pentru publicitate, profilare, statistici ale
     furnizorului sau în orice alt scop și nu se folosesc pentru a dezvolta,
@@ -282,18 +284,22 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     programării create. Butonul „Șterge tot din Google” șterge imediat
     evenimentele nemutate; ștergerea sau anonimizarea datelor unui pacient la
     cererea lui (Legea nr. 195/2024) șterge și evenimentele lui. Programările
-    create de personal din evenimente fac parte din evidența clinicii și se
-    păstrează după regulile ei.</li>
-    <li><b>Cui se transmit.</b> Nimănui. Furnizorul nu primește nici
+    create din evenimente — de personal sau prin mutarea automată — fac parte
+    din evidența clinicii și se păstrează după regulile ei.</li>
+    <li><b>Cui se transmit.</b> Nimănui, în afara memento-ului SMS pe care îl
+    alege clinica (mai jos). Furnizorul nu primește nici
     evenimentele, nici lista calendarelor, nici cheia de acces; datele nu se
     transmit, nu se vând și nu se pun la dispoziția terților. Furnizorul poate vedea fila numai pe
     ecranul clinicii, într-o sesiune „Asistență rapidă” cerută de clinică,
     cu acordul și în prezența ei, fără să copieze sau să păstreze ceva
     (<a href="termeni.html">Termeni și condiții</a>, secțiunea 10). O
-    programare creată de personal dintr-un eveniment este o programare
-    obișnuită a clinicii: pentru ea pleacă memento-ul SMS numai dacă clinica
-    folosește modulul SMS și îl lasă bifat în fereastra de programare
-    (punctul 4).</li>
+    programare creată dintr-un eveniment este o programare obișnuită a
+    clinicii: memento-ul SMS (numărul de telefon și un text cu denumirea
+    clinicii, data și ora, prin serverul furnizorului, care nu le păstrează,
+    către operatorul SMS — punctul 4) pleacă pentru ea numai dacă clinica
+    folosește modulul SMS și a ales asta: în fereastra de programare sau,
+    pentru programările mutate automat ori mai multe deodată, în setarea
+    filei „Google Calendar”.</li>
     <li><b>Cum se retrage accesul.</b> Oricând: în program, cu butonul
     „Deconectează” (programul cere Google să anuleze cheia și o șterge de pe
     calculator), sau din contul Google, pe pagina
@@ -325,7 +331,9 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     Recepție role may connect the clinic's Google account (button
     “Conectează contul Google”) to show the events of one Google Calendar
     in the program's “Google Calendar” tab, where clinic staff move them
-    into the appointment journal by hand.</p>
+    into the appointment journal; if the clinic turns on automatic moving,
+    the program moves the events in which it recognizes the doctor and the
+    patient by itself.</p>
     <ul>
       <li><b>Data accessed:</b> read-only, with the scopes
       <code>calendar.calendarlist.readonly</code> and
@@ -337,8 +345,13 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
       addresses, status, technical identifiers). No other Google data — no
       mail, contacts, files or password. The program never writes, changes
       or deletes anything in Google Calendar.</li>
-      <li><b>Use:</b> only to display the events in the program's Google
-      Calendar tab and to flag events changed or cancelled in Google. The
+      <li><b>Use:</b> only for the clinic's appointment journal: to display
+      the events in the program's Google Calendar tab, to flag events
+      changed or cancelled in Google, and to move events into the journal —
+      by clinic staff or, if the clinic turns on automatic moving (off until
+      then), by the program for events in which it recognizes the doctor and
+      the patient (creating the patient record from the event's name and
+      phone when there is none). The
       calendar is read every 10 minutes while the program runs and on
       “Verifică acum”. Google user data is not used for advertising,
       profiling, the developer's analytics or any other purpose, and is not
@@ -358,8 +371,16 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
       description go into the comment of the new appointment); “Șterge tot
       din Google” deletes the events not moved at once; erasing a patient's
       data under Moldovan Law 195/2024 also erases their events.</li>
-      <li><b>Sharing:</b> Google user data is not shared with, sold or
-      transferred to anyone, including the developer. The developer may see
+      <li><b>Sharing:</b> Google user data is not sold and is not shared
+      with or transferred to the developer or anyone else, with one exception
+      the clinic controls: an appointment created from an event is an
+      ordinary appointment of the clinic, and if the clinic uses the SMS
+      module and has chosen so (in the booking dialog, or in the tab's
+      setting for appointments moved automatically or in a batch), an SMS
+      reminder — the phone number and a text with the clinic's name, date
+      and time, no patient name or treatment — passes through the
+      developer's server, which does not keep it, to the SMS operator
+      (section 4). The developer may see
       the clinic's screen only during a Windows Quick Assist session the
       clinic requests, in its presence, without copying or keeping
       anything.</li>

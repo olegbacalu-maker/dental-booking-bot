@@ -359,3 +359,14 @@ def suite(res: Result) -> None:
            and all(x in flat_privacy for x in limited))
     res.ok("условия § 17, Anexa 2, политика: опрос Google одной фразой «din N în N minute»",
            all("din 10 în 10 minute" in t for t in (s17, flows, flat_privacy)))
+    # Перенос в журнал — руками или, если клиника включила, автоматом: только события с узнанными врачом и
+    # пациентом. Тексты не обещают «только руками»; SMS по записи из события — выбором клиники, и английская
+    # часть политики, которую читает проверка Google, называет эту передачу.
+    auto = "recunoaște medicul și pacientul"
+    res.ok("§ 17, политика § 6 (RO, EN), Anexa 2 § 4: автоперенос по выбору клиники; SMS по такой записи названо",
+           "mutarea automată" in s17 and auto in s17 and auto in flat_privacy
+           and "recognizes the doctor and the patient" in flat_privacy
+           and "în setarea filei „Google Calendar”" in flat_privacy
+           and "passes through the developer's server, which does not keep it" in flat_privacy
+           and "programul le mută și singur din calendarul ei Google" in flows
+           and "mută manual" not in s17 + flat_privacy and "by hand" not in flat_privacy)
