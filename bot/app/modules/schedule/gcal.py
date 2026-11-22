@@ -381,6 +381,11 @@ def _hint(row: dict, start: datetime | None, people: _People, journal: dict) -> 
     name = gimport.patient_guess(row["title"], doctors)
     dk, _hits = gimport.doctor_hint(row["title"], doctors)
     patients = people.find(phones, name)
+    if not phones and gimport.namesake(row["title"], doctors):
+        # фамилия врача может быть и фамилией пациента: в окне — фиши обоих прочтений
+        seen = {p["id"] for p in patients}
+        patients += [p for p in people.find((), gimport.patient_guess(row["title"], doctors, cut=True))
+                     if p["id"] not in seen]
     exists = None
     if start is not None:
         ids = {p["id"] for p in patients}

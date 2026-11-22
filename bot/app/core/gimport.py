@@ -180,12 +180,30 @@ def doctor_hint(title: str, doctors: dict[str, str]) -> tuple[str, tuple[str, ..
     return (pick[0] if len(pick) == 1 else ""), tuple(hits)
 
 
-def patient_guess(title: str, doctors: dict[str, str]) -> str:
-    """Заготовка имени пациента; слова услуги прилипают — без человека не утверждать."""
-    raw = _NAME.findall(title or "")
+def _within(word: str, parts: list[str]) -> bool:
+    return all(p in parts for p in word.split("-"))
+
+
+def _initials_of(raw: list[str], words: list[str], parts: list[str]) -> bool:
+    initials = "".join(p[0] for p in parts)
+    return (len(parts) >= 2 and bool(raw) and raw[0].isupper() and len(raw[0]) == len(parts)
+            and words[0] in (initials, initials[::-1]))
+
+
+def _split(title: str, doctors: dict[str, str]) -> tuple[list[str], list[str], bool]:
+    """(имя целиком, имя без слов узнанного врача, однофамилец ли).
+
+    Слова имени делятся на группы: группу рвёт всё, кроме пробела, — запятая, тире, номер, скобка,
+    слово «dr». Врач отделён, если его фамилия стоит после «dr», врач узнан по инициалам или у
+    фамилии своя группа только из слов его имени («…, 069… — Grecu»): тогда эта группа из имени
+    уходит. Однофамилец — когда так сказать нельзя: фамилия врача есть только внутри имени
+    («Ana Marin 069…»), или без «dr» имени, кроме имени врача, не осталось («Marin 069…»)."""
+    found = list(_NAME.finditer(title or ""))
+    raw = [m.group() for m in found]
     words = [fold(w) for w in raw]
     names = [_doctor_words(n) for n in doctors.values()]
     drop: set[int] = set()
+    after_mark: set[int] = set()
     for i, w in enumerate(words):
         if w in _NOISE:
             drop.add(i)
@@ -193,16 +211,54 @@ def patient_guess(title: str, doctors: dict[str, str]) -> str:
             drop.add(i)
             for parts in names:
                 j = i + 1
-                while j < len(words) and words[j] in parts:
+                while j < len(words) and _within(words[j], parts):
                     drop.add(j)
+                    after_mark.add(j)
                     j += 1
-    if raw and raw[0].isupper():
-        for parts in names:
-            initials = "".join(p[0] for p in parts)
-            if len(parts) >= 2 and len(raw[0]) == len(parts) and words[0] in (initials, initials[::-1]):
-                drop.add(0)
-    keep = [w for i, w in enumerate(raw) if i not in drop]
+    if any(_initials_of(raw, words, parts) for parts in names):
+        drop.add(0)
+    groups: list[list[int]] = []
+    gap = True
+    for i, m in enumerate(found):
+        if i in drop:
+            gap = True
+            continue
+        if gap or not title[found[i - 1].end():m.start()].isspace():
+            groups.append([])
+        groups[-1].append(i)
+        gap = False
+    full = [raw[i] for g in groups for i in g]
+    dk, _hits = doctor_hint(title, doctors)
+    if not dk:
+        return full, full, False
+    parts = _doctor_words(doctors[dk])
+    sur = parts[-1]
+    strong = any(sur in words[i].split("-") for i in after_mark) or _initials_of(raw, words, parts)
+    alone = [g for g in groups if all(_within(words[i], parts) for i in g)
+             and any(sur in words[i].split("-") for i in g)]
+    rest = [g for g in groups if g not in alone]
+    if strong and not rest:
+        # «Elena Rusu 069… — Dr. Rusu»: врач назван с «dr», а имя врача без него — имя пациента
+        alone, rest = [], alone
+    inside = any(sur in words[i].split("-") for g in rest for i in g)
+    namesake = not strong and (not alone and inside or bool(alone) and not rest)
+    # второе прочтение однофамильца: фамилия внутри имени — это врач
+    short = [raw[i] for g in rest for i in g if not (namesake and words[i] == sur)]
+    return full, short, namesake
+
+
+def patient_guess(title: str, doctors: dict[str, str], *, cut: bool = False) -> str:
+    """Заготовка имени пациента; слова услуги прилипают — без человека не утверждать. Слова, по
+    которым узнан врач, из имени уходят; у однофамильца (`namesake`) имя остаётся целым, а `cut`
+    отдаёт второе прочтение — без слов врача."""
+    full, short, unclear = _split(title, doctors)
+    keep = short if cut or not unclear else full
     return " ".join(keep[:NAME_WORDS])
+
+
+def namesake(title: str, doctors: dict[str, str]) -> bool:
+    """Нельзя сказать, где в названии врач, а где пациент: без человека не переносить."""
+    return _split(title, doctors)[2]
 
 
 def convert(occ: ics.Occurrence, *, tz, now: datetime, doctors: dict[str, str],

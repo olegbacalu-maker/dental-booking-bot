@@ -335,6 +335,31 @@ def suite_auto(res: Result) -> None:
                                                                      (mv["last"] or {}).get("n")), ("auto", 1, 1))
             res.check("строка без врача осталась в «De mutat»", [x["title"] for x in rows(listing(c))],
                       ["Sandu Ion control"])
+            # фамилия врача без «dr»: своей группой — не часть имени; только внутри имени — решает человек
+            g.events[CAL] += [gev("u6", 4, "11:00", 30, "Victor Exemplaru, 060 000 102 — Doi"),
+                              gev("u7", 4, "12:00", 30, "Rotaru Ana — Doi"),
+                              gev("u8", 4, "13:00", 30, "Ana Doi 069100200 - Dr. Doi"),
+                              gev("u9", 4, "14:00", 30, "Mariana Doi 069100100"),
+                              gev("u10", 4, "15:00", 30, "Rotaru Ana Doi")]
+            r = c.post_json("/api/gcal/google/check", {})
+            res.check("«…, 060 000 102 — Doi»: новая фиша «Victor Exemplaru» с телефоном события, запись у Doi",
+                      (r.msg, sql(s, "SELECT name, phone FROM patients WHERE name LIKE 'Victor%'"),
+                       [x[4] for x in appts(s, "Victor Exemplaru")]),
+                      ("gc_g_checked", [("Victor Exemplaru", "060000102")], ["d2"]))
+            res.check("«Rotaru Ana — Doi» без телефона: запись в фишу «Rotaru Ana», второй фиши нет",
+                      ([x[4] for x in appts(s, "Rotaru Ana")],
+                       sql(s, "SELECT COUNT(*) FROM patients WHERE name LIKE 'Rotaru Ana%'")[0][0]), (["d2"], 1))
+            res.check("однофамилец рядом с «Dr. Doi»: фиша «Ana Doi»", [x[4] for x in appts(s, "Ana Doi")], ["d2"])
+            left = rows(listing(c))
+            res.check("фамилия врача только внутри имени — строка в «De mutat» с причиной",
+                      sorted((x["title"], (x["auto"]["why"] or {}).get("code")) for x in left),
+                      [("Mariana Doi 069100100", "a_namesake"), ("Rotaru Ana Doi", "a_namesake"),
+                       ("Sandu Ion control", "a_doctor")])
+            res.ok("…и фиш по этим строкам программа не завела",
+                   not sql(s, "SELECT 1 FROM patients WHERE name IN ('Mariana Doi', 'Mariana', 'Rotaru Ana Doi')"))
+            hint = next(x["hint"] for x in left if x["title"] == "Rotaru Ana Doi")
+            res.check("окно однофамильца: имя целиком, а фиша — второго прочтения",
+                      (hint["name"], [p["name"] for p in hint["patients"]]), ("Rotaru Ana Doi", ["Rotaru Ana"]))
         # фоновый опрос раз в секунду: перенос без запроса, подпись — «sistem»
         with Server(dir_=d, env=env(g, client, tick="1")) as s:
             c = Client(s.url).login()

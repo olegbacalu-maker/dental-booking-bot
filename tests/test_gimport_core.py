@@ -309,9 +309,44 @@ def suite_hints(res: Result) -> None:
         ("Rusu Ion", "Rusu Ion"),
         ("069123456", ""),
         ("unu doi trei patru cinci sase", "unu doi trei patru"),
+        # фамилия врача без «dr», своей группой — из имени уходит
+        ("Popa Vasile, 069 000 102 — Rusu", "Popa Vasile"),
+        ("RUSU / Popa Vasile", "Popa Vasile"),
+        ("Popa Vasile (Țurcanu)", "Popa Vasile"),
+        ("Grecu: Popa Vasile", "Grecu Popa Vasile"),
+        ("Rusu: Popa Vasile", "Popa Vasile"),
+        ("Elena Rusu, Popa Vasile", "Popa Vasile"),
+        # однофамилец рядом с врачом: фамилия пациента остаётся
+        ("Ana Rusu 069123456 — Dr. Rusu", "Ana Rusu"),
+        ("Ana Rusu — Rusu", "Ana Rusu"),
+        ("Elena Rusu 069123456 — Dr. Rusu", "Elena Rusu"),
+        ("Munteanu Ion - Dr. Rusu", "Munteanu Ion"),
+        # где врач — не сказать: имя целиком, решает человек
+        ("Popa Vasile Rusu 069123456", "Popa Vasile Rusu"),
+        ("Rusu 069123456", "Rusu"),
+        ("Dr. Rusu 069123456", ""),
     ]
     for title, want in names:
         res.check(f"заготовка имени из {title!r}", gi.patient_guess(title, DOCTORS), want)
+    same = [
+        ("Popa Vasile, 069 000 102 — Rusu", False, "Popa Vasile"),
+        ("Ana Rusu 069123456 — Dr. Rusu", False, "Ana Rusu"),
+        ("Ana Rusu — Rusu", False, "Ana Rusu"),
+        ("Elena Rusu 069123456 — Dr. Rusu", False, "Elena Rusu"),
+        ("Dr. Rusu 069123456", False, ""),
+        ("AM - Lungu Elena", False, "Lungu Elena"),
+        ("Popa Vasile 069123456", False, "Popa Vasile"),
+        ("Munteanu Andrei jr / turcanu", False, "Munteanu Andrei jr turcanu"),
+        ("Ana Rusu 069123456", True, "Ana"),
+        ("Popa Vasile Rusu 069123456", True, "Popa Vasile"),
+        ("Rusu Ion", True, "Ion"),
+        ("Elena Rusu 069123456", True, ""),
+        ("Rusu 069123456", True, ""),
+        ("Popescu-Rusu Ana", True, "Popescu-Rusu Ana"),
+    ]
+    for title, want, cut in same:
+        res.check(f"однофамилец в {title!r} и второе прочтение имени",
+                  (gi.namesake(title, DOCTORS), gi.patient_guess(title, DOCTORS, cut=True)), (want, cut))
 
     rows = [("a", "d1", _at(10), 60), ("b", "d1", _at(10, 30), 20), ("c", "d1", _at(11), 30),
             ("d", "d2", _at(10), 60), ("e", "", _at(10), 60), ("f", "d1", _at(10, 45), 30),

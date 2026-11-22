@@ -39,6 +39,7 @@ REASONS = {
     "a_doctor": "medicul nu se recunoaște în titlu",
     "a_doctors": "în eveniment sunt mai mulți medici",
     "a_doctor_off": "medicul nu mai lucrează în clinică",
+    "a_namesake": "nu e clar dacă numele e al medicului sau al pacientului",
     "a_family": "telefonul este al mai multor fișe",
     "a_other": "telefonul este al fișei {name}",
     "a_name": "numele pacientului nu e clar",
@@ -138,9 +139,12 @@ def _static(v: dict, people, service: str, drop: frozenset) -> Pick | None:
         return pk.stay("a_time")
     if not service:
         return pk.stay("a_service")
-    dk, code = _doctor(v["title"], v["body"], dict(eng.DOCTORS))
+    doctors = dict(eng.DOCTORS)
+    dk, code = _doctor(v["title"], v["body"], doctors)
     if code:
         return pk.stay(code)
+    if gimport.namesake(v["title"], doctors):
+        return pk.stay("a_namesake")
     pk.doctor, pk.date, pk.time = dk, p["date"], p["time"]
     pk.minutes = int(p["duration"] or 0)
     raw = [w for w in (hint["name"] or "").split() if gimport.fold(w) not in drop]
