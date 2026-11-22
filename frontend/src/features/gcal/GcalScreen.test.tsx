@@ -723,3 +723,195 @@ describe('gcal: источник полосы файла', () => {
     expect(fileSource({ source: f })).toBe(f)
   })
 })
+
+describe('GcalScreen: перенос пачкой и автоматом', () => {
+  const AM = { batch: { go: 2, all: 5, can: true }, sms: { show: true, on: false }, last: null, moves: [] }
+  const AUTO = { on: false, can_on: true, can_off: false, stopped: false }
+  const SERVICES = [{ key: 'consult', label: 'Consultație' }, { key: 'hygiene', label: 'Igienizare' }]
+  const PV = {
+    go: [{ id: 6, date: '2026-11-16', time: '14:00–14:30', title: 'Rotaru Ana 069123456', doctor: 'Dr. Activ Trei',
+      patient: 'Ana Rotaru', fresh: false, phone: '', link: false },
+    { id: 9, date: '2026-11-16', time: '15:00–15:30', title: 'Lungu Dan 069111222 dr Doi', doctor: 'Dr. Activ Doi',
+      patient: 'Lungu Dan', fresh: true, phone: '069111222', link: false }],
+    stay: [{ id: 5, date: '2026-11-16', time: '11:10–11:40', title: 'Lungu Petru control',
+      why: { code: 'a_doctor', text: 'medicul nu se recunoaște în titlu' } }],
+    counts: { go: 2, fresh: 1, stay: 1, all: 3 }, service: 'consult', sms: { show: true, on: false },
+    auto: false, token: 'tok1',
+  }
+  const bar = () => document.querySelector('.gcb-bar') as HTMLElement | null
+  const dlg = () => document.querySelector('dialog.gcb-dlg[open]') as HTMLElement | null
+  const am = (over = {}) => ({ ...AM, ...over })
+  const calls = (path: string) => post.mock.calls.filter((c) => String(c[0]).startsWith(path))
+
+  function answer(map: Record<string, unknown>) {
+    post.mockImplementation((path: string) => {
+      const hit = Object.keys(map).find((k) => path.startsWith(k))
+      const v = hit ? map[hit] : undefined
+      return v instanceof Error ? Promise.reject(v) : Promise.resolve(v)
+    })
+  }
+
+  it('полоса над «De mutat» — счёт сервера; на «Mutate» её нет', async () => {
+    await open(list({ automove: am(), form: { services: SERVICES } }))
+    expect(bar()?.textContent).toContain('2 din 5 evenimente au dată, oră, medic și pacient recunoscuți')
+    expect(within(bar() as HTMLElement).getByRole('button', { name: /Mută în jurnal toate cu medic/ })).toBeTruthy()
+    cleanup()
+    await open(list({ f: 'mutat', automove: am() }))
+    expect(bar()).toBeNull()
+  })
+
+  it('годных нет — кнопка выключена; с сети (can=false) кнопки нет', async () => {
+    await open(list({ automove: am({ batch: { go: 0, all: 3, can: true } }) }))
+    expect(bar()?.textContent).toContain('Niciun eveniment din listă nu are medic și pacient recunoscuți')
+    expect((within(bar() as HTMLElement).getByRole('button') as HTMLButtonElement).disabled).toBe(true)
+    cleanup()
+    await open(list({ automove: am({ batch: { go: 2, all: 3, can: false } }) }))
+    expect(within(bar() as HTMLElement).queryAllByRole('button')).toEqual([])
+  })
+
+  it('предпросмотр: группы и причины — слова сервера; запуск с отпечатком, итог и отмена', async () => {
+    await open(list({ automove: am(), form: { services: SERVICES } }))
+    const after = list({
+      automove: am({ batch: { go: 0, all: 3, can: true },
+        moves: [{ key: 'batch:1', when: '22.11.2026 10:32', how: 'batch', by: 'Ana', n: 2, fresh: 1, undone: null }] }),
+      batch: { key: 'batch:1', n: 2, fresh: 1, refused: 0 },
+    })
+    answer({
+      '/gcal/batch/check': ok({ preview: PV }),
+      '/gcal/batch/run': ok(after, 'gc_a_moved', 'Evenimentele au fost mutate în jurnal'),
+      '/gcal/moves/undo': ok(list({ automove: am() }), 'gc_a_undone', 'Mutarea a fost anulată'),
+    })
+    fireEvent.click(within(bar() as HTMLElement).getByRole('button', { name: /Mută în jurnal toate cu medic/ }))
+    await waitFor(() => expect(dlg()?.querySelector('.gcb-table')).not.toBeNull())
+    expect(calls('/gcal/batch/check')[0]).toEqual(['/gcal/batch/check', { auto: false }])
+    const d = dlg() as HTMLElement
+    expect(Array.from(d.querySelectorAll('.gcb-counts b')).map((x) => x.textContent)).toEqual(['2', '1', '1'])
+    expect(d.textContent).toContain('fișă nouă Lungu Dan · 069111222')
+    expect(d.querySelector('.gcb-why')?.textContent).toBe('medicul nu se recunoaște în titlu')
+    fireEvent.click(within(d).getByRole('button', { name: /Mută 2 programări/ }))
+    await waitFor(() => expect(bar()?.dataset.bar).toBe('done'))
+    expect(calls('/gcal/batch/run')[0]).toEqual(['/gcal/batch/run', { token: 'tok1', auto: false }])
+    expect(bar()?.textContent).toContain('2 programări mutate în jurnal, 1 fișă nouă. Rămân 3')
+    expect(document.body.textContent).toContain('Evenimentele au fost mutate în jurnal')
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    fireEvent.click(within(bar() as HTMLElement).getByRole('button', { name: /Anulează mutarea/ }))
+    await waitFor(() => expect(calls('/gcal/moves/undo')).toHaveLength(1))
+    expect(confirm.mock.calls[0]?.[0]).toContain('Anulați mutarea din 22.11.2026 10:32? Se șterg din jurnal 2 programări')
+    expect(calls('/gcal/moves/undo')[0]?.[1]).toEqual({ key: 'batch:1' })
+    await waitFor(() => expect(bar()?.dataset.bar).toBe('idle'))
+  })
+
+  it('список изменился до запуска — слово сервера в окне и предпросмотр заново', async () => {
+    await open(list({ automove: am(), form: { services: SERVICES } }))
+    answer({
+      '/gcal/batch/check': ok({ preview: PV }),
+      '/gcal/batch/run': new ApiError({ kind: 'conflict', code: 'gc_a_stale', text: 'Lista s-a schimbat între timp' }, 'x'),
+    })
+    fireEvent.click(within(bar() as HTMLElement).getByRole('button', { name: /Mută în jurnal toate cu medic/ }))
+    await waitFor(() => expect(dlg()?.querySelector('.gcb-table')).not.toBeNull())
+    fireEvent.click(within(dlg() as HTMLElement).getByRole('button', { name: /Mută 2 programări/ }))
+    await waitFor(() => expect(dlg()?.textContent).toContain('Lista s-a schimbat între timp'))
+    await waitFor(() => expect(calls('/gcal/batch/check')).toHaveLength(2))
+  })
+
+  it('процедура и SMS в окне — команды вкладки, потом предпросмотр заново', async () => {
+    await open(list({ automove: am(), form: { services: SERVICES } }))
+    answer({
+      '/gcal/batch/check': ok({ preview: PV }),
+      '/gcal/source': ok(list({ automove: am() }), 'gc_set'),
+      '/gcal/sms': ok(list({ automove: am({ sms: { show: true, on: true } }) }), 'gc_a_sms_on'),
+    })
+    fireEvent.click(within(bar() as HTMLElement).getByRole('button', { name: /Mută în jurnal toate cu medic/ }))
+    await waitFor(() => expect(dlg()?.querySelector('.gcb-table')).not.toBeNull())
+    fireEvent.change(dlg()?.querySelector('select') as HTMLSelectElement, { target: { value: 'hygiene' } })
+    await waitFor(() => expect(calls('/gcal/batch/check')).toHaveLength(2))
+    expect(calls('/gcal/source')[0]?.[1]).toEqual({ service: 'hygiene' })
+    fireEvent.click(within(dlg() as HTMLElement).getByRole('checkbox', { name: /SMS de reamintire/ }))
+    await waitFor(() => expect(calls('/gcal/batch/check')).toHaveLength(3))
+    expect(calls('/gcal/sms')[0]?.[1]).toEqual({ on: true })
+  })
+
+  it('строка автопереноса: включение — через окно «Pornește», выключение и SMS — командами', async () => {
+    const g = { ...ON, auto: AUTO }
+    await open(list({ google: g, automove: am(), form: { services: SERVICES } }))
+    const autoRow = () => document.querySelector('.gl-auto') as HTMLElement
+    expect(autoRow().textContent).toContain('La pornire vedeți mai întâi ce se mută acum.')
+    answer({
+      '/gcal/batch/check': ok({ preview: { ...PV, auto: true } }),
+      '/gcal/batch/run': ok(list({ google: { ...g, auto: { ...AUTO, on: true, can_off: true } }, automove: am() }),
+        'gc_a_auto_on', 'Mutarea automată este pornită'),
+      '/gcal/sms': ok(list({ google: g, automove: am({ sms: { show: true, on: true } }) }), 'gc_a_sms_on'),
+      '/gcal/auto': ok(list({ google: g, automove: am() }), 'gc_a_auto_off'),
+    })
+    fireEvent.click(within(autoRow()).getByRole('checkbox', { name: /Mută automat/ }))
+    await waitFor(() => expect(dlg()?.getAttribute('aria-label')).toBe('Pornește mutarea automată'))
+    await waitFor(() => expect(dlg()?.querySelector('.gcb-table')).not.toBeNull())
+    expect(dlg()?.textContent).toContain('De acum, la fiecare verificare (din 10 în 10 minute)')
+    expect(calls('/gcal/batch/check')[0]?.[1]).toEqual({ auto: true })
+    fireEvent.click(within(dlg() as HTMLElement).getByRole('button', { name: /Mută 2 și pornește/ }))
+    await waitFor(() => expect(calls('/gcal/batch/run')[0]?.[1]).toEqual({ token: 'tok1', auto: true }))
+    await waitFor(() => expect((autoRow().querySelector('input') as HTMLInputElement).checked).toBe(true))
+    expect(bar()?.dataset.bar).toBe('auto')
+    fireEvent.click(within(autoRow()).getByRole('checkbox', { name: /Mută automat/ }))
+    await waitFor(() => expect(calls('/gcal/auto')[0]?.[1]).toEqual({ on: false }))
+    fireEvent.click(within(autoRow()).getByRole('checkbox', { name: /SMS de reamintire/ }))
+    await waitFor(() => expect(calls('/gcal/sms')[0]?.[1]).toEqual({ on: true }))
+  })
+
+  it('строки нет без связи и пока ждём браузер; на паузе Plus — галочка стоит, полоса говорит «stă»', async () => {
+    await open(list({ google: google(), automove: am() }))
+    expect(document.querySelector('.gl-auto')).toBeNull()
+    cleanup()
+    await open(list({ google: { ...ON, waiting: true, auto: AUTO }, automove: am() }))
+    expect(document.querySelector('.gl-auto')).toBeNull()
+    cleanup()
+    const stopped = { ...PLUS, connected: true, auto: { on: true, can_on: false, can_off: true, stopped: true } }
+    await open(list({ google: stopped, automove: am({ last: { when: 'azi, 10:40', n: 3 } }) }))
+    const autoRow = document.querySelector('.gl-auto') as HTMLElement
+    expect(autoRow.textContent).toContain('Stă cât timp legătura este oprită; bifa rămâne.')
+    expect(autoRow.textContent).not.toContain('SMS de reamintire')
+    expect(bar()?.textContent).toContain('Mutarea automată stă cât timp verificarea Google este oprită')
+  })
+
+  it('«Ultima: …» и история: отменённая мутация — словом, отмены у неё нет', async () => {
+    const moves = [
+      { key: 'auto:2', when: '22.11.2026 10:40', how: 'auto' as const, by: 'sistem', n: 3, fresh: 1, undone: null },
+      { key: 'batch:1', when: '21.11.2026 18:20', how: 'batch' as const, by: 'Ana', n: 1, fresh: 0,
+        undone: { when: '21.11.2026 18:30', removed: 1, kept: 0, cards: 0 } },
+    ]
+    await open(list({ google: { ...ON, auto: { ...AUTO, on: true, can_off: true } },
+      automove: am({ last: { when: 'azi, 10:40', n: 3 }, moves }) }))
+    expect(document.querySelector('.gl-autot')?.textContent).toBe('Ultima: azi, 10:40 — 3 programări.')
+    fireEvent.click(within(document.querySelector('.gl-auto') as HTMLElement)
+      .getByRole('button', { name: /Istoricul mutărilor/ }))
+    await waitFor(() => expect(dlg()?.querySelectorAll('.gcb-hist li')).toHaveLength(2))
+    const items = Array.from(dlg()?.querySelectorAll('.gcb-hist li') ?? [])
+    expect(items[0]?.textContent).toContain('22.11.2026 10:40 · automat')
+    expect(within(items[0] as HTMLElement).getByRole('button', { name: /Anulează mutarea/ })).toBeTruthy()
+    expect(items[1]?.textContent).toContain('anulată: 1 șterse')
+    expect(within(items[1] as HTMLElement).queryByRole('button')).toBeNull()
+  })
+
+  it('строки: «nu se mută singur», «mutat automat», кнопки «schimbat» — по `can` сервера', async () => {
+    const stay = row({ auto: { why: { code: 'a_doctor', text: 'medicul nu se recunoaște în titlu' }, how: '', dp: false } })
+    const auto = { ...MOVED, auto: { why: null, how: 'auto' as const, dp: false } }
+    const cancelled = {
+      ...MOVED, id: 11, changed: true, gstatus: 'cancelled' as const, auto: { why: null, how: 'batch' as const, dp: false },
+      can: { move: false, link: false, skip: false, back: false, follow: false, cancel_appt: true, keep: true },
+    }
+    const touched = {
+      ...MOVED, id: 12, changed: true, auto: { why: null, how: '' as const, dp: true },
+      can: { move: false, link: false, skip: false, back: false, follow: false, cancel_appt: false, keep: true },
+    }
+    await open(list({ automove: am(), days: [{ date: '2026-11-16', rows: [stay, auto, cancelled, touched] }] }))
+    expect(rowEl(5).textContent).toContain('nu se mută singur: medicul nu se recunoaște în titlu')
+    expect(rowEl(8).textContent).toContain('mutat automat')
+    expect(within(rowEl(11)).getByRole('button', { name: /Anulează programarea/ })).toBeTruthy()
+    expect(within(rowEl(11)).queryByRole('button', { name: /Mută și programarea/ })).toBeNull()
+    expect(rowEl(12).textContent).toContain('programarea a fost schimbată în DentPilot')
+    expect(within(rowEl(12)).getAllByRole('button').map((b) => b.textContent?.trim())).toEqual(['Lasă cum e'])
+    answer({ '/gcal/events/11/cancel-appt': ok(list({ automove: am() }), 'gc_a_cancelled', 'Programarea a fost anulată') })
+    fireEvent.click(within(rowEl(11)).getByRole('button', { name: /Anulează programarea/ }))
+    await waitFor(() => expect(calls('/gcal/events/11/cancel-appt')).toHaveLength(1))
+  })
+})

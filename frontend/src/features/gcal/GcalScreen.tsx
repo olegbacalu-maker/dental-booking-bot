@@ -16,6 +16,10 @@ import {
   dayTitle, fileSource, firstLine, gcalApi, minutesOf, presetOf, queryOf, shortWhen, spanOf, whereOf,
   type GcalList, type GcalLoad, type GcalRow, type GcalWhere,
 } from './gcal'
+import {
+  AutoRow, BatchBar, BatchDialog, ChangedActs, HistoryDialog, StayPill, undoAsk, W as WB,
+  type BatchDone, type BatchRequest,
+} from './GcalBatch'
 import { GcalLink } from './GcalLink'
 
 /* Вкладка «Google Calendar»: правила, слова фильтров, причин и отказов — сервера;
@@ -93,6 +97,8 @@ const T = {
 } as const
 
 const SEARCH_MS = 300
+/** Состояния связи, у которых под блоком стоит строка автопереноса (связь есть, человек ничего не ждёт). */
+const CALM = new Set(['on', 'paused', 'reconnect', 'plus', 'readonly'])
 /** Пока браузер Windows не вернулся со входа Google: окно программы о нём само не узнаёт. */
 const WAIT_MS = 3000
 
@@ -121,6 +127,10 @@ export function GcalScreen({ navigate = defaultNavigate }: Props) {
      расширяла бы кнопку и сдвигала полосу файла (каждое «Verifică acum») */
   const [reading, setReading] = useState(false)
   const closeToast = useCallback(() => setToast(null), [])
+  const [batchReq, setBatchReq] = useState<BatchRequest | null>(null)
+  const [histOpen, setHistOpen] = useState(false)
+  const [done, setDone] = useState<BatchDone | null>(null)
+  const batchSeq = useRef(0)
   const fileRef = useRef<HTMLInputElement>(null)
   const google = state.status === 'ready' ? state.data.google ?? null : null
   const waiting = !!google?.waiting
@@ -222,6 +232,31 @@ export function GcalScreen({ navigate = defaultNavigate }: Props) {
   }
 
   const g = d.google ?? null
+  const auto = d.automove ?? null
+  function openBatch(withAuto: boolean) {
+    batchSeq.current += 1
+    setBatchReq({ auto: withAuto, seq: batchSeq.current })
+  }
+  async function undoMove(key: string) {
+    const m = auto?.moves.find((x) => x.key === key)
+    if (!m || !await ask({ text: undoAsk(m), ok: WB.undo, danger: true })) return
+    if (await run((w) => gcalApi.undo(key, w))) setDone(null)
+  }
+  const dialogs = auto ? (
+    <>
+      <BatchDialog req={batchReq} where={where} services={d.form?.services ?? []} onList={replace}
+                   onAuthLost={leaveIfSignedOut} onClose={() => setBatchReq(null)}
+                   onDone={(r, withAuto) => {
+                     replace(r.data)
+                     setToast({ tone: r.tone, text: r.text })
+                     const b = r.data.batch
+                     setDone(!withAuto && b && b.n ? { key: b.key, n: b.n, fresh: b.fresh } : null)
+                     setBatchReq(null)
+                   }} />
+      <HistoryDialog open={histOpen} moves={auto.moves} can={auto.batch.can} busy={busy}
+                     onUndo={(m) => { void undoMove(m.key) }} onClose={() => setHistOpen(false)} />
+    </>
+  ) : null
   async function connect() {
     const r = await run((w) => gcalApi.google.connect(w))
     // новым окном: оболочка отдаёт чужой адрес браузеру Windows, окно программы остаётся
@@ -245,6 +280,12 @@ export function GcalScreen({ navigate = defaultNavigate }: Props) {
                 onCalendar={async (id) => !!await run((w) => gcalApi.google.calendar(id, w))}
                 onCheck={() => { void checkNow() }}
                 onDisconnect={() => { void disconnect() }} />
+      {auto && g.auto && !g.waiting && CALM.has(g.state) ? (
+        <AutoRow g={g} a={auto} busy={busy}
+                 onAuto={(on) => { if (on) openBatch(true); else void run((w) => gcalApi.autoOff(w)) }}
+                 onSms={(on) => { void run((w) => gcalApi.sms(on, w)) }}
+                 onHistory={() => setHistOpen(true)} />
+      ) : null}
     </div>
   ) : null
 
@@ -274,6 +315,9 @@ export function GcalScreen({ navigate = defaultNavigate }: Props) {
     onMove: () => setMoving(r),
     onSkip: (on: boolean) => { void run((w) => gcalApi.skip(r.id, on, w)) },
     onLink: (apptId: number) => { void run((w) => gcalApi.link(r.id, apptId, w)) },
+    onFollow: () => { void run((w) => gcalApi.follow(r.id, w)) },
+    onCancel: () => { void run((w) => gcalApi.cancelAppt(r.id, w)) },
+    onKeep: () => { void run((w) => gcalApi.keep(r.id, w)) },
   })
   const allDays = d.date ? (
     <button type="button" className="rc-btn gc-all" onClick={() => show({ date: '', month: d.date })}>
@@ -336,6 +380,11 @@ export function GcalScreen({ navigate = defaultNavigate }: Props) {
               </p>
             ) : null}
           </div>
+          {auto && f === 'nou' ? (
+            <BatchBar a={auto} auto={!!g?.auto?.on && !g.auto.stopped} stopped={!!g?.auto?.on && !!g.auto.stopped}
+                      done={done} busy={busy} onOpen={() => openBatch(false)}
+                      onUndo={(key) => { void undoMove(key) }} onClose={() => setDone(null)} />
+          ) : null}
 
           {!rows ? (
             <div className="fcard rc-empty">
@@ -367,11 +416,18 @@ export function GcalScreen({ navigate = defaultNavigate }: Props) {
 
       <div className="gc-foot">
         <p className="hint"><Icon name="shield" /> {T.keep.replace('{n}', String(d.keep_days))}</p>
-        {d.can.clear ? (
-          <button type="button" className="rc-btn gc-clear" disabled={busy} onClick={() => { void clearAll() }}>
-            <Icon name="trash" /> {T.clear}
-          </button>
-        ) : null}
+        <span className="gcb-footacts">
+          {auto?.moves.length ? (
+            <button type="button" className="rc-btn" onClick={() => setHistOpen(true)}>
+              <Icon name="clock" /> {WB.history}
+            </button>
+          ) : null}
+          {d.can.clear ? (
+            <button type="button" className="rc-btn gc-clear" disabled={busy} onClick={() => { void clearAll() }}>
+              <Icon name="trash" /> {T.clear}
+            </button>
+          ) : null}
+        </span>
       </div>
 
       {moving ? (
@@ -380,6 +436,7 @@ export function GcalScreen({ navigate = defaultNavigate }: Props) {
                     onStale={() => { void run((w) => gcalApi.list(w), true) }}
                     onDone={(list, t) => { replace(list); setToast(t) }} />
       ) : null}
+      {dialogs}
       {toast ? <Toast {...toast} onClose={closeToast} /> : null}
     </section>
   )
@@ -413,9 +470,12 @@ interface RowProps {
   onMove: () => void
   onSkip: (on: boolean) => void
   onLink: (apptId: number) => void
+  onFollow: () => void
+  onCancel: () => void
+  onKeep: () => void
 }
 
-function Row({ r, busy, onMove, onSkip, onLink }: RowProps) {
+function Row({ r, busy, onMove, onSkip, onLink, onFollow, onCancel, onKeep }: RowProps) {
   const moved = r.state === 'mutat'
   const span = moved ? '' : spanOf(r)
   const minutes = moved ? 0 : minutesOf(r)
@@ -443,6 +503,7 @@ function Row({ r, busy, onMove, onSkip, onLink }: RowProps) {
           <span key={p.id} className="rc-pill blue">{T.card}: {p.name}</span>
         ))}
         {!moved && why && !skippedSelf ? <span className="rc-pill amber">{why}</span> : null}
+        <StayPill r={r} />
         {moved && r.changed ? (
           <span className="rc-pill amber">
             <Icon name="excl" /> {T.changed}
@@ -464,13 +525,18 @@ function Row({ r, busy, onMove, onSkip, onLink }: RowProps) {
         ) : null}
       </div>
       <div className="gc-state">
-        {moved ? <span className="rc-pill green"><Icon name="check" /> {T.sMoved}</span> : null}
+        {moved ? (
+          <span className="rc-pill green">
+            <Icon name={r.auto?.how === 'auto' ? 'refresh' : 'check'} /> {r.auto?.how === 'auto' ? WB.autoPill : T.sMoved}
+          </span>
+        ) : null}
         {r.state === 'nou' ? <span className="rc-pill grey">{T.sNew}</span> : null}
         {r.state === 'nerecunoscut' ? <span className="rc-pill amber">{T.sUnparsed}</span> : null}
         {r.state === 'omis'
           ? <span className="rc-pill grey">{T.sSkipped} — {skippedSelf ? why : T.byHand}</span> : null}
       </div>
       <div className="rc-acts">
+        <ChangedActs r={r} busy={busy} onFollow={onFollow} onCancel={onCancel} onKeep={onKeep} />
         {r.can.move ? (
           <button type="button" className="rc-btn pri" disabled={busy} onClick={onMove}>
             <Icon name="plus" /> {T.move}

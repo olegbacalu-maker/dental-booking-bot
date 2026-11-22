@@ -3379,7 +3379,8 @@ dialog.dp-about { width: 460px; }
   border-radius: var(--r-ctl); background: var(--surface); color: var(--text); font: inherit; font-size: var(--fs-body); }
 .dp-react-root .gc-total { margin: 0; white-space: nowrap; }
 /* цифры счётчиков вкладок одной ширины: события пришли (19 › 23) — соседние вкладки не едут вбок */
-.dp-react-root.gc .rc-n { font-variant-numeric: tabular-nums; }
+/* место под две цифры: пачка переносит «De mutat 11 › 6», и соседние вкладки не едут вбок */
+.dp-react-root.gc .rc-n { font-variant-numeric: tabular-nums; min-width: calc(2ch + 14px); }
 .dp-react-root.gc .gc-tl { display: inline-flex; flex-direction: column; }
 .dp-react-root.gc .gc-tl::after { content: attr(data-t); font-weight: 600; height: 0; visibility: hidden; overflow: hidden; }
 .dp-react-root .gc-cols { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; align-items: start; }
@@ -3473,6 +3474,81 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .gl-cal.on { border-color: var(--teal); background: var(--teal-soft); }
 .dp-react-root .gl-cal small { color: var(--text3); font-size: var(--fs-xs); }
 .dp-react-root .gl-cal input { accent-color: var(--teal); margin: 0; }
+/* Перенос в журнал пачкой и автоматом: строка автопереноса под блоком связи, полоса над «De mutat», окна */
+.dp-react-root .gl-auto { display: flex; flex-wrap: wrap; gap: 6px 28px; margin-top: 10px; padding: 10px 0 0 46px;
+  border-top: 1px solid var(--line2); }
+.dp-react-root .gl-autoc { display: flex; flex-direction: column; gap: 2px; flex: 1 1 380px; min-width: 0; }
+.dp-react-root .gl-chk { display: inline-flex; align-items: center; gap: 8px; color: var(--text); font-size: var(--fs-body);
+  font-weight: 500; cursor: pointer; width: fit-content; }
+.dp-react-root .gl-chk input { accent-color: var(--teal); margin: 0; width: 16px; height: 16px; }
+.dp-react-root .gl-chk:has(input:disabled) { color: var(--text3); cursor: default; }
+/* одна строка подсказки: опрос и галочки меняют текст, а не высоту полосы */
+.dp-react-root .gl-autoh { display: flex; gap: 10px; padding-left: 24px; color: var(--text2); font-size: var(--fs-s); line-height: 1.45; }
+.dp-react-root .gl-autot { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dp-react-root .gl-hist { flex: none; margin-left: auto; font-size: inherit; white-space: nowrap; }
+.dp-react-root .gcb-bar { display: flex; align-items: center; gap: 12px; padding: 9px 16px; min-height: 50px; }
+.dp-react-root .gcb-t { flex: 1 1 0; min-width: 0; margin: 0; color: var(--text2); font-size: var(--fs-body); }
+.dp-react-root .gcb-a { display: flex; align-items: center; gap: 8px; }
+.dp-react-root .gcb-a .rc-btn { height: 30px; padding: 0 12px; }
+.gcb-ico { display: grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px; border-radius: 999px;
+  background: var(--teal-soft); color: var(--teal-d); }
+.gcb-ico svg { width: 15px; height: 15px; }
+.gcb-ico.ok { background: var(--green-soft); color: var(--green-t); }
+.gcb-ico.batch { background: var(--blue-soft); color: var(--blue); }
+.dp-react-root .gcb-stay { white-space: normal !important; }
+.dp-react-root .gcb-danger { border-color: var(--red-t); color: var(--red-t); }
+.dp-react-root .gcb-dp { font-size: var(--fs-s); }
+dialog.rg-dlg.wide.gcb-dlg { width: min(860px, calc(100vw - 48px)); }
+.gcb-dlg .gcb-lead { margin: 0; }
+.gcb-dlg .gcb-autolead { display: flex; gap: 8px; margin: 0; padding: 10px 12px; border: 1px solid var(--line2);
+  border-radius: var(--r-ctl); background: var(--teal-soft); color: var(--teal-d); font-size: var(--fs-m); }
+.gcb-dlg .gcb-autolead svg { flex: 0 0 15px; width: 15px; height: 15px; margin-top: 2px; }
+.gcb-dlg .gcb-opts { display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: flex-start; }
+.gcb-dlg .gcb-svc { display: flex; flex-direction: column; gap: 4px; color: var(--text2); font-size: var(--fs-s); font-weight: 600; }
+.gcb-dlg .gcb-svc .dp-sel { width: 240px; }
+.gcb-dlg .gcb-svc small, .gcb-dlg .gcb-sms small { font-weight: 400; margin: 0; }
+.gcb-dlg .gcb-sms { display: flex; flex-direction: column; gap: 4px; padding-top: 22px; }
+.gcb-dlg .gcb-sms label { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-m); color: var(--text); }
+.gcb-dlg .gcb-sms input { accent-color: var(--teal); margin: 0; }
+.gcb-dlg .gcb-sms small { padding-left: 24px; }
+.gcb-dlg .gcb-counts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 0; padding: 0; list-style: none; }
+.gcb-dlg .gcb-counts li { display: flex; flex-direction: column; gap: 2px; padding: 10px 14px; border: 1px solid var(--line);
+  border-radius: var(--r-card); background: var(--panel); color: var(--text2); font-size: var(--fs-m); }
+.gcb-dlg .gcb-counts b { font-size: var(--fs-xl); line-height: 26px; color: var(--text); font-variant-numeric: tabular-nums; }
+.gcb-dlg .gcb-counts .go b { color: var(--green-t); }
+.gcb-dlg .gcb-counts .stay b { color: var(--amber-t); }
+.gcb-dlg .gcb-group { border: 1px solid var(--line2); border-radius: var(--r-ctl); }
+.gcb-dlg .gcb-group summary { display: flex; align-items: center; gap: 8px; padding: 10px 14px; cursor: pointer; font-size: var(--fs-body); }
+.gcb-dlg .gcb-group summary svg { width: 14px; height: 14px; color: var(--text3); }
+.gcb-dlg .gcb-group[open] summary svg { transform: rotate(90deg); }
+.gcb-dlg .gcb-badge { padding: 1px 8px; border-radius: 999px; background: var(--line2); color: var(--text2); font-size: var(--fs-s); font-weight: 600; }
+.gcb-dlg .gcb-table { width: 100%; border-collapse: collapse; font-size: var(--fs-m); }
+.gcb-dlg .gcb-table th, .gcb-dlg .gcb-table td { padding: 7px 12px; text-align: left; vertical-align: top; border-top: 1px solid var(--line2); }
+.gcb-dlg .gcb-table th { color: var(--text2); font-size: var(--fs-s); font-weight: 600; background: var(--fill); white-space: nowrap; }
+.gcb-dlg .gcb-when { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.gcb-dlg .gcb-what { color: var(--text2); overflow-wrap: anywhere; }
+.gcb-dlg .gcb-why { color: var(--amber-t); }
+.gcb-dlg .rc-pill { display: inline-flex; padding: 1px 8px; border-radius: 999px; font-size: var(--fs-s); }
+.gcb-dlg .rc-pill.green { background: var(--green-soft); color: var(--green-t); }
+.gcb-dlg .rc-pill.grey { background: var(--line2); color: var(--text2); }
+.gcb-dlg .gcb-hist { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; border: 1px solid var(--line2);
+  border-radius: var(--r-ctl); }
+.gcb-dlg .gcb-hist li { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--line2); }
+.gcb-dlg .gcb-hist li:first-child { border-top: 0; }
+.gcb-dlg .gcb-hist li.undone { color: var(--text3); }
+.gcb-dlg .gcb-hw { display: flex; flex-direction: column; flex: 1; gap: 2px; font-size: var(--fs-body); color: var(--text2); }
+.gcb-dlg .gcb-hw b { color: var(--text); font-weight: 600; }
+.gcb-dlg .gcb-hw small { font-size: var(--fs-s); }
+.gcb-dlg .gcb-hhint { display: flex; gap: 8px; margin: 0; }
+.gcb-dlg .gcb-hhint svg { flex: 0 0 15px; width: 15px; height: 15px; margin-top: 2px; }
+.gcb-dlg .rc-btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--line);
+  border-radius: var(--r-ctl); background: var(--surface); color: var(--text); font: inherit; font-size: var(--fs-m); cursor: pointer; }
+.gcb-dlg .rc-btn svg { width: 15px; height: 15px; }
+.dp-react-root .gcb-footacts { display: flex; flex-wrap: wrap; gap: 8px 10px; margin-left: auto; }
+/* тело окна держит высоту, пока сервер считает предпросмотр: таблица приходит в то же место */
+.gcb-dlg .gcb-body { min-height: min(420px, calc(100dvh - 220px)); }
+.gcb-dlg .gcb-wait { margin: 0; }
+.gcb-dlg .banner { margin: 0; }
 /* кнопки блока выключает общий busy вкладки: вид приходит с задержкой, короткая команда не мигает */
 .dp-react-root .gl .rc-btn:disabled { transition: opacity var(--dur-fast) ease var(--dur); }
 @keyframes gl-spin { to { transform: rotate(360deg); } }
