@@ -443,17 +443,33 @@ def _matches(row: dict, needle: str) -> bool:
     return needle in gimport.fold(hay)
 
 
-def _source_view(src: dict) -> dict:
+# Процедура окна переноса — одна на вкладку, не у источника: источник аккаунта Google свежее файла
+# после каждого опроса, и выбор, сделанный при другом источнике, молча переставал бы подставляться.
+META_SERVICE = "gcal_service"
+
+
+def _source_service(src: dict) -> str:
     try:
         settings = json.loads(src["settings"] or "{}")
     except ValueError:
-        settings = {}
+        return ""
+    return str(settings.get("service") or "") if isinstance(settings, dict) else ""
+
+
+async def tab_service(sources: list | None = None) -> str:
+    """Процедура вкладки. До настройки вкладки она жила у источника — тогда берётся оттуда."""
+    raw = await db.get_meta(META_SERVICE)
+    if raw is None:
+        rows = sources if sources is not None else await db.gcal_sources()
+        raw = next((s for s in map(_source_service, rows) if s), "")
+    return raw if eng.in_agenda(raw) else ""
+
+
+def _source_view(src: dict, service: str) -> dict:
     at = db._parse_dt(src["loaded_at"]).astimezone(eng.TZ) if src["loaded_at"] else None
     return {"id": src["id"], "kind": src["kind"], "name": src["name"],
             "loaded_at": at.strftime("%d.%m.%Y %H:%M") if at else "",
-            "loaded_by": src["loaded_by"],
-            "service": (settings.get("service", "") if eng.in_agenda(settings.get("service") or "")
-                        else "")}
+            "loaded_by": src["loaded_by"], "service": service}
 
 
 def _form() -> dict:
@@ -506,8 +522,9 @@ async def listing(f: str = "", q: str = "", day: str = "", month: str = "") -> d
             counts[b] += 1
         if f in buckets:
             shown.append(r)
-    sources = [_source_view(s) for s in await db.gcal_sources()]
-    service = sources[0]["service"] if sources else ""
+    rows_src = await db.gcal_sources()
+    service = await tab_service(rows_src)
+    sources = [_source_view(s, service) for s in rows_src]
     people, journal = _People([]), {}
     todo = [r for r in shown if r["state"] != db.GCAL_MOVED]
     if todo:
@@ -652,6 +669,8 @@ async def skip(eid: int, on: bool) -> str:
 
 async def clear() -> str:
     n = await db.gcal_clear()
+    # «Șterge tot» стирал и настройку источника — выбор процедуры уходит вместе с ней, как раньше
+    await db.set_meta(META_SERVICE, "")
     await db.log_clinic_event(
         "gcal", f"Google Calendar: toate evenimentele au fost șterse ({n} nemutate)", _actor())
     return "gc_cleared"
@@ -660,8 +679,7 @@ async def clear() -> str:
 async def set_service(service: str) -> str:
     if service and not eng.in_agenda(service):
         return "gc_bad"
-    sources = await db.gcal_sources()
-    if not sources:
+    if not await db.gcal_sources():
         return "gc_gone"
-    await db.gcal_source_settings(sources[0]["id"], json.dumps({"service": service}))
+    await db.set_meta(META_SERVICE, service)
     return "gc_set"

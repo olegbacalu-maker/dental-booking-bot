@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import pathlib
 import re
+import sqlite3
 import tempfile
 import time
 import urllib.parse
@@ -382,6 +383,36 @@ def _plus_first(res: Result, g: tg.Google, client: pathlib.Path, d: pathlib.Path
         (d / "google.json").write_text(raw, encoding="utf-8")
         res.check("файл свой — связь снова идёт", google(c)["state"], "on")
 
+        # Процедура окна переноса — одна на вкладку: не теряется, когда свежее становится другой источник.
+        def presets() -> dict:
+            return {x["title"]: (x.get("preset") or {}).get("service") for x in rows(listing(c))}
+
+        res.check("процедура выбрана, пока свежее источник файла", c.post_json(
+            "/api/gcal/source", {"service": "hygiene"}).msg, "gc_set")
+        time.sleep(1.1)             # свежесть источников — `loaded_at` с точностью до секунды
+        res.check("выбрали процедуру при файле → прошёл опрос Google → окно переноса получает ту же процедуру",
+                  (c.post_json("/api/gcal/google/check", {}).msg, set(presets().values()), listing(c)["source"]["kind"]),
+                  ("gc_g_checked", {"hygiene"}, "google"))
+        res.check("процедура выбрана при связи", c.post_json("/api/gcal/source", {"service": "pain"}).msg, "gc_set")
+        time.sleep(1.1)
+        res.check("выбрали процедуру при связи → загрузили файл → окно переноса получает ту же процедуру",
+                  (upload(c, cal([ev("f2", 9, "09:00", 30, "Inca Un Fisier")])).msg, set(presets().values()),
+                   listing(c)["source"]["kind"]),
+                  ("gc_loaded", {"pain"}, "ics"))
+        res.check("после ещё одного опроса процедура та же", (c.post_json("/api/gcal/google/check", {}).msg,
+                                                             set(presets().values())), ("gc_g_checked", {"pain"}))
+        # Клиника с прошлой версии: выбор лежит в настройке источника файла, вкладка его ещё не знает.
+        con = sqlite3.connect(str(d / "dental.db"))
+        try:
+            con.execute("DELETE FROM schema_meta WHERE key = 'gcal_service'")
+            con.execute("""UPDATE gcal_sources SET settings = '{"service": "consult"}' WHERE kind = 'ics'""")
+            con.commit()
+        finally:
+            con.close()
+        res.check("выбор прошлой версии у источника файла подхватывается, хотя свежее источник Google",
+                  (c.post_json("/api/gcal/google/check", {}).msg, set(presets().values())),
+                  ("gc_g_checked", {"consult"}))
+
         leaks = [name for name in ("google.json", "dental.db", "dental.db-wal")
                  if (d / name).exists() and SECRETS.search((d / name).read_bytes().decode("latin-1"))]
         if SECRETS.search(s.log_text()):
@@ -406,7 +437,8 @@ def _basic_pause(res: Result, g: tg.Google, client: pathlib.Path, d: pathlib.Pat
         link = json.loads((d / "google.json").read_text(encoding="utf-8"))
         res.ok("Basic: файл связи цел, не мёртв", link.get("token", "").startswith("dpapi:")
                and not link.get("dead"), repr({k: v for k, v in link.items() if k != "token"}))
-        res.check("Basic: события остались в списке", len(titles(c)), 4)
+        res.check("Basic: события остались в списке", titles(c),
+                  ["Inca Un Fisier", "Nou Pacient", "Popescu Ion 069123456", "Rusu Ana"])
         r = c.post_json("/api/gcal/google/check", {})
         res.check("Basic: «Verifică acum» паузу гейта не снимает — отказ Plus, в Google не ходит",
                   (r.status, r.msg, google(c)["state"], event_reads(g)), (409, "gc_g_plus", "plus", before))
