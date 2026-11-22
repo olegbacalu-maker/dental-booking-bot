@@ -315,7 +315,9 @@ export function GcalScreen({ navigate = defaultNavigate }: Props) {
                 <button key={x.key} type="button" role="tab" aria-selected={f === x.key}
                         className={`rc-tab${f === x.key ? ' on' : ''}`}
                         onClick={() => show({ f: x.key, q: query })}>
-                  {x.label} <span className={`rc-n${x.key === 'nou' && x.n ? ' hot' : ''}`}>{x.n}</span>
+                  {/* место под жирную подпись нажатой вкладки занято заранее: соседи не едут при выборе */}
+                  <span className="gc-tl" data-t={x.label}>{x.label}</span>{' '}
+                  <span className={`rc-n${x.key === 'nou' && x.n ? ' hot' : ''}`}>{x.n}</span>
                 </button>
               ))}
             </div>
