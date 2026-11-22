@@ -484,6 +484,10 @@ def suite_changed(res: Result) -> None:
             got = datetime.fromisoformat(lungu[2]).astimezone(TZ).strftime("%H:%M")
             res.check("«Mută și programarea»: запись на новом часе, метка «без SMS» осталась",
                       (r.msg, got, lungu[5]), ("gc_a_followed", want, 1))
+            r = c.post_json(f"/api/schedule/appointments/{lungu[0]}/move", {"date": _day(3), "time": "15:00",
+                                                                           "doctor": "d2"})
+            res.check("…а перенос той же записи руками в журнале метку снимает, как раньше",
+                      (r.msg, appts(s, "Lungu Petru")[0][5]), ("ok_move", 0))
             r = c.post_json(f"/api/gcal/events/{ch['Bejan Ana']['id']}/follow", {})
             res.check("тронутую в DentPilot за Google не двигаем", (r.status, r.msg), (409, "gc_a_touched"))
             r = c.post_json(f"/api/gcal/events/{ch['Rotaru Ana']['id']}/cancel-appt", {})
@@ -540,3 +544,106 @@ def suite_rights(res: Result) -> None:
     finally:
         g.close()
         _rmtree_settled(work)
+
+
+# ---------- колонки событий после шагов миграции ----------
+
+NEW_COLS = ("moved_how", "move_key", "move_pid", "appt_sig", "auto_why", "ack")
+
+
+def _gcal_cols(con) -> list:
+    """Сколько раз каждая новая колонка есть в gcal_events (ровно по разу — не задвоилась)."""
+    have = [r[1] for r in con.execute("PRAGMA table_info(gcal_events)")]
+    return [have.count(c) for c in NEW_COLS]
+
+
+def _to_2231(con) -> None:
+    """База как у 2.23.1: колонок переноса без человека ещё нет, данные вкладки — есть."""
+    for c in NEW_COLS:
+        con.execute(f"ALTER TABLE gcal_events DROP COLUMN {c}")
+    con.commit()
+
+
+def suite_columns(res: Result) -> None:
+    """Колонки событий добавляются ПОСЛЕ шагов миграции (таблицу создаёт шаг 12): новая пустая база,
+    база 2.23.1 с данными вкладки, повторный старт — и то же на зашифрованной картотеке."""
+    from app.db import schema as appschema  # noqa: E402 — только список колонок
+    res.check("список колонок — тот, что проверяет набор",
+              [c.split()[0] for c in appschema.SQLITE_GCAL_COLS], list(NEW_COLS))
+    work = pathlib.Path(tempfile.mkdtemp(prefix="dp_gauto_cols_"))
+    try:
+        dbfile = work / "dental.db"
+        with Server(dir_=work) as s:
+            c = Client(s.url).login()
+            con = sqlite3.connect(str(dbfile))
+            try:
+                res.check("новая пустая база: колонки на месте, по одной", _gcal_cols(con), [1] * len(NEW_COLS))
+            finally:
+                con.close()
+            res.check("данные вкладки: файл загружен", upload(c, cal([
+                ev("k1", 3, "09:00", 30, "Lungu Petru 069111222 dr Doi"),
+                ev("k2", 3, "10:00", 30, "Sandu Ion control")])).msg, "gc_loaded")
+            rid = next(x["id"] for x in rows(listing(c)) if x["title"].startswith("Lungu"))
+            r = c.post_json(f"/api/gcal/events/{rid}/move", {"date": _day(3), "time": "09:00", "doctor": "d2",
+                                                              "service": "consult", "name": "Lungu Petru",
+                                                              "phone": "069111222", "nophone": False})
+            res.check("данные вкладки: событие перенесено", r.msg, "ok")
+        con = sqlite3.connect(str(dbfile))
+        try:
+            _to_2231(con)
+            res.check("база как у 2.23.1: новых колонок нет", _gcal_cols(con), [0] * len(NEW_COLS))
+        finally:
+            con.close()
+        for tag in ("база 2.23.1 с данными", "повторный старт"):
+            with Server(dir_=work) as s:
+                c = Client(s.url).login()
+                con = sqlite3.connect(str(dbfile))
+                try:
+                    res.check(f"{tag}: колонки на месте, по одной", _gcal_cols(con), [1] * len(NEW_COLS))
+                    res.check(f"{tag}: перенесённое — с пустыми полями переноса", con.execute(
+                        "SELECT state, moved_how, move_key, appt_sig, ack FROM gcal_events WHERE ext_key LIKE 'k1%'"
+                    ).fetchall(), [("mutat", "", "", "", "")])
+                finally:
+                    con.close()
+                res.check(f"{tag}: вкладка видит обе строки",
+                          (len(rows(listing(c))), len(rows(listing(c, "mutat")))), (1, 1))
+        _columns_crypt(res)
+    finally:
+        _rmtree_settled(work)
+
+
+def _columns_crypt(res: Result) -> None:
+    """Зашифрованная картотека: отказ «колонка уже есть» — класс sqlcipher3, не sqlite3."""
+    from app.core import dbkey  # noqa: E402
+    import sqlcipher3.dbapi2 as sqlcipher  # noqa: E402
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_gauto_colsx_"))
+    try:
+        key = dbkey.generate()
+        if not dbkey.store(key, tmp):
+            res.failed.append(("ключ не сохранился под DPAPI", "не Windows или DPAPI отказал"))
+            return
+        dbfile = tmp / "dental.db"
+
+        def crypt():
+            con = sqlcipher.connect(str(dbfile))
+            con.execute(f"PRAGMA key = {dbkey.pragma_value(key)}")
+            return con
+
+        with Server(dir_=tmp):
+            pass
+        con = crypt()
+        try:
+            res.check("зашифрованная новая база: колонки на месте", _gcal_cols(con), [1] * len(NEW_COLS))
+            _to_2231(con)
+        finally:
+            con.close()
+        for tag in ("зашифрованная база 2.23.1", "зашифрованная, повторный старт"):
+            with Server(dir_=tmp) as s:
+                res.check(f"{tag}: вкладка отвечает", Client(s.url).login().get("/api/gcal").status, 200)
+            con = crypt()
+            try:
+                res.check(f"{tag}: колонки на месте, по одной", _gcal_cols(con), [1] * len(NEW_COLS))
+            finally:
+                con.close()
+    finally:
+        _rmtree_settled(tmp)

@@ -222,6 +222,7 @@ SUITES = [
     ("Google Calendar: изменилось в Google — «Mută și programarea», «Anulează», «Lasă cum e»",
      test_gcal_auto.suite_changed),
     ("Google Calendar: пачка — демо, Basic с файлом", test_gcal_auto.suite_rights),
+    ("Google Calendar: колонки переноса после шагов — новая, 2.23.1, повтор, шифр", test_gcal_auto.suite_columns),
     ("Визит фише по номеру: отказы, прошлое, проба, время клиники", test_book.suite),
     ("SMS: тексты, подстановки, окно отправки, настройки", test_sms.suite_plan),
     ("SMS: провод к серверу", test_sms.suite_wire),
