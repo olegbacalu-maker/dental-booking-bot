@@ -3378,6 +3378,8 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .gc-q { height: var(--h-ctl); width: 240px; max-width: 100%; padding: 0 12px; border: 1px solid var(--line);
   border-radius: var(--r-ctl); background: var(--surface); color: var(--text); font: inherit; font-size: var(--fs-body); }
 .dp-react-root .gc-total { margin: 0; white-space: nowrap; }
+/* цифры счётчиков вкладок одной ширины: события пришли (19 › 23) — соседние вкладки не едут вбок */
+.dp-react-root .gc .rc-n { font-variant-numeric: tabular-nums; }
 .dp-react-root .gc-cols { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; align-items: start; }
 .dp-react-root .gc-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .dp-react-root .gc-side { position: sticky; top: 84px; display: flex; flex-direction: column; gap: 10px; }
