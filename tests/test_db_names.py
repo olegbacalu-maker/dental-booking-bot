@@ -94,7 +94,7 @@ SNAPSHOT = frozenset((
     "doctor_future_count", "documents", "documents_with_paths", "_DT_COLS",
     "erasure_kind", "EVENT_TEXT_MAX", "_execute", "_fetch", "_fetchval", "_fold",
     "fold", "get_document", "get_meta", "get_patient", "get_payment", "init",
-    "_insert_note", "_iso", "last_events", "log", "_log_booking", "log_clinic_event",
+    "_insert_note", "_iso", "last_events", "log", "_log_booking", "_BOOKER", "booked_by", "log_clinic_event",
     "log_event", "manual_key", "MKT_EVENT", "MKT_SOURCES", "manual_patient_sms_off", "_migrate", "MIGRATIONS",
     "move_appointment", "ocluzie", "OCLUZIE_DDL", "OCLUZIE_FIELDS", "_OLD_ACT_SQL",
     "_parse_dt", "past_by_status", "patient_activity", "patient_alerts", "patient_appointments",

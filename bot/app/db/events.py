@@ -4,6 +4,8 @@
 старте); хук читается через пакет, а не по значению."""
 from __future__ import annotations
 
+import contextlib
+import contextvars
 from datetime import datetime
 
 from .. import db
@@ -72,6 +74,21 @@ async def log_clinic_event(kind: str, text: str, actor: str = "sistem") -> None:
         log.warning("clinic event %s failed: %r", kind, e)
 
 
+# Кто ставит запись, когда это не окно журнала: перенос из Google пачкой подписан тем, кто нажал,
+# автоперенос — «sistem». Окно журнала по-прежнему подписано каналом.
+_BOOKER: contextvars.ContextVar[str] = contextvars.ContextVar("dp_booker", default="")
+
+
+@contextlib.contextmanager
+def booked_by(actor: str):
+    """На время брони внутри блока строка «Programare: …» подписана `actor`."""
+    token = _BOOKER.set(actor)
+    try:
+        yield
+    finally:
+        _BOOKER.reset(token)
+
+
 async def _log_booking(pid: int, service: str, doctor: str,
                        starts_at: datetime, source: str, lane: str = "") -> None:
     """Событие «записался» — одно на все пути брони, поэтому вынесено. `lane` —
@@ -79,7 +96,7 @@ async def _log_booking(pid: int, service: str, doctor: str,
     await log_event(pid, "appt_new",
                     f"Programare: {service} · {doctor}{f' ({lane})' if lane else ''} · "
                     f"{starts_at.strftime('%d.%m.%Y %H:%M')}",
-                    actor="bot" if source == "bot" else "recepție")
+                    actor=_BOOKER.get() or ("bot" if source == "bot" else "recepție"))
 
 
 async def patient_activity(pid: int, limit: int = 50, *,

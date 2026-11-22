@@ -44,7 +44,7 @@ from .conn import (
     _execute, get_meta, set_meta, del_meta,
 )
 from .events import (
-    _actor_now, EVENT_TEXT_MAX, log_event, log_clinic_event, _log_booking,
+    _actor_now, EVENT_TEXT_MAX, log_event, log_clinic_event, _log_booking, _BOOKER, booked_by,
     patient_activity, recent_activity, tooth_activity, tooth_records_since,
     _backfill_activity,
 )

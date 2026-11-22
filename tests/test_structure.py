@@ -3045,3 +3045,28 @@ def suite(res: Result) -> None:
                     and re.search(r"(?i)\bdelete\s+from\s+appointments\b", n.value)):
                 bad.append(f"{rel}:{n.lineno} удаляет запись своим SQL")
     res.ok("отмена снимает только нетронутые", not bad, "; ".join(bad))
+
+    # Пачка и автоперенос подписывают «Programare: …» тем, кто перенёс: бронь из вкладки идёт под
+    # `db.booked_by`, а строка брони читает эту подпись; окно журнала подписано каналом, как было.
+    bad = []
+    ev = by_path.get("app/db/events.py")
+    log_b = next((n for n in (ev.body if ev else []) if isinstance(n, ast.AsyncFunctionDef)
+                  and n.name == "_log_booking"), None)
+    if log_b is None:
+        bad.append("app/db/events.py: нет _log_booking — якорь правила пропал")
+    elif not any(isinstance(n, ast.Name) and n.id == "_BOOKER" for n in _walk(log_b)):
+        bad.append("_log_booking не читает подпись брони (_BOOKER)")
+    apply_fn = funcs.get(f"{_GAUTO}:_apply")
+    if apply_fn is None:
+        bad.append(f"{_GAUTO}: нет _apply — якорь правила пропал")
+    else:
+        wrapped = {id(c) for w in _walk(apply_fn) if isinstance(w, ast.With)
+                   and any(isinstance(it.context_expr, ast.Call) and _calls(it.context_expr) == {"booked_by"}
+                           for it in w.items)
+                   for c in _walk(w) if isinstance(c, ast.Call)}
+        calls = [c for c in _walk(apply_fn) if isinstance(c, ast.Call) and _calls(c) == {"_journal_add"}]
+        if not calls:
+            bad.append("_apply больше не ставит запись через _journal_add — якорь правила пропал")
+        bad += [f"{_GAUTO}:{c.lineno} бронь пачки или автопереноса без db.booked_by" for c in calls
+                if id(c) not in wrapped]
+    res.ok("перенос из Google подписывает запись тем, кто перенёс", not bad, "; ".join(bad))

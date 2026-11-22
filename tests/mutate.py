@@ -835,6 +835,13 @@ MUTATIONS = [
      (" and await db.import_untouched(pid)", "")),
     ("отмена снимает только нетронутые", "app/modules/schedule/gcal_auto.py",
      "\nasync def _mut(db, i):\n    await db._execute('DELETE FROM appointments WHERE id = ?', i)\n"),
+    # Подпись брони из вкладки: строка брони перестала её читать; бронь пачки вышла из-под booked_by.
+    ("перенос из Google подписывает запись тем, кто перенёс", "app/db/events.py",
+     ('actor=_BOOKER.get() or ("bot" if source == "bot" else "recepție"))',
+      'actor="bot" if source == "bot" else "recepție")')),
+    ("перенос из Google подписывает запись тем, кто перенёс", "app/modules/schedule/gcal_auto.py",
+     ("        with db.booked_by(actor):\n            code, aid = await gcal._journal_add(body, pk.pid)\n",
+      "        code, aid = await gcal._journal_add(body, pk.pid)\n")),
 ]
 
 # Правки ЗАКОННЫЕ: нарушения в них нет, и правило обязано остаться

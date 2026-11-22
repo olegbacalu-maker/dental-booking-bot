@@ -298,7 +298,8 @@ async def _apply(picks: list[Pick], how: str, svc: str, sms: bool) -> dict:
                 "nophone": False}
         digits = "".join(ch for ch in pk.phone if ch.isdigit())
         before = set(await db._patient_ids_by_digits(digits)) if pk.fresh else set()
-        code, aid = await gcal._journal_add(body, pk.pid)
+        with db.booked_by(actor):
+            code, aid = await gcal._journal_add(body, pk.pid)
         if code not in gcal.OK_CODES or aid is None:
             refused.append(pk.stay(code))
             updates.append((pk.eid, {"auto_why": _journal_why(pk)}))

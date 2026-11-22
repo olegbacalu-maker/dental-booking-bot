@@ -81,10 +81,11 @@ def appts(s: Server, name: str) -> list:
                   "FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE p.name = ? ORDER BY a.id", name)
 
 
-def actors(s: Server, name: str) -> set:
-    """Кто завёл фишу. Строку «Programare: …» журнал подписывает каналом («recepție») у любой записи."""
+def actors(s: Server, name: str, kinds: tuple = ("created", "appt_new")) -> set:
+    """Кем подписаны «Fișă creată…» и «Programare: …» у пациента."""
+    marks = ",".join("?" for _ in kinds)
     return {r[0] for r in sql(s, "SELECT e.actor FROM activity e JOIN patients p ON p.id = e.patient_id "
-                                 "WHERE p.name = ? AND e.kind = 'created'", name)}
+                                 f"WHERE p.name = ? AND e.kind IN ({marks})", name, *kinds)}
 
 
 def write(s: Server, query: str, *args) -> None:
@@ -257,7 +258,12 @@ def suite_batch(res: Result) -> None:
             res.ok("комментарий записи — название из Google", lungu and lungu[0][6].startswith("Google: Lungu Petru"),
                    repr(lungu))
             res.check("запись Rotaru: фиша номера, врач из названия", [(x[4], x[5]) for x in rotaru], [("d3", 1)])
-            res.check("летопись — человек, не «sistem»", actors(s, "Lungu Petru"), {"Director"})
+            res.check("летопись пачки — тот, кто нажал: и фиша, и «Programare: …»", actors(s, "Lungu Petru"), {"Director"})
+            r = c.post_json("/api/schedule/appointments", {"date": _day(6), "time": "09:00", "doctor": "d2",
+                                                           "service": "consult", "name": "Jurnal Ion",
+                                                           "phone": "069500600"})
+            res.check("запись окном журнала — «Programare: …» по-прежнему каналом «recepție»",
+                      (r.msg, actors(s, "Jurnal Ion", ("appt_new",))), ("ok", {"recepție"}))
             res.check("события: как и кем перенесены", sorted(sql(
                 s, "SELECT moved_how, moved_by FROM gcal_events WHERE state = 'mutat'")),
                 [("batch", "Director"), ("batch", "Director")])
@@ -319,7 +325,7 @@ def suite_auto(res: Result) -> None:
             r = c.post_json("/api/gcal/google/check", {})
             res.check("«Verifică acum»: новое событие в журнале", (r.msg, [x[4] for x in appts(s, "Ursu Ion")]),
                       ("gc_g_checked", ["d3"]))
-            res.check("автоперенос подписан «sistem»: фиша и событие", (actors(s, "Ursu Ion"), sql(
+            res.check("автоперенос подписан «sistem»: фиша, «Programare: …» и событие", (actors(s, "Ursu Ion"), sql(
                 s, "SELECT moved_how, moved_by FROM gcal_events WHERE ext_key LIKE 'u3%'")),
                 ({"sistem"}, [("auto", "sistem")]))
             res.check("летопись клиники: строка автопереноса — «sistem»", sql(
