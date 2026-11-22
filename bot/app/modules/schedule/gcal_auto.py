@@ -196,9 +196,10 @@ async def service() -> str:
     return book.default_service(await gcal.tab_service())
 
 
-async def plan(rows: list, *, probe: bool) -> list[Pick]:
-    """Решения по строкам вкладки (`gcal._view`). `probe` — сверить ещё и час журнала (`book.probe`):
-    так делают предпросмотр, пачка и проход опроса; список вкладки — только правило без журнала."""
+async def plan(rows: list) -> list[Pick]:
+    """Решения по строкам вкладки (`gcal._view`): правило события, затем час журнала (`book.probe`)
+    и пересечения строк самой пачки. Одно на список вкладки, предпросмотр, пачку и проход опроса:
+    полоса над списком не обещает больше, чем перенесёт пачка."""
     people = gcal._People(await db.gcal_patients())
     svc = await service()
     drop = _service_words()
@@ -215,7 +216,7 @@ async def plan(rows: list, *, probe: bool) -> list[Pick]:
                 pk.link = ex["appt_id"]
             else:
                 pk.stay("a_exists")
-        if pk.ok and probe and pk.link is None:
+        if pk.ok and pk.link is None:
             code = await book.probe(pk.pid, pk.doctor, _start(pk), svc, minutes=pk.minutes or None)
             if code not in OK_PROBE:
                 pk.stay(code)
@@ -281,7 +282,7 @@ async def _apply(picks: list[Pick], how: str, svc: str, sms: bool) -> dict:
     # две мутации в одну секунду (пачка и опрос) не делят ключ: отмена одной не снимет другую
     key = f"{how}:{db._utcnow_iso()}:{secrets.token_hex(3)}"
     actor = gcal._actor()
-    moved, fresh, refused, updates = 0, 0, [], []
+    moved, fresh, refused = 0, 0, []
     for pk in picks:
         if not pk.ok:
             continue
@@ -306,7 +307,6 @@ async def _apply(picks: list[Pick], how: str, svc: str, sms: bool) -> dict:
             code, aid = await gcal._journal_add(body, pk.pid)
         if code not in gcal.OK_CODES or aid is None:
             refused.append(pk.stay(code))
-            updates.append((pk.eid, {"auto_why": _journal_why(pk)}))
             continue
         await db.set_comment(aid, gcal._comment(row))
         a = await db.appointment_brief(aid)
@@ -314,8 +314,6 @@ async def _apply(picks: list[Pick], how: str, svc: str, sms: bool) -> dict:
         await db.gcal_mark_moved(pk.eid, aid, actor, how=how, key=key, new_pid=new_pid, sms_skip=not sms)
         moved += 1
         fresh += new_pid is not None
-    if updates:
-        await db.gcal_write([], updates, [])
     if moved:
         recs = await moves()
         recs.insert(0, {"key": key, "at": db._utcnow_iso(), "by": actor, "how": how, "n": moved,
@@ -327,23 +325,6 @@ async def _apply(picks: list[Pick], how: str, svc: str, sms: bool) -> dict:
     return {"key": key if moved else "", "n": moved, "fresh": fresh, "refused": len(refused)}
 
 
-def _journal_why(pk: Pick) -> str:
-    """Причина, которую даёт журнал, а не само событие: занятый час, часы клиники, запись у другого
-    врача. Её список вкладки сам не пересчитывает — она лежит у строки до следующей проверки."""
-    return pk.why if not pk.ok and (pk.why == "a_exists" or not pk.why.startswith("a_")) else ""
-
-
-async def _remember(picks: list[Pick], rows: list) -> None:
-    was = {v["id"]: v.get("auto_why", "") for v in rows}
-    updates = []
-    for pk in picks:
-        now = _journal_why(pk)
-        if was.get(pk.eid, "") != now:
-            updates.append((pk.eid, {"auto_why": now}))
-    if updates:
-        await db.gcal_write([], updates, [])
-
-
 def _rows(data: dict) -> list:
     return [v for d in data["days"] for v in d["rows"]] + list(data["undated"])
 
@@ -353,8 +334,7 @@ async def preview(f_q: str, f_day: str, auto: bool) -> dict:
     списка «De mutat», а что останется и почему. Ничего не переносит."""
     data = await gcal.listing(gcal.F_NEW, f_q, f_day, "")
     rows = _rows(data)
-    picks = await plan(rows, probe=True)
-    await _remember(picks, rows)
+    picks = await plan(rows)
     svc = await service()
     sms = await sms_on()
     by_id = {v["id"]: v for v in rows}
@@ -382,7 +362,7 @@ async def run(f_q: str, f_day: str, tok: str, auto: bool) -> tuple[str, dict | N
     async with gcal.move_lock():
         data = await gcal.listing(gcal.F_NEW, f_q, f_day, "")
         rows = _rows(data)
-        picks = await plan(rows, probe=True)
+        picks = await plan(rows)
         svc = await service()
         sms = await sms_on()
         if token(picks, svc, sms, auto) != tok:
@@ -408,8 +388,7 @@ async def auto_pass(source_id: int) -> dict | None:
         async with gcal.move_lock():
             data = await gcal.listing(gcal.F_NEW, "", "", "")
             rows = [v for v in _rows(data) if v["src"] == source_id]
-            picks = await plan(rows, probe=True)
-            await _remember(picks, rows)
+            picks = await plan(rows)
             got = await _apply(picks, HOW_AUTO, await service(), await sms_on())
     finally:
         set_request_user(prev)
@@ -525,25 +504,21 @@ async def cancel_appt(eid: int) -> str:
 
 async def annotate(data: dict, *, link_auto: dict | None) -> None:
     """Список вкладки: у строки «De mutat» — почему она сама не переносится, у перенесённой — как,
-    у изменённой в Google — какие кнопки; над списком — полоса пачки и история мутаций."""
+    у изменённой в Google — какие кнопки; над списком — полоса пачки и история мутаций. Строки
+    «De mutat» те же и в том же порядке, что у предпросмотра, поэтому полоса считает их тем же `plan`."""
     rows = _rows(data)
-    people = gcal._People(await db.gcal_patients()) if any(v["state"] == db.GCAL_NEW for v in rows) else None
-    svc = await service()
-    drop = _service_words()
+    new = [v for v in rows if v["state"] == db.GCAL_NEW]
+    picks = {pk.eid: pk for pk in await plan(new)} if new else {}
     go = total = 0
     for v in rows:
         v["auto"] = {"why": None, "how": v["moved_how"], "dp": False}
         v["can"].update(follow=False, cancel_appt=False, keep=False)
-        if v["state"] == db.GCAL_NEW and people is not None:
-            pk = _static(v, people, svc, drop)
+        if (pk := picks.get(v["id"])) is not None:
             total += 1
-            if pk is not None and not pk.ok:
-                if pk.why != "a_check":
-                    v["auto"]["why"] = {"code": pk.why, "text": pk.text}
-            elif v["auto_why"]:
-                v["auto"]["why"] = reason(v["auto_why"])
-            else:
+            if pk.ok:
                 go += 1
+            elif pk.why != "a_check":
+                v["auto"]["why"] = {"code": pk.why, "text": pk.text}
         elif v["changed"] and v["appt"]:
             dp = (v["appt"]["status"]["code"] != "confirmed"
                   or v["placed"] is None or v["appt"]["when"] != v["placed"]["when"])

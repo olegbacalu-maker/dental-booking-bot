@@ -153,7 +153,17 @@ def suite_rule(res: Result) -> None:
                                                                "service": "consult", "name": name, "phone": phone})
                 res.ok(f"засев: запись {name}", r.msg in ("ok", "ok_other"), r.msg)
             connect(res, s, c, g, "правило")
+            # полоса до первого предпросмотра: занятый час и пересечение внутри пачки уже учтены
+            before = listing(c)
             pv = preview(c)
+            res.check("число полосы = число предпросмотра (годных и всего), предпросмотра ещё не было",
+                      (before["automove"]["batch"]["go"], before["automove"]["batch"]["all"]),
+                      (pv["counts"]["go"], pv["counts"]["all"]))
+            rb = by_title(before)
+            res.check("строки списка до предпросмотра: причины часа журнала и пачки — те же, что у него",
+                      [(rb[t]["auto"]["why"] or {}).get("code") for t in
+                       ("Grosu Natalia 068444555 - dr Doi", "Pavel Ana 069302302 dr Patru", "Bejan Olga 068909808 dr Trei")],
+                      ["conflict", "conflict", "a_exists"])
             got = why_of(pv)
             want = {
                 "Lungu Petru 069111222 - dr Doi": "go",
@@ -199,10 +209,10 @@ def suite_rule(res: Result) -> None:
             rws = by_title(data)
             res.check("строка списка: причина «nu se mută singur»",
                       (rws["Sandu Ion control"]["auto"]["why"] or {}).get("code"), "a_doctor")
-            res.check("строка списка: причина часа журнала запомнена предпросмотром",
+            res.check("строка списка: причина часа журнала — та же, что у предпросмотра",
                       (rws["Grosu Natalia 068444555 - dr Doi"]["auto"]["why"] or {}).get("code"), "conflict")
             res.check("строка списка: годная — без причины", rws["Lungu Petru 069111222 - dr Doi"]["auto"]["why"], None)
-            res.check("полоса пачки: годных и всего (час журнала и пачки она не считает)",
+            res.check("полоса пачки: годных и всего — как у предпросмотра",
                       (data["automove"]["batch"]["go"], data["automove"]["batch"]["all"]), (6, 19))
             # решение человека: «Nu muta» и «Readu în listă» — строка больше не переносится сама
             rid = rws["Lungu Petru 069111222 - dr Doi"]["id"]

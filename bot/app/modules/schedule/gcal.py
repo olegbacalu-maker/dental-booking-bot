@@ -438,7 +438,7 @@ def _view(row: dict, people: _People, journal: dict, service: str) -> dict:
            "why": why_view(row["why"]), "round": rounded,
            "hint": None, "preset": None, "appt": None,
            "src": row["source_id"], "by_hand": bool(row["by_hand"]), "stamp": row["stamp"],
-           "moved_how": row.get("moved_how") or "", "auto_why": row.get("auto_why") or "",
+           "moved_how": row.get("moved_how") or "",
            "placed": None}
     if moved:
         if (slot := stamp_slot(row["stamp_moved"])) is not None:
