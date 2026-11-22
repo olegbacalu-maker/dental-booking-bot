@@ -5,7 +5,7 @@
 Пересобрать — `python scripts/screen_map.py`.
 
 
-Маршрутов **312** · наборов **96** · мест вызова `res.ok`/`res.check` в исходниках — **7614**.
+Маршрутов **312** · наборов **96** · мест вызова `res.ok`/`res.check` в исходниках — **7623**.
 
 
 ⚠️ Это статические МЕСТА ВЫЗОВА, а живой прогон даёт больше: часть
@@ -218,37 +218,37 @@
 | `GET /admin/google` | HTML | 4 | gcal | 152 | gcal |
 | `GET /admin/week` | HTML | 13 | admin, demo, schedule_api | 580 | schedule_week |
 | `GET /api/chair` | JSON | 36 | admin, chair, doctor_rights, rooms | 614 | — |
-| `GET /api/gcal` | JSON | 6 | gcal, gcal_auto, migrate | 479 | — |
-| `POST /api/gcal/auto` | JSON | 12 | gcal_auto | 97 | — |
-| `POST /api/gcal/batch/check` | JSON | 14 | gcal_auto | 97 | — |
-| `POST /api/gcal/batch/run` | JSON | 24 | gcal_auto | 97 | — |
+| `GET /api/gcal` | JSON | 6 | gcal, gcal_auto, migrate | 487 | — |
+| `POST /api/gcal/auto` | JSON | 12 | gcal_auto | 105 | — |
+| `POST /api/gcal/batch/check` | JSON | 14 | gcal_auto | 105 | — |
+| `POST /api/gcal/batch/run` | JSON | 24 | gcal_auto | 105 | — |
 | `POST /api/gcal/clear` | JSON | 5 | gcal, gcal_link | 239 | — |
-| `POST /api/gcal/events/{eid}/cancel-appt` | other | 5 | gcal, gcal_auto, rooms | 408 | — |
-| `POST /api/gcal/events/{eid}/follow` | other | 5 | gcal, gcal_auto, rooms | 408 | — |
-| `POST /api/gcal/events/{eid}/keep` | other | 5 | gcal, gcal_auto, rooms | 408 | — |
-| `POST /api/gcal/events/{eid}/link` | JSON | 9 | gcal, gcal_auto, rooms | 408 | — |
-| `POST /api/gcal/events/{eid}/move` | JSON | 14 | booking, day_actions, day_forms, doctor_rights, doctor_windows, gcal, gcal_auto, pimport, rooms, sms | 1135 | — |
-| `POST /api/gcal/events/{eid}/skip` | JSON | 9 | gcal, gcal_auto, rooms, stock_tc | 453 | — |
+| `POST /api/gcal/events/{eid}/cancel-appt` | other | 5 | gcal, gcal_auto, rooms | 416 | — |
+| `POST /api/gcal/events/{eid}/follow` | other | 5 | gcal, gcal_auto, rooms | 416 | — |
+| `POST /api/gcal/events/{eid}/keep` | other | 5 | gcal, gcal_auto, rooms | 416 | — |
+| `POST /api/gcal/events/{eid}/link` | JSON | 9 | gcal, gcal_auto, rooms | 416 | — |
+| `POST /api/gcal/events/{eid}/move` | JSON | 14 | booking, day_actions, day_forms, doctor_rights, doctor_windows, gcal, gcal_auto, pimport, rooms, sms | 1143 | — |
+| `POST /api/gcal/events/{eid}/skip` | JSON | 9 | gcal, gcal_auto, rooms, stock_tc | 461 | — |
 | `POST /api/gcal/file` | JSON | 20 | gcal | 152 | — |
-| `POST /api/gcal/google/calendar` | JSON | 15 | gcal_auto, gcal_link | 184 | — |
+| `POST /api/gcal/google/calendar` | JSON | 15 | gcal_auto, gcal_link | 192 | — |
 | `POST /api/gcal/google/cancel` | JSON | 5 | gcal_link | 87 | — |
-| `POST /api/gcal/google/check` | JSON | 8 | gcal_auto, gcal_link | 184 | — |
+| `POST /api/gcal/google/check` | JSON | 8 | gcal_auto, gcal_link | 192 | — |
 | `POST /api/gcal/google/connect` | JSON | 10 | gcal_link | 87 | — |
-| `POST /api/gcal/google/disconnect` | JSON | 10 | gcal_auto, gcal_link | 184 | — |
-| `POST /api/gcal/moves/undo` | JSON | 13 | gcal_auto | 97 | — |
-| `POST /api/gcal/sms` | JSON | 10 | gcal_auto | 97 | — |
+| `POST /api/gcal/google/disconnect` | JSON | 10 | gcal_auto, gcal_link | 192 | — |
+| `POST /api/gcal/moves/undo` | JSON | 13 | gcal_auto | 105 | — |
+| `POST /api/gcal/sms` | JSON | 10 | gcal_auto | 105 | — |
 | `POST /api/gcal/source` | JSON | 11 | gcal, gcal_link | 239 | — |
-| `POST /api/schedule/appointments` | JSON | 42 | activity, admin, admin_canvas, chair, day_actions, day_forms, desk, doctor_windows, doctors, gcal_auto, hardening, patient_card, patients_api, plan_acord, privacy, react_default, schedule_api, stats_api, visit, visit_api, visit_tpl | 1811 | — |
-| `POST /api/schedule/appointments/{appt_id}/comment` | JSON | 18 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal_auto, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 2872 | — |
-| `POST /api/schedule/appointments/{appt_id}/duration` | JSON | 19 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal_auto, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 2872 | — |
-| `POST /api/schedule/appointments/{appt_id}/move` | JSON | 23 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal, gcal_auto, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 3024 | — |
-| `POST /api/schedule/appointments/{appt_id}/room` | JSON | 14 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal_auto, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 2872 | — |
-| `GET /api/schedule/appointments/{appt_id}/service` | JSON | 23 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal_auto, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 2872 | — |
-| `POST /api/schedule/appointments/{appt_id}/service` | JSON | 20 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal_auto, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 2872 | — |
-| `POST /api/schedule/appointments/{appt_id}/status` | JSON | 20 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal_auto, odontogram_api, panel_model, patient_card, patients_api, pimport, plan_acord, plan_insert, privacy, recall, review2, rooms, scan, schedule_api, sms, stats_api, stock_tc, structure, tarife, visit, visit_api, visit_tpl | 3196 | — |
+| `POST /api/schedule/appointments` | JSON | 42 | activity, admin, admin_canvas, chair, day_actions, day_forms, desk, doctor_windows, doctors, gcal_auto, hardening, patient_card, patients_api, plan_acord, privacy, react_default, schedule_api, stats_api, visit, visit_api, visit_tpl | 1819 | — |
+| `POST /api/schedule/appointments/{appt_id}/comment` | JSON | 18 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal_auto, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 2880 | — |
+| `POST /api/schedule/appointments/{appt_id}/duration` | JSON | 19 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal_auto, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 2880 | — |
+| `POST /api/schedule/appointments/{appt_id}/move` | JSON | 23 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal, gcal_auto, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 3032 | — |
+| `POST /api/schedule/appointments/{appt_id}/room` | JSON | 14 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal_auto, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 2880 | — |
+| `GET /api/schedule/appointments/{appt_id}/service` | JSON | 23 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal_auto, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 2880 | — |
+| `POST /api/schedule/appointments/{appt_id}/service` | JSON | 20 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal_auto, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 2880 | — |
+| `POST /api/schedule/appointments/{appt_id}/status` | JSON | 20 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal_auto, odontogram_api, panel_model, patient_card, patients_api, pimport, plan_acord, plan_insert, privacy, recall, review2, rooms, scan, schedule_api, sms, stats_api, stock_tc, structure, tarife, visit, visit_api, visit_tpl | 3204 | — |
 | `GET /api/schedule/canvas` | JSON | 13 | admin_canvas, doctor_rights, harness_clock, schedule_api | 369 | — |
 | `GET /api/schedule/day` | JSON | 23 | admin, day_actions, desk, doctor_rights, pin, recall, rooms, schedule_api, tarife | 1315 | — |
-| `POST /api/schedule/desk/call/{aid}` | JSON | 27 | admin_canvas, desk, doctor_rights, gcal_auto, privacy, structure | 522 | — |
+| `POST /api/schedule/desk/call/{aid}` | JSON | 27 | admin_canvas, desk, doctor_rights, gcal_auto, privacy, structure | 530 | — |
 | `GET /api/schedule/live` | JSON | 34 | admin, demo, desk, doctor_rights, lab, recall, rooms, schedule_api | 1164 | — |
 | `POST /api/schedule/notes` | JSON | 21 | admin, admin_canvas, booking, chair, day_actions, day_forms, doctor_rights, rooms, schedule_api | 1087 | — |
 | `POST /api/schedule/sms-of` | JSON | 16 | pimport, sms | 437 | — |
@@ -329,7 +329,7 @@
 | `POST /api/lab/order/{oid}/etapa` | other | 4 | lab | 152 | — |
 | `POST /api/lab/order/{oid}/refacere` | other | 4 | lab | 152 | — |
 | `POST /api/lab/order/{oid}/step` | other | 4 | lab | 152 | — |
-| `POST /api/lab/order/{oid}/undo` | other | 4 | gcal_auto, lab, pimport, stock, stock_tc | 664 | — |
+| `POST /api/lab/order/{oid}/undo` | other | 4 | gcal_auto, lab, pimport, stock, stock_tc | 672 | — |
 | `GET /api/lab/patient/{pid}` | other | 4 | lab | 152 | — |
 | `GET /api/recall` | JSON | 21 | demo, migrate, pimport, recall | 701 | — |
 | `POST /api/recall/mark` | JSON | 32 | recall | 166 | — |
@@ -364,11 +364,11 @@
 | `GET /api/stock/import` | JSON | 8 | stock | 122 | — |
 | `POST /api/stock/import/check` | JSON | 26 | stock | 122 | — |
 | `POST /api/stock/import/run` | JSON | 18 | stock | 122 | — |
-| `POST /api/stock/import/{doc_id}/undo` | other | 6 | gcal_auto, lab, pimport, stock, stock_tc | 664 | — |
+| `POST /api/stock/import/{doc_id}/undo` | other | 6 | gcal_auto, lab, pimport, stock, stock_tc | 672 | — |
 | `POST /api/stock/item` | JSON | 8 | plan_insert, stock, stock_tc | 223 | — |
 | `GET /api/stock/item/{item_id}` | other | 4 | stock | 122 | — |
 | `POST /api/stock/item/{item_id}/delete` | other | 4 | activity, admin, doctors, hardening, lab, license_gate, migrate, odontogram_api, patient_card, perio, perio_api, pin, plan_acord, plan_tpl, registre, settings_api, stock, teeth, theme | 2616 | — |
-| `POST /api/stock/move/{mid}/undo` | other | 4 | gcal_auto, lab, pimport, stock, stock_tc | 664 | — |
+| `POST /api/stock/move/{mid}/undo` | other | 4 | gcal_auto, lab, pimport, stock, stock_tc | 672 | — |
 | `GET /api/stock/moves` | other | 4 | stock | 122 | — |
 | `POST /api/stock/open` | other | 4 | stock | 122 | — |
 | `POST /api/stock/order` | other | 4 | stock | 122 | — |
@@ -378,8 +378,8 @@
 | `GET /api/stock/plan-pending` | other | 4 | stock_tc | 45 | — |
 | `GET /api/stock/plan/{plan_item_id}` | other | 4 | plan_insert, stock_tc | 101 | — |
 | `POST /api/stock/plan/{plan_item_id}/consume` | other | 4 | plan_insert, stock_tc | 101 | — |
-| `POST /api/stock/plan/{plan_item_id}/skip` | other | 4 | gcal, gcal_auto, plan_insert, stock_tc | 350 | — |
-| `POST /api/stock/plan/{plan_item_id}/undo` | JSON | 8 | gcal_auto, lab, pimport, plan_insert, stock, stock_tc | 720 | — |
+| `POST /api/stock/plan/{plan_item_id}/skip` | other | 4 | gcal, gcal_auto, plan_insert, stock_tc | 358 | — |
+| `POST /api/stock/plan/{plan_item_id}/undo` | JSON | 8 | gcal_auto, lab, pimport, plan_insert, stock, stock_tc | 728 | — |
 | `POST /api/stock/prefs` | other | 4 | stock, stock_tc | 167 | — |
 | `GET /api/stock/report` | other | 4 | stock_tc | 45 | — |
 | `POST /api/stock/supplier` | JSON | 8 | stock | 122 | — |
