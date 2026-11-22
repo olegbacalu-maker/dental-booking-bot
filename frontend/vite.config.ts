@@ -1,10 +1,50 @@
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
+
+// ⛔ (11-22) Vitest кладёт преобразованные модули в %TEMP%\<nanoid>\client и
+// удаляет папку молча (`catch {}`). На Windows удаление проваливается даже после
+// чистого прогона: каждый `vitest run` оставлял 18 МБ, за 16–21.11 набралось
+// 115 папок, 2 ГБ на диске C в 100 ГБ. Поэтому у прогона свой TEMP —
+// dp-vitest\<pid>: удаляется на выходе процесса, а папки убитых прогонов (pid
+// уже не жив) подметает следующий старт. Конфиг читается до создания проекта
+// Vitest, так что os.tmpdir() там уже видит новый TEMP.
+if (process.env.VITEST) isolateVitestTemp()
+
+function isolateVitestTemp() {
+  const base = resolve(tmpdir(), 'dp-vitest')
+  mkdirSync(base, { recursive: true })
+  for (const name of readdirSync(base)) {
+    const pid = Number(name)
+    if (pid && pid !== process.pid && !alive(pid)) {
+      rmSync(resolve(base, name), { recursive: true, force: true, maxRetries: 3 })
+    }
+  }
+  const own = resolve(base, String(process.pid))
+  mkdirSync(own, { recursive: true })
+  process.env.TEMP = process.env.TMP = process.env.TMPDIR = own
+  process.on('exit', () => {
+    try {
+      rmSync(own, { recursive: true, force: true, maxRetries: 5 })
+    } catch {
+      // не удалилось — подметёт следующий прогон по мёртвому pid
+    }
+  })
+}
+
+function alive(pid: number) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
 
 // Сборка кладёт результат ПРЯМО в каталог статики движка, а не в свой dist/.
 // Так его подхватывает уже существующий --add-data в Build-Desktop.ps1
