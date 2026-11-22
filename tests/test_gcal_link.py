@@ -344,9 +344,13 @@ def _plus_first(res: Result, g: tg.Google, client: pathlib.Path, d: pathlib.Path
         r = c.post_json("/api/gcal/clear", {})
         res.check("«Șterge tot» при связи — стёрто, связь на паузе",
                   (r.msg, google(c)["state"], titles(c)), ("gc_cleared_paused", "paused", []))
+        res.ok("слова паузы обещают возврат того, что ещё в Google, а не «не вернутся»",
+               "încă în Google revin" in (google(c)["why"] or {}).get("detail", "")
+               and "încă în Google revin" in _j(r).get("text", ""), repr(google(c)["why"]))
         r = c.post_json("/api/gcal/google/check", {})
-        res.check("«Verifică acum» снимает паузу — события вернулись",
-                  (r.msg, google(c)["state"], len(titles(c))), ("gc_g_checked", "on", 3))
+        res.check("после паузы и «Verifică acum» события возвращаются — ровно те, что ещё в Google",
+                  (r.msg, google(c)["state"], titles(c), (_j(r).get("data", {}).get("load") or {}).get("new")),
+                  ("gc_g_checked", "on", ["Nou Pacient", "Popescu Ion 069123456", "Rusu Ana"], 3))
 
         # Токен отозван в Google: опрос стоп, «reconectați»; файл и загрузка живут.
         for rt in list(g.refreshes):

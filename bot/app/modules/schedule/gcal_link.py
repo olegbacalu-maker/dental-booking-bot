@@ -87,7 +87,8 @@ DETAIL = {
                      "conectare",
     "gc_g_readonly": "Evenimentele aduse rămân în listă; după reînnoirea licenței verificarea pornește "
                      "singură.",
-    "gc_g_paused": "Evenimentele șterse nu revin; „Verifică acum” reia verificarea.",
+    "gc_g_paused": "Evenimentele care sunt încă în Google revin la următoarea verificare; „Verifică acum” "
+                   "reia verificarea.",
     "gc_g_dead": "Conectați din nou contul Google — calendarul ales rămâne.",
     "gc_g_elsewhere": "Cheia de acces se citește doar pe calculatorul și în contul Windows unde a fost "
                       "făcută conectarea. Conectați din nou contul Google aici.",

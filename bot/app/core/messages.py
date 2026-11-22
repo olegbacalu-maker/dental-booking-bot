@@ -568,7 +568,8 @@ MSG_BANNER = {
     "gc_g_choose": ("err", "Alegeți mai întâi calendarul"),
     "gc_g_bad": ("err", "Alegeți un calendar din listă"),
     "gc_cleared_paused": ("ok", "Evenimentele din Google Calendar au fost șterse din program; verificarea "
-                                "calendarului Google este oprită — „Verifică acum” o reia"),
+                                "calendarului Google este oprită. „Verifică acum” o reia, iar evenimentele "
+                                "care sunt încă în Google revin în listă"),
     # страница возврата из Google (браузер Windows, не окно программы)
     "gc_g_back_ok": ("ok", "Contul Google este conectat. Întoarceți-vă în fereastra DentPilot."),
     "gc_g_back_again": ("ok", "Contul Google este deja conectat. Puteți închide această pagină."),
