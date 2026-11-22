@@ -628,6 +628,9 @@ describe('GcalScreen: связь с аккаунтом Google', () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith('/gcal/google/check?f=mutat', {}))
     expect(gl().querySelector('.gl-ico')?.className).toBe('gl-ico spin')
     expect(inStrip(/Verifică acum/).textContent).toBe(' Verifică acum')
+    // кнопка файла не меняет подпись на чужой команде: иначе она шире и полоса файла сдвигается
+    expect(within(document.querySelector('.gc-src') as HTMLElement).getByRole('button', { name: /Încarcă din nou/ }))
+      .toBeTruthy()
     await act(async () => { done(ok(list({ f: 'mutat', google: ON }), 'gc_g_checked', 'Calendarul Google a fost verificat')) })
     expect(gl().querySelector('.gl-ico')?.className).toBe('gl-ico')
     expect(document.querySelector('.toastbox')?.textContent).toContain('Calendarul Google a fost verificat')

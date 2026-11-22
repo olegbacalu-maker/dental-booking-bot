@@ -117,6 +117,9 @@ export function GcalScreen({ navigate = defaultNavigate }: Props) {
   const [moving, setMoving] = useState<GcalRow | null>(null)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [checking, setChecking] = useState(false)
+  /* «Se citește fișierul…» — только пока читается файл: на любой команде вкладки подпись
+     расширяла бы кнопку и сдвигала полосу файла (каждое «Verifică acum») */
+  const [reading, setReading] = useState(false)
   const closeToast = useCallback(() => setToast(null), [])
   const fileRef = useRef<HTMLInputElement>(null)
   const google = state.status === 'ready' ? state.data.google ?? null : null
@@ -200,7 +203,9 @@ export function GcalScreen({ navigate = defaultNavigate }: Props) {
   const pickFile = () => fileRef.current?.click()
   async function upload(file: File | undefined) {
     if (!file) return
+    setReading(true)
     const r = await run((w) => gcalApi.file(file, w), true)
+    setReading(false)
     if (fileRef.current) fileRef.current.value = ''
     if (r) setReport(r.data.load ?? null)
   }
@@ -254,7 +259,7 @@ export function GcalScreen({ navigate = defaultNavigate }: Props) {
           <ol className="gc-help">{d.help.map((line) => <li key={line}>{line}</li>)}</ol>
           {fileInput}
           <button type="button" className="rc-btn pri" disabled={busy} onClick={pickFile}>
-            <Icon name="upload" /> {busy ? T.reading : T.pick}
+            <Icon name="upload" /> {reading ? T.reading : T.pick}
           </button>
           <p className="hint">{T.limit.replace('{n}', String(d.max_mb))}</p>
         </div>
@@ -292,7 +297,7 @@ export function GcalScreen({ navigate = defaultNavigate }: Props) {
         </div>
         {fileInput}
         <button type="button" className="rc-btn" disabled={busy} onClick={pickFile}>
-          <Icon name="upload" /> {busy ? T.reading : src ? T.again : T.pick}
+          <Icon name="upload" /> {reading ? T.reading : src ? T.again : T.pick}
         </button>
         <details className="gc-how">
           <summary>{T.how}</summary>
