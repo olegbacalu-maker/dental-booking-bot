@@ -1040,8 +1040,8 @@ def suite_switch(res: Result) -> None:
             r = ana.get(path)
             res.ok(f"регистратуре React-страница {path} закрыта",
                    r.status == 303 and r.msg == "no_access", f"{r!r}")
-        # хаб открыт тому, у кого есть хоть одна плитка: регистратуре — шаблоны
-        res.check("регистратуре хаб открыт одной плиткой",
+        # хаб открыт тому, у кого есть хоть одна плитка: регистратуре — шаблоны и Google Calendar
+        res.check("регистратуре хаб открыт своими плитками",
                   (ana.get("/admin/settings").status,
-                   [t["href"] for t in _j(ana.get("/api/settings/hub"))["data"]["tiles"]]),
-                  (200, ["/admin/settings/templates"]))
+                   sorted(t["href"] for t in _j(ana.get("/api/settings/hub"))["data"]["tiles"])),
+                  (200, ["/admin/google", "/admin/settings/templates"]))

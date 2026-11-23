@@ -799,6 +799,7 @@ describe('GcalScreen: перенос пачкой и автоматом', () => 
     expect(calls('/gcal/batch/check')[0]).toEqual(['/gcal/batch/check', { auto: false }])
     const d = dlg() as HTMLElement
     expect(Array.from(d.querySelectorAll('.gcb-counts b')).map((x) => x.textContent)).toEqual(['2', '1', '1'])
+    expect(d.querySelectorAll('.gcb-counts li')[1]?.textContent).toBe('1 fișă nouă')
     expect(d.textContent).toContain('fișă nouă Lungu Dan · 069111222')
     expect(d.querySelector('.gcb-why')?.textContent).toBe('medicul nu se recunoaște în titlu')
     fireEvent.click(within(d).getByRole('button', { name: /Mută 2 programări/ }))
@@ -903,6 +904,18 @@ describe('GcalScreen: перенос пачкой и автоматом', () => 
     expect(within(items[0] as HTMLElement).getByRole('button', { name: /Anulează mutarea/ })).toBeTruthy()
     expect(items[1]?.textContent).toContain('anulată: 1 șterse')
     expect(within(items[1] as HTMLElement).queryByRole('button')).toBeNull()
+  })
+
+  it('история: у мутации число записей и число новых фиш — словом при числе, как в предпросмотре', async () => {
+    const move = (key: string, n: number, fresh: number) =>
+      ({ key, when: '22.11.2026 10:40', how: 'batch' as const, by: 'Ana', n, fresh, undone: null })
+    const moves = [move('batch:4', 6, 6), move('batch:3', 3, 1), move('batch:2', 20, 20), move('batch:1', 2, 0)]
+    await open(list({ google: { ...ON, auto: AUTO }, automove: am({ moves }) }))
+    fireEvent.click(within(document.querySelector('.gl-auto') as HTMLElement)
+      .getByRole('button', { name: /Istoricul mutărilor/ }))
+    await waitFor(() => expect(dlg()?.querySelectorAll('.gcb-hist li')).toHaveLength(4))
+    expect(Array.from(dlg()?.querySelectorAll('.gcb-hist small') ?? []).map((x) => x.textContent)).toEqual([
+      '6 programări, 6 fișe noi', '3 programări, 1 fișă nouă', '20 de programări, 20 de fișe noi', '2 programări'])
   })
 
   it('строки: «nu se mută singur», «mutat automat», кнопки «schimbat» — по `can` сервера', async () => {

@@ -174,7 +174,7 @@ def can(user: dict | None, perm: str) -> bool:
 # плитки — `PERM_SETTINGS`, кроме перечисленных в `settings.routes.HUB_TILE_PERM`.
 # Список здесь, а не в модуле настроек: пункт меню рисует `layout`, а он модулей
 # не знает.
-HUB_PERMS = (PERM_SETTINGS, PERM_TEMPLATES)
+HUB_PERMS = (PERM_SETTINGS, PERM_TEMPLATES, PERM_SCHEDULE_ALL)
 
 
 def schedule_scope(user: dict | None, known) -> str | None:

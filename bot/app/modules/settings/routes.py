@@ -27,7 +27,8 @@ from ... import db
 from ... import envfile
 from ... import engine as eng
 from ... import update as upd
-from ...core.auth import (HUB_PERMS, PERM_SETTINGS, PERM_SMS, PERM_TEMPLATES, ROLE_DIRECTOR,
+from ...core.auth import (HUB_PERMS, PERM_SCHEDULE_ALL, PERM_SETTINGS, PERM_SMS, PERM_TEMPLATES,
+                          ROLE_DIRECTOR,
                           ROLE_LABEL, _pin_rec, all_users, can, delete_user, find_user,
                           n_directors, pin_free, pin_len_ok, pin_readiness,
                           local_only, remember_auth_file, request_user, require,
@@ -106,8 +107,10 @@ HUB_GROUP_OF = {"/admin/settings/system": "general", "/admin/license": "general"
                 "/admin/settings/faq": "ajutor"}
 # Плитки, открытые не правом настроек: остальным хватает `PERM_SETTINGS`.
 # Право отсюда обязано стоять в `auth.HUB_PERMS` — иначе владелец плитки не
-# войдёт в сам хаб.
-HUB_TILE_PERM = {"/admin/settings/templates": PERM_TEMPLATES}
+# войдёт в сам хаб. «Google Calendar» — по праву вкладки: пункта меню до первой
+# загрузки нет, и без плитки регистратура, которой подключать можно, не нашла бы вход.
+HUB_TILE_PERM = {"/admin/settings/templates": PERM_TEMPLATES,
+                 "/admin/google": PERM_SCHEDULE_ALL}
 if not set(HUB_TILE_PERM.values()) <= set(HUB_PERMS):
     raise RuntimeError("право плитки хаба не открывает сам хаб: добавьте его в auth.HUB_PERMS")
 
@@ -263,8 +266,8 @@ def _hub_tiles() -> list[dict]:
     # Демо с сайта (core/demo.py): плитка раздела, который шлюз отклонит,
     # обещала бы экран, которого нет. Тот же список, что у отказа в main.py, —
     # не второй.
-    # Плитка — по своему праву: регистратура видит в хабе только шаблоны. Отказ
-    # по адресу, набранному руками, выдаёт маршрут секции, не этот отбор.
+    # Плитка — по своему праву (`HUB_TILE_PERM`). Отказ по адресу, набранному
+    # руками, выдаёт маршрут секции, не этот отбор.
     me = request_user()
     return [t for t in tiles if not demo.refuses(t["href"])
             and (me is None or can(me, HUB_TILE_PERM.get(t["href"], PERM_SETTINGS)))]

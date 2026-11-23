@@ -4,7 +4,7 @@ import { Icon } from '../../components/Icon'
 import { asApiError } from '../../services/api'
 import type { ApiError } from '../../types/api'
 import { useLingering } from '../../utils/motion'
-import { roCount } from '../../utils/plural'
+import { roCount, roForm, type RoForm } from '../../utils/plural'
 import {
   dayTitle, gcalApi, shortDay, type GcalAutomove, type GcalGoogle, type GcalList, type GcalMove,
   type GcalPreview, type GcalPreviewRow, type GcalRow, type GcalWhere,
@@ -19,7 +19,7 @@ export const W = {
   barAutoNone: 'Mutarea automată este pornită: evenimentele cu medic și pacient recunoscuți ajung singure în jurnal.',
   barStop: 'Mutarea automată stă cât timp verificarea Google este oprită. Evenimentele din listă se pot muta deodată.',
   barDone: '{n} mutate în jurnal{fresh}. Rămân {stay} — mutați-le una câte una.',
-  freshN: { one: ', {n} fișă nouă', few: ', {n} fișe noi', many: ', {n} de fișe noi' },
+  freshN: { one: '{n} fișă nouă', few: '{n} fișe noi', many: '{n} de fișe noi' },
   batch: 'Mută în jurnal toate cu medic',
   undo: 'Anulează mutarea',
   close: 'Închide',
@@ -38,7 +38,6 @@ export const W = {
   smsOff: 'Pentru programările mutate din Google nu se trimit SMS.',
   smsNext: 'Se aplică programărilor mutate de acum înainte.',
   goN: 'se mută',
-  freshCount: { one: 'fișă nouă', few: 'fișe noi', many: 'de fișe noi' },
   stayN: 'rămân în listă',
   goT: 'Se mută',
   stayT: 'Rămân în «De mutat»',
@@ -87,6 +86,12 @@ export const W = {
 
 const cnt = (n: number, forms: Parameters<typeof roCount>[1]) => roCount(n, forms)
 
+/** Та же форма, что у `cnt`, с числом жирным: в предпросмотре число выделено, слово — то же, что в итоге и истории. */
+function BoldCount({ n, forms }: { n: number; forms: Record<RoForm, string> }) {
+  const [pre, post] = forms[roForm(n)].split('{n}')
+  return <>{pre}<b>{n}</b>{post}</>
+}
+
 /* ---------------- полоса над «De mutat» ---------------- */
 
 export interface BatchDone { key: string; n: number; fresh: number }
@@ -113,7 +118,7 @@ export function BatchBar({ a, auto, stopped, done, busy, onOpen, onUndo, onClose
   if (done) {
     kind = 'done'
     text = W.barDone.replace('{n}', cnt(done.n, W.apptN))
-      .replace('{fresh}', done.fresh ? cnt(done.fresh, W.freshN) : '').replace('{stay}', String(a.batch.all))
+      .replace('{fresh}', done.fresh ? `, ${cnt(done.fresh, W.freshN)}` : '').replace('{stay}', String(a.batch.all))
   } else if (stopped) {
     text = W.barStop
   } else if (auto) {
@@ -271,7 +276,7 @@ export function BatchDialog({ req, where, services, onList, onDone, onAuthLost, 
             {fail ? <p className="banner err" role="alert">{fail}</p> : null}
             <ul className="gcb-counts">
               <li className="go"><b>{pv.counts.go}</b> {W.goN}</li>
-              <li><b>{pv.counts.fresh}</b> {roCount(pv.counts.fresh, W.freshCount).replace(/^\d+ /, '')}</li>
+              <li><BoldCount n={pv.counts.fresh} forms={W.freshN} /></li>
               <li className="stay"><b>{pv.counts.stay}</b> {W.stayN}</li>
             </ul>
             {pv.go.length ? (
@@ -415,7 +420,7 @@ export function HistoryDialog({ open, moves, can, busy, onUndo, onClose }: Histo
                 <span className="gcb-hw">
                   <span><b>{m.when}</b> · {m.how === 'auto' ? W.hAuto : `${m.by}, ${W.hBatch}`}</span>
                   <small>
-                    {cnt(m.n, W.apptN)}{m.fresh ? `, ${roCount(m.fresh, W.freshCount)}` : ''}
+                    {cnt(m.n, W.apptN)}{m.fresh ? `, ${cnt(m.fresh, W.freshN)}` : ''}
                     {m.undone ? ` · ${W.hUndone}: ${W.hRemoved.replace('{n}', String(m.undone.removed))}` : ''}
                   </small>
                 </span>

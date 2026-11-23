@@ -408,9 +408,9 @@ def suite_rights(res: Result) -> None:
         page = ana.get("/admin/settings")
         res.ok("регистратуре хаб открыт — узел React", page.status == 200
                and 'data-screen="settings_hub"' in page.body, f"{page!r}")
-        res.check("…и в нём одна плитка — «Șabloane»",
-                  [(t["href"], t["label"]) for t in _j(ana.get("/api/settings/hub"))["data"]["tiles"]],
-                  [("/admin/settings/templates", "Șabloane")])
+        res.check("…и в нём «Șabloane» и вход во вкладку «Google Calendar»",
+                  sorted((t["href"], t["label"]) for t in _j(ana.get("/api/settings/hub"))["data"]["tiles"]),
+                  [("/admin/google", "Google Calendar"), ("/admin/settings/templates", "Șabloane")])
         res.ok("страница шаблонов регистратуре открыта, крошка ведёт в хаб",
                (lambda p: p.status == 200 and "/admin/settings" in
                 [x["href"] for x in shell_model(p.body)["frame"]["crumbs"]])(ana.get("/admin/settings/templates")),

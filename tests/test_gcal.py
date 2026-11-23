@@ -518,6 +518,28 @@ def suite_rights(res: Result) -> None:
                      {"uid": "ana", "name": "Ana R", "role": "receptie", "pin": "4444"}):
             res.check(f"учётка {body['role']} заведена",
                       boss.post_json("/api/settings/users", body).msg, "ok_user")
+
+        # До первой загрузки пункта меню нет ни у кого: вход во вкладку — плитка хаба,
+        # и у регистратуры она своя, не по праву настроек.
+        def hub(c: Client) -> list:
+            r = c.get("/api/settings/hub")
+            return [t["href"] for t in _j(r)["data"]["tiles"]] if r.status == 200 else [r.status]
+
+        first = Client(s.url)
+        first.post("/admin/login", password="4444", next="/admin")
+        res.ok("регистратура до загрузки: пункта меню ещё нет", "gcal" not in nav_keys(first),
+               f"{nav_keys(first)}")
+        res.ok("…но плитка «Google Calendar» в хабе есть", "/admin/google" in hub(first), f"{hub(first)}")
+        page = first.get("/admin/google")
+        res.ok("…и ведёт на экран gcal", page.status == 200 and 'data-screen="gcal"' in page.body,
+               f"{page.status}")
+        res.check("…где регистратура может начать: список открыт, загрузка не закрыта правом",
+                  (first.get("/api/gcal").status, upload(first, b"").msg), (200, "gc_no_file"))
+        early = Client(s.url)
+        early.post("/admin/login", password="2222", next="/admin")
+        res.check("врач до загрузки: хаб закрыт, плитки нет", hub(early), [403])
+        res.ok("врач до загрузки: страница закрыта", early.get("/admin/google").status in (303, 307), "")
+
         got = loaded(res, boss, cal(base_events()), "директор загружает")
         res.ok("годных строк не ноль", got.get("new", 0) > 0, f"{got}")
         res.check("итог называет причины пропуска: на весь день, отменено, прошло, дальше года",
