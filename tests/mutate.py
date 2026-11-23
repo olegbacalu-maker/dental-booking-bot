@@ -31,6 +31,7 @@
 вместе с настоящей проверкой.
 """
 import pathlib
+import re
 import shutil
 import sys
 import tempfile
@@ -63,6 +64,10 @@ INSTALLER_DIR = ROOT / "installer"
 # бы здесь красным «в app/db.py нет 'SCHEMA_VERSION = 4'» — то есть сторож
 # ломался бы ровно тем изменением, которое обязан сторожить (08-17, шаг 5).
 _VER = appdb.SCHEMA_VERSION
+# Срок доезда приёма в календарь врача — тем же приёмом, из исходника: число в правках поехало бы вслед
+# за константой, а модуль сверки здесь не импортировать (он тянет движок и лицензию).
+_SYNC_MIN = int(re.search(r"^SYNC_MINUTES = (\d+)$", (BOT / test_structure._GSYNC).read_text(encoding="utf-8"),
+                          re.M).group(1))
 
 # По одной строке на каждую проверку в suite, в том же порядке:
 #   (кусок названия проверки, куда править, что сделать)
@@ -280,6 +285,44 @@ MUTATIONS = [
       "        return msg_json(False, status=404)\n    code, url = await gcal_doctor.start(request, dk)\n",
       "    if dk not in eng.DOCTORS:\n        return msg_json(False, status=404)\n"
       "    code, url = await gcal_doctor.start(request, dk)\n")),
+    # ---- сверка журнала с календарями врачей ----
+    # Проход цикла без вопроса о праве; сеть раньше вопроса.
+    ("дверь к Google врача спрашивает право gcal_doctor", test_structure._GSYNC,
+     ("    allowed = lic.feature_until(gdoc.SYNC_GATE) is not None\n", "    allowed = True\n")),
+    ("дверь к Google врача спрашивает право gcal_doctor", test_structure._GSYNC,
+     ("    allowed = lic.feature_until(gdoc.SYNC_GATE) is not None\n",
+      "    _mut = gwrite.events_ours\n    allowed = lic.feature_until(gdoc.SYNC_GATE) is not None\n")),
+    ("уход врача — без отзыва у Google", test_structure._GSYNC,
+     '\n_mut = "https://oauth2.googleapis.com/revoke"\n'),
+    ("не в базе, не в логе и не в копиях", test_structure._GSYNC,
+     '\ndef _mut(run):\n    log.warning("gdoc: %s", run.a.token)\n'),
+    ("не в базе, не в логе и не в копиях", test_structure._GSYNC,
+     '\nasync def _mut(run):\n    await db.set_meta("gdoc_tok", run.a.token)\n'),
+    ("к Google врача — только через дверь gdoc", test_structure._GSYNC,
+     "\nfrom ... import dpapi  # noqa\n"),
+    ("к Google врача — только через дверь gdoc", test_structure._GSYNC,
+     "\ndef _mut():\n    return gdoc._load()\n"),
+    # Проход врача без его замка: «Deconectează» и вход писали бы файл посреди прохода.
+    ("один замок врача", test_structure._GSYNC,
+     ("    async with gdoc.lock(dk):\n        st = _st(dk)\n",
+      "    async with _mut_free(dk):\n        st = _st(dk)\n")),
+    # Отправленное в календари врачей: ключ на запись, строки в списках стирания, стирание мимо gpush.
+    ("отправленное в календари врачей переживает запись пациента", "app/db/schema.py",
+     ("  appt_id INTEGER NOT NULL,\n  event_id TEXT NOT NULL,",
+      "  appt_id INTEGER NOT NULL REFERENCES appointments(id),\n  event_id TEXT NOT NULL,")),
+    ("отправленное в календари врачей переживает запись пациента", "app/db/erasure.py",
+     ('"sms_log", "appointments")', '"sms_log", "gdoc_sent", "appointments")')),
+    ("отправленное в календари врачей переживает запись пациента", "app/db/erasure.py",
+     ('("stock_plan_marks", "plan_item_id", "plan_items"))',
+      '("stock_plan_marks", "plan_item_id", "plan_items"),\n                           '
+      '("gdoc_sent", "appt_id", "appointments"))')),
+    ("отправленное в календари врачей переживает запись пациента", "app/db/erasure.py",
+     "\nasync def _mut(pid):\n    await _execute(\"DELETE FROM gdoc_sent WHERE appt_id IN "
+     "(SELECT id FROM appointments WHERE patient_id = ?)\", pid)\n"),
+    ("отправленное в календари врачей переживает запись пациента", "app/db/schema.py",
+     ("GDOC_DDL = [", "GDOC_TABLES = [")),
+    ("отправленное в календари врачей переживает запись пациента", "app/db/erasure.py",
+     ("_PATIENT_GRAND_CHILDREN = (", "_PATIENT_GRANDS = (")),
     # ---- заказы лаунчеру подписаны (02.11) ----
     # Исполнитель без подписи: тот же вызов, но уже не проверка.
     ("исполняется только по подписи", "app/core/restore.py",
@@ -723,6 +766,15 @@ MUTATIONS = [
     # Уведомление связи с Google называет частоту опроса числом, а не константой опроса.
     ("договор согласован с программой", "app/modules/schedule/gcal_link.py",
      ('f"înainte, din {POLL_MINUTES} în {POLL_MINUTES} minute', '"înainte, din 10 în 10 minute')),
+    # Календари врачей: FAQ и документ заговорили о них без срока; срок не тот; якорь числа пропал.
+    ("договор согласован с программой", "app/modules/settings/faq.py",
+     '\n_mut = "Programările apar singure în calendarul medicului."\n'),
+    ("договор согласован с программой", "app/modules/settings/faq.py",
+     f'\n_mut = "Programarea ajunge în calendarul Google al medicului în cel mult {_SYNC_MIN + 2} minute."\n'),
+    ("договор согласован с программой", "_build/docs/dentpilot-2/contract/anexa-2.html",
+     "\n<p>Programările se copiază în <b>calendarele\n medicilor</b>.</p>\n"),
+    ("договор согласован с программой", test_structure._GSYNC,
+     (f"SYNC_MINUTES = {_SYNC_MIN}\n", f"SYNC_EVERY = {_SYNC_MIN}\n")),
     # ---- текст перед скачиванием (закон 195, L15) ----
     # Кнопку фиши переименовали в клиенте — сайт отправляет искать старую.
     ("текст перед скачиванием", "_frontend/features/patients/card/ProfileCard.tsx",
@@ -994,6 +1046,13 @@ LEGAL = [
     # слово «revocare» в тексте — не отзыв
     ("уход врача — без отзыва у Google", "app/core/gdoc.py",
      '\n_mut = "fără revocarea accesului"\n'),
+    # чтение отправленного вне gpush — не правка; календарь врача со сроком из SYNC_MINUTES
+    ("отправленное в календари врачей переживает запись пациента", "app/db/gcal.py",
+     '\n_mut = "SELECT COUNT(*) FROM gdoc_sent WHERE doctor_id = ?"\n'),
+    ("договор согласован с программой", "app/modules/settings/faq.py",
+     f'\n_mut = "Programarea ajunge în calendarul medicului în cel mult {_SYNC_MIN} minute."\n'),
+    ("договор согласован с программой", "_build/docs/site/termeni.html",
+     f"\n<p>Programarea apare în calendarul Google al medicului în cel mult {_SYNC_MIN} minute.</p>\n"),
     # чтение журнала импортом — не запись: отчёт и отмена спрашивают визиты своим SELECT в db
     ("импорт ставит визиты только через book", "app/modules/patients/pimport.py",
      "\nasync def _mut(db, i):\n    return await db._fetch('SELECT id FROM appointments WHERE id = ?', i)\n"),
@@ -1179,7 +1238,8 @@ def _copy(dst: pathlib.Path) -> pathlib.Path:
     # Файлы сборки — в `_build`, с раскладкой от корня репозитория
     # (`_build/demo/Dockerfile`): правило про статику клиента сверяет конфиг
     # vite с образом демо и обоими игнорами. Копируются ровно они, не корень.
-    for rel in test_structure.BUILD_FILES:
+    # Туда же — документы для клиники, которые правило о календарях врачей сверяет с программой.
+    for rel in (*test_structure.BUILD_FILES, *test_structure._GDOC_DOCS):
         (dst / "_build" / rel).parent.mkdir(parents=True, exist_ok=True)
         link_or_copy(ROOT / rel, dst / "_build" / rel)
     return dst

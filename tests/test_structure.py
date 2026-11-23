@@ -134,6 +134,21 @@ _GWRITE_GAUTH_OK |= {_GDOC_LINK}
 _GDOC_LOCKED[_GDOC_LINK] = ("finish", "disconnect")
 # Цикл сверки календарей врачей: его срок доезда приёма называют слова подключения.
 _GDOC_SYNC = "app/modules/doctors/gcal_sync.py"
+# Сверка журнала с календарями врачей: проход по праву, без отзыва, без токена в логе и базе, врач — под
+# его замком.
+_GSYNC = "app/modules/doctors/gcal_sync.py"
+_GDOC_GATED[_GSYNC] = ("tick",)
+_GDOC_NO_REVOKE += (_GSYNC,)
+_GDOC_TOKEN_FILES += (_GSYNC,)
+_GDOC_LOCKED[_GSYNC] = ("run_doctor", "pause_doctor", "retire_doctor")
+# Документы для клиники и FAQ программы: тот, что говорит о календаре врача, называет срок доезда приёма
+# числом сверки. Пути от корня репозитория — мутация копирует их рядом с файлами сборки.
+_GDOC_DOCS = ("docs/site/termeni.html", "docs/site/privacy.html", "docs/site/declaratie-195.html",
+              "docs/dentpilot-2/contract/contract.html", "docs/dentpilot-2/contract/anexa-2.html",
+              "docs/dentpilot-2/contract/dpa.html", "cloud/app/assets/modele/informare-pacienti.html",
+              "cloud/app/assets/modele/registru-prelucrare.html")
+_FAQ = "app/modules/settings/faq.py"
+_GDOC_TALKS = re.compile(r"calendar(?:ul|ele)\s+(?:Google\s+)?(?:al\s+|ale\s+)?medic(?:ului|ilor)", re.I)
 # Константу клиента Google PyInstaller кладёт в exe только по статическому импорту: импорт по строке
 # он не видит, и exe молча остался бы «не настроено» — дымовой тест exe этого не заметит.
 _GCLIENT = "app/core/gclient.py"
@@ -196,6 +211,7 @@ _DB_TEXTS = "app/db/plans.py"        # тексты летописи пацие�
 _DB_SAN = "app/db/registre.py"       # журналы san_*: единственное место UPDATE (замок IS NULL)
 _DB_LAB = "app/db/lab.py"            # заказы в лабораторию: история только дописывается
 _DB_STOCK = "app/db/stock.py"        # журнал склада: только INSERT, и только здесь
+_DB_GPUSH = "app/db/gpush.py"        # отправленное в календари врачей: строки правит только он
 _DB_ORIGIN = "app/db/plist.py"       # ORIGIN_SQL: откуда пациент — одно правило
 _LAY_LABELS = "app/core/labels.py"   # ORIGIN_LABEL: подписи каналов пациента
 # Разделы с меню слева, которые обязаны найтись правилу «раздел с меню слева берёт данные загрузчиком».
@@ -2639,6 +2655,31 @@ def suite(res: Result) -> None:
                     for k, w in zip(words.keys, words.values)
                     if isinstance(k, ast.Constant) and k.value in ("connect", "disconnect", "check")
                     and isinstance(w, ast.Constant) and w.value not in anexa]
+    # Календари врачей: документ или FAQ, который о них говорит, называет срок доезда приёма словами
+    # «în cel mult N minute» с числом gcal_sync.SYNC_MINUTES — не «din N în N» связи клиники. Правило по
+    # присутствию: документ, ещё не знающий календарей врачей, им не задет.
+    gs = by_path.get(_GSYNC)
+    sync_min = next((n.value.value for n in (gs.body if gs else ()) if isinstance(n, ast.Assign)
+                     and isinstance(n.value, ast.Constant) and isinstance(n.value.value, int)
+                     and any(isinstance(t, ast.Name) and t.id == "SYNC_MINUTES" for t in n.targets)), None)
+    if sync_min is None:
+        bad.append(f"{_GSYNC}: нет SYNC_MINUTES = N — якорь пропал")
+    else:
+        want = f"în cel mult {sync_min} minute"
+        said = {}
+        for rel in _GDOC_DOCS:
+            path = BUILD / rel
+            if not path.exists():
+                bad.append(f"{rel} не найден — список документов правила устарел")
+                continue
+            said[rel] = " ".join(re.sub(r"<[^>]+>", " ", path.read_text(encoding="utf-8")).split())
+        faq = by_path.get(_FAQ)
+        if faq is None:
+            bad.append(f"{_FAQ} — нет по этому пути")
+        else:
+            said[_FAQ] = " | ".join(" ".join(t.split()) for _ln, t in _ui_texts(faq))
+        bad += [f"{rel} говорит о календаре врача, но не «{want}»: приём доезжает не дольше "
+                f"{sync_min} мин." for rel, text in said.items() if _GDOC_TALKS.search(text) and want not in text]
     res.ok("договор согласован с программой дословно", not bad,
            "сайт обещает не то, что делает программа: " + "; ".join(bad))
 
@@ -3146,6 +3187,45 @@ def suite(res: Result) -> None:
                                 for n in owner.body):
         bad.append(f"{_DB_STOCK} без _stock_move_insert — якорь правила пропал")
     res.ok("журнал склада только дописывается", not bad, "; ".join(bad))
+
+    # Отправленное в календари врачей живёт дольше записи: стирание пациента удаляет запись, а событие у
+    # Google убирает сверка по строке `gdoc_sent`. Ключ на appointments уронил бы стирание или (внуком)
+    # стёр бы строки — и события с именами остались бы у Google навсегда; тот же исход у строки в
+    # списках стирания и у SQL, правящего таблицу мимо db/gpush.py.
+    _GS_WRITE = re.compile(r"\b(?:UPDATE|DELETE\s+FROM|INSERT\s+(?:OR\s+\w+\s+)?INTO|REPLACE\s+INTO|"
+                           r"DROP\s+TABLE(?:\s+IF\s+EXISTS)?)\s+gdoc_sent\b", re.I)
+    bad = []
+    sch = by_path.get("app/db/schema.py")
+    ddl = next((n.value for n in (sch.body if sch else ()) if isinstance(n, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == "GDOC_DDL" for t in n.targets)), None)
+    sql = " ".join(x.value for x in _walk(ddl) if isinstance(x, ast.Constant) and isinstance(x.value, str)) \
+        if ddl is not None else ""
+    if "CREATE TABLE IF NOT EXISTS gdoc_sent(" not in sql:
+        bad.append("app/db/schema.py: GDOC_DDL не создаёт gdoc_sent — якорь правила пропал")
+    if re.search(r"\bREFERENCES\b", sql, re.I):
+        bad.append("app/db/schema.py: у gdoc_sent ключ на другую таблицу — стирание пациента не дойдёт до Google")
+    er = by_path.get("app/db/erasure.py")
+    lists = {"_PATIENT_CHILD_TABLES", "_PATIENT_GRAND_CHILDREN"}
+    seen = set()
+    for n in (er.body if er else ()):
+        names = {t.id for t in getattr(n, "targets", ()) if isinstance(t, ast.Name)} & lists
+        if names and isinstance(n, ast.Assign):
+            seen |= names
+            if any(isinstance(x, ast.Constant) and x.value == "gdoc_sent" for x in _walk(n.value)):
+                bad.append(f"app/db/erasure.py:{n.lineno} gdoc_sent в {', '.join(sorted(names))} — "
+                           "строки стёрлись бы раньше, чем сверка уберёт события")
+    if seen != lists:
+        bad.append(f"app/db/erasure.py: нет {', '.join(sorted(lists - seen))} — якорь правила пропал")
+    for rel, tree in src:
+        if rel == _DB_GPUSH:
+            continue
+        for line, text in _sql_texts(tree):
+            if _GS_WRITE.search(text):
+                bad.append(f"{rel}:{line} правит gdoc_sent мимо {_DB_GPUSH}")
+    gp = by_path.get(_DB_GPUSH)
+    if gp is None or not any(_GS_WRITE.search(t) for _ln, t in _sql_texts(gp)):
+        bad.append(f"{_DB_GPUSH} не пишет gdoc_sent — якорь правила пропал")
+    res.ok("отправленное в календари врачей переживает запись пациента", not bad, "; ".join(bad))
 
     # Списание по техкарте — следствие перехода позиции плана: кто ставит
     # статус позиции, тот зовёт крючок склада. Путь без крючка молча оставил бы
