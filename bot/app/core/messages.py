@@ -597,6 +597,53 @@ MSG_BANNER = {
     "gc_g_back_failed": ("err", "Google nu a finalizat conectarea — încercați din nou din DentPilot"),
     "gc_g_back_right": ("err", "Contul de utilizator DentPilot nu are dreptul de a conecta calendarul"),
     "gc_g_back_local": ("err", "Conectarea se termină doar pe calculatorul pe care rulează DentPilot"),
+    # Календарь врача в его Google (modules/doctors/gcal_doctor.py): состояние блока
+    "gd_premium": ("warn", "Calendarul medicului în Google face parte din DentPilot Premium"),
+    "gd_paused": ("warn", "Actualizarea calendarului este oprită — face parte din DentPilot Premium"),
+    "gd_readonly": ("warn", "Calendarele medicilor nu se actualizează cât programul este în regim de citire"),
+    "gd_dead": ("err", "Google nu mai acceptă conectarea medicului: accesul a fost retras sau a expirat"),
+    "gd_elsewhere": ("err", "Medicul a fost conectat pe alt calculator sau în alt cont Windows"),
+    "gd_no_scope": ("err", "Google nu a dat dreptul de a scrie în calendarul medicului"),
+    "gd_cal_gone": ("err", "Calendarul medicului nu mai este în contul lui Google"),
+    "gd_foreign": ("err", "Calendarul medicului este actualizat de alt calculator DentPilot"),
+    "gd_archived_wait": ("warn", "Medicul este arhivat — calendarul lui se șterge din Google la următoarea "
+                                 "sincronizare"),
+    # исход прохода сверки и «Sincronizează acum»
+    "gd_checked": ("ok", "Calendarul medicului este actualizat"),
+    "gd_check_late": ("warn", "Sincronizarea continuă în fundal — rezultatul apare aici în câteva minute"),
+    "gd_offline": ("warn", "Google nu a răspuns — programul încearcă din nou la următoarea sincronizare"),
+    "gd_failed": ("err", "Google a refuzat actualizarea calendarului medicului"),
+    "gd_admin": ("err", "Administratorul Google Workspace a închis accesul aplicațiilor la Google Calendar — "
+                        "cereți-i să permită DentPilot"),
+    # команды блока
+    "gd_url": ("ok", "Pagina Google se deschide în browser — medicul intră cu contul său, apoi întoarceți-vă "
+                     "aici"),
+    "gd_cancel": ("ok", "Conectarea a fost oprită — calendarul medicului nu este conectat"),
+    "gd_off": ("ok", "Calendarul medicului a fost șters din Google — legătura este închisă"),
+    "gd_off_local": ("warn", "Legătura este închisă în program; calendarul din Google nu s-a putut șterge — "
+                             "medicul îl poate șterge din Google Calendar"),
+    "gd_off_later": ("err", "Google nu a răspuns: calendarul nu s-a șters, iar legătura rămâne. Încercați din "
+                            "nou — a doua apăsare închide legătura doar în program"),
+    "gd_off_fail": ("err", "Legătura nu s-a putut închide — încercați din nou"),
+    "gd_none": ("err", "Calendarele medicilor în Google nu sunt disponibile în acest program"),
+    "gd_gone": ("err", "Calendarul medicului nu este conectat"),
+    "gd_on": ("err", "Medicul este deja conectat — pentru alt cont Google apăsați întâi „Deconectează”"),
+    "gd_archived": ("err", "Medicul este arhivat — calendarul lui nu se conectează"),
+    "gd_level_set": ("ok", "Salvat — calendarele medicilor se actualizează singure"),
+    "gd_level_same": ("ok", "Salvat"),
+    "gd_level_bad": ("err", "Alegeți una dintre variante"),
+    "gd_level_ack": ("err", "Bifați „Am înțeles”: evenimentele vor arăta date ale pacientului"),
+    # страница возврата врача из Google (браузер Windows, не окно программы)
+    "gd_back_ok": ("ok", "Calendarul medicului este conectat. Întoarceți-vă în fereastra DentPilot."),
+    "gd_back_again": ("ok", "Calendarul medicului este deja conectat. Puteți închide această pagină."),
+    "gd_back_state": ("err", "Linkul de conectare nu mai este valabil — apăsați din nou „Conectează” în fișa "
+                             "medicului"),
+    "gd_back_denied": ("warn", "Conectarea a fost anulată în Google — calendarul medicului nu este conectat"),
+    "gd_back_offline": ("err", "Google nu a răspuns — încercați din nou din DentPilot peste câteva minute"),
+    "gd_back_no_scope": ("err", "Google nu a dat dreptul de a face calendarul medicului — conectați din nou și "
+                                "lăsați bifată permisiunea"),
+    "gd_back_right": ("err", "Contul de utilizator DentPilot nu are dreptul de a conecta calendarul medicului"),
+    "gd_back_gone": ("err", "Medicul nu mai este în listă sau este arhivat — calendarul nu s-a conectat"),
     "san_busy": ("err", "Sterilizatorul are deja un ciclu în curs — încheiați-l mai întâi"),
     "san_uv_on": ("err", "Lampa este deja pornită"),
     "san_uv_people": ("err", "Lampa nu este ecranată — nu se pornește în prezența persoanelor"),

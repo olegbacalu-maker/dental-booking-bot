@@ -902,6 +902,10 @@ LOCAL_ONLY = frozenset({
     "/api/gcal/moves/undo",
     "/api/gcal/auto",
     "/api/gcal/sms",
+    # календарь врача в его Google: где лежит ключ к календарю врача и что видно в событиях
+    "/api/gdoc/{dk}/connect",
+    "/api/gdoc/{dk}/disconnect",
+    "/api/gdoc/level",
 })
 
 

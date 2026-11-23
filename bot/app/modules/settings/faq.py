@@ -86,6 +86,7 @@ LOCAL_WORDS = (
     (("/api/gcal/google/",), "conectarea contului Google"),
     (("/api/gcal/batch/", "/api/gcal/moves/", "/api/gcal/auto", "/api/gcal/sms"),
      "mutarea evenimentelor din Google în jurnal deodată și automat"),
+    (("/api/gdoc/",), "conectarea calendarelor medicilor în Google și ce arată evenimentele lor"),
 )
 
 

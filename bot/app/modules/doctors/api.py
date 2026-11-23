@@ -13,16 +13,18 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, File, Request, UploadFile
+from fastapi.responses import HTMLResponse
 
 from ... import db
 from ... import engine as eng
 from ...core.api import api_body, api_require
-from ...core.auth import PERM_DOCTORS
+from ...core.auth import PERM_DOCTORS, PERM_SETTINGS, local_only
 from ...core.layout import (HOUR_MAX, HOUR_MIN, STATUS_LABEL, _DOC_STATE_RO,
                             _doc_hours_text, _initials, msg_json)
 from ...core.messages import par_busy_text, rooms_busy_text
 from ...core.visits import (_doc_hue, all_status_actions,
                             photo_url as _photo_url)
+from . import gcal_doctor
 from .routes import (MAX_PHOTO_MB, _DOC_STATE_HINT, _add_doctor, _delete_photo,
                      _doc_rows, _doc_stats, _orphan_warning, _read_upload,
                      _reset_colors, _same_color, _save_doctor, _service_rows,
@@ -82,7 +84,7 @@ def _today_rows(rows: list) -> list[dict]:
     } for r in rows]
 
 
-async def _card(dk: str) -> dict:
+async def _card(dk: str, request: Request) -> dict:
     name = eng.DOCTORS[dk]
     meta = eng.DOCTOR_META.get(dk, {})
     st = meta.get("status", "activ")
@@ -122,6 +124,8 @@ async def _card(dk: str) -> dict:
         "services": _service_rows(dk),
         "states": {k: {"label": v, "hint": _DOC_STATE_HINT[k]}
                    for k, v in _DOC_STATE_RO.items()},
+        # блок «Calendarul medicului în Google» — тем же кадром, что и фиша; null — блока нет
+        "google": await gcal_doctor.view(request, dk),
     }
 
 
@@ -163,7 +167,7 @@ async def api_doctor(request: Request, dk: str):
         return deny
     if dk not in eng.DOCTORS:
         return msg_json(False, status=404)
-    return msg_json(True, data=await _card(dk))
+    return msg_json(True, data=await _card(dk, request))
 
 
 def _s(body: dict, key: str) -> str:
@@ -200,7 +204,7 @@ async def api_doctor_save(request: Request, dk: str):
                         text=rooms_busy_text(rooms, clash))
     if code not in ("ok_med", "ok_med_moved"):
         return _reply(code, field="name" if code in ("bad_med", "dup_med") and not _s(body, "name").strip() else "")
-    return _reply(code, data=await _card(dk))
+    return _reply(code, data=await _card(dk, request))
 
 
 @router.post("/api/doctors/{dk}/parallel")
@@ -218,7 +222,7 @@ async def api_doctor_parallel(request: Request, dk: str):
         return msg_json(False, code, data={"n": n}, status=409, text=par_busy_text(n))
     if code not in _OK:
         return _reply(code)
-    return _reply(code, data=await _card(dk))
+    return _reply(code, data=await _card(dk, request))
 
 
 @router.post("/api/doctors/{dk}/services")
@@ -254,3 +258,114 @@ async def api_doctor_photo_delete(request: Request, dk: str):
         return msg_json(False, status=404)
     code = _delete_photo(dk)
     return _reply(code, data={"photo": _photo_url(dk)} if code in _OK else None)
+
+
+# ---------- календарь врача в Google (gcal_doctor.py) ----------
+
+# отказ команды до её работы: состояние, а не ошибка ввода
+_GDOC_REFUSED = {"gd_none", "gd_premium", "gd_readonly", "gd_gone", "gd_on", "gd_archived"}
+
+
+@router.get("/api/gdoc")
+async def api_gdoc(request: Request):
+    """Плашки списка врачей и выбор подробности события; `data: null` — блока нет."""
+    if (deny := api_require(request, PERM_DOCTORS)) is not None:
+        return deny
+    return msg_json(True, data=await gcal_doctor.overview(request))
+
+
+@router.post("/api/gdoc/level")
+async def api_gdoc_level(request: Request):
+    """{level, ack} — подробность события для всей клиники; с данными пациента — только с `ack`."""
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    if (deny := local_only(request)) is not None:
+        return deny
+    body = await api_body(request)
+    if body is None:
+        return msg_json(False, "gd_level_bad", field="level", status=422)
+    code = await gcal_doctor.set_level(str(body.get("level") or ""), body.get("ack") is True,
+                                       gcal_doctor.actor())
+    if code == "gd_none":
+        return msg_json(False, code, status=409)
+    if code in ("gd_level_bad", "gd_level_ack"):
+        return msg_json(False, code, field="ack" if code == "gd_level_ack" else "level", status=422)
+    return msg_json(True, code, data={"level": await gcal_doctor.level_view(request)})
+
+
+@router.get("/api/gdoc/{dk}")
+async def api_gdoc_doctor(request: Request, dk: str):
+    """Блок карточки врача без месяца записей — лёгкий опрос, пока врач входит в браузере."""
+    if (deny := api_require(request, PERM_DOCTORS)) is not None:
+        return deny
+    if dk not in eng.DOCTORS:
+        return msg_json(False, status=404)
+    return msg_json(True, data=await gcal_doctor.view(request, dk))
+
+
+async def _gdoc_reply(request: Request, dk: str, code: str, *, ok: bool = True, status: int = 200, **extra):
+    data = {**extra, "view": await gcal_doctor.view(request, dk)}
+    return msg_json(ok, code, data=data, status=status)
+
+
+@router.post("/api/gdoc/{dk}/connect")
+async def api_gdoc_connect(request: Request, dk: str):
+    """Адрес экрана Google в `data.url`; открывает его браузер Windows (оболочка), не окно программы."""
+    if (deny := api_require(request, PERM_DOCTORS)) is not None:
+        return deny
+    if (deny := local_only(request)) is not None:
+        return deny
+    if dk not in eng.DOCTORS:
+        return msg_json(False, status=404)
+    code, url = await gcal_doctor.start(request, dk)
+    if code != "gd_url":
+        return await _gdoc_reply(request, dk, code, ok=False, status=409)
+    return await _gdoc_reply(request, dk, code, url=url)
+
+
+@router.post("/api/gdoc/{dk}/cancel")
+async def api_gdoc_cancel(request: Request, dk: str):
+    """«Renunță» у ожидания браузера: начатый вход врача умирает, `waiting` гаснет."""
+    if (deny := api_require(request, PERM_DOCTORS)) is not None:
+        return deny
+    if dk not in eng.DOCTORS:
+        return msg_json(False, status=404)
+    return await _gdoc_reply(request, dk, gcal_doctor.cancel(dk))
+
+
+@router.post("/api/gdoc/{dk}/check")
+async def api_gdoc_check(request: Request, dk: str):
+    """«Sincronizează acum»: код ответа — исход прохода врача, тон — из словаря."""
+    if (deny := api_require(request, PERM_DOCTORS)) is not None:
+        return deny
+    if dk not in eng.DOCTORS:
+        return msg_json(False, status=404)
+    code = await gcal_doctor.check(dk)
+    if code in _GDOC_REFUSED:
+        return await _gdoc_reply(request, dk, code, ok=False, status=409)
+    return await _gdoc_reply(request, dk, code)
+
+
+@router.post("/api/gdoc/{dk}/disconnect")
+async def api_gdoc_disconnect(request: Request, dk: str):
+    """«Deconectează» без отзыва у Google: открыта и в режиме чтения (`READONLY_ALLOW`), гейт её не
+    касается."""
+    if (deny := api_require(request, PERM_DOCTORS)) is not None:
+        return deny
+    if (deny := local_only(request)) is not None:
+        return deny
+    if dk not in eng.DOCTORS:
+        return msg_json(False, status=404)
+    code = await gcal_doctor.disconnect(dk, gcal_doctor.actor())
+    if code in ("gd_off", "gd_off_local"):
+        return await _gdoc_reply(request, dk, code)
+    return await _gdoc_reply(request, dk, code, ok=False, status=500 if code == "gd_off_fail" else 409)
+
+
+@router.get("/google/back/medic", response_class=HTMLResponse)
+async def google_back_medic(request: Request):
+    """Возврат врача из браузера Windows: вне /admin и /api, куки программы там нет — все проверки
+    в `gcal_doctor.finish`. Адрес совпадает с `gcal_doctor.BACK_PATH`."""
+    code, status = await gcal_doctor.finish(request)
+    return HTMLResponse(gcal_doctor.back_page(code), status_code=status,
+                        headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})

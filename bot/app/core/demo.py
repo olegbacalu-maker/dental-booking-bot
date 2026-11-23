@@ -52,7 +52,10 @@ BLOCKED = (
     "/api/pimport",
     "/admin/patients/import",
     # связь с аккаунтом Google: ключ к календарю под DPAPI машины, у демо её нет
+    # (`/google/back` закрывает и возврат врача `/google/back/medic`)
     "/api/gcal/google", "/google/back",
+    # календари врачей в их Google — тот же ключ под DPAPI
+    "/api/gdoc",
 )
 
 # Загрузка файла в демо — до 8 МБ (у клиники 25): копия живёт час, а место на

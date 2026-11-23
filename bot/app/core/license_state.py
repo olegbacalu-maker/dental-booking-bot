@@ -254,6 +254,8 @@ READONLY_ALLOW = (
     "/api/gcal/google/disconnect",
     # и выключить автоперенос из него (включить маршрут не даёт: только предпросмотром)
     "/api/gcal/auto",
+    # и снять календарь врача из его Google — тоже
+    "/api/gdoc/{dk}/disconnect",
 )
 GATED_PREFIXES = ("/admin", "/api/")           # где ворота вообще стоят
 READ_METHODS = ("GET", "HEAD", "OPTIONS")

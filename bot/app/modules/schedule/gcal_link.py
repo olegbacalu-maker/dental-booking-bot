@@ -27,7 +27,7 @@ from urllib.parse import parse_qs
 
 from ... import db, dpapi, paths
 from ... import engine as eng
-from ...core import demo, gapi, gauth, gclient
+from ...core import demo, gapi, gauth, gclient, gdoc
 from ...core import license as lic
 from ...core import license_state as lst
 from ...core.auth import PERM_SCHEDULE_ALL, all_users, can, client_is_local, remote_notice, request_user
@@ -74,6 +74,12 @@ WORDS = {
     # перед ссылкой `PRIVACY`: адрес на экране — ссылка, в тексте `notice` он не повторяется
     "details": "Detalii:",
 }
+# К вопросу «Deconectează», когда тот же аккаунт Google держит календари врачей: отзыв доступа
+# снимает всё, что аккаунт дал программе, и их календари тоже.
+SAME_ACCOUNT = ("Același cont Google ține și calendarul medicului {names}: retragerea accesului îl oprește, "
+                "iar medicul se conectează din nou din fișa lui.",
+                "Același cont Google ține și calendarele medicilor {names}: retragerea accesului le oprește, "
+                "iar medicii se conectează din nou din fișele lor.")
 NOTICE = (
     "Programul citește evenimentele unui calendar Google ales de dvs. — de acum până la un an "
     f"înainte, din {POLL_MINUTES} în {POLL_MINUTES} minute — și le arată în această filă. Acces numai "
@@ -306,8 +312,17 @@ def view(request) -> dict | None:
                 "calendar": local and state in (S_CHOOSE, S_ON, S_PAUSED) and bool(cals),
                 "check": state in (S_CHOOSE, S_ON, S_PAUSED),
                 "disconnect": local and connected},
-        "words": dict(WORDS),
+        "words": _words(link),
     }
+
+
+def _words(link: dict | None) -> dict:
+    words = dict(WORDS)
+    names = [eng.DOCTORS[dk] for dk in gdoc.same_account(str((link or {}).get("account") or ""))
+             if dk in eng.DOCTORS]
+    if names:
+        words["disconnect_ask"] += " " + SAME_ACCOUNT[len(names) > 1].format(names=", ".join(names))
+    return words
 
 
 # ---------- вход ----------
