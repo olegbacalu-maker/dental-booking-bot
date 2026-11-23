@@ -96,7 +96,32 @@ _LAUNCHER_COPY_OK = _PRELOAD_MOD | {p.rsplit("/", 1)[-1][:-3] for p in _LAUNCHER
 
 # Провод Google — чистые модули: вход не знает проекта вовсе, чтение знает только ics, чтобы
 # событие API шло путём файла. Импорт базы или соседа утянул бы в провод состояние программы.
-_GWIRE = {"app/core/gauth.py": set(), "app/core/gapi.py": {"ics"}}
+_GWIRE = {"app/core/gauth.py": set(), "app/core/gapi.py": {"ics"}, "app/core/gwrite.py": set()}
+# Тело события в календаре врача — белым списком: поле записи сверх этих (телефон, заметка, диагноз)
+# уехало бы в Google на всех уровнях подробности.
+_GWRITE = "app/core/gwrite.py"
+_GWRITE_APPT = {"id", "start", "minutes", "room", "patient", "file_no", "service"}
+_GWRITE_KEYS = {"id", "summary", "description", "start", "end", "status", "reminders", "transparency",
+                "visibility", "extendedProperties"}
+_GWRITE_PRIVATE = {"dp", "dp_appt"}
+# Дверь к Google врачей: файл связи, токены, замок врача. Кто входит в неё или ходит к Google по
+# её ключу — и обязан спросить право сам, до сети (подключение и сверка добавят свои функции).
+_GDOC = "app/core/gdoc.py"
+_GDOC_GATE = "gcal_doctor"
+_GDOC_GATED = {_GDOC: ("access",)}
+_GDOC_NET = {"refresh", "exchange", "consent_url", "calendar_get", "calendar_insert", "calendar_patch",
+             "calendar_delete", "event_insert", "event_update", "event_delete", "events_ours", "_open",
+             "_renew"}
+# Отзыв у Google проектный: он оборвал бы календари всех врачей аккаунта и связь клиники.
+_GDOC_NO_REVOKE = (_GDOC,)
+# Кто держит токен врача в руках — ни в лог, ни в базу.
+_GDOC_TOKEN_FILES = (_GDOC,)
+# Пишет в календари врачей только тот, кто знает их ключи через дверь: dpapi и клиент сборки — у
+# двери; вход Google — у двери и у подключения врача.
+_GWRITE_KEYS_OK = {_GDOC}
+_GWRITE_GAUTH_OK = {_GDOC}
+# Запись файла связи и уход врача — под замком врача; подключение и сверка добавят свои функции.
+_GDOC_LOCKED = {_GDOC: ("access", "report", "done", "bump_epoch", "calendar_named", "store", "leave")}
 # Константу клиента Google PyInstaller кладёт в exe только по статическому импорту: импорт по строке
 # он не видит, и exe молча остался бы «не настроено» — дымовой тест exe этого не заметит.
 _GCLIENT = "app/core/gclient.py"
@@ -874,7 +899,7 @@ def suite(res: Result) -> None:
                 return True
         return False
 
-    for rel in (_GLINK, _GLINK_API):
+    for rel in (_GLINK, _GLINK_API, *_GDOC_TOKEN_FILES):
         tree = by_path.get(rel)
         if tree is None:
             bad.append(f"{rel} — нет по этому пути")
@@ -889,20 +914,190 @@ def suite(res: Result) -> None:
             to_db = isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id == "db"
             if (to_log or to_db) and any(_gl_secret(a) for a in [*c.args, *(k.value for k in c.keywords)]):
                 bad.append(f"{rel}:{c.lineno} {'лог' if to_log else 'база'} получает токен или код")
-    link_file = next((n.value.value for n in (glink.body if glink else ())
-                      if isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant)
-                      and any(isinstance(t, ast.Name) and t.id == "FILE_NAME" for t in n.targets)), "")
-    if not link_file:
-        bad.append(f"{_GLINK}: нет FILE_NAME — якорь правила пропал")
-    for rel in _GLINK_NO_COPY if link_file else ():
+    def _file_name(rel: str) -> str:
+        tree = by_path.get(rel)
+        return next((n.value.value for n in (tree.body if tree else ())
+                     if isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant)
+                     and isinstance(n.value.value, str)
+                     and any(isinstance(t, ast.Name) and t.id == "FILE_NAME" for t in n.targets)), "")
+
+    # у каждого файла связи свой якорь: подстрока одного имени другого не ловит
+    anchors = [(owner, _file_name(owner)) for owner in (_GLINK, _GDOC)]
+    for owner, name in anchors:
+        if not name:
+            bad.append(f"{owner}: нет FILE_NAME — якорь правила пропал")
+    for rel in _GLINK_NO_COPY:
         tree = by_path.get(rel)
         if tree is None:
             bad.append(f"{rel} — нет по этому пути")
             continue
-        if any(isinstance(x, ast.Constant) and isinstance(x.value, str) and link_file in x.value
-               for x in _walk(tree)):
-            bad.append(f"{rel} знает {link_file} — файл связи уехал бы в копию")
+        for _owner, name in anchors:
+            if name and any(isinstance(x, ast.Constant) and isinstance(x.value, str) and name in x.value
+                            for x in _walk(tree)):
+                bad.append(f"{rel} знает {name} — файл связи уехал бы в копию")
     res.ok("токен Google не в базе, не в логе и не в копиях", not bad, "; ".join(bad))
+
+    # ---- календари врачей: тело события, право, отзыв, дверь, замок ----
+    gw = by_path.get(_GWRITE)
+    bad = []
+    if gw is None:
+        bad.append(f"{_GWRITE} — нет по этому пути")
+    appt_cls = next((n for n in (gw.body if gw else ()) if isinstance(n, ast.ClassDef) and n.name == "Appt"), None)
+    if gw is not None and appt_cls is None:
+        bad.append(f"{_GWRITE}: нет класса Appt — якорь правила пропал")
+    if appt_cls is not None:
+        got = {n.target.id for n in appt_cls.body if isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name)}
+        if not got or got - _GWRITE_APPT:
+            bad.append(f"{_GWRITE}:{appt_cls.lineno} Appt несёт поля вне белого списка: "
+                       f"{', '.join(sorted(got - _GWRITE_APPT)) or 'полей нет'}")
+    keys_node = next((n.value for n in (gw.body if gw else ()) if isinstance(n, ast.Assign)
+                      and any(isinstance(t, ast.Name) and t.id == "EVENT_KEYS" for t in n.targets)), None)
+    keys = {e.value for e in keys_node.elts if isinstance(e, ast.Constant)} \
+        if isinstance(keys_node, (ast.Tuple, ast.List)) else set()
+    if gw is not None and keys != _GWRITE_KEYS:
+        bad.append(f"{_GWRITE}: EVENT_KEYS ≠ белому списку: {sorted(keys ^ _GWRITE_KEYS)}")
+    body_fn = next((n for n in (gw.body if gw else ()) if isinstance(n, ast.FunctionDef) and n.name == "event_body"),
+                   None)
+    if gw is not None and body_fn is None:
+        bad.append(f"{_GWRITE}: нет event_body — якорь правила пропал")
+
+    def _dict_keys(d) -> set | None:
+        return None if not isinstance(d, ast.Dict) or any(not isinstance(k, ast.Constant) for k in d.keys) \
+            else {k.value for k in d.keys}
+
+    if body_fn is not None:
+        rets = [n.value for n in _walk(body_fn) if isinstance(n, ast.Return)]
+        for r in rets or [None]:
+            if _dict_keys(r) != keys:
+                bad.append(f"{_GWRITE}:{body_fn.lineno} event_body отдаёт не словарь ровно из EVENT_KEYS")
+                continue
+            ext = dict(zip((k.value for k in r.keys), r.values)).get("extendedProperties")
+            priv = dict(zip((k.value for k in ext.keys), ext.values)).get("private") \
+                if _dict_keys(ext) == {"private"} else None
+            if _dict_keys(priv) != _GWRITE_PRIVATE:
+                bad.append(f"{_GWRITE}:{body_fn.lineno} частные свойства события — не только {sorted(_GWRITE_PRIVATE)}")
+        for n in _walk(body_fn):
+            if (isinstance(n, ast.Subscript) and isinstance(n.ctx, ast.Store)) or (
+                    isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                    and n.func.attr in ("update", "setdefault")):
+                bad.append(f"{_GWRITE}:{n.lineno} event_body дописывает тело после сборки")
+    res.ok("тело события врача — белым списком", not bad, "; ".join(bad))
+
+    gd = by_path.get(_GDOC)
+
+    def _gd_gate(fn) -> list:
+        return sorted(c.lineno for c in _walk(fn) if isinstance(c, ast.Call)
+                      and ((isinstance(c.func, ast.Attribute) and c.func.attr == "feature_until")
+                           or (isinstance(c.func, ast.Name) and c.func.id == "feature_until"))
+                      and c.args and ((isinstance(c.args[0], ast.Constant) and c.args[0].value == _GDOC_GATE)
+                                      or (isinstance(c.args[0], ast.Name) and c.args[0].id == "SYNC_GATE")
+                                      or (isinstance(c.args[0], ast.Attribute) and c.args[0].attr == "SYNC_GATE")))
+
+    bad = []
+    sync = next((n.value.value for n in (gd.body if gd else ()) if isinstance(n, ast.Assign)
+                 and isinstance(n.value, ast.Constant)
+                 and any(isinstance(t, ast.Name) and t.id == "SYNC_GATE" for t in n.targets)), None)
+    if sync != _GDOC_GATE:
+        bad.append(f"{_GDOC}: SYNC_GATE ≠ «{_GDOC_GATE}» — якорь правила пропал")
+    for rel, names in _GDOC_GATED.items():
+        tree = by_path.get(rel)
+        if tree is None:
+            bad.append(f"{rel} — нет по этому пути")
+            continue
+        funcs = {n.name: n for n in _walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        for name in names:
+            fn = funcs.get(name)
+            if fn is None:
+                bad.append(f"{rel}: нет функции {name} — список правила устарел")
+                continue
+            gates, net = _gd_gate(fn), _gl_calls(fn, _GDOC_NET)
+            if not gates:
+                bad.append(f"{rel}:{fn.lineno} {name} не спрашивает feature_until(\"{_GDOC_GATE}\")")
+            elif net and net[0] < gates[0]:
+                bad.append(f"{rel}:{net[0]} {name} идёт к Google раньше, чем спросил право")
+            if any(isinstance(n, ast.Global) for n in _walk(fn)):
+                bad.append(f"{rel}:{fn.lineno} {name} пишет глобальное — право не кэшируется")
+        for n in tree.body:
+            if isinstance(n, (ast.Assign, ast.AnnAssign)) and n.value is not None and _gd_gate(n):
+                bad.append(f"{rel}:{n.lineno} право в имени модуля — кэш вместо вопроса")
+    res.ok("дверь к Google врача спрашивает право gcal_doctor", not bad, "; ".join(bad))
+
+    bad = []
+    for rel in _GDOC_NO_REVOKE:
+        tree = by_path.get(rel)
+        if tree is None:
+            bad.append(f"{rel} — нет по этому пути")
+            continue
+        for n in _walk(tree):
+            if ((isinstance(n, ast.Name) and n.id in ("revoke", "REVOKE_URL"))
+                    or (isinstance(n, ast.Attribute) and n.attr in ("revoke", "REVOKE_URL"))
+                    or (isinstance(n, ast.alias) and n.name in ("revoke", "REVOKE_URL"))
+                    or (isinstance(n, ast.Constant) and isinstance(n.value, str) and "/revoke" in n.value)):
+                bad.append(f"{rel}:{getattr(n, 'lineno', '?')} отзыв у Google")
+    res.ok("уход врача — без отзыва у Google", not bad, "; ".join(bad))
+
+    # Ключ к календарю врача — только у двери: кто пишет в календари врачей (знает gwrite), тот не
+    # знает DPAPI и клиента сборки, файл связи и внутренности двери не трогает.
+    bad = []
+    if gd is None:
+        bad.append(f"{_GDOC} — нет по этому пути")
+    gdoc_file = _file_name(_GDOC)
+
+    def _knows(tree, name: str) -> bool:
+        for n in _walk(tree):
+            if not isinstance(n, (ast.Import, ast.ImportFrom)):
+                continue
+            targets = [m for m in _imported(n) if m]
+            if getattr(n, "level", 0) or any(m.split(".")[0] == "app" for m in targets):
+                if name in {m.split(".")[-1] for m in targets}:
+                    return True
+        return False
+
+    for rel, tree in src:
+        if rel == _GDOC:
+            continue
+        if _knows(tree, "gwrite"):
+            for name in ("dpapi", "gclient"):
+                if rel not in _GWRITE_KEYS_OK and _knows(tree, name):
+                    bad.append(f"{rel} пишет в календари врачей и знает {name}")
+            if rel not in _GWRITE_GAUTH_OK and _knows(tree, "gauth"):
+                bad.append(f"{rel} пишет в календари врачей и знает gauth")
+        for n in _walk(tree):
+            if gdoc_file and isinstance(n, ast.Constant) and isinstance(n.value, str) and gdoc_file in n.value:
+                bad.append(f"{rel}:{n.lineno} знает {gdoc_file}")
+            if (isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == "gdoc"
+                    and (n.attr == "FILE_NAME" or n.attr.startswith("_"))):
+                bad.append(f"{rel}:{n.lineno} лезет во внутренности двери: gdoc.{n.attr}")
+    res.ok("к Google врача — только через дверь gdoc", not bad, "; ".join(bad))
+
+    def _locked(node) -> bool:
+        return isinstance(node, ast.AsyncWith) and any(
+            isinstance(i.context_expr, ast.Call) and (
+                (isinstance(i.context_expr.func, ast.Name) and i.context_expr.func.id == "lock")
+                or (isinstance(i.context_expr.func, ast.Attribute) and i.context_expr.func.attr == "lock"))
+            for i in node.items)
+
+    bad = []
+    if gd is not None:
+        if not any(isinstance(n, ast.FunctionDef) and n.name == "_put" for n in gd.body):
+            bad.append(f"{_GDOC}: нет _put — якорь правила пропал")
+        under = {id(c) for w in _walk(gd) if _locked(w) for c in _walk(w)}
+        bad += [f"{_GDOC}:{c.lineno} файл связи пишется не под замком врача" for c in _walk(gd)
+                if isinstance(c, ast.Call) and isinstance(c.func, ast.Name) and c.func.id == "_put"
+                and id(c) not in under]
+    for rel, names in _GDOC_LOCKED.items():
+        tree = by_path.get(rel)
+        if tree is None:
+            bad.append(f"{rel} — нет по этому пути")
+            continue
+        funcs = {n.name: n for n in _walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        for name in names:
+            fn = funcs.get(name)
+            if fn is None:
+                bad.append(f"{rel}: нет функции {name} — список правила устарел")
+            elif not any(_locked(w) for w in _walk(fn)):
+                bad.append(f"{rel}:{fn.lineno} {name} не под замком врача (async with gdoc.lock)")
+    res.ok("один замок врача на файл связи, уход и проход", not bad, "; ".join(bad))
 
     # ---- заказы лаунчеру подписаны (02.11, разбор коллеги Б2) ----
     # Папку данных пишет любая учётка Windows ПК, а заказ исполняет лаунчер

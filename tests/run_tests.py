@@ -50,6 +50,8 @@ import test_doctor_windows  # noqa: E402
 import test_day_actions  # noqa: E402
 import test_day_forms  # noqa: E402
 import test_gapi  # noqa: E402
+import test_gwrite  # noqa: E402
+import test_gdoc  # noqa: E402
 import test_gcal  # noqa: E402
 import test_gcal_link  # noqa: E402
 import test_gcal_auto  # noqa: E402
@@ -202,6 +204,10 @@ SUITES = [
     ("Google: событие → Occurrence — ключ серии, весь день, отменённое, пояса", test_gapi.suite_convert),
     ("Google: один календарь файлом и через API — те же ключи и отпечатки", test_gapi.suite_parity),
     ("Google: клиент программы — константа сборки в exe, файл по переменной вне exe", test_gapi.suite_client),
+    ("Google врача: провод записи чистый, право одно, согласие каждый раз", test_gwrite.suite_pure),
+    ("Google врача: тело события — белый список, уровни, отпечаток, id", test_gwrite.suite_body),
+    ("Google врача: календарь и события — 409, 410, «надгробие», весь набор или отказ", test_gwrite.suite_write),
+    ("Google врача: дверь — право, токены, метка, пересборка, уход без отзыва, замок", test_gdoc.suite),
     ("Google Calendar: загрузка файла, список, подсказки, меню", test_gcal.suite_load),
     ("Google Calendar: перенос в журнал, «Leagă», «Nu muta», изменившееся", test_gcal.suite_move),
     ("Google Calendar: начало и длина окна — из конвертера", test_gcal.suite_round),

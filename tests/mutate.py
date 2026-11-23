@@ -169,6 +169,69 @@ MUTATIONS = [
      '\nasync def _mut(r):\n    await db.set_meta("gcal_access", r.grant.access)\n'),
     ("не в базе, не в логе и не в копиях", "app/core/backup.py",
      '\n_mut = "google.json"\n'),
+    # Календари врачей: токен врача в лог и в базу, файл связи врачей в копию, якорь пропал.
+    ("не в базе, не в логе и не в копиях", "app/core/gdoc.py",
+     '\ndef _mut(token):\n    log.info("gdoc: %s", token)\n'),
+    ("не в базе, не в логе и не в копиях", "app/core/gdoc.py",
+     '\nasync def _mut(a):\n    await db.set_meta("gdoc_tok", a.token)\n'),
+    ("не в базе, не в логе и не в копиях", "app/core/backup.py",
+     '\n_mut = "google-medici.json"\n'),
+    ("не в базе, не в логе и не в копиях", "app/core/gdoc.py",
+     ('FILE_NAME = "google-medici.json"', 'FILE_NAME_OLD = "google-medici.json"')),
+    # Провод записи не знает проекта вовсе.
+    ("провод Google знает из проекта только ics", "app/core/gwrite.py",
+     "\nfrom .. import db  # noqa\n"),
+    # Тело события: поле записи сверх списка, ключ сверх него, ключ в самом списке, лишнее частное
+    # свойство, дописывание тела после сборки.
+    ("тело события врача — белым списком", "app/core/gwrite.py",
+     ('    service: str = ""               # только "name"\n',
+      '    service: str = ""               # только "name"\n    phone: str = ""\n')),
+    ("тело события врача — белым списком", "app/core/gwrite.py",
+     ('        "visibility": "private",\n', '        "visibility": "private",\n        "location": a.room,\n')),
+    ("тело события врача — белым списком", "app/core/gwrite.py",
+     ('"transparency", "visibility", "extendedProperties")',
+      '"transparency", "visibility", "extendedProperties", "location")')),
+    ("тело события врача — белым списком", "app/core/gwrite.py",
+     ('{"dp": tag, "dp_appt": str(a.id)}', '{"dp": tag, "dp_appt": str(a.id), "dp_name": a.patient}')),
+    ("тело события врача — белым списком", "app/core/gwrite.py",
+     ('    end = start + timedelta(minutes=a.minutes)\n',
+      '    end = start + timedelta(minutes=a.minutes)\n    extra = {}\n    extra["phone"] = a.patient\n')),
+    # Дверь без вопроса о праве, сеть раньше вопроса, право в имени модуля, якорь на чужое право,
+    # вопрос о праве связи клиники вместо права врачей.
+    ("дверь к Google врача спрашивает право gcal_doctor", "app/core/gdoc.py",
+     ("    if not leave and lic.feature_until(SYNC_GATE) is None:\n        return Access(A_GATE)\n", "")),
+    ("дверь к Google врача спрашивает право gcal_doctor", "app/core/gdoc.py",
+     ("    if not leave and lic.feature_until(SYNC_GATE) is None:\n",
+      "    _probe = await _open(c, dk, {}, force=False)\n"
+      "    if not leave and lic.feature_until(SYNC_GATE) is None:\n")),
+    ("дверь к Google врача спрашивает право gcal_doctor", "app/core/gdoc.py",
+     "\n_GATE = lic.feature_until(SYNC_GATE)\n"),
+    ("дверь к Google врача спрашивает право gcal_doctor", "app/core/gdoc.py",
+     ('SYNC_GATE = "gcal_doctor"', 'SYNC_GATE = "gcal"')),
+    ("дверь к Google врача спрашивает право gcal_doctor", "app/core/gdoc.py",
+     ("    if not leave and lic.feature_until(SYNC_GATE) is None:\n",
+      '    if not leave and lic.feature_until("gcal") is None:\n')),
+    # Отзыв у Google в двери — вызовом и адресом.
+    ("уход врача — без отзыва у Google", "app/core/gdoc.py",
+     "\nasync def _mut(t):\n    return await asyncio.to_thread(gauth.revoke, t)\n"),
+    ("уход врача — без отзыва у Google", "app/core/gdoc.py",
+     '\n_mut = "https://oauth2.googleapis.com/revoke"\n'),
+    # Мимо двери: пишущий в календари врачей с DPAPI и клиентом сборки, с входом Google, файл связи
+    # врачей по имени, внутренности двери.
+    ("к Google врача — только через дверь gdoc", "app/modules/schedule/gcal_link.py",
+     "\nfrom ...core import gwrite  # noqa\n"),
+    ("к Google врача — только через дверь gdoc", "app/modules/doctors/api.py",
+     "\nfrom ...core import gauth, gwrite  # noqa\n"),
+    ("к Google врача — только через дверь gdoc", "app/modules/doctors/api.py",
+     '\n_mut = "google-medici.json"\n'),
+    ("к Google врача — только через дверь gdoc", "app/modules/doctors/api.py",
+     "\ndef _mut(gdoc):\n    return gdoc._load()\n"),
+    # Уход без замка врача; запись файла связи мимо замка.
+    ("один замок врача", "app/core/gdoc.py",
+     ("    async with lock(dk):\n        e = _entry(dk)\n        if e is None:\n            return L_NONE\n",
+      "    if True:\n        e = _entry(dk)\n        if e is None:\n            return L_NONE\n")),
+    ("один замок врача", "app/core/gdoc.py",
+     "\ndef _mut(dk):\n    _put(dk, None)\n"),
     # ---- заказы лаунчеру подписаны (02.11) ----
     # Исполнитель без подписи: тот же вызов, но уже не проверка.
     ("исполняется только по подписи", "app/core/restore.py",
@@ -866,6 +929,19 @@ LEGAL = [
     # слово «token» в тексте строки лога и код ответа Google — не сам токен
     ("не в базе, не в логе и не в копиях", "app/modules/schedule/gcal_link.py",
      '\ndef _mut(r):\n    log.warning("gcal: token refresh refused: %s %s", r.code, r.reason)\n'),
+    # право врачей литералом вместо имени — тот же вопрос
+    ("дверь к Google врача спрашивает право gcal_doctor", "app/core/gdoc.py",
+     ("    if not leave and lic.feature_until(SYNC_GATE) is None:\n",
+      '    if not leave and lic.feature_until("gcal_doctor") is None:\n')),
+    # модуль, знающий провод записи и дверь, но не ключи, — так строятся подключение и сверка
+    ("к Google врача — только через дверь gdoc", "app/modules/doctors/api.py",
+     "\nfrom ...core import gdoc, gwrite  # noqa\n\ndef _mut():\n    return gdoc.SYNC_GATE, gwrite.LEVELS\n"),
+    # запись файла связи внутренней функцией под тем же замком
+    ("один замок врача", "app/core/gdoc.py",
+     "\nasync def _mut(dk):\n    async with lock(dk):\n        _put(dk, None)\n"),
+    # слово «revocare» в тексте — не отзыв
+    ("уход врача — без отзыва у Google", "app/core/gdoc.py",
+     '\n_mut = "fără revocarea accesului"\n'),
     # чтение журнала импортом — не запись: отчёт и отмена спрашивают визиты своим SELECT в db
     ("импорт ставит визиты только через book", "app/modules/patients/pimport.py",
      "\nasync def _mut(db, i):\n    return await db._fetch('SELECT id FROM appointments WHERE id = ?', i)\n"),
