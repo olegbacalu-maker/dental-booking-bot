@@ -1,26 +1,33 @@
-"""Варианты абонемента (Олег 23.10.2026; условия 23.10.2026 § 3, 4.2, 4.5, 16):
-DentPilot Basic — без модуля SMS, DentPilot Plus — с модулем SMS. Клиника выбирает
-вариант при каждой оплате (/plata, кабинет); пробный месяц — всегда Plus.
+"""Варианты абонемента: DentPilot Basic — без модуля SMS, DentPilot Plus — с модулем SMS,
+DentPilot Premium — Plus и календари врачей в Google (условия § 3, 4.2, 4.5, 16). Клиника
+выбирает вариант при каждой оплате (/plata, кабинет); пробный месяц — всегда Plus.
 
 ⭐ Вариант живёт ТОЛЬКО на сервере. В файле лицензии второго плана нет и не будет:
 программа знает `trial`/`standard` и новый план сочла бы негодным. Модуль SMS
 включает и выключает ответ /v1/sms/* — код `sms_basic` (sms.blocked); ручной
-тумблер карточки (`sms_off`) — другое состояние, для исключений.
+тумблер карточки (`sms_off`) — другое состояние, для исключений. Связь с Google и
+календари врачей программа узнаёт датами прав в файле (`features`), не вариантом.
+
+⛔ Что даёт вариант — только множествами ниже (`SMS_TIERS`, `GCAL_TIERS`, `GDOC_TIERS`), не
+сравнением с одним вариантом: «Plus или иначе Basic» у третьего варианта молча выключает то,
+что он включает. Сравнение `== / != tiers.PLUS|BASIC|PREMIUM` вне этого файла держит
+`test_tiers.suite_sets`.
 
 Одно правило на всех (страница оплаты, кабинет, админка, ежедневная задача, confirm):
 - `current(sub)` — вариант, в котором идёт подписка: пробный = Plus, иначе
   `subscriptions.tier` (подписки до шага 15 миграций — Plus);
 - `price(sub, tier)` — цена месяца: ВСЕГДА прайс варианта из cloud.env, и у оплаченной
-  подписки тоже (Олег 26.10: «600 везде»; до того подписка продлевалась по своей цене —
-  у живых клиник это были старые 499). `subscriptions.price` — запись, по чему выставлено
-  и оплачено, не источник цены. 0 = вариант не продаётся;
-- `module_on(sub, now)` — работает ли модуль SMS: пробный и Plus — да; Basic — пока
-  не прошёл `sms_until`, конец периода, который шёл, когда клиника перешла на Basic
+  подписки тоже: `subscriptions.price` — запись, по чему выставлено и оплачено, не
+  источник цены. 0 = вариант не продаётся;
+- `module_on(sub, now)` — работает ли модуль SMS: пробный и варианты с SMS — да; без SMS —
+  пока не прошёл `sms_until`, конец периода, который шёл при уходе с варианта с SMS
   (§ 4.2: «rămâne pornit până la sfârșitul perioadei în curs»), потом нет;
-- `gcal_until(sub, end, now)` — связь с аккаунтом Google (только Plus и пробный) тем же
-  правилом, что модуль SMS, но датой в файле лицензии (`features.gcal`): программа тарифа
-  не знает и держит связь, пока дата не прошла.
-⛔ Цен в репозитории нет (Олег 16.10): DP_PRICE_BASIC / DP_PRICE_PLUS в cloud.env.
+- `gcal_until(sub, end, now)` — связь с аккаунтом Google (право `gcal`) тем же правилом,
+  что модуль SMS, но датой в файле лицензии: программа держит связь, пока дата не прошла;
+- `gdoc_until(sub, end, now)` — календари врачей в Google (право `gcal_doctor`): у Premium —
+  до конца файла; после ухода с Premium — до `gdoc_until` подписки, конца периода, шедшего
+  при уходе; потом программа убирает будущие приёмы из календарей.
+⛔ Цен в репозитории нет: DP_PRICE_BASIC / DP_PRICE_PLUS / DP_PRICE_PREMIUM в cloud.env.
 """
 from __future__ import annotations
 
@@ -29,11 +36,16 @@ from datetime import datetime
 
 from . import config, db
 
-BASIC, PLUS = "basic", "plus"
-TIERS = (BASIC, PLUS)
-NAME = {BASIC: "DentPilot Basic", PLUS: "DentPilot Plus"}
-WHAT = {BASIC: "fără modulul SMS", PLUS: "cu modulul SMS"}       # как в условиях § 4.1
-WHAT_RU = {BASIC: "без модуля SMS", PLUS: "с модулем SMS"}       # админка
+BASIC, PLUS, PREMIUM = "basic", "plus", "premium"
+TIERS = (BASIC, PLUS, PREMIUM)
+NAME = {BASIC: "DentPilot Basic", PLUS: "DentPilot Plus", PREMIUM: "DentPilot Premium"}
+WHAT = {BASIC: "fără modulul SMS", PLUS: "cu modulul SMS",                       # как в условиях § 4.1
+        PREMIUM: "cu modulul SMS și calendarele medicilor în Google"}
+WHAT_RU = {BASIC: "без модуля SMS", PLUS: "с модулем SMS",                       # админка
+           PREMIUM: "с модулем SMS и календарями врачей в Google"}
+SMS_TIERS = frozenset({PLUS, PREMIUM})       # модуль SMS
+GCAL_TIERS = frozenset({PLUS, PREMIUM})      # связь с аккаунтом Google клиники (право gcal)
+GDOC_TIERS = frozenset({PREMIUM})            # календари врачей в Google (право gcal_doctor)
 
 
 def list_price(tier: str) -> int:
@@ -50,13 +62,13 @@ def current(sub: sqlite3.Row | None) -> str:
 
 def price(sub: sqlite3.Row | None, tier: str) -> int:
     """Цена месяца варианта `tier`; 0 — вариант не продаётся. ⛔ Прайс cloud.env для любой
-    подписки — своей цены у подписки нет (Олег 26.10: «600 везде»). `sub` остаётся в
-    подписи: правило одно на всех, и вызывающим не надо знать, что подписка не участвует."""
+    подписки — своей цены у подписки нет. `sub` остаётся в подписи: правило одно на всех, и
+    вызывающим не надо знать, что подписка не участвует."""
     return list_price(tier)
 
 
 def offered(sub: sqlite3.Row | None) -> list[str]:
-    """Варианты, которые этой клинике можно оплатить сейчас (по порядку Basic, Plus)."""
+    """Варианты, которые этой клинике можно оплатить сейчас (по порядку TIERS)."""
     return [t for t in TIERS if price(sub, t) > 0]
 
 
@@ -70,29 +82,51 @@ def pick(sub: sqlite3.Row | None, asked: str = "") -> str:
     return sold[0] if sold else ""
 
 
-def sms_until(sub: sqlite3.Row | None) -> datetime | None:
-    if sub is None or "sms_until" not in sub.keys():
+def _column(sub: sqlite3.Row | None, name: str) -> datetime | None:
+    if sub is None or name not in sub.keys():
         return None
-    return db.parse_ts(sub["sms_until"])
+    return db.parse_ts(sub[name])
+
+
+def sms_until(sub: sqlite3.Row | None) -> datetime | None:
+    """До какого момента модуль SMS работает после ухода с варианта с SMS (колонка подписки)."""
+    return _column(sub, "sms_until")
+
+
+def gdoc_left(sub: sqlite3.Row | None) -> datetime | None:
+    """До какого момента календари врачей работают после ухода с Premium (колонка подписки)."""
+    return _column(sub, "gdoc_until")
 
 
 def module_on(sub: sqlite3.Row | None, now: datetime) -> bool:
     """Работает ли модуль SMS по варианту (лицензию и тумблер проверяет sms.blocked)."""
-    if current(sub) == PLUS:
+    if current(sub) in SMS_TIERS:
         return True
     until = sms_until(sub)
     return until is not None and now < until
 
 
-def gcal_until(sub: sqlite3.Row | None, end: datetime, now: datetime) -> datetime | None:
-    """Дата права gcal для файла, действующего до `end` (льгота включительно): пробный и Plus —
-    `end`; Basic — `sms_until`, но не дальше `end`; права нет — None. `sub` — подписка с планом
-    выдаваемого файла: пробный всегда Plus (`current`)."""
-    until = end if current(sub) == PLUS else sms_until(sub)
+def _right(own: bool, left: datetime | None, end: datetime, now: datetime) -> datetime | None:
+    """Дата права для файла до `end`: вариант даёт право — `end`; иначе остаток после ухода,
+    но не дальше `end`; прошло или нет — None."""
+    until = end if own else left
     if until is None:
         return None
     until = min(until, end)
     return until if until > now else None
+
+
+def gcal_until(sub: sqlite3.Row | None, end: datetime, now: datetime) -> datetime | None:
+    """Дата права gcal для файла, действующего до `end` (льгота включительно): пробный, Plus и
+    Premium — `end`; Basic — `sms_until`, но не дальше `end`; права нет — None. `sub` — подписка
+    с планом выдаваемого файла: пробный всегда Plus (`current`)."""
+    return _right(current(sub) in GCAL_TIERS, sms_until(sub), end, now)
+
+
+def gdoc_until(sub: sqlite3.Row | None, end: datetime, now: datetime) -> datetime | None:
+    """Дата права gcal_doctor для файла до `end`: Premium — `end`; ушедшая с Premium — `gdoc_until`
+    подписки, но не дальше `end`; пробный (он Plus) и остальные — None."""
+    return _right(current(sub) in GDOC_TIERS, gdoc_left(sub), end, now)
 
 
 def label(tier: str | None) -> str:

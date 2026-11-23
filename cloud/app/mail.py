@@ -210,12 +210,21 @@ def tier_line(tier: str | None) -> str:
     return f"{tiers.NAME[t]} ({tiers.WHAT[t]})"
 
 
+def variants() -> str:
+    """Продаваемые варианты словами условий § 4.1: «DentPilot Basic, fără modulul SMS, sau DentPilot
+    Plus, cu modulul SMS» — третий встаёт перед «sau» только когда у него есть прайс: письмо не зовёт
+    на вариант, которого клиника не найдёт на странице оплаты."""
+    ts = [t for t in tiers.TIERS if tiers.list_price(t) > 0] or list(tiers.TIERS)
+    names = [f"{tiers.NAME[t]}, {tiers.WHAT[t]}" for t in ts]
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + ", sau " + names[-1]
+
+
 def change_note(page: str | None = None) -> str:
     """Как сменить вариант или срок до оплаты (условия § 4.2: «varianta o alege clinica la
     fiecare plată»): на странице оплаты из письма (`page`), в программе или в кабинете;
     нота там заменяется, а не плодится вторая."""
     where = f"pe pagina de plată, {page}, " if page else ""
-    return (f"Varianta (DentPilot Basic, fără modulul SMS, sau DentPilot Plus, cu modulul SMS) și termenul "
+    return (f"Varianta ({variants()}) și termenul "
             f"le puteți schimba până la plată: {where}din program, butonul „Plătește acum” (Setări › Licența), "
             f"sau din contul clinicii, {CONT_URL} — nota de plată se înlocuiește cu una nouă.")
 
@@ -600,18 +609,24 @@ def declaration() -> tuple[str, bytes] | None:
 
 
 def license_letter(clinic: str, valid_until: str, plan: str, renew: bool = False,
-                   declaration: bool = False, tier: str | None = None, sms_until: str | None = None) -> tuple[str, str]:
+                   declaration: bool = False, tier: str | None = None, sms_until: str | None = None,
+                   gdoc_until: str | None = None) -> tuple[str, str]:
     """Тема и текст письма о лицензии — по-румынски, как интерфейс программы.
     Файла в письме НЕТ (02.10): программа забирает его сама — `renew` (адрес
     автообновления в файле есть) добавляет RENEW_NOTE об этом. `declaration` —
     к письму приложена декларация поставщика: письмо называет её только тогда. `tier` —
-    вариант подписки (у пробного не называется: он всегда Plus); `sms_until` — у Basic,
-    перешедшего с Plus или пробного: до какого дня модуль SMS ещё работает (§ 4.2)."""
+    вариант подписки (у пробного не называется: он всегда Plus); `sms_until` — у варианта без
+    SMS, перешедшего с варианта с SMS или пробного: до какого дня модуль SMS ещё работает (§ 4.2);
+    `gdoc_until` — у ушедшей с Premium: до какого дня обновляются календари врачей."""
     trial = plan == "trial"
     what = "Perioada de probă DentPilot" if trial else f"Abonamentul {tiers.NAME.get(tier or '', 'DentPilot')}"
     valid = "este valabilă" if trial else "este valabil"
-    module = (f" Modulul SMS rămâne pornit până la {ro_date(sms_until)} și se oprește apoi (DentPilot Basic); "
-              f"SMS-urile rămase nu se pierd." if sms_until and not trial and tier == tiers.BASIC else "")
+    module = (f" Modulul SMS rămâne pornit până la {ro_date(sms_until)} și se oprește apoi "
+              f"({tiers.NAME.get(tier or '', 'DentPilot')}); SMS-urile rămase nu se pierd."
+              if sms_until and not trial and tier not in tiers.SMS_TIERS else "")
+    module += (f" Calendarele medicilor în Google se actualizează până la {ro_date(gdoc_until)}; apoi programul "
+               f"scoate din ele programările viitoare." if gdoc_until and not trial and tier not in tiers.GDOC_TIERS
+               else "")
     site = config.SITE_URL.rstrip("/")
     subject = f"DentPilot: licența pentru {clinic}"
     body = (f"Bună ziua,\n\n"

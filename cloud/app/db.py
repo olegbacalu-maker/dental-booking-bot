@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 23
+SCHEMA_VERSION = 24
 TS = "%Y-%m-%dT%H:%M:%SZ"
 
 
@@ -58,6 +58,13 @@ def _add_archived(con: sqlite3.Connection) -> None:
                      ("archived_reason", "TEXT NOT NULL DEFAULT ''")):
         if col not in have:
             con.execute(f"ALTER TABLE clinics ADD COLUMN {col} {ddl}")
+
+
+def _add_gdoc_until(con: sqlite3.Connection) -> None:
+    """Шаг 24: `subscriptions.gdoc_until`. Функцией, как шаги 21–23: переживает повтор."""
+    if "gdoc_until" not in {r[1] for r in con.execute("PRAGMA table_info(subscriptions)")}:
+        con.execute("ALTER TABLE subscriptions ADD COLUMN gdoc_until TEXT")
+
 
 MIGRATIONS = {
     1: [
@@ -377,6 +384,10 @@ MIGRATIONS = {
     # Архив клиник (11.11, archive.py): метка на строке — клиника вне списка, фильтров, цифр и писем ежедневной задачи;
     # удалить навсегда — только из архива и только без денег, SMS и подписанных бумаг. Пусто — не в архиве.
     23: [_add_archived],
+    # Третий вариант DentPilot Premium (tiers.py): до какого момента календари врачей в Google работают после
+    # ухода с Premium — конец периода, шедшего при уходе (правило модуля SMS и `sms_until`). Пусто — у Premium
+    # своё право до конца файла, у остальных права нет.
+    24: [_add_gdoc_until],
 }
 
 

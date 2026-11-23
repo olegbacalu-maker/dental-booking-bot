@@ -1,13 +1,16 @@
-"""Варианты абонемента DentPilot Basic / Plus (23.10.2026, tiers.py).
+"""Варианты абонемента DentPilot Basic / Plus / Premium (tiers.py).
 
 Правило без сервера: вариант, цена месяца (своя у подписки — прайс у другого
-варианта), модуль SMS после оплаты (Plus — сразу, Basic — до конца текущего
-периода), тексты писем и кодов. Через живой сервер: выбор на /plata с галочкой
-условий, замена ноты вместо второго долга, confirm ставит вариант, цену и модуль,
-коды sms_basic / sms_off, ручная смена варианта, нота за 14 дней в текущем
-варианте, страница возврата maib с № заказа, вариант без цены, миграция данных до
-шага 15. Цены прогона — заметно не настоящие (harness: DP_PRICE_*).
+варианта), модуль SMS и календари врачей после оплаты (вариант с ними — сразу, уход
+с них — до конца текущего периода), тексты писем и кодов. Через живой сервер: выбор
+на /plata с галочкой условий, замена ноты вместо второго долга, confirm ставит
+вариант, цену и модуль, коды sms_basic / sms_off, ручная смена варианта, нота за 14
+дней в текущем варианте, страница возврата maib с № заказа, вариант без цены,
+миграция данных до шага 15, Premium без прайса вручную и с прайсом оплатой. Сторож
+`suite_sets` — что даёт вариант, решают множества tiers, не сравнение с одним
+вариантом. Цены прогона — заметно не настоящие (harness: DP_PRICE_*).
 """
+import ast
 import base64
 import json
 import pathlib
@@ -21,14 +24,14 @@ from datetime import datetime, timedelta, timezone
 from harness import CLOUD, FIX, ROOT, Client, Result, Server, cid_from, load_by_path, unb64u
 
 sys.path.insert(0, str(CLOUD))
-from app import config, db, mail, receipts, sms, tiers, views  # noqa: E402
+from app import config, db, license, mail, receipts, sms, tiers, views  # noqa: E402
 from app import payments as pay  # noqa: E402
 from test_account import BANK_ENV, _letters, _sql  # noqa: E402
 from test_jobs import _run  # noqa: E402
 from test_paylink import HDR, _link, _token  # noqa: E402
 
 UTC = timezone.utc
-B, P = tiers.BASIC, tiers.PLUS
+B, P, PR = tiers.BASIC, tiers.PLUS, tiers.PREMIUM
 rv = load_by_path("rsa_verify_tiers", ROOT / "bot" / "app" / "core" / "rsa_verify.py")
 KEY = json.loads((FIX / "test-key.json").read_text(encoding="utf-8"))
 KEYS = {"test": (int(KEY["n"], 16), int(KEY["e"]))}
@@ -41,10 +44,11 @@ def _now() -> datetime:
 
 
 def _sub(plan: str = "standard", tier: str = P, price: int = 0, valid: datetime | None = None,
-         sms_until: datetime | None = None) -> dict:
+         sms_until: datetime | None = None, gdoc_until: datetime | None = None) -> dict:
     return {"plan": plan, "tier": tier, "price": price, "grace_days": 14,
             "valid_until": valid.strftime(db.TS) if valid else None,
-            "sms_until": sms_until.strftime(db.TS) if sms_until else None}
+            "sms_until": sms_until.strftime(db.TS) if sms_until else None,
+            "gdoc_until": gdoc_until.strftime(db.TS) if gdoc_until else None}
 
 
 def _note(tier: str | None = B, months: int = 1, amount: int = 0) -> dict:
@@ -87,32 +91,32 @@ def suite_rules(res: Result) -> None:
               [tiers.gcal_until(x, g_end, now) is not None for x in samples], [tiers.module_on(x, now) for x in samples])
     # tier_after — что confirm делает с подпиской (§ 4.2)
     trial_end = now + timedelta(days=20)
-    t, price, until, why = pay.tier_after(_sub("trial", P, pp, trial_end), _note(B), now)
+    t, price, until, _, why = pay.tier_after(_sub("trial", P, pp, trial_end), _note(B), now)
     res.ok("пробный → Basic: модуль до конца пробного, цена — прайс Basic, строка журнала",
            (t, price, until) == (B, pb, trial_end.strftime(db.TS)) and "пробный → DentPilot Basic" in why
            and trial_end.strftime("%Y-%m-%d") in why, repr((t, price, until, why)))
     end = now + timedelta(days=5)
     res.check("Plus → Basic с действующим сроком: модуль до конца оплаченного Plus",
               pay.tier_after(_sub(tier=P, price=444, valid=end), _note(B), now)[:3], (B, pb, end.strftime(db.TS)))
-    t, _, until, why = pay.tier_after(_sub(tier=P, valid=now - timedelta(days=2)), _note(B), now)
+    t, _, until, _, why = pay.tier_after(_sub(tier=P, valid=now - timedelta(days=2)), _note(B), now)
     res.ok("Plus → Basic после конца срока (льгота): модуль гаснет сразу",
            (t, until) == (B, None) and "выключен сразу" in why, repr((t, until, why)))
     keep = now + timedelta(days=9)
     res.check("Basic → Basic: прежний конец модуля, цена — прайс Basic",
               pay.tier_after(_sub(tier=B, price=300, valid=end, sms_until=keep), _note(B, amount=300), now)[:3],
               (B, pb, keep.strftime(db.TS)))
-    t, price, until, why = pay.tier_after(_sub(tier=B, price=300, valid=end), _note(P), now)
+    t, price, until, _, why = pay.tier_after(_sub(tier=B, price=300, valid=end), _note(P), now)
     res.ok("Basic → Plus: модуль сразу, цена — прайс Plus",
            (t, price, until) == (P, pp, None) and "модуль SMS сразу" in why, repr((t, price, until, why)))
     res.check("Plus → Plus по 444: в подписку записан прайс, не 444",
-              pay.tier_after(_sub(tier=P, price=444, valid=end), _note(P, amount=444), now), (P, pp, None, ""))
+              pay.tier_after(_sub(tier=P, price=444, valid=end), _note(P, amount=444), now), (P, pp, None, None, ""))
     res.check("нота без варианта (до шага 15) — Plus", pay.tier_after(_sub(tier=P, price=444), _note(None), now)[0], P)
     saved = dict(config.PRICES)
     try:
         config.PRICES[B] = 0
         res.check("вариант сняли с продажи после ноты — цена из суммы ноты",
                   pay.tier_after(_sub(tier=P, valid=end), _note(B, 12, 11 * 321), now)[1], 321)
-        res.check("вариант без цены не предлагается", tiers.offered(None), [P])
+        res.check("вариант без цены не предлагается", tiers.offered(None), [P, PR])
     finally:
         config.PRICES.update(saved)
     # тексты
@@ -147,6 +151,160 @@ def suite_rules(res: Result) -> None:
     res.ok("шаги оплаты: перевод — словами условий § 4.6, без «în aceeași zi lucrătoare»",
            when in terms and all(when in views._steps(on) and "aceeași zi" not in views._steps(on)
                                  for on in (True, False)), views._steps(True))
+
+
+def suite_premium_rules(res: Result) -> None:
+    """Premium без сервера: контракт линии (ключ, имя, формулы), множества, права файла, три пути
+    перехода, тексты страницы оплаты, админки и письма, шаг схемы 24."""
+    now = _now()
+    end = now + timedelta(days=5)
+    g_end = now + timedelta(days=40)
+    pp, ppr = tiers.list_price(P), tiers.list_price(PR)
+    ts = (lambda d: d.strftime(db.TS))
+    res.ok("прайс прогона: Premium продаётся и дороже Plus", 0 < pp < ppr, str(config.PRICES))
+    res.check("Premium: ключ, имя и что даёт — контракт между сессиями линии",
+              (tiers.TIERS, tiers.NAME[PR], tiers.WHAT[PR], tiers.WHAT_RU[PR]),
+              ((B, P, PR), "DentPilot Premium", "cu modulul SMS și calendarele medicilor în Google",
+               "с модулем SMS и календарями врачей в Google"))
+    res.check("формулы Basic и Plus не тронуты", (tiers.WHAT[B], tiers.WHAT[P], tiers.WHAT_RU[B], tiers.WHAT_RU[P]),
+              ("fără modulul SMS", "cu modulul SMS", "без модуля SMS", "с модулем SMS"))
+    res.check("множества: модуль SMS и связь с Google — Plus и Premium, календари врачей — только Premium",
+              (sorted(tiers.SMS_TIERS), sorted(tiers.GCAL_TIERS), sorted(tiers.GDOC_TIERS)), ([P, PR], [P, PR], [PR]))
+    res.check("пробный остаётся Plus, и при tier=premium в строке", tiers.current(_sub("trial", PR)), P)
+    res.check("модуль SMS у Premium работает без sms_until", tiers.module_on(_sub(tier=PR), now), True)
+    res.check("право gcal у Premium — до конца файла (Premium ⊃ Plus)", tiers.gcal_until(_sub(tier=PR), g_end, now), g_end)
+    gd = (lambda x: tiers.gdoc_until(x, g_end, now))
+    res.check("право gcal_doctor: Premium — до конца файла; Plus, Basic, пробный, без подписки — нет; после ухода — "
+              "до gdoc_until, но не дальше файла; прошло — нет",
+              [gd(_sub(tier=PR)), gd(_sub(tier=P)), gd(_sub(tier=B)), gd(_sub("trial", PR)), gd(None),
+               gd(_sub(tier=P, gdoc_until=now + timedelta(days=3))), gd(_sub(tier=B, gdoc_until=g_end + timedelta(days=9))),
+               gd(_sub(tier=P, gdoc_until=now - timedelta(seconds=1)))],
+              [g_end, None, None, None, None, now + timedelta(days=3), g_end, None])
+    res.check("права файла Premium: gcal и gcal_doctor одной датой", license.features(_sub(tier=PR), g_end, now),
+              {"gcal": ts(g_end), "gcal_doctor": ts(g_end)})
+    res.check("права файла Plus и пробного — только gcal",
+              [license.features(_sub(tier=P), g_end, now), license.features(_sub("trial", PR), g_end, now)],
+              [{"gcal": ts(g_end)}, {"gcal": ts(g_end)}])
+    res.check("права файла Basic без остатков — пусто (поля features нет)", license.features(_sub(tier=B), g_end, now), {})
+    res.check("слова прав для журнала и reissue",
+              [license.rights({}), license.rights({"gcal": "X"}), license.rights({"gcal": "X", "gcal_doctor": "Y"})],
+              ["без gcal", "gcal до X", "gcal до X, gcal_doctor до Y"])
+    # три пути перехода (§ 4.2 правилом модуля SMS)
+    t, price, su, gu, why = pay.tier_after(_sub(tier=P, valid=end), _note(PR), now)
+    res.ok("Plus → Premium: календари сразу, модуль SMS как был, цена — прайс Premium",
+           (t, price, su, gu) == (PR, ppr, None, None) and "календари врачей сразу" in why and "модуль SMS" not in why,
+           repr((t, price, su, gu, why)))
+    t, _, su, gu, why = pay.tier_after(_sub(tier=B, valid=end, sms_until=now - timedelta(days=1)), _note(PR), now)
+    res.ok("Basic → Premium: и модуль SMS, и календари — сразу",
+           (t, su, gu) == (PR, None, None) and "модуль SMS сразу" in why and "календари врачей сразу" in why,
+           repr((t, su, gu, why)))
+    t, _, su, gu, why = pay.tier_after(_sub(tier=PR, valid=end), _note(P), now)
+    res.ok("⛔ Premium → Plus: модуль SMS работает (без sms_until), календари — до конца оплаченного периода",
+           (t, su, gu) == (P, None, ts(end)) and f"календари врачей до {ts(end)[:10]}" in why and "модуль SMS" not in why,
+           repr((t, su, gu, why)))
+    t, _, su, gu, why = pay.tier_after(_sub(tier=PR, valid=end), _note(B), now)
+    res.ok("Premium → Basic: и модуль SMS, и календари — до конца оплаченного периода",
+           (t, su, gu) == (B, ts(end), ts(end)) and f"модуль SMS до {ts(end)[:10]}" in why
+           and f"календари врачей до {ts(end)[:10]}" in why, repr((t, su, gu, why)))
+    t, _, su, gu, why = pay.tier_after(_sub(tier=PR, valid=now - timedelta(days=2)), _note(P), now)
+    res.ok("Premium → Plus после конца срока (льгота): календари гаснут сразу",
+           (t, gu) == (P, None) and "календари врачей выключены сразу" in why, repr((t, gu, why)))
+    keep = now + timedelta(days=9)
+    res.check("Plus → Basic после ухода с Premium: остаток календарей прежний, модуль SMS — до конца периода",
+              pay.tier_after(_sub(tier=P, valid=end, gdoc_until=keep), _note(B), now)[2:4], (ts(end), ts(keep)))
+    res.check("Plus → Plus после ухода с Premium: остаток календарей прежний",
+              pay.tier_after(_sub(tier=P, valid=end, gdoc_until=keep), _note(P), now)[3], ts(keep))
+    res.check("Premium → Premium: ничего не сменилось", pay.tier_after(_sub(tier=PR, valid=end), _note(PR), now),
+              (PR, ppr, None, None, ""))
+    res.check("пробный → Premium: календари сразу, модуль SMS был и есть",
+              pay.tier_after(_sub("trial", P, pp, end), _note(PR), now)[4],
+              "переход пробный → DentPilot Premium: календари врачей сразу")
+    # тексты
+    _, body = mail.license_letter("Clinica T", ts(end), "standard", tier=P, gdoc_until=ts(end))
+    _, body2 = mail.license_letter("Clinica T", ts(end), "standard", tier=PR)
+    res.ok("письмо о лицензии ушедшей с Premium: до какого дня календари и что потом; у Premium — без этой фразы",
+           f"Calendarele medicilor în Google se actualizează până la {mail.ro_date(ts(end))}" in body
+           and "programările viitoare" in body and "Modulul SMS rămâne" not in body
+           and "Calendarele medicilor" not in body2 and "Abonamentul DentPilot Premium" in body2, body[:600])
+    res.check("формула вариантов в письме: с прайсом Premium — три, Basic/Plus — прежними словами", mail.variants(),
+              "DentPilot Basic, fără modulul SMS, DentPilot Plus, cu modulul SMS, sau DentPilot Premium, cu modulul SMS și "
+              "calendarele medicilor în Google")
+    saved = dict(config.PRICES)
+    try:
+        config.PRICES[PR] = 0
+        res.check("без прайса Premium — прежняя формула двух вариантов", mail.variants(),
+                  "DentPilot Basic, fără modulul SMS, sau DentPilot Plus, cu modulul SMS")
+        res.check("без прайса Premium не предлагается (кабинет, /plata)", tiers.offered(None), [B, P])
+        res.ok("без прайса Premium «что будет при выборе» его не называет",
+               "Premium" not in views._module_note(_sub(tier=P, valid=end), now))
+    finally:
+        config.PRICES.update(saved)
+    res.ok("«что даёт вариант» — строка на каждый вариант (без неё /plata — 500 в день появления прайса)",
+           set(views._TIER_PERKS) == set(tiers.TIERS), str(sorted(views._TIER_PERKS)))
+    note = views._module_note(_sub(tier=PR, valid=end), now)
+    res.ok("«что будет при выборе» у Premium: календари до конца периода с Basic или Plus, модуль SMS — с Basic",
+           "Cu DentPilot Basic modulul SMS rămâne pornit până la sfârșitul perioadei în curs" in note
+           and "Cu DentPilot Basic sau DentPilot Plus calendarele medicilor în Google se actualizează până la sfârșitul "
+               "perioadei în curs" in note, note)
+    note = views._module_note(_sub(tier=P, valid=end), now)
+    res.ok("у Plus — Premium включает календари сразу, о выключении календарей ни слова",
+           "DentPilot Premium pornește calendarele medicilor în Google imediat" in note
+           and "se actualizează până la" not in note, note)
+    res.check("плитка админки: Premium — модуль SMS и календари работают", views._module_word(_sub(tier=PR), now),
+              "по варианту модуль SMS работает; календари врачей работают")
+    res.ok("плитка админки у Plus после ухода с Premium — до какого дня календари",
+           "календари врачей до" in views._module_word(_sub(tier=P, gdoc_until=keep), now)
+           and "календари" not in views._module_word(_sub(tier=P), now))
+    res.ok("код tier_bad называет каждый вариант", all(tiers.NAME[t] in views.MSG["tier_bad"][1] for t in tiers.TIERS),
+           views.MSG["tier_bad"][1])
+    con = sqlite3.connect(":memory:")
+    try:
+        con.execute("CREATE TABLE schema_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        for step in range(1, db.SCHEMA_VERSION + 1):
+            db.apply_step(con, step)
+        try:
+            db.apply_step(con, 24)
+            again = ""
+        except sqlite3.OperationalError as e:
+            again = str(e)
+        cols = {r[1] for r in con.execute("PRAGMA table_info(subscriptions)")}
+        res.ok("шаг 24: subscriptions.gdoc_until; повтор шага без ошибки",
+               "gdoc_until" in cols and not again and db.SCHEMA_VERSION >= 24, again)
+    finally:
+        con.close()
+
+
+_ONE = {"BASIC", "PLUS", "PREMIUM"}
+
+
+def _one_tier(x: ast.AST) -> bool:
+    """`tiers.PLUS` (и BASIC, PREMIUM) или строка варианта — один вариант, а не множество."""
+    if isinstance(x, ast.Attribute) and isinstance(x.value, ast.Name):
+        return x.value.id == "tiers" and x.attr in _ONE
+    return isinstance(x, ast.Constant) and isinstance(x.value, str) and x.value in tiers.TIERS
+
+
+def suite_sets(res: Result) -> None:
+    """⛔ Что даёт вариант — множествами tiers (SMS_TIERS, GCAL_TIERS, GDOC_TIERS), не сравнением с одним
+    вариантом: «Plus или иначе Basic» у третьего варианта молча выключало SMS и связь с Google. Разбор `ast`
+    всей cloud/app, кроме tiers.py: == / != / is с вариантом и in (…) с литералом из вариантов."""
+    app = CLOUD / "app"
+    files = [p for p in sorted(app.rglob("*.py")) if p != app / "tiers.py"]
+    res.ok("исходники облака нашлись", len(files) >= 30, str(len(files)))
+    bad = []
+    for p in files:
+        for node in ast.walk(ast.parse(p.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Compare):
+                continue
+            sides = [node.left, *node.comparators]
+            for op, a, b in zip(node.ops, sides, sides[1:]):
+                one = isinstance(op, (ast.Eq, ast.NotEq, ast.Is, ast.IsNot)) and (_one_tier(a) or _one_tier(b))
+                lit = (isinstance(op, (ast.In, ast.NotIn)) and isinstance(b, (ast.Tuple, ast.List, ast.Set))
+                       and any(_one_tier(e) for e in b.elts))
+                if one or lit:
+                    bad.append(f"{p.relative_to(CLOUD).as_posix()}:{node.lineno}")
+    res.check("нет сравнения с одним вариантом (== / != tiers.PLUS|BASIC|PREMIUM, in (tiers.X, …)) вне tiers.py",
+              bad, [])
 
 
 def _account(anon: Client, tok: str) -> dict:
@@ -461,6 +619,130 @@ def suite_gcal(res: Result) -> None:
         res.ok("повтор команды ничего не находит", "к перевыдаче: 0" in _tools(s), _tools(s))
 
 
+def suite_premium(res: Result) -> None:
+    """Premium через живой сервер. Без прайса: страница оплаты его не предлагает, «Вариант вручную» ставит (проверка
+    до продажи) — файл с обоими правами; назад на Plus вручную — календари сразу. С прайсом: оплата из пробного,
+    Premium → Plus оплатой — календари до конца периода, письмо, плитка; перевыдача видит gcal_doctor и не ходит по
+    кругу."""
+    today = datetime.now(UTC).date()
+    with Server(env={**BANK_ENV, **SMS_ENV, "DP_PRICE_PREMIUM": ""}) as s:
+        admin = Client(s.url).login()
+        cid = cid_from(admin.post("/admin/clinics", name="Clinica Canar", idno="7777777777781",
+                                  email="canar@example.md").location)
+        admin.post(f"/admin/clinics/{cid}/issue", kind="dates", valid_until=f"{today + timedelta(days=20):%Y-%m-%d}",
+                   grace_days="14")
+        seq, *_ = _files(s, cid)[-1]
+        tok = _token(s, cid)
+        anon = Client(s.url)
+        path = "/plata/" + _link(anon, tok)[1].rsplit("/", 1)[1]
+        page = anon.get(path).body
+        res.ok("без прайса Premium: на странице оплаты его нет", "value='premium'" not in page
+               and "value='plus'" in page and "DentPilot Premium" not in page, page[-2500:])
+        res.check("без прайса Premium не оплатить — tier_not_sold",
+                  anon.post(path, tier="premium", months="1", method="transfer", terms="1").location,
+                  f"{path}?msg=tier_not_sold")
+        card = admin.get(f"/admin/clinics/{cid}").body
+        res.ok("админка: в «Выставить ноту» Premium недоступен, в «Вариант вручную» есть с пометкой «без прайса»",
+               "value='premium' disabled>DentPilot Premium — не продаётся" in card
+               and "<option value='premium'>DentPilot Premium (без прайса)</option>" in card, card[-4000:])
+        r = admin.post(f"/admin/clinics/{cid}/tier", tier="premium")
+        res.check("⛔ вручную Premium без прайса — tier_set (канарейка до продажи)", r.location,
+                  f"/admin/clinics/{cid}?msg=tier_set")
+        seq2, claim, valid2, grace2, why = _files(s, cid)[-1]
+        res.ok("файл: тот же срок, права gcal и gcal_doctor до его конца",
+               seq2 == seq + 1 and claim.get("features") == {"gcal": grace2, "gcal_doctor": grace2}
+               and why == "вариант вручную", (seq2, claim))
+        code, pc = rv.open_envelope(admin.get(f"/admin/clinics/{cid}/issues/{seq2}/license.json").body, KEYS)
+        res.ok("проверка программы принимает файл и видит gcal_doctor", code == "" and pc is not None
+               and pc.features.get("gcal_doctor") is not None and pc.features["gcal_doctor"].strftime(db.TS) == grace2,
+               (code, pc))
+        res.check("подписка: Premium, цена записью 0", _subrow(s, cid)[1:3], ("premium", 0))
+        res.ok("журнал: прайса нет, модуль SMS и календари работают",
+               any("DentPilot Plus → DentPilot Premium" in d and "прайса нет" in d and "модуль SMS работает" in d
+                   and "календари врачей работают" in d
+                   for (d,) in _sql(s, "SELECT detail FROM audit WHERE what='tier_set' AND clinic_id=?", cid)))
+        card = admin.get(f"/admin/clinics/{cid}").body
+        res.ok("плитка «Вариант»: прайса нет, календари работают",
+               "прайса нет — не продаётся" in card and "календари врачей работают" in card, card[:4000])
+        res.check("модуль SMS у Premium работает", _account(anon, tok).get("blocked"), "")
+        page = anon.get(path).body
+        res.ok("страница оплаты клиники на Premium без прайса: Premium не предложен, сказано, что календари уйдут в конце периода",
+               "value='premium'" not in page and " checked " in page
+               and "calendarele medicilor în Google se actualizează până la sfârșitul perioadei în curs" in page, page[-2500:])
+        out = subprocess.run([sys.executable, "-m", "app.tools", "check"], cwd=str(CLOUD), env=s.env,
+                             capture_output=True, text=True, encoding="utf-8").stdout
+        res.ok("tools check называет пустой прайс Premium", "DP_PRICE_PREMIUM пуст" in out, out[-800:])
+        admin.post(f"/admin/clinics/{cid}/tier", tier="plus")
+        seq3, claim, _, grace3, _ = _files(s, cid)[-1]
+        res.ok("вручную Premium → Plus: календари гаснут сразу — в файле только gcal",
+               seq3 == seq2 + 1 and claim.get("features") == {"gcal": grace3}
+               and any("календари врачей выключены сразу" in d for (d,) in
+                       _sql(s, "SELECT detail FROM audit WHERE what='tier_set' AND clinic_id=?", cid)), claim)
+
+    with Server(env={**BANK_ENV, **SMS_ENV}) as s:
+        admin = Client(s.url).login()
+        cid = cid_from(admin.post("/admin/clinics", name="Clinica Premium", idno="7777777777782",
+                                  email="premium@example.md").location)
+        admin.post(f"/admin/clinics/{cid}/issue", kind="trial")
+        tok = _token(s, cid)
+        anon = Client(s.url)
+        path = "/plata/" + _link(anon, tok)[1].rsplit("/", 1)[1]
+        page = anon.get(path).body
+        res.ok("с прайсом: три карточки, у Premium — имя и что даёт словами условий",
+               all(f"value='{t}'" in page for t in tiers.TIERS) and "DentPilot Premium" in page
+               and tiers.WHAT[PR] in page and "DentPilot Premium pornește calendarele medicilor în Google" in page,
+               page[-3000:])
+
+        def paid(tier: str) -> None:
+            anon.post(path, tier=tier, months="1", method="transfer", terms="1")
+            pid = _sql(s, "SELECT id FROM payments WHERE clinic_id=? AND status='pending'", cid)[0][0]
+            admin.post(f"/admin/payments/{pid}/confirm")
+
+        n = len(_letters(s))
+        anon.post(path, tier="premium", months="1", method="transfer", terms="1")
+        res.ok("письмо с нотой Premium — вариант словами условий",
+               len(_letters(s)) == n + 1 and f"DentPilot Premium ({tiers.WHAT[PR]})" in _letters(s)[-1][2])
+        pid = _sql(s, "SELECT id FROM payments WHERE clinic_id=? AND status='pending'", cid)[0][0]
+        admin.post(f"/admin/payments/{pid}/confirm")
+        _, claim, valid1, grace1, _ = _files(s, cid)[-1]
+        res.ok("пробный → Premium оплатой: оба права до конца нового файла, подписка Premium по прайсу",
+               claim.get("features") == {"gcal": grace1, "gcal_doctor": grace1}
+               and _subrow(s, cid)[1:4] == ("premium", tiers.list_price(PR), None), (claim, _subrow(s, cid)))
+        res.ok("журнал оплаты: переход и «календари врачей сразу»",
+               any("переход пробный → DentPilot Premium: календари врачей сразу" in d for (d,) in
+                   _sql(s, "SELECT detail FROM audit WHERE what='payment_paid' AND clinic_id=?", cid)))
+        n = len(_letters(s))
+        paid("plus")
+        _, claim, valid2, grace2, _ = _files(s, cid)[-1]
+        res.ok("⛔ Premium → Plus оплатой: gcal — до конца нового файла, gcal_doctor — до конца оплаченного Premium",
+               claim.get("features") == {"gcal": grace2, "gcal_doctor": valid1}
+               and _sql(s, "SELECT tier, sms_until, gdoc_until FROM subscriptions WHERE clinic_id=?", cid)
+               == [("plus", None, valid1)], claim)
+        res.check("модуль SMS после Premium → Plus работает", _account(anon, tok).get("blocked"), "")
+        body = _letters(s)[-1][2] if len(_letters(s)) > n else ""
+        res.ok("письмо после оплаты: до какого дня обновляются календари врачей",
+               f"Calendarele medicilor în Google se actualizează până la {mail.ro_date(valid1)}" in body, body[:900])
+        card = admin.get(f"/admin/clinics/{cid}").body
+        res.ok("плитка «Вариант»: Plus, календари врачей до конца оплаченного Premium",
+               f"календари врачей до {valid1[:10]}" in card, card[:4000])
+        res.ok("reissue: файл с обоими правами — не к перевыдаче (одна сборка прав с выдачей)", "к перевыдаче: 0" in
+               _tools(s), _tools(s))
+        last = _files(s, cid)[-1]
+        old = dict(last[1])
+        old["features"] = {"gcal": old["features"]["gcal"]}
+        _sql(s, "UPDATE issues SET payload=? WHERE clinic_id=? AND seq=?",
+             _b64u(json.dumps(old, sort_keys=True, separators=(",", ":")).encode()), cid, last[0])
+        out = _tools(s)
+        res.ok("reissue: файл без gcal_doctor у клиники с остатком календарей — к перевыдаче, словами обоих прав",
+               f"{cid} Clinica Premium: gcal до {grace2} → gcal до {grace2}, gcal_doctor до {valid1}" in out
+               and "к перевыдаче: 1" in out, out)
+        admin.post(f"/admin/clinics/{cid}/tier", tier="plus")
+        res.ok("«Вариант вручную» Plus после ухода с Premium: остаток календарей снят, в файле только gcal",
+               _files(s, cid)[-1][1].get("features") == {"gcal": grace2}
+               and _sql(s, "SELECT gdoc_until FROM subscriptions WHERE clinic_id=?", cid) == [(None,)],
+               _files(s, cid)[-1][1])
+
+
 def suite_migration(res: Result) -> None:
     """База до шага 15: подписки и ноты — Plus, цена подписки не меняется."""
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_tiers_"))
@@ -500,6 +782,8 @@ def _migrated(res: Result, path: pathlib.Path, tok: str) -> None:
         res.check("шаг 15: подписка — Plus, цена прежняя, модуль без конца",
                   _sql(s, "SELECT tier, price, sms_until FROM subscriptions"), [("plus", 444, None)])
         res.check("шаг 15: нота абонемента — Plus", _sql(s, "SELECT tier, terms_at FROM payments"), [("plus", None)])
+        res.check("шаг 24: остатка календарей врачей у старой подписки нет",
+                  _sql(s, "SELECT gdoc_until FROM subscriptions"), [(None,)])
         res.check("версия схемы", _sql(s, "SELECT value FROM schema_meta WHERE key='version'"), [(str(db.SCHEMA_VERSION),)])
         anon = Client(s.url)
         url = "/plata/" + _link(anon, tok)[1].rsplit("/", 1)[1]

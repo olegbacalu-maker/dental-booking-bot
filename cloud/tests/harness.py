@@ -34,6 +34,7 @@ ADMIN_USER, ADMIN_PASS = "oleg", "test-parola-123"
 # репозитории нет (они только в cloud.env боевого); «вариант не продаётся» — пустым env набора.
 os.environ.setdefault("DP_PRICE_BASIC", "310")
 os.environ.setdefault("DP_PRICE_PLUS", "520")
+os.environ.setdefault("DP_PRICE_PREMIUM", "730")
 
 sys.path.insert(0, str(CLOUD))
 from app.auth import make_hash  # noqa: E402

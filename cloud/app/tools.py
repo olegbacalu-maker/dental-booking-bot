@@ -9,7 +9,7 @@
     python -m app.tools drill /srv/data/backups/cloud-20260924-060500.db   # учение по восстановлению
     python -m app.tools reissue [--apply]             # файлы, чьи права (features) устарели: список / выдать
 
-`reissue` — после выкатки, меняющей правило прав в файле (`features`, tiers.gcal_until):
+`reissue` — после выкатки, меняющей правило прав в файле (`features`, license.features):
 клиникам с живым файлом, чей последний файл несёт иные права, чем дала бы выдача сейчас, —
 новый файл seq+1 с тем же сроком (payments.reissue); программа берёт его суточным запросом.
 Без `--apply` только список; повтор после выдачи ничего не находит.
@@ -261,7 +261,7 @@ def check() -> list[tuple[str, str]]:
     else:
         out.append((WARN, f"DP_BASE_URL={config.BASE_URL}: не https и не loopback — поле renew в файлы "
                           "не пишется, программы клиник не обновятся сами"))
-    # прайс абонемента (23.10, tiers.py): пустой вариант не продаётся — страница оплаты его не предлагает
+    # прайс абонемента (tiers.py): пустой вариант не продаётся — страница оплаты его не предлагает
     for t in tiers.TIERS:
         if tiers.list_price(t):
             out.append((OK, f"{tiers.NAME[t]}: {tiers.list_price(t)} MDL / мес., год {payments.amount(12, tiers.list_price(t))} MDL"))
@@ -416,17 +416,12 @@ def reissue_due(con: sqlite3.Connection, now: datetime) -> list[tuple[sqlite3.Ro
         claim = license.claim_of(last)
         sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (c["id"],)).fetchone()
         # выдача считает по подписке с планом выдаваемого файла — здесь им станет план последнего
-        gcal = tiers.gcal_until({**(dict(sub) if sub else {}), "plan": claim["plan"]},
+        will = license.features({**(dict(sub) if sub else {}), "plan": claim["plan"]},
                                 db.parse_ts(last["grace_until"]), now)
-        will = {"gcal": gcal.strftime(db.TS)} if gcal else {}
         was = claim.get("features") or {}
         if was != will:
             out.append((c, was, will))
     return out
-
-
-def _rights(f: dict) -> str:
-    return f"gcal до {f['gcal']}" if f.get("gcal") else "без gcal"
 
 
 def reissue(apply: bool, now: datetime | None = None) -> list[str]:
@@ -437,7 +432,7 @@ def reissue(apply: bool, now: datetime | None = None) -> list[str]:
         due = reissue_due(con, now)
         for c, was, will in due:
             seq = payments.reissue(con, c, REISSUE_WHY, REISSUE_WHO) if apply else 0
-            lines.append(f"{c['id']} {c['name']}: {_rights(was)} → {_rights(will)}"
+            lines.append(f"{c['id']} {c['name']}: {license.rights(was)} → {license.rights(will)}"
                          + (f" — файл {seq}" if seq else (" — файл не выдан" if apply else "")))
     lines.append(f"{'выдано' if apply else 'к перевыдаче'}: {len(due)}"
                  + ("" if apply or not due else " (выдать — с --apply)"))

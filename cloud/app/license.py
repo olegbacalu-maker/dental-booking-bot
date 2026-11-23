@@ -13,10 +13,12 @@
 и токен клиники. Токен рождается с первой выдачей и дальше один и тот же:
 сменить его значит оставить без обновления все файлы, что уже у клиники.
 
-Права сверх срока — `features`: имя права → дата, до которой оно действует (сейчас одно,
-`gcal`, по правилу модуля SMS — tiers.gcal_until). Нет права — нет поля: старые программы
-неизвестное поле пропускают, новые читают отсутствие как «нет». Поэтому смена варианта без
-оплаты — новый файл с тем же сроком (payments.reissue), иначе программа жила бы по старому.
+Права сверх срока — `features`: имя права → дата, до которой оно действует (`gcal` — связь с
+аккаунтом Google, tiers.gcal_until; `gcal_doctor` — календари врачей, tiers.gdoc_until). Нет
+права — нет поля: старые программы неизвестное поле пропускают, новые читают отсутствие как
+«нет». Поэтому смена варианта без оплаты — новый файл с тем же сроком (payments.reissue), иначе
+программа жила бы по старому. Права собирает одна функция `features` — и выдача, и сверка
+`tools reissue`: две сборки разошлись бы, и перевыдача шла бы по кругу или молчала.
 """
 from __future__ import annotations
 
@@ -104,13 +106,28 @@ def renew_token(con: sqlite3.Connection, clinic: sqlite3.Row) -> str:
     return token
 
 
+def features(sub: sqlite3.Row | dict | None, grace_until: datetime, now: datetime) -> dict[str, str]:
+    """Права файла до `grace_until` по подписке `sub` (с планом выдаваемого файла): имя → дата."""
+    out = {}
+    for name, until in (("gcal", tiers.gcal_until(sub, grace_until, now)),
+                        ("gcal_doctor", tiers.gdoc_until(sub, grace_until, now))):
+        if until is not None:
+            out[name] = until.strftime(db.TS)
+    return out
+
+
+def rights(f: dict) -> str:
+    """Права файла словами журнала и команды reissue."""
+    return ", ".join(f"{name} до {f[name]}" for name in ("gcal", "gcal_doctor") if f.get(name)) or "без gcal"
+
+
 def issue(con: sqlite3.Connection, clinic: sqlite3.Row, plan: str, valid_until: datetime,
           grace_until: datetime, reason: str, who: str,
-          tier: str | None = None, sms_until: str | None = None) -> tuple[int, str]:
+          tier: str | None = None, sms_until: str | None = None, gdoc_until: str | None = None) -> tuple[int, str]:
     """Выпустить файл клинике. Возвращает (seq, текст файла). Подписка
-    приводится к выданным датам: файл и есть истина о сроке. `tier`/`sms_until` — вариант,
-    с которым выдаётся файл (оплата): он пишется в подписку до подписи, потому что по нему
-    считается дата права gcal в claim; None — вариант подписки как есть."""
+    приводится к выданным датам: файл и есть истина о сроке. `tier`/`sms_until`/`gdoc_until` —
+    вариант, с которым выдаётся файл (оплата): он пишется в подписку до подписи, потому что по
+    нему считаются даты прав в claim; None — вариант подписки как есть."""
     if plan not in PLANS:
         raise ValueError("plan")
     if plan != "trial" and len(clinic["idno"]) != 13:
@@ -129,15 +146,16 @@ def issue(con: sqlite3.Connection, clinic: sqlite3.Row, plan: str, valid_until: 
     # и подписка без выбора — Plus): умолчание колонки в шаге 1 миграций (399) — прежний
     # прайс, шаги не правят. Цену выдача не трогает (её ставит оплата или ручная смена
     # варианта в карточке), вариант — только когда его назвал вызывающий.
-    variant = ", tier=excluded.tier, sms_until=excluded.sms_until" if tier is not None else ""
+    variant = (", tier=excluded.tier, sms_until=excluded.sms_until, gdoc_until=excluded.gdoc_until"
+               if tier is not None else "")
     con.execute(f"""INSERT INTO subscriptions(clinic_id, plan, price, valid_until, grace_days, updated_at,
-                                              tier, sms_until)
-                    VALUES(?,?,?,?,?,?,?,?)
+                                              tier, sms_until, gdoc_until)
+                    VALUES(?,?,?,?,?,?,?,?,?)
                     ON CONFLICT(clinic_id) DO UPDATE SET plan=excluded.plan,
                         valid_until=excluded.valid_until, grace_days=excluded.grace_days,
                         updated_at=excluded.updated_at{variant}""",
                 (clinic["id"], plan, tiers.list_price(tiers.PLUS), valid_until.strftime(db.TS), grace_days,
-                 db.now_iso(), tier or tiers.PLUS, sms_until))
+                 db.now_iso(), tier or tiers.PLUS, sms_until, gdoc_until))
     sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (clinic["id"],)).fetchone()
     claim = {"clinic_id": clinic["id"], "clinic": clinic["name"], "idno": clinic["idno"],
              "plan": plan, "country": clinic["country"] or "MD", "seq": seq,
@@ -146,9 +164,9 @@ def issue(con: sqlite3.Connection, clinic: sqlite3.Row, plan: str, valid_until: 
     if renew_offered():
         claim["renew"] = {"url": renew_url(), "token": renew_token(con, clinic)}
     # нет права — нет и поля: программа читает его отсутствие как «нет», старые программы поле пропускают
-    gcal = tiers.gcal_until(sub, grace_until, now)
-    if gcal is not None:
-        claim["features"] = {"gcal": gcal.strftime(db.TS)}
+    feats = features(sub, grace_until, now)
+    if feats:
+        claim["features"] = feats
     payload = claim_bytes(claim)
     sig = sign(payload)
     con.execute("""INSERT INTO issues(clinic_id, seq, kid, payload, sig, issued_at, valid_until,
@@ -157,7 +175,7 @@ def issue(con: sqlite3.Connection, clinic: sqlite3.Row, plan: str, valid_until: 
                  claim["valid_until"], claim["grace_until"], reason))
     db.audit(con, who, "issue", clinic["id"],
              f"seq {seq}, {plan}, до {claim['valid_until']}, льгота до {claim['grace_until']}"
-             f"{', gcal до ' + claim['features']['gcal'] if gcal else ', без gcal'}: {reason}")
+             f", {rights(feats)}: {reason}")
     return seq, envelope(payload, sig, k.kid)
 
 
@@ -194,7 +212,8 @@ def letter_latest(con: sqlite3.Connection, clinic: sqlite3.Row, who: str,
     subject, body = mail.license_letter(clinic["name"], row["valid_until"],
                                         sub["plan"] if sub else "standard", renew=renew_offered(),
                                         declaration=decl is not None, tier=tiers.current(sub),
-                                        sms_until=sub["sms_until"] if sub else None)
+                                        sms_until=sub["sms_until"] if sub else None,
+                                        gdoc_until=sub["gdoc_until"] if sub else None)
     # Файла в письме нет (02.10): клиник без интернета нет, программа забирает его
     # сама (L13/L16/L17); письмо — про срок, вложение — только декларация
     # Ящик не подтверждён (emailconf, 27.10) — в том же письме ссылка «Confirmă adresa» и код:

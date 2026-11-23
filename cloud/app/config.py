@@ -100,8 +100,8 @@ SMS_QUIET = env("DP_SMS_QUIET", "21-8")
 # только клиникам с `sms_accounts.pilot` (Олег ставит в карточке); 1 = всем.
 SMS_OFFERED = env("DP_SMS_OFFERED") == "1"
 SUPPORT_PHONE = "+373 60 508 048"
-# Прайс абонемента — два варианта (Олег 23.10.2026, tiers.py): DentPilot Basic без
-# модуля SMS и DentPilot Plus с ним, лей за месяц; год — 11 месячных (payments.BILLED,
+# Прайс абонемента по вариантам (tiers.py): DentPilot Basic без модуля SMS, DentPilot Plus с ним,
+# DentPilot Premium — Plus и календари врачей в Google; лей за месяц; год — 11 месячных (payments.BILLED,
 # «o lună gratuită»). ⛔ ЦЕН В РЕПОЗИТОРИИ НЕТ — он публичный: числа живут в cloud.env
 # рядом с сайтом (dentpilot.md › #preturi); меняется цена — меняются сайт и cloud.env
 # вместе. Пусто или 0 = вариант не продаётся (`tools check` это говорит). ⛔ Цена варианта
@@ -112,7 +112,8 @@ def _lei(raw: str) -> int:
     return int(raw) if raw.isdigit() else 0
 
 
-PRICES = {"basic": _lei(env("DP_PRICE_BASIC")), "plus": _lei(env("DP_PRICE_PLUS"))}
+PRICES = {"basic": _lei(env("DP_PRICE_BASIC")), "plus": _lei(env("DP_PRICE_PLUS")),
+          "premium": _lei(env("DP_PRICE_PREMIUM"))}
 # ⚠️ Прежнее имя одной цены (до 23.10) = цена Plus: его ещё читает tests/test_maib.py
 # (файл сессии maib). Новый код берёт tiers.price / tiers.list_price.
 PRICE_MONTH = PRICES["plus"]

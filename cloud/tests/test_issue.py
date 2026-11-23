@@ -61,6 +61,8 @@ def suite_issue(res: Result) -> None:
         res.check("пробный: TRIAL_DAYS — месяц, как на сайте", claim.valid_until - claim.issued_at, srv.TRIAL_DAYS * DAY)
         res.check("пробный — 30 дней (решение 26.09, было 14)", srv.TRIAL_DAYS, 30)
         res.check("пробный: льгота 3 дня", claim.grace_until - claim.valid_until, 3 * DAY)
+        res.ok("пробный — Plus: право gcal есть, календарей врачей (gcal_doctor) нет",
+               "gcal" in claim.features and "gcal_doctor" not in claim.features, repr(claim.features))
         st, _ = lst.evaluate(("", claim), datetime.now(timezone.utc), lst.Memory(), True)
         res.check("машина состояний движка: active", st.state, lst.ACTIVE)
         res.ok("движок отвергает файл под чужим ключом",

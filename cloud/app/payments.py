@@ -43,8 +43,9 @@ reference как следующий период (`credit_again`) — карто
 Варианты абонемента (23.10, tiers.py): нота абонемента знает свой вариант
 (`payments.tier`), клиника выбирает его при каждой оплате (`choose`); открытая нота
 другого варианта или срока ЗАМЕНЯЕТСЯ (отклоняется с причиной, выставляется новая),
-второго долга нет. `confirm` ставит подписке вариант и цену месяца и решает модуль
-SMS: Plus — сразу, Basic — до конца периода, шедшего на момент оплаты (`sms_until`).
+второго долга нет. `confirm` ставит подписке вариант и цену месяца и решает, что вариант
+включает: пришло с ним — сразу; ушло — до конца периода, шедшего на момент оплаты (модуль SMS —
+`sms_until`, календари врачей — `gdoc_until`).
 """
 from __future__ import annotations
 
@@ -647,14 +648,14 @@ def _prolong(con: sqlite3.Connection, clinic: sqlite3.Row, line: sqlite3.Row, pa
         day = anchor_day(current, now, sub["anchor_day"] if sub else None)
         valid = extend_from(current, int(line["months"]), now, day)
     grace = valid + timedelta(days=license.GRACE_DAYS)
-    tier, price, sms_until, switch = tier_after(sub, line, now)
+    tier, price, sms_until, gdoc_until, switch = tier_after(sub, line, now)
     db.audit(con, who, "payment_paid", clinic["id"],
              f"{payment['reference']}{note}: {line['amount']} MDL, {tiers.NAME[tier]}, срок до {valid.strftime(db.TS)}"
              + (f"; {switch}" if switch else ""))
-    # вариант едет в саму выдачу: по нему в файл ложится дата права gcal, и строку подписки, если её
+    # вариант едет в саму выдачу: по нему в файл ложатся даты прав, и строку подписки, если её
     # ещё не было, выдача заводит уже с ним; якорь и цена — после, строка к этому времени есть
-    issued = license.issue(con, clinic, "standard", valid, grace,
-                           f"платёж {payment['reference']}", who, tier=tier, sms_until=sms_until)
+    issued = license.issue(con, clinic, "standard", valid, grace, f"платёж {payment['reference']}", who,
+                           tier=tier, sms_until=sms_until, gdoc_until=gdoc_until)
     con.execute("UPDATE subscriptions SET anchor_day=?, price=? WHERE clinic_id=?",
                 (day, price, clinic["id"]))
     start = first if first is not None and current is not None and current >= now else (
@@ -669,38 +670,63 @@ def advance_start(con: sqlite3.Connection, clinic_id: str) -> datetime | None:
     return db.parse_ts(row["issued_at"]) if row is not None and row["reason"] == ADVANCE else None
 
 
-def tier_after(sub: sqlite3.Row | None, payment: sqlite3.Row, now: datetime) -> tuple[str, int, str | None, str]:
-    """Подписка после оплаты ноты абонемента: (вариант, цена месяца, sms_until, строка для журнала).
+def _left(had: bool, has: bool, kept: str | None, sub: sqlite3.Row | None, now: datetime) -> str | None:
+    """До какого момента после оплаты работает то, что даёт вариант (модуль SMS, календари врачей):
+    новый вариант это даёт — пусто (своё право); прежний давал, новый нет — до конца периода,
+    который идёт сейчас (условия § 4.2), а срок прошёл — гаснет сразу; не давал ни тот, ни другой —
+    прежний остаток `kept`, оставшийся от более раннего ухода."""
+    if has:
+        return None
+    if not had:
+        return kept
+    current = db.parse_ts(sub["valid_until"]) if sub is not None else None
+    return current.strftime(db.TS) if current is not None and current > now else None
 
-    Цена — прайс варианта (tiers.price; Олег 26.10: «600 везде»), записью в подписку; прайса
-    нет (вариант сняли с продажи после ноты) — цена из суммы ноты. Модуль SMS (§ 4.2):
-    Plus — работает сразу (`sms_until` пуст); переход на Basic с Plus или пробного —
-    работает до конца периода, который идёт сейчас, и гаснет; Basic → Basic — как было."""
+
+def _change(what: str, had: bool, has: bool, until: str | None, off: str) -> str:
+    """Слова журнала о том, что сменилось у одной части варианта; не сменилось — ''."""
+    if has and not had:
+        return f"{what} сразу"
+    if had and not has:
+        return f"{what} до {until[:10]}" if until else f"{what} {off}"
+    return ""
+
+
+def tier_after(sub: sqlite3.Row | None, payment: sqlite3.Row,
+               now: datetime) -> tuple[str, int, str | None, str | None, str]:
+    """Подписка после оплаты ноты абонемента: (вариант, цена месяца, sms_until, gdoc_until, строка
+    для журнала).
+
+    Цена — прайс варианта (tiers.price), записью в подписку; прайса нет (вариант сняли с продажи
+    после ноты) — цена из суммы ноты. Модуль SMS и календари врачей — одним правилом (§ 4.2, `_left`):
+    вариант с ними — сразу; уход с них — до конца периода, который идёт сейчас; переход между
+    вариантами без них — прежний остаток."""
     tier = payment["tier"] if payment["tier"] in tiers.TIERS else tiers.PLUS
     months = int(payment["months"] or 1)
     price = tiers.price(sub, tier) or int(payment["amount"]) // BILLED.get(months, months)
     before = tiers.current(sub)
-    if tier == tiers.PLUS:
-        return tier, price, None, (f"переход {tiers.NAME[before]} → {tiers.NAME[tier]}, модуль SMS сразу"
-                                   if sub is not None and sub["plan"] != "trial" and before != tier else "")
-    if before == tiers.BASIC:
-        return tier, price, sub["sms_until"] if sub is not None else None, ""
-    current = db.parse_ts(sub["valid_until"]) if sub is not None else None
-    until = current.strftime(db.TS) if current is not None and current > now else None
+    sms_had, sms_has = before in tiers.SMS_TIERS, tier in tiers.SMS_TIERS
+    doc_had, doc_has = before in tiers.GDOC_TIERS, tier in tiers.GDOC_TIERS
+    kept = {k: (sub[k] if sub is not None and k in sub.keys() else None) for k in ("sms_until", "gdoc_until")}
+    sms_until = _left(sms_had, sms_has, kept["sms_until"], sub, now)
+    gdoc_until = _left(doc_had, doc_has, kept["gdoc_until"], sub, now)
+    parts = [x for x in (_change("модуль SMS", sms_had, sms_has, sms_until, "выключен сразу"),
+                         _change("календари врачей", doc_had, doc_has, gdoc_until, "выключены сразу")) if x]
     what = "пробный" if sub is not None and sub["plan"] == "trial" else tiers.NAME[before]
-    return tier, price, until, (f"переход {what} → {tiers.NAME[tier]}: модуль SMS до {until[:10]}" if until
-                                else f"переход {what} → {tiers.NAME[tier]}: модуль SMS выключен сразу")
+    switch = f"переход {what} → {tiers.NAME[tier]}: {'; '.join(parts)}" if parts else ""
+    return tier, price, sms_until, gdoc_until, switch
 
 
 def set_tier(con: sqlite3.Connection, clinic_id: str, tier: str, who: str) -> str:
-    """Карточка › «Вариант вручную» — для исключений (Олег 23.10): вариант сразу, без оплаты.
-    Plus — модуль SMS сразу; Basic — модуль гаснет сразу (переход «с конца периода» даёт
-    только оплата). Цена — прайс варианта: своей цены у подписки нет (Олег 26.10: «600
-    везде»), разовая скидка — суммой ноты в «Выставить ноту». '' или код отказа: tier_bad,
+    """Карточка › «Вариант вручную» — для исключений: вариант сразу, без оплаты. Что вариант
+    включает — сразу, чего не включает — гаснет сразу (переход «с конца периода» даёт только
+    оплата), поэтому оба остатка (`sms_until`, `gdoc_until`) чистятся. Цена — прайс варианта:
+    своей цены у подписки нет, разовая скидка — суммой ноты в «Выставить ноту». Вариант без
+    прайса ставится тоже (записью цены 0): так его проверяют до продажи, а кабинет и страница
+    оплаты его не предлагают, пока прайса нет (`tiers.offered`). '' или код отказа: tier_bad,
     tier_trial (пробный — всегда Plus, вариант выбирают при оплате), tier_no_sub (подписки
-    нет), tier_price (у варианта нет прайса в cloud.env — не продаётся), no_key (нечем
-    подписать файл). Право gcal живёт в файле, поэтому смена варианта — новый файл с тем же
-    сроком (`reissue`)."""
+    нет), no_key (нечем подписать файл). Права живут в файле, поэтому смена варианта — новый
+    файл с тем же сроком (`reissue`)."""
     if tier not in tiers.TIERS:
         return "tier_bad"
     sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (clinic_id,)).fetchone()
@@ -709,18 +735,20 @@ def set_tier(con: sqlite3.Connection, clinic_id: str, tier: str, who: str) -> st
     if sub["plan"] == "trial":
         return "tier_trial"
     p = tiers.price(sub, tier)
-    if p <= 0:
-        return "tier_price"
     if license.key() is None:
         return "no_key"
     before = tiers.current(sub)
-    con.execute("UPDATE subscriptions SET tier=?, price=?, sms_until=NULL, updated_at=? WHERE clinic_id=?",
-                (tier, p, db.now_iso(), clinic_id))
+    doc = tier in tiers.GDOC_TIERS or before in tiers.GDOC_TIERS or tiers.gdoc_left(sub) is not None
+    con.execute("UPDATE subscriptions SET tier=?, price=?, sms_until=NULL, gdoc_until=NULL, updated_at=? "
+                "WHERE clinic_id=?", (tier, p, db.now_iso(), clinic_id))
     clinic = con.execute("SELECT * FROM clinics WHERE id=?", (clinic_id,)).fetchone()
     seq = reissue(con, clinic, "вариант вручную", who)
     db.audit(con, who, "tier_set", clinic_id,
-             f"вручную: {tiers.NAME[before]} → {tiers.NAME[tier]}, {p} MDL / мес.; модуль SMS "
-             + ("работает" if tier == tiers.PLUS else "выключен сразу")
+             f"вручную: {tiers.NAME[before]} → {tiers.NAME[tier]}, "
+             + (f"{p} MDL / мес." if p > 0 else "прайса нет (не продаётся)") + "; модуль SMS "
+             + ("работает" if tier in tiers.SMS_TIERS else "выключен сразу")
+             + (("; календари врачей " + ("работают" if tier in tiers.GDOC_TIERS else "выключены сразу"))
+                if doc else "")
              + (f"; файл {seq} с тем же сроком" if seq else "; файл не выдан (срок прошёл или отзыв)"))
     return ""
 

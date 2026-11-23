@@ -125,12 +125,12 @@ MSG = {
     "sms_test_phone": ("err", "Номер — мобильный Молдовы (8 цифр, 6x/7x)"),
     "sms_unconfigured": ("err", "DP_SMSMD_TOKEN пуст — к sms.md не обратиться"),
     "sms_action": ("err", "Неизвестное действие"),
-    # варианты абонемента (23.10, tiers.py)
-    "tier_set": ("ok", "Вариант изменён — строка в журнале; модуль SMS следует за вариантом сразу"),
-    "tier_bad": ("err", "Вариант — DentPilot Basic или DentPilot Plus"),
+    # варианты абонемента (tiers.py)
+    "tier_set": ("ok", "Вариант изменён — строка в журнале; модуль SMS и календари врачей следуют за вариантом сразу"),
+    "tier_bad": ("err", "Вариант — " + ", ".join(tiers.NAME[t] for t in tiers.TIERS[:-1])
+                 + " или " + tiers.NAME[tiers.TIERS[-1]]),
     "tier_trial": ("err", "Пробный — всегда Plus: вариант клиника выберет при оплате"),
     "tier_no_sub": ("err", "У клиники нет подписки — сперва выдайте файл"),
-    "tier_price": ("err", "У варианта нет прайса в cloud.env — он не продаётся"),
     "tier_not_sold": ("err", "У варианта нет цены (DP_PRICE_* в cloud.env) — впишите сумму руками или выберите другой"),
 }
 
@@ -1485,12 +1485,16 @@ def _pay_pane(c, sub, st: str, payments: list, reminders: list, now: datetime) -
     if sub is None or sub["plan"] == "trial":
         manual = ""
     else:
-        msel = "".join(f"<option value='{t}'{' selected' if t != cur else ''}>{esc(tiers.NAME[t])}</option>"
-                       for t in tiers.TIERS)
+        other = next(t for t in tiers.TIERS if t != cur)
+        msel = "".join(f"<option value='{t}'{' selected' if t == other else ''}>{esc(tiers.NAME[t])}"
+                       f"{'' if tiers.price(sub, t) else ' (без прайса)'}</option>" for t in tiers.TIERS)
+        rows = "; ".join(f"{tiers.NAME[t].split()[-1]} — модуль SMS {'работает' if t in tiers.SMS_TIERS else 'гаснет'}, "
+                         f"календари врачей {'работают' if t in tiers.GDOC_TIERS else 'гаснут'}" for t in tiers.TIERS)
         manual = _drop("Вариант вручную",
-                       f"<p class='muted'>Исключение: вариант меняется сразу, без оплаты, строкой в журнале. Plus — "
-                       f"модуль SMS работает сразу; Basic — гаснет сразу. Обычный путь — выбор клиники при "
-                       f"оплате (Basic с конца оплаченного Plus).</p>"
+                       f"<p class='muted'>Исключение: вариант меняется сразу, без оплаты, строкой в журнале. "
+                       f"Сразу: {rows}. Вариант без прайса ставится тоже — проверка до продажи; клиника его не "
+                       f"видит, пока прайса нет. Обычный путь — выбор клиники при оплате (уход с модуля SMS или "
+                       f"календарей — с конца оплаченного периода).</p>"
                        f"<form method='post' action='/admin/clinics/{cid}/tier' class='actions'>"
                        f"<select name='tier' style='width:auto'>{msel}</select>"
                        f"<button>Сменить вариант</button></form>"
@@ -1506,16 +1510,30 @@ def _tier_sub(sub, now: datetime) -> str:
         sold = ", ".join(f"{tiers.NAME[t].split()[-1]} {tiers.list_price(t)}" for t in tiers.offered(sub))
         return f"пробный = Plus; при оплате клиника выберет сама · прайс: {esc(sold or 'нет')} MDL / мес."
     p = tiers.price(sub, tiers.current(sub))
-    return f"{p} MDL / мес. · {pay.amount(12, p)} за год · {_module_word(sub, now)}"
+    cost = f"{p} MDL / мес. · {pay.amount(12, p)} за год" if p > 0 else "прайса нет — не продаётся"
+    return f"{cost} · {_module_word(sub, now)}"
 
 
 def _module_word(sub, now: datetime) -> str:
-    """Модуль SMS по варианту — словами админки (tiers.module_on): пробный и Plus — работает."""
-    if tiers.current(sub) == tiers.PLUS:
-        return "по варианту модуль SMS работает" if sub is not None else ""
-    if tiers.module_on(sub, now):
-        return f"Basic: модуль SMS до {_d(sub['sms_until'])}, потом sms_basic"
-    return "Basic: модуль SMS выключен (sms_basic)"
+    """Модуль SMS и календари врачей по варианту — словами админки (tiers.module_on, tiers.gdoc_left)."""
+    if sub is None:
+        return ""
+    cur = tiers.current(sub)
+    short = tiers.NAME[cur].split()[-1]
+    if cur in tiers.SMS_TIERS:
+        sms = "по варианту модуль SMS работает"
+    elif tiers.module_on(sub, now):
+        sms = f"{short}: модуль SMS до {_d(sub['sms_until'])}, потом sms_basic"
+    else:
+        sms = f"{short}: модуль SMS выключен (sms_basic)"
+    left = tiers.gdoc_left(sub)
+    if cur in tiers.GDOC_TIERS:
+        doc = "; календари врачей работают"
+    elif left is not None and left > now:
+        doc = f"; календари врачей до {_d(sub['gdoc_until'])}"
+    else:
+        doc = ""
+    return sms + doc
 
 
 def _cabinet_card(c, cabinet: list, accounts: list) -> str:
@@ -1790,7 +1808,7 @@ CONT_MSG = {
                  "pe e-mail.",
     "note_gone": "Această notă de plată nu mai așteaptă plata — reîncărcați pagina.",
     "no_card": "Plata cu cardul nu este disponibilă acum — plătiți prin transfer bancar, cu referința din notă.",
-    "tier_not_sold": "Varianta aleasă nu se poate plăti acum online — alegeți cealaltă variantă sau scrieți-ne.",
+    "tier_not_sold": "Varianta aleasă nu se poate plăti acum online — alegeți altă variantă sau scrieți-ne.",
     "need_idno": "Pentru abonament completați mai întâi IDNO-ul clinicii (13 cifre), în datele clinicii.",
     "maib_failed": "Pagina de plată cu cardul nu a putut fi creată acum — încercați din nou sau alegeți "
                    "transferul bancar.",
@@ -2426,7 +2444,8 @@ def _steps(card_on: bool) -> str:
     when = ("plata cu cardul — în câteva minute, transferul — după ce banii ajung în contul furnizorului"
             if card_on else "transferul după ce banii ajung în contul furnizorului")
     return ("<ol class='steps'>"
-            "<li><b>Alegeți</b> varianta — DentPilot Basic sau DentPilot Plus — și termenul, o lună sau un an; "
+            f"<li><b>Alegeți</b> varianta — {_names_or(tiers.offered(None) or tiers.TIERS)} — și termenul, o lună "
+            "sau un an; "
             "nota de plată o primiți și pe e-mail, cu referința.</li>"
             f"{pay_}<li><b>Confirmăm</b> {when}: termenul se prelungește, iar programul preia "
             "singur noul termen — o dată pe zi sau cu «Verifică acum».</li></ol>")
@@ -2447,12 +2466,16 @@ def _mdl(n) -> str:
 
 _DASH = ("<svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='#9AA8AD' stroke-width='2.4' "
          "stroke-linecap='round' aria-hidden='true'><path d='M6 12h12'/></svg>")
-# Что даёт вариант — словами условий (§ 4.1, § 10, § 16): телефон — только Plus (вариант B Олега)
+# Что даёт вариант — словами условий (§ 4.1, § 10, § 16): телефон — у вариантов с модулем SMS.
+# Ключ на каждый вариант TIERS: без строки карточка падает 500 в день, когда у варианта появится прайс
 _TIER_PERKS = {
     tiers.BASIC: ((True, "Programări, fișe, odontogramă, statistică"), (True, "Actualizări incluse"),
                   (True, "Suport pe e-mail"), (False, "Fără modulul SMS")),
     tiers.PLUS: ((True, "Tot ce are Basic"), (True, "Modulul SMS: memento-uri automate pentru pacienți"),
                  (True, "Suport pe e-mail și la telefon")),
+    tiers.PREMIUM: ((True, "Tot ce are Plus"),
+                    (True, "Calendarele medicilor în Google: programările fiecărui medic în calendarul lui"),
+                    (True, "Suport pe e-mail și la telefon")),
 }
 # Сумма под выбором считается в браузере из data-атрибутов карточек; без скрипта — сумма
 # выбора при открытии (сервер всё равно считает сам: payments.choose)
@@ -2500,24 +2523,48 @@ def _terms_box() -> str:
             f"Termenii și condițiile</a> DentPilot.</span></label></div>")
 
 
+def _names_or(ts) -> str:
+    """«DentPilot Basic sau DentPilot Plus», «DentPilot Plus, DentPilot Premium sau …»."""
+    names = [tiers.NAME[t] for t in ts]
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " sau " + names[-1]
+
+
 def _module_note(sub, now: datetime) -> str:
-    """Что будет с модулем SMS при выборе (условия § 4.2, § 16.10) — по состоянию подписки."""
+    """Что будет с модулем SMS и календарями врачей при выборе (условия § 4.2, § 16.10) — по
+    состоянию подписки; варианты — по множествам tiers, названия — только продаваемых."""
     cur = tiers.current(sub)
     vu = _ts(sub["valid_until"]) if sub else None
+    running = vu is not None and vu > now
     until = tiers.sms_until(sub)
-    if cur == tiers.PLUS and vu is not None and vu > now:
-        basic = (f"Cu DentPilot Basic modulul SMS rămâne pornit până la sfârșitul perioadei în curs "
-                 f"(<b>{_ro(sub['valid_until'])}</b>) și se oprește apoi; SMS-urile rămase nu se pierd.")
-    elif cur == tiers.PLUS:
-        basic = "Cu DentPilot Basic modulul SMS se oprește; SMS-urile rămase nu se pierd."
-    elif until is not None and until > now:
-        basic = (f"Acum clinica are DentPilot Basic: modulul SMS mai funcționează până la "
-                 f"<b>{_ro(sub['sms_until'])}</b>.")
-    else:
-        basic = "Acum clinica are DentPilot Basic: modulul SMS este oprit, SMS-urile rămase așteaptă."
-    return (f"<p class='note'>Varianta o alegeți la fiecare plată. DentPilot Plus pornește modulul SMS imediat "
-            f"după confirmarea plății. {basic} SMS-urile se plătesc separat, în pachete — în nicio variantă nu "
-            f"intră în abonament.</p>")
+    sold = tiers.offered(sub)
+    no_sms = [t for t in sold if t not in tiers.SMS_TIERS]
+    with_sms = [t for t in sold if t in tiers.SMS_TIERS]
+    no_doc = [t for t in sold if t not in tiers.GDOC_TIERS]
+    with_doc = [t for t in sold if t in tiers.GDOC_TIERS]
+    said = ["Varianta o alegeți la fiecare plată."]
+    if with_sms:
+        said.append(f"{_names_or(with_sms)} pornește modulul SMS imediat după confirmarea plății.")
+    if with_doc:
+        said.append(f"{_names_or(with_doc)} pornește calendarele medicilor în Google imediat după confirmarea plății.")
+    if cur in tiers.SMS_TIERS and no_sms and running:
+        said.append(f"Cu {_names_or(no_sms)} modulul SMS rămâne pornit până la sfârșitul perioadei în curs "
+                    f"(<b>{_ro(sub['valid_until'])}</b>) și se oprește apoi; SMS-urile rămase nu se pierd.")
+    elif cur in tiers.SMS_TIERS and no_sms:
+        said.append(f"Cu {_names_or(no_sms)} modulul SMS se oprește; SMS-urile rămase nu se pierd.")
+    elif cur not in tiers.SMS_TIERS and until is not None and until > now:
+        said.append(f"Acum clinica are {tiers.NAME[cur]}: modulul SMS mai funcționează până la "
+                    f"<b>{_ro(sub['sms_until'])}</b>.")
+    elif cur not in tiers.SMS_TIERS:
+        said.append(f"Acum clinica are {tiers.NAME[cur]}: modulul SMS este oprit, SMS-urile rămase așteaptă.")
+    if cur in tiers.GDOC_TIERS and no_doc and running:
+        said.append(f"Cu {_names_or(no_doc)} calendarele medicilor în Google se actualizează până la sfârșitul "
+                    f"perioadei în curs (<b>{_ro(sub['valid_until'])}</b>); apoi programul scoate din ele "
+                    f"programările viitoare.")
+    elif cur in tiers.GDOC_TIERS and no_doc:
+        said.append(f"Cu {_names_or(no_doc)} calendarele medicilor în Google nu se mai actualizează, iar programul "
+                    f"scoate din ele programările viitoare.")
+    said.append("SMS-urile se plătesc separat, în pachete — în nicio variantă nu intră în abonament.")
+    return f"<p class='note'>{' '.join(said)}</p>"
 
 
 def _tier_card(sub, t: str, checked: bool) -> str:
@@ -2525,7 +2572,7 @@ def _tier_card(sub, t: str, checked: bool) -> str:
     y = pay.amount_for(sub, t, 12)
     lis = "".join(f"<li class='{'' if ok else 'no'}'>{_CHECK if ok else _DASH}<span>{esc(x)}</span></li>"
                   for ok, x in _TIER_PERKS[t])
-    fine = "<span class='fine'>SMS-urile — în pachete, separat de abonament</span>" if t == tiers.PLUS else ""
+    fine = "<span class='fine'>SMS-urile — în pachete, separat de abonament</span>" if t in tiers.SMS_TIERS else ""
     return (f"<label class='tier'><input type='radio' name='tier' value='{t}'{' checked' if checked else ''} required "
             f"data-name='{esc(tiers.NAME[t])}' data-m='{_mdl(m1)}' data-y='{_mdl(y)}'>"
             f"<span class='nm'>{esc(tiers.NAME[t])}</span><span class='what'>{esc(tiers.WHAT[t])}</span>"

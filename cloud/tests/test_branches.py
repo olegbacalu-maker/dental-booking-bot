@@ -739,6 +739,29 @@ def suite_paid(res: Result) -> None:
         admin.post(f"/admin/payments/{_sql(s, 'SELECT id FROM payments WHERE reference=?', cref)[0][0]}/confirm")
         res.ok("нота оплачена — форма снова открыта", "Achitați mai întâi" not in c.get(f"/cont/clinica-noua?c={main}").body)
 
+    # вариант у каждой клиники кабинета свой (отдельный сервер: заявок с адреса — 5 в час)
+    with Server(env={**BANK_ENV, "DP_TRIAL_MODE": "auto"}) as s:
+        c = _enter(s, DIRECTOR)
+        main = _register(s, c)
+        _add(c, main, tier="premium")
+        prem = _sql(s, "SELECT id FROM clinics WHERE name=?", BRANCH["name"])[0][0]
+        g = _sql(s, "SELECT grace_until FROM issues WHERE clinic_id=? ORDER BY seq DESC LIMIT 1", prem)[0][0]
+        res.ok("Premium из «Adaugă clinică»: в файле на срок оплаты gcal и gcal_doctor до конца льготы, у главной — "
+               "пробный без календарей врачей",
+               _features(s, prem) == {"gcal": g, "gcal_doctor": g}
+               and _sql(s, "SELECT tier FROM subscriptions WHERE clinic_id=?", prem) == [("premium",)]
+               and "gcal_doctor" not in _features(s, main), repr((_features(s, prem), _features(s, main))))
+
+    with Server(env={**BANK_ENV, "DP_TRIAL_MODE": "auto", "DP_PRICE_PREMIUM": ""}) as s:
+        c = _enter(s, DIRECTOR)
+        main = _register(s, c)
+        page = c.get(f"/cont/clinica-noua?c={main}").body
+        r, _ = _add(c, main, tier="premium")
+        res.ok("без прайса Premium: в форме кабинета его нет, выбор Premium — 400 «nu se poate plăti», ничего не заведено",
+               "name='tier' value='premium'" not in page and "name='tier' value='plus'" in page
+               and r.status == 400 and "Varianta aleasă nu se poate plăti" in r.body
+               and not _sql(s, "SELECT 1 FROM clinics WHERE name=?", BRANCH["name"]), r.body[-600:])
+
     with Server(env={**BANK_ENV, "DP_TRIAL_MODE": "auto", "DP_LICENSE_KEY": ""}) as s:
         c = _enter(s, DIRECTOR)
         main = _register(s, c)
