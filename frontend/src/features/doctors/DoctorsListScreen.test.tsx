@@ -209,8 +209,8 @@ describe('DoctorsListScreen › Google', () => {
     const chip = (dk: string) => document.querySelector(`.dp-doc[data-dk="${dk}"] .gd-chip`)
     expect(chip('d2')?.textContent?.trim()).toBe('Google conectat')
     expect(chip('d2')?.className).toContain('ok')
-    expect(chip('d1')?.textContent?.trim()).toBe('Google neconectat')
-    expect(chip('d1')?.className).toContain('mute')
+    /* d1 в списке архивный: подключить его нельзя, плашки нет */
+    expect(chip('d1')).toBeNull()
   })
 
   it('уровень без данных пациента ставится сразу, без окна; ответ приносит новый выбор', async () => {

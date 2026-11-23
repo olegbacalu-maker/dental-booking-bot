@@ -328,11 +328,16 @@ describe('DoctorCardScreen › Google', () => {
     get.mockResolvedValueOnce(withG(WAIT))
     get.mockResolvedValueOnce(ok(WAIT))
     get.mockResolvedValueOnce(ok(ON))
-    open('d2')
-    await screen.findByText('Așteptăm răspunsul Google…')
+    /* поддельный только интервал и до монтажа: экран заводит его при первой отрисовке, а ожидание
+       проверок (setTimeout) остаётся настоящим */
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     try {
-      vi.advanceTimersByTime(3000)
+      open('d2')
+      await screen.findByText('Așteptăm răspunsul Google…')
+      expect(get).toHaveBeenCalledTimes(1)
+      vi.advanceTimersByTime(2999)
+      expect(get).toHaveBeenCalledTimes(1)
+      vi.advanceTimersByTime(1)
       await waitFor(() => expect(get).toHaveBeenCalledTimes(2))
       expect(get).toHaveBeenLastCalledWith('/gdoc/d2', {})
     } finally {

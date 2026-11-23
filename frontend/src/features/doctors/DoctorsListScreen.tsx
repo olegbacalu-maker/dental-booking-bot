@@ -193,8 +193,9 @@ export function DoctorsListScreen({ navigate = defaultNavigate }: Props) {
       {data?.gdoc ? <DoctorGoogleLevel g={data.gdoc} busy={busy} onSet={onLevel} /> : null}
       <div className="dp-docs">
         {[...live, ...arch].map((d) => (
+          /* архивного врача не подключить: плашка звала бы к невозможному */
           <DoctorCardTile key={d.id} d={d} states={states} busy={busy} onStatus={onStatus}
-            gd={data?.gdoc ? { row: data.gdoc.doctors[d.id], words: data.gdoc.words } : null} />
+            gd={data?.gdoc && !d.archived ? { row: data.gdoc.doctors[d.id], words: data.gdoc.words } : null} />
         ))}
       </div>
       {data && data.doctors.length === 0 && <p className="hint">{T.empty}</p>}
