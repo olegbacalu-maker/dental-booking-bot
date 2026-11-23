@@ -1,5 +1,6 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { AppLink } from '../../components/AppLink'
+import { ask } from '../../components/confirm'
 import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
@@ -7,11 +8,13 @@ import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
 import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError, type ApiResult } from '../../services/api'
+import { DoctorGoogle } from './DoctorGoogle'
 import { DoctorPhoto } from './DoctorPhoto'
 import { DoctorProfileForm } from './DoctorProfileForm'
 import { DoctorServices } from './DoctorServices'
 import { DoctorWeek } from './DoctorWeek'
 import { doctors, type DoctorCard, type ServiceRow } from './doctors'
+import { gdoc, viewOf, type GdocReply, type GdocView } from './gdoc'
 
 /* Подписи фиши — слова старой страницы; предупреждение об услугах, подписи
    состояний и все числа приходят с сервера. */
@@ -33,6 +36,9 @@ const T = {
   offline: 'Programul nu răspunde. Reîncercați.',
 } as const
 
+/** Пока браузер Windows не вернулся со входа врача: окно программы о нём само не узнаёт. */
+const WAIT_MS = 3000
+
 interface Props {
   dk: string
   navigate?: (url: string) => void
@@ -46,6 +52,44 @@ export function DoctorCardScreen({ dk, navigate = defaultNavigate }: Props) {
   const [toast, setToast] = useState<ToastState | null>(null)
   const [busy, setBusy] = useState(false)
   const closeToast = useCallback(() => setToast(null), [])
+  const [gBusy, setGBusy] = useState(false)
+  const [checking, setChecking] = useState(false)
+  /* Блок Google живёт внутри модели карточки: ответ команды и опрос подменяют только его, а формы
+     карточки читают модель один раз при монтировании и правок не теряют. */
+  const card0 = state.status === 'ready' ? state.data : null
+  const latest = useRef(card0)
+  useLayoutEffect(() => { latest.current = card0 })
+  const putView = useCallback((v: GdocView | null) => {
+    const c = latest.current
+    if (c) replace({ ...c, google: v })
+  }, [replace])
+  /* номер команды: опрос, начатый до неё, не перепишет её ответ прежним видом */
+  const turn = useRef(0)
+  const waiting = !!card0?.google?.waiting
+
+  const reread = useCallback(async () => {
+    const mine = turn.current
+    try {
+      const r = await gdoc.view(dk)
+      if (turn.current === mine) putView(r.data ?? null)
+    } catch (e) {
+      leaveIfSignedOut(asApiError(e))
+    }
+  }, [dk, leaveIfSignedOut, putView])
+
+  useEffect(() => {
+    if (!waiting) return
+    const timer = window.setInterval(() => { void reread() }, WAIT_MS)
+    /* вернулись в окно — вход в браузере мог закончиться */
+    const back = () => { if (!document.hidden) void reread() }
+    window.addEventListener('focus', back)
+    document.addEventListener('visibilitychange', back)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('focus', back)
+      document.removeEventListener('visibilitychange', back)
+    }
+  }, [waiting, reread])
 
   const fail = useCallback(
     (e: unknown) => {
@@ -80,6 +124,27 @@ export function DoctorCardScreen({ dk, navigate = defaultNavigate }: Props) {
       },
     )
   }, [fail, retry, said])
+
+  /* Команда блока: вид после неё — и в ответе-отказе (409), там сервер кладёт его тоже. */
+  const gRun = useCallback(async (call: () => Promise<ApiResult<GdocReply>>) => {
+    turn.current += 1
+    setGBusy(true)
+    try {
+      const r = await call()
+      putView(r.data.view ?? null)
+      if (r.text) setToast({ tone: r.tone, text: r.text })
+      return r
+    } catch (e) {
+      const err = asApiError(e)
+      if (leaveIfSignedOut(err)) return null
+      const v = viewOf('data' in err.failure ? err.failure.data : undefined)
+      if (v !== undefined) putView(v)
+      setToast({ tone: 'err', text: err.text || T.offline })
+      return null
+    } finally {
+      setGBusy(false)
+    }
+  }, [leaveIfSignedOut, putView])
 
   if (state.status === 'leaving') return null
 
@@ -123,6 +188,21 @@ export function DoctorCardScreen({ dk, navigate = defaultNavigate }: Props) {
     replace(r.data)
     said(r)
   }
+  const g = card.google ?? null
+  async function connect() {
+    const r = await gRun(() => gdoc.connect(dk))
+    // новым окном: оболочка отдаёт чужой адрес браузеру Windows, окно программы остаётся
+    if (r?.data.url) window.open(r.data.url, '_blank', 'noopener')
+  }
+  async function checkNow() {
+    setChecking(true)
+    await gRun(() => gdoc.check(dk))
+    setChecking(false)
+  }
+  async function disconnect() {
+    if (!g || !await ask({ text: g.words.disconnect_ask, ok: g.words.disconnect_ok, danger: true })) return
+    await gRun(() => gdoc.disconnect(dk))
+  }
 
   return (
     <section className="dp-react-root">
@@ -143,6 +223,14 @@ export function DoctorCardScreen({ dk, navigate = defaultNavigate }: Props) {
             </div>
             <DoctorPhoto dk={dk} photo={card.photo} maxMb={card.max_photo_mb} onDone={onPhoto} onFail={fail} />
           </div>
+          {g ? (
+            /* ключ — состояние: новое проявляется заново, а смена строк опросом — на месте */
+            <DoctorGoogle key={`${g.state}${g.waiting ? '.w' : ''}`} g={g} busy={gBusy} checking={checking}
+              onConnect={() => { void connect() }}
+              onCancel={() => { void gRun(() => gdoc.cancel(dk)) }}
+              onCheck={() => { void checkNow() }}
+              onDisconnect={() => { void disconnect() }} />
+          ) : null}
           <div className="fcard">
             <h3>{T.contact}</h3>
             <DoctorProfileForm card={card} onSaved={onSaved} onFail={fail} />

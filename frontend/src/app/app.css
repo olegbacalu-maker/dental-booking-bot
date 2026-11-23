@@ -3497,6 +3497,94 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .gl-autoh { display: flex; gap: 10px; padding-left: 24px; color: var(--text2); font-size: var(--fs-s); line-height: 1.45; }
 .dp-react-root .gl-autot { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dp-react-root .gl-hist { flex: none; margin-left: auto; font-size: inherit; white-space: nowrap; }
+/* Календарь врача в его Google: блок карточкой в левой колонке карточки врача. У подключённого врача место
+   под строки состояния занято всегда — опрос, переводящий «actualizat» в «nu a reușit», не двигает контакты */
+.dp-react-root .gd { font-size: var(--fs-body); color: var(--text2); }
+.dp-react-root .gd b { color: var(--text); font-weight: 600; }
+.dp-react-root .gd-h { display: flex; align-items: center; gap: 8px; }
+.dp-react-root .gd-h svg { flex: none; width: 17px; height: 17px; color: var(--teal-d); }
+.dp-react-root .gd-row { display: flex; align-items: flex-start; gap: 12px; }
+.dp-react-root .gd-lines { flex: 1 1 0; min-width: 0; margin: 0; padding-top: 1px; line-height: 1.45; }
+.dp-react-root .gd-l1, .dp-react-root .gd-l2 { display: block; overflow-wrap: anywhere; }
+.dp-react-root .gd-l1 { font-size: var(--fs-m); }
+.dp-react-root .gd-l2 { font-size: var(--fs-s); }
+.dp-react-root .gd-lead { margin: 0; font-size: var(--fs-m); line-height: 1.45; }
+.dp-react-root .gd-stbox { margin-top: 10px; min-height: calc(4 * 1.45 * var(--fs-s) + 4px); }
+.dp-react-root .gd-status, .dp-react-root .gd-foot { margin: 0; font-size: var(--fs-s); line-height: 1.45; }
+.dp-react-root .gd-foot { margin-top: 4px; }
+.dp-react-root .gd-st.warn b { color: var(--amber-t); }
+.dp-react-root .gd-st.err b { color: var(--red-t); }
+.dp-react-root .gd-lvl { color: var(--text2); text-decoration: none; }
+.dp-react-root .gd-lvl:hover, .dp-react-root .gd-lvl:hover b { color: var(--teal-d); }
+.dp-react-root .gd-lvl svg { width: 14px; height: 14px; vertical-align: -2px; color: var(--text3); }
+.dp-react-root .gd-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+/* в колонке 262 px две кнопки в ряд не входят: каждая во всю ширину — перенос выглядит задуманным */
+.dp-react-root .gd-acts .rc-btn { flex: 1 1 auto; justify-content: center; }
+.dp-react-root .gd-acts .hint { margin: 0; }
+.dp-react-root .gd-hint { flex: 1 1 100%; font-size: var(--fs-s); }
+.dp-react-root .gd-notice { margin: 10px 0 0; }
+.dp-react-root .gd-check .gl-ico { display: inline-flex; }
+/* плашка в карточке врача списка: строкой рядом с часами, цвет смысла — не тема */
+.dp-react-root .gd-chip { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
+.dp-react-root .gd-chip.ok { color: var(--green-t); }
+.dp-react-root .gd-chip.warn { color: var(--amber-t); }
+.dp-react-root .gd-chip.mute { color: var(--text3); }
+/* «Calendarele medicilor în Google» вверху списка Medici: три положения и образец события */
+.dp-react-root .gdl { display: flex; flex-direction: column; gap: 12px; padding: 16px 20px; margin-bottom: 20px;
+  font-size: var(--fs-body); color: var(--text2); }
+.dp-react-root .gdl b { color: var(--text); font-weight: 600; }
+.dp-react-root .gdl-top { display: flex; align-items: center; gap: 12px 14px; flex-wrap: wrap; }
+.dp-react-root .gdl-ttl { flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 2px; line-height: 1.45; }
+.dp-react-root .gdl-ttl span { font-size: var(--fs-s); }
+.dp-react-root .gdl-seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; border: 1px solid var(--line);
+  border-radius: var(--r-ctl); background: var(--fill); }
+/* все положения одной жирности: нажатое не толкает соседей вбок */
+.dp-react-root .gdl-sb { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px; border: 0;
+  border-radius: var(--r-s); background: none; color: var(--text2); font: inherit; font-size: var(--fs-m); font-weight: 600;
+  white-space: nowrap; cursor: pointer; }
+.dp-react-root .gdl-sb small { color: var(--text3); font-size: var(--fs-xs); font-weight: 400; }
+.dp-react-root .gdl-sb.on { background: var(--surface); color: var(--text); box-shadow: var(--sh); }
+.dp-react-root .gdl-sb:disabled { cursor: default; opacity: .55; }
+.dp-react-root .gdl-sb.on:disabled { opacity: 1; }
+.dp-react-root .gdl-sb:focus-visible { outline: none; box-shadow: var(--ring); }
+.dp-react-root .gdl-cap, .gdl-dlg .gdl-cap { display: inline-block; }
+.dp-react-root .gdl-cap::first-letter, .gdl-dlg .gdl-cap::first-letter { text-transform: uppercase; }
+.dp-react-root .gdl-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 20px; margin: 0; padding-left: 46px;
+  font-size: var(--fs-s); }
+.dp-react-root .gdl-ph { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.dp-react-root .gdl-ph svg, .dp-react-root .gdl-lock svg { width: 14px; height: 14px; color: var(--text3); }
+.dp-react-root .gdl-note { margin-left: auto; }
+.dp-react-root .gdl-note .hint, .dp-react-root .gdl-lock { margin: 0; font-size: var(--fs-s); }
+.dp-react-root .gdl-lock { display: inline-flex; align-items: center; gap: 6px; }
+.dp-react-root .gdl-ev, .gdl-dlg .gdl-ev { display: inline-block; padding: 1px 8px; border-radius: var(--r-s);
+  background: var(--teal-soft); color: var(--teal-d); font-weight: 600; }
+.dp-react-root .gdl-line { flex: 1 1 380px; min-width: 0; margin: 0; line-height: 1.45; }
+.dp-react-root .gdl-prem { flex-direction: row; align-items: center; gap: 14px; }
+dialog.rg-dlg.gdl-dlg { width: min(540px, calc(100vw - 32px)); }
+.gdl-dlg .gdl-pickd { margin: 0; font-size: var(--fs-m); color: var(--text2); line-height: 1.6; }
+.gdl-dlg .gdl-warn { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; border-radius: var(--r-ctl);
+  background: var(--amber-soft); }
+.gdl-dlg .gdl-warn p { display: flex; gap: 8px; margin: 0; font-size: var(--fs-s); line-height: 1.5; color: var(--text); }
+.gdl-dlg .gdl-warn p svg { flex: 0 0 15px; width: 15px; height: 15px; margin-top: 2px; color: var(--amber-t); }
+.gdl-dlg .gl-chk { display: inline-flex; align-items: flex-start; gap: 8px; font-size: var(--fs-m); font-weight: 600; color: var(--text);
+  cursor: pointer; }
+.gdl-dlg .gl-chk input { accent-color: var(--teal); margin: 2px 0 0; width: 16px; height: 16px; flex: none; }
+@media (max-width: 900px) {
+  .dp-react-root .gdl-sub { padding-left: 0; }
+  .dp-react-root .gdl-note { margin-left: 0; }
+}
+@media (max-width: 560px) {
+  .dp-react-root .gdl { padding: 14px 16px; }
+}
+/* блок выключает общий busy карточки: вид приходит с задержкой, короткая команда не мигает */
+.dp-react-root .gd .rc-btn:disabled, .dp-react-root .gdl-sb:disabled { transition: opacity var(--dur-fast) ease var(--dur); }
+@media (prefers-reduced-motion: no-preference) {
+  .dp-react-root .gd { transition: opacity var(--dur-fast) ease; }
+  @starting-style { .dp-react-root .gd { opacity: 0; } }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dp-react-root .gd .rc-btn:disabled, .dp-react-root .gdl-sb:disabled { transition-duration: 0s; }
+}
 .dp-react-root .gcb-bar { display: flex; align-items: center; gap: 12px; padding: 9px 16px; min-height: 50px; }
 .dp-react-root .gcb-t { flex: 1 1 0; min-width: 0; margin: 0; color: var(--text2); font-size: var(--fs-body); }
 .dp-react-root .gcb-a { display: flex; align-items: center; gap: 8px; }

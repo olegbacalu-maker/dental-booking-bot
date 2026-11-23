@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import { ApiError } from '../../types/api'
 import type { DoctorCard } from './doctors'
+import type { GdocView } from './gdoc'
+import { GDOC_WORDS } from '../../test/gdocFixture'
 import { openScreen } from '../../test/openScreen'
 import { DoctorCardScreen, loadDoctorCard } from './DoctorCardScreen'
 
@@ -273,5 +275,179 @@ describe('DoctorCardScreen', () => {
     await screen.findByText('Chirurgie')
     fireEvent.click(screen.getByRole('button', { name: 'Salvează' }))
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/admin/login?next=x'))
+  })
+})
+
+/* ---- календарь врача в его Google: слова и состояние — сервера (`gcal_doctor.view`) ---- */
+
+const OFF: GdocView = {
+  state: 'off', account: '', calendar: null, last: null, pending: 0, why: null,
+  level: { code: 'time', label: 'doar ora' },
+  notice: 'Programul face în contul Google al medicului un calendar separat.',
+  privacy: { href: 'https://dentpilot.md/privacy.html#google', label: 'dentpilot.md/privacy.html#google' },
+  premium: null, waiting: false, remote: null,
+  can: { connect: true, check: false, disconnect: false }, words: GDOC_WORDS,
+}
+const WAIT: GdocView = { ...OFF, state: 'waiting', waiting: true }
+const ON: GdocView = {
+  ...OFF, state: 'on', account: 'medic@gmail.com',
+  calendar: { id: 'c1', name: 'DentPilot · Clinica Test · Dr. Activ Doi' },
+  last: { at: '2026-11-23T12:20:00Z', when: '23.11.2026 14:20' },
+  can: { connect: false, check: true, disconnect: true },
+}
+const block = () => document.querySelector('.gd') as HTMLElement | null
+const withG = (g: GdocView | null) => ok({ ...CARD, google: g })
+const buttons = () => [...(block()?.querySelectorAll('button') ?? [])].map((b) => b.textContent?.trim())
+
+describe('DoctorCardScreen › Google', () => {
+  it('блока нет, если сервер его не прислал', async () => {
+    get.mockResolvedValueOnce(withG(null))
+    open('d2')
+    await screen.findByText('Chirurgie')
+    expect(block()).toBeNull()
+  })
+
+  it('не подключён: уведомление и политика; «Conectează» открывает браузер Windows и ждёт', async () => {
+    get.mockResolvedValueOnce(withG(OFF))
+    post.mockResolvedValueOnce(ok({ view: WAIT, url: 'https://accounts.google.com/o?x=1' }, 'gd_url',
+      'Pagina Google se deschide în browser'))
+    const win = vi.spyOn(window, 'open').mockReturnValue(null)
+    open('d2')
+    expect(await screen.findByText(/calendar separat/)).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'dentpilot.md/privacy.html#google' }).getAttribute('href'))
+      .toBe('https://dentpilot.md/privacy.html#google')
+    fireEvent.click(screen.getByRole('button', { name: 'Conectează' }))
+    expect(await screen.findByText('Așteptăm răspunsul Google…')).toBeTruthy()
+    expect(post).toHaveBeenCalledWith('/gdoc/d2/connect', {})
+    expect(win).toHaveBeenCalledWith('https://accounts.google.com/o?x=1', '_blank', 'noopener')
+    expect(screen.getByText('Pagina Google se deschide în browser')).toBeTruthy()
+    expect(block()?.getAttribute('data-gd')).toBe('waiting')
+  })
+
+  it('ожидание: опрос раз в 3 с и при возврате в окно; вход закончился — подключён', async () => {
+    get.mockResolvedValueOnce(withG(WAIT))
+    get.mockResolvedValueOnce(ok(WAIT))
+    get.mockResolvedValueOnce(ok(ON))
+    open('d2')
+    await screen.findByText('Așteptăm răspunsul Google…')
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    try {
+      vi.advanceTimersByTime(3000)
+      await waitFor(() => expect(get).toHaveBeenCalledTimes(2))
+      expect(get).toHaveBeenLastCalledWith('/gdoc/d2', {})
+    } finally {
+      vi.useRealTimers()
+    }
+    fireEvent.focus(window)
+    expect(await screen.findByText('medic@gmail.com')).toBeTruthy()
+    expect(screen.getByText(/Ultima actualizare: 23\.11\.2026 14:20/)).toBeTruthy()
+    const lvl = screen.getByRole('link', { name: /În eveniment: doar ora/ })
+    expect(lvl.getAttribute('href')).toBe('/admin/medici')
+  })
+
+  it('опрос, обогнанный командой, отбрасывается: «Renunță» не возвращается к ожиданию', async () => {
+    get.mockResolvedValueOnce(withG(WAIT))
+    let late: (v: unknown) => void = () => {}
+    get.mockReturnValueOnce(new Promise((r) => { late = r }))
+    post.mockResolvedValueOnce(ok({ view: OFF }, 'gd_cancel', 'Conectarea a fost oprită'))
+    open('d2')
+    await screen.findByText('Așteptăm răspunsul Google…')
+    fireEvent.focus(window)
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2))
+    fireEvent.click(screen.getByRole('button', { name: 'Renunță' }))
+    expect(await screen.findByText('Conectarea a fost oprită')).toBeTruthy()
+    expect(post).toHaveBeenCalledWith('/gdoc/d2/cancel', {})
+    late(ok(WAIT))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(block()?.getAttribute('data-gd')).toBe('off')
+    expect(screen.queryByText('Așteptăm răspunsul Google…')).toBeNull()
+  })
+
+  it('подключён: «Sincronizează acum» — слова ответа и сколько ещё в пути; «Deconectează» спрашивает', async () => {
+    get.mockResolvedValueOnce(withG(ON))
+    post.mockResolvedValueOnce(ok({ view: { ...ON, pending: 3 } }, 'gd_checked', 'Calendarul medicului este actualizat'))
+    post.mockResolvedValueOnce(ok({ view: OFF }, 'gd_off', 'Calendarul medicului a fost șters din Google'))
+    const conf = vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
+    open('d2')
+    expect(await screen.findByText('„DentPilot · Clinica Test · Dr. Activ Doi”')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Sincronizează acum' }))
+    expect(await screen.findByText('Calendarul medicului este actualizat')).toBeTruthy()
+    expect(post).toHaveBeenCalledWith('/gdoc/d2/check', {})
+    expect(screen.getByText(/Încă de trimis: 3/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Deconectează' }))
+    expect(await screen.findByText('Calendarul medicului a fost șters din Google')).toBeTruthy()
+    expect(conf).toHaveBeenCalledWith(GDOC_WORDS.disconnect_ask)
+    expect(post).toHaveBeenLastCalledWith('/gdoc/d2/disconnect', {})
+    expect(screen.getByRole('button', { name: 'Conectează' })).toBeTruthy()
+  })
+
+  it('«Deconectează» без согласия ничего не шлёт', async () => {
+    get.mockResolvedValueOnce(withG(ON))
+    vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
+    open('d2')
+    await screen.findByText('medic@gmail.com')
+    fireEvent.click(screen.getByRole('button', { name: 'Deconectează' }))
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('отказ команды несёт вид: блок встаёт по нему, слова отказа — в плашке', async () => {
+    get.mockResolvedValueOnce(withG(OFF))
+    post.mockRejectedValueOnce(new ApiError({ kind: 'conflict', code: 'gd_on', text: 'Medicul este deja conectat',
+      data: { view: ON } }, 'c'))
+    open('d2')
+    await screen.findByText(/calendar separat/)
+    fireEvent.click(screen.getByRole('button', { name: 'Conectează' }))
+    expect(await screen.findByText('Medicul este deja conectat')).toBeTruthy()
+    expect(screen.getByText('medic@gmail.com')).toBeTruthy()
+  })
+
+  it('проход не удался: строка ошибки вместо уровня, кнопки те же', async () => {
+    get.mockResolvedValueOnce(withG({ ...ON, why: { code: 'gd_offline', tone: 'warn',
+      text: 'Google nu a răspuns', detail: '', at: '2026-11-23T12:30:00Z', when: '23.11.2026 14:30' } }))
+    open('d2')
+    expect(await screen.findByText('Google nu a răspuns')).toBeTruthy()
+    expect(screen.getByText(/\(23\.11\.2026 14:30\)/)).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /În eveniment/ })).toBeNull()
+    expect(buttons()).toEqual(['Sincronizează acum', 'Deconectează'])
+    expect(block()?.querySelector('.gl-mark')?.className).toContain('warn')
+  })
+
+  it('нет Premium: строка и путь к оплате, кнопок нет', async () => {
+    get.mockResolvedValueOnce(withG({ ...OFF, state: 'premium', premium: { href: '/admin/license', label: 'Setări › Licența' },
+      can: { connect: false, check: false, disconnect: false },
+      why: { code: 'gd_premium', tone: 'warn', text: 'Calendarul medicului în Google face parte din DentPilot Premium', detail: '' } }))
+    open('d2')
+    expect(await screen.findByText('Calendarul medicului în Google face parte din DentPilot Premium.')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Setări › Licența ›' }).getAttribute('href')).toBe('/admin/license')
+    expect(buttons()).toEqual([])
+  })
+
+  it('пауза: связь приглушена, путь к оплате, только «Deconectează»', async () => {
+    get.mockResolvedValueOnce(withG({ ...ON, state: 'paused', premium: { href: '/admin/license', label: 'Setări › Licența' },
+      can: { connect: false, check: false, disconnect: true },
+      why: { code: 'gd_paused', tone: 'warn', text: 'Actualizarea calendarului este oprită — face parte din DentPilot Premium',
+             detail: 'Legătura rămâne.' } }))
+    open('d2')
+    expect(await screen.findByText(/Actualizarea calendarului este oprită/)).toBeTruthy()
+    expect(block()?.querySelector('.gd-lines')?.className).toContain('gl-dim')
+    expect(block()?.querySelector('.gl-mark')?.className).toContain('plus')
+    expect(screen.getByRole('link', { name: 'Setări › Licența ›' })).toBeTruthy()
+    expect(buttons()).toEqual(['Deconectează'])
+  })
+
+  it('связь надо переделать: «Conectează din nou» и «Deconectează»', async () => {
+    get.mockResolvedValueOnce(withG({ ...ON, state: 'reconnect', can: { connect: true, check: false, disconnect: true },
+      why: { code: 'gd_dead', tone: 'err', text: 'Google nu mai acceptă conectarea medicului', detail: 'Conectați din nou.' } }))
+    open('d2')
+    expect(await screen.findByText('Google nu mai acceptă conectarea medicului')).toBeTruthy()
+    expect(buttons()).toEqual(['Conectează din nou', 'Deconectează'])
+  })
+
+  it('второй ПК: «Conectează» видна выключенной и строка сервера', async () => {
+    get.mockResolvedValueOnce(withG({ ...OFF, can: { connect: false, check: false, disconnect: false },
+      remote: { code: 'only_local', tone: 'warn', text: 'Se face doar pe calculatorul principal' } }))
+    open('d2')
+    expect(await screen.findByText('Se face doar pe calculatorul principal')).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Conectează' }) as HTMLButtonElement).disabled).toBe(true)
   })
 })

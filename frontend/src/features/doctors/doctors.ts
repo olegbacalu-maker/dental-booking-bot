@@ -1,4 +1,5 @@
 import { api, type ApiResult } from '../../services/api'
+import type { GdocList, GdocView } from './gdoc'
 
 /* Формы ответов — bot/app/modules/doctors/api.py. Цвета, инициалы, подписи
    состояний и часов приходят с сервера: клиент их не считает и не переводит. */
@@ -29,6 +30,11 @@ export interface DoctorsList {
   same_color: boolean
   /** Подписи состояний: activ / concediu / arhivat. */
   states: Record<string, string>
+}
+
+/** Экран Medici: список и блок календарей врачей в Google одним кадром (два запроса загрузчика). */
+export interface DoctorsScreen extends DoctorsList {
+  gdoc: GdocList | null
 }
 
 export interface WeekCell {
@@ -100,6 +106,8 @@ export interface DoctorCard {
   note_actions: Record<string, StatusAction[]>
   services: ServiceRow[]
   states: Record<string, { label: string; hint: string }>
+  /** Блок «Calendarul medicului în Google» тем же кадром, что карточка; null — блока нет. */
+  google?: GdocView | null
 }
 
 /** Что принимает POST /api/doctors/{dk} — те же поля, что старая форма. */

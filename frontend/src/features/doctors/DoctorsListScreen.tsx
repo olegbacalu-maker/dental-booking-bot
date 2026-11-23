@@ -6,7 +6,9 @@ import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
 import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
-import { doctors, type DoctorsList, type DoctorSummary } from './doctors'
+import { doctors, type DoctorsScreen, type DoctorSummary } from './doctors'
+import { DoctorGoogleChip, DoctorGoogleLevel } from './DoctorGoogleLevel'
+import { gdoc, type GdocLevelCode, type GdocList, type GdocRow, type GdocWords } from './gdoc'
 
 /* «Medici» по макету Олега (08.10, промпт 2): подзаголовок «N activi ·
    statistici pe ultimele 30 de zile», справа «Setările clinicii»; карточки
@@ -55,17 +57,28 @@ interface Props {
   navigate?: (url: string) => void
 }
 
-/** Данные экрана грузит роутер (B2.2), App.tsx › LOADS. */
-export const loadDoctorsList: RouteLoad<DoctorsList> = (signal) => doctors.list(signal)
+/** Данные экрана грузит роутер (B2.2), App.tsx › LOADS. Блок календарей врачей — тем же кадром:
+ *  отдельный запрос после показа сдвинул бы карточки врачей вниз на высоту полосы. Его отказ
+ *  списка не роняет — полосы просто нет. */
+export const loadDoctorsList: RouteLoad<DoctorsScreen> = async (signal) => {
+  const [list, g] = await Promise.all([
+    doctors.list(signal),
+    gdoc.list(signal).then((r) => r.data ?? null, () => null),
+  ])
+  return { ...list, data: { ...list.data, gdoc: g } }
+}
 
 export function DoctorsListScreen({ navigate = defaultNavigate }: Props) {
-  const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<DoctorsList>(navigate)
+  const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<DoctorsScreen>(navigate)
   const goTo = useAppNavigate(navigate)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [name, setName] = useState('')
   const [spec, setSpec] = useState('')
   const [busy, setBusy] = useState(false)
   const closeToast = useCallback(() => setToast(null), [])
+
+  /* список перечитывается без блока Google: он не зависит от состояния и цвета врача */
+  const relist = async (g: GdocList | null) => replace({ ...(await doctors.list()).data, gdoc: g })
 
   function fail(e: unknown) {
     const err = asApiError(e)
@@ -92,7 +105,7 @@ export function DoctorsListScreen({ navigate = defaultNavigate }: Props) {
     setBusy(true)
     try {
       const r = await doctors.resetColors()
-      replace((await doctors.list()).data)
+      await relist(gnow())
       setToast({ tone: r.tone, text: r.text })
     } catch (err) {
       fail(err)
@@ -112,10 +125,31 @@ export function DoctorsListScreen({ navigate = defaultNavigate }: Props) {
         name: c.name, spec: c.spec, room: c.room, phone: c.phone, email: c.email,
         color: c.color, auto_color: c.auto_color, work_from: c.work_from, work_to: c.work_to, status,
       })
-      replace((await doctors.list()).data)
+      await relist(gnow())
       if (r.text) setToast({ tone: r.tone, text: r.text })
     } catch (err) {
       fail(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const gnow = () => (state.status === 'ready' ? state.data.gdoc : null)
+
+  /* Уровень подробности: ответ приносит новый выбор; отказ (нет галочки, второй ПК) — словами сервера. */
+  async function onLevel(code: GdocLevelCode, ack: boolean): Promise<boolean> {
+    if (state.status !== 'ready' || !state.data.gdoc) return false
+    setBusy(true)
+    try {
+      const r = await gdoc.setLevel(code, ack)
+      if (state.status === 'ready' && state.data.gdoc) {
+        replace({ ...state.data, gdoc: { ...state.data.gdoc, level: r.data.level } })
+      }
+      if (r.text) setToast({ tone: r.tone, text: r.text })
+      return true
+    } catch (err) {
+      fail(err)
+      return false
     } finally {
       setBusy(false)
     }
@@ -156,9 +190,11 @@ export function DoctorsListScreen({ navigate = defaultNavigate }: Props) {
           </button>
         </div>
       )}
+      {data?.gdoc ? <DoctorGoogleLevel g={data.gdoc} busy={busy} onSet={onLevel} /> : null}
       <div className="dp-docs">
         {[...live, ...arch].map((d) => (
-          <DoctorCardTile key={d.id} d={d} states={states} busy={busy} onStatus={onStatus} />
+          <DoctorCardTile key={d.id} d={d} states={states} busy={busy} onStatus={onStatus}
+            gd={data?.gdoc ? { row: data.gdoc.doctors[d.id], words: data.gdoc.words } : null} />
         ))}
       </div>
       {data && data.doctors.length === 0 && <p className="hint">{T.empty}</p>}
@@ -203,9 +239,10 @@ export function DoctorsListScreen({ navigate = defaultNavigate }: Props) {
 
 /** Карточка врача в сетке (макет 08.10). Имя ведёт в фишу врача; кабинет и
  *  часы — словами сервера («ca al clinicii» → «Programul clinicii»). */
-function DoctorCardTile({ d, states, busy, onStatus }: {
+function DoctorCardTile({ d, states, busy, onStatus, gd }: {
   d: DoctorSummary; states: Record<string, string>; busy: boolean
   onStatus: (dk: string, status: string) => void
+  gd: { row: GdocRow | undefined; words: GdocWords } | null
 }) {
   /* слово сервера (layout.doctor_hours): «ca clinica» = часы клиники */
   const hours = d.hours === 'ca clinica' || d.hours === 'ca al clinicii' ? T.clinicHours : d.hours
@@ -225,6 +262,7 @@ function DoctorCardTile({ d, states, busy, onStatus }: {
         {d.room && <span><Icon name="door" /> {T.room} {d.room}</span>}
         <span><Icon name="clock" /> {hours}</span>
         {d.phone && <span><Icon name="phone" /> {d.phone}</span>}
+        {gd ? <DoctorGoogleChip row={gd.row} words={gd.words} /> : null}
       </div>
       <div className="dp-doc-stats">
         <div><b>{d.stats.n}</b><span>{T.statN}</span></div>

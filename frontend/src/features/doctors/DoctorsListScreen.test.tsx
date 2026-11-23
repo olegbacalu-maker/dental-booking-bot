@@ -1,16 +1,21 @@
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import { ApiError } from '../../types/api'
 import type { DoctorsList } from './doctors'
+import type { GdocList } from './gdoc'
+import { GDOC_WORDS } from '../../test/gdocFixture'
 import { openScreen } from '../../test/openScreen'
 import { DoctorsListScreen, loadDoctorsList } from './DoctorsListScreen'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
-const { get, post, postForm } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), postForm: vi.fn() }))
+const { get, gget, post, postForm } = vi.hoisted(() => ({ get: vi.fn(), gget: vi.fn(), post: vi.fn(), postForm: vi.fn() }))
+/* блок календарей врачей загрузчик просит своим запросом рядом со списком: у него своя очередь
+   ответов, чтобы очередь списка, профиля и перечитывания осталась прежней */
 vi.mock('../../services/api', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../services/api')>()
-  return { ...real, api: { get, post, postForm }, loginUrl: () => '/admin/login?next=x' }
+  const route = (path: string, ...rest: unknown[]) => (path === '/gdoc' ? gget : get)(path, ...rest)
+  return { ...real, api: { get: route, post, postForm }, loginUrl: () => '/admin/login?next=x' }
 })
 
 const LIST: DoctorsList = {
@@ -34,9 +39,14 @@ const open = (navigate?: (url: string) => void) => openScreen(
   '/admin/medici', '/admin/medici', <DoctorsListScreen {...(navigate ? { navigate } : {})} />,
   loadDoctorsList, navigate)
 
+beforeEach(() => {
+  gget.mockResolvedValue(ok(null))
+})
+
 afterEach(() => {
   cleanup()
   get.mockReset()
+  gget.mockReset()
   post.mockReset()
 })
 
@@ -146,5 +156,160 @@ describe('DoctorsListScreen', () => {
     open(navigate)
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/admin/login?next=x'))
     expect(screen.queryByLabelText('Nume și prenume')).toBeNull()
+  })
+})
+
+/* ---- полоса «Calendarele medicilor în Google» и плашки врачей: слова и выбор — сервера ---- */
+
+const WARN_I = 'Evenimentele vor arăta inițialele pacientului și numărul fișei.'
+const WARN_N = 'Evenimentele vor arăta numele pacientului și serviciul — date despre sănătate.'
+const GDOC: GdocList = {
+  doctors: {
+    d2: { state: 'on', account: 'medic@gmail.com', why: null },
+    d1: { state: 'off', account: '', why: null },
+  },
+  level: {
+    code: 'time', can_set: true, lock: '',
+    choices: [
+      { code: 'time', label: 'doar ora', hint: '„Programare” și cabinetul', warn: '', sample: 'Programare · Cabinet 3' },
+      { code: 'initials', label: 'inițiale', hint: 'Inițialele și fișa', warn: WARN_I, sample: 'A.P. · Fișa 12 · Cabinet 3' },
+      { code: 'name', label: 'nume și serviciu', hint: 'Numele și serviciul', warn: WARN_N,
+        sample: 'Ana Pop · Consultație · Cabinet 3' },
+    ],
+  },
+  words: { ...GDOC_WORDS, count: 'Conectați: 1 din 2 medici', level_default: 'implicit',
+           rewrite: 'La schimbare calendarele se rescriu singure.',
+           chip: { on: 'Google conectat', off: 'Google neconectat', reconnect: 'Google: de refăcut' } },
+}
+const strip = () => document.querySelector('.gdl') as HTMLElement | null
+const radio = (name: string) => screen.getByRole('radio', { name: new RegExp(`^${name}`) })
+const dlg = () => document.querySelector('dialog.gdl-dlg') as HTMLDialogElement | null
+
+describe('DoctorsListScreen › Google', () => {
+  it('блока нет (сервер прислал null) — ни полосы, ни плашек', async () => {
+    get.mockResolvedValueOnce(ok(LIST))
+    open()
+    await screen.findByText('Dr. Activ Doi')
+    expect(gget).toHaveBeenCalledWith('/gdoc', expect.anything())
+    expect(strip()).toBeNull()
+    expect(document.querySelector('.gd-chip')).toBeNull()
+  })
+
+  it('полоса тем же кадром, что список: три положения, текущее нажато, образец события; плашки врачей', async () => {
+    get.mockResolvedValueOnce(ok(LIST))
+    gget.mockResolvedValueOnce(ok(GDOC))
+    open()
+    await screen.findByText('Dr. Activ Doi')
+    expect(strip()?.textContent).toContain('Calendarele medicilor în Google')
+    expect(screen.getByText(/Conectați: 1 din 2 medici/)).toBeTruthy()
+    expect(radio('doar ora').getAttribute('aria-checked')).toBe('true')
+    expect(radio('inițiale').getAttribute('aria-checked')).toBe('false')
+    expect(screen.getByText('Programare · Cabinet 3')).toBeTruthy()
+    const chip = (dk: string) => document.querySelector(`.dp-doc[data-dk="${dk}"] .gd-chip`)
+    expect(chip('d2')?.textContent?.trim()).toBe('Google conectat')
+    expect(chip('d2')?.className).toContain('ok')
+    expect(chip('d1')?.textContent?.trim()).toBe('Google neconectat')
+    expect(chip('d1')?.className).toContain('mute')
+  })
+
+  it('уровень без данных пациента ставится сразу, без окна; ответ приносит новый выбор', async () => {
+    get.mockResolvedValueOnce(ok(LIST))
+    gget.mockResolvedValueOnce(ok({ ...GDOC, level: { ...GDOC.level, code: 'initials' } }))
+    post.mockResolvedValueOnce(ok({ level: { ...GDOC.level, code: 'time' } }, 'gd_level_set',
+      'Salvat — calendarele medicilor se actualizează singure'))
+    open()
+    await screen.findByText('Dr. Activ Doi')
+    fireEvent.click(radio('doar ora'))
+    expect(await screen.findByText('Salvat — calendarele medicilor se actualizează singure')).toBeTruthy()
+    expect(post).toHaveBeenCalledWith('/gdoc/level', { level: 'time', ack: false })
+    expect(dlg()).toBeNull()
+    expect(radio('doar ora').getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('уровень с именем пациента — окно: без «Am înțeles» «Salvează» заперта; с галочкой уходит ack', async () => {
+    get.mockResolvedValueOnce(ok(LIST))
+    gget.mockResolvedValueOnce(ok(GDOC))
+    post.mockResolvedValueOnce(ok({ level: { ...GDOC.level, code: 'name' } }, 'gd_level_set', 'Salvat'))
+    open()
+    await screen.findByText('Dr. Activ Doi')
+    fireEvent.click(radio('nume și serviciu'))
+    expect(dlg()?.open).toBe(true)
+    expect(screen.getByText(WARN_N)).toBeTruthy()
+    const save = screen.getByRole('button', { name: 'Salvează' }) as HTMLButtonElement
+    expect(save.disabled).toBe(true)
+    fireEvent.click(screen.getByLabelText('Am înțeles'))
+    expect(save.disabled).toBe(false)
+    fireEvent.click(save)
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/gdoc/level', { level: 'name', ack: true }))
+    await waitFor(() => expect(dlg()).toBeNull())
+    expect(radio('nume și serviciu').getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('инициалы — тоже через окно; «Renunță» ничего не шлёт и выбор прежний', async () => {
+    get.mockResolvedValueOnce(ok(LIST))
+    gget.mockResolvedValueOnce(ok(GDOC))
+    open()
+    await screen.findByText('Dr. Activ Doi')
+    fireEvent.click(radio('inițiale'))
+    expect(screen.getByText(WARN_I)).toBeTruthy()
+    fireEvent.click(dlg()!.querySelector('.rg-dlg-f .rc-btn') as HTMLButtonElement)
+    await waitFor(() => expect(dlg()).toBeNull())
+    expect(post).not.toHaveBeenCalled()
+    expect(radio('doar ora').getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('отказ сервера (нет галочки) — слова сервера, окно остаётся', async () => {
+    get.mockResolvedValueOnce(ok(LIST))
+    gget.mockResolvedValueOnce(ok(GDOC))
+    post.mockRejectedValueOnce(new ApiError({ kind: 'validation', code: 'gd_level_ack', text: 'Bifați „Am înțeles”',
+      field: 'ack' }, 'v'))
+    open()
+    await screen.findByText('Dr. Activ Doi')
+    fireEvent.click(radio('nume și serviciu'))
+    fireEvent.click(screen.getByLabelText('Am înțeles'))
+    fireEvent.click(screen.getByRole('button', { name: 'Salvează' }))
+    expect(await screen.findByText('Bifați „Am înțeles”')).toBeTruthy()
+    expect(dlg()?.open).toBe(true)
+  })
+
+  it('менять нельзя (регистратура): положения выключены, причина сервера', async () => {
+    get.mockResolvedValueOnce(ok(LIST))
+    gget.mockResolvedValueOnce(ok({ ...GDOC, level: { ...GDOC.level, can_set: false, lock: 'Schimbă doar directorul.' } }))
+    open()
+    await screen.findByText('Dr. Activ Doi')
+    expect(screen.getByText('Schimbă doar directorul.')).toBeTruthy()
+    expect((radio('inițiale') as HTMLButtonElement).disabled).toBe(true)
+    expect((radio('nume și serviciu') as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(radio('nume și serviciu'))
+    expect(dlg()).toBeNull()
+  })
+
+  it('нет Premium: одна строка с путём к оплате вместо выбора, плашек нет', async () => {
+    get.mockResolvedValueOnce(ok(LIST))
+    const why = { code: 'gd_premium', tone: 'warn', text: 'Calendarul medicului în Google face parte din DentPilot Premium', detail: '' }
+    gget.mockResolvedValueOnce(ok({ ...GDOC, premium: { href: '/admin/license', label: 'Setări › Licența' },
+      doctors: { d2: { state: 'premium', account: '', why }, d1: { state: 'premium', account: '', why } } }))
+    open()
+    await screen.findByText('Dr. Activ Doi')
+    expect(screen.getByText('Calendarul medicului în Google face parte din DentPilot Premium.')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Setări › Licența ›' }).getAttribute('href')).toBe('/admin/license')
+    expect(screen.queryByRole('radiogroup')).toBeNull()
+    expect(document.querySelector('.gd-chip')).toBeNull()
+  })
+
+  it('смена состояния врача перечитывает список и не теряет полосу', async () => {
+    get.mockResolvedValueOnce(ok(LIST))
+    gget.mockResolvedValueOnce(ok(GDOC))
+    get.mockResolvedValueOnce(ok({ name: 'Dr. Activ Doi', spec: 'Chirurgie', room: '3', phone: '101', email: '',
+      color: '#3B82F6', auto_color: false, work_from: 9, work_to: 17, status: 'activ' }))
+    post.mockResolvedValueOnce(ok(undefined, 'ok_med', 'Datele medicului au fost salvate'))
+    get.mockResolvedValueOnce(ok(LIST))
+    open()
+    await screen.findByText('Dr. Activ Doi')
+    fireEvent.change(screen.getByLabelText('Status: Dr. Activ Doi'), { target: { value: 'concediu' } })
+    expect(await screen.findByText('Datele medicului au fost salvate')).toBeTruthy()
+    expect(strip()).toBeTruthy()
+    expect(document.querySelector('.dp-doc[data-dk="d2"] .gd-chip')?.textContent?.trim()).toBe('Google conectat')
+    expect(gget).toHaveBeenCalledTimes(1)
   })
 })
