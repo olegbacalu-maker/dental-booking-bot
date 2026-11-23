@@ -5,7 +5,7 @@
 Пересобрать — `python scripts/screen_map.py`.
 
 
-Маршрутов **312** · наборов **96** · мест вызова `res.ok`/`res.check` в исходниках — **7666**.
+Маршрутов **320** · наборов **99** · мест вызова `res.ok`/`res.check` в исходниках — **7816**.
 
 
 ⚠️ Это статические МЕСТА ВЫЗОВА, а живой прогон даёт больше: часть
@@ -89,7 +89,7 @@
 | `POST /api/settings/theme/logo` | JSON | 9 | backup, plan_tpl, privacy, settings_api, theme | 727 | — |
 | `POST /api/settings/theme/logo/delete` | JSON | 7 | plan_tpl, settings_api, theme | 466 | — |
 | `GET /api/settings/theme/palette` | JSON | 10 | settings_api, theme | 410 | — |
-| `POST /api/settings/users` | JSON | 18 | api, backup, cont_link, demo, desk, doctor_rights, doctors, gcal, lab, lab_pages, license_email, license_renew, migrate, patient_card, patients_api, paylink, pimport, pin, plan_tpl, recall, registre, review2, review3_auth, settings_api, sms, stats_api, stock, stock_tc, tarife, visit_api, visit_tpl | 3257 | — |
+| `POST /api/settings/users` | JSON | 18 | api, backup, cont_link, demo, desk, doctor_rights, doctors, gcal, gcal_doctor, lab, lab_pages, license_email, license_renew, migrate, patient_card, patients_api, paylink, pimport, pin, plan_tpl, recall, registre, review2, review3_auth, settings_api, sms, stats_api, stock, stock_tc, tarife, visit_api, visit_tpl | 3328 | — |
 | `POST /api/settings/users/{uid}/delete` | JSON | 9 | activity, admin, doctors, hardening, lab, license_gate, migrate, odontogram_api, patient_card, perio, perio_api, pin, plan_acord, plan_tpl, registre, settings_api, stock, teeth, theme | 2616 | — |
 | `GET /shell/notices` | JSON | 8 | launcher, notices | 186 | — |
 
@@ -105,12 +105,20 @@
 | `GET /api/doctors` | JSON | 9 | admin, admin_canvas, doctors, plan_tpl, rooms | 753 | — |
 | `POST /api/doctors` | JSON | 10 | admin, admin_canvas, doctors, plan_tpl, rooms | 753 | — |
 | `POST /api/doctors/colors` | JSON | 4 | doctors, plan_tpl | 170 | — |
-| `GET /api/doctors/{dk}` | JSON | 6 | admin, admin_canvas, day_actions, day_forms, doctors, perio_api, pin, plan_tpl, review3, rooms, tarife | 1289 | — |
-| `POST /api/doctors/{dk}` | JSON | 29 | admin, admin_canvas, day_actions, day_forms, doctors, perio_api, pin, plan_tpl, review3, rooms, tarife | 1289 | — |
-| `POST /api/doctors/{dk}/parallel` | JSON | 15 | admin, admin_canvas, day_actions, day_forms, doctors, perio_api, pin, plan_tpl, review3, rooms, tarife | 1289 | — |
-| `POST /api/doctors/{dk}/photo` | JSON | 8 | admin, admin_canvas, day_actions, day_forms, doctors, perio_api, pin, plan_tpl, review3, rooms, tarife | 1289 | — |
-| `POST /api/doctors/{dk}/photo/delete` | JSON | 7 | admin, admin_canvas, day_actions, day_forms, doctors, perio_api, pin, plan_tpl, review3, rooms, tarife | 1289 | — |
-| `POST /api/doctors/{dk}/services` | JSON | 11 | admin, admin_canvas, day_actions, day_forms, demo, doctors, perio_api, pin, plan_tpl, recall, review2, review3, rooms, settings_api, tarife, visit_tpl | 1856 | — |
+| `GET /api/doctors/{dk}` | JSON | 6 | admin, admin_canvas, day_actions, day_forms, doctors, gcal_doctor, perio_api, pin, plan_tpl, review3, rooms, tarife | 1360 | — |
+| `POST /api/doctors/{dk}` | JSON | 29 | admin, admin_canvas, day_actions, day_forms, doctors, gcal_doctor, perio_api, pin, plan_tpl, review3, rooms, tarife | 1360 | — |
+| `POST /api/doctors/{dk}/parallel` | JSON | 15 | admin, admin_canvas, day_actions, day_forms, doctors, gcal_doctor, perio_api, pin, plan_tpl, review3, rooms, tarife | 1360 | — |
+| `POST /api/doctors/{dk}/photo` | JSON | 8 | admin, admin_canvas, day_actions, day_forms, doctors, gcal_doctor, perio_api, pin, plan_tpl, review3, rooms, tarife | 1360 | — |
+| `POST /api/doctors/{dk}/photo/delete` | JSON | 7 | admin, admin_canvas, day_actions, day_forms, doctors, gcal_doctor, perio_api, pin, plan_tpl, review3, rooms, tarife | 1360 | — |
+| `POST /api/doctors/{dk}/services` | JSON | 11 | admin, admin_canvas, day_actions, day_forms, demo, doctors, gcal_doctor, perio_api, pin, plan_tpl, recall, review2, review3, rooms, settings_api, tarife, visit_tpl | 1927 | — |
+| `GET /api/gdoc` | JSON | 5 | gcal_doctor | 71 | — |
+| `POST /api/gdoc/level` | JSON | 16 | gcal_doctor | 71 | — |
+| `GET /api/gdoc/{dk}` | JSON | 7 | gcal_doctor | 71 | — |
+| `POST /api/gdoc/{dk}/cancel` | JSON | 7 | backup, gcal_doctor, gcal_link, lab, scan, stock | 584 | — |
+| `POST /api/gdoc/{dk}/check` | JSON | 10 | gcal_auto, gcal_doctor, gcal_link, notices, pimport, settings_api, stock, tarife | 1087 | — |
+| `POST /api/gdoc/{dk}/connect` | JSON | 12 | gcal_doctor, gcal_link | 158 | — |
+| `POST /api/gdoc/{dk}/disconnect` | JSON | 13 | gcal_auto, gcal_doctor, gcal_link | 263 | — |
+| `GET /google/back/medic` | HTML | 6 | gcal_doctor, gwrite | 141 | — |
 
 ## Статистика — группа 1
 
@@ -190,7 +198,7 @@
 | `POST /api/patients/{pid}/scan/cancel` | JSON | 5 | activity, admin, anamneza, backup, booking, day_actions, day_forms, demo, desk, doctor_rights, gcal, hardening, lab, license_existing, license_gate, migrate, mkt, ocluzie, odontogram_api, patient_card, patients_api, perio, perio_api, pimport, pin, plan_acord, plan_insert, privacy, react_default, recall, review2, rooms, scan, schedule_api, sign, sms, stats_api, stock, stock_tc, tarife, teeth, visit, visit_api, visit_tpl | 4470 | — |
 | `POST /api/patients/{pid}/scan/finish` | JSON | 25 | activity, admin, anamneza, backup, booking, day_actions, day_forms, demo, desk, doctor_rights, gcal, hardening, lab, license_existing, license_gate, migrate, mkt, ocluzie, odontogram_api, patient_card, patients_api, perio, perio_api, pimport, pin, plan_acord, plan_insert, privacy, react_default, recall, review2, rooms, scan, schedule_api, sign, sms, stats_api, stock, stock_tc, tarife, teeth, visit, visit_api, visit_tpl | 4470 | — |
 | `POST /api/patients/{pid}/scan/page` | JSON | 15 | activity, admin, anamneza, backup, booking, day_actions, day_forms, demo, desk, doctor_rights, gcal, hardening, lab, license_existing, license_gate, migrate, mkt, ocluzie, odontogram_api, patient_card, patients_api, perio, perio_api, pimport, pin, plan_acord, plan_insert, privacy, react_default, recall, review2, rooms, scan, schedule_api, sign, sms, stats_api, stock, stock_tc, tarife, teeth, visit, visit_api, visit_tpl | 4470 | — |
-| `GET /api/patients/{pid}/slots` | JSON | 9 | activity, admin, anamneza, backup, booking, day_actions, day_forms, demo, desk, doctor_rights, gcal, hardening, lab, license_existing, license_gate, migrate, mkt, ocluzie, odontogram_api, patient_card, patients_api, perio, perio_api, pimport, pin, plan_acord, plan_insert, privacy, react_default, recall, review2, rooms, scan, schedule_api, sign, sms, stats_api, stock, stock_tc, structure, tarife, teeth, visit, visit_api, visit_tpl | 4562 | — |
+| `GET /api/patients/{pid}/slots` | JSON | 9 | activity, admin, anamneza, backup, booking, day_actions, day_forms, demo, desk, doctor_rights, gcal, hardening, lab, license_existing, license_gate, migrate, mkt, ocluzie, odontogram_api, patient_card, patients_api, perio, perio_api, pimport, pin, plan_acord, plan_insert, privacy, react_default, recall, review2, rooms, scan, schedule_api, sign, sms, stats_api, stock, stock_tc, structure, tarife, teeth, visit, visit_api, visit_tpl | 4568 | — |
 | `POST /api/patients/{pid}/sms-off` | JSON | 15 | activity, admin, anamneza, backup, booking, day_actions, day_forms, demo, desk, doctor_rights, gcal, hardening, lab, license_existing, license_gate, migrate, mkt, ocluzie, odontogram_api, patient_card, patients_api, perio, perio_api, pimport, pin, plan_acord, plan_insert, privacy, react_default, recall, review2, rooms, scan, schedule_api, sign, sms, stats_api, stock, stock_tc, tarife, teeth, visit, visit_api, visit_tpl | 4470 | — |
 | `POST /api/patients/{pid}/teeth` | JSON | 25 | activity, admin, anamneza, backup, booking, day_actions, day_forms, demo, desk, doctor_rights, gcal, hardening, lab, license_existing, license_gate, migrate, mkt, ocluzie, odontogram_api, patient_card, patients_api, perio, perio_api, pimport, pin, plan_acord, plan_insert, privacy, react_default, recall, review2, rooms, scan, schedule_api, sign, sms, stats_api, stock, stock_tc, tarife, teeth, visit, visit_api, visit_tpl | 4470 | — |
 | `POST /api/patients/{pid}/teeth/{tooth}` | JSON | 26 | activity, admin, anamneza, backup, booking, day_actions, day_forms, demo, desk, doctor_rights, gcal, hardening, lab, license_existing, license_gate, migrate, mkt, ocluzie, odontogram_api, patient_card, patients_api, perio, perio_api, pimport, pin, plan_acord, plan_insert, privacy, react_default, recall, review2, rooms, scan, schedule_api, sign, sms, stats_api, stock, stock_tc, tarife, teeth, visit, visit_api, visit_tpl | 4470 | — |
@@ -210,7 +218,7 @@
 
 | Маршрут | Тип | стр | Наборы | Проверок | Экран React |
 |---|---|---|---|---|---|
-| `GET /admin` | HTML | 28 | admin, admin_canvas, api, backup, cont_link, dbcrypt, demo, desk, doctor_rights, doctors, gcal, hardening, lab, lab_pages, license_email, license_existing, license_gate, license_page, license_renew, license_terms, migrate, notices, orders, patient_card, patients_api, paylink, pimport, pin, plan_tpl, react_default, recall, registre, review3_auth, schedule_api, settings_api, sms, split, stats_api, stock, stock_tc, structure, tarife, theme, update_server, visit_api, visit_tpl | 4574 | schedule_dash |
+| `GET /admin` | HTML | 28 | admin, admin_canvas, api, backup, cont_link, dbcrypt, demo, desk, doctor_rights, doctors, gcal, gcal_doctor, hardening, lab, lab_pages, license_email, license_existing, license_gate, license_page, license_renew, license_terms, migrate, notices, orders, patient_card, patients_api, paylink, pimport, pin, plan_tpl, react_default, recall, registre, review3_auth, schedule_api, settings_api, sms, split, stats_api, stock, stock_tc, structure, tarife, theme, update_server, visit_api, visit_tpl | 4651 | schedule_dash |
 | `GET /admin/all` | HTML | 17 | admin, admin_canvas, demo, doctor_rights, doctors, gcal, pin, schedule_api, stats_api, visit_api | 1366 | schedule_all |
 | `GET /admin/cabinet` | HTML | 10 | chair, doctor_rights | 123 | chair |
 | `GET /admin/doctor/{dk}` | HTML | 16 | admin, doctor_rights, pin, schedule_api | 822 | schedule_doctor |
@@ -218,7 +226,7 @@
 | `GET /admin/google` | HTML | 4 | gcal, plan_tpl, settings_api | 500 | gcal |
 | `GET /admin/week` | HTML | 13 | admin, demo, schedule_api | 580 | schedule_week |
 | `GET /api/chair` | JSON | 36 | admin, chair, doctor_rights, rooms | 614 | — |
-| `GET /api/gcal` | JSON | 6 | gcal, gcal_auto, migrate | 493 | — |
+| `GET /api/gcal` | JSON | 6 | gcal, gcal_auto, gcal_doctor, migrate | 564 | — |
 | `POST /api/gcal/auto` | JSON | 12 | gcal_auto | 105 | — |
 | `POST /api/gcal/batch/check` | JSON | 14 | gcal_auto | 105 | — |
 | `POST /api/gcal/batch/run` | JSON | 24 | gcal_auto | 105 | — |
@@ -239,16 +247,16 @@
 | `POST /api/gcal/sms` | JSON | 10 | gcal_auto | 105 | — |
 | `POST /api/gcal/source` | JSON | 11 | gcal, gcal_link | 245 | — |
 | `POST /api/schedule/appointments` | JSON | 42 | activity, admin, admin_canvas, chair, day_actions, day_forms, desk, doctor_windows, doctors, gcal_auto, hardening, patient_card, patients_api, plan_acord, privacy, react_default, schedule_api, stats_api, visit, visit_api, visit_tpl | 1833 | — |
-| `POST /api/schedule/appointments/{appt_id}/comment` | JSON | 18 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal_auto, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 2917 | — |
-| `POST /api/schedule/appointments/{appt_id}/duration` | JSON | 19 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal_auto, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 2917 | — |
-| `POST /api/schedule/appointments/{appt_id}/move` | JSON | 23 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal, gcal_auto, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 3075 | — |
-| `POST /api/schedule/appointments/{appt_id}/room` | JSON | 14 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal_auto, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 2917 | — |
-| `GET /api/schedule/appointments/{appt_id}/service` | JSON | 23 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal_auto, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 2917 | — |
-| `POST /api/schedule/appointments/{appt_id}/service` | JSON | 20 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal_auto, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 2917 | — |
-| `POST /api/schedule/appointments/{appt_id}/status` | JSON | 20 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal_auto, odontogram_api, panel_model, patient_card, patients_api, pimport, plan_acord, plan_insert, privacy, recall, review2, rooms, scan, schedule_api, sms, stats_api, stock_tc, structure, tarife, visit, visit_api, visit_tpl | 3241 | — |
+| `POST /api/schedule/appointments/{appt_id}/comment` | JSON | 18 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal_auto, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 2923 | — |
+| `POST /api/schedule/appointments/{appt_id}/duration` | JSON | 19 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal_auto, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 2923 | — |
+| `POST /api/schedule/appointments/{appt_id}/move` | JSON | 23 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal, gcal_auto, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 3081 | — |
+| `POST /api/schedule/appointments/{appt_id}/room` | JSON | 14 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal_auto, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 2923 | — |
+| `GET /api/schedule/appointments/{appt_id}/service` | JSON | 23 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal_auto, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 2923 | — |
+| `POST /api/schedule/appointments/{appt_id}/service` | JSON | 20 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal_auto, odontogram_api, panel_model, patient_card, pimport, privacy, recall, rooms, schedule_api, sms, stats_api, structure, tarife, visit, visit_api | 2923 | — |
+| `POST /api/schedule/appointments/{appt_id}/status` | JSON | 20 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_rights, doctor_windows, doctors, gcal_auto, odontogram_api, panel_model, patient_card, patients_api, pimport, plan_acord, plan_insert, privacy, recall, review2, rooms, scan, schedule_api, sms, stats_api, stock_tc, structure, tarife, visit, visit_api, visit_tpl | 3247 | — |
 | `GET /api/schedule/canvas` | JSON | 13 | admin_canvas, doctor_rights, harness_clock, schedule_api | 369 | — |
 | `GET /api/schedule/day` | JSON | 23 | admin, day_actions, desk, doctor_rights, pin, recall, rooms, schedule_api, tarife | 1329 | — |
-| `POST /api/schedule/desk/call/{aid}` | JSON | 27 | admin_canvas, desk, doctor_rights, gcal_auto, privacy, structure | 530 | — |
+| `POST /api/schedule/desk/call/{aid}` | JSON | 27 | admin_canvas, desk, doctor_rights, gcal_auto, privacy, structure | 536 | — |
 | `GET /api/schedule/live` | JSON | 34 | admin, demo, desk, doctor_rights, lab, recall, rooms, schedule_api | 1164 | — |
 | `POST /api/schedule/notes` | JSON | 21 | admin, admin_canvas, booking, chair, day_actions, day_forms, doctor_rights, rooms, schedule_api | 1101 | — |
 | `POST /api/schedule/sms-of` | JSON | 16 | pimport, sms | 460 | — |
@@ -263,8 +271,8 @@
 
 | Маршрут | Тип | стр | Наборы | Проверок | Экран React |
 |---|---|---|---|---|---|
-| `GET /admin/license` | HTML | 9 | cont_link, demo, gcal_link, license_email, license_existing, license_page, license_renew, license_terms, notices, paylink | 555 | — |
-| `POST /admin/license` | 303 | 22 | cont_link, demo, gcal_link, license_email, license_existing, license_page, license_renew, license_terms, notices, paylink | 555 | — |
+| `GET /admin/license` | HTML | 9 | cont_link, demo, gcal_doctor, gcal_link, license_email, license_existing, license_page, license_renew, license_terms, notices, paylink | 626 | — |
+| `POST /admin/license` | 303 | 22 | cont_link, demo, gcal_doctor, gcal_link, license_email, license_existing, license_page, license_renew, license_terms, notices, paylink | 626 | — |
 | `POST /admin/license/email/change` | other | 4 | license_email | 39 | — |
 | `POST /admin/license/email/code` | other | 4 | license_email | 39 | — |
 | `POST /admin/license/email/confirm` | other | 3 | license_email | 39 | — |
@@ -273,16 +281,16 @@
 | `POST /admin/license/request` | 303 | 19 | license_page, license_renew, license_terms | 211 | — |
 | `POST /admin/license/terms` | 303 | 13 | license_terms | 46 | — |
 | `POST /admin/license/verify` | 303 | 12 | license_renew | 117 | — |
-| `GET /admin/login` | HTML | 42 | admin, api, backup, chair, cont_link, demo, desk, doctor_rights, doctors, gcal, hardening, lab, lab_pages, license_email, license_gate, license_page, license_renew, migrate, netcheck, patient_card, patients_api, paylink, pimport, pin, plan_tpl, recall, registre, review3_auth, settings_api, sms, stats_api, stock, stock_tc, tarife, theme, visit_api, visit_tpl | 3943 | — |
-| `POST /admin/login` | 303 | 27 | admin, api, backup, chair, cont_link, demo, desk, doctor_rights, doctors, gcal, hardening, lab, lab_pages, license_email, license_gate, license_page, license_renew, migrate, netcheck, patient_card, patients_api, paylink, pimport, pin, plan_tpl, recall, registre, review3_auth, settings_api, sms, stats_api, stock, stock_tc, tarife, theme, visit_api, visit_tpl | 3943 | — |
+| `GET /admin/login` | HTML | 42 | admin, api, backup, chair, cont_link, demo, desk, doctor_rights, doctors, gcal, gcal_doctor, hardening, lab, lab_pages, license_email, license_gate, license_page, license_renew, migrate, netcheck, patient_card, patients_api, paylink, pimport, pin, plan_tpl, recall, registre, review3_auth, settings_api, sms, stats_api, stock, stock_tc, tarife, theme, visit_api, visit_tpl | 4014 | — |
+| `POST /admin/login` | 303 | 27 | admin, api, backup, chair, cont_link, demo, desk, doctor_rights, doctors, gcal, gcal_doctor, hardening, lab, lab_pages, license_email, license_gate, license_page, license_renew, migrate, netcheck, patient_card, patients_api, paylink, pimport, pin, plan_tpl, recall, registre, review3_auth, settings_api, sms, stats_api, stock, stock_tc, tarife, theme, visit_api, visit_tpl | 4014 | — |
 | `GET /admin/logout` | 303 | 8 | demo, pin | 284 | — |
 | `GET /admin/recover` | HTML | 14 | dbcrypt, hardening | 149 | — |
 | `POST /admin/recover` | HTML | 22 | dbcrypt, hardening | 149 | — |
 | `POST /admin/security/ack` | 303 | 8 | orders, pin | 289 | — |
-| `GET /admin/setup` | HTML | 16 | api, backup, desk, doctor_rights, doctors, gcal, hardening, lab, lab_pages, migrate, patient_card, patients_api, pimport, pin, plan_tpl, recall, registre, review2, review3_auth, settings_api, sms, stats_api, stock, stock_tc, tarife, visit_api, visit_tpl | 3059 | — |
-| `POST /admin/setup` | HTML | 29 | api, backup, desk, doctor_rights, doctors, gcal, hardening, lab, lab_pages, migrate, patient_card, patients_api, pimport, pin, plan_tpl, recall, registre, review2, review3_auth, settings_api, sms, stats_api, stock, stock_tc, tarife, visit_api, visit_tpl | 3059 | — |
+| `GET /admin/setup` | HTML | 16 | api, backup, desk, doctor_rights, doctors, gcal, gcal_doctor, hardening, lab, lab_pages, migrate, patient_card, patients_api, pimport, pin, plan_tpl, recall, registre, review2, review3_auth, settings_api, sms, stats_api, stock, stock_tc, tarife, visit_api, visit_tpl | 3130 | — |
+| `POST /admin/setup` | HTML | 29 | api, backup, desk, doctor_rights, doctors, gcal, gcal_doctor, hardening, lab, lab_pages, migrate, patient_card, patients_api, pimport, pin, plan_tpl, recall, registre, review2, review3_auth, settings_api, sms, stats_api, stock, stock_tc, tarife, visit_api, visit_tpl | 3130 | — |
 | `POST /admin/setup/ask` | 303 | 13 | pin | 227 | — |
-| `POST /api/auth/login` | JSON | 36 | hardening, license_gate, pin, structure | 413 | — |
+| `POST /api/auth/login` | JSON | 36 | hardening, license_gate, pin, structure | 419 | — |
 | `POST /api/auth/logout` | JSON | 11 | license_gate, pin | 249 | — |
 | `GET /api/license` | JSON | 6 | demo, license_existing, license_page, license_renew, license_state | 332 | — |
 | `POST /api/license/terms` | JSON | 11 | license_terms | 46 | — |
@@ -293,7 +301,7 @@
 | `GET /icon-{px}.png` | other | 11 | admin, demo | 389 | — |
 | `GET /manifest.webmanifest` | other | 31 | admin, demo | 389 | — |
 | `GET /plata/{ticket}` | HTML | 16 | cont_link, paylink, sms | 269 | — |
-| `GET /static/{kind}/{name}` | other | 37 | admin, api, demo, doctors, odontogram_api, patient_card, patients_api, perio_api, schedule_api, settings_api, split, structure, theme, visit_api | 1840 | — |
+| `GET /static/{kind}/{name}` | other | 37 | admin, api, demo, doctors, odontogram_api, patient_card, patients_api, perio_api, schedule_api, settings_api, split, structure, theme, visit_api | 1846 | — |
 
 ## Прочее — не мигрирует
 
@@ -325,7 +333,7 @@
 | `POST /api/lab/order` | JSON | 8 | lab | 152 | — |
 | `GET /api/lab/order/{oid}` | other | 4 | lab | 152 | — |
 | `POST /api/lab/order/{oid}` | other | 4 | lab | 152 | — |
-| `POST /api/lab/order/{oid}/cancel` | other | 4 | backup, gcal_link, lab, scan, stock | 513 | — |
+| `POST /api/lab/order/{oid}/cancel` | other | 4 | backup, gcal_doctor, gcal_link, lab, scan, stock | 584 | — |
 | `POST /api/lab/order/{oid}/etapa` | other | 4 | lab | 152 | — |
 | `POST /api/lab/order/{oid}/refacere` | other | 4 | lab | 152 | — |
 | `POST /api/lab/order/{oid}/step` | other | 4 | lab | 152 | — |
@@ -372,7 +380,7 @@
 | `GET /api/stock/moves` | other | 4 | stock | 122 | — |
 | `POST /api/stock/open` | other | 4 | stock | 122 | — |
 | `POST /api/stock/order` | other | 4 | stock | 122 | — |
-| `POST /api/stock/order/{item_id}/cancel` | other | 4 | backup, gcal_link, lab, scan, stock | 513 | — |
+| `POST /api/stock/order/{item_id}/cancel` | other | 4 | backup, gcal_doctor, gcal_link, lab, scan, stock | 584 | — |
 | `POST /api/stock/out` | other | 4 | stock, stock_tc | 167 | — |
 | `GET /api/stock/patient/{pid}` | other | 5 | stock | 122 | — |
 | `GET /api/stock/plan-pending` | other | 4 | stock_tc | 45 | — |
@@ -412,4 +420,4 @@
 | 44 | `POST /api/settings/backup/restore/stage` | 2 |
 | 43 | `GET /admin/migration` | 2 |
 | 43 | `POST /api/patients/{pid}/forms/{key}/sign` | 44 |
-| 42 | `GET /admin/login` | 37 |
+| 42 | `GET /admin/login` | 38 |
