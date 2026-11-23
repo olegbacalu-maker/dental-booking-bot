@@ -316,6 +316,47 @@ def _worker(tmpdir: str) -> None:
                 [(entry("d1") or {}).get("seq"), (entry("d12") or {}).get("seq"),
                  (entry("d6") or {}).get("calendar", {}).get("name")], [s1 + 1, 1, "X"])
 
+            # ---- крючки сверки: подключение будит и ждёт, не зная модуля сверки ----
+            t0 = time.monotonic()
+            gdoc.sync_wake("d1")
+            gdoc.sync_wake()
+            chk("без сверки: разбудить — ничего, прогнать — None сразу, счётчики — {}",
+                [await gdoc.sync_run("d1", 2.0), time.monotonic() - t0 < 0.5, gdoc.sync_stats("d1")], [None, True, {}])
+            woke, ran, done_ = [], [], []
+            delay = {"s": 0.05}
+
+            async def run(dk):
+                ran.append(dk)
+                await asyncio.sleep(delay["s"])
+                if dk == "boom":
+                    raise RuntimeError("pass failed")
+                done_.append(dk)
+                return f"ok:{dk}"
+
+            stats = {"last_ok": "2026-12-01T09:00:00Z", "error": "", "error_at": "", "pending": 3}
+            gdoc.attach_sync(wake=woke.append, run=run, stats=lambda dk: {**stats, "dk": dk})
+            gdoc.sync_wake("d1")
+            gdoc.sync_wake()
+            chk("сверка подключена: будят с врачом и без", list(woke), ["d1", None])
+            chk("прогнать врача: тот врач, ответ прохода", [await gdoc.sync_run("d12", 2.0), list(ran)], ["ok:d12", ["d12"]])
+            delay["s"] = 0.8
+            t0 = time.monotonic()
+            late = await gdoc.sync_run("d13", 0.2)
+            waited = time.monotonic() - t0
+            await asyncio.sleep(1.0)
+            chk("не успела — None не дольше ожидания, а проход доходит до конца",
+                [late, waited < 0.6, list(done_)], [None, True, ["d12", "d13"]])
+            delay["s"] = 0.01
+            chk("проход упал — None, не исключение", await gdoc.sync_run("boom", 2.0), None)
+            chk("счётчики сверки — как есть", gdoc.sync_stats("d14"), {**stats, "dk": "d14"})
+            other = []
+            gdoc.attach_sync(wake=other.append, run=run, stats=lambda dk: {})
+            gdoc.sync_wake("d2")
+            chk("повторное подключение заменяет крючки", [list(woke), list(other), gdoc.sync_stats("d1")],
+                [["d1", None], ["d2"], {}])
+            gdoc.attach_sync(wake=None, run=None, stats=None)
+            chk("None — сверки снова нет", [await gdoc.sync_run("d1", 1.0), gdoc.sync_stats("d1")], [None, {}])
+
             # ---- уровень, тот же аккаунт ----
             chk("уровень по умолчанию — doar ora", await gdoc.level(), "time")
             chk("уровень: смена, повтор, незнакомый",

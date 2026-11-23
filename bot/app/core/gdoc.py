@@ -117,6 +117,9 @@ class DoctorLock:
 _locks: dict[str, DoctorLock] = {}
 _tokens: dict[str, dict] = {}       # dk → {"token", "until"} — access-токены только в памяти
 _checked: dict[str, float] = {}     # dk → когда метка календаря сверена (monotonic)
+# Сверка регистрирует себя здесь: подключение будит её и ждёт прохода врача, не импортируя соседний модуль.
+_sync: dict = {"wake": None, "run": None, "stats": None}
+_runs: set = set()                  # проходы, которых перестали ждать: цикл держит задачу слабо
 
 
 def lock(dk: str) -> DoctorLock:
@@ -512,3 +515,48 @@ async def set_level(chosen: str, actor: str) -> str:
     await db.set_meta(META_LEVEL, chosen)
     await db.log_clinic_event("gdoc", f"Calendarele medicilor: nivelul „{LEVEL_WORDS[chosen]}”", actor)
     return LV_SET
+
+
+# ---------- сверка: крючки ----------
+
+
+def attach_sync(*, wake, run, stats) -> None:
+    """Сверка при старте: `wake(dk | None)`, корутина `run(dk) -> str` (берёт lock(dk) сама),
+    `stats(dk) -> dict`. Повторный вызов заменяет; None — сверки нет."""
+    _sync.update(wake=wake, run=run, stats=stats)
+
+
+def sync_wake(dk: str | None = None) -> None:
+    fn = _sync["wake"]
+    if fn is not None:
+        fn(dk)
+
+
+async def sync_run(dk: str, timeout: float) -> str | None:
+    """Прогнать врача и ждать до `timeout`; None — сверки нет, не успела или упала. Проход, которого
+    перестали ждать, доходит до конца: оборванный посреди записи пришлось бы догонять. Из прохода
+    врача не звать — новый проход ждал бы его замка до конца ожидания."""
+    fn = _sync["run"]
+    if fn is None:
+        return None
+    task = asyncio.ensure_future(fn(dk))
+    _runs.add(task)
+    task.add_done_callback(_run_done)
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), timeout)
+    except TimeoutError:
+        return None
+    except Exception:  # noqa: BLE001 — экран ждёт ответа, а не 500; в лог пишет _run_done
+        return None
+
+
+def _run_done(task: asyncio.Task) -> None:
+    _runs.discard(task)
+    if not task.cancelled() and task.exception() is not None:
+        log.warning("gdoc: sync run failed: %r", task.exception())
+
+
+def sync_stats(dk: str) -> dict:
+    """{} без сверки; иначе её ответ как есть: {last_ok, error, error_at, pending}."""
+    fn = _sync["stats"]
+    return fn(dk) if fn is not None else {}
