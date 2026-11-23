@@ -25,7 +25,7 @@ from .teeth import TEETH_HIST_SINCE
 # идёт range(have+1, SCHEMA_VERSION+1) и до него не дойдёт (так шаг 4 с
 # 'waiting' в uq-индексах не исполнялся ни у одной клиники; держит
 # test_structure).
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 
 # Индексы под горячие пути (день, история пациента, «новые из бота», карточка).
@@ -467,6 +467,27 @@ STOCK_DDL = [
     "CREATE INDEX IF NOT EXISTS ix_stock_docs_kind ON stock_docs(kind, status)",
 ]
 
+# Отправленное в календари врачей в Google. Строка живёт дольше записи: стирание пациента удаляет
+# запись, а событие у Google убирает следующая сверка по этой строке — поэтому без ссылки на
+# appointments и не в списках стирания (держит test_structure). Данных пациента нет — только id и
+# отпечаток тела; `stamp = ''` — событие у Google удалено, строка помнит поколение. `cal_id` —
+# календарь, куда легло: после нового подключения прежние строки забываются, а не удаляются у Google.
+GDOC_DDL = [
+    """CREATE TABLE IF NOT EXISTS gdoc_sent(
+  doctor_id TEXT NOT NULL,
+  appt_id INTEGER NOT NULL,
+  event_id TEXT NOT NULL,
+  epoch INTEGER NOT NULL DEFAULT 1,
+  gen INTEGER NOT NULL DEFAULT 0,
+  stamp TEXT NOT NULL DEFAULT '',
+  cal_id TEXT NOT NULL DEFAULT '',
+  starts_at TEXT,
+  sent_at TEXT NOT NULL,
+  PRIMARY KEY (doctor_id, appt_id)
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_gdoc_sent_start ON gdoc_sent(doctor_id, starts_at)",
+]
+
 MIGRATIONS = {
     1: [
         "CREATE INDEX IF NOT EXISTS ix_appt_starts ON appointments(starts_at)",
@@ -547,6 +568,9 @@ MIGRATIONS = {
     # Склад материалов (`STOCK_DDL` выше): аддитивно, каждый оператор IF NOT
     # EXISTS — шаг переживает повтор; строго, как 7–13.
     14: STOCK_DDL,
+    # Отправленное в календари врачей (`GDOC_DDL` выше): аддитивно, каждый оператор IF NOT EXISTS —
+    # шаг переживает повтор; строго, как 7–14.
+    15: GDOC_DDL,
 }
 # Шаг, который кладёт базовый снимок истории зубов. В отличие от
 # UQ_GUARD_STEP — СТРОГИЙ: он меняет данные, и недописанный снимок не имеет

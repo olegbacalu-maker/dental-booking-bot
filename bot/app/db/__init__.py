@@ -25,6 +25,7 @@ Postgres-издание снято 12.10.2026 (на нём не работало
     docs      документы пациента
     finance   платежи
     gcal      вкладка «Google Calendar»: источники и события
+    gpush     календари врачей в Google: что отправлено и что должно быть
     erasure   закон 195: стирание и обезличивание
     registre  санитарные регистры 257/e, 502/e, 501/e (без пациентов)
     lab       заказы в зуботехническую лабораторию и каталог лабораторий
@@ -131,6 +132,10 @@ from .gcal import (
     gcal_expire, gcal_clear, gcal_journal, gcal_patients, gcal_phone_keys,
     _gcal_text_has, gcal_ids_with_phone, _gcal_erase_sql, gcal_erase,
 )
+from .gpush import (
+    GDOC_STATUSES, gdoc_desired, gdoc_sent_rows, gdoc_sent_put, gdoc_sent_off, gdoc_sent_stale, gdoc_sent_prune,
+    gdoc_sent_forget,
+)
 from .erasure import (
     erasure_kind, _PATIENT_CHILD_TABLES, _PATIENT_GRAND_CHILDREN, _patient_phone, delete_patient_fully,
     anonymize_patient,
@@ -162,7 +167,7 @@ from .stock import (
 )
 from .schema import (
     SCHEMA_VERSION, OCLUZIE_DDL, RECALL_DDL, RECALL_IDX_DDL, SAN_DDL, SAN_PEOPLE_DDL, GCAL_DDL, LAB_DDL,
-    STOCK_DDL,
+    STOCK_DDL, GDOC_DDL,
     MIGRATIONS, TEETH_HIST_STEP,
     SQLITE_CARD_SCHEMA, SQLITE_EXTRA_COLS, SQLITE_GCAL_COLS, SQLITE_PATIENT_COLS, SQLITE_SCHEMA,
     _schema_version, _set_schema_version, _teeth_hist_base, _migrate, _ADD_COLUMN, _already_added, _sqlite_driver, init,

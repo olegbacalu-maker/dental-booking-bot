@@ -169,7 +169,8 @@ _TABLES = {"stock_suppliers", "stock_items", "stock_docs", "stock_doc_lines", "s
 def suite_schema(res: Result) -> None:
     """Шаг 14: пять таблиц и индексы, каждый оператор IF NOT EXISTS; имени пациента в журнале нет."""
     step = next((k for k, v in appdb.MIGRATIONS.items() if v is appdb.STOCK_DDL), None)
-    res.ok("STOCK_DDL — шаг миграции, и он последний", step == appdb.SCHEMA_VERSION == 14, f"шаг {step}")
+    res.ok("STOCK_DDL — шаг миграции 14, и он исполняется", step == 14 and step <= appdb.SCHEMA_VERSION,
+           f"шаг {step}, версия схемы {appdb.SCHEMA_VERSION}")
     res.ok("строки техкарты и отметки «Fără materiale» — тем же шагом",
            any("service_materials(" in x for x in appdb.STOCK_DDL)
            and any("stock_plan_marks(" in x for x in appdb.STOCK_DDL), "")
@@ -212,7 +213,7 @@ def suite_retry(res: Result) -> None:
             with Server(dir_=work) as s:
                 c = Client(s.url).login()
                 res.check(f"{tag}: версия доведена", _sql(s, "SELECT value FROM schema_meta WHERE key='version'")[0][0],
-                          "14")
+                          str(appdb.SCHEMA_VERSION))
                 iid = _item(c, "Retry Material")
                 _invoice(c, [{"item_id": iid, "qty_milli": 5000, "cost_bani": 1000}])
                 res.check(f"{tag}: склад отвечает и пишет", _row(c, iid)["qty_milli"], 5000)

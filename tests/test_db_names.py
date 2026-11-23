@@ -75,6 +75,9 @@ SNAPSHOT = frozenset((
     "STOCK_TC_MODES", "stock_tc_rows", "stock_tc_services", "stock_tc_put", "stock_tc_replace", "stock_plan_item",
     "stock_plan_finalized", "stock_moves_plan", "stock_plan_marked", "stock_plan_mark", "stock_plan_unmark",
     "stock_plan_consume",
+    # календари врачей в Google: db/gpush.py + GDOC_DDL шага 15
+    "GDOC_DDL", "GDOC_STATUSES", "gdoc_desired", "gdoc_sent_rows", "gdoc_sent_put", "gdoc_sent_off",
+    "gdoc_sent_stale", "gdoc_sent_prune", "gdoc_sent_forget",
     # кабинет у записи: занятость по кабинетам врача, индексы с кабинетом в ключе
     "appt_room_busy", "_doctor_overlaps", "_lane", "_own_room", "_patient_busy", "_pick_room",
     "_retire_old_uq", "room_busy", "_room_label", "set_appt_room", "change_doctor_rooms", "_rooms_plan", "_sql_text", "slot_probe", "_UQ_RETIRED",

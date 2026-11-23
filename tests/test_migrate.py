@@ -155,6 +155,9 @@ def _base_db(path: pathlib.Path) -> sqlite3.Connection:
     # склад — тоже только шагом; журнал склада читают стирание и выгрузка пациента
     for sql in appdb.STOCK_DDL:
         con.execute(sql)
+    # отправленное в календари врачей — тоже только шагом; его читает сверка вскоре после старта
+    for sql in appdb.GDOC_DDL:
+        con.execute(sql)
     return con
 
 
@@ -1966,6 +1969,106 @@ def suite_gcal_retry(res: Result) -> None:
                 res.check(f"{tag}: повторный старт — версия та же", _meta(dbfile, "version"), _VER)
         finally:
             _rmtree_settled(work)
+
+
+def _gdoc_state(con) -> tuple:
+    """Таблица отправленного в календари врачей: имена шага, колонки, внешние ключи (соединение любого
+    драйвера)."""
+    names = sorted(r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE name LIKE '%gdoc%'"))
+    cols = [r[1] for r in con.execute("PRAGMA table_info(gdoc_sent)")]
+    return names, cols, list(con.execute("PRAGMA foreign_key_list(gdoc_sent)"))
+
+
+_GDOC_WANT = (["gdoc_sent", "ix_gdoc_sent_start", "sqlite_autoindex_gdoc_sent_1"],
+              ["doctor_id", "appt_id", "event_id", "epoch", "gen", "stamp", "cal_id", "starts_at", "sent_at"], [])
+
+
+def suite_gdoc_retry(res: Result) -> None:
+    """Шаг таблицы отправленного в календари врачей приходит повторно: оборвался перед записью версии,
+    посередине — и обычное обновление. Строки, легшие до обрыва, переживают повтор. Номер шага — из
+    словаря миграций."""
+    step = next(k for k, v in appdb.MIGRATIONS.items() if v is appdb.GDOC_DDL)
+    res.ok("GDOC_DDL — шаг миграции 15, и он исполняется", step == 15 and step <= appdb.SCHEMA_VERSION,
+           f"шаг {step}, версия схемы {appdb.SCHEMA_VERSION}")
+    res.ok("каждый оператор шага — IF NOT EXISTS",
+           len(appdb.GDOC_DDL) >= 2 and all(" IF NOT EXISTS " in x for x in appdb.GDOC_DDL), "")
+    drops = {"всё уже есть": (),
+             "оборвался после таблицы": ("DROP INDEX ix_gdoc_sent_start",),
+             "обычное обновление": ("DROP TABLE gdoc_sent",)}
+    for tag, todo in drops.items():
+        work = pathlib.Path(tempfile.mkdtemp(prefix="dp_mig_gdoc_"))
+        try:
+            dbfile = work / "dental.db"
+            with Server(dir_=work):
+                pass
+            con = sqlite3.connect(str(dbfile))
+            try:
+                con.execute("INSERT INTO gdoc_sent(doctor_id, appt_id, event_id, stamp, sent_at) "
+                            "VALUES('d2', 7, 'dpx', 'ab', '2026-11-23T10:00:00Z')")
+                for sql in todo:
+                    con.execute(sql)
+                con.execute("UPDATE schema_meta SET value = ? WHERE key = 'version'", (str(step - 1),))
+                con.commit()
+            finally:
+                con.close()
+            with Server(dir_=work) as s:
+                res.check(f"{tag}: старт прошёл, версия доведена до {_VER}", _meta(dbfile, "version"), _VER)
+                con = sqlite3.connect(str(dbfile))
+                try:
+                    res.check(f"{tag}: таблица и индекс шага на месте, ключей на другие таблицы нет",
+                              _gdoc_state(con), _GDOC_WANT)
+                    kept = con.execute("SELECT COUNT(*) FROM gdoc_sent").fetchone()[0]
+                finally:
+                    con.close()
+                res.check(f"{tag}: строки до обрыва целы", kept, 0 if "DROP TABLE gdoc_sent" in todo else 1)
+                res.check(f"{tag}: программа отвечает", Client(s.url).login().get("/api/doctors").status, 200)
+            with Server(dir_=work):
+                res.check(f"{tag}: повторный старт — версия та же", _meta(dbfile, "version"), _VER)
+        finally:
+            _rmtree_settled(work)
+
+
+def suite_gdoc_retry_crypt(res: Result) -> None:
+    """Зашифрованная картотека (sqlcipher3): шаг таблицы отправленного приходит повторно и с нуля."""
+    from app.core import dbkey  # noqa: E402
+    import sqlcipher3.dbapi2 as sqlcipher  # noqa: E402
+    step = next(k for k, v in appdb.MIGRATIONS.items() if v is appdb.GDOC_DDL)
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_mig_gdocc_"))
+    try:
+        key = dbkey.generate()
+        if not dbkey.store(key, tmp):
+            res.failed.append(("ключ не сохранился под DPAPI", "не Windows или DPAPI отказал"))
+            return
+        dbfile = tmp / "dental.db"
+
+        def crypt():
+            con = sqlcipher.connect(str(dbfile))
+            con.execute(f"PRAGMA key = {dbkey.pragma_value(key)}")
+            return con
+
+        with Server(dir_=tmp):
+            pass
+        for tag, todo in (("повтор по готовой таблице", ()), ("таблицы нет", ("DROP TABLE gdoc_sent",))):
+            con = crypt()
+            try:
+                for sql in todo:
+                    con.execute(sql)
+                con.execute("UPDATE schema_meta SET value = ? WHERE key = 'version'", (str(step - 1),))
+                con.commit()
+            finally:
+                con.close()
+            with Server(dir_=tmp) as s:
+                res.check(f"зашифрованная, {tag}: старт прошёл",
+                          Client(s.url).login().get("/api/doctors").status, 200)
+            con = crypt()
+            try:
+                res.check(f"зашифрованная, {tag}: версия доведена, таблица на месте",
+                          (con.execute("SELECT value FROM schema_meta WHERE key='version'").fetchone()[0],
+                           _gdoc_state(con)), (_VER, _GDOC_WANT))
+            finally:
+                con.close()
+    finally:
+        _rmtree_settled(tmp)
 
 
 def suite_v10_retry_crypt(res: Result) -> None:
