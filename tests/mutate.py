@@ -232,6 +232,47 @@ MUTATIONS = [
       "    if True:\n        e = _entry(dk)\n        if e is None:\n            return L_NONE\n")),
     ("один замок врача", "app/core/gdoc.py",
      "\ndef _mut(dk):\n    _put(dk, None)\n"),
+    # Подключение врача: вход и возврат без вопроса о праве; сеть и привязка календаря раньше вопроса.
+    ("дверь к Google врача спрашивает право gcal_doctor", "app/modules/doctors/gcal_doctor.py",
+     ('    if lic.feature_until(gdoc.SYNC_GATE) is None:\n        return _gate_code(), ""\n', "")),
+    ("дверь к Google врача спрашивает право gcal_doctor", "app/modules/doctors/gcal_doctor.py",
+     ("    if lic.feature_until(gdoc.SYNC_GATE) is None:\n        return _gate_code(), 409\n", "")),
+    ("дверь к Google врача спрашивает право gcal_doctor", "app/modules/doctors/gcal_doctor.py",
+     ('    if lic.feature_until(gdoc.SYNC_GATE) is None:\n        return _gate_code(), ""\n',
+      '    _probe = gauth.consent_url(client, "", "", "")\n'
+      '    if lic.feature_until(gdoc.SYNC_GATE) is None:\n        return _gate_code(), ""\n')),
+    ("дверь к Google врача спрашивает право gcal_doctor", "app/modules/doctors/gcal_doctor.py",
+     ("    if lic.feature_until(gdoc.SYNC_GATE) is None:\n        return _gate_code(), 409\n",
+      '    _probe = await _bind(dk, None, "")\n'
+      "    if lic.feature_until(gdoc.SYNC_GATE) is None:\n        return _gate_code(), 409\n")),
+    # Подключение врача: отзыв у Google, токен в лог и в базу, DPAPI мимо двери, связь и уход мимо замка.
+    ("уход врача — без отзыва у Google", "app/modules/doctors/gcal_doctor.py",
+     "\nasync def _mut(t):\n    return await asyncio.to_thread(gauth.revoke, t)\n"),
+    ("не в базе, не в логе и не в копиях", "app/modules/doctors/gcal_doctor.py",
+     '\ndef _mut(grant):\n    log.info("gdoc: %s", grant.refresh)\n'),
+    ("не в базе, не в логе и не в копиях", "app/modules/doctors/gcal_doctor.py",
+     '\nasync def _mut(entry):\n    await db.set_meta("gdoc_v", entry["verifier"])\n'),
+    ("к Google врача — только через дверь gdoc", "app/modules/doctors/gcal_doctor.py",
+     "\nfrom ... import dpapi  # noqa\n"),
+    ("один замок врача", "app/modules/doctors/gcal_doctor.py",
+     ("    async with gdoc.lock(dk):\n        out = await gdoc.leave(", "    if True:\n        out = await gdoc.leave(")),
+    ("один замок врача", "app/modules/doctors/gcal_doctor.py",
+     ("    async with gdoc.lock(dk):\n        code = await _bind(", "    if True:\n        code = await _bind(")),
+    # Возврат врача: без проверки пира, без сверки state, адрес возврата ≠ маршрут, маршрут мимо проверки.
+    ("возврат врача", "app/modules/doctors/gcal_doctor.py",
+     ('    if not client_is_local(request):\n        return "gc_g_back_local", 403\n', "")),
+    ("возврат врача", "app/modules/doctors/gcal_doctor.py",
+     ("    back = gauth.back(query, state)\n", "    back = gauth.Back(gauth.OK, auth_code=state)\n")),
+    ("возврат врача", "app/modules/doctors/gcal_doctor.py",
+     ('BACK_PATH = "/google/back/medic"', 'BACK_PATH = "/google/back/doctor"')),
+    ("возврат врача", "app/modules/doctors/api.py",
+     ("    code, status = await gcal_doctor.finish(request)\n", '    code, status = "gd_back_ok", 200\n')),
+    # Подключение врача из сети: маршрут из LOCAL_ONLY без отказа сети.
+    ("опасное из сети — только с этого ПК", "app/modules/doctors/api.py",
+     ("    if (deny := local_only(request)) is not None:\n        return deny\n    if dk not in eng.DOCTORS:\n"
+      "        return msg_json(False, status=404)\n    code, url = await gcal_doctor.start(request, dk)\n",
+      "    if dk not in eng.DOCTORS:\n        return msg_json(False, status=404)\n"
+      "    code, url = await gcal_doctor.start(request, dk)\n")),
     # ---- заказы лаунчеру подписаны (02.11) ----
     # Исполнитель без подписи: тот же вызов, но уже не проверка.
     ("исполняется только по подписи", "app/core/restore.py",
@@ -939,6 +980,10 @@ LEGAL = [
     # запись файла связи внутренней функцией под тем же замком
     ("один замок врача", "app/core/gdoc.py",
      "\nasync def _mut(dk):\n    async with lock(dk):\n        _put(dk, None)\n"),
+    # право подключения врача через имя внутри функции — тот же вопрос, не кэш
+    ("дверь к Google врача спрашивает право gcal_doctor", "app/modules/doctors/gcal_doctor.py",
+     ('    if lic.feature_until(gdoc.SYNC_GATE) is None:\n        return _gate_code(), ""\n',
+      '    until = lic.feature_until(gdoc.SYNC_GATE)\n    if until is None:\n        return _gate_code(), ""\n')),
     # слово «revocare» в тексте — не отзыв
     ("уход врача — без отзыва у Google", "app/core/gdoc.py",
      '\n_mut = "fără revocarea accesului"\n'),

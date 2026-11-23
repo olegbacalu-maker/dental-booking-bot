@@ -52,6 +52,7 @@ import test_day_forms  # noqa: E402
 import test_gapi  # noqa: E402
 import test_gwrite  # noqa: E402
 import test_gdoc  # noqa: E402
+import test_gcal_doctor  # noqa: E402
 import test_gcal  # noqa: E402
 import test_gcal_link  # noqa: E402
 import test_gcal_auto  # noqa: E402
@@ -208,6 +209,14 @@ SUITES = [
     ("Google врача: тело события — белый список, уровни, отпечаток, id", test_gwrite.suite_body),
     ("Google врача: календарь и события — 409, 410, «надгробие», весь набор или отказ", test_gwrite.suite_write),
     ("Google врача: дверь — право, токены, метка, пересборка, уход без отзыва, замок", test_gdoc.suite),
+    ("Google врача: блока нет — без клиента, без лицензии, демо", test_gcal_doctor.suite_hidden),
+    ("Google врача: Plus без Premium — строка Premium, подключения нет", test_gcal_doctor.suite_premium),
+    ("Google врача: вход, календарь, повтор, отказы, уход без отзыва, подхват на новом ПК",
+     test_gcal_doctor.suite_link),
+    ("Google врача: подробность события — «am înțeles» перед именем", test_gcal_doctor.suite_level),
+    ("Google врача: подключают директор и регистратура, право нажавшего на возврате", test_gcal_doctor.suite_rights),
+    ("Google врача: из сети, право между входом и возвратом, крючки сверки, без права, режим чтения",
+     test_gcal_doctor.suite_worker),
     ("Google Calendar: загрузка файла, список, подсказки, меню", test_gcal.suite_load),
     ("Google Calendar: перенос в журнал, «Leagă», «Nu muta», изменившееся", test_gcal.suite_move),
     ("Google Calendar: начало и длина окна — из конвертера", test_gcal.suite_round),

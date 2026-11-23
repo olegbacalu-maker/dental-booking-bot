@@ -122,6 +122,16 @@ _GWRITE_KEYS_OK = {_GDOC}
 _GWRITE_GAUTH_OK = {_GDOC}
 # Запись файла связи и уход врача — под замком врача; подключение и сверка добавят свои функции.
 _GDOC_LOCKED = {_GDOC: ("access", "report", "done", "bump_epoch", "calendar_named", "store", "leave")}
+# Подключение врача: вход и возврат спрашивают право сами, до сети (привязка календаря — сеть);
+# держит токен врача в руках, знает вход Google; запись связи и уход — под замком врача.
+_GDOC_LINK = "app/modules/doctors/gcal_doctor.py"
+_GDOC_LINK_API = "app/modules/doctors/api.py"
+_GDOC_GATED[_GDOC_LINK] = ("start", "finish")
+_GDOC_NET |= {"_bind"}
+_GDOC_NO_REVOKE += (_GDOC_LINK,)
+_GDOC_TOKEN_FILES += (_GDOC_LINK,)
+_GWRITE_GAUTH_OK |= {_GDOC_LINK}
+_GDOC_LOCKED[_GDOC_LINK] = ("finish", "disconnect")
 # Константу клиента Google PyInstaller кладёт в exe только по статическому импорту: импорт по строке
 # он не видит, и exe молча остался бы «не настроено» — дымовой тест exe этого не заметит.
 _GCLIENT = "app/core/gclient.py"
@@ -1098,6 +1108,47 @@ def suite(res: Result) -> None:
             elif not any(_locked(w) for w in _walk(fn)):
                 bad.append(f"{rel}:{fn.lineno} {name} не под замком врача (async with gdoc.lock)")
     res.ok("один замок врача на файл связи, уход и проход", not bad, "; ".join(bad))
+
+    # Возврат врача приходит мимо /admin и /api, как у связи клиники: пир — первым делом, state своего
+    # входа — до обмена кода, маршрут BACK_PATH в API врачей ведёт в эту проверку.
+    bad = []
+    glk = by_path.get(_GDOC_LINK)
+    lfin = next((n for n in (glk.body if glk else ()) if isinstance(n, ast.AsyncFunctionDef)
+                 and n.name == "finish"), None)
+    if glk is None:
+        bad.append(f"{_GDOC_LINK} — нет по этому пути")
+    elif lfin is None:
+        bad.append(f"{_GDOC_LINK}: нет finish — якорь правила пропал")
+    else:
+        body = lfin.body[1:] if (lfin.body and isinstance(lfin.body[0], ast.Expr)
+                                 and isinstance(lfin.body[0].value, ast.Constant)) else lfin.body
+        first = body[0] if body else None
+        if not (isinstance(first, ast.If) and _gl_calls(first.test, {"client_is_local"})
+                and first.body and isinstance(first.body[-1], ast.Return)):
+            bad.append(f"{_GDOC_LINK}:{lfin.lineno} finish не начинается с отказа не-локальному пиру")
+        backs = [c for c in _walk(lfin) if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
+                 and c.func.attr == "back" and len(c.args) == 2]
+        swaps = _gl_calls(lfin, {"exchange"})
+        if not backs:
+            bad.append(f"{_GDOC_LINK}:{lfin.lineno} finish не сверяет state (gauth.back)")
+        elif not swaps or swaps[0] < min(c.lineno for c in backs):
+            bad.append(f"{_GDOC_LINK}:{lfin.lineno} обмен кода раньше сверки state")
+    lback = next((n.value.value for n in (glk.body if glk else ())
+                  if isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant)
+                  and any(isinstance(t, ast.Name) and t.id == "BACK_PATH" for t in n.targets)), "")
+    if glk is not None and not lback:
+        bad.append(f"{_GDOC_LINK}: нет BACK_PATH — якорь правила пропал")
+    lroute = next((fn for fn in _walk(by_path.get(_GDOC_LINK_API) or ast.Module(body=[], type_ignores=[]))
+                   if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(
+                       isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute) and d.func.attr == "get"
+                       and d.args and isinstance(d.args[0], ast.Constant) and d.args[0].value == lback
+                       for d in fn.decorator_list)), None)
+    if lback and lroute is None:
+        bad.append(f"{_GDOC_LINK_API}: нет GET {lback} — адрес возврата врача ведёт в никуда")
+    elif lroute is not None and not _gl_calls(lroute, {"finish"}):
+        bad.append(f"{_GDOC_LINK_API}:{lroute.lineno} возврат врача не зовёт gcal_doctor.finish")
+    res.ok("возврат врача из Google: пир первым, state до обмена, маршрут ведёт в проверку", not bad,
+           "; ".join(bad))
 
     # ---- заказы лаунчеру подписаны (02.11, разбор коллеги Б2) ----
     # Папку данных пишет любая учётка Windows ПК, а заказ исполняет лаунчер
