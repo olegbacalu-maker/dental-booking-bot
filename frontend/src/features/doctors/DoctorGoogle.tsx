@@ -4,10 +4,10 @@ import { Icon } from '../../components/Icon'
 import type { IconName } from '../../components/icons'
 import type { GdocView } from './gdoc'
 
-/* Блок «Calendarul medicului în Google» карточкой в левой колонке карточки врача. Состояние,
-   кнопки (`can`) и все слова — сервера (`gcal_doctor.view`). У подключённого врача место под
-   строки состояния занято всегда: опрос, переводящий «actualizat» в «nu a reușit» и обратно, не
-   меняет высоту карточки и не двигает контакты под ней. */
+/* Блок «Google Calendar» карточкой в левой колонке карточки врача. Состояние, кнопки (`can`) и все
+   слова — сервера (`gcal_doctor.view`). У подключённого врача место под строки состояния занято
+   всегда: опрос, переводящий «actualizat» в «nu a reușit» и обратно, не меняет высоту карточки и не
+   двигает контакты под ней. */
 
 interface Props {
   g: GdocView
@@ -20,9 +20,9 @@ interface Props {
   onDisconnect: () => void
 }
 
-const TONE: Record<string, string> = { ok: 'ok', warn: 'warn', err: 'err' }
-/** Связь стоит, но не идёт: без права или в режиме чтения — серый замок, а не тревога. */
-const STOPPED = new Set(['premium', 'paused', 'readonly'])
+const TONE: Record<string, string> = { ok: 'ok', warn: 'warn', err: 'err', plus: 'plus' }
+/** Связь стоит без права или в режиме чтения: адрес и календарь приглушены. */
+const STOPPED = new Set(['paused', 'readonly'])
 
 export function DoctorGoogle({ g, busy, checking, onConnect, onCancel, onCheck, onDisconnect }: Props) {
   const w = g.words
@@ -38,13 +38,8 @@ export function DoctorGoogle({ g, busy, checking, onConnect, onCancel, onCheck, 
       <Icon name="key" /> {label}
     </button>
   )
-  const disconnect = can.disconnect ? (
-    <button type="button" className="rc-btn gl-off" disabled={busy} onClick={onDisconnect}>
-      <Icon name="power" /> {w.disconnect}
-    </button>
-  ) : null
-  const remote = g.remote?.text ? (
-    <span className="hint gl-why gd-hint" role="note" data-code={g.remote.code}><Icon name="monitor" /> {g.remote.text}</span>
+  const remote = g.remote ? (
+    <span className="hint gl-why gd-hint" role="note"><Icon name="monitor" /> {g.remote}</span>
   ) : null
   const lic = g.premium ? (
     <> {w.premium_lead} <AppLink className="gl-lic" href={g.premium.href}>{g.premium.label} ›</AppLink></>
@@ -90,7 +85,7 @@ export function DoctorGoogle({ g, busy, checking, onConnect, onCancel, onCheck, 
         <p className="gl-notice gd-notice">
           <Icon name="shield" />
           <span>
-            {g.notice} {w.details}{' '}
+            {g.notice} {w.level_lead} <b>{g.level.label}</b>. {w.details}{' '}
             {/* страница сайта — чужой адрес: оболочка отдаёт его браузеру Windows */}
             <AppLink className="gl-det" href={g.privacy.href} target="_blank" rel="noopener">{g.privacy.label}</AppLink>
           </span>
@@ -111,19 +106,17 @@ export function DoctorGoogle({ g, busy, checking, onConnect, onCancel, onCheck, 
   const why = g.why
   const stopped = STOPPED.has(g.state)
   const calm = g.state === 'on' && !why
-  const mark = calm ? 'ok' : stopped ? 'plus' : TONE[why?.tone ?? ''] ?? 'warn'
-  const icon: IconName = calm ? 'check' : stopped ? 'lock' : 'excl'
-  const last = g.last ? `${w.last_ok} ${g.last.when}` : ''
-  const pending = g.pending > 0 ? `${w.pending} ${g.pending}` : ''
+  const mark = calm ? 'ok' : TONE[why?.tone ?? ''] ?? 'warn'
+  const icon: IconName = calm ? 'check' : mark === 'plus' ? 'lock' : 'excl'
   let status: ReactNode
   if (calm) {
-    status = [last, pending].filter(Boolean).join(' · ')
+    status = g.last ? `${w.last} ${g.last.when} — ${w.pending || w.all_in}` : w.pending
   } else {
     status = (
       <>
         <b>{lic ? dot(why?.text ?? '') : why?.text}</b>{why?.when ? ` (${why.when})` : ''}
         {why?.detail ? ` ${why.detail}` : ''}
-        {g.state === 'on' && last ? ` ${last}.` : ''}
+        {g.state === 'on' && g.last ? ` ${w.last_ok} ${g.last.when}.` : ''}
         {lic}
       </>
     )
@@ -142,21 +135,26 @@ export function DoctorGoogle({ g, busy, checking, onConnect, onCancel, onCheck, 
         {/* только у спокойного: строки ошибки занимают это место, и высота блока остаётся той же */}
         {calm ? (
           <p className="gd-foot">
-            <AppLink className="gd-lvl" href="/admin/medici">
-              <Icon name="eye" /> {w.level_label} <b>{g.level.label}</b> ›
+            <AppLink className="gd-lvl" href="/admin/medici" title={w.level_link}>
+              <Icon name="eye" /> {w.level_lead} <b>{g.level.label}</b> ›
             </AppLink>
           </p>
         ) : null}
       </div>
       <div className="gd-acts">
-        {can.connect && (g.state === 'reconnect' || g.state === 'foreign') ? connectBtn(w.reconnect) : null}
+        {can.connect && g.state === 'reconnect' ? connectBtn(w.reconnect) : null}
+        {can.connect && g.state === 'foreign' ? connectBtn(w.connect_here) : null}
         {can.check ? (
           <button type="button" className="rc-btn gd-check" disabled={busy} onClick={onCheck}>
             <span className={`gl-ico${checking ? ' spin' : ''}`}><Icon name="refresh" /></span> {w.check}
           </button>
         ) : null}
-        {disconnect}
-        {!can.connect && !can.disconnect && remote}
+        {can.disconnect ? (
+          <button type="button" className="rc-btn gl-off" disabled={busy} onClick={onDisconnect}>
+            <Icon name="power" /> {w.disconnect}
+          </button>
+        ) : null}
+        {!can.connect && !can.disconnect ? remote : null}
       </div>
     </>,
     calm ? '' : 'gd-alert',

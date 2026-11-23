@@ -1,4 +1,3 @@
-import type { ServerNotice } from '../../components/Notice'
 import { api, type ApiResult } from '../../services/api'
 
 /* Календарь врача в его Google: формы ответов — bot/app/modules/doctors/gcal_doctor.py (`view`,
@@ -8,7 +7,11 @@ import { api, type ApiResult } from '../../services/api'
 export type GdocState = 'off' | 'waiting' | 'on' | 'reconnect' | 'foreign' | 'premium' | 'readonly' | 'paused'
 export type GdocLevelCode = 'time' | 'initials' | 'name'
 
-export interface GdocWhy extends ServerNotice {
+export interface GdocWhy {
+  code: string
+  /** `plus` — связь стоит без права или в режиме чтения: серый замок, а не тревога. */
+  tone: string
+  text: string
   /** Вторая строка: что делать. */
   detail: string
   /** Только у неудачного прохода при живой связи. */
@@ -16,22 +19,29 @@ export interface GdocWhy extends ServerNotice {
   when?: string
 }
 
+/** Слова блока карточки врача (`gcal_doctor.WORDS`); строки с числом и именем сервер отдаёт готовыми. */
 export interface GdocWords {
-  title: string; lead: string; hint: string; details: string; notice?: string
-  connect: string; reconnect: string; disconnect: string; disconnect_ok: string; disconnect_ask: string
-  check: string; reopen: string; cancel: string
-  waiting_title: string; waiting_detail: string
-  connected: string; calendar_label: string; last_ok: string
-  /** Подпись перед числом ещё не доехавших записей. */
+  title: string; lead: string; hint: string; details: string
+  connect: string; connect_here: string; reconnect: string; check: string; disconnect: string
+  /** Вопрос перед «Deconectează» — с именем календаря. */
+  disconnect_ask: string
+  waiting_title: string; waiting_detail: string; reopen: string; cancel: string
+  connected: string; calendar_label: string; last: string; all_in: string; last_ok: string
+  /** «încă N programări în drum.»; пусто, когда всё доехало. */
   pending: string
-  level_label: string; premium_lead: string
-  list_title: string; level_title: string; level_ack: string; level_save: string
-  /** Готовая строка «сколько врачей подключено»; нет — строки нет. */
-  count?: string
-  level_default?: string
-  rewrite?: string
-  /** Короткое слово плашки врача в списке по состоянию; нет слова — плашки нет. */
-  chip?: Partial<Record<GdocState, string>>
+  level_lead: string; level_link: string; premium_lead: string
+}
+
+/** Слова полосы «Calendarele medicilor în Google» и плашек врачей (`gcal_doctor.LIST_WORDS`). */
+export interface GdocListWords {
+  title: string; lead: string
+  /** «Conectați: 1 din 3 medici». */
+  count: string
+  label: string; phone: string; change: string; only_dir: string; remote: string
+  premium: string; premium_more: string; default: string; rewrite: string
+  dlg_title: string; dlg_ack: string; dlg_ok: string; dlg_cancel: string
+  /** Короткое слово плашки врача по состоянию; нет слова — плашки нет. */
+  chip: Partial<Record<GdocState, string>>
 }
 
 export interface GdocView {
@@ -50,8 +60,8 @@ export interface GdocView {
   premium: { href: string; label: string } | null
   /** Вход начат, браузер Windows ещё не вернулся. */
   waiting: boolean
-  /** Открыто не с ПК программы. */
-  remote: ServerNotice | null
+  /** Открыто не с ПК программы: почему кнопки входа нет. */
+  remote: string | null
   can: { connect: boolean; check: boolean; disconnect: boolean }
   words: GdocWords
 }
@@ -60,8 +70,8 @@ export interface LevelChoice {
   code: GdocLevelCode
   label: string
   hint: string
-  /** Заголовок события на этом уровне на образцовых данных; нет — экран показывает `hint`. */
-  sample?: string
+  /** Заголовок события на этом уровне на образцовых данных — тем же построителем, что пишет сверка. */
+  sample: string
   /** Непусто — уровень выбирается только через окно с галочкой этими словами. */
   warn: string
 }
@@ -70,8 +80,8 @@ export interface LevelView {
   code: GdocLevelCode
   choices: LevelChoice[]
   can_set: boolean
-  /** Почему менять нельзя (регистратура, второй ПК); пусто, когда можно. */
-  lock?: string
+  /** Почему менять нельзя (регистратура, второй ПК, режим чтения); пусто, когда можно. */
+  lock: string
 }
 
 export interface GdocRow {
@@ -83,9 +93,9 @@ export interface GdocRow {
 export interface GdocList {
   doctors: Record<string, GdocRow>
   level: LevelView
-  words: GdocWords
-  /** У клиники нет права: одна строка с путём к оплате вместо выбора. */
-  premium?: { href: string; label: string } | null
+  /** У клиники нет права: одна строка с путём к оплате вместо выбора, плашек нет. */
+  premium: { href: string; label: string } | null
+  words: GdocListWords
 }
 
 /** Ответ команды блока: вид после неё (и адрес Google у «Conectează»). */

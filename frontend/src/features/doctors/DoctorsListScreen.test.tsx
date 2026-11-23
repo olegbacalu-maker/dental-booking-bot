@@ -4,7 +4,7 @@ import type { ApiResult } from '../../services/api'
 import { ApiError } from '../../types/api'
 import type { DoctorsList } from './doctors'
 import type { GdocList } from './gdoc'
-import { GDOC_WORDS } from '../../test/gdocFixture'
+import { GDOC_LIST_WORDS } from '../../test/gdocFixture'
 import { openScreen } from '../../test/openScreen'
 import { DoctorsListScreen, loadDoctorsList } from './DoctorsListScreen'
 
@@ -171,15 +171,15 @@ const GDOC: GdocList = {
   level: {
     code: 'time', can_set: true, lock: '',
     choices: [
-      { code: 'time', label: 'doar ora', hint: '„Programare” și cabinetul', warn: '', sample: 'Programare · Cabinet 3' },
-      { code: 'initials', label: 'inițiale', hint: 'Inițialele și fișa', warn: WARN_I, sample: 'A.P. · Fișa 12 · Cabinet 3' },
-      { code: 'name', label: 'nume și serviciu', hint: 'Numele și serviciul', warn: WARN_N,
-        sample: 'Ana Pop · Consultație · Cabinet 3' },
+      { code: 'time', label: 'Doar ora', hint: 'Fără numele pacientului', warn: '', sample: 'Programare · Cabinet 1' },
+      { code: 'initials', label: 'Inițiale', hint: 'Inițialele și numărul fișei', warn: WARN_I,
+        sample: 'M.L. · Fișa 124 · Cabinet 1' },
+      { code: 'name', label: 'Nume și serviciu', hint: 'Numele întreg și serviciul', warn: WARN_N,
+        sample: 'Maria Lungu · Tratament carie · Cabinet 1' },
     ],
   },
-  words: { ...GDOC_WORDS, count: 'Conectați: 1 din 2 medici', level_default: 'implicit',
-           rewrite: 'La schimbare calendarele se rescriu singure.',
-           chip: { on: 'Google conectat', off: 'Google neconectat', reconnect: 'Google: de refăcut' } },
+  premium: null,
+  words: GDOC_LIST_WORDS,
 }
 const strip = () => document.querySelector('.gdl') as HTMLElement | null
 const radio = (name: string) => screen.getByRole('radio', { name: new RegExp(`^${name}`) })
@@ -202,9 +202,10 @@ describe('DoctorsListScreen › Google', () => {
     await screen.findByText('Dr. Activ Doi')
     expect(strip()?.textContent).toContain('Calendarele medicilor în Google')
     expect(screen.getByText(/Conectați: 1 din 2 medici/)).toBeTruthy()
-    expect(radio('doar ora').getAttribute('aria-checked')).toBe('true')
-    expect(radio('inițiale').getAttribute('aria-checked')).toBe('false')
-    expect(screen.getByText('Programare · Cabinet 3')).toBeTruthy()
+    expect(radio('Doar ora').getAttribute('aria-checked')).toBe('true')
+    expect(radio('Inițiale').getAttribute('aria-checked')).toBe('false')
+    expect(screen.getByText('Programare · Cabinet 1')).toBeTruthy()
+    expect(screen.getByText('La schimbare calendarele se rescriu singure, în cel mult 5 minute.')).toBeTruthy()
     const chip = (dk: string) => document.querySelector(`.dp-doc[data-dk="${dk}"] .gd-chip`)
     expect(chip('d2')?.textContent?.trim()).toBe('Google conectat')
     expect(chip('d2')?.className).toContain('ok')
@@ -215,34 +216,34 @@ describe('DoctorsListScreen › Google', () => {
   it('уровень без данных пациента ставится сразу, без окна; ответ приносит новый выбор', async () => {
     get.mockResolvedValueOnce(ok(LIST))
     gget.mockResolvedValueOnce(ok({ ...GDOC, level: { ...GDOC.level, code: 'initials' } }))
-    post.mockResolvedValueOnce(ok({ level: { ...GDOC.level, code: 'time' } }, 'gd_level_set',
-      'Salvat — calendarele medicilor se actualizează singure'))
+    post.mockResolvedValueOnce(ok({ level: { ...GDOC.level, code: 'time' } }, 'gd_level_ok',
+      'Nivelul s-a schimbat: calendarele medicilor se rescriu singure, în cel mult 5 minute'))
     open()
     await screen.findByText('Dr. Activ Doi')
-    fireEvent.click(radio('doar ora'))
-    expect(await screen.findByText('Salvat — calendarele medicilor se actualizează singure')).toBeTruthy()
+    fireEvent.click(radio('Doar ora'))
+    expect(await screen.findByText(/^Nivelul s-a schimbat/)).toBeTruthy()
     expect(post).toHaveBeenCalledWith('/gdoc/level', { level: 'time', ack: false })
     expect(dlg()).toBeNull()
-    expect(radio('doar ora').getAttribute('aria-checked')).toBe('true')
+    expect(radio('Doar ora').getAttribute('aria-checked')).toBe('true')
   })
 
   it('уровень с именем пациента — окно: без «Am înțeles» «Salvează» заперта; с галочкой уходит ack', async () => {
     get.mockResolvedValueOnce(ok(LIST))
     gget.mockResolvedValueOnce(ok(GDOC))
-    post.mockResolvedValueOnce(ok({ level: { ...GDOC.level, code: 'name' } }, 'gd_level_set', 'Salvat'))
+    post.mockResolvedValueOnce(ok({ level: { ...GDOC.level, code: 'name' } }, 'gd_level_ok', 'Nivelul s-a schimbat'))
     open()
     await screen.findByText('Dr. Activ Doi')
-    fireEvent.click(radio('nume și serviciu'))
+    fireEvent.click(radio('Nume și serviciu'))
     expect(dlg()?.open).toBe(true)
     expect(screen.getByText(WARN_N)).toBeTruthy()
-    const save = screen.getByRole('button', { name: 'Salvează' }) as HTMLButtonElement
+    const save = screen.getByRole('button', { name: 'Alege „Nume și serviciu”' }) as HTMLButtonElement
     expect(save.disabled).toBe(true)
-    fireEvent.click(screen.getByLabelText('Am înțeles'))
+    fireEvent.click(screen.getByLabelText(GDOC_LIST_WORDS.dlg_ack))
     expect(save.disabled).toBe(false)
     fireEvent.click(save)
     await waitFor(() => expect(post).toHaveBeenCalledWith('/gdoc/level', { level: 'name', ack: true }))
     await waitFor(() => expect(dlg()).toBeNull())
-    expect(radio('nume și serviciu').getAttribute('aria-checked')).toBe('true')
+    expect(radio('Nume și serviciu').getAttribute('aria-checked')).toBe('true')
   })
 
   it('инициалы — тоже через окно; «Renunță» ничего не шлёт и выбор прежний', async () => {
@@ -250,12 +251,12 @@ describe('DoctorsListScreen › Google', () => {
     gget.mockResolvedValueOnce(ok(GDOC))
     open()
     await screen.findByText('Dr. Activ Doi')
-    fireEvent.click(radio('inițiale'))
+    fireEvent.click(radio('Inițiale'))
     expect(screen.getByText(WARN_I)).toBeTruthy()
     fireEvent.click(dlg()!.querySelector('.rg-dlg-f .rc-btn') as HTMLButtonElement)
     await waitFor(() => expect(dlg()).toBeNull())
     expect(post).not.toHaveBeenCalled()
-    expect(radio('doar ora').getAttribute('aria-checked')).toBe('true')
+    expect(radio('Doar ora').getAttribute('aria-checked')).toBe('true')
   })
 
   it('отказ сервера (нет галочки) — слова сервера, окно остаётся', async () => {
@@ -265,9 +266,9 @@ describe('DoctorsListScreen › Google', () => {
       field: 'ack' }, 'v'))
     open()
     await screen.findByText('Dr. Activ Doi')
-    fireEvent.click(radio('nume și serviciu'))
-    fireEvent.click(screen.getByLabelText('Am înțeles'))
-    fireEvent.click(screen.getByRole('button', { name: 'Salvează' }))
+    fireEvent.click(radio('Nume și serviciu'))
+    fireEvent.click(screen.getByLabelText(GDOC_LIST_WORDS.dlg_ack))
+    fireEvent.click(screen.getByRole('button', { name: 'Alege „Nume și serviciu”' }))
     expect(await screen.findByText('Bifați „Am înțeles”')).toBeTruthy()
     expect(dlg()?.open).toBe(true)
   })
@@ -278,9 +279,9 @@ describe('DoctorsListScreen › Google', () => {
     open()
     await screen.findByText('Dr. Activ Doi')
     expect(screen.getByText('Schimbă doar directorul.')).toBeTruthy()
-    expect((radio('inițiale') as HTMLButtonElement).disabled).toBe(true)
-    expect((radio('nume și serviciu') as HTMLButtonElement).disabled).toBe(true)
-    fireEvent.click(radio('nume și serviciu'))
+    expect((radio('Inițiale') as HTMLButtonElement).disabled).toBe(true)
+    expect((radio('Nume și serviciu') as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(radio('Nume și serviciu'))
     expect(dlg()).toBeNull()
   })
 
@@ -291,7 +292,8 @@ describe('DoctorsListScreen › Google', () => {
       doctors: { d2: { state: 'premium', account: '', why }, d1: { state: 'premium', account: '', why } } }))
     open()
     await screen.findByText('Dr. Activ Doi')
-    expect(screen.getByText('Calendarul medicului în Google face parte din DentPilot Premium.')).toBeTruthy()
+    expect(screen.getByText(GDOC_LIST_WORDS.premium)).toBeTruthy()
+    expect(screen.getByText(/implicit doar ora/)).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Setări › Licența ›' }).getAttribute('href')).toBe('/admin/license')
     expect(screen.queryByRole('radiogroup')).toBeNull()
     expect(document.querySelector('.gd-chip')).toBeNull()

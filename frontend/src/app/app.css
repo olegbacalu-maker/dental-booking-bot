@@ -3547,8 +3547,6 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .gdl-sb:disabled { cursor: default; opacity: .55; }
 .dp-react-root .gdl-sb.on:disabled { opacity: 1; }
 .dp-react-root .gdl-sb:focus-visible { outline: none; box-shadow: var(--ring); }
-.dp-react-root .gdl-cap, .gdl-dlg .gdl-cap { display: inline-block; }
-.dp-react-root .gdl-cap::first-letter, .gdl-dlg .gdl-cap::first-letter { text-transform: uppercase; }
 .dp-react-root .gdl-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 20px; margin: 0; padding-left: 46px;
   font-size: var(--fs-s); }
 .dp-react-root .gdl-ph { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }

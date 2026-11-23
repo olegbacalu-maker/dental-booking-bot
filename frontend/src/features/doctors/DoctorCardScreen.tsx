@@ -200,7 +200,7 @@ export function DoctorCardScreen({ dk, navigate = defaultNavigate }: Props) {
     setChecking(false)
   }
   async function disconnect() {
-    if (!g || !await ask({ text: g.words.disconnect_ask, ok: g.words.disconnect_ok, danger: true })) return
+    if (!g || !await ask({ text: g.words.disconnect_ask, ok: g.words.disconnect, danger: true })) return
     await gRun(() => gdoc.disconnect(dk))
   }
 

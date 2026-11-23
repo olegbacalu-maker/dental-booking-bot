@@ -8,7 +8,7 @@ import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
 import { doctors, type DoctorsScreen, type DoctorSummary } from './doctors'
 import { DoctorGoogleChip, DoctorGoogleLevel } from './DoctorGoogleLevel'
-import { gdoc, type GdocLevelCode, type GdocList, type GdocRow, type GdocWords } from './gdoc'
+import { gdoc, type GdocLevelCode, type GdocList, type GdocListWords, type GdocRow } from './gdoc'
 
 /* «Medici» по макету Олега (08.10, промпт 2): подзаголовок «N activi ·
    statistici pe ultimele 30 de zile», справа «Setările clinicii»; карточки
@@ -242,7 +242,7 @@ export function DoctorsListScreen({ navigate = defaultNavigate }: Props) {
 function DoctorCardTile({ d, states, busy, onStatus, gd }: {
   d: DoctorSummary; states: Record<string, string>; busy: boolean
   onStatus: (dk: string, status: string) => void
-  gd: { row: GdocRow | undefined; words: GdocWords } | null
+  gd: { row: GdocRow | undefined; words: GdocListWords } | null
 }) {
   /* слово сервера (layout.doctor_hours): «ca clinica» = часы клиники */
   const hours = d.hours === 'ca clinica' || d.hours === 'ca al clinicii' ? T.clinicHours : d.hours
