@@ -53,6 +53,7 @@ import test_gapi  # noqa: E402
 import test_gwrite  # noqa: E402
 import test_gdoc  # noqa: E402
 import test_gcal_doctor  # noqa: E402
+import test_gcal_sync  # noqa: E402
 import test_gcal  # noqa: E402
 import test_gcal_link  # noqa: E402
 import test_gcal_auto  # noqa: E402
@@ -217,6 +218,8 @@ SUITES = [
     ("Google врача: подключают директор и регистратура, право нажавшего на возврате", test_gcal_doctor.suite_rights),
     ("Google врача: из сети, право между входом и возвратом, крючки сверки, без права, режим чтения",
      test_gcal_doctor.suite_worker),
+    ("Google врача: сверка — окно, разница по всей таблице, темп, отказы Google, пересборка, уход без права, "
+     "архив", test_gcal_sync.suite),
     ("Google Calendar: загрузка файла, список, подсказки, меню", test_gcal.suite_load),
     ("Google Calendar: перенос в журнал, «Leagă», «Nu muta», изменившееся", test_gcal.suite_move),
     ("Google Calendar: начало и длина окна — из конвертера", test_gcal.suite_round),
@@ -660,6 +663,9 @@ SUITES = [
     ("Миграции базы: шаг 11 — кабинет в ключе индексов врача", test_migrate.suite_v11_rooms),
     ("Миграции базы: шаг 11 на зашифрованной картотеке", test_migrate.suite_v11_rooms_crypt),
     ("Миграции базы: шаг таблиц Google Calendar повторяется", test_migrate.suite_gcal_retry),
+    ("Миграции базы: шаг отправленного в календари врачей повторяется", test_migrate.suite_gdoc_retry),
+    ("Миграции базы: шаг отправленного в календари врачей на зашифрованной картотеке",
+     test_migrate.suite_gdoc_retry_crypt),
     ("Летопись: backfill в часах клиники", test_migrate.suite_backfill_tz),
     ("Шифрование базы: код восстановления", test_dbcrypt.suite_key),
     ("Шифрование базы: переезд", test_dbcrypt.suite_convert),

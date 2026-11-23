@@ -28,6 +28,7 @@ from .core.auth import current_user, host_allowed, request_user, set_request_use
 from .core.layout import msg_json
 from .modules.assets import routes as assets
 from .modules.doctors import api as doctors_api
+from .modules.doctors import gcal_sync as doctors_gcal_sync
 from .modules.doctors import routes as doctors
 from .modules.entry import api as entry_api
 from .modules.entry import pages as entry_pages
@@ -287,6 +288,8 @@ async def startup() -> None:
     schedule_gcal.sweep_async()
     # Опрос календаря аккаунта Google — тот же приём: старт не ждёт, без связи и без права проход пуст.
     schedule_gcal_link.poll_async()
+    # Сверка журнала с календарями врачей — тот же приём; без подключённых врачей проход пуст.
+    doctors_gcal_sync.poll_async()
     await _backfill_ids()
     if paths.is_frozen():
         _sweep_watch_copy()
