@@ -55,7 +55,9 @@ class Google:
     """Google в процессе. `token_reply` / `api_reply[путь]` — (статус, тело, заголовки) вместо ответа;
     `page` — размер страницы стенда (меньше просимого — чтобы страниц было несколько); `fail_page` —
     номер страницы событий, отвечающей 503; `loop` — `nextPageToken` по кругу; `secret` — какой
-    client_secret требует обмен ("" — не требует)."""
+    client_secret требует обмен ("" — не требует). `write` — крючок записи (test_gwrite.Calendars):
+    `(метод, путь, запрос, JSON-тело, права токена) → (статус, тело[, заголовки])`; с ним любой запрос
+    под /calendar/v3/ идёт туда, тело — JSON в UTF-8."""
 
     def __init__(self):
         self.codes: dict[str, dict] = {}
@@ -74,6 +76,7 @@ class Google:
         self.loop = False
         self.delay = 0.0
         self.requests: list[dict] = []
+        self.write = None
         self._n = 0
         stand = self
 
@@ -95,7 +98,45 @@ class Google:
                     return True
                 return False
 
+            def _write(self, method: str) -> bool:
+                """Запрос к календарю мимо стенда чтения — в крючок записи."""
+                url = urllib.parse.urlsplit(self.path)
+                if stand.write is None or not (url.path.startswith("/calendar/v3/") or url.path.startswith("/redir")):
+                    return False
+                raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                try:
+                    body = json.loads(raw.decode("utf-8")) if raw else None
+                except ValueError:
+                    body = ValueError
+                query = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
+                bearer = self.headers.get("Authorization", "")
+                stand.requests.append({"method": method, "path": url.path, "query": query, "json": body,
+                                       "auth": bearer, "agent": self.headers.get("User-Agent"),
+                                       "type": self.headers.get("Content-Type", "")})
+                if stand.delay:
+                    time.sleep(stand.delay)
+                if self._trap():
+                    return True
+                if not bearer.startswith("Bearer ") or bearer[7:] not in stand.access:
+                    self._reply(401, {"error": {"code": 401, "status": "UNAUTHENTICATED",
+                                                "errors": [{"reason": "authError", "domain": "global"}]}})
+                    return True
+                if body is ValueError:
+                    self._reply(400, {"error": {"code": 400, "errors": [{"reason": "parseError"}]}})
+                    return True
+                reply = stand.write(method, url.path, query, body, stand.access[bearer[7:]])
+                if reply is None:
+                    reply = (404, {"error": {"code": 404, "errors": [{"reason": "notFound"}]}})
+                if reply[0] == 204:
+                    self.send_response(204)
+                    self.end_headers()
+                    return True
+                self._reply(*reply)
+                return True
+
             def do_POST(self):
+                if self._write("POST"):
+                    return
                 raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
                 form = {k: v[0] for k, v in urllib.parse.parse_qs(raw.decode("ascii")).items()}
                 stand.requests.append({"path": self.path, "form": form, "agent": self.headers.get("User-Agent")})
@@ -113,7 +154,21 @@ class Google:
                 else:
                     self._reply(404, {"error": "not_found"})
 
+            def do_PUT(self):
+                if not self._write("PUT"):
+                    self._reply(405, {"error": "method"})
+
+            def do_PATCH(self):
+                if not self._write("PATCH"):
+                    self._reply(405, {"error": "method"})
+
+            def do_DELETE(self):
+                if not self._write("DELETE"):
+                    self._reply(405, {"error": "method"})
+
             def do_GET(self):
+                if self._write("GET"):
+                    return
                 url = urllib.parse.urlsplit(self.path)
                 query = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
                 stand.requests.append({"path": url.path, "query": query,

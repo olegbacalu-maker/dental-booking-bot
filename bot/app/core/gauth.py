@@ -33,6 +33,10 @@ EVENTS_READONLY = "https://www.googleapis.com/auth/calendar.events.readonly"
 # Права программы — только здесь: согласие, проверка выданного и заявка на проверку Google
 # обязаны просить одно и то же.
 SCOPES = (CALENDARLIST_READONLY, EVENTS_READONLY)
+# Календарь врача — отдельное согласие одним узким правом: свой календарь и события в нём, чужих
+# календарей аккаунта программа не видит. SCOPES связи клиники от него не меняются.
+APP_CREATED = "https://www.googleapis.com/auth/calendar.app.created"
+DOCTOR_SCOPES = (APP_CREATED,)
 
 TIMEOUT = 15.0
 MAX_BODY = 64 * 1024
@@ -138,15 +142,19 @@ def loopback(port: int, path: str = "/") -> str:
 
 
 def consent_url(client: Client, redirect_uri: str, state: str, code_challenge: str, *,
-                scopes: tuple = SCOPES, login_hint: str = "", auth_url: str = AUTH_URL) -> str:
+                scopes: tuple = SCOPES, login_hint: str = "", prompt: str = "",
+                auth_url: str = AUTH_URL) -> str:
     """Адрес экрана согласия Google — открыть в браузере Windows, не во встроенном окне:
-    встроенное окно для входа Google запрещает правилами."""
+    встроенное окно для входа Google запрещает правилами. `prompt="consent"` — экран согласия
+    каждый раз: доступ, не отозванный при уходе, иначе вернулся бы без refresh-токена."""
     _check_url(auth_url)
     q = {"client_id": client.id, "redirect_uri": redirect_uri, "response_type": "code",
          "scope": " ".join(scopes), "code_challenge": code_challenge,
          "code_challenge_method": "S256", "state": state}
     if login_hint:
         q["login_hint"] = login_hint
+    if prompt:
+        q["prompt"] = prompt
     return auth_url + "?" + urllib.parse.urlencode(q, quote_via=urllib.parse.quote)
 
 

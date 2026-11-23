@@ -22,6 +22,9 @@ except ImportError:
     gclient_build = None
 
 ENV = "DENTART_GOOGLE_CLIENT"
+# Адрес стенда Google прогона вместо настоящего — по тому же правилу, что клиент: вне exe, иначе
+# строка в dental.env собранной программы подменила бы адрес Google.
+STAND_ENV = "DENTART_GOOGLE_STAND"
 
 
 def _built() -> gauth.Client | None:
@@ -47,3 +50,12 @@ def client_from(frozen: bool, env_value: str) -> gauth.Client | None:
 def client() -> gauth.Client | None:
     """None — «не настроено»: экран прячет подключение, а не падает."""
     return client_from(bool(getattr(sys, "frozen", False)), os.environ.get(ENV, ""))
+
+
+def stand_base_from(frozen: bool, env_value: str) -> str:
+    return "" if frozen else (env_value or "").strip().rstrip("/")
+
+
+def stand_base() -> str:
+    """Где Google: '' — настоящий; иначе адрес стенда, от него пути /auth, /token, /calendar/v3."""
+    return stand_base_from(bool(getattr(sys, "frozen", False)), os.environ.get(STAND_ENV, ""))
