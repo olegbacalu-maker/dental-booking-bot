@@ -8,7 +8,7 @@ DentPilot Premium — Plus и календари врачей в Google (усл�
 тумблер карточки (`sms_off`) — другое состояние, для исключений. Связь с Google и
 календари врачей программа узнаёт датами прав в файле (`features`), не вариантом.
 
-⛔ Что даёт вариант — только множествами ниже (`SMS_TIERS`, `GCAL_TIERS`, `GDOC_TIERS`), не
+Что даёт вариант — только множествами ниже (`SMS_TIERS`, `GCAL_TIERS`, `GDOC_TIERS`), не
 сравнением с одним вариантом: «Plus или иначе Basic» у третьего варианта молча выключает то,
 что он включает. Сравнение `== / != tiers.PLUS|BASIC|PREMIUM` вне этого файла держит
 `test_tiers.suite_sets`.
@@ -27,7 +27,7 @@ DentPilot Premium — Plus и календари врачей в Google (усл�
 - `gdoc_until(sub, end, now)` — календари врачей в Google (право `gcal_doctor`): у Premium —
   до конца файла; после ухода с Premium — до `gdoc_until` подписки, конца периода, шедшего
   при уходе; потом программа убирает будущие приёмы из календарей.
-⛔ Цен в репозитории нет: DP_PRICE_BASIC / DP_PRICE_PLUS / DP_PRICE_PREMIUM в cloud.env.
+Цен в репозитории нет: DP_PRICE_BASIC / DP_PRICE_PLUS / DP_PRICE_PREMIUM в cloud.env.
 """
 from __future__ import annotations
 
@@ -73,13 +73,16 @@ def offered(sub: sqlite3.Row | None) -> list[str]:
 
 
 def pick(sub: sqlite3.Row | None, asked: str = "") -> str:
-    """Вариант формы: названный, если продаётся; иначе текущий, если продаётся; иначе
-    первый продаваемый; ничего не продаётся — ''."""
+    """Вариант формы: названный, если продаётся; иначе текущий, если продаётся; иначе ближайший
+    продаваемый ниже текущего — клиника на Premium без прайса видит отмеченным Plus, а не Basic, и не
+    теряет модуль SMS ошибкой одного клика; иначе первый продаваемый; ничего не продаётся — ''."""
     sold = offered(sub)
-    for t in (asked, current(sub)):
+    cur = current(sub)
+    for t in (asked, cur):
         if t in sold:
             return t
-    return sold[0] if sold else ""
+    below = [t for t in sold if TIERS.index(t) < TIERS.index(cur)]
+    return below[-1] if below else (sold[0] if sold else "")
 
 
 def _column(sub: sqlite3.Row | None, name: str) -> datetime | None:

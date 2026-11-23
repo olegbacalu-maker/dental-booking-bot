@@ -2050,7 +2050,7 @@ label.chk input{width:auto;margin-top:3px}
 .or{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:13px;margin:4px 0 14px}
 .or:before,.or:after{content:'';flex:1;height:1px;background:var(--line)}
 /* выбор варианта абонемента (23.10): карточки Basic / Plus, срок, сумма, галочка условий */
-.tiers{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin:4px 0 18px}
+.tiers{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin:4px 0 18px}
 label.tier{position:relative;display:flex;flex-direction:column;gap:6px;border:1.5px solid #D8E2DF;border-radius:16px;padding:16px 18px;margin:0;cursor:pointer;background:#fff;color:var(--ink);font-size:14.5px;font-weight:400}
 label.tier:has(input:checked){border-color:var(--teal);box-shadow:0 0 0 3px rgba(14,159,138,.14);background:linear-gradient(180deg,#F2FBF8,#fff 60%)}
 label.tier input{position:absolute;top:16px;right:16px;width:18px;height:18px;margin:0;accent-color:var(--teal)}
@@ -2444,7 +2444,7 @@ def _steps(card_on: bool) -> str:
     when = ("plata cu cardul — în câteva minute, transferul — după ce banii ajung în contul furnizorului"
             if card_on else "transferul după ce banii ajung în contul furnizorului")
     return ("<ol class='steps'>"
-            f"<li><b>Alegeți</b> varianta — {_names_or(tiers.offered(None) or tiers.TIERS)} — și termenul, o lună "
+            f"<li><b>Alegeți</b> varianta — {_names_short(tiers.offered(None) or tiers.TIERS)} — și termenul, o lună "
             "sau un an; "
             "nota de plată o primiți și pe e-mail, cu referința.</li>"
             f"{pay_}<li><b>Confirmăm</b> {when}: termenul se prelungește, iar programul preia "
@@ -2472,10 +2472,11 @@ _TIER_PERKS = {
     tiers.BASIC: ((True, "Programări, fișe, odontogramă, statistică"), (True, "Actualizări incluse"),
                   (True, "Suport pe e-mail"), (False, "Fără modulul SMS")),
     tiers.PLUS: ((True, "Tot ce are Basic"), (True, "Modulul SMS: memento-uri automate pentru pacienți"),
+                 (True, "Contul Google al clinicii: programările vin singure"),
                  (True, "Suport pe e-mail și la telefon")),
     tiers.PREMIUM: ((True, "Tot ce are Plus"),
-                    (True, "Calendarele medicilor în Google: programările fiecărui medic în calendarul lui"),
-                    (True, "Suport pe e-mail și la telefon")),
+                    (True, "Calendarele medicilor în Google: fiecare își vede programările în telefon"),
+                    (True, "Clinica alege ce se vede: implicit doar ora")),
 }
 # Сумма под выбором считается в браузере из data-атрибутов карточек; без скрипта — сумма
 # выбора при открытии (сервер всё равно считает сам: payments.choose)
@@ -2529,6 +2530,16 @@ def _names_or(ts) -> str:
     return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " sau " + names[-1]
 
 
+def _short(t: str) -> str:
+    return tiers.NAME[t].split()[-1]
+
+
+def _names_short(ts) -> str:
+    """«DentPilot Basic, Plus sau Premium», «DentPilot Plus sau Basic» — имя марки один раз."""
+    short = [_short(t) for t in ts]
+    return "DentPilot " + (short[0] if len(short) == 1 else ", ".join(short[:-1]) + " sau " + short[-1])
+
+
 def _module_note(sub, now: datetime) -> str:
     """Что будет с модулем SMS и календарями врачей при выборе (условия § 4.2, § 16.10) — по
     состоянию подписки; варианты — по множествам tiers, названия — только продаваемых."""
@@ -2541,11 +2552,14 @@ def _module_note(sub, now: datetime) -> str:
     with_sms = [t for t in sold if t in tiers.SMS_TIERS]
     no_doc = [t for t in sold if t not in tiers.GDOC_TIERS]
     with_doc = [t for t in sold if t in tiers.GDOC_TIERS]
+    sms_only = [t for t in with_sms if t not in tiers.GDOC_TIERS]
     said = ["Varianta o alegeți la fiecare plată."]
-    if with_sms:
-        said.append(f"{_names_or(with_sms)} pornește modulul SMS imediat după confirmarea plății.")
-    if with_doc:
-        said.append(f"{_names_or(with_doc)} pornește calendarele medicilor în Google imediat după confirmarea plății.")
+    if sms_only:
+        said.append(f"{_names_or(sms_only)} pornește modulul SMS imediat după confirmarea plății"
+                    + (f", {_names_or(with_doc)} — și calendarele medicilor în Google." if with_doc else "."))
+    elif with_doc:
+        said.append(f"{_names_or(with_doc)} pornește modulul SMS și calendarele medicilor în Google imediat după "
+                    f"confirmarea plății.")
     if cur in tiers.SMS_TIERS and no_sms and running:
         said.append(f"Cu {_names_or(no_sms)} modulul SMS rămâne pornit până la sfârșitul perioadei în curs "
                     f"(<b>{_ro(sub['valid_until'])}</b>) și se oprește apoi; SMS-urile rămase nu se pierd.")
@@ -2556,13 +2570,14 @@ def _module_note(sub, now: datetime) -> str:
                     f"<b>{_ro(sub['sms_until'])}</b>.")
     elif cur not in tiers.SMS_TIERS:
         said.append(f"Acum clinica are {tiers.NAME[cur]}: modulul SMS este oprit, SMS-urile rămase așteaptă.")
+    back = f"legătura medicilor rămâne și pornește din nou la plata {' sau '.join(map(_short, with_doc or [cur]))}."
     if cur in tiers.GDOC_TIERS and no_doc and running:
-        said.append(f"Cu {_names_or(no_doc)} calendarele medicilor în Google se actualizează până la sfârșitul "
-                    f"perioadei în curs (<b>{_ro(sub['valid_until'])}</b>); apoi programul scoate din ele "
-                    f"programările viitoare.")
+        said.append(f"Cu {_names_short(no_doc[::-1])} calendarele medicilor mai funcționează până la sfârșitul "
+                    f"perioadei în curs (<b>{_ro(sub['valid_until'])}</b>), apoi programările viitoare se scot din "
+                    f"ele; {back}")
     elif cur in tiers.GDOC_TIERS and no_doc:
-        said.append(f"Cu {_names_or(no_doc)} calendarele medicilor în Google nu se mai actualizează, iar programul "
-                    f"scoate din ele programările viitoare.")
+        said.append(f"Cu {_names_short(no_doc[::-1])} calendarele medicilor se opresc, iar programările viitoare se "
+                    f"scot din ele; {back}")
     said.append("SMS-urile se plătesc separat, în pachete — în nicio variantă nu intră în abonament.")
     return f"<p class='note'>{' '.join(said)}</p>"
 

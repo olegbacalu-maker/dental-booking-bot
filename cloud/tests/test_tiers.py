@@ -237,19 +237,34 @@ def suite_premium_rules(res: Result) -> None:
         res.check("без прайса Premium не предлагается (кабинет, /plata)", tiers.offered(None), [B, P])
         res.ok("без прайса Premium «что будет при выборе» его не называет",
                "Premium" not in views._module_note(_sub(tier=P, valid=end), now))
+        res.check("⛔ клиника на Premium без прайса: в форме отмечен Plus (ближайший ниже), не Basic; названный — он",
+                  [tiers.pick(_sub(tier=PR)), tiers.pick(_sub(tier=PR), B), tiers.pick(_sub(tier=B))], [P, B, B])
+        res.ok("шаги оплаты без прайса Premium его не называют", "Premium" not in views._steps(True))
     finally:
         config.PRICES.update(saved)
     res.ok("«что даёт вариант» — строка на каждый вариант (без неё /plata — 500 в день появления прайса)",
            set(views._TIER_PERKS) == set(tiers.TIERS), str(sorted(views._TIER_PERKS)))
     note = views._module_note(_sub(tier=PR, valid=end), now)
-    res.ok("«что будет при выборе» у Premium: календари до конца периода с Basic или Plus, модуль SMS — с Basic",
+    res.ok("«что будет при выборе» у Premium: календари до конца периода с Plus или Basic, связь остаётся; модуль SMS "
+           "— с Basic (слова подачи)",
            "Cu DentPilot Basic modulul SMS rămâne pornit până la sfârșitul perioadei în curs" in note
-           and "Cu DentPilot Basic sau DentPilot Plus calendarele medicilor în Google se actualizează până la sfârșitul "
-               "perioadei în curs" in note, note)
+           and f"Cu DentPilot Plus sau Basic calendarele medicilor mai funcționează până la sfârșitul perioadei în curs "
+               f"(<b>{views._ro(ts(end))}</b>), apoi programările viitoare se scot din ele; legătura medicilor rămâne "
+               f"și pornește din nou la plata Premium." in note, note)
     note = views._module_note(_sub(tier=P, valid=end), now)
-    res.ok("у Plus — Premium включает календари сразу, о выключении календарей ни слова",
-           "DentPilot Premium pornește calendarele medicilor în Google imediat" in note
-           and "se actualizează până la" not in note, note)
+    res.ok("у Plus — Premium включает и календари (слова подачи), о выключении календарей ни слова",
+           "Varianta o alegeți la fiecare plată. DentPilot Plus pornește modulul SMS imediat după confirmarea plății, "
+           "DentPilot Premium — și calendarele medicilor în Google. Cu DentPilot Basic modulul SMS rămâne pornit" in note
+           and "mai funcționează" not in note, note)
+    res.check("карточки словами подачи: у Plus — связь с аккаунтом Google клиники, у Premium — календари врачей",
+              [x for _, x in views._TIER_PERKS[P]] + [x for _, x in views._TIER_PERKS[PR]],
+              ["Tot ce are Basic", "Modulul SMS: memento-uri automate pentru pacienți",
+               "Contul Google al clinicii: programările vin singure", "Suport pe e-mail și la telefon",
+               "Tot ce are Plus", "Calendarele medicilor în Google: fiecare își vede programările în telefon",
+               "Clinica alege ce se vede: implicit doar ora"])
+    res.ok("шаги оплаты называют продаваемые варианты: «DentPilot Basic, Plus sau Premium»",
+           "<b>Alegeți</b> varianta — DentPilot Basic, Plus sau Premium — și termenul, o lună sau un an;"
+           in views._steps(True), views._steps(True))
     res.check("плитка админки: Premium — модуль SMS и календари работают", views._module_word(_sub(tier=PR), now),
               "по варианту модуль SMS работает; календари врачей работают")
     res.ok("плитка админки у Plus после ухода с Premium — до какого дня календари",
@@ -666,9 +681,11 @@ def suite_premium(res: Result) -> None:
                "прайса нет — не продаётся" in card and "календари врачей работают" in card, card[:4000])
         res.check("модуль SMS у Premium работает", _account(anon, tok).get("blocked"), "")
         page = anon.get(path).body
-        res.ok("страница оплаты клиники на Premium без прайса: Premium не предложен, сказано, что календари уйдут в конце периода",
-               "value='premium'" not in page and " checked " in page
-               and "calendarele medicilor în Google se actualizează până la sfârșitul perioadei în curs" in page, page[-2500:])
+        res.ok("страница оплаты клиники на Premium без прайса: Premium не предложен, отмечен Plus, сказано, что "
+               "календари уйдут в конце периода",
+               "value='premium'" not in page and "value='plus' checked" in page
+               and "Cu DentPilot Plus sau Basic calendarele medicilor mai funcționează până la sfârșitul perioadei în "
+                   "curs" in page, page[-2500:])
         out = subprocess.run([sys.executable, "-m", "app.tools", "check"], cwd=str(CLOUD), env=s.env,
                              capture_output=True, text=True, encoding="utf-8").stdout
         res.ok("tools check называет пустой прайс Premium", "DP_PRICE_PREMIUM пуст" in out, out[-800:])
@@ -690,7 +707,8 @@ def suite_premium(res: Result) -> None:
         page = anon.get(path).body
         res.ok("с прайсом: три карточки, у Premium — имя и что даёт словами условий",
                all(f"value='{t}'" in page for t in tiers.TIERS) and "DentPilot Premium" in page
-               and tiers.WHAT[PR] in page and "DentPilot Premium pornește calendarele medicilor în Google" in page,
+               and tiers.WHAT[PR] in page and "DentPilot Premium — și calendarele medicilor în Google" in page
+               and "Clinica alege ce se vede: implicit doar ora" in page,
                page[-3000:])
 
         def paid(tier: str) -> None:
