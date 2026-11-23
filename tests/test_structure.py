@@ -132,6 +132,8 @@ _GDOC_NO_REVOKE += (_GDOC_LINK,)
 _GDOC_TOKEN_FILES += (_GDOC_LINK,)
 _GWRITE_GAUTH_OK |= {_GDOC_LINK}
 _GDOC_LOCKED[_GDOC_LINK] = ("finish", "disconnect")
+# Цикл сверки календарей врачей: его срок доезда приёма называют слова подключения.
+_GDOC_SYNC = "app/modules/doctors/gcal_sync.py"
 # Константу клиента Google PyInstaller кладёт в exe только по статическому импорту: импорт по строке
 # он не видит, и exe молча остался бы «не настроено» — дымовой тест exe этого не заметит.
 _GCLIENT = "app/core/gclient.py"
@@ -1149,6 +1151,32 @@ def suite(res: Result) -> None:
         bad.append(f"{_GDOC_LINK_API}:{lroute.lineno} возврат врача не зовёт gcal_doctor.finish")
     res.ok("возврат врача из Google: пир первым, state до обмена, маршрут ведёт в проверку", not bad,
            "; ".join(bad))
+
+    # Срок доезда приёма до календаря врача называют слова подключения и ответы gd_*: число одно —
+    # `gcal_doctor.SYNC_MINUTES`, а рядом с циклом сверки — равное его `SYNC_MINUTES`. Иначе экран
+    # обещал бы одно, а сверка делала другое.
+    bad = []
+
+    def _minutes(tree) -> int | None:
+        return next((n.value.value for n in (tree.body if tree else ()) if isinstance(n, ast.Assign)
+                     and isinstance(n.value, ast.Constant) and isinstance(n.value.value, int)
+                     and any(isinstance(t, ast.Name) and t.id == "SYNC_MINUTES" for t in n.targets)), None)
+
+    link_min = _minutes(by_path.get(_GDOC_LINK))
+    if link_min is None:
+        bad.append(f"{_GDOC_LINK}: нет SYNC_MINUTES = N — якорь правила пропал")
+    else:
+        sync_tree = by_path.get(_GDOC_SYNC)
+        if sync_tree is not None and _minutes(sync_tree) != link_min:
+            bad.append(f"{_GDOC_SYNC}: SYNC_MINUTES ≠ {link_min} в словах подключения врача")
+        for rel in (_GDOC_LINK, _LAY_MSG):
+            tree = by_path.get(rel)
+            if tree is None:
+                bad.append(f"{rel} — нет по этому пути")
+                continue
+            bad += [f"{rel}:{ln} «{m.group(0)}» — не {link_min}" for ln, text in _ui_texts(tree)
+                    for m in re.finditer(r"în cel mult (\d+) minute", text) if int(m.group(1)) != link_min]
+    res.ok("срок доезда до календаря врача — одно число", not bad, "; ".join(bad))
 
     # ---- заказы лаунчеру подписаны (02.11, разбор коллеги Б2) ----
     # Папку данных пишет любая учётка Windows ПК, а заказ исполняет лаунчер

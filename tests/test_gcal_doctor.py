@@ -33,6 +33,12 @@ CAL_NAME = "DentPilot · Clinica Test · Dr. Activ Doi"
 # Так стенд называет выданные токены и коды: ни один не должен лечь открытым текстом на диск.
 SECRETS = re.compile(r"ya29-\d+|1//rt-\d+|4/code-\d+")
 BOTH = {"gcal": 30, "gcal_doctor": 30}
+CARD_KEYS = {"title", "lead", "hint", "details", "connect", "connect_here", "reconnect", "check", "disconnect",
+             "disconnect_ask", "waiting_title", "waiting_detail", "reopen", "cancel", "connected", "calendar_label",
+             "last", "all_in", "last_ok", "pending", "level_lead", "level_link", "premium_lead"}
+LIST_KEYS = {"title", "lead", "count", "label", "phone", "change", "only_dir", "remote", "premium", "premium_more",
+             "default", "rewrite", "dlg_title", "dlg_ack", "dlg_ok", "dlg_cancel", "chip"}
+PREMIUM = {"href": "/admin/license", "label": "Setări › Licența"}
 
 
 def _j(r) -> dict:
@@ -143,9 +149,10 @@ def suite_premium(res: Result) -> None:
         with Server(dir_=d, env=env(g, client)) as s:
             c = Client(s.url).login()
             v = view(c) or {}
-            res.check("Plus: состояние и строка — «face parte din DentPilot Premium»",
-                      (v.get("state"), (v.get("why") or {}).get("text")),
-                      ("premium", "Calendarul medicului în Google face parte din DentPilot Premium"))
+            res.check("Plus: состояние, строка «face parte din DentPilot Premium» и серый замок",
+                      [v.get("state"), (v.get("why") or {}).get("text"), (v.get("why") or {}).get("tone"),
+                       bool((v.get("why") or {}).get("detail"))],
+                      ["premium", "Calendarul medicului în Google face parte din DentPilot Premium", "plus", True])
             res.check("Plus: путь к Premium — фраза и ссылка на страницу лицензии",
                       ((v.get("words") or {}).get("premium_lead"), v.get("premium")),
                       ("O porniți plătind varianta Premium în", {"href": "/admin/license", "label": "Setări › Licența"}))
@@ -155,8 +162,9 @@ def suite_premium(res: Result) -> None:
             r = c.post_json(f"/api/gdoc/{D2}/check", {})
             res.check("Plus: «Sincronizează acum» — отказ Premium", (r.status, r.msg), (409, "gd_premium"))
             lst = (_j(c.get("/api/gdoc")).get("data") or {})
-            res.check("Plus: плашки списка — Premium у каждого врача",
-                      sorted({x["state"] for x in (lst.get("doctors") or {}).values()}), ["premium"])
+            res.check("Plus: плашки списка — Premium у каждого врача, у блока списка — путь к лицензии",
+                      [sorted({x["state"] for x in (lst.get("doctors") or {}).values()}), lst.get("premium")],
+                      [["premium"], PREMIUM])
             res.check("карточка врача несёт блок одним кадром", _j(c.get(f"/api/doctors/{D2}"))["data"]["google"], v)
         res.ok("Google не спрашивали ни разу", not g.requests, repr(g.requests[:2]))
     finally:
@@ -191,11 +199,14 @@ def suite_link(res: Result) -> None:
                        v.get("calendar"), v.get("why")],
                       ["off", {"connect": True, "check": False, "disconnect": False}, False, "time", None, None])
             w = v.get("words") or {}
-            res.ok("слова блока — сервера, все непустые",
-                   {"connect", "disconnect", "check", "disconnect_ask", "disconnect_ok", "premium_lead",
-                    "waiting_title", "reopen", "cancel", "details"} <= set(w) and all(w.values())
-                   and bool(v.get("notice")) and (v.get("privacy") or {}).get("href", "").endswith("#google"),
-                   repr(w)[:300])
+            res.check("слова блока — ровно ключи экрана", sorted(set(w) ^ CARD_KEYS), [])
+            res.ok("слова блока непустые (кроме «в пути»), срок — «în cel mult 5 minute», уведомление и политика",
+                   all(w[k] for k in CARD_KEYS - {"pending"}) and w.get("pending") == ""
+                   and "în cel mult 5 minute" in w.get("lead", "") and bool(v.get("notice"))
+                   and (v.get("privacy") or {}).get("href", "").endswith("#google"), repr(w)[:300])
+            res.check("с этого ПК подсказки «только с ПК программы» нет; уровень — длинным словом",
+                      [v.get("remote"), v.get("level")],
+                      [None, {"code": "time", "label": "doar ora, fără numele pacientului"}])
 
             r = c.post_json(f"/api/gdoc/{D2}/connect", {})
             url = _j(r)["data"].get("url", "")
@@ -219,6 +230,9 @@ def suite_link(res: Result) -> None:
                       [v.get("state"), v.get("account"), (v.get("calendar") or {}).get("name"), v.get("can"),
                        v.get("waiting")],
                       ["on", tw.OWNER, CAL_NAME, {"connect": False, "check": True, "disconnect": True}, False])
+            res.check("вопрос «Deconectează» — готовой строкой с именем календаря; без сверки «в пути» пусто",
+                      [f"„{CAL_NAME}”" in (v.get("words") or {}).get("disconnect_ask", ""),
+                       (v.get("words") or {}).get("pending"), v.get("pending")], [True, "", 0])
             ids = list(cals.cals)
             cal = cals.cals[ids[0]] if ids else {}
             e = entry(d) or {}
@@ -242,6 +256,13 @@ def suite_link(res: Result) -> None:
             res.check("плашки списка: врач подключён, у прочих — off",
                       [(lst["doctors"].get(D2) or {}).get("state"), (lst["doctors"].get("d3") or {}).get("state"),
                        (lst["doctors"].get(D2) or {}).get("account")], ["on", "off", tw.OWNER])
+            lw = lst.get("words") or {}
+            res.check("слова списка — ровно ключи экрана; счёт готовой строкой (архивный врач не в счёт)",
+                      [sorted(set(lw) ^ LIST_KEYS), lw.get("count"), lst.get("premium")],
+                      [[], "Conectați: 1 din 3 medici", None])
+            res.check("слова плашек по состояниям",
+                      [(lw.get("chip") or {}).get(k) for k in ("on", "off", "reconnect", "paused", "premium")],
+                      ["Google conectat", "Google neconectat", "Google: de refăcut", "Google oprit", None])
 
             # предупреждение «Deconectează» связи клиники: тот же аккаунт держит календарь врача
             gl = {"v": 1, "device": "", "token": "dpapi:x", "account": tw.OWNER, "calendars": [], "calendar": None}
@@ -321,9 +342,13 @@ def suite_link(res: Result) -> None:
         with Server(dir_=d, env=env(g, client)) as s:
             c = Client(s.url).login()
             v = view(c) or {}
-            res.check("режим чтения: связь видна, кнопка одна — «Deconectează»",
-                      [v.get("state"), (v.get("why") or {}).get("code"), v.get("can")],
-                      ["readonly", "gd_readonly", {"connect": False, "check": False, "disconnect": True}])
+            res.check("режим чтения: связь видна, серый замок, кнопка одна — «Deconectează»",
+                      [v.get("state"), (v.get("why") or {}).get("code"), (v.get("why") or {}).get("tone"), v.get("can")],
+                      ["readonly", "gd_readonly", "plus", {"connect": False, "check": False, "disconnect": True}])
+            lst = (_j(c.get("/api/gdoc")).get("data") or {})
+            res.check("режим чтения: у списка нет строки Premium, уровень не меняется — почему, одним словом",
+                      [lst.get("premium"), (lst.get("level") or {}).get("can_set"), (lst.get("level") or {}).get("lock")],
+                      [None, False, "Se schimbă după plata abonamentului."])
             r = c.post_json(f"/api/gdoc/{D2}/check", {})
             res.check("режим чтения: «Sincronizează acum» закрыт воротами", (r.status, r.msg),
                       (423, "license_readonly"))
@@ -367,23 +392,31 @@ def suite_level(res: Result) -> None:
             res.check("выбор: три варианта по порядку, умолчание «doar ora», окно — у вариантов с пациентом",
                       [lv.get("code"), [x["code"] for x in lv.get("choices", [])],
                        [x["label"] for x in lv.get("choices", [])], [bool(x["warn"]) for x in lv.get("choices", [])],
-                       lv.get("can_set")],
-                      ["time", ["time", "initials", "name"], ["doar ora", "inițiale", "nume și serviciu"],
-                       [False, True, True], True])
+                       lv.get("can_set"), lv.get("lock")],
+                      ["time", ["time", "initials", "name"], ["Doar ora", "Inițiale", "Nume și serviciu"],
+                       [False, True, True], True, ""])
+            res.check("образец события — тем же телом, что пишет сверка",
+                      [x.get("sample") for x in lv.get("choices", [])],
+                      ["Programare · Cabinet 1", "M.L. · Fișa 124 · Cabinet 1",
+                       "Maria Lungu · Tratament carie · Cabinet 1"])
+            r = c.post_json("/api/gdoc/level", {"level": "initials"})
+            res.check("инициалы без «am înțeles» — тоже отказ полем", (r.status, r.msg, _j(r).get("field")),
+                      (422, "gd_level_ack", "ack"))
             r = c.post_json("/api/gdoc/level", {"level": "name"})
             res.check("имя пациента без «am înțeles» — отказ полем", (r.status, r.msg, _j(r).get("field")),
                       (422, "gd_level_ack", "ack"))
             r = c.post_json("/api/gdoc/level", {"level": "name", "ack": True})
             res.check("с «am înțeles» — сохранено", [r.status, r.msg, ((_j(r)["data"] or {}).get("level") or {}).get("code")],
-                      [200, "gd_level_set", "name"])
-            res.check("блок врача называет уровень словом", (view(c) or {}).get("level"),
-                      {"code": "name", "label": "nume și serviciu"})
+                      [200, "gd_level_ok", "name"])
+            res.check("блок врача называет уровень длинным словом", (view(c) or {}).get("level"),
+                      {"code": "name", "label": "numele pacientului și serviciul"})
             r = c.post_json("/api/gdoc/level", {"level": "name", "ack": True})
             res.check("тот же уровень — «уже так»", r.msg, "gd_level_same")
             r = c.post_json("/api/gdoc/level", {"level": "all"})
             res.check("незнакомый уровень — отказ", (r.status, r.msg), (422, "gd_level_bad"))
             r = c.post_json("/api/gdoc/level", {"level": "time"})
-            res.check("назад к «doar ora» — без галочки", (r.status, r.msg), (200, "gd_level_set"))
+            res.check("назад к «doar ora» — без галочки; ответ называет срок переписи",
+                      (r.status, r.msg, "în cel mult 5 minute" in _j(r).get("text", "")), (200, "gd_level_ok", True))
         res.ok("летопись: уровень словом", "Director: Calendarele medicilor: nivelul „nume și serviciu”"
                in activity(d), repr(activity(d)))
     finally:
@@ -422,9 +455,10 @@ def suite_rights(res: Result) -> None:
                       [med.get("/api/gdoc").status, med.get(f"/api/gdoc/{D2}").status,
                        med.post_json(f"/api/gdoc/{D2}/connect", {}).status], [403, 403, 403])
             lv = ((_j(ana.get("/api/gdoc")).get("data") or {})).get("level") or {}
-            res.check("регистратура видит выбор уровня, но менять не может",
-                      [lv.get("code"), lv.get("can_set"), ana.post_json("/api/gdoc/level", {"level": "time"}).status],
-                      ["time", False, 403])
+            res.check("регистратура видит выбор уровня, но менять не может — «Schimbă doar directorul.»",
+                      [lv.get("code"), lv.get("can_set"), lv.get("lock"),
+                       ana.post_json("/api/gdoc/level", {"level": "time"}).status],
+                      ["time", False, "Schimbă doar directorul.", 403])
             _url, back = connect(res, s, ana, g, "регистратура")
             res.check("регистратура подключает врача; в связи — её имя",
                       [back.status if back else 0, (entry(d) or {}).get("connected_by")], [200, "Ana R"])
@@ -497,9 +531,9 @@ def _worker(tmpdir: str) -> None:
             phone = req(ip="192.168.1.23")
             v = await gd.view(phone, "d2")
             lv = await gd.level_view(phone)
-            chk("из сети: подсказка вместо кнопок «Conectează» и «Deconectează», уровень не меняется",
-                [bool(v["remote"]), v["can"]["connect"], v["can"]["disconnect"], lv["can_set"]],
-                [True, False, False, False])
+            chk("из сети: строка вместо кнопок «Conectează» и «Deconectează», уровень не меняется — почему",
+                [v["remote"], v["can"]["connect"], v["can"]["disconnect"], lv["can_set"], lv["lock"]],
+                [gd.REMOTE, False, False, False, "Se schimbă doar de pe calculatorul pe care rulează programul."])
             chk("возврат из сети — отказ до всего", await gd.finish(req("state=x&code=y", ip="192.168.1.23")),
                 ("gc_g_back_local", 403))
 
@@ -526,10 +560,20 @@ def _worker(tmpdir: str) -> None:
             chk("«Sincronizează acum»: проход дошёл — «actualizat»", await gd.check("d2"), "gd_checked")
             stats.update(error="rate_limited", error_at="2027-03-01T09:00:00Z", pending=7)
             v = await gd.view(req(), "d2")
-            chk("ошибка прохода — слово и время, сколько не доехало",
-                [await gd.check("d2"), v["state"], (v["why"] or {}).get("code"), (v["why"] or {}).get("when"),
-                 v["pending"]],
-                ["gc_g_rate", "on", "gc_g_rate", "01.03.2027 11:00", 7])
+            chk("ошибка прохода — общий заголовок, причина словом её кода, время, сколько не доехало",
+                [await gd.check("d2"), v["state"], (v["why"] or {}).get("code"), (v["why"] or {}).get("text"),
+                 (v["why"] or {}).get("detail", "").startswith("Google a cerut o pauză"),
+                 (v["why"] or {}).get("when"), v["pending"], v["words"]["pending"]],
+                ["gc_g_rate", "on", "gc_g_rate", "Ultima actualizare nu a reușit", True, "01.03.2027 11:00", 7,
+                 "încă 7 programări în drum."])
+            got = []
+            for n in (1, 19, 20, 37, 101, 120):
+                stats.update(error="", pending=n)
+                got.append((await gd.view(req(), "d2"))["words"]["pending"])
+            chk("«в пути» по-румынски: 1, 19, 20, 37, 101, 120",
+                got, ["încă 1 programare în drum.", "încă 19 programări în drum.", "încă 20 de programări în drum.",
+                      "încă 37 de programări în drum.", "încă 101 programări în drum.",
+                      "încă 120 de programări în drum."])
             stats.update(error="", pending=0)
             gd.CHECK_WAIT, runs["delay"] = 0.2, 1.0
             chk("проход не успел — «продолжится в фоне»", await gd.check("d2"), "gd_check_late")
@@ -538,7 +582,7 @@ def _worker(tmpdir: str) -> None:
             runs["raise"] = False
             woke.clear()
             chk("смена уровня будит сверку всех врачей", [await gd.set_level("initials", True, "Director"), list(woke)],
-                ["gd_level_set", [None]])
+                ["gd_level_ok", [None]])
 
             cals.fail("DELETE", "/calendars/", 503, times=2)
             chk("Google не дал удалить календарь — связь держится, второе нажатие закроет её в программе",

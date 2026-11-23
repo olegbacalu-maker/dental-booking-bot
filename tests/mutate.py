@@ -267,6 +267,13 @@ MUTATIONS = [
      ('BACK_PATH = "/google/back/medic"', 'BACK_PATH = "/google/back/doctor"')),
     ("возврат врача", "app/modules/doctors/api.py",
      ("    code, status = await gcal_doctor.finish(request)\n", '    code, status = "gd_back_ok", 200\n')),
+    # Срок доезда до календаря врача: другое число словами, другое число в константе, якорь пропал.
+    ("срок доезда до календаря врача", "app/modules/doctors/gcal_doctor.py",
+     '\n_mut = "Programările ajung în cel mult 7 minute."\n'),
+    ("срок доезда до календаря врача", "app/modules/doctors/gcal_doctor.py",
+     ("SYNC_MINUTES = 5\n", "SYNC_MINUTES = 6\n")),
+    ("срок доезда до календаря врача", "app/modules/doctors/gcal_doctor.py",
+     ("SYNC_MINUTES = 5\n", "SYNC_MINUTES_OLD = 5\nSYNC_MINUTES = SYNC_MINUTES_OLD\n")),
     # Подключение врача из сети: маршрут из LOCAL_ONLY без отказа сети.
     ("опасное из сети — только с этого ПК", "app/modules/doctors/api.py",
      ("    if (deny := local_only(request)) is not None:\n        return deny\n    if dk not in eng.DOCTORS:\n"

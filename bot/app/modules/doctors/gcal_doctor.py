@@ -26,8 +26,7 @@ from ... import engine as eng
 from ...core import gauth, gdoc, gwrite
 from ...core import license as lic
 from ...core import license_state as lst
-from ...core.auth import (PERM_DOCTORS, PERM_SETTINGS, all_users, can, client_is_local,
-                          remote_notice, request_user)
+from ...core.auth import PERM_DOCTORS, PERM_SETTINGS, all_users, can, client_is_local, request_user
 from ...core.layout import msg_text, msg_view
 
 log = logging.getLogger("gdoc")
@@ -46,68 +45,100 @@ CAL_TEXT = ("Programările medicului din DentPilot. Se modifică doar în DentPi
 S_OFF, S_WAITING, S_ON, S_RECONNECT = "off", "waiting", "on", "reconnect"
 S_FOREIGN, S_PREMIUM, S_READONLY, S_PAUSED = "foreign", "premium", "readonly", "paused"
 
-# Все слова блока: экран своих не пишет.
+# Срок доезда приёма до календаря врача — то же число, что у цикла сверки и в документах; одно число
+# держит сторож «срок доезда до календаря врача — одно число».
+SYNC_MINUTES = 5
+SOON = f"în cel mult {SYNC_MINUTES} minute"
+
+# Слова блока карточки врача (`GdocWords` клиента): ключи — ровно эти, экран своих слов не пишет.
 WORDS = {
-    "title": "Calendarul medicului în Google",
-    "lead": "Programările medicului ajung singure în Google Calendar, pe telefonul lui",
-    "connect": "Conectează", "reconnect": "Conectează din nou", "disconnect": "Deconectează",
-    "check": "Sincronizează acum",
-    "hint": "Se deschide browserul: medicul intră cu contul său Google și permite accesul.",
-    "connected": "Conectat:", "calendar_label": "calendarul", "last_ok": "Ultima actualizare:",
-    "pending": "Încă de trimis:", "level_label": "În eveniment:",
+    "title": "Google Calendar",
+    "lead": f"Programările medicului ajung singure în calendarul lui din Google, {SOON}.",
+    "hint": "Se deschide browserul: medicul alege contul lui Google și permite accesul.",
+    "details": "Detalii:",
+    "connect": "Conectează Google", "connect_here": "Conectează aici", "reconnect": "Conectează din nou",
+    "check": "Sincronizează acum", "disconnect": "Deconectează",
+    "disconnect_ask": "",                 # готовой строкой с именем календаря — `_disconnect_ask`
     "waiting_title": "Așteptăm răspunsul Google…",
-    "waiting_detail": "Medicul termină conectarea în browser. Dacă pagina s-a închis, deschideți-o din nou.",
+    "waiting_detail": "În browser medicul alege contul lui Google și permite accesul. Dacă pagina s-a "
+                      "închis, deschideți-o din nou.",
     "reopen": "Deschide din nou pagina", "cancel": "Renunță",
-    "disconnect_ask": "Deconectați calendarul medicului? Programul șterge din Google calendarul făcut de "
-                      "DentPilot și închide legătura pe acest calculator. Accesul dat programului în contul "
-                      "Google al medicului rămâne; medicul îl poate retrage din setările contului său.",
-    "disconnect_ok": "Deconectează",
+    "connected": "Conectat:", "calendar_label": "Calendarul",
+    "last": "Ultima actualizare:", "all_in": "totul e la zi.", "last_ok": "Ultima reușită:",
+    "pending": "",                        # готовой строкой с числом — `_pending_text`
+    "level_lead": "Ce vede medicul:", "level_link": "Se schimbă în lista Medici",
     # путь к Premium: фраза, а ссылкой — только сам путь (`PREMIUM`)
     "premium_lead": "O porniți plătind varianta Premium în",
-    "details": "Detalii:",
-    "list_title": "Calendarele medicilor în Google",
-    "level_title": "Ce arată evenimentul în calendarele medicilor",
-    "level_ack": "Am înțeles", "level_save": "Salvează",
 }
-NOTICE = (
-    "Programul face în contul Google al medicului un calendar separat și scrie acolo programările lui "
-    "din DentPilot. Ce arată evenimentul alege directorul: doar ora (implicit), inițialele sau numele și "
-    "serviciul. Programările se schimbă doar în DentPilot: ce se modifică în Google nu se întoarce în "
-    "program. Furnizorul DentPilot nu primește aceste date. Calendarul se poate deconecta oricând.")
+# Слова блока «Calendarele medicilor în Google» над списком врачей (`GdocListWords` клиента).
+LIST_WORDS = {
+    "title": "Calendarele medicilor în Google",
+    "lead": "Fiecare medic conectat își vede programările în telefon. Ce ajunge acolo alege directorul.",
+    "count": "",                          # готовой строкой с числами — `_count_text`
+    "label": "Ce vede medicul în Google", "phone": "În telefon:", "change": "Schimbă",
+    "only_dir": "Schimbă doar directorul.",
+    "remote": "Se schimbă doar de pe calculatorul pe care rulează programul.",
+    "premium": "Calendarele medicilor în Google fac parte din DentPilot Premium:",
+    "premium_more": "fiecare medic își vede programările în telefon, implicit doar ora.",
+    "default": "implicit",
+    "rewrite": f"La schimbare calendarele se rescriu singure, {SOON}.",
+    "dlg_title": "Ce vede medicul în Google",
+    "dlg_ack": "Am înțeles: aceste date ale pacienților vor fi în Google, în telefonul fiecărui medic conectat.",
+    "dlg_ok": "Alege", "dlg_cancel": "Renunță",
+}
+CHIP = {S_ON: "Google conectat", S_OFF: "Google neconectat", S_WAITING: "Google: așteptăm",
+        S_RECONNECT: "Google: de refăcut", S_FOREIGN: "Google: alt calculator",
+        S_READONLY: "Google oprit", S_PAUSED: "Google oprit"}
+NOTICE = ("Programările pleacă de pe acest calculator direct în Google — serverul DentPilot nu le vede. "
+          "Se schimbă doar în DentPilot; în Google e o copie pentru medic.")
+REMOTE = "Medicul se conectează doar de pe calculatorul pe care rulează programul."
+ASK = ("Deconectați Google Calendar al medicului? Calendarul „{name}” se șterge din contul lui Google; "
+       "programările rămân în DentPilot.")
+ASK_NO_NAME = ("Deconectați Google Calendar al medicului? Calendarul lui din Google se șterge; programările "
+               "rămân în DentPilot.")
 # Вторая строка состояния (`why.detail`) — что делать; первая — слово словаря (`why.text`).
 DETAIL = {
-    "gd_paused": "Legătura rămâne: după plata Premium programările ajung din nou în calendar, fără o nouă "
-                 "conectare.",
-    "gd_readonly": "După reînnoirea abonamentului actualizarea pornește singură; legătura medicilor conectați "
-                   "rămâne.",
-    "gd_dead": "Conectați din nou calendarul medicului.",
+    "gd_premium": "Fiecare medic își vede programările în telefon — implicit doar ora, fără numele pacientului.",
+    "gd_paused": "Programările viitoare au ieșit din calendarul medicului. Legătura rămâne — după plata "
+                 "Premium revin singure.",
+    "gd_readonly": "După plata abonamentului se actualizează din nou singur.",
+    "gd_dead": "Accesul dat programului a fost retras în contul Google al medicului sau a expirat.",
+    "gd_no_scope": "Google nu a dat dreptul de a scrie în calendarul medicului: la conectare lăsați bifată "
+                   "permisiunea pentru calendar.",
+    "gd_cal_gone": "Calendarul „DentPilot” a fost șters din contul Google al medicului. „Conectează din nou” "
+                   "face un calendar nou.",
     "gd_elsewhere": "Cheia de acces se citește doar pe calculatorul și în contul Windows unde a fost făcută "
-                    "conectarea. Conectați din nou medicul aici.",
-    "gd_no_scope": "Conectați din nou și lăsați bifată permisiunea pentru calendar.",
-    "gd_cal_gone": "Calendarul a fost șters din Google. „Conectează din nou” face un calendar nou.",
-    "gd_foreign": "Pe acest calculator actualizarea este oprită. „Conectează din nou” o mută aici, iar "
-                  "celălalt calculator se oprește.",
+                    "conectarea. Conectați-l din nou de pe acest calculator.",
+    "gd_foreign": "Aici calendarul lui nu se actualizează. Conectați-l din nou de pe acest calculator — "
+                  "calendarul rămâne același, iar celălalt calculator se oprește.",
     "gd_archived_wait": "Dacă Google nu răspunde acum, programul încearcă din nou singur.",
     "gd_failed": "Dacă se repetă, scrieți-ne.",
     "gd_back_ok": "Sfat: medicul să iasă din contul său Google în acest browser — calculatorul clinicii "
                   "este folosit și de alții.",
 }
-LEVEL_HINT = {
-    "time": "„Programare” și cabinetul — fără date despre pacient",
-    "initials": "Inițialele pacientului, numărul fișei și cabinetul",
-    "name": "Numele pacientului, serviciul și cabinetul",
-}
-# Текст окна «am înțeles»: уровень с данными пациента — только после галочки.
+# Уровень подробности: длинное слово — в карточке врача, короткое с заглавной — в переключателе.
+LEVEL_LONG = {"time": "doar ora, fără numele pacientului", "initials": "inițialele pacientului",
+              "name": "numele pacientului și serviciul"}
+LEVEL_SHORT = {"time": "Doar ora", "initials": "Inițiale", "name": "Nume și serviciu"}
+LEVEL_HINT = {"time": "Fără numele pacientului", "initials": "Inițialele și numărul fișei · cere confirmare",
+              "name": "Numele întreg și serviciul · cere confirmare"}
+# Окно «am înțeles»: уровень с данными пациента выбирается только после галочки — у тех же уровней,
+# у которых есть это предупреждение, `ack` требует и сервер.
 LEVEL_WARN = {
-    "initials": "Evenimentele din calendarele medicilor vor arăta inițialele pacientului și numărul fișei. "
-                "Le vede oricine are acces la contul Google al medicului sau la telefonul lui, și pe "
-                "ecranul telefonului. Clinica răspunde de această alegere; furnizorul DentPilot nu primește "
-                "aceste date.",
-    "name": "Evenimentele din calendarele medicilor vor arăta numele pacientului și serviciul — date despre "
-            "sănătate. Le vede oricine are acces la contul Google al medicului sau la telefonul lui, și pe "
-            "ecranul telefonului. Clinica răspunde de această alegere; furnizorul DentPilot nu primește "
-            "aceste date.",
+    "initials": "Inițialele pacientului și numărul fișei vor pleca în contul Google al fiecărui medic conectat "
+                "și se vor vedea în telefonul lui. Google le păstrează în contul medicului. Alegeți asta doar "
+                "dacă pacienții sunt informați și medicii își țin telefonul cu parolă.",
+    "name": "Numele pacientului și serviciul vor pleca în contul Google al fiecărui medic conectat și se vor "
+            "vedea în telefonul lui. Google le păstrează în contul medicului. Alegeți asta doar dacă pacienții "
+            "sunt informați și medicii își țin telefonul cu parolă.",
 }
+LOCK_ROLE = LIST_WORDS["only_dir"]
+LOCK_READONLY = "Se schimbă după plata abonamentului."
+# Образец события в переключателе: заголовок строит тот же `gwrite.event_body`, что пишет сверка.
+SAMPLE = gwrite.Appt(id=1, start=datetime(2027, 1, 4, 9, 0, tzinfo=timezone.utc), minutes=30, room="Cabinet 1",
+                     patient="Maria Lungu", file_no="124", service="Tratament carie")
+# Серый замок экрана — у состояний «нет права» (как у связи клиники).
+_PLUS_STATES = (S_PREMIUM, S_READONLY, S_PAUSED)
 
 _RECONNECT_WHY = {gdoc.DEAD_GRANT: "gd_dead", gdoc.DEAD_SCOPE: "gd_no_scope", gdoc.DEAD_GONE: "gd_cal_gone",
                   "elsewhere": "gd_elsewhere"}
@@ -159,6 +190,14 @@ def _sync_error(dk: str) -> tuple[str, str]:
     return code, at if isinstance(at, str) else ""
 
 
+def _ro(n: int, one: str, many: str) -> str:
+    """«1 programare», «5 programări», «37 de programări» — правило «de» то же, что у `roCount` клиента."""
+    if n == 1:
+        return f"1 {one}"
+    r = n % 100
+    return f"{n}{' de' if r == 0 or r >= 20 else ''} {many}"
+
+
 def _pending(dk: str) -> int:
     got = gdoc.sync_stats(dk)
     n = got.get("pending") if isinstance(got, dict) else 0
@@ -192,12 +231,28 @@ def _state(dk: str, link: dict | None, s) -> tuple[str, str]:
 def _why(dk: str, state: str, code: str) -> dict | None:
     if not code:
         return None
-    reason = {**msg_view(code), "detail": DETAIL.get(code, "")}
-    # неудачный проход при живой связи: когда — рядом со штампом последней удачной
     err, err_at = _sync_error(dk)
-    if state == S_ON and code == err and (at := _when(err_at)):
-        reason.update(at)
+    if state == S_ON and code == err:
+        # неудачный проход: заголовок общий, причина — словом её кода, когда — рядом со штампом удачной
+        tail = DETAIL.get(code, "")
+        reason = {**msg_view(code), "text": msg_text("gd_sync_failed"),
+                  "detail": msg_text(code) + "." + (" " + tail if tail else "")}
+        if at := _when(err_at):
+            reason.update(at)
+        return reason
+    reason = {**msg_view(code), "detail": DETAIL.get(code, "")}
+    if state in _PLUS_STATES:
+        reason["tone"] = "plus"
     return reason
+
+
+def _pending_text(n: int) -> str:
+    return f"încă {_ro(n, 'programare', 'programări')} în drum." if n > 0 else ""
+
+
+def _disconnect_ask(link: dict | None) -> str:
+    name = str(((link or {}).get("calendar") or {}).get("name") or "")
+    return ASK.format(name=name) if name else ASK_NO_NAME
 
 
 def _shown() -> object | None:
@@ -217,35 +272,55 @@ async def view(request, dk: str) -> dict | None:
     link = gdoc.linked().get(dk)
     state, code = _state(dk, link, s)
     level = await gdoc.level()
-    here = remote_notice(request)
-    local = here is None
+    local = client_is_local(request)
+    pending = _pending(dk) if state == S_ON else 0
     return {
         "state": state,
         "account": str((link or {}).get("account") or ""),
         "calendar": dict(link["calendar"]) if link and link.get("calendar") else None,
         "last": _when(str((link or {}).get("last_ok") or "")),
-        "pending": _pending(dk) if state == S_ON else 0,
+        "pending": pending,
         "why": _why(dk, state, code),
-        "level": {"code": level, "label": gdoc.LEVEL_WORDS[level]},
+        "level": {"code": level, "label": LEVEL_LONG[level]},
         "notice": NOTICE, "privacy": dict(PRIVACY),
         "premium": dict(PREMIUM) if state in (S_PREMIUM, S_PAUSED) else None,
-        "waiting": _waiting(dk), "remote": here,
+        "waiting": _waiting(dk), "remote": None if local else REMOTE,
         "can": {"connect": local and not _archived(dk) and state in (S_OFF, S_WAITING, S_RECONNECT, S_FOREIGN),
                 "check": state == S_ON,
                 "disconnect": local and link is not None},
-        "words": dict(WORDS),
+        "words": {**WORDS, "pending": _pending_text(pending), "disconnect_ask": _disconnect_ask(link)},
     }
 
 
+def _sample(level: str) -> str:
+    tag = gwrite.clinic_tag("sample")
+    body = gwrite.event_body(level, SAMPLE, tag=tag, event_id=gwrite.event_id(tag, 1, SAMPLE.id, 0), note="")
+    return body["summary"]
+
+
 async def level_view(request) -> dict:
-    """Выбор подробности события (`LevelView`): один на клинику, менять — директор с ПК программы."""
+    """Выбор подробности события (`LevelView`): один на клинику, менять — директор с ПК программы;
+    почему нельзя — одним словом `lock`."""
     code = await gdoc.level()
     s = lic.current()
-    writable = s is None or s.state in (lst.ACTIVE, lst.GRACE)
+    if not can(request_user(), PERM_SETTINGS):
+        lock = LOCK_ROLE
+    elif not client_is_local(request):
+        lock = LIST_WORDS["remote"]
+    elif s is not None and s.state not in (lst.ACTIVE, lst.GRACE):
+        lock = LOCK_READONLY
+    else:
+        lock = ""
     return {"code": code,
-            "choices": [{"code": c, "label": gdoc.LEVEL_WORDS[c], "hint": LEVEL_HINT[c],
+            "choices": [{"code": c, "label": LEVEL_SHORT[c], "hint": LEVEL_HINT[c], "sample": _sample(c),
                          "warn": LEVEL_WARN.get(c, "")} for c in gwrite.LEVELS],
-            "can_set": writable and client_is_local(request) and can(request_user(), PERM_SETTINGS)}
+            "can_set": not lock, "lock": lock}
+
+
+def _count_text(links: dict) -> str:
+    live = [dk for dk in eng.DOCTORS if not _archived(dk)]
+    on = sum(1 for dk in live if (links.get(dk) or {}).get("state") == gdoc.S_ON)
+    return f"Conectați: {on} din {_ro(len(live), 'medic', 'medici')}"
 
 
 async def overview(request) -> dict | None:
@@ -260,7 +335,12 @@ async def overview(request) -> dict | None:
         state, code = _state(dk, link, s)
         doctors[dk] = {"state": state, "account": str((link or {}).get("account") or ""),
                        "why": _why(dk, state, code)}
-    return {"doctors": doctors, "level": await level_view(request), "words": dict(WORDS)}
+    # без права (абонемент оплачен) блок списка — одна строка с путём к лицензии, плашек у врачей нет
+    paid = s.state in (lst.ACTIVE, lst.GRACE)
+    no_right = paid and lic.feature_until(gdoc.SYNC_GATE) is None
+    return {"doctors": doctors, "level": await level_view(request),
+            "premium": dict(PREMIUM) if no_right else None,
+            "words": {**LIST_WORDS, "count": _count_text(links), "chip": dict(CHIP)}}
 
 
 # ---------- вход ----------
@@ -496,12 +576,12 @@ async def set_level(chosen: str, ack: bool, actor: str) -> str:
         return "gd_none"
     if chosen not in gwrite.LEVELS:
         return "gd_level_bad"
-    if chosen != gwrite.DEFAULT_LEVEL and not ack:
+    if chosen in LEVEL_WARN and not ack:
         return "gd_level_ack"
     out = await gdoc.set_level(chosen, actor)
     if out == gdoc.LV_BAD:
         return "gd_level_bad"
     if out == gdoc.LV_SET:
         gdoc.sync_wake(None)
-        return "gd_level_set"
+        return "gd_level_ok"
     return "gd_level_same"
