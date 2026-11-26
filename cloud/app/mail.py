@@ -625,7 +625,7 @@ def license_letter(clinic: str, valid_until: str, plan: str, renew: bool = False
               f"({tiers.NAME.get(tier or '', 'DentPilot')}); SMS-urile rămase nu se pierd."
               if sms_until and not trial and tier not in tiers.SMS_TIERS else "")
     module += (f" Calendarele medicilor în Google se actualizează până la {ro_date(gdoc_until)}; apoi programul "
-               f"scoate din ele programările viitoare." if gdoc_until and not trial and tier not in tiers.GDOC_TIERS
+               f"scoate din ele toate programările, și pe cele trecute." if gdoc_until and not trial and tier not in tiers.GDOC_TIERS
                else "")
     site = config.SITE_URL.rstrip("/")
     subject = f"DentPilot: licența pentru {clinic}"

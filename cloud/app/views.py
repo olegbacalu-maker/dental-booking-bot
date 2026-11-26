@@ -2573,11 +2573,11 @@ def _module_note(sub, now: datetime) -> str:
     back = f"legătura medicilor rămâne și pornește din nou la plata {' sau '.join(map(_short, with_doc or [cur]))}."
     if cur in tiers.GDOC_TIERS and no_doc and running:
         said.append(f"Cu {_names_short(no_doc[::-1])} calendarele medicilor mai funcționează până la sfârșitul "
-                    f"perioadei în curs (<b>{_ro(sub['valid_until'])}</b>), apoi programările viitoare se scot din "
-                    f"ele; {back}")
+                    f"perioadei în curs (<b>{_ro(sub['valid_until'])}</b>), apoi programul scoate din "
+                    f"ele toate programările, și pe cele trecute; {back}")
     elif cur in tiers.GDOC_TIERS and no_doc:
-        said.append(f"Cu {_names_short(no_doc[::-1])} calendarele medicilor se opresc, iar programările viitoare se "
-                    f"scot din ele; {back}")
+        said.append(f"Cu {_names_short(no_doc[::-1])} calendarele medicilor se opresc, iar programul scoate "
+                    f"din ele toate programările, și pe cele trecute; {back}")
     said.append("SMS-urile se plătesc separat, în pachete — în nicio variantă nu intră în abonament.")
     return f"<p class='note'>{' '.join(said)}</p>"
 

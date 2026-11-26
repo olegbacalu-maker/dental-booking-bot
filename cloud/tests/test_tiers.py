@@ -224,7 +224,8 @@ def suite_premium_rules(res: Result) -> None:
     _, body2 = mail.license_letter("Clinica T", ts(end), "standard", tier=PR)
     res.ok("письмо о лицензии ушедшей с Premium: до какого дня календари и что потом; у Premium — без этой фразы",
            f"Calendarele medicilor în Google se actualizează până la {mail.ro_date(ts(end))}" in body
-           and "programările viitoare" in body and "Modulul SMS rămâne" not in body
+           and "apoi programul scoate din ele toate programările, și pe cele trecute." in body
+           and "viitoare" not in body and "Modulul SMS rămâne" not in body
            and "Calendarele medicilor" not in body2 and "Abonamentul DentPilot Premium" in body2, body[:600])
     res.check("формула вариантов в письме: с прайсом Premium — три, Basic/Plus — прежними словами", mail.variants(),
               "DentPilot Basic, fără modulul SMS, DentPilot Plus, cu modulul SMS, sau DentPilot Premium, cu modulul SMS și "
@@ -249,8 +250,14 @@ def suite_premium_rules(res: Result) -> None:
            "— с Basic (слова подачи)",
            "Cu DentPilot Basic modulul SMS rămâne pornit până la sfârșitul perioadei în curs" in note
            and f"Cu DentPilot Plus sau Basic calendarele medicilor mai funcționează până la sfârșitul perioadei în curs "
-               f"(<b>{views._ro(ts(end))}</b>), apoi programările viitoare se scot din ele; legătura medicilor rămâne "
-               f"și pornește din nou la plata Premium." in note, note)
+               f"(<b>{views._ro(ts(end))}</b>), apoi programul scoate din ele toate programările, și pe cele "
+               f"trecute; legătura medicilor rămâne și pornește din nou la plata Premium." in note
+           and "viitoare" not in note, note)
+    note = views._module_note(_sub(tier=PR, valid=now - (end - now)), now)
+    res.ok("«что будет при выборе» у Premium после конца периода: из календарей уходят все приёмы, связь остаётся",
+           "Cu DentPilot Plus sau Basic calendarele medicilor se opresc, iar programul scoate din ele toate "
+           "programările, și pe cele trecute; legătura medicilor rămâne și pornește din nou la plata Premium." in note
+           and "viitoare" not in note, note)
     note = views._module_note(_sub(tier=P, valid=end), now)
     res.ok("у Plus — Premium включает и календари (слова подачи), о выключении календарей ни слова",
            "Varianta o alegeți la fiecare plată. DentPilot Plus pornește modulul SMS imediat după confirmarea plății, "
