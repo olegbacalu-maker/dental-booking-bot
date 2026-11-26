@@ -640,8 +640,9 @@ def suite_live(res: Result) -> None:
 
 
 def suite_move_day(res: Result) -> None:
-    """Перенос на ДРУГОЙ день: ключ напоминания — от нового начала, про прежний день
-    пациенту не пишут — ни до отправки, ни из очереди, ни повтором.
+    """Перенос на ДРУГОЙ день (и часа внутри дня): ключ напоминания — от нового начала, про
+    прежнее пациенту не пишут — ни до отправки, ни из очереди, ни повтором; новое встаёт в
+    очередь по правилу окна.
 
     Клиника открыта всю неделю, поэтому окно «накануне» — вчерашний день визита с 10:00.
     """
@@ -699,12 +700,31 @@ def suite_move_day(res: Result) -> None:
                 res.check("C со среды на четверг 15:00",
                           c.post_json(f"/api/schedule/appointments/{g_id}/move?date=2026-11-11",
                                       {"date": "2026-11-12", "time": "15:00", "doctor": "d3"}).msg, "ok_move")
-                time.sleep(1.0)
+                # то же с часом внутри дня: D в очереди на 16:00, переносят на 17:30 той же среды
+                add_appt(c, "2026-11-11", "16:00", "Mv Delta", "069000444", doctor="d4")
+                e_id = appt_id(c, "2026-11-11", "Mv Delta")
+                e_old, e_new = key(e_id, "2026-11-11T14:00:00Z"), key(e_id, "2026-11-11T15:30:00Z")
+                res.ok("D: строка в очереди на 16:00",
+                       _wait(lambda: any(r["idem"] == e_old and r["state"] == "queued" for r in _sms_log(d))),
+                       repr(_sms_log(d)))
+                res.check("D с 16:00 на 17:30 той же среды",
+                          c.post_json(f"/api/schedule/appointments/{e_id}/move?date=2026-11-11",
+                                      {"date": "2026-11-11", "time": "17:30", "doctor": "d4"}).msg, "ok_move")
+                # новое начало встаёт в очередь по правилу окна: у D окно идёт (накануне, после часа X),
+                # у C оно завтра — строки ещё нет
+                res.ok("сервер ещё молчит: строка D про новый час уже в очереди, про прежний снята",
+                       _wait(lambda: (lambda keys: e_new in keys and e_old not in keys and g_old not in keys)(
+                           {r["idem"] for r in _sms_log(d) if r["state"] == "queued"})),
+                       repr([(r["idem"], r["state"]) for r in _sms_log(d)]))
+                res.ok("у C строки про новый день ещё нет — её окно завтра",
+                       not any(r["appt_id"] == g_id for r in _sms_log(d)), repr(_sms_log(d)))
                 stand.send_mode = "ok"
-                time.sleep(1.5)
-                res.ok("сервер ожил: напоминание про прежний день из очереди не ушло",
-                       g_old not in stand._by_idem
-                       and not any(r["idem"] == g_old and r["state"] == "sent" for r in _sms_log(d)),
+                res.ok("сервер ожил: D получает напоминание про 17:30",
+                       _wait(lambda: e_new in stand._by_idem) and "17:30" in text_of(e_new), repr(idems()))
+                time.sleep(1.0)
+                res.ok("напоминания про прежний день C и прежний час D из очереди не ушли",
+                       g_old not in stand._by_idem and e_old not in stand._by_idem
+                       and not any(r["idem"] in (g_old, e_old) for r in _sms_log(d)),
                        repr(([r["idem"] for r in _sms_log(d)], list(stand._by_idem))))
 
                 # среда: накануне четверга — B и C по новым ключам, с новым днём в тексте
@@ -728,7 +748,7 @@ def suite_move_day(res: Result) -> None:
                 time.sleep(0.8)
                 res.check("прежнее напоминание A ушло один раз", idems().count(a_old), 1)
                 res.check("про прежние дни принято сервером только оно",
-                          sorted(set(stand._by_idem) - {a_new, b_new, g_new}), [a_old])
+                          sorted(set(stand._by_idem) - {a_new, b_new, g_new, e_new}), [a_old])
     finally:
         stand.close()
         _rmtree_settled(d)
