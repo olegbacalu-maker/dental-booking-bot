@@ -2682,6 +2682,14 @@ def suite(res: Result) -> None:
                 f"{sync_min} мин." for rel, text in said.items() if _GDOC_TALKS.search(text) and want not in text]
     res.ok("договор согласован с программой дословно", not bad,
            "сайт обещает не то, что делает программа: " + "; ".join(bad))
+    # Без права уход убирает из календаря врача ВСЕ приёмы, и прошлые (условия § 18): слово «viitoare» в
+    # словах подключения или сверки обещало бы врачу, что прошлое осталось.
+    left = [f"{rel}:{ln}" for rel in (_GDOC_LINK, _GSYNC) if (t := by_path.get(rel)) is not None
+            for ln, text in _ui_texts(t) if "viitoare" in text]
+    res.ok("уход календаря врача — все приёмы, не «viitoare»",
+           by_path.get(_GDOC_LINK) is not None and by_path.get(_GSYNC) is not None and not left,
+           "нет файла подключения или сверки" if None in (by_path.get(_GDOC_LINK), by_path.get(_GSYNC))
+           else "«viitoare» в словах ухода: " + ", ".join(left))
 
     # ---- текст перед скачиванием называет программу её словами (26.09) ----
     # docs/site/descarca*.html — закон 195 перед кнопкой «Descarcă» (L15).

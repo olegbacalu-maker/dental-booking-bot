@@ -99,8 +99,8 @@ ASK_NO_NAME = ("Deconectați Google Calendar al medicului? Calendarul lui din Go
 # Вторая строка состояния (`why.detail`) — что делать; первая — слово словаря (`why.text`).
 DETAIL = {
     "gd_premium": "Fiecare medic își vede programările în telefon — implicit doar ora, fără numele pacientului.",
-    "gd_paused": "Programările viitoare au ieșit din calendarul medicului. Legătura rămâne — după plata "
-                 "Premium revin singure.",
+    "gd_paused": "Programul a scos din calendarul medicului toate programările, și pe cele trecute. Legătura "
+                 "rămâne — după plata Premium revin singure.",
     "gd_readonly": "După plata abonamentului se actualizează din nou singur.",
     "gd_dead": "Accesul dat programului a fost retras în contul Google al medicului sau a expirat.",
     "gd_no_scope": "Google nu a dat dreptul de a scrie în calendarul medicului: la conectare lăsați bifată "

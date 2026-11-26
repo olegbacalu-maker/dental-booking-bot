@@ -778,6 +778,12 @@ MUTATIONS = [
      (f"— în cel mult {_SYNC_MIN} minute,", f"— în cel mult {_SYNC_MIN + 2} minute,")),
     ("договор согласован с программой", test_structure._GSYNC,
      (f"SYNC_MINUTES = {_SYNC_MIN}\n", f"SYNC_EVERY = {_SYNC_MIN}\n")),
+    # Уход календаря врача: экран или описание календаря снова обещают, что прошлое осталось.
+    ("уход календаря врача", test_structure._GDOC_LINK,
+     ('"gd_paused": "Programul a scos din calendarul medicului toate programările',
+      '"gd_paused": "Programul a scos din calendarul medicului programările viitoare')),
+    ("уход календаря врача", test_structure._GSYNC,
+     '\n_mut = "Programările viitoare au fost scoase din calendar."\n'),
     # ---- текст перед скачиванием (закон 195, L15) ----
     # Кнопку фиши переименовали в клиенте — сайт отправляет искать старую.
     ("текст перед скачиванием", "_frontend/features/patients/card/ProfileCard.tsx",
