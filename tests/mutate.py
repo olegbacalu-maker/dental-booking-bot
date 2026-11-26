@@ -771,8 +771,11 @@ MUTATIONS = [
      '\n_mut = "Programările apar singure în calendarul medicului."\n'),
     ("договор согласован с программой", "app/modules/settings/faq.py",
      f'\n_mut = "Programarea ajunge în calendarul Google al medicului în cel mult {_SYNC_MIN + 2} minute."\n'),
-    ("договор согласован с программой", "_build/docs/dentpilot-2/contract/anexa-2.html",
+    # Документ, уже называющий срок, абзацем без срока не ломается: без срока заговорил тот, что молчал.
+    ("договор согласован с программой", "_build/docs/dentpilot-2/contract/dpa.html",
      "\n<p>Programările se copiază în <b>calendarele\n medicilor</b>.</p>\n"),
+    ("договор согласован с программой", "_build/docs/dentpilot-2/contract/anexa-2.html",
+     (f"— în cel mult {_SYNC_MIN} minute,", f"— în cel mult {_SYNC_MIN + 2} minute,")),
     ("договор согласован с программой", test_structure._GSYNC,
      (f"SYNC_MINUTES = {_SYNC_MIN}\n", f"SYNC_EVERY = {_SYNC_MIN}\n")),
     # ---- текст перед скачиванием (закон 195, L15) ----
