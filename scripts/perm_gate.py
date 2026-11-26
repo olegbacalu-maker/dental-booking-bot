@@ -14,7 +14,8 @@
 
 Утверждения:
   1. разрешено: статистика открыта, период на экране;
-  2. запрещено: после щелчка — `/admin?msg=no_access`, как у страницы сервера;
+  2. запрещено: после щелчка — `/admin` с плашкой `no_access`, как у страницы сервера
+     (`msg` из адреса убирает сама плашка, `ServerToast`: F5 не вернёт ответ);
   3. ни кадра «отказа внутри раздела»: плашки `role=alert` в экране не было.
 
 ⛔ Пара: `routeLoader` без ветки `no_access` оставляет вкладку в разделе с
@@ -35,12 +36,16 @@ sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT / "bot"))
 
 from harness import Server  # noqa: E402
 from mount_sweep import pin_cookie, preconditions  # noqa: E402
 from odo_shots import CDP, Page, start_edge  # noqa: E402
+from app.core.messages import MSG_BANNER  # noqa: E402
 
 WIDE = (1500, 950)
+# Текст отказа до первой разметки: им плашка страницы сервера отличается от любой другой.
+NO_ACCESS = MSG_BANNER["no_access"][1].split("<")[0][:60]
 # ⛔ Свой порт отладки: 9337–9344 заняты соседними стендами.
 PORT = 9345
 
@@ -115,8 +120,8 @@ def main() -> int:
             time.sleep(1.2)
             b = state(page)
             print(f"запрещено:  {b}")
-            if b["href"] != "/admin?msg=no_access":
-                bad.append(f"вкладка не ушла туда, куда страница сервера: {b['href']}")
+            if b["href"] != "/admin" or NO_ACCESS not in b["banner"]:
+                bad.append(f"вкладка не ушла туда, куда страница сервера: {b['href']}, плашка {b['banner'][:60]!r}")
             if b["alerted"] or b["alertNow"]:
                 bad.append("в разделе мелькнула плашка отказа — экран монтировался")
             errs = cdp.errors()
