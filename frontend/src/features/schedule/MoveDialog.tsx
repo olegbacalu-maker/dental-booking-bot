@@ -31,6 +31,8 @@ const T = {
   close: 'Închide',
   date: 'Data',
   doctor: 'Medic',
+  room: 'Cabinet',
+  noRoom: '—',
   busyDoc: (at: string) => `Medicul are deja o programare la ${at}.`,
   busyRoom: (at: string) => `Cabinetul ales este ocupat de la ${at}.`,
   asControl: 'Mută în Control',
@@ -40,11 +42,6 @@ const T = {
   offHour: (at: string) => `Medicul nu are program la ora ${at}.`,
   past: 'Atenție: data aleasă este în trecut.',
 } as const
-
-/* Самое длинное из слов самого окна: невидимая плашка с ним держит место под слово —
-   в одну строку на широком окне, в две на телефоне, как настоящая. */
-const SAY_ROOM = [T.busyDoc('00:00'), T.busyRoom('00:00'), T.closed, T.noHours, T.offHour('00:00'), T.past]
-  .reduce((a, b) => (b.length > a.length ? b : a))
 
 const NO_ROOMS: readonly Room[] = []
 const NO_BLOCKS: Occupies[] = []
@@ -63,6 +60,9 @@ export interface MovePick {
   closed: boolean
   /** Отказ сервера — его словами, в окне: плашка экрана под окном не видна. */
   fail: string
+  /** Хоть у одного врача, которого можно выбрать, кабинетов несколько: место под поле
+   *  «Cabinet» занято у любого врача, иначе окно меняло бы высоту при смене врача. */
+  roomSpace: boolean
   onDate: (iso: string) => void
   onDoctor: (dk: string) => void
   /** Выбрали другой час, минуту или кабинет: слово прежнего отказа больше не про это место. */
@@ -137,10 +137,14 @@ export function MoveDialog({ open, drag, target, fromName, toName, taken, rooms 
   const pickHour = (h: string) => { setHourPick(h); pick?.onPlace() }
   const pickMinute = (m: number) => { setMinute(m); pick?.onPlace() }
   const pickRoom = (id: string) => { setRoomChoice(id); pick?.onPlace() }
-  const dayOf = (iso: string) => {
-    const day = dayShort(iso)
-    return day ? ` · ${day}` : ''
-  }
+  /* у окна с датой строка одна и режется с хвоста: день и час стоят первыми, имя врача и
+     кабинет — после (они же видны в полях ниже) */
+  const place = (iso: string, at: number, who: string, lane: string) =>
+    [dayShort(iso), hhmm(at), who].filter(Boolean).join(' · ') + lane
+  const fromLine = pick ? place(pick.from, drag.min, fromName, many ? nameOf(drag.room) : '')
+    : `${fromName} · ${hhmm(drag.min)}${many ? nameOf(drag.room) : ''}`
+  const toLine = pick ? place(pick.date, min, toName, many ? nameOf(room) : '')
+    : `${toName} · ${hhmm(min)}${many ? nameOf(room) : ''}`
   /* что окно говорит, по важности: сперва то, что запирает кнопку */
   const says: { tone: 'err' | 'warn'; text: string }[] = []
   if (pick?.fail) says.push({ tone: 'err', text: pick.fail })
@@ -165,10 +169,10 @@ export function MoveDialog({ open, drag, target, fromName, toName, taken, rooms 
         <button type="button" onClick={onClose} aria-label={T.close}><Icon name="close" /></button>
       </div>
       <div className="dlg-form" aria-busy={pick?.pending || undefined}>
-        <div className="mv-rows">
-          <div><span>{T.who}</span><b>{drag.nm}</b></div>
-          <div><span>{T.from}</span><b>{fromName}{pick ? dayOf(pick.from) : ''} · {hhmm(drag.min)}{many ? nameOf(drag.room) : ''}</b></div>
-          <div><span>{T.to}</span><b>{toName}{pick ? dayOf(pick.date) : ''} · {hhmm(min)}{many ? nameOf(room) : ''}</b></div>
+        <div className={pick ? 'mv-rows mv-fix' : 'mv-rows'}>
+          <div><span>{T.who}</span><b title={pick ? drag.nm : undefined}>{drag.nm}</b></div>
+          <div><span>{T.from}</span><b title={pick ? fromLine : undefined}>{fromLine}</b></div>
+          <div><span>{T.to}</span><b title={pick ? toLine : undefined}>{toLine}</b></div>
         </div>
         {pick ? (
           <div className="dp-addrow">
@@ -187,15 +191,22 @@ export function MoveDialog({ open, drag, target, fromName, toName, taken, rooms 
           </select>
         ) : null}
         {many ? <RoomSelect rooms={rooms} value={room} onPick={pickRoom} /> : null}
-        {/* день и час здесь меняют по многу раз: место под слово занято всегда, слово одно —
-            самое важное; у броска слова стоят как стояли */}
+        {/* у врача без выбора кабинета поле стоит выключенным и называет его кабинет */}
+        {!many && pick?.roomSpace ? (
+          <label className="dlab dp-hourpick dp-roompick">{T.room}
+            <select disabled><option>{rooms[0]?.name || T.noRoom}</option></select>
+          </label>
+        ) : null}
+        {/* день и час здесь меняют по многу раз: место под слово — всегда две строки, слово
+            одно, самое важное, длинное листается внутри; у броска слова стоят как стояли */}
         {pick ? (
           <div className="mv-say">
-            <div className="banner mv-say-room" aria-hidden="true">{SAY_ROOM}</div>
+            <div className="banner mv-say-room" aria-hidden="true">&nbsp;<br />&nbsp;</div>
             {says[0] ? say(says[0]) : null}
           </div>
         ) : says.map(say)}
-        {ctlFree && !wait ? <AsControl label={T.asControl} disabled={busy} onClick={() => onMove(min, CONTROL)} /> : null}
+        {/* в окне с датой отдельной кнопки нет: Control выбирают в поле кабинета */}
+        {ctlFree && !pick ? <AsControl label={T.asControl} disabled={busy} onClick={() => onMove(min, CONTROL)} /> : null}
         <div className="mv-act">
           <button type="button" className="mv-no" onClick={onClose}>{T.no}</button>
           <button type="button" onClick={() => onMove(min, roomPick || undefined)}

@@ -20,6 +20,9 @@ const T = {
 } as const
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
+/** Сколько окно ждёт общий день, прежде чем открыться с тем, что знает экран. */
+const WAIT_MS = 1500
+const lanes = (rooms?: readonly unknown[]) => (rooms?.length ?? 0) > 1
 
 export interface MoveBody {
   date: string
@@ -59,7 +62,13 @@ export function Reschedule({ open, drag, canvas, step, today, busy, onClose, onM
   /* врачи и кабинеты от дня не зависят: последние известные держат окно в
      одном виде, пока канва нового дня в пути */
   const [known, setKnown] = useState<DayModel | null>(null)
+  const [late, setLate] = useState(false)
   const valid = ISO_DAY.test(at)
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setLate(true), WAIT_MS)
+    return () => window.clearTimeout(t)
+  }, [])
 
   useEffect(() => {
     if (!open || !valid) return
@@ -83,21 +92,26 @@ export function Reschedule({ open, drag, canvas, step, today, busy, onClose, onM
   /* врач записи есть в списке всегда: выключенного в форме нет, а запись от него уводят */
   const doctors = active.some((x) => x.id === drag.dk)
     ? active : [{ id: drag.dk, name: canvasColName(canvas, drag.dk) }, ...active]
+  const picked = active.find((x) => x.id === dk)
   const rooms = canvasRooms(cv, dk)
   const lost = valid && mine !== null && cv === null
+  /* На дне одного врача канва экрана знает только его: есть ли кабинеты у остальных, скажет
+     общий день. Окно ждёт его ответ (или отказ), чтобы открыться сразу в полный рост. */
+  const ready = canvas.columns.length > 1 || got !== null || late
+  const roomSpace = canvas.columns.some((c) => lanes(c.rooms)) || active.some((x) => lanes(x.rooms))
 
   return (
-    <MoveDialog open={open} drag={drag} busy={busy} step={step}
+    <MoveDialog open={open && ready} drag={drag} busy={busy} step={step}
       target={{ dk, min: drag.min, ...(drag.room === CONTROL ? { room: CONTROL } : {}) }}
       fromName={canvasColName(canvas, drag.dk)}
       toName={doctors.find((x) => x.id === dk)?.name ?? canvasColName(last, dk)}
       taken={canvasBlocks(cv, dk)} hours={canvasOpenHours(cv, dk)}
-      rooms={rooms.length ? rooms : canvasRooms(last, dk)}
+      rooms={rooms.length ? rooms : picked?.rooms ?? canvasRooms(last, dk)}
       others={canvasOthers(cv, dk)}
       pick={{
         date: at, from: canvas.date, today, doctors,
         pending: cv === null, closed: cv?.empty === true,
-        fail: fail || (lost ? T.offline : ''),
+        fail: fail || (lost ? T.offline : ''), roomSpace,
         onDate: (iso) => { setAt(iso); setFail('') },
         onDoctor: (id) => { setDk(id); setFail('') },
         onPlace: () => setFail(''),

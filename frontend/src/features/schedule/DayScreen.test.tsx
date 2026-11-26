@@ -1085,8 +1085,9 @@ describe('«Mută» окна визита: перенос на другой де
     await openMove()
     expect(document.querySelector('dialog .dp-card-links')).toBeNull()
     expect(dateField().value).toBe('2026-09-23')
-    expect(rows()).toEqual(['Ion Popa', 'Dr. Activ Doi · miercuri, 23.09 · 09:00',
-      'Dr. Activ Doi · miercuri, 23.09 · 09:00'])
+    /* день и час — первыми: строка одна и режется с хвоста */
+    expect(rows()).toEqual(['Ion Popa', 'miercuri, 23.09 · 09:00 · Dr. Activ Doi',
+      'miercuri, 23.09 · 09:00 · Dr. Activ Doi'])
     expect((document.querySelector('dialog .dp-hourpick select') as HTMLSelectElement).value).toBe('09:00')
     expect(yes().disabled).toBe(true)
     /* врачи — из формы сервера (активные), а не из колонок канвы */
@@ -1101,7 +1102,7 @@ describe('«Mută» окна визита: перенос на другой де
     await openMove()
     await pickDate(NEXT_DAY)
     expect(dayGets()[dayGets().length - 1]).toBe(`/schedule/day?date=${NEXT_DAY}`)
-    expect(rows()[2]).toBe('Dr. Activ Doi · joi, 24.09 · 09:00')
+    expect(rows()[2]).toBe('joi, 24.09 · 09:00 · Dr. Activ Doi')
     expect(yes().disabled).toBe(false)
     fireEvent.click(document.querySelectorAll('dialog .dp-minpick .mp')[6] as HTMLElement)
     fireEvent.click(yes())
@@ -1170,7 +1171,7 @@ describe('«Mută» окна визита: перенос на другой де
     await pickDate('2026-09-25')
     fireEvent.change(document.querySelector('dialog select[aria-label="Medic"]') as HTMLElement,
       { target: { value: 'd4' } })
-    expect(rows()[2]).toBe('Dr. Activ Patru · vineri, 25.09 · 09:00')
+    expect(rows()[2]).toBe('vineri, 25.09 · 09:00 · Dr. Activ Patru')
     expect(banners('err')).toEqual(['Medicul nu are program în ziua aleasă.'])
     expect(yes().disabled).toBe(true)
   })
