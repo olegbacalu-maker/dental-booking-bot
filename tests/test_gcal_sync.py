@@ -375,32 +375,60 @@ def _worker(tmpdir: str) -> None:
              {r["cal_id"] for r in sent4.values()}, {r["epoch"] for r in sent4.values()}],
             [before - 1, [], {cal4b}, {1}])
 
-        # ---- права нет: уход будущего, связь хранится; право вернулось ----
-        future = sorted(k for k, v in by_appt(cal4b).items() if v["start"]["dateTime"] >= utc(datetime.now(timezone.utc)))
-        past = sorted(k for k in by_appt(cal4b) if k not in future)
+        # ---- права нет: из календаря уходит всё, связь хранится; право вернулось ----
+        await gdoc.set_level("name", "Director")
+        await gs.run_doctor("d4")
+        window = sorted(by_appt(cal4b))
+        now_s = utc(datetime.now(timezone.utc))
+        future = sorted(k for k, v in by_appt(cal4b).items() if v["start"]["dateTime"] >= now_s)
+        past = sorted(k for k in window if k not in future)
+        erased, anon = future[0], past[0]
+        anon_name = by_appt(cal4b)[anon]["summary"].split(" · ")[0]
+        pid_erased, pid_anon = await db.appt_patient_id(erased), await db.appt_patient_id(anon)
+        epoch0 = (entry("d4") or {}).get("epoch")
+        stray = gwrite.event_id(tag, epoch0, 888888, 0)
+        cals.events[cal4b][stray] = {"id": stray, "status": "confirmed",
+                                     "extendedProperties": {"private": {"dp": tag, "dp_appt": "888888"}}}
         await license({"gcal": 30})
-        g.requests.clear()
-        code = await gs.tick()
-        desc = cals.cals[cal4b]["description"]
-        chk("Premium кончился: будущие события убраны, прошлые остались, описание говорит, что обновление стоит",
-            [code, sorted(by_appt(cal4b)), desc.startswith(gs.DESC_OFF), bool(await db.get_meta(gs.META_PAUSED + "d4"))],
-            [gdoc.A_GATE, past, True, True])
-        chk("связь и ключ хранятся", [gdoc.linked()["d4"]["state"], cal4b in cals.cals], [gdoc.S_ON, True])
+        cals.fail("DELETE", "/calendars/" + quote(cal4b, safe="") + "/events/", 503, {"error": {"code": 503}})
+        await gs.tick()
+        chk("Premium кончился, Google не ответил — уход оборван: события на месте, метки паузы нет, связь хранится",
+            [len(cals.live(cal4b)), await db.get_meta(gs.META_PAUSED + "d4"), gdoc.linked()["d4"]["state"]],
+            [len(window) + 1, None, gdoc.S_ON])
+        gs.BURST = 2
+        ticks = 0
+        while ticks < 30 and await db.get_meta(gs.META_PAUSED + "d4") is None:
+            await gs.tick()
+            ticks += 1
+        gs.BURST = 100
+        chk("оборванный уход доделан следующими проходами: ушло всё — прошлое, будущее и неизвестное таблице",
+            [ticks > 1, cals.live(cal4b), await rows("d4"), cals.cals[cal4b]["description"].startswith(gs.DESC_OFF),
+             (entry("d4") or {}).get("epoch") > epoch0, gdoc.linked()["d4"]["state"], cal4b in cals.cals],
+            [True, {}, {}, True, True, gdoc.S_ON, True])
         g.requests.clear()
         await gs.tick()
         chk("права всё ещё нет — повторно к Google не ходит", g.requests, [])
+        await db.delete_patient_fully(pid_erased)
+        await db.anonymize_patient(pid_anon)
         await license({"gcal": 30, "gcal_doctor": 30})
+        g.requests.clear()
         await gs.tick()
-        chk("право вернулось — будущее снова в календаре, описание прежнее, метки паузы нет",
-            [sorted(by_appt(cal4b)), cals.cals[cal4b]["description"].startswith(gs.DESC_ON),
+        got = by_appt(cal4b)
+        ep = (entry("d4") or {}).get("epoch")
+        chk("право вернулось — окно вставлено заново новой эпохой, без 409; стёртого в паузе нет, обезличенный без "
+            "имени; описание прежнее, метки паузы нет",
+            [sorted(got), all(f"e{ep}a" in v["id"] for v in got.values()), "PUT" in events_calls(),
+             anon_name in got[anon]["summary"], cals.cals[cal4b]["description"].startswith(gs.DESC_ON),
              await db.get_meta(gs.META_PAUSED + "d4")],
-            [sorted(future + past), True, None])
+            [[k for k in window if k != erased], True, False, False, True, None])
         await license({"gcal": 30, "gcal_doctor": 30}, readonly=True)
         await gs.tick()
-        chk("режим чтения — то же, что без права", sorted(by_appt(cal4b)), past)
+        chk("режим чтения — то же, что без права: календарь пуст", cals.live(cal4b), {})
         await license({"gcal": 30, "gcal_doctor": 30})
         await gs.tick()
-        chk("лицензия продлена — всё вернулось", sorted(by_appt(cal4b)), sorted(future + past))
+        chk("лицензия продлена — окно вернулось", sorted(by_appt(cal4b)), [k for k in window if k != erased])
+        await gdoc.set_level("time", "Director")
+        await gs.run_doctor("d4")
 
         # ---- отпуск, архив, врача нет в списке ----
         cfg = json.loads(json.dumps(eng.CONFIG))

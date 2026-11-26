@@ -9,9 +9,9 @@
 - Темп: не больше BURST записей Google на врача за проход и PAUSE_S между ними; хвост догоняет
   следующий проход через CATCHUP_S. Проходы начинаются на LEAD_S раньше SYNC_MINUTES — обещание
   «не дольше SYNC_MINUTES» держится с запасом на сам проход.
-- Права нет (Premium кончился, режим чтения): один проход ухода убирает будущие события и пишет в
-  описании календаря, что обновление остановлено; связь и ключ хранятся, право вернулось — всё
-  вставляется снова.
+- Права нет (Premium кончился, режим чтения): уход убирает из календаря врача все наши события и пишет
+  в описании, что обновление остановлено; связь и ключ хранятся, право вернулось — окно вставляется
+  заново из базы.
 - Врач в архиве или пропал из списка — его календарь удаляется; не вышло — повтор следующим проходом.
 """
 from __future__ import annotations
@@ -42,8 +42,8 @@ META_PAUSED = "gdoc_paused:"              # + dk: проход ухода сде
 
 NOTE = "Modificările — doar în DentPilot."
 DESC_ON = "Programările medicului din DentPilot. Modificările — doar în DentPilot."
-DESC_OFF = ("Actualizarea este oprită: DentPilot Premium nu este activ. Programările viitoare au fost "
-            "scoase din calendar și revin singure după reînnoire.")
+DESC_OFF = ("Actualizarea este oprită: DentPilot Premium nu este activ. Programările au fost scoase din "
+            "calendar și revin singure după reînnoire.")
 
 R_OK, R_MORE, R_PAUSED = "ok", "more", "paused"
 E_FORBIDDEN, E_BAD = "forbidden", "bad_request"
@@ -267,9 +267,10 @@ async def _describe(run: _Run, text: str) -> bool:
     return True
 
 
-async def _rebuild(run: _Run) -> str:
-    """Картотеку восстановили из копии или календарь подхвачен заново: отправленному верить нельзя —
-    удалить все наши события, забыть таблицу, новая эпоха. Вставка — следующим проходом."""
+async def _clear(run: _Run) -> str | None:
+    """Удалить у Google все наши события календаря врача — по списку Google, не по таблице: так уходят и
+    те, о которых таблица не знает. Удалены все — таблица забыта и новая эпоха: «надгробие» прежнего id
+    Google вставить не даст. None — календарь пуст; иначе — код прохода (хвост или отказ)."""
     r = await run.call(gwrite.events_ours, run.a.tag)
     if r is None:
         return _fail(run.dk, run.stop, run.wait)
@@ -297,6 +298,15 @@ async def _rebuild(run: _Run) -> str:
         return _ok(run.dk, len(items) - n, len(items) > BURST, run.skipped)
     await db.gdoc_sent_forget(run.dk)
     await gdoc.bump_epoch(run.dk)
+    return None
+
+
+async def _rebuild(run: _Run) -> str:
+    """Картотеку восстановили из копии или календарь подхвачен заново: отправленному верить нельзя —
+    календарь очищается, вставка — следующим проходом."""
+    code = await _clear(run)
+    if code is not None:
+        return code
     _st(run.dk)["described"] = None
     return _ok(run.dk, 0, True, 0)
 
@@ -347,12 +357,15 @@ async def run_doctor(dk: str) -> str:
 
 
 async def pause_doctor(dk: str) -> str:
-    """Права нет: будущие события врача убираются, описание календаря говорит, что обновление
-    остановлено. Один раз до возвращения права; прошлое остаётся, связь и ключ хранятся."""
+    """Права нет: из календаря врача уходят ВСЕ наши события, и прошлые — стёртого после этого пациента
+    сверка оттуда уже не убрала бы. Описание говорит, что обновление остановлено; связь и ключ хранятся.
+    Метка паузы — только когда календарь пуст: оборванный уход доделывает следующий проход. Право
+    вернулось — окно вставляется заново из базы новой эпохой."""
     async with gdoc.lock(dk):
         if await db.get_meta(META_PAUSED + dk) is not None:
             return R_PAUSED
-        if time.monotonic() < _st(dk)["quiet_until"]:
+        st = _st(dk)
+        if time.monotonic() < st["quiet_until"]:
             return gdoc.A_RATE
         a = await gdoc.access(dk, leave=True, force=True)
         if a.code != gdoc.A_OK:
@@ -360,20 +373,17 @@ async def pause_doctor(dk: str) -> str:
         if len(a.tag) != gwrite.TAG_LEN:
             return _fail(dk, gdoc.A_NO_CLIENT)
         run = _Run(dk, a, await gdoc.level(), leaving=True)
-        await db.gdoc_sent_stale(dk, a.epoch, a.cal_id)
-        if a.rebuild:
-            return await _rebuild(run)
-        now = datetime.now(timezone.utc)
-        acts = sorted(((_order(r["starts_at"], now), "delete", r["appt_id"], r, "")
-                       for r in await db.gdoc_sent_rows(dk)
-                       if r["stamp"] and (r["starts_at"] is None or r["starts_at"] >= now)),
-                      key=lambda act: act[0])
-        n = await _work(run, acts)
-        paused = n == len(acts) and not run.stop and await _describe(run, DESC_OFF)
-        if paused:
-            await db.set_meta(META_PAUSED + dk, _iso(now))
-        got = await _finish(run, a.seq, len(acts) - n, len(acts) > BURST)
-        return R_PAUSED if paused and got == R_OK else got
+        code = await _clear(run)
+        if code is not None:
+            return code
+        await _describe(run, DESC_OFF)
+        if run.stop:
+            return _fail(dk, run.stop, run.wait)
+        # описание не легло по нашей ошибке тела — календарь уже пуст, повтор очистки ничего не даст
+        await db.set_meta(META_PAUSED + dk, _iso(datetime.now(timezone.utc)))
+        st.update(pending=0, backoff=0, quiet_until=0.0)
+        _error(st, "")
+        return R_PAUSED
 
 
 def _gone(dk: str) -> str:
