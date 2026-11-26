@@ -394,7 +394,8 @@ def _copy(dst: pathlib.Path) -> pathlib.Path:
 
 
 def _run(cloud: pathlib.Path, suites: list) -> tuple[int, str]:
-    env = dict(os.environ, PYTHONUTF8="1")
+    # .pyc сверяет исходник лишь по секунде mtime и размеру: мутация той же длины в ту же секунду исполнила бы прошлую
+    env = dict(os.environ, PYTHONUTF8="1", PYTHONDONTWRITEBYTECODE="1")
     p = subprocess.run([sys.executable, "-c", RUNNER, *suites], cwd=str(cloud), env=env, capture_output=True,
                        text=True, encoding="utf-8", errors="replace", timeout=900)
     return p.returncode, p.stdout + p.stderr
