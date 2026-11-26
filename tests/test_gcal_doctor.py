@@ -250,8 +250,9 @@ def suite_link(res: Result) -> None:
             r = c.post_json(f"/api/gdoc/{D2}/connect", {})
             res.check("живую связь «Conectează» не перезаписывает", (r.status, r.msg), (409, "gd_on"))
             r = c.post_json(f"/api/gdoc/{D2}/check", {})
-            res.check("«Sincronizează acum» без цикла сверки — «продолжится в фоне»",
-                      [r.status, r.msg, (_j(r)["data"]["view"] or {}).get("state")], [200, "gd_check_late", "on"])
+            # Живой сервер поднимает цикл сверки сам; «продолжится в фоне» держит набор работника.
+            res.check("«Sincronizează acum» с циклом сверки — проход дошёл, «actualizat»",
+                      [r.status, r.msg, (_j(r)["data"]["view"] or {}).get("state")], [200, "gd_checked", "on"])
             lst = (_j(c.get("/api/gdoc")).get("data") or {})
             res.check("плашки списка: врач подключён, у прочих — off",
                       [(lst["doctors"].get(D2) or {}).get("state"), (lst["doctors"].get("d3") or {}).get("state"),
