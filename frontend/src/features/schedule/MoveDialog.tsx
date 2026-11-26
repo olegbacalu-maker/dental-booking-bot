@@ -193,7 +193,7 @@ export function MoveDialog({ open, drag, target, fromName, toName, taken, rooms 
         {many ? <RoomSelect rooms={rooms} value={room} onPick={pickRoom} /> : null}
         {/* у врача без выбора кабинета поле стоит выключенным и называет его кабинет */}
         {!many && pick?.roomSpace ? (
-          <label className="dlab dp-hourpick dp-roompick">{T.room}
+          <label className="dlab dp-hourpick dp-roompick mv-idle">{T.room}
             <select disabled><option>{rooms[0]?.name || T.noRoom}</option></select>
           </label>
         ) : null}

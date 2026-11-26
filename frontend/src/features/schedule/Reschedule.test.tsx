@@ -125,6 +125,7 @@ describe('«Mută» окна визита: кабинеты', () => {
     expect(roomSel()?.disabled).toBe(true)
     expect(roomSel()?.textContent).toBe('—')
     expect(document.querySelectorAll('dialog .dp-roompick')).toHaveLength(1)
+    expect(document.querySelector('dialog .dp-roompick.mv-idle')).toBeTruthy()
     expect(Array.from(document.querySelectorAll('dialog .mv-rows b')).map((x) => x.textContent)[2])
       .toBe('miercuri, 23.09 · 09:00 · Dr. Ana')
     fireEvent.click(yes())
@@ -133,6 +134,7 @@ describe('«Mută» окна визита: кабинеты', () => {
     fireEvent.change(document.querySelector('dialog select[aria-label="Medic"]') as HTMLElement, { target: { value: 'd2' } })
     expect(roomSel()?.disabled).toBe(false)
     expect(document.querySelectorAll('dialog .dp-roompick')).toHaveLength(1)
+    expect(document.querySelector('dialog .dp-roompick.mv-idle')).toBeNull()
   })
 
   it('врач с одним кабинетом: выключенное поле называет его кабинет', async () => {

@@ -830,6 +830,8 @@ dialog.dp-plan-dlg .pd-note { margin-top: -4px; min-height: 1lh; font-size: var(
 .dp-react-root .mv-say > .mv-say-room { visibility: hidden; }
 .dp-react-root .mv-say > .banner:not(.mv-say-room) { position: absolute; inset: 0 0 auto; max-height: 100%; overflow-y: auto; }
 .dp-react-root .mv-rows.mv-fix > div > span { flex: none; }
+/* поле кабинета без выбора — приглушённое: видно, что нажимать нечего */
+.dp-react-root .dlg-form .mv-idle select { color: var(--text3); background: var(--fill); cursor: default; }
 .dp-react-root .mv-rows.mv-fix b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* тихая текстовая кнопка: «Renunță», «Nu a venit», «Anulează» */
 .dp-react-root .dlg-form .dp-card-quiet, .dp-react-root .dp-card-neg .dp-card-quiet,
