@@ -642,7 +642,7 @@ def suite_live(res: Result) -> None:
 def suite_move_day(res: Result) -> None:
     """Перенос на ДРУГОЙ день (и часа внутри дня): ключ напоминания — от нового начала, про
     прежнее пациенту не пишут — ни до отправки, ни из очереди, ни повтором; новое встаёт в
-    очередь по правилу окна.
+    очередь по правилу окна. Колокольчик дня горит только по напоминанию про нынешнее начало.
 
     Клиника открыта всю неделю, поэтому окно «накануне» — вчерашний день визита с 10:00.
     """
@@ -669,6 +669,10 @@ def suite_move_day(res: Result) -> None:
                     return c.post_json(f"/api/schedule/appointments/{aid}/move?date={screen}",
                                        {"date": day, "time": hhmm, "doctor": "d2"}).msg
 
+                def bell(day: str, name: str) -> tuple:
+                    row = next(r for r in day_model(c, day)["list"] if r["name"] == name)
+                    return row["reminded"], row["reminded_sms"]
+
                 add_appt(c, "2026-11-11", "12:00", "Mv Alfa", "069000111")
                 add_appt(c, "2026-11-10", "12:00", "Mv Beta", "069000222")
                 a_id, b_id = appt_id(c, "2026-11-11", "Mv Alfa"), appt_id(c, "2026-11-10", "Mv Beta")
@@ -685,9 +689,13 @@ def suite_move_day(res: Result) -> None:
                 clock.set(_at(*tue, 10, 0, 30))
                 a_old = key(a_id, "2026-11-11T10:00:00Z")
                 res.ok("A: накануне среды SMS ушла", _wait(lambda: a_old in idems()), repr(idems()))
+                res.ok("колокольчик A горит и назван SMS", _wait(lambda: bell("2026-11-11", "Mv Alfa") == (True, True)),
+                       repr(bell("2026-11-11", "Mv Alfa")))
                 res.check("A со среды на пятницу 13:00", move(a_id, "2026-11-11", "2026-11-13", "13:00"), "ok_move")
                 time.sleep(1.2)
                 res.check("сразу после переноса новой SMS нет — её окно четверг", idems(), [a_old])
+                res.check("колокольчик перенесённой A погас: про новый день пациенту не писали",
+                          bell("2026-11-13", "Mv Alfa"), (False, False))
 
                 # напоминание стоит в очереди (сервер молчит) — перенос его снимает
                 stand.send_mode = "down"
@@ -726,6 +734,9 @@ def suite_move_day(res: Result) -> None:
                        g_old not in stand._by_idem and e_old not in stand._by_idem
                        and not any(r["idem"] in (g_old, e_old) for r in _sms_log(d)),
                        repr(([r["idem"] for r in _sms_log(d)], list(stand._by_idem))))
+                res.check("колокольчик: у D горит (про 17:30 написали), у перенесённой C — нет",
+                          (bell("2026-11-11", "Mv Delta"), bell("2026-11-12", "Mv Gamma")),
+                          ((True, True), (False, False)))
 
                 # среда: накануне четверга — B и C по новым ключам, с новым днём в тексте
                 clock.set(_at(*wed, 10, 0, 30))
@@ -749,6 +760,8 @@ def suite_move_day(res: Result) -> None:
                 res.check("прежнее напоминание A ушло один раз", idems().count(a_old), 1)
                 res.check("про прежние дни принято сервером только оно",
                           sorted(set(stand._by_idem) - {a_new, b_new, g_new, e_new}), [a_old])
+                res.ok("колокольчик A снова горит: написали про пятницу",
+                       _wait(lambda: bell("2026-11-13", "Mv Alfa") == (True, True)), repr(bell("2026-11-13", "Mv Alfa")))
     finally:
         stand.close()
         _rmtree_settled(d)

@@ -313,7 +313,9 @@ async def day_appointments(day_start: datetime, day_end: datetime) -> list:
     # has_rec — «консультация записана»: не дата, в _DT_COLS ему не место
     # sms_sent — SMS-напоминание принято сервером или доставлено (S5): второй
     # источник колокольчика «Reminder trimis» рядом с reminded_day (флаг
-    # удалённого Telegram-бота у старых визитов)
+    # удалённого Telegram-бота у старых визитов). Считается только строка про
+    # НЫНЕШНЕЕ начало визита — ключ тот же, что строит `sms_plan.idem`: после
+    # переноса SMS про прежний день не значит «пациенту сказали про этот»
     # call_result — отметка звонка-подтверждения (`appt_calls`, 03.10): по ней
     # «programată» становится «confirmată» в повестке и списке дня. Ключ
     # первичный — строк не размножает. ⚠️ Не `AS call`: в стандарте SQL это слово занято.
@@ -335,7 +337,9 @@ async def day_appointments(day_start: datetime, day_end: datetime) -> list:
                   p.name, p.phone, p.birth_year,
                   (vr.id IS NOT NULL) AS has_rec, ac.result AS call_result,
                   EXISTS(SELECT 1 FROM sms_log s WHERE s.appt_id = a.id
-                         AND s.state IN """ + _SMS_REMINDED_SQL + """) AS sms_sent
+                         AND s.state IN """ + _SMS_REMINDED_SQL + """
+                         AND s.idem = 'appt:' || a.id || ':' || s.kind || ':'
+                                      || strftime('%Y-%m-%dT%H:%M:%SZ', a.starts_at)) AS sms_sent
            FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id
                 LEFT JOIN visit_records vr ON vr.appointment_id = a.id
                 LEFT JOIN appt_calls ac ON ac.appointment_id = a.id
