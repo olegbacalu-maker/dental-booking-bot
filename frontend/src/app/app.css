@@ -822,6 +822,11 @@ dialog.dp-plan-dlg .pd-note { margin-top: -4px; min-height: 1lh; font-size: var(
 .dp-react-root .dlg-form .dp-card-chip:disabled { opacity: .5; cursor: default; }
 .dp-react-root .dp-card-chip svg { width: 15px; height: 15px; flex: none; }
 .dp-react-root .dp-card-links { display: flex; flex-wrap: wrap; gap: 8px; }
+/* окно «Mută» из визита: место под слово (помеха, прошедший день, отказ) занято всегда —
+   невидимая плашка лежит в той же ячейке, что настоящая */
+.dp-react-root .mv-say { display: grid; }
+.dp-react-root .mv-say > * { grid-area: 1 / 1; align-self: start; margin-bottom: 0; }
+.dp-react-root .mv-say > .mv-say-room { visibility: hidden; }
 /* тихая текстовая кнопка: «Renunță», «Nu a venit», «Anulează» */
 .dp-react-root .dlg-form .dp-card-quiet, .dp-react-root .dp-card-neg .dp-card-quiet,
 .dp-react-root .dlg-form .dp-card-quiet:hover, .dp-react-root .dp-card-neg .dp-card-quiet:hover {

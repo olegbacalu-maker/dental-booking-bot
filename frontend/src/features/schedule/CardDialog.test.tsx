@@ -68,6 +68,7 @@ interface ShowOpts {
   onStatus?: (to: string) => Promise<boolean>
   onComment?: (text: string) => Promise<boolean>
   onCall?: (result: '' | 'ok' | 'noanswer') => Promise<boolean>
+  onMove?: () => void
   busy?: boolean
 }
 
@@ -77,7 +78,8 @@ function show(c: VisitCardView, o: ShowOpts = {}) {
     onComment={o.onComment ?? ok} onStatus={o.onStatus ?? ok}
     {...(o.onService ? { onService: o.onService } : {})}
     {...(o.onDuration ? { onDuration: o.onDuration } : {})}
-    {...(o.onCall ? { onCall: o.onCall } : {})} />)
+    {...(o.onCall ? { onCall: o.onCall } : {})}
+    {...(o.onMove ? { onMove: o.onMove } : {})} />)
 }
 
 const q = (sel: string) => document.querySelector(sel)
@@ -181,6 +183,32 @@ describe('окно визита: факты, ссылки, звонок, ком�
     expect(Array.from(document.querySelectorAll('dialog .dp-card-links a.dp-card-chip'))
       .map((a) => [a.getAttribute('href'), a.textContent?.trim()]))
       .toEqual([['/admin/patient/7', 'Fișa pacientului'], ['/admin/visit/1?back=%2Fadmin%2Fall', 'Completează consultația']])
+  })
+
+  it('«Mută» — чип рядом со ссылками, только когда экран дал перенос; у надгробия — нет, в полёте — заперт', () => {
+    const moveBtn = () => q('dialog .dp-card-links button.dp-card-move') as HTMLButtonElement | null
+    show(card())
+    expect(moveBtn()).toBeNull()
+    cleanup()
+
+    const onMove = vi.fn()
+    show(card(), { onMove })
+    expect(texts('dialog .dp-card-links > *')).toEqual(['Fișa pacientului', 'Completează consultația', 'Mută'])
+    fireEvent.click(moveBtn()!)
+    expect(onMove).toHaveBeenCalledTimes(1)
+    cleanup()
+
+    /* запись без фиши: ссылок нет, а перенести её можно */
+    show(card({ pid: null }), { onMove })
+    expect(texts('dialog .dp-card-links > *')).toEqual(['Mută'])
+    cleanup()
+
+    show(card(), { onMove, note: 'Programarea nu mai există.' })
+    expect(moveBtn()).toBeNull()
+    cleanup()
+
+    show(card(), { onMove, busy: true })
+    expect(moveBtn()?.disabled).toBe(true)
   })
 
   it('дневник заполнен — «Consultația»; без пациента — ссылок нет вовсе', () => {

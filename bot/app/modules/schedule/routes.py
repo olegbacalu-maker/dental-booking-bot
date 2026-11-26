@@ -725,16 +725,21 @@ async def _set_comment(appt_id: int, comment: str) -> str:
 
 
 async def _move_appt(appt_id: int, mdate: str, mtime: str, mdoctor: str,
-                     mroom: str = "", keep_sms_skip: bool = False) -> str:
-    """Перенос визита перетаскиванием: другой час и/или другой врач.
+                     mroom: str = "", keep_sms_skip: bool = False,
+                     warn_past: bool = False) -> str:
+    """Перенос визита: другой день, час, врач или кабинет (перетаскивание и окно «Mută»).
 
     ⚠️ Проверки те же, что у ручной записи, и по той же причине: перетащить —
     это назначить визит на новое место, а не «подвинуть картинку». Браузер
     отказывается класть блок в закрытую ячейку ещё до отправки, но верить ему
     нельзя: вкладка живёт долго (панель опрашивает канал раз в 12 с), а часы
     клиники и график врача меняются на другом экране.
-    ⛔ Прошлое здесь НЕ проверяется, и это намеренно: визит уже существует, а
+    Прошлое здесь НЕ запрещается, и это намеренно: визит уже существует, а
     перенос на утро того же дня — обычная работа регистратуры.
+    `warn_past` — дверь, где день набирает человек: перенос на ДРУГОЙ, уже закрытый
+    день проходит, но отвечает `ok_move_past` (чаще всего это опечатка в дате, а
+    запись после неё уходит с экрана). Граница дневная, как у `_book_appt`; перенос
+    внутри того же прошедшего дня молчит — его видят на экране.
     """
     try:
         d = date.fromisoformat(mdate)
@@ -753,10 +758,15 @@ async def _move_appt(appt_id: int, mdate: str, mtime: str, mdoctor: str,
     if mroom and not eng.room_allowed(mdoctor, mroom):
         return "bad_room"
     plan = eng.room_plan(mdoctor)
+    # летопись читают без журнала под рукой: другой день назван датой, а не одним часом
+    other_day = cur is not None and cur["starts_at"].astimezone(eng.TZ).date() != d
     code = await db.move_appointment(appt_id, mdoctor, doctor, dt,
-                                     when=dt.strftime("%H:%M"),
+                                     when=dt.strftime("%d.%m.%Y %H:%M" if other_day else "%H:%M"),
                                      rooms=plan, room=mroom or None,
                                      keep_sms_skip=keep_sms_skip)
+    # предупреждение о прошедшем дне важнее занятого кабинета — как у записи
+    if not code and warn_past and other_day and eng.is_past_day(d):
+        return "ok_move_past"
     if not code and await db.appt_room_busy(appt_id, plan):
         return "room_busy"
     return {"": "ok_move", "gone": "mv_gone",

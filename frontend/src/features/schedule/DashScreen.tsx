@@ -18,10 +18,11 @@ import { DashCanvas } from './DashCanvas'
 import { DashRail } from './DashRail'
 import { MoveDialog } from './MoveDialog'
 import { NoteDialog } from './NoteDialog'
+import { Reschedule } from './Reschedule'
 import { SlotDialog } from './SlotDialog'
 import { clinicNow, clinicTz, useClockTick } from './dashFx'
 import {
-  canvasAppt, canvasBlocks, canvasColName, canvasNote, canvasOpenHours, canvasOthers, canvasRooms,
+  canvasAppt, canvasBlocks, canvasColName, canvasDrag, canvasNote, canvasOpenHours, canvasOthers, canvasRooms,
   canvasRoomsOf, controlSlot, dash, livePath,
   type DashAppt, type DashModel, type DashNote,
 } from './dash'
@@ -81,6 +82,8 @@ const T = {
   down: 'Programul nu răspunde. Reîncercăm automat…',
   stopped: 'Panoul nu se mai actualizează singur. Reîncercăm automat…',
   reload: 'Reîncarcă',
+  // запись ушла с экрана на другой день — те же слова, что у окна «Programare nouă»
+  see: 'Vezi în jurnal ›',
 } as const
 
 /* Автоповтор упавшего канала. Короче периода опроса (12 с) намеренно: человек
@@ -159,6 +162,8 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
   const [drag, setDrag] = useState<Drag | null>(null)
   const [hover, setHover] = useState('')
   const [move, setMove] = useState<{ drag: Drag; target: Target } | null>(null)
+  /* «Mută» окна визита: запись, снятая с канвы в момент нажатия */
+  const [resched, setResched] = useState<Drag | null>(null)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [busy, setBusy] = useState(false)
   /* ⛔ Признак «команда в полёте» ставится СИНХРОННО, рефом, и предикат
@@ -219,6 +224,7 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
       setNote(null)
       setSlot(null)
       setMove(null)
+      setResched(null)
     }
   }
 
@@ -304,6 +310,7 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
   const noteL = useLingering(note)
   const slotL = useLingering(slot)
   const moveL = useLingering(move)
+  const reschedL = useLingering(resched)
   /* ⛔ Смотрит на ЖИВОЕ состояние (`card`, а не `cardL.shown`): закрытое окно
      гаснет со снимком открытия. Иначе запись, отменённая самим этим окном,
      приехала бы каналом за ступень затухания — и уходящее окно успело бы
@@ -522,7 +529,9 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
           rooms={canvasRoomsOf(d.canvas, cardL.shown.id)}
           {...((qc) => (qc && !gone ? { onControl: () => { setCard(null); setSlot(qc) } } : {}))(
             controlSlot(d.canvas, cardL.shown.id, openCard.time))}
-          onRoom={(room, fail) => act(() => dash.room(d.date, cardL.shown!.id, room), fail)} />
+          onRoom={(room, fail) => act(() => dash.room(d.date, cardL.shown!.id, room), fail)}
+          {...((what) => (what && !gone ? { onMove: () => { setCard(null); setResched(what) } } : {}))(
+            canvasDrag(d.canvas, cardL.shown.id))} />
       )}
       {noteL.shown !== null && openNote && (
         /* ⛔ Кнопка приходит С СЕРВЕРА по состоянию заметки — той же матрицей,
@@ -577,6 +586,21 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
             setMove(null)
             void act(() => dash.move(d.date, what.id,
               { date: d.date, time: hhmm(min), doctor: to.dk, ...(room ? { room } : {}) }))
+          }} />
+      )}
+      {reschedL.shown && (
+        /* в отличие от броска окно ждёт ответа: отказ («ocupat», «în afara programului»)
+           печатается в нём словами сервера, выбранные день и час остаются */
+        <Reschedule key={reschedL.shown.id} open={!reschedL.leaving} drag={reschedL.shown}
+          canvas={d.canvas} step={d.slotform.step} today={d.slotform.birth_max} busy={busy}
+          onClose={() => setResched(null)}
+          onMove={async (body, fail) => {
+            const ok = await act(() => dash.move(d.date, reschedL.shown!.id, body), fail)
+            /* запись ушла с этого дня: плашка ведёт туда, где она теперь */
+            if (ok && body.date !== d.date) {
+              setToast((t) => t && { ...t, link: { href: `/admin?date=${body.date}`, label: T.see } })
+            }
+            return ok
           }} />
       )}
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}

@@ -19,7 +19,7 @@ import type { ServerNotice } from '../../components/Notice'
 import { api } from '../../services/api'
 import type { FormService, NewAppt, NewNote, NoteView, VisitCardView } from './day'
 import type { CallResult, Desk } from './desk'
-import { CONTROL, type Occupies, type Room } from './move'
+import { CONTROL, dragOf, type Drag, type Occupies, type Room } from './move'
 import type { Slot, SlotFormView } from './slot'
 
 /** Полоска «закрыто» вместо срезанных крайних часов. */
@@ -348,6 +348,14 @@ export function canvasBlock(c: DashCanvasModel | null | undefined, id: number): 
     for (const b of col.blocks) if (b.id === id) return b
   }
   return null
+}
+
+/** Что переносит окно «Mută» визита `id` — то же, что сняло бы перетаскивание;
+ *  `null` — запись закрыта, стоит в колонке без врача или её нет на канве. */
+export function canvasDrag(c: DashCanvasModel | null | undefined, id: number): Drag | null {
+  const col = canvasColOf(c, id)
+  const b = col?.blocks.find((x) => x.id === id)
+  return col?.id && b && b.kind === 'appt' ? dragOf(b, col.id) : null
 }
 
 export function canvasAppt(c: DashCanvasModel | null | undefined, id: number): DashAppt | null {

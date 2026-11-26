@@ -20,8 +20,9 @@ import { DayList } from './DayList'
 import { CalButton } from './MiniCal'
 import { MoveDialog } from './MoveDialog'
 import { NoteDialog } from './NoteDialog'
+import { Reschedule } from './Reschedule'
 import { SlotDialog } from './SlotDialog'
-import { canvasBlocks, canvasColName, canvasNote, canvasOpenHours, canvasOthers, canvasRooms,
+import { canvasBlocks, canvasColName, canvasDrag, canvasNote, canvasOpenHours, canvasOthers, canvasRooms,
   canvasRoomsOf, controlSlot, type DashNote } from './dash'
 import { useClockTick } from './dashFx'
 import { useLingering, useOpening } from '../../utils/motion'
@@ -76,6 +77,8 @@ const T = {
      то же, что у панели дня. */
   noteGone: 'Notița nu mai există.',
   offline: 'Programul nu răspunde. Reîncercați.',
+  // запись ушла с экрана на другой день — те же слова, что у окна «Programare nouă»
+  see: 'Vezi în jurnal ›',
 } as const
 
 /* Два разных периода, как и у панели дня: линия «сейчас» — раз в 30 с,
@@ -135,6 +138,8 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
   const [drag, setDrag] = useState<Drag | null>(null)
   const [hover, setHover] = useState('')
   const [move, setMove] = useState<{ drag: Drag; target: Target } | null>(null)
+  /* «Mută» окна визита: запись, снятая с канвы в момент нажатия */
+  const [resched, setResched] = useState<Drag | null>(null)
   const closeToast = useCallback(() => setToast(null), [])
   /* Рельса у этого экрана нет: сетка тянется по окну (`useFitGrid`). */
   const noRail = useRef<HTMLDivElement | null>(null)
@@ -193,6 +198,7 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
   const noteL = useLingering(note)
   const slotL = useLingering(slot)
   const moveL = useLingering(move)
+  const reschedL = useLingering(resched)
   const addL = useLingering(loc.hash === ADD_HASH && state.status === 'ready' && state.data.form ? true : null)
   /* уходящее окно и меню гаснут с тем, что было при открытии: ответ команды
      несёт новый день раньше, чем окно закроется, и кнопки сменились бы на глазах */
@@ -264,7 +270,7 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
 
   return (
     <section className="dp-react-root">
-      {toast ? <Toast tone={toast.tone} text={toast.text} onClose={closeToast} /> : null}
+      {toast ? <Toast {...toast} onClose={closeToast} /> : null}
       {/* Инструменты дня по макету (08.10, промпт 2): врач, стрелки на день,
           «Azi», сегмент «Zi | Săptămâna», «Excel». «Panou» и «±7 zile» сняты —
           меню и стрелки их дублируют. Выбор врача — адресом: день одного врача
@@ -387,7 +393,9 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
                       {...((qc) => (qc ? { onControl: () => { setCard(null); setSlot(qc) } } : {}))(
                         controlSlot(m.canvas, cardL.shown, openCard.time))}
                       onRoom={(room, fail) =>
-                        act(() => day.room(at, doctor, tile, cardL.shown!, room), fail)} />
+                        act(() => day.room(at, doctor, tile, cardL.shown!, room), fail)}
+                      {...((d) => (d ? { onMove: () => { setCard(null); setResched(d) } } : {}))(
+                        canvasDrag(m.canvas, cardL.shown))} />
         : null}
 
       {noteL.shown !== null && shownNote
@@ -416,6 +424,20 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
                         setMove(null)
                         void act(() => day.move(at, doctor, tile, d.id,
                           { date: m.date, time: hhmm(min), doctor: t.dk, ...(room ? { room } : {}) }))
+                      }} />
+        : null}
+
+      {reschedL.shown
+        ? <Reschedule key={reschedL.shown.id} open={!reschedL.leaving} drag={reschedL.shown}
+                      canvas={m.canvas} step={m.form?.step} today={m.form?.birth_max ?? ''} busy={busy}
+                      onClose={() => setResched(null)}
+                      onMove={async (body, fail) => {
+                        const ok = await act(() => day.move(at, doctor, tile, reschedL.shown!.id, body), fail)
+                        /* запись ушла с этого дня: плашка ведёт туда, где она теперь */
+                        if (ok && body.date !== m.date) {
+                          setToast((t) => t && { ...t, link: { href: `${base}?date=${body.date}`, label: T.see } })
+                        }
+                        return ok
                       }} />
         : null}
     </section>

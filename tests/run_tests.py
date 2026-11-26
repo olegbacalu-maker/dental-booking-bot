@@ -561,6 +561,7 @@ SUITES = [
     ("День: модель для диалогов (C25.5b)", test_day_actions.suite_model),
     ("День: действия через JSON", test_day_actions.suite_actions),
     ("День: отказы называют себя кодом", test_day_actions.suite_parity),
+    ("День: перенос на другой день (окно «Mută»)", test_day_actions.suite_move_day),
     ("Пародонтограмма: JSON API осмотров", test_perio_api.suite_api),
     ("Пародонтограмма: узел React экрана", test_perio_api.suite_switch),
     ("Пародонтограмма: дата осмотра в зоне клиники", test_perio_api.suite_day),

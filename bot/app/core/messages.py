@@ -95,6 +95,8 @@ MSG_BANNER = {
                         f"{eng.START_STEP} minute (ex. 10:00, 10:05, 10:10)"),
     "ok_note": ("ok", "Notiță adăugată — ora este blocată"),
     "ok_move": ("ok", "Programare mutată"),
+    "ok_move_past": ("warn", "Programare mutată — atenție: este pe o zi trecută. "
+                             "Verificați data dacă nu ați vrut asta"),
     # ⚠️ Оба отказа переноса говорят, ЧТО делать дальше. Перетаскивают с
     # открытого журнала, а он живёт с автообновлением: пока тянули, соседняя
     # вкладка могла и отменить визит, и завершить его.

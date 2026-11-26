@@ -64,6 +64,8 @@ const T = {
   durKept: (n: number) => `Durata rămâne ${n} min — aleasă manual.`,
   room: 'Cabinet',
   roomChange: 'Schimbă cabinetul',
+  move: 'Mută',
+  moveHint: 'Mută programarea: altă zi, oră, medic sau cabinet',
   close: 'Închide',
 } as const
 
@@ -115,12 +117,16 @@ interface Props {
   onRoom?: (room: string, fail: (text: string) => void) => Promise<boolean>
   /** «+ Control în paralel» — окно часа этой записи в полосе Control её врача. */
   onControl?: () => void
+  /** «Mută» — окно переноса на другой день, час, врача или кабинет. Экран даёт
+   *  его только записи, которую можно и перетащить: закрытая остаётся без кнопки. */
+  onMove?: () => void
 }
 
 const NO_ROOMS: readonly Room[] = []
 
 export function CardDialog({ open, id, card, actions, note = '', back, busy,
-  onClose, onComment, onStatus, onCall, onService, onDuration, rooms = NO_ROOMS, onRoom, onControl }: Props) {
+  onClose, onComment, onStatus, onCall, onService, onDuration, rooms = NO_ROOMS, onRoom, onControl,
+  onMove }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
   /* Черновик и то, чем его засеяли, — ОДНИМ состоянием: «тронут ли» решается
      сравнением этих двух, и оба нужны на рендере (кнопка сохранения), где
@@ -155,6 +161,7 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
   const roomShown = rooms.length > 1 && !!card.room
   const roomEdit = roomShown && !!onRoom && !note && card.service_edit
   const svcAsk = (!!onService || !!onDuration) && !note && card.service_edit
+  const canMove = !!onMove && !note
   /* ⭐ Черновик держит СЕБЯ, а не экран (C26.5.3-b). Пока его не трогали —
      приехавшее значение пересевает поле, и правка со второго рабочего места
      видна сразу. Тронули — поле остаётся, а канва под диалогом продолжает
@@ -373,15 +380,25 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
             </form>
           )}
         </div>
-        {card.pid ? (
+        {card.pid || canMove ? (
           <div className="dp-card-links">
-            <AppLink className="dp-card-link dp-card-chip" href={`/admin/patient/${card.pid}`}>
-              <Icon name="id" /> {T.fisa}
-            </AppLink>
-            <AppLink className="dp-card-link dp-card-chip"
-               href={`/admin/visit/${id}?back=${encodeURIComponent(back)}`}>
-              <Icon name="med" /> {card.rec ? T.visitOld : T.visitNew}
-            </AppLink>
+            {card.pid ? (
+              <>
+                <AppLink className="dp-card-link dp-card-chip" href={`/admin/patient/${card.pid}`}>
+                  <Icon name="id" /> {T.fisa}
+                </AppLink>
+                <AppLink className="dp-card-link dp-card-chip"
+                   href={`/admin/visit/${id}?back=${encodeURIComponent(back)}`}>
+                  <Icon name="med" /> {card.rec ? T.visitOld : T.visitNew}
+                </AppLink>
+              </>
+            ) : null}
+            {canMove ? (
+              <button type="button" className="dp-card-chip dp-card-move" disabled={busy}
+                      title={T.moveHint} onClick={onMove}>
+                <Icon name="cal" /> {T.move}
+              </button>
+            ) : null}
           </div>
         ) : null}
         {card.callable && onCall && !note && (

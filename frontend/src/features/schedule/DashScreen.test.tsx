@@ -1323,6 +1323,83 @@ describe('C26.5.3-f: перенос перетаскиванием', () => {
   })
 })
 
+/* «Mută» окна визита на панели: день и врача выбирают в окне, канва выбранного
+   дня спрашивается у журнала (`/schedule/day`), команда — та же `…/move` без
+   состояния. В отличие от броска окно ждёт ответа: отказ печатается в нём. */
+describe('«Mută» окна визита: перенос на другой день', () => {
+  const NEXT_DAY = shift(TODAY, 2)
+  const dayModel = (date: string) => ({ date, canvas: { ...model().canvas, date,
+    columns: model().canvas.columns.map((c) => ({ ...c, blocks: [] })) },
+  form: { doctors: [{ id: 'd2', name: 'Dr. Ion', spec: '' }] } })
+  const stub = (move: () => Response) => {
+    const f = vi.fn(async (url: string) => {
+      const u = String(url)
+      if (u.includes('/move')) return move()
+      if (u.includes('/schedule/day')) return reply(200, dayModel(/date=([0-9-]+)/.exec(u)?.[1] ?? TODAY))
+      return reply(200, model())
+    })
+    vi.stubGlobal('fetch', f as unknown as typeof fetch)
+    return f
+  }
+  const yes = () => document.querySelectorAll('dialog .mv-act button')[1] as HTMLButtonElement
+  const openMove = async () => {
+    await show()
+    fireEvent.click(document.querySelector('[data-appt="1"]') as HTMLElement)
+    await waitFor(() => expect(document.querySelector('dialog .dp-card-move')).toBeTruthy())
+    fireEvent.click(document.querySelector('dialog .dp-card-move') as HTMLElement)
+    await waitFor(() => expect(document.querySelector('dialog .mv-rows')).toBeTruthy())
+  }
+  const pickDate = async (iso: string) => {
+    fireEvent.change(document.querySelector('dialog input[type="date"]') as HTMLElement, { target: { value: iso } })
+    await waitFor(() => expect(document.querySelector('dialog .dlg-form')?.getAttribute('aria-busy')).toBeNull())
+  }
+
+  it('команда уходит с датой окна, состояние приезжает каналом, плашка ведёт в новый день', async () => {
+    const f = stub(() => cmdReply('ok_move', 'Programare mutată'))
+    await openMove()
+    expect(yes().disabled).toBe(true)
+    await pickDate(NEXT_DAY)
+    expect(f.mock.calls.some((c) => String(c[0]) === `/api/schedule/day?date=${NEXT_DAY}`)).toBe(true)
+    fireEvent.click(yes())
+
+    await waitFor(() => expect(f.mock.calls.some((c) => String(c[0]).includes('/move'))).toBe(true))
+    const call = f.mock.calls.find((c) => String(c[0]).includes('/move'))!
+    expect(String(call[0])).toBe(`/api/schedule/appointments/1/move?screen=panel&date=${TODAY}`)
+    expect(bodyOf(call)).toEqual({ date: NEXT_DAY, time: '09:00', doctor: 'd2' })
+    await waitFor(() => expect(document.querySelector('dialog')).toBeNull())
+    expect(String(f.mock.calls[f.mock.calls.length - 1]![0])).toContain('/schedule/live')
+    const toast = document.querySelector('.toastbox') as HTMLElement
+    expect(toast.textContent).toContain('Programare mutată')
+    expect(toast.querySelector('a')?.getAttribute('href')).toBe(`/admin?date=${NEXT_DAY}`)
+  })
+
+  it('отказ сервера — словами в окне, окно остаётся; канал всё равно спрошен', async () => {
+    const f = stub(() => cmdReply('conflict', 'Intervalul este deja ocupat la acest medic', 409))
+    await openMove()
+    await pickDate(NEXT_DAY)
+    const before = f.mock.calls.filter((c) => String(c[0]).includes('/schedule/live')).length
+    fireEvent.click(yes())
+    await waitFor(() => expect(document.querySelector('dialog .banner.err')?.textContent)
+      .toBe('Intervalul este deja ocupat la acest medic'))
+    expect(document.querySelector('dialog .mv-rows')).toBeTruthy()
+    expect(document.querySelector('.toastbox')).toBeNull()
+    await waitFor(() => expect(
+      f.mock.calls.filter((c) => String(c[0]).includes('/schedule/live')).length).toBeGreaterThan(before))
+  })
+
+  it('у надгробия и у закрытой записи кнопки «Mută» нет', async () => {
+    const closed = model()
+    const b = closed.canvas.columns[0]!.blocks[0] as DashAppt
+    Object.assign(b, { status: 'done', movable: false, busy: false })
+    closed.actions = { ...closed.actions, done: [{ to: 'confirmed', cls: 'b-reopen', label: 'Redeschide', confirm: '' }] }
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, closed)) as unknown as typeof fetch)
+    await show()
+    fireEvent.click(document.querySelector('[data-appt="1"]') as HTMLElement)
+    await waitFor(() => expect(document.querySelector('dialog .dp-card-links')).toBeTruthy())
+    expect(document.querySelector('dialog .dp-card-move')).toBeNull()
+  })
+})
+
 describe('C26.5.4: подсветка приехавшей записи', () => {
   const NEW_BLOCK = {
     kind: 'appt' as const, id: 2, time: '10:00', min: 600, dur: 60, busy: true,

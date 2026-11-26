@@ -1037,6 +1037,191 @@ describe('карточка визита', () => {
   })
 })
 
+/* «Mută» окна визита: то же окно переноса, но день и врача выбирают в нём.
+   Канву выбранного дня окно спрашивает тем же `GET /schedule/day` (общий день,
+   без врача); первый кадр — по канве экрана. «Сегодня» фикстуры — 19.09
+   (`form.birth_max`), экран стоит на 23.09. */
+describe('«Mută» окна визита: перенос на другой день', () => {
+  const NEXT_DAY = '2026-09-24'
+  const dateField = () => document.querySelector('dialog input[type="date"]') as HTMLInputElement
+  const yes = () => document.querySelectorAll('dialog .mv-act button')[1] as HTMLButtonElement
+  const rows = () => Array.from(document.querySelectorAll('dialog .mv-rows b')).map((b) => b.textContent)
+  const banners = (kind: 'err' | 'warn') => Array.from(document.querySelectorAll(`dialog .banner.${kind}`))
+    .map((b) => b.textContent)
+  const dayGets = () => get.mock.calls.map((c) => String(c[0])).filter((u) => u.startsWith('/schedule/day'))
+  const dayIn = (url: string) => /date=([0-9-]+)/.exec(url)?.[1] ?? MODEL.date
+  /* день с тем же графиком; у Doi — только названные блоки */
+  const dayWith = (date: string, blocks: DashBlock[] = []): DayModel => ({ ...MODEL, date,
+    canvas: { ...CANVAS, date, columns: CANVAS.columns.map((c) => (c.id === 'd2' ? { ...c, blocks } : c)) } })
+  const openMove = async (days: Record<string, DayModel> = {}) => {
+    get.mockImplementation((url: string) => {
+      const date = dayIn(url)
+      return Promise.resolve(ok(days[date] ?? (date === MODEL.date ? MODEL : dayWith(date))))
+    })
+    await show()
+    fireEvent.click(blk(1))
+    await waitFor(() => expect(document.querySelector('dialog .dp-card-move')).toBeTruthy())
+    fireEvent.click(document.querySelector('dialog .dp-card-move') as HTMLElement)
+    await waitFor(() => expect(document.querySelector('dialog .mv-rows')).toBeTruthy())
+  }
+  const pickDate = async (iso: string) => {
+    fireEvent.change(dateField(), { target: { value: iso } })
+    await waitFor(() => expect(dayGets().some((u) => u.includes(`date=${iso}`))).toBe(true))
+    await waitFor(() => expect(document.querySelector('dialog .dlg-form')?.getAttribute('aria-busy')).toBeNull())
+  }
+
+  it('кнопка есть у активной записи и нет у закрытой — как перетаскивание', async () => {
+    await show()
+    fireEvent.click(blk(1))
+    await waitFor(() => expect(document.querySelector('dialog .dp-card-move')).toBeTruthy())
+    cleanup()
+    await show()
+    fireEvent.click(blk(2))
+    await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
+    expect(document.querySelector('dialog .dp-card-move')).toBeNull()
+  })
+
+  it('окно открывается на месте записи: день, час и врач её; своё же место подтвердить нельзя', async () => {
+    await openMove()
+    expect(document.querySelector('dialog .dp-card-links')).toBeNull()
+    expect(dateField().value).toBe('2026-09-23')
+    expect(rows()).toEqual(['Ion Popa', 'Dr. Activ Doi · miercuri, 23.09 · 09:00',
+      'Dr. Activ Doi · miercuri, 23.09 · 09:00'])
+    expect((document.querySelector('dialog .dp-hourpick select') as HTMLSelectElement).value).toBe('09:00')
+    expect(yes().disabled).toBe(true)
+    /* врачи — из формы сервера (активные), а не из колонок канвы */
+    await waitFor(() => expect(Array.from(
+      (document.querySelector('dialog select[aria-label="Medic"]') as HTMLSelectElement).options)
+      .map((o) => o.value)).toEqual(['d2', 'd4']))
+    expect(yes().disabled).toBe(true)
+  })
+
+  it('другой день: канва спрошена у сервера, уходит дата окна, плашка ведёт в новый день', async () => {
+    post.mockResolvedValue({ data: MODEL, code: 'ok_move', text: 'Programare mutată', tone: 'ok' })
+    await openMove()
+    await pickDate(NEXT_DAY)
+    expect(dayGets()[dayGets().length - 1]).toBe(`/schedule/day?date=${NEXT_DAY}`)
+    expect(rows()[2]).toBe('Dr. Activ Doi · joi, 24.09 · 09:00')
+    expect(yes().disabled).toBe(false)
+    fireEvent.click(document.querySelectorAll('dialog .dp-minpick .mp')[6] as HTMLElement)
+    fireEvent.click(yes())
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/schedule/appointments/1/move',
+      { date: NEXT_DAY, time: '09:30', doctor: 'd2' }))
+    await waitFor(() => expect(document.querySelector('dialog')).toBeNull())
+    const toast = document.querySelector('.toastbox') as HTMLElement
+    expect(toast.textContent).toContain('Programare mutată')
+    expect(toast.querySelector('a')?.getAttribute('href')).toBe(`/admin/all?date=${NEXT_DAY}`)
+  })
+
+  it('занятые минуты и помеха — по канве ВЫБРАННОГО дня, не дня экрана', async () => {
+    await openMove({ [NEXT_DAY]: dayWith(NEXT_DAY, [block(5, '09:30', 'Ocupa Ora', { min: 570 })]) })
+    await pickDate(NEXT_DAY)
+    expect(banners('err')).toEqual(['Medicul are deja o programare la 09:30.'])
+    expect(yes().disabled).toBe(true)
+    const mins = () => Array.from(document.querySelectorAll('dialog .dp-minpick .mp')) as HTMLButtonElement[]
+    expect(mins().every((b) => b.disabled)).toBe(true)
+    /* 10:30 свободно: заметка 11:00 стоит в дне экрана, а в выбранном её нет */
+    fireEvent.change(document.querySelector('dialog .dp-hourpick select') as HTMLElement, { target: { value: '10:00' } })
+    fireEvent.click(mins()[6] as HTMLElement)
+    expect(banners('err')).toEqual([])
+    expect(yes().disabled).toBe(false)
+  })
+
+  it('пока канва дня в пути — кнопка ждёт; не пришла — слова в окне', async () => {
+    let answer: (m: ApiResult<DayModel>) => void = () => {}
+    await openMove()
+    get.mockImplementation((url: string) => (dayIn(url) === NEXT_DAY
+      ? new Promise<ApiResult<DayModel>>((res) => { answer = res })
+      : Promise.reject(new Error('offline'))))
+    fireEvent.change(dateField(), { target: { value: NEXT_DAY } })
+    await waitFor(() => expect(document.querySelector('dialog .dlg-form')?.getAttribute('aria-busy')).toBe('true'))
+    expect(yes().disabled).toBe(true)
+    await act(async () => { answer(ok(dayWith(NEXT_DAY))) })
+    await waitFor(() => expect(yes().disabled).toBe(false))
+
+    fireEvent.change(dateField(), { target: { value: '2026-09-25' } })
+    await waitFor(() => expect(banners('err')).toEqual(['Programul nu răspunde. Reîncercați.']))
+    expect(yes().disabled).toBe(true)
+  })
+
+  it('час, которого у врача нет в выбранный день, остаётся выбранным и назван словом', async () => {
+    const short = dayWith(NEXT_DAY)
+    short.canvas = { ...short.canvas, columns: short.canvas.columns.map((c) => (
+      c.id === 'd2' ? { ...c, cells: [false, true, true, false] } : c)) }
+    await openMove({ [NEXT_DAY]: short })
+    await pickDate(NEXT_DAY)
+    const hour = document.querySelector('dialog .dp-hourpick select') as HTMLSelectElement
+    expect(hour.value).toBe('09:00')
+    expect(banners('err')).toEqual(['Medicul nu are program la ora 09:00.'])
+    expect(yes().disabled).toBe(true)
+    fireEvent.change(hour, { target: { value: '10:00' } })
+    expect(banners('err')).toEqual([])
+    expect(yes().disabled).toBe(false)
+    expect(Array.from(hour.options).map((o) => o.value)).toEqual(['10:00', '11:00'])
+  })
+
+  it('закрытый день клиники и врач без графика — словами, кнопка заперта', async () => {
+    const closed = { ...dayWith(NEXT_DAY), canvas: { ...CANVAS, date: NEXT_DAY, empty: true, hours: [], columns: [] } }
+    await openMove({ [NEXT_DAY]: closed })
+    await pickDate(NEXT_DAY)
+    expect(banners('err')).toEqual(['Zi liberă — clinica este închisă'])
+    expect(yes().disabled).toBe(true)
+
+    await pickDate('2026-09-25')
+    fireEvent.change(document.querySelector('dialog select[aria-label="Medic"]') as HTMLElement,
+      { target: { value: 'd4' } })
+    expect(rows()[2]).toBe('Dr. Activ Patru · vineri, 25.09 · 09:00')
+    expect(banners('err')).toEqual(['Medicul nu are program în ziua aleasă.'])
+    expect(yes().disabled).toBe(true)
+  })
+
+  it('прошедший день — предупреждение, перенос не заперт; сегодня и позже — молча', async () => {
+    await openMove()
+    await pickDate('2026-09-18')
+    expect(banners('warn')).toEqual(['Atenție: data aleasă este în trecut.'])
+    expect(yes().disabled).toBe(false)
+    await pickDate('2026-09-19')
+    expect(banners('warn')).toEqual([])
+  })
+
+  it('место под слово занято всегда, а слово одно: помеха важнее предупреждения о прошедшем дне', async () => {
+    const PAST = '2026-09-18'
+    await openMove({ [PAST]: dayWith(PAST, [block(5, '09:00', 'Ocupa Ora', { min: 540 })]) })
+    const slot = () => document.querySelector('dialog .mv-say') as HTMLElement
+    expect(slot().querySelector('.mv-say-room')?.getAttribute('aria-hidden')).toBe('true')
+    expect(slot().querySelectorAll('.banner:not(.mv-say-room)')).toHaveLength(0)
+    await pickDate(PAST)
+    expect(Array.from(slot().querySelectorAll('.banner:not(.mv-say-room)')).map((b) => b.textContent))
+      .toEqual(['Medicul are deja o programare la 09:00.'])
+    fireEvent.change(document.querySelector('dialog .dp-hourpick select') as HTMLElement, { target: { value: '10:00' } })
+    expect(Array.from(slot().querySelectorAll('.banner:not(.mv-say-room)')).map((b) => b.textContent))
+      .toEqual(['Atenție: data aleasă este în trecut.'])
+  })
+
+  it('отказ сервера — его словами в окне: окно, день и час остаются, плашки нет', async () => {
+    post.mockRejectedValue(new ApiError(
+      { kind: 'conflict', code: 'conflict', text: 'Intervalul este deja ocupat la acest medic' }, 'c'))
+    await openMove()
+    await pickDate(NEXT_DAY)
+    fireEvent.click(yes())
+    await waitFor(() => expect(banners('err')).toEqual(['Intervalul este deja ocupat la acest medic']))
+    expect(document.querySelector('.toastbox')).toBeNull()
+    expect(dateField().value).toBe(NEXT_DAY)
+    /* новый выбор снимает слово прежнего отказа */
+    await pickDate('2026-09-25')
+    expect(banners('err')).toEqual([])
+  })
+
+  it('на дне врача окно спрашивает ОБЩИЙ день: перенос к другому врачу не вслепую', async () => {
+    get.mockImplementation((url: string) => dayOfUrl(url))
+    await show({ doctor: 'd2', date: '2026-09-23' })
+    fireEvent.click(blk(1))
+    await waitFor(() => expect(document.querySelector('dialog .dp-card-move')).toBeTruthy())
+    fireEvent.click(document.querySelector('dialog .dp-card-move') as HTMLElement)
+    await waitFor(() => expect(dayGets()).toContain('/schedule/day?date=2026-09-23'))
+  })
+})
+
 /* Перенос — по канве, как у панели: мишень — КОЛОНКА, ячейка под курсором
    ищется по координате среди `.gcell[data-h]` (ряды по 40 px со сотого:
    9:00 — 100–140, 10:00 — 140–180, 12:00 у Doi закрыт). */

@@ -51,8 +51,8 @@ router = APIRouter()
 # Коды удачи и коды спора с состоянием — как у фиши пациента (`patients/api`),
 # чтобы клиент разбирал ответы журнала и фиши одинаково.
 # ⚠️ Пустой код — это удача: так отвечает смена статуса, у которой баннера нет.
-_OK = {"", "ok", "ok_note", "part_note", "ok_move", "ok_comment", "ok_past", "ok_past_done",
-       "ok_other", "ok_svc", "ok_dur", "ok_room", "room_busy"}
+_OK = {"", "ok", "ok_note", "part_note", "ok_move", "ok_move_past", "ok_comment", "ok_past",
+       "ok_past_done", "ok_other", "ok_svc", "ok_dur", "ok_room", "room_busy"}
 _CONFLICT = {"conflict", "dup", "bad_off", "mv_gone", "mv_closed", "past", "bad_step",
              "svc_closed", "svc_doc", "dur_closed", "room_closed"}
 # какое поле формы подсветить при 422; отказ без поля оставляет его пустым
@@ -539,7 +539,7 @@ async def api_move(request: Request, appt_id: int,
                    date_q: str = Query("", alias="date"),
                    doctor: str = Query(""), f: str = Query(""),
                    screen: str = Query("")):
-    """Перенос: {date, time, doctor, room?} — тот же маршрут, что у перетаскивания.
+    """Перенос: {date, time, doctor, room?} — один маршрут у перетаскивания и окна «Mută».
 
     ⚠️ Проверки серверные и в полном составе: браузер не кладёт блок в
     закрытую ячейку, но верить ему нельзя — часы клиники и график врача
@@ -556,5 +556,5 @@ async def api_move(request: Request, appt_id: int,
     if (deny := api_own_doctor(_s(body, "doctor"))) is not None:
         return deny
     code = await _move_appt(appt_id, _s(body, "date"), _s(body, "time"),
-                            _s(body, "doctor"), _s(body, "room"))
+                            _s(body, "doctor"), _s(body, "room"), warn_past=True)
     return await _done(code, _screen(date_q), doctor, f=f, screen=screen)

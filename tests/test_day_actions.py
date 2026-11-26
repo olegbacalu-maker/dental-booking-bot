@@ -13,9 +13,9 @@
    (`suite_parity`); форм нет, и сверка стала буквальной таблицей кодов.
 """
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 
-from harness import Client, Result, Server, appt_id, clinic_today
+from harness import TZ, Client, Clock, Result, Server, add_appt, appt_id, clinic_today, pid_by_phone
 
 
 def _j(r) -> dict:
@@ -348,3 +348,91 @@ def suite_parity(res: Result) -> None:
             r = c.post_json(f"/api/schedule/appointments/{aid}/move?date={day}",
                             {"date": day, "time": "10:00", "doctor": "d2", **body})
             res.check(f"перенос {body}: код «{want}»", _j(r)["code"], want)
+
+
+# ------------------------------------------------- перенос на другой день
+
+
+def suite_move_day(res: Result) -> None:
+    """Окно «Mută» меняет ДЕНЬ записи тем же маршрутом, что перетаскивание.
+
+    Под часами (среда, 10:00): «сегодня в прошедший час» и «вчера» не зависят
+    от часа прогона. Запись остаётся той же строкой: пациент, процедура,
+    длительность и комментарий не трогаются.
+    """
+    wed, thu, fri = "2026-11-11", "2026-11-12", "2026-11-13"
+    tue, mon = "2026-11-10", "2026-11-09"
+    with Clock(datetime(2026, 11, 11, 10, 0, tzinfo=TZ)):
+        with Server() as s:
+            c = Client(s.url).login()
+            res.check("запись на четверг", add_appt(c, thu, "09:00", "Muta Ziua", "069163001",
+                                                    duration=45).msg, "ok")
+            aid = appt_id(c, thu, "Muta Ziua")
+            c.post_json(f"/api/schedule/appointments/{aid}/comment", {"comment": "alergie la latex"})
+            pid = pid_by_phone(c, "069163001")
+
+            def move(day: str, time: str, screen: str = thu, doctor: str = "d2"):
+                r = c.post_json(f"/api/schedule/appointments/{aid}/move?date={screen}",
+                                {"date": day, "time": time, "doctor": doctor})
+                return r, _j(r)
+
+            def block(day: str) -> dict | None:
+                return next((b for b in _items(_day(c, day)) if b["id"] == aid), None)
+
+            r, j = move(fri, "10:30")
+            res.check("на другой день: принят, тон удачи, в свежем дне ЭКРАНА записи уже нет",
+                      (r.status, j["code"], j["tone"], [b for b in _items(j["data"]) if b["id"] == aid]),
+                      (200, "ok_move", "ok", []))
+            b = block(fri) or {}
+            card = _day(c, fri)["cards"][str(aid)]
+            res.check("в новом дне — та же запись: час, длительность, пациент, процедура, комментарий",
+                      (b.get("time"), b.get("dur"), card["name"], card["pid"], card["service_id"],
+                       card["comment"]),
+                      ("10:30", 45, "Muta Ziua", pid, "consult", "alergie la latex"))
+            feed = [a["text"] for a in
+                    _j(c.get(f"/api/patients/{pid}"))["data"]["activity"]["items"]]
+            res.ok("летопись называет новый день датой, а не одним часом",
+                   any(t.startswith("Vizită mutată: 13.11.2026 10:30") for t in feed), repr(feed))
+
+            r, j = move(fri, "11:00", screen=fri)
+            res.check("в том же дне летопись остаётся с одним часом",
+                      (j["code"], any(t.startswith("Vizită mutată: 11:00") for t in (
+                          a["text"] for a in
+                          _j(c.get(f"/api/patients/{pid}"))["data"]["activity"]["items"]))),
+                      ("ok_move", True))
+
+            # прошлое: запрета нет, граница предупреждения — закрытый ДЕНЬ, и только другой
+            r, j = move(wed, "09:00", screen=fri)
+            res.check("на сегодня в уже прошедший час — обычный перенос, без предупреждения",
+                      (r.status, j["code"], j["tone"]), (200, "ok_move", "ok"))
+            r, j = move(tue, "09:00", screen=wed)
+            res.check("на вчера — перенесено, но с предупреждением о прошедшем дне",
+                      (r.status, j["code"], j["tone"], (block(tue) or {}).get("time")),
+                      (200, "ok_move_past", "warn", "09:00"))
+            res.ok("слово предупреждения есть и говорит про день",
+                   "zi trecută" in j["text"], repr(j["text"]))
+            r, j = move(tue, "10:00", screen=tue)
+            res.check("внутри того же прошедшего дня — без предупреждения",
+                      (j["code"], j["tone"]), ("ok_move", "ok"))
+            r, j = move(mon, "10:00", screen=tue)
+            res.check("с прошедшего дня на другой прошедший — снова предупреждение",
+                      j["code"], "ok_move_past")
+            r, j = move(fri, "09:00", screen=mon)
+            res.check("обратно в будущее — обычный перенос", j["code"], "ok_move")
+
+            # отказы — словами сервера, запись остаётся на месте
+            add_appt(c, thu, "12:00", "Sta Pe Loc", "069163002")
+            r, j = move(thu, "12:00")
+            res.check("занятый час другого дня — 409 conflict со словами, запись на прежнем месте",
+                      (r.status, j["code"], bool(j["text"]), (block(fri) or {}).get("time")),
+                      (409, "conflict", True, "09:00"))
+            r, j = move(thu, "22:00")
+            res.check("час вне графика клиники в другом дне — 422 outside и поле часа",
+                      (r.status, j["code"], j.get("field"), (block(fri) or {}).get("time")),
+                      (422, "outside", "time", "09:00"))
+
+            # закрытую запись окно не двигает и на другой день — как перетаскивание
+            c.post_json(f"/api/schedule/appointments/{aid}/status", {"to": "cancelled"})
+            r, j = move(thu, "10:00")
+            res.check("отменённая на другой день не переносится — 409 mv_closed",
+                      (r.status, j["code"]), (409, "mv_closed"))
