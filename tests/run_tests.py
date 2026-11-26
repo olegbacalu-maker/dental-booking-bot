@@ -227,6 +227,7 @@ SUITES = [
     ("SMS: тексты, подстановки, окно отправки, настройки", test_sms.suite_plan),
     ("SMS: провод к серверу", test_sms.suite_wire),
     ("SMS: живой цикл — накануне, в день визита, кому нет, без дубля", test_sms.suite_live),
+    ("SMS: перенос на другой день — новое напоминание, прежнее не уходит", test_sms.suite_move_day),
     ("SMS: пакет не предлагается, файл без renew", test_sms.suite_not_offered),
     ("SMS: экран Setări › SMS, фиша, acord, баннер остатка", test_sms.suite_screen),
     ("SMS: галочка «SMS reminder» окна записи — пакет, право, sms_off", test_sms.suite_box),

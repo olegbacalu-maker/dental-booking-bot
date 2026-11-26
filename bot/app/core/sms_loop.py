@@ -379,6 +379,20 @@ async def refresh_account(force: bool = False) -> str:
 # ---------- очередь ----------
 
 
+def _starts_key(starts_at: datetime) -> str:
+    return starts_at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _stale(row: dict) -> bool:
+    """Строка очереди про ПРЕЖНЕЕ начало визита. Запись перенесли, пока строка ждала
+    (сервер молчал, кончился остаток, ночь): её текст называет день и час, которых
+    больше нет, а новому началу цикл поставит свою строку по своему ключу."""
+    visit = row.get("visit_at")
+    if visit is None or not row.get("appt_id"):
+        return False
+    return row["idem"] != plan.idem(row["appt_id"], row["kind"], _starts_key(visit))
+
+
 async def _enqueue_due(now: datetime, s: dict) -> int:
     """Визиты окна → строки очереди для событий, чьё окно наступило."""
     horizon = now + HORIZON
@@ -395,7 +409,7 @@ async def _enqueue_due(now: datetime, s: dict) -> int:
             continue
         starts = r["starts_at"].astimezone(eng.TZ)
         created = r["created_at"].astimezone(eng.TZ)
-        starts_utc = r["starts_at"].astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        starts_utc = _starts_key(r["starts_at"])
         for ev in plan.EVENTS:
             if not s[ev]["on"]:
                 continue
@@ -436,6 +450,9 @@ async def _log(row: dict, state: str, code: str = "", *, actor: str | None = "si
 async def _expire(now: datetime) -> int:
     n = 0
     for r in await db.sms_overdue(now):
+        if _stale(r):
+            await db.sms_delete(r["id"])    # про прежний день летопись молчит: его не обещали
+            continue
         await db.sms_set(r["id"], state=db.SMS_EXPIRED)
         await _log(r, db.SMS_EXPIRED, r.get("error") or "program_off")
         n += 1
@@ -449,8 +466,8 @@ async def _send_queued(base: str, token: str, now: datetime) -> int:
     for r in await db.sms_queue(QUEUE_BATCH):
         if r["until_at"] <= now:
             continue                        # истечёт следующим проходом _expire
-        if r["appt_status"] != "confirmed" or r["sms_off"] or r["archived"]:
-            await db.sms_delete(r["id"])    # визит отменён или пациент отказался — тихо
+        if r["appt_status"] != "confirmed" or r["sms_off"] or r["archived"] or _stale(r):
+            await db.sms_delete(r["id"])    # визит отменён, перенесён или пациент отказался — тихо
             continue
         outcome, body = await asyncio.to_thread(wire.send, base, token, r["phone"], r["text"],
                                                 r["kind"], r["idem"], wire.TIMEOUT, _agent(),

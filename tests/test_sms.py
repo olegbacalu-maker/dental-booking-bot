@@ -639,6 +639,101 @@ def suite_live(res: Result) -> None:
         _rmtree_settled(d)
 
 
+def suite_move_day(res: Result) -> None:
+    """Перенос на ДРУГОЙ день: ключ напоминания — от нового начала, про прежний день
+    пациенту не пишут — ни до отправки, ни из очереди, ни повтором.
+
+    Клиника открыта всю неделю, поэтому окно «накануне» — вчерашний день визита с 10:00.
+    """
+    stand = Stand()
+    d = pathlib.Path(tempfile.mkdtemp(prefix="dp_sms_mv_"))
+    mon, tue, wed, thu = (2026, 11, 9), (2026, 11, 10), (2026, 11, 11), (2026, 11, 12)
+
+    def key(aid: int, utc: str) -> str:
+        return f"appt:{aid}:day_before:{utc}"
+
+    def idems() -> list[str]:
+        return [x["json"].get("idem", "") for x in stand.sends]
+
+    def text_of(k: str) -> str:
+        return next((x["json"]["text"] for x in stand.sends if x["json"].get("idem") == k), "")
+
+    try:
+        (d / "license.json").write_text(lr._file(5, {"url": stand.url, "token": TOKEN}), encoding="utf-8")
+        with Clock(_at(*mon, 9, 0)) as clock:
+            with Server(dir_=d, env={**KEY_ENV, **TICK}) as s:
+                c = Client(s.url).login()
+
+                def move(aid: int, screen: str, day: str, hhmm: str) -> str:
+                    return c.post_json(f"/api/schedule/appointments/{aid}/move?date={screen}",
+                                       {"date": day, "time": hhmm, "doctor": "d2"}).msg
+
+                add_appt(c, "2026-11-11", "12:00", "Mv Alfa", "069000111")
+                add_appt(c, "2026-11-10", "12:00", "Mv Beta", "069000222")
+                a_id, b_id = appt_id(c, "2026-11-11", "Mv Alfa"), appt_id(c, "2026-11-10", "Mv Beta")
+
+                # до часа X: напоминания про вторник ещё нет — после переноса его и не будет
+                res.check("B со вторника на четверг — до часа X", move(b_id, "2026-11-10", "2026-11-12", "12:00"),
+                          "ok_move")
+                clock.set(_at(*mon, 10, 0, 30))
+                time.sleep(1.5)
+                res.ok("в час X про прежний день ничего не ушло и в очереди пусто",
+                       stand.sends == [] and _sms_log(d) == [], repr((idems(), _sms_log(d))))
+
+                # напоминание уже ушло — перенос на другой день даёт новое, по новому ключу
+                clock.set(_at(*tue, 10, 0, 30))
+                a_old = key(a_id, "2026-11-11T10:00:00Z")
+                res.ok("A: накануне среды SMS ушла", _wait(lambda: a_old in idems()), repr(idems()))
+                res.check("A со среды на пятницу 13:00", move(a_id, "2026-11-11", "2026-11-13", "13:00"), "ok_move")
+                time.sleep(1.2)
+                res.check("сразу после переноса новой SMS нет — её окно четверг", idems(), [a_old])
+
+                # напоминание стоит в очереди (сервер молчит) — перенос его снимает
+                stand.send_mode = "down"
+                add_appt(c, "2026-11-11", "15:00", "Mv Gamma", "069000333", doctor="d3")
+                g_id = appt_id(c, "2026-11-11", "Mv Gamma")
+                g_old = key(g_id, "2026-11-11T13:00:00Z")
+                res.ok("C: записан после часа X — строка в очереди, сервер молчит",
+                       _wait(lambda: any(r["idem"] == g_old and r["state"] == "queued" for r in _sms_log(d))),
+                       repr(_sms_log(d)))
+                res.check("C со среды на четверг 15:00",
+                          c.post_json(f"/api/schedule/appointments/{g_id}/move?date=2026-11-11",
+                                      {"date": "2026-11-12", "time": "15:00", "doctor": "d3"}).msg, "ok_move")
+                time.sleep(1.0)
+                stand.send_mode = "ok"
+                time.sleep(1.5)
+                res.ok("сервер ожил: напоминание про прежний день из очереди не ушло",
+                       g_old not in stand._by_idem
+                       and not any(r["idem"] == g_old and r["state"] == "sent" for r in _sms_log(d)),
+                       repr(([r["idem"] for r in _sms_log(d)], list(stand._by_idem))))
+
+                # среда: накануне четверга — B и C по новым ключам, с новым днём в тексте
+                clock.set(_at(*wed, 10, 0, 30))
+                b_new, g_new = key(b_id, "2026-11-12T10:00:00Z"), key(g_id, "2026-11-12T13:00:00Z")
+                res.ok("B и C: SMS накануне нового дня", _wait(lambda: {b_new, g_new} <= set(stand._by_idem)),
+                       repr(idems()))
+                res.ok("в тексте новый день и час: «maine, 12.11», 12:00 и 15:00",
+                       "maine, 12.11" in text_of(b_new) and "12:00" in text_of(b_new)
+                       and "maine, 12.11" in text_of(g_new) and "15:00" in text_of(g_new),
+                       repr((text_of(b_new), text_of(g_new))))
+                res.ok("про вторник B не писали ни разу",
+                       key(b_id, "2026-11-10T10:00:00Z") not in idems(), repr(idems()))
+
+                # четверг: накануне пятницы — A по новому ключу, прежнее не повторено
+                clock.set(_at(*thu, 10, 0, 30))
+                a_new = key(a_id, "2026-11-13T11:00:00Z")
+                res.ok("A: новая SMS накануне пятницы с «maine, 13.11» и 13:00",
+                       _wait(lambda: a_new in stand._by_idem) and "maine, 13.11" in text_of(a_new)
+                       and "13:00" in text_of(a_new), repr((idems(), text_of(a_new))))
+                time.sleep(0.8)
+                res.check("прежнее напоминание A ушло один раз", idems().count(a_old), 1)
+                res.check("про прежние дни принято сервером только оно",
+                          sorted(set(stand._by_idem) - {a_new, b_new, g_new}), [a_old])
+    finally:
+        stand.close()
+        _rmtree_settled(d)
+
+
 def suite_not_offered(res: Result) -> None:
     """Сервер не предлагает пакет (503 sms_not_offered): ни очереди, ни отправок,
     ни строки в летописи; без файла с renew — цикл спит."""
