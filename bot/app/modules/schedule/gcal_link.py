@@ -77,7 +77,8 @@ WORDS = {
 NOTICE = (
     "Programul citește evenimentele unui calendar Google ales de dvs. — de acum până la un an "
     f"înainte, din {POLL_MINUTES} în {POLL_MINUTES} minute — și le arată în această filă. Acces numai "
-    "pentru citire: programul nu scrie nimic în Google și nu trimite acolo date ale pacienților. "
+    "pentru citire: prin această legătură programul nu scrie nimic în Google și nu trimite acolo date "
+    "ale pacienților. "
     "Evenimentele rămân doar pe calculatorul pe care rulează programul; furnizorul DentPilot nu le "
     "primește. Contul Google se poate deconecta oricând.")
 # Вторая строка состояния (`why.detail`) — что делать; первая — слово словаря (`why.text`).
