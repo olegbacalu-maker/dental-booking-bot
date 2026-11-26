@@ -44,7 +44,8 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
   <a href="mailto:contact@dentpilot.md">contact@dentpilot.md</a>.
   Această politică descrie ce date sunt prelucrate prin acest site și prin
   serverul de licențe cloud.dentpilot.md, precum și ce date Google citește
-  programul DentPilot™ când clinica își conectează contul Google
+  și scrie programul DentPilot™ când clinica își conectează contul Google
+  sau calendarele medicilor ei
   (<a href="#google">punctul 6</a>).</p>
 
   <h2 id="cookie">2. Ce date colectează site-ul</h2>
@@ -88,7 +89,7 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
   <p>Programul DentPilot™ rulează local, pe computerul clinicii. Furnizorul
   <b>nu are acces la fișele pacienților</b>; operator de date pentru
   pacienți este clinica. Excepție: cât timp clinica folosește modulul SMS
-  (DentPilot™ Plus și perioada de probă), serverul furnizorului primește, pentru fiecare memento, numărul de
+  (DentPilot™ Plus, DentPilot™ Premium și perioada de probă), serverul furnizorului primește, pentru fiecare memento, numărul de
   telefon mobil al pacientului și textul memento-ului (denumirea clinicii,
   ziua, data și ora vizitei și, la alegerea clinicii, telefonul clinicii; la
   reamintirea controlului periodic, trimisă din lista Rechemări de personalul
@@ -100,7 +101,11 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
   condiții</a>, secțiunea 16). Dacă clinica își conectează contul Google,
   programul citește calendarul ei Google direct de la Google, pe
   calculatorul clinicii (punctul 6): evenimentele, care pot conține nume și
-  telefoane ale pacienților, nu ajung la furnizor. Prin acest site nu se
+  telefoane ale pacienților, nu ajung la furnizor. Dacă clinica folosește
+  calendarele medicilor în Google (DentPilot™ Premium, punctul 6),
+  programările medicului pleacă de pe calculatorul clinicii direct la
+  Google, fără furnizor; date ale pacienților ajung acolo numai dacă
+  directorul clinicii alege asta. Prin acest site nu se
   prelucrează date ale pacienților.</p>
 
   <h2>5. Datele contului clinicii</h2>
@@ -116,7 +121,7 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
   jurnalul e-mailurilor trimise clinicii (nota de plată, notificările de
   expirare, confirmarea termenului licenței, codul de activare, confirmarea
   adresei de e-mail); pentru
-  clinicile cu modulul SMS (DentPilot™ Plus) și numele expeditorului, cererea pentru numele
+  clinicile cu modulul SMS (DentPilot™ Plus și Premium) și numele expeditorului, cererea pentru numele
   expeditorului semnată de reprezentantul clinicii (dacă o încarcă în cont),
   pachetele plătite și
   evidența mesajelor fără număr și text (identificatorul, numărul de
@@ -170,7 +175,7 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     doar datele tehnice de mai sus) și îl deschide în browserul
     calculatorului; la intrarea în cont din program serverul reține adresa IP
     și browserul folosit.</li>
-    <li><b>Modulul SMS (DentPilot™ Plus):</b> cât timp modulul este pornit,
+    <li><b>Modulul SMS (DentPilot™ Plus și Premium):</b> cât timp modulul este pornit,
     programul citește soldul de SMS al clinicii la fiecare 10 minute și, după
     fiecare memento trimis, starea livrării la fiecare 5 minute, cel mult 30 de
     ore; aceste cereri conțin doar datele tehnice de mai sus și identificatorii
@@ -199,7 +204,7 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     contului (7 zile sau până la ieșire). Google prelucrează autentificarea
     conform <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">politicii sale de confidențialitate</a>.
     În cont vedeți termenul licenței, descărcați programul, comandați
-    nota de plată și vă actualizați datele clinicii; cu modulul SMS (DentPilot™ Plus) cereți
+    nota de plată și vă actualizați datele clinicii; cu modulul SMS (DentPilot™ Plus și Premium) cereți
     numele expeditorului, descărcați cererea completată pentru SMS.MD și o
     încărcați semnată (PDF), iar furnizorul o depune la SMS.MD. Descărcarea programului
     (cloud.dentpilot.md/descarca) este o trimitere la GitHub, unde sunt
@@ -226,7 +231,7 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     metoda de plată (confirmarea băncii poate conține și numele
     plătitorului și numărul mascat al cardului — pe acestea nu le păstrăm);
     la actualizări, a GitHub, Inc. (adresa IP, punctul de
-    mai sus); și, pentru clinicile cu modulul SMS (DentPilot™ Plus), a
+    mai sus); și, pentru clinicile cu modulul SMS (DentPilot™ Plus și Premium), a
     operatorului SMS Rock Soft S.R.L. (SMS.MD), căruia furnizorul îi
     transmite cererea clinicii pentru numele expeditorului (denumirea, IDNO,
     datele reprezentantului).</li>
@@ -234,9 +239,13 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
 
   <h2 id="google">6. Programul DentPilot™ și datele Google (Google Calendar)</h2>
   <p>Acest punct descrie cum programul DentPilot™, instalat pe calculatorul
-  clinicii, accesează, folosește, păstrează și transmite datele din contul
-  Google al clinicii. Conectarea există numai în DentPilot™ Plus și în
-  perioada de probă și o pornește doar clinica: un utilizator cu rolul Director
+  clinicii, accesează, folosește, păstrează și transmite datele Google.
+  Programul are două legături cu Google, fiecare pornită doar de clinică:
+  conectarea contului Google al clinicii, din care programul numai citește
+  (mai jos), și calendarele medicilor, în care programul scrie programările
+  (<a href="#google-medici">mai jos, separat</a>).</p>
+  <p><b>Contul Google al clinicii.</b> Conectarea există în DentPilot™ Plus,
+  în DentPilot™ Premium și în perioada de probă: un utilizator cu rolul Director
   sau Recepție apasă în program „Conectează contul Google” și aprobă accesul
   pe pagina Google, în browserul calculatorului.</p>
   <ul>
@@ -250,8 +259,9 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     durata, descrierea, locul, invitații (numele și adresele lor de e-mail),
     starea evenimentului (confirmat sau anulat) și identificatorii lui
     tehnici. Programul nu accesează alte date ale contului Google — nici
-    e-mailurile, nici contactele, nici fișierele, nici parola — și nu scrie,
-    nu modifică și nu șterge nimic în calendar.</li>
+    e-mailurile, nici contactele, nici fișierele, nici parola — și, prin
+    această conectare, nu scrie, nu modifică și nu șterge nimic în
+    calendarul clinicii.</li>
     <li><b>Cum le folosește.</b> Numai pentru funcția vizibilă în program:
     evenimentele apar în fila „Google Calendar”, unde personalul clinicii le
     vede și le mută în jurnalul programărilor; dacă clinica a pornit mutarea
@@ -324,10 +334,89 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     programul are nevoie de alte permisiuni, Google cere din nou acordul
     clinicii.</li>
   </ul>
+  <p id="google-medici"><b>Calendarele medicilor în Google.</b> În
+  DentPilot™ Premium clinica poate conecta, pentru fiecare medic, contul lui
+  Google, ca medicul să își vadă programările în telefon. Aici datele merg
+  în sens invers — de la program spre Google: programul scrie programările
+  medicului într-un calendar creat de el în contul medicului. Conectarea o
+  pornește un utilizator cu rolul Director sau Recepție, din fișa medicului
+  (butonul „Conectează Google”), pe calculatorul pe care este instalat
+  programul; medicul intră el însuși în contul lui Google, în browserul
+  calculatorului, și aprobă accesul.</p>
+  <ul>
+    <li><b>Ce permisiune cere programul.</b> Una singură,
+    <code>calendar.app.created</code>: dreptul de a crea în contul medicului
+    calendare proprii ale aplicației și de a citi și scrie evenimente numai
+    în ele. Cu această permisiune programul nu vede și nu poate modifica
+    celelalte calendare ale contului și evenimentele din ele și nu accesează
+    e-mailurile, contactele, fișierele sau parola.</li>
+    <li><b>Ce scrie programul în Google.</b> Un calendar separat, numit
+    „DentPilot”, cu denumirea clinicii și numele medicului, iar în el —
+    programările medicului de la 30 de zile în urmă până la 90 de zile
+    înainte: data, ora, durata, cabinetul și nota că programările se
+    modifică doar în DentPilot. Ce se vede în plus alege directorul
+    clinicii: „doar ora” (implicit) — nicio dată a pacientului; „inițiale” —
+    inițialele pacientului și numărul fișei; „nume și serviciu” — numele
+    pacientului și serviciul. Nivelurile cu date ale pacientului se aleg
+    numai după o avertizare cu bifă, iar alegerea se consemnează în jurnalul
+    programului. Telefonul pacientului, IDNP-ul, anamneza, diagnosticul,
+    planul de tratament și sumele nu se trimit la niciun nivel. O programare
+    nouă sau schimbată ajunge în calendar în cel mult 5 minute, cât
+    programul rulează, și imediat la apăsarea butonului „Sincronizează
+    acum”; programările anulate se scot din calendar, iar cele mai vechi de
+    30 de zile se șterg din el.</li>
+    <li><b>Ce date Google primește programul și cum le folosește.</b> Numai
+    despre calendarul creat de el: identificatorul, numele și descrierea
+    calendarului, adresa de e-mail a contului în care se află și
+    identificatorii și starea evenimentelor scrise de program. Programul le
+    folosește numai ca să țină calendarul la zi — să știe ce a scris deja și
+    dacă calendarul mai există — și să arate în fișa medicului ce cont este
+    conectat. Aceste date nu se folosesc pentru publicitate, profilare,
+    statistici ale furnizorului sau în orice alt scop și nu se folosesc
+    pentru a dezvolta, îmbunătăți sau antrena modele de inteligență
+    artificială sau de învățare automată.</li>
+    <li><b>Unde și cum se păstrează.</b> Cheia de acces a fiecărui medic,
+    adresa contului și identificatorul calendarului — numai pe calculatorul
+    clinicii, într-un fișier separat; cheia este criptată cu mijloacele
+    Windows (DPAPI) și legată de contul Windows pe care rulează programul.
+    Fișierul nu intră în baza de date și nici în copiile de rezervă. În baza
+    de date a programului rămâne doar evidența tehnică a calendarului și a
+    evenimentelor scrise (identificatori, fără date ale pacientului). Programările scrise
+    în calendar se află la Google, în contul medicului. Programul comunică
+    direct cu Google, prin conexiune criptată (HTTPS); nimic din acestea nu
+    ajunge pe serverele furnizorului.</li>
+    <li><b>Cui se transmit.</b> Programările pleacă de pe calculatorul
+    clinicii direct la Google, în contul medicului; furnizorul nu le
+    primește și nu primește nici cheile de acces, iar datele nu se vând și
+    nu se pun la dispoziția altor terți. Pentru datele pacienților pe care
+    clinica alege să le arate în calendar operator este clinica; contul
+    Google și datele din el rămân la Google, conform politicii de
+    confidențialitate Google.</li>
+    <li><b>Cum se oprește și cum se șterg datele.</b> Butonul „Deconectează”
+    din fișa medicului șterge calendarul din contul lui Google, cu toate
+    programările din el, și cheia de acces de pe calculator; la arhivarea
+    medicului programul face același lucru singur. Programul nu cere Google
+    retragerea accesului dat aplicației, pentru că retragerea ar opri și
+    celelalte legături ale aceluiași cont Google cu aplicația; medicul îl
+    poate retrage oricând pe pagina
+    <a href="https://myaccount.google.com/connections" target="_blank" rel="noopener">myaccount.google.com/connections</a>
+    (aplicația DentPilot) — atunci programul nu mai scrie nimic, iar
+    calendarul rămas în cont îl poate șterge medicul. Când DentPilot™
+    Premium nu mai este activ sau programul este în regim de citire,
+    programul scoate din calendar programările viitoare și oprește
+    actualizarea. La ștergerea sau anonimizarea datelor unui pacient la
+    cererea lui (Legea nr. 195/2024) datele lui dispar și din calendarele
+    medicilor, la următoarea actualizare.</li>
+  </ul>
+  <p>Punctele „Limited Use” și „Modificări” de mai sus se aplică ambelor
+  legături.</p>
   <div class="en" lang="en">
     <p><b>In English — Google user data in the DentPilot app.</b> DentPilot
-    is a desktop program installed on the clinic's Windows computer. In
-    DentPilot Plus and during the trial, a user with the Director or
+    is a desktop program installed on the clinic's Windows computer. It has
+    two separate Google features, each turned on only by the clinic: the
+    clinic's Google account (read-only, below) and the doctors' calendars
+    (the program writes into a calendar it creates, further below). In
+    DentPilot Plus, DentPilot Premium and during the trial, a user with the Director or
     Recepție role may connect the clinic's Google account (button
     “Conectează contul Google”) to show the events of one Google Calendar
     in the program's “Google Calendar” tab, where clinic staff move them
@@ -343,8 +432,8 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
       chosen calendar from now to one year ahead (title, date, time and
       duration, description, location, attendees' names and e-mail
       addresses, status, technical identifiers). No other Google data — no
-      mail, contacts, files or password. The program never writes, changes
-      or deletes anything in Google Calendar.</li>
+      mail, contacts, files or password. Through this connection the program
+      never writes, changes or deletes anything in the clinic's calendar.</li>
       <li><b>Use:</b> only for the clinic's appointment journal: to display
       the events in the program's Google Calendar tab, to flag events
       changed or cancelled in Google, and to move events into the journal —
@@ -393,6 +482,69 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
       including the Limited Use requirements. The use of information
       received from Google Workspace scopes will adhere to the Google User
       Data Policy, including the Limited Use requirements.</li>
+    </ul>
+    <p><b>Doctors' calendars (DentPilot Premium).</b> In DentPilot Premium
+    the clinic may connect each doctor's own Google account so that the
+    doctor sees their appointments on their phone. A user with the Director
+    or Recepție role starts it from the doctor's card (button “Conectează
+    Google”) on the computer where the program is installed; the doctor
+    signs in to their own Google account in the system browser and grants
+    access.</p>
+    <ul>
+      <li><b>Scope:</b> a single one,
+      <code>calendar.app.created</code> — the program can create its own
+      secondary calendar in the doctor's account and read and write events
+      only in that calendar. It cannot see or change the account's other
+      calendars or events, and accesses no mail, contacts, files or
+      password.</li>
+      <li><b>Data written to Google:</b> one calendar named “DentPilot”
+      with the clinic's name and the doctor's name, and in it the doctor's
+      appointments from 30 days back to 90 days ahead: date, time, duration,
+      room, and a note that appointments are changed only in DentPilot. The
+      clinic's director chooses the level of detail: time only (the
+      default — no patient data), the patient's initials and record number,
+      or the patient's name and the service. The two levels with patient
+      data require an explicit warning dialog with a checkbox, and the
+      choice is logged in the program. The patient's phone number, national
+      ID, medical history, diagnosis, treatment plan and amounts are never
+      sent. A new or changed appointment reaches the calendar within 5
+      minutes and on “Sincronizează acum”; cancelled appointments are
+      removed and appointments older than 30 days are deleted from it.</li>
+      <li><b>Google user data received and its use:</b> only about the
+      calendar the program created — its ID, name and description, the
+      e-mail address of the account that owns it, and the IDs and status of
+      the events the program wrote. It is used only to keep that calendar
+      up to date and to show in the doctor's card which account is
+      connected. It is not used for advertising, profiling, the developer's
+      analytics or any other purpose, and is not used to develop, improve or
+      train AI or machine learning models.</li>
+      <li><b>Storage and protection:</b> each doctor's OAuth token, the
+      account's e-mail address and the calendar ID are kept only on the
+      clinic's computer, in a separate file; the token is encrypted with
+      Windows DPAPI and bound to the Windows account; the file is never in
+      the database or the backups. The program's local database keeps only
+      technical identifiers of the calendar and of the events written,
+      without patient data. The program talks
+      to Google directly over HTTPS. The developer's servers never receive
+      tokens, appointments or calendar data.</li>
+      <li><b>Sharing:</b> appointments go from the clinic's computer
+      directly to Google, into the doctor's account. Google user data is not
+      sold and is not shared with or transferred to the developer or anyone
+      else.</li>
+      <li><b>Stopping and deletion:</b> “Deconectează” in the doctor's card
+      deletes the calendar, with all its appointments, from the doctor's
+      Google account and deletes the token from the computer; archiving the
+      doctor does the same. The program does not revoke the app's grant at
+      Google, because that would also end the same Google account's other
+      connections with the app; the doctor can revoke it at any time at
+      <a href="https://myaccount.google.com/connections" target="_blank" rel="noopener">myaccount.google.com/connections</a>.
+      When DentPilot Premium is no longer active or the program is in
+      read-only mode, the program removes future appointments from the
+      calendar and stops updating it. Erasing a patient's data under
+      Moldovan Law 195/2024 also removes their data from the doctors'
+      calendars at the next update.</li>
+      <li>The Limited Use statements above apply to this feature as
+      well.</li>
     </ul>
   </div>
 

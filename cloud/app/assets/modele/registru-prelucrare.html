@@ -20,6 +20,8 @@
             padding:8px 12px;font-size:12.5px;margin:0 0 16px;border-radius:6px}
  body:not(.sms) .sms-only{display:none}
  body.sms .no-sms{display:none}
+ body:not(.gcal) .gcal-only{display:none}
+ body.gcal .no-gcal{display:none}
  @media print{.noprint{display:none}
    .fill{background:none;padding:0}
    .fill.empty{background:#FFF3B0}}
@@ -37,6 +39,11 @@ clinici nu ajung pe hârtia alteia.
 <label class="smstoggle noprint"><input type="checkbox" id="sms-toggle">
 Clinica folosește <b>Pachetul SMS</b> DentPilot — în registru apare și
 activitatea «Memento-uri SMS»</label>
+
+<label class="smstoggle noprint"><input type="checkbox" id="gcal-toggle">
+Clinica arată medicilor programările în <b>Google Calendar</b> cu inițialele
+sau numele pacienților (DentPilot Premium, nivelul «inițiale» sau «nume și
+serviciu») — registrul numește și această transmitere</label>
 
 <div class="note noprint">
 <b>Cum se folosește:</b> acesta este registrul activităților de prelucrare —
@@ -67,15 +74,25 @@ câmpurile galbene o singură dată și actualizați-l când se schimbă ceva
 <tr><th>Temei</th><td>executarea contractului de servicii medicale; obligația
     legală de a ține documentația medicală</td></tr>
 <tr><th>Destinatari</th><td>instituții abilitate, la cerere legală; altă
-    instituție medicală, la solicitarea pacientului (transferul fișei)</td></tr>
-<tr><th>Transfer în străinătate</th><td>nu are loc</td></tr>
+    instituție medicală, la solicitarea pacientului (transferul fișei)<span
+    class="gcal-only">; Google, furnizorul contului Google al medicului —
+    pentru programările arătate medicului în Google Calendar: data, ora,
+    cabinetul și <span class="fill">«inițialele și numărul fișei / numele și serviciul»</span>, trimise de
+    program direct la Google, fără furnizorul programului</span></td></tr>
+<tr><th>Transfer în străinătate</th><td><span class="no-gcal">nu are loc</span><span
+    class="gcal-only">datele arătate medicilor în Google Calendar ajung la
+    Google, care le poate păstra pe servere din afara Republicii Moldova;
+    temeiul transferului: <span class="fill">«stabilit de clinică»</span></span></td></tr>
 <tr><th>Termen de păstrare</th><td>conform normelor privind documentația
     medicală; datele de contact fără tratament — până la cererea de ștergere</td></tr>
 <tr><th>Măsuri de securitate</th>
     <td>program local (baza de date se află pe calculatorul clinicii); acces prin
         cod PIN cu limitarea încercărilor; jurnalul accesărilor la fișe;
         criptarea purtătorului (BitLocker); copii de rezervă criptate (AES-256);
-        ștergerea / anonimizarea la cerere</td></tr>
+        ștergerea / anonimizarea la cerere<span class="gcal-only">; nivelul datelor
+        arătate în Google Calendar îl alege directorul, iar alegerea se consemnează
+        în jurnalul programului; telefoanele și conturile Google ale medicilor
+        sunt protejate cu parolă</span></td></tr>
 <tr><th>Sistem utilizat</th><td>DentPilot, instalat local; furnizor — Oleg Bacalu, antreprenor independent,
     IDNO 1026023148339 (dentpilot.md); condițiile — Contractul de licență DentPilot
     și Acordul privind prelucrarea datelor (contul clinicii, secțiunea „Documente”)</td></tr>
@@ -169,6 +186,18 @@ Actualizat ultima dată: <span class="fill">«zz.ll.aaaa»</span></p>
   function apply() {
     if (t.checked) { document.body.classList.add('sms'); }
     else { document.body.classList.remove('sms'); }
+  }
+  t.addEventListener('change', apply);
+  apply();
+})();
+</script>
+<script>
+(function () {
+  var t = document.getElementById('gcal-toggle');
+  if (!t) return;
+  function apply() {
+    if (t.checked) { document.body.classList.add('gcal'); }
+    else { document.body.classList.remove('gcal'); }
   }
   t.addEventListener('change', apply);
   apply();

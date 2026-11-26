@@ -20,6 +20,8 @@
             padding:8px 12px;font-size:12.5px;margin:0 0 16px;border-radius:6px}
  body:not(.sms) .sms-only{display:none}
  body.sms .no-sms{display:none}
+ body:not(.gcal) .gcal-only{display:none}
+ body.gcal .no-gcal{display:none}
  @media print{.noprint{display:none}
    .fill{background:none;padding:0}
    .fill.empty{background:#FFF3B0}}
@@ -37,6 +39,11 @@ clinici nu ajung pe hârtia alteia.
 <label class="smstoggle noprint"><input type="checkbox" id="sms-toggle">
 Clinica folosește <b>Pachetul SMS</b> DentPilot — informarea spune și ce se
 transmite pentru memento-urile SMS</label>
+
+<label class="smstoggle noprint"><input type="checkbox" id="gcal-toggle">
+Clinica arată medicilor programările în <b>Google Calendar</b> cu inițialele
+sau numele pacienților (DentPilot Premium, nivelul «inițiale» sau «nume și
+serviciu») — informarea spune și ce ajunge la Google</label>
 
 <div class="note noprint">
 <b>Cum se folosește:</b> completați câmpurile galbene, tipăriți și afișați la
@@ -97,7 +104,12 @@ nivelul sistemului de operare.</p>
 acestora, și altor instituții medicale, la solicitarea dvs. (transfer al fișei).
 <span class="sms-only">Pentru memento-urile SMS, numărul de telefon și textul mesajului (data și ora
 vizitei sau, la reamintirea controlului periodic, denumirea și telefonul clinicii) ajung la dezvoltatorul programului DentPilot și la operatorul
-SMS.MD, care le prelucrează doar în numele clinicii.</span></p>
+SMS.MD, care le prelucrează doar în numele clinicii.</span>
+<span class="gcal-only">Pentru ca medicul să își vadă programările în telefon,
+clinica trimite în contul lui Google (Google Calendar) data și ora vizitei,
+cabinetul și <span class="fill">«inițialele și numărul fișei / numele și serviciul»</span> —
+direct la Google, fără dezvoltatorul programului. Google le păstrează în
+contul medicului, inclusiv pe servere din afara Republicii Moldova.</span></p>
 
 <h2>6. Cât timp păstrăm datele</h2>
 <p>Documentația medicală — pe durata prevăzută de legislația privind
@@ -163,6 +175,18 @@ o lună de la primirea cererii.</p>
   function apply() {
     if (t.checked) { document.body.classList.add('sms'); }
     else { document.body.classList.remove('sms'); }
+  }
+  t.addEventListener('change', apply);
+  apply();
+})();
+</script>
+<script>
+(function () {
+  var t = document.getElementById('gcal-toggle');
+  if (!t) return;
+  function apply() {
+    if (t.checked) { document.body.classList.add('gcal'); }
+    else { document.body.classList.remove('gcal'); }
   }
   t.addEventListener('change', apply);
   apply();

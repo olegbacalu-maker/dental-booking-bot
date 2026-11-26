@@ -50,8 +50,9 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
   condițiile de mai jos. Termenii de față se aplică din momentul activării
   primului fișier de licență. O clinică cu mai multe filiale adaugă fiecare
   filială din contul clinicii, ca o clinică separată, cu același IDNO: filiala
-  se activează singură, fără perioadă de probă, cu abonamentul ei (Basic sau
-  Plus, la prețul obișnuit) și cu fișierul ei de licență de la început, iar
+  se activează singură, fără perioadă de probă, cu abonamentul ei (Basic,
+  Plus sau Premium, la prețul obișnuit) și cu fișierul ei de licență de la
+  început, iar
   nota de plată este una pentru toată rețeaua. Perioada de probă o are doar
   prima clinică a contului (secțiunea 3). Termenii de față se aplică fiecărei
   filiale. Contractul de licență semnat de furnizor și anexele lui (fluxurile
@@ -67,7 +68,8 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
   <p>Programul rulează local, pe calculatorul clinicii, și nu depinde de
   internet în lucrul de zi cu zi; excepție fac modulul SMS (secțiunea 16),
   care are nevoie de internet și de serverul furnizorului, și conectarea la
-  Google Calendar (secțiunea 17), care are nevoie de internet și de Google.
+  Google Calendar (secțiunea 17) și calendarele medicilor în Google
+  (secțiunea 18), care au nevoie de internet și de Google.
   Dreptul de utilizare este atestat de un
   <b>fișier de licență</b> emis de furnizor pentru clinica respectivă, cu data
   până la care este valabil. Programul are trei stări, determinate exclusiv de
@@ -101,21 +103,28 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
 
   <h2>4. Abonamentul, plata și livrarea</h2>
   <ol>
-    <li>Abonamentul are două variante: <b>DentPilot™ Basic</b>, fără modulul
-    SMS, și <b>DentPilot™ Plus</b>, cu modulul SMS (secțiunea 16). Fiecare se
+    <li>Abonamentul are trei variante: <b>DentPilot™ Basic</b>, fără modulul
+    SMS, <b>DentPilot™ Plus</b>, cu modulul SMS (secțiunea 16), și
+    <b>DentPilot™ Premium</b>, cu modulul SMS și calendarele medicilor în
+    Google (secțiunile 16 și 18). Fiecare se
     încheie pe o lună sau pe un an (12 luni), la prețul variantei din oferta
     în vigoare la data plății (publicat pe
     <a href="/#preturi">dentpilot.md</a>). SMS-urile nu sunt incluse
     în abonament în nicio variantă: se plătesc separat, în pachete
     (secțiunea 16). Conectarea programului la contul Google al clinicii
-    (Google Calendar, secțiunea 17) există numai în DentPilot™ Plus și în
-    perioada de probă.</li>
+    (Google Calendar, secțiunea 17) există în DentPilot™ Plus, în
+    DentPilot™ Premium și în perioada de probă; calendarele medicilor în
+    Google (secțiunea 18) — numai în DentPilot™ Premium.</li>
     <li>Varianta o alege clinica la fiecare plată. Trecerea la DentPilot™ Plus
-    pornește modulul SMS imediat după confirmarea plății, iar conectarea la
-    Google Calendar — după ce noul fișier de licență ajunge în program
+    sau la DentPilot™ Premium pornește modulul SMS imediat după confirmarea
+    plății, iar conectarea la Google Calendar și, în DentPilot™ Premium,
+    calendarele medicilor — după ce noul fișier de licență ajunge în program
     (punctul 6). La trecerea la DentPilot™ Basic, modulul SMS rămâne pornit
     până la sfârșitul perioadei în curs și se oprește apoi; la fel și citirea
-    Google Calendar.</li>
+    Google Calendar. La trecerea de la DentPilot™ Premium la altă variantă,
+    calendarele medicilor se actualizează până la sfârșitul perioadei în
+    curs; apoi programul scoate din ele programările viitoare
+    (secțiunea 18).</li>
     <li>Plata se face cu cardul sau prin transfer bancar. Plata cu cardul
     se face online, pe pagina de plată securizată a băncii maib
     (BC „MAIB” SA), la care clinica ajunge de pe pagina de plată
@@ -212,7 +221,11 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     SMS, pentru numerele de telefon și textele memento-urilor furnizorul este
     persoană împuternicită, în condițiile secțiunii 16. Evenimentele citite
     din Google Calendar al clinicii (secțiunea 17) rămân pe calculatorul
-    clinicii; furnizorul nu le primește.</li>
+    clinicii; furnizorul nu le primește. Dacă clinica folosește calendarele
+    medicilor în Google (secțiunea 18), programările medicului pleacă de pe
+    calculatorul clinicii direct la Google, fără furnizor; date ale
+    pacienților ajung acolo numai dacă directorul clinicii alege un nivel cu
+    inițiale ori cu nume.</li>
     <li>Pentru datele contului clinicii (denumire, IDNO, persoana de contact,
     e-mail, telefon, adresa, fișierele emise, notele de plată și plățile,
     actele de acceptare a termenilor și datele tehnice ale calculatoarelor pe
@@ -228,7 +241,8 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
 
   <h2>10. Suport</h2>
   <p>Furnizorul oferă suport prin e-mail în zilele lucrătoare, iar în
-  perioada de probă și în DentPilot™ Plus — și prin telefon.
+  perioada de probă, în DentPilot™ Plus și în DentPilot™ Premium — și prin
+  telefon.
   Programul nu depinde de disponibilitatea serverelor furnizorului: lipsa
   temporară a internetului sau a serverului de licențe nu afectează lucrul
   clinicii. Memento-urile SMS (secțiunea 16) pleacă doar cât programul are
@@ -298,8 +312,8 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
   <ol>
     <li>Modulul SMS trimite pacienților clinicii, în numele ei, memento-uri
     despre vizitele programate și, la alegerea clinicii, reamintirea
-    controlului periodic (lista Rechemări, punctul 5). El funcționează în perioada de probă și în
-    DentPilot™ Plus (secțiunile 3 și 4); în DentPilot™ Basic este oprit.
+    controlului periodic (lista Rechemări, punctul 5). El funcționează în perioada de probă, în
+    DentPilot™ Plus și în DentPilot™ Premium (secțiunile 3 și 4); în DentPilot™ Basic este oprit.
     Memento-urile se reglează direct din program (Setări › SMS). Cât timp
     modulul este pornit, programul citește soldul de SMS al clinicii de pe
     serverul furnizorului la fiecare 10 minute și, după fiecare memento
@@ -381,22 +395,23 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
 
   <h2>17. Conectarea la Google Calendar</h2>
   <ol>
-    <li>În DentPilot™ Plus și în perioada de probă clinica își poate conecta
+    <li>În DentPilot™ Plus, în DentPilot™ Premium și în perioada de probă
+    clinica își poate conecta
     din program contul Google, ca evenimentele unui calendar Google al
     clinicii să apară singure în fila „Google Calendar” a programului, de
     unde personalul le mută în jurnal. Dacă clinica pornește din program
     mutarea automată (oprită până atunci), programul mută singur în jurnal
     evenimentele în care recunoaște medicul și pacientul, iar celelalte rămân
     în filă pentru personal. Încărcarea calendarului din
-    fișierul exportat din Google rămâne disponibilă în ambele variante.</li>
+    fișierul exportat din Google rămâne disponibilă în toate variantele.</li>
     <li>Conectarea o face un utilizator cu rolul Director sau Recepție, pe
     calculatorul pe care este instalat programul: programul deschide pagina
     Google în browserul calculatorului, iar clinica alege acolo contul și
     aprobă accesul de citire. Programul citește lista calendarelor contului
     și evenimentele calendarului ales, de acum până la un an înainte, din
     10 în 10 minute, cât rulează, și la apăsarea butonului „Verifică acum”;
-    el nu scrie, nu modifică și nu șterge nimic în Google și nu trimite
-    acolo date ale pacienților.</li>
+    prin această conectare el nu scrie, nu modifică și nu șterge nimic în
+    calendarul clinicii și nu trimite în Google date ale pacienților.</li>
     <li>Programul comunică direct cu Google, fără serverul furnizorului:
     cheia de acces se păstrează criptată pe calculatorul clinicii, iar
     evenimentele rămân în baza de date a programului. Furnizorul nu primește
@@ -408,16 +423,82 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     6, și în Anexa 2 la contract.</li>
     <li>Clinica poate retrage accesul oricând — în program, cu butonul
     „Deconectează”, sau din setările contului ei Google. În regim de citire
-    (secțiunea 6) și după oprirea variantei Plus (secțiunea 4, punctul 2)
-    programul nu mai citește calendarul, dar butonul „Deconectează” rămâne
-    disponibil, iar conectarea se păstrează: citirea reîncepe singură după o
-    nouă plată în DentPilot™ Plus. Evenimentele deja preluate rămân în
-    program.</li>
+    (secțiunea 6) și după trecerea la DentPilot™ Basic (secțiunea 4,
+    punctul 2) programul nu mai citește calendarul, dar butonul
+    „Deconectează” rămâne disponibil, iar conectarea se păstrează: citirea
+    reîncepe singură după o nouă plată în DentPilot™ Plus sau în
+    DentPilot™ Premium. Evenimentele deja preluate rămân în program.</li>
     <li>Funcția depinde de Google. Dacă Google nu răspunde, dacă accesul a
     fost retras sau a expirat ori dacă administratorul contului Google al
     clinicii (Google Workspace) nu permite aplicații externe, programul o
     arată în fila „Google Calendar” și, la nevoie, cere o nouă conectare;
     restul programului lucrează ca de obicei.</li>
+  </ol>
+
+  <h2>18. Calendarele medicilor în Google</h2>
+  <ol>
+    <li>În DentPilot™ Premium clinica poate conecta din program, pentru
+    fiecare medic, contul lui Google: programul creează în acest cont un
+    calendar separat, cu denumirea clinicii și numele medicului, și scrie în
+    el programările medicului, ca medicul să le vadă în telefon. O programare
+    nouă sau schimbată ajunge în calendar în cel mult 5 minute, cât programul
+    rulează și are internet, și imediat la apăsarea butonului „Sincronizează
+    acum”. Calendarul din Google este o copie pentru medic: programările se
+    modifică doar în DentPilot, iar ce se schimbă în Google nu ajunge în
+    program. În perioada de probă funcția nu este inclusă.</li>
+    <li>Conectarea o face un utilizator cu rolul Director sau Recepție, din
+    fișa medicului (butonul „Conectează Google”), pe calculatorul pe care
+    este instalat programul; medicul intră el însuși în contul lui Google,
+    în browserul calculatorului, și aprobă accesul. Programul primește numai
+    dreptul de a crea calendarul lui și de a scrie în el: celelalte
+    calendare, evenimente, e-mailuri și contacte ale medicului nu le vede și
+    nu le poate modifica.</li>
+    <li>În calendar ajung programările medicului de la 30 de zile în urmă
+    până la 90 de zile înainte — cele programate și cele finalizate; cele
+    anulate și neprezentările se scot din calendar, iar cele mai vechi de 30
+    de zile se șterg din el. Fiecare eveniment are data, ora, durata și
+    cabinetul. Ce arată în plus alege directorul clinicii, pentru toți
+    medicii, în lista „Medici”, pe calculatorul pe care este instalat
+    programul: „doar ora” (implicit) — nicio dată a pacientului; „inițiale” —
+    inițialele pacientului și numărul fișei; „nume și serviciu” — numele
+    pacientului și serviciul. Nivelurile cu inițiale ori cu nume se aleg
+    numai după o avertizare cu bifă, iar alegerea se consemnează în jurnalul
+    programului (cine, când, ce nivel); la schimbarea nivelului calendarele
+    se rescriu singure. Telefonul pacientului, IDNP-ul, anamneza,
+    diagnosticul, planul de tratament și sumele nu ajung în Google la niciun
+    nivel.</li>
+    <li>Programul comunică direct cu Google, fără serverul furnizorului:
+    cheia de acces a fiecărui medic se păstrează criptată pe calculatorul
+    clinicii, iar furnizorul nu primește nici cheile, nici programările și
+    nu este persoană împuternicită pentru aceste date. Nivelul îl hotărăște
+    clinica: pentru datele pacienților pe care alege să le arate în Google
+    operator este clinica — ea stabilește temeiul legal, informează
+    pacienții și se îngrijește ca medicii să își protejeze telefonul și
+    contul Google. Contul Google este al medicului și se folosește în
+    condițiile Google acceptate de el; Google păstrează programările în
+    acest cont, inclusiv pe servere din afara Republicii Moldova. Detalii —
+    în <a href="privacy.html#google">Politica de confidențialitate</a>,
+    punctul 6, și în Anexa 2 la contract.</li>
+    <li>Butonul „Deconectează” din fișa medicului șterge calendarul din
+    contul lui Google, cu toate programările din el, și cheia de acces de pe
+    calculator; programările rămân în DentPilot. La arhivarea medicului
+    programul șterge singur calendarul. Programul nu cere Google retragerea
+    accesului dat aplicației: medicul o poate face oricând din setările
+    contului lui Google. La ștergerea sau anonimizarea datelor unui pacient
+    (Legea nr. 195/2024) datele lui dispar și din calendarele medicilor, la
+    următoarea actualizare.</li>
+    <li>În regim de citire (secțiunea 6) și după ieșirea din DentPilot™
+    Premium (secțiunea 4, punctul 2) programul scoate din calendare
+    programările viitoare și oprește actualizarea; programările trecute
+    rămân în calendar până la „Deconectează”. Legătura se păstrează: după o
+    nouă plată în DentPilot™ Premium programările revin singure, fără o nouă
+    conectare.</li>
+    <li>Funcția depinde de Google. Dacă Google nu răspunde, dacă accesul a
+    fost retras sau a expirat ori dacă administratorul contului Google
+    (Google Workspace) nu permite aplicații externe, programul o arată în
+    fișa medicului și, la nevoie, cere o nouă conectare; restul programului
+    lucrează ca de obicei. Calendarul din Google nu înlocuiește jurnalul
+    programului.</li>
   </ol>
 </div>
 <footer>© 2026 DentPilot™ · <a href="privacy.html">Politica de confidențialitate</a></footer>

@@ -104,14 +104,14 @@ def suite(res: Result) -> None:
            all(h in contract for h in ("## Суть по пунктам", "## Обещание ↔ программа", "## Вопросы юристу"))
            and "docs/site/termeni.html" in contract)
     heads = re.findall(r"<h2>(\d+)\. ", terms)
-    res.check("17 пунктов по порядку", heads, [str(i) for i in range(1, 18)])
+    res.check("18 пунктов по порядку", heads, [str(i) for i in range(1, 19)])
     res.ok("contract.md описывает каждый пункт", all(f"| {i} |" in contract for i in range(1, 18)))
     # Модуль SMS и пакеты SMS — § 16 (16.10, слово Олега «без юриста»; с 23.10 —
     # модуль входит в тариф с SMS, пакеты отдельно). Числа раздела — из
     # config и правила сегментов сервера, не из теста; поменяли константу —
     # прогон требует слов. Цен на страницах нет (Олег 16.10: «в Git про цены
     # писать не надо») — раздел отсылает к ноте.
-    s16 = flat_terms.split("<h2>16. ", 1)[1] if "<h2>16. " in flat_terms else ""
+    s16 = flat_terms.split("<h2>16. ", 1)[1].split("<h2>17. ", 1)[0] if "<h2>16. " in flat_terms else ""
     res.ok("§ 16 — Modulul SMS", s16.startswith("Modulul SMS"), s16[:60])
     res.ok("§ 16: сегмент — как sms_rule.SINGLE (латиница / кириллица)",
            f"până la {sms_rule.SINGLE[sms_rule.GSM7]} de caractere latine" in s16
@@ -326,21 +326,21 @@ def suite(res: Result) -> None:
            and "dacă pagina oferă" not in c and "dacă pagina o oferă" not in flows)
     res.ok("Anexa 2: бота Telegram и записи пациентами в программе нет — «oprite» не обещает обратного",
            "nu are bot Telegram" in flows and "sunt oprite" not in flows)
-    # Связь с Google Calendar — только чтение, с ПК клиники прямо в Google: условия § 17, две строки
-    # Anexa 2, договор кл. 5.3 и 5.7, политика § 6 говорят одно и то же. Фраза Anexa 2 «кроме SMS ни один
-    # запрос не несёт данных пациентов» остаётся верной — запрос к Google их не несёт. Интервал опроса —
-    # «din N în N minute», а не «la fiecare N minute»: ту фразу сторож движка ищет у счёта SMS, и вторая
-    # копия спрятала бы уход его строки.
-    s17 = flat_terms.split("<h2>17. ", 1)[1] if "<h2>17. " in flat_terms else ""
+    # Связь с аккаунтом Google клиники — только чтение, с ПК клиники прямо в Google: условия § 17, две строки
+    # Anexa 2, договор кл. 5.3 и 5.7, политика § 6 говорят одно и то же. «Ничего не пишет» сказано про эту
+    # связь, а не про программу: в календари врачей (§ 18) программа пишет. Интервал опроса — «din N în N
+    # minute», а не «la fiecare N minute»: ту фразу сторож движка ищет у счёта SMS, и вторая копия спрятала
+    # бы уход его строки.
+    s17 = flat_terms.split("<h2>17. ", 1)[1].split("<h2>18. ", 1)[0] if "<h2>17. " in flat_terms else ""
     readonly = "nu scrie, nu modifică și nu șterge nimic"
     res.ok("§ 17 — Conectarea la Google Calendar: только чтение, мимо сервера, поставщик не уполномоченное лицо",
            s17.startswith("Conectarea la Google Calendar") and readonly in s17
            and "fără serverul furnizorului" in s17 and "nu este persoană împuternicită pentru" in s17
-           and "rămâne disponibilă în ambele variante" in s17, s17[:60])
-    res.ok("условия § 4: связь с Google — только в Plus и пробном, переход на Basic — как у модуля SMS",
-           "există numai în DentPilot™ Plus și în perioada de probă" in s4
+           and "rămâne disponibilă în toate variantele" in s17, s17[:60])
+    res.ok("условия § 4: связь с Google — в Plus, Premium и пробном, переход на Basic — как у модуля SMS",
+           "există în DentPilot™ Plus, în DentPilot™ Premium și în perioada de probă" in s4
            and "se oprește apoi; la fel și citirea Google Calendar" in s4)
-    res.ok("Anexa 2: две строки канала Google; запрос без данных пациентов и без технической личности",
+    res.ok("Anexa 2: две строки связи клиники; запрос без данных пациентов и без технической личности",
            "Google Calendar: conectarea contului Google al clinicii" in flows
            and "Google Calendar: citirea evenimentelor" in flows
            and "nicio cerere nu conține date ale pacienților" in flows
@@ -370,3 +370,102 @@ def suite(res: Result) -> None:
            and "passes through the developer's server, which does not keep it" in flat_privacy
            and "programul le mută și singur din calendarul ei Google" in flows
            and "mută manual" not in s17 + flat_privacy and "by hand" not in flat_privacy)
+    # Календари врачей в Google (Premium): программа ПИШЕТ приёмы врача в календарь, который сама создала в
+    # его аккаунте, — с ПК клиники прямо в Google. Подробность выбирает клиника; документы обязаны называть
+    # одно и то же: кто включает, что уходит на каждом уровне, чего не уходит никогда, окно и срок.
+    s18 = flat_terms.split("<h2>18. ", 1)[1] if "<h2>18. " in flat_terms else ""
+    res.ok("условия § 4: три варианта; Premium — формулой облака; формулы Basic и Plus не тронуты",
+           "<b>DentPilot™ Basic</b>, fără modulul SMS, <b>DentPilot™ Plus</b>, cu modulul SMS (secțiunea 16)" in s4
+           and "<b>DentPilot™ Premium</b>, cu modulul SMS și calendarele medicilor în Google" in s4
+           and "(secțiunea 18) — numai în DentPilot™ Premium" in s4, s4[:200])
+    res.ok("условия § 4.2: в Premium — с новым файлом; с Premium — до конца периода, потом будущие приёмы убираются",
+           "calendarele medicilor — după ce noul fișier de licență ajunge în program" in s4
+           and "La trecerea de la DentPilot™ Premium la altă variantă, calendarele medicilor se actualizează "
+               "până la sfârșitul perioadei în curs" in s4
+           and "apoi programul scoate din ele programările viitoare" in s4)
+    res.ok("§ 18 — Calendarele medicilor în Google: только Premium, пробный не включает, мимо сервера, "
+           "поставщик не уполномоченное лицо, оператор — клиника",
+           s18.startswith("Calendarele medicilor în Google") and "În DentPilot™ Premium" in s18
+           and "În perioada de probă funcția nu este inclusă" in s18
+           and "fără serverul furnizorului" in s18 and "nu este persoană împuternicită pentru" in s18
+           and "operator este clinica" in s18, s18[:60])
+    levels = ("„doar ora” (implicit)", "„inițiale”", "„nume și serviciu”")
+    res.ok("§ 18, Anexa 2, политика § 6: три уровня одними словами, умолчание — «doar ora»",
+           all(w in t for w in levels for t in (s18, flows, flat_privacy)))
+    res.ok("§ 18, Anexa 2, договор 5.8, политика: уровень с данными пациента — после предупреждения, "
+           "выбор — в летописи программы",
+           all("se consemnează în jurnalul programului" in t for t in (s18, flows, c, flat_privacy))
+           and all("avertizare cu bifă" in t for t in (s18, flows, flat_privacy)) and "avertizare afișată de program" in c)
+    never = ("IDNP-ul", "anamneza, diagnosticul", "planul de tratament și sumele", "la niciun nivel")
+    res.ok("§ 18, Anexa 2, договор 5.8, политика: телефон, IDNP, анамнез, диагноз, план и суммы не уходят "
+           "ни на одном уровне",
+           all(w in t for w in never for t in (s18, flows, c, flat_privacy)))
+    window = "de la 30 de zile în urmă până la 90 de zile înainte"
+    res.ok("§ 18, Anexa 2, политика (RO, EN): окно календаря — 30 дней назад и 90 вперёд",
+           all(window in t for t in (s18, flows, flat_privacy))
+           and "from 30 days back to 90 days ahead" in flat_privacy)
+    soon = "în cel mult 5 minute"
+    res.ok("§ 18, Anexa 2, договор 5.8, политика (RO, EN): приём доезжает до календаря врача не дольше пяти минут",
+           all(soon in t for t in (s18, flows, c, flat_privacy)) and "within 5 minutes" in flat_privacy)
+    res.ok("§ 18: подключает Director или Recepție с ПК программы, врач входит сам; «Deconectează» удаляет "
+           "календарь, отзыва у Google нет",
+           "rolul Director sau Recepție" in s18 and "medicul intră el însuși în contul lui Google" in s18
+           and "șterge calendarul din contul lui Google" in s18
+           and "Programul nu cere Google retragerea accesului dat aplicației" in s18)
+    res.ok("§ 18: право кончилось или режим чтения — будущие приёмы убираются, связь хранится; стирание пациента "
+           "доходит до календарей",
+           "programul scoate din calendare programările viitoare și oprește actualizarea" in s18
+           and "Legătura se păstrează" in s18 and "datele lui dispar și din calendarele medicilor" in s18)
+    res.ok("Anexa 2: две строки календарей врачей; кнопки — словами программы; что читается обратно",
+           "Google Calendar: conectarea calendarului unui medic" in flows
+           and "Google Calendar: programările în calendarul medicului" in flows
+           and all(b in flows for b in ("„Conectează Google”", "„Sincronizează acum”", "„Deconectează”"))
+           and "numai în DentPilot Premium" in flows
+           and "De la Google programul citește numai despre calendarul creat de el" in flows
+           and "nu cere Google retragerea accesului aplicației" in flows)
+    res.ok("Anexa 2 § 4: «ни один запрос без данных пациентов» — с оговоркой о календарях врачей; программа пишет "
+           "только в свой календарь",
+           "În afara memento-urilor SMS și a calendarelor medicilor în Google" in flows
+           and "numai în calendarul creat de el în contul medicului" in flows
+           and "Programările scrise în Google nu ajung la furnizor" in flows)
+    res.ok("договор: три варианта (кл. 1.3), три исключения (5.2), перечень 5.3 и кл. 5.8 — клиника оператор, "
+           "поставщик не уполномоченное лицо",
+           "Programul se oferă în trei variante" in c and "cu trei excepții" in c
+           and "scrierea programărilor în aceste calendare (clauza 5.8)" in c
+           and "<b>Calendarele medicilor în Google.</b>" in c and "clinica răspunde ca operator" in c
+           and c.count("nu este persoană împuternicită pentru aceste date") == 2)
+    res.ok("«ничего не пишет в Google» — только о связи клиники: безусловных обещаний нет",
+           "prin această conectare programul nu scrie nimic în Google" in c
+           and "prin această conectare el nu scrie" in s17 and "Prin acest canal programul nu scrie" in flows
+           and "prin această conectare, nu scrie" in flat_privacy
+           and "nimic în Google și nu trimite" not in s17 and "nimic în calendarul Google" not in flows
+           and "never writes, changes or deletes anything in Google Calendar" not in flat_privacy)
+    res.ok("DPA: случаев обработки по-прежнему два; отправленное клиникой в Google мимо поставщика — не предмет DPA",
+           "două și numai două" in dpa and "(contractul, clauza 5.8) nu trec prin furnizor" in dpa
+           and "nu fac obiectul prezentului acord" in dpa
+           and "datele pacienților nu părăsesc Republica Moldova" not in dpa)
+    res.ok("политика § 6: календари врачей — право поимённо (RO, EN), что пишется, что читается, где ключ, "
+           "как отключить",
+           'id="google-medici"' in privacy and flat_privacy.count("<code>calendar.app.created</code>") == 2
+           and "Ce scrie programul în Google" in flat_privacy
+           and "Ce date Google primește programul și cum le folosește" in flat_privacy
+           and flat_privacy.count("inteligență artificială") == 2
+           and flat_privacy.count("train AI or machine learning models") == 2
+           and flat_privacy.count("myaccount.google.com/connections</a>") == 4
+           and "Doctors' calendars (DentPilot Premium)" in flat_privacy
+           and "Programul nu cere Google retragerea accesului dat aplicației" in flat_privacy
+           and "The program does not revoke the app's grant at Google" in flat_privacy
+           and "The Limited Use statements above apply to this feature as well" in flat_privacy)
+    res.ok("политика: модуль SMS и связь клиники — и в Premium",
+           "odulul SMS (DentPilot™ Plus)" not in flat_privacy
+           and "în DentPilot™ Plus, în DentPilot™ Premium și în perioada de probă" in flat_privacy
+           and "In DentPilot Plus, DentPilot Premium and during the trial" in flat_privacy)
+    # Образцы клиники: реестр и информирование называют Google получателем только по галочке клиники —
+    # на уровне «doar ora» данных пациента у Google нет, и «передачи за рубеж нет» остаётся верным.
+    modele = {n: " ".join((CLOUD / "app" / "assets" / "modele" / n).read_text(encoding="utf-8").split())
+              for n in ("registru-prelucrare.html", "informare-pacienti.html")}
+    res.ok("образцы клиники: галочка «Google Calendar» открывает получателя Google и передачу за рубеж",
+           all('id="gcal-toggle"' in t and "body:not(.gcal) .gcal-only{display:none}" in t
+               and "din afara Republicii Moldova" in t for t in modele.values())
+           and '<span class="no-gcal">nu are loc</span>' in modele["registru-prelucrare.html"]
+           and "fără dezvoltatorul programului" in modele["informare-pacienti.html"])
