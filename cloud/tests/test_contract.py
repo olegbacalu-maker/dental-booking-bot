@@ -378,11 +378,11 @@ def suite(res: Result) -> None:
            "<b>DentPilot™ Basic</b>, fără modulul SMS, <b>DentPilot™ Plus</b>, cu modulul SMS (secțiunea 16)" in s4
            and "<b>DentPilot™ Premium</b>, cu modulul SMS și calendarele medicilor în Google" in s4
            and "(secțiunea 18) — numai în DentPilot™ Premium" in s4, s4[:200])
-    res.ok("условия § 4.2: в Premium — с новым файлом; с Premium — до конца периода, потом будущие приёмы убираются",
+    res.ok("условия § 4.2: в Premium — с новым файлом; с Premium — до конца периода, потом убираются все приёмы",
            "calendarele medicilor — după ce noul fișier de licență ajunge în program" in s4
            and "La trecerea de la DentPilot™ Premium la altă variantă, calendarele medicilor se actualizează "
                "până la sfârșitul perioadei în curs" in s4
-           and "apoi programul scoate din ele programările viitoare" in s4)
+           and "apoi programul scoate din ele toate programările" in s4)
     res.ok("§ 18 — Calendarele medicilor în Google: только Premium, пробный не включает, мимо сервера, "
            "поставщик не уполномоченное лицо, оператор — клиника",
            s18.startswith("Calendarele medicilor în Google") and "În DentPilot™ Premium" in s18
@@ -412,10 +412,16 @@ def suite(res: Result) -> None:
            "rolul Director sau Recepție" in s18 and "medicul intră el însuși în contul lui Google" in s18
            and "șterge calendarul din contul lui Google" in s18
            and "Programul nu cere Google retragerea accesului dat aplicației" in s18)
-    res.ok("§ 18: право кончилось или режим чтения — будущие приёмы убираются, связь хранится; стирание пациента "
-           "доходит до календарей",
-           "programul scoate din calendare programările viitoare și oprește actualizarea" in s18
-           and "Legătura se păstrează" in s18 and "datele lui dispar și din calendarele medicilor" in s18)
+    # Без права календарь пустеет целиком: событие с именем, оставшееся у Google, стирание пациента уже не
+    # достало бы — сверка в это время не ходит.
+    gone = "toate programările, și pe cele trecute, și oprește actualizarea"
+    res.ok("§ 18, Anexa 2, политика (RO, EN): право кончилось или режим чтения — из календаря уходят ВСЕ приёмы, "
+           "и прошлые; связь хранится; стирание пациента доходит до календарей",
+           all(gone in t for t in (s18, flows, flat_privacy)) and "calendarul rămâne gol" in s18
+           and "removes all appointments, past ones included, from the calendar" in flat_privacy
+           and "Legătura se păstrează" in s18 and "datele lui dispar și din calendarele medicilor" in s18
+           and not any(w in t for w in ("programările viitoare", "future appointments")
+                       for t in (s4, s18, flows, flat_privacy)))
     res.ok("Anexa 2: две строки календарей врачей; кнопки — словами программы; что читается обратно",
            "Google Calendar: conectarea calendarului unui medic" in flows
            and "Google Calendar: programările în calendarul medicului" in flows
