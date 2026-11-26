@@ -1207,7 +1207,13 @@ describe('«Mută» окна визита: перенос на другой де
     await waitFor(() => expect(banners('err')).toEqual(['Intervalul este deja ocupat la acest medic']))
     expect(document.querySelector('.toastbox')).toBeNull()
     expect(dateField().value).toBe(NEXT_DAY)
-    /* новый выбор снимает слово прежнего отказа */
+    /* день под окном уже другой: его канва спрошена заново */
+    await waitFor(() => expect(dayGets().filter((u) => u.includes(`date=${NEXT_DAY}`))).toHaveLength(2))
+    /* новый выбор — час, минута, день — снимает слово прежнего отказа */
+    fireEvent.click(document.querySelectorAll('dialog .dp-minpick .mp')[3] as HTMLElement)
+    expect(banners('err')).toEqual([])
+    fireEvent.click(yes())
+    await waitFor(() => expect(banners('err')).toEqual(['Intervalul este deja ocupat la acest medic']))
     await pickDate('2026-09-25')
     expect(banners('err')).toEqual([])
   })

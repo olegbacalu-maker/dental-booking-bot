@@ -54,6 +54,8 @@ export function Reschedule({ open, drag, canvas, step, today, busy, onClose, onM
   const [dk, setDk] = useState(drag.dk)
   const [got, setGot] = useState<Got | null>(null)
   const [fail, setFail] = useState('')
+  /* отказ значит, что день под окном уже другой: канва спрашивается заново */
+  const [asked, setAsked] = useState(0)
   /* врачи и кабинеты от дня не зависят: последние известные держат окно в
      одном виде, пока канва нового дня в пути */
   const [known, setKnown] = useState<DayModel | null>(null)
@@ -72,7 +74,7 @@ export function Reschedule({ open, drag, canvas, step, today, busy, onClose, onM
       () => { if (!ctl.signal.aborted) setGot({ at, model: null }) },
     )
     return () => ctl.abort()
-  }, [open, valid, at])
+  }, [open, valid, at, asked])
 
   const mine = got?.at === at ? got : null
   const cv = mine?.model?.canvas ?? (at === canvas.date ? canvas : null)
@@ -98,12 +100,13 @@ export function Reschedule({ open, drag, canvas, step, today, busy, onClose, onM
         fail: fail || (lost ? T.offline : ''),
         onDate: (iso) => { setAt(iso); setFail('') },
         onDoctor: (id) => { setDk(id); setFail('') },
+        onPlace: () => setFail(''),
       }}
       onClose={onClose}
       onMove={(min, room) => {
         setFail('')
         void onMove({ date: at, time: hhmm(min), doctor: dk, ...(room ? { room } : {}) }, setFail)
-          .then((ok) => { if (ok) onClose() })
+          .then((ok) => { if (ok) onClose(); else setAsked((n) => n + 1) })
       }} />
   )
 }

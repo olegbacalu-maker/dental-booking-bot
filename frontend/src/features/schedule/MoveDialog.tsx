@@ -65,6 +65,8 @@ export interface MovePick {
   fail: string
   onDate: (iso: string) => void
   onDoctor: (dk: string) => void
+  /** Выбрали другой час, минуту или кабинет: слово прежнего отказа больше не про это место. */
+  onPlace: () => void
 }
 
 interface Props {
@@ -132,6 +134,9 @@ export function MoveDialog({ open, drag, target, fromName, toName, taken, rooms 
   const wait = !!pick && (pick.pending || noHour)
   /* граница дневная, как у предупреждения сервера: прошедший час сегодня — обычная работа */
   const past = otherDay && !!pick.today && pick.date < pick.today
+  const pickHour = (h: string) => { setHourPick(h); pick?.onPlace() }
+  const pickMinute = (m: number) => { setMinute(m); pick?.onPlace() }
+  const pickRoom = (id: string) => { setRoomChoice(id); pick?.onPlace() }
   const dayOf = (iso: string) => {
     const day = dayShort(iso)
     return day ? ` · ${day}` : ''
@@ -170,10 +175,10 @@ export function MoveDialog({ open, drag, target, fromName, toName, taken, rooms 
             <label className="dlab">{T.date}
               <input type="date" value={pick.date} required onChange={(e) => pick.onDate(e.target.value)} />
             </label>
-            <HourSelect hours={list} value={hourPick} onPick={setHourPick} />
+            <HourSelect hours={list} value={hourPick} onPick={pickHour} />
           </div>
-        ) : <HourSelect hours={list} value={hourPick} onPick={setHourPick} />}
-        <MinPick hh={hh} value={minute} step={step} taken={off} onPick={setMinute} />
+        ) : <HourSelect hours={list} value={hourPick} onPick={pickHour} />}
+        <MinPick hh={hh} value={minute} step={step} taken={off} onPick={pickMinute} />
         {/* список врачей приходит с канвой дня: поле стоит с первого кадра, чтобы окно не росло */}
         {pick ? (
           <select value={target.dk} aria-label={T.doctor} disabled={pick.doctors.length < 2}
@@ -181,7 +186,7 @@ export function MoveDialog({ open, drag, target, fromName, toName, taken, rooms 
             {pick.doctors.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
           </select>
         ) : null}
-        {many ? <RoomSelect rooms={rooms} value={room} onPick={setRoomChoice} /> : null}
+        {many ? <RoomSelect rooms={rooms} value={room} onPick={pickRoom} /> : null}
         {/* день и час здесь меняют по многу раз: место под слово занято всегда, слово одно —
             самое важное; у броска слова стоят как стояли */}
         {pick ? (
