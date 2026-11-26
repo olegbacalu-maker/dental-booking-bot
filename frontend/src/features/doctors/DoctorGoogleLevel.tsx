@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { AppLink } from '../../components/AppLink'
 import { showDialog, useDialogLeave } from '../../components/dialog'
 import { Icon } from '../../components/Icon'
@@ -7,7 +7,9 @@ import type { GdocList, GdocListWords, GdocLevelCode, GdocRow, LevelChoice } fro
 /* Полоса «Calendarele medicilor în Google» вверху списка Medici: что видит врач в событиях своего
    календаря — три положения, под ними образец события. Видят директор и регистратура, менять —
    только `level.can_set` (директор с ПК программы); почему нельзя — словом сервера `lock`. Уровень
-   с данными пациента (`warn`) ставится только через окно с галочкой. Все слова — сервера. */
+   с данными пациента (`warn`) ставится только через окно с галочкой. Все слова — сервера.
+   Выбор подписан видимо и залит фирменным цветом: серый на сером его не замечали; срок переписи —
+   под самим выбором, к нему он и относится. */
 
 interface Props {
   g: GdocList
@@ -21,6 +23,7 @@ export function DoctorGoogleLevel({ g, busy, onSet }: Props) {
   const lv = g.level
   const cur = lv.choices.find((c) => c.code === lv.code)
   const [asking, setAsking] = useState<LevelChoice | null>(null)
+  const labId = useId()
 
   if (g.premium) {
     return (
@@ -47,24 +50,29 @@ export function DoctorGoogleLevel({ g, busy, onSet }: Props) {
           <b>{w.title}</b>
           <span>{w.count ? `${w.count} · ` : ''}{w.lead}</span>
         </div>
-        <div className="gdl-seg" role="radiogroup" aria-label={w.label}>
-          {lv.choices.map((c) => (
-            <button key={c.code} type="button" role="radio" aria-checked={c.code === lv.code}
-                    className={`gdl-sb${c.code === lv.code ? ' on' : ''}`}
-                    disabled={busy || (!lv.can_set && c.code !== lv.code)} onClick={() => pick(c)}>
-              {c.label}{c.code === 'time' ? <small>{w.default}</small> : null}
-            </button>
-          ))}
+        <div className="gdl-pick">
+          <div className="gdl-pickr">
+            <span className="gdl-lab" id={labId}>{w.label}:</span>
+            <div className="gdl-seg" role="radiogroup" aria-labelledby={labId}>
+              {lv.choices.map((c) => (
+                <button key={c.code} type="button" role="radio" aria-checked={c.code === lv.code}
+                        className={`gdl-sb${c.code === lv.code ? ' on' : ''}`}
+                        disabled={busy || (!lv.can_set && c.code !== lv.code)} onClick={() => pick(c)}>
+                  {c.label}{c.code === 'time' ? <small>{w.default}</small> : null}
+                </button>
+              ))}
+            </div>
+          </div>
+          <span className="gdl-note">
+            {lv.lock ? <span className="gdl-lock"><Icon name="lock" /> {lv.lock}</span> : <span className="hint">{w.rewrite}</span>}
+          </span>
         </div>
       </div>
-      <p className="gdl-sub">
-        {cur ? (
+      {cur ? (
+        <p className="gdl-sub">
           <span className="gdl-ph"><Icon name="phone" /> {w.phone} <span className="gdl-ev">{cur.sample}</span></span>
-        ) : null}
-        <span className="gdl-note">
-          {lv.lock ? <span className="gdl-lock"><Icon name="lock" /> {lv.lock}</span> : <span className="hint">{w.rewrite}</span>}
-        </span>
-      </p>
+        </p>
+      ) : null}
       {asking ? (
         <LevelAsk c={asking} w={w} busy={busy} onClose={() => setAsking(null)}
                   onOk={() => onSet(asking.code, true)} />

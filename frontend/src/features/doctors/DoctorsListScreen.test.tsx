@@ -213,6 +213,18 @@ describe('DoctorsListScreen › Google', () => {
     expect(chip('d1')).toBeNull()
   })
 
+  it('выбор подписан видимо: подпись называет группу, срок переписи — под самим выбором', async () => {
+    get.mockResolvedValueOnce(ok(LIST))
+    gget.mockResolvedValueOnce(ok(GDOC))
+    open()
+    await screen.findByText('Dr. Activ Doi')
+    const group = screen.getByRole('radiogroup', { name: `${GDOC_LIST_WORDS.label}:` })
+    const pick = group.closest('.gdl-pick')
+    expect(pick?.querySelector('.gdl-lab')?.textContent).toBe(`${GDOC_LIST_WORDS.label}:`)
+    expect(pick?.querySelector('.gdl-note')?.textContent).toBe(GDOC_LIST_WORDS.rewrite)
+    expect(strip()?.querySelector('.gdl-sub')?.textContent).toContain('Programare · Cabinet 1')
+  })
+
   it('уровень без данных пациента ставится сразу, без окна; ответ приносит новый выбор', async () => {
     get.mockResolvedValueOnce(ok(LIST))
     gget.mockResolvedValueOnce(ok({ ...GDOC, level: { ...GDOC.level, code: 'initials' } }))

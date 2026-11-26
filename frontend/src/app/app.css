@@ -3536,14 +3536,20 @@ dialog.dp-about { width: 460px; }
 .dp-react-root .gdl-top { display: flex; align-items: center; gap: 12px 14px; flex-wrap: wrap; }
 .dp-react-root .gdl-ttl { flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 2px; line-height: 1.45; }
 .dp-react-root .gdl-ttl span { font-size: var(--fs-s); }
-.dp-react-root .gdl-seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; border: 1px solid var(--line);
-  border-radius: var(--r-ctl); background: var(--fill); }
+/* выбор подписан и обведён фирменным цветом, выбранное залито: серый на сером не замечали */
+.dp-react-root .gdl-pick { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; max-width: 100%; }
+.dp-react-root .gdl-pickr { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 10px; }
+.dp-react-root .gdl-lab { font-size: var(--fs-m); font-weight: 600; color: var(--text); }
+.dp-react-root .gdl-seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; border: 1.5px solid var(--teal);
+  border-radius: var(--r-ctl); background: var(--surface); }
 /* все положения одной жирности: нажатое не толкает соседей вбок */
 .dp-react-root .gdl-sb { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px; border: 0;
-  border-radius: var(--r-s); background: none; color: var(--text2); font: inherit; font-size: var(--fs-m); font-weight: 600;
+  border-radius: var(--r-s); background: none; color: var(--text); font: inherit; font-size: var(--fs-m); font-weight: 600;
   white-space: nowrap; cursor: pointer; }
 .dp-react-root .gdl-sb small { color: var(--text3); font-size: var(--fs-xs); font-weight: 400; }
-.dp-react-root .gdl-sb.on { background: var(--surface); color: var(--text); box-shadow: var(--sh); }
+.dp-react-root .gdl-sb.on { background: var(--teal); color: var(--on-teal); }
+.dp-react-root .gdl-sb.on small { color: inherit; }
+.dp-react-root .gdl-sb:not(.on):not(:disabled):hover { background: var(--teal-soft); }
 .dp-react-root .gdl-sb:disabled { cursor: default; opacity: .55; }
 .dp-react-root .gdl-sb.on:disabled { opacity: 1; }
 .dp-react-root .gdl-sb:focus-visible { outline: none; box-shadow: var(--ring); }
@@ -3551,7 +3557,7 @@ dialog.dp-about { width: 460px; }
   font-size: var(--fs-s); }
 .dp-react-root .gdl-ph { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .dp-react-root .gdl-ph svg, .dp-react-root .gdl-lock svg { width: 14px; height: 14px; color: var(--text3); }
-.dp-react-root .gdl-note { margin-left: auto; }
+.dp-react-root .gdl-note { padding-right: 2px; text-align: right; }
 .dp-react-root .gdl-note .hint, .dp-react-root .gdl-lock { margin: 0; font-size: var(--fs-s); }
 .dp-react-root .gdl-lock { display: inline-flex; align-items: center; gap: 6px; }
 .dp-react-root .gdl-ev, .gdl-dlg .gdl-ev { display: inline-block; padding: 1px 8px; border-radius: var(--r-s);
@@ -3569,7 +3575,9 @@ dialog.rg-dlg.gdl-dlg { width: min(540px, calc(100vw - 32px)); }
 .gdl-dlg .gl-chk input { accent-color: var(--teal); margin: 2px 0 0; width: 16px; height: 16px; flex: none; }
 @media (max-width: 900px) {
   .dp-react-root .gdl-sub { padding-left: 0; }
-  .dp-react-root .gdl-note { margin-left: 0; }
+  .dp-react-root .gdl-pick { align-items: flex-start; }
+  .dp-react-root .gdl-pickr { justify-content: flex-start; }
+  .dp-react-root .gdl-note { text-align: left; }
 }
 @media (max-width: 560px) {
   .dp-react-root .gdl { padding: 14px 16px; }
