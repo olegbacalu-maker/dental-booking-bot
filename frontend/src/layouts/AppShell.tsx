@@ -5,6 +5,7 @@ import { isJournalDay, newApptHref } from '../app/commands'
 import { useLock } from '../app/lock'
 import { AppLink, isPlainClick, useProseLinks } from '../components/AppLink'
 import { Icon, iconName } from '../components/Icon'
+import { ServerToast } from '../components/ServerToast'
 import { NewApptHost } from '../features/schedule/NewApptHost'
 import { defaultNavigate } from '../hooks/useLoad'
 import { asApiError } from '../services/api'
@@ -312,7 +313,7 @@ export function AppShell({ m, children }: { m: ShellModel; children: React.React
               ))}
             </div>
           )}
-          {m.frame.msg && <div onClick={prose} dangerouslySetInnerHTML={{ __html: m.frame.msg }} />}
+          <ServerToast frame={m.frame} prose={prose} />
           {children}
         </div>
       </div>
