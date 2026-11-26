@@ -105,7 +105,7 @@ def suite(res: Result) -> None:
            and "docs/site/termeni.html" in contract)
     heads = re.findall(r"<h2>(\d+)\. ", terms)
     res.check("18 пунктов по порядку", heads, [str(i) for i in range(1, 19)])
-    res.ok("contract.md описывает каждый пункт", all(f"| {i} |" in contract for i in range(1, 18)))
+    res.ok("contract.md описывает каждый пункт", all(f"| {i} |" in contract for i in range(1, 19)))
     # Модуль SMS и пакеты SMS — § 16 (16.10, слово Олега «без юриста»; с 23.10 —
     # модуль входит в тариф с SMS, пакеты отдельно). Числа раздела — из
     # config и правила сегментов сервера, не из теста; поменяли константу —
