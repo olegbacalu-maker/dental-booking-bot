@@ -209,6 +209,9 @@ LANGS = ("ro", "ru")
 # ⛔ Состояние ОДНО — то же, что решает отправку (`sms_loop.active`): «пакет
 # предложен, но события выключены» печатает прежний текст. Основания те же,
 # что в clinics\lege-195\1-informare-pacienti.html (SMS-раздел по галочке).
+# Ответ по ссылке (Premium) назван условием «если в SMS есть ссылка», а не
+# вторым состоянием листа: пациент сам видит ссылку в SMS, и бумага верна
+# при любой галочке клиники, не заводя второго решателя рядом с отправкой.
 _T_SMS = {
     "ro": {
         "li4": ("remindere despre vizita programată (prin SMS) și reamintirea "
@@ -221,7 +224,13 @@ _T_SMS = {
                   "la reamintirea controlului periodic, denumirea și telefonul "
                   "clinicii), prin serverul "
                   "dezvoltatorului (care nu le păstrează), operatorului SMS.MD "
-                  "(Rock Soft S.R.L.), care le păstrează 3 luni. Datele pot fi transmise "
+                  "(Rock Soft S.R.L.), care le păstrează 3 luni. Dacă memento-ul "
+                  "conține un link de răspuns, răspunsul dat pe pagina "
+                  "dezvoltatorului („Vin” / „Nu pot veni”) ajunge la clinică prin "
+                  "serverul lui, care păstrează doar un cod aleatoriu, răspunsul și "
+                  "momentul lui, fără nume și fără numărul de telefon, și le șterge "
+                  "la 3 zile după vizită; răspunsul nu anulează programarea. "
+                  "Datele pot fi transmise "
                   "doar instituțiilor abilitate, la cererea legală a acestora, sau "
                   "altei instituții medicale, la solicitarea dvs. Documentația "
                   "medicală se păstrează pe durata prevăzută de legislație."),
@@ -237,7 +246,12 @@ _T_SMS = {
                   "напоминании о плановом контроле, название и телефон клиники) — "
                   "через сервер разработчика "
                   "(он их не хранит) оператору SMS.MD (Rock Soft S.R.L.), который "
-                  "хранит их 3 месяца. Данные могут быть переданы только "
+                  "хранит их 3 месяца. Если в напоминании есть ссылка для ответа, "
+                  "ответ на странице разработчика («Приду» / «Не смогу прийти») "
+                  "доходит до клиники через его сервер, который хранит только "
+                  "случайный код, ответ и время ответа, без имени и номера "
+                  "телефона, и удаляет их через 3 дня после визита; ответ не "
+                  "отменяет запись. Данные могут быть переданы только "
                   "уполномоченным органам по их законному запросу либо другому "
                   "медицинскому учреждению по вашей просьбе. Медицинская "
                   "документация хранится в течение срока, установленного "

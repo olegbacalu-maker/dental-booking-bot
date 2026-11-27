@@ -43,7 +43,7 @@ li{margin:0 0 4px}
 <div class="wrap">
 
 <h1>CONTRACT DE LICENȚĂ ȘI UTILIZARE A PROGRAMULUI DENTPILOT</h1>
-<p class="sub">Versiunea din 26.11.2026 · document comun pentru toate clinicile,
+<p class="sub">Versiunea din 27.11.2026 · document comun pentru toate clinicile,
 semnat de furnizor</p>
 
 <p>Încheiat între:</p>
@@ -70,8 +70,8 @@ acestea rămân ale furnizorului.</p>
 <p class="cl"><b class="n">1.3.</b> Programul se oferă în trei variante —
 DentPilot Basic, DentPilot Plus și DentPilot Premium —, descrise în Anexa 1
 (secțiunea 4) și în oferta publicată pe dentpilot.md; funcțiile care nu
-există în toate variantele (de exemplu modulul SMS sau calendarele medicilor
-în Google) sunt enumerate în Anexa 1. Funcțiile disponibile depind de
+există în toate variantele (de exemplu modulul SMS, calendarele medicilor
+în Google sau răspunsul pacientului prin link) sunt enumerate în Anexa 1. Funcțiile disponibile depind de
 varianta aleasă la plată și de versiunea programului.</p>
 <p class="cl"><b class="n">1.4.</b> Termenii și condițiile publicate la
 https://dentpilot.md/termeni.html sunt Anexa 1 la prezentul contract și
@@ -98,7 +98,9 @@ un an (12 luni), în varianta aleasă de clinică la fiecare plată, <b>la
 prețul variantei din oferta în vigoare la data plății, publicată pe
 dentpilot.md</b>. Prezentul contract nu fixează un preț; schimbarea ofertei
 nu afectează perioada deja plătită. SMS-urile nu sunt incluse în abonament
-și se plătesc separat, în pachete (Anexa 1, secțiunea 16).</p>
+și se plătesc separat, în pachete, cu excepția celor acordate gratuit, o
+singură dată, în perioada de probă și la prima plată a variantei DentPilot
+Premium (Anexa 1, secțiunea 16).</p>
 <p class="cl"><b class="n">2.3.</b> Perioada plătită începe de la data
 expirării perioadei curente sau de la data confirmării plății, oricare este
 mai târzie: o plată făcută din timp nu scurtează perioada rămasă, iar o
@@ -174,8 +176,9 @@ exclusiv pe calculatoarele clinicii și pe suporturile alese de ea.</p>
 <p class="cl"><b class="n">5.2.</b> Furnizorul nu are acces la datele
 pacienților, nu le primește și nu este persoană împuternicită în sensul
 Legii nr. 195/2024; operator pentru datele pacienților este clinica. Datele
-pacienților nu părăsesc calculatorul clinicii, cu trei excepții, toate la
-inițiativa clinicii: memento-urile SMS (clauza 5.4), sesiunile de asistență
+pacienților nu părăsesc calculatorul clinicii, cu patru excepții, toate la
+inițiativa clinicii: memento-urile SMS (clauza 5.4), răspunsul pacientului
+prin link, dacă clinica îl pornește (clauza 5.9), sesiunile de asistență
 la distanță (clauza 7) și, dacă clinica alege să arate în calendarele
 medicilor ei din Google inițialele ori numele pacienților, aceste date, pe
 care programul le trimite direct la Google, fără furnizor (clauza 5.8).</p>
@@ -184,7 +187,7 @@ furnizorului (cloud.dentpilot.md) și cu alte servicii numai în cazurile
 enumerate exhaustiv în Anexa 2: cererea de probă și activarea, verificarea
 licenței, verificarea și descărcarea actualizărilor, confirmarea adresei de
 e-mail, deschiderea paginii de plată și a contului clinicii, memento-urile
-SMS, dacă clinica își conectează contul Google, citirea calendarului ei
+SMS, răspunsul pacientului prin link (clauza 5.9), dacă clinica își conectează contul Google, citirea calendarului ei
 Google (clauza 5.7) și, dacă clinica conectează calendarele medicilor ei,
 scrierea programărilor în aceste calendare (clauza 5.8). Anexa 2 arată, pentru fiecare canal, când comunică programul, ce date
 pleacă, ce păstrează serverul și ce terț le primește. Furnizorul nu declară
@@ -195,7 +198,9 @@ folosește modulul SMS, pentru numărul de telefon mobil al pacientului și
 textul memento-ului furnizorul este persoană împuternicită a clinicii, în
 condițiile Anexei 1, secțiunea 16, și ale Anexei 3. Furnizorul transmite
 numărul și textul operatorului SMS Rock Soft S.R.L. (SMS.MD, Republica
-Moldova) și nu le păstrează pe serverul său.</p>
+Moldova) și nu le păstrează pe serverul său. Dacă clinica folosește
+răspunsul pacientului prin link (clauza 5.9), textul memento-ului conține și
+linkul.</p>
 <p class="cl"><b class="n">5.5.</b> Pentru datele contului clinicii —
 denumirea, IDNO, persoana de contact, e-mailul, telefonul, adresa,
 fișierele de licență emise, notele de plată și plățile, precum și datele
@@ -242,6 +247,26 @@ informează pacienții și ține seama că Google le păstrează în contul
 medicului, în condițiile Google, inclusiv pe servere din afara Republicii
 Moldova. Clinica poate opri legătura oricând, din program („Deconectează”
 șterge calendarul din contul medicului).</p>
+<p class="cl"><b class="n">5.9.</b> <b>Răspunsul pacientului prin link.</b>
+Dacă clinica, în DentPilot Premium, pornește din program răspunsul
+pacientului prin link (Anexa 1, secțiunea 19), memento-ul SMS trimis cu o zi
+înainte de vizită conține un link scurt spre o pagină a furnizorului
+(v.dentpilot.md), pe care pacientul apasă „Vin” sau „Nu pot veni”. Pentru
+fiecare link programul cere serverului furnizorului un cod aleatoriu și îi
+trimite momentul până la care linkul este valabil (începutul vizitei), limba
+paginii, denumirea clinicii, așa cum apare în SMS, și telefonul clinicii.
+Serverul păstrează codul, aceste date, răspunsul pacientului și momentul
+răspunsului, iar în jurnalul tehnic al serverului — adresa IP și tipul
+browserului telefonului de pe care se deschide pagina. Furnizorul nu
+primește numele pacientului, medicul sau serviciul, iar codul nu este legat
+pe server de numărul de telefon: numărul și textul cu link trec prin server
+numai la trimiterea memento-ului și nu se păstrează (clauza 5.4); legătura
+dintre cod și pacient există numai în programul clinicii. Răspunsul ajunge
+în program ca mențiune în fereastra vizitei; programul nu anulează și nu
+mută singur nicio programare. Codul, răspunsul și celelalte date ale
+linkului se șterg de pe server la 3 zile după începutul vizitei. Pentru
+aceste date furnizorul este persoană împuternicită a clinicii, în condițiile
+Anexei 1, secțiunea 19, și ale Anexei 3.</p>
 
 <h2>6. Actualizări și suport</h2>
 <p class="cl"><b class="n">6.1.</b> Actualizările programului sunt incluse
@@ -375,7 +400,8 @@ valoare cât timp corespund documentului semnat de furnizor.</p>
   în versiunea acceptată de clinică.</li>
   <li><b>Anexa 2</b> — Fluxurile de date ale programului DentPilot.</li>
   <li><b>Anexa 3</b> — Acordul privind prelucrarea datelor cu caracter
-  personal (memento-urile SMS și asistența la distanță).</li>
+  personal (memento-urile SMS, răspunsul pacientului prin link și asistența
+  la distanță).</li>
 </ul>
 
 <div class="sign">
@@ -387,7 +413,7 @@ valoare cât timp corespund documentului semnat de furnizor.</p>
     <p>Semnătura (electronică calificată)</p>
   </div>
   <div>
-    <p>Versiunea documentului: 26.11.2026</p>
+    <p>Versiunea documentului: 27.11.2026</p>
     <p>Clinica: identificată în actul de acceptare din contul clinicii;
     semnătura ei este opțională (clauza 11.2).</p>
   </div>

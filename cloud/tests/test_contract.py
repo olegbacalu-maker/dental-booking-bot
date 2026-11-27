@@ -12,9 +12,20 @@ from urllib.parse import urlsplit
 from harness import CLOUD, ROOT, Result
 
 sys.path.insert(0, str(CLOUD))
-from app import auth, config, license, mail, payments, receipts, sms, sms_rule, trial, views  # noqa: E402
+from app import auth, config, license, mail, payments, receipts, sms, sms_rule, tiers, trial, views  # noqa: E402
 
 SITE = ROOT / "docs" / "site"
+
+
+def _w2a_const(mod: str, name: str, fallback: int) -> tuple[int, str]:
+    """Число волны 2а из кода облака (срок кода ссылки, подарок SMS Premium). Пока ветка облака волны не посажена,
+    константы нет — сверка идёт по числу из решения Олега, и имя проверки говорит об этом вслух."""
+    import importlib
+    try:
+        value = getattr(importlib.import_module(f"app.{mod}"), name)
+    except (ImportError, AttributeError):
+        return fallback, f"{fallback} — решение Олега, app.{mod}.{name} ещё нет"
+    return value, f"{mod}.{name}"
 
 
 def suite(res: Result) -> None:
@@ -104,8 +115,8 @@ def suite(res: Result) -> None:
            all(h in contract for h in ("## Суть по пунктам", "## Обещание ↔ программа", "## Вопросы юристу"))
            and "docs/site/termeni.html" in contract)
     heads = re.findall(r"<h2>(\d+)\. ", terms)
-    res.check("18 пунктов по порядку", heads, [str(i) for i in range(1, 19)])
-    res.ok("contract.md описывает каждый пункт", all(f"| {i} |" in contract for i in range(1, 19)))
+    res.check("19 пунктов по порядку", heads, [str(i) for i in range(1, 20)])
+    res.ok("contract.md описывает каждый пункт", all(f"| {i} |" in contract for i in range(1, 20)))
     # Модуль SMS и пакеты SMS — § 16 (16.10, слово Олега «без юриста»; с 23.10 —
     # модуль входит в тариф с SMS, пакеты отдельно). Числа раздела — из
     # config и правила сегментов сервера, не из теста; поменяли константу —
@@ -205,9 +216,9 @@ def suite(res: Result) -> None:
            and "nu copiază" in c and "nu copiază" in dpa)
     res.ok("договор: Anexa 1 — условия по адресу страницы; Anexa 2 и 3 названы",
            "https://dentpilot.md/termeni.html" in c and "Anexa 2" in c and "Anexa 3" in c)
-    res.ok("DPA: предмет — номер и текст SMS и сеанс помощи, «două și numai două»; медданных в категориях нет",
+    res.ok("DPA: предмет — номер и текст SMS, ответ по ссылке и сеанс помощи, «trei și numai trei»; медданных нет",
            "numărul de telefon mobil" in dpa and "textul memento-ului" in dpa
-           and "două și numai două" in dpa and "anamnez" not in dpa.lower())
+           and "trei și numai trei" in dpa and "anamnez" not in dpa.lower())
     res.ok("DPA, § 16, политика, декларация: субобработчик, «что остаётся» и 3 luni — одними словами",
            "Rock Soft S.R.L. (SMS.MD" in dpa and keep in dpa and "3 luni" in dpa and "3 luni" in s16)
     res.ok("DPA: зарубежные провайдеры — только данные учётной записи, поставщик там оператор",
@@ -373,13 +384,15 @@ def suite(res: Result) -> None:
     # Календари врачей в Google (Premium): программа ПИШЕТ приёмы врача в календарь, который сама создала в
     # его аккаунте, — с ПК клиники прямо в Google. Подробность выбирает клиника; документы обязаны называть
     # одно и то же: кто включает, что уходит на каждом уровне, чего не уходит никогда, окно и срок.
-    s18 = flat_terms.split("<h2>18. ", 1)[1] if "<h2>18. " in flat_terms else ""
+    s18 = flat_terms.split("<h2>18. ", 1)[1].split("<h2>19. ", 1)[0] if "<h2>18. " in flat_terms else ""
     res.ok("условия § 4: три варианта; Premium — формулой облака; формулы Basic и Plus не тронуты",
            "<b>DentPilot™ Basic</b>, fără modulul SMS, <b>DentPilot™ Plus</b>, cu modulul SMS (secțiunea 16)" in s4
-           and "<b>DentPilot™ Premium</b>, cu modulul SMS și calendarele medicilor în Google" in s4
-           and "(secțiunea 18) — numai în DentPilot™ Premium" in s4, s4[:200])
+           and "<b>DentPilot™ Premium</b>, cu modulul SMS, calendarele medicilor în Google" in s4
+           and "(secțiunea 18) și răspunsul pacientului prin link (secțiunea 19) — numai în DentPilot™ Premium" in s4,
+           s4[:200])
     res.ok("условия § 4.2: в Premium — с новым файлом; с Premium — до конца периода, потом убираются все приёмы",
-           "calendarele medicilor — după ce noul fișier de licență ajunge în program" in s4
+           "calendarele medicilor și răspunsul pacientului prin link — după ce noul fișier de licență ajunge în program"
+           in s4
            and "La trecerea de la DentPilot™ Premium la altă variantă, calendarele medicilor se actualizează "
                "până la sfârșitul perioadei în curs" in s4
            and "apoi programul scoate din ele toate programările" in s4)
@@ -431,12 +444,13 @@ def suite(res: Result) -> None:
            and "nu cere Google retragerea accesului aplicației" in flows)
     res.ok("Anexa 2 § 4: «ни один запрос без данных пациентов» — с оговоркой о календарях врачей; программа пишет "
            "только в свой календарь",
-           "În afara memento-urilor SMS și a calendarelor medicilor în Google" in flows
+           "În afara memento-urilor SMS, a răspunsului pacientului prin link și a calendarelor medicilor în Google"
+           in flows
            and "numai în calendarul creat de el în contul medicului" in flows
            and "Programările scrise în Google nu ajung la furnizor" in flows)
     res.ok("договор: три варианта (кл. 1.3), три исключения (5.2), перечень 5.3 и кл. 5.8 — клиника оператор, "
            "поставщик не уполномоченное лицо",
-           "Programul se oferă în trei variante" in c and "cu trei excepții" in c
+           "Programul se oferă în trei variante" in c and "cu patru excepții" in c
            and "scrierea programărilor în aceste calendare (clauza 5.8)" in c
            and "<b>Calendarele medicilor în Google.</b>" in c and "clinica răspunde ca operator" in c
            and c.count("nu este persoană împuternicită pentru aceste date") == 2)
@@ -446,8 +460,9 @@ def suite(res: Result) -> None:
            and "prin această conectare, nu scrie" in flat_privacy
            and "nimic în Google și nu trimite" not in s17 and "nimic în calendarul Google" not in flows
            and "never writes, changes or deletes anything in Google Calendar" not in flat_privacy)
-    res.ok("DPA: случаев обработки по-прежнему два; отправленное клиникой в Google мимо поставщика — не предмет DPA",
-           "două și numai două" in dpa and "(contractul, clauza 5.8) nu trec prin furnizor" in dpa
+    res.ok("DPA: календари врачей случаем обработки не стали; отправленное клиникой в Google — не предмет DPA",
+           "trei și numai trei" in dpa and "Google" not in dpa.split("trei și numai trei", 1)[1].split("</ul>", 1)[0]
+           and "(contractul, clauza 5.8) nu trec prin furnizor" in dpa
            and "nu fac obiectul prezentului acord" in dpa
            and "datele pacienților nu părăsesc Republica Moldova" not in dpa)
     res.ok("политика § 6: календари врачей — право поимённо (RO, EN), что пишется, что читается, где ключ, "
@@ -475,3 +490,90 @@ def suite(res: Result) -> None:
                and "din afara Republicii Moldova" in t for t in modele.values())
            and '<span class="no-gcal">nu are loc</span>' in modele["registru-prelucrare.html"]
            and "fără dezvoltatorul programului" in modele["informare-pacienti.html"])
+    # Ответ пациента по ссылке (Premium, волна 2а): впервые пациент сам приходит на сервер поставщика, и обещание
+    # «данные пациентов не уходят» получило исключение. Одни и те же факты — в каждом документе, который клиника
+    # подписывает, вешает на стойку или читает: что сервер получает и чего не получает, срок стирания (число —
+    # константа облака), «отметка, не отмена», только Premium и галочкой, 2 SMS. Сервер знает срок ссылки = начало
+    # визита: фраза «не получает время визита» была бы неправдой — её сторож запрещает везде.
+    link_docs = {"договор": c, "Anexa 2": flows, "DPA": dpa, "декларация": decl, "условия": flat_terms,
+                 "политика": flat_privacy}
+    s19 = flat_terms.split("<h2>19. ", 1)[1] if "<h2>19. " in flat_terms else ""
+    acord_src = (ROOT / "bot" / "app" / "modules" / "patients" / "acord.py").read_text(encoding="utf-8")
+    acord = " ".join(re.sub(r'"\s*\n\s*"', "", acord_src).split())     # строки листа склеены, как их видит пациент
+    keep_days, keep_src = _w2a_const("config", "LINK_KEEP_DAYS", 3)
+    if "ещё нет" in keep_src:                # имя константы у ветки облака ещё не устоялось
+        keep_days, keep_src = _w2a_const("plink", "KEEP_DAYS", 3)
+    gift, gift_src = _w2a_const("config", "SMS_PREMIUM_UNITS", 80)
+    res.ok("волна 2а: § 19 — Răspunsul pacientului prin link; канал назван в договоре (5.9), Anexa 2 (три строки), "
+           "DPA, декларации, политике (#pacienti), образцах и листе на стойке",
+           s19.startswith("Răspunsul pacientului prin link")
+           and "<b>Răspunsul pacientului prin link.</b>" in c and "(clauza 5.9)" in c
+           and all(f"Răspunsul pacientului prin link: {r}" in flows
+                   for r in ("codul", "pagina pacientului", "preluarea răspunsurilor"))
+           and "<b>răspunsul pacientului prin link</b>" in dpa
+           and "<b>Răspunsul pacientului prin link.</b>" in decl
+           and 'id="pacienti"' in privacy and "v.dentpilot.md" in flat_privacy
+           and all('id="link-toggle"' in t and "body:not(.link) .link-only{display:none}" in t for t in modele.values())
+           and "link de răspuns" in acord and "ссылка для ответа" in acord, s19[:80])
+    left = {k: sorted(set(re.findall(r"(\d+) zile după (?:începutul )?vizit", t))) for k, t in link_docs.items()}
+    left["образцы"] = sorted({n for t in modele.values() for n in re.findall(r"(\d+) zile după (?:începutul )?vizit", t)})
+    left["лист RO"] = re.findall(r"la (\d+) zile după vizită", acord)
+    left["лист RU"] = re.findall(r"через (\d+) дн(?:я|ей) после визита", acord)
+    left["политика RU"] = re.findall(r"через (\d+) дн(?:я|ей) после начала визита", flat_privacy)
+    res.check(f"волна 2а: срок стирания кода и ответа — одно число во всех документах = {keep_src}",
+              {k: v for k, v in left.items() if v != [str(keep_days)]}, {})
+    res.ok("волна 2а: сервер не получает имя, врача, услугу; код не связан с номером; связь — только у клиники",
+           all("legătura dintre cod și" in t.lower() for t in link_docs.values())
+           and all("nu primește numele pacientului, medicul sau serviciul" in t
+                   for t in (c, decl, s19))
+           and all("nu este legat pe server de numărul de telefon" in t for t in (c, flows, decl, s19))
+           and "nu leagă codul de numărul de telefon" in dpa)
+    said_time = re.compile(r"nu (?:primește|cunoaște|află)[^.;]{0,90}\bor(?:a|ei) (?:programării|vizitei)", re.I)
+    res.ok("волна 2а: «не получает время визита» не сказано нигде — срок ссылки = начало визита, сервер его знает",
+           not any(said_time.search(t) for t in (*link_docs.values(), *modele.values(), acord))
+           and all("(începutul vizitei" in t for t in (c, flows, dpa, decl, s19)))
+    res.ok("волна 2а: ответ — отметка, не отмена: программа сама не отменяет и не переносит",
+           all("nu anulează și nu mută singur nicio programare" in t for t in (c, flows, dpa, decl, s19))
+           and "nu anulează programarea" in flat_privacy and "не отменяет запись" in acord)
+    res.ok("волна 2а: только Premium, выключено до галочки клиники; пробный и Plus — нет; уход с Premium — до конца "
+           "периода",
+           "În perioada de probă și în DentPilot™ Plus funcția nu este inclusă" in s19
+           and "Funcția este oprită până o pornește clinica" in s19
+           and "funcția lucrează până la sfârșitul perioadei în curs" in s19
+           and "răspunsul pacientului prin link funcționează până la sfârșitul perioadei în curs" in s4
+           and "(secțiunea 19) — numai în DentPilot™ Premium" in s4)
+    res.ok("волна 2а: ответ — только нажатием, не открытием (превью мессенджеров)",
+           "numai la apăsarea unui buton, nu la deschiderea paginii" in s19
+           and "deschiderea paginii nu înregistrează niciun răspuns" in flows
+           and "nu înregistrează nimic doar pentru că a fost deschisă" in flat_privacy)
+    res.ok("волна 2а: текст со ссылкой и «Detaliat» — 2 сегмента; «încapă într-un segment» нет",
+           "Textul cu link are întotdeauna 2 segmente" in s19
+           and "textul „Detaliat” și textul cu link (secțiunea 19) au 2 segmente" in s16
+           and "un memento cu link consumă 2 SMS" in faq
+           and "să încapă într-un" not in flat_terms)
+    res.ok("волна 2а: субобработчик по данным ссылки — Contabo (ЕС); SMS.MD хранит текст со ссылкой",
+           "numai pentru datele răspunsului pacientului prin link" in dpa and "<b>Contabo GmbH</b>" in dpa
+           and "Contabo GmbH" in s19 and "Contabo GmbH" in decl
+           and "textul (inclusiv linkul, dacă există)" in flows and "cu linkul" in flat_privacy)
+    res.ok("волна 2а: декларация — три исключения; договор — четыре",
+           "Excepțiile sunt trei" in decl and "cu patru excepții" in c)
+    res.ok("волна 2а: политика не ссылается на § 19 условий (политика может выйти раньше условий)",
+           "secțiunea 19" not in flat_privacy and "secțiunile 16, 18 și 19" not in flat_privacy)
+    # Формула Premium — одна: сервер (ноты, квитанции, письма, кабинет), условия § 4.1 и FAQ программы
+    faq_flat = " ".join(re.sub(r'"\s*f?"', "", re.sub(r'"\s*\n\s*f?"', "", faq)).split())
+    premium = tiers.WHAT[tiers.PREMIUM]
+    res.ok("волна 2а: формула Premium — tiers.WHAT в условиях § 4.1, FAQ программы и письме вариантов",
+           "răspunsul pacientului prin link" in premium
+           and f"<b>DentPilot™ Premium</b>, {premium} (secțiunile 16, 18 și 19)" in s4
+           and f"<b>DentPilot Premium</b> {premium}" in faq_flat
+           and f"DentPilot Premium, {premium}" in mail.variants(), premium)
+    res.ok(f"волна 2а: {gift} SMS один раз при первой оплате Premium ({gift_src}) — § 16 и договор 2.2; § 4.1 — "
+           "исключение из «SMS не входят»",
+           f"La prima plată a variantei DentPilot™ Premium clinica primește, o singură dată, {gift} de SMS gratuit" in s16
+           and "la prima plată a variantei DentPilot Premium (Anexa 1, secțiunea 16)" in c
+           and "cele de la prima plată a variantei DentPilot™ Premium (secțiunea 16)" in s4)
+    res.ok("волна 2а: своё имя — без оплаты года только при Premium на год; помесячно — платно, как Plus",
+           "În DentPilot™ Premium plătit pe un an anul numelui nu se plătește separat" in s16
+           and "la DentPilot™ Premium plătit pe o lună anul numelui se plătește, ca în DentPilot™ Plus" in s16
+           and "funcționează până la sfârșitul perioadei Premium plătite" in s16
+           and "Cererea scrisă a clinicii este necesară în toate cazurile" in s16)

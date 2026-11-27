@@ -22,6 +22,8 @@
  body.sms .no-sms{display:none}
  body:not(.gcal) .gcal-only{display:none}
  body.gcal .no-gcal{display:none}
+ body:not(.link) .link-only{display:none}
+ body.link .no-link{display:none}
  @media print{.noprint{display:none}
    .fill{background:none;padding:0}
    .fill.empty{background:#FFF3B0}}
@@ -44,6 +46,11 @@ transmite pentru memento-urile SMS</label>
 Clinica arată medicilor programările în <b>Google Calendar</b> cu inițialele
 sau numele pacienților (DentPilot Premium, nivelul «inițiale» sau «nume și
 serviciu») — informarea spune și ce ajunge la Google</label>
+
+<label class="smstoggle noprint"><input type="checkbox" id="link-toggle">
+Clinica folosește <b>răspunsul pacientului prin link</b> din memento-ul SMS
+(DentPilot Premium) — informarea spune și ce primește furnizorul programului
+când pacientul răspunde</label>
 
 <div class="note noprint">
 <b>Cum se folosește:</b> completați câmpurile galbene, tipăriți și afișați la
@@ -72,6 +79,8 @@ alergii și atenționări medicale, date despre asigurare;</li>
 <li class="sms-only"><b>memento-uri SMS:</b> numărul de telefon mobil, data și
 ora vizitei programate; la reamintirea controlului periodic — doar denumirea
 și telefonul clinicii.</li>
+<li class="sms-only link-only"><b>răspunsul la memento prin link:</b>
+răspunsul dvs. („vin” sau „nu pot veni”) și momentul lui.</li>
 </ul>
 
 <h2>3. În ce scop și în ce temei</h2>
@@ -95,7 +104,17 @@ doar numărul de telefon și textul mesajului (data și ora vizitei sau, la
 reamintirea controlului periodic, denumirea și telefonul clinicii): prin
 serverul dezvoltatorului,
 care nu le păstrează, către operatorul SMS Rock Soft S.R.L. (SMS.MD), care le
-păstrează 3 luni pe servere din Republica Moldova.</span> Accesul la program este
+păstrează 3 luni pe servere din Republica Moldova.</span><span
+class="sms-only link-only"> Memento-ul trimis cu o zi înainte conține un link
+spre o pagină a dezvoltatorului programului, pe care puteți răspunde „Vin” sau
+„Nu pot veni”. Pentru aceasta serverul dezvoltatorului păstrează un cod
+aleatoriu, care nu vă numește, momentul până la care linkul este valabil
+(începutul vizitei), răspunsul dvs. și momentul lui — fără numele, numărul de
+telefon, medicul sau serviciul — și le șterge la 3 zile după vizită; ca la
+orice pagină web, adresa IP și tipul browserului telefonului apar în
+jurnalele tehnice ale serverului. Legătura dintre cod și programare există
+numai la clinică. Răspunsul nu anulează programarea: dacă nu puteți veni, vă
+sunăm.</span> Accesul la program este
 protejat prin cod PIN; purtătorul de date este protejat prin criptare la
 nivelul sistemului de operare.</p>
 
@@ -105,6 +124,10 @@ acestora, și altor instituții medicale, la solicitarea dvs. (transfer al fișe
 <span class="sms-only">Pentru memento-urile SMS, numărul de telefon și textul mesajului (data și ora
 vizitei sau, la reamintirea controlului periodic, denumirea și telefonul clinicii) ajung la dezvoltatorul programului DentPilot și la operatorul
 SMS.MD, care le prelucrează doar în numele clinicii.</span>
+<span class="sms-only link-only">Codul și răspunsul dat prin link ajung la
+dezvoltatorul programului DentPilot, care le prelucrează doar în numele
+clinicii, pe un server găzduit de Contabo GmbH într-un centru de date din
+Uniunea Europeană.</span>
 <span class="gcal-only">Pentru ca medicul să își vadă programările în telefon,
 clinica trimite în contul lui Google (Google Calendar) data și ora vizitei,
 cabinetul și <span class="fill">«inițialele și numărul fișei / numele și serviciul»</span> —
@@ -136,7 +159,7 @@ o lună de la primirea cererii.</p>
 <span>Administrator: ______________________</span>
 </div>
 
-<p class="model">Model DentPilot · redacția din 26.11.2026 · contul clinicii, secțiunea „Documente”</p>
+<p class="model">Model DentPilot · redacția din 27.11.2026 · contul clinicii, secțiunea „Documente”</p>
 
 <script>
 (function () {
@@ -187,6 +210,18 @@ o lună de la primirea cererii.</p>
   function apply() {
     if (t.checked) { document.body.classList.add('gcal'); }
     else { document.body.classList.remove('gcal'); }
+  }
+  t.addEventListener('change', apply);
+  apply();
+})();
+</script>
+<script>
+(function () {
+  var t = document.getElementById('link-toggle');
+  if (!t) return;
+  function apply() {
+    if (t.checked) { document.body.classList.add('link'); }
+    else { document.body.classList.remove('link'); }
   }
   t.addEventListener('change', apply);
   apply();

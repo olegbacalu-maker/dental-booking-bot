@@ -45,7 +45,7 @@ li{margin:0 0 4px}
 
 <h1>ACORD PRIVIND PRELUCRAREA DATELOR CU CARACTER PERSONAL</h1>
 <p class="sub">Anexa 3 la Contractul de licență și utilizare a programului
-DentPilot · versiunea din 26.11.2026 · document comun pentru toate
+DentPilot · versiunea din 27.11.2026 · document comun pentru toate
 clinicile, semnat de furnizor</p>
 
 <p>Prezentul acord („acordul”) se aplică între clinica identificată în
@@ -59,12 +59,20 @@ clauza 11.1).</p>
 <h2>1. Obiectul și domeniul de aplicare</h2>
 <p class="cl"><b class="n">1.1.</b> Acordul se aplică numai operațiunilor în
 care furnizorul prelucrează date cu caracter personal în numele și la
-instrucțiunile clinicii. Acestea sunt două și numai două:</p>
+instrucțiunile clinicii. Acestea sunt trei și numai trei:</p>
 <ul>
   <li><b>memento-urile SMS</b> despre vizită și reamintirea controlului
   periodic din lista Rechemări (Termeni și condiții, secțiunea 16): numărul
   de telefon mobil al pacientului și textul memento-ului, pe care programul
   le trimite serverului furnizorului pentru a fi predate operatorului SMS;</li>
+  <li><b>răspunsul pacientului prin link</b> (Termeni și condiții,
+  secțiunea 19; contractul, clauza 5.9), numai în DentPilot Premium și numai
+  dacă clinica îl pornește: codul aleatoriu al linkului din memento, limba
+  paginii, momentul până la care linkul este valabil (începutul vizitei, fără
+  a ști al cui pacient este), răspunsul pacientului
+  („vin” sau „nu pot veni”) și momentul lui, păstrate pe serverul
+  furnizorului, precum și adresa IP și tipul browserului telefonului de pe
+  care se deschide pagina, din jurnalul tehnic al serverului;</li>
   <li><b>sesiunea de asistență la distanță</b> (contractul, clauza 7):
   datele pacienților vizibile pe ecranul clinicii în timpul unei sesiuni
   „Asistență rapidă” cerute de clinică.</li>
@@ -86,7 +94,9 @@ obiectul acordului și sunt descrise în Politica de confidențialitate
 <p class="cl"><b class="n">2.1.</b> Persoanele vizate: pacienții clinicii
 cu o vizită programată sau cu o procedură finalizată căreia clinica i-a
 stabilit termen de control periodic (lista Rechemări) și, dacă numărul de
-telefon din fișă aparține reprezentantului pacientului, acel reprezentant.</p>
+telefon din fișă aparține reprezentantului pacientului, acel reprezentant;
+pentru răspunsul pacientului prin link — persoana care deschide linkul din
+SMS pe telefonul la care a ajuns memento-ul.</p>
 <p class="cl"><b class="n">2.2.</b> Datele memento-urilor SMS: numărul de
 telefon mobil (număr din Republica Moldova), textul memento-ului —
 denumirea clinicii, ziua, data și ora vizitei și, la alegerea clinicii,
@@ -106,6 +116,12 @@ diagnosticele, tratamentele, odontograma, documentele pacienților sau alte
 date privind sănătatea. Acordul nu autorizează transmiterea unor astfel de
 date către furnizor, iar clinica nu le transmite pentru suport tehnic
 (contractul, clauza 5.6).</p>
+<p class="cl"><b class="n">2.5.</b> Datele răspunsului pacientului prin link
+sunt pseudonimizate: codul nu numește pacientul, iar serverul furnizorului nu
+primește numele pacientului, medicul sau serviciul și nu leagă codul de
+numărul de telefon (numărul și textul cu link trec prin server numai la
+trimiterea memento-ului, clauza 3.2). Legătura dintre cod și vizită există
+numai în programul clinicii.</p>
 
 <h2>3. Scopul, durata și instrucțiunile</h2>
 <p class="cl"><b class="n">3.1.</b> Memento-urile SMS se prelucrează numai
@@ -116,6 +132,10 @@ din lista Rechemări de către personalul clinicii sau pornirea trimiterii
 automate a reamintirii controlului periodic (în ambele cazuri câte o
 reamintire pentru fiecare termen) și marcarea refuzului în fișa
 pacientului sunt instrucțiunile documentate ale clinicii.
+Pentru răspunsul pacientului prin link instrucțiunea este bifa prin care
+clinica îl pornește în program (Setări › SMS); răspunsul primit se arată
+numai în programul clinicii, ca mențiune în fereastra vizitei, iar programul
+nu anulează și nu mută singur nicio programare.
 Sesiunea de asistență la distanță servește numai rezolvării problemei
 semnalate de clinică; cererea clinicii și acordul ei pentru sesiune sunt
 instrucțiunea.</p>
@@ -123,7 +143,11 @@ instrucțiunea.</p>
 modulul SMS este pornit, fiecare număr și text — doar pe durata transmiterii
 către operatorul SMS, după care nu se păstrează pe serverul furnizorului
 (rămân doar identificatorul mesajului, numărul de segmente și starea
-livrării); sesiunea de asistență — durata sesiunii.</p>
+livrării); codul, răspunsul și celelalte date ale linkului de răspuns — până
+la 3 zile după începutul vizitei, după care serverul le șterge automat;
+adresa IP și tipul browserului din jurnalul tehnic — cât se păstrează
+jurnalele tehnice ale serverului, care se șterg automat; sesiunea de
+asistență — durata sesiunii.</p>
 <p class="cl"><b class="n">3.3.</b> Furnizorul nu folosește datele pentru
 publicitate, profilare, vânzare sau orice alt scop propriu.</p>
 <p class="cl"><b class="n">3.4.</b> Dacă furnizorul consideră că o
@@ -133,15 +157,16 @@ executa.</p>
 <h2>4. Obligațiile furnizorului</h2>
 <p class="cl"><b class="n">4.1.</b> Prelucrează datele numai la
 instrucțiunile clinicii (clauza 3.1) și nu acordă acces la ele altor
-persoane; singura altă persoană împuternicită este operatorul SMS de la
-clauza 6.</p>
+persoane; celelalte persoane împuternicite sunt numai cele de la
+clauza 6.1.</p>
 <p class="cl"><b class="n">4.2.</b> Transmite numărul și textul numai prin
 conexiune criptată și nu le păstrează pe serverul său; nu le scrie în
 jurnalele serverului.</p>
 <p class="cl"><b class="n">4.3.</b> Menține serverul cloud.dentpilot.md
 sub administrarea sa, cu acces numai prin chei criptografice, cu jurnal al
 operațiilor și cu copii de rezervă zilnice ale bazei serverului, care nu
-conțin numere de telefon și texte ale memento-urilor.</p>
+conțin numere de telefon și texte ale memento-urilor; ele pot conține
+codurile și răspunsurile linkurilor de răspuns existente la data copiei.</p>
 <p class="cl"><b class="n">4.4.</b> În sesiunea de asistență la distanță
 respectă clauza 7 a contractului: lucrează numai cu acordul și în prezența
 reprezentantului clinicii, nu copiază, nu exportă, nu fotografiază și nu
@@ -162,11 +187,14 @@ timpul programului de lucru, fără a compromite securitatea altor clinici.</p>
 la DentPilot Basic sau la încetarea contractului încetează prelucrarea;
 numere și texte de returnat sau de șters nu există (clauza 3.2), iar la
 cererea clinicii furnizorul cere operatorului SMS ștergerea mesajelor
-ei.</p>
+ei. La oprirea răspunsului prin link sau la ieșirea din DentPilot Premium
+nu se mai emit coduri noi, iar cele existente se șterg la termenul de la
+clauza 3.2.</p>
 
 <h2>5. Obligațiile clinicii</h2>
 <p class="cl"><b class="n">5.1.</b> Clinica informează pacienții despre
-memento-urile SMS, stabilește temeiul legal și respectă refuzul
+memento-urile SMS și, dacă îl folosește, despre răspunsul prin link,
+stabilește temeiul legal și respectă refuzul
 pacientului: pacientului marcat în fișă ca refuzând memento-urile programul
 nu le trimite.</p>
 <p class="cl"><b class="n">5.2.</b> Clinica răspunde de exactitatea
@@ -178,25 +206,31 @@ sesiune, fișele care nu au legătură cu problema semnalată, dacă este
 posibil.</p>
 
 <h2>6. Persoanele împuternicite ulterioare și transferurile</h2>
-<p class="cl"><b class="n">6.1.</b> Singura persoană împuternicită
-ulterioară pentru datele pacienților este operatorul SMS <b>Rock Soft
-S.R.L. (SMS.MD)</b>, Republica Moldova: primește numărul de telefon și
-textul fiecărui memento, le păstrează pe servere din Republica Moldova timp
-de 3 luni și le șterge mai devreme la cerere. Clinica autorizează această
-persoană împuternicită prin acceptarea contractului. Furnizorul anunță
-clinica cu 30 de zile înainte de a o schimba; clinica poate atunci opri
-memento-urile sau trece la DentPilot Basic.</p>
+<p class="cl"><b class="n">6.1.</b> Persoanele împuternicite ulterioare
+pentru datele pacienților sunt: operatorul SMS <b>Rock Soft S.R.L.
+(SMS.MD)</b>, Republica Moldova, care primește numărul de telefon și textul
+fiecărui memento (inclusiv linkul, dacă există), le păstrează pe servere din
+Republica Moldova timp de 3 luni și le șterge mai devreme la cerere; și, numai
+pentru datele răspunsului pacientului prin link păstrate pe server (clauza
+3.2), <b>Contabo GmbH</b> (Germania), care găzduiește serverul furnizorului
+într-un centru de date din Uniunea Europeană și furnizează doar
+infrastructura. Clinica autorizează aceste persoane împuternicite prin
+acceptarea contractului. Furnizorul anunță clinica cu 30 de zile înainte de
+a le schimba; clinica poate atunci opri memento-urile sau răspunsul prin
+link ori trece la DentPilot Basic.</p>
 <p class="cl"><b class="n">6.2.</b> Numărul și textul tranzitează serverul
 furnizorului (cloud.dentpilot.md), găzduit de Contabo GmbH (Germania) într-un
 centru de date din Uniunea Europeană, fără a fi păstrate acolo; Contabo
 furnizează doar infrastructura serverului, nu prelucrează conținutul și este
-ținut de propriile condiții de protecție a datelor. În afara acestui tranzit
+ținut de propriile condiții de protecție a datelor. Pe același server se
+păstrează, până la termenul de la clauza 3.2, datele răspunsului pacientului
+prin link (clauza 1.1). În afara acestui tranzit și a acestor date
 furnizorul nu scoate date ale pacienților din Republica Moldova. Datele pe
 care clinica alege să le trimită ea însăși, direct din program, în Google
 Calendar al medicilor ei (contractul, clauza 5.8) nu trec prin furnizor și
 nu fac obiectul prezentului acord.</p>
 <p class="cl"><b class="n">6.3.</b> Ceilalți furnizori folosiți de furnizor
-— Contabo GmbH (găzduirea serverului), Google (serviciul Gmail: e-mailurile
+— Contabo GmbH (găzduirea serverului, în afara datelor de la clauza 6.1), Google (serviciul Gmail: e-mailurile
 către clinică și notificările interne ale furnizorului), GitHub, Inc.
 (publicarea versiunilor programului) și maib (plata cu cardul) — prelucrează
 numai datele contului clinicii și datele tehnice descrise în Anexa 2, pentru
@@ -229,7 +263,7 @@ anunță ca la clauza 10.2 din contract.</p>
     <p>Semnătura (electronică calificată)</p>
   </div>
   <div>
-    <p>Versiunea documentului: 26.11.2026</p>
+    <p>Versiunea documentului: 27.11.2026</p>
     <p>Clinica (operator): identificată în actul de acceptare din contul
     clinicii; semnătura ei este opțională.</p>
   </div>
