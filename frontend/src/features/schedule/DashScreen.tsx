@@ -27,7 +27,10 @@ import {
   type DashAppt, type DashModel, type DashNote,
 } from './dash'
 import type { Slot } from './slot'
-import { freshOf, movedOf, readSeen, writeSeen, FRESH_MS, MOVED_MS } from './fresh'
+import { freshOf, movedOf, readSeen, vinOf, writeSeen, FRESH_MS, MOVED_MS, VIN_MS } from './fresh'
+import { answerDay, answerKeys, newAnswers, stackAnswers, type AnswerPlate } from './answers'
+import { AnswerToasts } from './AnswerToasts'
+import type { DeskAnswer } from './desk'
 import { useLingering, useOpening } from '../../utils/motion'
 import { hhmm, sameSlot, type Drag, type Target } from './move'
 
@@ -120,6 +123,7 @@ interface Props {
 
 export function DashScreen({ reload = defaultReload }: Props = {}) {
   const at = useAddressDay()
+  const navigate = useNavigate()
   /* Засев из загрузчика. Кадр ожидания (F5) — `'pending'`: канал ждёт, а не
      шлёт второй такой же запрос; загрузчик отказал — `null`: канал грузит сам,
      как и раньше, со своим отказом и повтором. */
@@ -151,6 +155,13 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
      на секунду подсвечиваются — видно, ЧТО изменилось, в том числе когда
      статус поставили с другого компьютера или планшета. */
   const [moved, setMoved] = useState<ReadonlySet<number>>(NO_FRESH)
+  /* Кто только что ответил «Vin» ссылкой (Premium): галочка на блоке на миг — из разницы двух
+     конвертов, как `moved`. */
+  const [vin, setVin] = useState<ReadonlySet<number>>(NO_FRESH)
+  /* Плашки «пациент ответил» (Premium, вид A): стопка внизу справа, новое — из разницы конвертов. */
+  const [plates, setPlates] = useState<AnswerPlate[]>([])
+  /* Окно визита другого дня, заказанное плашкой: откроется, когда канал принесёт тот день. */
+  const [want, setWant] = useState<{ id: number; date: string } | null>(null)
   /* ⚠️ Со снимком, как у карточки, и по той же причине: заметку могли убрать
      со второго рабочего места, пока диалог открыт, — тогда на экране остаётся
      то, что человек ОТКРЫВАЛ, и слово о том, что этого больше нет. */
@@ -227,6 +238,14 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
       setResched(null)
     }
   }
+  /* Плашка ответа про визит другого дня (завтра): адрес уже сменён, окно открывается, когда
+     приехал тот день. Поправка во время отрисовки, как смена дня выше (и ПОСЛЕ неё: смена дня
+     закрывает окна прежнего, а это окно — уже нового). Визита в том дне нет — молча ничего. */
+  if (want && state.data && state.data.date === want.date) {
+    const a = findAppt(state.data, want.id)
+    setWant(null)
+    if (a) setCard({ id: want.id, at: a })
+  }
 
   /* ⛔ Класс `anim` снимается ЗДЕСЬ, и снимать его больше некому. Ставит его
      каркас всякой странице (`core/layout.py`), а снимал единственный —
@@ -254,6 +273,11 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
      памяти экрана и НА ДЕНЬ: первый показ дня (и возврат на главную с другого
      экрана) сравнивать не с чем и не подсвечивает ничего. */
   const statuses = useRef<{ day: string; map: Map<string, string> } | null>(null)
+  /* Отметки звонка прошлого конверта (с каналом) — для галочки «Vin»; на день, как `statuses`. */
+  const calls = useRef<{ day: string; map: Map<string, string> } | null>(null)
+  /* Ключи ответов прошлого конверта (`desk.answers`). ⛔ Только в памяти экрана: первый показ —
+     `null`, и ночные ответы не всплывают. `desk` — про сегодня, не про день листания: день не важен. */
+  const answered = useRef<Set<string> | null>(null)
   useEffect(() => {
     const d = state.data
     if (!d || shown.current === d) return
@@ -276,6 +300,18 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
     statuses.current = { day: d.date, map: now }
     const turned = movedOf(before, now)
     if (turned.length) setMoved(new Set(turned.map(Number)))
+    /* «Vin» ссылкой — оттуда же: отметка стала `ok` каналом `sms` */
+    const cNow = callOf(d)
+    const cBefore = calls.current?.day === d.date ? calls.current.map : null
+    calls.current = { day: d.date, map: cNow }
+    const yes = vinOf(cBefore, cNow)
+    if (yes.length) setVin(new Set(yes.map(Number)))
+    /* плашки ответа: только новое с прошлого опроса */
+    const list = d.desk.answers
+    const fresher = newAnswers(answered.current, list)
+    answered.current = answerKeys(list)
+    if (fresher.length) setPlates((p) => stackAnswers(p, fresher))
+    else if (list == null) setPlates((p) => (p.length ? [] : p))
   }, [state.data])
 
   /* ⛔ Пометку снимает ТАЙМЕР, а не `animationend`: под
@@ -295,6 +331,15 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
     const t = setTimeout(() => setMoved(NO_FRESH), MOVED_MS)
     return () => clearTimeout(t)
   }, [moved])
+
+  /* и у галочки «Vin» */
+  useEffect(() => {
+    if (!vin.size) return
+    const t = setTimeout(() => setVin(NO_FRESH), VIN_MS)
+    return () => clearTimeout(t)
+  }, [vin])
+
+  const dropPlate = useCallback((key: string) => setPlates((p) => p.filter((x) => x.key !== key)), [])
 
   /* ⛔ Надгробие. Запись могли отменить или перенести со второго рабочего
      места, пока диалог открыт. Молча размонтировать нельзя — человек решит,
@@ -359,6 +404,17 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
   const openById = (m: DashModel, id: number) => {
     const at = findAppt(m, id)
     if (at) setCard({ id, at })
+  }
+
+  /* Плашка ответа: окно визита. Визит сегодня (на показанном дне) — сразу; другого дня —
+     переход на его день, окно откроется, когда канал его принесёт (`want`). */
+  const openAnswer = (a: DeskAnswer) => {
+    const d = state.data
+    if (!d) return
+    const day = answerDay(a, [d.desk.confirm_today, d.desk.confirm])
+    if (day === null || day === d.date) { openById(d, a.id); return }
+    setWant({ id: a.id, date: day })
+    navigate(`/admin?date=${day}`)
   }
 
   const openNoteById = (m: DashModel, id: number) => {
@@ -479,7 +535,7 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
               setSlot({ dk, name, hour, minute, ...(room ? { room } : {}) })}
             onNote={(id) => openNoteById(d, id)}
             drag={drag} hover={hover} onDrag={startDrag} onHover={setHover}
-            onDrop={onDrop} fresh={fresh} moved={moved} />
+            onDrop={onDrop} fresh={fresh} moved={moved} vin={vin} />
           {/* ⛔ Без подсказки под сеткой (макет 08.10 — без строки-подсказки). */}
         </div>
         <div className="rail" ref={rail}>
@@ -604,6 +660,8 @@ export function DashScreen({ reload = defaultReload }: Props = {}) {
           }} />
       )}
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
+      {/* после плашки действия: стопка ответов встаёт над ней (`.toastbox ~ .dp-ans`) */}
+      <AnswerToasts plates={plates} onOpen={openAnswer} onGone={dropPlate} />
     </section>
   )
 }
@@ -641,6 +699,15 @@ function idsOf(m: DashModel): string[] {
     for (const b of col.blocks) out.push(String(b.id))
   }
   for (const it of m.agenda.items) out.push(String(it.id))
+  return out
+}
+
+/** Отметка звонка каждого визита канвы с каналом («ok|sms», «cant|sms», «ok|») — для галочки «Vin». */
+function callOf(m: DashModel): Map<string, string> {
+  const out = new Map<string, string>()
+  for (const col of m.canvas.columns) {
+    for (const b of col.blocks) if (b.kind === 'appt') out.set(String(b.id), `${b.call}|${b.call_via ?? ''}`)
+  }
   return out
 }
 

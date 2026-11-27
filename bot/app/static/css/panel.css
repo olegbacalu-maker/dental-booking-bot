@@ -530,6 +530,26 @@
    background:none;color:#fff;opacity:.75;cursor:pointer;
    display:flex;align-items:center;justify-content:center}
  .toastbox .t-x:hover{opacity:1;background:rgba(255,255,255,.12)}
+ /* Плашки «пациент ответил» (Premium, вид A; schedule/AnswerToasts): стопка той же плашки, новая снизу.
+    Кромка и значок — фирменный цвет у «Vin», цвет смысла --amber у «Nu poate veni». Плашка действия
+    экрана (Toast) стоит раньше в разметке: стопка поднимается над ней, а не ложится сверху. */
+ .toastbox.dp-ans{flex-direction:column;align-items:flex-end;gap:10px}
+ .toastbox~.toastbox.dp-ans{bottom:88px}
+ .toastbox .banner.dp-ans-t{border-left-color:var(--teal);padding:0 52px 0 0}
+ /* значок тона у .banner — свой ::before; у плашки ответа значок — в кнопке (галочка или трубка) */
+ .toastbox .banner.dp-ans-t::before{display:none}
+ .toastbox .banner.dp-ans-t.cant{border-left-color:var(--amber)}
+ /* уход — у обёртки: въезд .banner — анимация с заполнением, она перебила бы переход прозрачности */
+ .toastbox .dp-ans-w{display:flex;justify-content:flex-end;transition:opacity var(--dur) ease}
+ .toastbox .dp-ans-w.out{opacity:0}
+ .toastbox .dp-ans-w.out .banner{pointer-events:none}
+ .toastbox .dp-ans-open{display:flex;align-items:center;gap:10px;min-width:0;margin:0;padding:12px 0 12px 16px;
+   border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+ .toastbox .dp-ans-open>svg{width:18px;height:18px;flex:0 0 18px;color:var(--teal)}
+ .toastbox .dp-ans-t.cant .dp-ans-open>svg{color:var(--amber)}
+ .toastbox .dp-ans-act{opacity:.9}
+ .toastbox .dp-ans-t.cant .dp-ans-act{color:var(--amber);font-weight:600;opacity:1}
+ .toastbox .dp-ans-open:focus-visible{outline:2px solid #fff;outline-offset:-2px;border-radius:var(--r-ctl)}
  .statbar{background:var(--line2);border-radius:4px;height:8px;overflow:hidden}
  .statbar div{background:var(--teal);height:8px}
  /* ---------- KPI ---------- */
@@ -1093,6 +1113,8 @@
  .stat.s-confirmed{background:var(--panel);color:var(--text2);box-shadow:inset 0 0 0 1px var(--line)}
  .stat.s-called{background:var(--green-soft);color:var(--green-t)}
  .stat.s-noanswer{background:var(--amber-soft);color:var(--amber-t)}
+ /* «nu poate veni» — ответ пациента ссылкой (Premium): цвет смысла, как «nu răspunde» */
+ .stat.s-cant{background:var(--amber-soft);color:var(--amber-t)}
  /* waiting — фиолетовый, а НЕ янтарный: янтарь занят срочными и долгами, и
     «пациент в приёмной» в цвете тревоги читался бы как проблема. Фиолетовый
     статуса един на всех экранах: бейдж, карточка сетки, агенда (.pl-badge.wai) */
@@ -2188,6 +2210,15 @@
    25%,55%{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--bar) 40%,transparent),0 0 0 3px var(--teal-line)}}
  .ag-i.moved{animation:dp-moved 1.2s ease}
  .gappt.moved{animation:dp-moved-g 1.2s ease}
+ /* Пациент ответил «Vin» ссылкой (Premium): галочка в правом верхнем углу блока выскакивает и
+    гаснет. Пометку `vin` ставит клиент по разнице двух конвертов (schedule/fresh.ts › vinOf), как
+    moved, поэтому вне .anim; снимает таймер VIN_MS. Стоит абсолютно — место и ступень блока те же. */
+ .gappt .gvin{position:absolute;top:3px;right:3px;z-index:2;width:20px;height:20px;border-radius:50%;
+   display:flex;align-items:center;justify-content:center;pointer-events:none;
+   background:var(--green);color:#fff;box-shadow:0 0 0 2px var(--panel)}
+ .gappt .gvin svg{width:13px;height:13px;stroke-width:2.6}
+ @keyframes dp-vin{0%{opacity:0;scale:.4}22%{opacity:1;scale:1.15}34%{scale:1}78%{opacity:1;scale:1}100%{opacity:0;scale:1}}
+ .gappt.vin .gvin{animation:dp-vin 1.6s ease both}
  /* Смена статуса без рывка (06.11.2026, проба look/motion-1).
     1. Команда панели выключает ВСЕ кнопки шага разом (`busy` экрана), а длится
        один-два кадра: два десятка кнопок бледнели и возвращались — мигание
@@ -2286,12 +2317,12 @@
     недоросшие столбцы. Сдвиги смыкания (Web Animations) завершает utils/flip. */
  @media print{
    *,*::before,*::after{animation:none !important;transition:none !important}
-   .fl-row.leaving,.dp-cmenu.out,.toastbox.out,dialog:not([open]){display:none !important}
+   .fl-row.leaving,.dp-cmenu.out,.toastbox.out,.gappt .gvin,dialog:not([open]){display:none !important}
  }
  /* Уважать системную настройку: у части людей движение вызывает тошноту, и
     Windows отдаёт это флагом. Отключаем всё разом, страница остаётся рабочей. */
  @media (prefers-reduced-motion:reduce){
-   .anim *,.gappt.fresh,.ag-i.fresh,.gappt.moved,.ag-i.moved,.toastbox .banner{animation:none !important;transition:none !important}
+   .anim *,.gappt.fresh,.ag-i.fresh,.gappt.moved,.ag-i.moved,.gappt.vin .gvin,.toastbox .banner{animation:none !important;transition:none !important}
    /* вид выключенной кнопки приходит без затухания, одной ступенькой после задержки */
    .savebtn.ag-next:disabled,.dlg-form button:disabled{transition-duration:0s}
    /* сменившийся статус виден и без движения: кольцо стоит, пока стоит пометка

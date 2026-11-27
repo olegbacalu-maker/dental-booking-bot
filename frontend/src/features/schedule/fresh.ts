@@ -57,6 +57,32 @@ export function movedOf(
   return out
 }
 
+/** Сколько держать галочку «Vin» на блоке: анимация 1.6 с (`.gappt.vin .gvin` в panel.css) плюс
+ *  запас; снимает таймер — по той же причине, что и `fresh`. */
+export const VIN_MS = 1800
+
+/** Отметка блока для сравнения конвертов: канал важен — «Vin» ссылкой и звонок стойки различны. */
+export const VIN_MARK = 'ok|sms'
+
+/**
+ * Кто только что ответил «Vin» ссылкой (Premium): номер был и остался, отметка стала `ok` каналом
+ * `sms`, а прежде была другой. Рождается там же, где `moved`, — из разницы двух конвертов: ответ
+ * приходит опросом, своего щелчка у него нет вовсе.
+ * ⚠️ `prev === null` — первый показ дня: пусто (ответы, пришедшие ночью, не играют). Новая запись
+ * сюда не попадает — она `fresh`. Ответ 204 конверта не приносит и сюда не доходит.
+ */
+export function vinOf(
+  prev: ReadonlyMap<string, string> | null, now: ReadonlyMap<string, string>,
+): string[] {
+  if (prev === null) return []
+  const out: string[] = []
+  for (const [id, mark] of now) {
+    const was = prev.get(id)
+    if (mark === VIN_MARK && was !== undefined && was !== VIN_MARK) out.push(id)
+  }
+  return out
+}
+
 /** Ключ памяти дня. ⛔ Тот же, что печатает `panel.js`. */
 export function seenKey(day: string): string {
   return `dp_seen_${day}`

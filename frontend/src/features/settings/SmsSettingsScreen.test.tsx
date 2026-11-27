@@ -373,3 +373,148 @@ describe('SmsSettingsScreen', () => {
     expect(screen.queryByLabelText('Cu o zi înainte')).toBeNull()
   })
 })
+
+
+/* Premium волна 2а: «Detaliat», ответ пациента ссылкой, плашка ответа, подарки, разбивка расхода
+   (кадры design/premium-w2, раскладка A). Поля — `plink_loop.screen`, `sms_loop.screen`. */
+const LINK_PV = {
+  ro: { text: 'Buna ziua! Clinica Test va reaminteste de programarea dvs.: maine, 17.10, ora 12:00.\nConfirmare/anulare: v.dentpilot.md/K7Q2MX', segments: 2 },
+  ru: { text: 'Клиника Test: вы записаны завтра, 17.10, в 12:00.\nОтветить: v.dentpilot.md/K7Q2MX', segments: 2 },
+}
+const DET_PV = {
+  ro: { text: 'Buna ziua! Clinica Test va reaminteste de programarea dvs.: maine, 17.10, ora 12:00. Va rugam sa veniti cu 10 minute mai devreme.', segments: 2 },
+  ru: { text: 'Клиника Test: вы записаны завтра, 17.10, в 12:00. Приходите за 10 минут.', segments: 2 },
+}
+const LINK = {
+  allowed: true, until: '30.11.2027', confirm: true, on: true, notify: true, notify_on: true,
+  event: 'day_before', variant: 'detaliat', parts: 2,
+}
+const W2: SmsData = {
+  ...BASE,
+  account: { ...BASE.account!, sender: 'ZambetDent', sender_state: 'active', from: 'ZambetDent',
+    name_year: 'free', gifts: { bonus_units: 80, bonus_day: '12.11.2026', name_free: true } },
+  settings: { ...BASE.settings, link: { confirm: true, notify: true } },
+  options: { ...BASE.options, variants: [
+    { key: 'standard', label: 'Standard', parts: 1 }, { key: 'scurt', label: 'Scurt', parts: 1 },
+    { key: 'detaliat', label: 'Detaliat', parts: 2 }] },
+  previews: { ...BASE.previews,
+    day_before: { ...BASE.previews.day_before, detaliat: DET_PV },
+    same_day: { ...BASE.previews.same_day, detaliat: DET_PV },
+    link: LINK_PV as never },
+  forecast: { visits: 118, month: 236, daily: 7.9, days_left: 5, parts: { day_before: 2, same_day: 0 } },
+  link: LINK,
+}
+const PLUS: SmsData = {
+  ...W2,
+  account: { ...BASE.account!, name_year: 'unpaid', gifts: { bonus_units: 0, bonus_day: '', name_free: false } },
+  settings: { ...W2.settings, day_before: { ...W2.settings.day_before, variant: 'detaliat' }, link: { confirm: false, notify: true } },
+  link: { ...LINK, allowed: false, until: '', confirm: false, on: false, notify_on: false },
+}
+
+describe('SmsSettingsScreen — Premium волна 2а', () => {
+  it('Premium: галочка ссылки с меткой, пояснение, предупреждение «2 SMS», текст заперт на «Detaliat», предпросмотр со ссылкой', async () => {
+    get.mockResolvedValueOnce(ok(W2))
+    open()
+    await screen.findByText('42')
+    const link = screen.getByLabelText(/Pacientul răspunde prin link/) as HTMLInputElement
+    expect(link.checked).toBe(true)
+    expect(link.disabled).toBe(false)
+    expect(link.closest('label')!.querySelector('.dp-sms-tag')!.textContent).toBe('Premium')
+    expect(screen.getByText(/Programul nu anulează nimic singur/)).toBeTruthy()
+    expect(screen.getByText(/2 SMS din pachet pentru fiecare memento „Cu o zi înainte” \(în loc de 1\)/)).toBeTruthy()
+    const sel = screen.getByLabelText('Cu o zi înainte — textul') as HTMLSelectElement
+    expect(sel.disabled).toBe(true)
+    expect(sel.value).toBe('detaliat')
+    expect(sel.selectedOptions[0]!.textContent).toBe('Detaliat (2 SMS)')
+    expect(screen.getByText('cu link — textul Detaliat')).toBeTruthy()
+    // предпросмотр накануне — текст со ссылкой сервера, а не выбранный вариант
+    expect(screen.getByText(/Confirmare\/anulare: v\.dentpilot\.md\/K7Q2MX/)).toBeTruthy()
+    expect(screen.queryByText(/Clinica Test va reaminteste ca maine/)).toBeNull()
+    expect(screen.getAllByText('română · 2 SMS pe memento').length).toBe(1)
+    expect(screen.queryByText('Disponibil în Premium')).toBeNull()
+  })
+
+  it('Premium: подарки в «Starea pachetului», имя «inclus în Premium anual», без заказа года имени', async () => {
+    get.mockResolvedValueOnce(ok(W2))
+    open()
+    await screen.findByText('42')
+    const box = document.querySelector('.dp-sms-incl') as HTMLElement
+    expect(box.textContent).toContain('80 SMS incluse la prima plată Premium · adăugate pe 12.11.2026')
+    expect(box.textContent).toContain('Numele expeditorului (până la 11 caractere) inclus (Premium anual) · ZambetDent, fără plata anului numelui')
+    expect(screen.getByText(/activ · inclus în Premium anual/)).toBeTruthy()
+    expect(screen.queryByText(/Comandă numele/)).toBeNull()
+  })
+
+  it('облако без подарков (старое или Plus): строк подарков нет, заказ года имени на месте', async () => {
+    get.mockResolvedValueOnce(ok({ ...W2, account: { ...BASE.account!, sender: 'Zmb', sender_state: 'active' } }))
+    open()
+    await screen.findByText('42')
+    expect(document.querySelector('.dp-sms-incl')).toBeNull()
+    expect(screen.getByText(/Comandă numele — 200 MDL/)).toBeTruthy()
+  })
+
+  it('Plus: серо «Disponibil în Premium» со значком замка, «Detaliat» без ссылки выбирается, плашка ответов неактивна', async () => {
+    get.mockResolvedValueOnce(ok(PLUS))
+    open()
+    await screen.findByText('42')
+    const link = screen.getByLabelText(/Pacientul răspunde prin link/) as HTMLInputElement
+    expect(link.disabled).toBe(true)
+    expect(link.checked).toBe(false)
+    const chip = screen.getByText('Disponibil în Premium').closest('.chip') as HTMLElement
+    expect(chip.querySelector('svg')).toBeTruthy()          // замок — наш SVG, не знак Windows
+    expect(screen.getByText(/fără să sune la clinică/)).toBeTruthy()
+    expect(screen.queryByText(/Atenție: SMS-ul cu link/)).toBeNull()
+    expect((screen.getByLabelText('Anunță pe ecran răspunsurile pacienților') as HTMLInputElement).disabled).toBe(true)
+    expect(document.querySelector('.dp-sms-incl')).toBeNull()
+    const sel = screen.getByLabelText('Cu o zi înainte — textul') as HTMLSelectElement
+    expect(sel.disabled).toBe(false)
+    expect(sel.value).toBe('detaliat')
+    expect(screen.queryByText(/cu link — textul/)).toBeNull()
+    // «Detaliat» без ссылки — свой предпросмотр, 2 SMS
+    expect(screen.getByText(/Va rugam sa veniti cu 10 minute mai devreme/)).toBeTruthy()
+    expect(screen.queryByText(/v\.dentpilot\.md/)).toBeNull()
+  })
+
+  it('галочка ссылки и плашки ответов шлют `link` целиком; без ссылки плашка ответов неактивна', async () => {
+    const off: SmsData = { ...W2, settings: { ...W2.settings, link: { confirm: false, notify: true } },
+      link: { ...LINK, confirm: false, on: false, notify_on: false } }
+    get.mockResolvedValueOnce(ok(off))
+    post.mockResolvedValueOnce(ok(W2, 'ok_sms', 'Setări SMS salvate'))
+    open()
+    await screen.findByText('42')
+    const notify = screen.getByLabelText('Anunță pe ecran răspunsurile pacienților') as HTMLInputElement
+    expect(notify.disabled).toBe(true)
+    expect(screen.queryByText(/Plăcuță jos în dreapta/)).toBeNull()
+    // текст не заперт, пока ссылки нет
+    expect((screen.getByLabelText('Cu o zi înainte — textul') as HTMLSelectElement).disabled).toBe(false)
+    fireEvent.click(screen.getByLabelText(/Pacientul răspunde prin link/))
+    expect(post).toHaveBeenLastCalledWith('/settings/sms', expect.objectContaining({ link: { confirm: true, notify: true } }))
+    await screen.findByText('Setări SMS salvate')
+    const on = screen.getByLabelText('Anunță pe ecran răspunsurile pacienților') as HTMLInputElement
+    expect(on.disabled).toBe(false)
+    expect(on.checked).toBe(true)
+    expect(screen.getByText(/Plăcuță jos în dreapta/)).toBeTruthy()
+    post.mockResolvedValueOnce(ok(W2))
+    fireEvent.click(on)
+    expect(post).toHaveBeenLastCalledWith('/settings/sms', expect.objectContaining({ link: { confirm: true, notify: false } }))
+  })
+
+  it('«Consum estimat» — разбивка по напоминаниям; строка под предпросмотрами честна о числе SMS', async () => {
+    get.mockResolvedValueOnce(ok(W2))
+    open()
+    await screen.findByText('42')
+    const items = [...document.querySelectorAll('.dp-sms-fc li')].map((li) => li.textContent)
+    expect(items).toEqual(['Cu o zi înainte — 118 × 2 SMS = 236 (textul cu link)', 'În ziua vizitei — oprit'])
+    expect(screen.queryByText(/un singur SMS/)).toBeNull()
+    expect(screen.getByText(/Detaliat și textul cu link — 2 SMS/)).toBeTruthy()
+  })
+
+  it('сервер до волны 2а (нет `link`, `parts`): блока ссылки нет, варианты без числа', async () => {
+    get.mockResolvedValueOnce(ok(BASE))
+    open()
+    await screen.findByText('42')
+    expect(screen.queryByLabelText(/Pacientul răspunde prin link/)).toBeNull()
+    expect(document.querySelector('.dp-sms-fc')).toBeNull()
+    expect((screen.getByLabelText('Cu o zi înainte — textul') as HTMLSelectElement).selectedOptions[0]!.textContent).toBe('Standard')
+  })
+})

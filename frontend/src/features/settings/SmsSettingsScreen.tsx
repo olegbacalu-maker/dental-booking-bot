@@ -8,7 +8,9 @@ import { defaultNavigate } from '../../hooks/useLoad'
 import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError, type ApiResult } from '../../services/api'
 import { roCount } from '../../utils/plural'
-import { settings, type SmsData, type SmsNote, type SmsOrder, type SmsSettingsForm } from './settings'
+import {
+  settings, type SmsData, type SmsNote, type SmsOrder, type SmsPreview, type SmsSettingsForm, type SmsVariant,
+} from './settings'
 
 /* Setări › SMS (S6, docs/dentpilot-2/sms.md › «Экраны»). Видит и регистратура:
    переключатели событий, час, вариант текста и строку телефона может менять
@@ -62,7 +64,33 @@ const T = {
   previewRu: 'русский',
   segments1: '1 SMS',
   segmentsN: '{n} SMS pe memento',
-  previewHint: 'Textele sunt stabilite de DentPilot (un singur SMS, fără date despre tratament); limba — din fișa pacientului. Text propriu — la cerere, scrieți-ne.',
+  /* Честно о числе SMS (w2-look § 1): русский с «Anulare» и «Detaliat» — уже два */
+  previewHint: 'Textele sunt stabilite de DentPilot, fără date despre tratament. Standard, Scurt, Oficial și Cald '
+    + 'încap într-un SMS în română; în rusă — un SMS fără rândul „Anulare”, 2 SMS cu el. Detaliat și textul cu '
+    + 'link — 2 SMS. Câte SMS costă fiecare text scrie deasupra lui. Limba — din fișa pacientului. Text propriu — '
+    + 'la cerere, scrieți-ne.',
+  variantParts: '{label} ({n} SMS)',
+  // ответ пациента ссылкой (Premium, волна 2а; раскладка A — сразу под «Cu o zi înainte»)
+  link: 'Pacientul răspunde prin link (Vin / Nu pot veni)',
+  premium: 'Premium',
+  linkHint: 'În memento apare un link scurt. Pacientul apasă „Vin” sau „Nu pot veni”, iar răspunsul se vede '
+    + 'în fereastra vizitei: „Confirmat · SMS” sau „Nu poate veni · SMS”. Programul nu anulează nimic '
+    + 'singur — recepția sună pacientul.',
+  linkWarn: 'Atenție: SMS-ul cu link este întotdeauna lung — {n} SMS din pachet pentru fiecare memento '
+    + '„Cu o zi înainte” (în loc de 1).',
+  linkLocked: 'cu link — textul {variant}',
+  plusOff: 'Disponibil în Premium',
+  plusHint: 'Pacientul confirmă sau anunță că nu poate veni dintr-un link din SMS, fără să sune la clinică.',
+  notify: 'Anunță pe ecran răspunsurile pacienților',
+  notifyHint: 'Plăcuță jos în dreapta, pentru recepție și director (medicul — doar pentru pacienții lui): '
+    + '„Vin” dispare singură, „Nu poate veni” rămâne până o închideți. Răspunsurile din timpul nopții nu '
+    + 'apar dimineața ca plăcuțe — sunt în fereastra vizitei.',
+  // подарки Premium в «Starea pachetului» (облако: `gifts`, `name_year: free`)
+  giftSms: '{n} SMS incluse la prima plată Premium',
+  giftSmsDay: 'adăugate pe {day}',
+  giftName: 'Numele expeditorului (până la 11 caractere) inclus (Premium anual)',
+  giftNameWho: '{name}, fără plata anului numelui',
+  senderFree: 'inclus în Premium anual',
   forecastTitle: 'Consum estimat',
   forecast: '~{month} SMS pe lună ({visits} vizite cu telefon în ultimele 30 de zile)',
   forecastLeft: ' · restul ajunge pentru ~{days}',
@@ -71,6 +99,10 @@ const T = {
   daysFew: '{n} zile',
   daysMany: '{n} de zile',
   forecastNone: 'Încă nu sunt vizite pentru estimare.',
+  // разбивка по событиям: SMS на визит у каждого напоминания (`forecast.parts`)
+  forecastEv: '{event} — {visits} × {n} SMS = {sum}',
+  forecastOff: '{event} — oprit',
+  forecastLink: 'textul cu link',
   orderTitle: 'Comandă',
   orderHint: 'Nota de plată o plătiți cu cardul sau prin transfer bancar; după plată SMS-urile se adaugă automat.',
   packBtn: '{units} SMS — {price} MDL',
@@ -138,6 +170,16 @@ const CALM: Record<string, { head: string; path: string }> = {
 
 interface Props {
   navigate?: (url: string) => void
+}
+
+/** Подпись варианта в списке: дороже одной SMS — числом рядом («Detaliat (2 SMS)»). */
+function variantLabel(v: SmsVariant): string {
+  return v.parts && v.parts > 1 ? T.variantParts.replace('{label}', v.label).replace('{n}', String(v.parts)) : v.label
+}
+
+/** Правка ответа пациента ссылкой: ключ `link` шлётся целиком, как остальные настройки. */
+function withLink(f: SmsSettingsForm, patch: Partial<{ confirm: boolean; notify: boolean }>): SmsSettingsForm {
+  return { ...f, link: { confirm: false, notify: true, ...f.link, ...patch } }
 }
 
 /** Данные экрана грузит роутер (B2.2), App.tsx › LOADS. */
@@ -226,9 +268,20 @@ export function SmsSettingsScreen({ navigate = defaultNavigate }: Props) {
   const calm: { head: string; path: string } | undefined =
     data && data.offered && Object.hasOwn(CALM, data.blocked) ? CALM[data.blocked] : undefined
   const senderBad = senderProblem(sender)
+  const gifts = acc?.gifts ?? null
+  const giftSms = Boolean(gifts && gifts.bonus_units > 0 && gifts.bonus_day)
+  /* имя в Premium: облако говорит состоянием года (`free`) и сроком в подарках — любое из двух */
+  const nameFree = acc?.name_year === 'free' || Boolean(gifts?.name_free)
+  const link = data?.link
+  const lf = s?.link
   const seg = (n: number) => (n <= 1 ? T.segments1 : T.segmentsN.replace('{n}', String(n)))
+  /* Текст со ссылкой — свой предпросмотр сервера (`previews.link`, адрес-образец): выбранный вариант
+     при включённой ссылке не действует */
+  const linkOn = Boolean(data?.link?.on)
   const preview = (event: string, variant: string) => {
-    const p = data?.previews[event]?.[variant]
+    const p: Record<string, SmsPreview> | undefined = linkOn && event === data?.link?.event
+      ? (data.previews.link as unknown as Record<string, SmsPreview> | undefined)
+      : data?.previews[event]?.[variant]
     if (!p) return null
     return (
       <div className="dp-sms-preview">
@@ -287,6 +340,18 @@ export function SmsSettingsScreen({ navigate = defaultNavigate }: Props) {
               <Icon name="refresh" /> {T.check}
             </button>
           </p>
+          {(giftSms || nameFree) && (
+            <div className="dp-sms-incl">
+              {giftSms && (
+                <div><Icon name="check" /><span><b>{T.giftSms.replace('{n}', String(gifts?.bonus_units))}</b>
+                  {' '}<small>· {T.giftSmsDay.replace('{day}', gifts?.bonus_day ?? '')}</small></span></div>
+              )}
+              {nameFree && (
+                <div><Icon name="check" /><span><b>{T.giftName}</b>
+                  {acc.sender ? <>{' '}<small>· {T.giftNameWho.replace('{name}', acc.sender)}</small></> : null}</span></div>
+              )}
+            </div>
+          )}
         </>
       )}
 
@@ -306,11 +371,50 @@ export function SmsSettingsScreen({ navigate = defaultNavigate }: Props) {
                 {data.options.hours.map((h) => <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>)}
               </select>
               <span className="dp-muted">{T.variant}</span>
-              <select value={s.day_before.variant} disabled={busy} aria-label={T.dayBefore + ' — textul'}
+              {/* со ссылкой текст всегда длинный — выбор заперт на варианте сервера (`link.variant`) */}
+              <select value={linkOn && link ? link.variant : s.day_before.variant} disabled={busy || linkOn}
+                aria-label={T.dayBefore + ' — textul'}
                 onChange={(e) => save((f) => ({ ...f, day_before: { ...f.day_before, variant: e.target.value } }))}>
-                {data.options.variants.map((v) => <option key={v.key} value={v.key}>{v.label}</option>)}
+                {data.options.variants.map((v) => <option key={v.key} value={v.key}>{variantLabel(v)}</option>)}
               </select>
+              {linkOn && link && (
+                <span className="dp-sms-lockv">
+                  {T.linkLocked.replace('{variant}',
+                    data.options.variants.find((v) => v.key === link.variant)?.label ?? link.variant)}
+                </span>
+              )}
             </div>
+            {link && lf && (link.allowed ? (
+              <div className="dp-sms-link">
+                <label>
+                  <input type="checkbox" checked={lf.confirm} disabled={busy}
+                    onChange={(e) => save((f) => withLink(f, { confirm: e.target.checked }))} />
+                  {' '}<b>{T.link}</b> <span className="dp-sms-tag">{T.premium}</span>
+                </label>
+                <p className="hint">{T.linkHint}</p>
+                <div className="dp-sms-warn"><Icon name="excl" /><span>{T.linkWarn.replace('{n}', String(link.parts))}</span></div>
+                <div className={`dp-sms-sub${lf.confirm ? '' : ' off'}`}>
+                  <label>
+                    <input type="checkbox" checked={lf.confirm && lf.notify} disabled={busy || !lf.confirm}
+                      onChange={(e) => save((f) => withLink(f, { notify: e.target.checked }))} />
+                    {' '}{T.notify}
+                  </label>
+                  {lf.confirm && <p className="hint">{T.notifyHint}</p>}
+                </div>
+              </div>
+            ) : (
+              /* Basic/Plus: на месте галочки — «Disponibil în Premium» (Олег 27.11) */
+              <div className="dp-sms-link off">
+                <label>
+                  <input type="checkbox" checked={false} disabled />
+                  {' '}{T.link} <span className="chip mute"><Icon name="lock" /> {T.plusOff}</span>
+                </label>
+                <p className="hint">{T.plusHint}</p>
+                <div className="dp-sms-sub off">
+                  <label><input type="checkbox" checked={false} disabled /> {T.notify}</label>
+                </div>
+              </div>
+            ))}
             {s.day_before.on && preview('day_before', s.day_before.variant)}
             <div className="dp-sms-ev">
               <label>
@@ -328,7 +432,7 @@ export function SmsSettingsScreen({ navigate = defaultNavigate }: Props) {
               <span className="dp-muted">{T.variant}</span>
               <select value={s.same_day.variant} disabled={busy} aria-label={T.sameDay + ' — textul'}
                 onChange={(e) => save((f) => ({ ...f, same_day: { ...f.same_day, variant: e.target.value } }))}>
-                {data.options.variants.map((v) => <option key={v.key} value={v.key}>{v.label}</option>)}
+                {data.options.variants.map((v) => <option key={v.key} value={v.key}>{variantLabel(v)}</option>)}
               </select>
             </div>
             {s.same_day.on && preview('same_day', s.same_day.variant)}
@@ -380,6 +484,24 @@ export function SmsSettingsScreen({ navigate = defaultNavigate }: Props) {
                   { one: T.days1, few: T.daysFew, many: T.daysMany })) : '')
               : T.forecastNone}
           </p>
+          {data.forecast.visits > 0 && data.forecast.parts && (
+            <ul className="dp-sms-fc">
+              {([['day_before', T.dayBefore], ['same_day', T.sameDay]] as const).map(([ev, name]) => {
+                const n = data.forecast.parts?.[ev] ?? 0
+                const v = data.forecast.visits
+                if (!n) return <li key={ev}>{T.forecastOff.replace('{event}', name)}</li>
+                const chosen = ev === 'day_before' ? s.day_before.variant : s.same_day.variant
+                const why = linkOn && ev === link?.event ? T.forecastLink
+                  : data.options.variants.find((x) => x.key === chosen)?.label ?? ''
+                return (
+                  <li key={ev}>
+                    {T.forecastEv.replace('{event}', name).replace('{visits}', String(v)).replace('{n}', String(n))
+                      .replace('{sum}', String(v * n))}{why ? ` (${why})` : ''}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
         </>
       )}
 
@@ -392,7 +514,8 @@ export function SmsSettingsScreen({ navigate = defaultNavigate }: Props) {
             <p className="hint">
               <b>{acc.sender}</b> — {SENDER[acc.sender_state] ?? acc.sender_state}
               {acc.sender_note ? ` (${acc.sender_note})` : ''}
-              {acc.sender_until ? ` · ${T.senderUntil.replace('{date}', acc.sender_until.slice(0, 10))}` : ''}
+              {acc.sender_until && !nameFree ? ` · ${T.senderUntil.replace('{date}', acc.sender_until.slice(0, 10))}` : ''}
+              {nameFree ? ` · ${T.senderFree}` : ''}
             </p>
           )}
           {data.can_order ? (
@@ -411,7 +534,8 @@ export function SmsSettingsScreen({ navigate = defaultNavigate }: Props) {
                   {senderBad && <small className="dp-sms-rule bad" role="alert">{senderBad}</small>}
                 </form>
               )}
-              {acc.sender_state !== 'none' && acc.name_price > 0 && (
+              {/* имя в Premium на год оплаты не просит: облако ответило бы `sms_name_free` */}
+              {acc.sender_state !== 'none' && acc.name_price > 0 && !nameFree && (
                 <p className="dp-actions">
                   <button type="button" className="savebtn" disabled={busy} onClick={() => void orderName(acc.name_price)}>
                     <Icon name="card" /> {T.senderNameBtn.replace('{price}', String(acc.name_price))}

@@ -98,6 +98,14 @@
           гаснут и уходят из дерева (Esc, крестик, после записи); вопрос при уходе с
           правкой проявляется; без движения полоса и окно встают и уходят сразу; в
           «Setări › Servicii» плитка ↔ правка карандашом не меняет высоту строки.
+  Premium волна 2а (27.11.2026; засев — право `sms_link` файлом лицензии, галочки ссылки и плашки в
+  clinic.json, ответ пациента — строкой `appt_calls` каналом `sms`, как её пишет `schedule/plink.apply`):
+  answer  ответ пациента ссылкой на главной: «Vin» приехал опросом — галочка на блоке выскакивает один
+          раз (`dp-vin`), плашка въезжает (`dp-toast`), место и размер блоков те же; следующий опрос —
+          204 и ни одного запуска; «Vin» гаснет сама (переход прозрачности) и уходит из дерева;
+          «Nu pot veni» — плашка висит, слово на блоке, «De confirmat» — этот визит наверху и раздел
+          цветом предупреждения; щелчок по плашке — окно визита проявляется, высота окна с жёлтой
+          полосой не меняется по кадрам; без движения — плашка и галочка встают без анимации.
   picker  поле поиска услуги (ServicePicker) в форме плана фиши, в «Editează procedura»,
           в «Adaugă în plan · dintele 36» с одонтограммы и в строке шаблона плана:
           щелчок, ↓, набор (список меняет высоту), Esc, набор и Enter — поле и окно не
@@ -186,6 +194,8 @@
           · отмена удаления шире корзины → под курсором другое место;
           · строка отказа окна категории без места → окно меняет высоту;
           · переход полосы без охраны reduced-motion → движение без движения.
+  answer  · `.gappt.vin .gvin{animation:none !important}` → галочка «Vin» без движения;
+          · плашка ответа без затухания (`.dp-ans-w{transition:none !important}`) → «Vin» уходит рывком.
   picker  · у подсказки прайса в окне с зуба нет места → окно растёт при выборе;
           · список услуг в потоке окна → окно растёт с открытием списка;
           · список не в верхнем слое (движок без `showPopover`) → в окне Sticlă он
@@ -199,9 +209,10 @@ import os
 import pathlib
 import shutil
 import sys
+import sqlite3
 import tempfile
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.stderr.reconfigure(encoding="utf-8", errors="replace")
@@ -211,6 +222,8 @@ sys.path.insert(0, str(ROOT / "tests"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from harness import BOT, TZ, Client, Server, new_patient  # noqa: E402
+from test_plink import _license as plink_license  # noqa: E402
+from test_sms import KEY_ENV  # noqa: E402
 from odo_shots import CDP, Page, login_cookie, start_edge  # noqa: E402
 
 # ⛔ Свой порт отладки: 9337–9347, 9349, 9352/9353, 9355, 9360/9361 заняты
@@ -219,7 +232,7 @@ PORT = 9348
 SIZE = (1366, 768)
 LIVE_S = 12            # период опроса живого канала (services/live.ts › LIVE_MS)
 SCENARIOS = ("idle", "dialog", "status", "menu", "toast", "reduce", "leave", "close", "move", "stats", "print", "plan",
-             "tile", "event", "agenda", "focus", "tarife", "picker", "pimport", "patient")
+             "tile", "event", "agenda", "focus", "tarife", "picker", "pimport", "patient", "answer")
 STYLE_SCENARIOS = ("dialog", "status", "menu", "toast", "close", "reduce")
 
 # Замеры в странице: кадры, изменения узлов, сеть, сдвиги раскладки, запуски
@@ -375,6 +388,8 @@ NEW = (
     ("", ("dp-moved", "dp-moved-g")),
     # блок визита отвечает на курсор и на событие: под «без движения» не играет ничего из этого
     ("", ("g-flash", "g-sweep", "g-beat", "g-flip", "g-droppulse", "dp-draw", "dp-pop", "dp-shake")),
+    # ответ пациента ссылкой (Premium 2а): галочка на блоке
+    ("", ("dp-vin",)),
     (".stat", ("background-color", "color")), (".pl-badge", ("background-color", "color")),
     (".gappt", ("background-color", "opacity", "translate", "scale", "box-shadow")),
     (".ag-i", ("border-left-color", "border-top-color", "opacity")),
@@ -406,6 +421,7 @@ class Run:
         self.listed = ""        # услуга прайса с ценой одним числом
         self.price_dir: pathlib.Path | None = None     # куда класть файл импорта (сценарий tarife)
         self.round = 0          # проход сценария tarife: имена файла и категории свои у каждого стиля
+        self.data_dir: pathlib.Path | None = None      # папка данных сервера (сценарий answer пишет ответ в базу)
 
     def ok(self, cond: bool, text: str) -> None:
         self.n += 1
@@ -1165,6 +1181,136 @@ class Run:
         self.ok(going == 1 and not any(s.values()), f"печать посреди переворота: на листе конечный вид (шёл переворот: {going}, на листе {s})")
         time.sleep(1.6)
 
+    def answer_put(self, aid: str, result: str) -> None:
+        """Пациент нажал ссылку: строка `appt_calls` каналом `sms` — то, что пишет `schedule/plink.apply`."""
+        con = sqlite3.connect(str(self.data_dir / "dental.db"), timeout=5)
+        try:
+            con.execute(
+                "INSERT INTO appt_calls(appointment_id, result, actor, at, via) VALUES(?, ?, 'pacient', ?, 'sms')"
+                " ON CONFLICT(appointment_id) DO UPDATE SET result = excluded.result, actor = excluded.actor,"
+                " at = excluded.at, via = excluded.via",
+                (int(aid), result, datetime.now(timezone.utc).replace(microsecond=0).isoformat()))
+            con.commit()
+        finally:
+            con.close()
+
+    def answer_wait(self, finder: str, sample: str = "", extra: float = 1.0) -> dict:
+        """Ждать опроса, который принесёт ответ (до двух периодов), и ещё `extra` секунд после."""
+        self.js(f"__mc.sample = {sample or 'null'}; __mc.reset(); 1")
+        for _ in range(int((2 * LIVE_S + 4) / 0.25)):
+            self.cdp.drain(0.25)
+            if self.js(f"!!({finder})"):
+                break
+        self.cdp.drain(extra)
+        return self.take()
+
+    def answer(self) -> None:
+        if self.data_dir is None:
+            raise SystemExit("стенд: сценарий answer без засева права sms_link")
+        now = datetime.now(TZ)
+        left = (30 - now.minute % 30) * 60 - now.second
+        if left < 110:
+            print(f"  … до границы получаса {left} с — жду её: на ней сервер законно меняет конверт")
+            time.sleep(left + 3)
+            self.home()
+        if self.js("document.documentElement.classList.contains('anim')"):
+            self.tap(STEP, 1.8)          # как у стойки: первое изменение дня снимает `anim`
+            time.sleep(1.6)
+        ids = json.loads(self.js("JSON.stringify(Array.from(document.querySelectorAll('.gappt[data-st=\"confirmed\"]'))"
+                                 ".map((a) => a.dataset.appt))"))
+        if len(ids) < 3:
+            raise SystemExit("стенд: нет трёх записей «programată» — сценарий answer не прогнан")
+        yes, no, late = ids[0], ids[1], ids[2]
+        base = self.js(PLACE)
+        plate = ("() => {{ const b = Array.from(document.querySelectorAll('.dp-ans .dp-ans-t'))"
+                 ".find((x) => x.dataset.appt === '{id}'); return b ? [Number(getComputedStyle(b).opacity),"
+                 " Math.round(b.getBoundingClientRect().top), b.parentElement.classList.contains('out') ? 1 : 0,"
+                 " Number(getComputedStyle(b.parentElement).opacity)] : null; }}")
+
+        # «Vin» приехал опросом
+        self.answer_put(yes, "ok")
+        d = self.answer_wait(f"document.querySelector('.dp-ans-t[data-appt=\"{yes}\"]')", plate.format(id=yes), 1.8)
+        vin = [r for r in d["runs"] if r["kind"] == "animation" and r["name"] == "dp-vin"]
+        toast = [r for r in d["runs"] if r["kind"] == "animation" and r["name"] == "dp-toast" and "dp-ans-t" in r["target"]]
+        seen = [x for x in d["samples"] if x]
+        self.ok(len(vin) == 1 and abs(vin[0]["dur"] - 1600) < 1,
+                f"«Vin»: галочка на блоке выскакивает один раз за 1,6 с ({[r['dur'] for r in vin]} мс)")
+        self.ok(len(toast) == 1 and bool(seen) and seen[0][0] < 0.6 and seen[0][1] > seen[-1][1],
+                "«Vin»: плашка въезжает — прозрачность и место по кадрам "
+                + (f"({seen[0]} → {seen[-1]})" if seen else "(плашки нет)"))
+        self.ok(self.js(PLACE) == base, "«Vin»: место и размер всех блоков те же")
+        self.ok(not self.js(f"!!document.querySelector('.gappt[data-appt=\"{yes}\"] .gvin')"),
+                "«Vin»: галочка ушла с блока (таймер пометки)")
+        # «Vin» гаснет сама (~8 с с прихода) и уходит из дерева; опросы за это время — 204 без анимаций
+        self.js(f"__mc.sample = {plate.format(id=yes)}; __mc.reset(); 1")
+        for _ in range(60):
+            self.cdp.drain(0.25)
+            if not self.js(f"!!document.querySelector('.dp-ans-t[data-appt=\"{yes}\"]')"):
+                break
+        # и ещё период опроса после ухода: в окне замера обязан быть опрос (он и должен ответить 204)
+        self.cdp.drain(LIVE_S + 1)
+        d = self.take()
+        fade = [r for r in d["runs"] if r["kind"] == "transition" and r["name"] == "opacity" and "dp-ans-w" in r["target"]]
+        mid = [x for x in d["samples"] if x and x[2] and 0 < x[3] < 1]
+        self.ok(bool(fade) and bool(mid) and not self.js(f"!!document.querySelector('.dp-ans-t[data-appt=\"{yes}\"]')"),
+                f"«Vin»: плашка гаснет переходом и уходит из дерева (переходов {len(fade)}, кадров затухания {len(mid)})")
+        live = [r["status"] for r in d["res"] if "/schedule/live" in r["name"]]
+        news = [r for r in d["runs"] if r["kind"] == "animation"]
+        self.ok(bool(live) and all(x == 204 for x in live) and not news,
+                f"«Vin»: опросы после ответа — {live}, анимаций {len(news)}"
+                + (f" — {[r['name'] + ' ' + r['target'][:30] for r in news[:4]]}" if news else ""))
+
+        # «Nu pot veni»: висит, слово на блоке, «De confirmat»
+        self.js("try { localStorage.setItem('dp_fold:desk:confirm_today', '1') } catch (e) {} 1")
+        self.answer_put(no, "cant")
+        self.answer_wait(f"document.querySelector('.dp-ans-t[data-appt=\"{no}\"]')", "", 0.5)
+        self.cdp.drain(9)
+        self.ok(self.js(f"!!document.querySelector('.dp-ans-t.cant[data-appt=\"{no}\"]:not(.out)')"),
+                "«Nu pot veni»: плашка висит и через 9 с")
+        word = self.js(f"(() => {{ const w = document.querySelector('.gappt[data-appt=\"{no}\"] .stat');"
+                       " return w ? w.className + '|' + w.textContent : ''; })()")
+        self.ok(word == "stat s-cant|nu poate veni", f"«Nu pot veni»: слово на блоке цветом предупреждения ({word!r})")
+        self.home()
+        self.js("__mc.sample = null; __mc.reset(); 1")
+        first = self.js("(() => { const r = document.querySelector('[data-fold=\"desk:confirm_today\"] .dk-row');"
+                        " const c = document.querySelector('[data-fold=\"desk:confirm_today\"] .dk-cnt');"
+                        " return (r ? r.dataset.appt : '') + '|' + (c ? c.className : ''); })()")
+        self.ok(first == f"{no}|dk-cnt amber", f"«De confirmat azi»: «Nu poate veni» наверху, счёт цветом предупреждения ({first!r})")
+        self.ok(not self.js("!!document.querySelector('.dp-ans')"),
+                "первый показ главной (вернулись на экран): старые ответы плашками не всплывают")
+
+        # окно визита из плашки: свежий ответ, щелчок по плашке
+        self.answer_put(no, "cant")      # новое время ответа — новая пара, плашка снова
+        con = sqlite3.connect(str(self.data_dir / "dental.db"), timeout=5)
+        con.execute("UPDATE appt_calls SET at = ? WHERE appointment_id = ?",
+                    ((datetime.now(timezone.utc) + timedelta(seconds=1)).replace(microsecond=0).isoformat(), int(no)))
+        con.commit()
+        con.close()
+        self.answer_wait(f"document.querySelector('.dp-ans-t[data-appt=\"{no}\"]')", "", 0.6)
+        d = self.tap(f"document.querySelector('.dp-ans-t[data-appt=\"{no}\"] .dp-ans-open')", 0.9, DLG)
+        seen = [x for x in d["samples"] if x]
+        ops = [x[0] for x in seen]
+        self.ok(bool(ops) and ops[0] < 0.3 and ops[-1] == 1 and ops == sorted(ops),
+                f"окно из плашки: проявляется по кадрам ({ops[:1]} … {ops[-1:]}, кадров {len(ops)})")
+        self.ok(len({x[1] for x in seen}) == 1 and self.js("!!document.querySelector('dialog[open] .dp-card-cant')"),
+                f"окно из плашки: жёлтая полоса на месте, высота окна по кадрам одна ({sorted({x[1] for x in seen})})")
+        self.ok(not d["shifts"], f"окно из плашки: сдвигов раскладки нет ({d['shifts']})")
+        self.esc()
+        time.sleep(0.4)
+
+        # без движения: плашка и галочка встают сразу
+        self.cdp.cmd("Emulation.setEmulatedMedia", features=[{"name": "prefers-reduced-motion", "value": "reduce"}])
+        try:
+            self.answer_put(late, "ok")
+            d = self.answer_wait(f"document.querySelector('.dp-ans-t[data-appt=\"{late}\"]')", "", 1.0)
+        finally:
+            self.cdp.cmd("Emulation.setEmulatedMedia", features=[])
+        moving = [r for r in d["runs"] if r["dur"] > 0 and r["name"] in ("dp-vin", "dp-toast")]
+        self.ok(not moving, f"без движения: «Vin» — без анимаций ({[r['name'] for r in moving]})")
+        if self.js("!!document.querySelector('.dp-ans .t-x')"):
+            self.js("document.querySelectorAll('.dp-ans .t-x').forEach((b) => b.click()); 1")
+        time.sleep(0.4)
+
     def agenda(self) -> None:
         box = "document.querySelector('details[data-fold=\"agenda\"]')"
         btn = "Array.from(document.querySelectorAll('.ag-view button')).find((b) => b.textContent.trim() === '{t}')"
@@ -1794,6 +1940,15 @@ def seed(c: Client, clinic: pathlib.Path, hours: int = 3) -> None:
                 raise SystemExit(f"засев не удался ({h0 + dh:02d}:00 {dk}): {r.status} {r.body[:120]}")
 
 
+def seed_link(s1: Server) -> None:
+    """Premium 2а до старта сервера: файл лицензии с правом `sms_link` (ключ прогона) и галочки ссылки и
+    плашки ответов в clinic.json — как у клиники Premium, включившей их на экране SMS."""
+    cfg = json.loads(s1.clinic.read_text(encoding="utf-8"))
+    cfg["sms"] = {**(cfg.get("sms") or {}), "link": {"confirm": True, "notify": True}}
+    s1.clinic.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    plink_license(s1.dir, {"url": "http://127.0.0.1:9/", "token": "stand-" + "z" * 40}, {"sms_link": 400})
+
+
 def seed_plan(c: Client) -> tuple[int, str]:
     """Фиша с планом лечения и шаблоны плана клиники — путём клиники; id фиши и имя
     услуги прайса с ценой одним числом (под ней окно правки показывает подсказку)."""
@@ -1897,6 +2052,8 @@ PAIRS = [
         'out = {"screen": screen, "date": d.isoformat(), "live": state is not None, "now": __import__("time").time()}')}),
     ("idle", "бесконечный пульс цифры вкладки", {"css": "@keyframes mc-pulse{50%{opacity:.6}}.fl-tab b{animation:mc-pulse 1s infinite}"}),
     ("dialog", "окно без перехода", {"css": "dialog[open]{transition:none !important}"}),
+    ("answer", "галочка «Vin» без движения", {"css": ".gappt.vin .gvin{animation:none !important}"}),
+    ("answer", "плашка ответа без затухания", {"css": ".toastbox .dp-ans-w{transition:none !important}"}),
     ("status", "вид выключенной кнопки без задержки", {"css": ".savebtn.ag-next:disabled,.dk-btn:disabled,.dp-free-btn:disabled{transition:none !important}"}),
     ("menu", "меню без перехода", {"css": ".dp-cmenu{transition:none !important}"}),
     ("toast", "въезд ответа снова под .anim", {"swap": (" .toastbox .banner{animation:dp-toast .3s ease both}",
@@ -1977,7 +2134,10 @@ PAIRS = [
 def run_tree(cdp: CDP, bot: pathlib.Path | None, label: str, names, polls: int, styles=(), js: str = "") -> tuple[int, list[str]]:
     """js — скрипт, который ломает КЛИЕНТ на каждой новой странице этого прогона (пара
     без копии дерева); снимается по выходе — сессия CDP одна на все прогоны."""
-    s1 = Server(keep_dir=True, **({"bot": bot} if bot else {}))
+    answer = "answer" in names
+    s1 = Server(keep_dir=True, **({"bot": bot} if bot else {}), **({"env": dict(KEY_ENV)} if answer else {}))
+    if answer:
+        seed_link(s1)
     hook = None
     try:
         if js:
@@ -1986,6 +2146,7 @@ def run_tree(cdp: CDP, bot: pathlib.Path | None, label: str, names, polls: int, 
             c = Client(s1.url).login()
             seed(c, s1.clinic, 6 if styles else 3)
             run = Run(cdp, s1.url, label, c, datetime.now(TZ).date().isoformat())
+            run.data_dir = s1.dir
             if "plan" in names or "picker" in names:
                 run.pid, run.listed = seed_plan(c)
             if "tarife" in names or "picker" in names:

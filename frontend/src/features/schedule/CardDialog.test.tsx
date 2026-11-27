@@ -270,6 +270,44 @@ describe('окно визита: факты, ссылки, звонок, ком�
     expect(onCall).toHaveBeenLastCalledWith('noanswer')
   })
 
+  it('ответ пациента ссылкой (Premium): «Confirmat · SMS» горит со строкой «когда», звонок стойки — без неё', () => {
+    const seg = () => Array.from(document.querySelectorAll('dialog .dp-card-call .dp-card-seg-b')) as HTMLButtonElement[]
+    show(card({ callable: true, call: 'ok', call_via: 'sms', call_at: '27.11, 10:04' }), { onCall: ok })
+    expect(seg().map((b) => [b.textContent?.trim(), b.getAttribute('aria-pressed')]))
+      .toEqual([['Confirmat · SMS', 'true'], ['Nu răspunde', 'false']])
+    expect(q('dialog .dp-card-when')!.textContent).toBe('pacientul a apăsat „Vin” în link · 27.11, 10:04')
+    expect(q('dialog .dp-card-cant')).toBeNull()
+    cleanup()
+    // та же отметка звонком стойки — прежний вид: ни «· SMS», ни строки времени
+    show(card({ callable: true, call: 'ok', call_via: '', call_at: '' }), { onCall: ok })
+    expect(seg()[0]!.textContent?.trim()).toBe('Confirmat')
+    expect(q('dialog .dp-card-when')).toBeNull()
+  })
+
+  it('«Nu poate veni · SMS»: сегмент не горит, жёлтая полоса с трубкой и словами; снятие — «Confirmat» или щелчок', async () => {
+    const onCall = vi.fn(async () => true)
+    const seg = () => Array.from(document.querySelectorAll('dialog .dp-card-call .dp-card-seg-b')) as HTMLButtonElement[]
+    show(card({ callable: true, call: 'cant', call_via: 'sms', call_at: '27.11, 10:04' }), { onCall })
+    expect(seg().map((b) => b.getAttribute('aria-pressed'))).toEqual(['false', 'false'])
+    const bar = q('dialog .dp-card-cant') as HTMLElement
+    expect(bar.getAttribute('role')).toBe('status')
+    expect(bar.querySelector('svg')).toBeTruthy()
+    expect(bar.querySelector('b')!.textContent).toBe('Nu poate veni · SMS')
+    expect(bar.querySelector('span')!.textContent).toBe('pacientul a apăsat „Nu pot veni” în link · 27.11, 10:04. '
+      + 'Sunați pacientul. Vizita rămâne în jurnal până o mutați sau o anulați.')
+    expect(q('dialog .dp-card-when')).toBeNull()
+    // стойка дозвонилась — обычная отметка звонком, ответ ссылкой перекрыт
+    await act(async () => { fireEvent.click(seg()[0] as HTMLButtonElement) })
+    expect(onCall).toHaveBeenLastCalledWith('ok')
+    await act(async () => { fireEvent.click(seg()[1] as HTMLButtonElement) })
+    expect(onCall).toHaveBeenLastCalledWith('noanswer')
+    cleanup()
+    // отметку сняли (канал принёс пусто) — полосы нет
+    show(card({ callable: true, call: '', call_via: '', call_at: '' }), { onCall })
+    expect(q('dialog .dp-card-cant')).toBeNull()
+    expect(q('dialog .dp-card-when')).toBeNull()
+  })
+
   it('callable false, без колбэка или у надгробия — сегмента звонка нет', () => {
     show(card({ callable: false }), { onCall: ok })
     expect(q('dialog .dp-card-call')).toBeNull()

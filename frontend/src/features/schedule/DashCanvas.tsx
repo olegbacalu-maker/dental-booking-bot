@@ -6,6 +6,7 @@ import { Icon, iconName } from '../../components/Icon'
 import { CELL_MIN, GRID_ZOOMS, clinicNow, clinicTz, nowlineRows, useCardView, useFitAppts, useFitGrid, useOdoButton,
   useGridZoom, waitLabel } from './dashFx'
 import type { DashAppt, DashBlock, DashCanvasModel, DashColumn } from './dash'
+import { CALL_WORDS } from './desk'
 import type { VisitFacts } from './day'
 import { FactCols } from './FactCols'
 import { settleTile, useTileFx } from './tileFx'
@@ -98,6 +99,9 @@ interface Props {
   /** У кого сменился статус в последнем конверте: этим блокам ставится
    *  `moved` (06.11). Экран без живого канала его не передаёт. */
   moved?: ReadonlySet<number> | undefined
+  /** Кто только что ответил «Vin» ссылкой (Premium): на блоке на миг встаёт галочка. Пометка —
+   *  из разницы двух конвертов, как `moved` (`fresh.ts › vinOf`). */
+  vin?: ReadonlySet<number> | undefined
   /** Факты карточки визита по id — только у дня ОДНОГО врача (22.10, вариант
    *  A): колонки справа от имени. Нет — карточка как на главной. */
   facts?: Record<string, VisitFacts> | undefined
@@ -110,7 +114,7 @@ const p2 = (n: number) => String(n).padStart(2, '0')
 const NO_MARKS: ReadonlySet<number> = new Set()
 
 export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu, onSlot, onNote,
-  drag, hover, onDrag, onHover, onDrop, fresh, moved = NO_MARKS, facts }: Props) {
+  drag, hover, onDrag, onHover, onDrop, fresh, moved = NO_MARKS, vin = NO_MARKS, facts }: Props) {
   const body = useRef<HTMLDivElement | null>(null)
   /* ⚠️ Перемер блоков привязан к минутам ожидания не вообще, а только когда
      ожидающие ЕСТЬ: текст «așteaptă N min» вписывается после замера, и блок
@@ -125,9 +129,9 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
   const scale = GRID_ZOOMS[zoom] ?? GRID_ZOOMS[0]
   const keep = useRef<number | null>(null)
   useFitGrid(body, rail, model.hours.length, scale.cell, keep)
-  /* `fresh` и `moved` меняют className блока без новой модели — и стёрли бы ступени */
+  /* `fresh`, `moved` и `vin` меняют className блока без новой модели — и стёрли бы ступени */
   /* кнопка зуба освобождает место в сжатой строке — ступени перемеряются и на её смене */
-  useFitAppts(body, waits ? waitTick : 0, model, odo ? view : `${view}:no-odo`, fresh, moved, zoom)
+  useFitAppts(body, waits ? waitTick : 0, model, odo ? view : `${view}:no-odo`, fresh, moved, zoom, vin)
   /* Блок, сменивший место (перенос — свой или с другого места), доезжает до
      нового сдвигом (07.11, вторая волна): только transform, раскладку и
      ступень сжатия не трогает; на опросе без изменений — ни одного запуска. */
@@ -275,7 +279,7 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
               <Block key={b.id} block={b} waitTick={waitTick} dk={col.id ?? ''}
                 {...(ctl ? { edges } : {})}
                 onCard={onCard} onCardMenu={onCardMenu} onNote={onNote} onDrag={onDrag}
-                fresh={fresh.has(b.id)} moved={moved.has(b.id)} lanes={n > 1} odo={odo}
+                fresh={fresh.has(b.id)} moved={moved.has(b.id)} vin={vin.has(b.id)} lanes={n > 1} odo={odo}
                 /* колонки фактов рассчитаны на блок во всю колонку — в дорожке их нет */
                 facts={n > 1 ? undefined : facts?.[String(b.id)]} date={model.date} />
             ))}
@@ -537,7 +541,7 @@ function Relink({ relink, date }: { relink: NonNullable<DashColumn['relink']>; d
 }
 
 function Block(
-  { block, waitTick, dk, onCard, onCardMenu, onNote, onDrag, fresh, moved, lanes, odo, facts, date, edges }:
+  { block, waitTick, dk, onCard, onCardMenu, onNote, onDrag, fresh, moved, vin, lanes, odo, facts, date, edges }:
   {
     block: DashBlock; waitTick: number; dk: string
     /** Края неравных дорожек (колонка с Control); нет — дорожки равные. */
@@ -547,6 +551,7 @@ function Block(
     onDrag: (d: Drag | null) => void
     fresh: boolean
     moved: boolean
+    vin: boolean
     lanes: boolean
     odo: boolean
     facts: VisitFacts | undefined
@@ -556,7 +561,7 @@ function Block(
   /* ⛔ Класс ТОТ ЖЕ, что у легаси (`.gappt.fresh` в panel.css): оформление уже
      лежит в стилях и живёт ВНЕ `.anim` — как раз потому, что эта анимация
      нужна на автообновлении, когда входные уже выключены. */
-  const fx = (fresh ? ' fresh' : '') + (moved ? ' moved' : '')
+  const fx = (fresh ? ' fresh' : '') + (moved ? ' moved' : '') + (vin ? ' vin' : '')
   /* ⚠️ Те же множители, что печатал сервер: доли ячейки, ширина делится
      между пересекающимися. Считать позицию «от индекса часа» нельзя — на дне
      со сдвинутым графиком это промахивается (`base_min`). */
@@ -601,6 +606,7 @@ function Block(
   }
   return <ApptBlock block={block} pos={pos} waitTick={waitTick} onCard={onCard}
     onCardMenu={onCardMenu} grab={grab} fx={fx + (block.room_id === CONTROL ? ' gctl' : '')} facts={facts} date={date}
+    vin={vin}
     /* в полосе Control метка лишняя: полоса подписана в шапке, слово — в подсказке */
     room={lanes && block.room_id !== CONTROL ? block.room ?? '' : ''} odo={odo} />
 }
@@ -620,8 +626,9 @@ function unequal(col: number, of: number, edges: number[]): React.CSSProperties 
 
 
 function ApptBlock(
-  { block, pos, waitTick, onCard, onCardMenu, grab, fx, facts, date, room, odo }: {
+  { block, pos, waitTick, onCard, onCardMenu, grab, fx, facts, date, room, odo, vin }: {
     block: DashAppt; pos: React.CSSProperties; waitTick: number
+    vin: boolean
     onCard: (id: number) => void
     onCardMenu?: ((id: number, x: number, y: number) => void) | undefined
     grab: Record<string, unknown>
@@ -641,7 +648,9 @@ function ApptBlock(
      уронить экран, поэтому оно проходит через `iconName`. */
   /* ⛔ Слово статуса печатается только у НЕ подтверждённого: у подтверждённого
      оно ничего не добавляет, а место в блоке решает, влезет ли имя. */
-  const word = block.status === 'confirmed' ? '' : block.status_label
+  /* …кроме «nu poate veni» ответом ссылкой (Premium): это не статус, а сигнал стойке — звонить */
+  const cant = block.status === 'confirmed' && block.call === 'cant'
+  const word = cant ? CALL_WORDS.cantWord : block.status === 'confirmed' ? '' : block.status_label
   const wait = block.wait_since ? waitLabel(block.wait_since, waitTick) : null
   /* Завершённый визит — приглушённый, без цвета категории (09.10, разбор:
      «Durere acută» после приёма оставалась красной, и важное с сделанным
@@ -670,7 +679,7 @@ function ApptBlock(
       <span className="gl1">
         <span className="gtm">{block.time}–{endOf(block.time, block.dur)}</span>
         {urgent && <span className="chip urg"><Icon name="excl" />{T.urgent}</span>}
-        {word && <span className={`stat s-${block.status}`}>{word}</span>}
+        {word && <span className={`stat s-${cant ? 'cant' : block.status}`}>{word}</span>}
         {wait && <span className={`wait-min${wait.long ? ' long' : ''}`}>{wait.text}</span>}
       </span>
       {ico && <span className="stt"><Icon name={iconName(ico)} /></span>}
@@ -696,6 +705,9 @@ function ApptBlock(
       )}
       {/* слой эффектов блока: блик при наведении и события статуса; оформление — panel.css › .gfx */}
       <i className="gfx" aria-hidden="true"><i /></i>
+      {/* «Vin» ссылкой только что (пометка `vin`, таймер экрана): галочка в углу на миг. Стоит
+          абсолютно — ни места, ни ступени блока не меняет */}
+      {vin && <i className="gvin" title={CALL_WORDS.vinHint} aria-hidden="true"><Icon name="check" /></i>}
     </div>
   )
 }

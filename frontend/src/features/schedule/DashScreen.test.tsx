@@ -1550,6 +1550,134 @@ describe('06.11: подсветка записи, у которой сменил
   })
 })
 
+describe('Premium 2а: ответ пациента ссылкой на главной — галочка «Vin», слово на блоке, плашки', () => {
+  /** Конверт, где визит №1 отмечен так, как велено, а в `desk.answers` — ответы. */
+  const marked = (call: '' | 'ok' | 'cant', via = 'sms', answers: unknown = null) => {
+    const m = model()
+    const b = m.canvas.columns[0]!.blocks[0]!
+    if (b.kind !== 'appt') throw new Error('фикстура: первым блоком ждали визит')
+    m.canvas.columns[0]!.blocks[0] = { ...b, call, call_via: call ? via : '', call_at: call ? '27.11, 10:04' : '' }
+    m.desk = {
+      ...m.desk,
+      confirm_today: { day: 'azi', date: TODAY, n: 1, n_ok: call === 'ok' ? 1 : 0, n_left: call ? 0 : 1,
+        n_cant: call === 'cant' ? 1 : 0, items: [
+          { id: 1, pid: 17, time: '09:00', name: 'Ion Popa', phone: '069000000', doctor: 'Dr. Ion', service: '',
+            call, call_via: call ? via : '', call_at: call ? '10:04' : '', call_by: '' }] },
+      answers: answers as never,
+    }
+    return m
+  }
+  const ANS = (call: 'ok' | 'cant', at = '2026-09-19T08:04:00Z') =>
+    [{ id: 1, pid: 17, name: 'Ion Popa', call, when: 'azi, 09:00', answer_at: at }]
+  const vin = () => Array.from(document.querySelectorAll('.gappt.vin')).map((el) => el.getAttribute('data-appt'))
+  const plates = () => Array.from(document.querySelectorAll('.dp-ans .dp-ans-t')).map((el) => el.textContent)
+
+  it('⛔ первый показ дня с уже «Vin» (ночной ответ): ни галочки, ни плашки', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, marked('ok', 'sms', ANS('ok')))))
+    await show()
+    await vi.advanceTimersByTimeAsync(100)
+    expect(vin()).toEqual([])
+    expect(document.querySelector('.gvin')).toBeNull()
+    expect(plates()).toEqual([])
+  })
+
+  it('⭐ «Vin» приехал опросом: галочка на блоке на миг и плашка «a confirmat prin SMS»; опрос 204 — ничего нового', async () => {
+    const f = vi.fn(async () => reply(200, marked('', '', [])))
+    vi.stubGlobal('fetch', f)
+    await show()
+    f.mockImplementation(async () => reply(200, marked('ok', 'sms', ANS('ok')), { 'X-DP-Hash': 'h2' }))
+    await vi.advanceTimersByTimeAsync(12_000)
+    await waitFor(() => expect(vin()).toEqual(['1']))
+    expect(document.querySelector('.gridbody [data-appt="1"] .gvin svg')).toBeTruthy()
+    expect(plates()).toEqual(['Ion Popa · azi, 09:00 — a confirmat prin SMS'])
+    // галочка не залипает — снимает таймер; плашка «Vin» при этом ещё висит (уходит через ~8 с)
+    await vi.advanceTimersByTimeAsync(2_000)
+    await waitFor(() => expect(vin()).toEqual([]))
+    expect(document.querySelector('.gvin')).toBeNull()
+    await vi.advanceTimersByTimeAsync(3_000)
+    expect(plates()).toEqual(['Ion Popa · azi, 09:00 — a confirmat prin SMS'])
+    // следующий опрос 204: ни новой галочки, ни второй плашки
+    f.mockImplementation(async () => new Response(null, { status: 204 }))
+    await vi.advanceTimersByTimeAsync(12_000)
+    expect(vin()).toEqual([])
+    expect(plates().length).toBeLessThanOrEqual(1)
+  })
+
+  it('звонок стойки «Confirmat» — не «Vin»: ни галочки, ни плашки', async () => {
+    const f = vi.fn(async () => reply(200, marked('', '', [])))
+    vi.stubGlobal('fetch', f)
+    await show()
+    f.mockImplementation(async () => reply(200, marked('ok', '', []), { 'X-DP-Hash': 'h2' }))
+    await vi.advanceTimersByTimeAsync(12_000)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(vin()).toEqual([])
+    expect(plates()).toEqual([])
+  })
+
+  it('«Nu pot veni»: слово «nu poate veni» на блоке цветом предупреждения, плашка висит; нажатие открывает окно визита', async () => {
+    const f = vi.fn(async () => reply(200, marked('', '', [])))
+    vi.stubGlobal('fetch', f)
+    await show()
+    f.mockImplementation(async () => reply(200, marked('cant', 'sms', ANS('cant')), { 'X-DP-Hash': 'h2' }))
+    await vi.advanceTimersByTimeAsync(12_000)
+    await waitFor(() => expect(plates()).toEqual(['Ion Popa · azi, 09:00 — nu poate veni (SMS)']))
+    const word = document.querySelector('.gridbody [data-appt="1"] .stat') as HTMLElement
+    expect([word.textContent, word.className]).toEqual(['nu poate veni', 'stat s-cant'])
+    expect(vin()).toEqual([])
+    await vi.advanceTimersByTimeAsync(30_000)                  // висит до крестика
+    expect(plates().length).toBe(1)
+    fireEvent.click(document.querySelector('.dp-ans-open') as HTMLElement)
+    await waitFor(() => expect(document.querySelector('dialog .dp-card-cant')).toBeTruthy())
+    expect(document.querySelector('dialog .dp-card-cant b')!.textContent).toBe('Nu poate veni · SMS')
+  })
+
+  it('`answers: null` (плашки выключены) — плашек нет, галочка на блоке остаётся', async () => {
+    const f = vi.fn(async () => reply(200, marked('', '', null)))
+    vi.stubGlobal('fetch', f)
+    await show()
+    f.mockImplementation(async () => reply(200, marked('ok', 'sms', null), { 'X-DP-Hash': 'h2' }))
+    await vi.advanceTimersByTimeAsync(12_000)
+    await waitFor(() => expect(vin()).toEqual(['1']))
+    expect(document.querySelector('.dp-ans')).toBeNull()
+  })
+  it('плашка про визит другого дня (завтра): переход на его день, окно визита открывается, когда день приехал', async () => {
+    const TOMORROW = '2026-09-21'
+    const base = () => {
+      const m = model()
+      m.desk = { ...m.desk, answers: [] }
+      return m
+    }
+    const answered = () => {
+      const m = base()
+      m.desk = { ...m.desk, confirm: { ...m.desk.confirm, n_cant: 1, items: [{ ...m.desk.confirm.items[0]!,
+        call: 'cant', call_via: 'sms', call_at: '10:04' }] },
+      answers: [{ id: 7, pid: 17, name: 'Ion Popa', call: 'cant', when: 'luni 21.09, 09:00', answer_at: '2026-09-19T08:04:00Z' }] }
+      return m
+    }
+    const nextDay = () => {
+      const m = answered()
+      const b = m.canvas.columns[0]!.blocks[0]!
+      if (b.kind !== 'appt') throw new Error('фикстура: первым блоком ждали визит')
+      m.date = TOMORROW
+      m.canvas = { ...m.canvas, date: TOMORROW, columns: [{ ...m.canvas.columns[0]!, blocks: [
+        { ...b, id: 7, call: 'cant', call_via: 'sms', call_at: '19.09, 10:04' }] }] }
+      return m
+    }
+    const f = vi.fn(async () => reply(200, base()))
+    vi.stubGlobal('fetch', f)
+    const { router } = mount()
+    await waitFor(() => expect(document.querySelector('.gridbody')).toBeTruthy())
+    f.mockImplementation(async () => reply(200, answered(), { 'X-DP-Hash': 'h2' }))
+    await vi.advanceTimersByTimeAsync(12_000)
+    await waitFor(() => expect(document.querySelector('.dp-ans-open')).toBeTruthy())
+    f.mockImplementation(async (url?: unknown) => reply(200, String(url).includes(TOMORROW) ? nextDay() : answered(),
+      { 'X-DP-Hash': String(url).includes(TOMORROW) ? 'h3' : 'h2' }))
+    fireEvent.click(document.querySelector('.dp-ans-open') as HTMLElement)
+    await waitFor(() => expect(document.querySelector('dialog .dp-card-cant')).toBeTruthy())
+    expect(router.state.location.search).toBe(`?date=${TOMORROW}`)
+  })
+})
+
 /* Права врача (22.10): учётка `medic` без привязки — пустая панель и
    подсказка сервера в конверте канала, состоянием под подзаголовком. */
 describe('права врача: подсказка учётки без врача на панели', () => {

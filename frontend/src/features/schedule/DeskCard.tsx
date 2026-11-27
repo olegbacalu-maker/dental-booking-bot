@@ -179,12 +179,16 @@ function PastRow({ it, busy, onStatus }: { it: DeskPastItem; busy: boolean; onSt
   )
 }
 
-/** Обзвон одного дня — «azi» или «mâine»: одна форма, одни кнопки. */
+/** Обзвон одного дня — «azi» или «mâine»: одна форма, одни кнопки.
+ *  «Nu poate veni» ответом ссылкой (Premium) — порядок сервера ставит их наверх, раздел — цветом
+ *  предупреждения, и в счёт «кому звонить» они входят: отметка у них есть, звонок — нет. */
 function ConfirmSection({ id, c, busy, onCall }: { id: string; c: DeskConfirm; busy: boolean; onCall: Props['onCall'] }) {
+  const cant = c.n_cant ?? 0
+  const left = c.n_left + cant
   return (
     <Section id={id} icon="phone" title={`${T.confirm} ${c.day}`}
-      count={c.n_left ? `${c.n_left} ${T.of} ${c.n}` : `${T.all} ${c.n}`}
-      hint={T.confirmHint} tone={c.n_left ? 'blue' : 'green'}>
+      count={left ? `${left} ${T.of} ${c.n}` : `${T.all} ${c.n}`}
+      hint={T.confirmHint} tone={cant ? 'amber' : c.n_left ? 'blue' : 'green'}>
       {c.items.map((it) => <ConfirmRow key={it.id} it={it} busy={busy} onCall={onCall} />)}
     </Section>
   )
@@ -192,15 +196,15 @@ function ConfirmSection({ id, c, busy, onCall }: { id: string; c: DeskConfirm; b
 
 function ConfirmRow({ it, busy, onCall }: { it: DeskConfirmItem; busy: boolean; onCall: Props['onCall'] }) {
   return (
-    <div className={`dk-row${it.call === 'ok' ? ' done' : ''}`} data-appt={it.id}>
+    <div className={`dk-row${it.call === 'ok' ? ' done' : ''}${it.call === 'cant' ? ' cant' : ''}`} data-appt={it.id}>
       <span className="dk-t">{it.time}</span>
       <div className="dk-b">
         <AppLink href={`/admin/patient/${it.pid}`}><b>{it.name}</b></AppLink>
         <small>{it.phone || '—'} · {it.doctor}</small>
         {it.call && (
-          <small className={it.call === 'ok' ? 'dk-ok' : 'dk-no'}>
+          <small className={it.call === 'ok' ? 'dk-ok' : it.call === 'cant' ? 'dk-no dk-cant' : 'dk-no'}>
             <Icon name={it.call === 'ok' ? 'check' : 'phone-off'} />
-            {' '}{it.call === 'ok' ? T.okDone : T.noDone} {it.call_at}
+            {' '}{markWord(it)} {it.call_at}
           </small>
         )}
       </div>
@@ -220,6 +224,13 @@ function ConfirmRow({ it, busy, onCall }: { it: DeskConfirmItem; busy: boolean; 
       </span>
     </div>
   )
+}
+
+/** Слово отметки строки: ответ ссылкой — с «· SMS», чтобы стойка видела, кто отметил. */
+function markWord(it: DeskConfirmItem): string {
+  if (it.call === 'cant') return T.cantDone
+  if (it.call === 'ok') return it.call_via === 'sms' ? T.okSmsDone : T.okDone
+  return T.noDone
 }
 
 function Section({ id, icon, title, count, hint, tone, children }: {
