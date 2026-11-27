@@ -113,13 +113,17 @@ def _confirm_list(d: date, today: date, rows: list, calls: dict) -> dict:
             "name": r["name"] or "—", "phone": r["phone"] or "",
             "doctor": r["doctor"] or "", "service": r["service"] or "",
             "call": c["result"] if c else "",
+            # 'sms' — отметку поставил пациент ссылкой из напоминания (Premium)
+            "call_via": (c.get("via") or "") if c else "",
             "call_at": at.strftime("%H:%M") if at else "",
             "call_by": (c["actor"] if c else "") or "",
         })
-    # ещё не звонили — сверху, по времени визита; отмеченные — вниз
-    items.sort(key=lambda x: (x["call"] == "ok", x["call"] == "noanswer", x["time"]))
+    # «Nu poate veni» (ответ ссылкой) — первым: стойке звонить ему сейчас; потом
+    # ещё не звонили, по времени визита; отмеченные — вниз
+    items.sort(key=lambda x: (x["call"] != "cant", x["call"] == "ok", x["call"] == "noanswer", x["time"]))
     return {"day": _day_word(d, today), "date": d.isoformat(), "items": items,
             "n": len(items), "n_ok": sum(1 for x in items if x["call"] == "ok"),
+            "n_cant": sum(1 for x in items if x["call"] == "cant"),
             "n_left": sum(1 for x in items if not x["call"])}
 
 

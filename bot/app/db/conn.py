@@ -39,7 +39,7 @@ def _parse_dt(value):
 _DT_COLS = {"starts_at", "created_at", "uploaded_at", "updated_at", "at",
             "last_at", "next_at", "done_at", "waiting_at", "arrived_at",
             "state_at", "until_at", "visit_at", "removed_at", "mkt_at",
-            "undone_at", "edited_at"}
+            "undone_at", "edited_at", "answer_at", "shut_at", "call_at"}
 
 
 def _rowdict(row) -> dict:

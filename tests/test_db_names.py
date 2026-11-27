@@ -125,6 +125,11 @@ SNAPSHOT = frozenset((
     "_slot_guard_verdict", "_slot_lock", "_slot_rows", "sms_by_idem", "sms_candidates",
     "sms_counts", "sms_delete", "SMS_DELIVERED", "sms_drop_kind", "sms_enqueue",
     "SMS_EXPIRED", "SMS_FAILED", "sms_known_idems", "sms_log_sent", "SMS_OFF_EVENT",
+    # ответ пациента ссылкой из SMS (Premium)
+    "PLINK_DDL", "LINK_OPEN", "LINK_YES", "LINK_NO", "LINK_CLOSED", "LINK_LIVE", "_LIVE_SQL", "PLINK_CLOSE_META",
+    "_CODE", "_STARTS_SQL", "plink_codes_for", "plink_add", "plink_get", "plink_answer", "plink_live_count",
+    "plink_last_no", "plink_stale", "plink_mark_closed", "plink_unshut", "plink_shut", "plink_patient_rows",
+    "_plink_forget_sql", "plink_codes_of", "plink_forget",
     "sms_overdue", "sms_pending", "sms_queue", "SMS_QUEUED", "_SMS_REMINDED_SQL",
     "sms_rows", "SMS_SENT", "sms_set", "SMS_STATES", "sms_states_by_kind",
     "SMS_UNDELIVERED", "sms_visits_month", "_SQ", "SQLITE_CARD_SCHEMA",

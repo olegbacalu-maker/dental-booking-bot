@@ -43,6 +43,7 @@ from datetime import datetime, timedelta, timezone
 from .. import db
 from .. import engine as eng
 from . import license as lic
+from . import plink_loop
 from . import rsa_verify
 from . import sms as wire
 from . import sms_plan as plan
@@ -118,7 +119,7 @@ _lock: asyncio.Lock | None = None
 _account: dict | None = None                 # последний ПРИНЯТЫЙ счёт сервера
 _account_at: datetime | None = None
 _status_at: datetime | None = None
-_forecast: dict = {"visits": 0, "month": 0, "daily": 0.0}
+_forecast: dict = {"visits": 0, "month": 0, "daily": 0.0, "parts": {}}
 _counts: dict = {"queued": 0, "today": 0, "delivered": 0, "failed": 0}   # цифры экрана, с тика
 # последний проход: когда, чем кончился, последний отказ (код) — экрану и логу
 _last: dict = {"at": None, "outcome": "", "error": "", "sent": 0}
@@ -394,7 +395,9 @@ def _stale(row: dict) -> bool:
 
 
 async def _enqueue_due(now: datetime, s: dict) -> int:
-    """Визиты окна → строки очереди для событий, чьё окно наступило."""
+    """Визиты окна → строки очереди для событий, чьё окно наступило. Напоминанию
+    накануне при ответе ссылкой (Premium) код нужен ДО постановки: текст
+    собирается здесь. Нет кода — нет строки (визит ждёт следующего тика)."""
     horizon = now + HORIZON
     rows = await db.sms_candidates(now, horizon)
     if not rows:
@@ -402,7 +405,7 @@ async def _enqueue_due(now: datetime, s: dict) -> int:
     known = await db.sms_known_idems(now, horizon)
     local_now = now.astimezone(eng.TZ)
     custom = custom_texts()
-    added = 0
+    due = []
     for r in rows:
         number, why = rule.phone(r["phone"])
         if why:
@@ -420,13 +423,23 @@ async def _enqueue_due(now: datetime, s: dict) -> int:
                               hours=s[ev].get("hours", 2), is_open=lambda d: bool(eng.hours_for(d)))
             if win is None or not (win[0] <= local_now < win[1]):
                 continue
-            text = plan.text(r["lang"] or "ro", s[ev]["variant"], clinic=eng.CLINIC_NAME,
-                             phone=eng.CLINIC_PHONE, phone_line=s[plan.PHONE_LINE_KEY],
-                             starts=starts, on_day=local_now.date(), custom=custom)
-            _, _, segs = rule.parts(text)
-            if await db.sms_enqueue(r["id"], r["patient_id"], ev, number, text, segs, key, win[1]):
-                known.add(key)
-                added += 1
+            due.append((r, ev, number, starts, key, win))
+    linked = [r for r, ev, *_ in due if ev == plan.LINK_EVENT]
+    how, urls = (await plink_loop.links(linked)) if linked and plink_loop.link_on(s) else (plink_loop.PLAIN, {})
+    added = 0
+    for r, ev, number, starts, key, win in due:
+        link = ""
+        if ev == plan.LINK_EVENT and how != plink_loop.PLAIN:
+            link = urls.get(r["id"], "")
+            if not link:
+                continue                    # кода нет — строки нет: следующий тик спросит снова
+        text = plan.text(r["lang"] or "ro", s[ev]["variant"], clinic=eng.CLINIC_NAME,
+                         phone=eng.CLINIC_PHONE, phone_line=s[plan.PHONE_LINE_KEY],
+                         starts=starts, on_day=local_now.date(), custom=custom, link=link)
+        _, _, segs = rule.parts(text)
+        if await db.sms_enqueue(r["id"], r["patient_id"], ev, number, text, segs, key, win[1]):
+            known.add(key)
+            added += 1
     return added
 
 
@@ -526,9 +539,12 @@ async def _poll_status(base: str, token: str, now: datetime) -> None:
 
 async def _refresh_forecast(now: datetime, s: dict) -> None:
     visits = await db.sms_visits_month(now - timedelta(days=FORECAST_DAYS), now)
-    per_visit = sum(1 for ev in plan.EVENTS if s[ev]["on"])
+    # «Detaliat» и текст со ссылкой — две части: прогноз считает части, а не визиты
+    link = plink_loop.link_on(s)
+    parts = {ev: (plan.parts_of(s, ev, link) if s[ev]["on"] else 0) for ev in plan.EVENTS}
+    per_visit = sum(parts.values())
     _forecast.update(visits=visits, month=visits * per_visit,
-                     daily=visits * per_visit / FORECAST_DAYS)
+                     daily=visits * per_visit / FORECAST_DAYS, parts=parts)
     local = now.astimezone(eng.TZ)
     _counts.update(await db.sms_counts(local.replace(hour=0, minute=0, second=0, microsecond=0)))
 
@@ -768,6 +784,15 @@ def _previews(s: dict) -> dict:
                                  phone_line=s[plan.PHONE_LINE_KEY], starts=starts, on_day=now.date(),
                                  custom=custom)
                 out[ev][v][lang] = {"text": text, "segments": rule.parts(text)[2]}
+    # текст со ссылкой ответа (Premium): только накануне, всегда «Detaliat»; адрес — образец,
+    # настоящий код уходит только в SMS
+    starts = (now + timedelta(days=1)).replace(hour=12, minute=0)
+    out[plan.LINK_KEY] = {}
+    for lang in plan.LANGS:
+        text = plan.text(lang, plan.DETALIAT, clinic=eng.CLINIC_NAME, phone=eng.CLINIC_PHONE,
+                         phone_line=s[plan.PHONE_LINE_KEY], starts=starts, on_day=now.date(),
+                         link=plink_loop.preview_url())
+        out[plan.LINK_KEY][lang] = {"text": text, "segments": rule.parts(text)[2]}
     # «Rechemări»: вариант → язык, без события и часа
     out[plan.RECALL] = {}
     for v in plan.RECALL_VARIANTS:
@@ -805,8 +830,11 @@ def screen() -> dict:
                                             "used_today", "notes")} if acc and offered() else None),
         "settings": s,
         "options": {"hours": list(plan.HOURS_X), "leads": list(plan.LEAD_HOURS),
-                    "variants": [{"key": v, "label": plan.VARIANT_LABEL[v]} for v in plan.VARIANTS]
-                    + ([{"key": plan.CUSTOM, "label": plan.VARIANT_LABEL[plan.CUSTOM]}] if custom else []),
+                    # `parts` — сколько SMS обещает вариант (румынский, худший случай)
+                    "variants": [{"key": v, "label": plan.VARIANT_LABEL[v], "parts": plan.VARIANT_PARTS[v]}
+                                 for v in plan.VARIANTS]
+                    + ([{"key": plan.CUSTOM, "label": plan.VARIANT_LABEL[plan.CUSTOM], "parts": None}]
+                       if custom else []),
                     "recall_variants": [{"key": v, "label": plan.VARIANT_LABEL[v]} for v in plan.RECALL_VARIANTS],
                     "recall_auto_daily": plan.RECALL_AUTO_DAILY},
         "previews": _previews(s) if available() else {},
@@ -815,6 +843,8 @@ def screen() -> dict:
         # «мало SMS» — то же состояние, что у пункта меню и у часов (`low`)
         "low": _low_view(), "counts": _counts, "last": status()["last"],
         "clinic": {"name": eng.CLINIC_NAME, "phone": eng.CLINIC_PHONE},
+        # ответ пациента ссылкой (Premium): право, галочка, работает ли, сколько частей
+        "link": plink_loop.screen(),
     }
 
 

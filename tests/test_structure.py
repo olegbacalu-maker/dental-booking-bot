@@ -137,6 +137,13 @@ _GDOC_SYNC = "app/modules/doctors/gcal_sync.py"
 # Сверка журнала с календарями врачей: проход по праву, без отзыва, без токена в логе и базе, врач — под
 # его замком.
 _GSYNC = "app/modules/doctors/gcal_sync.py"
+# Ответ пациента ссылкой из SMS (Premium): провод, цикл, выборки и писатель журнала
+_PLINK_WRITER = "app/modules/schedule/plink.py"
+_PLINK_FILES = ("app/core/plink.py", "app/core/plink_loop.py", "app/db/plink.py", _PLINK_WRITER)
+# что писатель журнала из ответа пациента вправе звать у db: прочитать визит и отметку,
+# поставить отметку и строку летописи, слова состояний кода
+_PLINK_WRITER_DB = frozenset({"appointment_brief", "appt_calls", "set_appt_call", "log_event",
+                              "LINK_YES", "LINK_NO"})
 _GDOC_GATED[_GSYNC] = ("tick",)
 _GDOC_NO_REVOKE += (_GSYNC,)
 _GDOC_TOKEN_FILES += (_GSYNC,)
@@ -2987,7 +2994,7 @@ def suite(res: Result) -> None:
                   and isinstance(t.value, ast.Subscript) and isinstance(t.value.value, ast.Name)}
         if "PLACEHOLDERS" in names:
             allowed = _texts_of(n.value)
-        if names & {"TEXTS", "PHONE_LINE", "RECALL_TEXTS"}:
+        if names & {"TEXTS", "PHONE_LINE", "RECALL_TEXTS", "LINK_TEXTS", "LINK_LINE"}:
             for text in _texts_of(n.value):
                 for hole in re.findall(r"\{([a-z_]+)\}", text):
                     seen.add(hole)
@@ -3002,6 +3009,10 @@ def suite(res: Result) -> None:
     if plan_tree and not any(isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "RECALL_TEXTS"
                                                                for t in n.targets) for n in _walk(plan_tree)):
         bad.append("core/sms_plan.py: словаря RECALL_TEXTS не найдено — тексты Rechemări ушли из-под правила")
+    # текст со ссылкой ответа (Premium): ссылка — хвост, подстановки — тот же белый список
+    if plan_tree and not any(isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "LINK_TEXTS"
+                                                               for t in n.targets) for n in _walk(plan_tree)):
+        bad.append("core/sms_plan.py: словаря LINK_TEXTS не найдено — текст со ссылкой ушёл из-под правила")
     res.ok("подстановки SMS — белый список", not bad,
            "в тексте SMS появились данные, которых в нём быть не может: " + "; ".join(bad))
     forbidden = {"medic", "doctor", "serviciu", "service", "nume", "name", "pacient",
@@ -3432,3 +3443,111 @@ def suite(res: Result) -> None:
         bad += [f"{_GAUTO}:{c.lineno} бронь пачки или автопереноса без db.booked_by" for c in calls
                 if id(c) not in wrapped]
     res.ok("перенос из Google подписывает запись тем, кто перенёс", not bad, "; ".join(bad))
+
+
+    # ---- ответ пациента ссылкой из SMS (Premium) ----
+    # Код и адрес ссылки открывают страницу ответа пациента: в лог программы они не
+    # попадают, как номер и текст SMS. Лог-строки модулей ссылки берут только литерал
+    # и счётчики (`len(...)`) или слово исхода — без f-строк и без переменных с кодом.
+    bad = []
+    _LOG_OK = {"outcome", "why", "applied", "closed", "e"}
+    for rel in _PLINK_FILES:
+        tree = by_path.get(rel)
+        if tree is None:
+            bad.append(f"{rel} не найден — якорь правила пропал")
+            continue
+        for n in _walk(tree):
+            if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                    and isinstance(n.func.value, ast.Name) and n.func.value.id == "log"
+                    and n.func.attr in ("debug", "info", "warning", "error", "exception")):
+                continue
+            first = n.args[0] if n.args else None
+            if not (isinstance(first, ast.Constant) and isinstance(first.value, str)):
+                bad.append(f"{rel}:{n.lineno} строка лога не литерал")
+                continue
+            for a in list(n.args[1:]) + [k.value for k in n.keywords]:
+                if isinstance(a, ast.Call) and isinstance(a.func, ast.Name) and a.func.id == "len":
+                    continue
+                if isinstance(a, ast.Name) and a.id in _LOG_OK:
+                    continue
+                bad.append(f"{rel}:{n.lineno} в лог уходит {ast.unparse(a)}")
+    res.ok("код и адрес ссылки ответа не попадают в лог", not bad, "; ".join(bad))
+
+    # Писатель журнала из ответа пациента: спрашивает право сам (ворота 423 стоят только
+    # на запросах), подписывается «pacient» и возвращает прежнюю подпись в finally, а в
+    # журнале только ставит отметку и строку летописи — ничего не отменяет и не переносит.
+    bad = []
+    wtree = by_path.get(_PLINK_WRITER)
+    apply_w = next((n for n in (wtree.body if wtree else []) if isinstance(n, ast.AsyncFunctionDef)
+                    and n.name == "apply"), None)
+    if apply_w is None:
+        bad.append(f"{_PLINK_WRITER}: нет apply — якорь правила пропал")
+    else:
+        body = [s for s in apply_w.body if not (isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant))]
+        first = body[0] if body else None
+        if not (isinstance(first, ast.If) and "allowed" in _calls(first.test)
+                and any(isinstance(x, ast.Return) for x in first.body)):
+            bad.append("apply не начинается с проверки права plink_loop.allowed()")
+        tries = [t for t in _walk(apply_w) if isinstance(t, ast.Try) and t.finalbody]
+        if not any("set_request_user" in _calls(ast.Module(body=t.finalbody, type_ignores=[])) for t in tries):
+            bad.append("apply не возвращает прежнюю подпись в finally (set_request_user)")
+        before = [s for s in body if isinstance(s, ast.Expr) and "set_request_user" in _calls(s)]
+        if not before:
+            bad.append("apply не подписывается фоновым пациентом (set_request_user до try)")
+    res.ok("ответ пациента в журнал: право, подпись и finally", not bad, "; ".join(bad))
+    bad = []
+    if wtree is None:
+        bad.append(f"{_PLINK_WRITER} не найден — якорь правила пропал")
+    used = {n.attr for n in _walk(wtree) if isinstance(n, ast.Attribute)
+            and isinstance(n.value, ast.Name) and n.value.id == "db"} if wtree is not None else set()
+    if wtree is not None and "set_appt_call" not in used:
+        bad.append("писатель не ставит отметку db.set_appt_call — якорь правила пропал")
+    bad += [f"{_PLINK_WRITER}: db.{x}" for x in sorted(used - _PLINK_WRITER_DB)]
+    res.ok("ответ пациента ничего не отменяет и не переносит", not bad,
+           "писатель журнала из ответа ссылкой трогает журнал сверх отметки: " + "; ".join(bad))
+
+    # Таблица с `patient_id` — в стирании пациента, а таблица без внешнего ключа (`sms_links`:
+    # её не видит `PRAGMA foreign_key_list` набора приватности) — ещё и в выгрузке по 195-му:
+    # её выборку зовёт `export.collect`.
+    bad = []
+    etree = by_path.get("app/db/erasure.py")
+    child = set()
+    for n in _walk(etree) if etree is not None else ():
+        if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "_PATIENT_CHILD_TABLES"
+                                             for t in n.targets):
+            child = {c.value for c in _walk(n.value) if isinstance(c, ast.Constant) and isinstance(c.value, str)}
+    if not child:
+        bad.append("app/db/erasure.py: нет _PATIENT_CHILD_TABLES — якорь правила пропал")
+    readers: dict[str, set] = {}
+    loose = set()
+    seen_tables = set()
+    for rel, tree in src:
+        if not rel.startswith("app/db/"):
+            continue
+        for n in _walk(tree):
+            if isinstance(n, ast.Constant) and isinstance(n.value, str) and "CREATE TABLE" in n.value.upper():
+                for m in re.finditer(r"CREATE TABLE(?: IF NOT EXISTS)?\s+(\w+)\s*\((.*?)\n\);", n.value, re.S | re.I):
+                    if re.search(r"^\s*patient_id\b", m.group(2), re.M):
+                        seen_tables.add(m.group(1))
+                        if m.group(1) not in child:
+                            bad.append(f"{rel}: таблица {m.group(1)} с patient_id не в _PATIENT_CHILD_TABLES")
+                        if "REFERENCES patients" not in m.group(2):
+                            loose.add(m.group(1))
+        for f in _walk(tree):
+            if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for c in _walk(f):
+                    if isinstance(c, ast.Constant) and isinstance(c.value, str):
+                        for t in re.findall(r"FROM\s+(\w+)\s+WHERE\s+patient_id\s*=", c.value, re.I):
+                            readers.setdefault(t, set()).add(f.name)
+    if "sms_links" not in seen_tables:
+        bad.append("таблица sms_links не найдена в DDL — якорь правила пропал")
+    ex = by_path.get("app/modules/patients/export.py")
+    coll = next((n for n in (ex.body if ex else []) if isinstance(n, ast.AsyncFunctionDef) and n.name == "collect"),
+                None)
+    if coll is None:
+        bad.append("app/modules/patients/export.py: нет collect — якорь правила пропал")
+    else:
+        got = _calls(coll)
+        bad += [f"export.collect не читает таблицу {t} (её выборка по patient_id: {sorted(readers.get(t, ()))})"
+                for t in sorted(loose) if not (readers.get(t, set()) & got)]
+    res.ok("таблица пациента без внешнего ключа — в стирании и выгрузке", not bad, "; ".join(bad))

@@ -2,8 +2,9 @@
 показывает оболочка.
 
 Контракт — docs/dentpilot-2/tauri-contract.md § 4. Три уведомления (Олег
-18.10): вышло обновление, лицензия кончается, SMS осталось мало. Про пациентов
-— ничего: программа не знает, что пациент пришёл.
+18.10): вышло обновление, лицензия кончается, SMS осталось мало. Четвёртое
+(Premium) — пациент ответил «Nu pot veni» ссылкой из SMS: стойке
+позвонить; без имени и времени визита — уведомление видно без входа.
 
 ⭐ Сервер НЕ помнит, что показано, — помнит оболочка (`shell.json` по учётке
 Windows). Поэтому `id` детерминирован: при неизменных данных он тот же на
@@ -30,6 +31,7 @@ from .. import engine as eng
 from .. import sidecar
 from .. import update as upd
 from . import license as lic
+from . import plink_loop
 from . import sms_loop
 from .auth import client_is_local
 
@@ -118,7 +120,7 @@ def sms_item() -> dict | None:
 
 def items() -> dict:
     """Ответ `GET /shell/notices`."""
-    found = (update_item(), license_item(), sms_item())
+    found = (update_item(), license_item(), sms_item(), plink_loop.cant_item())
     return {"v": V, "items": [it for it in found if it is not None]}
 
 

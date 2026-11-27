@@ -56,7 +56,10 @@ _HTML = "fisa-pacient.html"
 _DOCDIR = "documente"
 
 # слова те же, что пишет в летопись маршрут отметки (`api_desk_call`)
-_CALL_WORD = {"ok": "confirmat", "noanswer": "nu răspunde"}
+_CALL_WORD = {"ok": "confirmat", "noanswer": "nu răspunde", "cant": "nu poate veni"}
+# ответ ссылкой из SMS (Premium): что нажал пациент — словами его копии
+_LINK_WORD = {"open": "fără răspuns", "yes": "Vin", "no": "Nu pot veni",
+              "closed": "link închis (programarea s-a schimbat)"}
 
 
 def _plain(value):
@@ -139,6 +142,9 @@ async def collect(pid: int) -> dict | None:
         # отметки обзвона «Rechemări» (29.10): обработка его данных — та же
         # таблица, что стирает удаление
         "rechemari": await db.recall_marks(pid),
+        # ответы ссылкой из SMS-напоминания (Premium): код, визит, что нажал и когда —
+        # та же таблица, что стирает удаление
+        "raspunsuri_link": await db.plink_patient_rows(pid),
         # заказы в лабораторию — те же таблицы, что стирает удаление; цены
         # лаборатории — расчёт клиники с лабораторией, не данные пациента
         "laborator": await clab.export_rows(pid),
@@ -238,9 +244,15 @@ def render_html(data: dict) -> str:
          for m in data.get("rechemari", [])])
     confirmari = _table(
         ["Programarea", "Rezultat", "Operator", "Marcat la"],
-        [[_dt(m["programare"]), _esc(_CALL_WORD.get(m["result"], m["result"])),
+        [[_dt(m["programare"]), _esc(_CALL_WORD.get(m["result"], m["result"]))
+          + (" (link SMS)" if m.get("via") == "sms" else ""),
           _esc(m["actor"]) or "—", _dt(m["at"])]
          for m in data.get("confirmari_telefonice", [])])
+    raspunsuri = _table(
+        ["Programarea", "Răspuns", "Trimis la", "Răspuns la"],
+        [[_dt(m["starts_key"]), _esc(_LINK_WORD.get(m["state"], m["state"])), _dt(m["created_at"]),
+          _dt(m["answer_at"])]
+         for m in data.get("raspunsuri_link", [])])
     programari = _table(
         ["Data", "Serviciu", "Medic", "Stare", "Sursa", "Comentariu"],
         [[_dt(v["starts_at"]), _esc(v["service"]), _esc(v["doctor"]),
@@ -459,6 +471,7 @@ def render_html(data: dict) -> str:
 <h2>Programări ({len(data['programari'])})</h2>{programari}
 <h2>Confirmări telefonice ({len(data.get('confirmari_telefonice', []))})</h2>{confirmari}
 <h2>Rechemări ({len(data.get('rechemari', []))})</h2>{rechemari}
+<h2>Răspunsuri prin link din SMS ({len(data.get('raspunsuri_link', []))})</h2>{raspunsuri}
 <h2>Atenționări medicale ({len(data['atentionari'])})</h2>{atentionari}
 <h2>Anamneză</h2>{anamneza}
 <h2>Ocluzia</h2>{ocluzie}

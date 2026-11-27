@@ -202,10 +202,11 @@ def suite_card(res: Result) -> None:
         # (`core.visits.call_fields`); service_id/service_edit (22.10) — смена
         # процедуры в окне (`core.visits.service_fields`): ключ и флаг, без списка;
         # dur — длительность визита рядом с процедурой, правится карандашом;
-        # room_id/room — кабинет записи (`core.visits.room_fields`)
+        # room_id/room — кабинет записи (`core.visits.room_fields`); call_via/call_at — ответ
+        # пациента ссылкой из SMS (Premium): канал отметки и когда нажал
         res.check("состав карточки", sorted(cards[str(ids[0])]),
                   sorted(["name", "phone", "service", "doctor", "time", "comment",
-                          "age", "status", "pid", "rec", "call", "callable",
+                          "age", "status", "pid", "rec", "call", "call_via", "call_at", "callable",
                           "service_id", "service_edit", "dur", "room_id", "room"]))
         res.check("КОММЕНТАРИЙ В КАРТОЧКЕ ПОЛНЫЙ, в блоке канвы обрезок рядом — до 60",
                   (cards[str(ids[0])]["comment"], blk["comment"], blk["comment_cut"]),

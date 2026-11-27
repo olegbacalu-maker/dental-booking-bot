@@ -16,6 +16,7 @@ Postgres-издание снято 12.10.2026 (на нём не работало
     pimport   импорт пациентов из файла: запись об импорте, метка фиши
     plist     список «Pacienți» одной выборкой
     sms       очередь SMS-напоминаний
+    plink     ответ пациента ссылкой из SMS: коды визитов и ответы
     recall    Rechemări
     plans     план лечения
     schedule  визиты и журнал: запись, заметки, день, перенос, статус
@@ -88,6 +89,12 @@ from .sms import (
     sms_set, sms_delete, sms_drop_kind, sms_overdue, sms_pending, sms_rows, sms_by_idem,
     sms_log_sent, sms_states_by_kind, sms_counts, sms_visits_month,
     SMS_OFF_EVENT, set_sms_off, manual_patient_sms_off,
+)
+from .plink import (
+    PLINK_DDL, LINK_OPEN, LINK_YES, LINK_NO, LINK_CLOSED, LINK_LIVE, _LIVE_SQL, PLINK_CLOSE_META, _CODE,
+    _STARTS_SQL, plink_codes_for, plink_add, plink_get, plink_answer, plink_live_count, plink_last_no, plink_stale,
+    plink_mark_closed, plink_unshut, plink_shut, plink_patient_rows, _plink_forget_sql, plink_codes_of,
+    plink_forget,
 )
 from .recall import (
     recall_done_last, recall_future, recall_marks, recall_contacts_since,

@@ -29,7 +29,7 @@ import sys
 import tempfile
 import threading
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from harness import (BOT, FIXTURES, ROOT, Client, Clock, Result, Server, TZ, _rmtree_settled,
                      add_appt, appt_id, day_model, new_patient, panel_live, pid_by_phone,
@@ -92,26 +92,30 @@ def suite_plan(res: Result) -> None:
     # среда (miercuri) — самое длинное слово дня; день отправки за неделю до визита
     starts = datetime(2026, 11, 11, 12, 30, tzinfo=TZ)
     on_day = date(2026, 11, 4)
+    res.check("у каждого варианта названо число частей", set(plan.VARIANT_PARTS), set(plan.VARIANTS))
     for v in plan.VARIANTS:
         for line in (False, True):
             t = plan.text("ro", v, clinic=RO_NAME, phone=PHONE, phone_line=line, starts=starts, on_day=on_day)
             enc, units, segs = rule.parts(t)
-            res.ok(f"RO «{v}»{' + telefon' if line else ''}: один сегмент GSM-7 с названием в 30 знаков",
-                   enc == rule.GSM7 and segs == 1, f"{enc} {units} ед., {segs} сегм.: {t!r}")
+            want = plan.VARIANT_PARTS[v]
+            res.ok(f"RO «{v}»{' + telefon' if line else ''}: ровно {want} сегм. GSM-7 с названием в 30 знаков",
+                   enc == rule.GSM7 and segs == want, f"{enc} {units} ед., {segs} сегм.: {t!r}")
             res.ok(f"RO «{v}»: клиника, день, дата и час на месте",
                    RO_NAME in t and "miercuri" in t and "11.11" in t and "12:30" in t, t)
             res.check(f"RO «{v}»: строка отмены {'есть' if line else 'нет'}",
                       t.endswith("\nAnulare: " + PHONE), line)
         t = plan.text("ru", v, clinic=RU_NAME, phone=PHONE, phone_line=False, starts=starts, on_day=on_day)
         enc, units, segs = rule.parts(t)
-        res.ok(f"RU «{v}»: один сегмент UCS-2 с названием в 12 знаков",
-               enc == rule.UCS2 and segs == 1, f"{enc} {units} ед., {segs} сегм.: {t!r}")
+        res.ok(f"RU «{v}»: ровно {plan.VARIANT_PARTS[v]} сегм. UCS-2 с названием в 12 знаков",
+               enc == rule.UCS2 and segs == plan.VARIANT_PARTS[v], f"{enc} {units} ед., {segs} сегм.: {t!r}")
         res.ok(f"RU «{v}»: клиника, день, дата и час на месте",
                RU_NAME in t and "в среду" in t and "11.11" in t and "12:30" in t, t)
+    _suite_detaliat_link(res)
     # данные о здоровье в текст не попадают: подстановки — только белый список
     holes = set()
     for lang in plan.LANGS:
-        for tpl in list(plan.TEXTS[lang].values()) + [plan.PHONE_LINE[lang]]:
+        for tpl in list(plan.TEXTS[lang].values()) + [plan.PHONE_LINE[lang], plan.LINK_TEXTS[lang],
+                                                       plan.LINK_LINE[lang]]:
             holes |= plan.placeholders(tpl)
     res.ok("подстановки готовых текстов — подмножество белого списка",
            holes <= set(plan.PLACEHOLDERS), f"лишние: {sorted(holes - set(plan.PLACEHOLDERS))}")
@@ -163,6 +167,15 @@ def suite_plan(res: Result) -> None:
               ({"on": False, "hour": 10, "variant": "cald"}, {"on": True, "hours": 2, "variant": "standard"}, True))
     res.ok("any_on", plan.any_on(plan.settings(None)) and not plan.any_on(
         plan.settings({"day_before": {"on": False}})))
+    # ключ, которого нет в settings(), экран SMS сотрёт при сохранении (прайор recall)
+    res.check("settings() отдаёт каждый ключ умолчаний", set(plan.settings(None)), set(plan.DEFAULTS))
+    res.check("ответ ссылкой: по умолчанию выключен", plan.settings(None)["link"], {"confirm": False})
+    res.check("ответ ссылкой: галочка переживает нормализацию дважды",
+              plan.settings(plan.settings({"link": {"confirm": True}}))["link"], {"confirm": True})
+    res.check("ответ ссылкой: не bool — выключен", plan.settings({"link": {"confirm": "1"}})["link"],
+              {"confirm": False})
+    res.check("вариант Detaliat сохраняется", plan.settings({"day_before": {"variant": "detaliat"}})
+              ["day_before"]["variant"], "detaliat")
 
     # ---- окно отправки (часы клиники; выходные — сб, вс) ----
     open_ = lambda d: d.weekday() < 5           # noqa: E731
@@ -200,6 +213,59 @@ def suite_plan(res: Result) -> None:
            and plan.awake(at(mon, 20, 59)))
     res.check("последний рабочий день перед визитом: отпуск две недели — всё равно вчера",
               plan.send_day(mon, lambda d: False), date(2026, 11, 8))
+
+
+RU_MON = datetime(2026, 11, 9, 12, 30, tzinfo=TZ)     # понедельник — самое длинное слово дня по-русски
+LINK_LONG = "https://v.dentpilot.md/K7Q2MX"           # LINK_MAX: адрес и запас на схему
+LINK_NOW = "v.dentpilot.md/K7Q2MX"                    # как уходит сегодня
+
+
+def _suite_detaliat_link(res: Result) -> None:
+    """«Detaliat» и текст со ссылкой — ровно две части и в худшем, и в лучшем случае:
+    экран обещает «2 SMS», и неправда в любую сторону — неправда клинике."""
+    starts = datetime(2026, 11, 11, 12, 30, tzinfo=TZ)   # среда: «miercuri»
+    on_day = date(2026, 11, 4)
+    res.check("адрес предела — LINK_MAX знаков", len(LINK_LONG), plan.LINK_MAX)
+    best = dict(clinic="Ars", phone="", phone_line=False)
+    for lang, name, st, od in (("ro", RO_NAME, starts, on_day), ("ru", RU_NAME, RU_MON, date(2026, 11, 2))):
+        for line in (False, True):
+            t = plan.text(lang, plan.DETALIAT, clinic=name, phone=PHONE, phone_line=line, starts=st, on_day=od)
+            res.check(f"{lang} Detaliat{' + telefon' if line else ''}: худший случай — ровно 2 части",
+                      rule.parts(t)[2], 2)
+            t = plan.text(lang, plan.STANDARD, clinic=name, phone=PHONE, phone_line=line, starts=st, on_day=od,
+                          link=LINK_LONG)
+            res.check(f"{lang} со ссылкой{' + telefon' if line else ''}: худший случай — ровно LINK_PARTS",
+                      rule.parts(t)[2], plan.LINK_PARTS)
+            if line:
+                res.ok(f"{lang} со ссылкой: строка ссылки выше строки отмены, отмена последней",
+                       t.endswith(plan.LINK_LINE[lang] + LINK_LONG + "\n" + plan.PHONE_LINE[lang][1:].replace(
+                           "{telefon}", PHONE)), repr(t))
+        t = plan.text(lang, plan.DETALIAT, starts=st, on_day=st.date(), **best)
+        res.check(f"{lang} Detaliat: лучший случай (подпись 11, сегодня, без телефона) — тоже 2", rule.parts(t)[2], 2)
+        t = plan.text(lang, plan.STANDARD, starts=st, on_day=st.date() - timedelta(days=1), link=LINK_NOW, **best)
+        res.check(f"{lang} со ссылкой: лучший случай — тоже 2", rule.parts(t)[2], 2)
+    t = plan.text("ro", plan.SCURT, clinic="Dentpro", phone=PHONE, phone_line=False, starts=starts, on_day=on_day,
+                  custom={"ro": "{clinica}: {data} {ora}"}, link=LINK_NOW)
+    res.check("ссылка: вариант и личный текст не действуют — всегда текст со ссылкой",
+              t, plan.text("ro", plan.CUSTOM, clinic="Dentpro", phone=PHONE, phone_line=False, starts=starts,
+                           on_day=on_day, link=LINK_NOW))
+    res.ok("ссылка: тело — LINK_TEXTS, адрес — хвостом",
+           t.startswith("Buna ziua! Clinica Dentpro va reaminteste") and t.endswith("\nConfirmare/anulare: " + LINK_NOW),
+           repr(t))
+    res.ok("годность адреса: сегодняшний и с https — да; длиннее LINK_MAX, пробел, заглавный хост — нет",
+           plan.link_ok(LINK_NOW) and plan.link_ok(LINK_LONG)
+           and not plan.link_ok(LINK_LONG + "A") and not plan.link_ok("v.dentpilot.md/K7Q 2X")
+           and not plan.link_ok("V.Dentpilot.md/K7Q2MX") and not plan.link_ok("") and not plan.link_ok(None))
+    try:
+        plan.text("ro", plan.STANDARD, clinic="D", phone="", phone_line=False, starts=starts, on_day=on_day,
+                  link="javascript:alert(1)")
+        res.ok("кривой адрес — ошибка вызывающего, не текст", False)
+    except ValueError:
+        res.ok("кривой адрес — ошибка вызывающего, не текст", True)
+    s = plan.settings({"day_before": {"on": True, "variant": "scurt"}, "same_day": {"on": True, "variant": "detaliat"}})
+    res.check("части события: накануне со ссылкой — 2, без — по варианту; в день визита ссылки нет",
+              (plan.parts_of(s, plan.DAY_BEFORE, True), plan.parts_of(s, plan.DAY_BEFORE, False),
+               plan.parts_of(s, plan.SAME_DAY, True)), (2, 1, 2))
 
 
 # ---------- стенд сервера лицензий с SMS ----------
@@ -853,7 +919,16 @@ def suite_screen(res: Result) -> None:
                 res.check("настройки — умолчания (кнопка Rechemări включена, Олег 30.10)", data["settings"],
                           {"day_before": {"on": True, "hour": 10, "variant": "standard"},
                            "same_day": {"on": False, "hours": 2, "variant": "standard"}, "phone_line": False,
-                           "recall": {"on": True, "variant": "standard", "auto": False}})
+                           "recall": {"on": True, "variant": "standard", "auto": False},
+                           "link": {"confirm": False}})
+                res.check("блок ответа ссылкой: без права Premium — недоступен и выключен",
+                          {k: data["link"][k] for k in ("allowed", "confirm", "on", "parts", "variant", "event")},
+                          {"allowed": False, "confirm": False, "on": False, "parts": 2, "variant": "detaliat",
+                           "event": "day_before"})
+                res.ok("предпросмотр текста со ссылкой: RO и RU, ровно 2 части, ссылка-образец",
+                       all(data["previews"]["link"][lang]["segments"] == 2 for lang in ("ro", "ru"))
+                       and "Confirmare/anulare: v.dentpilot.md/K7Q2MX" in data["previews"]["link"]["ro"]["text"],
+                       repr(data["previews"].get("link")))
                 res.check("лимит автоматических рекламаций в день — число экрану", data["options"]["recall_auto_daily"], 20)
                 pr = data["previews"]["recall"]["standard"]
                 res.ok("предпросмотр Rechemări: клиника и телефон, без даты и услуги, один сегмент RO и RU",
@@ -869,7 +944,8 @@ def suite_screen(res: Result) -> None:
                 res.ok("предпросмотр в день визита: «astazi»",
                        "astazi" in data["previews"]["same_day"]["scurt"]["ro"]["text"])
                 res.ok("варианты и часы — списком, личного текста нет",
-                       [v["key"] for v in data["options"]["variants"]] == ["standard", "scurt", "oficial", "cald"]
+                       [(v["key"], v["parts"]) for v in data["options"]["variants"]]
+                       == [("standard", 1), ("scurt", 1), ("oficial", 1), ("cald", 1), ("detaliat", 2)]
                        and data["options"]["hours"][0] == 8 and data["options"]["leads"] == [1, 2, 3], repr(data["options"]))
                 res.ok("плитка хаба и пункт меню «SMS pacienți»",
                        any(t["href"] == "/admin/settings/sms" and "100 SMS" in t["hint"][0]["t"]
@@ -884,10 +960,14 @@ def suite_screen(res: Result) -> None:
                                                       "phone_line": True})
                 res.ok("сохранение — ok_sms с данными", r.msg == "ok_sms" and _j(r)["data"]["settings"]["same_day"]["on"], r.body[:300])
                 cfg = json.loads((d / "clinic.json").read_text(encoding="utf-8"))
-                res.check("clinic.json › sms (ключ recall — умолчание, не стёрт: прайор 08-16)", cfg.get("sms"),
+                res.check("clinic.json › sms (ключи recall и link — умолчание, не стёрты: прайор 08-16)", cfg.get("sms"),
                           {"day_before": {"on": True, "hour": 11, "variant": "cald"},
                            "same_day": {"on": True, "hours": 3, "variant": "scurt"}, "phone_line": True,
-                           "recall": {"on": True, "variant": "standard", "auto": False}})
+                           "recall": {"on": True, "variant": "standard", "auto": False},
+                           "link": {"confirm": False}})
+                r = c.post_json("/api/settings/sms", {**_j(r)["data"]["settings"], "link": {"confirm": True}})
+                res.check("без права Premium галочку ответа ссылкой не поставить",
+                          (r.msg, _j(r)["data"]["settings"]["link"]), ("ok_sms", {"confirm": False}))
                 data = _j(c.get("/api/settings/sms"))["data"]
                 res.ok("предпросмотр со строкой телефона клиники",
                        data["previews"]["day_before"]["cald"]["ro"]["text"].endswith("\nAnulare: +373 60 000 000"))

@@ -51,10 +51,25 @@ RECALL_AUTO_DAILY = 20
 # ---------- настройки клиники: clinic.json › sms ----------
 
 STANDARD, SCURT, OFICIAL, CALD = "standard", "scurt", "oficial", "cald"
+# Длинный текст для клиник с SMS (Plus и Premium): честно две части, и экран
+# называет их числом из VARIANT_PARTS, а не словами «un SMS».
+DETALIAT = "detaliat"
 CUSTOM = "propriu"                  # личный текст клиники — по заявке, из админки
-VARIANTS = (STANDARD, SCURT, OFICIAL, CALD)
+VARIANTS = (STANDARD, SCURT, OFICIAL, CALD, DETALIAT)
 VARIANT_LABEL = {STANDARD: "Standard", SCURT: "Scurt", OFICIAL: "Oficial", CALD: "Cald",
-                 CUSTOM: "Textul clinicii"}
+                 DETALIAT: "Detaliat", CUSTOM: "Textul clinicii"}
+# Сколько частей стоит румынский текст в худшем случае (название 30 знаков,
+# самое длинное слово дня, строка телефона) — то, что экран обещает клинике и
+# что прогон держит равенством (test_sms.suite_plan). Русский текст и личный
+# текст клиники считает предпросмотр.
+VARIANT_PARTS = {STANDARD: 1, SCURT: 1, OFICIAL: 1, CALD: 1, DETALIAT: 2}
+
+# Ответ пациента ссылкой (Premium): галочка `link.confirm`, по умолчанию выключена —
+# включает директор, видя предупреждение «2 SMS». Работает только вместе с правом
+# `sms_link` в файле лицензии; ссылка — только у напоминания накануне: в день
+# визита ответ спрашивать поздно, а расход удвоился бы дважды.
+LINK_KEY = "link"
+LINK_EVENT = DAY_BEFORE
 
 # Умолчания — решения Олега 16.10: накануне в 10:00 включено, в день визита
 # за 2 часа выключено, строки телефона нет.
@@ -63,7 +78,8 @@ DEFAULTS = {DAY_BEFORE: {"on": True, "hour": 10, "variant": STANDARD},
             PHONE_LINE_KEY: False,
             # кнопка «SMS» в Rechemări — включена по умолчанию (Олег 30.10, В5 = А);
             # автоматическая отправка — выключена
-            RECALL: {"on": True, "variant": STANDARD, "auto": False}}
+            RECALL: {"on": True, "variant": STANDARD, "auto": False},
+            LINK_KEY: {"confirm": False}}
 
 
 def _int_in(value, allowed, default: int) -> int:
@@ -95,6 +111,8 @@ def settings(raw) -> dict:
     out[RECALL] = {"on": bool(rc.get("on", DEFAULTS[RECALL]["on"])),
                    "variant": variant if variant in RECALL_VARIANTS else DEFAULTS[RECALL]["variant"],
                    "auto": bool(rc.get("auto", DEFAULTS[RECALL]["auto"]))}
+    lk = raw.get(LINK_KEY) if isinstance(raw.get(LINK_KEY), dict) else {}
+    out[LINK_KEY] = {"confirm": lk.get("confirm") is True}
     return out
 
 
@@ -106,6 +124,11 @@ def any_on(s: dict) -> bool:
 def recall_on(s: dict) -> bool:
     """Галочка «Buton SMS în Rechemări»."""
     return bool(s.get(RECALL, {}).get("on"))
+
+
+def link_confirm(s: dict) -> bool:
+    """Галочка «Pacientul răspunde prin link» — действует только вместе с правом `sms_link`."""
+    return bool(s.get(LINK_KEY, {}).get("confirm"))
 
 
 def recall_auto(s: dict) -> bool:
@@ -134,17 +157,46 @@ TEXTS = {
                   "{ziua}, {data}, ora {ora}."),
         CALD: ("Buna ziua! Va asteptam {ziua}, {data}, la ora {ora}, la {clinica}. "
                "Va dorim o zi frumoasa!"),
+        # дата и час своей строкой — их видно на экране блокировки
+        DETALIAT: ("Buna ziua! {clinica} va reaminteste de programarea dvs.:\n{ziua}, {data}, ora {ora}.\n"
+                   "Va rugam sa veniti cu 10 minute mai devreme. Daca nu puteti veni, anuntati-ne din timp, "
+                   "ca sa putem oferi ora altui pacient. Multumim!"),
     },
     "ru": {
         STANDARD: "{clinica}: ждём вас {ziua}, {data}, в {ora}.",
         SCURT: "{clinica}: запись {ziua}, {data}, в {ora}.",
         OFICIAL: "{clinica} напоминает: запись {ziua}, {data}, в {ora}.",
         CALD: "Ждём вас {ziua}, {data}, в {ora}. {clinica}",
+        DETALIAT: "{clinica}: вы записаны {ziua}, {data}, в {ora}. Если не сможете прийти, сообщите заранее.",
     },
 }
 CLINIC_WORD = {"ro": "Clinica", "ru": "Клиника"}
 # строка «телефон для отмены» — галочкой клиники, у готовых вариантов
 PHONE_LINE = {"ro": "\nAnulare: {telefon}", "ru": "\nОтмена: {telefon}"}
+
+# Текст со ссылкой ответа (Premium): всегда длинный, две части, тело —
+# вариант E / R1 с просьбой нажать ссылку. Ссылка — ХВОСТ после подстановки, не
+# подстановка: белый список PLACEHOLDERS не меняется, адрес шаблоном не разбирается.
+# Строка ссылки стоит ВЫШЕ строки «Anulare»: «linkul de mai jos» в теле указывает на
+# неё, а телефон остаётся пациенту без интернета.
+LINK_TEXTS = {
+    "ro": ("Buna ziua! {clinica} va reaminteste de programarea dvs.:\n{ziua}, {data}, ora {ora}.\n"
+           "Va rugam sa veniti cu 10 minute mai devreme si sa confirmati la linkul de mai jos. Multumim!"),
+    "ru": "{clinica}: вы записаны {ziua}, {data}, в {ora}.",
+}
+LINK_LINE = {"ro": "\nConfirmare/anulare: ", "ru": "\nОтветить: "}
+LINK_PARTS = 2
+# Самый длинный адрес, на котором прогон держит «две части»: сегодняшний
+# `v.dentpilot.md/K7Q2MX` (21) и запас на `https://`, если опыт покажет, что без
+# схемы ссылка не нажимается. Длиннее адрес из ответа сервера — ссылки нет.
+LINK_MAX = 29
+_LINK_RE = re.compile(r"^(https://)?[a-z0-9][a-z0-9.-]{0,39}/[A-Z0-9]{4,12}$")
+
+
+def link_ok(url) -> bool:
+    """Адрес ссылки годен для SMS: короткий, только латиница, цифры, точка, дефис и код."""
+    return isinstance(url, str) and len(url) <= LINK_MAX and bool(_LINK_RE.match(url))
+
 
 # «Rechemări» (30.10, план § 2, Олег: вариант А — без услуги и месяцев):
 # клинический текст, «controlul periodic» нейтрален к услуге (гигиена,
@@ -253,17 +305,40 @@ def template_for(lang: str, variant: str, phone_line: bool, custom: dict | None 
 
 
 def text(lang: str, variant: str, *, clinic: str, phone: str, phone_line: bool,
-         starts: datetime, on_day: date, custom: dict | None = None) -> str:
+         starts: datetime, on_day: date, custom: dict | None = None, link: str = "") -> str:
     """Готовая SMS. `starts` — начало визита по часам клиники, `on_day` — день
-    отправки. Без телефона клиники строки отмены нет."""
+    отправки. Без телефона клиники строки отмены нет. `link` — адрес ответа
+    пациента: при нём текст всегда `LINK_TEXTS` (выбор варианта и личный текст
+    не действуют), строка ссылки — перед строкой отмены. Негодный адрес
+    (`link_ok`) — ошибка вызывающего: молча убрать ссылку значило бы выдать код,
+    которого пациент не увидит."""
     lang = lang if lang in LANGS else "ro"
-    tpl = template_for(lang, variant, phone_line and bool((phone or "").strip()), custom)
+    with_phone = phone_line and bool((phone or "").strip())
+    if link:
+        if not link_ok(link):
+            raise ValueError("link")
+        tpl = LINK_TEXTS[lang]
+    else:
+        tpl = template_for(lang, variant, with_phone, custom)
     name, tel = clinic_label(clinic, lang), (phone or "").strip()
     if lang == "ro":
         name, tel = fold(name), fold(tel)
-    return render(tpl, {"clinica": name, "ziua": day_word(lang, starts.date(), on_day),
-                        "data": starts.strftime("%d.%m"), "ora": starts.strftime("%H:%M"),
-                        "telefon": tel})
+    values = {"clinica": name, "ziua": day_word(lang, starts.date(), on_day),
+              "data": starts.strftime("%d.%m"), "ora": starts.strftime("%H:%M"), "telefon": tel}
+    out = render(tpl, values)
+    if link:
+        out += LINK_LINE[lang] + link
+        if with_phone:
+            out += render(PHONE_LINE[lang], values)
+    return out
+
+
+def parts_of(s: dict, event: str, link: bool = False) -> int:
+    """Сколько частей стоит напоминание события в худшем случае по-румынски — для
+    прогноза расхода и подписи экрана; личный текст клиники считается как Standard."""
+    if link and event == LINK_EVENT:
+        return LINK_PARTS
+    return VARIANT_PARTS.get(s[event]["variant"], 1)
 
 
 def recall_text(lang: str, variant: str, *, clinic: str, phone: str) -> str:

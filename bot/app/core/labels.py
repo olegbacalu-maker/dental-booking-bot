@@ -68,8 +68,10 @@ STATUS_LABEL = {
 # звонок не меняет — меняется то, как запись ВЫГЛЯДИТ: ключ вида (класс `.stat
 # s-*` и плашки повестки) и слово. У прочих статусов звонок не значит ничего:
 # пришедшему «nu răspunde» не нужно.
-CALL_LABEL = {"ok": "confirmată", "noanswer": "nu răspunde"}
-_CALL_VIEW = {"ok": "called", "noanswer": "noanswer"}
+# «cant» — пациент нажал «Nu pot veni» в ссылке из SMS (Premium): третье значение той
+# же отметки; ставит только ответ пациента, программа сама ничего не отменяет.
+CALL_LABEL = {"ok": "confirmată", "noanswer": "nu răspunde", "cant": "nu poate veni"}
+_CALL_VIEW = {"ok": "called", "noanswer": "noanswer", "cant": "cant"}
 
 
 def status_view(status: str, call: str | None = "") -> tuple[str, str]:

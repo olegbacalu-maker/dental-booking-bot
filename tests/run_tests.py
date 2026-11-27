@@ -111,6 +111,7 @@ import test_cont_link  # noqa: E402
 import test_schedule_api  # noqa: E402
 import test_settings_api  # noqa: E402
 import test_notices  # noqa: E402
+import test_plink  # noqa: E402
 import test_sms  # noqa: E402
 import test_sms_rule  # noqa: E402
 import test_stats_api  # noqa: E402
@@ -247,6 +248,9 @@ SUITES = [
     ("SMS: провод к серверу", test_sms.suite_wire),
     ("SMS: живой цикл — накануне, в день визита, кому нет, без дубля", test_sms.suite_live),
     ("SMS: перенос на другой день — новое напоминание, прежнее не уходит", test_sms.suite_move_day),
+    ("Ответ ссылкой из SMS: провод к серверу", test_plink.suite_wire),
+    ("Ответ ссылкой из SMS: код накануне, ответы в журнал, перенос, стирание", test_plink.suite_live),
+    ("Ответ ссылкой из SMS: без права Premium — текст без ссылки", test_plink.suite_rights),
     ("SMS: пакет не предлагается, файл без renew", test_sms.suite_not_offered),
     ("SMS: экран Setări › SMS, фиша, acord, баннер остатка", test_sms.suite_screen),
     ("SMS: галочка «SMS reminder» окна записи — пакет, право, sms_off", test_sms.suite_box),
