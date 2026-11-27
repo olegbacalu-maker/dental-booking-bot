@@ -118,6 +118,11 @@ MUTATIONS = [
      "la DentPilot™ Premium plătit pe o lună anul numelui se plătește,",
      "la DentPilot™ Premium plătit pe o lună anul numelui nu se plătește,",
      ["test_contract.suite"], "своё имя — без оплаты года"),
+    ("волна 2а: условия § 4.1 — подарок имени без лимита знаков",
+     "../docs/site/termeni.html",
+     "numele propriu al expeditorului (până la 11\n    caractere) nu se plătește separat",
+     "numele propriu al expeditorului nu se plătește separat",
+     ["test_contract.suite"], "своё имя — без оплаты года"),
     # --- кабинет SMS (05.11) ---
     ("одно зачисление при callback + /pay/ok: settle забыл, что попытка уже зачтена",
      "app/payments.py",

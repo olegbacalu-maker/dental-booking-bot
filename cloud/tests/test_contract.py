@@ -504,6 +504,7 @@ def suite(res: Result) -> None:
     if "ещё нет" in keep_src:                # имя константы у ветки облака ещё не устоялось
         keep_days, keep_src = _w2a_const("plink", "KEEP_DAYS", 3)
     gift, gift_src = _w2a_const("config", "SMS_PREMIUM_UNITS", 80)
+    name_max = int(m.group(1)) if (m := re.search(r"\{1,(\d+)\}", sms.SENDER_RE.pattern)) else None  # имя отправителя
     res.ok("волна 2а: § 19 — Răspunsul pacientului prin link; канал назван в договоре (5.9), Anexa 2 (три строки), "
            "DPA, декларации, политике (#pacienti), образцах и листе на стойке",
            s19.startswith("Răspunsul pacientului prin link")
@@ -576,4 +577,6 @@ def suite(res: Result) -> None:
            "În DentPilot™ Premium plătit pe un an anul numelui nu se plătește separat" in s16
            and "la DentPilot™ Premium plătit pe o lună anul numelui se plătește, ca în DentPilot™ Plus" in s16
            and "funcționează până la sfârșitul perioadei Premium plătite" in s16
-           and "Cererea scrisă a clinicii este necesară în toate cazurile" in s16)
+           and "Cererea scrisă a clinicii este necesară în toate cazurile" in s16
+           and f"numele propriu al expeditorului (până la {name_max} caractere) nu se plătește separat" in s4
+           and f"Numele propriu (până la {name_max} caractere)" in s16, str(name_max))
