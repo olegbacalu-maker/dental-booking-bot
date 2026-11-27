@@ -766,11 +766,13 @@ MUTATIONS = [
     # Уведомление связи с Google называет частоту опроса числом, а не константой опроса.
     ("договор согласован с программой", "app/modules/schedule/gcal_link.py",
      ('f"înainte, din {POLL_MINUTES} în {POLL_MINUTES} minute', '"înainte, din 10 în 10 minute')),
-    # Календари врачей: FAQ и документ заговорили о них без срока; срок не тот; якорь числа пропал.
+    # Календари врачей: FAQ говорит о них (формула Premium в «Cum plătesc abonamentul?») — срок пропал; срок не
+    # тот; якорь числа пропал. Ломается сама фраза: абзац, дописанный рядом с верной, правило по присутствию не видит.
     ("договор согласован с программой", "app/modules/settings/faq.py",
-     '\n_mut = "Programările apar singure în calendarul medicului."\n'),
+     (f"ajunge în calendarul medicului în cel mult {_SYNC_MIN} minute, ", "ajunge în calendarul medicului, ")),
     ("договор согласован с программой", "app/modules/settings/faq.py",
-     f'\n_mut = "Programarea ajunge în calendarul Google al medicului în cel mult {_SYNC_MIN + 2} minute."\n'),
+     (f"ajunge în calendarul medicului în cel mult {_SYNC_MIN} minute, ",
+      f"ajunge în calendarul medicului în cel mult {_SYNC_MIN + 2} minute, ")),
     # Документ, уже называющий срок, абзацем без срока не ломается: без срока заговорил тот, что молчал.
     ("договор согласован с программой", "_build/docs/dentpilot-2/contract/dpa.html",
      "\n<p>Programările se copiază în <b>calendarele\n medicilor</b>.</p>\n"),
