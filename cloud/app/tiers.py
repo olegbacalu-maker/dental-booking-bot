@@ -40,9 +40,9 @@ BASIC, PLUS, PREMIUM = "basic", "plus", "premium"
 TIERS = (BASIC, PLUS, PREMIUM)
 NAME = {BASIC: "DentPilot Basic", PLUS: "DentPilot Plus", PREMIUM: "DentPilot Premium"}
 WHAT = {BASIC: "fără modulul SMS", PLUS: "cu modulul SMS",                       # как в условиях § 4.1
-        PREMIUM: "cu modulul SMS și calendarele medicilor în Google"}
+        PREMIUM: "cu modulul SMS, calendarele medicilor în Google și răspunsul pacientului prin link"}
 WHAT_RU = {BASIC: "без модуля SMS", PLUS: "с модулем SMS",                       # админка
-           PREMIUM: "с модулем SMS и календарями врачей в Google"}
+           PREMIUM: "с модулем SMS, календарями врачей в Google и ответом пациента по ссылке"}
 SMS_TIERS = frozenset({PLUS, PREMIUM})       # модуль SMS
 GCAL_TIERS = frozenset({PLUS, PREMIUM})      # связь с аккаунтом Google клиники (право gcal)
 GDOC_TIERS = frozenset({PREMIUM})            # календари врачей в Google (право gcal_doctor)

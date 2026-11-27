@@ -613,16 +613,22 @@ def entries() -> list[dict]:
         # Cont de plată «achitat» — cloud/app/receipts.py (письмо и кабинет).
         # «Deschide contul clinicii» (27.10) — та же страница лицензии, только директору; кабинет
         # по ней — только эта клиника (cloud/app/contlink.py).
-        # Варианты Basic / Plus и когда включается модуль SMS — условия § 4.1–4.2.
+        # Варианты Basic / Plus / Premium и когда включается модуль SMS — условия § 4.1–4.2;
+        # формула Premium — та же, что tiers.WHAT облака (держит cloud/tests/test_contract.py).
         _q("card", "Cum plătesc abonamentul?",
            f"{p}Din program: <b>Setări › Licența</b> și butonul <b>Plătește acum</b> — "
            f"același buton apare și în bannerul de sus când abonamentul a expirat. Pagina "
            f"de plată se deschide în browser, cu datele clinicii deja completate: alegeți "
-           f"varianta (<b>DentPilot Basic</b> fără modulul SMS sau <b>DentPilot Plus</b> "
-           f"cu modulul SMS), perioada (o lună sau un an) și modul de plată.{end}"
-           f"{p}Modulul SMS pornește imediat după plata variantei Plus; la trecerea la "
-           f"Basic rămâne pornit până la sfârșitul perioadei în curs. SMS-urile nu intră "
-           f"în abonament: pachetele le comandă directorul, în <b>{sms}</b> › "
+           f"varianta (<b>DentPilot Basic</b> fără modulul SMS, <b>DentPilot Plus</b> "
+           f"cu modulul SMS sau <b>DentPilot Premium</b> cu modulul SMS, calendarele "
+           f"medicilor în Google și răspunsul pacientului prin link), perioada (o lună "
+           f"sau un an) și modul de plată.{end}"
+           f"{p}Modulul SMS pornește imediat după plata variantei Plus sau Premium; la "
+           f"trecerea la Basic rămâne pornit până la sfârșitul perioadei în curs. În "
+           f"Premium o programare ajunge în calendarul medicului în cel mult 5 minute, "
+           f"iar răspunsul pacientului prin link se "
+           f"pornește în <b>{sms}</b>; un memento cu link consumă 2 SMS. SMS-urile nu "
+           f"intră în abonament: pachetele le comandă directorul, în <b>{sms}</b> › "
            f"<b>Comandă</b>.{end}"
            f"{p}<b>Transfer bancar</b> — primiți nota de plată pe e-mail, cu referința ei "
            f"(DP-…), pe care o treceți în ordinul de plată.{end}"

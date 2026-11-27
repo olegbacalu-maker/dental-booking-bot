@@ -22,6 +22,8 @@
  body.sms .no-sms{display:none}
  body:not(.gcal) .gcal-only{display:none}
  body.gcal .no-gcal{display:none}
+ body:not(.link) .link-only{display:none}
+ body.link .no-link{display:none}
  @media print{.noprint{display:none}
    .fill{background:none;padding:0}
    .fill.empty{background:#FFF3B0}}
@@ -44,6 +46,10 @@ activitatea «Memento-uri SMS»</label>
 Clinica arată medicilor programările în <b>Google Calendar</b> cu inițialele
 sau numele pacienților (DentPilot Premium, nivelul «inițiale» sau «nume și
 serviciu») — registrul numește și această transmitere</label>
+
+<label class="smstoggle noprint"><input type="checkbox" id="link-toggle">
+Clinica folosește <b>răspunsul pacientului prin link</b> din memento-ul SMS
+(DentPilot Premium) — în Activitatea 2 apar și codurile și răspunsurile</label>
 
 <div class="note noprint">
 <b>Cum se folosește:</b> acesta este registrul activităților de prelucrare —
@@ -112,7 +118,11 @@ câmpurile galbene o singură dată și actualizați-l când se schimbă ceva
     memento-ului: denumirea clinicii, ziua, data și ora vizitei, opțional
     telefonul clinicii; la reamintirea controlului periodic — doar denumirea
     și telefonul clinicii. Fără nume, medic, serviciu sau alte date despre
-    sănătate</td></tr>
+    sănătate<span class="link-only">; răspunsul pacientului prin link: un
+    cod aleatoriu, limba paginii, momentul până la care linkul este valabil
+    (începutul vizitei), răspunsul („vin” sau „nu pot veni”) și momentul lui;
+    în jurnalul tehnic al serverului furnizorului — adresa IP și tipul
+    browserului telefonului</span></td></tr>
 <tr><th>Temei</th><td>interesul legitim al clinicii (reducerea absențelor)</td></tr>
 <tr><th>Informarea persoanei</th><td>informarea afișată la recepție și
     formularul personal tipărit din program</td></tr>
@@ -120,14 +130,21 @@ câmpurile galbene o singură dată și actualizați-l când se schimbă ceva
     fișa pacientului</td></tr>
 <tr><th>Destinatari (persoane împuternicite)</th><td>furnizorul programului
     DentPilot — serverul lui transmite mesajul și nu păstrează numărul și
-    textul (Acordul privind prelucrarea datelor — Anexa 3 la Contractul de licență); operatorul SMS Rock Soft
+    textul<span class="link-only">, iar pentru răspunsul prin link păstrează
+    codul și răspunsul, fără nume și fără numărul de telefon</span> (Acordul
+    privind prelucrarea datelor — Anexa 3 la Contractul de licență); operatorul SMS Rock Soft
     S.R.L. (SMS.MD), IDNO 1021600014623; operatorii de telefonie mobilă</td></tr>
 <tr><th>Transfer în străinătate</th><td>mesajele pleacă doar spre numere din
     Republica Moldova; serverele SMS.MD sunt în Republica Moldova; serverul
     furnizorului (tranzit, fără păstrare) — la Contabo GmbH, centru de date în
-    Uniunea Europeană</td></tr>
-<tr><th>Termen de păstrare</th><td>la furnizor — nu se păstrează; la SMS.MD —
-    3 luni; în program — starea memento-ului în fișă, ca la Activitatea 1</td></tr>
+    Uniunea Europeană<span class="link-only">; codurile și răspunsurile de la
+    răspunsul prin link se păstrează pe același server, în Uniunea Europeană,
+    până la 3 zile după vizită</span></td></tr>
+<tr><th>Termen de păstrare</th><td>la furnizor — nu se păstrează<span
+    class="link-only"> (codul și răspunsul de la răspunsul prin link — până la
+    3 zile după începutul vizitei)</span>; la SMS.MD — 3 luni; în program —
+    starea memento-ului în fișă<span class="link-only"> și răspunsul în
+    fereastra vizitei</span>, ca la Activitatea 1</td></tr>
 <tr><th>Măsuri de securitate</th><td>transmitere criptată (HTTPS); cheie de
     acces separată a clinicii; textul fără date despre sănătate; limită zilnică
     de mesaje</td></tr>
@@ -147,7 +164,7 @@ contabilitate, site…»</span></h2>
 Responsabil: ______________________ ·
 Actualizat ultima dată: <span class="fill">«zz.ll.aaaa»</span></p>
 
-<p class="model">Model DentPilot · redacția din 26.11.2026 · contul clinicii, secțiunea „Documente”</p>
+<p class="model">Model DentPilot · redacția din 27.11.2026 · contul clinicii, secțiunea „Documente”</p>
 
 <script>
 (function () {
@@ -198,6 +215,18 @@ Actualizat ultima dată: <span class="fill">«zz.ll.aaaa»</span></p>
   function apply() {
     if (t.checked) { document.body.classList.add('gcal'); }
     else { document.body.classList.remove('gcal'); }
+  }
+  t.addEventListener('change', apply);
+  apply();
+})();
+</script>
+<script>
+(function () {
+  var t = document.getElementById('link-toggle');
+  if (!t) return;
+  function apply() {
+    if (t.checked) { document.body.classList.add('link'); }
+    else { document.body.classList.remove('link'); }
   }
   t.addEventListener('change', apply);
   apply();

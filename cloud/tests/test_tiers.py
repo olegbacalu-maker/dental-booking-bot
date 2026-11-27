@@ -164,8 +164,9 @@ def suite_premium_rules(res: Result) -> None:
     res.ok("прайс прогона: Premium продаётся и дороже Plus", 0 < pp < ppr, str(config.PRICES))
     res.check("Premium: ключ, имя и что даёт — контракт между сессиями линии",
               (tiers.TIERS, tiers.NAME[PR], tiers.WHAT[PR], tiers.WHAT_RU[PR]),
-              ((B, P, PR), "DentPilot Premium", "cu modulul SMS și calendarele medicilor în Google",
-               "с модулем SMS и календарями врачей в Google"))
+              ((B, P, PR), "DentPilot Premium",
+               "cu modulul SMS, calendarele medicilor în Google și răspunsul pacientului prin link",
+               "с модулем SMS, календарями врачей в Google и ответом пациента по ссылке"))
     res.check("формулы Basic и Plus не тронуты", (tiers.WHAT[B], tiers.WHAT[P], tiers.WHAT_RU[B], tiers.WHAT_RU[P]),
               ("fără modulul SMS", "cu modulul SMS", "без модуля SMS", "с модулем SMS"))
     res.check("множества: модуль SMS и связь с Google — Plus и Premium, календари врачей — только Premium",
@@ -228,8 +229,8 @@ def suite_premium_rules(res: Result) -> None:
            and "viitoare" not in body and "Modulul SMS rămâne" not in body
            and "Calendarele medicilor" not in body2 and "Abonamentul DentPilot Premium" in body2, body[:600])
     res.check("формула вариантов в письме: с прайсом Premium — три, Basic/Plus — прежними словами", mail.variants(),
-              "DentPilot Basic, fără modulul SMS, DentPilot Plus, cu modulul SMS, sau DentPilot Premium, cu modulul SMS și "
-              "calendarele medicilor în Google")
+              "DentPilot Basic, fără modulul SMS, DentPilot Plus, cu modulul SMS, sau DentPilot Premium, cu modulul SMS, "
+              "calendarele medicilor în Google și răspunsul pacientului prin link")
     saved = dict(config.PRICES)
     try:
         config.PRICES[PR] = 0

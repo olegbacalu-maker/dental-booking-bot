@@ -36,7 +36,7 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
 </div></div>
 <div class="wrap">
   <h1>Politica de confidențialitate</h1>
-  <p class="upd">Ultima actualizare: 26.11.2026</p>
+  <p class="upd">Ultima actualizare: 27.11.2026</p>
 
   <h2>1. Cine suntem</h2>
   <p>Site-ul dentpilot.md este gestionat de Oleg Bacalu, antreprenor
@@ -105,8 +105,13 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
   calendarele medicilor în Google (DentPilot™ Premium, punctul 6),
   programările medicului pleacă de pe calculatorul clinicii direct la
   Google, fără furnizor; date ale pacienților ajung acolo numai dacă
-  directorul clinicii alege asta. Prin acest site nu se
-  prelucrează date ale pacienților.</p>
+  directorul clinicii alege asta. Dacă o clinică cu DentPilot™ Premium
+  folosește răspunsul pacientului prin link, pacientul răspunde pe o pagină
+  a furnizorului (v.dentpilot.md), iar serverul furnizorului păstrează pentru
+  scurt timp un cod aleatoriu și răspunsul, fără numele și fără numărul de
+  telefon al pacientului; pentru aceste date furnizorul este persoană
+  împuternicită a clinicii (<a href="#pacienti">punctul 7</a>). În rest, prin
+  acest site nu se prelucrează date ale pacienților.</p>
 
   <h2>5. Datele contului clinicii</h2>
   <p>Dacă o clinică solicită perioada de probă din program (pagina de
@@ -140,7 +145,8 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     contractului, celelalte date ale contului sunt șterse.</li>
     <li><b>Ce nu conține:</b> date ale pacienților — cu excepția
     memento-urilor SMS de la punctul 4, care tranzitează serverul și nu rămân
-    pe el. În afara lor, programul nu transmite
+    pe el, și a codurilor și răspunsurilor de la răspunsul pacientului prin
+    link (punctul 7), păstrate până la 3 zile după începutul vizitei. În afara lor, programul nu transmite
     serverului nicio informație despre pacienți, programări sau tratamente;
     fișierul de licență conține doar denumirea clinicii, IDNO, tipul și
     termenul abonamentului.</li>
@@ -549,7 +555,68 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     </ul>
   </div>
 
-  <h2 id="demo">7. Versiunea demonstrativă online (demo.dentpilot.md)</h2>
+  <h2 id="pacienti">7. Pentru pacienți: pagina de răspuns la programare (v.dentpilot.md)</h2>
+  <p>Unele clinici care folosesc DentPilot™ Premium trimit, cu o zi înainte de
+  vizită, un memento SMS cu un link scurt (de exemplu
+  <code>v.dentpilot.md/K7Q2MX</code>). Linkul deschide o pagină pe care puteți
+  apăsa „Vin” sau „Nu pot veni”; răspunsul ajunge la recepția clinicii.</p>
+  <ul>
+    <li><b>Cine răspunde de date:</b> operator este clinica dvs. — ea are
+    datele programării și v-a trimis SMS-ul. Furnizorul DentPilot găzduiește
+    pagina și prelucrează răspunsul numai în numele clinicii, ca persoană
+    împuternicită. Pentru întrebări și pentru exercitarea drepturilor
+    adresați-vă clinicii; dacă ne scrieți nouă, transmitem cererea clinicii
+    fără întârziere.</li>
+    <li><b>Ce date se prelucrează:</b> codul din link (un șir aleatoriu care nu
+    vă numește), limba paginii, momentul până la care linkul este valabil,
+    răspunsul dvs. și momentul lui, precum și denumirea și telefonul clinicii.
+    Momentul de valabilitate este începutul vizitei; în rest serverul nu
+    cunoaște numele dvs., numărul de telefon, medicul sau serviciul, iar
+    legătura dintre cod și programare există numai în programul clinicii. Ca la orice pagină web,
+    serverul vede adresa IP și tipul browserului telefonului, care apar doar
+    în jurnalele tehnice ale serverului și se șterg automat; ca să oprească
+    încercările de ghicire a codurilor, serverul ține adresa IP și în
+    memorie, cel mult o oră, fără să o scrie în baza de date.</li>
+    <li><b>Ce nu se întâmplă:</b> pagina nu folosește cookie-uri și nu
+    înregistrează nimic doar pentru că a fost deschisă — răspunsul se
+    trimite numai la apăsarea unui buton. Răspunsul nu anulează programarea:
+    dacă nu puteți veni, clinica vă sună. Până la începutul vizitei vă puteți
+    schimba răspunsul.</li>
+    <li><b>Cât timp:</b> codul și răspunsul se șterg de pe server la 3 zile
+    după începutul vizitei. Operatorul SMS al clinicii, Rock Soft S.R.L.
+    (SMS.MD), păstrează textul SMS-ului, cu linkul, timp de 3 luni, ca la
+    orice memento.</li>
+    <li><b>Unde:</b> pe serverul furnizorului, găzduit de Contabo GmbH
+    (Germania) într-un centru de date din Uniunea Europeană.</li>
+    <li><b>Dacă nu doriți memento-uri:</b> spuneți-le la recepția clinicii;
+    clinica marchează refuzul în fișă, iar programul nu vă mai trimite
+    memento-uri, nici cu link.</li>
+  </ul>
+  <div class="en" lang="ru">
+    <p><b>По-русски — для пациентов.</b> Некоторые клиники с DentPilot™
+    Premium накануне визита присылают SMS-напоминание с короткой ссылкой
+    (например <code>v.dentpilot.md/K7Q2MX</code>). На странице можно нажать
+    «Приду» или «Не смогу прийти»; ответ получит регистратура клиники.
+    Оператор данных — ваша клиника; поставщик DentPilot размещает страницу и
+    обрабатывает ответ только от имени клиники. Сервер хранит код из ссылки
+    (случайный, он вас не называет), язык страницы, срок действия ссылки, ваш
+    ответ и время ответа, а также название и телефон клиники; ссылка
+    действует до начала визита. Вашего имени, номера телефона, врача и услуги
+    сервер не знает, а связь кода с записью есть только в программе клиники.
+    Адрес IP и тип браузера телефона, как у любой веб-страницы, попадают
+    только в технические журналы сервера и удаляются автоматически; чтобы
+    остановить подбор кодов, адрес IP ещё держится в памяти сервера не дольше
+    часа и в базу не пишется. Страница
+    не ставит cookie и ничего не записывает при одном открытии — ответ
+    уходит только нажатием кнопки; ответ не отменяет запись, при «Не смогу
+    прийти» клиника вам перезвонит. Код и ответ удаляются с сервера через 3
+    дня после начала визита; SMS.MD хранит текст SMS со ссылкой 3 месяца.
+    Сервер — у Contabo GmbH (Германия), в дата-центре в Евросоюзе. С вопросами
+    и просьбами обращайтесь в клинику; если напишете нам, мы без промедления
+    передадим просьбу клинике.</p>
+  </div>
+
+  <h2 id="demo">8. Versiunea demonstrativă online (demo.dentpilot.md)</h2>
   <p>Butonul „Încearcă demo online” deschide o copie a programului cu o
   clinică fictivă, pe un server închiriat de noi (Contabo GmbH), accesibil
   prin rețeaua Cloudflare, Inc. Copia este individuală și se identifică
@@ -562,14 +629,14 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
   demo; Cloudflare poate înregistra jurnale tehnice conform
   <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener">politicii sale de confidențialitate</a>.</p>
 
-  <h2>8. Drepturile dvs.</h2>
+  <h2>9. Drepturile dvs.</h2>
   <p>Conform Legii nr. 195/2024 privind protecția datelor cu caracter
   personal, aveți dreptul de acces, rectificare, ștergere și opoziție.
   Scrieți-ne la adresa de e-mail
   de mai sus. Aveți, de asemenea, dreptul să depuneți o plângere la
   CNPDCP (<a href="https://datepersonale.md" target="_blank" rel="noopener">datepersonale.md</a>).</p>
 
-  <h2>9. Modificări</h2>
+  <h2>10. Modificări</h2>
   <p>Versiunea actualizată a politicii se publică pe această pagină.</p>
 </div>
 <footer>© 2026 DentPilot™ · <a href="termeni.html">Termeni și condiții</a></footer>

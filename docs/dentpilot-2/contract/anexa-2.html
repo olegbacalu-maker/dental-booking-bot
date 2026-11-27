@@ -52,7 +52,7 @@ td.c{white-space:nowrap}
 
 <h1>ANEXA 2 — FLUXURILE DE DATE ALE PROGRAMULUI DENTPILOT</h1>
 <p class="sub">la Contractul de licență și utilizare a programului DentPilot ·
-versiunea din 26.11.2026 · document comun pentru toate clinicile, semnat de
+versiunea din 27.11.2026 · document comun pentru toate clinicile, semnat de
 furnizor</p>
 
 <p>Această anexă descrie, pentru versiunea curentă a programului (2.9 și
@@ -69,7 +69,9 @@ flux se schimbă.</p>
   programările, documentele încărcate, odontogramele, parodontogramele,
   anamnezele și fișele 043/e, planurile de tratament, plățile pacienților,
   jurnalul (cine ce a făcut), jurnalul local al memento-urilor SMS trimise
-  (cu numărul și textul — doar pe calculatorul clinicii) și evenimentele
+  (cu numărul și textul — doar pe calculatorul clinicii), legătura dintre
+  vizite și codurile linkurilor de răspuns, împreună cu răspunsurile
+  pacienților (punctul 3), și evenimentele
   preluate din Google Calendar al clinicii, din fișierul exportat de clinică
   sau, dacă clinica și-a conectat contul Google, citite direct de la Google
   (punctul 3).</li>
@@ -200,14 +202,15 @@ cea a serverului furnizorului.</p>
   <td>numărul de telefon mobil al pacientului, textul memento-ului
   (denumirea clinicii, ziua, data și ora vizitei, la alegerea clinicii
   telefonul clinicii; la reamintirea controlului periodic — doar denumirea
-  și telefonul clinicii), tipul memento-ului și identificatorul tehnic al
-  mesajului</td>
+  și telefonul clinicii; dacă clinica a pornit răspunsul pacientului prin
+  link, memento-ul trimis cu o zi înainte conține și linkul), tipul
+  memento-ului și identificatorul tehnic al mesajului</td>
   <td><b>nu păstrează numărul și textul</b>; rămân doar identificatorul
   mesajului, numărul de segmente și starea livrării, plus numele
   expeditorului</td>
   <td><b>Rock Soft S.R.L. (SMS.MD)</b>, Republica Moldova: numărul și
-  textul; le păstrează 3 luni pe servere din Republica Moldova și le șterge
-  mai devreme la cerere</td>
+  textul (inclusiv linkul, dacă există); le păstrează 3 luni pe servere din
+  Republica Moldova și le șterge mai devreme la cerere</td>
 </tr>
 <tr>
   <td><b>Modulul SMS: starea livrării</b></td>
@@ -227,6 +230,57 @@ cea a serverului furnizorului.</p>
   <td>SMS.MD: cererea clinicii pentru numele propriu (denumirea, IDNO,
   datele reprezentantului). Google (Gmail): nota de plată pe e-mailul
   clinicii</td>
+</tr>
+<tr>
+  <td><b>Răspunsul pacientului prin link: codul</b> (numai în DentPilot
+  Premium, numai dacă clinica pornește răspunsul prin link în Setări ›
+  SMS)</td>
+  <td>înainte de memento-ul trimis cu o zi înainte de vizită, pentru
+  fiecare vizită care primește memento-ul; la mutarea sau anularea vizitei,
+  la bifa „Fără remindere SMS” și la arhivarea pacientului — închiderea
+  codului</td>
+  <td>numărul de coduri cerute, pentru fiecare cod — limba paginii (română
+  sau rusă) și momentul până la care linkul este valabil (începutul
+  vizitei); denumirea clinicii, așa cum apare în SMS, și telefonul clinicii;
+  la închidere — codurile închise; identitatea tehnică. Cererea nu conține
+  numele pacientului, numărul lui de telefon, medicul sau serviciul</td>
+  <td>codul aleatoriu (6 caractere), limba, momentul de valabilitate,
+  starea codului (deschis, răspuns, închis), denumirea și telefonul
+  clinicii; codul nu este legat pe server de numărul de telefon, iar
+  legătura dintre cod și pacient există numai în programul clinicii. Codul
+  și datele lui se șterg la 3 zile după începutul vizitei</td>
+  <td>nimeni</td>
+</tr>
+<tr>
+  <td><b>Răspunsul pacientului prin link: pagina pacientului</b>
+  (v.dentpilot.md)</td>
+  <td>când pacientul deschide linkul din SMS și apasă „Vin” sau „Nu pot
+  veni”; până la începutul vizitei pacientul își poate schimba răspunsul</td>
+  <td>nimic din program: pagina o deschide telefonul pacientului. Ea arată
+  denumirea și telefonul clinicii, fără ora vizitei și fără numele
+  pacientului; deschiderea paginii nu înregistrează niciun răspuns — doar
+  apăsarea unui buton. Pagina nu folosește cookie-uri</td>
+  <td>răspunsul („vin” sau „nu pot veni”) și momentul lui, lângă cod; în
+  jurnalul tehnic al serverului — adresa IP și tipul browserului
+  telefonului (User-Agent), ca la orice pagină a serverului; pentru a opri
+  încercările de ghicire a codurilor, adresa IP se ține și în memoria
+  serverului, cel mult o oră, fără a fi scrisă în baza de date. Răspunsul se
+  șterge odată cu codul, la 3 zile după începutul vizitei</td>
+  <td>Contabo GmbH, care găzduiește serverul. SMS.MD are deja textul SMS cu
+  linkul (rândul „Modulul SMS: memento-ul”). Aplicațiile de mesagerie ale
+  pacientului pot deschide singure linkul ca să arate o previzualizare:
+  titlul și descrierea paginii nu conțin nici clinica, nici ora</td>
+</tr>
+<tr>
+  <td><b>Răspunsul pacientului prin link: preluarea răspunsurilor</b></td>
+  <td>periodic, cât programul rulează, are internet și există linkuri
+  valabile</td>
+  <td>numărul ultimului răspuns preluat; identitatea tehnică</td>
+  <td>nimic nou: serverul trimite programului răspunsurile noi (codul,
+  răspunsul, momentul)</td>
+  <td>nimeni. Programul leagă codul de vizită și arată răspunsul în
+  fereastra vizitei („Confirmat · SMS” sau „Nu poate veni · SMS”); nu
+  anulează și nu mută singur nicio programare</td>
 </tr>
 <tr>
   <td><b>Google Calendar: conectarea contului Google al clinicii</b>
@@ -361,9 +415,9 @@ cea a serverului furnizorului.</p>
 <ul>
   <li>Programul nu încarcă baza de date, copiile de rezervă, documentele
   pacienților sau exporturile pe niciun server.</li>
-  <li>În afara memento-urilor SMS și a calendarelor medicilor în Google
-  (punctul 3), nicio cerere nu conține date ale pacienților, programări sau
-  tratamente; fișierul de licență conține doar denumirea clinicii, IDNO,
+  <li>În afara memento-urilor SMS, a răspunsului pacientului prin link și a
+  calendarelor medicilor în Google (punctul 3), nicio cerere nu conține date
+  ale pacienților, programări sau tratamente; fișierul de licență conține doar denumirea clinicii, IDNO,
   tipul și termenul abonamentului.</li>
   <li>Cu contul Google al clinicii datele circulă într-un singur sens — de
   la Google spre calculatorul clinicii: prin această conectare programul nu
@@ -396,7 +450,10 @@ identificatorul contului Google); calculatoarele pe care rulează programul
 ultimei cereri); fișierele de licență emise; notele de plată, plățile și
 conturile de plată achitate; pentru modulul SMS — soldul, numele
 expeditorului, cererea semnată pentru numele propriu și evidența mesajelor
-fără număr și text; jurnalul operațiilor cu adresa IP la cererea de probă,
+fără număr și text; pentru răspunsul pacientului prin link — codurile, limba,
+momentul de valabilitate, răspunsurile și momentul lor, până la 3 zile după
+începutul vizitei, precum și denumirea și telefonul clinicii arătate pe
+pagină; jurnalul operațiilor cu adresa IP la cererea de probă,
 la coduri, la schimbarea adresei de e-mail, la intrarea în cont din program
 (cu browserul) și la descărcarea programului; jurnalul e-mailurilor trimise
 clinicii. Copii de rezervă ale bazei serverului se fac zilnic pe un
@@ -404,10 +461,12 @@ calculator al furnizorului din Republica Moldova. Datele se păstrează pe
 durata contractului, documentele de plată — pe termenul cerut de legislația
 contabilă; la cererea clinicii, după încetarea contractului, celelalte date
 ale contului se șterg.</p>
-<p>Terții: Contabo GmbH (infrastructura serverului) · Google, serviciul
+<p>Terții: Contabo GmbH (infrastructura serverului, inclusiv codurile și răspunsurile
+de la răspunsul pacientului prin link) · Google, serviciul
 Gmail (e-mailurile către clinică și notificările interne ale furnizorului;
 Google OAuth numai la intrarea în cont din browser cu un cont Google) ·
-Rock Soft S.R.L. / SMS.MD (numărul și textul memento-urilor; cererea pentru
+Rock Soft S.R.L. / SMS.MD (numărul și textul memento-urilor, cu linkul, dacă
+există; cererea pentru
 numele expeditorului) · maib (suma, descrierea plății cu denumirea
 clinicii, e-mailul, adresa IP a browserului — numai la plata online, pe
 pagina băncii) ·
@@ -430,7 +489,7 @@ exemplu numărul cererilor și al erorilor), fără conținutul calendarelor.</p
     <p>Semnătura (electronică calificată)</p>
   </div>
   <div>
-    <p>Versiunea documentului: 26.11.2026</p>
+    <p>Versiunea documentului: 27.11.2026</p>
     <p>Clinica: identificată în actul de acceptare din contul clinicii;
     semnătura ei este opțională (contractul, clauza 11.2).</p>
   </div>

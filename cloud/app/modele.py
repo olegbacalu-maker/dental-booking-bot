@@ -37,10 +37,10 @@ MODELE = {
     "informare": {"file": "informare-pacienti.html", "title": "Informarea pacienților",
                   "what": "se afișează la recepție; aceleași temeiuri ca formularul personal «Informare și acord» "
                           "din program",
-                  "version": "26.11.2026"},
+                  "version": "27.11.2026"},
     "registru": {"file": "registru-prelucrare.html", "title": "Registrul activităților de prelucrare",
                  "what": "documentul pe care îl cere CNPDCP la un control; se actualizează când se schimbă ceva",
-                 "version": "26.11.2026"},
+                 "version": "27.11.2026"},
     "bitlocker": {"file": "bitlocker.html", "title": "Criptarea calculatorului (BitLocker)",
                   "what": "instrucțiune de 10 minute și actul de confirmare, de semnat",
                   "version": "31.10.2026"},
