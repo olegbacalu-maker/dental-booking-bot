@@ -79,7 +79,8 @@ DEFAULTS = {DAY_BEFORE: {"on": True, "hour": 10, "variant": STANDARD},
             # кнопка «SMS» в Rechemări — включена по умолчанию (Олег 30.10, В5 = А);
             # автоматическая отправка — выключена
             RECALL: {"on": True, "variant": STANDARD, "auto": False},
-            LINK_KEY: {"confirm": False}}
+            # notify — плашка «пациент ответил» на главной у стойки и директора (врачу — его визиты)
+            LINK_KEY: {"confirm": False, "notify": True}}
 
 
 def _int_in(value, allowed, default: int) -> int:
@@ -112,7 +113,9 @@ def settings(raw) -> dict:
                    "variant": variant if variant in RECALL_VARIANTS else DEFAULTS[RECALL]["variant"],
                    "auto": bool(rc.get("auto", DEFAULTS[RECALL]["auto"]))}
     lk = raw.get(LINK_KEY) if isinstance(raw.get(LINK_KEY), dict) else {}
-    out[LINK_KEY] = {"confirm": lk.get("confirm") is True}
+    notify = lk.get("notify")
+    out[LINK_KEY] = {"confirm": lk.get("confirm") is True,
+                     "notify": notify if isinstance(notify, bool) else DEFAULTS[LINK_KEY]["notify"]}
     return out
 
 
@@ -129,6 +132,11 @@ def recall_on(s: dict) -> bool:
 def link_confirm(s: dict) -> bool:
     """Галочка «Pacientul răspunde prin link» — действует только вместе с правом `sms_link`."""
     return bool(s.get(LINK_KEY, {}).get("confirm"))
+
+
+def link_notify(s: dict) -> bool:
+    """Галочка «Anunță pe ecran răspunsurile pacienților» — вложена в галочку ссылки."""
+    return link_confirm(s) and bool(s.get(LINK_KEY, {}).get("notify"))
 
 
 def recall_auto(s: dict) -> bool:

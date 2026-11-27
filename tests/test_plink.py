@@ -296,6 +296,10 @@ def suite_live(res: Result) -> None:
                 card = _card(c, "2026-11-09", a)
                 res.check("окно визита: call / call_via / call_at", (card.get("call"), card.get("call_via"),
                                                                     card.get("call_at")), ("ok", "sms", "06.11, 10:04"))
+                ans = panel_live(c)["desk"]["answers"]
+                res.check("плашка «пациент ответил»: визит, день словом, отметка, время нажатия (UTC)",
+                          [(x["id"], x["name"], x["when"], x["call"], x["answer_at"]) for x in ans or []],
+                          [(a, "Link Alfa", "luni 09.11, 12:00", "ok", "2026-11-06T08:04:00Z")])
                 h = c.get("/api/schedule/live?screen=panel").header("X-DP-Hash")
                 res.check("живой канал неподвижен после ответа: второй опрос — 204",
                           c.get("/api/schedule/live?screen=panel", {"X-DP-Hash": h}).status, 204)
@@ -322,6 +326,17 @@ def suite_live(res: Result) -> None:
                 item = next((i for i in notes.get("items", []) if i["id"].startswith("plink:no:")), None)
                 res.ok("уведомление у часов на «Nu pot veni» — без имени пациента",
                        item is not None and "Link Alfa" not in json.dumps(item, ensure_ascii=False), repr(notes))
+
+                ans = panel_live(c)["desk"]["answers"]
+                res.check("плашки: «Nu pot veni» двоих, по времени нажатия",
+                          [(x["id"], x["call"]) for x in ans or []], [(a, "cant"), (dl, "cant")])
+                cur = ts._j(c.get("/api/settings/sms"))["data"]["settings"]
+                r = c.post_json("/api/settings/sms", {**cur, "link": {"confirm": True, "notify": False}})
+                res.ok("галочка плашек выключена — answers: null, ссылка работает",
+                       r.msg == "ok_sms" and panel_live(c)["desk"]["answers"] is None
+                       and ts._j(r)["data"]["link"]["on"] and not ts._j(r)["data"]["link"]["notify_on"],
+                       repr(ts._j(r)["data"]["link"]))
+                c.post_json("/api/settings/sms", {**cur, "link": {"confirm": True, "notify": True}})
 
                 # ---- звонок стойки новее ответа ----
                 clock.set(ts._at(*fri, 10, 9))

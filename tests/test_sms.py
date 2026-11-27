@@ -169,11 +169,16 @@ def suite_plan(res: Result) -> None:
         plan.settings({"day_before": {"on": False}})))
     # ключ, которого нет в settings(), экран SMS сотрёт при сохранении (прайор recall)
     res.check("settings() отдаёт каждый ключ умолчаний", set(plan.settings(None)), set(plan.DEFAULTS))
-    res.check("ответ ссылкой: по умолчанию выключен", plan.settings(None)["link"], {"confirm": False})
-    res.check("ответ ссылкой: галочка переживает нормализацию дважды",
-              plan.settings(plan.settings({"link": {"confirm": True}}))["link"], {"confirm": True})
-    res.check("ответ ссылкой: не bool — выключен", plan.settings({"link": {"confirm": "1"}})["link"],
-              {"confirm": False})
+    res.check("ответ ссылкой: по умолчанию выключен, плашка ответов — включена", plan.settings(None)["link"],
+              {"confirm": False, "notify": True})
+    res.check("ответ ссылкой: галочки переживают нормализацию дважды",
+              plan.settings(plan.settings({"link": {"confirm": True, "notify": False}}))["link"],
+              {"confirm": True, "notify": False})
+    res.check("ответ ссылкой: не bool — умолчание", plan.settings({"link": {"confirm": "1", "notify": 0}})["link"],
+              {"confirm": False, "notify": True})
+    res.ok("плашка ответов — только вместе со ссылкой",
+           not plan.link_notify(plan.settings({"link": {"confirm": False, "notify": True}}))
+           and plan.link_notify(plan.settings({"link": {"confirm": True}})))
     res.check("вариант Detaliat сохраняется", plan.settings({"day_before": {"variant": "detaliat"}})
               ["day_before"]["variant"], "detaliat")
 
@@ -920,11 +925,12 @@ def suite_screen(res: Result) -> None:
                           {"day_before": {"on": True, "hour": 10, "variant": "standard"},
                            "same_day": {"on": False, "hours": 2, "variant": "standard"}, "phone_line": False,
                            "recall": {"on": True, "variant": "standard", "auto": False},
-                           "link": {"confirm": False}})
+                           "link": {"confirm": False, "notify": True}})
                 res.check("блок ответа ссылкой: без права Premium — недоступен и выключен",
-                          {k: data["link"][k] for k in ("allowed", "confirm", "on", "parts", "variant", "event")},
-                          {"allowed": False, "confirm": False, "on": False, "parts": 2, "variant": "detaliat",
-                           "event": "day_before"})
+                          {k: data["link"][k] for k in ("allowed", "confirm", "on", "notify", "notify_on", "parts",
+                                                         "variant", "event")},
+                          {"allowed": False, "confirm": False, "on": False, "notify": True, "notify_on": False,
+                           "parts": 2, "variant": "detaliat", "event": "day_before"})
                 res.ok("предпросмотр текста со ссылкой: RO и RU, ровно 2 части, ссылка-образец",
                        all(data["previews"]["link"][lang]["segments"] == 2 for lang in ("ro", "ru"))
                        and "Confirmare/anulare: v.dentpilot.md/K7Q2MX" in data["previews"]["link"]["ro"]["text"],
@@ -964,10 +970,13 @@ def suite_screen(res: Result) -> None:
                           {"day_before": {"on": True, "hour": 11, "variant": "cald"},
                            "same_day": {"on": True, "hours": 3, "variant": "scurt"}, "phone_line": True,
                            "recall": {"on": True, "variant": "standard", "auto": False},
-                           "link": {"confirm": False}})
+                           "link": {"confirm": False, "notify": True}})
                 r = c.post_json("/api/settings/sms", {**_j(r)["data"]["settings"], "link": {"confirm": True}})
                 res.check("без права Premium галочку ответа ссылкой не поставить",
-                          (r.msg, _j(r)["data"]["settings"]["link"]), ("ok_sms", {"confirm": False}))
+                          (r.msg, _j(r)["data"]["settings"]["link"]), ("ok_sms", {"confirm": False, "notify": True}))
+                r = c.post_json("/api/settings/sms", {**_j(r)["data"]["settings"], "link": {"confirm": True, "notify": False}})
+                res.check("без права: плашку ответов выключить можно — запрет только на ссылку",
+                          _j(r)["data"]["settings"]["link"], {"confirm": False, "notify": False})
                 data = _j(c.get("/api/settings/sms"))["data"]
                 res.ok("предпросмотр со строкой телефона клиники",
                        data["previews"]["day_before"]["cald"]["ro"]["text"].endswith("\nAnulare: +373 60 000 000"))

@@ -109,6 +109,12 @@ def link_on(s: dict | None = None) -> bool:
     return allowed() and plan.link_confirm(s if s is not None else settings())
 
 
+def notify_on(s: dict | None = None) -> bool:
+    """Плашка «пациент ответил» на главной: ссылка работает и вложенная галочка стоит."""
+    s = s if s is not None else settings()
+    return link_on(s) and plan.link_notify(s)
+
+
 def _label() -> str:
     """Подпись клиники теми же словами, что в SMS (`{clinica}` румынского текста)."""
     return plan.fold(plan.clinic_label(eng.CLINIC_NAME, "ro"))
@@ -352,7 +358,8 @@ def screen() -> dict:
     """Блок «Răspunsul pacientului» экрана SMS: есть ли право, стоит ли галочка, работает ли."""
     s = settings()
     return {"allowed": allowed(), "until": right_until(), "confirm": plan.link_confirm(s),
-            "on": link_on(s), "event": plan.LINK_EVENT, "variant": plan.DETALIAT,
+            "on": link_on(s), "notify": bool(s[plan.LINK_KEY]["notify"]), "notify_on": notify_on(s),
+            "event": plan.LINK_EVENT, "variant": plan.DETALIAT,
             "parts": plan.LINK_PARTS,
             "last": {"at": _last["at"].strftime("%Y-%m-%dT%H:%M:%SZ") if _last["at"] else None,
                      "outcome": _last["outcome"], "error": _last["error"]}}

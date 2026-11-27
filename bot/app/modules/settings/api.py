@@ -1043,7 +1043,7 @@ async def api_sms_save(request: Request):
         # иначе галочка, поставленная на Plus, заработала бы сама при переходе на
         # Premium — без предупреждения «2 SMS» перед глазами директора
         if not plink_loop.allowed() and not splan.link_confirm(sms_loop.settings()):
-            new[splan.LINK_KEY] = {"confirm": False}
+            new[splan.LINK_KEY] = {**new[splan.LINK_KEY], "confirm": False}
         cfg = _finish_cfg(sms=new)
     except (ValueError, KeyError, TypeError):
         return msg_json(False, "bad_sms", status=422)

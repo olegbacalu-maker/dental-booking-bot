@@ -186,8 +186,9 @@ def suite_desk(res: Result) -> None:
         ana.post("/admin/login", password="3333", next="/admin")
         d = _desk(ana)
         res.check("регистратура: collect = null, остальные списки есть",
-                  (d["collect"], sorted(d)), (None, ["collect", "confirm", "confirm_today", "free", "lost", "recall", "unclosed",
+                  (d["collect"], sorted(d)), (None, ["answers", "collect", "confirm", "confirm_today", "free", "lost", "recall", "unclosed",
                          "unscheduled"]))
+        res.check("ответы ссылкой без права Premium — answers: null", d["answers"], None)
 
 
 def _status(c: Client, aid: int, to: str) -> None:
