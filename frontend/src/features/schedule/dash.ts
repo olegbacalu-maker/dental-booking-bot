@@ -18,7 +18,7 @@ import type { DashData } from '../lab/lab'
 import type { ServerNotice } from '../../components/Notice'
 import { api } from '../../services/api'
 import type { FormService, NewAppt, NewNote, NoteView, VisitCardView } from './day'
-import type { CallResult, Desk } from './desk'
+import type { CallMark, CallResult, Desk } from './desk'
 import { CONTROL, dragOf, type Drag, type Occupies, type Room } from './move'
 import type { Slot, SlotFormView } from './slot'
 
@@ -80,7 +80,10 @@ export interface DashAppt extends BlockBase {
   /** Дневник визита уже заполнен. */
   rec: boolean
   /** Отметка звонка и можно ли её ставить (12.10) — `core.visits.call_fields`. */
-  call: CallResult
+  call: CallMark
+  /** `'sms'` — отметку поставил пациент ссылкой; `call_at` — когда нажал («27.11, 10:04»). */
+  call_via?: string
+  call_at?: string
   callable: boolean
   /** Процедура и можно ли её менять (22.10) — `core.visits.service_fields`,
    *  тем же правилом, что у карточки дня. ⛔ Списка услуг в блоке нет: блок

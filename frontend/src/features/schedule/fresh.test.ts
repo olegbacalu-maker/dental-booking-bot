@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { freshOf, movedOf, readSeen, seenKey, writeSeen } from './fresh'
+import { freshOf, movedOf, readSeen, seenKey, vinOf, VIN_MARK, writeSeen } from './fresh'
 
 /* Память дня и разница двух конвертов — правило без единого узла DOM.
 
@@ -67,5 +67,28 @@ describe('06.11: у кого сменился статус между двумя
   it('⛔ новая запись — не «сменила статус»: она приехала (`fresh`), а ушедшая не подсвечивает никого', () => {
     expect(movedOf(m({ 1: 'confirmed' }), m({ 1: 'confirmed', 5: 'confirmed' }))).toEqual([])
     expect(movedOf(m({ 1: 'confirmed', 5: 'waiting' }), m({ 1: 'confirmed' }))).toEqual([])
+  })
+})
+
+describe('Premium 2а: галочка «Vin» на блоке — только переменой между двумя конвертами', () => {
+  const m = (o: Record<string, string>) => new Map(Object.entries(o))
+
+  it('отметка стала «Vin» ссылкой — галочка; та же отметка в следующем конверте — уже нет', () => {
+    expect(VIN_MARK).toBe('ok|sms')
+    expect(vinOf(m({ 1: '|', 2: '|' }), m({ 1: 'ok|sms', 2: '|' }))).toEqual(['1'])
+    expect(vinOf(m({ 1: 'ok|sms' }), m({ 1: 'ok|sms' }))).toEqual([])
+    // «Nu pot veni» → «Vin» (пациент передумал) — тоже новый «Vin»
+    expect(vinOf(m({ 1: 'cant|sms' }), m({ 1: 'ok|sms' }))).toEqual(['1'])
+  })
+
+  it('⛔ первый показ дня (ночной ответ) и новая запись — без галочки', () => {
+    expect(vinOf(null, m({ 1: 'ok|sms' }))).toEqual([])
+    expect(vinOf(m({ 1: '|' }), m({ 1: '|', 9: 'ok|sms' }))).toEqual([])
+  })
+
+  it('звонок стойки и «Nu pot veni» — не «Vin»: галочки нет', () => {
+    expect(vinOf(m({ 1: '|' }), m({ 1: 'ok|' }))).toEqual([])
+    expect(vinOf(m({ 1: '|' }), m({ 1: 'cant|sms' }))).toEqual([])
+    expect(vinOf(m({ 1: 'ok|sms' }), m({ 1: 'ok|' }))).toEqual([])
   })
 })

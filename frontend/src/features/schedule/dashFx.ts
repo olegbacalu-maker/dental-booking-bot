@@ -290,7 +290,7 @@ export const THIN_W = 96
 
 export function useFitAppts(
   body: React.RefObject<HTMLDivElement | null>, tick: number, deps: unknown, view = '',
-  marks: unknown = null, marks2: unknown = null, zoom = 0,
+  marks: unknown = null, marks2: unknown = null, zoom = 0, marks3: unknown = null,
 ): void {
   useLayoutEffect(() => {
     const gb = body.current
@@ -309,7 +309,7 @@ export function useFitAppts(
       if (over(a)) a.classList.add('bare')
       fitFacts(a)
     }
-  }, [body, tick, deps, view, marks, marks2, zoom])
+  }, [body, tick, deps, view, marks, marks2, zoom, marks3])
 }
 
 /**

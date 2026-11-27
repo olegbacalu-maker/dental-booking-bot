@@ -557,6 +557,20 @@ describe('C26.5.2: блок записи', () => {
       expect(a().className).toBe('gappt moved slim duo')
       rerender(mv(new Set()))
       expect(a().className).toBe('gappt slim duo')
+      /* Premium 2а: и у галочки «Vin» ответом ссылкой. ⚠️ `fresh` — ОДИН объект: новый `Set` на
+         каждом рендере сам перезапускал бы перемер, и проверка зеленела бы без `vin` в зависимостях */
+      const none: ReadonlySet<number> = new Set()
+      const vn = (vin: ReadonlySet<number>) => (
+        <DashCanvas model={MODEL} rail={rail} waitTick={NOW} lineTick={NOW}
+          onCard={onCard} onSlot={onSlot} onNote={onNote}
+          drag={null} hover="" onDrag={onDrag} onHover={onHover} onDrop={onDrop}
+          fresh={none} vin={vin} />)
+      rerender(vn(new Set([1])))
+      expect(a().className).toBe('gappt vin slim duo')
+      expect(a().querySelector('.gvin svg')).toBeTruthy()
+      rerender(vn(new Set()))
+      expect(a().className).toBe('gappt slim duo')
+      expect(a().querySelector('.gvin')).toBeNull()
     } finally {
       delete (HTMLElement.prototype as { scrollHeight?: number }).scrollHeight
     }

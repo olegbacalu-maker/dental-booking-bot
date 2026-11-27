@@ -409,7 +409,7 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
                 aria-pressed={card.call === 'ok'} disabled={busy}
                 title={card.call === 'ok' ? CALL_WORDS.undo : CALL_WORDS.ok}
                 onClick={() => { void onCall(card.call === 'ok' ? '' : 'ok') }}>
-                <Icon name="check" /> {CALL_WORDS.ok}
+                <Icon name="check" /> {card.call === 'ok' && card.call_via === 'sms' ? CALL_WORDS.okSms : CALL_WORDS.ok}
               </button>
               <button type="button" className={`dp-card-seg-b no${card.call === 'noanswer' ? ' on' : ''}`}
                 aria-pressed={card.call === 'noanswer'} disabled={busy}
@@ -418,6 +418,21 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
                 <Icon name="phone-off" /> {CALL_WORDS.no}
               </button>
             </span>
+            {/* Ответ пациента ссылкой (Premium): «Vin» горит в сегменте, строкой ниже — когда нажал;
+                «Nu pot veni» в сегменте не горит — полосой предупреждения: стойке звонить. Звонок
+                стойки поверх ответа сегментом, как всегда (сервер снимает `call_via`). */}
+            {card.call === 'ok' && card.call_via === 'sms' && card.call_at ? (
+              <div className="dp-card-when">{CALL_WORDS.okSmsWhen.replace('{at}', card.call_at)}</div>
+            ) : null}
+            {card.call === 'cant' ? (
+              <div className="dp-card-cant" role="status">
+                <Icon name="phone-off" />
+                <b>{CALL_WORDS.cantSms}</b>
+                <span>
+                  {card.call_at ? `${CALL_WORDS.cantSmsWhen.replace('{at}', card.call_at)} ` : ''}{CALL_WORDS.cantSay}
+                </span>
+              </div>
+            ) : null}
           </div>
         )}
         <form onSubmit={save} className="dp-card-cmt">

@@ -351,6 +351,45 @@ def _notes(raw, base: str) -> list[dict] | None:
     return out
 
 
+NAME_YEARS = ("unpaid", "prepaid", "on", "over", "free")   # состояния года имени у облака (`sms.name_year`)
+GIFT_UNITS_MAX = 10_000                       # подарок SMS больше этого — мусор, не число
+
+
+def _utc(raw) -> str | None:
+    """Время облака `…Z` как есть, если оно разбирается; иначе None."""
+    if not isinstance(raw, str) or len(raw) > 40:
+        return None
+    try:
+        datetime.strptime(raw, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return None
+    return raw
+
+
+def _gifts(raw) -> dict | None:
+    """Подарки Premium из счёта облака (волна 2а): 80 SMS при первой оплате Premium и имя
+    отправителя без оплаты года. Поле добавочное: облако до волны его не шлёт — None, строк
+    нет. Кривое поле — тоже None: остаток и отправка от него не зависят."""
+    if not isinstance(raw, dict):
+        return None
+    units = raw.get("bonus_units")
+    if not isinstance(units, int) or isinstance(units, bool) or not 0 <= units <= GIFT_UNITS_MAX:
+        units = 0
+    return {"bonus_units": units, "bonus_at": _utc(raw.get("bonus_at")),
+            "name_free_until": _utc(raw.get("name_free_until"))}
+
+
+def _gifts_view(g: dict | None) -> dict | None:
+    """Подарки для экрана: день начисления — в часах клиники готовой строкой (браузер дат не считает)."""
+    if not g:
+        return None
+    at = g.get("bonus_at")
+    day = (datetime.strptime(at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+           .astimezone(eng.TZ).strftime("%d.%m.%Y")) if at else ""
+    return {"bonus_units": g.get("bonus_units") or 0, "bonus_day": day,
+            "name_free": bool(g.get("name_free_until"))}
+
+
 async def refresh_account(force: bool = False) -> str:
     """Перечитать счёт у сервера. Исход — wire.*; OFFLINE/REFUSED оставляют
     прежний счёт (программа живёт по тому, что знала)."""
@@ -365,7 +404,10 @@ async def refresh_account(force: bool = False) -> str:
         await _remember({**{k: body.get(k) for k in (
             "offered", "enabled", "sender", "sender_state", "sender_note", "sender_until",
             "from", "balance", "packs", "name_price", "name_days", "daily_cap", "used_today",
-            "blocked", "custom")}, "notes": _notes(body.get("notes"), t[0])})
+            "blocked", "custom")}, "notes": _notes(body.get("notes"), t[0]),
+            # подарки Premium (волна 2а): добавочные поля облака, старое облако их не шлёт
+            "name_year": body.get("name_year") if body.get("name_year") in NAME_YEARS else "",
+            "gifts": _gifts(body.get("gifts"))})
     elif outcome == wire.DENIED:
         code = body.get("code") or ""
         if code in ("sms_not_offered", "sms_unconfigured"):
@@ -834,7 +876,9 @@ def screen() -> dict:
         # `notes` — ожидающие ноты SMS (05.11): список — блок ноты на экране, None — сервер их не шлёт
         "account": ({k: acc.get(k) for k in ("balance", "from", "sender", "sender_state", "sender_note",
                                             "sender_until", "packs", "name_price", "name_days", "daily_cap",
-                                            "used_today", "notes")} if acc and offered() else None),
+                                            "used_today", "notes", "name_year")}
+                     # `gifts` — подарки Premium для «Starea pachetului»; None — облако их не шлёт
+                     | {"gifts": _gifts_view(acc.get("gifts"))} if acc and offered() else None),
         "settings": s,
         "options": {"hours": list(plan.HOURS_X), "leads": list(plan.LEAD_HOURS),
                     # `parts` — сколько SMS обещает вариант (румынский, худший случай)

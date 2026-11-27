@@ -12,9 +12,25 @@ export interface DeskConfirmItem {
   phone: string
   doctor: string
   service: string
-  call: '' | 'ok' | 'noanswer'
+  call: CallMark
+  /** `'sms'` — отметку поставил пациент ссылкой из напоминания (Premium); пусто — звонок стойки. */
+  call_via?: string
   call_at: string
+  /** Когда нажал пациент (UTC ISO, только при `call_via = 'sms'`). */
+  answer_at?: string
   call_by: string
+}
+
+/** Ответ пациента ссылкой — строка плашки на главной (`desk.answers`, вид A). */
+export interface DeskAnswer {
+  id: number
+  pid: number
+  name: string
+  call: 'ok' | 'cant'
+  /** «luni 30.11, 14:30» / «azi, 14:30» — готовой строкой сервера. */
+  when: string
+  /** Когда нажал (UTC ISO): пара `id`+`answer_at`+`call` отличает новое от прежнего. */
+  answer_at: string
 }
 
 export interface DeskUnscheduledItem {
@@ -61,7 +77,11 @@ export interface DeskPastItem {
 }
 
 /** Список обзвона одного дня — одна форма на «azi» и «mâine». */
-export interface DeskConfirm { day: string; date: string; items: DeskConfirmItem[]; n: number; n_ok: number; n_left: number }
+export interface DeskConfirm {
+  day: string; date: string; items: DeskConfirmItem[]; n: number; n_ok: number; n_left: number
+  /** «Nu poate veni» ответом ссылкой — сервер ставит их наверх; стойке звонить им сейчас. */
+  n_cant?: number
+}
 
 export interface Desk {
   /** Сегодняшние, кого не подтвердили вчера (12.10, слово Олега). */
@@ -84,9 +104,16 @@ export interface Desk {
   /** «Rechemări» (29.10): счётчик «De sunat» и первые строки той же формы,
    *  что у экрана; `null` — у роли нет права (врач): раздела нет вовсе. */
   recall: { n: number; items: RecallRow[] } | null
+  /** Ответы пациентов ссылкой сегодня и на следующий рабочий день (Premium); `null` или нет поля —
+   *  плашек нет (нет права, ссылки или галочки «Anunță pe ecran»). Врачу — только его визиты. */
+  answers?: DeskAnswer[] | null
 }
 
 export type CallResult = '' | 'ok' | 'noanswer'
+
+/** Отметка, как её видит экран: к командам стойки добавлено `cant` — «nu poate veni», его ставит
+ *  только ответ пациента ссылкой (стойка шлёт по-прежнему `CallResult`). */
+export type CallMark = CallResult | 'cant'
 
 /** Слова отметки звонка — ОДНИ на «De confirmat», карточку визита и меню
  *  правой кнопки (12.10): три места с тремя наборами слов разошлись бы молча,
@@ -99,4 +126,16 @@ export const CALL_WORDS = {
   undo: 'Anulează bifa',
   okDone: 'confirmat',
   noDone: 'nu răspunde',
+  // ответ пациента ссылкой из напоминания (Premium, волна 2а)
+  okSms: 'Confirmat · SMS',
+  cantSms: 'Nu poate veni · SMS',
+  okSmsDone: 'confirmat · SMS',
+  cantDone: 'nu poate veni · SMS',
+  okSmsWhen: 'pacientul a apăsat „Vin” în link · {at}',
+  cantSmsWhen: 'pacientul a apăsat „Nu pot veni” în link · {at}.',
+  cantSay: 'Sunați pacientul. Vizita rămâne în jurnal până o mutați sau o anulați.',
+  /** Слово на блоке канвы — то же, что у сервера (`labels.CALL_LABEL["cant"]`). */
+  cantWord: 'nu poate veni',
+  /** Подсказка галочки на блоке при новом «Vin». */
+  vinHint: 'Pacientul a confirmat prin SMS',
 } as const

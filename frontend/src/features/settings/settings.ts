@@ -434,7 +434,34 @@ export interface SmsSettingsForm {
   /** Кнопка «SMS» в «Rechemări» (30.10): включена по умолчанию; вариант текста
    *  из `options.recall_variants`, предпросмотр — `previews.recall`. */
   recall: { on: boolean; variant: string; auto: boolean }
+  /** Ответ пациента ссылкой (Premium, волна 2а): `confirm` — галочка ссылки в «Cu o zi înainte»,
+   *  `notify` — плашка «пациент ответил» на главной. Нет ключа у старого сервера — блока нет. */
+  link?: { confirm: boolean; notify: boolean }
 }
+
+/** Вариант текста: `parts` — сколько SMS он обещает (румынский, худший случай); `null` — личный текст. */
+export interface SmsVariant { key: string; label: string; parts?: number | null }
+
+/** Ответ пациента ссылкой — состояние для экрана (`plink_loop.screen`). */
+export interface SmsLink {
+  /** Право `sms_link` в файле лицензии (Premium). */
+  allowed: boolean
+  until: string
+  confirm: boolean
+  /** Работает: право И галочка. */
+  on: boolean
+  notify: boolean
+  notify_on: boolean
+  /** У какого напоминания ссылка (`day_before`). */
+  event: string
+  /** Чем заперт `textul` этого напоминания при `on`. */
+  variant: string
+  /** Сколько SMS стоит напоминание со ссылкой. */
+  parts: number
+}
+
+/** Подарки Premium из счёта облака (волна 2а). `bonus_day` — день начисления в часах клиники. */
+export interface SmsGifts { bonus_units: number; bonus_day: string; name_free: boolean }
 
 export interface SmsPreview {
   text: string
@@ -458,6 +485,10 @@ export interface SmsAccount {
   /** Ожидающие ноты SMS (пакет, год имени) — блок на экране, пока нота ждёт оплаты. `null` или
    *  поля нет — сервер их не шлёт (сервер до 05.11): экран показывает только ноту последнего заказа. */
   notes?: SmsNote[] | null
+  /** Год имени отправителя у облака: `free` — имя включено в Premium, оплаченный на год. */
+  name_year?: string | null
+  /** Подарки Premium; `null` или поля нет — облако их не шлёт: строк нет. */
+  gifts?: SmsGifts | null
 }
 
 /** Нота SMS: поля ответа заказа, они же — у нот счёта. `pay_url` — страница оплаты DentPilot;
@@ -495,14 +526,15 @@ export interface SmsData {
   account: SmsAccount | null
   settings: SmsSettingsForm
   options: {
-    hours: number[]; leads: number[]; variants: { key: string; label: string }[]
+    hours: number[]; leads: number[]; variants: SmsVariant[]
     recall_variants: { key: string; label: string }[]
     /** Потолок автоматических рекламаций в день — константа сервера, экран её печатает. */
     recall_auto_daily: number
   }
   /** Предпросмотр: событие → вариант → язык → текст с данными клиники. */
   previews: Record<string, Record<string, Record<string, SmsPreview>>>
-  forecast: { visits: number; month: number; daily: number; days_left: number | null }
+  /** `parts` — SMS на визит по событию (0 — выключено); `month` уже считает части. */
+  forecast: { visits: number; month: number; daily: number; days_left: number | null; parts?: Record<string, number> }
   /** «Мало SMS» по штукам (`sms_loop.low`): то же правило и те же слова, что у
    *  пункта меню и уведомления у часов; null — остатка хватает. */
   low: SmsLow | null
@@ -514,6 +546,8 @@ export interface SmsData {
   clinic: { name: string; phone: string }
   /** Контакты DentPilot — для возобновления выключенного пакета. */
   support: { phone: string; email: string }
+  /** Ответ пациента ссылкой; нет поля — сервер до волны 2а: блока нет. */
+  link?: SmsLink
 }
 
 export interface SmsOrder extends SmsNote {

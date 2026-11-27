@@ -1026,6 +1026,27 @@ def suite_screen(res: Result) -> None:
                 res.check("не список — как отсутствие поля (None), не падение",
                           _j(c.post_json("/api/settings/sms/refresh", {}))["data"]["account"]["notes"], None)
                 del stand.account["notes"]
+                # подарки Premium (волна 2а): добавочные поля облака — до экрана, кривое — None
+                acc = _j(c.post_json("/api/settings/sms/refresh", {}))["data"]["account"]
+                res.check("облако без подарков: `gifts` — None, `name_year` пусто (строк на экране нет)",
+                          (acc["gifts"], acc["name_year"]), (None, ""))
+                stand.account["name_year"] = "free"
+                stand.account["gifts"] = {"bonus_units": 80, "bonus_at": "2026-11-11T22:30:00Z",
+                                          "name_free_until": "2027-11-12T00:00:00Z", "extra": 1}
+                acc = _j(c.post_json("/api/settings/sms/refresh", {}))["data"]["account"]
+                res.check("подарки Premium: 80 SMS с днём начисления в часах клиники, имя в Premium",
+                          (acc["gifts"], acc["name_year"]),
+                          ({"bonus_units": 80, "bonus_day": "12.11.2026", "name_free": True}, "free"))
+                stand.account["name_year"] = "взлом"
+                stand.account["gifts"] = {"bonus_units": "80", "bonus_at": "вчера", "name_free_until": None}
+                acc = _j(c.post_json("/api/settings/sms/refresh", {}))["data"]["account"]
+                res.check("кривые подарки — без строк: число не число, время не время, имя не оплачено",
+                          (acc["gifts"], acc["name_year"]),
+                          ({"bonus_units": 0, "bonus_day": "", "name_free": False}, ""))
+                stand.account["gifts"] = "не словарь"
+                res.check("подарки не словарь — как отсутствие поля",
+                          _j(c.post_json("/api/settings/sms/refresh", {}))["data"]["account"]["gifts"], None)
+                del stand.account["gifts"], stand.account["name_year"]
                 r = c.post_json("/api/settings/sms/sender", {"name": "Clinica Tst"})
                 res.ok("заявка на имя — sms_sender_ok, в счёте requested", r.msg == "sms_sender_ok"
                        and _j(r)["data"]["account"]["sender_state"] == "requested", r.body[:300])

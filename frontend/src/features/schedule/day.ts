@@ -1,7 +1,7 @@
 import type { ServerNotice } from '../../components/Notice'
 import { api } from '../../services/api'
 import type { DashCanvasModel, DashMiniCal } from './dash'
-import type { CallResult } from './desk'
+import type { CallMark, CallResult } from './desk'
 
 /* Сетка дня (C25). Формы ответа — bot/app/modules/schedule/api.py и day.py:
    состав колонок, диапазон часов, исход ячейки и цвет считает СЕРВЕР.
@@ -116,7 +116,9 @@ export interface VisitCardView {
   pid: number | null
   rec: boolean
   /** Отметка звонка и можно ли её ставить (12.10) — поля сервера. */
-  call: CallResult
+  call: CallMark
+  call_via?: string
+  call_at?: string
   callable: boolean
   /** Ключ процедуры в clinic.json (пусто у легаси-строки) и можно ли её
    *  менять вообще (22.10) — `core.visits.service_fields`. ⛔ Списка услуг здесь
@@ -173,7 +175,9 @@ export interface DayCard {
   rec: boolean
   /** Отметка звонка-подтверждения (12.10) и можно ли её ставить — сервер,
    *  `core.visits.call_fields`; дату в браузере не считает никто. */
-  call: CallResult
+  call: CallMark
+  call_via?: string
+  call_at?: string
   callable: boolean
   /** Процедура и можно ли её менять (22.10) — `core.visits.service_fields`. */
   service_id: string
