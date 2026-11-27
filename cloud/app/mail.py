@@ -330,13 +330,14 @@ def sms_name_year_letter(kind: str, clinic: str, name: str, until: str) -> tuple
         # подарок Premium на год (Олег 27.11): имя без оплаты года — до конца оплаченного годового периода
         subject = (f"DentPilot: numele de expeditor «{name}» este inclus în Premium anual până la {ro_date(until)} "
                    f"({clinic})")
-        text = (f"Numele de expeditor «{name}» ({clinic}) este inclus în {NAME_FREE_WHAT} până la "
+        text = (f"Numele expeditorului (până la 11 caractere) «{name}» ({clinic}) este inclus în {NAME_FREE_WHAT} până la "
                 f"{ro_date(until)}. Dacă plătiți din nou DentPilot Premium pe un an, numele rămâne inclus. Altfel, "
                 f"după această dată SMS-urile clinicii pleacă de la «DentPilot», până plătiți anul numelui. {how}")
     elif kind == "free_over":
         subject = f"DentPilot: numele de expeditor «{name}» nu mai este inclus în abonament ({clinic})"
-        text = (f"Perioada DentPilot Premium plătită pe un an s-a încheiat la {ro_date(until)}, iar numele de "
-                f"expeditor «{name}» ({clinic}) nu mai este inclus: SMS-urile clinicii pleacă acum de la «DentPilot». "
+        text = (f"Perioada DentPilot Premium plătită pe un an s-a încheiat la {ro_date(until)}, iar numele "
+                f"expeditorului (până la 11 caractere) «{name}» ({clinic}) nu mai este inclus: SMS-urile clinicii pleacă "
+                f"acum de la «DentPilot». "
                 f"Numele rămâne aprobat. {how} Numele este inclus din nou la plata DentPilot Premium pe un an.")
     elif kind == "over":
         subject = f"DentPilot: anul numelui de expeditor «{name}» s-a încheiat ({clinic})"

@@ -459,6 +459,10 @@ MUTATIONS = [
     ("короткий хост проксирует всё: кабинет и админка на v.dentpilot.md",
      "deploy/Caddyfile", "\thandle {\n\t\trespond 404\n\t}\n", "\thandle {\n\t\treverse_proxy cloud:8090\n\t}\n",
      ["test_plink.suite_caddy"], "всё прочее — 404"),
+    ("код ссылки в журнале доступа рядом с IP",
+     "app/logmask.py", "    return _LINK.sub(r\"\\g<1>\" + CODE_LABEL, _DLR.sub(r\"\\g<1>\" + LABEL, text))\n",
+     "    return _DLR.sub(r\"\\g<1>\" + LABEL, text)\n",
+     ["test_plink.suite_log"], "метка вместо кода"),
 ]
 
 RUNNER = ("import importlib, sys\n"

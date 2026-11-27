@@ -923,7 +923,7 @@ def _year_tag(i: dict) -> str:
         return ""
     year = i["name_year"]
     if year == sms.Y_FREE:
-        return f" · входит в Premium на год до {esc((i.get('name_free') or '')[:10])}"
+        return f" · имя (до 11 знаков) входит в Premium на год до {esc((i.get('name_free') or '')[:10])}"
     if year == sms.Y_PREPAID:
         return f" · оплачено лет: {i['sender_prepaid']}"
     if year == sms.Y_ON:
@@ -1849,8 +1849,8 @@ CONT_MSG = {
     "sms_no_name": "Numele propriu de expeditor nu este disponibil încă.",
     "sms_name_none": "Cereți mai întâi numele de expeditor al clinicii.",
     "sms_name_paid": "Anul numelui este deja plătit; se numără din ziua aprobării.",
-    "sms_name_free": "Numele de expeditor este inclus în DentPilot Premium plătit pe un an — anul numelui nu se "
-                     "plătește acum.",
+    "sms_name_free": "Numele expeditorului (până la 11 caractere) este inclus în DentPilot Premium plătit pe un an "
+                     "— anul numelui nu se plătește acum.",
     "sms_pack": "Alegeți un pachet din listă.",
     "sms_no_packs": "Pachetele SMS nu sunt disponibile încă.",
     "sms_need_idno": "Pentru nota de plată completați mai întâi IDNO-ul clinicii (13 cifre), în datele clinicii.",
@@ -1937,8 +1937,9 @@ NAME_FREE = "inclus în Premium anual"       # подарок Premium на го�
 
 def name_free_line(until) -> str:
     """Одна фраза кабинета о подарке годового Premium: имя без оплаты года до конца оплаченного года Premium."""
-    return (f"Numele este inclus în DentPilot Premium plătit pe un an, până la {_ro(until)}: anul numelui nu se "
-            f"plătește. După această dată, dacă Premium nu este plătit din nou pe un an, anul numelui se plătește.")
+    return (f"Numele expeditorului (până la 11 caractere) este inclus în DentPilot Premium plătit pe un an, până la "
+            f"{_ro(until)}: anul numelui nu se plătește. După această dată, dacă Premium nu este plătit din nou pe un "
+            f"an, anul numelui se plătește.")
 NAME_UNPAID = "Fără plată, numele aprobat nu se folosește: SMS-urile pleacă de la «DentPilot»."
 NAME_MISSING = "Pentru cerere lipsesc datele clinicii"
 DATA_CARD, DATA_SAVE = "Datele clinicii", "Salvează"

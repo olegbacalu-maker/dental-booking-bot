@@ -181,8 +181,8 @@ CODES = {
     "sms_no_name": (503, "Numele propriu de expeditor nu este disponibil încă."),
     "sms_name_none": (409, "Alegeți mai întâi numele de expeditor al clinicii."),
     "sms_name_paid": (409, "Anul numelui este deja plătit; se numără din ziua aprobării."),
-    "sms_name_free": (409, "Numele de expeditor este inclus în DentPilot Premium plătit pe un an — anul numelui nu "
-                           "se plătește acum."),
+    "sms_name_free": (409, "Numele expeditorului (până la 11 caractere) este inclus în DentPilot Premium plătit pe "
+                           "un an — anul numelui nu se plătește acum."),
     "sms_need_idno": (409, "Pentru nota de plată indicați IDNO-ul clinicii (13 cifre)."),
     "bad_json": (400, "Cererea nu a putut fi citită — actualizați programul."),
 }

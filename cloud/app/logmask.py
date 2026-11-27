@@ -9,6 +9,10 @@ sms.md не подписывает уведомление о доставке и
 попадёт в любой обработчик. Ставится при импорте `app.main`: uvicorn настраивает
 логирование раньше, чем импортирует приложение, поэтому фильтр переживает его
 настройку. Caddy пути не пишет (в `Caddyfile` нет `log`).
+
+Тем же фильтром — код ссылки ответа пациента (`/r/<код>`, Premium волна 2а): в журнале рядом с IP код связал бы
+адрес пациента с визитом клиники; документы (Anexa 2, политика) называют в журнале только IP и браузер. Короткий
+хост Caddy переписывает `/<код>` в `/r/<код>` до uvicorn, поэтому маски одного пути достаточно.
 """
 from __future__ import annotations
 
@@ -17,12 +21,14 @@ import re
 
 ACCESS = "uvicorn.access"
 LABEL = "<секрет>"
+CODE_LABEL = "<cod>"
 # всё до следующего «/», «?», пробела или кавычки — путь в строке журнала стоит в кавычках
 _DLR = re.compile(r"(/v1/smsmd/dlr/)[^/?\s\"]+")
+_LINK = re.compile(r"(/r/)[^/?\s\"]+")
 
 
 def mask(text: str) -> str:
-    return _DLR.sub(r"\g<1>" + LABEL, text)
+    return _LINK.sub(r"\g<1>" + CODE_LABEL, _DLR.sub(r"\g<1>" + LABEL, text))
 
 
 class AccessMask(logging.Filter):

@@ -12,12 +12,13 @@ import re
 import sqlite3
 import subprocess
 import sys
+import time
 from datetime import date, datetime, timedelta, timezone
 
 from harness import CLOUD, Client, Result, Server, cid_from
 
 sys.path.insert(0, str(CLOUD))
-from app import config, db, license, mail, plink, plink_page, sms, tiers  # noqa: E402
+from app import config, db, license, logmask, mail, plink, plink_page, sms, tiers  # noqa: E402
 from test_account import BANK_ENV, _letters, _sql  # noqa: E402
 from test_paylink import HDR, _link, _token  # noqa: E402
 
@@ -159,6 +160,8 @@ def suite_rules(res: Result) -> None:
     res.ok("письма о конце годового Premium: имя включено до даты / больше не включено, путь оплаты года",
            f"inclus în Premium anual până la {mail.ro_date(free.strftime(db.TS))}" in s1
            and "plătiți din nou DentPilot Premium pe un an" in b1 and "nu mai este inclus" in b2
+           and all("Numele expeditorului (până la 11 caractere)" in b or "numele expeditorului (până la 11 caractere)" in b
+                   for b in (b1, b2))
            and "Setări › SMS" in b1 and "Setări › SMS" in b2, b1 + b2)
 
 
@@ -469,10 +472,12 @@ def suite_gifts(res: Result) -> None:
                and _sql(s, "SELECT name_free_until FROM subscriptions WHERE clinic_id=?", cid)[0][0] == valid, (acc, valid))
         st, data = _api(anon, "POST", "/v1/sms/order", tok, {"name": 1})
         res.check("⛔ год имени при годовом Premium не продаётся — 409 sms_name_free", (st, data.get("code")), (409, "sms_name_free"))
+        res.ok("текст отказа называет лимит имени", "(până la 11 caractere)" in data.get("text", ""), data)
         _sql(s, "UPDATE sms_accounts SET sender_live='Cadou', sender_state='active' WHERE clinic_id=?", cid)
         res.check("одобренное имя без оплаченного года работает: SMS от «Cadou»", _account(anon, tok)["from"], "Cadou")
         card = admin.get(f"/admin/clinics/{cid}").body
-        res.ok("админка: метка «входит в Premium на год до …»", f"входит в Premium на год до {valid[:10]}" in card)
+        res.ok("админка: метка «имя (до 11 знаков) входит в Premium на год до …»",
+               f"имя (до 11 знаков) входит в Premium на год до {valid[:10]}" in card)
         _pay(s, admin, anon, path, cid, "plus", 1)
         acc = _account(anon, tok)
         res.ok("ушла с Premium на Plus: имя работает до конца оплаченного года Premium", acc["from"] == "Cadou"
@@ -492,6 +497,38 @@ def suite_gifts(res: Result) -> None:
         acc = _account(anon, tok)
         res.check("год Premium кончился: SMS от общего имени, год имени снова платный",
                   (acc["from"], acc["name_year"], acc["gifts"]["name_free_until"]), (config.SMS_COMMON, sms.Y_UNPAID, None))
+
+
+def suite_log(res: Result) -> None:
+    """Код ссылки — мимо журнала доступа (в журнале рядом с IP он связал бы адрес пациента с визитом клиники;
+    документы называют в журнале только IP и браузер), IP промахов — только в памяти процесса, не в базе."""
+    res.check("маска: код в пути страницы", logmask.mask('1.2.3.4:0 - "GET /r/K7Q2MX?l=ru HTTP/1.1" 200'),
+              '1.2.3.4:0 - "GET /r/<cod>?l=ru HTTP/1.1" 200')
+    res.check("маска: секрет уведомлений по-прежнему", logmask.mask("/v1/smsmd/dlr/abc"), "/v1/smsmd/dlr/<секрет>")
+    res.check("маска: чужие пути не трогает", logmask.mask("/v1/link/inbox?after=3 /og/confirm.png /robots.txt"),
+              "/v1/link/inbox?after=3 /og/confirm.png /robots.txt")
+    src = "\n".join((CLOUD / "app" / f).read_text(encoding="utf-8") for f in ("plink.py", "plink_page.py"))
+    pub = _defs(CLOUD / "app" / "routes_public.py")
+    audit = [n for n in ("link_page", "link_answer", "_dead") if any(
+        isinstance(x, ast.Attribute) and x.attr == "audit" for x in ast.walk(pub[n]))]
+    res.ok("IP промахов — только в памяти: модули ссылок не пишут журнал сервера и не держат IP в SQL",
+           "db.audit" not in src and not re.search(r"(?i)\bip\b[^\n]*(INSERT|UPDATE)|(INSERT|UPDATE)[^\n]*\bip\b", src)
+           and not audit, audit)
+    with Server(env={**BANK_ENV, **SMS_ENV}, log_level="info") as s:
+        admin = Client(s.url).login()
+        _, tok = _premium(s, admin, "Clinica Jurnal", "7777777777797")
+        c = Client(s.url)
+        code = _api(c, "POST", "/v1/link/new", tok, {"kind": "confirm", "until": _until(), "langs": ["ro"],
+                                                     "label": "Clinica Jurnal", "phone": ""})[1]["codes"][0]
+        page = c.get(f"/r/{code}?l=ru").body
+        c.post(f"/r/{code}", a="yes", t=_t(page, "yes"), l="ru")
+        c.get("/r/ZZZZZZ")
+        time.sleep(0.3)                  # журнал доступа пишется после ответа
+        log = s.log()
+        lines = [x for x in log.splitlines() if " /r/" in x]
+        res.ok("журнал доступа пишет запросы страницы (GET, POST, промах)", len(lines) == 3, log[-800:])
+        res.ok("в журнале — метка вместо кода, кода нет ни в одной строке",
+               all("/r/<cod>" in x for x in lines) and code not in log and "ZZZZZZ" not in log, "\n".join(lines))
 
 
 def suite_caddy(res: Result) -> None:
@@ -519,6 +556,7 @@ SUITES = [
     ("Ссылки ответа: /v1/link/new · inbox · close, страница RO/RU, подпись формы и Origin, право, потолок", suite_api),
     ("Ссылки ответа: перебор с адреса — 429, живой код отвечает, робот превью не копит промахов", suite_limit),
     ("Ссылки ответа: уборка ежедневной задачей", suite_jobs),
+    ("Ссылки ответа: код — мимо журнала доступа, IP промахов — только в памяти", suite_log),
     ("Ссылки ответа: второй хост в Caddyfile — страница кода и картинка, прочее 404", suite_caddy),
     ("Подарки Premium: 80 SMS один раз при первой оплате, имя без оплаты года только при Premium на год", suite_gifts),
 ]
