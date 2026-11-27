@@ -13,7 +13,7 @@ from .events import _backfill_activity
 from .slots import (
     _slot_guard_apply, _slot_guard_startup, UQ_GUARD_STEP, UQ_ROOM_STEP,
 )
-from .patients import _digits, _fold
+from .patients import _digits, _fold, phone_key
 from .pimport import IMPORT_DDL
 from .schedule import seed
 from .teeth import TEETH_HIST_SINCE
@@ -1109,6 +1109,8 @@ async def init(seed_rows: list | None = None) -> None:
     # единственном соединении, которым ходит `_fetch`.
     await db._CONN.create_function("dp_fold", 1, _fold, deterministic=True)
     await db._CONN.create_function("dp_digits", 1, _digits, deterministic=True)
+    # тот же вид номера, по которому запись журнала находит фишу (`_patient_ids_by_digits`)
+    await db._CONN.create_function("dp_phone", 1, phone_key, deterministic=True)
     await db._CONN.execute("PRAGMA journal_mode=WAL")
     await db._CONN.execute("PRAGMA foreign_keys=ON")
     await db._CONN.executescript(SQLITE_SCHEMA)

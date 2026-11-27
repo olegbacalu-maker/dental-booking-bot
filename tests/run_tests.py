@@ -484,6 +484,7 @@ SUITES = [
     ("Настройки: React-экраны пачки A", test_settings_api.suite_switch),
     ("Пациенты: выдача списка по каждому отбору", test_patients_api.suite_list),
     ("Пациенты: JSON API списка", test_patients_api.suite_api),
+    ("Пациенты: поиск — номер в любом виде, слова, IDNP", test_patients_api.suite_search_forms),
     ("Пациенты: узел React экрана", test_patients_api.suite_switch),
     ("Фиша: JSON API — цифры и слова фиши", test_patient_card.suite_api),
     ("Фиша: действия через JSON", test_patient_card.suite_actions),

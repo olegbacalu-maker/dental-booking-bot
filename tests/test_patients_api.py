@@ -11,6 +11,7 @@
 import json
 import re
 import sqlite3
+import urllib.parse
 
 from harness import Client, Result, Server, new_patient, pid_by_phone
 from test_admin import _d
@@ -167,6 +168,38 @@ def suite_list(res: Result) -> None:
                              peek, re.S),
                   [(f"/admin/patient/{pid}?tab=date&amp;edit=1", "Editează"),
                    (f"/admin/patient/{pid}", "Profil complet")])
+
+
+# Поиск стойки (27.11, жалоба пилота): номер в любом виде, имя в любом порядке
+# слов, IDNP с начала. Запрос → кого находит (ключи засева `suite_search_forms`).
+SEARCH_FORMS = {
+    "079111222": ["ion"], "79111222": ["ion"], "+37379111222": ["ion"],
+    "00373 79 111": ["ion"], "37379111": ["ion"], "+373 79": ["ion"],
+    "+373 69 123 456": ["ana"], "069 12": ["ana"], "37369123456": ["ana"],
+    "068900112": ["andrei"],
+    "popescu ion": ["ion"], "ION  POPESCU": ["ion"], "TURCANU ana": ["ana"],
+    "maria țurcanu": ["ana"], "ion vasile": [], "popescu": ["ion", "vasile"],
+    "200301": ["ion"], "2003012345678": ["ion"], "20030": [], "345678": [],
+}
+
+
+def suite_search_forms(res: Result) -> None:
+    """Поиск списка находит фишу так, как её диктуют у стойки: номер с +373,
+    00373, с нулём и без, кусками; имя и фамилию в любом порядке; IDNP."""
+    with Server() as s:
+        c = Client(s.url).login()
+        p = {"ion": new_patient(c, "Ion Popescu", "+373 79 111 222"),
+             "ana": new_patient(c, "Ana-Maria Țurcanu", "069123456"),
+             "andrei": new_patient(c, "Andrei Ionescu", "0037368900112"),
+             "vasile": new_patient(c, "Vasile Popescu", "060777888")}
+        r = c.post_json(f"/api/patients/{p['ion']}/profile", {"name": "Ion Popescu", "phone": "+373 79 111 222",
+                                                            "idnp": "2003012345678"})
+        res.check("засев: IDNP записан", r.msg, "ok_card")
+        who = {v: k for k, v in p.items()}
+        for q, want in SEARCH_FORMS.items():
+            d = _j(c.get("/api/patients?q=" + urllib.parse.quote(q)))["data"]
+            res.check(f"поиск «{q}» находит {want or 'никого'}",
+                      sorted(who.get(x["id"], "?") for x in d["rows"]), sorted(want))
 
 
 def suite_api(res: Result) -> None:

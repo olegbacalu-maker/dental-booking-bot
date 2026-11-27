@@ -141,6 +141,7 @@ _PL_ORDER = {
 _PL_DIALECT = {"arch": "COALESCE(p.archived, 0) <> 0",
                "fold": lambda col: f"dp_fold({col})",
                "digits": lambda col: f"dp_digits({col})",
+               "phone": lambda col: f"dp_phone({col})",
                "has": lambda hay, needle: f"instr({hay}, {needle}) > 0",
                "ph": lambda n: "?", "dt": _iso}
 
@@ -168,6 +169,9 @@ class _PlQuery:
             if t.get("fold"):
                 for col in ("p.name", "p.email", "p.file_no"):
                     alts.append(d["has"](d["fold"](col), self.arg(t["fold"])))
+            if t.get("words"):
+                alts.append("(" + " AND ".join(d["has"](d["fold"]("p.name"), self.arg(w))
+                                               for w in t["words"]) + ")")
             if t.get("birth"):
                 alts.append(f"substr(COALESCE(p.birth_date, ''), 1, 10) = "
                             f"{self.arg(t['birth'])}")
@@ -178,6 +182,10 @@ class _PlQuery:
                 # которых нет
                 for col in ("p.phone", "p.notes"):
                     alts.append(d["has"](d["digits"](col), self.arg(t["digits"])))
+            if t.get("phone"):
+                alts.append(d["has"](d["phone"]("p.phone"), self.arg(t["phone"])))
+            if t.get("idnp"):
+                alts.append(f"instr({d['digits']('p.idnp')}, {self.arg(t['idnp'])}) = 1")
             # запрос без единого пригодного куска (одна буква) не находит
             # никого
             conds.append("(" + " OR ".join(alts) + ")" if alts else "1 = 0")

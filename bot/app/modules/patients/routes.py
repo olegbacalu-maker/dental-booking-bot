@@ -1395,18 +1395,41 @@ def _pl_terms(q: str) -> dict:
     цифры телефона от трёх ('069 12' и '069-12' обязаны искать одинаково;
     цифры ищутся и в notes, где живёт номер второго человека на семейном
     телефоне). Невозможные день/месяц (99.99.2003) дают ISO, которого нет ни
-    у кого. Пустой словарь — запрос не находит никого."""
+    у кого. Пустой словарь — запрос не находит никого.
+
+    Имя из нескольких слов ищется и в другом порядке (`words`): стойка диктует
+    «Popescu Ion», а в фише «Ion Popescu». Номер сравнивается ещё и в виде
+    `db.phone_key` (`phone`): «079…» находит фишу «+373 79…» и наоборот — так же,
+    как запись журнала цепляет визит к фише. IDNP — с начала, от шести цифр:
+    короче он совпадал бы с кусками телефонов."""
     out: dict = {}
     qf = db.fold(q)
     if len(qf) >= 2:
         out["fold"] = qf
+        words = qf.split()
+        if len(words) >= 2:
+            out["words"] = words
     m = re.fullmatch(r"(\d{1,2})\.(\d{1,2})\.(\d{4})", q.strip())
     if m:
         out["birth"] = f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}"
     digits = _pl_digits(q)
     if len(digits) >= 3:
         out["digits"] = digits
+        out["phone"] = _pl_phone(digits)
+        if len(digits) >= 6:
+            out["idnp"] = digits
     return out
+
+
+def _pl_phone(digits: str) -> str:
+    """Цифры запроса в виде `db.phone_key`, но для КУСКА номера: «+373 79 1…» →
+    «079 1…». `phone_key` целый номер узнаёт по длине, а набор на стойке
+    обычно неполный."""
+    d = digits[2:] if digits.startswith("00") else digits
+    if d.startswith("373") and len(d) > 3:
+        d = d[3:]
+        return d if d.startswith("0") else "0" + d
+    return d
 
 
 def _pl_stale_cut(now: datetime) -> datetime:
