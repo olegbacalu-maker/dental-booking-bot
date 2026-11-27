@@ -45,7 +45,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
-from . import config, db, mail, maib, paylink, payments, sms, smsmd, tiers
+from . import config, db, mail, maib, paylink, payments, plink, sms, smsmd, tiers
 
 log = logging.getLogger("cloud.jobs")
 
@@ -92,11 +92,13 @@ class Report:
     cards: list[tuple[str, str]] = field(default_factory=list)     # (clinic_id, reference) — maib сказал OK
     sms: str = ""                                                   # итог SMS-части (S3) словами
     purged: int = 0                                                 # строк журнала старше срока снято
+    links: int = 0                                                  # кодов ссылок ответа старше срока стёрто
 
     def line(self) -> str:
         return (f"писем: {len(self.sent)}, пропущено: {len(self.skipped)}, ошибок: {len(self.failed)}, "
                 f"картой оплачено: {len(self.cards)}" + (f"; SMS: {self.sms}" if self.sms else "")
-                + (f"; журнал: снято {self.purged} строк старше {config.AUDIT_KEEP_DAYS} дн." if self.purged else ""))
+                + (f"; журнал: снято {self.purged} строк старше {config.AUDIT_KEEP_DAYS} дн." if self.purged else "")
+                + (f"; ссылки ответа: стёрто {self.links}" if self.links else ""))
 
 
 _SUBS = """SELECT c.*, s.plan, s.price, s.tier, s.sms_until, s.valid_until, s.grace_days
@@ -259,6 +261,7 @@ def daily(now: datetime | None = None, send=mail.send, who: str = WHO) -> Report
     try:
         with db.connect(immediate=True) as con:
             rep.purged = purge_audit(con, now)
+            rep.links = plink.purge(con, now)       # коды ответа пациента: через LINK_KEEP_DAYS после визита
     except Exception as e:  # noqa: BLE001 — срок журнала не останавливает письма о подписках
         log.error("срок журнала: %r", e)
         rep.failed.append(("_audit", repr(e)))

@@ -140,6 +140,9 @@ SENDER_RE = re.compile(r"^(?=.*[A-Za-z])[A-Za-z0-9 .\-]{1,11}$")
 
 # Год имени — отдельно от состояния заявки: одобренное имя без оплаченного года не работает.
 Y_UNPAID, Y_PREPAID, Y_ON, Y_OVER = "unpaid", "prepaid", "on", "over"
+# Подарок Premium на год (Олег 27.11): имя работает без оплаты года, пока идёт оплаченный на год период Premium
+# главной клиники имени (`subscriptions.name_free_until`); оплаченный год идёт своим чередом и не возвращается.
+Y_FREE = "free"
 NAME_SOON_DAYS = 14     # за сколько дней до конца года клинике пишут о продлении
 NAME_OVER_DAYS = 30     # сколько дней после конца письмо «год кончился» ещё уместно
 # Отказ sms.md клиника читает дословно в кабинете, программе и письме — поэтому по-румынски.
@@ -178,6 +181,8 @@ CODES = {
     "sms_no_name": (503, "Numele propriu de expeditor nu este disponibil încă."),
     "sms_name_none": (409, "Alegeți mai întâi numele de expeditor al clinicii."),
     "sms_name_paid": (409, "Anul numelui este deja plătit; se numără din ziua aprobării."),
+    "sms_name_free": (409, "Numele de expeditor este inclus în DentPilot Premium plătit pe un an — anul numelui nu "
+                           "se plătește acum."),
     "sms_need_idno": (409, "Pentru nota de plată indicați IDNO-ul clinicii (13 cifre)."),
     "bad_json": (400, "Cererea nu a putut fi citită — actualizați programul."),
 }
@@ -222,6 +227,29 @@ def trial_bonus(con: sqlite3.Connection, clinic_id: str) -> bool:
     return True
 
 
+PREMIUM_NOTE = "cadou DentPilot Premium"
+
+
+def premium_bonus(con: sqlite3.Connection, clinic_id: str, who: str) -> bool:
+    """Подарок Premium (Олег 27.11 «При первой оплате»): SMS_PREMIUM_UNITS один раз на клинику — при первой
+    оплаченной ноте Premium (payments._prolong, в транзакции подтверждения). Строка bonus с отметкой
+    PREMIUM_NOTE: повтор (вторая оплата, уход и возврат, общая нота) ничего не добавляет. Пробные 30 — отдельно."""
+    if not config.SMS_PREMIUM_UNITS:
+        return False
+    ensure(con, clinic_id)
+    if bonus_at(con, clinic_id) is not None:
+        return False
+    ledger(con, clinic_id, config.SMS_PREMIUM_UNITS, "bonus", who, note=PREMIUM_NOTE)
+    return True
+
+
+def bonus_at(con: sqlite3.Connection, clinic_id: str) -> str | None:
+    """Когда клинике начислен подарок Premium (UTC) или None."""
+    row = con.execute("SELECT at FROM sms_ledger WHERE clinic_id=? AND reason='bonus' AND note=? ORDER BY id LIMIT 1",
+                      (clinic_id, PREMIUM_NOTE)).fetchone()
+    return row["at"] if row is not None else None
+
+
 def balance(con: sqlite3.Connection, clinic_id: str) -> int:
     return con.execute("SELECT COALESCE(SUM(delta), 0) FROM sms_ledger WHERE clinic_id=?",
                        (clinic_id,)).fetchone()[0]
@@ -251,22 +279,41 @@ def used_today(con: sqlite3.Connection, clinic_id: str, now: datetime) -> int:
                        (clinic_id, since, *sorted(REFUNDED))).fetchone()[0]
 
 
-def sender_now(acc: sqlite3.Row | None, now: datetime | None = None) -> str:
+def name_free(con: sqlite3.Connection, owner_id: str, now: datetime | None = None) -> datetime | None:
+    """До какого момента имя клиники `owner_id` (главной клиники имени, name_owner) идёт без оплаты года —
+    конец оплаченного на год периода Premium (payments._prolong пишет его при оплате года Premium); прошло или
+    не было — None. Ушла с Premium — имя работает до этого конца, дальше нужен оплаченный год."""
+    now = now or datetime.now(UTC)
+    row = con.execute("SELECT name_free_until FROM subscriptions WHERE clinic_id=?", (owner_id,)).fetchone()
+    until = db.parse_ts(row["name_free_until"]) if row is not None else None
+    return until if until is not None and until > now else None
+
+
+def name_free_ts(con: sqlite3.Connection, owner_id: str, now: datetime | None = None) -> str | None:
+    """name_free строкой UTC (для страниц и JSON) или None."""
+    free = name_free(con, owner_id, now)
+    return free.strftime(db.TS) if free is not None else None
+
+
+def sender_now(acc: sqlite3.Row | None, now: datetime | None = None, free: datetime | None = None) -> str:
     """От какого имени SMS клиники уходят сейчас: одобренное — пока оплачен год
-    (sender_until), иначе общее DentPilot (Олег 16.10: без блокировки)."""
+    (sender_until) или идёт годовой Premium (`free`, name_free), иначе общее DentPilot (Олег 16.10: без
+    блокировки)."""
     now = now or datetime.now(UTC)
     if acc is not None and acc["sender_live"]:
         until = db.parse_ts(acc["sender_until"])
-        if until is not None and until > now:
+        if (until is not None and until > now) or (free is not None and free > now):
             return acc["sender_live"]
     return config.SMS_COMMON if config.SMS_COMMON_OK else ""
 
 
-def name_year(acc: sqlite3.Row | None, now: datetime | None = None) -> str:
-    """Что с оплаченным годом имени: идёт (Y_ON), оплачен и ждёт одобрения (Y_PREPAID), кончился
-    (Y_OVER), не оплачен (Y_UNPAID). Год прежнего имени переходит новому (sync_aliases срок не
-    трогает), поэтому заявка при идущем годе — Y_ON."""
+def name_year(acc: sqlite3.Row | None, now: datetime | None = None, free: datetime | None = None) -> str:
+    """Что с оплаченным годом имени: идёт годовой Premium — год не нужен (Y_FREE), идёт (Y_ON), оплачен и ждёт
+    одобрения (Y_PREPAID), кончился (Y_OVER), не оплачен (Y_UNPAID). Год прежнего имени переходит новому
+    (sync_aliases срок не трогает), поэтому заявка при идущем годе — Y_ON."""
     now = now or datetime.now(UTC)
+    if free is not None and free > now:
+        return Y_FREE
     if acc is None:
         return Y_UNPAID
     until = db.parse_ts(acc["sender_until"])
@@ -289,7 +336,16 @@ def name_owner(con: sqlite3.Connection, clinic_id: str) -> str:
 
 def sender_for(con: sqlite3.Connection, clinic_id: str, now: datetime | None = None) -> str:
     """От какого имени SMS ЭТОЙ клиники уходят сейчас — имя её кабинета (name_owner)."""
-    return sender_now(account(con, name_owner(con, clinic_id)), now)
+    owner = name_owner(con, clinic_id)
+    return sender_now(account(con, owner), now, name_free(con, owner, now))
+
+
+def year_of(con: sqlite3.Connection, clinic_id: str, now: datetime | None = None) -> str:
+    """name_year имени ЭТОЙ клиники — с подарком годового Premium главной клиники имени. ⛔ Новое место,
+    показывающее год имени, зовёт это (или name_year с `free`), а не name_year(acc): без `free` клиника на
+    годовом Premium видела бы «anul neplătit» при работающем имени."""
+    owner = name_owner(con, clinic_id)
+    return name_year(account(con, owner), now, name_free(con, owner, now))
 
 
 def offered(acc: sqlite3.Row | None) -> bool:
@@ -343,17 +399,24 @@ def view(con: sqlite3.Connection, clinic_id: str, now: datetime | None = None) -
     now = now or datetime.now(UTC)
     acc = ensure(con, clinic_id)
     # имя — кабинета (name_owner): у филиала поля имени — главной клиники
-    na = account(con, name_owner(con, clinic_id))
+    owner = name_owner(con, clinic_id)
+    na = account(con, owner)
+    free = name_free(con, owner, now)
     return {"ok": True, "offered": offered(acc), "enabled": bool(acc["enabled"]),
             "sender": na["sender"] if na is not None else "",
             "sender_state": na["sender_state"] if na is not None else S_NONE,
             "sender_note": na["sender_note"] if na is not None else "",
             "sender_until": na["sender_until"] if na is not None else None,
             "sender_prepaid": na["sender_prepaid"] if na is not None else 0,
-            "from": sender_now(na, now), "balance": balance(con, clinic_id), "packs": packs(),
+            "from": sender_now(na, now, free), "balance": balance(con, clinic_id), "packs": packs(),
             "name_price": config.SMS_NAME_PRICE, "name_days": config.SMS_NAME_DAYS,
             "daily_cap": acc["daily_cap"], "used_today": used_today(con, clinic_id, now),
-            "blocked": blocked(con, clinic_id, acc, now), "custom": custom_texts(acc)}
+            "blocked": blocked(con, clinic_id, acc, now), "custom": custom_texts(acc),
+            # добавочные (Premium волна 2а): год имени словом name_year и подарки Premium для «Starea pachetului»;
+            # программа до 2.26 их не читает
+            "name_year": name_year(na, now, free),
+            "gifts": {"bonus_units": config.SMS_PREMIUM_UNITS, "bonus_at": bonus_at(con, clinic_id),
+                      "name_free_until": free.strftime(db.TS) if free is not None else None}}
 
 
 # ---------- личный текст клиники (S6, «Свой текст — по заявке») ----------
@@ -826,19 +889,25 @@ def sync_aliases(who: str = "daily", send=None) -> dict:
 
 def year_letters(now: datetime | None = None, send=None, who: str = "daily") -> list[tuple[str, str]]:
     """Письма о конце оплаченного года имени: `sms_name_soon` — за NAME_SOON_DAYS до конца,
-    `sms_name_over` — с дня конца (окно NAME_OVER_DAYS: пропущенный день задачи письмо не теряет).
-    Раз на вид и срок: отметка `reminders` с периодом `sender_until` — продление даёт новый срок и
-    новые письма. Клинике, которой год не продать (CLOSED, отзыв, архив), не пишут.
+    `sms_name_over` — с дня конца (окно NAME_OVER_DAYS: пропущенный день письмо не теряет).
+    Раз на вид и срок: отметка `reminders` с периодом — концом — продление даёт новый срок и
+    новые письма. Конец — позднейший из оплаченного года и годового Premium (`name_free_until`, подарок): если
+    позже кончается Premium, письма — `sms_name_free_soon` / `sms_name_free_over` (о том, что имя перестанет
+    быть включённым). Клинике, которой год не продать (CLOSED, отзыв, архив), не пишут.
     → [(клиника, вид)] отправленных."""
     now = now or datetime.now(UTC)
     sent: list[tuple[str, str]] = []
     with db.connect() as con:
         rows = con.execute(
-            "SELECT c.*, a.sender, a.sender_until FROM sms_accounts a JOIN clinics c ON c.id = a.clinic_id "
-            "WHERE a.sender_state=? AND a.sender_live=a.sender AND a.sender_until IS NOT NULL "
+            "SELECT c.*, a.sender, a.sender_until, s.name_free_until FROM sms_accounts a "
+            "JOIN clinics c ON c.id = a.clinic_id LEFT JOIN subscriptions s ON s.clinic_id = a.clinic_id "
+            "WHERE a.sender_state=? AND a.sender_live=a.sender "
+            "AND (a.sender_until IS NOT NULL OR s.name_free_until IS NOT NULL) "
             "AND c.revoked_at IS NULL AND c.archived_at IS NULL ORDER BY c.created_at, c.id", (S_ACTIVE,)).fetchall()
     for r in rows:
-        until = db.parse_ts(r["sender_until"])
+        paid, free = db.parse_ts(r["sender_until"]), db.parse_ts(r["name_free_until"])
+        gift = free is not None and (paid is None or free > paid)
+        until = free if gift else paid
         if until is None or not r["email"]:
             continue
         if until - timedelta(days=NAME_SOON_DAYS) <= now < until:
@@ -847,13 +916,15 @@ def year_letters(now: datetime | None = None, send=None, who: str = "daily") -> 
             kind = "over"
         else:
             continue
-        mark = (r["id"], f"sms_name_{kind}", r["sender_until"])
+        kind = f"free_{kind}" if gift else kind
+        period = until.strftime(db.TS)
+        mark = (r["id"], f"sms_name_{kind}", period)
         with db.connect() as con:
             if con.execute("SELECT 1 FROM reminders WHERE subscription_id=? AND kind=? AND period=?", mark).fetchone():
                 continue
             if blocked(con, r["id"], account(con, r["id"]), now) in CLOSED:
                 continue
-        subject, body = mail.sms_name_year_letter(kind, r["name"], r["sender"], r["sender_until"])
+        subject, body = mail.sms_name_year_letter(kind, r["name"], r["sender"], period)
         letter = mail.Letter(r["email"], subject, body, r["id"], who, f"год имени SMS «{r['sender']}»: {kind},",
                              f"письмо о годе имени SMS клинике {r['id']}", remind=mark)
         if not mail.deliver(letter, via=send):

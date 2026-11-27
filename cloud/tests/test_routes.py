@@ -120,6 +120,13 @@ SNAPSHOT = [
     ("POST", "/v1/terms/accept", "terms_accept_api"),
     ("GET", "/cont/acceptari", "cont_terms_list"),
     ("GET", "/cont/acceptari/{aid}", "cont_terms_act"),
+    # Premium волна 2а: ответ пациента ссылкой из SMS (plink.py, plink_page.py)
+    ("POST", "/v1/link/new", "link_new"),
+    ("GET", "/v1/link/inbox", "link_inbox"),
+    ("POST", "/v1/link/close", "link_close"),
+    ("GET", "/r/{code}", "link_page"),
+    ("POST", "/r/{code}", "link_answer"),
+    ("GET", "/og/confirm.png", "link_og"),
 ]
 
 

@@ -82,6 +82,12 @@ def _sign(kind: str, body: str, exp: int) -> str:
     return hmac.new(_SECRET, f"{kind}|{body}|{exp}".encode("utf-8"), hashlib.sha256).hexdigest()
 
 
+def form_mark(kind: str, body: str, day: int) -> str:
+    """Подпись формы страницы без входа (plink: код + сутки) тем же секретом, что куки: вид — в теле
+    подписи, поэтому подпись формы куку не заменит и наоборот."""
+    return _sign(kind, body, day)[:32]
+
+
 def _token(kind: str, body: str, ttl: int) -> str:
     exp = int(time.time()) + ttl
     return f"{body}|{exp}|{_sign(kind, body, exp)}"

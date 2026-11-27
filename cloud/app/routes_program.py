@@ -7,13 +7,14 @@ from __future__ import annotations
 import json
 import logging
 import secrets
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 
-from . import (account, config, contlink, db, emailconf, fleet, license, maib, mail, payments, paylink, revoke, sms,
-               smsmd, terms, trial, updates, views, web)
+from . import (account, config, contlink, db, emailconf, fleet, license, maib, mail, payments, paylink, plink, revoke,
+               sms, smsmd, terms, trial, updates, views, web)
 from . import login as elogin  # ⚠️ не `login`: так зовётся маршрут входа админки (routes_admin)
 
 log = logging.getLogger("cloud")
@@ -281,6 +282,80 @@ async def smsmd_dlr(request: Request, secret: str, tasks: BackgroundTasks) -> Re
     if parsed is not None:
         tasks.add_task(sms.recheck, parsed[0], parsed[1])
     return JSONResponse({"ok": True})
+
+
+# ---------- ответ пациента ссылкой из SMS (Premium волна 2а, plink.py) ----------
+#
+# Тот же Bearer, что у /v1/sms/*. Отказы — {ok:false, code, text} с кодами plink.CODES. В запросах и ответах ни
+# телефона, ни имени пациента, ни времени визита: `until` — граница ответа (начало визита), сервер её не печатает.
+
+
+def _link_answer(code: str, **extra) -> Response:
+    status, data = plink.answer(code, **extra)
+    return JSONResponse(data, status_code=status)
+
+
+def _link_new(cid: str, body: dict) -> Response:
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    with db.connect(immediate=True) as con:
+        why = plink.refused(con, cid, now)
+        if why:
+            return _link_answer(why)
+        f = plink.clean_new(body, now)
+        if f is None:
+            return _link_answer("link_bad")
+        why, codes = plink.issue(con, cid, f, now)
+        if why:
+            return _link_answer(why)
+    return JSONResponse({"ok": True, "host": config.LINK_HOST, "codes": codes})
+
+
+@router.post("/v1/link/new")
+async def link_new(request: Request) -> Response:
+    """{kind:"confirm", until, langs:[…], label, phone} → {host, codes} — коды по порядку языков. Подпись и
+    телефон — КЛИНИКИ (страница называет клинику теми же словами, что SMS, и даёт кнопку звонка)."""
+    c, deny = await run_in_threadpool(_sms_clinic, request)
+    if deny is not None:
+        return deny
+    body = await _sms_body(request)
+    if body is None:
+        return _link_answer("bad_json")
+    return await run_in_threadpool(_link_new, c["id"], body)
+
+
+def _link_inbox(cid: str, after: int) -> dict:
+    with db.connect() as con:
+        return plink.inbox(con, cid, after)
+
+
+@router.get("/v1/link/inbox")
+async def link_inbox(request: Request, after: int = 0) -> Response:
+    """Ответы пациентов после перемены `after`: {seq, more, items:[{code, seq, state: yes|no, at}]}. Права не
+    спрашивает: ответы, данные до ухода с Premium, программа получает."""
+    c, deny = await run_in_threadpool(_sms_clinic, request)
+    if deny is not None:
+        return deny
+    return JSONResponse(await run_in_threadpool(_link_inbox, c["id"], after))
+
+
+def _link_close(cid: str, codes: list[str]) -> dict:
+    with db.connect(immediate=True) as con:
+        return {"ok": True, "closed": plink.close(con, cid, codes)}
+
+
+@router.post("/v1/link/close")
+async def link_close(request: Request) -> Response:
+    """{codes:[… до 200]} — визит перенесён, отменён, «Fără SMS», пациент стёрт: страница скажет «изменено»."""
+    c, deny = await run_in_threadpool(_sms_clinic, request)
+    if deny is not None:
+        return deny
+    body = await _sms_body(request)
+    if body is None:
+        return _link_answer("bad_json")
+    codes = plink.clean_codes(body.get("codes"))
+    if codes is None:
+        return _link_answer("link_bad")
+    return JSONResponse(await run_in_threadpool(_link_close, c["id"], codes))
 
 
 # ---------- заявка на пробный из программы (26.09): активация без файла ----------

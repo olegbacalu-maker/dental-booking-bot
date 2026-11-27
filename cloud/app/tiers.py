@@ -26,7 +26,12 @@ DentPilot Premium — Plus и календари врачей в Google (усл�
   что модуль SMS, но датой в файле лицензии: программа держит связь, пока дата не прошла;
 - `gdoc_until(sub, end, now)` — календари врачей в Google (право `gcal_doctor`): у Premium —
   до конца файла; после ухода с Premium — до `gdoc_until` подписки, конца периода, шедшего
-  при уходе; потом программа убирает будущие приёмы из календарей.
+  при уходе; потом программа убирает будущие приёмы из календарей;
+- `link_until(sub, end, now)` — ответ пациента ссылкой из SMS (право `sms_link`, Premium волна 2):
+  тем же правилом, что календари врачей, и тем же остатком `gdoc_until` после ухода с Premium —
+  обе функции дал вариант, обе гаснут в конце периода, шедшего при уходе.
+Подарки Premium (`GIFT_TIERS`): 80 SMS один раз при первой оплате (sms.premium_bonus) и своё имя
+отправителя без оплаты года, пока идёт оплаченный на год период Premium (`subscriptions.name_free_until`).
 Цен в репозитории нет: DP_PRICE_BASIC / DP_PRICE_PLUS / DP_PRICE_PREMIUM в cloud.env.
 """
 from __future__ import annotations
@@ -46,6 +51,8 @@ WHAT_RU = {BASIC: "без модуля SMS", PLUS: "с модулем SMS",     
 SMS_TIERS = frozenset({PLUS, PREMIUM})       # модуль SMS
 GCAL_TIERS = frozenset({PLUS, PREMIUM})      # связь с аккаунтом Google клиники (право gcal)
 GDOC_TIERS = frozenset({PREMIUM})            # календари врачей в Google (право gcal_doctor)
+LINK_TIERS = frozenset({PREMIUM})            # ответ пациента ссылкой из SMS (право sms_link)
+GIFT_TIERS = frozenset({PREMIUM})            # 80 SMS при первой оплате и имя отправителя в годовом периоде
 
 
 def list_price(tier: str) -> int:
@@ -130,6 +137,12 @@ def gdoc_until(sub: sqlite3.Row | None, end: datetime, now: datetime) -> datetim
     """Дата права gcal_doctor для файла до `end`: Premium — `end`; ушедшая с Premium — `gdoc_until`
     подписки, но не дальше `end`; пробный (он Plus) и остальные — None."""
     return _right(current(sub) in GDOC_TIERS, gdoc_left(sub), end, now)
+
+
+def link_until(sub: sqlite3.Row | None, end: datetime, now: datetime) -> datetime | None:
+    """Дата права sms_link для файла до `end`: Premium — `end`; ушедшая с Premium — тот же остаток, что у
+    календарей врачей (`gdoc_until`: конец периода, шедшего при уходе), не дальше `end`; остальные — None."""
+    return _right(current(sub) in LINK_TIERS, gdoc_left(sub), end, now)
 
 
 def label(tier: str | None) -> str:

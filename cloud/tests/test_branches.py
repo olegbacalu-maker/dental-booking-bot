@@ -748,7 +748,7 @@ def suite_paid(res: Result) -> None:
         g = _sql(s, "SELECT grace_until FROM issues WHERE clinic_id=? ORDER BY seq DESC LIMIT 1", prem)[0][0]
         res.ok("Premium из «Adaugă clinică»: в файле на срок оплаты gcal и gcal_doctor до конца льготы, у главной — "
                "пробный без календарей врачей",
-               _features(s, prem) == {"gcal": g, "gcal_doctor": g}
+               _features(s, prem) == {"gcal": g, "gcal_doctor": g, "sms_link": g}
                and _sql(s, "SELECT tier FROM subscriptions WHERE clinic_id=?", prem) == [("premium",)]
                and "gcal_doctor" not in _features(s, main), repr((_features(s, prem), _features(s, main))))
 

@@ -922,6 +922,8 @@ def _year_tag(i: dict) -> str:
     if i["sender_state"] not in ("requested", "submitted", "active"):
         return ""
     year = i["name_year"]
+    if year == sms.Y_FREE:
+        return f" · входит в Premium на год до {esc((i.get('name_free') or '')[:10])}"
     if year == sms.Y_PREPAID:
         return f" · оплачено лет: {i['sender_prepaid']}"
     if year == sms.Y_ON:
@@ -1847,6 +1849,8 @@ CONT_MSG = {
     "sms_no_name": "Numele propriu de expeditor nu este disponibil încă.",
     "sms_name_none": "Cereți mai întâi numele de expeditor al clinicii.",
     "sms_name_paid": "Anul numelui este deja plătit; se numără din ziua aprobării.",
+    "sms_name_free": "Numele de expeditor este inclus în DentPilot Premium plătit pe un an — anul numelui nu se "
+                     "plătește acum.",
     "sms_pack": "Alegeți un pachet din listă.",
     "sms_no_packs": "Pachetele SMS nu sunt disponibile încă.",
     "sms_need_idno": "Pentru nota de plată completați mai întâi IDNO-ul clinicii (13 cifre), în datele clinicii.",
@@ -1928,6 +1932,13 @@ NAME_TRANSFER = "Transfer bancar — primesc nota de plată"
 NAME_RENEW = "Prelungește numele cu încă un an"
 NAME_PAID = "plătit"
 NAME_PAID_WAIT = "Anul este plătit; se numără din ziua aprobării."
+NAME_FREE = "inclus în Premium anual"       # подарок Premium на год: год имени не платится (sms.Y_FREE)
+
+
+def name_free_line(until) -> str:
+    """Одна фраза кабинета о подарке годового Premium: имя без оплаты года до конца оплаченного года Premium."""
+    return (f"Numele este inclus în DentPilot Premium plătit pe un an, până la {_ro(until)}: anul numelui nu se "
+            f"plătește. După această dată, dacă Premium nu este plătit din nou pe un an, anul numelui se plătește.")
 NAME_UNPAID = "Fără plată, numele aprobat nu se folosește: SMS-urile pleacă de la «DentPilot»."
 NAME_MISSING = "Pentru cerere lipsesc datele clinicii"
 DATA_CARD, DATA_SAVE = "Datele clinicii", "Salvează"
@@ -2968,13 +2979,16 @@ def _cont_sms(c, info: dict, q: str = "") -> str:
         if note_due is not None:
             pay_step = (f"nota de plată {esc(note_due['reference'])} este în așteptare — datele pentru plată sunt "
                         f"mai jos.")
+        elif year == sms.Y_FREE:
+            pay_step = f"<span class='tag ok'>{NAME_FREE}</span> {name_free_line(info.get('name_free'))}"
         elif year == sms.Y_PREPAID:
             pay_step = f"<span class='tag ok'>{NAME_PAID}</span> {NAME_PAID_WAIT}"
         elif year == sms.Y_ON:
             pay_step = f"<span class='tag ok'>{NAME_PAID}</span> Anul este plătit până la {_ro(sa['sender_until'])}."
         else:
             pay_step = NAME_STEPS["pay"][1]
-        pay_li = f"<li><b>{NAME_STEPS['pay'][0]}</b>: {pay_step}</li>" if price or note_due is not None else ""
+        pay_li = (f"<li><b>{NAME_STEPS['pay'][0]}</b>: {pay_step}</li>"
+                  if price or note_due is not None or year == sms.Y_FREE else "")
         head = f"<p style='margin:0 0 12px'>Numele cerut: <b>{esc(name)}</b> {tag}</p>"
         if miss:
             # заявление без реквизитов не скачать: сначала чего нет, шаги и поле загрузки — после
@@ -3002,6 +3016,8 @@ def _cont_sms(c, info: dict, q: str = "") -> str:
         elif year == sms.Y_UNPAID:
             said = (": operatorii l-au aprobat, dar anul numelui nu este plătit — SMS-urile pleacă de la "
                     "«DentPilot». Plătiți anul mai jos.")
+        elif year == sms.Y_FREE:
+            said = f", {NAME_FREE} până la {_ro(info.get('name_free'))}."
         else:
             said = f", achitat până la {_ro(sa['sender_until'])}."
         body = (f"<p style='margin:0 0 12px'>Numele <b>{esc(name)}</b> {tag}{said}</p>"
@@ -3034,9 +3050,12 @@ def _cont_sms_year(info: dict, state: str, q: str) -> str:
                 f"<b>{_mdl(note['amount'])} MDL</b> <span class='tag warn'>în așteptare</span></p>"
                 f"{_sms_note_pay(note, action, card_on)}</div>")
     price = info.get("name_price") or 0
+    year, sa = info.get("year") or sms.Y_UNPAID, info["acc"]
+    if year == sms.Y_FREE and state in ("requested", "submitted", "active"):
+        # годовой Premium: формы оплаты года нет — сервер её и не примет (sms_name_free)
+        return f"<div class='terms'><p><b>{name_free_line(info.get('name_free'))}</b></p></div>"
     if not price or state not in ("requested", "submitted", "active"):
         return ""
-    year, sa = info.get("year") or sms.Y_UNPAID, info["acc"]
     waiting = state in ("requested", "submitted")
     if waiting and year == sms.Y_PREPAID:
         # оплаченный год ждёт одобрения: форма оплаты здесь была бы второй оплатой по ошибке

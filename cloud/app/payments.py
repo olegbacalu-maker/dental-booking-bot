@@ -658,6 +658,13 @@ def _prolong(con: sqlite3.Connection, clinic: sqlite3.Row, line: sqlite3.Row, pa
                            tier=tier, sms_until=sms_until, gdoc_until=gdoc_until)
     con.execute("UPDATE subscriptions SET anchor_day=?, price=? WHERE clinic_id=?",
                 (day, price, clinic["id"]))
+    if tier in tiers.GIFT_TIERS:
+        # подарки Premium (Олег 27.11): SMS_PREMIUM_UNITS один раз на клинику — при первой оплате Premium;
+        # Premium на год — своё имя отправителя без оплаты года до конца этого года (sms.name_free)
+        sms.premium_bonus(con, clinic["id"], who)
+        if int(line["months"]) == 12:
+            con.execute("UPDATE subscriptions SET name_free_until=? WHERE clinic_id=?",
+                        (valid.strftime(db.TS), clinic["id"]))
     start = first if first is not None and current is not None and current >= now else (
         now if current is None or current < now else current)
     return issued, (start, valid)

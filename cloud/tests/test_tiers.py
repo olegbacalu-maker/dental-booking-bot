@@ -180,8 +180,8 @@ def suite_premium_rules(res: Result) -> None:
                gd(_sub(tier=P, gdoc_until=now + timedelta(days=3))), gd(_sub(tier=B, gdoc_until=g_end + timedelta(days=9))),
                gd(_sub(tier=P, gdoc_until=now - timedelta(seconds=1)))],
               [g_end, None, None, None, None, now + timedelta(days=3), g_end, None])
-    res.check("права файла Premium: gcal и gcal_doctor одной датой", license.features(_sub(tier=PR), g_end, now),
-              {"gcal": ts(g_end), "gcal_doctor": ts(g_end)})
+    res.check("права файла Premium: gcal, gcal_doctor и sms_link одной датой", license.features(_sub(tier=PR), g_end, now),
+              {"gcal": ts(g_end), "gcal_doctor": ts(g_end), "sms_link": ts(g_end)})
     res.check("права файла Plus и пробного — только gcal",
               [license.features(_sub(tier=P), g_end, now), license.features(_sub("trial", PR), g_end, now)],
               [{"gcal": ts(g_end)}, {"gcal": ts(g_end)}])
@@ -672,7 +672,7 @@ def suite_premium(res: Result) -> None:
                   f"/admin/clinics/{cid}?msg=tier_set")
         seq2, claim, valid2, grace2, why = _files(s, cid)[-1]
         res.ok("файл: тот же срок, права gcal и gcal_doctor до его конца",
-               seq2 == seq + 1 and claim.get("features") == {"gcal": grace2, "gcal_doctor": grace2}
+               seq2 == seq + 1 and claim.get("features") == {"gcal": grace2, "gcal_doctor": grace2, "sms_link": grace2}
                and why == "вариант вручную", (seq2, claim))
         code, pc = rv.open_envelope(admin.get(f"/admin/clinics/{cid}/issues/{seq2}/license.json").body, KEYS)
         res.ok("проверка программы принимает файл и видит gcal_doctor", code == "" and pc is not None
@@ -731,7 +731,7 @@ def suite_premium(res: Result) -> None:
         admin.post(f"/admin/payments/{pid}/confirm")
         _, claim, valid1, grace1, _ = _files(s, cid)[-1]
         res.ok("пробный → Premium оплатой: оба права до конца нового файла, подписка Premium по прайсу",
-               claim.get("features") == {"gcal": grace1, "gcal_doctor": grace1}
+               claim.get("features") == {"gcal": grace1, "gcal_doctor": grace1, "sms_link": grace1}
                and _subrow(s, cid)[1:4] == ("premium", tiers.list_price(PR), None), (claim, _subrow(s, cid)))
         res.ok("журнал оплаты: переход и «календари врачей сразу»",
                any("переход пробный → DentPilot Premium: календари врачей сразу" in d for (d,) in
@@ -740,7 +740,7 @@ def suite_premium(res: Result) -> None:
         paid("plus")
         _, claim, valid2, grace2, _ = _files(s, cid)[-1]
         res.ok("⛔ Premium → Plus оплатой: gcal — до конца нового файла, gcal_doctor — до конца оплаченного Premium",
-               claim.get("features") == {"gcal": grace2, "gcal_doctor": valid1}
+               claim.get("features") == {"gcal": grace2, "gcal_doctor": valid1, "sms_link": valid1}
                and _sql(s, "SELECT tier, sms_until, gdoc_until FROM subscriptions WHERE clinic_id=?", cid)
                == [("plus", None, valid1)], claim)
         res.check("модуль SMS после Premium → Plus работает", _account(anon, tok).get("blocked"), "")
@@ -759,7 +759,8 @@ def suite_premium(res: Result) -> None:
              _b64u(json.dumps(old, sort_keys=True, separators=(",", ":")).encode()), cid, last[0])
         out = _tools(s)
         res.ok("reissue: файл без gcal_doctor у клиники с остатком календарей — к перевыдаче, словами обоих прав",
-               f"{cid} Clinica Premium: gcal до {grace2} → gcal до {grace2}, gcal_doctor до {valid1}" in out
+               f"{cid} Clinica Premium: gcal до {grace2} → gcal до {grace2}, gcal_doctor до {valid1}, sms_link до {valid1}"
+               in out
                and "к перевыдаче: 1" in out, out)
         admin.post(f"/admin/clinics/{cid}/tier", tier="plus")
         res.ok("«Вариант вручную» Plus после ухода с Premium: остаток календарей снят, в файле только gcal",

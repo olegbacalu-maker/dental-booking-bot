@@ -14,7 +14,8 @@
 сменить его значит оставить без обновления все файлы, что уже у клиники.
 
 Права сверх срока — `features`: имя права → дата, до которой оно действует (`gcal` — связь с
-аккаунтом Google, tiers.gcal_until; `gcal_doctor` — календари врачей, tiers.gdoc_until). Нет
+аккаунтом Google, tiers.gcal_until; `gcal_doctor` — календари врачей, tiers.gdoc_until; `sms_link` —
+ответ пациента ссылкой из SMS, tiers.link_until). Нет
 права — нет поля: старые программы неизвестное поле пропускают, новые читают отсутствие как
 «нет». Поэтому смена варианта без оплаты — новый файл с тем же сроком (payments.reissue), иначе
 программа жила бы по старому. Права собирает одна функция `features` — и выдача, и сверка
@@ -106,11 +107,15 @@ def renew_token(con: sqlite3.Connection, clinic: sqlite3.Row) -> str:
     return token
 
 
+RIGHTS = ("gcal", "gcal_doctor", "sms_link")
+
+
 def features(sub: sqlite3.Row | dict | None, grace_until: datetime, now: datetime) -> dict[str, str]:
     """Права файла до `grace_until` по подписке `sub` (с планом выдаваемого файла): имя → дата."""
     out = {}
     for name, until in (("gcal", tiers.gcal_until(sub, grace_until, now)),
-                        ("gcal_doctor", tiers.gdoc_until(sub, grace_until, now))):
+                        ("gcal_doctor", tiers.gdoc_until(sub, grace_until, now)),
+                        ("sms_link", tiers.link_until(sub, grace_until, now))):
         if until is not None:
             out[name] = until.strftime(db.TS)
     return out
@@ -118,7 +123,7 @@ def features(sub: sqlite3.Row | dict | None, grace_until: datetime, now: datetim
 
 def rights(f: dict) -> str:
     """Права файла словами журнала и команды reissue."""
-    return ", ".join(f"{name} до {f[name]}" for name in ("gcal", "gcal_doctor") if f.get(name)) or "без gcal"
+    return ", ".join(f"{name} до {f[name]}" for name in RIGHTS if f.get(name)) or "без gcal"
 
 
 def issue(con: sqlite3.Connection, clinic: sqlite3.Row, plan: str, valid_until: datetime,

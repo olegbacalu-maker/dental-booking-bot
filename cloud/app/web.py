@@ -169,9 +169,13 @@ def sms_name_note(con, c, who: str, terms: bool = False) -> tuple[str, object, o
     p = payments.open_of(con, owner["id"], payments.SMS_NAME)
     if p is not None:
         return "", owner, p, False
-    if sms.name_year(acc) == sms.Y_PREPAID:
+    year = sms.year_of(con, owner["id"])
+    if year == sms.Y_PREPAID:
         # оплаченный год ждёт одобрения: вторая нота была бы оплатой по ошибке
         return "sms_name_paid", None, None, False
+    if year == sms.Y_FREE:
+        # годовой Premium главной клиники: имя уже включено (подарок Premium), оплата года была бы ошибкой
+        return "sms_name_free", None, None, False
     return "", owner, payments.create_name(con, owner, config.SMS_NAME_PRICE, who, terms=terms), True
 
 
