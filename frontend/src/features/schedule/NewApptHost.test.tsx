@@ -132,7 +132,7 @@ async function onFisa(opts: { shell?: boolean } = {}) {
 
 async function fillAndSend() {
   const d = addDialog() as HTMLDialogElement
-  fireEvent.change(d.querySelector('input[placeholder="Nume pacient"]') as HTMLInputElement,
+  fireEvent.change(d.querySelector('input[placeholder="Nume, telefon sau nr. fișei"]') as HTMLInputElement,
     { target: { value: 'Maria Al Doilea' } })
   fireEvent.change(d.querySelector('input[placeholder="Telefon"]') as HTMLInputElement,
     { target: { value: '069111222' } })
@@ -168,7 +168,7 @@ describe('«Programare nouă» с фиши — окно на месте', () => 
     expect(get).toHaveBeenCalledWith('/schedule/day', expect.anything())
     const d = addDialog() as HTMLDialogElement
     expect((d.querySelector('input[type=date]') as HTMLInputElement).value).toBe(TODAY)
-    expect((d.querySelector('input[placeholder="Nume pacient"]') as HTMLInputElement).value).toBe('')
+    expect((d.querySelector('input[placeholder="Nume, telefon sau nr. fișei"]') as HTMLInputElement).value).toBe('')
     expect((d.querySelector('input[placeholder="Telefon"]') as HTMLInputElement).value).toBe('')
   })
 
@@ -251,7 +251,7 @@ describe('«Programare nouă» с фиши — окно на месте', () => 
     const d = addDialog() as HTMLDialogElement
     expect(d.open).toBe(true)
     expect(d.querySelector('[role=alert]')?.textContent).toBe('Intervalul este deja ocupat la acest medic')
-    expect((d.querySelector('input[placeholder="Nume pacient"]') as HTMLInputElement).value).toBe('Maria Al Doilea')
+    expect((d.querySelector('input[placeholder="Nume, telefon sau nr. fișei"]') as HTMLInputElement).value).toBe('Maria Al Doilea')
     expect(document.querySelector('.toastbox')).toBeNull()
   })
 
@@ -259,13 +259,13 @@ describe('«Programare nouă» с фиши — окно на месте', () => 
     await onFisa()
     fireEvent.click(newBtn())
     await waitFor(() => expect(addDialog()?.open).toBe(true))
-    fireEvent.change((addDialog() as HTMLDialogElement).querySelector('input[placeholder="Nume pacient"]') as HTMLInputElement,
+    fireEvent.change((addDialog() as HTMLDialogElement).querySelector('input[placeholder="Nume, telefon sau nr. fișei"]') as HTMLInputElement,
       { target: { value: 'Ciornă' } })
     fireEvent.click(screen.getByRole('button', { name: 'Închide' }))
     await waitFor(() => expect(addDialog()).toBeNull())
     fireEvent.click(newBtn())
     await waitFor(() => expect(addDialog()?.open).toBe(true))
-    expect(((addDialog() as HTMLDialogElement).querySelector('input[placeholder="Nume pacient"]') as HTMLInputElement).value).toBe('')
+    expect(((addDialog() as HTMLDialogElement).querySelector('input[placeholder="Nume, telefon sau nr. fișei"]') as HTMLInputElement).value).toBe('')
     expect(fisaNote().value).toBe('Dr. Doi: carie 26, revine joi')
   })
 

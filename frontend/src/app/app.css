@@ -3687,6 +3687,49 @@ dialog.rg-dlg.wide.gcb-dlg { width: min(860px, calc(100vw - 48px)); }
 .dp-addperson { height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface);
   color: var(--text); font: inherit; font-size: var(--fs-s); cursor: pointer; }
 .dp-addperson.on { border-color: var(--teal); background: var(--teal-soft); color: var(--teal-d); font-weight: 600; }
+/* Выбор фиши в окнах записи (`PatientPick`). Подсказки совпадений — кнопкой ВНУТРИ поля, плашка выбранной
+   фиши — высотой поля, дата рождения при выбранной фише прячется, но место держит: окно не меняет высоту.
+   Кнопки — селектором с `.dlg-form`: общий рецепт `.dlg-form button` красит любую кнопку окна фирменной заливкой. */
+.dp-pick { position: relative; display: block; min-width: 0; }
+.dp-pick > input { width: 100%; box-sizing: border-box; }
+.dp-pick.has-pill > input { padding-right: 64%; }
+.dlg-form button.dp-pick-pill {
+  position: absolute; right: 6px; top: 0; bottom: 0; margin: auto 0; max-width: 62%; height: 28px; padding: 0 10px;
+  border: 1px solid var(--teal); border-radius: 999px; background: var(--teal-soft); color: var(--teal-d); box-shadow: none;
+  font-size: var(--fs-s); font-weight: 600; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+}
+.dlg-form button.dp-pick-pill:hover, .dlg-form button.dp-pick-pill:active {
+  background: var(--teal-soft); color: var(--teal-d); border-color: var(--teal-d); transform: none; box-shadow: none;
+}
+.dlg-form button.dp-pick-pill > span { overflow: hidden; text-overflow: ellipsis; }
+.dp-pick-chip {
+  box-sizing: border-box; display: flex; align-items: center; gap: 10px; min-width: 0; height: var(--h-ctl);
+  padding: 0 6px 0 8px; border: 1px solid var(--teal); border-radius: var(--r-ctl); background: var(--teal-soft);
+}
+.dp-pick-av {
+  flex: 0 0 28px; height: 28px; border-radius: 50%; background: var(--teal-soft); color: var(--teal-d);
+  display: grid; place-items: center; font-size: var(--fs-xs); font-weight: 700;
+}
+.dp-pick-chip .dp-pick-av { background: var(--panel); }
+.dp-pick-tx { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; text-align: left; }
+.dp-pick-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.dp-pick-sb { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--text2); }
+.dlg-form button.dp-pick-x {
+  flex: 0 0 auto; height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; box-shadow: none;
+  background: var(--panel); color: var(--text2); font-size: var(--fs-s); font-weight: 500;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.dlg-form button.dp-pick-x:hover, .dlg-form button.dp-pick-x:active {
+  background: var(--panel); color: var(--text); border-color: var(--teal); transform: none; box-shadow: none;
+}
+.dlg-form button.dp-pick-x svg { width: 14px; height: 14px; }
+.dp-pick-head { padding: 4px 12px 6px; font-size: var(--fs-xs); color: var(--text3); text-transform: uppercase; letter-spacing: .04em; }
+.dp-pick-opt { display: flex; align-items: center; gap: 10px; padding: 6px 12px; cursor: pointer; }
+.dp-pick-opt.on, .dp-pick-new.on { background: var(--teal-soft); }
+.dp-pick-no { flex: 0 0 auto; font-size: var(--fs-xs); color: var(--text3); white-space: nowrap; }
+.dp-pick-new { padding: 8px 12px; border-top: 1px solid var(--line); color: var(--teal-d); font-weight: 600; cursor: pointer; }
+.dp-pick-none { margin: 0; padding: 8px 12px; font-size: var(--fs-s); color: var(--text3); }
+.dp-pick-off { visibility: hidden; }
 .dp-past { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid var(--amber-soft);
   border-radius: var(--r-ctl); background: color-mix(in srgb, var(--amber-soft) 45%, transparent); }
 .dp-past-w { display: flex; align-items: center; gap: 6px; color: var(--amber-t); font-size: var(--fs-s); font-weight: 600; }

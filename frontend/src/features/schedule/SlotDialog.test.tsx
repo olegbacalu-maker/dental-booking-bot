@@ -32,7 +32,7 @@ const banner = () => document.querySelector('dialog .banner.err')?.textContent ?
 const submit = () => document.querySelector('dialog form button:not([type="button"])') as HTMLButtonElement
 
 const fill = () => {
-  fireEvent.change(document.querySelector('dialog input[placeholder="Nume pacient"]') as HTMLElement,
+  fireEvent.change(document.querySelector('dialog input[placeholder="Nume, telefon sau nr. fișei"]') as HTMLElement,
     { target: { value: 'Ion Popa' } })
   fireEvent.change(document.querySelector('dialog input[placeholder="Telefon"]') as HTMLElement,
     { target: { value: '069000000' } })
@@ -119,7 +119,7 @@ describe('окно пустого часа: отказ сервера — вну
     await act(async () => { fireEvent.submit(document.querySelector('dialog form') as HTMLElement) })
     await waitFor(() => expect(banner()).toBe('Intervalul este deja ocupat la acest medic'))
     expect(onClose).not.toHaveBeenCalled()
-    expect((document.querySelector('dialog input[placeholder="Nume pacient"]') as HTMLInputElement).value)
+    expect((document.querySelector('dialog input[placeholder="Nume, telefon sau nr. fișei"]') as HTMLInputElement).value)
       .toBe('Ion Popa')
   })
 

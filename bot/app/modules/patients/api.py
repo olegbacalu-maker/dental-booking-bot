@@ -91,6 +91,9 @@ def _row(p: dict, now: datetime) -> dict:
         "email": p["email"] or "",
         "channel": p["origin"],
         "birth": _pl_dmy(p["birth_date"]) if p["birth_date"] else "",
+        # год и номер дела — строке подсказки окна записи журнала (то же, что `/api/schedule/pick/*`)
+        "year": str(p["birth_year"] or "") or (str(p["birth_date"])[:4] if p["birth_date"] else ""),
+        "file_no": p["file_no"] or "",
         "age": _p_age(p),
         "doctor": row["doctor"],
         "doctor_own": bool(p["primary_doctor"]),

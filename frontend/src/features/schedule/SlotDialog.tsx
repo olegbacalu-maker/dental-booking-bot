@@ -8,6 +8,7 @@ import { CONTROL, CONTROL_DUR, freeRoom, hasControl, laneOf, lanesOf, mainLanes,
   type Room } from './move'
 import { AsControl, RoomSelect, sharedWarn } from './RoomPick'
 import { hourMinutes, slotTimes, takenMinutes, type Slot, type SlotFormView } from './slot'
+import { PatientName, PhoneHit, usePatientPick } from './PatientPick'
 import { SmsCheck, useSmsBox } from './SmsBox'
 import { whenLine } from './when'
 
@@ -46,7 +47,6 @@ const T = {
   appt: 'Programare',
   note: 'Notiță / blocare',
   service: 'Serviciu',
-  name: 'Nume pacient',
   phone: 'Telefon',
   noPhone: 'fără telefon',
   birth: 'Data nașterii (opț.)',
@@ -114,11 +114,16 @@ export function SlotDialog({ open, slot, date, form, noteEnds, taken, rooms = NO
   const tight = aimed && off.has(minute)
   /* выбранный старт стал занят (новая канва, другая длительность) — на первый свободный */
   if (!aimed && !none && off.has(minute)) setMinute(firstFree)
-  const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [noPhone, setNoPhone] = useState(false)
   const [birth, setBirth] = useState('')
-  const sms = useSmsBox(form.sms, phone, noPhone)
+  const pp = usePatientPick(phone, noPhone)
+  const person = pp.picked
+  const name = person ? person.name : pp.name
+  const sms = useSmsBox(form.sms, person ? person.phone : phone, person ? !person.phone : noPhone)
+  const who = person
+    ? { name: person.name, phone: person.phone, nophone: !person.phone, pid: person.id }
+    : { name, phone: noPhone ? '' : phone, nophone: noPhone }
   const [text, setText] = useState('')
   const [until, setUntil] = useState(0)
 
@@ -138,8 +143,7 @@ export function SlotDialog({ open, slot, date, form, noteEnds, taken, rooms = NO
     const lane = asControl ? CONTROL : roomPick
     /* «ca control» с нетронутой длительностью — короткая, как в полосе */
     const durField = asControl && !dur.field.duration ? { duration: CONTROL_DUR } : dur.field
-    const ok = await onAdd({ date, time: atime, doctor: slot.dk, service, name,
-      phone: noPhone ? '' : phone, nophone: noPhone, birth, ...sms.field, ...durField,
+    const ok = await onAdd({ date, time: atime, doctor: slot.dk, service, ...who, birth, ...sms.field, ...durField,
       ...(lane ? { room: lane } : {}) }, failWith)
     if (ok) onClose()
   }
@@ -190,25 +194,28 @@ export function SlotDialog({ open, slot, date, form, noteEnds, taken, rooms = NO
             <DurSelect box={dur} />
           </div>
           {many ? <RoomSelect rooms={rooms} value={room} onPick={pickRoom} /> : null}
-          <input value={name} onChange={(e) => setName(e.target.value)}
-                 placeholder={T.name} required />
-          <input value={noPhone ? '' : phone} onChange={(e) => setPhone(e.target.value)}
-                 placeholder={T.phone} required={!noPhone} disabled={noPhone} />
+          <PatientName pick={pp} required onPhone={(p) => { if (!phone) setPhone(p) }} />
+          <span className={`dp-pick${pp.phoneHit && !person ? ' has-pill' : ''}`}>
+            <input value={person ? person.phone : noPhone ? '' : phone} onChange={(e) => setPhone(e.target.value)}
+                   aria-label={T.phone} placeholder={T.phone} required={!noPhone && !person} disabled={noPhone || !!person} />
+            <PhoneHit pick={pp} />
+          </span>
           <div className="dp-addrow">
             <label className="nophone">
-              <input type="checkbox" checked={noPhone}
+              <input type="checkbox" checked={noPhone} disabled={!!person}
                      onChange={(e) => setNoPhone(e.target.checked)} /> {T.noPhone}
             </label>
             <SmsCheck box={sms} />
           </div>
-          <label className="dlab">{T.birth}
+          {/* дата рождения уже в выбранной фише: поле прячется, но место держит — окно не прыгает */}
+          <label className={`dlab${person ? ' dp-pick-off' : ''}`} aria-hidden={person ? true : undefined}>{T.birth}
             <input type="date" value={birth} max={form.birth_max}
                    onChange={(e) => setBirth(e.target.value)} />
           </label>
           {warnNode}
           {/* основная занята (подсказка канвы или отказ сервера) — выход явным действием */}
           {ctl && roomPick !== CONTROL && warn && (none || tight || failCode === 'conflict')
-            ? <AsControl disabled={busy || !name || (!noPhone && !phone)}
+            ? <AsControl disabled={busy || !name || (!person && !noPhone && !phone)}
                 onClick={() => { void submitAppt(null, true) }} /> : null}
           {shared && !warn ? <div className="banner warn" role="status">{sharedWarn(rooms, room)}</div> : null}
           <button disabled={busy || none || tight || dur.bad}>{T.go}</button>

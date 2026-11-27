@@ -170,7 +170,7 @@ def suite_list(res: Result) -> None:
                    (f"/admin/patient/{pid}", "Profil complet")])
 
 
-# Поиск стойки (27.11, жалоба пилота): номер в любом виде, имя в любом порядке
+# Поиск стойки: номер в любом виде, имя в любом порядке
 # слов, IDNP с начала. Запрос → кого находит (ключи засева `suite_search_forms`).
 SEARCH_FORMS = {
     "079111222": ["ion"], "79111222": ["ion"], "+37379111222": ["ion"],
@@ -222,7 +222,7 @@ def suite_api(res: Result) -> None:
         res.check("строка: поля для стойки", sorted(pop),
                   sorted(["id", "name", "initials", "phone", "email", "channel", "birth", "age",
                           "doctor", "doctor_own", "last", "next", "n_visits", "debt", "status",
-                          "archived"]))
+                          "archived", "year", "file_no"]))
         res.ok("даты уже в виде dd.mm.yyyy", re.fullmatch(r"\d\d\.\d\d\.\d{4}", pop["last"]),
                f"{pop['last']!r}")
         res.check("аванс — отрицательный долг", pop["debt"], -300)

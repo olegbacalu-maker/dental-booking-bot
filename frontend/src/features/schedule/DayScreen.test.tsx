@@ -489,7 +489,7 @@ describe('окно записи «Programare nouă»', () => {
     const box = past()?.querySelector('input[type="checkbox"]') as HTMLInputElement
     expect(box.checked).toBe(true)
     expect(past()?.textContent).toContain('Vizita a avut loc — intră direct ca finalizată')
-    fireEvent.change(field('Nume pacient'), { target: { value: 'Hartie Veche' } })
+    fireEvent.change(field('Nume, telefon sau nr. fișei'), { target: { value: 'Hartie Veche' } })
     fireEvent.change(field('Telefon'), { target: { value: '069112233' } })
     fireEvent.submit(addForm() as HTMLFormElement)
     await waitFor(() => expect(post).toHaveBeenCalled())
@@ -498,7 +498,7 @@ describe('окно записи «Programare nouă»', () => {
     post.mockClear()
     await openAdd('2026-09-10')
     fireEvent.click(addForm()?.querySelector('.dp-past input[type="checkbox"]') as HTMLInputElement)
-    fireEvent.change(field('Nume pacient'), { target: { value: 'Hartie Noua' } })
+    fireEvent.change(field('Nume, telefon sau nr. fișei'), { target: { value: 'Hartie Noua' } })
     fireEvent.change(field('Telefon'), { target: { value: '069112244' } })
     fireEvent.submit(addForm() as HTMLFormElement)
     await waitFor(() => expect(post).toHaveBeenCalled())
@@ -510,7 +510,7 @@ describe('окно записи «Programare nouă»', () => {
     expect(past()).toBeNull()
     await openAdd('2026-09-23')
     expect(past()).toBeNull()
-    fireEvent.change(field('Nume pacient'), { target: { value: 'Azi Nu' } })
+    fireEvent.change(field('Nume, telefon sau nr. fișei'), { target: { value: 'Azi Nu' } })
     fireEvent.change(field('Telefon'), { target: { value: '069112255' } })
     fireEvent.submit(addForm() as HTMLFormElement)
     await waitFor(() => expect(post).toHaveBeenCalled())
@@ -570,7 +570,7 @@ describe('окно записи «Programare nouă»', () => {
     post.mockResolvedValue(ok({ ...MODEL, list: [...MODEL.list,
       { ...MODEL.list[0]!, id: 3, time: '09:30', name: 'Vasile Lupu', age: null }] }))
     await openAdd()
-    fireEvent.change(field('Nume pacient'), { target: { value: 'Vasile Lupu' } })
+    fireEvent.change(field('Nume, telefon sau nr. fișei'), { target: { value: 'Vasile Lupu' } })
     fireEvent.change(field('Telefon'), { target: { value: '069112233' } })
     fireEvent.submit(addForm() as HTMLFormElement)
     await waitFor(() => expect(addForm()).toBeNull())
@@ -612,7 +612,7 @@ describe('окно записи «Programare nouă»', () => {
     expect(mins().some((b) => b.disabled)).toBe(false)
     fireEvent.change(sel(0), { target: { value: '10:00' } })
     fireEvent.click(mins()[1] as HTMLElement)
-    fireEvent.change(field('Nume pacient'), { target: { value: 'Ana Cinci' } })
+    fireEvent.change(field('Nume, telefon sau nr. fișei'), { target: { value: 'Ana Cinci' } })
     fireEvent.change(field('Telefon'), { target: { value: '069111222' } })
     fireEvent.submit(addForm() as HTMLFormElement)
     await waitFor(() => expect(post).toHaveBeenCalledWith('/schedule/appointments?date=2026-09-23',
@@ -627,7 +627,7 @@ describe('окно записи «Programare nouă»', () => {
         name: 'Elena Din Calendar', phone: '069333444' }} />)
     expect(sel(0).value).toBe('14:00')        /* у d4 часа 10 нет — первый его час */
     expect(sel(1).value).toBe('d4')
-    expect(field('Nume pacient').value).toBe('Elena Din Calendar')
+    expect(field('Nume, telefon sau nr. fișei').value).toBe('Elena Din Calendar')
     expect(field('Telefon').value).toBe('069333444')
     expect(Array.from(addForm()?.querySelectorAll('.dp-minpick .mp.on') ?? []).map((b) => b.textContent))
       .toEqual([':35'])
@@ -655,7 +655,7 @@ describe('окно записи «Programare nouă»', () => {
   it('отправка шлёт выбранное, показывает плашку сервера и закрывает окно', async () => {
     post.mockResolvedValue(ok(MODEL))
     const { router } = await openAdd()
-    fireEvent.change(field('Nume pacient'), { target: { value: 'Vasile Lupu' } })
+    fireEvent.change(field('Nume, telefon sau nr. fișei'), { target: { value: 'Vasile Lupu' } })
     fireEvent.change(field('Telefon'), { target: { value: '069112233' } })
     fireEvent.submit(addForm() as HTMLFormElement)
     await waitFor(() => expect(post).toHaveBeenCalledWith('/schedule/appointments?date=2026-09-23', {
@@ -676,14 +676,14 @@ describe('окно записи «Programare nouă»', () => {
     post.mockRejectedValue(new ApiError(
       { kind: 'conflict', code: 'conflict', text: 'Intervalul este ocupat' }, 'c'))
     const { router } = await openAdd()
-    fireEvent.change(field('Nume pacient'), { target: { value: 'Vasile Lupu' } })
+    fireEvent.change(field('Nume, telefon sau nr. fișei'), { target: { value: 'Vasile Lupu' } })
     fireEvent.change(field('Telefon'), { target: { value: '069112233' } })
     fireEvent.submit(addForm() as HTMLFormElement)
     await waitFor(() => expect(addForm()?.querySelector('.banner.err')?.textContent)
       .toBe('Intervalul este ocupat'))
     expect(document.querySelector('.toastbox')).toBeNull()
     expect(router.state.location.hash).toBe('#addform')
-    expect(field('Nume pacient').value).toBe('Vasile Lupu')
+    expect(field('Nume, telefon sau nr. fișei').value).toBe('Vasile Lupu')
   })
 
   /* ⭐ Галочка «SMS reminder» (Олег 19.10) рядом с «fără telefon»: видна по
@@ -710,7 +710,7 @@ describe('окно записи «Programare nouă»', () => {
         ? ok({ sms: true }) : ok(MODEL)))
       await openAdd()
       expect(box()?.checked).toBe(true)
-      fireEvent.change(field('Nume pacient'), { target: { value: 'Vasile Lupu' } })
+      fireEvent.change(field('Nume, telefon sau nr. fișei'), { target: { value: 'Vasile Lupu' } })
       fireEvent.change(field('Telefon'), { target: { value: '069112233' } })
       await waitFor(() => expect(post).toHaveBeenCalledWith('/schedule/sms-of',
         { phone: '069112233' }, expect.anything()))
@@ -724,7 +724,7 @@ describe('окно записи «Programare nouă»', () => {
       post.mockImplementation((path: string) => Promise.resolve(path === '/schedule/sms-of'
         ? ok({ sms: false }) : ok(MODEL)))
       await openAdd()
-      fireEvent.change(field('Nume pacient'), { target: { value: 'Vasile Lupu' } })
+      fireEvent.change(field('Nume, telefon sau nr. fișei'), { target: { value: 'Vasile Lupu' } })
       fireEvent.change(field('Telefon'), { target: { value: '069 112 233' } })
       await waitFor(() => expect(box()?.checked).toBe(false))
       fireEvent.click(box() as HTMLInputElement)
@@ -742,7 +742,7 @@ describe('окно записи «Programare nouă»', () => {
       expect(box()?.checked).toBe(false)
       fireEvent.click(addForm()?.querySelector('label.nophone input') as HTMLElement)
       expect(box()?.disabled).toBe(true)
-      fireEvent.change(field('Nume pacient'), { target: { value: 'Vasile Lupu' } })
+      fireEvent.change(field('Nume, telefon sau nr. fișei'), { target: { value: 'Vasile Lupu' } })
       fireEvent.submit(addForm() as HTMLFormElement)
       await waitFor(() => expect(post).toHaveBeenCalledWith(
         '/schedule/appointments?date=2026-09-23', expect.objectContaining({ nophone: true })))
@@ -756,14 +756,14 @@ describe('окно записи «Programare nouă»', () => {
   it('смена дня закрывает окно; открытое снова — на новом дне и чистое', async () => {
     get.mockImplementation(dayOfUrl)
     const { router } = await openAdd('2026-09-22')
-    fireEvent.change(field('Nume pacient'), { target: { value: 'Ion Popa' } })
+    fireEvent.change(field('Nume, telefon sau nr. fișei'), { target: { value: 'Ion Popa' } })
     fireEvent.click(navLink(NEXT))
     await waitFor(() => expect(dayLabel()).toBe('Zi 2026-09-23'))
     expect(addForm()).toBeNull()
     await act(async () => { await router.navigate('/admin/all?date=2026-09-23#addform') })
     await waitFor(() => expect(addForm()).toBeTruthy())
     expect(addDate()).toBe('2026-09-23')
-    expect(field('Nume pacient').value).toBe('')
+    expect(field('Nume, telefon sau nr. fișei').value).toBe('')
   })
 
   it('у выключенного врача окна нет вовсе, даже по #addform', async () => {
@@ -805,7 +805,7 @@ describe('окно записи «Programare nouă»', () => {
       expect(closedHint()).toBe('')
       expect(goBtn().disabled).toBe(false)
       post.mockResolvedValue(ok({ ...MODEL, date: SUNDAY, form: CLOSED }))
-      fireEvent.change(field('Nume pacient'), { target: { value: 'Igor S' } })
+      fireEvent.change(field('Nume, telefon sau nr. fișei'), { target: { value: 'Igor S' } })
       fireEvent.click(addForm()?.querySelector('.nophone input') as HTMLElement)
       fireEvent.submit(addForm() as HTMLFormElement)
       await waitFor(() => expect(post).toHaveBeenCalledWith(
@@ -897,7 +897,7 @@ describe('окно свободного часа', () => {
     await openSlot()
     fireEvent.click(document.querySelectorAll('.dp-minpick .mp')[6] as HTMLElement)
     expect(document.querySelector('.dlg-head span')?.textContent).toContain('09:30')
-    fireEvent.change(document.querySelector('.dlg-form input[placeholder="Nume pacient"]') as HTMLElement,
+    fireEvent.change(document.querySelector('.dlg-form input[placeholder="Nume, telefon sau nr. fișei"]') as HTMLElement,
       { target: { value: 'Ana' } })
     fireEvent.change(document.querySelector('.dlg-form input[placeholder="Telefon"]') as HTMLElement,
       { target: { value: '069111222' } })
@@ -1725,7 +1725,7 @@ describe('длительность визита (10.11)', () => {
     const addForm = () => document.querySelector('dialog form.dp-addform') as HTMLFormElement
     const field = (ph: string) => addForm().querySelector(`input[placeholder="${ph}"]`) as HTMLInputElement
     const fillAndSend = async () => {
-      fireEvent.change(field('Nume pacient'), { target: { value: 'Durata Test' } })
+      fireEvent.change(field('Nume, telefon sau nr. fișei'), { target: { value: 'Durata Test' } })
       fireEvent.change(field('Telefon'), { target: { value: '069123456' } })
       fireEvent.submit(addForm())
       await waitFor(() => expect(post).toHaveBeenCalled())

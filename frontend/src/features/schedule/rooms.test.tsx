@@ -90,7 +90,7 @@ const roomSel = () => document.querySelector('dialog .dp-roompick select') as HT
 const warn = () => document.querySelector('dialog .banner.warn')?.textContent ?? ''
 const err = () => document.querySelector('dialog .banner.err')?.textContent ?? ''
 const fill = () => {
-  fireEvent.change(document.querySelector('dialog input[placeholder="Nume pacient"]') as HTMLElement,
+  fireEvent.change(document.querySelector('dialog input[placeholder="Nume, telefon sau nr. fișei"]') as HTMLElement,
     { target: { value: 'Ion Popa' } })
   fireEvent.change(document.querySelector('dialog input[placeholder="Telefon"]') as HTMLElement,
     { target: { value: '069000000' } })

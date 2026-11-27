@@ -219,7 +219,7 @@ PORT = 9348
 SIZE = (1366, 768)
 LIVE_S = 12            # период опроса живого канала (services/live.ts › LIVE_MS)
 SCENARIOS = ("idle", "dialog", "status", "menu", "toast", "reduce", "leave", "close", "move", "stats", "print", "plan",
-             "tile", "event", "agenda", "focus", "tarife", "picker", "pimport")
+             "tile", "event", "agenda", "focus", "tarife", "picker", "pimport", "patient")
 STYLE_SCENARIOS = ("dialog", "status", "menu", "toast", "close", "reduce")
 
 # Замеры в странице: кадры, изменения узлов, сеть, сдвиги раскладки, запуски
@@ -1217,7 +1217,7 @@ class Run:
             return
         cell = f"document.querySelectorAll('.gcol')[{where[0]}].querySelector('.gcell[data-hh=\"{where[1]}\"]')"
         ringed = "document.querySelectorAll('.gcell:focus-visible').length"
-        opened = "!!document.querySelector('dialog[open] input[placeholder=\"Nume pacient\"]')"
+        opened = "!!document.querySelector('dialog[open] input[placeholder=\"Nume, telefon sau nr. fișei\"]')"
         field = "document.querySelector('dialog[open] input[placeholder=\"{p}\"]')"
 
         self.tap(cell, 0.8)
@@ -1230,9 +1230,9 @@ class Run:
         self.tap(cell, 0.8)
         self.pick("Array.from(document.querySelectorAll('dialog[open] select'))"
                   ".find((s) => Array.from(s.options).some((o) => o.value === '15'))", "15", 0.2)
-        self.type_in(field.format(p="Nume pacient"), "Proba Focus", 0.1)
+        self.type_in(field.format(p="Nume, telefon sau nr. fișei"), "Proba Focus", 0.1)
         self.type_in(field.format(p="Telefon"), "069770999", 0.1)
-        self.js(f"{field.format(p='Nume pacient')}.focus(); 1")
+        self.js(f"{field.format(p='Nume, telefon sau nr. fișei')}.focus(); 1")
         self.enter(1.6)
         made = self.js("Array.from(document.querySelectorAll('.gappt')).filter((b) => (b.title || '').includes('Proba Focus')).length")
         free = self.js(f"(() => {{ const c = {cell}; return c ? c.getAttribute('data-free') + (c.disabled ? ' off' : '') : 'null' }})()")
@@ -1691,6 +1691,63 @@ class Run:
             finally:
                 self.client.post_json("/api/settings/theme", {"style": was or "clar", **theme})
 
+    def patient(self) -> None:
+        """Выбор фиши в окнах записи: «Recenți», поиск, ↓, Esc, Enter, «Alt pacient», совпавший
+        номер — окно не двигается и не меняет высоту ни в одном состоянии, список стоит под полем
+        в верхнем слое; в Clar и Sticlă, в окне шапки и в окне свободного часа."""
+        smp = ("() => { const d = document.querySelector('dialog[open]'); if (!d) return null;"
+               " const f = d.querySelector('.dp-pick-chip, span.dp-pick:not(.has-pill) > input[role=combobox],"
+               " span.dp-pick > input[role=combobox]'); const l = document.querySelector('.dp-pick-list');"
+               " const a = f ? f.getBoundingClientRect() : null; const b = l ? l.getBoundingClientRect() : null;"
+               " return [d.offsetTop, d.offsetHeight, a && b ? Math.round(b.top - a.bottom) : null,"
+               " l ? l.matches(':popover-open') : null]; }")
+        name = "document.querySelector('dialog[open] input[role=combobox]')"
+        phone = "document.querySelector('dialog[open] input[placeholder=\"Telefon\"]')"
+
+        def drive(where: str, opener: str) -> None:
+            seen = self.tap(opener, 0.9, smp)["samples"]
+            seen += self.tap(name, 0.8, smp)["samples"]
+            recent = self.js("!!document.querySelector('.dp-pick-list .dp-pick-head')")
+            seen += self.chars("proba", 0.8, smp)["samples"]
+            seen += self.key("ArrowDown", 40, 0.3, smp)["samples"]
+            seen += self.key("Escape", 27, 0.3, smp)["samples"]
+            esc_ok = self.js("!document.querySelector('.dp-pick-list') && !!document.querySelector('dialog[open]')")
+            seen += self.key("ArrowDown", 40, 0.5, smp)["samples"]
+            seen += self.key("Enter", 13, 0.5, smp)["samples"]
+            chip = self.js("(() => { const c = document.querySelector('dialog[open] .dp-pick-chip'); return c ? c.getAttribute('aria-label') : ''; })()")
+            seen += self.tap("document.querySelector('dialog[open] .dp-pick-x')", 0.5, smp)["samples"]
+            seen += self.tap(phone, 0.3, smp)["samples"]
+            seen += self.chars("069770001", 1.2, smp)["samples"]
+            pill = self.js("(() => { const b = document.querySelector('dialog[open] .dp-pick-pill'); return b ? b.textContent : ''; })()")
+            frames = [x for x in seen if x]
+            places = sorted({(x[0], x[1]) for x in frames})
+            gaps = sorted({x[2] for x in frames if x[2] is not None})
+            tops = {x[3] for x in frames if x[3] is not None}
+            self.ok(len(places) == 1, f"выбор фиши, {where}: окно на месте и одной высоты весь сеанс ({places[:4]})")
+            self.ok(recent and bool(gaps) and all(0 <= g <= 8 for g in gaps) and tops == {True},
+                    f"выбор фиши, {where}: «Recenți» и поиск — список под полем ({gaps}) в верхнем слое ({tops})")
+            self.ok(esc_ok and chip.startswith("Proba Miscare"),
+                    f"выбор фиши, {where}: Esc закрыл только список, Enter выбрал фишу («{chip}»)")
+            self.ok(pill.startswith("Fișă existentă: Proba Miscare 1"), f"выбор фиши, {where}: совпавший номер подсказан («{pill}»)")
+            self.esc()
+            time.sleep(0.6)
+
+        was = self.js("document.documentElement.dataset.style") or "clar"
+        theme = {"primary": "#0E9F8A", "custom": "", "menu": "soft"}
+        try:
+            for style in dict.fromkeys((was, "sticla")):
+                if style != was:
+                    r = self.client.post_json("/api/settings/theme", {"style": style, **theme})
+                    self.ok(r.msg == "ok_theme", f"выбор фиши: стиль {style} включён ({r.msg})")
+                self.home()
+                drive(f"окно шапки · {style}", "document.querySelector('.top .newbtn')")
+                self.home()
+                drive(f"окно свободного часа · {style}",
+                      "Array.from(document.querySelectorAll('.gcell[data-free=\"all\"]:not([disabled])')).at(-1)")
+        finally:
+            if was != "sticla":
+                self.client.post_json("/api/settings/theme", {"style": was, **theme})
+
     def scenario(self, name: str, polls: int) -> None:
         print(f"[{self.label}] {name}")
         self.home()
@@ -1911,6 +1968,9 @@ PAIRS = [
     ("picker", "подсказка прайса в окне с зуба без места", {"css": "dialog.dp-plan-dlg .pd-note{min-height:0 !important}"}),
     ("picker", "список услуг в потоке окна", {"css": ".dp-svc-list{position:static !important}"}),
     ("picker", "список услуг не в верхнем слое", {"js": "delete HTMLElement.prototype.showPopover;"}),
+    ("patient", "плашка выбранной фиши выше поля", {"css": ".dp-pick-chip{height:auto !important;padding:10px !important}"}),
+    ("patient", "дата рождения при выбранной фише снята без места", {"css": ".dp-pick-off{display:none !important}"}),
+    ("patient", "список фиш не в верхнем слое", {"js": "delete HTMLElement.prototype.showPopover;"}),
 ]
 
 

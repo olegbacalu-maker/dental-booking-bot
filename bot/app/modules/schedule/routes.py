@@ -25,6 +25,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from ... import db
 from ... import engine as eng
 from ...core.auth import _guard, local_only, request_user
+from ...core import book
 from ...core import lab as clab
 from ...core import stock as cstock
 from ...core import xlsx
@@ -647,6 +648,32 @@ async def _add_appt(adate: str, atime: str, adoctor: str, aservice: str,
     return (await _book_appt(adate, atime, adoctor, aservice, aname, aphone, anophone,
                              abirth, asms, adone, adur, aroom))[0]
 
+
+
+async def _book_pick(pid, adate: str, atime: str, adoctor: str, aservice: str,
+                     asms: bool | None = None, adone: bool = False, adur: str = "",
+                     aroom: str = "") -> str:
+    """Запись окна журнала в ВЫБРАННУЮ фишу: повторного пациента не вписывают заново и не плодят
+    двойника. Фиша известна по номеру — визит ставит `book.book_visit`, как перенос из Google;
+    имя и телефон окна не читаются, и фиша не переписывается. Номер из тела — догадке не верим:
+    не число, нет такой фиши, обезличенная — `pick_gone`, а не новая фиша по имени."""
+    if not isinstance(pid, int) or isinstance(pid, bool):
+        return "pick_gone"
+    p = await db.get_patient(pid)
+    if p is None or str(p["session_key"] or "").startswith("anon:"):
+        return "pick_gone"
+    try:
+        d = date.fromisoformat(adate)
+        hh, mm = atime.split(":")
+        start = datetime(d.year, d.month, d.day, int(hh), int(mm), tzinfo=eng.TZ)
+    except (ValueError, AttributeError):
+        return "bad"
+    # не число — заведомо недопустимая длина: `bad_dur` в своём месте порядка проверок
+    minutes = (int(adur) if adur.isdigit() else 0) if adur else None
+    b = await book.book_visit(pid, adoctor, start, aservice, minutes=minutes, room=aroom, done=adone)
+    if b.ok:
+        await _apply_sms(b.appt_id, asms)
+    return b.code
 
 async def _apply_sms(appt_id: int, want: bool | None) -> None:
     """Галочка «SMS reminder» окна записи → `patients.sms_off` того, кому

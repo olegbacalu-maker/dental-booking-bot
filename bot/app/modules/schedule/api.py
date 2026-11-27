@@ -36,12 +36,12 @@ from ...core.api import (api_body, api_guard, api_own_appt, api_own_doctor, api_
 from ...core.auth import PERM_SMS, remote_notice
 from ...core.layout import msg_json
 from ...core.messages import busy_doctor_text
-from ...core.visits import (_collect_cards, _parse_date, all_status_actions, my_scope,
+from ...core.visits import (_collect_cards, _parse_date, all_status_actions, mine, my_scope,
                             of_doctor, service_options)
 from . import chair as pchair
 from . import day as pday
 from . import panel as ppanel
-from .routes import (_AG_CLS, _add_appt, _add_note, _canvas_model, _chair_doctor,
+from .routes import (_AG_CLS, _add_appt, _book_pick, _add_note, _canvas_model, _chair_doctor,
                      _day_model, _move_appt, _notice, _panel_live, _set_comment,
                      _set_duration, _set_room, _set_service, _set_status,
                      _svc_colors, _week_model)
@@ -54,7 +54,7 @@ router = APIRouter()
 _OK = {"", "ok", "ok_note", "part_note", "ok_move", "ok_move_past", "ok_comment", "ok_past",
        "ok_past_done", "ok_other", "ok_svc", "ok_dur", "ok_room", "room_busy"}
 _CONFLICT = {"conflict", "dup", "bad_off", "mv_gone", "mv_closed", "past", "bad_step",
-             "svc_closed", "svc_doc", "dur_closed", "room_closed"}
+             "svc_closed", "svc_doc", "dur_closed", "room_closed", "pick_gone"}
 # какое поле формы подсветить при 422; отказ без поля оставляет его пустым
 _FIELD = {"bad": "time", "bad_time": "time", "outside": "time",
           "outside_doc": "time", "bad_name": "name", "bad_phone": "phone",
@@ -256,7 +256,9 @@ async def api_canvas(request: Request, date_q: str = Query("", alias="date")):
 async def api_add(request: Request, date_q: str = Query("", alias="date"),
                   doctor: str = Query(""), f: str = Query(""),
                   screen: str = Query("")):
-    """Ручная запись: {date, time, doctor, service, name, phone, nophone, birth, sms?, duration?, room?}.
+    """Ручная запись: {date, time, doctor, service, name, phone, nophone, birth, sms?, duration?, room?, pid?}.
+
+    `pid` — фиша, выбранная в окне: визит ей по номеру (`_book_pick`), имя и телефон не читаются.
 
     `room` — нет ключа: сервер ставит первый свободный кабинет врача.
 
@@ -281,12 +283,17 @@ async def api_add(request: Request, date_q: str = Query("", alias="date"),
     if (deny := api_own_doctor(_s(body, "doctor"))) is not None:
         return deny
     sms = body.get("sms")
-    code = await _add_appt(_s(body, "date"), _s(body, "time"), _s(body, "doctor"),
-                           _s(body, "service"), _s(body, "name"), _s(body, "phone"),
-                           "1" if body.get("nophone") else "", _s(body, "birth"),
-                           sms if isinstance(sms, bool) else None,
-                           body.get("done") is True, _s(body, "duration"),
-                           aroom=_s(body, "room"))
+    if body.get("pid") is not None:
+        code = await _book_pick(body["pid"], _s(body, "date"), _s(body, "time"), _s(body, "doctor"),
+                                _s(body, "service"), sms if isinstance(sms, bool) else None,
+                                body.get("done") is True, _s(body, "duration"), _s(body, "room"))
+    else:
+        code = await _add_appt(_s(body, "date"), _s(body, "time"), _s(body, "doctor"),
+                               _s(body, "service"), _s(body, "name"), _s(body, "phone"),
+                               "1" if body.get("nophone") else "", _s(body, "birth"),
+                               sms if isinstance(sms, bool) else None,
+                               body.get("done") is True, _s(body, "duration"),
+                               aroom=_s(body, "room"))
     if code == "conflict" and eng.doctor_parallel(_s(body, "doctor")):
         # врач с колонкой Control: отказ называет, кто занимает, и ближайшее
         # свободное время основной колонки — окно предлагает «ca control» или его
@@ -318,6 +325,57 @@ async def _busy_info(body: dict) -> dict | None:
             "from": first["starts_at"].astimezone(eng.TZ).strftime("%H:%M"),
             "to": end.astimezone(eng.TZ).strftime("%H:%M"),
             "next": nxt.strftime("%H:%M") if nxt else None}
+
+
+@router.post("/api/schedule/pick/recent")
+async def api_pick_recent(request: Request):
+    """{here?} → недавние фиши для пустого поля «Nume pacient» окна записи: сверху фиша, поверх
+    которой открыто окно (`here`), ниже последние записанные в журнал вошедшего (врачу — свои).
+    Только подсказка: окно ничего не подставляет само — записывают часто другого, выбирает человек."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    body = await api_body(request) or {}
+    here = body.get("here")
+    ids: list[int] = [here] if isinstance(here, int) and not isinstance(here, bool) else []
+    scope, want = my_scope(), len(ids) + PICK_RECENT
+    for r in await db.recent_booked():
+        if len(ids) >= want:
+            break
+        if r["patient_id"] not in ids and mine(r, scope):
+            ids.append(r["patient_id"])
+    return msg_json(True, data={"rows": [_pick_view(p) for p in await db.pick_rows(ids)]})
+
+
+@router.post("/api/schedule/pick/match")
+async def api_pick_match(request: Request):
+    """{phone, name} → чья фиша совпала, пока ни одна не выбрана: `phone` — та единственная фиша,
+    куда запись журнала сама положит визит по номеру (`db._patient_ids_by_digits`, правило
+    `admin_add`), `name` — фиши с тем же именем (`db.patients_named`).
+    POST: номер пациента не едет строкой адреса."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    body = await api_body(request)
+    if body is None:
+        return msg_json(False, "bad", status=422)
+    by_phone = await db._patient_ids_by_digits(_s(body, "phone"))
+    phone = await db.pick_rows(by_phone) if len(by_phone) == 1 else []
+    named = await db.pick_rows(await db.patients_named(_s(body, "name")[:80]))
+    return msg_json(True, data={"phone": _pick_view(phone[0]) if phone else None,
+                                "name": [_pick_view(p) for p in named]})
+
+
+# сколько недавних под фишей экрана: окно не прокручивает список на 1366
+PICK_RECENT = 4
+
+
+def _pick_view(p: dict) -> dict:
+    """Строка подсказки окна записи — те же поля, что строка списка `/api/patients`."""
+    bd = p["birth_date"]
+    year = str(p["birth_year"] or "") or (str(bd)[:4] if bd else "")
+    last = p["last_at"]
+    return {"id": p["id"], "name": p["name"] or "", "phone": p["phone"] or "", "year": year,
+            "file_no": p["file_no"] or "",
+            "last": last.astimezone(eng.TZ).strftime("%d.%m.%Y") if last else ""}
 
 
 @router.post("/api/schedule/sms-of")

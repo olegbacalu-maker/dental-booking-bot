@@ -392,6 +392,8 @@ export interface NewAppt {
   duration?: number
   /** Кабинет — только ВЫБРАННЫЙ в окне; нет поля — первый свободный у врача. */
   room?: string
+  /** Фиша, выбранная в окне: визит ей по номеру, имя и телефон сервер не читает. */
+  pid?: number
 }
 
 export interface NewNote {

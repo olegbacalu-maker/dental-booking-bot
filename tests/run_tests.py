@@ -103,6 +103,7 @@ import test_restart  # noqa: E402
 import test_panel_model  # noqa: E402
 import test_patient_card  # noqa: E402
 import test_patients_api  # noqa: E402
+import test_appt_pick  # noqa: E402
 import test_paylink  # noqa: E402
 import test_license_email  # noqa: E402
 import test_license_terms  # noqa: E402
@@ -485,6 +486,8 @@ SUITES = [
     ("Пациенты: выдача списка по каждому отбору", test_patients_api.suite_list),
     ("Пациенты: JSON API списка", test_patients_api.suite_api),
     ("Пациенты: поиск — номер в любом виде, слова, IDNP", test_patients_api.suite_search_forms),
+    ("Запись: выбранная фиша — визит по номеру, отказы, права врача", test_appt_pick.suite_book),
+    ("Запись: «Recenți» и совпадения номера и имени", test_appt_pick.suite_hints),
     ("Пациенты: узел React экрана", test_patients_api.suite_switch),
     ("Фиша: JSON API — цифры и слова фиши", test_patient_card.suite_api),
     ("Фиша: действия через JSON", test_patient_card.suite_actions),

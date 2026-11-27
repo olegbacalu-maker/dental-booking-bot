@@ -6,6 +6,7 @@ import { DurSelect, useDurPick } from './DurPick'
 import { HourSelect, MinPick } from './MinPick'
 import { AsControl, RoomSelect } from './RoomPick'
 import { busyInfo, CONTROL, CONTROL_DUR, type BusyInfo } from './move'
+import { PatientName, PhoneHit, personRow, usePatientPick } from './PatientPick'
 import { SmsCheck, useSmsBox } from './SmsBox'
 import { whenLine } from './when'
 
@@ -45,7 +46,6 @@ const T = {
   noPhone: 'fără telefon',
   birth: 'Data nașterii (opț.)',
   go: 'Adaugă programarea',
-  name: 'Nume pacient',
   phone: 'Telefon',
   close: 'Închide',
   // та же фраза, что у канвы закрытого дня (`DashCanvas`)
@@ -84,6 +84,8 @@ interface Props {
   people?: AddPerson[] | undefined
   /** Врача выбирает человек: без `preset.doctor` окно не ставит первого молча. */
   askDoctor?: boolean | undefined
+  /** Фиша экрана под окном (окно шапки поверх фиши): первая строка «Recenți», не подстановка. */
+  here?: number | undefined
 }
 
 export interface AddPerson { id: number; name: string; phone: string }
@@ -107,7 +109,7 @@ interface Got {
 }
 
 export function AddDialog({
-  open, form, date, of, busy, onClose, onAdd, preset, note, people, askDoctor,
+  open, form, date, of, busy, onClose, onAdd, preset, note, people, askDoctor, here,
 }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
   const [at, setAt] = useState(preset?.date ?? date)
@@ -119,15 +121,16 @@ export function AddDialog({
   const [roomPick, setRoomPick] = useState(preset?.room ?? '')
   const [service, setService] = useState(
     form.services.find((x) => x.id === preset?.service)?.id ?? form.services[0]?.id ?? '')
-  const [name, setName] = useState(preset?.name ?? '')
   const [phone, setPhone] = useState(preset?.phone ?? '')
   const [noPhone, setNoPhone] = useState(false)
   const [birth, setBirth] = useState('')
   const [fail, setFail] = useState('')
   const [failCode, setFailCode] = useState('')
   const [busyAt, setBusyAt] = useState<BusyInfo | null>(null)
-  const [pid, setPid] = useState<number | null>(preset?.pid ?? null)
-  const person = people?.find((x) => x.id === pid) ?? null
+  const seed = people?.find((x) => x.id === preset?.pid)
+  const pick = usePatientPick(phone, noPhone, seed ? personRow(seed) : null, preset?.name ?? '')
+  const person = pick.picked
+  const pid = person?.id ?? null
   const sms = useSmsBox(form.sms, person ? person.phone : phone, person ? !person.phone : noPhone)
   const dur = useDurPick(form.services, service, form,
     preset?.duration ?? (preset?.room === CONTROL ? CONTROL_DUR : undefined))
@@ -182,7 +185,7 @@ export function AddDialog({
     setFailCode('')
     const who = person
       ? { name: person.name, phone: person.phone, nophone: !person.phone, pid: person.id }
-      : { name, phone: noPhone ? '' : phone, nophone: noPhone }
+      : { name: pick.name, phone: noPhone ? '' : phone, nophone: noPhone }
     const lane = asControl ? CONTROL : room
     /* «ca control» с нетронутой длительностью — короткая, как в полосе */
     const durField = asControl && !dur.field.duration ? { duration: CONTROL_DUR } : dur.field
@@ -255,17 +258,19 @@ export function AddDialog({
             <span className="hint">{T.people}</span>
             {people.map((x) => (
               <button key={x.id} type="button" className={`dp-addperson${pid === x.id ? ' on' : ''}`}
-                      aria-pressed={pid === x.id} onClick={() => setPid(pid === x.id ? null : x.id)}>
+                      aria-pressed={pid === x.id} onClick={() => pick.setPicked(pid === x.id ? null : personRow(x))}>
                 {x.name}{x.phone ? ` · ${x.phone}` : ''}
               </button>
             ))}
           </div>
         ) : null}
-        <input value={person ? person.name : name} onChange={(e) => setName(e.target.value)}
-               placeholder={T.name} required disabled={!!person} />
-        <input value={person ? person.phone : noPhone ? '' : phone}
-               onChange={(e) => setPhone(e.target.value)}
-               placeholder={T.phone} required={!noPhone && !person} disabled={noPhone || !!person} />
+        <PatientName pick={pick} here={here} required onPhone={(p) => { if (!phone) setPhone(p) }} />
+        <span className={`dp-pick${pick.phoneHit && !person ? ' has-pill' : ''}`}>
+          <input value={person ? person.phone : noPhone ? '' : phone}
+                 onChange={(e) => setPhone(e.target.value)} aria-label={T.phone}
+                 placeholder={T.phone} required={!noPhone && !person} disabled={noPhone || !!person} />
+          <PhoneHit pick={pick} />
+        </span>
         <div className="dp-addrow">
           <label className="nophone">
             <input type="checkbox" checked={noPhone} disabled={!!person}
@@ -273,7 +278,8 @@ export function AddDialog({
           </label>
           <SmsCheck box={sms} />
         </div>
-        <label className="dlab">{T.birth}
+        {/* дата рождения уже в выбранной фише: поле прячется, но место держит — окно не прыгает */}
+        <label className={`dlab${person ? ' dp-pick-off' : ''}`} aria-hidden={person ? true : undefined}>{T.birth}
           <input type="date" value={birth} max={form.birth_max}
                  onChange={(e) => setBirth(e.target.value)} />
         </label>

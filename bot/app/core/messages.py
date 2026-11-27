@@ -532,6 +532,8 @@ MSG_BANNER = {
     "gc_gone": ("err", "Evenimentul nu mai este în listă — reîncărcați pagina"),
     "gc_moved": ("err", "Evenimentul este deja mutat în jurnal"),
     "gc_patient": ("err", "Fișa aleasă nu mai există — alegeți alt pacient"),
+    # окно записи журнала с выбранной фишей (`schedule/routes._book_pick`)
+    "pick_gone": ("err", "Fișa aleasă nu mai există — alegeți alt pacient"),
     "gc_appt": ("err", "Programarea aleasă nu mai există în jurnal"),
     "gc_no_text": ("err", "Textul evenimentului a fost șters la termen — nu mai poate fi readus în listă"),
     "gc_skipped": ("ok", "Evenimentul nu va fi mutat — îl găsiți la „Omise”"),

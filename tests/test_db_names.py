@@ -106,6 +106,7 @@ SNAPSHOT = frozenset((
     "patient_name_by_phone", "patient_visit_records", "patients_archived",
     "patients_count", "patients_counts", "patients_debt", "patients_doctors",
     "patients_origins", "patient_origin", "patients_rows", "patients_total", "patients_visits",
+    "pick_rows", "patients_named", "recent_booked",
     "PAY_METHODS", "payments", "payments_day", "payments_range", "perio_drop",
     "perio_exam", "perio_exams", "perio_last", "perio_new", "perio_rows", "perio_save",
     "ORIGIN_SQL", "_PL_COLS", "_PL_DEBT", "_PL_DIALECT", "_PL_DOCTOR", "_PL_FROM",

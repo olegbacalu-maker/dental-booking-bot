@@ -31,7 +31,7 @@ const form = () => document.querySelector('dialog form') as HTMLFormElement
 const asCtl = () => Array.from(document.querySelectorAll('dialog button'))
   .find((b) => b.textContent === 'Adaugă ca control') as HTMLButtonElement | undefined
 const fill = () => {
-  fireEvent.change(field('Nume pacient'), { target: { value: 'Ion Control' } })
+  fireEvent.change(field('Nume, telefon sau nr. fișei'), { target: { value: 'Ion Control' } })
   fireEvent.change(field('Telefon'), { target: { value: '069000111' } })
 }
 

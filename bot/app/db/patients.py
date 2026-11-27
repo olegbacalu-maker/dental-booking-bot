@@ -121,6 +121,47 @@ async def patient_name_by_phone(phone: str) -> str | None:
     return rows[0]["name"] if rows else None
 
 
+
+# ---------- выбор фиши в окне записи журнала ----------
+
+async def pick_rows(ids: list[int]) -> list[dict]:
+    """Строки подсказки окна записи — в порядке `ids`: имя, телефон, год рождения, номер дела и
+    последний прошедший визит (как «Ultima vizită» списка). Обезличенных нет: выбрать их некому."""
+    if not ids:
+        return []
+    marks = ", ".join("?" * len(ids))
+    rows = await _fetch(
+        f"""SELECT p.id, p.name, p.phone, p.birth_year, p.birth_date, p.file_no,
+                   (SELECT MAX(a.starts_at) FROM appointments a
+                     WHERE a.patient_id = p.id AND a.status <> 'cancelled'
+                       AND a.starts_at <= ?) AS last_at
+              FROM patients p
+             WHERE p.id IN ({marks}) AND p.session_key NOT LIKE 'anon:%'""",
+        _utcnow_iso(), *ids)
+    by_id = {r["id"]: r for r in rows}
+    return [by_id[i] for i in ids if i in by_id]
+
+
+async def patients_named(name: str, limit: int = 5) -> list[int]:
+    """Фиши с ТЕМ ЖЕ именем, что набрано: без регистра, диакритики и порядка слов («Popescu Ion» =
+    «Ion Popescu»). Подсказка двойника, когда номера нет или он другой; часть имени — не то же имя."""
+    words = sorted(_fold(name).split())
+    if not words:
+        return []
+    cond = " AND ".join("instr(dp_fold(name), ?) > 0" for _ in words)
+    rows = await _fetch(
+        f"SELECT id, name FROM patients WHERE session_key NOT LIKE 'anon:%' AND {cond} "
+        "ORDER BY id", *words)
+    return [r["id"] for r in rows if sorted(_fold(r["name"]).split()) == words][:limit]
+
+
+async def recent_booked(limit: int = 60) -> list[dict]:
+    """Последние записи журнала (новые первыми, по номеру записи — порядок не зависит от часов):
+    пациент и врач. Кому из них видно — решает вызывающий по праву (`visits.mine`)."""
+    return await _fetch(
+        "SELECT id, patient_id, doctor_id, doctor FROM appointments "
+        "WHERE patient_id IS NOT NULL AND source <> 'note' ORDER BY id DESC LIMIT ?", limit)
+
 # ---------- список пациентов: поиск, фильтры, порядок и страница — в SQL ----------
 #
 # Экран «Pacienți» (`/api/patients`) и книга `/admin/patients.xlsx` отбирают

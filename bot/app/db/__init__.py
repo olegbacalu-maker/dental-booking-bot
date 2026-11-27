@@ -68,6 +68,7 @@ from .patients import (
     _fold, fold, patient_appointments, PATIENT_FIELDS, get_patient, update_patient,
     set_primary_doctor, set_birth_year, patient_alerts, add_alert, delete_alert,
     MKT_SOURCES, MKT_EVENT, set_mkt, phone_key, CREATED_EVENT,
+    pick_rows, patients_named, recent_booked,
 )
 from .pimport import (
     IMPORT_DDL, IMPORT_FILL, import_index, import_open, import_get, import_list, import_count,

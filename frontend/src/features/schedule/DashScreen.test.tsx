@@ -470,7 +470,7 @@ describe('24.09: день — из адреса, шапка — из эха ка
     await show('/admin')
     fireEvent.click(document.querySelector('.gcell[data-h="10"]') as HTMLElement)
     await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
-    fireEvent.change(document.querySelector('dialog input[placeholder="Nume pacient"]') as HTMLElement,
+    fireEvent.change(document.querySelector('dialog input[placeholder="Nume, telefon sau nr. fișei"]') as HTMLElement,
       { target: { value: 'Ana Munteanu' } })
 
     f.mockImplementation(async () => reply(200, morning(), { 'X-DP-Hash': 'h2' }))
@@ -780,7 +780,7 @@ describe('22.10: смена процедуры в окне визита', () => 
 
 describe('C26.5.3-c: диалог пустого часа', () => {
   const fill = (name: string, phone: string) => {
-    fireEvent.change(document.querySelector('dialog input[placeholder="Nume pacient"]') as HTMLElement,
+    fireEvent.change(document.querySelector('dialog input[placeholder="Nume, telefon sau nr. fișei"]') as HTMLElement,
       { target: { value: name } })
     fireEvent.change(document.querySelector('dialog input[placeholder="Telefon"]') as HTMLElement,
       { target: { value: phone } })
@@ -831,7 +831,7 @@ describe('C26.5.3-c: диалог пустого часа', () => {
     const f = vi.fn(async () => reply(200, model()))
     vi.stubGlobal('fetch', f)
     await openSlot()
-    const name = document.querySelector('dialog input[placeholder="Nume pacient"]') as HTMLInputElement
+    const name = document.querySelector('dialog input[placeholder="Nume, telefon sau nr. fișei"]') as HTMLInputElement
     fireEvent.change(name, { target: { value: 'Ana Munteanu' } })
 
     const second = model()
@@ -849,7 +849,7 @@ describe('C26.5.3-c: диалог пустого часа', () => {
 
     await waitFor(() =>
       expect(document.querySelectorAll('.gridbody [data-appt]').length).toBe(2))
-    expect((document.querySelector('dialog input[placeholder="Nume pacient"]') as HTMLInputElement)
+    expect((document.querySelector('dialog input[placeholder="Nume, telefon sau nr. fișei"]') as HTMLInputElement)
       .value).toBe('Ana Munteanu')
   })
 
@@ -937,7 +937,7 @@ describe('C26.5.3-c: диалог пустого часа', () => {
 
     await waitFor(() => expect(f.mock.calls.length).toBeGreaterThan(before + 1))
     expect(document.querySelector('dialog[open]')).toBeTruthy()
-    expect((document.querySelector('dialog input[placeholder="Nume pacient"]') as HTMLInputElement)
+    expect((document.querySelector('dialog input[placeholder="Nume, telefon sau nr. fișei"]') as HTMLInputElement)
       .value).toBe('Ana Munteanu')
     /* ⛔ Слово отказа — В ОКНЕ (17.10): плашка экрана под модальным окном
        не видна (top layer), и Олег читал «ничего не произошло». */

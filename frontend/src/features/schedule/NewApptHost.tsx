@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useLocation } from 'react-router'
 import { useLingering } from '../../utils/motion'
 import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
@@ -65,6 +66,8 @@ interface WindowProps {
 /** Смонтировано, пока окно открыто: каждое открытие — запись с чистого листа,
  *  как у окна дня журнала. */
 function NewApptWindow({ open, onClose, onDone, navigate }: WindowProps) {
+  /* фиша под окном — первая строка «Recenți»; в поле её не кладём: записывают другого */
+  const here = Number(/^\/admin\/patient\/(\d+)/.exec(useLocation().pathname)?.[1]) || undefined
   const [got, setGot] = useState<{ date: string; form: DayForm } | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -114,5 +117,6 @@ function NewApptWindow({ open, onClose, onDone, navigate }: WindowProps) {
   }
 
   if (!got) return null
-  return <AddDialog open={open} form={got.form} date={got.date} of="" busy={busy} onClose={onClose} onAdd={add} />
+  return <AddDialog open={open} form={got.form} date={got.date} of="" busy={busy} onClose={onClose} onAdd={add}
+                    here={here} />
 }
