@@ -713,7 +713,12 @@ describe('GcalScreen: связь с аккаунтом Google', () => {
   })
 
   it('связь работает: возврат в окно перечитывает список — события пришли сами', async () => {
+    /* Слушатель «focus» ставит ПАССИВНЫЙ эффект: экран уже в DOM, а эффект под нагрузкой ещё в
+       планировщике — событие, посланное раньше него, никто не слышит, и запроса не будет никогда.
+       Ждём сам слушатель, а не время. */
+    const listen = vi.spyOn(window, 'addEventListener')
     await open(list({ google: ON }))
+    await waitFor(() => expect(listen).toHaveBeenCalledWith('focus', expect.any(Function)))
     get.mockClear()
     act(() => { window.dispatchEvent(new Event('focus')) })
     await waitFor(() => expect(get).toHaveBeenCalledWith('/gcal', {}))
