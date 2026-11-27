@@ -34,3 +34,33 @@ cloud.dentpilot.md {
 		reverse_proxy cloud:8090
 	}
 }
+
+# Короткий адрес ответа пациента из SMS (Premium, plink_page.py): v.dentpilot.md/K7Q2MX. DNS A — тот же сервер,
+# «DNS only». Здесь только страница кода (переписывается на /r/<код> приложения, ?l= сохраняется) и картинка
+# карточки превью; всё прочее — 404: кабинет, админка и API живут только на cloud.dentpilot.md.
+v.dentpilot.md {
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		# ⛔ Не no-referrer: кнопки «Vin» / «Nu pot veni» — обычная форма POST, при no-referrer браузер шлёт
+		# Origin: null, и same_origin_post отвечает 403 (тот же прайор, что у cloud.dentpilot.md выше)
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+	@code path_regexp code ^/([A-Za-z0-9]{6})$
+	handle @code {
+		request_body {
+			max_size 8KB
+		}
+		rewrite * /r/{re.code.1}
+		reverse_proxy cloud:8090
+	}
+	handle /og/confirm.png {
+		reverse_proxy cloud:8090
+	}
+	handle {
+		respond 404
+	}
+}

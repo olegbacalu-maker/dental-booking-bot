@@ -44,7 +44,7 @@ BLOCKERS = (
     ("sms_papers", "подписанные заявления на имя SMS", "clinic_id=?"),
 )
 # стирается при удалении — дети раньше родителя (foreign_keys=ON)
-CLEARED = ("pay_links", "cont_links", "email_confirms", "activation_codes", "cabinet_codes", "devices",
+CLEARED = ("links", "link_clinics", "pay_links", "cont_links", "email_confirms", "activation_codes", "cabinet_codes", "devices",
            "account_clinics", "sms_ledger", "sms_accounts", "terms_acceptances", "issues", "subscriptions")
 # ссылки на клинику без удаления строки: учётная запись кабинета — человек, у неё снимается открытая клиника
 DETACHED = ("accounts",)

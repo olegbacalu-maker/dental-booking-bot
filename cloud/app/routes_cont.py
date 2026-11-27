@@ -125,7 +125,8 @@ def _cont_dashboard(request: Request, msg: str, c: str, tab: str = "") -> Respon
                        # год имени (05.11): цена прайса, ожидающая нота хозяйки имени, продаётся ли
                        "name_price": config.SMS_NAME_PRICE, "name_closed": smsshop["closed"],
                        "name_note": payments.open_of(con, owner["id"], payments.SMS_NAME),
-                       "year": sms.name_year(osa), "owner_href": f"/cont?c={owner['id']}#sms",
+                       "year": sms.year_of(con, owner["id"]),
+                       "name_free": sms.name_free_ts(con, owner["id"]), "owner_href": f"/cont?c={owner['id']}#sms",
                        "idno": len(cl["idno"] or "") == 13,
                        "clinic": owner, "shared": "" if mine_name else owner["name"],
                        "data_href": "#clinica" if mine_name else f"/cont?c={owner['id']}#clinica"}
@@ -661,7 +662,7 @@ def _cont_paper_save(request: Request, body: bytes, name: str) -> str:
         if code:
             return code
         # заявление принято, а год имени не оплачен — баннер называет оплату
-        unpaid = config.SMS_NAME_PRICE and sms.name_year(sms.account(con, owner["id"])) == sms.Y_UNPAID
+        unpaid = config.SMS_NAME_PRICE and sms.year_of(con, owner["id"]) == sms.Y_UNPAID
         return "sms_paper_pay" if unpaid else "sms_paper_ok"
 
 

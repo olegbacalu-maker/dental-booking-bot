@@ -106,7 +106,7 @@ def _item(con: sqlite3.Connection, a: sqlite3.Row, start: datetime, end: datetim
             "sender": a["sender"], "sender_state": a["sender_state"], "sender_note": a["sender_note"],
             "sender_paper": bool(a["sender_paper_at"]), "sender_paper_file": bool(a["sender_paper_id"]), "sender_until": a["sender_until"],
             "sender_prepaid": a["sender_prepaid"], "from": sms.sender_for(con, cid, now),
-            "name_year": sms.name_year(a, now),
+            "name_year": sms.year_of(con, cid, now), "name_free": sms.name_free_ts(con, sms.name_owner(con, cid), now),
             # имя общее на кабинет (26.10): у филиала — главной клиники; '' — своё
             **_name_from(con, cid),
             "balance": sms.balance(con, cid), "daily_cap": a["daily_cap"],

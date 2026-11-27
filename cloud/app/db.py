@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 24
+SCHEMA_VERSION = 25
 TS = "%Y-%m-%dT%H:%M:%SZ"
 
 
@@ -64,6 +64,13 @@ def _add_gdoc_until(con: sqlite3.Connection) -> None:
     """Шаг 24: `subscriptions.gdoc_until`. Функцией, как шаги 21–23: переживает повтор."""
     if "gdoc_until" not in {r[1] for r in con.execute("PRAGMA table_info(subscriptions)")}:
         con.execute("ALTER TABLE subscriptions ADD COLUMN gdoc_until TEXT")
+
+
+def _add_name_free(con: sqlite3.Connection) -> None:
+    """Шаг 25: `subscriptions.name_free_until` — конец оплаченного на год периода Premium (подарок: своё имя
+    отправителя без оплаты года). Функцией, как шаги 21–24: переживает повтор."""
+    if "name_free_until" not in {r[1] for r in con.execute("PRAGMA table_info(subscriptions)")}:
+        con.execute("ALTER TABLE subscriptions ADD COLUMN name_free_until TEXT")
 
 
 MIGRATIONS = {
@@ -388,6 +395,26 @@ MIGRATIONS = {
     # ухода с Premium — конец периода, шедшего при уходе (правило модуля SMS и `sms_until`). Пусто — у Premium
     # своё право до конца файла, у остальных права нет.
     24: [_add_gdoc_until],
+    # Premium волна 2а (27.11, plink.py): ответ пациента ссылкой из SMS. `links` — код ссылки и ответ: ⛔ ни
+    # телефона, ни имени, ни времени визита (держит test_plink.suite_schema составом колонок); `until` — начало
+    # визита, до него ответ можно сменить; `seq` — номер перемены клиники, по нему программа забирает ответы.
+    # `link_clinics` — подпись и телефон КЛИНИКИ из её SMS (страница называет клинику теми же словами) и счётчик
+    # перемен. `kind` — шов волны 2б («освободилось место»), сегодня только confirm. Тем же шагом — подарок имени
+    # в Premium на год (`_add_name_free`).
+    25: [
+        """CREATE TABLE IF NOT EXISTS links(
+            code TEXT PRIMARY KEY, clinic_id TEXT NOT NULL REFERENCES clinics(id),
+            kind TEXT NOT NULL DEFAULT 'confirm', lang TEXT NOT NULL DEFAULT 'ro',
+            state TEXT NOT NULL DEFAULT 'open', seq INTEGER NOT NULL DEFAULT 0,
+            until TEXT NOT NULL, created_at TEXT NOT NULL, answered_at TEXT)""",
+        "CREATE INDEX IF NOT EXISTS ix_links_inbox ON links(clinic_id, seq)",
+        "CREATE INDEX IF NOT EXISTS ix_links_created ON links(clinic_id, created_at)",
+        "CREATE INDEX IF NOT EXISTS ix_links_until ON links(until)",
+        """CREATE TABLE IF NOT EXISTS link_clinics(
+            clinic_id TEXT PRIMARY KEY REFERENCES clinics(id), label TEXT NOT NULL,
+            phone TEXT NOT NULL DEFAULT '', seq INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL)""",
+        _add_name_free,
+    ],
 }
 
 

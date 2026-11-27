@@ -31,6 +31,7 @@ import test_maib  # noqa: E402
 import test_mail_tx  # noqa: E402
 import test_modele  # noqa: E402
 import test_payments  # noqa: E402
+import test_plink  # noqa: E402
 import test_paylink  # noqa: E402
 import test_update  # noqa: E402
 import test_pure  # noqa: E402
@@ -234,6 +235,7 @@ SUITES = [
      test_modele.suite_rules),
     ("Образцы 195 в кабинете: только под входом, своя клиника и филиал, вкладка, SMS, вход из программы",
      test_modele.suite_cabinet),
+    *test_plink.SUITES,
     ("Поисковики: noindex на каждом ответе, robots.txt обход не закрывает", test_robots.suite),
     ("Корень облака — кабинет клиники, админка только прямым адресом", test_robots.suite_root),
 ]
