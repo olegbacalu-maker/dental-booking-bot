@@ -3551,3 +3551,50 @@ def suite(res: Result) -> None:
         bad += [f"export.collect не читает таблицу {t} (её выборка по patient_id: {sorted(readers.get(t, ()))})"
                 for t in sorted(loose) if not (readers.get(t, set()) & got)]
     res.ok("таблица пациента без внешнего ключа — в стирании и выгрузке", not bad, "; ".join(bad))
+
+
+    # Сервер ссылок не дал код до последнего часа окна «накануне» — напоминание уходит «Detaliat»
+    # без ссылки. Час — константой рядом с окном (`sms_plan.LINK_LAST_HOUR`), не числом в цикле;
+    # запасной текст — тот, на котором заперт текст «накануне» при ссылке (`plan.DETALIAT`).
+    bad = []
+    loop_t = by_path.get("app/core/sms_loop.py")
+    enq = next((n for n in (loop_t.body if loop_t else []) if isinstance(n, ast.AsyncFunctionDef)
+                and n.name == "_enqueue_due"), None)
+    if enq is None:
+        bad.append("app/core/sms_loop.py: нет _enqueue_due — якорь правила пропал")
+    else:
+        attrs = {n.attr for n in _walk(enq) if isinstance(n, ast.Attribute)
+                 and isinstance(n.value, ast.Name) and n.value.id == "plan"}
+        if not any(isinstance(n, ast.Compare) and any(isinstance(x, ast.Attribute) and x.attr == "LINK_LAST_HOUR"
+                                                      for x in _walk(n)) for n in _walk(enq)):
+            bad.append("_enqueue_due не сравнивает час с plan.LINK_LAST_HOUR")
+        if not any(isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "variant" for t in n.targets)
+                   and isinstance(n.value, ast.Attribute) and n.value.attr == "DETALIAT" for n in _walk(enq)):
+            bad.append("_enqueue_due не ставит запасным текстом plan.DETALIAT")
+        if "timedelta" in _calls(enq):
+            bad.append("_enqueue_due считает час числом (timedelta) мимо sms_plan")
+        if "LINK_LAST_HOUR" not in attrs:
+            bad.append("_enqueue_due не читает plan.LINK_LAST_HOUR")
+    plan_t = by_path.get("app/core/sms_plan.py")
+    if plan_t is None or not any(isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "LINK_LAST_HOUR"
+                                                                   for t in n.targets) for n in plan_t.body):
+        bad.append("app/core/sms_plan.py: нет LINK_LAST_HOUR рядом с окном")
+    res.ok("ответ ссылкой: последний час окна — Detaliat без ссылки, час константой", not bad, "; ".join(bad))
+
+    # Телефон и подпись клиники уходят серверу ссылок по ЕГО правилу (`plink.page_phone`,
+    # `page_label`): телефон «022 123 456, 069 123 456» сервер отверг бы `link_bad`, и все
+    # напоминания клиники молча ушли бы без ссылки.
+    bad = []
+    pl = by_path.get("app/core/plink_loop.py")
+    links_f = next((n for n in (pl.body if pl else []) if isinstance(n, ast.AsyncFunctionDef)
+                    and n.name == "links"), None)
+    calls_new = [c for c in _walk(links_f) if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
+                 and c.func.attr == "to_thread" and c.args and isinstance(c.args[0], ast.Attribute)
+                 and c.args[0].attr == "new"] if links_f is not None else []
+    if not calls_new:
+        bad.append("app/core/plink_loop.py: links не зовёт wire.new — якорь правила пропал")
+    for c in calls_new:
+        inner = {x.func.attr for a in c.args[1:] for x in _walk(a) if isinstance(x, ast.Call)
+                 and isinstance(x.func, ast.Attribute)}
+        bad += [f"plink_loop.links:{c.lineno} без {f}" for f in ("page_phone", "page_label") if f not in inner]
+    res.ok("телефон и подпись клиники — серверу ссылок по его правилу", not bad, "; ".join(bad))

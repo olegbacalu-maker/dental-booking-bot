@@ -251,6 +251,8 @@ SUITES = [
     ("Ответ ссылкой из SMS: провод к серверу", test_plink.suite_wire),
     ("Ответ ссылкой из SMS: код накануне, ответы в журнал, перенос, стирание", test_plink.suite_live),
     ("Ответ ссылкой из SMS: без права Premium — текст без ссылки", test_plink.suite_rights),
+    ("Ответ ссылкой из SMS: сервер молчит до 20:00 — Detaliat без ссылки; телефон, забор частями",
+     test_plink.suite_late),
     ("SMS: пакет не предлагается, файл без renew", test_sms.suite_not_offered),
     ("SMS: экран Setări › SMS, фиша, acord, баннер остатка", test_sms.suite_screen),
     ("SMS: галочка «SMS reminder» окна записи — пакет, право, sms_off", test_sms.suite_box),

@@ -68,6 +68,27 @@ def url(host: str, code: str) -> str:
     return f"{host}/{code}" if isinstance(host, str) and HOST_RE.match(host) and code_ok(code) else ""
 
 
+PHONE_MAX = 32                  # правило сервера для телефона клиники на странице
+LABEL_MAX = 60                  # правило сервера для подписи клиники
+_PHONE_OK = re.compile(r"[0-9 +()\-]")
+
+
+def page_phone(raw) -> str:
+    """Телефон клиники для кнопки звонка на странице — по правилу сервера (цифры, пробел,
+    `+ ( ) -`, до PHONE_MAX). В профиле бывает «022 123 456, 069 123 456» или «022/123»:
+    берётся первый номер, прочие знаки выбрасываются; без цифр — пусто (кнопки нет).
+    Кривой телефон сервер отверг бы `link_bad`, и все напоминания ушли бы без ссылки."""
+    first = re.split(r"[,;/]", raw if isinstance(raw, str) else "", maxsplit=1)[0]
+    out = " ".join("".join(c for c in first if _PHONE_OK.match(c)).split())[:PHONE_MAX].strip()
+    return out if any(c.isdigit() for c in out) else ""
+
+
+def page_label(raw) -> str:
+    """Подпись клиники для страницы — 1–LABEL_MAX знаков, иначе сервер отказал бы `link_bad`."""
+    out = " ".join((raw if isinstance(raw, str) else "").split())[:LABEL_MAX].strip()
+    return out or "Clinica"
+
+
 def code_ok(code) -> bool:
     return isinstance(code, str) and bool(CODE_RE.match(code))
 
@@ -151,7 +172,7 @@ def inbox(base: str, token: str, after: int, timeout: float = TIMEOUT, agent: st
         items.append({"code": it["code"], "seq": s, "state": it["state"], "at": it["at"]})
     items.sort(key=lambda x: x["seq"])
     top = max([seq] + [x["seq"] for x in items])
-    return OK, {"seq": top, "items": items}
+    return OK, {"seq": top, "items": items, "more": body.get("more") is True}
 
 
 def close(base: str, token: str, codes: list[str], timeout: float = TIMEOUT,

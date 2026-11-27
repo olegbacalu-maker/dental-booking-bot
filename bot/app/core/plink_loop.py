@@ -47,7 +47,8 @@ META_HOST = "plink_host"                    # адрес страницы отв
 DEFAULT_HOST = "v.dentpilot.md"             # только для предпросмотра, пока кодов не выдавали
 SAMPLE_CODE = "K7Q2MX"                      # код предпросмотра экрана: настоящий код — только в SMS
 LATE = timedelta(hours=1)                   # ответ, нажатый перед самым началом, ещё забираем
-CANT_WINDOW = timedelta(hours=12)           # уведомление у часов — про недавний «Nu pot veni»
+CANT_WINDOW = timedelta(hours=12)
+PULL_ROUNDS = 5                             # `more: true` — забрать ещё в том же тике, не больше раз           # уведомление у часов — про недавний «Nu pot veni»
 
 # исходы выдачи кодов для цикла SMS
 LINKS = "links"                             # коды есть: текст со ссылкой
@@ -156,7 +157,7 @@ async def links(rows: list[dict]) -> tuple[str, dict]:
         group = group[:wire.NEW_MAX]
         langs = [(r.get("lang") if r.get("lang") in plan.LANGS else "ro") for r in group]
         outcome, body = await asyncio.to_thread(
-            wire.new, t[0], t[1], until, langs, _label(), (eng.CLINIC_PHONE or "").strip(),
+            wire.new, t[0], t[1], until, langs, wire.page_label(_label()), wire.page_phone(eng.CLINIC_PHONE),
             wire.TIMEOUT, _agent(), lic.identity())
         if outcome == wire.DENIED:
             why = str(body.get("code") or "")
@@ -251,22 +252,25 @@ async def _apply(it: dict) -> bool:
 async def _pull(base: str, token: str, now: datetime) -> int:
     if await db.plink_live_count(now - LATE) == 0:
         return 0
-    after = int(await db.get_meta(META_SEQ) or 0)
-    outcome, body = await asyncio.to_thread(wire.inbox, base, token, after, wire.TIMEOUT, _agent(),
-                                            lic.identity())
-    if outcome != wire.OK:
-        _last["error"] = str(body.get("code") or outcome) if outcome == wire.DENIED else outcome
-        return 0
     n = 0
-    for it in body["items"]:
-        if it["seq"] <= after:
-            continue
-        if await _apply(it):
-            n += 1
-            if it["state"] == db.LINK_NO:
-                _cant["seq"] = max(_cant["seq"], it["seq"])
-    if body["seq"] > after:
-        await db.set_meta(META_SEQ, str(body["seq"]))
+    for _ in range(PULL_ROUNDS):
+        after = int(await db.get_meta(META_SEQ) or 0)
+        outcome, body = await asyncio.to_thread(wire.inbox, base, token, after, wire.TIMEOUT, _agent(),
+                                                lic.identity())
+        if outcome != wire.OK:
+            _last["error"] = str(body.get("code") or outcome) if outcome == wire.DENIED else outcome
+            return n
+        for it in body["items"]:
+            if it["seq"] <= after:
+                continue
+            if await _apply(it):
+                n += 1
+                if it["state"] == db.LINK_NO:
+                    _cant["seq"] = max(_cant["seq"], it["seq"])
+        if body["seq"] > after:
+            await db.set_meta(META_SEQ, str(body["seq"]))
+        if not body["more"] or body["seq"] <= after:
+            break                           # всё забрано — или сервер не двинулся: не крутиться
     return n
 
 

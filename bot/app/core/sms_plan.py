@@ -381,6 +381,9 @@ def idem(appt_id: int, kind: str, starts_utc: str) -> str:
 QUIET_START, QUIET_END = 21, 8      # шлём только 08:00–21:00 по часам клиники
 SAME_DAY_FLOOR = timedelta(hours=1)  # «за N часов» в тихие часы → в 08:00, если до визита ≥ 1 ч
 SAME_DAY_LATE = timedelta(minutes=30)  # позже, чем за полчаса до начала, — уже не напоминание
+# Ответ ссылкой: сервер ссылок не дал код до последнего часа окна «накануне» (окно кончается
+# в QUIET_START) — напоминание уходит «Detaliat» без ссылки: напоминание важнее ссылки
+LINK_LAST_HOUR = timedelta(hours=1)
 SEND_DAY_BACK = 14                  # дальше рабочий день не ищем: клиника в отпуске
 
 

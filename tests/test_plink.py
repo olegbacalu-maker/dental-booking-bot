@@ -67,6 +67,8 @@ class LinkStand(ts.Stand):
         self.issued: list[dict] = []        # запросы /v1/link/new
         self.closed: list[str] = []
         self.inbox_calls: list[int] = []
+        self.inbox_times: list[float] = []
+        self.inbox_page = 0                 # >0 — столько перемен за ответ, остальное `more: true`
         self.events: list[dict] = []
         self.codes: dict[str, str] = {}     # код → язык
         self._n = 0
@@ -78,12 +80,16 @@ class LinkStand(ts.Stand):
                 if self.path.startswith("/v1/link/inbox"):
                     after = int(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)["after"][0])
                     stand.inbox_calls.append(after)
+                    stand.inbox_times.append(time.monotonic())
                     if stand.inbox_mode == "down":
                         self._reply(500, None)
                         return
                     items = [e for e in stand.events if e["seq"] > after]
-                    self._reply(200, {"ok": True, "seq": max([after] + [e["seq"] for e in stand.events]),
-                                      "items": items})
+                    more = bool(stand.inbox_page) and len(items) > stand.inbox_page
+                    if stand.inbox_page:
+                        items = items[:stand.inbox_page]
+                    self._reply(200, {"ok": True, "seq": max([after] + [e["seq"] for e in items]),
+                                      "more": more, "items": items})
                     return
                 super().do_GET()
 
@@ -138,6 +144,14 @@ def suite_wire(res: Result) -> None:
     res.check("адрес в SMS — без схемы", wire.url(HOST, "K7Q2MX"), "v.dentpilot.md/K7Q2MX")
     res.check("кривой хост или код — пустой адрес",
               [wire.url("evil.md/x", "K7Q2MX"), wire.url(HOST, "K7Q2M0"), wire.url("", "K7Q2MX")], ["", "", ""])
+    # телефон и подпись клиники — по правилу сервера: иначе `link_bad`, и все напоминания без ссылки
+    res.check("телефон для страницы: первый номер, знаки правила, до 32, без цифр — пусто",
+              [wire.page_phone(x) for x in ("022 123 456, 069 123 456", "022/123 456", "+373 (22) 12-34-56",
+                                            "tel. 022 123;069", "", None, "fără telefon", "1" * 40)],
+              ["022 123 456", "022", "+373 (22) 12-34-56", "022 123", "", "", "", "1" * 32])
+    res.check("подпись для страницы: 1–60 знаков", [wire.page_label("x" * 70), wire.page_label("  "),
+                                                     wire.page_label("Clinica  Test")],
+              ["x" * 60, "Clinica", "Clinica Test"])
     res.check("base_of: /v1/link/ того же сервера", wire.base_of("https://cloud.dentpilot.md/v1/license"),
               "https://cloud.dentpilot.md/v1/link/")
     stand = LinkStand()
@@ -161,6 +175,11 @@ def suite_wire(res: Result) -> None:
         res.ok("забор: кривой код и незнакомое состояние отброшены, seq — наибольший",
                out == wire.OK and [i["code"] for i in body["items"]] == ["K7Q2MX"] and body["seq"] == 9301,
                repr(body))
+        stand.inbox_page = 1
+        out, body = wire.inbox(base, ts.TOKEN, 0)
+        res.ok("забор частями: одна перемена и more: true", out == wire.OK and len(body["items"]) == 1
+               and body["more"] is True, repr(body))
+        stand.inbox_page = 0
         stand.inbox_mode = "down"
         res.check("забор: сервер молчит — OFFLINE", wire.inbox(base, ts.TOKEN, 0)[0], wire.OFFLINE)
         res.check("закрытие: только годные коды", (wire.close(base, ts.TOKEN, ["K7Q2MX", "nope"])[0], stand.closed),
@@ -411,6 +430,84 @@ def suite_live(res: Result) -> None:
                 got = ts._wait(lambda: _sent_for(stand, b, "same_day"))
                 res.ok("в день визита — обычный текст без ссылки",
                        got and "Ответить" not in got[0] and "Confirmare/anulare" not in got[0], repr(got))
+    finally:
+        stand.close()
+        _rmtree_settled(d)
+
+
+def suite_late(res: Result) -> None:
+    """Сервер ссылок молчит весь вечер: до последнего часа окна SMS нет, в 20:00 — «Detaliat» без
+    ссылки, ровно одна, кода не просят и потом. Сервер ожил в 19:30 — SMS со ссылкой. Телефон
+    клиники в профиле двумя номерами — серверу первый. Забор частями (`more`) — в том же тике."""
+    stand = LinkStand()
+    renew = {"url": stand.url, "token": ts.TOKEN}
+    d = pathlib.Path(tempfile.mkdtemp(prefix="dp_plink3_"))
+    env = {**ts.KEY_ENV, **ts.TICK, "DENTART_PLINK_TICK_S": "3"}
+    try:
+        ts._clinic_weekdays(d, {"day_before": {"on": True, "hour": 10, "variant": "standard"},
+                                "same_day": {"on": False}, "phone_line": True, "link": {"confirm": True}})
+        cfg = json.loads((d / "clinic.json").read_text(encoding="utf-8"))
+        cfg["phone"] = "022 123 456, 069 123 456"
+        (d / "clinic.json").write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+        _license(d, renew, {"sms_link": 400})
+        stand.link_mode = "down"
+        with Clock(ts._at(2026, 11, 6, 9, 0)) as clock:
+            with Server(dir_=d, env=env) as s:
+                c = Client(s.url).login()
+                add_appt(c, "2026-11-09", "12:00", "Late Alfa", "069300111")
+                x = appt_id(c, "2026-11-09", "Late Alfa")
+                for hh, mm in ((10, 0), (19, 59)):
+                    clock.set(ts._at(2026, 11, 6, hh, mm, 30))
+                    time.sleep(1.5)
+                    res.ok(f"сервер ссылок молчит, {hh:02}:{mm:02} — SMS нет", not _sent_for(stand, x),
+                           repr(_sent_for(stand, x)))
+                clock.set(ts._at(2026, 11, 6, 20, 0, 30))
+                got = ts._wait(lambda: _sent_for(stand, x))
+                text = (got or [""])[0]
+                res.ok("20:00 — «Detaliat» без ссылки, «Anulare» по галочке, ровно 2 части",
+                       text.startswith("Buna ziua! Clinica Test va reaminteste de programarea dvs.:\nluni, 09.11")
+                       and "Daca nu puteti veni, anuntati-ne din timp" in text and "Confirmare/anulare" not in text
+                       and text.endswith("\nAnulare: 022 123 456, 069 123 456") and ts.rule.parts(text)[2] == 2,
+                       repr(text))
+                res.ok("кода у визита нет", not [r for r in _link_rows(d) if r["appt_id"] == x])
+                asked = len(stand.issued)
+                stand.link_mode = "ok"
+                clock.set(ts._at(2026, 11, 6, 20, 5))
+                time.sleep(1.5)
+                res.check("сервер ожил — второй SMS нет, кода этому визиту не просят",
+                          (len(_sent_for(stand, x)), len(stand.issued) - asked), (1, 0))
+                res.ok("лог: исход словом, без кода", "sent without it: 1" in s.log_text(), s.log_text()[-400:])
+
+                # ---- понедельник: сервер ожил в 19:30 — со ссылкой ----
+                stand.link_mode = "down"
+                clock.set(ts._at(2026, 11, 9, 9, 0))
+                add_appt(c, "2026-11-10", "12:00", "Late Beta", "069300222")
+                add_appt(c, "2026-11-10", "12:00", "Late Gamma", "069300333", doctor="d3")
+                y = appt_id(c, "2026-11-10", "Late Beta")
+                z = appt_id(c, "2026-11-10", "Late Gamma")
+                clock.set(ts._at(2026, 11, 9, 10, 0, 30))
+                time.sleep(1.5)
+                res.ok("понедельник 10:00, сервер ссылок молчит — SMS нет", not _sent_for(stand, y))
+                stand.link_mode = "ok"
+                clock.set(ts._at(2026, 11, 9, 19, 30))
+                got = ts._wait(lambda: _sent_for(stand, y) and _sent_for(stand, z))
+                res.ok("сервер ожил в 19:30 — SMS со ссылкой", got and _code_of(_sent_for(stand, y)[0])
+                       and _code_of(_sent_for(stand, z)[0]), repr(_sent_for(stand, y)))
+                res.ok("серверу — первый номер клиники и подпись SMS",
+                       stand.issued and stand.issued[-1]["phone"] == "022 123 456"
+                       and stand.issued[-1]["label"] == "Clinica Test", repr(stand.issued[-1:]))
+
+                # ---- забор частями: две перемены, по одной за ответ — обе в одном тике ----
+                stand.inbox_page = 1
+                n0 = len(stand.inbox_calls)
+                stand.answer(_code_of(_sent_for(stand, y)[0]), "yes", ts._at(2026, 11, 9, 19, 31))
+                stand.answer(_code_of(_sent_for(stand, z)[0]), "no", ts._at(2026, 11, 9, 19, 31))
+                got = ts._wait(lambda: _call(d, y).get("result") == "ok" and _call(d, z).get("result") == "cant",
+                               timeout=8)
+                burst = [t for t in stand.inbox_times[n0:]]
+                res.ok("more: true — вторая порция забрана тем же тиком, не через 3 с",
+                       got and len(burst) >= 2 and any(b - a < 1.0 for a, b in zip(burst, burst[1:])),
+                       repr((stand.inbox_calls[n0:], [round(b - burst[0], 2) for b in burst])))
     finally:
         stand.close()
         _rmtree_settled(d)

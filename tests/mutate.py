@@ -1051,6 +1051,17 @@ MUTATIONS = [
     # ЯКОРЬ: словарь текста со ссылкой переименовали.
     ("подстановки SMS — белый список", "app/core/sms_plan.py",
      ("LINK_TEXTS = {", "LINK_TEXTS_ = {")),
+    # Час отказа от ссылки — числом в цикле: сдвинь окно — запасной текст поедет мимо.
+    ("последний час окна — Detaliat без ссылки, час константой", "app/core/sms_loop.py",
+     ("if local_now < win[1] - plan.LINK_LAST_HOUR:", "if local_now < win[1] - timedelta(hours=1):")),
+    # Запасной текст — выбранный вариант, а не тот, на котором заперт текст со ссылкой.
+    ("последний час окна — Detaliat без ссылки, час константой", "app/core/sms_loop.py",
+     ("                variant = plan.DETALIAT\n", "                variant = s[ev][\"variant\"]\n")),
+    # Телефон профиля как есть — сервер ответит link_bad, и ссылок не будет ни у кого.
+    ("телефон и подпись клиники — серверу ссылок по его правилу", "app/core/plink_loop.py",
+     ("wire.page_phone(eng.CLINIC_PHONE)", "(eng.CLINIC_PHONE or \"\").strip()")),
+    ("телефон и подпись клиники — серверу ссылок по его правилу", "app/core/plink_loop.py",
+     ("wire.page_label(_label())", "_label()")),
 ]
 
 # Правки ЗАКОННЫЕ: нарушения в них нет, и правило обязано остаться

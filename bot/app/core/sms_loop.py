@@ -426,20 +426,27 @@ async def _enqueue_due(now: datetime, s: dict) -> int:
             due.append((r, ev, number, starts, key, win))
     linked = [r for r, ev, *_ in due if ev == plan.LINK_EVENT]
     how, urls = (await plink_loop.links(linked)) if linked and plink_loop.link_on(s) else (plink_loop.PLAIN, {})
-    added = 0
+    added = late = 0
     for r, ev, number, starts, key, win in due:
-        link = ""
+        link, variant = "", s[ev]["variant"]
         if ev == plan.LINK_EVENT and how != plink_loop.PLAIN:
             link = urls.get(r["id"], "")
             if not link:
-                continue                    # кода нет — строки нет: следующий тик спросит снова
-        text = plan.text(r["lang"] or "ro", s[ev]["variant"], clinic=eng.CLINIC_NAME,
+                if local_now < win[1] - plan.LINK_LAST_HOUR:
+                    continue                # кода нет — строки нет: следующий тик спросит снова
+                # последний час окна: текст «накануне» заперт на Detaliat — он и уходит, без
+                # ссылки; строка встаёт в очередь, и кода этому визиту больше не просят
+                variant = plan.DETALIAT
+                late += 1
+        text = plan.text(r["lang"] or "ro", variant, clinic=eng.CLINIC_NAME,
                          phone=eng.CLINIC_PHONE, phone_line=s[plan.PHONE_LINE_KEY],
                          starts=starts, on_day=local_now.date(), custom=custom, link=link)
         _, _, segs = rule.parts(text)
         if await db.sms_enqueue(r["id"], r["patient_id"], ev, number, text, segs, key, win[1]):
             known.add(key)
             added += 1
+    if late:
+        log.warning("sms: answer link not issued by the last hour, sent without it: %d", late)
     return added
 
 
