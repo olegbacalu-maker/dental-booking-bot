@@ -547,12 +547,14 @@ describe('C26.5.2: блок записи', () => {
       expect(a().className).toBe('gappt fresh slim duo')
       rerender(at(new Set()))
       expect(a().className).toBe('gappt slim duo')
-      /* 06.11: та же история у пометки сменившегося статуса */
+      /* та же история у пометки сменившегося статуса; `fresh` — один объект, иначе новый `Set` сам
+         перезапускал бы перемер, и шаг зеленел бы без `moved` в зависимостях */
+      const still: ReadonlySet<number> = new Set()
       const mv = (moved: ReadonlySet<number>) => (
         <DashCanvas model={MODEL} rail={rail} waitTick={NOW} lineTick={NOW}
           onCard={onCard} onSlot={onSlot} onNote={onNote}
           drag={null} hover="" onDrag={onDrag} onHover={onHover} onDrop={onDrop}
-          fresh={new Set()} moved={moved} />)
+          fresh={still} moved={moved} />)
       rerender(mv(new Set([1])))
       expect(a().className).toBe('gappt moved slim duo')
       rerender(mv(new Set()))

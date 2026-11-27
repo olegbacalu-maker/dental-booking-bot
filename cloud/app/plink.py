@@ -31,7 +31,7 @@ from . import config, db, license, sms, tiers
 UTC = timezone.utc
 ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 CODE_LEN = 6
-CODE_RE = re.compile(r"^[A-HJ-NP-Z2-9]{6}$")    # двойник в программе: bot/app/core/plink.py (w2-wire)
+CODE_RE = re.compile(r"^[A-HJ-NP-Z2-9]{6}$")    # двойник в программе: bot/app/core/plink.py (test_plink.suite_wire_twin)
 CONFIRM = "confirm"
 KINDS = (CONFIRM,)
 OPEN, YES, NO, CLOSED = "open", "yes", "no", "closed"

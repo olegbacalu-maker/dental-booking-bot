@@ -378,8 +378,8 @@ describe('SmsSettingsScreen', () => {
 /* Premium волна 2а: «Detaliat», ответ пациента ссылкой, плашка ответа, подарки, разбивка расхода
    (кадры design/premium-w2, раскладка A). Поля — `plink_loop.screen`, `sms_loop.screen`. */
 const LINK_PV = {
-  ro: { text: 'Buna ziua! Clinica Test va reaminteste de programarea dvs.: maine, 17.10, ora 12:00.\nConfirmare/anulare: v.dentpilot.md/K7Q2MX', segments: 2 },
-  ru: { text: 'Клиника Test: вы записаны завтра, 17.10, в 12:00.\nОтветить: v.dentpilot.md/K7Q2MX', segments: 2 },
+  ro: { text: 'Buna ziua! Clinica Test va reaminteste de programarea dvs.: maine, 17.10, ora 12:00.\nConfirmare/anulare: https://v.dentpilot.md/K7Q2MX', segments: 2 },
+  ru: { text: 'Клиника Test: вы записаны завтра, 17.10, в 12:00.\nОтветить: https://v.dentpilot.md/K7Q2MX', segments: 2 },
 }
 const DET_PV = {
   ro: { text: 'Buna ziua! Clinica Test va reaminteste de programarea dvs.: maine, 17.10, ora 12:00. Va rugam sa veniti cu 10 minute mai devreme.', segments: 2 },
@@ -428,7 +428,7 @@ describe('SmsSettingsScreen — Premium волна 2а', () => {
     expect(sel.selectedOptions[0]!.textContent).toBe('Detaliat (2 SMS)')
     expect(screen.getByText('cu link — textul Detaliat')).toBeTruthy()
     // предпросмотр накануне — текст со ссылкой сервера, а не выбранный вариант
-    expect(screen.getByText(/Confirmare\/anulare: v\.dentpilot\.md\/K7Q2MX/)).toBeTruthy()
+    expect(screen.getByText(/Confirmare\/anulare: https:\/\/v\.dentpilot\.md\/K7Q2MX/)).toBeTruthy()
     expect(screen.queryByText(/Clinica Test va reaminteste ca maine/)).toBeNull()
     expect(screen.getAllByText('română · 2 SMS pe memento').length).toBe(1)
     expect(screen.queryByText('Disponibil în Premium')).toBeNull()

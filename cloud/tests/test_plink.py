@@ -15,7 +15,7 @@ import sys
 import time
 from datetime import date, datetime, timedelta, timezone
 
-from harness import CLOUD, Client, Result, Server, cid_from
+from harness import CLOUD, ROOT, Client, Result, Server, cid_from, load_by_path
 
 sys.path.insert(0, str(CLOUD))
 from app import config, db, license, logmask, mail, plink, plink_page, sms, tiers  # noqa: E402
@@ -549,6 +549,67 @@ def suite_caddy(res: Result) -> None:
            len(policies) == len(sites) >= 2 and "no-referrer" not in policies, f"{sites} {policies}")
 
 
+# провод программы (`bot/app/core/plink.py`) — без импортов проекта, грузится по пути: двойник правила кода и
+# контракт `/v1/link/*` проверяются настоящим клиентом программы против настоящего сервера
+wire = load_by_path("plink_bot", ROOT / "bot" / "app" / "core" / "plink.py")
+
+
+def suite_wire_twin(res: Result) -> None:
+    res.check("двойник CODE_RE: правило программы = правило облака", wire.CODE_RE.pattern, plink.CODE_RE.pattern)
+    res.ok("каждый знак алфавита облака проходит правило программы; I, O, 0, 1 — нет",
+           all(wire.code_ok(ch * plink.CODE_LEN) for ch in plink.ALPHABET)
+           and not any(wire.code_ok(ch * plink.CODE_LEN) for ch in "IO01"))
+    res.ok("хост ссылки облака по умолчанию проходит правило программы",
+           wire.url(config.LINK_HOST, "K7Q2MX") == f"https://{config.LINK_HOST}/K7Q2MX", config.LINK_HOST)
+    res.ok("подпись и телефон, которые шлёт программа, проходят правило облака",
+           plink.LABEL_MAX == wire.LABEL_MAX and plink.PHONE_MAX == wire.PHONE_MAX,
+           (plink.LABEL_MAX, wire.LABEL_MAX, plink.PHONE_MAX, wire.PHONE_MAX))
+
+
+def suite_wire_live(res: Result) -> None:
+    extra = {k: v for k, v in HDR.items() if k != "User-Agent"}
+    agent = HDR["User-Agent"]
+    with Server(env={**BANK_ENV, **SMS_ENV}) as s:
+        admin = Client(s.url).login()
+        cid, tok = _premium(s, admin, "Clinica Provod", "7777777777795")
+        base = wire.base_of(f"{s.url}/v1/license/renew")
+        anon = Client(s.url)
+        out, data = wire.new(base, tok, _until(), ["ro", "ru"], wire.page_label("  Clinica   Provod "),
+                             wire.page_phone("022 123 456, 069 000 000"), agent=agent, extra=extra)
+        codes = data.get("codes") or []
+        res.ok("программа → /v1/link/new: OK, два кода, хост облака", out == wire.OK and len(codes) == 2
+               and data.get("host") == "v.test.md", (out, data))
+        res.check("подпись и первый телефон клиники дошли до облака по его правилу",
+                  _sql(s, "SELECT label, phone FROM link_clinics WHERE clinic_id=?", cid), [("Clinica Provod", "022 123 456")])
+        res.ok("адрес в SMS — со схемой, на хосте облака", wire.url(data.get("host", ""), codes[0] if codes else "")
+               == f"https://v.test.md/{codes[0] if codes else ''}")
+        if len(codes) != 2:
+            return
+        page = anon.get(f"/r/{codes[0]}").body
+        anon.post(f"/r/{codes[0]}", headers={"Origin": s.url}, a="no", t=_t(page, "no"))
+        out, data = wire.inbox(base, tok, 0, agent=agent, extra=extra)
+        items = data.get("items") or []
+        res.ok("программа ← inbox: ответ «Nu pot veni» принят проводом (код, no, время, seq)",
+               out == wire.OK and [(x["code"], x["state"]) for x in items] == [(codes[0], "no")]
+               and bool(db.parse_ts(items[0]["at"])) and data.get("seq") == items[0]["seq"] and data.get("more") is False,
+               (out, data))
+        seq = data.get("seq", 0)
+        out, data = wire.close(base, tok, [codes[1]], agent=agent, extra=extra)
+        res.check("программа → close: закрыт один код", (out, data.get("closed")), (wire.OK, 1))
+        page = anon.get(f"/r/{codes[1]}").body
+        anon.post(f"/r/{codes[1]}", headers={"Origin": s.url}, a="yes", t=_t(page, "yes"))
+        out, data = wire.inbox(base, tok, seq, agent=agent, extra=extra)
+        res.check("после закрытия ответ по коду не приходит", (out, data.get("items")), (wire.OK, []))
+        out, data = wire.new(base, tok, "2020-01-01T00:00:00Z", ["ro"], "Clinica Provod", "", agent=agent, extra=extra)
+        res.check("прошедший срок — отказ словами link_bad (DENIED)", (out, data.get("code")), (wire.DENIED, "link_bad"))
+        out, _ = wire.new(base, "nu-e-token", _until(), ["ro"], "Clinica Provod", "", agent=agent, extra=extra)
+        res.check("чужой токен — REFUSED", out, wire.REFUSED)
+        admin.post(f"/admin/clinics/{cid}/tier", tier="plus")
+        out, data = wire.new(base, tok, _until(), ["ro"], "Clinica Provod", "", agent=agent, extra=extra)
+        res.check("без Premium — DENIED link_plan (программа шлёт обычный текст)", (out, data.get("code")),
+                  (wire.DENIED, "link_plan"))
+
+
 SUITES = [
     ("Ссылки ответа: шаг 25 — в таблицах ни телефона, ни имени, ни времени визита; повтор шага", suite_schema),
     ("Ссылки ответа: код, поля, право sms_link, мета-теги страницы, подарки Premium — без сервера", suite_rules),
@@ -558,5 +619,7 @@ SUITES = [
     ("Ссылки ответа: уборка ежедневной задачей", suite_jobs),
     ("Ссылки ответа: код — мимо журнала доступа, IP промахов — только в памяти", suite_log),
     ("Ссылки ответа: второй хост в Caddyfile — страница кода и картинка, прочее 404", suite_caddy),
+    ("Ссылки ответа: двойник правила кода — программа и облако", suite_wire_twin),
+    ("Ссылки ответа: провод программы против живого сервера — new · inbox · close и отказы", suite_wire_live),
     ("Подарки Premium: 80 SMS один раз при первой оплате, имя без оплаты года только при Premium на год", suite_gifts),
 ]

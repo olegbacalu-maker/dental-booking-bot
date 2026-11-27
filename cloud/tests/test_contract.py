@@ -17,17 +17,6 @@ from app import auth, config, license, mail, payments, receipts, sms, sms_rule, 
 SITE = ROOT / "docs" / "site"
 
 
-def _w2a_const(mod: str, name: str, fallback: int) -> tuple[int, str]:
-    """Число волны 2а из кода облака (срок кода ссылки, подарок SMS Premium). Пока ветка облака волны не посажена,
-    константы нет — сверка идёт по числу из решения Олега, и имя проверки говорит об этом вслух."""
-    import importlib
-    try:
-        value = getattr(importlib.import_module(f"app.{mod}"), name)
-    except (ImportError, AttributeError):
-        return fallback, f"{fallback} — решение Олега, app.{mod}.{name} ещё нет"
-    return value, f"{mod}.{name}"
-
-
 def suite(res: Result) -> None:
     terms = (SITE / "termeni.html").read_text(encoding="utf-8")
     privacy = (SITE / "privacy.html").read_text(encoding="utf-8")
@@ -500,10 +489,8 @@ def suite(res: Result) -> None:
     s19 = flat_terms.split("<h2>19. ", 1)[1] if "<h2>19. " in flat_terms else ""
     acord_src = (ROOT / "bot" / "app" / "modules" / "patients" / "acord.py").read_text(encoding="utf-8")
     acord = " ".join(re.sub(r'"\s*\n\s*"', "", acord_src).split())     # строки листа склеены, как их видит пациент
-    keep_days, keep_src = _w2a_const("config", "LINK_KEEP_DAYS", 3)
-    if "ещё нет" in keep_src:                # имя константы у ветки облака ещё не устоялось
-        keep_days, keep_src = _w2a_const("plink", "KEEP_DAYS", 3)
-    gift, gift_src = _w2a_const("config", "SMS_PREMIUM_UNITS", 80)
+    keep_days, keep_src = config.LINK_KEEP_DAYS, "config.LINK_KEEP_DAYS"
+    gift, gift_src = config.SMS_PREMIUM_UNITS, "config.SMS_PREMIUM_UNITS"
     name_max = int(m.group(1)) if (m := re.search(r"\{1,(\d+)\}", sms.SENDER_RE.pattern)) else None  # имя отправителя
     res.ok("волна 2а: § 19 — Răspunsul pacientului prin link; канал назван в договоре (5.9), Anexa 2 (три строки), "
            "DPA, декларации, политике (#pacienti), образцах и листе на стойке",
