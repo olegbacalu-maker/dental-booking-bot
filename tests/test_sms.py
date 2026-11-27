@@ -221,8 +221,8 @@ def suite_plan(res: Result) -> None:
 
 
 RU_MON = datetime(2026, 11, 9, 12, 30, tzinfo=TZ)     # понедельник — самое длинное слово дня по-русски
-LINK_LONG = "https://v.dentpilot.md/K7Q2MX"           # LINK_MAX: адрес и запас на схему
-LINK_NOW = "v.dentpilot.md/K7Q2MX"                    # как уходит сегодня
+LINK_LONG = "https://v.dentpilot.md/K7Q2MX"           # LINK_MAX: настоящий адрес со схемой
+LINK_NOW = LINK_LONG                                  # как уходит: хост задаёт сервер, короче не бывает
 
 
 def _suite_detaliat_link(res: Result) -> None:
@@ -257,10 +257,11 @@ def _suite_detaliat_link(res: Result) -> None:
     res.ok("ссылка: тело — LINK_TEXTS, адрес — хвостом",
            t.startswith("Buna ziua! Clinica Dentpro va reaminteste") and t.endswith("\nConfirmare/anulare: " + LINK_NOW),
            repr(t))
-    res.ok("годность адреса: сегодняшний и с https — да; длиннее LINK_MAX, пробел, заглавный хост — нет",
-           plan.link_ok(LINK_NOW) and plan.link_ok(LINK_LONG)
-           and not plan.link_ok(LINK_LONG + "A") and not plan.link_ok("v.dentpilot.md/K7Q 2X")
-           and not plan.link_ok("V.Dentpilot.md/K7Q2MX") and not plan.link_ok("") and not plan.link_ok(None))
+    res.ok("годность адреса: с https — да; без схемы, http, длиннее LINK_MAX, пробел, заглавный хост — нет",
+           plan.link_ok(LINK_LONG) and not plan.link_ok("v.dentpilot.md/K7Q2MX")
+           and not plan.link_ok("http://v.dentpilot.md/K7Q2MX")
+           and not plan.link_ok(LINK_LONG + "A") and not plan.link_ok("https://v.dentpilot.md/K7Q 2X")
+           and not plan.link_ok("https://V.Dentpilot.md/K7Q2MX") and not plan.link_ok("") and not plan.link_ok(None))
     try:
         plan.text("ro", plan.STANDARD, clinic="D", phone="", phone_line=False, starts=starts, on_day=on_day,
                   link="javascript:alert(1)")
@@ -933,7 +934,7 @@ def suite_screen(res: Result) -> None:
                            "parts": 2, "variant": "detaliat", "event": "day_before"})
                 res.ok("предпросмотр текста со ссылкой: RO и RU, ровно 2 части, ссылка-образец",
                        all(data["previews"]["link"][lang]["segments"] == 2 for lang in ("ro", "ru"))
-                       and "Confirmare/anulare: v.dentpilot.md/K7Q2MX" in data["previews"]["link"]["ro"]["text"],
+                       and "Confirmare/anulare: https://v.dentpilot.md/K7Q2MX" in data["previews"]["link"]["ro"]["text"],
                        repr(data["previews"].get("link")))
                 res.check("лимит автоматических рекламаций в день — число экрану", data["options"]["recall_auto_daily"], 20)
                 pr = data["previews"]["recall"]["standard"]

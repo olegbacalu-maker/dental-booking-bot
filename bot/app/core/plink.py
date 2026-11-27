@@ -64,8 +64,9 @@ def base_of(renew_url: str) -> str:
 
 
 def url(host: str, code: str) -> str:
-    """Адрес в SMS — без схемы (`v.dentpilot.md/K7Q2MX`); пусто, если хост или код кривые."""
-    return f"{host}/{code}" if isinstance(host, str) and HOST_RE.match(host) and code_ok(code) else ""
+    """Адрес в SMS — со схемой (`https://v.dentpilot.md/K7Q2MX`): без неё подсветка ссылки
+    зависит от настроек телефона. Пусто, если хост или код кривые."""
+    return f"https://{host}/{code}" if isinstance(host, str) and HOST_RE.match(host) and code_ok(code) else ""
 
 
 PHONE_MAX = 32                  # правило сервера для телефона клиники на странице

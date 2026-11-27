@@ -1062,6 +1062,13 @@ MUTATIONS = [
      ("wire.page_phone(eng.CLINIC_PHONE)", "(eng.CLINIC_PHONE or \"\").strip()")),
     ("телефон и подпись клиники — серверу ссылок по его правилу", "app/core/plink_loop.py",
      ("wire.page_label(_label())", "_label()")),
+    # Адрес без схемы: подсветка ссылки — на усмотрение телефона пациента.
+    ("адрес ответа в SMS — со схемой https", "app/core/plink.py",
+     ('return f"https://{host}/{code}" if', 'return f"{host}/{code}" if')),
+    ("адрес ответа в SMS — со схемой https", "app/core/sms_plan.py",
+     ('_LINK_RE = re.compile(r"^https://', '_LINK_RE = re.compile(r"^(https://)?')),
+    ("адрес ответа в SMS — со схемой https", "app/core/plink_loop.py",
+     ('return f"https://{DEFAULT_HOST}/{SAMPLE_CODE}"', 'return f"{DEFAULT_HOST}/{SAMPLE_CODE}"')),
 ]
 
 # Правки ЗАКОННЫЕ: нарушения в них нет, и правило обязано остаться

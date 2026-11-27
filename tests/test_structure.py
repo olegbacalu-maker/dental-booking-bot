@@ -3598,3 +3598,26 @@ def suite(res: Result) -> None:
                  and isinstance(x.func, ast.Attribute)}
         bad += [f"plink_loop.links:{c.lineno} без {f}" for f in ("page_phone", "page_label") if f not in inner]
     res.ok("телефон и подпись клиники — серверу ссылок по его правилу", not bad, "; ".join(bad))
+
+    # Адрес ответа в SMS — со схемой (`https://v.dentpilot.md/K7Q2MX`): без неё подсветка
+    # ссылки зависит от настроек телефона, и пациент может её не нажать. Строит адрес
+    # `plink.url`, образец экрана — `plink_loop.preview_url`, пропускает `sms_plan._LINK_RE`.
+    bad = []
+    for path, name in (("app/core/plink.py", "url"), ("app/core/plink_loop.py", "preview_url")):
+        t = by_path.get(path)
+        fn = next((n for n in (t.body if t else []) if isinstance(n, ast.FunctionDef) and n.name == name), None)
+        if fn is None:
+            bad.append(f"{path}: нет {name} — якорь правила пропал")
+        elif not any(isinstance(n, ast.JoinedStr) and n.values and isinstance(n.values[0], ast.Constant)
+                     and str(n.values[0].value).startswith("https://") for n in _walk(fn)):
+            bad.append(f"{path}: {name} строит адрес без https://")
+    plan_t = by_path.get("app/core/sms_plan.py")
+    pat = next((n.value.args[0].value for n in (plan_t.body if plan_t else []) if isinstance(n, ast.Assign)
+                and any(isinstance(x, ast.Name) and x.id == "_LINK_RE" for x in n.targets)
+                and isinstance(n.value, ast.Call) and n.value.args and isinstance(n.value.args[0], ast.Constant)),
+               None)
+    if pat is None:
+        bad.append("app/core/sms_plan.py: нет _LINK_RE — якорь правила пропал")
+    elif not str(pat).startswith("^https://"):
+        bad.append("sms_plan._LINK_RE пропускает адрес без схемы")
+    res.ok("адрес ответа в SMS — со схемой https", not bad, "; ".join(bad))

@@ -141,7 +141,7 @@ def suite_wire(res: Result) -> None:
               (all(wire.code_ok(c * 6) for c in ALPHA), [wire.code_ok(c * 6) for c in "IO01"],
                wire.code_ok("K7Q2M"), wire.code_ok("K7Q2MXX"), wire.code_ok("k7q2mx")),
               (True, [False] * 4, False, False, False))
-    res.check("адрес в SMS — без схемы", wire.url(HOST, "K7Q2MX"), "v.dentpilot.md/K7Q2MX")
+    res.check("адрес в SMS — со схемой", wire.url(HOST, "K7Q2MX"), "https://v.dentpilot.md/K7Q2MX")
     res.check("кривой хост или код — пустой адрес",
               [wire.url("evil.md/x", "K7Q2MX"), wire.url(HOST, "K7Q2M0"), wire.url("", "K7Q2MX")], ["", "", ""])
     # телефон и подпись клиники — по правилу сервера: иначе `link_bad`, и все напоминания без ссылки
@@ -288,9 +288,9 @@ def suite_live(res: Result) -> None:
                 rows = {r["appt_id"]: r for r in _link_rows(d)}
                 res.ok("текст RO: Detaliat со ссылкой, ссылка строкой выше «Anulare», ровно 2 части",
                        ta.startswith("Buna ziua! Clinica Test va reaminteste de programarea dvs.:\nluni, 09.11, ora 12:00.")
-                       and f"\nConfirmare/anulare: {HOST}/{rows.get(a, {}).get('code')}\nAnulare: +373 60 000 000" in ta
+                       and f"\nConfirmare/anulare: https://{HOST}/{rows.get(a, {}).get('code')}\nAnulare: +373 60 000 000" in ta
                        and ta.endswith("Anulare: +373 60 000 000") and ts.rule.parts(ta)[2] == 2, repr(ta))
-                res.ok("текст RU: «Ответить:» и код его языка", f"\nОтветить: {HOST}/{rows.get(b, {}).get('code')}" in tb
+                res.ok("текст RU: «Ответить:» и код его языка", f"\nОтветить: https://{HOST}/{rows.get(b, {}).get('code')}" in tb
                        and stand.codes.get(rows.get(b, {}).get("code")) == "ru" and ts.rule.parts(tb)[2] == 2, repr(tb))
                 res.ok("строка кода у визита: начало, срок — начало визита, open",
                        rows.get(a, {}).get("starts_key") == "2026-11-09T10:00:00Z" and rows[a]["state"] == "open"

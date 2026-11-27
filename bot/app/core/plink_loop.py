@@ -1,7 +1,7 @@
 """Ответ пациента ссылкой из SMS (Premium, волна 2а): коды, забор ответов, закрытие.
 
 Пациент получает в напоминании «Cu o zi înainte» строку `Confirmare/anulare:
-v.dentpilot.md/K7Q2MX` и на странице нашего сервера жмёт «Vin» или «Nu pot veni».
+https://v.dentpilot.md/K7Q2MX` и на странице нашего сервера жмёт «Vin» или «Nu pot veni».
 Ответ ложится в окно визита отметкой звонка вторым каналом («Confirmat · SMS» /
 «Nu poate veni · SMS»). Программа сама ничего не отменяет и не переносит.
 
@@ -355,7 +355,7 @@ def cant_item() -> dict | None:
 
 
 def preview_url() -> str:
-    return f"{DEFAULT_HOST}/{SAMPLE_CODE}"
+    return f"https://{DEFAULT_HOST}/{SAMPLE_CODE}"
 
 
 def screen() -> dict:
