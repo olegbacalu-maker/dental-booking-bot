@@ -336,6 +336,7 @@ async def day_appointments(day_start: datetime, day_end: datetime) -> list:
                   a.room_id, a.room,
                   p.name, p.phone, p.birth_year,
                   (vr.id IS NOT NULL) AS has_rec, ac.result AS call_result,
+                  ac.via AS call_via, ac.at AS call_at,
                   EXISTS(SELECT 1 FROM sms_log s WHERE s.appt_id = a.id
                          AND s.state IN """ + _SMS_REMINDED_SQL + """
                          AND s.idem = 'appt:' || a.id || ':' || s.kind || ':'
@@ -358,7 +359,7 @@ async def past_by_status(start: datetime, end: datetime, statuses: tuple[str, ..
     marks = ",".join("?" * len(statuses))
     return await _fetch(
         f"""SELECT a.id, a.patient_id, a.doctor, a.doctor_id, a.starts_at, a.status,
-                   p.name, p.phone, ac.result AS call_result
+                   p.name, p.phone, ac.result AS call_result, ac.via AS call_via
               FROM appointments a JOIN patients p ON p.id = a.patient_id
                    LEFT JOIN appt_calls ac ON ac.appointment_id = a.id
              WHERE a.starts_at >= ? AND a.starts_at < ? AND a.source <> 'note'
@@ -436,23 +437,28 @@ async def appt_calls(ids: list) -> dict:
         return {}
     lite = ",".join("?" for _ in ids)
     rows = await _fetch(
-        f"SELECT appointment_id, result, actor, at FROM appt_calls WHERE appointment_id IN ({lite})",
+        f"SELECT appointment_id, result, actor, at, via FROM appt_calls WHERE appointment_id IN ({lite})",
         *ids)
     return {r["appointment_id"]: r for r in rows}
 
 
-async def set_appt_call(aid: int, result: str) -> None:
+async def set_appt_call(aid: int, result: str, via: str = "", actor: str | None = None,
+                        at: datetime | None = None) -> None:
     """«ok» — дозвонились, визит подтверждён; «noanswer» — не ответил;
-    пустое — снять отметку. Автор — вошедший (ACTOR_HOOK), как в летописи."""
+    «cant» — пациент ответил ссылкой «Nu pot veni» (ставит только ответ
+    пациента, маршрут стойки его не принимает); пустое — снять отметку.
+    `via` — канал: '' звонок, 'sms' ссылка из напоминания. Автор — вошедший
+    (ACTOR_HOOK), как в летописи, или `actor` фонового писателя; `at` — когда
+    ответил пациент (по часам сервера), иначе сейчас."""
     if not result:
         await _execute("DELETE FROM appt_calls WHERE appointment_id = ?", aid)
         return
-    now = datetime.now(timezone.utc)
+    when = at or datetime.now(timezone.utc)
     await _execute(
-        """INSERT INTO appt_calls(appointment_id, result, actor, at) VALUES(?, ?, ?, ?)
+        """INSERT INTO appt_calls(appointment_id, result, actor, at, via) VALUES(?, ?, ?, ?, ?)
            ON CONFLICT(appointment_id) DO UPDATE SET result = excluded.result,
-             actor = excluded.actor, at = excluded.at""",
-        aid, result, _actor_now(), _iso(now))
+             actor = excluded.actor, at = excluded.at, via = excluded.via""",
+        aid, result, actor if actor is not None else _actor_now(), _iso(when), via)
 
 
 async def set_comment(appt_id: int, text: str) -> None:

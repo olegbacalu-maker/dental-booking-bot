@@ -15,6 +15,7 @@ from .slots import (
 )
 from .patients import _digits, _fold, phone_key
 from .pimport import IMPORT_DDL
+from .plink import PLINK_DDL
 from .schedule import seed
 from .teeth import TEETH_HIST_SINCE
 
@@ -807,6 +808,9 @@ CREATE INDEX IF NOT EXISTS ix_sms_state ON sms_log(state, created_at);
 # Аддитивные колонки SQLite (нет ADD COLUMN IF NOT EXISTS) — по одной с игнором
 # «duplicate column»; всё остальное поднимаем наверх, чтобы не терять молча.
 SQLITE_EXTRA_COLS = [
+    # чем подтверждён визит: '' — звонок регистратуры, 'sms' — пациент нажал ссылку
+    # из напоминания (Premium). Строка на визит одна, действует последняя отметка
+    ("appt_calls", "via TEXT NOT NULL DEFAULT ''"),
     ("documents", "category TEXT NOT NULL DEFAULT 'alt'"),
     # v1.7.1: стабильные ключи; doctor/service остаются СНАПШОТАМИ имени на
     # момент записи (история, CSV, напоминания показывают то, что называли)
@@ -1124,6 +1128,7 @@ async def init(seed_rows: list | None = None) -> None:
                 raise
     await db._CONN.executescript(SQLITE_CARD_SCHEMA)
     await db._CONN.executescript(IMPORT_DDL)
+    await db._CONN.executescript(PLINK_DDL)
     for table, coldef in SQLITE_EXTRA_COLS:
         try:
             await db._CONN.execute(f"ALTER TABLE {table} ADD COLUMN {coldef}")

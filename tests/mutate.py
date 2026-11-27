@@ -311,7 +311,7 @@ MUTATIONS = [
      ("  appt_id INTEGER NOT NULL,\n  event_id TEXT NOT NULL,",
       "  appt_id INTEGER NOT NULL REFERENCES appointments(id),\n  event_id TEXT NOT NULL,")),
     ("отправленное в календари врачей переживает запись пациента", "app/db/erasure.py",
-     ('"sms_log", "appointments")', '"sms_log", "gdoc_sent", "appointments")')),
+     ('"sms_links",\n                         "appointments")', '"sms_links", "gdoc_sent", "appointments")')),
     ("отправленное в календари врачей переживает запись пациента", "app/db/erasure.py",
      ('("stock_plan_marks", "plan_item_id", "plan_items"))',
       '("stock_plan_marks", "plan_item_id", "plan_items"),\n                           '
@@ -1014,6 +1014,61 @@ MUTATIONS = [
     ("перенос из Google подписывает запись тем, кто перенёс", "app/modules/schedule/gcal_auto.py",
      ("        with db.booked_by(actor):\n            code, aid = await gcal._journal_add(body, pk.pid)\n",
       "        code, aid = await gcal._journal_add(body, pk.pid)\n")),
+    # Ответ пациента ссылкой: код в лог — страница ответа открыта всякому, кто прочтёт лог.
+    ("код и адрес ссылки ответа не попадают в лог", "app/core/plink_loop.py",
+     ('        log.info("plink: issued %d codes", len(body["codes"]))',
+      '        log.info("plink: issued %s", body["codes"])')),
+    ("код и адрес ссылки ответа не попадают в лог", "app/core/plink_loop.py",
+     ('        log.info("plink: issued %d codes", len(body["codes"]))',
+      '        log.info(f"plink: issued {host}")')),
+    # Писатель без права: в режиме чтения и после ухода с Premium отметки ставились бы дальше.
+    ("ответ пациента в журнал: право, подпись и finally", "app/modules/schedule/plink.py",
+     ("    if not plink_loop.allowed():\n        return False\n    if state not in RESULT:",
+      "    if state not in RESULT:")),
+    # Подпись фона не возвращена — следующий фоновый писатель подписался бы «pacient».
+    ("ответ пациента в журнал: право, подпись и finally", "app/modules/schedule/plink.py",
+     ("    finally:\n        set_request_user(prev)\n", "    finally:\n        pass\n")),
+    # Без подписи — летопись подписал бы канал «recepție».
+    ("ответ пациента в журнал: право, подпись и finally", "app/modules/schedule/plink.py",
+     ("    set_request_user(PATIENT)\n    try:", "    try:")),
+    # «Nu pot veni» — и программа сама отменила визит.
+    ("ответ пациента ничего не отменяет и не переносит", "app/modules/schedule/plink.py",
+     ("        await db.set_appt_call(aid, RESULT[state], via=VIA, actor=PATIENT[\"name\"], at=at)\n",
+      "        await db.set_appt_call(aid, RESULT[state], via=VIA, actor=PATIENT[\"name\"], at=at)\n"
+      "        await db.set_status(aid, \"cancelled\")\n")),
+    ("ответ пациента ничего не отменяет и не переносит", "app/modules/schedule/plink.py",
+     "\nasync def _shift(aid, when):\n    await db.move_appointment(aid, '', '', when)\n"),
+    # Таблица ответов ушла из стирания — ответы стёртого пациента пережили бы его.
+    ("таблица пациента без внешнего ключа — в стирании и выгрузке", "app/db/erasure.py",
+     ('"sms_log", "sms_links",', '"sms_log",')),
+    # … и из выгрузки по 195-му.
+    ("таблица пациента без внешнего ключа — в стирании и выгрузке", "app/modules/patients/export.py",
+     ('        "raspunsuri_link": await db.plink_patient_rows(pid),\n', '')),
+    # Текст со ссылкой с врачом — тот же белый список, третий словарь.
+    ("подстановки SMS — белый список", "app/core/sms_plan.py",
+     ('    "ru": "{clinica}: вы записаны {ziua}, {data}, в {ora}.",',
+      '    "ru": "{clinica}: вы записаны {ziua}, {data}, в {ora}, {medic}.",')),
+    # ЯКОРЬ: словарь текста со ссылкой переименовали.
+    ("подстановки SMS — белый список", "app/core/sms_plan.py",
+     ("LINK_TEXTS = {", "LINK_TEXTS_ = {")),
+    # Час отказа от ссылки — числом в цикле: сдвинь окно — запасной текст поедет мимо.
+    ("последний час окна — Detaliat без ссылки, час константой", "app/core/sms_loop.py",
+     ("if local_now < win[1] - plan.LINK_LAST_HOUR:", "if local_now < win[1] - timedelta(hours=1):")),
+    # Запасной текст — выбранный вариант, а не тот, на котором заперт текст со ссылкой.
+    ("последний час окна — Detaliat без ссылки, час константой", "app/core/sms_loop.py",
+     ("                variant = plan.DETALIAT\n", "                variant = s[ev][\"variant\"]\n")),
+    # Телефон профиля как есть — сервер ответит link_bad, и ссылок не будет ни у кого.
+    ("телефон и подпись клиники — серверу ссылок по его правилу", "app/core/plink_loop.py",
+     ("wire.page_phone(eng.CLINIC_PHONE)", "(eng.CLINIC_PHONE or \"\").strip()")),
+    ("телефон и подпись клиники — серверу ссылок по его правилу", "app/core/plink_loop.py",
+     ("wire.page_label(_label())", "_label()")),
+    # Адрес без схемы: подсветка ссылки — на усмотрение телефона пациента.
+    ("адрес ответа в SMS — со схемой https", "app/core/plink.py",
+     ('return f"https://{host}/{code}" if', 'return f"{host}/{code}" if')),
+    ("адрес ответа в SMS — со схемой https", "app/core/sms_plan.py",
+     ('_LINK_RE = re.compile(r"^https://', '_LINK_RE = re.compile(r"^(https://)?')),
+    ("адрес ответа в SMS — со схемой https", "app/core/plink_loop.py",
+     ('return f"https://{DEFAULT_HOST}/{SAMPLE_CODE}"', 'return f"{DEFAULT_HOST}/{SAMPLE_CODE}"')),
 ]
 
 # Правки ЗАКОННЫЕ: нарушения в них нет, и правило обязано остаться

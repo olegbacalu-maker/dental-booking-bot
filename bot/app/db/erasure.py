@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from .. import db
 from .conn import _execute, _fetch, _fetchval, _iso, _utcnow_iso, log
 from .gcal import _gcal_erase_sql, gcal_erase, gcal_ids_with_phone, gcal_menu_refresh
+from .plink import _plink_forget_sql, plink_codes_of, plink_forget
 from .slots import _ACT_SQL
 
 
@@ -67,7 +68,8 @@ async def erasure_kind(pid: int) -> str:
 _PATIENT_CHILD_TABLES = ("payments", "activity", "patient_alerts", "teeth",
                          "teeth_history", "plan_items", "documents", "anamneza",
                          "ocluzie", "bridges", "bridges_removed", "recall_marks",
-                         "perio_exams", "lab_orders", "stock_moves", "visit_records", "sms_log", "appointments")
+                         "perio_exams", "lab_orders", "stock_moves", "visit_records", "sms_log", "sms_links",
+                         "appointments")
 
 # ⚠️ Внуки: таблицы, которые висят НЕ на пациенте, а на его записи. У
 # `perio_teeth` нет patient_id вовсе, и общий шаблон «DELETE ... WHERE
@@ -109,12 +111,16 @@ async def delete_patient_fully(pid: int) -> None:
     # События календаря — раньше записей (перенесённое ссылается на запись);
     # номер читается до скрипта, пока он ещё в фише.
     loose = await gcal_ids_with_phone(await _patient_phone(pid))
+    # коды ответа ссылкой — в список закрытия на сервере тем же скриптом, что стирает строки:
+    # страница пациента не должна жить до срока после стирания
+    forget = _plink_forget_sql(await plink_codes_of(pid))
     gcal = [_gcal_erase_sql("appt_id IN (SELECT id FROM appointments "
                             f"WHERE patient_id = {pid})") + ";"]
     if loose:
         gcal.append(_gcal_erase_sql("id IN (" + ",".join(str(i) for i in loose) + ")") + ";")
     script = "BEGIN IMMEDIATE;\n" + "\n".join(
         gcal
+        + ([forget] if forget else [])
         + [f"DELETE FROM {t} WHERE {key} IN "
            f"(SELECT id FROM {parent} WHERE patient_id = {pid});"
            for t, key, parent in _PATIENT_GRAND_CHILDREN]
@@ -183,6 +189,8 @@ async def anonymize_patient(pid: int) -> None:
     # журнал SMS — номер телефона и день визита, то есть личность и ничего из
     # лечения: уходит целиком, как летопись (S5)
     await _execute("DELETE FROM sms_log WHERE patient_id = ?", pid)
+    # ответы ссылкой — тоже его данные; коды уходят в список закрытия на сервере
+    await plink_forget(pid)
     # имя документа дал человек («radiografie-popescu.png») — это личность;
     # сам снимок остаётся (это ЧТО лечили), скрытое имя на диске и так hex.
     # Расширение сохраняем: по нему работает белый список открытия (_OPEN_EXT)

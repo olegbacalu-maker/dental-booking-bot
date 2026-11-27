@@ -26,16 +26,18 @@
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from ... import db
 from ... import engine as eng
-from ...core import recall
+from ...core import plink_loop, recall
 from ...core.auth import PERM_MONEY, PERM_RECALL, can, request_user
 from ...core.layout import status_view
 from ...core.visits import mine
 
 _WD = ("Lu", "Ma", "Mi", "Jo", "Vi", "Sâ", "Du")
+# плашка «пациент ответил»: день визита словом — ответ приходит про ЗАВТРА, один час прочли бы как сегодняшний
+_WD_FULL = ("luni", "marți", "miercuri", "joi", "vineri", "sâmbătă", "duminică")
 # статусы, при которых пациент «сегодня был/будет» — перечислением. Слово —
 # из layout.status_view: свой словарь здесь разошёлся бы с повесткой (03.10 он
 # ещё звал запись до звонка «confirmată»)
@@ -113,14 +115,38 @@ def _confirm_list(d: date, today: date, rows: list, calls: dict) -> dict:
             "name": r["name"] or "—", "phone": r["phone"] or "",
             "doctor": r["doctor"] or "", "service": r["service"] or "",
             "call": c["result"] if c else "",
+            # 'sms' — отметку поставил пациент ссылкой из напоминания (Premium)
+            "call_via": (c.get("via") or "") if c else "",
             "call_at": at.strftime("%H:%M") if at else "",
+            # когда нажал пациент (UTC, из сохранённого) — по нему клиент отличает новый
+            # ответ от прежнего между двумя конвертами
+            "answer_at": (c["at"].astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                          if c and c.get("via") == "sms" and hasattr(c.get("at"), "astimezone") else ""),
             "call_by": (c["actor"] if c else "") or "",
         })
-    # ещё не звонили — сверху, по времени визита; отмеченные — вниз
-    items.sort(key=lambda x: (x["call"] == "ok", x["call"] == "noanswer", x["time"]))
+    # «Nu poate veni» (ответ ссылкой) — первым: стойке звонить ему сейчас; потом
+    # ещё не звонили, по времени визита; отмеченные — вниз
+    items.sort(key=lambda x: (x["call"] != "cant", x["call"] == "ok", x["call"] == "noanswer", x["time"]))
     return {"day": _day_word(d, today), "date": d.isoformat(), "items": items,
             "n": len(items), "n_ok": sum(1 for x in items if x["call"] == "ok"),
+            "n_cant": sum(1 for x in items if x["call"] == "cant"),
             "n_left": sum(1 for x in items if not x["call"])}
+
+
+def _answers(confirm_today: dict, confirm: dict, today: date) -> list:
+    """Визиты сегодня и следующего рабочего дня, на которые пациент ответил ссылкой: из
+    тех же списков обзвона — значит, тем же `scope` (врачу — только его). Только из
+    сохранённого: новое с прошлого опроса клиент видит разницей конвертов."""
+    out = []
+    for lst in (confirm_today, confirm):
+        d = date.fromisoformat(lst["date"])
+        day = "azi" if d == today else f"{_WD_FULL[d.weekday()]} {d.strftime('%d.%m')}"
+        for x in lst["items"]:
+            if x["call_via"] == "sms" and x["answer_at"]:
+                out.append({"id": x["id"], "pid": x["pid"], "name": x["name"], "call": x["call"],
+                            "when": f"{day}, {x['time']}", "answer_at": x["answer_at"]})
+    out.sort(key=lambda a: (a["answer_at"], a["id"]))
+    return out
 
 
 async def _unscheduled(now: datetime) -> dict:
@@ -256,9 +282,13 @@ async def desk_model(now: datetime, scope: str | None = None) -> dict:
     только свои визиты."""
     today = now.date()
     money = can(request_user(), PERM_MONEY)
+    confirm_today = await _confirm_today(today, scope)
+    confirm = await _confirm(today, scope)
     return {
-        "confirm_today": await _confirm_today(today, scope),
-        "confirm": await _confirm(today, scope),
+        "confirm_today": confirm_today,
+        "confirm": confirm,
+        # ответы ссылкой из SMS — для плашки «пациент ответил» (Premium); null — плашек нет
+        "answers": _answers(confirm_today, confirm, today) if plink_loop.notify_on() else None,
         "unscheduled": await _unscheduled(now),
         "unclosed": await _unclosed(today, scope),
         "lost": await _lost(now, scope),

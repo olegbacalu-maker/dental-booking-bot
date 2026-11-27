@@ -199,7 +199,15 @@ def call_fields(r) -> dict:
     считает никто. Сервер отметку принимает у любой записи — граница здесь.
     ⚠️ `callable` меняется в полночь: живое тело дня меняется тогда же и так."""
     st = r["starts_at"].astimezone(eng.TZ)
-    return {"call": r.get("call_result") or "",
+    call = r.get("call_result") or ""
+    via = (r.get("call_via") or "") if call else ""
+    at = r.get("call_at") if via else None
+    return {"call": call,
+            # Premium: отметку поставил пациент ссылкой из SMS — канал и когда нажал
+            # («pacientul a apăsat „Vin” în link · дд.мм, чч:мм»). Только из
+            # сохранённого: ни одного «сейчас», живое тело неподвижно
+            "call_via": via,
+            "call_at": at.astimezone(eng.TZ).strftime("%d.%m, %H:%M") if hasattr(at, "astimezone") else "",
             "callable": (r["status"] == "confirmed" and bool(r.get("patient_id"))
                          and st.date() >= datetime.now(eng.TZ).date())}
 

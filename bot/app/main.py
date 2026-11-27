@@ -23,6 +23,7 @@ from . import update as upd
 from .core import dbkey, demo, orders, pdf
 from .core import license as lic
 from .core import backup_loop
+from .core import plink_loop
 from .core import sms_loop as sms
 from .core.auth import current_user, host_allowed, request_user, set_request_user
 from .core.layout import msg_json
@@ -45,6 +46,7 @@ from .modules.schedule import api as schedule_api
 from .modules.schedule import gcal as schedule_gcal
 from .modules.schedule import gcal_api as schedule_gcal_api
 from .modules.schedule import gcal_link as schedule_gcal_link
+from .modules.schedule import plink as schedule_plink
 from .modules.schedule import routes as schedule
 from .modules.settings import api as settings_api
 from .modules.settings import lan as settings_lan
@@ -278,6 +280,11 @@ async def startup() -> None:
     # читается до первого тика, чтобы страницы знали, есть ли пакет.
     await sms.startup()
     sms.sms_async()
+    # Ответ пациента ссылкой из SMS (Premium): забор ответов и закрытие кодов — тот же
+    # приём; отметку в журнале ставит крючок модуля журнала (core его не импортирует).
+    plink_loop.attach(apply=schedule_plink.apply)
+    await plink_loop.startup()
+    plink_loop.start_async()
     # Копии картотеки по расписанию (17.10): локальная и внешняя раз в сутки,
     # пока программа запущена, — тот же приём; отчёт лаунчера о выполненном
     # восстановлении уходит в ленту здесь, при старте.

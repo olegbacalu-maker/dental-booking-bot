@@ -31,7 +31,7 @@ from ... import db, paths
 from ... import engine as eng
 from ... import privileged
 from ... import update as upd
-from ...core import backup_loop, dbkey, notices, restore, sms_loop, theme
+from ...core import backup_loop, dbkey, notices, plink_loop, restore, sms_loop, theme
 from ...core import recall as crecall
 from ...core import sms_plan as splan
 from ...core import plan_tpl as ptpl
@@ -1038,7 +1038,13 @@ async def api_sms_save(request: Request):
     if body is None:
         return msg_json(False, "bad_sms", status=422)
     try:
-        cfg = _finish_cfg(sms=splan.settings(body))
+        new = splan.settings(body)
+        # ответ ссылкой без права Premium не включается (выключить можно всегда):
+        # иначе галочка, поставленная на Plus, заработала бы сама при переходе на
+        # Premium — без предупреждения «2 SMS» перед глазами директора
+        if not plink_loop.allowed() and not splan.link_confirm(sms_loop.settings()):
+            new[splan.LINK_KEY] = {**new[splan.LINK_KEY], "confirm": False}
+        cfg = _finish_cfg(sms=new)
     except (ValueError, KeyError, TypeError):
         return msg_json(False, "bad_sms", status=422)
     if eng.save_config(cfg) is not None:
