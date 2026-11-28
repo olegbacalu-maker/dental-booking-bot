@@ -745,9 +745,16 @@ describe('вопрос при уходе с несохранённым осмо�
     }
     post.mockResolvedValue(ok(saved, 'ok_perio', 'Parodontograma a fost salvată'))
     fireEvent.click(screen.getByRole('button', { name: /Salvează examenul/ }))
-    await waitFor(() => expect(unsaved()).toBeNull())
+    /* Ответ POST приходит вне `act`: плашка «Nesalvat» уходит коммитом, а
+       снятие слушателя `beforeunload` и новая функция блокера роутера — в
+       ПАССИВНЫХ эффектах того же коммита, которые под нагрузкой уходят в
+       следующую задачу, позже таймера `waitFor`. Ждём сами эффекты: пока
+       слушатель жив, жив и прежний блокер, и щелчок «назад» спросил бы. */
+    await waitFor(() => {
+      expect(unsaved()).toBeNull()
+      expect(unload()).toBe(false)
+    })
     const confirm = vi.spyOn(window, 'confirm')
-    expect(unload()).toBe(false)
     fireEvent.click(back())
     await waitFor(() => expect(router.state.location.pathname).toBe('/admin/patient/5'))
     expect(confirm).not.toHaveBeenCalled()
