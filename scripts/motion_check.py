@@ -332,6 +332,11 @@ TPL = "document.querySelector('dialog.dp-plan-tpl:not(.save)')"
 BOX = ("() => {{ const d = {dlg}; return d ? [d.offsetTop, d.offsetHeight, d.open,"
        " Number(getComputedStyle(d).opacity)] : null; }}")
 BY_TEXT = "Array.from(document.querySelectorAll('{sel}')).find((b) => b.textContent.includes('{text}'))"
+# Свои фиши и записи сценариев patient и answer: имена не встречаются в засеве других сценариев, и
+# что выберет поиск или что останется «programată», не зависит ни от часа, ни от соседей по прогону.
+PICK_NAMES = ("Alegerescu Fisa 1", "Alegerescu Fisa 2", "Alegerescu Fisa 3")
+PICK_PHONE = "069775101"            # телефон первой из PICK_NAMES
+ANSWER_NAMES = ("Raspunsescu Vin", "Raspunsescu Refuz", "Raspunsescu Tarziu")
 # Шаблоны засева: с зубом и без, короткий и длиннее окна — высота окна от них не зависит.
 PLAN_TPLS = [
     {"name": "Proba canal", "note": "pentru molari", "rows": [
@@ -438,9 +443,11 @@ class Run:
         self.page.go("/admin")
         time.sleep(1.2)
 
-    def tap(self, finder: str, wait: float, sample: str = "", button: str = "left") -> dict:
-        """Настоящий щелчок по центру элемента; всё, что случилось за `wait` секунд."""
-        self.js(f"(() => {{ const el = {finder}; if (el) el.scrollIntoView({{block: 'center'}}); }})()")
+    def tap(self, finder: str, wait: float, sample: str = "", button: str = "left", *, scroll: bool = True) -> dict:
+        """Настоящий щелчок по центру элемента; всё, что случилось за `wait` секунд. `scroll=False` — без
+        прокрутки к элементу: там, где мерят место на экране, прокрутка стенда сама сдвинула бы страницу."""
+        if scroll:
+            self.js(f"(() => {{ const el = {finder}; if (el) el.scrollIntoView({{block: 'center'}}); }})()")
         time.sleep(0.3)
         x, y = self.page.center(finder)
         m = self.cdp.cmd
@@ -1204,6 +1211,27 @@ class Run:
         self.cdp.drain(extra)
         return self.take()
 
+    def answer_seed(self) -> list[str]:
+        """Три СВОИ записи «programată» (имена — `ANSWER_NAMES`) на целиком свободные часы сетки, не ближе
+        двух часов от «сейчас», как у `seed`. Общий засев к очереди сценария съеден соседями (статусы,
+        уход, закрытие), а сколько его осталось, зависит от порядка и числа сценариев перед этим."""
+        t = datetime.now(TZ)
+        t = t.hour + t.minute / 60
+        cells = json.loads(self.js(
+            "JSON.stringify(Array.from(document.querySelectorAll('.gcol[data-dk] .gcell[data-free=\"all\"]:not([disabled])'))"
+            ".map((c) => [c.closest('.gcol').dataset.dk, Number(c.dataset.h)]))"))
+        cells = [(dk, h) for dk, h in cells if abs(h - t) >= 2][:len(ANSWER_NAMES)]
+        if len(cells) < len(ANSWER_NAMES):
+            raise SystemExit(f"стенд: на сетке нет {len(ANSWER_NAMES)} свободных часов не ближе двух от «сейчас»"
+                             " — сценарий answer не прогнан")
+        for n, ((dk, h), name) in enumerate(zip(cells, ANSWER_NAMES), 1):
+            r = self.client.post_json("/api/schedule/appointments", {
+                "date": self.day, "time": f"{h:02d}:00", "doctor": dk, "service": "pain",
+                "name": name, "phone": f"06977520{n}"})
+            if r.status != 200:
+                raise SystemExit(f"засев answer не удался ({h:02d}:00 {dk}): {r.status} {r.body[:120]}")
+        return list(ANSWER_NAMES)
+
     def answer(self) -> None:
         if self.data_dir is None:
             raise SystemExit("стенд: сценарий answer без засева права sms_link")
@@ -1212,15 +1240,24 @@ class Run:
         if left < 110:
             print(f"  … до границы получаса {left} с — жду её: на ней сервер законно меняет конверт")
             time.sleep(left + 3)
-            self.home()
+        own = self.answer_seed()
+        self.home()
         if self.js("document.documentElement.classList.contains('anim')"):
-            self.tap(STEP, 1.8)          # как у стойки: первое изменение дня снимает `anim`
+            # как у стойки: первое изменение дня снимает `anim`; шагом — чужой записи, свои нужны «programată»
+            step = ("Array.from(document.querySelectorAll('.ag-l .ag-i')).filter((i) => !" + json.dumps(own)
+                    + ".some((n) => i.textContent.includes(n))).map((i) => i.querySelector('.ag-next')).find(Boolean)")
+            if not self.js(f"!!({step})"):
+                raise SystemExit("стенд: в повестке нет чужой записи со следующим шагом — `anim` не снять,"
+                                 " сценарий answer не прогнан")
+            self.tap(step, 1.8)
             time.sleep(1.6)
-        ids = json.loads(self.js("JSON.stringify(Array.from(document.querySelectorAll('.gappt[data-st=\"confirmed\"]'))"
-                                 ".map((a) => a.dataset.appt))"))
-        if len(ids) < 3:
-            raise SystemExit("стенд: нет трёх записей «programată» — сценарий answer не прогнан")
-        yes, no, late = ids[0], ids[1], ids[2]
+        found = json.loads(self.js("JSON.stringify(Array.from(document.querySelectorAll('.gappt[data-st=\"confirmed\"]'))"
+                                   ".map((a) => [a.dataset.appt, a.title || '']))"))
+        mine = [next((aid for aid, title in found if n in title), "") for n in own]
+        if not all(mine):
+            raise SystemExit(f"стенд: свои записи сценария answer не «programată» на экране ({dict(zip(own, mine))})"
+                             " — сценарий answer не прогнан")
+        yes, no, late = mine
         base = self.js(PLACE)
         plate = ("() => {{ const b = Array.from(document.querySelectorAll('.dp-ans .dp-ans-t'))"
                  ".find((x) => x.dataset.appt === '{id}'); return b ? [Number(getComputedStyle(b).opacity),"
@@ -1530,11 +1567,18 @@ class Run:
         self.ok(self.js("location.pathname") == "/admin/tarife" and self.js("!!document.querySelector('.tf .tf-tbl')"),
                 "прайс: экран открылся из меню")
 
-        # 1. меню категорий: шапка, верх таблицы, ширины колонок и место поля поиска — одни
+        # 1. меню категорий: шапка, верх таблицы, ширины колонок и место поля поиска — одни. С верха страницы и
+        # без прокрутки к пункту: вид чуть длиннее окна (над экраном баннер) прокручивался щелчком стенда на
+        # пиксель, следующий вид короче окна возвращал прокрутку к нулю — «скачок» делал сам стенд.
+        self.js("window.scrollTo(0, 0); 1")
+        time.sleep(0.2)
         seen, moved = [], []
         for i in (1, 2, 3, 0):
             before = self.at(rail.format(i=i))
-            seen += self.tap(rail.format(i=i), 0.5, head)["samples"]
+            if not before or before[1] < 0 or before[1] + before[3] > self.js("innerHeight"):
+                raise SystemExit(f"стенд: пункт меню прайса {i} не виден с верха страницы ({before})"
+                                 " — сценарий tarife не прогнан")
+            seen += self.tap(rail.format(i=i), 0.5, head, scroll=False)["samples"]
             moved.append(before == self.at(rail.format(i=i)))
         looks = sorted({tuple(s) for s in seen if s})
         self.ok(len(looks) == 1 and all(moved),
@@ -1840,7 +1884,8 @@ class Run:
     def patient(self) -> None:
         """Выбор фиши в окнах записи: «Recenți», поиск, ↓, Esc, Enter, «Alt pacient», совпавший
         номер — окно не двигается и не меняет высоту ни в одном состоянии, список стоит под полем
-        в верхнем слое; в Clar и Sticlă, в окне шапки и в окне свободного часа."""
+        в верхнем слое; в Clar и Sticlă, в окне шапки и в окне свободного часа. Ищет СВОИ фиши (`seed_pick`):
+        поиск ставит первым того, чей визит прошёл последним, и первая строка «proba» зависела бы от часа."""
         smp = ("() => { const d = document.querySelector('dialog[open]'); if (!d) return null;"
                " const f = d.querySelector('.dp-pick-chip, span.dp-pick:not(.has-pill) > input[role=combobox],"
                " span.dp-pick > input[role=combobox]'); const l = document.querySelector('.dp-pick-list');"
@@ -1854,7 +1899,7 @@ class Run:
             seen = self.tap(opener, 0.9, smp)["samples"]
             seen += self.tap(name, 0.8, smp)["samples"]
             recent = self.js("!!document.querySelector('.dp-pick-list .dp-pick-head')")
-            seen += self.chars("proba", 0.8, smp)["samples"]
+            seen += self.chars("alegerescu", 0.8, smp)["samples"]
             seen += self.key("ArrowDown", 40, 0.3, smp)["samples"]
             seen += self.key("Escape", 27, 0.3, smp)["samples"]
             esc_ok = self.js("!document.querySelector('.dp-pick-list') && !!document.querySelector('dialog[open]')")
@@ -1863,7 +1908,7 @@ class Run:
             chip = self.js("(() => { const c = document.querySelector('dialog[open] .dp-pick-chip'); return c ? c.getAttribute('aria-label') : ''; })()")
             seen += self.tap("document.querySelector('dialog[open] .dp-pick-x')", 0.5, smp)["samples"]
             seen += self.tap(phone, 0.3, smp)["samples"]
-            seen += self.chars("069770001", 1.2, smp)["samples"]
+            seen += self.chars(PICK_PHONE, 1.2, smp)["samples"]
             pill = self.js("(() => { const b = document.querySelector('dialog[open] .dp-pick-pill'); return b ? b.textContent : ''; })()")
             frames = [x for x in seen if x]
             places = sorted({(x[0], x[1]) for x in frames})
@@ -1872,9 +1917,9 @@ class Run:
             self.ok(len(places) == 1, f"выбор фиши, {where}: окно на месте и одной высоты весь сеанс ({places[:4]})")
             self.ok(recent and bool(gaps) and all(0 <= g <= 8 for g in gaps) and tops == {True},
                     f"выбор фиши, {where}: «Recenți» и поиск — список под полем ({gaps}) в верхнем слое ({tops})")
-            self.ok(esc_ok and chip.startswith("Proba Miscare"),
+            self.ok(esc_ok and chip.startswith("Alegerescu Fisa"),
                     f"выбор фиши, {where}: Esc закрыл только список, Enter выбрал фишу («{chip}»)")
-            self.ok(pill.startswith("Fișă existentă: Proba Miscare 1"), f"выбор фиши, {where}: совпавший номер подсказан («{pill}»)")
+            self.ok(pill.startswith(f"Fișă existentă: {PICK_NAMES[0]}"), f"выбор фиши, {where}: совпавший номер подсказан («{pill}»)")
             self.esc()
             time.sleep(0.6)
 
@@ -1947,6 +1992,15 @@ def seed_link(s1: Server) -> None:
     cfg["sms"] = {**(cfg.get("sms") or {}), "link": {"confirm": True, "notify": True}}
     s1.clinic.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
     plink_license(s1.dir, {"url": "http://127.0.0.1:9/", "token": "stand-" + "z" * 40}, {"sms_link": 400})
+
+
+def seed_pick(c: Client) -> None:
+    """Фиши сценария patient (`PICK_NAMES`) без визитов — путём клиники, у каждой свой телефон."""
+    for n, name in enumerate(PICK_NAMES):
+        phone = PICK_PHONE[:-1] + str(int(PICK_PHONE[-1]) + n)
+        r = c.post_json("/api/patients", {"name": name, "phone": phone})
+        if not json.loads(r.body).get("ok") or r.msg == "dup_pat":
+            raise SystemExit(f"засев: фиша {name} не заведена: {r.status} {r.body[:160]}")
 
 
 def seed_plan(c: Client) -> tuple[int, str]:
@@ -2151,6 +2205,8 @@ def run_tree(cdp: CDP, bot: pathlib.Path | None, label: str, names, polls: int, 
                 run.pid, run.listed = seed_plan(c)
             if "tarife" in names or "picker" in names:
                 seed_tarife(c)
+            if "patient" in names:
+                seed_pick(c)
             if "tarife" in names or "picker" in names or "pimport" in names:
                 run.price_dir = pathlib.Path(tempfile.mkdtemp(prefix="dp_motion_csv_"))
             cdp.cmd("Page.addScriptToEvaluateOnNewDocument", source=OPEN_AGENDA)
